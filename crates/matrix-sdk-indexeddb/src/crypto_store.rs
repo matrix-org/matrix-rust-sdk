@@ -30,8 +30,8 @@ use matrix_sdk_crypto::{
         RoomSettings,
     },
     types::events::room_key_withheld::RoomKeyWithheldEvent,
-    GossipRequest, GossippedSecret, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities,
-    SecretInfo, TrackedUser,
+    Account, GossipRequest, GossippedSecret, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
+    TrackedUser,
 };
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{
@@ -802,7 +802,7 @@ impl_crypto_store! {
             .transpose()?)
     }
 
-    async fn load_account(&self) -> Result<Option<ReadOnlyAccount>> {
+    async fn load_account(&self) -> Result<Option<Account>> {
         if let Some(pickle) = self
             .inner
             .transaction_on_one_with_mode(keys::CORE, IdbTransactionMode::Readonly)?
@@ -812,7 +812,7 @@ impl_crypto_store! {
         {
             let pickle = self.deserialize_value(pickle)?;
 
-            let account = ReadOnlyAccount::from_pickle(pickle).map_err(CryptoStoreError::from)?;
+            let account = Account::from_pickle(pickle).map_err(CryptoStoreError::from)?;
 
             *self.static_account.write().unwrap() = Some(account.static_data().clone());
 

@@ -55,8 +55,7 @@ use crate::{
         DeviceKey, DeviceKeys, EventEncryptionAlgorithm, Signatures, SignedKey,
     },
     verification::VerificationMachine,
-    MegolmError, OutgoingVerificationRequest, ReadOnlyAccount, Sas, ToDeviceRequest,
-    VerificationRequest,
+    Account, MegolmError, OutgoingVerificationRequest, Sas, ToDeviceRequest, VerificationRequest,
 };
 
 pub enum MaybeEncryptedRoomKey {
@@ -906,7 +905,7 @@ impl ReadOnlyDevice {
     /// *Don't* use this after we received a keys/query response, other
     /// users/devices might add signatures to our own device, which can't be
     /// replicated locally.
-    pub async fn from_account(account: &ReadOnlyAccount) -> ReadOnlyDevice {
+    pub async fn from_account(account: &Account) -> ReadOnlyDevice {
         let device_keys = account.device_keys().await;
         let mut device = ReadOnlyDevice::try_from(&device_keys)
             .expect("Creating a device from our own account should always succeed");

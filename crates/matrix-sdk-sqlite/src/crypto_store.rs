@@ -29,8 +29,8 @@ use matrix_sdk_crypto::{
     },
     store::{caches::SessionStore, BackupKeys, Changes, CryptoStore, RoomKeyCounts, RoomSettings},
     types::events::room_key_withheld::RoomKeyWithheldEvent,
-    GossipRequest, GossippedSecret, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities,
-    SecretInfo, TrackedUser,
+    Account, GossipRequest, GossippedSecret, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
+    TrackedUser,
 };
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{
@@ -652,12 +652,12 @@ impl SqliteObjectCryptoStoreExt for deadpool_sqlite::Object {}
 impl CryptoStore for SqliteCryptoStore {
     type Error = Error;
 
-    async fn load_account(&self) -> Result<Option<ReadOnlyAccount>> {
+    async fn load_account(&self) -> Result<Option<Account>> {
         let conn = self.acquire().await?;
         if let Some(pickle) = conn.get_kv("account").await? {
             let pickle = self.deserialize_value(&pickle)?;
 
-            let account = ReadOnlyAccount::from_pickle(pickle).map_err(|_| Error::Unpickle)?;
+            let account = Account::from_pickle(pickle).map_err(|_| Error::Unpickle)?;
 
             *self.static_account.write().unwrap() = Some(account.static_data().clone());
 

@@ -36,8 +36,7 @@ use crate::{
     requests::UploadSigningKeysRequest,
     store::SecretImportError,
     types::{DeviceKeys, MasterPubkey, SelfSigningPubkey, UserSigningPubkey},
-    OwnUserIdentity, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyOwnUserIdentity,
-    ReadOnlyUserIdentity,
+    Account, OwnUserIdentity, ReadOnlyDevice, ReadOnlyOwnUserIdentity, ReadOnlyUserIdentity,
 };
 
 /// Private cross signing identity.
@@ -507,7 +506,7 @@ impl PrivateCrossSigningIdentity {
     /// account will sign the master key and the self signing key will sign the
     /// account.
     pub(crate) async fn with_account(
-        account: &ReadOnlyAccount,
+        account: &Account,
     ) -> (Self, UploadSigningKeysRequest, SignatureUploadRequest) {
         let mut master = MasterSigning::new(account.user_id().into());
         let mut public_key = master.public_key.as_ref().to_owned();
@@ -664,7 +663,7 @@ mod tests {
     use super::{PrivateCrossSigningIdentity, Signing};
     use crate::{
         identities::{ReadOnlyDevice, ReadOnlyUserIdentity},
-        olm::{ReadOnlyAccount, SignedJsonObject, VerifyJson},
+        olm::{Account, SignedJsonObject, VerifyJson},
         types::Signatures,
     };
 
@@ -746,7 +745,7 @@ mod tests {
 
     #[async_test]
     async fn private_identity_signed_by_account() {
-        let account = ReadOnlyAccount::with_device_id(user_id(), device_id!("DEVICEID"));
+        let account = Account::with_device_id(user_id(), device_id!("DEVICEID"));
         let (identity, _, _) = PrivateCrossSigningIdentity::with_account(&account).await;
         let master = identity.master_key.lock().await;
         let master = master.as_ref().unwrap();
@@ -769,7 +768,7 @@ mod tests {
 
     #[async_test]
     async fn sign_device() {
-        let account = ReadOnlyAccount::with_device_id(user_id(), device_id!("DEVICEID"));
+        let account = Account::with_device_id(user_id(), device_id!("DEVICEID"));
         let (identity, _, _) = PrivateCrossSigningIdentity::with_account(&account).await;
 
         let mut device = ReadOnlyDevice::from_account(&account).await;
@@ -786,11 +785,11 @@ mod tests {
 
     #[async_test]
     async fn sign_user_identity() {
-        let account = ReadOnlyAccount::with_device_id(user_id(), device_id!("DEVICEID"));
+        let account = Account::with_device_id(user_id(), device_id!("DEVICEID"));
         let (identity, _, _) = PrivateCrossSigningIdentity::with_account(&account).await;
 
         let bob_account =
-            ReadOnlyAccount::with_device_id(user_id!("@bob:localhost"), device_id!("DEVICEID"));
+            Account::with_device_id(user_id!("@bob:localhost"), device_id!("DEVICEID"));
         let (bob_private, _, _) = PrivateCrossSigningIdentity::with_account(&bob_account).await;
         let mut bob_public = ReadOnlyUserIdentity::from_private(&bob_private).await;
 

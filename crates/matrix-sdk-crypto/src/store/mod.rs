@@ -67,8 +67,8 @@ use crate::{
         user::UserIdentities, Device, ReadOnlyDevice, ReadOnlyUserIdentities, UserDevices,
     },
     olm::{
-        InboundGroupSession, OlmMessageHash, OutboundGroupSession, PrivateCrossSigningIdentity,
-        ReadOnlyAccount, Session, StaticAccountData,
+        Account, InboundGroupSession, OlmMessageHash, OutboundGroupSession,
+        PrivateCrossSigningIdentity, Session, StaticAccountData,
     },
     types::{events::room_key_withheld::RoomKeyWithheldEvent, EventEncryptionAlgorithm},
     verification::VerificationMachine,
@@ -137,7 +137,7 @@ struct StoreInner {
 
     verification_machine: VerificationMachine,
 
-    account: ReadOnlyAccount, // TODO(bnjbvr, #2624) move this into the store cache
+    account: Account, // TODO(bnjbvr, #2624) move this into the store cache
 
     /// Record of the users that are waiting for a /keys/query.
     //
@@ -159,7 +159,7 @@ struct StoreInner {
 #[derive(Default, Debug)]
 #[allow(missing_docs)]
 pub struct Changes {
-    pub account: Option<ReadOnlyAccount>,
+    pub account: Option<Account>,
     pub private_identity: Option<PrivateCrossSigningIdentity>,
     pub backup_version: Option<String>,
     pub backup_decryption_key: Option<BackupDecryptionKey>,
@@ -533,7 +533,7 @@ impl From<&InboundGroupSession> for RoomKeyInfo {
 impl Store {
     /// Create a new Store
     pub(crate) fn new(
-        account: ReadOnlyAccount,
+        account: Account,
         identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
         store: Arc<CryptoStoreWrapper>,
         verification_machine: VerificationMachine,
@@ -563,7 +563,7 @@ impl Store {
     }
 
     /// The Account associated with this store
-    pub(crate) fn account(&self) -> &ReadOnlyAccount {
+    pub(crate) fn account(&self) -> &Account {
         &self.inner.account
     }
 
@@ -608,7 +608,7 @@ impl Store {
         self.inner.store.save_changes(changes).await
     }
 
-    pub(crate) async fn save_account(&self, account: ReadOnlyAccount) -> Result<()> {
+    pub(crate) async fn save_account(&self, account: Account) -> Result<()> {
         self.inner
             .store
             .save_changes(Changes { account: Some(account), ..Default::default() })

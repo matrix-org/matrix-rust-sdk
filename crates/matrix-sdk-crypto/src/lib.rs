@@ -83,7 +83,7 @@ pub use identities::{
 pub use machine::{EncryptionSyncChanges, OlmMachine};
 #[cfg(feature = "qrcode")]
 pub use matrix_sdk_qrcode;
-pub use olm::{CrossSigningStatus, EncryptionSettings, ReadOnlyAccount, Session};
+pub use olm::{Account, CrossSigningStatus, EncryptionSettings, Session};
 pub use requests::{
     IncomingResponse, KeysBackupRequest, KeysQueryRequest, OutgoingRequest, OutgoingRequests,
     OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest, UploadSigningKeysRequest,

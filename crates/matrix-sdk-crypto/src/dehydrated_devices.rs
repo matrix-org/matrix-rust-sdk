@@ -59,7 +59,7 @@ use vodozemac::LibolmPickleError;
 use crate::{
     store::{CryptoStoreWrapper, MemoryStore, RoomKeyInfo, Store},
     verification::VerificationMachine,
-    EncryptionSyncChanges, OlmError, OlmMachine, ReadOnlyAccount, SignatureError,
+    Account, EncryptionSyncChanges, OlmError, OlmMachine, SignatureError,
 };
 
 /// Error type for device dehydration issues.
@@ -89,7 +89,7 @@ impl DehydratedDevices {
         let user_id = self.inner.user_id();
         let user_identity = self.inner.store().private_identity();
 
-        let account = ReadOnlyAccount::new(user_id);
+        let account = Account::new(user_id);
         let store = Arc::new(CryptoStoreWrapper::new(user_id, MemoryStore::new()));
 
         let verification_machine = VerificationMachine::new(
