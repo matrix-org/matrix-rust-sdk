@@ -148,7 +148,7 @@ impl IdentityManager {
         self.failures.remove(successful_servers);
 
         let devices = self.handle_devices_from_key_query(response.device_keys.clone()).await?;
-        let (identities, cross_signing_identity) = self.handle_cross_singing_keys(response).await?;
+        let (identities, cross_signing_identity) = self.handle_cross_signing_keys(response).await?;
 
         let changes = Changes {
             identities: identities.clone(),
@@ -617,7 +617,7 @@ impl IdentityManager {
     ///
     /// Returns a list of identities that changed. Changed here means either
     /// they are new or one of their properties has changed.
-    async fn handle_cross_singing_keys(
+    async fn handle_cross_signing_keys(
         &self,
         response: &KeysQueryResponse,
     ) -> StoreResult<(IdentityChanges, Option<PrivateCrossSigningIdentity>)> {
