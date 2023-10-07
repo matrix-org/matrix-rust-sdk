@@ -30,7 +30,6 @@ use super::{
     MegolmV1BackupKey,
 };
 use crate::store::BackupDecryptionKey;
-use crate::utilities::decode;
 
 /// Error type for the decoding of a [`BackupDecryptionKey`].
 #[derive(Debug, Error)]
@@ -203,7 +202,6 @@ impl BackupDecryptionKey {
     /// Extract the megolm.v1 public key from this [`BackupDecryptionKey`].
     pub fn megolm_v1_public_key(&self) -> MegolmV1BackupKey {
         let pk = self.get_pk_decryption();
-        let pk = self.get_pk_decrytpion();
         let mac_key = self.calculate_mac_key();
         MegolmV1BackupKey::new(pk.public_key(), Some(mac_key), None)
     }
@@ -229,9 +227,9 @@ impl BackupDecryptionKey {
                 let mac_key = self.calculate_mac_key();
                 let mut hmac = HmacSha256::new_from_slice(mac_key.as_ref())
                     .expect("We should be able to create a Hmac object from a 32 byte key");
-                let raw_ciphertext = decode(ciphertext)
+                let raw_ciphertext = vodozemac::base64_decode(ciphertext)
                     .map_err(|e| DecryptionError::Decoding(MessageDecodeError::Base64(e)))?;
-                let raw_mac = decode(mac)
+                let raw_mac = vodozemac::base64_decode(mac)
                     .map_err(|e| DecryptionError::Decoding(MessageDecodeError::Base64(e)))?;
                 hmac.update(&raw_ciphertext);
                 hmac.verify_slice(&raw_mac)
