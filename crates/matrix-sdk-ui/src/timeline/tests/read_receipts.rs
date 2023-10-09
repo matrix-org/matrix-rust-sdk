@@ -13,10 +13,14 @@
 // limitations under the License.
 
 use eyeball_im::VectorDiff;
-use matrix_sdk_test::{async_test, ALICE, BOB};
-use ruma::events::{
-    receipt::{ReceiptThread, ReceiptType},
-    room::message::RoomMessageEventContent,
+use matrix_sdk_test::{async_test, ALICE, BOB, CAROL};
+use ruma::{
+    event_id,
+    events::{
+        receipt::{ReceiptThread, ReceiptType},
+        room::message::RoomMessageEventContent,
+    },
+    room_id,
 };
 use stream_assert::assert_next_matches;
 
@@ -24,7 +28,7 @@ use super::TestTimeline;
 use crate::timeline::inner::TimelineInnerSettings;
 
 #[async_test]
-async fn read_receipts_updates() {
+async fn read_receipts_updates_on_live_events() {
     let timeline = TestTimeline::new()
         .with_settings(TimelineInnerSettings { track_read_receipts: true, ..Default::default() });
     let mut stream = timeline.subscribe().await;
@@ -81,4 +85,43 @@ async fn read_receipts_updates() {
     let event_d = item_d.as_event().unwrap();
     assert_eq!(event_d.read_receipts().len(), 1);
     assert!(event_d.read_receipts().get(*BOB).is_some());
+}
+
+#[async_test]
+async fn read_receipts_updates_on_back_paginated_events() {
+    let timeline = TestTimeline::new()
+        .with_settings(TimelineInnerSettings { track_read_receipts: true, ..Default::default() });
+    let mut stream = timeline.subscribe().await;
+    let room_id = room_id!("!room:localhost");
+
+    timeline
+        .handle_back_paginated_message_event_with_id(
+            *BOB,
+            room_id,
+            event_id!("$event_a"),
+            RoomMessageEventContent::text_plain("A"),
+        )
+        .await;
+    timeline
+        .handle_back_paginated_message_event_with_id(
+            *CAROL,
+            room_id,
+            event_id!("$event_with_bob_receipt"),
+            RoomMessageEventContent::text_plain("B"),
+        )
+        .await;
+
+    let _day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
+
+    // Implicit read receipt of Bob.
+    let item_a = assert_next_matches!(stream, VectorDiff::Insert { index: 1, value } => value);
+    let event_a = item_a.as_event().unwrap();
+    assert_eq!(event_a.read_receipts().len(), 1);
+    assert!(event_a.read_receipts().get(*BOB).is_some());
+
+    // Implicit read receipt of Carol, explicit read receipt of Bob ignored.
+    let item_b = assert_next_matches!(stream, VectorDiff::Insert { index: 1, value } => value);
+    let event_b = item_b.as_event().unwrap();
+    assert_eq!(event_b.read_receipts().len(), 1);
+    assert!(event_b.read_receipts().get(*CAROL).is_some());
 }
