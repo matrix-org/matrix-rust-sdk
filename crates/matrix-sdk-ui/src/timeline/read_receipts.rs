@@ -34,6 +34,10 @@ use super::{
 
 #[derive(Clone, Debug, Default)]
 pub(super) struct ReadReceipts {
+    /// Map of public read receipts on events.
+    ///
+    /// Event ID => User ID => Read receipt of the user.
+    pub events_read_receipts: HashMap<OwnedEventId, IndexMap<OwnedUserId, Receipt>>,
     /// Map of all user read receipts.
     ///
     /// User ID => Receipt type => Read receipt of the user of the given
@@ -90,7 +94,7 @@ impl ReadReceipts {
             }
 
             if !is_own_user_id {
-                // Remove the read receipt for this user from the old event.
+                // Remove the read receipt for this user from the old event item.
                 let old_event_item_id = old_event_item.internal_id;
                 let mut old_event_item = old_event_item.clone();
                 if let Some(old_remote_event_item) = old_event_item.as_remote_mut() {
@@ -116,12 +120,43 @@ impl ReadReceipts {
         //   receipt.
         // - If old_receipt_item is None and new_receipt_item is Some, the new receipt
         //   is likely more recent because it has a place in the timeline.
+
+        // Remove the old receipt from the old event.
+        if let Some(old_event_id) = old_event_id {
+            let is_empty =
+                if let Some(event_receipts) = self.events_read_receipts.get_mut(old_event_id) {
+                    event_receipts.remove(receipt.user_id);
+                    event_receipts.is_empty()
+                } else {
+                    false
+                };
+            // Remove the entry if the map is empty.
+            if is_empty {
+                self.events_read_receipts.remove(old_event_id);
+            }
+        }
+
+        // Add the new receipt to the new event.
+        self.events_read_receipts
+            .entry(receipt.event_id.to_owned())
+            .or_default()
+            .insert(receipt.user_id.to_owned(), receipt.receipt.clone());
+
+        // Update the receipt of the user.
         self.users_read_receipts
             .entry(receipt.user_id.to_owned())
             .or_default()
             .insert(receipt.receipt_type, (receipt.event_id.to_owned(), receipt.receipt.clone()));
 
         true
+    }
+
+    /// Get the user read receipts for the given event.
+    pub(super) fn read_receipts_for_event(
+        &self,
+        event_id: &EventId,
+    ) -> IndexMap<OwnedUserId, Receipt> {
+        self.events_read_receipts.get(event_id).cloned().unwrap_or_default()
     }
 }
 
@@ -191,11 +226,13 @@ impl TimelineInnerStateTransaction<'_> {
     }
 
     /// Load the read receipts from the store for the given event ID.
+    ///
+    /// Populates the read receipts maps.
     pub(super) async fn load_read_receipts_for_event<P: RoomDataProvider>(
         &mut self,
         event_id: &EventId,
         room_data_provider: &P,
-    ) -> IndexMap<OwnedUserId, Receipt> {
+    ) {
         let read_receipts = room_data_provider.read_receipts_for_event(event_id).await;
 
         // Filter out receipts for our own user.
@@ -203,21 +240,23 @@ impl TimelineInnerStateTransaction<'_> {
         let read_receipts: IndexMap<OwnedUserId, Receipt> =
             read_receipts.into_iter().filter(|(user_id, _)| user_id != own_user_id).collect();
 
-        // Keep track of the user's read receipt.
-        for (user_id, receipt) in read_receipts.clone() {
-            // Only insert the read receipt if the user is not known to avoid conflicts with
-            // `TimelineInner::handle_read_receipts`.
-            if !self.meta.read_receipts.users_read_receipts.contains_key(&user_id) {
-                self.meta
-                    .read_receipts
-                    .users_read_receipts
-                    .entry(user_id)
-                    .or_default()
-                    .insert(ReceiptType::Read, (event_id.to_owned(), receipt));
-            }
+        // Since they are explicit read receipts, we need to check if they are
+        // superseded by implicit read receipts.
+        let own_user_id = room_data_provider.own_user_id();
+        for (user_id, receipt) in read_receipts {
+            let full_receipt = FullReceipt {
+                event_id,
+                user_id: &user_id,
+                receipt_type: ReceiptType::Read,
+                receipt: &receipt,
+            };
+            self.meta.read_receipts.maybe_update_read_receipt(
+                full_receipt,
+                None,
+                user_id == own_user_id,
+                &mut self.items,
+            );
         }
-
-        read_receipts
     }
 }
 
