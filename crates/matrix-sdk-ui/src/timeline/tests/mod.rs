@@ -23,6 +23,7 @@ use futures_core::Stream;
 use futures_util::{FutureExt, StreamExt};
 use indexmap::IndexMap;
 use matrix_sdk::deserialized_responses::{SyncTimelineEvent, TimelineEvent};
+use matrix_sdk_base::latest_event::LatestEvent;
 use matrix_sdk_test::{EventBuilder, ALICE};
 use ruma::{
     events::{
@@ -241,7 +242,11 @@ impl RoomDataProvider for TestRoomDataProvider {
         RoomVersionId::V10
     }
 
-    async fn profile(&self, _user_id: &UserId) -> Option<Profile> {
+    async fn profile_from_user_id(&self, _user_id: &UserId) -> Option<Profile> {
+        None
+    }
+
+    async fn profile_from_latest_event(&self, _latest_event: &LatestEvent) -> Option<Profile> {
         None
     }
 

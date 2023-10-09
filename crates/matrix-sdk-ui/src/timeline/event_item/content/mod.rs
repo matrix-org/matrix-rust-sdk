@@ -109,9 +109,9 @@ pub enum TimelineItemContent {
 }
 
 impl TimelineItemContent {
-    /// If the supplied event is suitable to be used as a latest_event in a
+    /// If the supplied event is suitable to be used as a `latest_event` in a
     /// message preview, extract its contents and wrap it as a
-    /// TimelineItemContent.
+    /// `TimelineItemContent`.
     pub(crate) fn from_latest_event_content(
         event: AnySyncTimelineEvent,
     ) -> Option<TimelineItemContent> {
@@ -146,23 +146,23 @@ impl TimelineItemContent {
 
     /// Given some message content that is from an event that we have already
     /// determined is suitable for use as a latest event in a message preview,
-    /// extract its contents and wrap it as a TimelineItemContent.
+    /// extract its contents and wrap it as a `TimelineItemContent`.
     fn from_suitable_latest_event_content(event: &SyncRoomMessageEvent) -> TimelineItemContent {
         match event {
             SyncRoomMessageEvent::Original(event) => {
                 // Grab the content of this event
                 let event_content = event.content.clone();
 
-                // We don't have access to any relations via the AnySyncTimelineEvent (I think -
-                // andyb) so we pretend there are none. This might be OK for the message preview
-                // use case.
+                // We don't have access to any relations via the `AnySyncTimelineEvent` (I think
+                // - andyb) so we pretend there are none. This might be OK for
+                // the message preview use case.
                 let relations = BundledMessageLikeRelations::new();
 
                 // If this message is a reply, we would look up in this list the message it was
                 // replying to. Since we probably won't show this in the message preview,
                 // it's probably OK to supply an empty list here.
-                // Message::from_event marks the original event as Unavailable if it can't be
-                // found inside the timeline_items.
+                // `Message::from_event` marks the original event as `Unavailable` if it can't
+                // be found inside the timeline_items.
                 let timeline_items = Vector::new();
                 TimelineItemContent::Message(Message::from_event(
                     event_content,
@@ -174,7 +174,7 @@ impl TimelineItemContent {
         }
     }
 
-    /// extracts a TimelineItemContent from a poll start event for use as a
+    /// Extracts a `TimelineItemContent` from a poll start event for use as a
     /// latest event in a message preview.
     fn from_suitable_latest_poll_event_content(
         event: &SyncUnstablePollStartEvent,

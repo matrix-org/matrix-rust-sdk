@@ -1,17 +1,24 @@
 //! Utilities for working with events to decide whether they are suitable for
 //! use as a [crate::Room::latest_event].
 
-#![cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
+#![cfg(feature = "experimental-sliding-sync")]
 
+use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
+#[cfg(feature = "e2e-encryption")]
 use ruma::events::{
     poll::unstable_start::SyncUnstablePollStartEvent, room::message::SyncRoomMessageEvent,
     AnySyncMessageLikeEvent, AnySyncTimelineEvent,
 };
+use ruma::{MxcUri, OwnedEventId};
+use serde::{Deserialize, Serialize};
+
+use crate::MinimalRoomMemberEvent;
 
 /// Represents a decision about whether an event could be stored as the latest
 /// event in a room. Variants starting with Yes indicate that this message could
 /// be stored, and provide the inner event information, and those starting with
 /// a No indicate that it could not, and give a reason.
+#[cfg(feature = "e2e-encryption")]
 #[derive(Debug)]
 pub enum PossibleLatestEvent<'a> {
     /// This message is suitable - it is an m.room.message
@@ -30,6 +37,7 @@ pub enum PossibleLatestEvent<'a> {
 
 /// Decide whether an event could be stored as the latest event in a room.
 /// Returns a LatestEvent representing our decision.
+#[cfg(feature = "e2e-encryption")]
 pub fn is_suitable_for_latest_event(event: &AnySyncTimelineEvent) -> PossibleLatestEvent<'_> {
     match event {
         // Suitable - we have an m.room.message that was not redacted
@@ -55,6 +63,86 @@ pub fn is_suitable_for_latest_event(event: &AnySyncTimelineEvent) -> PossibleLat
 
         // We don't currently support state events
         AnySyncTimelineEvent::State(_) => PossibleLatestEvent::NoUnsupportedEventType,
+    }
+}
+
+/// Represent all information required to represent a latest event in an
+/// efficient way.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct LatestEvent {
+    /// The actual event.
+    event: SyncTimelineEvent,
+
+    /// The member profile of the event' sender.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sender_profile: Option<MinimalRoomMemberEvent>,
+
+    /// The name of the event' sender is ambiguous.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sender_name_is_ambiguous: Option<bool>,
+}
+
+impl LatestEvent {
+    /// Create a new [`LatestEvent`] without the sender's profile.
+    pub fn new(event: SyncTimelineEvent) -> Self {
+        Self { event, sender_profile: None, sender_name_is_ambiguous: None }
+    }
+
+    /// Create a new [`LatestEvent`] with maybe the sender's profile.
+    pub fn new_with_sender_details(
+        event: SyncTimelineEvent,
+        sender_profile: Option<MinimalRoomMemberEvent>,
+        sender_name_is_ambiguous: Option<bool>,
+    ) -> Self {
+        Self { event, sender_profile, sender_name_is_ambiguous }
+    }
+
+    /// Transform [`Self`] into an event.
+    pub fn into_event(self) -> SyncTimelineEvent {
+        self.event
+    }
+
+    /// Get a reference to the event.
+    pub fn event(&self) -> &SyncTimelineEvent {
+        &self.event
+    }
+
+    /// Get a mutable reference to the event.
+    pub fn event_mut(&mut self) -> &mut SyncTimelineEvent {
+        &mut self.event
+    }
+
+    /// Get the event ID.
+    pub fn event_id(&self) -> Option<OwnedEventId> {
+        self.event.event_id()
+    }
+
+    /// Check whether [`Self`] has a sender profile.
+    pub fn has_sender_profile(&self) -> bool {
+        self.sender_profile.is_some()
+    }
+
+    /// Return the sender's display name if it was known at the time [`Self`]
+    /// was built.
+    pub fn sender_display_name(&self) -> Option<&str> {
+        self.sender_profile.as_ref().and_then(|profile| {
+            profile.as_original().and_then(|event| event.content.displayname.as_deref())
+        })
+    }
+
+    /// Return `Some(true)` if the sender's name is ambiguous, `Some(false)` if
+    /// it isn't, `None` if ambiguity detection wasn't possible at the time
+    /// [`Self`] was built.
+    pub fn sender_name_ambiguous(&self) -> Option<bool> {
+        self.sender_name_is_ambiguous
+    }
+
+    /// Return the sender's avatar URL if it was known at the time [`Self`] was
+    /// built.
+    pub fn sender_avatar_url(&self) -> Option<&MxcUri> {
+        self.sender_profile.as_ref().and_then(|profile| {
+            profile.as_original().and_then(|event| event.content.avatar_url.as_deref())
+        })
     }
 }
 

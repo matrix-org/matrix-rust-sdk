@@ -206,7 +206,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         };
 
         let sender = self.room_data_provider.own_user_id().to_owned();
-        let sender_profile = self.room_data_provider.profile(&sender).await;
+        let sender_profile = self.room_data_provider.profile_from_user_id(&sender).await;
         let reaction_state = match (to_redact_local, to_redact_remote) {
             (None, None) => {
                 // No record of the reaction, create a local echo
@@ -355,7 +355,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         content: AnyMessageLikeEventContent,
     ) {
         let sender = self.room_data_provider.own_user_id().to_owned();
-        let profile = self.room_data_provider.profile(&sender).await;
+        let profile = self.room_data_provider.profile_from_user_id(&sender).await;
 
         let mut state = self.state.write().await;
         state.handle_local_event(sender, profile, txn_id, content, &self.settings);
@@ -370,7 +370,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         content: RoomRedactionEventContent,
     ) {
         let sender = self.room_data_provider.own_user_id().to_owned();
-        let profile = self.room_data_provider.profile(&sender).await;
+        let profile = self.room_data_provider.profile_from_user_id(&sender).await;
 
         let mut state = self.state.write().await;
         state.handle_local_redaction(sender, profile, txn_id, to_redact, content, &self.settings);
@@ -781,7 +781,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                 continue;
             }
 
-            match self.room_data_provider.profile(event_item.sender()).await {
+            match self.room_data_provider.profile_from_user_id(event_item.sender()).await {
                 Some(profile) => {
                     trace!(event_id, transaction_id, "Adding profile");
                     let updated_item =
