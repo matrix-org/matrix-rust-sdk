@@ -77,7 +77,6 @@ pub struct LatestEvent {
     #[serde(skip_serializing_if = "Option::is_none")]
     sender_profile: Option<MinimalRoomMemberEvent>,
 
-    // sender_room_member_event: Option<RoomMemberEvent
     /// The name of the event' sender is ambiguous.
     #[serde(skip_serializing_if = "Option::is_none")]
     sender_name_is_ambiguous: Option<bool>,
