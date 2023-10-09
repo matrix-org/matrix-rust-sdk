@@ -505,14 +505,17 @@ mod tests {
     use matrix_sdk::{config::RequestConfig, Client, ClientBuilder};
     use matrix_sdk_base::{
         deserialized_responses::SyncTimelineEvent, latest_event::LatestEvent, BaseClient,
-        SessionMeta,
+        MinimalStateEvent, OriginalMinimalStateEvent, SessionMeta,
     };
-    use matrix_sdk_test::async_test;
+    use matrix_sdk_test::{async_test, sync_timeline_event};
     use ruma::{
         api::{client::sync::sync_events::v4, MatrixVersion},
         device_id,
         events::{
-            room::message::{MessageFormat, MessageType},
+            room::{
+                member::RoomMemberEventContent,
+                message::{MessageFormat, MessageType},
+            },
             AnySyncTimelineEvent,
         },
         room_id,
@@ -554,7 +557,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn latest_message_event_can_be_wrapped_as_a_timeline_item_with_sender() {
+    async fn latest_message_event_can_be_wrapped_as_a_timeline_item_with_sender_from_the_storage() {
         // Given a sync event that is suitable to be used as a latest_event, and a room
         // with a member event for the sender
 
@@ -588,34 +591,76 @@ mod tests {
         );
     }
 
+    #[async_test]
+    async fn latest_message_event_can_be_wrapped_as_a_timeline_item_with_sender_from_the_cache() {
+        // Given a sync event that is suitable to be used as a latest_event, a room, and
+        // a member even for the sender (which isn't part of the room yet).
+
+        use ruma::owned_mxc_uri;
+        let room_id = room_id!("!q:x.uk");
+        let user_id = user_id!("@t:o.uk");
+        let event = message_event(room_id, user_id, "**My M**", "<b>My M</b>", 122344);
+        let client = logged_in_client(None).await;
+
+        let member_event = MinimalStateEvent::Original(
+            member_event(room_id, user_id, "Alice Margatroid", "mxc://e.org/SEs")
+                .deserialize_as::<OriginalMinimalStateEvent<RoomMemberEventContent>>()
+                .unwrap(),
+        );
+
+        let room = v4::SlidingSyncRoom::new();
+        // Do not push the `member_event` inside the room. Let's say it's flying in the
+        // `StateChanges`.
+
+        // And the room is stored in the client so it can be extracted when needed
+        let response = response_with_room(room_id, room).await;
+        client.process_sliding_sync(&response).await.unwrap();
+
+        // When we construct a timeline event from it
+        let timeline_item = EventTimelineItem::from_latest_event(
+            client,
+            room_id,
+            LatestEvent::new_with_sender_details(event, Some(member_event), None),
+        )
+        .await
+        .unwrap();
+
+        // Then its sender is properly populated
+        let profile = assert_matches!(timeline_item.sender_profile, TimelineDetails::Ready(p) => p);
+        assert_eq!(
+            profile,
+            Profile {
+                display_name: Some("Alice Margatroid".to_owned()),
+                display_name_ambiguous: false,
+                avatar_url: Some(owned_mxc_uri!("mxc://e.org/SEs"))
+            }
+        );
+    }
+
     fn member_event(
         room_id: &RoomId,
         user_id: &UserId,
         display_name: &str,
         avatar_url: &str,
     ) -> Raw<AnySyncTimelineEvent> {
-        Raw::from_json_string(
-            json!({
-                "type": "m.room.member",
-                "content": {
-                    "avatar_url": avatar_url,
-                    "displayname": display_name,
-                    "membership": "join",
-                    "reason": ""
-                },
-                "event_id": "$143273582443PhrSn:example.org",
-                "origin_server_ts": 143273583,
-                "room_id": room_id,
-                "sender": "@example:example.org",
-                "state_key": user_id,
-                "type": "m.room.member",
-                "unsigned": {
-                  "age": 1234
-                }
-            })
-            .to_string(),
-        )
-        .unwrap()
+        sync_timeline_event!({
+            "type": "m.room.member",
+            "content": {
+                "avatar_url": avatar_url,
+                "displayname": display_name,
+                "membership": "join",
+                "reason": ""
+            },
+            "event_id": "$143273582443PhrSn:example.org",
+            "origin_server_ts": 143273583,
+            "room_id": room_id,
+            "sender": "@example:example.org",
+            "state_key": user_id,
+            "type": "m.room.member",
+            "unsigned": {
+              "age": 1234
+            }
+        })
     }
 
     async fn response_with_room(room_id: &RoomId, room: v4::SlidingSyncRoom) -> v4::Response {
