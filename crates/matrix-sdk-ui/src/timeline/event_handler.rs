@@ -874,7 +874,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                         &mut item,
                         self.ctx.is_own_event,
                         self.items,
-                        &mut self.meta.users_read_receipts,
+                        &mut self.meta.read_receipts,
                     );
                 }
 
@@ -928,7 +928,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                                 &mut item,
                                 self.ctx.is_own_event,
                                 self.items,
-                                &mut self.meta.users_read_receipts,
+                                &mut self.meta.read_receipts,
                             );
                         }
 
@@ -1037,7 +1037,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                         &mut item,
                         self.ctx.is_own_event,
                         self.items,
-                        &mut self.meta.users_read_receipts,
+                        &mut self.meta.read_receipts,
                     );
                 }
 

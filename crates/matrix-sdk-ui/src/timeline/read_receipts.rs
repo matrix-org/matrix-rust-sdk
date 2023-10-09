@@ -32,6 +32,99 @@ use super::{
     EventTimelineItem, TimelineItem,
 };
 
+#[derive(Clone, Debug, Default)]
+pub(super) struct ReadReceipts {
+    /// Map of all user read receipts.
+    ///
+    /// User ID => Receipt type => Read receipt of the user of the given
+    /// type.
+    pub users_read_receipts: HashMap<OwnedUserId, HashMap<ReceiptType, (OwnedEventId, Receipt)>>,
+}
+
+impl ReadReceipts {
+    /// Remove all data.
+    pub(super) fn clear(&mut self) {
+        self.users_read_receipts.clear();
+    }
+
+    /// Update the timeline items with the given read receipt if it is more
+    /// recent than the current one.
+    ///
+    /// In the process, this method removes the corresponding receipt from its
+    /// old item, if applicable, and updates the `users_read_receipts` map
+    /// to use the new receipt.
+    ///
+    /// Returns true if the read receipt was saved.
+    ///
+    /// Currently this method only works reliably if the timeline was started
+    /// from the end of the timeline.
+    fn maybe_update_read_receipt(
+        &mut self,
+        receipt: FullReceipt<'_>,
+        new_item_pos: Option<usize>,
+        is_own_user_id: bool,
+        timeline_items: &mut ObservableVectorTransaction<'_, Arc<TimelineItem>>,
+    ) -> bool {
+        let old_event_id = self
+            .users_read_receipts
+            .get(receipt.user_id)
+            .and_then(|receipts| receipts.get(&receipt.receipt_type))
+            .map(|(event_id, _)| event_id);
+        if old_event_id.is_some_and(|id| id == receipt.event_id) {
+            // Nothing to do.
+            return false;
+        }
+
+        let old_item_and_pos = old_event_id.and_then(|e| rfind_event_by_id(timeline_items, e));
+        if let Some((old_receipt_pos, old_event_item)) = old_item_and_pos {
+            let Some(new_receipt_pos) = new_item_pos else {
+                // The old receipt is likely more recent since we can't find the
+                // event of the new receipt in the timeline. Even if it isn't, we
+                // wouldn't know where to put it.
+                return false;
+            };
+
+            if old_receipt_pos > new_receipt_pos {
+                // The old receipt is more recent than the new one.
+                return false;
+            }
+
+            if !is_own_user_id {
+                // Remove the read receipt for this user from the old event.
+                let old_event_item_id = old_event_item.internal_id;
+                let mut old_event_item = old_event_item.clone();
+                if let Some(old_remote_event_item) = old_event_item.as_remote_mut() {
+                    if !old_remote_event_item.remove_read_receipt(receipt.user_id) {
+                        error!(
+                            "inconsistent state: old event item for user's read \
+                         receipt doesn't have a receipt for the user"
+                        );
+                    }
+                    timeline_items
+                        .set(old_receipt_pos, timeline_item(old_event_item, old_event_item_id));
+                } else {
+                    warn!("received a read receipt for a local item, this should not be possible");
+                }
+            }
+        }
+
+        // The new receipt is deemed more recent from now on because:
+        // - If old_receipt_item is Some, we already checked all the cases where it
+        //   wouldn't be more recent.
+        // - If both old_receipt_item and new_receipt_item are None, they are both
+        //   explicit read receipts so the server should only send us a more recent
+        //   receipt.
+        // - If old_receipt_item is None and new_receipt_item is Some, the new receipt
+        //   is likely more recent because it has a place in the timeline.
+        self.users_read_receipts
+            .entry(receipt.user_id.to_owned())
+            .or_default()
+            .insert(receipt.receipt_type, (receipt.event_id.to_owned(), receipt.receipt.clone()));
+
+        true
+    }
+}
+
 struct FullReceipt<'a> {
     event_id: &'a EventId,
     user_id: &'a UserId,
@@ -82,12 +175,11 @@ impl TimelineInnerStateTransaction<'_> {
                         receipt: &receipt,
                     };
 
-                    let read_receipt_updated = maybe_update_read_receipt(
+                    let read_receipt_updated = self.meta.read_receipts.maybe_update_read_receipt(
                         full_receipt,
                         receipt_item_pos,
                         is_own_user_id,
                         &mut self.items,
-                        &mut self.meta.users_read_receipts,
                     );
 
                     if read_receipt_updated && !is_own_user_id {
@@ -115,8 +207,10 @@ impl TimelineInnerStateTransaction<'_> {
         for (user_id, receipt) in read_receipts.clone() {
             // Only insert the read receipt if the user is not known to avoid conflicts with
             // `TimelineInner::handle_read_receipts`.
-            if !self.users_read_receipts.contains_key(&user_id) {
-                self.users_read_receipts
+            if !self.meta.read_receipts.users_read_receipts.contains_key(&user_id) {
+                self.meta
+                    .read_receipts
+                    .users_read_receipts
                     .entry(user_id)
                     .or_default()
                     .insert(ReceiptType::Read, (event_id.to_owned(), receipt));
@@ -183,6 +277,7 @@ impl TimelineInnerMetadata {
         room: &Room,
     ) -> Option<(OwnedEventId, Receipt)> {
         if let Some(receipt) = self
+            .read_receipts
             .users_read_receipts
             .get(user_id)
             .and_then(|user_map| user_map.get(&receipt_type))
@@ -212,7 +307,7 @@ pub(super) fn maybe_add_implicit_read_receipt(
     event_item: &mut EventTimelineItem,
     is_own_event: bool,
     timeline_items: &mut ObservableVectorTransaction<'_, Arc<TimelineItem>>,
-    users_read_receipts: &mut HashMap<OwnedUserId, HashMap<ReceiptType, (OwnedEventId, Receipt)>>,
+    read_receipts: &mut ReadReceipts,
 ) {
     let EventTimelineItemKind::Remote(remote_event_item) = &mut event_item.kind else {
         return;
@@ -226,90 +321,13 @@ pub(super) fn maybe_add_implicit_read_receipt(
         receipt: &receipt,
     };
 
-    let read_receipt_updated = maybe_update_read_receipt(
+    let read_receipt_updated = read_receipts.maybe_update_read_receipt(
         new_receipt,
         Some(item_pos),
         is_own_event,
         timeline_items,
-        users_read_receipts,
     );
     if read_receipt_updated && !is_own_event {
         remote_event_item.add_read_receipt(event_item.sender.clone(), receipt);
     }
-}
-
-/// Update the timeline items with the given read receipt if it is more recent
-/// than the current one.
-///
-/// In the process, this method removes the corresponding receipt from its old
-/// item, if applicable, and updates the `users_read_receipts` map to use the
-/// new receipt.
-///
-/// Returns true if the read receipt was saved.
-///
-/// Currently this method only works reliably if the timeline was started from
-/// the end of the timeline.
-fn maybe_update_read_receipt(
-    receipt: FullReceipt<'_>,
-    new_item_pos: Option<usize>,
-    is_own_user_id: bool,
-    timeline_items: &mut ObservableVectorTransaction<'_, Arc<TimelineItem>>,
-    users_read_receipts: &mut HashMap<OwnedUserId, HashMap<ReceiptType, (OwnedEventId, Receipt)>>,
-) -> bool {
-    let old_event_id = users_read_receipts
-        .get(receipt.user_id)
-        .and_then(|receipts| receipts.get(&receipt.receipt_type))
-        .map(|(event_id, _)| event_id);
-    if old_event_id.is_some_and(|id| id == receipt.event_id) {
-        // Nothing to do.
-        return false;
-    }
-
-    let old_item_and_pos = old_event_id.and_then(|e| rfind_event_by_id(timeline_items, e));
-    if let Some((old_receipt_pos, old_event_item)) = old_item_and_pos {
-        let Some(new_receipt_pos) = new_item_pos else {
-            // The old receipt is likely more recent since we can't find the
-            // event of the new receipt in the timeline. Even if it isn't, we
-            // wouldn't know where to put it.
-            return false;
-        };
-
-        if old_receipt_pos > new_receipt_pos {
-            // The old receipt is more recent than the new one.
-            return false;
-        }
-
-        if !is_own_user_id {
-            // Remove the read receipt for this user from the old event.
-            let old_event_item_id = old_event_item.internal_id;
-            let mut old_event_item = old_event_item.clone();
-            if let Some(old_remote_event_item) = old_event_item.as_remote_mut() {
-                if !old_remote_event_item.remove_read_receipt(receipt.user_id) {
-                    error!(
-                        "inconsistent state: old event item for user's read \
-                         receipt doesn't have a receipt for the user"
-                    );
-                }
-                timeline_items
-                    .set(old_receipt_pos, timeline_item(old_event_item, old_event_item_id));
-            } else {
-                warn!("received a read receipt for a local item, this should not be possible");
-            }
-        }
-    }
-
-    // The new receipt is deemed more recent from now on because:
-    // - If old_receipt_item is Some, we already checked all the cases where it
-    //   wouldn't be more recent.
-    // - If both old_receipt_item and new_receipt_item are None, they are both
-    //   explicit read receipts so the server should only send us a more recent
-    //   receipt.
-    // - If old_receipt_item is None and new_receipt_item is Some, the new receipt
-    //   is likely more recent because it has a place in the timeline.
-    users_read_receipts
-        .entry(receipt.user_id.to_owned())
-        .or_default()
-        .insert(receipt.receipt_type, (receipt.event_id.to_owned(), receipt.receipt.clone()));
-
-    true
 }

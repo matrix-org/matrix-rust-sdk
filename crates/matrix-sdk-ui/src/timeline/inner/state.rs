@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::VecDeque,
     future::Future,
     mem::{self, ManuallyDrop},
     ops::{Deref, DerefMut},
@@ -29,9 +29,7 @@ use matrix_sdk_base::{deserialized_responses::TimelineEvent, sync::JoinedRoom};
 use ruma::events::receipt::ReceiptEventContent;
 use ruma::{
     events::{
-        receipt::{Receipt, ReceiptType},
-        relation::Annotation,
-        room::redaction::RoomRedactionEventContent,
+        relation::Annotation, room::redaction::RoomRedactionEventContent,
         AnyMessageLikeEventContent, AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent,
     },
     push::Action,
@@ -52,6 +50,7 @@ use crate::{
         item::timeline_item,
         polls::PollPendingEvents,
         reactions::{ReactionToggleResult, Reactions},
+        read_receipts::ReadReceipts,
         traits::RoomDataProvider,
         util::{
             find_read_marker, rfind_event_by_id, rfind_event_item, timestamp_to_date,
@@ -633,6 +632,7 @@ impl TimelineInnerStateTransaction<'_> {
         }
 
         self.all_events.clear();
+        self.read_receipts.clear();
         self.reactions.clear();
         self.fully_read_event = None;
         self.event_should_update_fully_read_marker = false;
@@ -705,9 +705,7 @@ pub(in crate::timeline) struct TimelineInnerMetadata {
     /// - The fully-read marker points to an event that is not in the timeline,
     /// - The fully-read marker item would be the last item in the timeline.
     pub event_should_update_fully_read_marker: bool,
-    /// User ID => Receipt type => Read receipt of the user of the given
-    /// type.
-    pub users_read_receipts: HashMap<OwnedUserId, HashMap<ReceiptType, (OwnedEventId, Receipt)>>,
+    pub read_receipts: ReadReceipts,
     /// the local reaction request state that is queued next
     pub reaction_state: IndexMap<AnnotationKey, ReactionState>,
     /// the in flight reaction request state that is ongoing
@@ -730,7 +728,7 @@ impl TimelineInnerMetadata {
             poll_pending_events: Default::default(),
             fully_read_event: Default::default(),
             event_should_update_fully_read_marker: Default::default(),
-            users_read_receipts: Default::default(),
+            read_receipts: Default::default(),
             reaction_state: Default::default(),
             in_flight_reaction: Default::default(),
             room_version,
