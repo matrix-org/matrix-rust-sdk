@@ -574,6 +574,7 @@ impl TimelineInnerStateTransaction<'_> {
         };
 
         if let Some(token) = back_pagination_token {
+            trace!(token, ?event_id, "Adding back-pagination token");
             self.meta.back_pagination_tokens.push((event_id.clone(), token));
         }
 

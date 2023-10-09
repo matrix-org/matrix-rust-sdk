@@ -46,6 +46,8 @@ impl Timeline {
 
         let mut from = match self.inner.back_pagination_token().await {
             None if options.wait_for_token => {
+                trace!("Waiting for back-pagination token from sync...");
+
                 let notified = pin!(self.sync_response_notify.notified());
                 match timeout(notified, WAIT_FOR_TOKEN_TIMEOUT).await {
                     Ok(()) => match self.inner.back_pagination_token().await {
