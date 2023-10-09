@@ -106,22 +106,67 @@ pub struct Store {
     inner: Arc<StoreInner>,
 }
 
-#[derive(Debug, Default)]
-struct StoreCache {
+#[derive(Debug)]
+pub(crate) struct StoreCache {
     tracked_users: StdRwLock<BTreeSet<OwnedUserId>>,
     tracked_user_loading_lock: RwLock<bool>,
+    pub account: Account,
 }
 
-struct StoreCacheGuard<'a> {
-    cache: &'a StoreCache,
+pub(crate) struct StoreCacheGuard {
+    cache: Arc<StoreCache>,
+    //cache: OwnedRwLockReadGuard<StoreCache>,
     // TODO: (bnjbvr, #2624) add cross-process lock guard here.
 }
 
-impl<'a> Deref for StoreCacheGuard<'a> {
+impl Deref for StoreCacheGuard {
     type Target = StoreCache;
 
     fn deref(&self) -> &Self::Target {
-        self.cache
+        &self.cache
+    }
+}
+
+/// A temporary transaction (that implies a write) to the underlying store.
+#[allow(missing_debug_implementations)]
+pub struct StoreTransaction {
+    store: Store,
+    changes: PendingChanges,
+    // TODO hold onto the cross-process crypto store lock + cache.
+    cache: Arc<StoreCache>,
+    //cache: OwnedRwLockWriteGuard<StoreCache>,
+}
+
+impl StoreTransaction {
+    /// Starts a new `StoreTransaction`.
+    pub async fn new(store: Store) -> Result<Self> {
+        let cache = store.inner.cache.clone();
+        Ok(Self { store, changes: PendingChanges::default(), cache })
+    }
+
+    /// Returns a reference to the current `Store`.
+    pub fn store(&self) -> &Store {
+        &self.store
+    }
+
+    /// Gets a `Account` for update.
+    pub async fn account(&mut self) -> Result<&mut Account> {
+        if self.changes.account.is_none() {
+            self.changes.account = Some(self.cache.account.clone());
+        }
+        Ok(self.changes.account.as_mut().unwrap())
+    }
+
+    /// Commits all dirty fields to the store, and maintains the cache so it
+    /// reflects the current state of the database.
+    pub async fn commit(self) -> Result<()> {
+        // Save changes in the database.
+        self.store.save_pending_changes(self.changes).await?;
+
+        // Make the cache coherent with the database.
+        // for changes.account: nothing to do, it's the same underlying shared account.
+
+        Ok(())
     }
 }
 
@@ -133,11 +178,10 @@ struct StoreInner {
     /// In-memory cache for the current crypto store.
     ///
     /// ⚠ Must remain private.
-    cache: StoreCache,
+    // TODO: (bnjbvr, #2624) add RwLock here
+    cache: Arc<StoreCache>,
 
     verification_machine: VerificationMachine,
-
-    account: Account, // TODO(bnjbvr, #2624) move this into the store cache
 
     /// Record of the users that are waiting for a /keys/query.
     //
@@ -155,11 +199,28 @@ struct StoreInner {
 }
 
 /// Aggregated changes to be saved in the database.
+///
+/// This is an update version of `Changes` that will replace it as #2624
+/// progresses.
+// If you ever add a field here, make sure to update `Changes::is_empty` too.
+#[derive(Default, Debug)]
+#[allow(missing_docs)]
+pub struct PendingChanges {
+    pub account: Option<Account>,
+}
+
+impl PendingChanges {
+    /// Are there any changes stored or is this an empty `Changes` struct?
+    pub fn is_empty(&self) -> bool {
+        self.account.is_none()
+    }
+}
+
+/// Aggregated changes to be saved in the database.
 // If you ever add a field here, make sure to update `Changes::is_empty` too.
 #[derive(Default, Debug)]
 #[allow(missing_docs)]
 pub struct Changes {
-    pub account: Option<Account>,
     pub private_identity: Option<PrivateCrossSigningIdentity>,
     pub backup_version: Option<String>,
     pub backup_decryption_key: Option<BackupDecryptionKey>,
@@ -190,10 +251,9 @@ pub struct TrackedUser {
 }
 
 impl Changes {
-    /// Are there any changes stored or is this an empty `Changes` struct
+    /// Are there any changes stored or is this an empty `Changes` struct?
     pub fn is_empty(&self) -> bool {
-        self.account.is_none()
-            && self.private_identity.is_none()
+        self.private_identity.is_none()
             && self.backup_version.is_none()
             && self.backup_decryption_key.is_none()
             && self.sessions.is_empty()
@@ -531,25 +591,28 @@ impl From<&InboundGroupSession> for RoomKeyInfo {
 }
 
 impl Store {
-    /// Create a new Store
+    /// Create a new Store.
     pub(crate) fn new(
         account: Account,
         identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
         store: Arc<CryptoStoreWrapper>,
         verification_machine: VerificationMachine,
     ) -> Self {
-        let inner = Arc::new(StoreInner {
-            static_account: account.static_data().clone(),
-            identity,
-            store,
-            account,
-            verification_machine,
-            users_for_key_query: AsyncStdMutex::new(UsersForKeyQuery::new()),
-            users_for_key_query_condvar: Condvar::new(),
-            cache: Default::default(),
-        });
-
-        Self { inner }
+        Self {
+            inner: Arc::new(StoreInner {
+                static_account: account.static_data().clone(),
+                identity,
+                store,
+                verification_machine,
+                users_for_key_query: AsyncStdMutex::new(UsersForKeyQuery::new()),
+                users_for_key_query_condvar: Condvar::new(),
+                cache: Arc::new(StoreCache {
+                    tracked_users: Default::default(),
+                    tracked_user_loading_lock: Default::default(),
+                    account,
+                }),
+            }),
+        }
     }
 
     /// UserId associated with this store
@@ -562,28 +625,43 @@ impl Store {
         self.inner.verification_machine.own_device_id()
     }
 
-    /// The Account associated with this store
-    pub(crate) fn account(&self) -> &Account {
-        &self.inner.account
-    }
-
     /// The static data for the account associated with this store.
     pub(crate) fn static_account(&self) -> &StaticAccountData {
         &self.inner.static_account
     }
 
-    async fn cache(&self) -> Result<StoreCacheGuard<'_>> {
+    pub(crate) async fn cache(&self) -> Result<StoreCacheGuard> {
         // TODO: (bnjbvr, #2624) If configured with a cross-process lock:
         // - try to take the lock,
         // - if acquired, look if another process touched the underlying storage,
         // - if yes, reload everything; if no, return current cache
 
-        let cache = StoreCacheGuard { cache: &self.inner.cache };
+        let cache = StoreCacheGuard { cache: self.inner.cache.clone() };
 
         // Make sure tracked users are always up to date.
         self.ensure_sync_tracked_users(&cache).await?;
 
         Ok(cache)
+    }
+
+    pub(crate) async fn transaction(&self) -> Result<StoreTransaction> {
+        StoreTransaction::new(self.clone()).await
+    }
+
+    // Note: bnjbvr lost against borrowck here. Ideally, the `F` parameter would
+    // take a `&StoreTransaction`, but callers didn't quite like that.
+    pub(crate) async fn with_transaction<
+        T,
+        Fut: futures_core::Future<Output = Result<(StoreTransaction, T), crate::OlmError>>,
+        F: FnOnce(StoreTransaction) -> Fut,
+    >(
+        &self,
+        func: F,
+    ) -> Result<T, crate::OlmError> {
+        let tr = self.transaction().await?;
+        let (tr, res) = func(tr).await?;
+        tr.commit().await?;
+        Ok(res)
     }
 
     #[cfg(test)]
@@ -606,13 +684,6 @@ impl Store {
 
     pub(crate) async fn save_changes(&self, changes: Changes) -> Result<()> {
         self.inner.store.save_changes(changes).await
-    }
-
-    pub(crate) async fn save_account(&self, account: Account) -> Result<()> {
-        self.inner
-            .store
-            .save_changes(Changes { account: Some(account), ..Default::default() })
-            .await
     }
 
     /// Compare the given `InboundGroupSession` with an existing session we have
@@ -1013,7 +1084,7 @@ impl Store {
     /// This method ensures that we're only going to load the users from the
     /// actual [`CryptoStore`] once, it will also make sure that any
     /// concurrent calls to this method get deduplicated.
-    async fn ensure_sync_tracked_users(&self, cache: &StoreCacheGuard<'_>) -> Result<()> {
+    async fn ensure_sync_tracked_users(&self, cache: &StoreCacheGuard) -> Result<()> {
         // Check if the users are loaded, and in that case do nothing.
         let loaded = cache.tracked_user_loading_lock.read().await;
         if *loaded {
@@ -1078,19 +1149,20 @@ impl Store {
         timeout_duration: Duration,
         user: &UserId,
     ) -> UserKeyQueryResult {
-        let mut g = self.inner.users_for_key_query.lock().await;
+        let mut users_for_key_query = self.inner.users_for_key_query.lock().await;
 
-        let Some(w) = g.maybe_register_waiting_task(user) else {
+        let Some(waiter) = users_for_key_query.maybe_register_waiting_task(user) else {
             return UserKeyQueryResult::WasNotPending;
         };
 
-        let f1 = async {
-            while !w.completed.load(Ordering::Relaxed) {
-                g = self.inner.users_for_key_query_condvar.wait(g).await;
+        let wait_for_completion = async {
+            while !waiter.completed.load(Ordering::Relaxed) {
+                users_for_key_query =
+                    self.inner.users_for_key_query_condvar.wait(users_for_key_query).await;
             }
         };
 
-        match timeout(Box::pin(f1), timeout_duration).await {
+        match timeout(Box::pin(wait_for_completion), timeout_duration).await {
             Err(_) => {
                 warn!(
                     user_id = ?user,

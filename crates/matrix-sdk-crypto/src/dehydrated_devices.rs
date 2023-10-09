@@ -59,7 +59,7 @@ use vodozemac::LibolmPickleError;
 use crate::{
     store::{CryptoStoreWrapper, MemoryStore, RoomKeyInfo, Store},
     verification::VerificationMachine,
-    Account, EncryptionSyncChanges, OlmError, OlmMachine, SignatureError,
+    Account, CryptoStoreError, EncryptionSyncChanges, OlmError, OlmMachine, SignatureError,
 };
 
 /// Error type for device dehydration issues.
@@ -68,13 +68,19 @@ pub enum DehydrationError {
     /// The dehydrated device could not be unpickled.
     #[error(transparent)]
     Pickle(#[from] LibolmPickleError),
+
     /// The dehydrated device could not be signed by our user identity,
     /// we're missing the self-signing key.
     #[error("The self-signing key is missing, can't create a dehydrated device")]
     MissingSigningKey(#[from] SignatureError),
+
     /// We could not deserialize the dehydrated device data.
     #[error(transparent)]
     Json(#[from] serde_json::Error),
+
+    /// The store ran into an error.
+    #[error(transparent)]
+    Store(#[from] CryptoStoreError),
 }
 
 /// Struct collecting methods to create and rehydrate dehydrated devices.
@@ -97,7 +103,8 @@ impl DehydratedDevices {
             user_identity.clone(),
             store.clone(),
         );
-        let store = Store::new(account.clone(), user_identity, store, verification_machine);
+
+        let store = Store::new(account, user_identity, store, verification_machine);
 
         DehydratedDevice { store }
     }
@@ -231,7 +238,12 @@ impl RehydratedDevice {
 
         // Let us first give the events to the rehydrated device, this will decrypt any
         // encrypted to-device events and fetch out the room keys.
-        let (_, changes) = self.rehydrated.preprocess_sync_changes(sync_changes).await?;
+        let mut rehydrated_transaction = self.rehydrated.store().transaction().await?;
+
+        let (_, changes) = self
+            .rehydrated
+            .preprocess_sync_changes(&mut rehydrated_transaction, sync_changes)
+            .await?;
 
         // Now take the room keys and persist them in our original `OlmMachine`.
         let room_keys = &changes.inbound_group_sessions;
@@ -240,6 +252,8 @@ impl RehydratedDevice {
         trace!(room_key_count = room_keys.len(), "Collected room keys from the rehydrated device");
 
         self.original.store().save_inbound_group_sessions(room_keys).await?;
+
+        rehydrated_transaction.commit().await?;
         self.rehydrated.store().save_changes(changes).await?;
 
         Ok(updates)
@@ -299,8 +313,11 @@ impl DehydratedDevice {
         initial_device_display_name: String,
         pickle_key: &[u8; 32],
     ) -> Result<put_dehydrated_device::unstable::Request, DehydrationError> {
-        let account = self.store.account();
+        let mut transaction = self.store.transaction().await?;
+
+        let account = transaction.account().await?;
         account.generate_fallback_key_helper().await;
+
         let (device_keys, one_time_keys, fallback_keys) = account.keys_for_upload().await;
 
         let mut device_keys = device_keys
@@ -314,6 +331,8 @@ impl DehydratedDevice {
         let device_id = self.store.static_account().device_id.clone();
         let device_data = account.dehydrate(&pickle_key).await;
         let initial_device_display_name = Some(initial_device_display_name);
+
+        transaction.commit().await?;
 
         Ok(
             assign!(put_dehydrated_device::unstable::Request::new(device_id, device_data, device_keys.to_raw()), {
@@ -365,7 +384,9 @@ mod tests {
     };
 
     use crate::{
-        machine::tests::{create_session, get_prepared_machine, to_device_requests_to_content},
+        machine::tests::{
+            create_session, get_prepared_machine_test_helper, to_device_requests_to_content,
+        },
         olm::OutboundGroupSession,
         types::events::ToDeviceEvent,
         utilities::json_convert,
@@ -379,7 +400,7 @@ mod tests {
     }
 
     async fn get_olm_machine() -> OlmMachine {
-        let (olm_machine, _) = get_prepared_machine(user_id(), false).await;
+        let (olm_machine, _) = get_prepared_machine_test_helper(user_id(), false).await;
         olm_machine.bootstrap_cross_signing(false).await.unwrap();
 
         olm_machine

@@ -1112,7 +1112,6 @@ impl Account {
     /// Handles a response to a /keys/upload request.
     pub async fn receive_keys_upload_response(
         &self,
-        store: &Store,
         response: &upload_keys::v3::Response,
     ) -> OlmResult<()> {
         if !self.shared() {
@@ -1125,8 +1124,6 @@ impl Account {
         // generate some new keys if we're still below the limit.
         self.mark_keys_as_published().await;
         self.update_key_counts(&response.one_time_key_counts, None).await;
-
-        store.save_account(self.clone()).await?;
 
         Ok(())
     }
@@ -1235,12 +1232,12 @@ impl Account {
                     // we might try to create the same session again.
                     // TODO: separate the session cache from the storage so we only add
                     // it to the cache but don't store it.
-                    let changes = Changes {
-                        account: Some(self.clone()),
-                        sessions: vec![result.session.clone()],
-                        ..Default::default()
-                    };
-                    store.save_changes(changes).await?;
+                    store
+                        .save_changes(Changes {
+                            sessions: vec![result.session.clone()],
+                            ..Default::default()
+                        })
+                        .await?;
 
                     (SessionType::New(result.session), result.plaintext)
                 }
@@ -1260,19 +1257,11 @@ impl Account {
         match self.parse_decrypted_to_device_event(store, sender, sender_key, plaintext).await {
             Ok(result) => Ok((session, result)),
             Err(e) => {
-                // We might created a new session but decryption might still
+                // We might have created a new session but decryption might still
                 // have failed, store it for the error case here, this is fine
                 // since we don't expect this to happen often or at all.
                 match session {
-                    SessionType::New(s) => {
-                        let changes = Changes {
-                            account: Some(self.clone()),
-                            sessions: vec![s],
-                            ..Default::default()
-                        };
-                        store.save_changes(changes).await?;
-                    }
-                    SessionType::Existing(s) => {
+                    SessionType::New(s) | SessionType::Existing(s) => {
                         store.save_sessions(&[s]).await?;
                     }
                 }

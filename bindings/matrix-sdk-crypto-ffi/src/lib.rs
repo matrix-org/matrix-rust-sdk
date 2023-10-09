@@ -33,7 +33,7 @@ use matrix_sdk_common::deserialized_responses::ShieldState as RustShieldState;
 use matrix_sdk_crypto::{
     backups::SignatureState,
     olm::{IdentityKeys, InboundGroupSession, Session},
-    store::{Changes, CryptoStore, RoomSettings as RustRoomSettings},
+    store::{Changes, CryptoStore, PendingChanges, RoomSettings as RustRoomSettings},
     types::{EventEncryptionAlgorithm as RustEventEncryptionAlgorithm, SigningKey},
     EncryptionSettings as RustEncryptionSettings, LocalTrust,
 };
@@ -304,8 +304,9 @@ async fn migrate_data(
         room_settings.insert(room_id, settings.into());
     }
 
+    store.save_pending_changes(PendingChanges { account: Some(account) }).await?;
+
     let changes = Changes {
-        account: Some(account),
         private_identity: Some(cross_signing),
         sessions,
         inbound_group_sessions,

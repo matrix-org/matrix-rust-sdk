@@ -1389,9 +1389,13 @@ impl OlmMachine {
 
     /// Sign the given message using our device key and if available cross
     /// signing master key.
-    pub fn sign(&self, message: String) -> HashMap<String, HashMap<String, String>> {
-        self.runtime
-            .block_on(self.inner.sign(&message))
+    pub fn sign(
+        &self,
+        message: String,
+    ) -> Result<HashMap<String, HashMap<String, String>>, CryptoStoreError> {
+        Ok(self
+            .runtime
+            .block_on(self.inner.sign(&message))?
             .into_iter()
             .map(|(k, v)| {
                 (
@@ -1409,7 +1413,7 @@ impl OlmMachine {
                         .collect(),
                 )
             })
-            .collect()
+            .collect())
     }
 
     /// Check if the given backup has been verified by us or by another of our

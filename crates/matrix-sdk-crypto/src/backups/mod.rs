@@ -642,7 +642,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn verify_auth_data() -> Result<(), OlmError> {
+    async fn test_verify_auth_data() -> Result<(), OlmError> {
         let machine = OlmMachine::new(alice_id(), alice_device_id()).await;
         let backup_machine = machine.backup_machine();
 
@@ -670,7 +670,7 @@ mod tests {
         assert!(!state.user_identity_signature.trusted());
         assert!(!state.other_signatures.values().any(|s| s.trusted()));
 
-        let signatures = machine.sign(&serialized).await;
+        let signatures = machine.sign(&serialized).await?;
 
         let backup_version = json!({
             "algorithm": "m.megolm_backup.v1.curve25519-aes-sha2",
@@ -696,7 +696,7 @@ mod tests {
             .await
             .expect("Bootstrapping a new identity always works");
 
-        let signatures = machine.sign(&serialized).await;
+        let signatures = machine.sign(&serialized).await?;
 
         let backup_version = json!({
             "algorithm": "m.megolm_backup.v1.curve25519-aes-sha2",

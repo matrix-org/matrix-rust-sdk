@@ -26,8 +26,8 @@ use matrix_sdk_crypto::{
         Session, StaticAccountData,
     },
     store::{
-        caches::SessionStore, BackupKeys, Changes, CryptoStore, CryptoStoreError, RoomKeyCounts,
-        RoomSettings,
+        caches::SessionStore, BackupKeys, Changes, CryptoStore, CryptoStoreError, PendingChanges,
+        RoomKeyCounts, RoomSettings,
     },
     types::events::room_key_withheld::RoomKeyWithheldEvent,
     Account, GossipRequest, GossippedSecret, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
@@ -508,6 +508,45 @@ macro_rules! impl_crypto_store {
 }
 
 impl_crypto_store! {
+    async fn save_pending_changes(&self, changes: PendingChanges) -> Result<()> {
+        // Serialize calls to `save_pending_changes`; there are multiple await points below, and we're
+        // pickling data as we go, so we don't want to invalidate data we've previously read and
+        // overwrite it in the store.
+        // TODO: #2000 should make this lock go away, or change its shape.
+        let _guard = self.save_changes_lock.lock().await;
+
+        let stores: Vec<&str> = [
+            (changes.account.is_some() , keys::CORE),
+        ]
+        .iter()
+        .filter_map(|(id, key)| if *id { Some(*key) } else { None })
+        .collect();
+
+        if stores.is_empty() {
+            // nothing to do, quit early
+            return Ok(());
+        }
+
+        let tx =
+            self.inner.transaction_on_multi_with_mode(&stores, IdbTransactionMode::Readwrite)?;
+
+        let account_pickle = if let Some(account) = changes.account {
+            *self.static_account.write().unwrap() = Some(account.static_data().clone());
+            Some(account.pickle().await)
+        } else {
+            None
+        };
+
+        if let Some(a) = &account_pickle {
+            tx.object_store(keys::CORE)?
+                .put_key_val(&JsValue::from_str(keys::ACCOUNT), &self.serialize_value(&a)?)?;
+        }
+
+        tx.await.into_result()?;
+
+        Ok(())
+    }
+
     async fn save_changes(&self, changes: Changes) -> Result<()> {
         // Serialize calls to `save_changes`; there are multiple await points below, and we're
         // pickling data as we go, so we don't want to invalidate data we've previously read and
@@ -516,7 +555,7 @@ impl_crypto_store! {
         let _guard = self.save_changes_lock.lock().await;
 
         let mut stores: Vec<&str> = [
-            (changes.account.is_some() || changes.private_identity.is_some() || changes.next_batch_token.is_some(), keys::CORE),
+            (changes.private_identity.is_some() || changes.next_batch_token.is_some(), keys::CORE),
             (changes.backup_decryption_key.is_some() || changes.backup_version.is_some(), keys::BACKUP_KEYS),
             (!changes.sessions.is_empty(), keys::SESSION),
             (
@@ -553,23 +592,11 @@ impl_crypto_store! {
         let tx =
             self.inner.transaction_on_multi_with_mode(&stores, IdbTransactionMode::Readwrite)?;
 
-        let account_pickle = if let Some(account) = changes.account {
-            *self.static_account.write().unwrap() = Some(account.static_data().clone());
-            Some(account.pickle().await)
-        } else {
-            None
-        };
-
         let private_identity_pickle =
             if let Some(i) = changes.private_identity { Some(i.pickle().await) } else { None };
 
         let decryption_key_pickle = changes.backup_decryption_key;
         let backup_version = changes.backup_version;
-
-        if let Some(a) = &account_pickle {
-            tx.object_store(keys::CORE)?
-                .put_key_val(&JsValue::from_str(keys::ACCOUNT), &self.serialize_value(&a)?)?;
-        }
 
         if let Some(next_batch) = changes.next_batch_token {
             tx.object_store(keys::CORE)?.put_key_val(

@@ -1147,16 +1147,21 @@ mod tests {
     }
 
     #[cfg(feature = "automatic-room-key-forwarding")]
-    async fn machines_for_key_share(
+    async fn machines_for_key_share_test_helper(
         other_machine_owner: &UserId,
         create_sessions: bool,
         algorithm: EventEncryptionAlgorithm,
-    ) -> (GossipMachine, Account, OutboundGroupSession, GossipMachine) {
+    ) -> (GossipMachine, OutboundGroupSession, GossipMachine) {
         let alice_machine = get_machine().await;
-        let alice_device = ReadOnlyDevice::from_account(alice_machine.inner.store.account()).await;
+        let alice_device =
+            ReadOnlyDevice::from_account(&alice_machine.inner.store.cache().await.unwrap().account)
+                .await;
 
         let bob_machine = test_gossip_machine(other_machine_owner);
-        let bob_device = ReadOnlyDevice::from_account(bob_machine.inner.store.account()).await;
+
+        let bob_device =
+            ReadOnlyDevice::from_account(&bob_machine.inner.store.cache().await.unwrap().account)
+                .await;
 
         // We need a trusted device, otherwise we won't request keys
         let second_device = ReadOnlyDevice::from_account(&alice_2_account()).await;
@@ -1170,9 +1175,21 @@ mod tests {
             let (alice_session, bob_session) = alice_machine
                 .inner
                 .store
-                .account()
-                .create_session_for(bob_machine.inner.store.account())
-                .await;
+                .with_transaction(|mut atr| async {
+                    let sessions = bob_machine
+                        .inner
+                        .store
+                        .with_transaction(|mut btr| async {
+                            let alice_account = atr.account().await?;
+                            let bob_account = btr.account().await?;
+                            let sessions = alice_account.create_session_for(bob_account).await;
+                            Ok((btr, sessions))
+                        })
+                        .await?;
+                    Ok((atr, sessions))
+                })
+                .await
+                .unwrap();
 
             // Populate our stores with Olm sessions and a Megolm session.
 
@@ -1216,9 +1233,7 @@ mod tests {
         // Put the outbound session into bobs store.
         bob_machine.inner.outbound_group_sessions.insert(group_session.clone());
 
-        let alice_account = alice_machine.inner.store.account().clone();
-
-        (alice_machine, alice_account, group_session, bob_machine)
+        (alice_machine, group_session, bob_machine)
     }
 
     #[cfg(any(feature = "automatic-room-key-forwarding", feature = "backups_v1"))]
@@ -1561,9 +1576,9 @@ mod tests {
     }
 
     #[cfg(feature = "automatic-room-key-forwarding")]
-    async fn key_share_cycle(algorithm: EventEncryptionAlgorithm) {
-        let (alice_machine, alice_account, group_session, bob_machine) =
-            machines_for_key_share(alice_id(), true, algorithm).await;
+    async fn test_key_share_cycle(algorithm: EventEncryptionAlgorithm) {
+        let (alice_machine, group_session, bob_machine) =
+            machines_for_key_share_test_helper(alice_id(), true, algorithm).await;
 
         // Get the request and convert it into a event.
         let requests = alice_machine.outgoing_to_device_requests().await.unwrap();
@@ -1597,8 +1612,17 @@ mod tests {
             .unwrap()
             .is_none());
 
-        let decrypted = alice_account
-            .decrypt_to_device_event(&alice_machine.inner.store, &event)
+        let decrypted = alice_machine
+            .inner
+            .store
+            .with_transaction(|mut tr| async {
+                let res = tr
+                    .account()
+                    .await?
+                    .decrypt_to_device_event(&alice_machine.inner.store, &event)
+                    .await?;
+                Ok((tr, res))
+            })
             .await
             .unwrap();
 
@@ -1626,9 +1650,13 @@ mod tests {
 
     #[async_test]
     #[cfg(feature = "automatic-room-key-forwarding")]
-    async fn reject_forward_from_another_user() {
-        let (alice_machine, alice_account, group_session, bob_machine) =
-            machines_for_key_share(bob_id(), true, EventEncryptionAlgorithm::MegolmV1AesSha2).await;
+    async fn test_reject_forward_from_another_user() {
+        let (alice_machine, group_session, bob_machine) = machines_for_key_share_test_helper(
+            bob_id(),
+            true,
+            EventEncryptionAlgorithm::MegolmV1AesSha2,
+        )
+        .await;
 
         // Get the request and convert it into a event.
         let requests = alice_machine.outgoing_to_device_requests().await.unwrap();
@@ -1662,8 +1690,17 @@ mod tests {
             .unwrap()
             .is_none());
 
-        let decrypted = alice_account
-            .decrypt_to_device_event(&alice_machine.inner.store, &event)
+        let decrypted = alice_machine
+            .inner
+            .store
+            .with_transaction(|mut tr| async {
+                let res = tr
+                    .account()
+                    .await?
+                    .decrypt_to_device_event(&alice_machine.inner.store, &event)
+                    .await?;
+                Ok((tr, res))
+            })
             .await
             .unwrap();
         let AnyDecryptedOlmEvent::ForwardedRoomKey(ev) = &*decrypted.result.event else {
@@ -1680,18 +1717,18 @@ mod tests {
 
     #[async_test]
     #[cfg(feature = "automatic-room-key-forwarding")]
-    async fn key_share_cycle_megolm_v1() {
-        key_share_cycle(EventEncryptionAlgorithm::MegolmV1AesSha2).await;
+    async fn test_key_share_cycle_megolm_v1() {
+        test_key_share_cycle(EventEncryptionAlgorithm::MegolmV1AesSha2).await;
     }
 
     #[async_test]
     #[cfg(all(feature = "experimental-algorithms", feature = "automatic-room-key-forwarding"))]
-    async fn key_share_cycle_megolm_v2() {
-        key_share_cycle(EventEncryptionAlgorithm::MegolmV2AesSha2).await;
+    async fn test_key_share_cycle_megolm_v2() {
+        test_key_share_cycle(EventEncryptionAlgorithm::MegolmV2AesSha2).await;
     }
 
     #[async_test]
-    async fn secret_share_cycle() {
+    async fn test_secret_share_cycle() {
         let alice_machine = get_machine().await;
 
         let second_account = alice_2_account();
@@ -1703,8 +1740,16 @@ mod tests {
         alice_machine.inner.store.save_devices(&[alice_device.clone()]).await.unwrap();
 
         // Create Olm sessions for our two accounts.
-        let (alice_session, _) =
-            alice_machine.inner.store.account().create_session_for(&second_account).await;
+        let alice_session = alice_machine
+            .inner
+            .store
+            .with_transaction(|mut tr| async {
+                let alice_account = tr.account().await?;
+                let (alice_session, _) = alice_account.create_session_for(&second_account).await;
+                Ok((tr, alice_session))
+            })
+            .await
+            .unwrap();
 
         alice_machine.inner.store.save_sessions(&[alice_session]).await.unwrap();
 
@@ -1768,12 +1813,14 @@ mod tests {
         use serde_json::value::to_raw_value;
         use tokio_stream::StreamExt;
 
-        use crate::{machine::tests::get_machine_pair_with_setup_sessions, EncryptionSyncChanges};
+        use crate::{
+            machine::tests::get_machine_pair_with_setup_sessions_test_helper, EncryptionSyncChanges,
+        };
 
         let alice_id = user_id!("@alice:localhost");
 
         let (alice_machine, bob_machine) =
-            get_machine_pair_with_setup_sessions(alice_id, alice_id, false).await;
+            get_machine_pair_with_setup_sessions_test_helper(alice_id, alice_id, false).await;
 
         let key_requests = GossipMachine::request_missing_secrets(
             bob_machine.user_id(),
@@ -1854,10 +1901,13 @@ mod tests {
 
     #[async_test]
     #[cfg(feature = "automatic-room-key-forwarding")]
-    async fn key_share_cycle_without_session() {
-        let (alice_machine, alice_account, group_session, bob_machine) =
-            machines_for_key_share(alice_id(), false, EventEncryptionAlgorithm::MegolmV1AesSha2)
-                .await;
+    async fn test_key_share_cycle_without_session() {
+        let (alice_machine, group_session, bob_machine) = machines_for_key_share_test_helper(
+            alice_id(),
+            false,
+            EventEncryptionAlgorithm::MegolmV1AesSha2,
+        )
+        .await;
 
         // Get the request and convert it into a event.
         let requests = alice_machine.outgoing_to_device_requests().await.unwrap();
@@ -1886,9 +1936,22 @@ mod tests {
         let (alice_session, bob_session) = alice_machine
             .inner
             .store
-            .account()
-            .create_session_for(bob_machine.inner.store.account())
-            .await;
+            .with_transaction(|mut atr| async {
+                let res = bob_machine
+                    .inner
+                    .store
+                    .with_transaction(|mut btr| async {
+                        let alice_account = atr.account().await?;
+                        let bob_account = btr.account().await?;
+                        let sessions = alice_account.create_session_for(bob_account).await;
+                        Ok((btr, sessions))
+                    })
+                    .await?;
+                Ok((atr, res))
+            })
+            .await
+            .unwrap();
+
         // We create a session now.
         alice_machine.inner.store.save_sessions(&[alice_session]).await.unwrap();
         bob_machine.inner.store.save_sessions(&[bob_session]).await.unwrap();
@@ -1916,8 +1979,17 @@ mod tests {
             .unwrap()
             .is_none());
 
-        let decrypted = alice_account
-            .decrypt_to_device_event(&alice_machine.inner.store, &event)
+        let decrypted = alice_machine
+            .inner
+            .store
+            .with_transaction(|mut tr| async {
+                let res = tr
+                    .account()
+                    .await?
+                    .decrypt_to_device_event(&alice_machine.inner.store, &event)
+                    .await?;
+                Ok((tr, res))
+            })
             .await
             .unwrap();
 

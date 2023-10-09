@@ -342,7 +342,7 @@ impl IdentityManager {
         let own_user_id = store.static_account().user_id();
         for device_id in deleted_devices_set {
             if user_id == *own_user_id && *device_id == &own_device_id {
-                let identity_keys = store.account().identity_keys();
+                let identity_keys = store.static_account().identity_keys();
 
                 warn!(
                     user_id = own_user_id.as_str(),
@@ -1165,7 +1165,7 @@ pub(crate) mod tests {
         let identity_request = private_identity.as_upload_request().await;
         drop(private_identity);
 
-        let device_keys = manager.store.account().device_keys().await;
+        let device_keys = manager.store.cache().await.unwrap().account.device_keys().await;
         manager
             .receive_keys_query_response(
                 &TransactionId::new(),
@@ -1209,7 +1209,7 @@ pub(crate) mod tests {
     /// user is not removed from the list of outdated users when the
     /// response is received
     #[async_test]
-    async fn invalidation_race_handling() {
+    async fn test_invalidation_race_handling() {
         let manager = manager().await;
         let alice = other_user_id();
         manager.update_tracked_users([alice]).await.unwrap();

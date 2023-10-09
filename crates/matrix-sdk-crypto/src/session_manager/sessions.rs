@@ -363,6 +363,7 @@ impl SessionManager {
         let mut changes = Changes::default();
         let mut new_sessions: BTreeMap<&UserId, BTreeMap<&DeviceId, SessionInfo>> = BTreeMap::new();
 
+        let mut store_transaction = self.store.transaction().await?;
         for (user_id, user_devices) in &response.one_time_keys {
             for (device_id, key_map) in user_devices {
                 let device = match self.store.get_readonly_device(user_id, device_id).await {
@@ -388,27 +389,27 @@ impl SessionManager {
                     }
                 };
 
-                let session =
-                    match self.store.account().create_outbound_session(&device, key_map).await {
-                        Ok(s) => s,
-                        Err(e) => {
-                            warn!(
-                                user_id = user_id.as_str(),
-                                device_id = device_id.as_str(),
-                                error = ?e,
-                                "Error creating outbound session"
-                            );
+                let account = store_transaction.account().await?;
+                let session = match account.create_outbound_session(&device, key_map).await {
+                    Ok(s) => s,
+                    Err(e) => {
+                        warn!(
+                            user_id = user_id.as_str(),
+                            device_id = device_id.as_str(),
+                            error = ?e,
+                            "Error creating outbound session"
+                        );
 
-                            self.failed_devices
-                                .write()
-                                .unwrap()
-                                .entry(user_id.to_owned())
-                                .or_default()
-                                .insert(device_id.to_owned());
+                        self.failed_devices
+                            .write()
+                            .unwrap()
+                            .entry(user_id.to_owned())
+                            .or_default()
+                            .insert(device_id.to_owned());
 
-                            continue;
-                        }
-                    };
+                        continue;
+                    }
+                };
 
                 self.key_request_machine.retry_keyshare(user_id, device_id);
 
@@ -427,6 +428,7 @@ impl SessionManager {
             }
         }
 
+        store_transaction.commit().await?;
         self.store.save_changes(changes).await?;
         info!(sessions = ?new_sessions, "Established new Olm sessions");
 
@@ -525,7 +527,7 @@ mod tests {
         KeyClaimResponse::try_from_http_response(response).unwrap()
     }
 
-    async fn session_manager() -> SessionManager {
+    async fn session_manager_test_helper() -> SessionManager {
         let user_id = user_id();
         let device_id = device_id();
 
@@ -540,7 +542,11 @@ mod tests {
         );
 
         let store = Store::new(account.clone(), identity, store, verification);
-        store.save_account(account.clone()).await.unwrap();
+        {
+            // Perform a dummy transaction to sync in-memory cache with the db.
+            let tr = store.transaction().await.unwrap();
+            tr.commit().await.unwrap();
+        }
 
         let session_cache = GroupSessionCache::new(store.clone());
 
@@ -552,7 +558,7 @@ mod tests {
 
     #[async_test]
     async fn session_creation() {
-        let manager = session_manager().await;
+        let manager = session_manager_test_helper().await;
         let bob = bob_account();
 
         let bob_device = ReadOnlyDevice::from_account(&bob).await;
@@ -584,7 +590,7 @@ mod tests {
 
     #[async_test]
     async fn test_session_creation_waits_for_keys_query() {
-        let manager = session_manager().await;
+        let manager = session_manager_test_helper().await;
         let identity_manager = IdentityManager::new(manager.store.clone());
 
         // start a keys query request. At this point, we are only interested in our own
@@ -641,13 +647,15 @@ mod tests {
     // creation time so we can get around the UNWEDGING_INTERVAL.
     #[async_test]
     #[cfg(target_os = "linux")]
-    async fn session_unwedging() {
+    async fn test_session_unwedging() {
         use matrix_sdk_common::instant::{Duration, SystemTime};
         use ruma::SecondsSinceUnixEpoch;
 
-        let manager = session_manager().await;
+        let manager = session_manager_test_helper().await;
         let bob = bob_account();
-        let (_, mut session) = bob.create_session_for(manager.store.account()).await;
+
+        let manager_account = &manager.store.cache().await.unwrap().account;
+        let (_, mut session) = bob.create_session_for(manager_account).await;
 
         let bob_device = ReadOnlyDevice::from_account(&bob).await;
         let time = SystemTime::now() - Duration::from_secs(3601);
@@ -699,7 +707,7 @@ mod tests {
         let alice_account = Account::with_device_id(alice, "DEVICEID".into());
         let alice_device = ReadOnlyDevice::from_account(&alice_account).await;
 
-        let manager = session_manager().await;
+        let manager = session_manager_test_helper().await;
 
         manager.store.save_devices(&[alice_device]).await.unwrap();
 
@@ -742,7 +750,7 @@ mod tests {
         let alice_account = Account::with_device_id(alice, "DEVICEID".into());
         let alice_device = ReadOnlyDevice::from_account(&alice_account).await;
 
-        let manager = session_manager().await;
+        let manager = session_manager_test_helper().await;
         manager.store.save_devices(&[alice_device]).await.unwrap();
 
         // Since we don't have a session with Alice yet, the machine will try to claim

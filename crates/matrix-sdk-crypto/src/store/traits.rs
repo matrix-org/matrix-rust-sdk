@@ -21,7 +21,9 @@ use ruma::{
 };
 use tokio::sync::Mutex;
 
-use super::{BackupKeys, Changes, CryptoStoreError, Result, RoomKeyCounts, RoomSettings};
+use super::{
+    BackupKeys, Changes, CryptoStoreError, PendingChanges, Result, RoomKeyCounts, RoomSettings,
+};
 use crate::{
     olm::{
         InboundGroupSession, OlmMessageHash, OutboundGroupSession, PrivateCrossSigningIdentity,
@@ -52,6 +54,16 @@ pub trait CryptoStore: AsyncTraitDeps {
     ///
     /// * `changes` - The set of changes that should be stored.
     async fn save_changes(&self, changes: Changes) -> Result<(), Self::Error>;
+
+    /// Save the set of changes to the store.
+    ///
+    /// This is an updated version of `save_changes` that will replace it as
+    /// #2624 makes progress.
+    ///
+    /// # Arguments
+    ///
+    /// * `changes` - The set of changes that should be stored.
+    async fn save_pending_changes(&self, changes: PendingChanges) -> Result<(), Self::Error>;
 
     /// Get all the sessions that belong to the given sender key.
     ///
@@ -286,6 +298,10 @@ impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
 
     async fn save_changes(&self, changes: Changes) -> Result<()> {
         self.0.save_changes(changes).await.map_err(Into::into)
+    }
+
+    async fn save_pending_changes(&self, changes: PendingChanges) -> Result<()> {
+        self.0.save_pending_changes(changes).await.map_err(Into::into)
     }
 
     async fn get_sessions(&self, sender_key: &str) -> Result<Option<Arc<Mutex<Vec<Session>>>>> {

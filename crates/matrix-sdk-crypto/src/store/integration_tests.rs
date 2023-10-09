@@ -24,7 +24,7 @@ macro_rules! cryptostore_integration_tests {
                 },
                 store::{
                     BackupKeys, Changes, CryptoStore, DeviceChanges,
-                    GossipRequest, IdentityChanges, BackupDecryptionKey, RoomSettings,
+                    GossipRequest, IdentityChanges, BackupDecryptionKey, RoomSettings, PendingChanges,
                 },
                 testing::{get_device, get_other_identity, get_own_identity},
                 types::{
@@ -66,7 +66,7 @@ macro_rules! cryptostore_integration_tests {
                 let store = get_store(name, None).await;
                 let account = get_account();
 
-                store.save_changes(Changes { account: Some(account.clone()), ..Default::default() }).await.expect("Can't save account");
+                store.save_pending_changes(PendingChanges { account: Some(account.clone()), }).await.expect("Can't save account");
 
                 (account, store)
             }
@@ -102,7 +102,7 @@ macro_rules! cryptostore_integration_tests {
                 let account = get_account();
 
                 store
-                    .save_changes(Changes { account: Some(account), ..Default::default() })
+                    .save_pending_changes(PendingChanges { account: Some(account), })
                     .await
                     .expect("Can't save account");
                 assert!(store.get_static_account().is_some());
@@ -115,7 +115,7 @@ macro_rules! cryptostore_integration_tests {
                 assert!(store.load_account().await.unwrap().is_none());
                 let account = get_account();
 
-                store.save_changes(Changes { account: Some(account), ..Default::default() }).await.expect("Can't save account");
+                store.save_pending_changes(PendingChanges { account: Some(account), }).await.expect("Can't save account");
                 assert!(store.get_static_account().is_some());
             }
 
@@ -124,7 +124,7 @@ macro_rules! cryptostore_integration_tests {
                 let store = get_store("load_account", None).await;
                 let account = get_account();
 
-                store.save_changes(Changes { account: Some(account.clone()), ..Default::default() }).await.expect("Can't save account");
+                store.save_pending_changes(PendingChanges { account: Some(account.clone()), }).await.expect("Can't save account");
 
                 let loaded_account = store.load_account().await.expect("Can't load account");
                 let loaded_account = loaded_account.unwrap();
@@ -138,7 +138,7 @@ macro_rules! cryptostore_integration_tests {
                     get_store("load_account_with_passphrase", Some("secret_passphrase")).await;
                 let account = get_account();
 
-                store.save_changes(Changes { account: Some(account.clone()), ..Default::default() }).await.expect("Can't save account");
+                store.save_pending_changes(PendingChanges { account: Some(account.clone()), }).await.expect("Can't save account");
 
                 let loaded_account = store.load_account().await.expect("Can't load account");
                 let loaded_account = loaded_account.unwrap();
@@ -151,12 +151,12 @@ macro_rules! cryptostore_integration_tests {
                 let store = get_store("save_and_share_account", None).await;
                 let account = get_account();
 
-                store.save_changes(Changes { account: Some(account.clone()), ..Default::default() }).await.expect("Can't save account");
+                store.save_pending_changes(PendingChanges { account: Some(account.clone()), }).await.expect("Can't save account");
 
                 account.mark_as_shared();
                 account.update_uploaded_key_count(50);
 
-                store.save_changes(Changes { account: Some(account.clone()), ..Default::default() }).await.expect("Can't save account");
+                store.save_pending_changes(PendingChanges { account: Some(account.clone()), }).await.expect("Can't save account");
 
                 let loaded_account = store.load_account().await.expect("Can't load account");
                 let loaded_account = loaded_account.unwrap();
@@ -169,7 +169,7 @@ macro_rules! cryptostore_integration_tests {
             async fn load_sessions() {
                 let store = get_store("load_sessions", None).await;
                 let (account, session) = get_account_and_session().await;
-                store.save_changes(Changes { account: Some(account.clone()), ..Default::default() }).await.expect("Can't save account");
+                store.save_pending_changes(PendingChanges { account: Some(account.clone()), }).await.expect("Can't save account");
 
                 let changes = Changes { sessions: vec![session.clone()], ..Default::default() };
 
@@ -193,7 +193,7 @@ macro_rules! cryptostore_integration_tests {
                 let sender_key = session.sender_key.to_base64();
                 let session_id = session.session_id().to_owned();
 
-                store.save_changes(Changes { account: Some(account.clone()), ..Default::default() }).await.expect("Can't save account");
+                store.save_pending_changes(PendingChanges { account: Some(account.clone()), }).await.expect("Can't save account");
 
                 let changes = Changes { sessions: vec![session.clone()], ..Default::default() };
                 store.save_changes(changes).await.unwrap();
@@ -481,7 +481,7 @@ macro_rules! cryptostore_integration_tests {
             }
 
             #[async_test]
-            async fn user_saving() {
+            async fn test_user_saving() {
                 let dir = "user_saving";
 
                 let user_id = user_id!("@example:localhost");
@@ -491,7 +491,7 @@ macro_rules! cryptostore_integration_tests {
 
                 let account = Account::with_device_id(&user_id, device_id);
 
-                store.save_changes(Changes { account: Some(account.clone()), ..Default::default() })
+                store.save_pending_changes(PendingChanges { account: Some(account.clone()), })
                     .await
                     .expect("Can't save account");
 

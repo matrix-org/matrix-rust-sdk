@@ -886,11 +886,11 @@ impl ReadOnlyDevice {
 
     #[cfg(any(test, feature = "testing"))]
     #[allow(dead_code)]
-    /// Generate the Device from the reference of an OlmMachine.
-    ///
-    /// TESTING FACILITY ONLY, DO NOT USE OUTSIDE OF TESTS
-    pub async fn from_machine(machine: &OlmMachine) -> ReadOnlyDevice {
-        ReadOnlyDevice::from_account(machine.account()).await
+    /// Generate the Device from a reference of an OlmMachine.
+    pub async fn from_machine_test_helper(
+        machine: &OlmMachine,
+    ) -> Result<ReadOnlyDevice, crate::CryptoStoreError> {
+        Ok(ReadOnlyDevice::from_account(&machine.store().cache().await?.account).await)
     }
 
     /// Create a `ReadOnlyDevice` from an `Account`
