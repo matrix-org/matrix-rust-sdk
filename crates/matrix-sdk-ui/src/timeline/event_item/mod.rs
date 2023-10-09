@@ -593,7 +593,7 @@ mod tests {
     #[async_test]
     async fn latest_message_event_can_be_wrapped_as_a_timeline_item_with_sender_from_the_cache() {
         // Given a sync event that is suitable to be used as a latest_event, a room, and
-        // a member even for the sender (which isn't part of the room yet).
+        // a member event for the sender (which isn't part of the room yet).
 
         use ruma::owned_mxc_uri;
         let room_id = room_id!("!q:x.uk");
