@@ -118,7 +118,7 @@ impl LatestEvent {
         self.event.event_id()
     }
 
-    /// Check whether [`Self`] has a sender a profile.
+    /// Check whether [`Self`] has a sender profile.
     pub fn has_sender_profile(&self) -> bool {
         self.sender_profile.is_some()
     }

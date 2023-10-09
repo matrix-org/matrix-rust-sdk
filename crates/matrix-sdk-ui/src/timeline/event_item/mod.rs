@@ -91,7 +91,7 @@ impl EventTimelineItem {
     }
 
     /// If the supplied low-level `SyncTimelineEventy` is suitable for use as
-    /// the `latest_event `` in a message preview, wrap it as an
+    /// the `latest_event` in a message preview, wrap it as an
     /// `EventTimelineItem`.
     pub async fn from_latest_event(
         client: Client,

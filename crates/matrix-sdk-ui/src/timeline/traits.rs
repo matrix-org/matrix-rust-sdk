@@ -109,7 +109,7 @@ impl RoomDataProvider for Room {
 
         Some(Profile {
             display_name: latest_event.sender_display_name().map(ToOwned::to_owned),
-            display_name_ambiguous: latest_event.sender_name_ambiguous().unwrap_or_default(),
+            display_name_ambiguous: latest_event.sender_name_ambiguous().unwrap_or(false),
             avatar_url: latest_event.sender_avatar_url().map(ToOwned::to_owned),
         })
     }
