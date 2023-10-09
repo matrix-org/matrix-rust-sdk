@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     future::Future,
     mem::{self, ManuallyDrop},
     ops::{Deref, DerefMut},
@@ -35,8 +35,8 @@ use ruma::{
         AnyMessageLikeEventContent, AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent,
     },
     push::Action,
-    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomVersionId,
-    UserId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
+    RoomVersionId, UserId,
 };
 use tracing::{debug, error, instrument, trace, warn};
 
@@ -551,12 +551,20 @@ impl TimelineInnerStateTransaction<'_> {
                     let event_type = event.event_type();
                     let event_id = event.event_id();
                     warn!(%event_type, %event_id, "Failed to deserialize timeline event: {e}");
+
+                    self.add_event(event_id.to_owned(), false, position);
+
                     return HandleEventResult::default();
                 }
                 Err(e) => {
                     let event_type: Option<String> = raw.get_field("type").ok().flatten();
                     let event_id: Option<String> = raw.get_field("event_id").ok().flatten();
                     warn!(event_type, event_id, "Failed to deserialize timeline event: {e}");
+
+                    if let Some(Ok(event_id)) = event_id.map(EventId::parse) {
+                        self.add_event(event_id.to_owned(), false, position);
+                    }
+
                     return HandleEventResult::default();
                 }
             },
@@ -565,6 +573,8 @@ impl TimelineInnerStateTransaction<'_> {
         if let Some(token) = back_pagination_token {
             self.meta.back_pagination_tokens.push((event_id.clone(), token));
         }
+
+        self.add_event(event_id.clone(), should_add, position);
 
         let is_own_event = sender == room_data_provider.own_user_id();
         let sender_profile = room_data_provider.profile_from_user_id(&sender).await;
@@ -618,6 +628,7 @@ impl TimelineInnerStateTransaction<'_> {
             self.items.clear();
         }
 
+        self.all_events.clear();
         self.reactions.clear();
         self.fully_read_event = None;
         self.event_should_update_fully_read_marker = false;
@@ -677,6 +688,9 @@ impl DerefMut for TimelineInnerStateTransaction<'_> {
 
 #[derive(Debug)]
 pub(in crate::timeline) struct TimelineInnerMetadata {
+    /// List of all the events as received in the timeline, even the ones that
+    /// are discarded in the timeline items.
+    all_events: VecDeque<EventMeta>,
     next_internal_id: u64,
     pub reactions: Reactions,
     pub poll_pending_events: PollPendingEvents,
@@ -706,6 +720,7 @@ pub(in crate::timeline) struct TimelineInnerMetadata {
 impl TimelineInnerMetadata {
     fn new(room_version: RoomVersionId) -> TimelineInnerMetadata {
         Self {
+            all_events: Default::default(),
             next_internal_id: Default::default(),
             reactions: Default::default(),
             poll_pending_events: Default::default(),
@@ -716,6 +731,32 @@ impl TimelineInnerMetadata {
             in_flight_reaction: Default::default(),
             room_version,
             back_pagination_tokens: Vec::new(),
+        }
+    }
+
+    fn add_event(&mut self, event_id: OwnedEventId, visible: bool, position: TimelineItemPosition) {
+        let meta = EventMeta { event_id, visible };
+
+        match position {
+            TimelineItemPosition::Start => self.all_events.push_front(meta),
+            TimelineItemPosition::End { .. } => {
+                // Handle duplicated event.
+                if let Some(pos) =
+                    self.all_events.iter().position(|ev| ev.event_id == meta.event_id)
+                {
+                    self.all_events.remove(pos);
+                }
+
+                self.all_events.push_back(meta);
+            }
+            #[cfg(feature = "e2e-encryption")]
+            TimelineItemPosition::Update(_) => {
+                if let Some(event) =
+                    self.all_events.iter_mut().find(|e| e.event_id == meta.event_id)
+                {
+                    event.visible = visible;
+                }
+            }
         }
     }
 
@@ -789,4 +830,13 @@ impl TimelineInnerMetadata {
             }
         }
     }
+}
+
+/// Metadata about an event.
+#[derive(Debug, Clone)]
+struct EventMeta {
+    /// The ID of the event.
+    event_id: OwnedEventId,
+    /// Whether the event is among the timeline items.
+    visible: bool,
 }
