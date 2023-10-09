@@ -53,7 +53,10 @@ use crate::{
         polls::PollPendingEvents,
         reactions::{ReactionToggleResult, Reactions},
         traits::RoomDataProvider,
-        util::{find_read_marker, rfind_event_by_id, rfind_event_item, timestamp_to_date},
+        util::{
+            find_read_marker, rfind_event_by_id, rfind_event_item, timestamp_to_date,
+            RelativePosition,
+        },
         AnnotationKey, Error as TimelineError, Profile, ReactionSenderData, TimelineItem,
         TimelineItemKind, VirtualTimelineItem,
     },
@@ -758,6 +761,35 @@ impl TimelineInnerMetadata {
                 }
             }
         }
+    }
+
+    /// Get the relative positions of two events in the timeline.
+    ///
+    /// This method assumes that all events since the end of the timeline are
+    /// known.
+    ///
+    /// Returns `None` if none of the two events could be found in the timeline.
+    pub fn compare_events_positions(
+        &self,
+        event_a: &EventId,
+        event_b: &EventId,
+    ) -> Option<RelativePosition> {
+        if event_a == event_b {
+            return Some(RelativePosition::Same);
+        }
+
+        // We can make early returns here because we know all events since the end of
+        // the timeline, so the first event encountered is the oldest one.
+        for meta in self.all_events.iter().rev() {
+            if meta.event_id == event_a {
+                return Some(RelativePosition::Before);
+            }
+            if meta.event_id == event_b {
+                return Some(RelativePosition::After);
+            }
+        }
+
+        None
     }
 
     pub fn next_internal_id(&mut self) -> u64 {
