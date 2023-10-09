@@ -522,7 +522,6 @@ mod tests {
         serde::Raw,
         user_id, RoomId, UInt, UserId,
     };
-    use serde_json::json;
 
     use super::{EventTimelineItem, Profile};
     use crate::timeline::TimelineDetails;
@@ -676,25 +675,20 @@ mod tests {
         formatted_body: &str,
         ts: u64,
     ) -> SyncTimelineEvent {
-        SyncTimelineEvent::new(
-            Raw::from_json_string(
-                json!({
-                    "event_id": "$eventid6",
-                    "sender": user_id,
-                    "origin_server_ts": ts,
-                    "type": "m.room.message",
-                    "room_id": room_id.to_string(),
-                    "content": {
-                        "body": body,
-                        "format": "org.matrix.custom.html",
-                        "formatted_body": formatted_body,
-                        "msgtype": "m.text"
-                    },
-                })
-                .to_string(),
-            )
-            .unwrap(),
-        )
+        sync_timeline_event!({
+            "event_id": "$eventid6",
+            "sender": user_id,
+            "origin_server_ts": ts,
+            "type": "m.room.message",
+            "room_id": room_id.to_string(),
+            "content": {
+                "body": body,
+                "format": "org.matrix.custom.html",
+                "formatted_body": formatted_body,
+                "msgtype": "m.text"
+            },
+        })
+        .into()
     }
 
     /// Copied from matrix_sdk_base::sliding_sync::test
