@@ -534,14 +534,6 @@ impl OlmMachine {
         }
     }
 
-    /// Get the underlying Olm account of the machine.
-    // TODO(BENJI) replace with direct access to the cache.
-    #[cfg(any(test, feature = "testing"))]
-    #[allow(dead_code)]
-    pub(crate) async fn account(&self) -> Result<Account, CryptoStoreError> {
-        Ok(self.inner.store.cache().await?.account().clone())
-    }
-
     /// Receive a successful keys upload response.
     ///
     /// # Arguments
@@ -2187,13 +2179,22 @@ pub(crate) mod tests {
     ) -> (OlmMachine, OneTimeKeys) {
         let machine = OlmMachine::new(user_id, bob_device_id()).await;
 
-        let account = machine.account().await.unwrap();
-        account.generate_fallback_key_helper().await;
-        account.update_uploaded_key_count(0);
-        account.generate_one_time_keys().await;
+        let request = machine
+            .store()
+            .with_transaction(|mut tr| async {
+                let account = tr.account().await.unwrap();
+                account.generate_fallback_key_helper().await;
+                account.update_uploaded_key_count(0);
+                account.generate_one_time_keys().await;
+                let request = machine
+                    .keys_for_upload(&account)
+                    .await
+                    .expect("Can't prepare initial key upload");
+                Ok((tr, request))
+            })
+            .await
+            .unwrap();
 
-        let request =
-            machine.keys_for_upload(&account).await.expect("Can't prepare initial key upload");
         let response = keys_upload_response();
         machine.receive_keys_upload_response(&response).await.unwrap();
 
@@ -2291,7 +2292,9 @@ pub(crate) mod tests {
     #[async_test]
     async fn test_create_olm_machine() {
         let machine = OlmMachine::new(user_id(), alice_device_id()).await;
-        let account = machine.account().await.unwrap();
+
+        let cache = machine.store().cache().await.unwrap();
+        let account = cache.account();
         assert!(!account.shared());
 
         let own_device = machine
@@ -2306,27 +2309,43 @@ pub(crate) mod tests {
     #[async_test]
     async fn test_generate_one_time_keys() {
         let machine = OlmMachine::new(user_id(), alice_device_id()).await;
-        let account = machine.account().await.unwrap();
 
-        assert!(account.generate_one_time_keys().await.is_some());
+        machine
+            .store()
+            .with_transaction(|mut tr| async {
+                let account = tr.account().await.unwrap();
 
-        let mut response = keys_upload_response();
+                assert!(account.generate_one_time_keys().await.is_some());
 
-        machine.receive_keys_upload_response(&response).await.unwrap();
-        assert!(account.generate_one_time_keys().await.is_some());
+                let mut response = keys_upload_response();
 
-        response.one_time_key_counts.insert(DeviceKeyAlgorithm::SignedCurve25519, uint!(50));
-        machine.receive_keys_upload_response(&response).await.unwrap();
-        assert!(account.generate_one_time_keys().await.is_none());
+                machine.receive_keys_upload_response(&response).await.unwrap();
+                assert!(account.generate_one_time_keys().await.is_some());
+
+                response
+                    .one_time_key_counts
+                    .insert(DeviceKeyAlgorithm::SignedCurve25519, uint!(50));
+                machine.receive_keys_upload_response(&response).await.unwrap();
+                assert!(account.generate_one_time_keys().await.is_none());
+
+                Ok((tr, ()))
+            })
+            .await
+            .unwrap();
     }
 
     #[async_test]
     async fn test_device_key_signing() {
         let machine = OlmMachine::new(user_id(), alice_device_id()).await;
 
-        let account = machine.account().await.unwrap();
-        let device_keys = account.device_keys().await;
-        let identity_keys = account.identity_keys();
+        let (device_keys, identity_keys) = {
+            let cache = machine.store().cache().await.unwrap();
+            let account = cache.account();
+            let device_keys = account.device_keys().await;
+            let identity_keys = account.identity_keys();
+            (device_keys, identity_keys)
+        };
+
         let ed25519_key = identity_keys.ed25519;
 
         let ret = ed25519_key.verify_json(
@@ -2411,7 +2430,8 @@ pub(crate) mod tests {
             .await
             .expect("We should be able to update our one-time key counts");
 
-        let account = machine.account().await.unwrap();
+        let cache = machine.store().cache().await.unwrap();
+        let account = cache.account();
         let ed25519_key = account.identity_keys().ed25519;
 
         let mut request =
@@ -2527,7 +2547,7 @@ pub(crate) mod tests {
         let session = alice_machine
             .store()
             .get_sessions(
-                &bob_machine.account().await.unwrap().identity_keys().curve25519.to_base64(),
+                &bob_machine.store().static_account().identity_keys().curve25519.to_base64(),
             )
             .await
             .unwrap()
@@ -2537,7 +2557,7 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn getting_most_recent_session() {
+    async fn test_getting_most_recent_session() {
         let (alice_machine, bob_machine, mut one_time_keys) =
             get_machine_pair(alice_id(), user_id(), false).await;
         let (device_key_id, one_time_key) = one_time_keys.pop_first().unwrap();
@@ -2662,12 +2682,12 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn olm_encryption() {
+    async fn test_olm_encryption() {
         olm_encryption_test_helper(false).await;
     }
 
     #[async_test]
-    async fn olm_encryption_with_fallback_key() {
+    async fn test_olm_encryption_with_fallback_key() {
         olm_encryption_test_helper(true).await;
     }
 
