@@ -588,7 +588,8 @@ impl TimelineInnerStateTransaction<'_> {
             is_own_event,
             encryption_info: event.encryption_info,
             read_receipts: if settings.track_read_receipts {
-                self.load_read_receipts_for_event(&event_id, room_data_provider).await
+                self.load_read_receipts_for_event(&event_id, room_data_provider).await;
+                self.meta.read_receipts.read_receipts_for_event(&event_id)
             } else {
                 Default::default()
             },
