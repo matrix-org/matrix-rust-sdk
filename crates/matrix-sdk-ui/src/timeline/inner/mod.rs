@@ -301,6 +301,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         self.state
             .write()
             .await
+            .read_receipts
             .users_read_receipts
             .entry(own_user_id)
             .or_default()
