@@ -17,7 +17,7 @@ use std::{fmt, ops::ControlFlow, pin::pin, sync::Arc, time::Duration};
 use matrix_sdk::{room::MessagesOptions, Result};
 use matrix_sdk_base::timeout::timeout;
 use ruma::assign;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, instrument, trace, warn};
 
 use super::{inner::HandleBackPaginatedEventsError, Timeline};
 
@@ -71,62 +71,92 @@ impl Timeline {
 
         let mut outcome = PaginationOutcome::new();
         while let Some(limit) = options.next_event_limit(outcome) {
-            let messages = self
-                .room()
-                .messages(assign!(MessagesOptions::backward(), {
-                    from: from.clone(),
-                    limit: limit.into(),
-                }))
-                .await?;
-            let chunk_len = messages.chunk.len();
-
-            let tokens = PaginationTokens { from, to: messages.end.clone() };
-            let res = match self.inner.handle_back_paginated_events(messages.chunk, tokens).await {
-                Ok(result) => Some(result),
-                Err(HandleBackPaginatedEventsError::TokenMismatch) => {
-                    info!("Start of timeline was altered since pagination was started, resetting");
+            match self.paginate_backwards_once(limit, from, &mut outcome).await? {
+                PaginateBackwardsOnceResult::Success { from: None } => {
+                    trace!("Start of timeline was reached");
+                    return Ok(ControlFlow::Break(BackPaginationStatus::TimelineStartReached));
+                }
+                PaginateBackwardsOnceResult::Success { from: Some(f) } => {
+                    from = Some(f);
+                    // continue
+                }
+                PaginateBackwardsOnceResult::TokenMismatch => {
+                    info!("Head of timeline was altered since pagination was started, resetting");
                     return Ok(ControlFlow::Continue(()));
                 }
-                Err(HandleBackPaginatedEventsError::ResultOverflow) => None,
+                PaginateBackwardsOnceResult::ResultOverflow => {
+                    error!("Received an excessive number of events, ending pagination");
+                    break;
+                }
             };
-
-            // FIXME: Change to try block once stable
-            let process_events_result = (|| {
-                let res = res?;
-
-                outcome.events_received = chunk_len.try_into().ok()?;
-                outcome.total_events_received =
-                    outcome.total_events_received.checked_add(outcome.events_received)?;
-
-                outcome.items_added = res.items_added;
-                outcome.items_updated = res.items_updated;
-                outcome.total_items_added =
-                    outcome.total_items_added.checked_add(outcome.items_added)?;
-                outcome.total_items_updated =
-                    outcome.total_items_updated.checked_add(outcome.items_updated)?;
-
-                Some(())
-            })();
-
-            from = messages.end;
-
-            if from.is_none() {
-                break;
-            }
-
-            if process_events_result.is_none() {
-                error!("Received an excessive number of events, ending pagination");
-                break;
-            }
         }
 
-        let status = if from.is_some() {
-            BackPaginationStatus::Idle
-        } else {
-            BackPaginationStatus::TimelineStartReached
+        Ok(ControlFlow::Break(BackPaginationStatus::Idle))
+    }
+
+    /// Do a single back-pagination request.
+    ///
+    /// Returns `Ok(ControlFlow::Continue(true))` if back-pagination should be
+    /// retried because the timeline was reset while a pagination request
+    /// was in-flight.
+    ///
+    /// Returns `Ok(ControlFlow::Break(status))` if back-pagination succeeded,
+    /// where `status` is the resulting back-pagination status, either
+    /// [`Idle`][BackPaginationStatus::Idle] or
+    /// [`TimelineStartReached`][BackPaginationStatus::TimelineStartReached].
+    ///
+    /// Returns `Err(_)` if the a pagination request failed. This doesn't mean
+    /// that no events were added to the timeline though, it is possible that
+    /// one or more pagination requests succeeded before the failure.
+    #[instrument(skip(self, outcome))]
+    async fn paginate_backwards_once(
+        &self,
+        limit: u16,
+        from: Option<String>,
+        outcome: &mut PaginationOutcome,
+    ) -> Result<PaginateBackwardsOnceResult> {
+        trace!("Requesting messages");
+
+        let messages = self
+            .room()
+            .messages(assign!(MessagesOptions::backward(), {
+                from: from.clone(),
+                limit: limit.into(),
+            }))
+            .await?;
+        let chunk_len = messages.chunk.len();
+
+        let tokens = PaginationTokens { from, to: messages.end.clone() };
+        let res = match self.inner.handle_back_paginated_events(messages.chunk, tokens).await {
+            Ok(result) => result,
+            Err(HandleBackPaginatedEventsError::TokenMismatch) => {
+                return Ok(PaginateBackwardsOnceResult::TokenMismatch);
+            }
+            Err(HandleBackPaginatedEventsError::ResultOverflow) => {
+                return Ok(PaginateBackwardsOnceResult::ResultOverflow);
+            }
         };
 
-        Ok(ControlFlow::Break(status))
+        // FIXME: Change to try block once stable
+        let mut update_outcome = || {
+            outcome.events_received = chunk_len.try_into().ok()?;
+            outcome.total_events_received =
+                outcome.total_events_received.checked_add(outcome.events_received)?;
+
+            outcome.items_added = res.items_added;
+            outcome.items_updated = res.items_updated;
+            outcome.total_items_added =
+                outcome.total_items_added.checked_add(outcome.items_added)?;
+            outcome.total_items_updated =
+                outcome.total_items_updated.checked_add(outcome.items_updated)?;
+
+            Some(())
+        };
+
+        Ok(match update_outcome() {
+            Some(()) => PaginateBackwardsOnceResult::Success { from: messages.end },
+            None => PaginateBackwardsOnceResult::ResultOverflow,
+        })
     }
 }
 
@@ -303,4 +333,19 @@ pub(super) struct PaginationTokens {
     pub from: Option<String>,
     /// The `end` parameter of the pagination response.
     pub to: Option<String>,
+}
+
+/// The `Ok` result of `paginate_backwards_once`.
+enum PaginateBackwardsOnceResult {
+    /// Success, the items from the response were prepended.
+    Success { from: Option<String> },
+    /// The `from` token is not equal to the first event item's back-pagination
+    /// token.
+    ///
+    /// This means that prepending the events from the back-pagination response
+    /// would result in a gap in the timeline. Back-pagination must be retried
+    /// with the current back-pagination token.
+    TokenMismatch,
+    /// Overflow in reporting the number of events / items processed.
+    ResultOverflow,
 }
