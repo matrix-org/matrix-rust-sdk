@@ -1155,14 +1155,15 @@ mod tests {
         algorithm: EventEncryptionAlgorithm,
     ) -> (GossipMachine, OutboundGroupSession, GossipMachine) {
         let alice_machine = get_machine().await;
-        let alice_device =
-            ReadOnlyDevice::from_account(&alice_machine.inner.store.cache().await.unwrap().account)
-                .await;
+        let alice_device = ReadOnlyDevice::from_account(
+            alice_machine.inner.store.cache().await.unwrap().account(),
+        )
+        .await;
 
         let bob_machine = test_gossip_machine(other_machine_owner);
 
         let bob_device =
-            ReadOnlyDevice::from_account(&bob_machine.inner.store.cache().await.unwrap().account)
+            ReadOnlyDevice::from_account(bob_machine.inner.store.cache().await.unwrap().account())
                 .await;
 
         // We need a trusted device, otherwise we won't request keys

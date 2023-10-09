@@ -504,7 +504,8 @@ impl OlmMachine {
 
         if reset || identity.is_empty().await {
             info!("Creating new cross signing identity");
-            let account = &self.inner.store.cache().await?.account;
+            let cache = self.inner.store.cache().await?;
+            let account = cache.account();
             let (id, request, signature_request) = account.bootstrap_cross_signing().await;
 
             *identity = id;
@@ -534,10 +535,11 @@ impl OlmMachine {
     }
 
     /// Get the underlying Olm account of the machine.
+    // TODO(BENJI) replace with direct access to the cache.
     #[cfg(any(test, feature = "testing"))]
     #[allow(dead_code)]
     pub(crate) async fn account(&self) -> Result<Account, CryptoStoreError> {
-        Ok(self.inner.store.cache().await?.account.clone())
+        Ok(self.inner.store.cache().await?.account().clone())
     }
 
     /// Receive a successful keys upload response.
@@ -1881,7 +1883,8 @@ impl OlmMachine {
     pub async fn sign(&self, message: &str) -> Result<Signatures, CryptoStoreError> {
         let mut signatures = Signatures::new();
 
-        let account = &self.inner.store.cache().await?.account;
+        let cache = self.inner.store.cache().await?;
+        let account = cache.account();
         let key_id = account.signing_key_id();
         let signature = account.sign(message).await;
         signatures.add_signature(self.user_id().to_owned(), key_id, signature);
@@ -2032,7 +2035,8 @@ impl OlmMachine {
     /// Testing purposes only.
     #[cfg(any(feature = "testing", test))]
     pub async fn uploaded_key_count(&self) -> Result<u64, CryptoStoreError> {
-        Ok(self.inner.store.cache().await?.account.uploaded_key_count())
+        let cache = self.inner.store.cache().await?;
+        Ok(cache.account().uploaded_key_count())
     }
 }
 

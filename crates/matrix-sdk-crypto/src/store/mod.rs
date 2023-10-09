@@ -109,7 +109,19 @@ pub struct Store {
 pub(crate) struct StoreCache {
     tracked_users: StdRwLock<BTreeSet<OwnedUserId>>,
     tracked_user_loading_lock: RwLock<bool>,
-    pub account: Account,
+    account: Account,
+}
+
+impl StoreCache {
+    /// Returns a reference to the `Account.`
+    ///
+    /// Either load the account from the cache, or the store, if missing from the cache.
+    ///
+    /// Note there should always be an account stored at least in the store, so this doesn't return
+    /// an `Option`.
+    pub fn account(&self) -> &Account {
+        &self.account
+    }
 }
 
 pub(crate) struct StoreCacheGuard {
