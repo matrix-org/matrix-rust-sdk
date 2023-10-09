@@ -1530,7 +1530,7 @@ mod tests {
             event_enums::{AcceptContent, KeyContent, MacContent, StartContent},
             FlowId,
         },
-        AcceptedProtocols, ReadOnlyAccount, ReadOnlyDevice,
+        AcceptedProtocols, Account, ReadOnlyDevice,
     };
 
     fn alice_id() -> &'static UserId {
@@ -1552,10 +1552,10 @@ mod tests {
     async fn get_sas_pair(
         mac_method: Option<SupportedMacMethod>,
     ) -> (SasState<Created>, SasState<WeAccepted>) {
-        let alice = ReadOnlyAccount::with_device_id(alice_id(), alice_device_id());
+        let alice = Account::with_device_id(alice_id(), alice_device_id());
         let alice_device = ReadOnlyDevice::from_account(&alice).await;
 
-        let bob = ReadOnlyAccount::with_device_id(bob_id(), bob_device_id());
+        let bob = Account::with_device_id(bob_id(), bob_device_id());
         let bob_device = ReadOnlyDevice::from_account(&bob).await;
 
         let flow_id = TransactionId::new().into();
@@ -1825,10 +1825,10 @@ mod tests {
 
     #[async_test]
     async fn sas_from_start_unknown_method() {
-        let alice = ReadOnlyAccount::with_device_id(alice_id(), alice_device_id());
+        let alice = Account::with_device_id(alice_id(), alice_device_id());
         let alice_device = ReadOnlyDevice::from_account(&alice).await;
 
-        let bob = ReadOnlyAccount::with_device_id(bob_id(), bob_device_id());
+        let bob = Account::with_device_id(bob_id(), bob_device_id());
         let bob_device = ReadOnlyDevice::from_account(&bob).await;
 
         let flow_id = TransactionId::new().into();

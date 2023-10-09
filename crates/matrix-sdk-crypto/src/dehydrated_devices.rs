@@ -57,10 +57,9 @@ use tracing::{instrument, trace};
 use vodozemac::LibolmPickleError;
 
 use crate::{
-    olm::Account,
     store::{CryptoStoreWrapper, MemoryStore, RoomKeyInfo, Store},
     verification::VerificationMachine,
-    CryptoStoreError, EncryptionSyncChanges, OlmError, OlmMachine, ReadOnlyAccount, SignatureError,
+    Account, CryptoStoreError, EncryptionSyncChanges, OlmError, OlmMachine, SignatureError,
 };
 
 /// Error type for device dehydration issues.
@@ -96,7 +95,7 @@ impl DehydratedDevices {
         let user_id = self.inner.user_id();
         let user_identity = self.inner.store().private_identity();
 
-        let account = ReadOnlyAccount::new(user_id);
+        let account = Account::new(user_id);
         let store = Arc::new(CryptoStoreWrapper::new(user_id, MemoryStore::new()));
 
         let verification_machine = VerificationMachine::new(
@@ -105,12 +104,9 @@ impl DehydratedDevices {
             store.clone(),
         );
 
-        let static_account = account.static_data().clone();
         let store = Store::new(account, user_identity, store, verification_machine);
 
-        let account = Account { static_data: static_account, store };
-
-        DehydratedDevice { account }
+        DehydratedDevice { store }
     }
 
     /// Rehydrate the dehydrated device.
@@ -270,7 +266,7 @@ impl RehydratedDevice {
 /// [`DehydratedDevice::keys_for_upload()`] method.
 #[derive(Debug)]
 pub struct DehydratedDevice {
-    account: Account,
+    store: Store,
 }
 
 impl DehydratedDevice {
@@ -307,9 +303,9 @@ impl DehydratedDevice {
     /// ```
     #[instrument(
         skip_all, fields(
-            user_id = ?self.account.static_data.user_id,
-            device_id = ?self.account.static_data.device_id,
-            identity_keys = ?self.account.static_data.identity_keys,
+            user_id = ?self.store.static_account().user_id,
+            device_id = ?self.store.static_account().device_id,
+            identity_keys = ?self.store.static_account().identity_keys,
         )
     )]
     pub async fn keys_for_upload(
@@ -317,7 +313,7 @@ impl DehydratedDevice {
         initial_device_display_name: String,
         pickle_key: &[u8; 32],
     ) -> Result<put_dehydrated_device::unstable::Request, DehydrationError> {
-        let mut transaction = self.account.store.transaction().await?;
+        let mut transaction = self.store.transaction().await?;
 
         let account = transaction.account().await?;
         account.generate_fallback_key_helper().await;
@@ -327,18 +323,12 @@ impl DehydratedDevice {
         let mut device_keys = device_keys
             .expect("We should always try to upload device keys for a dehydrated device.");
 
-        self.account
-            .store
-            .private_identity()
-            .lock()
-            .await
-            .sign_device_keys(&mut device_keys)
-            .await?;
+        self.store.private_identity().lock().await.sign_device_keys(&mut device_keys).await?;
 
         trace!("Creating an upload request for a dehydrated device");
 
-        let pickle_key = expand_pickle_key(pickle_key, &self.account.static_data.device_id);
-        let device_id = self.account.static_data.device_id.clone();
+        let pickle_key = expand_pickle_key(pickle_key, &self.store.static_account().device_id);
+        let device_id = self.store.static_account().device_id.clone();
         let device_data = account.dehydrate(&pickle_key).await;
         let initial_device_display_name = Some(initial_device_display_name);
 
@@ -488,7 +478,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn dehydrated_device_rehydration() {
+    async fn test_dehydrated_device_rehydration() {
         let room_id = room_id!("!test:example.org");
         let alice = get_olm_machine().await;
 
@@ -532,6 +522,9 @@ mod tests {
             .rehydrate(PICKLE_KEY, &request.device_id, request.device_data)
             .await
             .expect("We should be able to rehydrate the device");
+
+        assert_eq!(rehydrated.rehydrated.device_id(), request.device_id);
+        assert_eq!(rehydrated.original.device_id(), alice.device_id());
 
         // Push the to-device event containing the room key into the rehydrated device.
         let ret = rehydrated

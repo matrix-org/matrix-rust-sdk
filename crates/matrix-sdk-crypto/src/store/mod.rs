@@ -67,8 +67,8 @@ use crate::{
         user::UserIdentities, Device, ReadOnlyDevice, ReadOnlyUserIdentities, UserDevices,
     },
     olm::{
-        InboundGroupSession, OlmMessageHash, OutboundGroupSession, PrivateCrossSigningIdentity,
-        ReadOnlyAccount, Session, StaticAccountData,
+        Account, InboundGroupSession, OlmMessageHash, OutboundGroupSession,
+        PrivateCrossSigningIdentity, Session, StaticAccountData,
     },
     types::{events::room_key_withheld::RoomKeyWithheldEvent, EventEncryptionAlgorithm},
     verification::VerificationMachine,
@@ -110,7 +110,7 @@ pub struct Store {
 pub(crate) struct StoreCache {
     tracked_users: StdRwLock<BTreeSet<OwnedUserId>>,
     tracked_user_loading_lock: RwLock<bool>,
-    pub account: ReadOnlyAccount,
+    pub account: Account,
 }
 
 pub(crate) struct StoreCacheGuard {
@@ -144,8 +144,13 @@ impl StoreTransaction {
         Ok(Self { store, changes: PendingChanges::default(), cache })
     }
 
-    /// Gets a `ReadOnlyAccount` for update.
-    pub async fn account(&mut self) -> Result<&mut ReadOnlyAccount> {
+    /// Returns a reference to the current `Store`.
+    pub fn store(&self) -> &Store {
+        &self.store
+    }
+
+    /// Gets a `Account` for update.
+    pub async fn account(&mut self) -> Result<&mut Account> {
         if self.changes.account.is_none() {
             self.changes.account = Some(self.cache.account.clone());
         }
@@ -201,7 +206,7 @@ struct StoreInner {
 #[derive(Default, Debug)]
 #[allow(missing_docs)]
 pub struct PendingChanges {
-    pub account: Option<ReadOnlyAccount>,
+    pub account: Option<Account>,
 }
 
 impl PendingChanges {
@@ -588,7 +593,7 @@ impl From<&InboundGroupSession> for RoomKeyInfo {
 impl Store {
     /// Create a new Store.
     pub(crate) fn new(
-        account: ReadOnlyAccount,
+        account: Account,
         identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
         store: Arc<CryptoStoreWrapper>,
         verification_machine: VerificationMachine,
@@ -645,7 +650,6 @@ impl Store {
 
     // Note: bnjbvr lost against borrowck here. Ideally, the `F` parameter would
     // take a `&StoreTransaction`, but callers didn't quite like that.
-    #[cfg(test)]
     pub(crate) async fn with_transaction<
         T,
         Fut: futures_core::Future<Output = Result<(StoreTransaction, T), crate::OlmError>>,

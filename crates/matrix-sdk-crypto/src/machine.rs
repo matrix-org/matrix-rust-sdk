@@ -63,8 +63,7 @@ use crate::{
     identities::{user::UserIdentities, Device, IdentityManager, UserDevices},
     olm::{
         Account, CrossSigningStatus, EncryptionSettings, ExportedRoomKey, IdentityKeys,
-        InboundGroupSession, OlmDecryptionInfo, PrivateCrossSigningIdentity, ReadOnlyAccount,
-        SessionType,
+        InboundGroupSession, OlmDecryptionInfo, PrivateCrossSigningIdentity, SessionType,
     },
     requests::{IncomingResponse, OutgoingRequest, UploadSigningKeysRequest},
     session_manager::{GroupSessionManager, SessionManager},
@@ -105,8 +104,6 @@ pub struct OlmMachineInner {
     user_id: OwnedUserId,
     /// The unique device ID of the device that holds this account.
     device_id: OwnedDeviceId,
-    /// Our underlying Olm Account holding our identity keys.
-    account: Account,
     /// The private part of our cross signing identity.
     /// Used to sign devices and other users, might be missing if some other
     /// device bootstrapped cross signing or cross signing isn't bootstrapped at
@@ -170,63 +167,47 @@ impl OlmMachine {
         device_data: Raw<DehydratedDeviceData>,
     ) -> Result<OlmMachine, DehydrationError> {
         let account =
-            ReadOnlyAccount::rehydrate(pickle_key, self.user_id(), device_id, device_data).await?;
+            Account::rehydrate(pickle_key, self.user_id(), device_id, device_data).await?;
 
         let store = Arc::new(CryptoStoreWrapper::new(self.user_id(), MemoryStore::new()));
 
-        Ok(Self::new_helper(
-            self.user_id(),
-            self.device_id(),
-            store,
-            account,
-            self.store().private_identity(),
-        ))
+        Ok(Self::new_helper(device_id, store, account, self.store().private_identity()))
     }
 
     fn new_helper(
-        user_id: &UserId,
         device_id: &DeviceId,
         store: Arc<CryptoStoreWrapper>,
-        account: ReadOnlyAccount,
+        account: Account,
         user_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
     ) -> Self {
-        let user_id: OwnedUserId = user_id.into();
+        let verification_machine = VerificationMachine::new(
+            account.static_data().clone(),
+            user_identity.clone(),
+            store.clone(),
+        );
+        let store =
+            Store::new(account.clone(), user_identity.clone(), store, verification_machine.clone());
 
-        let static_account = account.static_data().clone();
-        let verification_machine =
-            VerificationMachine::new(static_account.clone(), user_identity.clone(), store.clone());
+        let group_session_manager = GroupSessionManager::new(store.clone());
 
-        let store = Store::new(account, user_identity.clone(), store, verification_machine.clone());
-        let device_id: OwnedDeviceId = device_id.into();
         let users_for_key_claim = Arc::new(StdRwLock::new(BTreeMap::new()));
-
-        let group_session_manager = GroupSessionManager::new(static_account.clone(), store.clone());
-
         let key_request_machine = GossipMachine::new(
-            static_account.clone(),
             store.clone(),
             group_session_manager.session_cache(),
             users_for_key_claim.clone(),
         );
-        let identity_manager =
-            IdentityManager::new(user_id.clone(), device_id.clone(), store.clone());
 
-        let session_manager = SessionManager::new(
-            static_account.clone(),
-            users_for_key_claim,
-            key_request_machine.clone(),
-            store.clone(),
-        );
+        let session_manager =
+            SessionManager::new(users_for_key_claim, key_request_machine.clone(), store.clone());
 
         #[cfg(feature = "backups_v1")]
-        let backup_machine = BackupMachine::new(static_account.clone(), store.clone(), None);
+        let backup_machine = BackupMachine::new(store.clone(), None);
 
-        let account = Account { store: store.clone(), static_data: static_account };
+        let identity_manager = IdentityManager::new(store.clone());
 
         let inner = Arc::new(OlmMachineInner {
-            user_id,
-            device_id,
-            account,
+            user_id: store.user_id().to_owned(),
+            device_id: device_id.to_owned(),
             user_identity,
             store,
             session_manager,
@@ -284,7 +265,7 @@ impl OlmMachine {
                 account
             }
             None => {
-                let account = ReadOnlyAccount::with_device_id(user_id, device_id);
+                let account = Account::with_device_id(user_id, device_id);
 
                 Span::current()
                     .record("ed25519_key", display(account.identity_keys().ed25519))
@@ -329,7 +310,7 @@ impl OlmMachine {
 
         let identity = Arc::new(Mutex::new(identity));
         let store = Arc::new(CryptoStoreWrapper::new(user_id, store));
-        Ok(OlmMachine::new_helper(user_id, device_id, store, account, identity))
+        Ok(OlmMachine::new_helper(device_id, store, account, identity))
     }
 
     /// Get the crypto store associated with this `OlmMachine` instance.
@@ -555,7 +536,7 @@ impl OlmMachine {
     /// Get the underlying Olm account of the machine.
     #[cfg(any(test, feature = "testing"))]
     #[allow(dead_code)]
-    pub(crate) async fn account(&self) -> Result<ReadOnlyAccount, CryptoStoreError> {
+    pub(crate) async fn account(&self) -> Result<Account, CryptoStoreError> {
         Ok(self.inner.store.cache().await?.account.clone())
     }
 
@@ -569,7 +550,14 @@ impl OlmMachine {
         &self,
         response: &upload_keys::v3::Response,
     ) -> OlmResult<()> {
-        self.inner.account.receive_keys_upload_response(response).await
+        self.inner
+            .store
+            .with_transaction(|mut tr| async {
+                let account = tr.account().await?;
+                account.receive_keys_upload_response(response).await?;
+                Ok((tr, ()))
+            })
+            .await
     }
 
     /// Get the a key claiming request for the user/device pairs that we are
@@ -641,7 +629,7 @@ impl OlmMachine {
     /// the [`OlmMachine`] with the [`receive_keys_upload_response`].
     ///
     /// [`receive_keys_upload_response`]: #method.receive_keys_upload_response
-    async fn keys_for_upload(&self, account: &ReadOnlyAccount) -> Option<upload_keys::v3::Request> {
+    async fn keys_for_upload(&self, account: &Account) -> Option<upload_keys::v3::Request> {
         let (device_keys, one_time_keys, fallback_keys) = account.keys_for_upload().await;
 
         if device_keys.is_none() && one_time_keys.is_empty() && fallback_keys.is_empty() {
@@ -669,7 +657,9 @@ impl OlmMachine {
         event: &EncryptedToDeviceEvent,
         changes: &mut Changes,
     ) -> OlmResult<OlmDecryptionInfo> {
-        let mut decrypted = self.inner.account.decrypt_to_device_event(transaction, event).await?;
+        let mut decrypted =
+            transaction.account().await?.decrypt_to_device_event(&self.inner.store, event).await?;
+
         // Handle the decrypted event, e.g. fetch out Megolm sessions out of
         // the event.
         self.handle_decrypted_to_device_event(&mut decrypted, changes).await?;
@@ -2135,7 +2125,7 @@ pub(crate) mod tests {
         },
         utilities::json_convert,
         verification::tests::{bob_id, outgoing_request_to_event, request_to_event},
-        EncryptionSettings, LocalTrust, MegolmError, OlmError, OutgoingRequests, ReadOnlyAccount,
+        Account, EncryptionSettings, LocalTrust, MegolmError, OlmError, OutgoingRequests,
         ReadOnlyDevice, ToDeviceRequest, UserIdentities,
     };
 
@@ -2363,7 +2353,7 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_invalid_signature() {
-        let account = ReadOnlyAccount::with_device_id(user_id(), alice_device_id());
+        let account = Account::with_device_id(user_id(), alice_device_id());
 
         let device_keys = account.device_keys().await;
 
@@ -2379,7 +2369,7 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_one_time_key_signing() {
-        let account = ReadOnlyAccount::with_device_id(user_id(), alice_device_id());
+        let account = Account::with_device_id(user_id(), alice_device_id());
         account.update_uploaded_key_count(49);
         account.generate_one_time_keys().await;
 
