@@ -654,8 +654,11 @@ mod tests {
         let manager = session_manager_test_helper().await;
         let bob = bob_account();
 
-        let manager_account = &manager.store.cache().await.unwrap().account;
-        let (_, mut session) = bob.create_session_for(manager_account).await;
+        let (_, mut session) = {
+            let cache = manager.store.cache().await.unwrap();
+            let manager_account = cache.account();
+            bob.create_session_for(manager_account).await
+        };
 
         let bob_device = ReadOnlyDevice::from_account(&bob).await;
         let time = SystemTime::now() - Duration::from_secs(3601);

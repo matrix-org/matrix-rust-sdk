@@ -869,7 +869,7 @@ impl ReadOnlyDevice {
     pub async fn from_machine_test_helper(
         machine: &OlmMachine,
     ) -> Result<ReadOnlyDevice, crate::CryptoStoreError> {
-        Ok(ReadOnlyDevice::from_account(&machine.store().cache().await?.account).await)
+        Ok(ReadOnlyDevice::from_account(machine.store().cache().await?.account()).await)
     }
 
     /// Create a `ReadOnlyDevice` from an `Account`
