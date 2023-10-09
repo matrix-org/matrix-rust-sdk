@@ -1176,6 +1176,7 @@ pub(crate) mod testing {
 pub(crate) mod tests {
     use std::ops::Deref;
 
+    use anyhow::Context;
     use futures_util::pin_mut;
     use matrix_sdk_test::{async_test, response_from_file};
     use ruma::{
@@ -1262,10 +1263,10 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn test_manager_own_key_query_response() {
+    async fn test_manager_own_key_query_response() -> anyhow::Result<()> {
         let manager = manager(user_id(), device_id()).await;
         let our_user = user_id();
-        let devices = manager.store.get_user_devices(our_user).await.unwrap();
+        let devices = manager.store.get_user_devices(our_user).await?;
         assert_eq!(devices.devices().count(), 0);
 
         let private_identity = manager.store.private_identity();
@@ -1273,26 +1274,26 @@ pub(crate) mod tests {
         let identity_request = private_identity.as_upload_request().await;
         drop(private_identity);
 
-        let device_keys = manager.store.cache().await.unwrap().account().device_keys().await;
+        let device_keys = manager.store.cache().await?.account().await?.device_keys().await;
         manager
             .receive_keys_query_response(
                 &TransactionId::new(),
                 &key_query(identity_request, device_keys),
             )
-            .await
-            .unwrap();
+            .await?;
 
-        let identity = manager.store.get_user_identity(our_user).await.unwrap().unwrap();
-        let identity = identity.own().unwrap();
+        let identity =
+            manager.store.get_user_identity(our_user).await?.context("missing user identity")?;
+        let identity = identity.own().context("missing own identity")?;
         assert!(identity.is_verified());
 
-        let devices = manager.store.get_user_devices(our_user).await.unwrap();
+        let devices = manager.store.get_user_devices(our_user).await?;
         assert_eq!(devices.devices().count(), 1);
 
-        let device =
-            manager.store.get_readonly_device(our_user, device_id!(device_id())).await.unwrap();
+        let device = manager.store.get_readonly_device(our_user, device_id!(device_id())).await?;
 
         assert!(device.is_some());
+        Ok(())
     }
 
     #[async_test]

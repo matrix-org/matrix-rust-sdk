@@ -656,7 +656,7 @@ mod tests {
 
         let (_, mut session) = {
             let cache = manager.store.cache().await.unwrap();
-            let manager_account = cache.account();
+            let manager_account = cache.account().await.unwrap();
             bob.create_session_for(manager_account).await
         };
 

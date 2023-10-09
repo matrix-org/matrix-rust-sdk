@@ -147,7 +147,7 @@ impl OwnUserIdentity {
         }
 
         let cache = self.store.cache().await?;
-        cache.account().sign_master_key(self.master_key.clone()).await
+        cache.account().await?.sign_master_key(self.master_key.clone()).await
     }
 
     /// Send a verification request to our other devices.
@@ -174,7 +174,7 @@ impl OwnUserIdentity {
     /// own device keys with our self-signing key.
     pub async fn trusts_our_own_device(&self) -> Result<bool, CryptoStoreError> {
         Ok(if let Some(signatures) = self.verification_machine.store.device_signatures().await? {
-            let mut device_keys = self.store.cache().await?.account().device_keys().await;
+            let mut device_keys = self.store.cache().await?.account().await?.device_keys().await;
             device_keys.signatures = signatures;
 
             self.inner.self_signing_key().verify_device_keys(&device_keys).is_ok()

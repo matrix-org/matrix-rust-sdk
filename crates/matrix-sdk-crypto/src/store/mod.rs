@@ -119,8 +119,8 @@ impl StoreCache {
     ///
     /// Note there should always be an account stored at least in the store, so this doesn't return
     /// an `Option`.
-    pub fn account(&self) -> &Account {
-        &self.account
+    pub async fn account(&self) -> Result<&Account> {
+        Ok(&self.account)
     }
 }
 

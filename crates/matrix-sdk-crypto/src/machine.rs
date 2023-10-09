@@ -505,7 +505,7 @@ impl OlmMachine {
         if reset || identity.is_empty().await {
             info!("Creating new cross signing identity");
             let cache = self.inner.store.cache().await?;
-            let account = cache.account();
+            let account = cache.account().await?;
             let (id, request, signature_request) = account.bootstrap_cross_signing().await;
 
             *identity = id;
@@ -1876,7 +1876,7 @@ impl OlmMachine {
         let mut signatures = Signatures::new();
 
         let cache = self.inner.store.cache().await?;
-        let account = cache.account();
+        let account = cache.account().await?;
         let key_id = account.signing_key_id();
         let signature = account.sign(message).await;
         signatures.add_signature(self.user_id().to_owned(), key_id, signature);
@@ -2028,7 +2028,7 @@ impl OlmMachine {
     #[cfg(any(feature = "testing", test))]
     pub async fn uploaded_key_count(&self) -> Result<u64, CryptoStoreError> {
         let cache = self.inner.store.cache().await?;
-        Ok(cache.account().uploaded_key_count())
+        Ok(cache.account().await?.uploaded_key_count())
     }
 }
 
@@ -2294,7 +2294,7 @@ pub(crate) mod tests {
         let machine = OlmMachine::new(user_id(), alice_device_id()).await;
 
         let cache = machine.store().cache().await.unwrap();
-        let account = cache.account();
+        let account = cache.account().await.unwrap();
         assert!(!account.shared());
 
         let own_device = machine
@@ -2340,7 +2340,7 @@ pub(crate) mod tests {
 
         let (device_keys, identity_keys) = {
             let cache = machine.store().cache().await.unwrap();
-            let account = cache.account();
+            let account = cache.account().await.unwrap();
             let device_keys = account.device_keys().await;
             let identity_keys = account.identity_keys();
             (device_keys, identity_keys)
@@ -2431,7 +2431,7 @@ pub(crate) mod tests {
             .expect("We should be able to update our one-time key counts");
 
         let cache = machine.store().cache().await.unwrap();
-        let account = cache.account();
+        let account = cache.account().await.unwrap();
         let ed25519_key = account.identity_keys().ed25519;
 
         let mut request =
