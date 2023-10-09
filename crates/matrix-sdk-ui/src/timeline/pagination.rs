@@ -22,6 +22,20 @@ use tracing::{debug, error, info, warn};
 use super::{inner::HandleBackPaginatedEventsError, Timeline};
 
 impl Timeline {
+    /// Run back-pagination.
+    ///
+    /// Returns `Ok(ControlFlow::Continue(()))` if back-pagination should be
+    /// retried because the timeline was reset while a pagination request was
+    /// in-flight.
+    ///
+    /// Returns `Ok(ControlFlow::Break(status))` if back-pagination succeeded,
+    /// where `status` is the resulting back-pagination status, either
+    /// [`Idle`][BackPaginationStatus::Idle] or
+    /// [`TimelineStartReached`][BackPaginationStatus::TimelineStartReached].
+    ///
+    /// Returns `Err(_)` if the a pagination request failed. This doesn't mean
+    /// that no events were added to the timeline though, it is possible that
+    /// one or more pagination requests succeeded before the failure.
     pub(super) async fn paginate_backwards_impl(
         &self,
         mut options: PaginationOptions<'_>,
