@@ -78,7 +78,7 @@ impl Timeline {
                 }
                 PaginateBackwardsOnceResult::Success { from: Some(f) } => {
                     from = Some(f);
-                    // continue
+                    // fall through and continue the loop
                 }
                 PaginateBackwardsOnceResult::TokenMismatch => {
                     info!("Head of timeline was altered since pagination was started, resetting");
