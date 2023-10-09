@@ -171,7 +171,7 @@ impl Timeline {
         loop {
             match self.paginate_backwards_impl(options.clone()).await {
                 Ok(ControlFlow::Continue(())) => {
-                    // loop
+                    // fall through and continue the loop
                 }
                 Ok(ControlFlow::Break(status)) => {
                     self.back_pagination_status.set_if_not_eq(status);

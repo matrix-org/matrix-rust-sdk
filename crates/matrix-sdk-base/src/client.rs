@@ -54,7 +54,7 @@ use tokio::sync::RwLockReadGuard;
 use tracing::{debug, info, instrument, trace, warn};
 
 #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
-use crate::latest_event::{is_suitable_for_latest_event, PossibleLatestEvent};
+use crate::latest_event::{is_suitable_for_latest_event, LatestEvent, PossibleLatestEvent};
 use crate::{
     deserialized_responses::{AmbiguityChanges, MembersResponse, SyncTimelineEvent},
     error::Result,
@@ -620,10 +620,7 @@ impl BaseClient {
     /// decrypted event if we found one, along with its index in the
     /// latest_encrypted_events list, or None if we didn't find one.
     #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
-    async fn decrypt_latest_suitable_event(
-        &self,
-        room: &Room,
-    ) -> Option<(SyncTimelineEvent, usize)> {
+    async fn decrypt_latest_suitable_event(&self, room: &Room) -> Option<(LatestEvent, usize)> {
         let enc_events = room.latest_encrypted_events();
 
         // Walk backwards through the encrypted events, looking for one we can decrypt
@@ -636,7 +633,7 @@ impl BaseClient {
                         is_suitable_for_latest_event(&any_sync_event)
                     {
                         // The event is the right type for us to use as latest_event
-                        return Some((decrypted, i));
+                        return Some((LatestEvent::new(decrypted), i));
                     }
                 }
             }

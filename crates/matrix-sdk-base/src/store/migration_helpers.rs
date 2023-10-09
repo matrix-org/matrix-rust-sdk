@@ -38,6 +38,8 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "experimental-sliding-sync")]
+use crate::latest_event::LatestEvent;
 use crate::{
     deserialized_responses::SyncOrStrippedState,
     rooms::{
@@ -115,7 +117,7 @@ impl RoomInfoV1 {
             sync_info,
             encryption_state_synced,
             #[cfg(feature = "experimental-sliding-sync")]
-            latest_event,
+            latest_event: latest_event.map(LatestEvent::new),
             base_info: base_info.migrate(create),
         }
     }

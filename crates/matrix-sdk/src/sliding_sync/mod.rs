@@ -50,12 +50,13 @@ use tokio::{
 use tracing::{debug, error, info, instrument, trace, warn, Instrument, Span};
 use url::Url;
 
+#[cfg(feature = "e2e-encryption")]
+use self::utils::JoinHandleExt as _;
 pub use self::{builder::*, error::*, list::*, room::*};
 use self::{
     cache::restore_sliding_sync_state,
     client::SlidingSyncResponseProcessor,
     sticky_parameters::{LazyTransactionId, SlidingSyncStickyManager, StickyData},
-    utils::JoinHandleExt as _,
 };
 use crate::{config::RequestConfig, Client, Result};
 

@@ -315,10 +315,10 @@ impl Room {
 
         // Otherwise, fallback to the classical path.
         let latest_event = match self.inner.latest_event() {
-            Some(ev) => matrix_sdk_ui::timeline::EventTimelineItem::from_latest_event(
+            Some(latest_event) => matrix_sdk_ui::timeline::EventTimelineItem::from_latest_event(
                 self.inner.client(),
                 self.inner.room_id(),
-                ev,
+                latest_event,
             )
             .await
             .map(EventTimelineItem)
