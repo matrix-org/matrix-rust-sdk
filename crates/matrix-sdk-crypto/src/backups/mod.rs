@@ -288,8 +288,6 @@ impl BackupMachine {
         auth_data: MegolmV1AuthData,
         compute_all_signatures: bool,
     ) -> Result<SignatureVerification, CryptoStoreError> {
-        trace!(?auth_data, "Verifying backup auth data");
-
         let serialized_auth_data = match auth_data.to_canonical_json() {
             Ok(s) => s,
             Err(e) => {
