@@ -3185,7 +3185,7 @@ dependencies = [
  "matrix-sdk-qrcode",
  "matrix-sdk-test",
  "olm-rs",
- "pbkdf2 0.11.0",
+ "pbkdf2 0.12.2",
  "proptest",
  "rand 0.8.5",
  "rmp-serde",
