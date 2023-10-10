@@ -257,6 +257,7 @@ pub(crate) struct OidcAuthData {
     pub(crate) authorization_data: Mutex<HashMap<String, AuthorizationValidationData>>,
 }
 
+#[cfg(not(tarpaulin_include))]
 impl fmt::Debug for OidcAuthData {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("OidcAuthData")
@@ -308,6 +309,10 @@ impl Oidc {
     /// Must be called after `set_session_meta`.
     async fn deferred_enable_cross_process_refresh_lock(&self) -> Result<()> {
         let deferred_init_lock = self.ctx().deferred_cross_process_lock_init.lock().await;
+
+        // Don't `take()` the value, so that subsequent calls to
+        // `enable_cross_process_refresh_lock` will keep on failing if we've enabled the
+        // lock at least once.
         let Some(lock_value) = deferred_init_lock.as_ref() else {
             return Ok(());
         };
@@ -335,10 +340,9 @@ impl Oidc {
 
         let manager = CrossProcessRefreshManager::new(store.clone(), lock);
 
-        self.ctx()
-            .cross_process_token_refresh_manager
-            .set(manager)
-            .map_err(|_| crate::Error::Oidc(CrossProcessRefreshLockError::DuplicatedLock.into()))?;
+        // This method is guarded with the `deferred_cross_process_lock_init` lock held,
+        // so this `set` can't be an error.
+        let _ = self.ctx().cross_process_token_refresh_manager.set(manager);
 
         Ok(())
     }
@@ -1310,6 +1314,7 @@ pub struct OidcSessionTokens {
     pub latest_id_token: Option<IdToken<'static>>,
 }
 
+#[cfg(not(tarpaulin_include))]
 impl fmt::Debug for OidcSessionTokens {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SessionTokens").finish_non_exhaustive()
