@@ -18,11 +18,10 @@ use std::{
     ops::Deref,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        Arc, RwLock,
     },
 };
 
-use atomic::Atomic;
 use ruma::{
     api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
     events::{key::verification::VerificationMethod, AnyToDeviceEventContent},
@@ -30,7 +29,7 @@ use ruma::{
     DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch, OwnedDeviceId,
     OwnedDeviceKeyId, UInt, UserId,
 };
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::Mutex;
 use tracing::{instrument, trace, warn};
@@ -78,11 +77,7 @@ pub struct ReadOnlyDevice {
         deserialize_with = "atomic_bool_deserializer"
     )]
     deleted: Arc<AtomicBool>,
-    #[serde(
-        serialize_with = "local_trust_serializer",
-        deserialize_with = "local_trust_deserializer"
-    )]
-    trust_state: Arc<Atomic<LocalTrust>>,
+    trust_state: Arc<RwLock<LocalTrust>>,
     /// Flag remembering if we successfully sent an `m.no_olm` withheld code to
     /// this device.
     #[serde(
@@ -115,24 +110,8 @@ impl std::fmt::Debug for ReadOnlyDevice {
     }
 }
 
-fn local_trust_serializer<S>(x: &Atomic<LocalTrust>, s: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    let value = x.load(Ordering::SeqCst);
-    s.serialize_some(&value)
-}
-
-fn local_trust_deserializer<'de, D>(deserializer: D) -> Result<Arc<Atomic<LocalTrust>>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let value = LocalTrust::deserialize(deserializer)?;
-    Ok(Arc::new(Atomic::new(value)))
-}
-
-#[derive(Clone)]
 /// A device represents a E2EE capable client of an user.
+#[derive(Clone)]
 pub struct Device {
     pub(crate) inner: ReadOnlyDevice,
     pub(crate) verification_machine: VerificationMachine,
@@ -603,7 +582,7 @@ impl ReadOnlyDevice {
     pub fn new(device_keys: DeviceKeys, trust_state: LocalTrust) -> Self {
         Self {
             inner: device_keys.into(),
-            trust_state: Arc::new(Atomic::new(trust_state)),
+            trust_state: Arc::new(RwLock::new(trust_state)),
             deleted: Arc::new(AtomicBool::new(false)),
             withheld_code_sent: Arc::new(AtomicBool::new(false)),
             first_time_seen_ts: MilliSecondsSinceUnixEpoch::now(),
@@ -652,7 +631,7 @@ impl ReadOnlyDevice {
 
     /// Get the trust state of the device.
     pub fn local_trust_state(&self) -> LocalTrust {
-        self.trust_state.load(Ordering::Relaxed)
+        *self.trust_state.read().unwrap()
     }
 
     /// Is the device locally marked as trusted.
@@ -672,7 +651,7 @@ impl ReadOnlyDevice {
     /// Note: This should only done in the crypto store where the trust state
     /// can be stored.
     pub(crate) fn set_trust_state(&self, state: LocalTrust) {
-        self.trust_state.store(state, Ordering::Relaxed)
+        *self.trust_state.write().unwrap() = state;
     }
 
     pub(crate) fn mark_withheld_code_as_sent(&self) {
@@ -928,7 +907,7 @@ impl TryFrom<&DeviceKeys> for ReadOnlyDevice {
         let device = Self {
             inner: device_keys.clone().into(),
             deleted: Arc::new(AtomicBool::new(false)),
-            trust_state: Arc::new(Atomic::new(LocalTrust::Unset)),
+            trust_state: Arc::new(RwLock::new(LocalTrust::Unset)),
             withheld_code_sent: Arc::new(AtomicBool::new(false)),
             first_time_seen_ts: MilliSecondsSinceUnixEpoch::now(),
         };

@@ -726,9 +726,8 @@ pub struct PickledOutboundGroupSession {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::{sync::atomic::Ordering, time::Duration};
 
-    use atomic::Ordering;
     use matrix_sdk_test::async_test;
     use ruma::{
         device_id,

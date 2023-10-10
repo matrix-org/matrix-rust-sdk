@@ -20,10 +20,12 @@
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     fmt::Display,
-    sync::{atomic::AtomicBool, Arc, RwLock as StdRwLock, Weak},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, RwLock as StdRwLock, Weak,
+    },
 };
 
-use atomic::Ordering;
 use ruma::{DeviceId, OwnedDeviceId, OwnedRoomId, OwnedUserId, RoomId, UserId};
 use tokio::sync::Mutex;
 use tracing::{field::display, instrument, trace, Span};
