@@ -613,8 +613,12 @@ impl TimelineInnerStateTransaction<'_> {
             timestamp,
             is_own_event,
             encryption_info: event.encryption_info,
-            read_receipts: if settings.track_read_receipts {
-                self.meta.read_receipts.read_receipts_for_event(&event_id)
+            read_receipts: if settings.track_read_receipts && should_add {
+                self.meta.read_receipts.read_receipts_for_event(
+                    &event_id,
+                    &self.all_events,
+                    matches!(position, TimelineItemPosition::End { .. }),
+                )
             } else {
                 Default::default()
             },
@@ -715,6 +719,12 @@ impl TimelineInnerStateTransaction<'_> {
                     self.all_events.iter_mut().find(|e| e.event_id == event_meta.event_id)
                 {
                     event.visible = event_meta.visible;
+
+                    if settings.track_read_receipts {
+                        // Since the event's visibility changed, we need to update the read
+                        // receipts of the previous visible event.
+                        self.maybe_update_read_receipts_of_prev_event(event_meta.event_id);
+                    }
                 }
             }
         }
@@ -758,7 +768,7 @@ impl DerefMut for TimelineInnerStateTransaction<'_> {
 pub(in crate::timeline) struct TimelineInnerMetadata {
     /// List of all the events as received in the timeline, even the ones that
     /// are discarded in the timeline items.
-    all_events: VecDeque<EventMeta>,
+    pub all_events: VecDeque<EventMeta>,
     next_internal_id: u64,
     pub reactions: Reactions,
     pub poll_pending_events: PollPendingEvents,
@@ -924,9 +934,9 @@ impl<'a> FullEventMeta<'a> {
 
 /// Metadata about an event that needs to be kept in memory.
 #[derive(Debug, Clone)]
-struct EventMeta {
+pub struct EventMeta {
     /// The ID of the event.
-    event_id: OwnedEventId,
+    pub event_id: OwnedEventId,
     /// Whether the event is among the timeline items.
-    visible: bool,
+    pub visible: bool,
 }
