@@ -147,7 +147,8 @@ impl OwnUserIdentity {
         }
 
         let cache = self.store.cache().await?;
-        cache.account().await?.sign_master_key(self.master_key.clone()).await
+        let account = cache.account().await?;
+        account.sign_master_key(self.master_key.clone()).await
     }
 
     /// Send a verification request to our other devices.

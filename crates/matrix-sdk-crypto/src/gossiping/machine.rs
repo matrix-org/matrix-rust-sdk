@@ -1069,7 +1069,7 @@ mod tests {
         identities::{LocalTrust, ReadOnlyDevice},
         olm::{Account, PrivateCrossSigningIdentity},
         session_manager::GroupSessionCache,
-        store::{CryptoStoreWrapper, MemoryStore, Store},
+        store::{CryptoStoreWrapper, MemoryStore, PendingChanges, Store},
         types::events::room::encrypted::{EncryptedEvent, RoomEncryptedEventContent},
         verification::VerificationMachine,
     };
@@ -1113,7 +1113,7 @@ mod tests {
     }
 
     #[cfg(feature = "automatic-room-key-forwarding")]
-    fn test_gossip_machine(user_id: &UserId) -> GossipMachine {
+    async fn gossip_machine_test_helper(user_id: &UserId) -> GossipMachine {
         let user_id = user_id.to_owned();
         let device_id = DeviceId::new();
 
@@ -1122,13 +1122,15 @@ mod tests {
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())));
         let verification =
             VerificationMachine::new(account.static_data.clone(), identity.clone(), store.clone());
-        let store = Store::new(account, identity, store, verification);
+        let store = Store::new(account.static_data().clone(), identity, store, verification);
+        store.save_pending_changes(PendingChanges { account: Some(account) }).await.unwrap();
+
         let session_cache = GroupSessionCache::new(store.clone());
 
         GossipMachine::new(store, session_cache, Default::default())
     }
 
-    async fn get_machine() -> GossipMachine {
+    async fn get_machine_test_helper() -> GossipMachine {
         let user_id = alice_id().to_owned();
         let account = Account::with_device_id(&user_id, alice_device_id());
         let device = ReadOnlyDevice::from_account(&account).await;
@@ -1141,8 +1143,9 @@ mod tests {
         let verification =
             VerificationMachine::new(account.static_data.clone(), identity.clone(), store.clone());
 
-        let store = Store::new(account, identity, store, verification);
+        let store = Store::new(account.static_data().clone(), identity, store, verification);
         store.save_devices(&[device, another_device]).await.unwrap();
+        store.save_pending_changes(PendingChanges { account: Some(account) }).await.unwrap();
         let session_cache = GroupSessionCache::new(store.clone());
 
         GossipMachine::new(store, session_cache, Default::default())
@@ -1154,16 +1157,16 @@ mod tests {
         create_sessions: bool,
         algorithm: EventEncryptionAlgorithm,
     ) -> (GossipMachine, OutboundGroupSession, GossipMachine) {
-        let alice_machine = get_machine().await;
+        let alice_machine = get_machine_test_helper().await;
         let alice_device = ReadOnlyDevice::from_account(
-            alice_machine.inner.store.cache().await.unwrap().account().await.unwrap(),
+            &alice_machine.inner.store.cache().await.unwrap().account().await.unwrap(),
         )
         .await;
 
-        let bob_machine = test_gossip_machine(other_machine_owner);
+        let bob_machine = gossip_machine_test_helper(other_machine_owner).await;
 
         let bob_device = ReadOnlyDevice::from_account(
-            bob_machine.inner.store.cache().await.unwrap().account().await.unwrap(),
+            &*bob_machine.inner.store.cache().await.unwrap().account().await.unwrap(),
         )
         .await;
 
@@ -1295,14 +1298,14 @@ mod tests {
 
     #[async_test]
     async fn create_machine() {
-        let machine = get_machine().await;
+        let machine = get_machine_test_helper().await;
 
         assert!(machine.outgoing_to_device_requests().await.unwrap().is_empty());
     }
 
     #[async_test]
     async fn re_request_keys() {
-        let machine = get_machine().await;
+        let machine = get_machine_test_helper().await;
         let account = account();
 
         let (outbound, session) = account.create_group_session_pair_with_defaults(room_id()).await;
@@ -1325,7 +1328,7 @@ mod tests {
     #[async_test]
     #[cfg(feature = "automatic-room-key-forwarding")]
     async fn create_key_request() {
-        let machine = get_machine().await;
+        let machine = get_machine_test_helper().await;
         let account = account();
         let second_account = alice_2_account();
         let alice_device = ReadOnlyDevice::from_account(&second_account).await;
@@ -1357,7 +1360,7 @@ mod tests {
     #[async_test]
     #[cfg(feature = "automatic-room-key-forwarding")]
     async fn receive_forwarded_key() {
-        let machine = get_machine().await;
+        let machine = get_machine_test_helper().await;
         let account = account();
 
         let second_account = alice_2_account();
@@ -1466,7 +1469,7 @@ mod tests {
     #[async_test]
     #[cfg(feature = "automatic-room-key-forwarding")]
     async fn should_share_key_test() {
-        let machine = get_machine().await;
+        let machine = get_machine_test_helper().await;
         let account = account();
 
         let own_device =
@@ -1733,7 +1736,7 @@ mod tests {
 
     #[async_test]
     async fn test_secret_share_cycle() {
-        let alice_machine = get_machine().await;
+        let alice_machine = get_machine_test_helper().await;
 
         let second_account = alice_2_account();
         let alice_device = ReadOnlyDevice::from_account(&second_account).await;

@@ -66,7 +66,7 @@ macro_rules! cryptostore_integration_tests {
                 let store = get_store(name, None).await;
                 let account = get_account();
 
-                store.save_pending_changes(PendingChanges { account: Some(account.clone()), }).await.expect("Can't save account");
+                store.save_pending_changes(PendingChanges { account: Some(account.clone_for_testing()), }).await.expect("Can't save account");
 
                 (account, store)
             }
@@ -124,7 +124,7 @@ macro_rules! cryptostore_integration_tests {
                 let store = get_store("load_account", None).await;
                 let account = get_account();
 
-                store.save_pending_changes(PendingChanges { account: Some(account.clone()), }).await.expect("Can't save account");
+                store.save_pending_changes(PendingChanges { account: Some(account.clone_for_testing()), }).await.expect("Can't save account");
 
                 let loaded_account = store.load_account().await.expect("Can't load account");
                 let loaded_account = loaded_account.unwrap();
@@ -138,7 +138,7 @@ macro_rules! cryptostore_integration_tests {
                     get_store("load_account_with_passphrase", Some("secret_passphrase")).await;
                 let account = get_account();
 
-                store.save_pending_changes(PendingChanges { account: Some(account.clone()), }).await.expect("Can't save account");
+                store.save_pending_changes(PendingChanges { account: Some(account.clone_for_testing()), }).await.expect("Can't save account");
 
                 let loaded_account = store.load_account().await.expect("Can't load account");
                 let loaded_account = loaded_account.unwrap();
@@ -151,12 +151,12 @@ macro_rules! cryptostore_integration_tests {
                 let store = get_store("save_and_share_account", None).await;
                 let account = get_account();
 
-                store.save_pending_changes(PendingChanges { account: Some(account.clone()), }).await.expect("Can't save account");
+                store.save_pending_changes(PendingChanges { account: Some(account.clone_for_testing()), }).await.expect("Can't save account");
 
                 account.mark_as_shared();
                 account.update_uploaded_key_count(50);
 
-                store.save_pending_changes(PendingChanges { account: Some(account.clone()), }).await.expect("Can't save account");
+                store.save_pending_changes(PendingChanges { account: Some(account.clone_for_testing()), }).await.expect("Can't save account");
 
                 let loaded_account = store.load_account().await.expect("Can't load account");
                 let loaded_account = loaded_account.unwrap();
@@ -169,7 +169,7 @@ macro_rules! cryptostore_integration_tests {
             async fn load_sessions() {
                 let store = get_store("load_sessions", None).await;
                 let (account, session) = get_account_and_session().await;
-                store.save_pending_changes(PendingChanges { account: Some(account.clone()), }).await.expect("Can't save account");
+                store.save_pending_changes(PendingChanges { account: Some(account.clone_for_testing()), }).await.expect("Can't save account");
 
                 let changes = Changes { sessions: vec![session.clone()], ..Default::default() };
 
@@ -193,7 +193,7 @@ macro_rules! cryptostore_integration_tests {
                 let sender_key = session.sender_key.to_base64();
                 let session_id = session.session_id().to_owned();
 
-                store.save_pending_changes(PendingChanges { account: Some(account.clone()), }).await.expect("Can't save account");
+                store.save_pending_changes(PendingChanges { account: Some(account.clone_for_testing()), }).await.expect("Can't save account");
 
                 let changes = Changes { sessions: vec![session.clone()], ..Default::default() };
                 store.save_changes(changes).await.unwrap();
@@ -491,7 +491,7 @@ macro_rules! cryptostore_integration_tests {
 
                 let account = Account::with_device_id(&user_id, device_id);
 
-                store.save_pending_changes(PendingChanges { account: Some(account.clone()), })
+                store.save_pending_changes(PendingChanges { account: Some(account), })
                     .await
                     .expect("Can't save account");
 

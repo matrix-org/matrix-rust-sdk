@@ -314,7 +314,6 @@ impl StaticAccountData {
 ///
 /// An account is the central identity for encrypted communication between two
 /// devices.
-#[derive(Clone)]
 pub struct Account {
     pub(crate) static_data: StaticAccountData,
     /// `vodozemac` account.
@@ -1354,6 +1353,18 @@ impl Account {
                 raw_event: Raw::from_json(RawJsonValue::from_string(plaintext)?),
                 sender_key,
             })
+        }
+    }
+
+    /// Test-only.
+    #[cfg(any(test, feature = "testing"))]
+    #[doc(hidden)]
+    pub fn clone_for_testing(&self) -> Self {
+        Self {
+            static_data: self.static_data.clone(),
+            inner: self.inner.clone(),
+            shared: self.shared.clone(),
+            uploaded_signed_key_count: self.uploaded_signed_key_count.clone(),
         }
     }
 }

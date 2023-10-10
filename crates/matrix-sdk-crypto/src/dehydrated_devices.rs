@@ -91,7 +91,7 @@ pub struct DehydratedDevices {
 
 impl DehydratedDevices {
     /// Create a new [`DehydratedDevice`] which can be uploaded to the server.
-    pub fn create(&self) -> DehydratedDevice {
+    pub async fn create(&self) -> Result<DehydratedDevice, DehydrationError> {
         let user_id = self.inner.user_id();
         let user_identity = self.inner.store().private_identity();
 
@@ -104,9 +104,11 @@ impl DehydratedDevices {
             store.clone(),
         );
 
-        let store = Store::new(account, user_identity, store, verification_machine);
+        let store =
+            Store::new(account.static_data().clone(), user_identity, store, verification_machine);
+        store.save_pending_changes(crate::store::PendingChanges { account: Some(account) }).await?;
 
-        DehydratedDevice { store }
+        Ok(DehydratedDevice { store })
     }
 
     /// Rehydrate the dehydrated device.
@@ -456,10 +458,10 @@ mod tests {
     }
 
     #[async_test]
-    async fn dehydrated_device_creation() {
+    async fn test_dehydrated_device_creation() {
         let olm_machine = get_olm_machine().await;
 
-        let dehydrated_device = olm_machine.dehydrated_devices().create();
+        let dehydrated_device = olm_machine.dehydrated_devices().create().await.unwrap();
 
         let request = dehydrated_device
             .keys_for_upload("Foo".to_owned(), PICKLE_KEY)
@@ -482,7 +484,7 @@ mod tests {
         let room_id = room_id!("!test:example.org");
         let alice = get_olm_machine().await;
 
-        let dehydrated_device = alice.dehydrated_devices().create();
+        let dehydrated_device = alice.dehydrated_devices().create().await.unwrap();
 
         let mut request = dehydrated_device
             .keys_for_upload("Foo".to_owned(), PICKLE_KEY)
