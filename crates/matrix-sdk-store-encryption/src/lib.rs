@@ -20,8 +20,8 @@ use std::ops::DerefMut;
 
 use blake3::{derive_key, Hash};
 use chacha20poly1305::{
-    aead::{Aead, Error as EncryptionError, NewAead},
-    Key as ChachaKey, XChaCha20Poly1305, XNonce,
+    aead::{Aead, Error as EncryptionError},
+    Key as ChachaKey, KeyInit, XChaCha20Poly1305, XNonce,
 };
 use displaydoc::Display;
 use hmac::Hmac;
@@ -597,7 +597,10 @@ impl StoreCipher {
     /// Expand the given passphrase into a KEY_SIZE long key.
     fn expand_key(passphrase: &str, salt: &[u8], rounds: u32) -> Box<[u8; 32]> {
         let mut key = Box::new([0u8; 32]);
-        pbkdf2::<Hmac<Sha256>>(passphrase.as_bytes(), salt, rounds, key.deref_mut());
+        pbkdf2::<Hmac<Sha256>>(passphrase.as_bytes(), salt, rounds, key.deref_mut()).expect(
+            "We should be able to expand a passphrase of any length due to \
+             HMAC being able to be initialized with any input size",
+        );
 
         key
     }
