@@ -148,6 +148,7 @@ matrix-sdk-base = { version = "0.6.0", path = "../matrix-sdk-base", default_feat
 matrix-sdk-test = { version = "0.6.0", path = "../../testing/matrix-sdk-test" }
 once_cell = { workspace = true }
 serde_urlencoded = "0.7.1"
+stream_assert = { workspace = true }
 tracing-subscriber = { version = "0.3.11", features = ["env-filter"] }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
