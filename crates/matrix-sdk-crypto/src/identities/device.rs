@@ -1036,29 +1036,28 @@ pub(crate) mod tests {
         let device_id = "BNYQQWUMXO";
 
         let device = json!({
-            "inner":
-                {
-                    "user_id": user_id,
-                    "device_id": device_id,
-                    "algorithms":["m.olm.v1.curve25519-aes-sha2","m.megolm.v1.aes-sha2"],
-                    "keys":{
-                        "curve25519:BNYQQWUMXO":"xfgbLIC5WAl1OIkpOzoxpCe8FsRDT6nch7NQsOb15nc",
-                        "ed25519:BNYQQWUMXO":"2/5LWJMow5zhJqakV88SIc7q/1pa8fmkfgAzx72w9G4"},
-                        "signatures":{
-                            "@example:localhost":{
-                                "ed25519:BNYQQWUMXO":"kTwMrbsLJJM/uFGOj/oqlCaRuw7i9p/6eGrTlXjo8UJMCFAetoyWzoMcF35vSe4S6FTx8RJmqX6rM7ep53MHDQ"
-                            }
-                        },
-                        "unsigned":{
-                            "device_display_name":"Alice's mobile phone"
-                        }
+            "inner": {
+                "user_id": user_id,
+                "device_id": device_id,
+                "algorithms": ["m.olm.v1.curve25519-aes-sha2","m.megolm.v1.aes-sha2"],
+                "keys": {
+                    "curve25519:BNYQQWUMXO": "xfgbLIC5WAl1OIkpOzoxpCe8FsRDT6nch7NQsOb15nc",
+                    "ed25519:BNYQQWUMXO": "2/5LWJMow5zhJqakV88SIc7q/1pa8fmkfgAzx72w9G4"
                 },
-                "deleted":false,
-                "trust_state":"Verified",
-                "withheld_code_sent":false,
-                "first_time_seen_ts":1696931068314u64
-            }
-        );
+                "signatures": {
+                    "@example:localhost": {
+                        "ed25519:BNYQQWUMXO": "kTwMrbsLJJM/uFGOj/oqlCaRuw7i9p/6eGrTlXjo8UJMCFAetoyWzoMcF35vSe4S6FTx8RJmqX6rM7ep53MHDQ"
+                    }
+                },
+                "unsigned": {
+                    "device_display_name": "Alice's mobile phone"
+                }
+            },
+            "deleted": false,
+            "trust_state": "Verified",
+            "withheld_code_sent": false,
+            "first_time_seen_ts": 1696931068314u64
+        });
 
         let device: ReadOnlyDevice =
             serde_json::from_value(device).expect("We should be able to deserialize our device");
