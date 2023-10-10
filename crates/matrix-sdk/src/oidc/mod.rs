@@ -317,19 +317,6 @@ impl Oidc {
             return Ok(());
         };
 
-        // If the lock has already been created, don't recreate it from scratch.
-        if let Some(prev_lock) = self.ctx().cross_process_token_refresh_manager.get() {
-            let prev_holder = prev_lock.lock_holder();
-            if prev_holder == lock_value {
-                return Ok(());
-            }
-            warn!(
-                prev_holder,
-                new_holder = lock_value,
-                "recreating cross-process store refresh token lock with a different holder value"
-            );
-        }
-
         // FIXME We shouldn't be using the crypto store for that! see also https://github.com/matrix-org/matrix-rust-sdk/issues/2472
         let olm_machine_lock = self.client.olm_machine().await;
         let olm_machine =

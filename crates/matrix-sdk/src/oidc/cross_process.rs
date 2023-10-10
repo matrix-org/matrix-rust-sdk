@@ -50,11 +50,6 @@ impl CrossProcessRefreshManager {
         Self { store, store_lock: lock, known_session_hash: Arc::new(Mutex::new(None)) }
     }
 
-    /// Returns the value in the database representing the lock holder.
-    pub fn lock_holder(&self) -> &str {
-        self.store_lock.lock_holder()
-    }
-
     /// Wait for up to 60 seconds to get a cross-process store lock, then either
     /// timeout (as an error) or return a lock guard.
     ///
