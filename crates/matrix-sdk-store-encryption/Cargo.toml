@@ -14,17 +14,17 @@ rustdoc-args = ["--cfg", "docsrs"]
 js = ["dep:getrandom", "getrandom?/js"]
 
 [dependencies]
-blake3 = "1.3.1"
-chacha20poly1305 = { version = "0.9.0", features = ["std"] }
-displaydoc = "0.2.3"
-getrandom = { version = "0.2.6", optional = true }
+blake3 = "1.5.0"
+chacha20poly1305 = { version = "0.10.1", features = ["std"] }
+displaydoc = "0.2.4"
+getrandom = { version = "0.2.10", optional = true }
 hmac = "0.12.1"
-pbkdf2 = "0.11.0"
+pbkdf2 = "0.12.2"
 rand = "0.8.5"
-rmp-serde = "1.1.1"
+rmp-serde = "1.1.2"
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
-sha2 = "0.10.2"
+sha2 = "0.10.8"
 thiserror = { workspace = true }
 zeroize = { workspace = true, features = ["zeroize_derive"] }
 

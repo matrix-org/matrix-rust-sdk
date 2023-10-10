@@ -18,17 +18,17 @@ bundled-sqlite = ["matrix-sdk-sqlite/bundled"]
 
 [dependencies]
 anyhow = { workspace = true }
-futures-util = "0.3.25"
+futures-util = "0.3.28"
 hmac = "0.12.1"
 http = { workspace = true }
-pbkdf2 = "0.11.0"
+pbkdf2 = "0.12.2"
 rand = "0.8.5"
 ruma = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-sha2 = "0.10.2"
+sha2 = "0.10.8"
 thiserror = { workspace = true }
-tracing-subscriber = { version = "0.3.11", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 # keep in sync with uniffi dependency in matrix-sdk-ffi, and uniffi_bindgen in ffi CI job
 uniffi = { workspace = true }
 vodozemac = { workspace = true }
@@ -55,14 +55,14 @@ default_features = false
 features = ["crypto-store"]
 
 [dependencies.tokio]
-version = "1.24.2"
+version = "1.33.0"
 default_features = false
 features = ["rt-multi-thread"]
 
 [build-dependencies]
 uniffi = { workspace = true, features = ["build"] }
-vergen = { version = "8.0.0", features = ["build", "git", "gitcl"] }
+vergen = { version = "8.2.5", features = ["build", "git", "gitcl"] }
 
 [dev-dependencies]
-tempfile = "3.3.0"
+tempfile = "3.8.0"
 assert_matches = { workspace = true }

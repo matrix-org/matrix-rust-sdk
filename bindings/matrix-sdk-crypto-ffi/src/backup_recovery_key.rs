@@ -113,7 +113,11 @@ impl BackupRecoveryKey {
         let mut key = Box::new([0u8; Self::KEY_SIZE]);
         let rounds = rounds as u32;
 
-        pbkdf2::<Hmac<Sha512>>(passphrase.as_bytes(), salt.as_bytes(), rounds, key.deref_mut());
+        pbkdf2::<Hmac<Sha512>>(passphrase.as_bytes(), salt.as_bytes(), rounds, key.deref_mut())
+            .expect(
+                "We should be able to expand a passphrase of any length due to \
+                 HMAC being able to be initialized with any input size",
+            );
 
         let backup_decryption_key = BackupDecryptionKey::from_bytes(&key);
 
