@@ -15,7 +15,10 @@ use ruma::{
     assign, event_id,
     events::{
         relation::InReplyTo,
-        room::message::{AddMentions, ForwardThread, Relation, RoomMessageEventContent},
+        room::message::{
+            ForwardThread, Relation, RoomMessageEventContent,
+            RoomMessageEventContentWithoutRelation,
+        },
     },
     room_id,
 };
@@ -302,10 +305,9 @@ async fn send_reply() {
 
     timeline
         .send_reply(
-            RoomMessageEventContent::text_plain("Hello, Bob!"),
+            RoomMessageEventContentWithoutRelation::text_plain("Hello, Bob!"),
             &hello_world_item,
             ForwardThread::Yes,
-            AddMentions::No,
         )
         .await
         .unwrap();

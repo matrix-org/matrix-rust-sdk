@@ -42,7 +42,7 @@ use ruma::{
         room::{
             message::{
                 AddMentions, ForwardThread, OriginalRoomMessageEvent, ReplacementMetadata,
-                RoomMessageEventContent,
+                RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
             },
             redaction::RoomRedactionEventContent,
         },
@@ -302,6 +302,10 @@ impl Timeline {
     /// change. Please check [`EventTimelineItem::can_be_replied_to`] to decide
     /// whether to render a reply button.
     ///
+    /// If the `content.mentions` is `Some(_)`, the sender of `reply_item` will
+    /// be added to the mentions of the reply. If `content.mentions` is `None`,
+    /// it will be kept as-is.
+    ///
     /// # Arguments
     ///
     /// * `content` - The content of the reply
@@ -311,22 +315,21 @@ impl Timeline {
     /// * `forward_thread` - Usually `Yes`, unless you explicitly want to the
     ///   reply to show up in the main timeline even though the `reply_item` is
     ///   part of a thread
-    ///
-    /// * `add_mentions` - Set to `Yes` if the `mentions` of `content` are
-    ///   propagated according to user intent, `No` otherwise
     #[instrument(skip(self, content, reply_item))]
     pub async fn send_reply(
         &self,
-        content: RoomMessageEventContent,
+        content: RoomMessageEventContentWithoutRelation,
         reply_item: &EventTimelineItem,
         forward_thread: ForwardThread,
-        add_mentions: AddMentions,
     ) -> Result<(), UnsupportedReplyItem> {
         // Error returns here must be in sync with
         // `EventTimelineItem::can_be_replied_to`
         let Some(event_id) = reply_item.event_id() else {
             return Err(UnsupportedReplyItem::MISSING_EVENT_ID);
         };
+
+        let add_mentions =
+            if content.mentions.is_some() { AddMentions::Yes } else { AddMentions::No };
 
         let content = match reply_item.content() {
             TimelineItemContent::Message(msg) => {

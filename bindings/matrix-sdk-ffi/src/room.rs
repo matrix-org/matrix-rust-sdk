@@ -20,7 +20,7 @@ use matrix_sdk::{
             room::{
                 avatar::ImageInfo as RumaAvatarImageInfo,
                 message::{
-                    AddMentions, ForwardThread, LocationMessageEventContent, MessageType,
+                    ForwardThread, LocationMessageEventContent, MessageType,
                     RoomMessageEventContentWithoutRelation,
                 },
             },
@@ -518,14 +518,7 @@ impl Room {
         };
 
         RUNTIME.block_on(async move {
-            timeline
-                .send_reply(
-                    (*msg).clone().with_relation(None),
-                    &reply_item.0,
-                    ForwardThread::Yes,
-                    AddMentions::No,
-                )
-                .await?;
+            timeline.send_reply((*msg).clone(), &reply_item.0, ForwardThread::Yes).await?;
             anyhow::Ok(())
         })?;
 
