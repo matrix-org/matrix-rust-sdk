@@ -81,7 +81,11 @@ impl AesHmacSha2Key {
     ) -> Self {
         let mut expanded_keys = [0u8; KEY_SIZE * 2];
 
-        pbkdf2::<Hmac<Sha512>>(passphrase.as_bytes(), salt, pbkdf_rounds, &mut expanded_keys);
+        pbkdf2::<Hmac<Sha512>>(passphrase.as_bytes(), salt, pbkdf_rounds, &mut expanded_keys)
+            .expect(
+                "We should be able to expand a passphrase of any length due to \
+                 HMAC being able to be initialized with any input size",
+            );
 
         let (aes_key, mac_key) = Self::split_keys(&expanded_keys);
 
