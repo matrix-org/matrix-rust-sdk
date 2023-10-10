@@ -67,7 +67,8 @@ use super::{
 mod state;
 
 pub(super) use self::state::{
-    FullEventMeta, TimelineInnerMetadata, TimelineInnerState, TimelineInnerStateTransaction,
+    EventMeta, FullEventMeta, TimelineInnerMetadata, TimelineInnerState,
+    TimelineInnerStateTransaction,
 };
 
 #[derive(Clone, Debug)]

@@ -106,6 +106,18 @@ impl TestTimeline {
         self.handle_live_event(Raw::new(&ev).unwrap().cast()).await;
     }
 
+    async fn handle_live_message_event_with_id<C>(
+        &self,
+        sender: &UserId,
+        event_id: &EventId,
+        content: C,
+    ) where
+        C: MessageLikeEventContent,
+    {
+        let ev = self.event_builder.make_sync_message_event_with_id(sender, event_id, content);
+        self.handle_live_event(Raw::new(&ev).unwrap().cast()).await;
+    }
+
     async fn handle_live_redacted_message_event<C>(&self, sender: &UserId, content: C)
     where
         C: RedactedMessageLikeEventContent,
