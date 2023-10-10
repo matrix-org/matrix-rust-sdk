@@ -48,18 +48,24 @@ impl Timeline {
             None if options.wait_for_token => {
                 trace!("Waiting for back-pagination token from sync...");
 
-                let notified = pin!(self.sync_response_notify.notified());
-                match timeout(notified, WAIT_FOR_TOKEN_TIMEOUT).await {
-                    Ok(()) => match self.inner.back_pagination_token().await {
-                        Some(token) => Some(token),
-                        None => {
-                            warn!(
-                                "Sync response without prev_batch received, \
-                                 start of timeline reached?"
-                            );
-                            return Ok(ControlFlow::Break(BackPaginationStatus::Idle));
+                let wait_for_token = pin!(async {
+                    loop {
+                        self.sync_response_notify.notified().await;
+                        match self.inner.back_pagination_token().await {
+                            Some(token) => break token,
+                            None => {
+                                warn!(
+                                    "Sync response without prev_batch received, \
+                                     continuing to wait"
+                                );
+                                // fall through and continue the loop
+                            }
                         }
-                    },
+                    }
+                });
+
+                match timeout(wait_for_token, WAIT_FOR_TOKEN_TIMEOUT).await {
+                    Ok(token) => Some(token),
                     Err(_) => {
                         debug!("Waiting for prev_batch token timed out after 3s");
                         None
