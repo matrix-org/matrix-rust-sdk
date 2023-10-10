@@ -149,23 +149,26 @@ impl AesHmacSha2Key {
     /// create a authentication tag.
     pub(crate) fn encrypt(&self, plaintext: Vec<u8>) -> (Vec<u8>, [u8; IV_SIZE]) {
         let initialization_vector = Self::generate_iv();
-        let ciphertext = self.encrypt_with_iv(plaintext, &initialization_vector);
+        let ciphertext = self.apply_keystream(plaintext, &initialization_vector);
 
         (ciphertext, initialization_vector)
     }
 
-    /// Encrypt the given plaintext using the specified initialization vector
-    /// and return the ciphertext.
+    /// Apply the keystream to the data stream, producing either the plaintext
+    /// or the ciphertext depending on whether the data stream is the ciphertext
+    /// or the plaintext, respectively.
     ///
     /// ⚠️  This method is a low-level cryptographic primitive.
     ///
-    /// You *must* ensure that the initialization vector is unique across all
-    /// calls to this method for a given key.
+    /// If this method is encrypting a plaintext, you *must* ensure that the
+    /// initialization vector is unique across all calls to this method for
+    /// a given key.
     ///
     /// This method does not provide authenticity. You *must* call the
     /// [`AesHmacSha2Key::create_mac_tag()`] method after the encryption step to
-    /// create a authentication tag.
-    pub(crate) fn encrypt_with_iv(
+    /// create a authentication tag or the [`AesHmacSha2Key::verify_mac()`]
+    /// method before decrypting.
+    pub(crate) fn apply_keystream(
         &self,
         mut plaintext: Vec<u8>,
         initialization_vector: &[u8; IV_SIZE],
@@ -224,7 +227,7 @@ impl AesHmacSha2Key {
         ciphertext: Vec<u8>,
         initialization_vector: &[u8; IV_SIZE],
     ) -> Vec<u8> {
-        self.encrypt_with_iv(ciphertext, initialization_vector)
+        self.apply_keystream(ciphertext, initialization_vector)
     }
 
     fn split_keys(
