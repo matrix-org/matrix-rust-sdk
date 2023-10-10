@@ -158,7 +158,7 @@ impl VerificationCache {
     }
 
     pub fn add_request(&self, request: OutgoingRequest) {
-        trace!("Adding an outgoing verification request {:?}", request);
+        trace!("Adding an outgoing request {:?}", request);
         self.inner.outgoing_requests.write().unwrap().insert(request.request_id.clone(), request);
     }
 
