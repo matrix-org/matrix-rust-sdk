@@ -65,17 +65,17 @@ impl ReadReceipts {
     /// from the end of the timeline.
     fn maybe_update_read_receipt(
         &mut self,
-        receipt: FullReceipt<'_>,
+        new_receipt: FullReceipt<'_>,
         new_item_pos: Option<usize>,
         is_own_user_id: bool,
         timeline_items: &mut ObservableVectorTransaction<'_, Arc<TimelineItem>>,
     ) -> bool {
         let old_event_id = self
             .users_read_receipts
-            .get(receipt.user_id)
-            .and_then(|receipts| receipts.get(&receipt.receipt_type))
+            .get(new_receipt.user_id)
+            .and_then(|receipts| receipts.get(&new_receipt.receipt_type))
             .map(|(event_id, _)| event_id);
-        if old_event_id.is_some_and(|id| id == receipt.event_id) {
+        if old_event_id.is_some_and(|id| id == new_receipt.event_id) {
             // Nothing to do.
             return false;
         }
@@ -99,7 +99,7 @@ impl ReadReceipts {
                 let old_event_item_id = old_event_item.internal_id;
                 let mut old_event_item = old_event_item.clone();
                 if let Some(old_remote_event_item) = old_event_item.as_remote_mut() {
-                    if !old_remote_event_item.remove_read_receipt(receipt.user_id) {
+                    if !old_remote_event_item.remove_read_receipt(new_receipt.user_id) {
                         error!(
                             "inconsistent state: old event item for user's read \
                          receipt doesn't have a receipt for the user"
@@ -125,7 +125,7 @@ impl ReadReceipts {
         // Remove the old receipt from the old event.
         if let Some(old_event_id) = old_event_id {
             if let Some(event_receipts) = self.events_read_receipts.get_mut(old_event_id) {
-                event_receipts.remove(receipt.user_id);
+                event_receipts.remove(new_receipt.user_id);
 
                 // Remove the entry if the map is empty.
                 if event_receipts.is_empty() {
@@ -136,15 +136,15 @@ impl ReadReceipts {
 
         // Add the new receipt to the new event.
         self.events_read_receipts
-            .entry(receipt.event_id.to_owned())
+            .entry(new_receipt.event_id.to_owned())
             .or_default()
-            .insert(receipt.user_id.to_owned(), receipt.receipt.clone());
+            .insert(new_receipt.user_id.to_owned(), new_receipt.receipt.clone());
 
         // Update the receipt of the user.
-        self.users_read_receipts
-            .entry(receipt.user_id.to_owned())
-            .or_default()
-            .insert(receipt.receipt_type, (receipt.event_id.to_owned(), receipt.receipt.clone()));
+        self.users_read_receipts.entry(new_receipt.user_id.to_owned()).or_default().insert(
+            new_receipt.receipt_type,
+            (new_receipt.event_id.to_owned(), new_receipt.receipt.clone()),
+        );
 
         true
     }
