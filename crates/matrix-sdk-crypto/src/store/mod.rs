@@ -42,13 +42,12 @@ use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     fmt::Debug,
     ops::Deref,
-    sync::{Arc, RwLock as StdRwLock},
+    sync::{atomic::Ordering, Arc, RwLock as StdRwLock},
     time::Duration,
 };
 
 use as_variant::as_variant;
 use async_std::sync::{Condvar, Mutex as AsyncStdMutex};
-use atomic::Ordering;
 use futures_core::Stream;
 use futures_util::StreamExt;
 use ruma::{

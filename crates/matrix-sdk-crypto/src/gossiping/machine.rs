@@ -23,10 +23,12 @@
 use std::{
     collections::{btree_map::Entry, BTreeMap, BTreeSet},
     mem,
-    sync::{atomic::AtomicBool, Arc, RwLock as StdRwLock},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, RwLock as StdRwLock,
+    },
 };
 
-use atomic::Ordering;
 use ruma::{
     api::client::keys::claim_keys::v3::Request as KeysClaimRequest,
     events::secret::request::{
