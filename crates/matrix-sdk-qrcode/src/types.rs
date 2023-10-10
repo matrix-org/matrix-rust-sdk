@@ -24,16 +24,68 @@ use crate::{
     utils::{to_bytes, to_qr_code, HEADER, MAX_MODE, MIN_SECRET_LEN, VERSION},
 };
 
-/// An enum representing the different modes a QR verification can be in.
+/// An enum representing the different modes for a QR verification code.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum QrVerificationData {
-    /// The QR verification is verifying another user
+    /// The QR verification is verifying another user.
+    ///
+    /// It relies on both devices already trusting or owning the master
+    /// cross-signing key for the corresponding user.
+    ///
+    /// In this case, the QR code data includes:
+    ///  * The master cross-signing key of the displaying device's user.
+    ///  * What the displaying device believes is the master cross-signing key
+    ///    of the scanning device's user.
+    ///
+    /// After a successful verification, each device will trust the
+    /// cross-signing key of the other user, and will upload a cross-signature
+    /// of that key.
     Verification(VerificationData),
-    /// The QR verification is self-verifying and the current device trusts or
-    /// owns the master key
+
+    /// The QR verification is self-verifying and the device displaying the QR
+    /// code trusts or owns the master cross-signing key.
+    ///
+    /// This normally happens when the displaying device is an existing device,
+    /// and the scanning device is new.
+    ///
+    /// In this case, the QR code data includes:
+    ///  * The master cross-signing key (which is trusted by the displaying
+    ///    device).
+    ///  * What the displaying device believes is the device key of the scanning
+    ///    device.
+    ///
+    /// After a successful verification, the scanning device will be able to
+    /// trust the master key, and the displaying device will be able to
+    /// trust the scanning device's device key.
+    ///
+    /// Since the displaying device should be cross-signed already, this means
+    /// that the scanning device will now trust the displaying device.
+    ///
+    /// The displaying device will then upload a cross-signature of the scanning
+    /// device (assuming it has the private key), and will send the secret keys
+    /// to the scanning device.
     SelfVerification(SelfVerificationData),
+
     /// The QR verification is self-verifying in which the current device does
-    /// not yet trust the master key
+    /// not yet trust the master key.
+    ///
+    /// This normally happens when the displaying device is new, and the
+    /// scanning device is an existing device.
+    ///
+    /// In this case, the QR code data includes:
+    ///  * The displaying device's device key.
+    ///  * What the displaying device believes is the master cross-signing key.
+    ///
+    /// If the verification is successful, the scanning device will be able to
+    /// trust the displaying device's device key, and the displaying device will
+    /// be able to trust the master key.
+    ///
+    /// Since the scanning device should be cross-signed already, this means
+    /// that the displaying device will now trust the scanning device.
+    ///
+    /// The scanning device will then upload a cross-signature of the displaying
+    /// device (assuming it has the private key), and will send the secret keys
+    /// to the displaying device.
     SelfVerificationNoMasterKey(SelfVerificationNoMasterKey),
 }
 
