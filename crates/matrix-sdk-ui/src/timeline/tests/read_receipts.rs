@@ -91,7 +91,6 @@ async fn read_receipts_updates_on_live_events() {
 async fn read_receipts_updates_on_back_paginated_events() {
     let timeline = TestTimeline::new()
         .with_settings(TimelineInnerSettings { track_read_receipts: true, ..Default::default() });
-    let mut stream = timeline.subscribe().await;
     let room_id = room_id!("!room:localhost");
 
     timeline
@@ -111,17 +110,17 @@ async fn read_receipts_updates_on_back_paginated_events() {
         )
         .await;
 
-    let _day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
+    let items = timeline.inner.items().await;
+    assert_eq!(items.len(), 3);
+    assert!(items[0].is_day_divider());
 
     // Implicit read receipt of Bob.
-    let item_a = assert_next_matches!(stream, VectorDiff::Insert { index: 1, value } => value);
-    let event_a = item_a.as_event().unwrap();
+    let event_a = items[2].as_event().unwrap();
     assert_eq!(event_a.read_receipts().len(), 1);
     assert!(event_a.read_receipts().get(*BOB).is_some());
 
     // Implicit read receipt of Carol, explicit read receipt of Bob ignored.
-    let item_b = assert_next_matches!(stream, VectorDiff::Insert { index: 1, value } => value);
-    let event_b = item_b.as_event().unwrap();
+    let event_b = items[1].as_event().unwrap();
     assert_eq!(event_b.read_receipts().len(), 1);
     assert!(event_b.read_receipts().get(*CAROL).is_some());
 }
