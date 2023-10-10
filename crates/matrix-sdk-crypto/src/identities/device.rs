@@ -967,10 +967,11 @@ pub(crate) mod testing {
 #[cfg(test)]
 pub(crate) mod tests {
     use ruma::{user_id, MilliSecondsSinceUnixEpoch};
+    use serde_json::json;
     use vodozemac::{Curve25519PublicKey, Ed25519PublicKey};
 
     use super::testing::{device_keys, get_device};
-    use crate::identities::LocalTrust;
+    use crate::{identities::LocalTrust, ReadOnlyDevice};
 
     #[test]
     fn create_a_device() {
@@ -1027,5 +1028,54 @@ pub(crate) mod tests {
         device.mark_as_deleted();
         assert!(device.is_deleted());
         assert!(device_clone.is_deleted());
+    }
+
+    #[test]
+    fn deserialize_device() {
+        let user_id = user_id!("@example:localhost");
+        let device_id = "BNYQQWUMXO";
+
+        let device = json!({
+            "inner":
+                {
+                    "user_id": user_id,
+                    "device_id": device_id,
+                    "algorithms":["m.olm.v1.curve25519-aes-sha2","m.megolm.v1.aes-sha2"],
+                    "keys":{
+                        "curve25519:BNYQQWUMXO":"xfgbLIC5WAl1OIkpOzoxpCe8FsRDT6nch7NQsOb15nc",
+                        "ed25519:BNYQQWUMXO":"2/5LWJMow5zhJqakV88SIc7q/1pa8fmkfgAzx72w9G4"},
+                        "signatures":{
+                            "@example:localhost":{
+                                "ed25519:BNYQQWUMXO":"kTwMrbsLJJM/uFGOj/oqlCaRuw7i9p/6eGrTlXjo8UJMCFAetoyWzoMcF35vSe4S6FTx8RJmqX6rM7ep53MHDQ"
+                            }
+                        },
+                        "unsigned":{
+                            "device_display_name":"Alice's mobile phone"
+                        }
+                },
+                "deleted":false,
+                "trust_state":"Verified",
+                "withheld_code_sent":false,
+                "first_time_seen_ts":1696931068314u64
+            }
+        );
+
+        let device: ReadOnlyDevice =
+            serde_json::from_value(device).expect("We should be able to deserialize our device");
+
+        assert_eq!(user_id, device.user_id());
+        assert_eq!(device_id, device.device_id());
+        assert_eq!(device.algorithms().len(), 2);
+        assert_eq!(LocalTrust::Verified, device.local_trust_state());
+        assert_eq!("Alice's mobile phone", device.display_name().unwrap());
+        assert_eq!(
+            device.curve25519_key().unwrap(),
+            Curve25519PublicKey::from_base64("xfgbLIC5WAl1OIkpOzoxpCe8FsRDT6nch7NQsOb15nc")
+                .unwrap(),
+        );
+        assert_eq!(
+            device.ed25519_key().unwrap(),
+            Ed25519PublicKey::from_base64("2/5LWJMow5zhJqakV88SIc7q/1pa8fmkfgAzx72w9G4").unwrap(),
+        );
     }
 }
