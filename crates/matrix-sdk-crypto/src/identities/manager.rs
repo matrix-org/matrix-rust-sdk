@@ -884,7 +884,7 @@ pub(crate) mod testing {
         identities::IdentityManager,
         machine::testing::response_from_file,
         olm::{Account, PrivateCrossSigningIdentity},
-        store::{CryptoStoreWrapper, MemoryStore, Store},
+        store::{CryptoStoreWrapper, MemoryStore, PendingChanges, Store},
         types::DeviceKeys,
         verification::VerificationMachine,
         UploadSigningKeysRequest,
@@ -902,15 +902,20 @@ pub(crate) mod testing {
         device_id!("WSKKLTJZCL")
     }
 
-    pub(crate) async fn manager(user_id: &UserId, device_id: &DeviceId) -> IdentityManager {
+    pub(crate) async fn manager_test_helper(
+        user_id: &UserId,
+        device_id: &DeviceId,
+    ) -> IdentityManager {
         let identity = PrivateCrossSigningIdentity::new(user_id.into()).await;
         let identity = Arc::new(Mutex::new(identity));
         let user_id = user_id.to_owned();
         let account = Account::with_device_id(&user_id, device_id);
+        let static_account = account.static_data().clone();
         let store = Arc::new(CryptoStoreWrapper::new(&user_id, MemoryStore::new()));
         let verification =
-            VerificationMachine::new(account.static_data.clone(), identity.clone(), store.clone());
-        let store = Store::new(account, identity, store, verification);
+            VerificationMachine::new(static_account.clone(), identity.clone(), store.clone());
+        let store = Store::new(static_account, identity, store, verification);
+        store.save_pending_changes(PendingChanges { account: Some(account) }).await.unwrap();
         IdentityManager::new(store)
     }
 
@@ -1186,7 +1191,9 @@ pub(crate) mod tests {
     use serde_json::json;
     use stream_assert::{assert_closed, assert_pending, assert_ready};
 
-    use super::testing::{device_id, key_query, manager, other_key_query, other_user_id, user_id};
+    use super::testing::{
+        device_id, key_query, manager_test_helper, other_key_query, other_user_id, user_id,
+    };
     use crate::{
         identities::manager::testing::{other_key_query_cross_signed, own_key_query},
         olm::PrivateCrossSigningIdentity,
@@ -1211,7 +1218,7 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_tracked_users() {
-        let manager = manager(user_id(), device_id()).await;
+        let manager = manager_test_helper(user_id(), device_id()).await;
         let alice = user_id!("@alice:example.org");
 
         assert!(
@@ -1231,13 +1238,13 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_manager_creation() {
-        let manager = manager(user_id(), device_id()).await;
+        let manager = manager_test_helper(user_id(), device_id()).await;
         assert!(manager.store.tracked_users().await.unwrap().is_empty())
     }
 
     #[async_test]
     async fn test_manager_key_query_response() {
-        let manager = manager(user_id(), device_id()).await;
+        let manager = manager_test_helper(user_id(), device_id()).await;
         let other_user = other_user_id();
         let devices = manager.store.get_user_devices(other_user).await.unwrap();
         assert_eq!(devices.devices().count(), 0);
@@ -1264,7 +1271,7 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_manager_own_key_query_response() -> anyhow::Result<()> {
-        let manager = manager(user_id(), device_id()).await;
+        let manager = manager_test_helper(user_id(), device_id()).await;
         let our_user = user_id();
         let devices = manager.store.get_user_devices(our_user).await?;
         assert_eq!(devices.devices().count(), 0);
@@ -1299,7 +1306,7 @@ pub(crate) mod tests {
     #[async_test]
     async fn private_identity_invalidation_after_public_keys_change() {
         let user_id = user_id!("@example1:localhost");
-        let manager = manager(user_id, "DEVICEID".into()).await;
+        let manager = manager_test_helper(user_id, "DEVICEID".into()).await;
 
         let identity_request = {
             let private_identity = manager.store.private_identity();
@@ -1387,7 +1394,7 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn no_tracked_users_key_query_request() {
-        let manager = manager(user_id(), device_id()).await;
+        let manager = manager_test_helper(user_id(), device_id()).await;
 
         assert!(
             manager.store.tracked_users().await.unwrap().is_empty(),
@@ -1407,8 +1414,8 @@ pub(crate) mod tests {
     /// user is not removed from the list of outdated users when the
     /// response is received
     #[async_test]
-    async fn invalidation_race_handling() {
-        let manager = manager(user_id(), device_id()).await;
+    async fn test_invalidation_race_handling() {
+        let manager = manager_test_helper(user_id(), device_id()).await;
         let alice = other_user_id();
         manager.update_tracked_users([alice]).await.unwrap();
 
@@ -1436,7 +1443,7 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn failure_handling() {
-        let manager = manager(user_id(), device_id()).await;
+        let manager = manager_test_helper(user_id(), device_id()).await;
         let alice = user_id!("@alice:example.org");
 
         assert!(
@@ -1476,7 +1483,7 @@ pub(crate) mod tests {
     #[async_test]
     async fn test_out_of_band_key_query() {
         // build the request
-        let manager = manager(user_id(), device_id()).await;
+        let manager = manager_test_helper(user_id(), device_id()).await;
         let (reqid, req) = manager.build_key_query_for_users(vec![user_id()]);
         assert!(req.device_keys.contains_key(user_id()));
 
@@ -1495,7 +1502,7 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn devices_stream() {
-        let manager = manager(user_id(), device_id()).await;
+        let manager = manager_test_helper(user_id(), device_id()).await;
         let (request_id, _) = manager.build_key_query_for_users(vec![user_id()]);
 
         let stream = manager.store.devices_stream();
@@ -1509,7 +1516,7 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn identities_stream() {
-        let manager = manager(user_id(), device_id()).await;
+        let manager = manager_test_helper(user_id(), device_id()).await;
         let (request_id, _) = manager.build_key_query_for_users(vec![user_id()]);
 
         let stream = manager.store.user_identities_stream();
@@ -1523,7 +1530,7 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn identities_stream_raw() {
-        let mut manager = Some(manager(user_id(), device_id()).await);
+        let mut manager = Some(manager_test_helper(user_id(), device_id()).await);
         let (request_id, _) = manager.as_ref().unwrap().build_key_query_for_users(vec![user_id()]);
 
         let stream = manager.as_ref().unwrap().store.identities_stream_raw();
@@ -1568,7 +1575,7 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn identities_stream_raw_signature_update() {
-        let mut manager = Some(manager(user_id(), device_id()).await);
+        let mut manager = Some(manager_test_helper(user_id(), device_id()).await);
         let (request_id, _) =
             manager.as_ref().unwrap().build_key_query_for_users(vec![other_user_id()]);
 

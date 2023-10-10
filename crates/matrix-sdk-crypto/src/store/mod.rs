@@ -55,7 +55,7 @@ use ruma::{
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use thiserror::Error;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::{Mutex, MutexGuard, RwLock};
 use tracing::{info, warn};
 use vodozemac::{base64_encode, megolm::SessionOrdering, Curve25519PublicKey};
 use zeroize::Zeroize;
@@ -107,9 +107,11 @@ pub struct Store {
 
 #[derive(Debug)]
 pub(crate) struct StoreCache {
+    store: Arc<CryptoStoreWrapper>,
+
     tracked_users: StdRwLock<BTreeSet<OwnedUserId>>,
     tracked_user_loading_lock: RwLock<bool>,
-    account: Account,
+    account: Mutex<Option<Account>>,
 }
 
 impl StoreCache {
@@ -119,8 +121,19 @@ impl StoreCache {
     ///
     /// Note there should always be an account stored at least in the store, so this doesn't return
     /// an `Option`.
-    pub async fn account(&self) -> Result<&Account> {
-        Ok(&self.account)
+    pub async fn account(&self) -> Result<impl Deref<Target = Account> + '_> {
+        let mut guard = self.account.lock().await;
+        if guard.is_some() {
+            Ok(MutexGuard::map(guard, |acc| acc.as_mut().unwrap()))
+        } else {
+            match self.store.load_account().await? {
+                Some(account) => {
+                    *guard = Some(account);
+                    Ok(MutexGuard::map(guard, |acc| acc.as_mut().unwrap()))
+                }
+                None => Err(CryptoStoreError::AccountUnset),
+            }
+        }
     }
 }
 
@@ -163,7 +176,9 @@ impl StoreTransaction {
     /// Gets a `Account` for update.
     pub async fn account(&mut self) -> Result<&mut Account> {
         if self.changes.account.is_none() {
-            self.changes.account = Some(self.cache.account.clone());
+            // Make sure the cache loaded the account.
+            let _ = self.cache.account().await?;
+            self.changes.account = self.cache.account.lock().await.take();
         }
         Ok(self.changes.account.as_mut().unwrap())
     }
@@ -604,23 +619,24 @@ impl From<&InboundGroupSession> for RoomKeyInfo {
 impl Store {
     /// Create a new Store.
     pub(crate) fn new(
-        account: Account,
+        account: StaticAccountData,
         identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
         store: Arc<CryptoStoreWrapper>,
         verification_machine: VerificationMachine,
     ) -> Self {
         Self {
             inner: Arc::new(StoreInner {
-                static_account: account.static_data().clone(),
+                static_account: account,
                 identity,
-                store,
+                store: store.clone(),
                 verification_machine,
                 users_for_key_query: AsyncStdMutex::new(UsersForKeyQuery::new()),
                 users_for_key_query_condvar: Condvar::new(),
                 cache: Arc::new(StoreCache {
+                    store,
                     tracked_users: Default::default(),
                     tracked_user_loading_lock: Default::default(),
-                    account,
+                    account: Default::default(),
                 }),
             }),
         }

@@ -484,7 +484,7 @@ mod tests {
         identities::{IdentityManager, ReadOnlyDevice},
         olm::{Account, PrivateCrossSigningIdentity},
         session_manager::GroupSessionCache,
-        store::{CryptoStoreWrapper, MemoryStore, Store},
+        store::{CryptoStoreWrapper, MemoryStore, PendingChanges, Store},
         verification::VerificationMachine,
     };
 
@@ -531,7 +531,6 @@ mod tests {
         let user_id = user_id();
         let device_id = device_id();
 
-        let users_for_key_claim = Arc::new(StdRwLock::new(BTreeMap::new()));
         let account = Account::with_device_id(user_id, device_id);
         let store = Arc::new(CryptoStoreWrapper::new(user_id, MemoryStore::new()));
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(user_id)));
@@ -541,15 +540,12 @@ mod tests {
             store.clone(),
         );
 
-        let store = Store::new(account.clone(), identity, store, verification);
-        {
-            // Perform a dummy transaction to sync in-memory cache with the db.
-            let tr = store.transaction().await.unwrap();
-            tr.commit().await.unwrap();
-        }
+        let store = Store::new(account.static_data().clone(), identity, store, verification);
+        store.save_pending_changes(PendingChanges { account: Some(account) }).await.unwrap();
 
         let session_cache = GroupSessionCache::new(store.clone());
 
+        let users_for_key_claim = Arc::new(StdRwLock::new(BTreeMap::new()));
         let key_request =
             GossipMachine::new(store.clone(), session_cache, users_for_key_claim.clone());
 
@@ -656,7 +652,7 @@ mod tests {
 
         let (_, mut session) = {
             let cache = manager.store.cache().await.unwrap();
-            let manager_account = cache.account().await.unwrap();
+            let manager_account = &*cache.account().await.unwrap();
             bob.create_session_for(manager_account).await
         };
 

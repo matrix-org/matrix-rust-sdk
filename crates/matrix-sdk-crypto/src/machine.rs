@@ -64,6 +64,7 @@ use crate::{
     olm::{
         Account, CrossSigningStatus, EncryptionSettings, ExportedRoomKey, IdentityKeys,
         InboundGroupSession, OlmDecryptionInfo, PrivateCrossSigningIdentity, SessionType,
+        StaticAccountData,
     },
     requests::{IncomingResponse, OutgoingRequest, UploadSigningKeysRequest},
     session_manager::{GroupSessionManager, SessionManager},
@@ -168,25 +169,23 @@ impl OlmMachine {
     ) -> Result<OlmMachine, DehydrationError> {
         let account =
             Account::rehydrate(pickle_key, self.user_id(), device_id, device_data).await?;
+        let static_account = account.static_data().clone();
 
         let store = Arc::new(CryptoStoreWrapper::new(self.user_id(), MemoryStore::new()));
+        store.save_pending_changes(PendingChanges { account: Some(account) }).await?;
 
-        Ok(Self::new_helper(device_id, store, account, self.store().private_identity()))
+        Ok(Self::new_helper(device_id, store, static_account, self.store().private_identity()))
     }
 
     fn new_helper(
         device_id: &DeviceId,
         store: Arc<CryptoStoreWrapper>,
-        account: Account,
+        account: StaticAccountData,
         user_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
     ) -> Self {
-        let verification_machine = VerificationMachine::new(
-            account.static_data().clone(),
-            user_identity.clone(),
-            store.clone(),
-        );
-        let store =
-            Store::new(account.clone(), user_identity.clone(), store, verification_machine.clone());
+        let verification_machine =
+            VerificationMachine::new(account.clone(), user_identity.clone(), store.clone());
+        let store = Store::new(account, user_identity.clone(), store, verification_machine.clone());
 
         let group_session_manager = GroupSessionManager::new(store.clone());
 
@@ -248,7 +247,8 @@ impl OlmMachine {
         store: impl IntoCryptoStore,
     ) -> StoreResult<Self> {
         let store = store.into_crypto_store();
-        let account = match store.load_account().await? {
+
+        let static_account = match store.load_account().await? {
             Some(account) => {
                 if user_id != account.user_id() || device_id != account.device_id() {
                     return Err(CryptoStoreError::MismatchedAccount {
@@ -262,10 +262,12 @@ impl OlmMachine {
                     .record("curve25519_key", display(account.identity_keys().curve25519));
                 debug!("Restored an Olm account");
 
-                account
+                account.static_data().clone()
             }
+
             None => {
                 let account = Account::with_device_id(user_id, device_id);
+                let static_account = account.static_data().clone();
 
                 Span::current()
                     .record("ed25519_key", display(account.identity_keys().ed25519))
@@ -283,13 +285,11 @@ impl OlmMachine {
                     ..Default::default()
                 };
                 store.save_changes(changes).await?;
-                store
-                    .save_pending_changes(PendingChanges { account: Some(account.clone()) })
-                    .await?;
+                store.save_pending_changes(PendingChanges { account: Some(account) }).await?;
 
                 debug!("Created a new Olm account");
 
-                account
+                static_account
             }
         };
 
@@ -310,7 +310,7 @@ impl OlmMachine {
 
         let identity = Arc::new(Mutex::new(identity));
         let store = Arc::new(CryptoStoreWrapper::new(user_id, store));
-        Ok(OlmMachine::new_helper(device_id, store, account, identity))
+        Ok(OlmMachine::new_helper(device_id, store, static_account, identity))
     }
 
     /// Get the crypto store associated with this `OlmMachine` instance.
@@ -2028,7 +2028,8 @@ impl OlmMachine {
     #[cfg(any(feature = "testing", test))]
     pub async fn uploaded_key_count(&self) -> Result<u64, CryptoStoreError> {
         let cache = self.inner.store.cache().await?;
-        Ok(cache.account().await?.uploaded_key_count())
+        let account = cache.account().await?;
+        Ok(account.uploaded_key_count())
     }
 }
 
@@ -2436,6 +2437,7 @@ pub(crate) mod tests {
 
         let mut request =
             machine.keys_for_upload(&account).await.expect("Can't prepare initial key upload");
+        drop(account); // Release the account lock.
 
         let one_time_key: SignedKey = request
             .one_time_keys
@@ -2461,16 +2463,27 @@ pub(crate) mod tests {
         );
         ret.unwrap();
 
-        let mut response = keys_upload_response();
-        response.one_time_key_counts.insert(
-            DeviceKeyAlgorithm::SignedCurve25519,
-            (account.max_one_time_keys().await).try_into().unwrap(),
-        );
+        let response = {
+            let cache = machine.store().cache().await.unwrap();
+            let account = cache.account().await.unwrap();
+
+            let mut response = keys_upload_response();
+            response.one_time_key_counts.insert(
+                DeviceKeyAlgorithm::SignedCurve25519,
+                (account.max_one_time_keys().await).try_into().unwrap(),
+            );
+
+            response
+        };
 
         machine.receive_keys_upload_response(&response).await.unwrap();
 
-        let ret = machine.keys_for_upload(&account).await;
-        assert!(ret.is_none());
+        {
+            let cache = machine.store().cache().await.unwrap();
+            let account = cache.account().await.unwrap();
+            let ret = machine.keys_for_upload(&account).await;
+            assert!(ret.is_none());
+        }
     }
 
     #[async_test]

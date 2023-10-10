@@ -54,12 +54,13 @@ impl Drop for DehydratedDevices {
 
 #[uniffi::export]
 impl DehydratedDevices {
-    pub fn create(&self) -> Arc<DehydratedDevice> {
-        DehydratedDevice {
-            inner: ManuallyDrop::new(self.inner.create()),
+    pub fn create(&self) -> Result<Arc<DehydratedDevice>, DehydrationError> {
+        let inner = self.runtime.block_on(self.inner.create())?;
+
+        Ok(Arc::new(DehydratedDevice {
+            inner: ManuallyDrop::new(inner),
             runtime: self.runtime.to_owned(),
-        }
-        .into()
+        }))
     }
 
     pub fn rehydrate(
