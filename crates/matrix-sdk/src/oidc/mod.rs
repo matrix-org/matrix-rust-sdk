@@ -1344,14 +1344,6 @@ impl AuthorizationResponse {
 
         Err(RedirectUriQueryParseError::UnknownFormat)
     }
-
-    /// Access the state field, on either variant.
-    pub fn state(&self) -> &str {
-        match self {
-            Self::Success(code) => &code.state,
-            Self::Error(error) => &error.state,
-        }
-    }
 }
 
 /// The data returned by the provider in the redirect URI after a successful
