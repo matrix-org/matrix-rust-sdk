@@ -256,6 +256,34 @@ impl TimelineInnerStateTransaction<'_> {
             );
         }
     }
+
+    /// Add an implicit read receipt to the given event item, if it is more
+    /// recent than the current read receipt for the sender of the event.
+    ///
+    /// According to the spec, read receipts should not point to events sent by
+    /// our own user, but these events are used to reset the notification
+    /// count, so we need to handle them locally too. For that we create an
+    /// "implicit" read receipt, compared to the "explicit" ones sent by the
+    /// client.
+    pub(super) fn maybe_add_implicit_read_receipt(&mut self, event_meta: FullEventMeta<'_>) {
+        let FullEventMeta { event_id, sender, is_own_event, timestamp, .. } = event_meta;
+
+        let (Some(user_id), Some(timestamp)) = (sender, timestamp) else {
+            // We cannot add a read receipt if we do not know the user or the timestamp.
+            return;
+        };
+
+        let receipt = Receipt::new(timestamp);
+        let full_receipt =
+            FullReceipt { event_id, user_id, receipt_type: ReceiptType::Read, receipt: &receipt };
+
+        self.meta.read_receipts.maybe_update_read_receipt(
+            full_receipt,
+            None,
+            is_own_event,
+            &mut self.items,
+        );
+    }
 }
 
 impl TimelineInnerState {
@@ -330,30 +358,4 @@ impl TimelineInnerMetadata {
                 None
             })
     }
-}
-
-/// Add an implicit read receipt to the given event item, if it is more recent
-/// than the current read receipt for the sender of the event.
-///
-/// According to the spec, read receipts should not point to events sent by our
-/// own user, but these events are used to reset the notification count, so we
-/// need to handle them locally too. For that we create an "implicit" read
-/// receipt, compared to the "explicit" ones sent by the client.
-pub(super) fn maybe_add_implicit_read_receipt(
-    event_meta: FullEventMeta<'_>,
-    timeline_items: &mut ObservableVectorTransaction<'_, Arc<TimelineItem>>,
-    read_receipts: &mut ReadReceipts,
-) {
-    let FullEventMeta { event_id, sender, is_own_event, timestamp, .. } = event_meta;
-
-    let (Some(user_id), Some(timestamp)) = (sender, timestamp) else {
-        // We cannot add a read receipt if we do not know the user or the timestamp.
-        return;
-    };
-
-    let receipt = Receipt::new(timestamp);
-    let full_receipt =
-        FullReceipt { event_id, user_id, receipt_type: ReceiptType::Read, receipt: &receipt };
-
-    read_receipts.maybe_update_read_receipt(full_receipt, None, is_own_event, timeline_items);
 }

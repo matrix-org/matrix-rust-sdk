@@ -50,7 +50,7 @@ use crate::{
         item::timeline_item,
         polls::PollPendingEvents,
         reactions::{ReactionToggleResult, Reactions},
-        read_receipts::{maybe_add_implicit_read_receipt, ReadReceipts},
+        read_receipts::ReadReceipts,
         traits::RoomDataProvider,
         util::{
             find_read_marker, rfind_event_by_id, rfind_event_item, timestamp_to_date,
@@ -724,11 +724,7 @@ impl TimelineInnerStateTransaction<'_> {
         {
             self.load_read_receipts_for_event(event_meta.event_id, room_data_provider).await;
 
-            maybe_add_implicit_read_receipt(
-                event_meta,
-                &mut self.items,
-                &mut self.meta.read_receipts,
-            );
+            self.maybe_add_implicit_read_receipt(event_meta);
         }
     }
 }
