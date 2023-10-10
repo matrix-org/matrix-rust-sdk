@@ -67,7 +67,7 @@ use super::{
 mod state;
 
 pub(super) use self::state::{
-    TimelineInnerMetadata, TimelineInnerState, TimelineInnerStateTransaction,
+    FullEventMeta, TimelineInnerMetadata, TimelineInnerState, TimelineInnerStateTransaction,
 };
 
 #[derive(Clone, Debug)]
@@ -228,7 +228,6 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                     sender_profile,
                     txn_id.clone(),
                     event_content.clone(),
-                    &self.settings,
                 );
                 ReactionState::Sending(txn_id)
             }
@@ -249,7 +248,6 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                     TransactionId::new(),
                     to_redact,
                     no_reason.clone(),
-                    &self.settings,
                 );
 
                 // Remember the remote echo to redact on the homeserver
@@ -359,7 +357,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         let profile = self.room_data_provider.profile_from_user_id(&sender).await;
 
         let mut state = self.state.write().await;
-        state.handle_local_event(sender, profile, txn_id, content, &self.settings);
+        state.handle_local_event(sender, profile, txn_id, content);
     }
 
     /// Handle the creation of a new local event.
@@ -374,7 +372,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         let profile = self.room_data_provider.profile_from_user_id(&sender).await;
 
         let mut state = self.state.write().await;
-        state.handle_local_redaction(sender, profile, txn_id, to_redact, content, &self.settings);
+        state.handle_local_redaction(sender, profile, txn_id, to_redact, content);
     }
 
     /// Update the send state of a local event represented by a transaction ID.
