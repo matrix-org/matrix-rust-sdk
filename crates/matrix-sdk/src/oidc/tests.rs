@@ -19,6 +19,7 @@ use ruma::{
     api::client::discovery::discover_homeserver::AuthenticationServerInfo, owned_user_id,
     ServerName,
 };
+use stream_assert::{assert_next_matches, assert_pending};
 use url::Url;
 use wiremock::{
     matchers::{method, path},
@@ -354,8 +355,18 @@ async fn test_insecure_clients() -> anyhow::Result<()> {
         // Restore the previous session so we have an existing set of refresh tokens.
         oidc.restore_session(mock_session(prev_tokens.clone())).await?;
 
+        let mut session_token_stream = oidc.session_tokens_stream().expect("stream available");
+
+        assert_pending!(session_token_stream);
+
         // A refresh in insecure mode should work Just Fine.
         oidc.refresh_access_token().await?;
+
+        assert_next_matches!(session_token_stream, new_tokens => {
+            assert_eq!(new_tokens, next_tokens);
+        });
+
+        assert_pending!(session_token_stream);
 
         // There should have been exactly one refresh.
         assert_eq!(*backend.num_refreshes.lock().unwrap(), 1);
