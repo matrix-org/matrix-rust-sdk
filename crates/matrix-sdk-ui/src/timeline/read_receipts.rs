@@ -24,12 +24,13 @@ use ruma::{
 use tracing::{error, warn};
 
 use super::{
-    event_item::EventTimelineItemKind,
-    inner::{TimelineInnerMetadata, TimelineInnerState, TimelineInnerStateTransaction},
+    inner::{
+        FullEventMeta, TimelineInnerMetadata, TimelineInnerState, TimelineInnerStateTransaction,
+    },
     item::timeline_item,
     traits::RoomDataProvider,
     util::{rfind_event_by_id, RelativePosition},
-    EventTimelineItem, TimelineItem,
+    TimelineItem,
 };
 
 #[derive(Clone, Debug, Default)]
@@ -339,31 +340,20 @@ impl TimelineInnerMetadata {
 /// need to handle them locally too. For that we create an "implicit" read
 /// receipt, compared to the "explicit" ones sent by the client.
 pub(super) fn maybe_add_implicit_read_receipt(
-    item_pos: usize,
-    event_item: &mut EventTimelineItem,
-    is_own_event: bool,
+    event_meta: FullEventMeta<'_>,
     timeline_items: &mut ObservableVectorTransaction<'_, Arc<TimelineItem>>,
     read_receipts: &mut ReadReceipts,
 ) {
-    let EventTimelineItemKind::Remote(remote_event_item) = &mut event_item.kind else {
+    let FullEventMeta { event_id, sender, is_own_event, timestamp, .. } = event_meta;
+
+    let (Some(user_id), Some(timestamp)) = (sender, timestamp) else {
+        // We cannot add a read receipt if we do not know the user or the timestamp.
         return;
     };
 
-    let receipt = Receipt::new(event_item.timestamp);
-    let new_receipt = FullReceipt {
-        event_id: &remote_event_item.event_id,
-        user_id: &event_item.sender,
-        receipt_type: ReceiptType::Read,
-        receipt: &receipt,
-    };
+    let receipt = Receipt::new(timestamp);
+    let full_receipt =
+        FullReceipt { event_id, user_id, receipt_type: ReceiptType::Read, receipt: &receipt };
 
-    let read_receipt_updated = read_receipts.maybe_update_read_receipt(
-        new_receipt,
-        Some(item_pos),
-        is_own_event,
-        timeline_items,
-    );
-    if read_receipt_updated && !is_own_event {
-        remote_event_item.add_read_receipt(event_item.sender.clone(), receipt);
-    }
+    read_receipts.maybe_update_read_receipt(full_receipt, None, is_own_event, timeline_items);
 }

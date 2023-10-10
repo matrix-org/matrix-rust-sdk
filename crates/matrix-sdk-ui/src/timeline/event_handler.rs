@@ -57,7 +57,6 @@ use super::{
     inner::{TimelineInnerMetadata, TimelineInnerStateTransaction},
     item::timeline_item,
     polls::PollState,
-    read_receipts::maybe_add_implicit_read_receipt,
     util::{rfind_event_by_id, rfind_event_item, timestamp_to_date},
     EventTimelineItem, InReplyToDetails, Message, OtherState, ReactionGroup, ReactionSenderData,
     Sticker, TimelineDetails, TimelineItem, TimelineItemContent, VirtualTimelineItem,
@@ -224,7 +223,6 @@ pub(super) struct TimelineEventHandler<'a, 'o> {
     items: &'a mut ObservableVectorTransaction<'o, Arc<TimelineItem>>,
     meta: &'a mut TimelineInnerMetadata,
     ctx: TimelineEventContext,
-    track_read_receipts: bool,
     result: HandleEventResult,
 }
 
@@ -252,10 +250,9 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     pub(super) fn new(
         state: &'a mut TimelineInnerStateTransaction<'o>,
         ctx: TimelineEventContext,
-        track_read_receipts: bool,
     ) -> Self {
         let TimelineInnerStateTransaction { items, meta } = state;
-        Self { items, meta, ctx, track_read_receipts, result: HandleEventResult::default() }
+        Self { items, meta, ctx, result: HandleEventResult::default() }
     }
 
     /// Handle an event.
@@ -868,16 +865,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     self.items.push_front(day_divider);
                 }
 
-                if self.track_read_receipts {
-                    maybe_add_implicit_read_receipt(
-                        0,
-                        &mut item,
-                        self.ctx.is_own_event,
-                        self.items,
-                        &mut self.meta.read_receipts,
-                    );
-                }
-
                 let item = self.meta.new_timeline_item(item);
                 self.items.insert(1, item);
             }
@@ -921,16 +908,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     {
                         // If the old item is the last one and no day divider
                         // changes need to happen, replace and return early.
-
-                        if self.track_read_receipts {
-                            maybe_add_implicit_read_receipt(
-                                idx,
-                                &mut item,
-                                self.ctx.is_own_event,
-                                self.items,
-                                &mut self.meta.read_receipts,
-                            );
-                        }
 
                         trace!(idx, "Replacing existing event");
                         self.items.set(idx, timeline_item(item, old_item_id));
@@ -1029,16 +1006,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                         self.items.insert(insert_idx, new_day_divider);
                         insert_idx += 1;
                     }
-                }
-
-                if self.track_read_receipts {
-                    maybe_add_implicit_read_receipt(
-                        insert_idx,
-                        &mut item,
-                        self.ctx.is_own_event,
-                        self.items,
-                        &mut self.meta.read_receipts,
-                    );
                 }
 
                 let id = match removed_event_item_id {
