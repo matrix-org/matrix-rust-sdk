@@ -123,17 +123,14 @@ impl ReadReceipts {
 
         // Remove the old receipt from the old event.
         if let Some(old_event_id) = old_event_id {
-            let is_empty =
-                if let Some(event_receipts) = self.events_read_receipts.get_mut(old_event_id) {
-                    event_receipts.remove(receipt.user_id);
-                    event_receipts.is_empty()
-                } else {
-                    false
-                };
-            // Remove the entry if the map is empty.
-            if is_empty {
-                self.events_read_receipts.remove(old_event_id);
-            }
+            if let Some(event_receipts) = self.events_read_receipts.get_mut(old_event_id) {
+                event_receipts.remove(receipt.user_id);
+
+                // Remove the entry if the map is empty.
+                if event_receipts.is_empty() {
+                    self.events_read_receipts.remove(old_event_id);
+                }
+            };
         }
 
         // Add the new receipt to the new event.
