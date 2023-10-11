@@ -33,7 +33,8 @@ use ruma::{
     events::room::{
         message::{
             self, AudioInfo, FileInfo, FileMessageEventContent, ImageMessageEventContent,
-            MessageType, VideoInfo, VideoMessageEventContent,
+            MessageType, UnstableAudioDetailsContentBlock, UnstableVoiceContentBlock, VideoInfo,
+            VideoMessageEventContent,
         },
         ImageInfo, MediaSource, ThumbnailInfo,
     },
@@ -438,13 +439,23 @@ impl Media {
                 )
             }
             mime::AUDIO => {
-                let info = assign!(info.map(AudioInfo::from).unwrap_or_default(), {
+                let audio_info = assign!(info.clone().map(AudioInfo::from).unwrap_or_default(), {
                     mimetype: Some(content_type.as_ref().to_owned()),
                 });
-                MessageType::Audio(
+
+                let mut audio_message_event_content =
                     message::AudioMessageEventContent::plain(body.to_owned(), url)
-                        .info(Box::new(info)),
-                )
+                        .info(Box::new(audio_info));
+
+                if let Some(AttachmentInfo::Voice(audio_info, Some(waveform))) = info {
+                    if let Some(duration) = audio_info.duration {
+                        audio_message_event_content.audio =
+                            Some(UnstableAudioDetailsContentBlock::new(duration, waveform));
+                    }
+                    audio_message_event_content.voice = Some(UnstableVoiceContentBlock::new());
+                }
+
+                MessageType::Audio(audio_message_event_content)
             }
             mime::VIDEO => {
                 let info = assign!(info.map(VideoInfo::from).unwrap_or_default(), {
