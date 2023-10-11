@@ -197,10 +197,9 @@ impl Client {
                     thumbnail_source,
                     thumbnail_info
                 });
-                let content =
-                    assign!(ImageMessageEventContent::encrypted(body.to_owned(), file), {
-                        info: Some(Box::new(info))
-                    });
+                let content = assign!(ImageMessageEventContent::encrypted(body.to_owned(), file), {
+                    info: Some(Box::new(info))
+                });
                 MessageType::Image(content)
             }
             mime::AUDIO => {
@@ -208,10 +207,9 @@ impl Client {
                     mimetype: Some(content_type.as_ref().to_owned()),
                 });
 
-                let mut audio_message_event_content =
-                    assign!(AudioMessageEventContent::encrypted(body.to_owned(), file), {
-                        info: Some(Box::new(audio_info))
-                    });
+                let mut audio_message_event_content = assign!(AudioMessageEventContent::encrypted(body.to_owned(), file), {
+                    info: Some(Box::new(audio_info))
+                });
 
                 if let Some(AttachmentInfo::Voice(audio_info, Some(waveform))) = info {
                     if let Some(duration) = audio_info.duration {
@@ -221,7 +219,6 @@ impl Client {
                     }
                     audio_message_event_content.voice = Some(UnstableVoiceContentBlock::new());
                 }
-
                 MessageType::Audio(audio_message_event_content)
             }
             mime::VIDEO => {
@@ -230,10 +227,9 @@ impl Client {
                     thumbnail_source,
                     thumbnail_info
                 });
-                let content =
-                    assign!(VideoMessageEventContent::encrypted(body.to_owned(), file), {
-                        info: Some(Box::new(info))
-                    });
+                let content = assign!(VideoMessageEventContent::encrypted(body.to_owned(), file), {
+                    info: Some(Box::new(info))
+                });
                 MessageType::Video(content)
             }
             _ => {

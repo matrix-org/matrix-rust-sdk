@@ -455,7 +455,6 @@ impl Media {
                     }
                     audio_message_event_content.voice = Some(UnstableVoiceContentBlock::new());
                 }
-
                 MessageType::Audio(audio_message_event_content)
             }
             mime::VIDEO => {
