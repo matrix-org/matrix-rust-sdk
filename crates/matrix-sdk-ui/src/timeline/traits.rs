@@ -141,13 +141,27 @@ impl RoomDataProvider for Room {
     }
 
     async fn read_receipts_for_event(&self, event_id: &EventId) -> IndexMap<OwnedUserId, Receipt> {
-        match self.event_receipts(ReceiptType::Read, ReceiptThread::Unthreaded, event_id).await {
-            Ok(receipts) => receipts.into_iter().collect(),
-            Err(e) => {
-                error!(?event_id, "Failed to get read receipts for event: {e}");
-                IndexMap::new()
-            }
-        }
+        let mut unthreaded_receipts =
+            match self.event_receipts(ReceiptType::Read, ReceiptThread::Unthreaded, event_id).await
+            {
+                Ok(receipts) => receipts.into_iter().collect(),
+                Err(e) => {
+                    error!(?event_id, "Failed to get unthreaded read receipts for event: {e}");
+                    IndexMap::new()
+                }
+            };
+
+        let main_thread_receipts =
+            match self.event_receipts(ReceiptType::Read, ReceiptThread::Main, event_id).await {
+                Ok(receipts) => receipts,
+                Err(e) => {
+                    error!(?event_id, "Failed to get main thread read receipts for event: {e}");
+                    Vec::new()
+                }
+            };
+
+        unthreaded_receipts.extend(main_thread_receipts);
+        unthreaded_receipts
     }
 
     async fn push_rules_and_context(&self) -> Option<(Ruleset, PushConditionRoomCtx)> {
