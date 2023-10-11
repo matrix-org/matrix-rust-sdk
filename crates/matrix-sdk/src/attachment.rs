@@ -130,6 +130,10 @@ impl From<AttachmentInfo> for AudioInfo {
                 duration: info.duration,
                 size: info.size,
             }),
+            AttachmentInfo::Voice(info, _) => assign!(AudioInfo::new(), {
+                duration: info.duration,
+                size: info.size,
+            }),
             _ => AudioInfo::new(),
         }
     }
