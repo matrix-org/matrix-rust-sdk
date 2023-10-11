@@ -915,7 +915,7 @@ impl TimelineInnerMetadata {
 
 /// Full metadata about an event.
 #[derive(Debug, Clone, Copy)]
-pub struct FullEventMeta<'a> {
+pub(crate) struct FullEventMeta<'a> {
     /// The ID of the event.
     pub event_id: &'a EventId,
     /// Whether the event is among the timeline items.
@@ -936,7 +936,7 @@ impl<'a> FullEventMeta<'a> {
 
 /// Metadata about an event that needs to be kept in memory.
 #[derive(Debug, Clone)]
-pub struct EventMeta {
+pub(crate) struct EventMeta {
     /// The ID of the event.
     pub event_id: OwnedEventId,
     /// Whether the event is among the timeline items.
