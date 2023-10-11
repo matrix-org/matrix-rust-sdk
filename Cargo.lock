@@ -263,8 +263,8 @@ dependencies = [
 
 [[package]]
 name = "async-compat"
-version = "0.2.1"
-source = "git+https://github.com/jplatte/async-compat?rev=b83b197622d8b5756d3594ce73b720896b07faae#b83b197622d8b5756d3594ce73b720896b07faae"
+version = "0.2.2"
+source = "git+https://github.com/jplatte/async-compat?rev=16dc8597ec09a6102d58d4e7b67714a35dd0ecb8#16dc8597ec09a6102d58d4e7b67714a35dd0ecb8"
 dependencies = [
  "futures-core",
  "futures-io",

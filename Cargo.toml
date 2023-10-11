@@ -80,5 +80,5 @@ inherits = "dev"
 opt-level = 3
 
 [patch.crates-io]
-async-compat = { git = "https://github.com/jplatte/async-compat", rev = "b83b197622d8b5756d3594ce73b720896b07faae" }
+async-compat = { git = "https://github.com/jplatte/async-compat", rev = "16dc8597ec09a6102d58d4e7b67714a35dd0ecb8" }
 const_panic = { git = "https://github.com/jplatte/const_panic", rev = "9024a4cb3eac45c1d2d980f17aaee287b17be498" }
