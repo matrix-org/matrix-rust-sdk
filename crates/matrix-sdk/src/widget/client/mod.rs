@@ -23,6 +23,7 @@ pub use self::{
 
 mod actions;
 mod events;
+mod implementation;
 
 /// State machine that handles the client widget API interractions.
 pub struct ClientApi;
