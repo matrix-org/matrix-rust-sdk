@@ -68,7 +68,24 @@ pub fn is_suitable_for_latest_event(event: &AnySyncTimelineEvent) -> PossibleLat
 
 /// Represent all information required to represent a latest event in an
 /// efficient way.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+///
+/// ## Implementation details
+///
+/// Serialization and deserialization should be a breeze, but we introduced a
+/// change in the format without realizing, and without a migration. Ideally,
+/// this would be handled with a `serde(untagged)` enum that would be used to
+/// deserialize in either the older format, or to the new format. Unfortunately,
+/// untagged enums don't play nicely with `serde_json::value::RawValue`,
+/// so we did have to implement a custom `Deserialize` for `LatestEvent`, that
+/// first deserializes the thing as a raw JSON value, and then deserializes the
+/// JSON string as one variant or the other.
+///
+/// Because of that, `LatestEvent` should only be (de)serialized using
+/// serde_json.
+///
+/// Whenever you introduce new fields to `LatestEvent` make sure to add them to
+/// `SerializedLatestEvent` too.
+#[derive(Clone, Debug, Serialize)]
 pub struct LatestEvent {
     /// The actual event.
     event: SyncTimelineEvent,
@@ -80,6 +97,59 @@ pub struct LatestEvent {
     /// The name of the event' sender is ambiguous.
     #[serde(skip_serializing_if = "Option::is_none")]
     sender_name_is_ambiguous: Option<bool>,
+}
+
+#[derive(Deserialize)]
+struct SerializedLatestEvent {
+    /// The actual event.
+    event: SyncTimelineEvent,
+
+    /// The member profile of the event' sender.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sender_profile: Option<MinimalRoomMemberEvent>,
+
+    /// The name of the event' sender is ambiguous.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sender_name_is_ambiguous: Option<bool>,
+}
+
+// Note: this deserialize implementation for LatestEvent will *only* work with
+// serde_json.
+impl<'de> Deserialize<'de> for LatestEvent {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw: Box<serde_json::value::RawValue> = Box::deserialize(deserializer)?;
+
+        let mut variant_errors = Vec::new();
+
+        match serde_json::from_str::<SerializedLatestEvent>(raw.get()) {
+            Ok(value) => {
+                return Ok(LatestEvent {
+                    event: value.event,
+                    sender_profile: value.sender_profile,
+                    sender_name_is_ambiguous: value.sender_name_is_ambiguous,
+                });
+            }
+            Err(err) => variant_errors.push(err),
+        }
+
+        match serde_json::from_str::<SyncTimelineEvent>(raw.get()) {
+            Ok(value) => {
+                return Ok(LatestEvent {
+                    event: value,
+                    sender_profile: None,
+                    sender_name_is_ambiguous: None,
+                })
+            }
+            Err(err) => variant_errors.push(err),
+        }
+
+        Err(serde::de::Error::custom(
+            format!("data did not match any variant of serialized LatestEvent (using serde_json). Observed errors: {variant_errors:?}")
+        ))
+    }
 }
 
 impl LatestEvent {
@@ -151,6 +221,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use assert_matches::assert_matches;
+    use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
     use ruma::{
         events::{
             poll::unstable_start::{
@@ -175,11 +246,13 @@ mod tests {
             RedactedSyncMessageLikeEvent, RedactedUnsigned, StateUnsigned, SyncMessageLikeEvent,
             UnsignedRoomRedactionEvent,
         },
-        owned_event_id, owned_mxc_uri, owned_user_id, MilliSecondsSinceUnixEpoch, UInt,
+        owned_event_id, owned_mxc_uri, owned_user_id,
+        serde::Raw,
+        MilliSecondsSinceUnixEpoch, UInt,
     };
     use serde_json::json;
 
-    use crate::latest_event::{is_suitable_for_latest_event, PossibleLatestEvent};
+    use crate::latest_event::{is_suitable_for_latest_event, LatestEvent, PossibleLatestEvent};
 
     #[test]
     fn room_messages_are_suitable() {
@@ -315,5 +388,57 @@ mod tests {
             is_suitable_for_latest_event(&event),
             PossibleLatestEvent::NoUnsupportedEventType
         );
+    }
+
+    #[test]
+    fn deserialize_latest_event() {
+        #[derive(Debug, serde::Serialize, serde::Deserialize)]
+        struct TestStruct {
+            latest_event: LatestEvent,
+        }
+
+        let event = SyncTimelineEvent::new(
+            Raw::from_json_string(json!({ "event_id": "$1" }).to_string()).unwrap(),
+        );
+
+        let initial = TestStruct {
+            latest_event: LatestEvent {
+                event: event.clone(),
+                sender_profile: None,
+                sender_name_is_ambiguous: None,
+            },
+        };
+
+        // When serialized, LatestEvent always uses the new format.
+        let serialized = serde_json::to_value(&initial).unwrap();
+        assert_eq!(
+            serialized,
+            json!({
+                "latest_event": {
+                    "event": {
+                        "encryption_info": null,
+                        "event": {
+                            "event_id": "$1"
+                        }
+                    },
+                }
+            })
+        );
+
+        // And it can be properly deserialized from the new format.
+        let deserialized: TestStruct = serde_json::from_value(serialized).unwrap();
+        assert_eq!(deserialized.latest_event.event().event_id().unwrap(), "$1");
+        assert!(deserialized.latest_event.sender_profile.is_none());
+        assert!(deserialized.latest_event.sender_name_is_ambiguous.is_none());
+
+        // The previous format can also be deserialized.
+        let serialized = json!({
+            "latest_event": event
+        });
+
+        let deserialized: TestStruct = serde_json::from_value(serialized).unwrap();
+        assert_eq!(deserialized.latest_event.event().event_id().unwrap(), "$1");
+        assert!(deserialized.latest_event.sender_profile.is_none());
+        assert!(deserialized.latest_event.sender_name_is_ambiguous.is_none());
     }
 }
