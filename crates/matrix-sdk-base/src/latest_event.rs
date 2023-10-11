@@ -77,7 +77,7 @@ pub fn is_suitable_for_latest_event(event: &AnySyncTimelineEvent) -> PossibleLat
 /// deserialize in either the older format, or to the new format. Unfortunately,
 /// untagged enums don't play nicely with `serde_json::value::RawValue`,
 /// so we did have to implement a custom `Deserialize` for `LatestEvent`, that
-/// first deserialize the thing as a raw JSON value, and then deserialize the
+/// first deserializes the thing as a raw JSON value, and then deserializes the
 /// JSON string as one variant or the other.
 ///
 /// Because of that, `LatestEvent` should only be (de)serialized using
@@ -146,8 +146,7 @@ impl<'de> Deserialize<'de> for LatestEvent {
             Err(err) => variant_errors.push(err),
         }
 
-        use serde::de::Error as _;
-        Err(D::Error::custom(
+        Err(serde::de::Error::custom(
             format!("data did not match any variant of serialized LatestEvent (using serde_json). Observed errors: {variant_errors:?}")
         ))
     }
