@@ -4911,9 +4911,9 @@ dependencies = [
 
 [[package]]
 name = "ruma-events"
-version = "0.27.2"
+version = "0.27.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2f97a398ff20e4de226a5b5b467027eec26a7988e99f98e932f413baef6e8875"
+checksum = "fa5bdb62fc6d45f0fcad39403ba2e0f7d67d187d9b992de3411e3fb7ac2cede5"
 dependencies = [
  "as_variant",
  "indexmap 2.0.2",
