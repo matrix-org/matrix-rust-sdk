@@ -431,42 +431,17 @@ impl IdentityManager {
     ) -> Result<IdentityUpdateResult, SignatureError> {
         match i {
             ReadOnlyUserIdentities::Own(mut identity) => {
-                if let Some(user_signing) = response
-                    .user_signing_keys
-                    .get(self.user_id())
-                    .and_then(|k| k.deserialize_as::<UserSigningPubkey>().ok())
-                {
-                    if user_signing.user_id() != self.user_id() {
-                        warn!(
-                            expected = ?self.user_id(),
-                            got = ?user_signing.user_id(),
-                            "User ID mismatch in our user-signing key",
-                        );
-
-                        Err(SignatureError::UserIdMismatch)
-                    } else {
-                        let has_changed =
-                            identity.update(master_key, self_signing, user_signing)?;
-
-                        *changed_private_identity = self.check_private_identity(&identity).await;
-
-                        if has_changed {
-                            Ok(IdentityUpdateResult::Updated(identity.into()))
-                        } else {
-                            Ok(IdentityUpdateResult::Unchanged(identity.into()))
-                        }
-                    }
+                let user_signing = self.get_user_signing_key_from_response(response)?;
+                let has_changed = identity.update(master_key, self_signing, user_signing)?;
+                *changed_private_identity = self.check_private_identity(&identity).await;
+                if has_changed {
+                    Ok(IdentityUpdateResult::Updated(identity.into()))
                 } else {
-                    warn!(
-                        "User identity for our own user didn't contain a user signing public key"
-                    );
-
-                    Err(SignatureError::MissingSigningKey)
+                    Ok(IdentityUpdateResult::Unchanged(identity.into()))
                 }
             }
             ReadOnlyUserIdentities::Other(mut identity) => {
                 let has_changed = identity.update(master_key, self_signing)?;
-
                 if has_changed {
                     Ok(IdentityUpdateResult::Updated(identity.into()))
                 } else {
@@ -484,34 +459,10 @@ impl IdentityManager {
         changed_private_identity: &mut Option<PrivateCrossSigningIdentity>,
     ) -> Result<ReadOnlyUserIdentities, SignatureError> {
         if master_key.user_id() == self.user_id() {
-            if let Some(user_signing) = response
-                .user_signing_keys
-                .get(self.user_id())
-                .and_then(|k| k.deserialize_as::<UserSigningPubkey>().ok())
-            {
-                if user_signing.user_id() != self.user_id() {
-                    warn!(
-                        expected = ?self.user_id(),
-                        got = ?user_signing.user_id(),
-                        "User ID mismatch in our user-signing key",
-                    );
-                    Err(SignatureError::UserIdMismatch)
-                } else {
-                    let identity =
-                        ReadOnlyOwnUserIdentity::new(master_key, self_signing, user_signing)?;
-
-                    *changed_private_identity = self.check_private_identity(&identity).await;
-
-                    Ok(identity.into())
-                }
-            } else {
-                warn!(
-                    "User identity for our own user didn't contain a user signing pubkey or the key \
-                    isn't valid",
-                );
-
-                Err(SignatureError::MissingSigningKey)
-            }
+            let user_signing = self.get_user_signing_key_from_response(response)?;
+            let identity = ReadOnlyOwnUserIdentity::new(master_key, self_signing, user_signing)?;
+            *changed_private_identity = self.check_private_identity(&identity).await;
+            Ok(identity.into())
         } else {
             let identity = ReadOnlyUserIdentity::new(master_key, self_signing)?;
             Ok(identity.into())
@@ -549,6 +500,44 @@ impl IdentityManager {
                 None
             }
         }
+    }
+
+    /// Try to deserialize the our user-signing key from a `/keys/query`
+    /// response.
+    ///
+    /// If a `/keys/query` response includes our own cross-signing keys, then it
+    /// should include our user-signing key. This method attempts to
+    /// extract, deserialize, and check the key from the response.
+    ///
+    /// # Arguments
+    ///
+    /// * `response` - the entire `/keys/query` response.
+    fn get_user_signing_key_from_response(
+        &self,
+        response: &KeysQueryResponse,
+    ) -> Result<UserSigningPubkey, SignatureError> {
+        let Some(user_signing) = response
+            .user_signing_keys
+            .get(self.user_id())
+            .and_then(|k| k.deserialize_as::<UserSigningPubkey>().ok())
+        else {
+            warn!(
+                "User identity for our own user didn't contain a user signing pubkey or the key \
+                    isn't valid",
+            );
+            return Err(SignatureError::MissingSigningKey);
+        };
+
+        if user_signing.user_id() != self.user_id() {
+            warn!(
+                expected = ?self.user_id(),
+                got = ?user_signing.user_id(),
+                "User ID mismatch in our user-signing key",
+            );
+            return Err(SignatureError::UserIdMismatch);
+        }
+
+        Ok(user_signing)
     }
 
     #[instrument(skip_all, fields(user_id))]
