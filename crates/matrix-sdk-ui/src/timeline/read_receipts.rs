@@ -232,7 +232,7 @@ impl ReadReceiptTimelineUpdate {
     /// Remove the old receipt from the corresponding timeline item.
     fn remove_old_receipt(
         &self,
-        items: &mut ObservableVectorTransaction<Arc<TimelineItem>>,
+        items: &mut ObservableVectorTransaction<'_, Arc<TimelineItem>>,
         user_id: &UserId,
     ) {
         let Some(event_id) = &self.old_event_id else {
@@ -265,7 +265,7 @@ impl ReadReceiptTimelineUpdate {
     /// Add the new receipt to the corresponding timeline item.
     fn add_new_receipt(
         self,
-        items: &mut ObservableVectorTransaction<Arc<TimelineItem>>,
+        items: &mut ObservableVectorTransaction<'_, Arc<TimelineItem>>,
         user_id: OwnedUserId,
         receipt: Receipt,
     ) {
@@ -294,7 +294,7 @@ impl ReadReceiptTimelineUpdate {
     /// Apply this update to the timeline.
     fn apply(
         self,
-        items: &mut ObservableVectorTransaction<Arc<TimelineItem>>,
+        items: &mut ObservableVectorTransaction<'_, Arc<TimelineItem>>,
         user_id: OwnedUserId,
         receipt: Receipt,
     ) {
