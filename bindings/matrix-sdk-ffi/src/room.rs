@@ -834,8 +834,7 @@ impl Room {
             let base_audio_info: BaseAudioInfo = BaseAudioInfo::try_from(&audio_info)
                 .map_err(|_| RoomError::InvalidAttachmentData)?;
 
-            let waveform_amplitudes = waveform.iter().map(|v| (*v).into()).collect();
-            let attachment_info = AttachmentInfo::Voice(base_audio_info, Some(waveform_amplitudes));
+            let attachment_info = AttachmentInfo::Voice(base_audio_info, Some(waveform));
             let attachment_config = AttachmentConfig::new().info(attachment_info);
 
             self.send_attachment(url, mime_type, attachment_config, progress_watcher).await

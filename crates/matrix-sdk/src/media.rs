@@ -449,6 +449,7 @@ impl Media {
 
                 if let Some(AttachmentInfo::Voice(audio_info, Some(waveform))) = info {
                     if let Some(duration) = audio_info.duration {
+                        let waveform = waveform.iter().map(|v| (*v).into()).collect();
                         audio_message_event_content.audio =
                             Some(UnstableAudioDetailsContentBlock::new(duration, waveform));
                     }

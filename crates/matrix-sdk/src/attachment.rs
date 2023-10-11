@@ -22,12 +22,9 @@ use std::time::Duration;
 use image::GenericImageView;
 use ruma::{
     assign,
-    events::{
-        audio::Amplitude,
-        room::{
-            message::{AudioInfo, FileInfo, VideoInfo},
-            ImageInfo, ThumbnailInfo,
-        },
+    events::room::{
+        message::{AudioInfo, FileInfo, VideoInfo},
+        ImageInfo, ThumbnailInfo,
     },
     OwnedTransactionId, TransactionId, UInt,
 };
@@ -91,7 +88,7 @@ pub enum AttachmentInfo {
     /// The metadata of a file.
     File(BaseFileInfo),
     /// The metadata of a voice message
-    Voice(BaseAudioInfo, Option<Vec<Amplitude>>),
+    Voice(BaseAudioInfo, Option<Vec<u16>>),
 }
 
 impl From<AttachmentInfo> for ImageInfo {
