@@ -406,7 +406,7 @@ impl TimelineInnerStateTransaction<'_> {
     /// previous visible event because of a visibility change.
     pub(super) fn maybe_update_read_receipts_of_prev_event(&mut self, event_id: &EventId) {
         // Find the previous visible event, if there is one.
-        let Some((prev_item_pos, prev_event_item)) = self
+        let Some(prev_event_meta) = self
             .all_events
             .iter()
             .rev()
@@ -416,8 +416,14 @@ impl TimelineInnerStateTransaction<'_> {
             .skip(1)
             // Find the first visible item.
             .find(|meta| meta.visible)
-            .and_then(|meta| rfind_event_by_id(&self.items, &meta.event_id))
         else {
+            return;
+        };
+
+        let Some((prev_item_pos, prev_event_item)) =
+            rfind_event_by_id(&self.items, &prev_event_meta.event_id)
+        else {
+            error!("inconsistent state: timeline item of visible event was not found");
             return;
         };
 
