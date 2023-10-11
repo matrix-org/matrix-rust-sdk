@@ -276,6 +276,15 @@ impl RoomDataProvider for TestRoomDataProvider {
         None
     }
 
+    async fn user_receipt(
+        &self,
+        _receipt_type: ReceiptType,
+        _thread: ReceiptThread,
+        _user_id: &UserId,
+    ) -> Option<(OwnedEventId, Receipt)> {
+        None
+    }
+
     async fn read_receipts_for_event(&self, event_id: &EventId) -> IndexMap<OwnedUserId, Receipt> {
         if event_id == event_id!("$event_with_bob_receipt") {
             [(BOB.to_owned(), Receipt::new(MilliSecondsSinceUnixEpoch(uint!(10))))].into()
