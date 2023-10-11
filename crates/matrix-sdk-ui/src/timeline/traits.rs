@@ -21,7 +21,7 @@ use matrix_sdk_base::latest_event::LatestEvent;
 use ruma::{
     events::receipt::{Receipt, ReceiptThread, ReceiptType},
     push::{PushConditionRoomCtx, Ruleset},
-    EventId, OwnedUserId, RoomVersionId, UserId,
+    EventId, OwnedEventId, OwnedUserId, RoomVersionId, UserId,
 };
 #[cfg(feature = "e2e-encryption")]
 use ruma::{events::AnySyncTimelineEvent, serde::Raw};
@@ -69,6 +69,12 @@ pub(super) trait RoomDataProvider: Clone + Send + Sync + 'static {
     fn room_version(&self) -> RoomVersionId;
     async fn profile_from_user_id(&self, user_id: &UserId) -> Option<Profile>;
     async fn profile_from_latest_event(&self, latest_event: &LatestEvent) -> Option<Profile>;
+    async fn user_receipt(
+        &self,
+        receipt_type: ReceiptType,
+        thread: ReceiptThread,
+        user_id: &UserId,
+    ) -> Option<(OwnedEventId, Receipt)>;
     async fn read_receipts_for_event(&self, event_id: &EventId) -> IndexMap<OwnedUserId, Receipt>;
     async fn push_rules_and_context(&self) -> Option<(Ruleset, PushConditionRoomCtx)>;
 }
@@ -112,6 +118,26 @@ impl RoomDataProvider for Room {
             display_name_ambiguous: latest_event.sender_name_ambiguous().unwrap_or(false),
             avatar_url: latest_event.sender_avatar_url().map(ToOwned::to_owned),
         })
+    }
+
+    async fn user_receipt(
+        &self,
+        receipt_type: ReceiptType,
+        thread: ReceiptThread,
+        user_id: &UserId,
+    ) -> Option<(OwnedEventId, Receipt)> {
+        match self.user_receipt(receipt_type.clone(), thread.clone(), user_id).await {
+            Ok(receipt) => receipt,
+            Err(e) => {
+                error!(
+                    ?receipt_type,
+                    ?thread,
+                    ?user_id,
+                    "Failed to get read receipt for user: {e}"
+                );
+                None
+            }
+        }
     }
 
     async fn read_receipts_for_event(&self, event_id: &EventId) -> IndexMap<OwnedUserId, Receipt> {
