@@ -20,18 +20,18 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct OpenIdState {
-    pub original_request_id: String,
-    pub access_token: String,
+pub(crate) struct OpenIdState {
+    pub(crate) original_request_id: String,
+    pub(crate) access_token: String,
     #[serde(with = "ruma::serde::duration::secs")]
-    pub expires_in: Duration,
-    pub matrix_server_name: OwnedServerName,
-    pub token_type: TokenType,
+    pub(crate) expires_in: Duration,
+    pub(crate) matrix_server_name: OwnedServerName,
+    pub(crate) token_type: TokenType,
 }
 
 impl OpenIdState {
     #[allow(dead_code)]
-    pub fn new(id: impl Into<String>, ruma: request_openid_token::v3::Response) -> Self {
+    pub(crate) fn new(id: impl Into<String>, ruma: request_openid_token::v3::Response) -> Self {
         Self {
             original_request_id: id.into(),
             access_token: ruma.access_token,
@@ -45,7 +45,7 @@ impl OpenIdState {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 #[serde(tag = "state")]
-pub enum OpenIdResponse {
+pub(crate) enum OpenIdResponse {
     Allowed(OpenIdState),
     Blocked,
     #[serde(rename = "request")]

@@ -40,39 +40,39 @@ impl Request for RequestPermissions {
 
 /// Ask the client (permission provider) to acquire given permissions
 /// from the user. The client must eventually respond with granted permissions.
-pub(crate) struct AcquirePermissions(pub Permissions);
+pub(crate) struct AcquirePermissions(pub(crate) Permissions);
 impl Request for AcquirePermissions {
     type Response = Permissions;
 }
 
 /// Send a request to the widget asking it to update its permissions.
-pub struct UpdatePermissions(pub Permissions);
+pub(crate) struct UpdatePermissions(pub(crate) Permissions);
 impl Request for UpdatePermissions {
     type Response = ();
 }
 
 /// Request open ID from the Matrix client.
-pub struct RequestOpenId;
+pub(crate) struct RequestOpenId;
 impl Request for RequestOpenId {
     type Response = RumaOpenIdResponse;
 }
 
 /// Send a request to the widget asking it to update its open ID state.
-pub struct UpdateOpenId(pub OpenIdResponse);
+pub(crate) struct UpdateOpenId(pub(crate) OpenIdResponse);
 impl Request for UpdateOpenId {
     type Response = ();
 }
 
 /// Ask the client to read matrix event(s) that corresponds to the given
 /// description and return a list of events as a response.
-pub struct ReadMatrixEvent(pub ReadEventCommand);
+pub(crate) struct ReadMatrixEvent(pub(crate) ReadEventCommand);
 impl Request for ReadMatrixEvent {
     type Response = Vec<Raw<AnyTimelineEvent>>;
 }
 
 /// Ask the client to send matrix event that corresponds to the given
 /// description and return an event ID as a response.
-pub struct SendMatrixEvent(pub SendEventCommand);
+pub(crate) struct SendMatrixEvent(pub(crate) SendEventCommand);
 impl Request for SendMatrixEvent {
     type Response = OwnedEventId;
 }

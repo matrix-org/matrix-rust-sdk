@@ -21,7 +21,7 @@ use super::actions::CommandResult;
 use crate::widget::Permissions;
 
 /// Incoming event that the client API must process.
-pub enum Event {
+pub(crate) enum Event {
     /// An incoming raw message from the widget.
     MessageFromWidget(String),
     /// Matrix event received. This one is delivered as a result of client
