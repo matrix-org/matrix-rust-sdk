@@ -62,7 +62,9 @@ jobs:
 
       - name: Run tarpaulin
         run: |
-          rustup run stable cargo tarpaulin --skip-clean --profile cov --out xml --features testing
+          rustup run stable cargo tarpaulin \
+            --skip-clean --profile cov --out xml \
+            --features experimental-widgets,testing
         env:
           CARGO_PROFILE_COV_INHERITS: 'dev'
           CARGO_PROFILE_COV_DEBUG: 'false'
