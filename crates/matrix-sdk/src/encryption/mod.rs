@@ -197,9 +197,10 @@ impl Client {
                     thumbnail_source,
                     thumbnail_info
                 });
-                let content = assign!(ImageMessageEventContent::encrypted(body.to_owned(), file), {
-                    info: Some(Box::new(info))
-                });
+                let content =
+                    assign!(ImageMessageEventContent::encrypted(body.to_owned(), file), {
+                        info: Some(Box::new(info))
+                    });
                 MessageType::Image(content)
             }
             mime::AUDIO => {
@@ -228,9 +229,10 @@ impl Client {
                     thumbnail_source,
                     thumbnail_info
                 });
-                let content = assign!(VideoMessageEventContent::encrypted(body.to_owned(), file), {
-                    info: Some(Box::new(info))
-                });
+                let content =
+                    assign!(VideoMessageEventContent::encrypted(body.to_owned(), file), {
+                        info: Some(Box::new(info))
+                    });
                 MessageType::Video(content)
             }
             _ => {
