@@ -34,7 +34,8 @@ pub trait PermissionsProvider: Send + Sync + 'static {
 }
 
 /// Permissions that a widget can request from a client.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
+#[cfg_attr(test, derive(PartialEq))]
 pub struct Permissions {
     /// Types of the messages that a widget wants to be able to fetch.
     pub read: Vec<EventFilter>,
@@ -180,8 +181,7 @@ impl<'de> Deserialize<'de> for Permissions {
             }
         }
 
-        let mut permissions =
-            Permissions { read: Vec::new(), send: Vec::new(), requires_client: false };
+        let mut permissions = Permissions::default();
         for permission in Vec::<Permission>::deserialize(deserializer)? {
             match permission {
                 Permission::RequiresClient => permissions.requires_client = true,
@@ -193,5 +193,80 @@ impl<'de> Deserialize<'de> for Permissions {
         }
 
         Ok(permissions)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ruma::events::StateEventType;
+
+    use super::*;
+
+    #[test]
+    fn deserialization_of_permissions() {
+        let permissions_str = r#"[
+            "m.always_on_screen",
+            "io.element.requires_client",
+            "org.matrix.msc2762.receive.event:org.matrix.rageshake_request",
+            "org.matrix.msc2762.receive.state_event:m.room.member",
+            "org.matrix.msc2762.receive.state_event:org.matrix.msc3401.call.member",
+            "org.matrix.msc2762.send.event:org.matrix.rageshake_request",
+            "org.matrix.msc2762.send.state_event:org.matrix.msc3401.call.member#@user:matrix.server"
+        ]"#;
+
+        let parsed = serde_json::from_str::<Permissions>(permissions_str).unwrap();
+        let expected = Permissions {
+            read: vec![
+                EventFilter::MessageLike(MessageLikeEventFilter::WithType(
+                    "org.matrix.rageshake_request".into(),
+                )),
+                EventFilter::State(StateEventFilter::WithType(StateEventType::RoomMember)),
+                EventFilter::State(StateEventFilter::WithType(
+                    "org.matrix.msc3401.call.member".into(),
+                )),
+            ],
+            send: vec![
+                EventFilter::MessageLike(MessageLikeEventFilter::WithType(
+                    "org.matrix.rageshake_request".into(),
+                )),
+                EventFilter::State(StateEventFilter::WithTypeAndStateKey(
+                    "org.matrix.msc3401.call.member".into(),
+                    "@user:matrix.server".into(),
+                )),
+            ],
+            requires_client: true,
+        };
+
+        assert_eq!(parsed, expected);
+    }
+
+    #[test]
+    fn serialization_and_deserialization_are_symmetrical() {
+        let permissions = Permissions {
+            read: vec![
+                EventFilter::MessageLike(MessageLikeEventFilter::WithType(
+                    "io.element.custom".into(),
+                )),
+                EventFilter::State(StateEventFilter::WithType(StateEventType::RoomMember)),
+                EventFilter::State(StateEventFilter::WithTypeAndStateKey(
+                    "org.matrix.msc3401.call.member".into(),
+                    "@user:matrix.server".into(),
+                )),
+            ],
+            send: vec![
+                EventFilter::MessageLike(MessageLikeEventFilter::WithType(
+                    "io.element.custom".into(),
+                )),
+                EventFilter::State(StateEventFilter::WithTypeAndStateKey(
+                    "org.matrix.msc3401.call.member".into(),
+                    "@user:matrix.server".into(),
+                )),
+            ],
+            requires_client: true,
+        };
+
+        let permissions_str = serde_json::to_string(&permissions).unwrap();
+        let parsed = serde_json::from_str::<Permissions>(&permissions_str).unwrap();
+        assert_eq!(parsed, permissions);
     }
 }
