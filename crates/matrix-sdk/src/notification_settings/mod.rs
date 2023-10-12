@@ -207,8 +207,8 @@ impl NotificationSettings {
         Ok(())
     }
 
-    /// Sets the push rule actions for a given underride push rule. It also enables the push rule if it is disabled.
-    /// [Underride rules](https://spec.matrix.org/v1.8/client-server-api/#push-rules) are the lowest priority push rules
+    /// Sets the push rule actions for a given underride push rule. It also
+    /// enables the push rule if it is disabled. [Underride rules](https://spec.matrix.org/v1.8/client-server-api/#push-rules) are the lowest priority push rules
     ///
     /// # Arguments
     ///
@@ -225,7 +225,7 @@ impl NotificationSettings {
 
         rule_commands.set_rule_actions(rule_kind.clone(), rule_id.as_str(), actions)?;
 
-        if rules.is_enabled(rule_kind.clone(), rule_id.as_str())? == false {
+        if !rules.is_enabled(rule_kind.clone(), rule_id.as_str())? {
             rule_commands.set_rule_enabled(rule_kind, rule_id.as_str(), true)?
         }
 
@@ -1103,7 +1103,8 @@ mod tests {
             .await
             .unwrap();
 
-        // The new mode returned should be `AllMessages` which means that the disabled rule (`RoomOneToOne`) has been enabled.
+        // The new mode returned should be `AllMessages` which means that the disabled
+        // rule (`RoomOneToOne`) has been enabled.
         assert_matches!(
             settings.get_default_room_notification_mode(IsEncrypted::No, IsOneToOne::Yes).await,
             RoomNotificationMode::AllMessages
