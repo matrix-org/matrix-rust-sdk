@@ -204,7 +204,7 @@ impl Client {
             mime::AUDIO => {
                 let audio_message_event_content =
                     AudioMessageEventContent::encrypted(body.to_owned(), file);
-                MessageType::Audio(crate::media::update(
+                MessageType::Audio(crate::media::update_audio_message_event(
                     audio_message_event_content,
                     content_type,
                     info,

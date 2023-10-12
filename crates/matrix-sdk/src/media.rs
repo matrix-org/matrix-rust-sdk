@@ -441,7 +441,7 @@ impl Media {
             mime::AUDIO => {
                 let audio_message_event_content =
                     message::AudioMessageEventContent::plain(body.to_owned(), url);
-                MessageType::Audio(update(audio_message_event_content, content_type, info))
+                MessageType::Audio(update_audio_message_event(audio_message_event_content, content_type, info))
             }
             mime::VIDEO => {
                 let info = assign!(info.map(VideoInfo::from).unwrap_or_default(), {
@@ -493,7 +493,7 @@ impl Media {
     }
 }
 
-pub(crate) fn update(
+pub(crate) fn update_audio_message_event(
     mut audio_message_event_content: AudioMessageEventContent,
     content_type: &Mime,
     info: Option<AttachmentInfo>,
