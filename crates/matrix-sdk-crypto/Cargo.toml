@@ -51,7 +51,7 @@ rmp-serde = "1.1.1"
 ruma = { workspace = true, features = ["rand", "canonical-json", "unstable-msc3814"] }
 serde = { workspace = true, features = ["derive", "rc"] }
 serde_json = { workspace = true }
-sha2 = "0.10.2"
+sha2 = { workspace = true }
 subtle = "2.5.0"
 tokio-stream = { version = "0.1.12", features = ["sync"] }
 tokio = { workspace = true, default-features = false, features = ["sync"] }

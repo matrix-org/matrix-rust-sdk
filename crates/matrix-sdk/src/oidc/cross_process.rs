@@ -7,34 +7,28 @@ use matrix_sdk_base::crypto::{
 use matrix_sdk_common::store_locks::{
     CrossProcessStoreLock, CrossProcessStoreLockGuard, LockStoreError,
 };
+use sha2::{Digest as _, Sha256};
 use thiserror::Error;
 use tokio::sync::{Mutex, OwnedMutexGuard};
 use tracing::trace;
 
 use super::OidcSessionTokens;
-use crate::oidc::hash;
 
 /// Key in the database for the custom value holding the current session tokens
 /// hash.
 const OIDC_SESSION_HASH_KEY: &str = "oidc_session_hash";
 
 /// Newtype to identify that a value is a session tokens' hash.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct SessionHash(u64);
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct SessionHash(Vec<u8>);
 
 /// Compute a hash uniquely identifying the OIDC session tokens.
 fn compute_session_hash(tokens: &OidcSessionTokens) -> SessionHash {
-    // Subset of `SessionTokens` fit for hashing
-    #[derive(Hash)]
-    struct HashableSessionTokens<'a> {
-        access_token: &'a str,
-        refresh_token: Option<&'a str>,
+    let mut hash = Sha256::new().chain_update(tokens.access_token.as_bytes());
+    if let Some(refresh_token) = &tokens.refresh_token {
+        hash = hash.chain_update(refresh_token.as_bytes());
     }
-
-    SessionHash(hash(&HashableSessionTokens {
-        access_token: &tokens.access_token,
-        refresh_token: tokens.refresh_token.as_deref(),
-    }))
+    SessionHash(hash.finalize().to_vec())
 }
 
 #[derive(Clone)]
@@ -71,17 +65,9 @@ impl CrossProcessRefreshManager {
         // Read the previous session hash in the database.
         let current_db_session_bytes = self.store.get_custom_value(OIDC_SESSION_HASH_KEY).await?;
 
-        let db_hash = if let Some(val) = current_db_session_bytes {
-            Some(u64::from_le_bytes(
-                val.try_into().map_err(|_| CrossProcessRefreshLockError::InvalidPreviousHash)?,
-            ))
-        } else {
-            None
-        };
+        let db_hash = current_db_session_bytes.map(SessionHash);
 
-        let db_hash = db_hash.map(SessionHash);
-
-        let hash_mismatch = match (db_hash, *prev_hash) {
+        let hash_mismatch = match (&db_hash, &*prev_hash) {
             (None, _) => false,
             (Some(_), None) => true,
             (Some(db), Some(known)) => db != known,
@@ -157,9 +143,9 @@ impl CrossProcessRefreshLockGuard {
     /// Updates the `SessionTokens` hash in the database only.
     async fn save_in_database(
         &self,
-        hash: SessionHash,
+        hash: &SessionHash,
     ) -> Result<(), CrossProcessRefreshLockError> {
-        self.store.set_custom_value(OIDC_SESSION_HASH_KEY, hash.0.to_le_bytes().to_vec()).await?;
+        self.store.set_custom_value(OIDC_SESSION_HASH_KEY, hash.0.clone()).await?;
         Ok(())
     }
 
@@ -171,8 +157,8 @@ impl CrossProcessRefreshLockGuard {
         tokens: &OidcSessionTokens,
     ) -> Result<(), CrossProcessRefreshLockError> {
         let hash = compute_session_hash(tokens);
+        self.save_in_database(&hash).await?;
         self.save_in_memory(hash);
-        self.save_in_database(hash).await?;
         Ok(())
     }
 
@@ -191,7 +177,7 @@ impl CrossProcessRefreshLockGuard {
                 // In this case, we assume the value returned by the callback is always
                 // correct, so override that in the database too.
                 tracing::error!("error: DB and trusted disagree. Overriding in DB.");
-                self.save_in_database(new_hash).await?;
+                self.save_in_database(&new_hash).await?;
             }
         }
 
@@ -303,7 +289,7 @@ mod tests {
 
         {
             let known_session = xp_manager.known_session_hash.lock().await;
-            assert_eq!(known_session.unwrap(), session_hash);
+            assert_eq!(known_session.as_ref().unwrap(), &session_hash);
         }
 
         {
@@ -370,7 +356,7 @@ mod tests {
                 oidc.ctx().cross_process_token_refresh_manager.get().context("must have lock")?;
             let guard = xp_manager.spin_lock().await?;
             let actual_hash = compute_session_hash(&session_tokens);
-            assert_eq!(guard.db_hash, Some(actual_hash));
+            assert_eq!(guard.db_hash.as_ref(), Some(&actual_hash));
             assert_eq!(guard.hash_guard.as_ref(), Some(&actual_hash));
             assert!(!guard.hash_mismatch);
         }
@@ -429,7 +415,7 @@ mod tests {
                 oidc.ctx().cross_process_token_refresh_manager.get().context("must have lock")?;
             let guard = xp_manager.spin_lock().await?;
             let actual_hash = compute_session_hash(&next_tokens);
-            assert_eq!(guard.db_hash, Some(actual_hash));
+            assert_eq!(guard.db_hash.as_ref(), Some(&actual_hash));
             assert_eq!(guard.hash_guard.as_ref(), Some(&actual_hash));
             assert!(!guard.hash_mismatch);
         }
@@ -502,7 +488,7 @@ mod tests {
                 oidc3.ctx().cross_process_token_refresh_manager.get().context("must have lock")?;
             let guard = xp_manager.spin_lock().await?;
             let actual_hash = compute_session_hash(&next_tokens);
-            assert_eq!(guard.db_hash, Some(actual_hash));
+            assert_eq!(guard.db_hash.as_ref(), Some(&actual_hash));
             assert_eq!(guard.hash_guard.as_ref(), Some(&actual_hash));
             assert!(!guard.hash_mismatch);
         }
@@ -527,7 +513,7 @@ mod tests {
                 oidc.ctx().cross_process_token_refresh_manager.get().context("must have lock")?;
             let guard = xp_manager.spin_lock().await?;
             let next_hash = compute_session_hash(&next_tokens);
-            assert_eq!(guard.db_hash, Some(next_hash));
+            assert_eq!(guard.db_hash.as_ref(), Some(&next_hash));
             assert_eq!(guard.hash_guard.as_ref(), Some(&next_hash));
             assert!(!guard.hash_mismatch);
 
@@ -565,7 +551,7 @@ mod tests {
                 oidc.ctx().cross_process_token_refresh_manager.get().context("must have lock")?;
             let guard = xp_manager.spin_lock().await?;
             let actual_hash = compute_session_hash(&next_tokens);
-            assert_eq!(guard.db_hash, Some(actual_hash));
+            assert_eq!(guard.db_hash.as_ref(), Some(&actual_hash));
             assert_eq!(guard.hash_guard.as_ref(), Some(&actual_hash));
             assert!(!guard.hash_mismatch);
         }

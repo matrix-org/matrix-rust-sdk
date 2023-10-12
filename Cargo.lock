@@ -3087,6 +3087,7 @@ dependencies = [
  "serde_html_form",
  "serde_json",
  "serde_urlencoded",
+ "sha2",
  "stream_assert",
  "tempfile",
  "thiserror",
