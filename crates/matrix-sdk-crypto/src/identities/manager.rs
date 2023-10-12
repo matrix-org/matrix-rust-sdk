@@ -1281,7 +1281,7 @@ pub(crate) mod tests {
         let identity_request = private_identity.as_upload_request().await;
         drop(private_identity);
 
-        let device_keys = manager.store.cache().await?.account().await?.device_keys().await;
+        let device_keys = manager.store.cache().await?.account().await?.device_keys();
         manager
             .receive_keys_query_response(
                 &TransactionId::new(),

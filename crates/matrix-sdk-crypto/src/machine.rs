@@ -273,7 +273,7 @@ impl OlmMachine {
                     .record("ed25519_key", display(account.identity_keys().ed25519))
                     .record("curve25519_key", display(account.identity_keys().curve25519));
 
-                let device = ReadOnlyDevice::from_account(&account).await;
+                let device = ReadOnlyDevice::from_account(&account);
 
                 // We just created this device from our own Olm `Account`. Since we are the
                 // owners of the private keys of this device we can safely mark
@@ -548,7 +548,7 @@ impl OlmMachine {
             .store
             .with_transaction(|mut tr| async {
                 let account = tr.account().await?;
-                account.receive_keys_upload_response(response).await?;
+                account.receive_keys_upload_response(response)?;
                 Ok((tr, ()))
             })
             .await
@@ -624,7 +624,7 @@ impl OlmMachine {
     ///
     /// [`receive_keys_upload_response`]: #method.receive_keys_upload_response
     async fn keys_for_upload(&self, account: &Account) -> Option<upload_keys::v3::Request> {
-        let (device_keys, one_time_keys, fallback_keys) = account.keys_for_upload().await;
+        let (device_keys, one_time_keys, fallback_keys) = account.keys_for_upload();
 
         if device_keys.is_none() && one_time_keys.is_empty() && fallback_keys.is_empty() {
             None
@@ -1160,12 +1160,10 @@ impl OlmMachine {
 
         {
             let account = transaction.account().await?;
-            account
-                .update_key_counts(
-                    sync_changes.one_time_keys_counts,
-                    sync_changes.unused_fallback_keys,
-                )
-                .await;
+            account.update_key_counts(
+                sync_changes.one_time_keys_counts,
+                sync_changes.unused_fallback_keys,
+            )
         }
 
         if let Err(e) = self
@@ -1875,11 +1873,13 @@ impl OlmMachine {
     pub async fn sign(&self, message: &str) -> Result<Signatures, CryptoStoreError> {
         let mut signatures = Signatures::new();
 
-        let cache = self.inner.store.cache().await?;
-        let account = cache.account().await?;
-        let key_id = account.signing_key_id();
-        let signature = account.sign(message).await;
-        signatures.add_signature(self.user_id().to_owned(), key_id, signature);
+        {
+            let cache = self.inner.store.cache().await?;
+            let account = cache.account().await?;
+            let key_id = account.signing_key_id();
+            let signature = account.sign(message);
+            signatures.add_signature(self.user_id().to_owned(), key_id, signature);
+        }
 
         match self.sign_with_master_key(message).await {
             Ok((key_id, signature)) => {
@@ -2184,11 +2184,11 @@ pub(crate) mod tests {
             .store()
             .with_transaction(|mut tr| async {
                 let account = tr.account().await.unwrap();
-                account.generate_fallback_key_helper().await;
+                account.generate_fallback_key_helper();
                 account.update_uploaded_key_count(0);
-                account.generate_one_time_keys().await;
+                account.generate_one_time_keys();
                 let request = machine
-                    .keys_for_upload(&account)
+                    .keys_for_upload(account)
                     .await
                     .expect("Can't prepare initial key upload");
                 Ok((tr, request))
@@ -2315,19 +2315,35 @@ pub(crate) mod tests {
             .store()
             .with_transaction(|mut tr| async {
                 let account = tr.account().await.unwrap();
+                assert!(account.generate_one_time_keys().is_some());
+                Ok((tr, ()))
+            })
+            .await
+            .unwrap();
 
-                assert!(account.generate_one_time_keys().await.is_some());
+        let mut response = keys_upload_response();
 
-                let mut response = keys_upload_response();
+        machine.receive_keys_upload_response(&response).await.unwrap();
 
-                machine.receive_keys_upload_response(&response).await.unwrap();
-                assert!(account.generate_one_time_keys().await.is_some());
+        machine
+            .store()
+            .with_transaction(|mut tr| async {
+                let account = tr.account().await.unwrap();
+                assert!(account.generate_one_time_keys().is_some());
+                Ok((tr, ()))
+            })
+            .await
+            .unwrap();
 
-                response
-                    .one_time_key_counts
-                    .insert(DeviceKeyAlgorithm::SignedCurve25519, uint!(50));
-                machine.receive_keys_upload_response(&response).await.unwrap();
-                assert!(account.generate_one_time_keys().await.is_none());
+        response.one_time_key_counts.insert(DeviceKeyAlgorithm::SignedCurve25519, uint!(50));
+
+        machine.receive_keys_upload_response(&response).await.unwrap();
+
+        machine
+            .store()
+            .with_transaction(|mut tr| async {
+                let account = tr.account().await.unwrap();
+                assert!(account.generate_one_time_keys().is_none());
 
                 Ok((tr, ()))
             })
@@ -2342,7 +2358,7 @@ pub(crate) mod tests {
         let (device_keys, identity_keys) = {
             let cache = machine.store().cache().await.unwrap();
             let account = cache.account().await.unwrap();
-            let device_keys = account.device_keys().await;
+            let device_keys = account.device_keys();
             let identity_keys = account.identity_keys();
             (device_keys, identity_keys)
         };
@@ -2375,11 +2391,11 @@ pub(crate) mod tests {
             .invalidated());
     }
 
-    #[async_test]
-    async fn test_invalid_signature() {
+    #[test]
+    fn test_invalid_signature() {
         let account = Account::with_device_id(user_id(), alice_device_id());
 
-        let device_keys = account.device_keys().await;
+        let device_keys = account.device_keys();
 
         let key = Ed25519PublicKey::from_slice(&[0u8; 32]).unwrap();
 
@@ -2391,13 +2407,13 @@ pub(crate) mod tests {
         ret.unwrap_err();
     }
 
-    #[async_test]
-    async fn test_one_time_key_signing() {
-        let account = Account::with_device_id(user_id(), alice_device_id());
+    #[test]
+    fn test_one_time_key_signing() {
+        let mut account = Account::with_device_id(user_id(), alice_device_id());
         account.update_uploaded_key_count(49);
-        account.generate_one_time_keys().await;
+        account.generate_one_time_keys();
 
-        let mut one_time_keys = account.signed_one_time_keys().await;
+        let mut one_time_keys = account.signed_one_time_keys();
         let ed25519_key = account.identity_keys().ed25519;
 
         let one_time_key: SignedKey = one_time_keys
@@ -2470,7 +2486,7 @@ pub(crate) mod tests {
             let mut response = keys_upload_response();
             response.one_time_key_counts.insert(
                 DeviceKeyAlgorithm::SignedCurve25519,
-                (account.max_one_time_keys().await).try_into().unwrap(),
+                account.max_one_time_keys().try_into().unwrap(),
             );
 
             response

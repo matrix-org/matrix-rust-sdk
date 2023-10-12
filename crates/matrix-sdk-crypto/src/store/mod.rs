@@ -117,10 +117,11 @@ pub(crate) struct StoreCache {
 impl StoreCache {
     /// Returns a reference to the `Account.`
     ///
-    /// Either load the account from the cache, or the store, if missing from the cache.
+    /// Either load the account from the cache, or the store, if missing from
+    /// the cache.
     ///
-    /// Note there should always be an account stored at least in the store, so this doesn't return
-    /// an `Option`.
+    /// Note there should always be an account stored at least in the store, so
+    /// this doesn't return an `Option`.
     pub async fn account(&self) -> Result<impl Deref<Target = Account> + '_> {
         let mut guard = self.account.lock().await;
         if guard.is_some() {

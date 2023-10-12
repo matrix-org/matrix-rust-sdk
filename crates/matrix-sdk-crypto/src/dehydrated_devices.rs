@@ -291,7 +291,7 @@ impl DehydratedDevice {
     /// let pickle_key = [0u8; 32];
     ///
     /// // Create the dehydrated device.
-    /// let device = machine.dehydrated_devices().create();
+    /// let device = machine.dehydrated_devices().create().await?;
     ///
     /// // Create the request that should upload the device.
     /// let request = device
@@ -318,9 +318,9 @@ impl DehydratedDevice {
         let mut transaction = self.store.transaction().await?;
 
         let account = transaction.account().await?;
-        account.generate_fallback_key_helper().await;
+        account.generate_fallback_key_helper();
 
-        let (device_keys, one_time_keys, fallback_keys) = account.keys_for_upload().await;
+        let (device_keys, one_time_keys, fallback_keys) = account.keys_for_upload();
 
         let mut device_keys = device_keys
             .expect("We should always try to upload device keys for a dehydrated device.");
@@ -331,7 +331,7 @@ impl DehydratedDevice {
 
         let pickle_key = expand_pickle_key(pickle_key, &self.store.static_account().device_id);
         let device_id = self.store.static_account().device_id.clone();
-        let device_data = account.dehydrate(&pickle_key).await;
+        let device_data = account.dehydrate(&pickle_key);
         let initial_device_display_name = Some(initial_device_display_name);
 
         transaction.commit().await?;
