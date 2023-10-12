@@ -204,7 +204,11 @@ impl Client {
             mime::AUDIO => {
                 let audio_message_event_content =
                     AudioMessageEventContent::encrypted(body.to_owned(), file);
-                MessageType::Audio(crate::media::update(audio_message_event_content, content_type, info))
+                MessageType::Audio(crate::media::update(
+                    audio_message_event_content,
+                    content_type,
+                    info,
+                ))
             }
             mime::VIDEO => {
                 let info = assign!(info.map(VideoInfo::from).unwrap_or_default(), {
