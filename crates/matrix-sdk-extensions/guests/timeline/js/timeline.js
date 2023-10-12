@@ -32,7 +32,6 @@ export async function instantiate(compileCore, imports, instantiateCore = WebAss
   const module0 = compileCore('timeline.core.wasm');
   const module1 = compileCore('timeline.core2.wasm');
   const module2 = compileCore('timeline.core3.wasm');
-  
   const { print } = imports['matrix:ui-timeline/std'];
   let exports0;
   let exports1;

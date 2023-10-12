@@ -15,6 +15,7 @@ trait ModuleNativeExt<State, Bindings> {
         linker: &mut Linker<State>,
         get: impl Fn(&mut State) -> &mut State + Send + Sync + Copy + 'static,
     ) -> Result<()>;
+
     fn instantiate_component(
         store: &mut Store<State>,
         component: &Component,
@@ -43,13 +44,9 @@ where
         config.wasm_component_model(true);
 
         let engine = Engine::new(&config)?;
-
         let mut store = Store::new(&engine, <M as Module>::new_state());
-
         let component = Component::from_file(&engine, wasm_module)?;
-
         let mut linker = Linker::new(&engine);
-
         M::link(&mut linker, |state: &mut <M as Module>::State| state)?;
 
         let bindings = M::instantiate_component(&mut store, &component, &linker)?;
@@ -112,8 +109,7 @@ mod tests {
             }
         }
 
-        let mut instance =
-            NativeInstance::<TimelineModule>::new("guests/timeline/timeline.wasm").unwrap();
+        let mut instance = NativeInstance::<TimelineModule>::new("timeline.wasm").unwrap();
 
         instance.bindings.call_greet(&mut instance.store, "Gordon").unwrap();
 

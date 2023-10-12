@@ -13,5 +13,6 @@ javascriptcore = ["dep:javascriptcore"]
 
 [dependencies]
 wasmtime = { version ="13.0.0", features = ["component-model"], optional = true }
-javascriptcore = { git = "https://github.com/endoli/javascriptcore.rs", branch = "main", optional = true }
+# javascriptcore = { git = "https://github.com/endoli/javascriptcore.rs", branch = "main", optional = true }
+javascriptcore = { git = "https://github.com/Hywan/javascriptcore.rs", branch = "feat-value-new-construction-callback", optional = true }
 anyhow.workspace = true
