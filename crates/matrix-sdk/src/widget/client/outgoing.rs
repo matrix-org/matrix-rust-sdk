@@ -22,9 +22,33 @@ use ruma::{
 
 use super::{
     actions::{ReadEventCommand, SendEventCommand},
+    incoming::{MatrixProxy, ReadEventBody},
     openid::OpenIdResponse,
 };
 use crate::widget::Permissions;
+
+/// Handles sending requests and matching incoming responses to the outgoing
+/// requests.
+pub(crate) struct RequestSender;
+
+impl RequestSender {
+    /// Send an outgoing request and return a response.
+    pub(crate) async fn send<T: Request>(&self, _req: T) -> Result<T::Response, String> {
+        Err("not implemented".into())
+    }
+}
+
+#[async_trait::async_trait]
+impl MatrixProxy for RequestSender {
+    async fn send(&self, req: SendEventCommand) -> Result<OwnedEventId, String> {
+        RequestSender::send(self, SendMatrixEvent(req)).await
+    }
+
+    async fn read(&self, req: ReadEventBody) -> Result<Vec<Raw<AnyTimelineEvent>>, String> {
+        let cmd = ReadEventCommand { event_type: req.event_type, limit: req.limit.unwrap_or(50) };
+        RequestSender::send(self, ReadMatrixEvent(cmd)).await
+    }
+}
 
 /// Represents a request that the widget API state machine can send.
 pub(crate) trait Request {
