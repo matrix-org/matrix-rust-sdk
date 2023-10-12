@@ -174,7 +174,7 @@ fn base_url(url: &Url) -> Option<Url> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
+    use std::collections::BTreeSet;
 
     use ruma::api::client::profile::get_profile;
     use url::Url;
@@ -201,7 +201,7 @@ mod tests {
         .expect("could not parse virtual element call widget")
     }
 
-    // Convert query strings to HashSet so that we can compare the urls independent
+    // Convert query strings to BTreeSet so that we can compare the urls independent
     // of the order of the params.
     trait FragmentQuery {
         fn fragment_query(&self) -> Option<&str>;
@@ -213,7 +213,7 @@ mod tests {
         }
     }
 
-    type QuerySet = HashSet<(String, String)>;
+    type QuerySet = BTreeSet<(String, String)>;
 
     use serde_html_form::from_str;
 
