@@ -21,7 +21,7 @@ use ruma::{
 };
 
 use super::{
-    super::actions::{ReadEventCommand, SendEventCommand},
+    actions::{ReadEventCommand, SendEventCommand},
     openid::OpenIdResponse,
 };
 use crate::widget::Permissions;

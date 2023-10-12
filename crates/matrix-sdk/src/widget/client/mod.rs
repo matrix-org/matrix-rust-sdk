@@ -25,7 +25,8 @@ pub(crate) use self::{
 
 mod actions;
 mod events;
-mod implementation;
+mod openid;
+mod outgoing;
 
 /// State machine that handles the client widget API interractions.
 pub(crate) struct ClientApi;
