@@ -45,8 +45,8 @@ use ruma::{
     assign,
     events::room::{
         message::{
-            AudioInfo, AudioMessageEventContent, FileInfo, FileMessageEventContent,
-            ImageMessageEventContent, MessageType, VideoInfo, VideoMessageEventContent,
+            AudioMessageEventContent, FileInfo, FileMessageEventContent, ImageMessageEventContent,
+            MessageType, VideoInfo, VideoMessageEventContent,
         },
         ImageInfo, MediaSource, ThumbnailInfo,
     },
@@ -202,13 +202,13 @@ impl Client {
                 MessageType::Image(content)
             }
             mime::AUDIO => {
-                let info = assign!(info.map(AudioInfo::from).unwrap_or_default(), {
-                    mimetype: Some(content_type.as_ref().to_owned()),
-                });
-                let content = assign!(AudioMessageEventContent::encrypted(body.to_owned(), file), {
-                    info: Some(Box::new(info))
-                });
-                MessageType::Audio(content)
+                let audio_message_event_content =
+                    AudioMessageEventContent::encrypted(body.to_owned(), file);
+                MessageType::Audio(crate::media::update_audio_message_event(
+                    audio_message_event_content,
+                    content_type,
+                    info,
+                ))
             }
             mime::VIDEO => {
                 let info = assign!(info.map(VideoInfo::from).unwrap_or_default(), {

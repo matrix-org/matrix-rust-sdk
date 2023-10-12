@@ -818,6 +818,30 @@ impl Room {
         }))
     }
 
+    pub fn send_voice_message(
+        self: Arc<Self>,
+        url: String,
+        audio_info: AudioInfo,
+        waveform: Vec<u16>,
+        progress_watcher: Option<Box<dyn ProgressWatcher>>,
+    ) -> Arc<SendAttachmentJoinHandle> {
+        SendAttachmentJoinHandle::new(RUNTIME.spawn(async move {
+            let mime_str =
+                audio_info.mimetype.as_ref().ok_or(RoomError::InvalidAttachmentMimeType)?;
+            let mime_type =
+                mime_str.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)?;
+
+            let base_audio_info: BaseAudioInfo = BaseAudioInfo::try_from(&audio_info)
+                .map_err(|_| RoomError::InvalidAttachmentData)?;
+
+            let attachment_info =
+                AttachmentInfo::Voice { audio_info: base_audio_info, waveform: Some(waveform) };
+            let attachment_config = AttachmentConfig::new().info(attachment_info);
+
+            self.send_attachment(url, mime_type, attachment_config, progress_watcher).await
+        }))
+    }
+
     pub fn send_file(
         self: Arc<Self>,
         url: String,

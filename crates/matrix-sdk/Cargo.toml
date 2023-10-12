@@ -88,7 +88,7 @@ matrix-sdk-sqlite = { version = "0.1.0", path = "../matrix-sdk-sqlite", default-
 mime = "0.3.16"
 mime2ext = "0.1.52"
 rand = { version = "0.8.5", optional = true }
-ruma = { workspace = true, features = ["rand", "unstable-msc2448", "unstable-msc2965", "unstable-msc3930"] }
+ruma = { workspace = true, features = ["rand", "unstable-msc2448", "unstable-msc2965", "unstable-msc3930", "unstable-msc3245-v1-compat"] }
 serde = { workspace = true }
 serde_html_form = { workspace = true }
 serde_json = { workspace = true }
