@@ -77,7 +77,7 @@ pub struct BaseFileInfo {
 }
 
 /// Types of metadata for an attachment.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum AttachmentInfo {
     /// The metadata of an image.
     Image(BaseImageInfo),

@@ -439,15 +439,12 @@ impl Media {
                 )
             }
             mime::AUDIO => {
-                let audio_info = assign!(info.clone().map(AudioInfo::from).unwrap_or_default(), {
-                    mimetype: Some(content_type.as_ref().to_owned()),
-                });
-
                 let mut audio_message_event_content =
-                    message::AudioMessageEventContent::plain(body.to_owned(), url)
-                        .info(Box::new(audio_info));
+                    message::AudioMessageEventContent::plain(body.to_owned(), url);
 
-                if let Some(AttachmentInfo::Voice { audio_info, waveform: Some(waveform_vec )}) = info {
+                if let Some(AttachmentInfo::Voice { audio_info, waveform: Some(waveform_vec) }) =
+                    &info
+                {
                     if let Some(duration) = audio_info.duration {
                         let waveform = waveform_vec.iter().map(|v| (*v).into()).collect();
                         audio_message_event_content.audio =
@@ -455,7 +452,9 @@ impl Media {
                     }
                     audio_message_event_content.voice = Some(UnstableVoiceContentBlock::new());
                 }
-                MessageType::Audio(audio_message_event_content)
+
+                let audio_info = assign!(info.map(AudioInfo::from).unwrap_or_default(), {mimetype: Some(content_type.as_ref().to_owned()), });
+                MessageType::Audio(audio_message_event_content.info(Box::new(audio_info)))
             }
             mime::VIDEO => {
                 let info = assign!(info.map(VideoInfo::from).unwrap_or_default(), {
