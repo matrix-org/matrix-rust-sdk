@@ -15,10 +15,9 @@
 // limitations under the License.
 
 use std::{
-    collections::{btree_map, hash_map::DefaultHasher, BTreeMap},
+    collections::{btree_map, BTreeMap},
     fmt::{self, Debug},
     future::Future,
-    hash::{Hash, Hasher},
     pin::Pin,
     sync::{Arc, Mutex as StdMutex, RwLock as StdRwLock},
 };
@@ -1259,15 +1258,6 @@ impl Client {
         };
 
         let access_token = self.access_token();
-        let access_token = access_token.as_deref();
-        {
-            let hash = access_token.as_ref().map(|t| {
-                let mut hasher = DefaultHasher::new();
-                t.hash(&mut hasher);
-                hasher.finish()
-            });
-            tracing::trace!("Attempting request with access_token {hash:?}");
-        }
 
         self.inner
             .http_client
@@ -1275,7 +1265,7 @@ impl Client {
                 request,
                 config,
                 homeserver,
-                access_token,
+                access_token.as_deref(),
                 self.server_versions().await?,
                 send_progress,
             )
