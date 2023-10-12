@@ -88,7 +88,12 @@ pub enum AttachmentInfo {
     /// The metadata of a file.
     File(BaseFileInfo),
     /// The metadata of a voice message
-    Voice(BaseAudioInfo, Option<Vec<u16>>),
+    Voice {
+        /// The audio info
+        audio_info: BaseAudioInfo,
+        /// The waveform of the voice message
+        waveform: Option<Vec<u16>>,
+    },
 }
 
 impl From<AttachmentInfo> for ImageInfo {
@@ -127,9 +132,9 @@ impl From<AttachmentInfo> for AudioInfo {
                 duration: info.duration,
                 size: info.size,
             }),
-            AttachmentInfo::Voice(info, _) => assign!(AudioInfo::new(), {
-                duration: info.duration,
-                size: info.size,
+            AttachmentInfo::Voice { audio_info, .. } => assign!(AudioInfo::new(), {
+                duration: audio_info.duration,
+                size: audio_info.size,
             }),
             _ => AudioInfo::new(),
         }
