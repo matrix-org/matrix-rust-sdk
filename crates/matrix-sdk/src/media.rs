@@ -32,9 +32,9 @@ use ruma::{
     assign,
     events::room::{
         message::{
-            self, AudioInfo, FileInfo, FileMessageEventContent, ImageMessageEventContent,
-            MessageType, UnstableAudioDetailsContentBlock, UnstableVoiceContentBlock, VideoInfo,
-            VideoMessageEventContent,
+            self, AudioInfo, AudioMessageEventContent, FileInfo, FileMessageEventContent,
+            ImageMessageEventContent, MessageType, UnstableAudioDetailsContentBlock,
+            UnstableVoiceContentBlock, VideoInfo, VideoMessageEventContent,
         },
         ImageInfo, MediaSource, ThumbnailInfo,
     },
@@ -439,22 +439,9 @@ impl Media {
                 )
             }
             mime::AUDIO => {
-                let mut audio_message_event_content =
+                let audio_message_event_content =
                     message::AudioMessageEventContent::plain(body.to_owned(), url);
-
-                if let Some(AttachmentInfo::Voice { audio_info, waveform: Some(waveform_vec) }) =
-                    &info
-                {
-                    if let Some(duration) = audio_info.duration {
-                        let waveform = waveform_vec.iter().map(|v| (*v).into()).collect();
-                        audio_message_event_content.audio =
-                            Some(UnstableAudioDetailsContentBlock::new(duration, waveform));
-                    }
-                    audio_message_event_content.voice = Some(UnstableVoiceContentBlock::new());
-                }
-
-                let audio_info = assign!(info.map(AudioInfo::from).unwrap_or_default(), {mimetype: Some(content_type.as_ref().to_owned()), });
-                MessageType::Audio(audio_message_event_content.info(Box::new(audio_info)))
+                MessageType::Audio(update(audio_message_event_content, content_type, info))
             }
             mime::VIDEO => {
                 let info = assign!(info.map(VideoInfo::from).unwrap_or_default(), {
@@ -504,4 +491,22 @@ impl Media {
             Ok((None, None))
         }
     }
+}
+
+pub(crate) fn update(
+    mut audio_message_event_content: AudioMessageEventContent,
+    content_type: &Mime,
+    info: Option<AttachmentInfo>,
+) -> AudioMessageEventContent {
+    if let Some(AttachmentInfo::Voice { audio_info, waveform: Some(waveform_vec) }) = &info {
+        if let Some(duration) = audio_info.duration {
+            let waveform = waveform_vec.iter().map(|v| (*v).into()).collect();
+            audio_message_event_content.audio =
+                Some(UnstableAudioDetailsContentBlock::new(duration, waveform));
+        }
+        audio_message_event_content.voice = Some(UnstableVoiceContentBlock::new());
+    }
+
+    let audio_info = assign!(info.map(AudioInfo::from).unwrap_or_default(), {mimetype: Some(content_type.as_ref().to_owned()), });
+    audio_message_event_content.info(Box::new(audio_info))
 }

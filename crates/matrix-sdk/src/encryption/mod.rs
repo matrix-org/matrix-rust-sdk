@@ -203,24 +203,9 @@ impl Client {
                 MessageType::Image(content)
             }
             mime::AUDIO => {
-                let mut audio_message_event_content =
+                let audio_message_event_content =
                     AudioMessageEventContent::encrypted(body.to_owned(), file);
-
-                if let Some(AttachmentInfo::Voice { audio_info, waveform: Some(waveform_vec) }) =
-                    &info
-                {
-                    if let Some(duration) = audio_info.duration {
-                        let waveform = waveform_vec.iter().map(|v| (*v).into()).collect();
-                        audio_message_event_content.audio =
-                            Some(UnstableAudioDetailsContentBlock::new(duration, waveform));
-                    }
-                    audio_message_event_content.voice = Some(UnstableVoiceContentBlock::new());
-                }
-
-                let audio_info = assign!(info.map(AudioInfo::from).unwrap_or_default(), {
-                    mimetype: Some(content_type.as_ref().to_owned()),
-                });
-                MessageType::Audio(audio_message_event_content.info(Box::new(audio_info)))
+                MessageType::Audio(crate::media::update(audio_message_event_content, content_type, info))
             }
             mime::VIDEO => {
                 let info = assign!(info.map(VideoInfo::from).unwrap_or_default(), {
