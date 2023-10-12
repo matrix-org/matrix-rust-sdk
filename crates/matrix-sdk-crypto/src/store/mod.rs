@@ -55,7 +55,7 @@ use ruma::{
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use thiserror::Error;
-use tokio::sync::{Mutex, MutexGuard, RwLock};
+use tokio::sync::{Mutex, MutexGuard, OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
 use tracing::{info, warn};
 use vodozemac::{base64_encode, megolm::SessionOrdering, Curve25519PublicKey};
 use zeroize::Zeroize;
@@ -139,8 +139,7 @@ impl StoreCache {
 }
 
 pub(crate) struct StoreCacheGuard {
-    cache: Arc<StoreCache>,
-    //cache: OwnedRwLockReadGuard<StoreCache>,
+    cache: OwnedRwLockReadGuard<StoreCache>,
     // TODO: (bnjbvr, #2624) add cross-process lock guard here.
 }
 
@@ -158,15 +157,19 @@ pub struct StoreTransaction {
     store: Store,
     changes: PendingChanges,
     // TODO hold onto the cross-process crypto store lock + cache.
-    cache: Arc<StoreCache>,
-    //cache: OwnedRwLockWriteGuard<StoreCache>,
+    cache: OwnedRwLockWriteGuard<StoreCache>,
 }
 
 impl StoreTransaction {
     /// Starts a new `StoreTransaction`.
     pub async fn new(store: Store) -> Result<Self> {
         let cache = store.inner.cache.clone();
-        Ok(Self { store, changes: PendingChanges::default(), cache })
+
+        Ok(Self {
+            store,
+            changes: PendingChanges::default(),
+            cache: cache.clone().write_owned().await,
+        })
     }
 
     /// Returns a reference to the current `Store`.
@@ -205,8 +208,7 @@ struct StoreInner {
     /// In-memory cache for the current crypto store.
     ///
     /// ⚠ Must remain private.
-    // TODO: (bnjbvr, #2624) add RwLock here
-    cache: Arc<StoreCache>,
+    cache: Arc<RwLock<StoreCache>>,
 
     verification_machine: VerificationMachine,
 
@@ -633,12 +635,12 @@ impl Store {
                 verification_machine,
                 users_for_key_query: AsyncStdMutex::new(UsersForKeyQuery::new()),
                 users_for_key_query_condvar: Condvar::new(),
-                cache: Arc::new(StoreCache {
+                cache: Arc::new(RwLock::new(StoreCache {
                     store,
                     tracked_users: Default::default(),
                     tracked_user_loading_lock: Default::default(),
                     account: Default::default(),
-                }),
+                })),
             }),
         }
     }
@@ -664,7 +666,7 @@ impl Store {
         // - if acquired, look if another process touched the underlying storage,
         // - if yes, reload everything; if no, return current cache
 
-        let cache = StoreCacheGuard { cache: self.inner.cache.clone() };
+        let cache = StoreCacheGuard { cache: self.inner.cache.clone().read_owned().await };
 
         // Make sure tracked users are always up to date.
         self.ensure_sync_tracked_users(&cache).await?;
