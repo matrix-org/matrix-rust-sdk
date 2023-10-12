@@ -45,9 +45,8 @@ use ruma::{
     assign,
     events::room::{
         message::{
-            AudioInfo, AudioMessageEventContent, FileInfo, FileMessageEventContent,
-            ImageMessageEventContent, MessageType, UnstableAudioDetailsContentBlock,
-            UnstableVoiceContentBlock, VideoInfo, VideoMessageEventContent,
+            AudioMessageEventContent, FileInfo, FileMessageEventContent, ImageMessageEventContent,
+            MessageType, VideoInfo, VideoMessageEventContent,
         },
         ImageInfo, MediaSource, ThumbnailInfo,
     },
