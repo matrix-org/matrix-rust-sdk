@@ -835,6 +835,15 @@ impl<P: RoomDataProvider> TimelineInner<P> {
     ) -> Option<(OwnedEventId, Receipt)> {
         self.state.read().await.latest_user_read_receipt(user_id, &self.room_data_provider).await
     }
+
+    /// Get the ID of the timeline event with the latest read receipt for the
+    /// given user.
+    pub(super) async fn latest_user_read_receipt_timeline_event_id(
+        &self,
+        user_id: &UserId,
+    ) -> Option<OwnedEventId> {
+        self.state.read().await.latest_user_read_receipt_timeline_event_id(user_id)
+    }
 }
 
 impl TimelineInner {
