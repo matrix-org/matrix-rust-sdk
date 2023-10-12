@@ -162,7 +162,7 @@ async fn no_refresh_token() {
 }
 
 #[async_test]
-async fn refresh_token() {
+async fn test_refresh_token() {
     let (builder, server) = test_client_builder().await;
     let client = builder
         .request_config(RequestConfig::new().disable_retry())

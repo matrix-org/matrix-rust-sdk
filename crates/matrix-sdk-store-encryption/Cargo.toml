@@ -24,7 +24,7 @@ rand = "0.8.5"
 rmp-serde = "1.1.2"
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
-sha2 = "0.10.8"
+sha2 = { workspace = true }
 thiserror = { workspace = true }
 zeroize = { workspace = true, features = ["zeroize_derive"] }
 

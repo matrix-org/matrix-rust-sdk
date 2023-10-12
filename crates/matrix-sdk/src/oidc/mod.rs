@@ -165,12 +165,7 @@
 //! [`AuthenticateError::InsufficientScope`]: ruma::api::client::error::AuthenticateError
 //! [`examples/oidc-cli`]: https://github.com/matrix-org/matrix-rust-sdk/tree/main/examples/oidc-cli
 
-use std::{
-    collections::{hash_map::DefaultHasher, HashMap},
-    fmt,
-    hash::{Hash, Hasher},
-    sync::Arc,
-};
+use std::{collections::HashMap, fmt, sync::Arc};
 
 use as_variant::as_variant;
 use eyeball::SharedObservable;
@@ -192,6 +187,7 @@ use matrix_sdk_base::{once_cell::sync::OnceCell, SessionMeta};
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use ruma::{api::client::discovery::discover_homeserver::AuthenticationServerInfo, OwnedDeviceId};
 use serde::{Deserialize, Serialize};
+use sha2::Digest as _;
 use thiserror::Error;
 use tokio::{spawn, sync::Mutex};
 use tracing::{error, trace, warn};
@@ -1053,8 +1049,8 @@ impl Oidc {
 
         spawn(async move {
             tracing::trace!(
-                "Token refresh: attempting to refresh with refresh_token {}",
-                hash(&refresh_token)
+                "Token refresh: attempting to refresh with refresh_token {:?}",
+                hash_str(&refresh_token)
             );
 
             match this
@@ -1071,9 +1067,9 @@ impl Oidc {
             {
                 Ok(new_tokens) => {
                     trace!(
-                        "Token refresh: new refresh_token: {:?} / access_token: {}",
-                        new_tokens.refresh_token.as_ref().map(hash),
-                        hash(&new_tokens.access_token)
+                        "Token refresh: new refresh_token: {:?} / access_token: {:?}",
+                        new_tokens.refresh_token.as_deref().map(hash_str),
+                        hash_str(&new_tokens.access_token)
                     );
 
                     let tokens = OidcSessionTokens {
@@ -1464,8 +1460,6 @@ fn rng() -> Result<StdRng, OidcError> {
     StdRng::from_rng(rand::thread_rng()).map_err(OidcError::Rand)
 }
 
-fn hash<T: Hash>(x: &T) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    x.hash(&mut hasher);
-    hasher.finish()
+fn hash_str(x: &str) -> impl std::fmt::Debug {
+    sha2::Sha256::new().chain_update(x).finalize()
 }

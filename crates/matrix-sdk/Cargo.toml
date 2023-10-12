@@ -47,6 +47,7 @@ experimental-oidc = [
     "dep:language-tags",
     "dep:mas-oidc-client",
     "dep:rand",
+    "dep:sha2",
     "dep:tower",
 ]
 experimental-sliding-sync = [
@@ -92,6 +93,7 @@ ruma = { workspace = true, features = ["rand", "unstable-msc2448", "unstable-msc
 serde = { workspace = true }
 serde_html_form = { workspace = true }
 serde_json = { workspace = true }
+sha2 = { workspace = true, optional = true }
 tempfile = "3.3.0"
 thiserror = { workspace = true }
 tower = { version = "0.4.13", features = ["make"], optional = true }
