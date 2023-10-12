@@ -19,6 +19,7 @@ use serde::Deserialize;
 
 /// Different kinds of filters for timeline events.
 #[derive(Clone, Debug)]
+#[cfg_attr(test, derive(PartialEq))]
 pub enum EventFilter {
     /// Filter for message-like events.
     MessageLike(MessageLikeEventFilter),
@@ -37,6 +38,7 @@ impl EventFilter {
 
 /// Filter for message-like events.
 #[derive(Clone, Debug)]
+#[cfg_attr(test, derive(PartialEq))]
 pub enum MessageLikeEventFilter {
     /// Matches message-like events with the given `type`.
     WithType(MessageLikeEventType),
@@ -65,6 +67,7 @@ impl MessageLikeEventFilter {
 
 /// Filter for state events.
 #[derive(Clone, Debug)]
+#[cfg_attr(test, derive(PartialEq))]
 pub enum StateEventFilter {
     /// Matches state events with the given `type`, regardless of `state_key`.
     WithType(StateEventType),

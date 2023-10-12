@@ -15,9 +15,12 @@
 //! Types and traits related to the permissions that a widget can request from a
 //! client.
 
-use async_trait::async_trait;
+use std::fmt;
 
-use super::EventFilter;
+use async_trait::async_trait;
+use serde::{ser::SerializeSeq, Deserialize, Deserializer, Serialize, Serializer};
+
+use super::{EventFilter, MessageLikeEventFilter, StateEventFilter};
 
 /// Must be implemented by a component that provides functionality of deciding
 /// whether a widget is allowed to use certain capabilities (typically by
@@ -31,7 +34,8 @@ pub trait PermissionsProvider: Send + Sync + 'static {
 }
 
 /// Permissions that a widget can request from a client.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
+#[cfg_attr(test, derive(PartialEq))]
 pub struct Permissions {
     /// Types of the messages that a widget wants to be able to fetch.
     pub read: Vec<EventFilter>,
@@ -43,4 +47,226 @@ pub struct Permissions {
     /// This means clients should not offer to open the widget in a separate
     /// browser/tab/webview that is not connected to the postmessage widget-api.
     pub requires_client: bool,
+}
+
+const SEND_EVENT: &str = "org.matrix.msc2762.send.event";
+const READ_EVENT: &str = "org.matrix.msc2762.receive.event";
+const SEND_STATE: &str = "org.matrix.msc2762.send.state_event";
+const READ_STATE: &str = "org.matrix.msc2762.receive.state_event";
+const REQUIRES_CLIENT: &str = "io.element.requires_client";
+
+impl Serialize for Permissions {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        struct PrintEventFilter<'a>(&'a EventFilter);
+        impl fmt::Display for PrintEventFilter<'_> {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                match self.0 {
+                    EventFilter::MessageLike(filter) => PrintMessageLikeEventFilter(filter).fmt(f),
+                    EventFilter::State(filter) => PrintStateEventFilter(filter).fmt(f),
+                }
+            }
+        }
+
+        struct PrintMessageLikeEventFilter<'a>(&'a MessageLikeEventFilter);
+        impl fmt::Display for PrintMessageLikeEventFilter<'_> {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                match self.0 {
+                    MessageLikeEventFilter::WithType(event_type) => {
+                        // TODO: escape `#` as `\#` and `\` as `\\` in event_type
+                        write!(f, "{event_type}")
+                    }
+                    MessageLikeEventFilter::RoomMessageWithMsgtype(msgtype) => {
+                        write!(f, "m.room.message#{msgtype}")
+                    }
+                }
+            }
+        }
+
+        struct PrintStateEventFilter<'a>(&'a StateEventFilter);
+        impl fmt::Display for PrintStateEventFilter<'_> {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                // TODO: escape `#` as `\#` and `\` as `\\` in event_type
+                match self.0 {
+                    StateEventFilter::WithType(event_type) => write!(f, "{event_type}"),
+                    StateEventFilter::WithTypeAndStateKey(event_type, state_key) => {
+                        write!(f, "{event_type}#{state_key}")
+                    }
+                }
+            }
+        }
+
+        let seq_len = self.requires_client as usize + self.read.len() + self.send.len();
+        let mut seq = serializer.serialize_seq(Some(seq_len))?;
+
+        if self.requires_client {
+            seq.serialize_element(REQUIRES_CLIENT)?;
+        }
+        for filter in &self.read {
+            let name = match filter {
+                EventFilter::MessageLike(_) => READ_EVENT,
+                EventFilter::State(_) => READ_STATE,
+            };
+            seq.serialize_element(&format!("{name}:{}", PrintEventFilter(filter)))?;
+        }
+        for filter in &self.send {
+            let name = match filter {
+                EventFilter::MessageLike(_) => SEND_EVENT,
+                EventFilter::State(_) => SEND_STATE,
+            };
+            seq.serialize_element(&format!("{name}:{}", PrintEventFilter(filter)))?;
+        }
+
+        seq.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for Permissions {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        enum Permission {
+            RequiresClient,
+            Read(EventFilter),
+            Send(EventFilter),
+            Unknown,
+        }
+
+        impl<'de> Deserialize<'de> for Permission {
+            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+            where
+                D: Deserializer<'de>,
+            {
+                let s = ruma::serde::deserialize_cow_str(deserializer)?;
+                if s == REQUIRES_CLIENT {
+                    return Ok(Self::RequiresClient);
+                }
+
+                match s.split_once(':') {
+                    Some((READ_EVENT, filter_s)) => Ok(Permission::Read(EventFilter::MessageLike(
+                        parse_message_event_filter(filter_s),
+                    ))),
+                    Some((SEND_EVENT, filter_s)) => Ok(Permission::Send(EventFilter::MessageLike(
+                        parse_message_event_filter(filter_s),
+                    ))),
+                    Some((READ_STATE, filter_s)) => {
+                        Ok(Permission::Read(EventFilter::State(parse_state_event_filter(filter_s))))
+                    }
+                    Some((SEND_STATE, filter_s)) => {
+                        Ok(Permission::Send(EventFilter::State(parse_state_event_filter(filter_s))))
+                    }
+                    _ => Ok(Self::Unknown),
+                }
+            }
+        }
+
+        fn parse_message_event_filter(s: &str) -> MessageLikeEventFilter {
+            match s.strip_prefix("m.room.message#") {
+                Some(msgtype) => MessageLikeEventFilter::RoomMessageWithMsgtype(msgtype.to_owned()),
+                // TODO: Replace `\\` by `\` and `\#` by `#`, enforce no unescaped `#`
+                None => MessageLikeEventFilter::WithType(s.into()),
+            }
+        }
+
+        fn parse_state_event_filter(s: &str) -> StateEventFilter {
+            // TODO: Search for un-escaped `#` only, replace `\\` by `\` and `\#` by `#`
+            match s.split_once('#') {
+                Some((event_type, state_key)) => {
+                    StateEventFilter::WithTypeAndStateKey(event_type.into(), state_key.to_owned())
+                }
+                None => StateEventFilter::WithType(s.into()),
+            }
+        }
+
+        let mut permissions = Permissions::default();
+        for permission in Vec::<Permission>::deserialize(deserializer)? {
+            match permission {
+                Permission::RequiresClient => permissions.requires_client = true,
+                Permission::Read(filter) => permissions.read.push(filter),
+                Permission::Send(filter) => permissions.send.push(filter),
+                // ignore unknown permissions
+                Permission::Unknown => {}
+            }
+        }
+
+        Ok(permissions)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ruma::events::StateEventType;
+
+    use super::*;
+
+    #[test]
+    fn deserialization_of_permissions() {
+        let permissions_str = r#"[
+            "m.always_on_screen",
+            "io.element.requires_client",
+            "org.matrix.msc2762.receive.event:org.matrix.rageshake_request",
+            "org.matrix.msc2762.receive.state_event:m.room.member",
+            "org.matrix.msc2762.receive.state_event:org.matrix.msc3401.call.member",
+            "org.matrix.msc2762.send.event:org.matrix.rageshake_request",
+            "org.matrix.msc2762.send.state_event:org.matrix.msc3401.call.member#@user:matrix.server"
+        ]"#;
+
+        let parsed = serde_json::from_str::<Permissions>(permissions_str).unwrap();
+        let expected = Permissions {
+            read: vec![
+                EventFilter::MessageLike(MessageLikeEventFilter::WithType(
+                    "org.matrix.rageshake_request".into(),
+                )),
+                EventFilter::State(StateEventFilter::WithType(StateEventType::RoomMember)),
+                EventFilter::State(StateEventFilter::WithType(
+                    "org.matrix.msc3401.call.member".into(),
+                )),
+            ],
+            send: vec![
+                EventFilter::MessageLike(MessageLikeEventFilter::WithType(
+                    "org.matrix.rageshake_request".into(),
+                )),
+                EventFilter::State(StateEventFilter::WithTypeAndStateKey(
+                    "org.matrix.msc3401.call.member".into(),
+                    "@user:matrix.server".into(),
+                )),
+            ],
+            requires_client: true,
+        };
+
+        assert_eq!(parsed, expected);
+    }
+
+    #[test]
+    fn serialization_and_deserialization_are_symmetrical() {
+        let permissions = Permissions {
+            read: vec![
+                EventFilter::MessageLike(MessageLikeEventFilter::WithType(
+                    "io.element.custom".into(),
+                )),
+                EventFilter::State(StateEventFilter::WithType(StateEventType::RoomMember)),
+                EventFilter::State(StateEventFilter::WithTypeAndStateKey(
+                    "org.matrix.msc3401.call.member".into(),
+                    "@user:matrix.server".into(),
+                )),
+            ],
+            send: vec![
+                EventFilter::MessageLike(MessageLikeEventFilter::WithType(
+                    "io.element.custom".into(),
+                )),
+                EventFilter::State(StateEventFilter::WithTypeAndStateKey(
+                    "org.matrix.msc3401.call.member".into(),
+                    "@user:matrix.server".into(),
+                )),
+            ],
+            requires_client: true,
+        };
+
+        let permissions_str = serde_json::to_string(&permissions).unwrap();
+        let parsed = serde_json::from_str::<Permissions>(&permissions_str).unwrap();
+        assert_eq!(parsed, permissions);
+    }
 }

@@ -16,11 +16,12 @@ use ruma::{
     events::{
         relation::InReplyTo,
         room::message::{
-            ForwardThread, Relation, RoomMessageEventContent,
-            RoomMessageEventContentWithoutRelation,
+            AddMentions, ForwardThread, OriginalRoomMessageEvent, Relation, ReplyWithinThread,
+            RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
         },
+        MessageLikeUnsigned,
     },
-    room_id,
+    owned_event_id, owned_room_id, owned_user_id, room_id, uint, MilliSecondsSinceUnixEpoch,
 };
 use serde_json::json;
 use stream_assert::assert_next_matches;
@@ -341,6 +342,109 @@ async fn send_reply() {
     // let replied_to_event =
     // assert_matches!(&in_reply_to.event, TimelineDetails::Ready(ev) => ev);
     // assert_eq!(replied_to_event.sender(), *BOB);
+
+    server.verify().await;
+}
+
+#[async_test]
+async fn send_reply_to_threaded() {
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let (client, server) = logged_in_client().await;
+    let event_builder = EventBuilder::new();
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+    let mut sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    let room = client.get_room(room_id).unwrap();
+    let timeline = room.timeline().await;
+    let (_, mut timeline_stream) =
+        timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
+
+    let thread_root = OriginalRoomMessageEvent {
+        content: RoomMessageEventContent::text_plain("Thread root"),
+        event_id: owned_event_id!("$thread_root"),
+        origin_server_ts: MilliSecondsSinceUnixEpoch(uint!(10_000)),
+        room_id: owned_room_id!("!testroomid:example.org"),
+        sender: owned_user_id!("@user:example.org"),
+        unsigned: MessageLikeUnsigned::default(),
+    };
+
+    let event_id_1 = event_id!("$event1");
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
+        event_builder.make_sync_message_event_with_id(
+            &BOB,
+            event_id_1,
+            RoomMessageEventContent::text_plain("Hello, World!").make_for_thread(
+                &thread_root,
+                ReplyWithinThread::No,
+                AddMentions::No,
+            ),
+        ),
+    ));
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    let hello_world_item =
+        assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
+
+    mock_encryption_state(&server, false).await;
+    Mock::given(method("PUT"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({ "event_id": "$reply_event" })),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    timeline
+        .send_reply(
+            RoomMessageEventContentWithoutRelation::text_plain("Hello, Bob!"),
+            &hello_world_item,
+            ForwardThread::Yes,
+        )
+        .await
+        .unwrap();
+
+    let reply_item = assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
+
+    assert_matches!(reply_item.send_state(), Some(EventSendState::NotSentYet));
+    let reply_message = reply_item.content().as_message().unwrap();
+
+    // The reply should be considered part of the thread.
+    assert!(reply_message.is_threaded());
+
+    // Some extra assertions
+    assert_eq!(reply_message.body(), "Hello, Bob!");
+    let in_reply_to = reply_message.in_reply_to().unwrap();
+    assert_eq!(in_reply_to.event_id, event_id_1);
+
+    let replied_to_event = assert_matches!(&in_reply_to.event, TimelineDetails::Ready(ev) => ev);
+    assert_eq!(replied_to_event.sender(), *BOB);
+
+    // Wait for remote echo
+    let diff = timeout(timeline_stream.next(), Duration::from_secs(1)).await.unwrap().unwrap();
+    let reply_item_remote_echo =
+        assert_matches!(diff, VectorDiff::Set { index: 1, value } => value);
+
+    assert_matches!(reply_item_remote_echo.send_state(), Some(EventSendState::Sent { .. }));
+
+    // Same assertions as before still hold on the contained message
+    assert!(reply_message.is_threaded());
+
+    assert_eq!(reply_message.body(), "Hello, Bob!");
+    let in_reply_to = reply_message.in_reply_to().unwrap();
+    assert_eq!(in_reply_to.event_id, event_id_1);
+
+    let replied_to_event = assert_matches!(&in_reply_to.event, TimelineDetails::Ready(ev) => ev);
+    assert_eq!(replied_to_event.sender(), *BOB);
 
     server.verify().await;
 }

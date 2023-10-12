@@ -23,12 +23,17 @@ use crate::{
     RUNTIME,
 };
 
-#[derive(uniffi::Error)]
+#[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum RoomListError {
+    #[error("sliding sync error: {error}")]
     SlidingSync { error: String },
+    #[error("unknown list `{list_name}`")]
     UnknownList { list_name: String },
+    #[error("input cannot be applied")]
     InputCannotBeApplied,
+    #[error("room `{room_name}` not found")]
     RoomNotFound { room_name: String },
+    #[error("invalid room ID: {error}")]
     InvalidRoomId { error: String },
 }
 

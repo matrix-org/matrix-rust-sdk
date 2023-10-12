@@ -103,6 +103,7 @@ fn generate_uniffi(library_file: &Utf8Path, ffi_directory: &Utf8Path) -> Result<
         vec![TargetLanguage::Swift],
         Some(ffi_directory),
         Some(library_file),
+        None,
         false,
     )?;
     Ok(())

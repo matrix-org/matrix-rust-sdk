@@ -20,12 +20,18 @@ use futures_util::StreamExt;
 use matrix_sdk::{config::SyncSettings, room::Receipts};
 use matrix_sdk_test::{
     async_test, sync_timeline_event, EphemeralTestEvent, JoinedRoomBuilder,
-    RoomAccountDataTestEvent, SyncResponseBuilder,
+    RoomAccountDataTestEvent, SyncResponseBuilder, ALICE, BOB,
 };
 use matrix_sdk_ui::timeline::RoomExt;
 use ruma::{
-    api::client::receipt::create_receipt::v3::ReceiptType, event_id,
-    events::receipt::ReceiptThread, room_id, user_id,
+    api::client::receipt::create_receipt::v3::ReceiptType,
+    event_id,
+    events::{
+        receipt::ReceiptThread,
+        room::message::{MessageType, SyncRoomMessageEvent},
+        AnySyncMessageLikeEvent, AnySyncTimelineEvent,
+    },
+    room_id, user_id,
 };
 use serde_json::json;
 use wiremock::{
@@ -34,6 +40,15 @@ use wiremock::{
 };
 
 use crate::{logged_in_client, mock_sync};
+
+fn filter_notice(ev: &AnySyncTimelineEvent) -> bool {
+    match ev {
+        AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
+            SyncRoomMessageEvent::Original(msg),
+        )) => !matches!(msg.content.msgtype, MessageType::Notice(_)),
+        _ => true,
+    }
+}
 
 #[async_test]
 async fn read_receipts_updates() {
@@ -249,6 +264,184 @@ async fn read_receipts_updates() {
     let (own_user_receipt_event_id, _) =
         timeline.latest_user_read_receipt(own_user_id).await.unwrap();
     assert_eq!(own_user_receipt_event_id, second_event_id);
+}
+
+#[async_test]
+async fn read_receipts_updates_on_filtered_events() {
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let (client, server) = logged_in_client().await;
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+    let own_user_id = client.user_id().unwrap();
+
+    let event_a_id = event_id!("$152037280074GZeOm:localhost");
+    let event_b_id = event_id!("$e32037280er453l:localhost");
+    let event_c_id = event_id!("$Sg2037280074GZr34:localhost");
+
+    let mut ev_builder = SyncResponseBuilder::new();
+    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+
+    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    let room = client.get_room(room_id).unwrap();
+    let timeline = room.timeline_builder().event_filter(filter_notice).build().await;
+    let (items, mut timeline_stream) = timeline.subscribe().await;
+
+    assert!(items.is_empty());
+
+    let own_receipt = timeline.latest_user_read_receipt(own_user_id).await;
+    assert_matches!(own_receipt, None);
+    let alice_receipt = timeline.latest_user_read_receipt(*ALICE).await;
+    assert_matches!(alice_receipt, None);
+    let bob_receipt = timeline.latest_user_read_receipt(*BOB).await;
+    assert_matches!(bob_receipt, None);
+
+    ev_builder.add_joined_room(
+        JoinedRoomBuilder::new(room_id)
+            // Event A
+            .add_timeline_event(sync_timeline_event!({
+                "content": {
+                    "body": "is dancing",
+                    "msgtype": "m.text"
+                },
+                "event_id": event_a_id,
+                "origin_server_ts": 152037280,
+                "sender": own_user_id,
+                "type": "m.room.message",
+            }))
+            // Event B
+            .add_timeline_event(sync_timeline_event!({
+                "content": {
+                    "body": "I'm dancing too",
+                    "msgtype": "m.notice"
+                },
+                "event_id": event_b_id,
+                "origin_server_ts": 152039280,
+                "sender": *BOB,
+                "type": "m.room.message",
+            }))
+            // Event C
+            .add_timeline_event(sync_timeline_event!({
+                "content": {
+                    "body": "Viva la macarena!",
+                    "msgtype": "m.text"
+                },
+                "event_id": event_c_id,
+                "origin_server_ts": 152045280,
+                "sender": *ALICE,
+                "type": "m.room.message",
+            })),
+    );
+
+    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    let _day_divider = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+
+    // We don't list the read receipt of our own user on events.
+    let item_a = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    let event_a = item_a.as_event().unwrap();
+    assert!(event_a.read_receipts().is_empty());
+
+    let (own_receipt_event_id, _) = timeline.latest_user_read_receipt(own_user_id).await.unwrap();
+    assert_eq!(own_receipt_event_id, event_a_id);
+
+    // Implicit read receipt of @bob:localhost.
+    let item_a = assert_matches!(timeline_stream.next().await, Some(VectorDiff::Set { index: 1, value }) => value);
+    let event_a = item_a.as_event().unwrap();
+    assert_eq!(event_a.read_receipts().len(), 1);
+
+    let (bob_receipt_event_id, _) = timeline.latest_user_read_receipt(*BOB).await.unwrap();
+    assert_eq!(bob_receipt_event_id, event_b_id);
+
+    // Implicit read receipt of @alice:localhost.
+    let item_c = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    let event_c = item_c.as_event().unwrap();
+    assert_eq!(event_c.read_receipts().len(), 1);
+
+    let (alice_receipt_event_id, _) = timeline.latest_user_read_receipt(*ALICE).await.unwrap();
+    assert_eq!(alice_receipt_event_id, event_c_id);
+
+    // Read receipt on filtered event.
+    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
+        EphemeralTestEvent::Custom(json!({
+            "content": {
+                event_b_id: {
+                    "m.read": {
+                        own_user_id: {
+                            "ts": 1436451550,
+                        },
+                    },
+                },
+            },
+            "type": "m.receipt",
+        })),
+    ));
+
+    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    let (own_receipt_event_id, _) = timeline.latest_user_read_receipt(own_user_id).await.unwrap();
+    assert_eq!(own_receipt_event_id, event_b_id);
+
+    // Update with explicit read receipt.
+    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
+        EphemeralTestEvent::Custom(json!({
+            "content": {
+                event_c_id: {
+                    "m.read": {
+                        *BOB: {
+                            "ts": 1436451550,
+                        },
+                    },
+                },
+            },
+            "type": "m.receipt",
+        })),
+    ));
+
+    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    let item_a = assert_matches!(timeline_stream.next().await, Some(VectorDiff::Set { index: 1, value }) => value);
+    let event_a = item_a.as_event().unwrap();
+    assert!(event_a.read_receipts().is_empty());
+
+    let item_c = assert_matches!(timeline_stream.next().await, Some(VectorDiff::Set { index: 2, value }) => value);
+    let event_c = item_c.as_event().unwrap();
+    assert_eq!(event_c.read_receipts().len(), 2);
+
+    let (bob_receipt_event_id, _) = timeline.latest_user_read_receipt(*BOB).await.unwrap();
+    assert_eq!(bob_receipt_event_id, event_c_id);
+
+    // Private read receipt is updated.
+    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
+        EphemeralTestEvent::Custom(json!({
+            "content": {
+                event_c_id: {
+                    "m.read.private": {
+                        own_user_id: {
+                            "ts": 1436453550,
+                        },
+                    },
+                },
+            },
+            "type": "m.receipt",
+        })),
+    ));
+
+    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    let (own_user_receipt_event_id, _) =
+        timeline.latest_user_read_receipt(own_user_id).await.unwrap();
+    assert_eq!(own_user_receipt_event_id, event_c_id);
 }
 
 #[async_test]

@@ -19,7 +19,7 @@ use matrix_sdk::deserialized_responses::EncryptionInfo;
 use ruma::{
     events::{receipt::Receipt, AnySyncTimelineEvent},
     serde::Raw,
-    OwnedEventId, OwnedUserId, UserId,
+    OwnedEventId, OwnedUserId,
 };
 
 use super::BundledReactions;
@@ -62,17 +62,6 @@ pub(in crate::timeline) struct RemoteEventTimelineItem {
 }
 
 impl RemoteEventTimelineItem {
-    pub fn add_read_receipt(&mut self, user_id: OwnedUserId, receipt: Receipt) {
-        self.read_receipts.insert(user_id, receipt);
-    }
-
-    /// Remove the read receipt for the given user.
-    ///
-    /// Returns `true` if there was one, `false` if not.
-    pub fn remove_read_receipt(&mut self, user_id: &UserId) -> bool {
-        self.read_receipts.remove(user_id).is_some()
-    }
-
     /// Clone the current event item, and update its `reactions`.
     pub fn with_reactions(&self, reactions: BundledReactions) -> Self {
         Self { reactions, ..self.clone() }

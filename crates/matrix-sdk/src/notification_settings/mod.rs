@@ -207,8 +207,8 @@ impl NotificationSettings {
         Ok(())
     }
 
-    /// Sets the push rule actions for a given underride push rule.
-    /// [Underride rules](https://spec.matrix.org/v1.8/client-server-api/#push-rules) are the lowest priority push rules
+    /// Sets the push rule actions for a given underride push rule. It also
+    /// enables the push rule if it is disabled. [Underride rules](https://spec.matrix.org/v1.8/client-server-api/#push-rules) are the lowest priority push rules
     ///
     /// # Arguments
     ///
@@ -220,9 +220,14 @@ impl NotificationSettings {
         actions: Vec<Action>,
     ) -> Result<(), NotificationSettingsError> {
         let rules = self.rules.read().await.clone();
-        let mut rule_commands = RuleCommands::new(rules.ruleset);
+        let rule_kind = RuleKind::Underride;
+        let mut rule_commands = RuleCommands::new(rules.clone().ruleset);
 
-        rule_commands.set_rule_actions(RuleKind::Underride, rule_id.as_str(), actions)?;
+        rule_commands.set_rule_actions(rule_kind.clone(), rule_id.as_str(), actions)?;
+
+        if !rules.is_enabled(rule_kind.clone(), rule_id.as_str())? {
+            rule_commands.set_rule_enabled(rule_kind, rule_id.as_str(), true)?
+        }
 
         self.run_server_commands(&rule_commands).await?;
 
@@ -1062,6 +1067,47 @@ mod tests {
         assert_matches!(
             settings.get_default_room_notification_mode(IsEncrypted::No, IsOneToOne::Yes).await,
             RoomNotificationMode::MentionsAndKeywordsOnly
+        );
+    }
+
+    #[async_test]
+    async fn test_set_default_room_notification_mode_enables_rules() {
+        let server = MockServer::start().await;
+        Mock::given(method("PUT")).respond_with(ResponseTemplate::new(200)).mount(&server).await;
+        let client = logged_in_client(Some(server.uri())).await;
+
+        // If the initial mode is `MentionsAndKeywordsOnly`
+        let mut ruleset = get_server_default_ruleset();
+        ruleset
+            .set_actions(RuleKind::Underride, PredefinedUnderrideRuleId::RoomOneToOne, vec![])
+            .unwrap();
+
+        ruleset
+            .set_actions(RuleKind::Underride, PredefinedUnderrideRuleId::PollStartOneToOne, vec![])
+            .unwrap();
+
+        // Disable one of the rules that will be updated
+        ruleset
+            .set_enabled(RuleKind::Underride, PredefinedUnderrideRuleId::RoomOneToOne, false)
+            .unwrap();
+
+        let settings = NotificationSettings::new(client, ruleset);
+
+        // After setting the default mode to `AllMessages`
+        settings
+            .set_default_room_notification_mode(
+                IsEncrypted::No,
+                IsOneToOne::Yes,
+                RoomNotificationMode::AllMessages,
+            )
+            .await
+            .unwrap();
+
+        // The new mode returned should be `AllMessages` which means that the disabled
+        // rule (`RoomOneToOne`) has been enabled.
+        assert_matches!(
+            settings.get_default_room_notification_mode(IsEncrypted::No, IsOneToOne::Yes).await,
+            RoomNotificationMode::AllMessages
         );
     }
 }

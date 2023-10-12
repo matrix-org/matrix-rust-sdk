@@ -5,6 +5,7 @@ use matrix_sdk::{
     NotificationSettingsError as SdkNotificationSettingsError, StoreError,
 };
 use matrix_sdk_ui::{encryption_sync_service, notification_client, sync_service, timeline};
+use uniffi::UnexpectedUniFFICallbackError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ClientError {
@@ -21,6 +22,12 @@ impl ClientError {
 impl From<anyhow::Error> for ClientError {
     fn from(e: anyhow::Error) -> ClientError {
         ClientError::Generic { msg: format!("{e:#}") }
+    }
+}
+
+impl From<UnexpectedUniFFICallbackError> for ClientError {
+    fn from(e: UnexpectedUniFFICallbackError) -> Self {
+        Self::new(e)
     }
 }
 

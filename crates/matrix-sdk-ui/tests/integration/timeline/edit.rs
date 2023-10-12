@@ -119,6 +119,9 @@ async fn edit() {
     assert_matches!(msg.in_reply_to(), None);
     assert!(!msg.is_edited());
 
+    // Implicit read receipt of Alice changed.
+    assert_matches!(timeline_stream.next().await, Some(VectorDiff::Set { index: 1, .. }));
+
     let edit = assert_matches!(
         timeline_stream.next().await,
         Some(VectorDiff::Set { index: 1, value }) => value
