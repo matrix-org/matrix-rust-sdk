@@ -231,7 +231,25 @@ mod tests {
 
     #[test]
     fn new_virtual_element_call_widget_raw_url() {
-        const CONVERTED_URL:&str= "https://call.element.io/room#?userId=$matrix_user_id&roomId=$matrix_room_id&widgetId=$matrix_widget_id&avatarUrl=$matrix_avatar_url&displayname=$matrix_display_name&lang=$org.matrix.msc2873.client_language&theme=$org.matrix.msc2873.client_theme&clientId=$org.matrix.msc2873.client_id&deviceId=$org.matrix.msc2873.matrix_device_id&baseUrl=$org.matrix.msc4039.matrix_base_url&parentUrl=https%3A%2F%2Fcall.element.io&skipLobby=false&confineToRoom=true&appPrompt=true&hideHeader=true&preload=true";
+        const CONVERTED_URL: &str = "
+            https://call.element.io/room#\
+                ?userId=$matrix_user_id\
+                &roomId=$matrix_room_id\
+                &widgetId=$matrix_widget_id\
+                &avatarUrl=$matrix_avatar_url\
+                &displayname=$matrix_display_name\
+                &lang=$org.matrix.msc2873.client_language\
+                &theme=$org.matrix.msc2873.client_theme\
+                &clientId=$org.matrix.msc2873.client_id\
+                &deviceId=$org.matrix.msc2873.matrix_device_id\
+                &baseUrl=$org.matrix.msc4039.matrix_base_url\
+                &parentUrl=https%3A%2F%2Fcall.element.io\
+                &skipLobby=false\
+                &confineToRoom=true\
+                &appPrompt=true\
+                &hideHeader=true\
+                &preload=true\
+        ";
 
         let mut url = get_widget_settings().raw_url().clone();
         let mut gen = Url::parse(CONVERTED_URL).unwrap();
@@ -250,14 +268,23 @@ mod tests {
 
     #[test]
     fn new_virtual_element_call_widget_webview_url() {
-        const CONVERTED_URL: &str = "https://call.element.io/room#?\
-        parentUrl=https%3A%2F%2Fcall.element.io&widgetId=1/@#w23\
-        &userId=%40test%3Auser.org&deviceId=ABCDEFG&roomId=%21room_id%3Aroom.org\
-        &lang=en-US&theme=light\
-        &baseUrl=https%3A%2F%2Fclient-matrix.server.org%2F&hideHeader=true\
-        &preload=true&skipLobby=false&confineToRoom=true&\
-        displayname=hello&avatarUrl=some-url\
-        &appPrompt=true&clientId=io.my_matrix.client";
+        const CONVERTED_URL: &str = "
+            https://call.element.io/room#\
+                ?parentUrl=https%3A%2F%2Fcall.element.io\
+                &widgetId=1/@#w23\
+                &userId=%40test%3Auser.org&deviceId=ABCDEFG\
+                &roomId=%21room_id%3Aroom.org\
+                &lang=en-US&theme=light\
+                &baseUrl=https%3A%2F%2Fclient-matrix.server.org%2F\
+                &hideHeader=true\
+                &preload=true\
+                &skipLobby=false\
+                &confineToRoom=true\
+                &displayname=hello\
+                &avatarUrl=some-url\
+                &appPrompt=true\
+                &clientId=io.my_matrix.client\
+        ";
 
         let gen = get_widget_settings()
             ._generate_webview_url(
