@@ -405,7 +405,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             let new_content = TimelineItemContent::Message(Message {
                 msgtype,
                 in_reply_to: msg.in_reply_to.clone(),
-                threaded: msg.threaded,
+                thread_root: msg.thread_root.clone(),
                 edited: true,
             });
 
