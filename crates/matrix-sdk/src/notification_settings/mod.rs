@@ -1069,4 +1069,44 @@ mod tests {
             RoomNotificationMode::MentionsAndKeywordsOnly
         );
     }
+
+    #[async_test]
+    async fn test_set_default_room_notification_mode_enables_rules() {
+        let server = MockServer::start().await;
+        Mock::given(method("PUT")).respond_with(ResponseTemplate::new(200)).mount(&server).await;
+        let client = logged_in_client(Some(server.uri())).await;
+
+        // If the initial mode is `MentionsAndKeywordsOnly`
+        let mut ruleset = get_server_default_ruleset();
+        ruleset
+            .set_actions(RuleKind::Underride, PredefinedUnderrideRuleId::RoomOneToOne, vec![])
+            .unwrap();
+
+        ruleset
+            .set_actions(RuleKind::Underride, PredefinedUnderrideRuleId::PollStartOneToOne, vec![])
+            .unwrap();
+
+        // Disable one of the rules that will be updated
+        ruleset
+            .set_enabled(RuleKind::Underride, PredefinedUnderrideRuleId::RoomOneToOne, false)
+            .unwrap();
+
+        let settings = NotificationSettings::new(client, ruleset);
+
+        // After setting the default mode to `AllMessages`
+        settings
+            .set_default_room_notification_mode(
+                IsEncrypted::No,
+                IsOneToOne::Yes,
+                RoomNotificationMode::AllMessages,
+            )
+            .await
+            .unwrap();
+
+        // The new mode returned should be `AllMessages` which means that the disabled rule (`RoomOneToOne`) has been enabled.
+        assert_matches!(
+            settings.get_default_room_notification_mode(IsEncrypted::No, IsOneToOne::Yes).await,
+            RoomNotificationMode::AllMessages
+        );
+    }
 }
