@@ -53,6 +53,7 @@ pub(super) struct ReadReceipts {
 impl ReadReceipts {
     /// Remove all data.
     pub(super) fn clear(&mut self) {
+        self.events_read_receipts.clear();
         self.users_read_receipts.clear();
     }
 
