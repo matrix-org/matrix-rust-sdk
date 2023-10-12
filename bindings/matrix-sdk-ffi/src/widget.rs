@@ -80,9 +80,11 @@ impl TryFrom<WidgetSettings> for matrix_sdk::widget::WidgetSettings {
 
 impl From<matrix_sdk::widget::WidgetSettings> for WidgetSettings {
     fn from(value: matrix_sdk::widget::WidgetSettings) -> Self {
-        let (id, init_after_content_load, raw_url) =
-            (value.id().to_owned(), value.init_on_content_load(), value.raw_url().to_string());
-        WidgetSettings { id, init_after_content_load, raw_url }
+        WidgetSettings {
+            id: value.id().to_owned(),
+            init_after_content_load: value.init_on_content_load(),
+            raw_url: value.raw_url().to_string(),
+        }
     }
 }
 
