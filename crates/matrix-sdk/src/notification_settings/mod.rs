@@ -207,7 +207,7 @@ impl NotificationSettings {
         Ok(())
     }
 
-    /// Sets the push rule actions for a given underride push rule.
+    /// Sets the push rule actions for a given underride push rule. It also enables the push rule if it is disabled.
     /// [Underride rules](https://spec.matrix.org/v1.8/client-server-api/#push-rules) are the lowest priority push rules
     ///
     /// # Arguments
@@ -220,9 +220,14 @@ impl NotificationSettings {
         actions: Vec<Action>,
     ) -> Result<(), NotificationSettingsError> {
         let rules = self.rules.read().await.clone();
-        let mut rule_commands = RuleCommands::new(rules.ruleset);
+        let rule_kind = RuleKind::Underride;
+        let mut rule_commands = RuleCommands::new(rules.clone().ruleset);
 
-        rule_commands.set_rule_actions(RuleKind::Underride, rule_id.as_str(), actions)?;
+        rule_commands.set_rule_actions(rule_kind.clone(), rule_id.as_str(), actions)?;
+
+        if rules.is_enabled(rule_kind.clone(), rule_id.as_str())? == false {
+            rule_commands.set_rule_enabled(rule_kind, rule_id.as_str(), true)?
+        }
 
         self.run_server_commands(&rule_commands).await?;
 
