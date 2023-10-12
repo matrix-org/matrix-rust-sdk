@@ -639,6 +639,21 @@ impl Timeline {
         self.inner.latest_user_read_receipt(user_id).await
     }
 
+    /// Get the ID of the timeline event with the latest read receipt for the
+    /// given user.
+    ///
+    /// Contrary to [`Self::latest_user_read_receipt()`], this allows to know
+    /// the position of the read receipt in the timeline even if the event it
+    /// applies to is not visible in the timeline, unless the event is unknown
+    /// by this timeline.
+    #[instrument(skip(self))]
+    pub async fn latest_user_read_receipt_timeline_event_id(
+        &self,
+        user_id: &UserId,
+    ) -> Option<OwnedEventId> {
+        self.inner.latest_user_read_receipt_timeline_event_id(user_id).await
+    }
+
     /// Send the given receipt.
     ///
     /// This uses [`Room::send_single_receipt`] internally, but checks

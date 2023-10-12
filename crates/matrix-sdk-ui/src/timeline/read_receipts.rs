@@ -464,24 +464,45 @@ impl TimelineInnerState {
         let private_read_receipt =
             self.user_receipt(user_id, ReceiptType::ReadPrivate, room_data_provider).await;
 
-        // If we only have one, return it.
-        let Some(pub_receipt) = &public_read_receipt else {
-            return private_read_receipt;
-        };
-        let Some(priv_receipt) = &private_read_receipt else {
-            return public_read_receipt;
-        };
-
-        match self.compare_receipts(pub_receipt, priv_receipt) {
-            Some(Ordering::Greater) => public_read_receipt,
-            Some(Ordering::Less) => private_read_receipt,
-            _ => {
-                // As a fallback, let's assume that a private read receipt should be more recent
-                // than a public read receipt, otherwise there's no point in the private read
-                // receipt.
-                private_read_receipt
-            }
+        match self.pub_or_priv_receipt(public_read_receipt.as_ref(), private_read_receipt.as_ref())
+        {
+            Ordering::Greater => public_read_receipt,
+            Ordering::Less => private_read_receipt,
+            _ => unreachable!(),
         }
+    }
+
+    pub(super) fn latest_user_read_receipt_timeline_event_id(
+        &self,
+        user_id: &UserId,
+    ) -> Option<OwnedEventId> {
+        // We only need to use the local map. Since receipts for known events are
+        // already loaded from the store.
+        let public_read_receipt = self
+            .read_receipts
+            .users_read_receipts
+            .get(user_id)
+            .and_then(|user_map| user_map.get(&ReceiptType::Read));
+        let private_read_receipt = self
+            .read_receipts
+            .users_read_receipts
+            .get(user_id)
+            .and_then(|user_map| user_map.get(&ReceiptType::ReadPrivate));
+
+        let (latest_receipt_id, _) =
+            match self.pub_or_priv_receipt(public_read_receipt, private_read_receipt) {
+                Ordering::Greater => public_read_receipt?,
+                Ordering::Less => private_read_receipt?,
+                _ => unreachable!(),
+            };
+
+        // Find the corresponding visible event.
+        self.all_events
+            .iter()
+            .rev()
+            .skip_while(|ev| ev.event_id != *latest_receipt_id)
+            .find(|ev| ev.visible)
+            .map(|ev| ev.event_id.clone())
     }
 }
 
@@ -564,5 +585,33 @@ impl TimelineInnerMetadata {
         }
 
         None
+    }
+
+    /// Compares a private and a pub receipt to know which one is more recent.
+    ///
+    /// Returns `Ordering::Greater` if the public receipt is more recent than
+    /// the private one, and `Ordering::Less` if it is older.
+    fn pub_or_priv_receipt(
+        &self,
+        pub_receipt: Option<&(OwnedEventId, Receipt)>,
+        priv_receipt: Option<&(OwnedEventId, Receipt)>,
+    ) -> Ordering {
+        // If we only have one, use it.
+        let Some(pub_receipt) = pub_receipt else {
+            return Ordering::Less;
+        };
+        let Some(priv_receipt) = priv_receipt else {
+            return Ordering::Greater;
+        };
+
+        match self.compare_receipts(pub_receipt, priv_receipt) {
+            Some(cmp) => cmp,
+            _ => {
+                // As a fallback, let's assume that a private read receipt should be more recent
+                // than a public read receipt, otherwise there's no point in the private read
+                // receipt.
+                Ordering::Less
+            }
+        }
     }
 }
