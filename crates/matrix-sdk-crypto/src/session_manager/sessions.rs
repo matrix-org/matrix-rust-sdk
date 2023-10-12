@@ -390,7 +390,7 @@ impl SessionManager {
                 };
 
                 let account = store_transaction.account().await?;
-                let session = match account.create_outbound_session(&device, key_map).await {
+                let session = match account.create_outbound_session(&device, key_map) {
                     Ok(s) => s,
                     Err(e) => {
                         warn!(
@@ -553,11 +553,11 @@ mod tests {
     }
 
     #[async_test]
-    async fn session_creation() {
+    async fn test_session_creation() {
         let manager = session_manager_test_helper().await;
-        let bob = bob_account();
+        let mut bob = bob_account();
 
-        let bob_device = ReadOnlyDevice::from_account(&bob).await;
+        let bob_device = ReadOnlyDevice::from_account(&bob);
 
         manager.store.save_devices(&[bob_device]).await.unwrap();
 
@@ -566,10 +566,10 @@ mod tests {
 
         assert!(request.one_time_keys.contains_key(bob.user_id()));
 
-        bob.generate_one_time_keys_helper(1).await;
-        let one_time = bob.signed_one_time_keys().await;
+        bob.generate_one_time_keys_helper(1);
+        let one_time = bob.signed_one_time_keys();
         assert!(!one_time.is_empty());
-        bob.mark_keys_as_published().await;
+        bob.mark_keys_as_published();
 
         let mut one_time_keys = BTreeMap::new();
         one_time_keys
@@ -597,7 +597,7 @@ mod tests {
 
         // now bob turns up, and we start tracking his devices...
         let bob = bob_account();
-        let bob_device = ReadOnlyDevice::from_account(&bob).await;
+        let bob_device = ReadOnlyDevice::from_account(&bob);
         manager.store.update_tracked_users(iter::once(bob.user_id())).await.unwrap();
 
         // ... and start off an attempt to get the missing sessions. This should block
@@ -648,15 +648,19 @@ mod tests {
         use ruma::SecondsSinceUnixEpoch;
 
         let manager = session_manager_test_helper().await;
-        let bob = bob_account();
+        let mut bob = bob_account();
 
-        let (_, mut session) = {
-            let cache = manager.store.cache().await.unwrap();
-            let manager_account = &*cache.account().await.unwrap();
-            bob.create_session_for(manager_account).await
-        };
+        let (_, mut session) = manager
+            .store
+            .with_transaction(|mut tr| async {
+                let manager_account = tr.account().await.unwrap();
+                let res = bob.create_session_for(manager_account).await;
+                Ok((tr, res))
+            })
+            .await
+            .unwrap();
 
-        let bob_device = ReadOnlyDevice::from_account(&bob).await;
+        let bob_device = ReadOnlyDevice::from_account(&bob);
         let time = SystemTime::now() - Duration::from_secs(3601);
         session.creation_time = SecondsSinceUnixEpoch::from_system_time(time).unwrap();
 
@@ -678,10 +682,10 @@ mod tests {
 
         assert!(request.one_time_keys.contains_key(bob.user_id()));
 
-        bob.generate_one_time_keys_helper(1).await;
-        let one_time = bob.signed_one_time_keys().await;
+        bob.generate_one_time_keys_helper(1);
+        let one_time = bob.signed_one_time_keys();
         assert!(!one_time.is_empty());
-        bob.mark_keys_as_published().await;
+        bob.mark_keys_as_published();
 
         let mut one_time_keys = BTreeMap::new();
         one_time_keys
@@ -704,7 +708,7 @@ mod tests {
     async fn failure_handling() {
         let alice = user_id!("@alice:example.org");
         let alice_account = Account::with_device_id(alice, "DEVICEID".into());
-        let alice_device = ReadOnlyDevice::from_account(&alice_account).await;
+        let alice_device = ReadOnlyDevice::from_account(&alice_account);
 
         let manager = session_manager_test_helper().await;
 
@@ -746,8 +750,8 @@ mod tests {
         let response = KeyClaimResponse::try_from_http_response(response).unwrap();
 
         let alice = user_id!("@alice:example.org");
-        let alice_account = Account::with_device_id(alice, "DEVICEID".into());
-        let alice_device = ReadOnlyDevice::from_account(&alice_account).await;
+        let mut alice_account = Account::with_device_id(alice, "DEVICEID".into());
+        let alice_device = ReadOnlyDevice::from_account(&alice_account);
 
         let manager = session_manager_test_helper().await;
         manager.store.save_devices(&[alice_device]).await.unwrap();
@@ -764,8 +768,8 @@ mod tests {
         // Since alice is timed out, we won't claim keys for her.
         assert!(manager.get_missing_sessions(iter::once(alice)).await.unwrap().is_none());
 
-        alice_account.generate_one_time_keys_helper(1).await;
-        let one_time = alice_account.signed_one_time_keys().await;
+        alice_account.generate_one_time_keys_helper(1);
+        let one_time = alice_account.signed_one_time_keys();
         assert!(!one_time.is_empty());
 
         let mut one_time_keys = BTreeMap::new();

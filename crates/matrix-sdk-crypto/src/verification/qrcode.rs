@@ -929,7 +929,7 @@ mod tests {
         let flow_id = FlowId::ToDevice("test_transaction".into());
 
         let device_key = account.static_data.identity_keys.ed25519;
-        let alice_device = ReadOnlyDevice::from_account(&account).await;
+        let alice_device = ReadOnlyDevice::from_account(&account);
 
         let identities = store.get_identities(alice_device).await.unwrap();
 
@@ -998,8 +998,8 @@ mod tests {
             let master_key = private_identity.master_public_key().await.unwrap();
             let master_key = master_key.get_first_key().unwrap().to_owned();
 
-            let alice_device = ReadOnlyDevice::from_account(&alice_account).await;
-            let bob_device = ReadOnlyDevice::from_account(&bob_account).await;
+            let alice_device = ReadOnlyDevice::from_account(&alice_account);
+            let bob_device = ReadOnlyDevice::from_account(&bob_account);
 
             let mut changes = Changes::default();
             changes.identities.new.push(identity.clone().into());

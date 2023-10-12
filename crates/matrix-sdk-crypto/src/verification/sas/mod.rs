@@ -888,13 +888,13 @@ mod tests {
         device_id!("BOBDEVCIE")
     }
 
-    async fn machine_pair() -> (VerificationStore, ReadOnlyDevice, VerificationStore, ReadOnlyDevice)
-    {
+    fn machine_pair_test_helper(
+    ) -> (VerificationStore, ReadOnlyDevice, VerificationStore, ReadOnlyDevice) {
         let alice = Account::with_device_id(alice_id(), alice_device_id());
-        let alice_device = ReadOnlyDevice::from_account(&alice).await;
+        let alice_device = ReadOnlyDevice::from_account(&alice);
 
         let bob = Account::with_device_id(bob_id(), bob_device_id());
-        let bob_device = ReadOnlyDevice::from_account(&bob).await;
+        let bob_device = ReadOnlyDevice::from_account(&bob);
 
         let alice_store = VerificationStore {
             account: alice.static_data.clone(),
@@ -916,7 +916,7 @@ mod tests {
 
     #[async_test]
     async fn sas_wrapper_full() {
-        let (alice_store, alice_device, bob_store, bob_device) = machine_pair().await;
+        let (alice_store, alice_device, bob_store, bob_device) = machine_pair_test_helper();
 
         let identities = alice_store.get_identities(bob_device).await.unwrap();
 
@@ -990,7 +990,7 @@ mod tests {
 
     #[async_test]
     async fn sas_with_restricted_methods() {
-        let (alice_store, alice_device, bob_store, bob_device) = machine_pair().await;
+        let (alice_store, alice_device, bob_store, bob_device) = machine_pair_test_helper();
         let identities = alice_store.get_identities(bob_device).await.unwrap();
 
         let short_auth_strings = vec![ShortAuthenticationString::Decimal];

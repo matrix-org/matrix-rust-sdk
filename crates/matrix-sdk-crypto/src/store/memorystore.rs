@@ -128,7 +128,7 @@ impl CryptoStore for MemoryStore {
     type Error = Infallible;
 
     async fn load_account(&self) -> Result<Option<Account>> {
-        Ok(self.account.read().unwrap().as_ref().map(|acc| acc.clone_for_testing()))
+        Ok(self.account.read().unwrap().as_ref().map(|acc| acc.clone_internal()))
     }
 
     async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>> {
@@ -445,13 +445,13 @@ mod tests {
 
     use crate::{
         identities::device::testing::get_device,
-        olm::{tests::get_account_and_session, InboundGroupSession, OlmMessageHash},
+        olm::{tests::get_account_and_session_test_helper, InboundGroupSession, OlmMessageHash},
         store::{memorystore::MemoryStore, Changes, CryptoStore, PendingChanges},
     };
 
     #[async_test]
     async fn test_session_store() {
-        let (account, session) = get_account_and_session().await;
+        let (account, session) = get_account_and_session_test_helper();
         let store = MemoryStore::new();
 
         assert!(store.load_account().await.unwrap().is_none());
@@ -469,7 +469,7 @@ mod tests {
 
     #[async_test]
     async fn test_group_session_store() {
-        let (account, _) = get_account_and_session().await;
+        let (account, _) = get_account_and_session_test_helper();
         let room_id = room_id!("!test:localhost");
         let curve_key = "Nn0L2hkcCMFKqynTjyGsJbth7QrVmX3lbrksMkrGOAw";
 
