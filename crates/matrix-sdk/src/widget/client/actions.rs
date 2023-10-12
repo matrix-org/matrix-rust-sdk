@@ -22,7 +22,7 @@ use crate::widget::Permissions;
 
 /// Action (a command) that client (driver) must perform.
 #[allow(dead_code)] // TODO: Remove once all actions are implemented.
-pub enum Action {
+pub(crate) enum Action {
     /// Send a raw message to the widget.
     SendToWidget(String),
     /// Acquire permissions from the user given the set of desired permissions.
@@ -43,29 +43,29 @@ pub enum Action {
 }
 
 /// Command to read matrix event(s).
-pub struct ReadEventCommand {
+pub(crate) struct ReadEventCommand {
     /// Read event(s) of a given type.
-    pub event_type: TimelineEventType,
+    pub(crate) event_type: TimelineEventType,
     /// Limits for the Matrix request.
-    pub limit: u32,
+    pub(crate) limit: u32,
 }
 
 /// Command to send matrix event.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct SendEventCommand {
+pub(crate) struct SendEventCommand {
     #[serde(rename = "type")]
     /// type of an event.
-    pub event_type: TimelineEventType,
+    pub(crate) event_type: TimelineEventType,
     /// State key of an event (if it's a state event).
-    pub state_key: Option<String>,
+    pub(crate) state_key: Option<String>,
     /// Raw content of an event.
-    pub content: JsonValue,
+    pub(crate) content: JsonValue,
 }
 
 /// Command that is sent from the client widget API state machine to the
 /// client (driver) that must be performed. Once the command is executed,
 /// the client will typically generate an `Event` with the result of it.
-pub struct Command<T> {
+pub(crate) struct Command<T> {
     /// Certain commands are typically answered with certain event once the
     /// command is performed. The api state machine will "tag" each command
     /// with some "cookie" (in this case just an ID), so that once the
@@ -78,11 +78,11 @@ pub struct Command<T> {
 
 impl<T> Command<T> {
     /// Consumes the command and produces a command result with given data.
-    pub fn result<U, E: Error>(self, result: Result<U, E>) -> CommandResult<U> {
+    pub(crate) fn result<U, E: Error>(self, result: Result<U, E>) -> CommandResult<U> {
         CommandResult { id: self.id, result: result.map_err(|e| e.to_string().into()) }
     }
 
-    pub fn ok<U>(self, value: U) -> CommandResult<U> {
+    pub(crate) fn ok<U>(self, value: U) -> CommandResult<U> {
         CommandResult { id: self.id, result: Ok(value) }
     }
 }
@@ -101,7 +101,7 @@ impl<T> Deref for Command<T> {
 /// client (driver) won't be able to send "invalid" commands, because they could
 /// only be generated from a `Command` instance.
 #[allow(dead_code)] // TODO: Remove once results are used.
-pub struct CommandResult<T> {
+pub(crate) struct CommandResult<T> {
     /// ID of the command that was executed. See `Command::id` for more details.
     id: String,
     /// Result of the execution of the command.
