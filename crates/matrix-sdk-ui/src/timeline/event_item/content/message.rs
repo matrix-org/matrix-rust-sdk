@@ -21,10 +21,13 @@ use matrix_sdk::deserialized_responses::TimelineEvent;
 use ruma::{
     assign,
     events::{
-        relation::InReplyTo,
+        relation::{InReplyTo, Thread},
         room::{
             message,
-            message::{MessageType, Relation, RoomMessageEventContent, SyncRoomMessageEvent},
+            message::{
+                MessageType, Relation, RoomMessageEventContent,
+                RoomMessageEventContentWithoutRelation, SyncRoomMessageEvent,
+            },
         },
         AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnyTimelineEvent,
         BundledMessageLikeRelations,
@@ -49,7 +52,8 @@ use crate::{
 pub struct Message {
     pub(in crate::timeline) msgtype: MessageType,
     pub(in crate::timeline) in_reply_to: Option<InReplyToDetails>,
-    pub(in crate::timeline) threaded: bool,
+    /// Event ID of the thread root, if this is a threaded message.
+    pub(in crate::timeline) thread_root: Option<OwnedEventId>,
     pub(in crate::timeline) edited: bool,
 }
 
@@ -79,13 +83,13 @@ impl Message {
             }
         });
 
-        let mut threaded = false;
+        let mut thread_root = None;
         let in_reply_to = c.relates_to.and_then(|relation| match relation {
             message::Relation::Reply { in_reply_to } => {
                 Some(InReplyToDetails::new(in_reply_to.event_id, timeline_items))
             }
             message::Relation::Thread(thread) => {
-                threaded = true;
+                thread_root = Some(thread.event_id);
                 thread
                     .in_reply_to
                     .map(|in_reply_to| InReplyToDetails::new(in_reply_to.event_id, timeline_items))
@@ -112,7 +116,7 @@ impl Message {
             }
         };
 
-        Self { msgtype, in_reply_to, threaded, edited }
+        Self { msgtype, in_reply_to, thread_root, edited }
     }
 
     /// Get the `msgtype`-specific data of this message.
@@ -134,7 +138,7 @@ impl Message {
 
     /// Whether this message is part of a thread.
     pub fn is_threaded(&self) -> bool {
-        self.threaded
+        self.thread_root.is_some()
     }
 
     /// Get the edit state of this message (has been edited: `true` /
@@ -146,9 +150,10 @@ impl Message {
     pub(in crate::timeline) fn to_content(&self) -> RoomMessageEventContent {
         // Like the `impl From<Message> for RoomMessageEventContent` below, but
         // takes &self and only copies what's needed.
-        let relates_to = self.in_reply_to.as_ref().map(|details| message::Relation::Reply {
-            in_reply_to: InReplyTo::new(details.event_id.clone()),
-        });
+        let relates_to = make_relates_to(
+            self.thread_root.clone(),
+            self.in_reply_to.as_ref().map(|details| details.event_id.clone()),
+        );
         assign!(RoomMessageEventContent::new(self.msgtype.clone()), { relates_to })
     }
 
@@ -159,22 +164,43 @@ impl Message {
 
 impl From<Message> for RoomMessageEventContent {
     fn from(msg: Message) -> Self {
-        let relates_to = msg.in_reply_to.map(|details| message::Relation::Reply {
-            in_reply_to: InReplyTo::new(details.event_id),
-        });
+        let relates_to =
+            make_relates_to(msg.thread_root, msg.in_reply_to.map(|details| details.event_id));
         assign!(Self::new(msg.msgtype), { relates_to })
+    }
+}
+
+/// Turn a pair of thread root ID and in-reply-to ID as stored in [`Message`]
+/// back into a [`Relation`].
+///
+/// This doesn't properly handle the distinction between reply relations in
+/// threads that just exist as fallbacks, and "real" thread + reply relations.
+/// For our use, this is okay though.
+fn make_relates_to(
+    thread_root: Option<OwnedEventId>,
+    in_reply_to: Option<OwnedEventId>,
+) -> Option<Relation<RoomMessageEventContentWithoutRelation>> {
+    match (thread_root, in_reply_to) {
+        (Some(thread_root), Some(in_reply_to)) => {
+            Some(Relation::Thread(Thread::plain(thread_root, in_reply_to)))
+        }
+        (Some(thread_root), None) => Some(Relation::Thread(Thread::without_fallback(thread_root))),
+        (None, Some(in_reply_to)) => {
+            Some(Relation::Reply { in_reply_to: InReplyTo::new(in_reply_to) })
+        }
+        (None, None) => None,
     }
 }
 
 #[cfg(not(tarpaulin_include))]
 impl fmt::Debug for Message {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let Self { msgtype: _, in_reply_to, threaded, edited } = self;
+        let Self { msgtype: _, in_reply_to, thread_root, edited } = self;
         // since timeline items are logged, don't include all fields here so
         // people don't leak personal data in bug reports
         f.debug_struct("Message")
             .field("in_reply_to", in_reply_to)
-            .field("threaded", threaded)
+            .field("thread_root", thread_root)
             .field("edited", edited)
             .finish_non_exhaustive()
     }
