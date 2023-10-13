@@ -1169,7 +1169,11 @@ impl OlmMachine {
         if let Err(e) = self
             .inner
             .identity_manager
-            .receive_device_changes(sync_changes.changed_devices.changed.iter().map(|u| u.as_ref()))
+            .receive_device_changes(
+                transaction.store(),
+                transaction.cache(),
+                sync_changes.changed_devices.changed.iter().map(|u| u.as_ref()),
+            )
             .await
         {
             error!(error = ?e, "Error marking a tracked user as changed");

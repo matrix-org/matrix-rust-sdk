@@ -37,7 +37,7 @@ use crate::{
     requests::KeysQueryRequest,
     store::{
         caches::SequenceNumber, Changes, DeviceChanges, IdentityChanges, Result as StoreResult,
-        Store,
+        Store, StoreCache,
     },
     types::{CrossSigningKey, DeviceKeys, MasterPubkey, SelfSigningPubkey, UserSigningPubkey},
     utilities::FailuresCache,
@@ -854,9 +854,11 @@ impl IdentityManager {
     /// key query.
     pub async fn receive_device_changes(
         &self,
+        store: &Store,
+        cache: &StoreCache,
         users: impl Iterator<Item = &UserId>,
     ) -> StoreResult<()> {
-        self.store.mark_tracked_users_as_changed(users).await
+        cache.mark_tracked_users_as_changed(store, users).await
     }
 
     /// See the docs for [`OlmMachine::update_tracked_users()`].
@@ -1225,7 +1227,15 @@ pub(crate) mod tests {
             manager.store.tracked_users().await.unwrap().is_empty(),
             "No users are initially tracked"
         );
-        manager.receive_device_changes([alice].iter().map(Deref::deref)).await.unwrap();
+
+        {
+            let cache = manager.store.cache().await.unwrap();
+            manager
+                .receive_device_changes(&manager.store, &cache, [alice].iter().map(Deref::deref))
+                .await
+                .unwrap();
+        }
+
         assert!(
             !manager.store.tracked_users().await.unwrap().contains(alice),
             "Receiving a device changes update for a user we don't track does nothing"
@@ -1424,7 +1434,13 @@ pub(crate) mod tests {
         assert!(req.device_keys.contains_key(alice));
 
         // another invalidation turns up
-        manager.receive_device_changes([alice].into_iter()).await.unwrap();
+        {
+            let cache = manager.store.cache().await.unwrap();
+            manager
+                .receive_device_changes(&manager.store, &cache, [alice].into_iter())
+                .await
+                .unwrap();
+        }
 
         // the response from the query arrives
         manager.receive_keys_query_response(&reqid, &other_key_query()).await.unwrap();
