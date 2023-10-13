@@ -30,7 +30,6 @@ pub(crate) struct OpenIdState {
 }
 
 impl OpenIdState {
-    #[allow(dead_code)]
     pub(crate) fn new(id: impl Into<String>, ruma: request_openid_token::v3::Response) -> Self {
         Self {
             original_request_id: id.into(),

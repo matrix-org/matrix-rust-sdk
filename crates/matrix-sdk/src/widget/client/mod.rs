@@ -12,38 +12,76 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Internal client widget API implementation.
+//! Client widget API implementation.
 
 #![warn(unreachable_pub)]
 
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
+use std::sync::Arc;
 
-pub(crate) use self::{
-    actions::{Action, SendEventCommand},
-    events::Event,
+use serde_json::{from_str as from_json, json};
+use tracing::warn;
+
+pub(crate) use self::matrix::Driver as MatrixDriver;
+use self::{handler::MessageHandler, widget::WidgetProxy};
+use super::{
+    messages::{Action, Message},
+    PermissionsProvider, WidgetDriver,
 };
 
-mod actions;
-mod events;
-mod openid;
-mod outgoing;
+mod handler;
+mod matrix;
+mod widget;
 
-/// State machine that handles the client widget API interractions.
-pub(crate) struct ClientApi;
+/// Runs the client widget API handler for a given widget with a provided
+/// `client`. Returns once the widget is disconnected.
+pub(super) async fn run<T: PermissionsProvider>(
+    client: MatrixDriver<T>,
+    WidgetDriver { settings, from_widget_rx, to_widget_tx }: WidgetDriver,
+) {
+    // A small proxy object to interact with a widget via high-level API.
+    let widget = Arc::new(WidgetProxy::new(settings, to_widget_tx));
 
-impl ClientApi {
-    /// Creates a new instance of a client widget API state machine.
-    /// Returns the client api handler as well as the channel to receive
-    /// actions (commands) from the client.
-    pub(crate) fn new() -> (Self, UnboundedReceiver<Action>) {
-        let (_tx, rx) = unbounded_channel();
-        (Self, rx)
-    }
+    // Create a message handler (handles incoming requests from the widget).
+    let handler = MessageHandler::new(client, widget.clone());
 
-    /// Processes an incoming event (an incoming raw message from a widget,
-    /// or a data produced as a result of a previously sent `Action`).
-    /// Produceses a list of actions that the client must perform.
-    pub(crate) fn process(&mut self, _event: Event) {
-        // TODO: Process the event.
+    // Receive a plain JSON message from a widget and parse it.
+    while let Ok(raw) = from_widget_rx.recv().await {
+        match from_json::<Message>(&raw) {
+            // The message is valid, process it.
+            Ok(msg) => match msg.action {
+                // This is an incoming request from a widget.
+                Action::FromWidget(action) => handler.handle(msg.header, action).await,
+                // This is a response to our (outgoing) request.
+                Action::ToWidget(action) => widget.handle_widget_response(msg.header, action).await,
+            },
+            // The message has an invalid format, report an error.
+            Err(e) => {
+                if let Ok(message) = from_json::<serde_json::Value>(&raw) {
+                    match message["response"] {
+                        serde_json::Value::Null => {
+                            widget.send_error(Some(message), e.to_string()).await;
+                        }
+                        serde_json::Value::Number(_)
+                        | serde_json::Value::String(_)
+                        | serde_json::Value::Object(_) => {
+                            warn!("ERROR parsing response");
+                            //This cannot be send to the widget as a response, because it already
+                            // contains a response field
+                            widget
+                                .send_error(Some(json!({"widget_id": widget.id()})), e.to_string())
+                                .await;
+                        }
+                        _ => {}
+                    }
+                } else {
+                    widget
+                        .send_error(
+                            None,
+                            "The request json could not be parsed as json. Its malformatted.",
+                        )
+                        .await;
+                }
+            }
+        }
     }
 }

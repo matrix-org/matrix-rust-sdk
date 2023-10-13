@@ -27,7 +27,9 @@ pub use self::element_call::VirtualElementCallWidgetOptions;
 #[derive(Debug, Clone)]
 pub struct WidgetSettings {
     id: String,
-    init_on_content_load: bool,
+
+    init_after_content_load: bool,
+
     raw_url: Url,
 }
 
@@ -40,8 +42,8 @@ impl WidgetSettings {
     /// Whether or not the widget should be initialized on load message
     /// (`ContentLoad` message), or upon creation/attaching of the widget to
     /// the SDK's state machine that drives the API.
-    pub fn init_on_content_load(&self) -> bool {
-        self.init_on_content_load
+    pub fn init_after_content_load(&self) -> bool {
+        self.init_after_content_load
     }
 
     /// This contains the url from the widget state event.
@@ -124,11 +126,15 @@ impl WidgetSettings {
     /// Create a new WidgetSettings instance
     pub fn new(
         id: String,
-        init_on_content_load: bool,
+        init_after_content_load: bool,
         raw_url: &str,
     ) -> Result<Self, url::ParseError> {
-        Ok(Self { id, init_on_content_load, raw_url: Url::parse(raw_url)? })
+        Ok(Self { id, init_after_content_load, raw_url: Url::parse(raw_url)? })
     }
+
+    // TODO: add From<WidgetStateEvent> so that WidgetSetting can be build
+    // by using the room state directly:
+    // Something like: room.get_widgets() -> Vec<WidgetStateEvent>
 }
 
 /// The set of settings and properties for the widget based on the client

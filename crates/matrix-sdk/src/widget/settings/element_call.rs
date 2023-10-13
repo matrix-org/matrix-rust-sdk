@@ -138,6 +138,6 @@ impl WidgetSettings {
         raw_url.set_fragment(Some(&format!("?{}", query)));
 
         // for EC we always want init on content load to be true.
-        Ok(Self { id: props.widget_id, init_on_content_load: true, raw_url })
+        Ok(Self { id: props.widget_id, init_after_content_load: true, raw_url })
     }
 }

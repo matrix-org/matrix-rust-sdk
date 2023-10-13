@@ -3097,6 +3097,7 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "urlencoding",
+ "uuid",
  "wasm-bindgen-test",
  "wiremock",
  "zeroize",

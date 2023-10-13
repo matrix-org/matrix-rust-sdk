@@ -82,7 +82,7 @@ impl From<matrix_sdk::widget::WidgetSettings> for WidgetSettings {
     fn from(value: matrix_sdk::widget::WidgetSettings) -> Self {
         WidgetSettings {
             id: value.id().to_owned(),
-            init_after_content_load: value.init_on_content_load(),
+            init_after_content_load: value.init_after_content_load(),
             raw_url: value.raw_url().to_string(),
         }
     }
