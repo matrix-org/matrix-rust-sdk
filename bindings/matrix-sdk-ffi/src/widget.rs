@@ -145,8 +145,8 @@ pub struct VirtualElementCallWidgetOptions {
     ///Make it not possible to get to the calls list in the webview. (default:
     /// `true`)
     pub confine_to_room: Option<bool>,
-    /// A list of fonts to adapt to ios/android system fonts. (default:`[]`)
-    pub fonts: Option<Vec<String>>,
+    /// The font to use to adapt to the ios/android system font. (default:`[]`)
+    pub font: Option<String>,
     /// Can be used to pass a PostHog id to element call.
     pub analytics_id: Option<String>,
 }
@@ -163,7 +163,7 @@ impl From<VirtualElementCallWidgetOptions> for matrix_sdk::widget::VirtualElemen
             app_prompt: value.app_prompt,
             skip_lobby: value.skip_lobby,
             confine_to_room: value.confine_to_room,
-            fonts: value.fonts,
+            font: value.font,
             analytics_id: value.analytics_id,
         }
     }
