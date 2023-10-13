@@ -40,7 +40,7 @@ struct ElementCallParams {
     preload: bool,
     analytics_id: Option<String>,
     font_scale: Option<f64>,
-    fonts: Option<String>,
+    font: Option<String>,
 }
 
 /// Properties to create a new virtual Element Call widget.
@@ -77,8 +77,8 @@ pub struct VirtualElementCallWidgetOptions {
     /// Make it not possible to get to the calls list in the webview. (default:
     /// `true`)
     pub confine_to_room: Option<bool>,
-    /// A list of fonts to adapt to ios/android system fonts. (default:`[]`)
-    pub fonts: Option<Vec<String>>,
+    /// A list of font to adapt to ios/android system font. (default:`[]`)
+    pub font: Option<String>,
     /// Can be used to pass a PostHog id to element call.
     pub analytics_id: Option<String>,
 }
@@ -121,7 +121,7 @@ impl WidgetSettings {
             preload: props.preload.unwrap_or(false),
             analytics_id: props.analytics_id,
             font_scale: props.font_scale,
-            fonts: props.fonts.map(|fs| fs.join(",")),
+            font: props.font,
         };
 
         let query =
