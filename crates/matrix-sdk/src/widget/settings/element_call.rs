@@ -12,7 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! All Element Call related code.
+// This module contains ALL the Element Call related code (+FFI bindings for
+// this file). Hence all other files in the rust sdk contain code that is
+// relevant for all widgets. This makes it simple to rip out Element Call
+// related pieces.
+// TODO: The goal is to have not any Element Call specific code
+// in the rust sdk. Find a better solution for this.
 
 use serde::Serialize;
 use url::Url;
