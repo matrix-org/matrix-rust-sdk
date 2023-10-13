@@ -138,6 +138,49 @@ impl StoreCache {
     }
 }
 
+impl StoreCache {
+    /// Load the list of users for whom we are tracking their device lists and
+    /// fill out our caches.
+    ///
+    /// This method ensures that we're only going to load the users from the
+    /// actual [`CryptoStore`] once, it will also make sure that any
+    /// concurrent calls to this method get deduplicated.
+    async fn ensure_sync_tracked_users(&self, store: &Store) -> Result<()> {
+        // Check if the users are loaded, and in that case do nothing.
+        let loaded = self.tracked_user_loading_lock.read().await;
+        if *loaded {
+            return Ok(());
+        }
+
+        // Otherwise, we may load the users.
+        drop(loaded);
+        let mut loaded = self.tracked_user_loading_lock.write().await;
+
+        // Check again if the users have been loaded, in case another call to this
+        // method loaded the tracked users between the time we tried to
+        // acquire the lock and the time we actually acquired the lock.
+        if *loaded {
+            return Ok(());
+        }
+
+        let tracked_users = store.inner.store.load_tracked_users().await?;
+
+        let mut query_users_lock = store.inner.users_for_key_query.lock().await;
+        let mut tracked_users_cache = self.tracked_users.write().unwrap();
+        for user in tracked_users {
+            tracked_users_cache.insert(user.user_id.to_owned());
+
+            if user.dirty {
+                query_users_lock.insert_user(&user.user_id);
+            }
+        }
+
+        *loaded = true;
+
+        Ok(())
+    }
+}
+
 pub(crate) struct StoreCacheGuard {
     cache: OwnedRwLockReadGuard<StoreCache>,
     // TODO: (bnjbvr, #2624) add cross-process lock guard here.
@@ -669,7 +712,7 @@ impl Store {
         let cache = StoreCacheGuard { cache: self.inner.cache.clone().read_owned().await };
 
         // Make sure tracked users are always up to date.
-        self.ensure_sync_tracked_users(&cache).await?;
+        cache.ensure_sync_tracked_users(self).await?;
 
         Ok(cache)
     }
@@ -1104,47 +1147,6 @@ impl Store {
         self.inner.store.save_tracked_users(&store_updates).await?;
         // wake up any tasks that may have been waiting for updates
         self.inner.users_for_key_query_condvar.notify_all();
-
-        Ok(())
-    }
-
-    /// Load the list of users for whom we are tracking their device lists and
-    /// fill out our caches.
-    ///
-    /// This method ensures that we're only going to load the users from the
-    /// actual [`CryptoStore`] once, it will also make sure that any
-    /// concurrent calls to this method get deduplicated.
-    async fn ensure_sync_tracked_users(&self, cache: &StoreCacheGuard) -> Result<()> {
-        // Check if the users are loaded, and in that case do nothing.
-        let loaded = cache.tracked_user_loading_lock.read().await;
-        if *loaded {
-            return Ok(());
-        }
-
-        // Otherwise, we may load the users.
-        drop(loaded);
-        let mut loaded = cache.tracked_user_loading_lock.write().await;
-
-        // Check again if the users have been loaded, in case another call to this
-        // method loaded the tracked users between the time we tried to
-        // acquire the lock and the time we actually acquired the lock.
-        if *loaded {
-            return Ok(());
-        }
-
-        let tracked_users = self.inner.store.load_tracked_users().await?;
-
-        let mut query_users_lock = self.inner.users_for_key_query.lock().await;
-        let mut tracked_users_cache = cache.tracked_users.write().unwrap();
-        for user in tracked_users {
-            tracked_users_cache.insert(user.user_id.to_owned());
-
-            if user.dirty {
-                query_users_lock.insert_user(&user.user_id);
-            }
-        }
-
-        *loaded = true;
 
         Ok(())
     }
