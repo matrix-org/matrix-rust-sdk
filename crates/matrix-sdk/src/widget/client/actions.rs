@@ -18,7 +18,7 @@ use ruma::events::TimelineEventType;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
-use crate::widget::Permissions;
+use crate::widget::{matrix::StateKeySelector, Permissions};
 
 /// Action (a command) that client (driver) must perform.
 #[allow(dead_code)] // TODO: Remove once all actions are implemented.
@@ -47,7 +47,10 @@ pub(crate) struct ReadEventCommand {
     /// Read event(s) of a given type.
     pub(crate) event_type: TimelineEventType,
     /// Limits for the Matrix request.
-    pub(crate) limit: u32,
+    pub(crate) limit: Option<u32>,
+    /// Set to a state key selector in case the read command is meant to read
+    /// state events.
+    pub(crate) state_key: Option<StateKeySelector>,
 }
 
 /// Command to send matrix event.

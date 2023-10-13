@@ -156,7 +156,8 @@ impl WidgetDriver {
                     events_tx.send(Event::OpenIdReceived(result)).map_err(|_| ())?;
                 }
                 Action::ReadMatrixEvent(cmd) => {
-                    let matrix_events = matrix.read(cmd.event_type.clone(), cmd.limit).await;
+                    let matrix_events =
+                        matrix.read(cmd.event_type.clone(), cmd.limit, cmd.state_key.clone()).await;
                     let event = Event::MatrixEventRead(cmd.result(matrix_events));
                     events_tx.send(event).map_err(|_| ())?;
                 }

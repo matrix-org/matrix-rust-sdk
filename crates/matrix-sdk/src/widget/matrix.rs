@@ -15,6 +15,7 @@
 //! Matrix driver implementation that exposes Matrix functionality
 //! that is relevant for the widget API.
 
+use matrix_sdk_base::deserialized_responses::RawAnySyncOrStrippedState;
 use ruma::{
     api::client::{
         account::request_openid_token::v3::{Request as OpenIdRequest, Response as OpenIdResponse},
@@ -23,14 +24,22 @@ use ruma::{
     assign,
     events::{AnySyncTimelineEvent, AnyTimelineEvent, TimelineEventType},
     serde::Raw,
-    OwnedEventId,
+    OwnedEventId, RoomId,
 };
+use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 
 use crate::{
     event_handler::EventHandlerDropGuard, room::MessagesOptions, HttpResult, Result, Room,
 };
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(untagged)]
+pub enum StateKeySelector {
+    Key(String),
+    Any(bool),
+}
 
 /// Thin wrapper around the Matrix API that provides convenient high level
 /// functions.
@@ -54,17 +63,63 @@ impl MatrixDriver {
     pub async fn read(
         &self,
         event_type: TimelineEventType,
-        limit: u32,
+        limit: Option<u32>,
+        state_key: Option<StateKeySelector>,
     ) -> Result<Vec<Raw<AnyTimelineEvent>>> {
-        let options = assign!(MessagesOptions::backward(), {
-            limit: limit.into(),
-            filter: assign!(RoomEventFilter::default(), {
-                types: Some(vec![event_type.to_string()])
-            }),
-        });
+        let room_id = self.room.room_id();
 
-        let messages = self.room.messages(options).await?;
-        Ok(messages.chunk.into_iter().map(|ev| ev.event.cast()).collect())
+        let convert_and_limit =
+            |events: Vec<RawAnySyncOrStrippedState>| -> Vec<Raw<AnyTimelineEvent>> {
+                let event_iter = events.into_iter().filter_map(|ev| match ev {
+                    RawAnySyncOrStrippedState::Sync(raw) => {
+                        Some(raw.cast::<AnySyncTimelineEvent>().with_room_id(room_id))
+                    }
+                    RawAnySyncOrStrippedState::Stripped(_) => None,
+                });
+                if let Some(limit) = limit.map(|l| l.try_into().unwrap_or(usize::MAX)) {
+                    return event_iter.take(limit).collect();
+                }
+                event_iter.collect()
+            };
+
+        match state_key {
+            Some(state_key) => match state_key {
+                StateKeySelector::Any(_) => {
+                    let events = self.room.get_state_events(event_type.to_string().into()).await;
+                    return events.map(|events| convert_and_limit(events));
+                }
+                StateKeySelector::Key(state_key) => {
+                    let events = self
+                        .room
+                        .get_state_events_for_keys(
+                            event_type.to_string().into(),
+                            &[state_key.as_str()],
+                        )
+                        .await;
+                    return events.map(|events| convert_and_limit(events));
+                }
+            },
+            None => {
+                let options = assign!(MessagesOptions::backward(), {
+                    limit: limit.unwrap_or(50).into(),
+                    filter: assign!(RoomEventFilter::default(), {
+                        types: Some(vec![event_type.to_string()])
+                    })
+                });
+                // get message like events
+                let messages = self.room.messages(options).await?;
+
+                // Filter the timeline events.
+                let events = messages
+                    .chunk
+                    .into_iter()
+                    .map(|ev| ev.event.cast())
+                    // TODO: Log events that failed to decrypt?
+                    // TODO: add filter
+                    .collect();
+                Ok(events)
+            }
+        }
     }
 
     /// Sends a given `event` to the room.
@@ -85,8 +140,9 @@ impl MatrixDriver {
     /// is dropped, forwarding will be stopped.
     pub fn events(&self) -> EventReceiver {
         let (tx, rx) = unbounded_channel();
+        let room_id = self.room.room_id().to_owned();
         let handle = self.room.add_event_handler(move |raw: Raw<AnySyncTimelineEvent>| {
-            let _ = tx.send(raw.cast());
+            let _ = tx.send(raw.with_room_id(&room_id));
             async {}
         });
 
@@ -105,5 +161,19 @@ pub struct EventReceiver {
 impl EventReceiver {
     pub async fn recv(&mut self) -> Option<Raw<AnyTimelineEvent>> {
         self.rx.recv().await
+    }
+}
+
+trait AddRoomId {
+    fn with_room_id(&self, room_id: &RoomId) -> Raw<AnyTimelineEvent>;
+}
+impl AddRoomId for Raw<AnySyncTimelineEvent> {
+    fn with_room_id(&self, room_id: &RoomId) -> Raw<AnyTimelineEvent> {
+        // deserialize should be possible if Raw<AnySyncTimelineEvent> is possible
+        let mut ev_value = self.deserialize_as::<serde_json::Value>().unwrap();
+        let ev_obj = ev_value.as_object_mut().unwrap();
+        ev_obj.insert("room_id".to_owned(), room_id.as_str().into());
+        let ev_with_room_id = serde_json::from_value::<Raw<AnyTimelineEvent>>(ev_value).unwrap();
+        ev_with_room_id
     }
 }
