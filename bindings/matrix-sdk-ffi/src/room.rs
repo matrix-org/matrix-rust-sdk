@@ -197,10 +197,6 @@ impl Room {
         Ok(())
     }
 
-    pub fn fetch_members_blocking(self: Arc<Self>) -> Result<(), ClientError> {
-        RUNTIME.block_on(async move { self.fetch_members().await })
-    }
-
     pub fn display_name(&self) -> Result<String, ClientError> {
         let r = self.inner.clone();
         RUNTIME.block_on(async move { Ok(r.display_name().await?.to_string()) })
@@ -218,21 +214,10 @@ impl Room {
         Ok(Arc::new(RoomMembersIterator::new(self.inner.members(RoomMemberships::empty()).await?)))
     }
 
-    pub fn members_blocking(self: Arc<Self>) -> Result<Arc<RoomMembersIterator>, ClientError> {
-        RUNTIME.block_on(async move { self.members().await })
-    }
-
     pub async fn member(&self, user_id: String) -> Result<Arc<RoomMember>, ClientError> {
         let user_id = UserId::parse(&*user_id).context("Invalid user id.")?;
         let member = self.inner.get_member(&user_id).await?.context("No user found")?;
         Ok(Arc::new(RoomMember::new(member)))
-    }
-
-    pub fn member_blocking(
-        self: Arc<Self>,
-        user_id: String,
-    ) -> Result<Arc<RoomMember>, ClientError> {
-        RUNTIME.block_on(async move { self.member(user_id).await })
     }
 
     pub fn member_avatar_url(&self, user_id: String) -> Result<Option<String>, ClientError> {
@@ -285,13 +270,6 @@ impl Room {
         }
     }
 
-    pub async fn add_timeline_listener_blocking(
-        self: Arc<Self>,
-        listener: Box<dyn TimelineListener>,
-    ) -> RoomTimelineListenerResult {
-        RUNTIME.block_on(async move { self.add_timeline_listener(listener).await })
-    }
-
     pub async fn room_info(&self) -> Result<RoomInfo, ClientError> {
         let avatar_url = self.inner.avatar_url();
 
@@ -326,10 +304,6 @@ impl Room {
             None => None,
         };
         Ok(RoomInfo::new(&self.inner, avatar_url, latest_event).await?)
-    }
-
-    pub fn room_info_blocking(self: Arc<Self>) -> Result<RoomInfo, ClientError> {
-        RUNTIME.block_on(async move { self.room_info().await })
     }
 
     pub fn subscribe_to_room_info_updates(
@@ -981,17 +955,9 @@ impl Room {
         Ok(self.inner.can_user_redact(&user_id).await?)
     }
 
-    pub fn can_user_redact_blocking(self: Arc<Self>, user_id: String) -> Result<bool, ClientError> {
-        RUNTIME.block_on(async move { self.can_user_redact(user_id).await })
-    }
-
     pub async fn can_user_ban(&self, user_id: String) -> Result<bool, ClientError> {
         let user_id = UserId::parse(&user_id)?;
         Ok(self.inner.can_user_ban(&user_id).await?)
-    }
-
-    pub fn can_user_ban_blocking(self: Arc<Self>, user_id: String) -> Result<bool, ClientError> {
-        RUNTIME.block_on(async move { self.can_user_ban(user_id).await })
     }
 
     pub async fn can_user_invite(&self, user_id: String) -> Result<bool, ClientError> {
@@ -999,17 +965,9 @@ impl Room {
         Ok(self.inner.can_user_invite(&user_id).await?)
     }
 
-    pub fn can_user_invite_blocking(self: Arc<Self>, user_id: String) -> Result<bool, ClientError> {
-        RUNTIME.block_on(async move { self.can_user_invite(user_id).await })
-    }
-
     pub async fn can_user_kick(&self, user_id: String) -> Result<bool, ClientError> {
         let user_id = UserId::parse(&user_id)?;
         Ok(self.inner.can_user_kick(&user_id).await?)
-    }
-
-    pub fn can_user_kick_blocking(self: Arc<Self>, user_id: String) -> Result<bool, ClientError> {
-        RUNTIME.block_on(async move { self.can_user_kick(user_id).await })
     }
 
     pub async fn can_user_send_state(
@@ -1021,14 +979,6 @@ impl Room {
         Ok(self.inner.can_user_send_state(&user_id, state_event.into()).await?)
     }
 
-    pub fn can_user_send_state_blocking(
-        self: Arc<Self>,
-        user_id: String,
-        state_event: StateEventType,
-    ) -> Result<bool, ClientError> {
-        RUNTIME.block_on(async move { self.can_user_send_state(user_id, state_event).await })
-    }
-
     pub async fn can_user_send_message(
         &self,
         user_id: String,
@@ -1038,27 +988,12 @@ impl Room {
         Ok(self.inner.can_user_send_message(&user_id, message.into()).await?)
     }
 
-    pub fn can_user_send_message_blocking(
-        self: Arc<Self>,
-        user_id: String,
-        message: MessageLikeEventType,
-    ) -> Result<bool, ClientError> {
-        RUNTIME.block_on(async move { self.can_user_send_message(user_id, message).await })
-    }
-
     pub async fn can_user_trigger_room_notification(
         &self,
         user_id: String,
     ) -> Result<bool, ClientError> {
         let user_id = UserId::parse(&user_id)?;
         Ok(self.inner.can_user_trigger_room_notification(&user_id).await?)
-    }
-
-    pub fn can_user_trigger_room_notification_blocking(
-        self: Arc<Self>,
-        user_id: String,
-    ) -> Result<bool, ClientError> {
-        RUNTIME.block_on(async move { self.can_user_trigger_room_notification(user_id).await })
     }
 
     pub fn own_user_id(&self) -> String {
@@ -1133,10 +1068,6 @@ impl SendAttachmentJoinHandle {
     pub async fn join(&self) -> Result<(), RoomError> {
         let join_hdl = self.join_hdl.clone();
         RUNTIME.spawn(async move { (&mut *join_hdl.lock().await).await.unwrap() }).await.unwrap()
-    }
-
-    pub fn join_blocking(self: Arc<Self>) -> Result<(), RoomError> {
-        RUNTIME.block_on(async move { self.join().await })
     }
 
     pub fn cancel(&self) {

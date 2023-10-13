@@ -161,17 +161,6 @@ impl NotificationSettings {
         Ok(RoomNotificationSettings::new(mode.into(), true))
     }
 
-    pub fn get_room_notification_settings_blocking(
-        self: Arc<Self>,
-        room_id: String,
-        is_encrypted: bool,
-        is_one_to_one: bool,
-    ) -> Result<RoomNotificationSettings, NotificationSettingsError> {
-        RUNTIME.block_on(async move {
-            self.get_room_notification_settings(room_id, is_encrypted, is_one_to_one).await
-        })
-    }
-
     /// Set the notification mode for a room.
     pub async fn set_room_notification_mode(
         &self,
@@ -183,14 +172,6 @@ impl NotificationSettings {
             .map_err(|_e| NotificationSettingsError::InvalidRoomId { room_id })?;
         notification_settings.set_room_notification_mode(&parsed_room_id, mode.into()).await?;
         Ok(())
-    }
-
-    pub fn set_room_notification_mode_blocking(
-        self: Arc<Self>,
-        room_id: String,
-        mode: RoomNotificationMode,
-    ) -> Result<(), NotificationSettingsError> {
-        RUNTIME.block_on(async move { self.set_room_notification_mode(room_id, mode).await })
     }
 
     /// Get the user defined room notification mode
@@ -209,13 +190,6 @@ impl NotificationSettings {
         } else {
             Ok(None)
         }
-    }
-
-    pub fn get_user_defined_room_notification_mode_blocking(
-        self: Arc<Self>,
-        room_id: String,
-    ) -> Result<Option<RoomNotificationMode>, NotificationSettingsError> {
-        RUNTIME.block_on(async move { self.get_user_defined_room_notification_mode(room_id).await })
     }
 
     /// Get the default room notification mode
@@ -238,16 +212,6 @@ impl NotificationSettings {
             .get_default_room_notification_mode(is_encrypted.into(), is_one_to_one.into())
             .await;
         mode.into()
-    }
-
-    pub fn get_default_room_notification_mode_blocking(
-        self: Arc<Self>,
-        is_encrypted: bool,
-        is_one_to_one: bool,
-    ) -> RoomNotificationMode {
-        RUNTIME.block_on(async move {
-            self.get_default_room_notification_mode(is_encrypted, is_one_to_one).await
-        })
     }
 
     /// Set the default room notification mode
@@ -275,17 +239,6 @@ impl NotificationSettings {
         Ok(())
     }
 
-    pub fn set_default_room_notification_mode_blocking(
-        self: Arc<Self>,
-        is_encrypted: bool,
-        is_one_to_one: bool,
-        mode: RoomNotificationMode,
-    ) -> Result<(), NotificationSettingsError> {
-        RUNTIME.block_on(async move {
-            self.set_default_room_notification_mode(is_encrypted, is_one_to_one, mode).await
-        })
-    }
-
     /// Restore the default notification mode for a room
     pub async fn restore_default_room_notification_mode(
         &self,
@@ -298,34 +251,16 @@ impl NotificationSettings {
         Ok(())
     }
 
-    pub fn restore_default_room_notification_mode_blocking(
-        self: Arc<Self>,
-        room_id: String,
-    ) -> Result<(), NotificationSettingsError> {
-        RUNTIME.block_on(async move { self.restore_default_room_notification_mode(room_id).await })
-    }
-
     /// Get all room IDs for which a user-defined rule exists.
     pub async fn get_rooms_with_user_defined_rules(&self, enabled: Option<bool>) -> Vec<String> {
         let notification_settings = self.sdk_notification_settings.read().await;
         notification_settings.get_rooms_with_user_defined_rules(enabled).await
     }
 
-    pub fn get_rooms_with_user_defined_rules_blocking(
-        self: Arc<Self>,
-        enabled: Option<bool>,
-    ) -> Vec<String> {
-        RUNTIME.block_on(async move { self.get_rooms_with_user_defined_rules(enabled).await })
-    }
-
     /// Get whether some enabled keyword rules exist.
     pub async fn contains_keywords_rules(&self) -> bool {
         let notification_settings = self.sdk_notification_settings.read().await;
         notification_settings.contains_keyword_rules().await
-    }
-
-    pub fn contains_keywords_rules_blocking(self: Arc<Self>) -> bool {
-        RUNTIME.block_on(async move { self.contains_keywords_rules().await })
     }
 
     /// Get whether room mentions are enabled.
@@ -338,12 +273,6 @@ impl NotificationSettings {
             )
             .await?;
         Ok(enabled)
-    }
-
-    pub fn is_room_mention_enabled_blocking(
-        self: Arc<Self>,
-    ) -> Result<bool, NotificationSettingsError> {
-        RUNTIME.block_on(async move { self.is_room_mention_enabled().await })
     }
 
     /// Set whether room mentions are enabled.
@@ -362,13 +291,6 @@ impl NotificationSettings {
         Ok(())
     }
 
-    pub fn set_room_mention_enabled_blocking(
-        self: Arc<Self>,
-        enabled: bool,
-    ) -> Result<(), NotificationSettingsError> {
-        RUNTIME.block_on(async move { self.set_room_mention_enabled(enabled).await })
-    }
-
     /// Get whether user mentions are enabled.
     pub async fn is_user_mention_enabled(&self) -> Result<bool, NotificationSettingsError> {
         let notification_settings = self.sdk_notification_settings.read().await;
@@ -379,12 +301,6 @@ impl NotificationSettings {
             )
             .await?;
         Ok(enabled)
-    }
-
-    pub fn is_user_mention_enabled_blocking(
-        self: Arc<Self>,
-    ) -> Result<bool, NotificationSettingsError> {
-        RUNTIME.block_on(async move { self.is_user_mention_enabled().await })
     }
 
     /// Set whether user mentions are enabled.
@@ -403,13 +319,6 @@ impl NotificationSettings {
         Ok(())
     }
 
-    pub fn set_user_mention_enabled_blocking(
-        self: Arc<Self>,
-        enabled: bool,
-    ) -> Result<(), NotificationSettingsError> {
-        RUNTIME.block_on(async move { self.set_user_mention_enabled(enabled).await })
-    }
-
     /// Get whether the `.m.rule.call` push rule is enabled
     pub async fn is_call_enabled(&self) -> Result<bool, NotificationSettingsError> {
         let notification_settings = self.sdk_notification_settings.read().await;
@@ -417,10 +326,6 @@ impl NotificationSettings {
             .is_push_rule_enabled(RuleKind::Underride, PredefinedUnderrideRuleId::Call.as_str())
             .await?;
         Ok(enabled)
-    }
-
-    pub fn is_call_enabled_blocking(self: Arc<Self>) -> Result<bool, NotificationSettingsError> {
-        RUNTIME.block_on(async move { self.is_call_enabled().await })
     }
 
     /// Set whether the `.m.rule.call` push rule is enabled
@@ -434,13 +339,6 @@ impl NotificationSettings {
             )
             .await?;
         Ok(())
-    }
-
-    pub fn set_call_enabled_blocking(
-        self: Arc<Self>,
-        enabled: bool,
-    ) -> Result<(), NotificationSettingsError> {
-        RUNTIME.block_on(async move { self.set_call_enabled(enabled).await })
     }
 
     /// Unmute a room.
@@ -464,15 +362,5 @@ impl NotificationSettings {
             .unmute_room(&parsed_room_id, is_encrypted.into(), is_one_to_one.into())
             .await?;
         Ok(())
-    }
-
-    pub fn unmute_room_blocking(
-        self: Arc<Self>,
-        room_id: String,
-        is_encrypted: bool,
-        is_one_to_one: bool,
-    ) -> Result<(), NotificationSettingsError> {
-        RUNTIME
-            .block_on(async move { self.unmute_room(room_id, is_encrypted, is_one_to_one).await })
     }
 }
