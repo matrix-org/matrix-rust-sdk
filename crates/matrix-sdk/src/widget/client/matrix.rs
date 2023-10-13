@@ -6,6 +6,7 @@ use ruma::{
     assign,
     events::{AnySyncTimelineEvent, AnyTimelineEvent},
     serde::Raw,
+    RoomId,
 };
 use tokio::sync::{mpsc, oneshot};
 use tracing::{info, warn};
@@ -27,14 +28,13 @@ use crate::{
     },
 };
 
-fn attach_room_id(raw_ev: &Raw<AnySyncTimelineEvent>, room_id: &str) -> Raw<AnyTimelineEvent> {
+fn attach_room_id(raw_ev: &Raw<AnySyncTimelineEvent>, room_id: &RoomId) -> Raw<AnyTimelineEvent> {
     // deserialize should be possible if Raw<AnySyncTimelineEvent> is possible
     let mut ev_value = raw_ev.deserialize_as::<serde_json::Value>().unwrap();
     let ev_obj = ev_value.as_object_mut().unwrap();
-    ev_obj.insert("room_id".to_owned(), room_id.to_owned().into());
-    let ev_with_room_id = serde_json::from_value::<Raw<AnyTimelineEvent>>(ev_value).unwrap();
-    info!("final Event: {}", ev_with_room_id.json());
-    ev_with_room_id
+    ev_obj.insert("room_id".to_owned(), room_id.to_string().into());
+
+    serde_json::from_value::<Raw<AnyTimelineEvent>>(ev_value).unwrap()
 }
 
 #[derive(Debug)]
@@ -96,12 +96,12 @@ impl<T> Driver<T> {
         filter: Filters,
     ) -> mpsc::UnboundedReceiver<Raw<AnyTimelineEvent>> {
         let (tx, rx) = mpsc::unbounded_channel();
-        let room_id = self.room.room_id().as_str().to_owned();
+        let room_id = self.room.room_id().to_owned();
         let callback = move |raw_ev: Raw<AnySyncTimelineEvent>| {
             let (filter, tx) = (filter.clone(), tx.clone());
             if let Ok(ev) = raw_ev.deserialize_as::<MatrixEventFilterInput>() {
                 filter.any_matches(&ev).then(|| {
-                    info!("received event for room: {}", room_id.clone().as_str());
+                    info!(?room_id, "received event");
                     tx.send(attach_room_id(&raw_ev, &room_id))
                 });
             }
@@ -139,17 +139,19 @@ impl EventServerProxy {
                 let event_iter = events.unwrap().into_iter().filter_map(|ev| match ev {
                     RawAnySyncOrStrippedState::Sync(raw) => Some(attach_room_id(
                         &raw.cast::<AnySyncTimelineEvent>(),
-                        self.room.room_id().as_str(),
+                        self.room.room_id(),
                     )),
                     RawAnySyncOrStrippedState::Stripped(_) => None,
                 });
-                if let Some(limit) = req.limit {
-                    return Ok(ReadEventResponse {
-                        events: event_iter.take(limit.try_into().unwrap_or(usize::MAX)).collect(),
-                    });
-                }
 
-                Ok(ReadEventResponse { events: event_iter.collect() })
+                let events = match req.limit {
+                    Some(limit) => {
+                        event_iter.take(limit.try_into().unwrap_or(usize::MAX)).collect()
+                    }
+                    None => event_iter.collect(),
+                };
+
+                Ok(ReadEventResponse { events })
             };
 
         match req.state_key {
