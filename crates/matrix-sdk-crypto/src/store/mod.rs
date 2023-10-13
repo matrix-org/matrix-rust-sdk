@@ -179,6 +179,33 @@ impl StoreCache {
 
         Ok(())
     }
+
+    /// Process notifications that users have changed devices.
+    ///
+    /// This is used to handle the list of device-list updates that is received
+    /// from the `/sync` response. Any users *whose device lists we are
+    /// tracking* are flagged as needing a key query. Users whose devices we
+    /// are not tracking are ignored.
+    pub(crate) async fn mark_tracked_users_as_changed(
+        &self,
+        store: &Store,
+        users: impl Iterator<Item = &UserId>,
+    ) -> Result<()> {
+        let mut store_updates: Vec<(&UserId, bool)> = Vec::new();
+        let mut key_query_lock = store.inner.users_for_key_query.lock().await;
+
+        {
+            let tracked_users = &self.tracked_users.read().unwrap();
+            for user_id in users {
+                if tracked_users.contains(user_id) {
+                    key_query_lock.insert_user(user_id);
+                    store_updates.push((user_id, true));
+                }
+            }
+        }
+
+        store.inner.store.save_tracked_users(&store_updates).await
+    }
 }
 
 pub(crate) struct StoreCacheGuard {
@@ -213,6 +240,10 @@ impl StoreTransaction {
             changes: PendingChanges::default(),
             cache: cache.clone().write_owned().await,
         })
+    }
+
+    pub(crate) fn cache(&self) -> &StoreCache {
+        &self.cache
     }
 
     /// Returns a reference to the current `Store`.
@@ -1086,34 +1117,6 @@ impl Store {
                 if tracked_users.insert(user_id.to_owned()) {
                     key_query_lock.insert_user(user_id);
                     store_updates.push((user_id, true))
-                }
-            }
-        }
-
-        self.inner.store.save_tracked_users(&store_updates).await
-    }
-
-    /// Process notifications that users have changed devices.
-    ///
-    /// This is used to handle the list of device-list updates that is received
-    /// from the `/sync` response. Any users *whose device lists we are
-    /// tracking* are flagged as needing a key query. Users whose devices we
-    /// are not tracking are ignored.
-    pub(crate) async fn mark_tracked_users_as_changed(
-        &self,
-        users: impl Iterator<Item = &UserId>,
-    ) -> Result<()> {
-        let cache = self.cache().await?;
-
-        let mut store_updates: Vec<(&UserId, bool)> = Vec::new();
-        let mut key_query_lock = self.inner.users_for_key_query.lock().await;
-
-        {
-            let tracked_users = &cache.tracked_users.read().unwrap();
-            for user_id in users {
-                if tracked_users.contains(user_id) {
-                    key_query_lock.insert_user(user_id);
-                    store_updates.push((user_id, true));
                 }
             }
         }
