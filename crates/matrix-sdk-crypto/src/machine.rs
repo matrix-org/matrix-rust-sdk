@@ -2439,6 +2439,7 @@ pub(crate) mod tests {
     #[async_test]
     async fn test_keys_for_upload() {
         let machine = OlmMachine::new(user_id(), alice_device_id()).await;
+
         let key_counts = BTreeMap::from([(DeviceKeyAlgorithm::SignedCurve25519, 49u8.into())]);
         machine
             .receive_sync_changes(EncryptionSyncChanges {
@@ -2451,13 +2452,15 @@ pub(crate) mod tests {
             .await
             .expect("We should be able to update our one-time key counts");
 
-        let cache = machine.store().cache().await.unwrap();
-        let account = cache.account().await.unwrap();
-        let ed25519_key = account.identity_keys().ed25519;
+        let (ed25519_key, mut request) = {
+            let cache = machine.store().cache().await.unwrap();
+            let account = cache.account().await.unwrap();
+            let ed25519_key = account.identity_keys().ed25519;
 
-        let mut request =
-            machine.keys_for_upload(&account).await.expect("Can't prepare initial key upload");
-        drop(account); // Release the account lock.
+            let request =
+                machine.keys_for_upload(&account).await.expect("Can't prepare initial key upload");
+            (ed25519_key, request)
+        };
 
         let one_time_key: SignedKey = request
             .one_time_keys
