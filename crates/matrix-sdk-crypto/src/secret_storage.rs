@@ -200,7 +200,7 @@ impl From<AesHmacSha2EncryptedData> for SecretEncryptedData {
 }
 
 impl SecretStorageKey {
-    const ZERO_MESSAGE: &[u8; 32] = &[0u8; 32];
+    const ZERO_MESSAGE: &'static [u8; 32] = &[0u8; 32];
     const PREFIX: [u8; 2] = [0x8b, 0x01];
     const PREFIX_PARITY: u8 = Self::PREFIX[0] ^ Self::PREFIX[1];
     const DEFAULT_KEY_ID_LEN: usize = 32;

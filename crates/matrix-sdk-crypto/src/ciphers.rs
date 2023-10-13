@@ -94,7 +94,7 @@ impl AesHmacSha2Key {
     /// "Key export" part of the [spec].
     ///
     /// [spec]: https://spec.matrix.org/v1.8/client-server-api/#key-exports
-    const ZERO_SALT: &[u8; 32] = &[0u8; 32];
+    const ZERO_SALT: &'static [u8; 32] = &[0u8; 32];
 
     /// Create a per-secret specific [`AesHmacSha2Key`] from the secret storage
     /// key.
