@@ -86,7 +86,7 @@ impl MatrixDriver {
     pub fn events(&self) -> EventReceiver {
         let (tx, rx) = unbounded_channel();
         let handle = self.room.add_event_handler(move |raw: Raw<AnySyncTimelineEvent>| {
-            let _ = tx.send(raw.cast());
+            let _ = tx.send(raw.cast()); // FIXME: Wrong cast
             async {}
         });
 
