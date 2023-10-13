@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub use element_call::VirtualElementCallWidgetOptions;
 use language_tags::LanguageTag;
 use ruma::{api::client::profile::get_profile, DeviceId, RoomId, UserId};
 use url::Url;
@@ -21,6 +20,8 @@ use crate::Room;
 
 mod element_call;
 mod url_params;
+
+pub use self::element_call::VirtualElementCallWidgetOptions;
 
 /// Settings of the widget.
 #[derive(Debug, Clone)]
