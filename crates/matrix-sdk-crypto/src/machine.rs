@@ -692,6 +692,7 @@ impl OlmMachine {
             &content.session_key,
             event.content.algorithm(),
             None,
+            true,
         );
 
         match session {
@@ -3313,6 +3314,7 @@ pub(crate) mod tests {
             &olm,
             EventEncryptionAlgorithm::MegolmV1AesSha2,
             None,
+            true,
         )
         .unwrap();
 
@@ -3330,6 +3332,7 @@ pub(crate) mod tests {
             &olm,
             EventEncryptionAlgorithm::MegolmV1AesSha2,
             None,
+            true,
         )
         .unwrap();
 

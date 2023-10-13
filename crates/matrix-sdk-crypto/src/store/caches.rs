@@ -450,6 +450,7 @@ mod tests {
             &outbound.session_key().await,
             outbound.settings().algorithm.to_owned(),
             None,
+            true,
         )
         .unwrap();
 

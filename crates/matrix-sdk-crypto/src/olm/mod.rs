@@ -186,6 +186,7 @@ pub(crate) mod tests {
             &outbound.session_key().await,
             outbound.settings().algorithm.to_owned(),
             None,
+            true,
         )
         .expect("We can always create an inbound group session from an outbound one");
 
@@ -229,6 +230,7 @@ pub(crate) mod tests {
             &outbound.session_key().await,
             outbound.settings().algorithm.to_owned(),
             None,
+            true,
         )
         .unwrap();
 

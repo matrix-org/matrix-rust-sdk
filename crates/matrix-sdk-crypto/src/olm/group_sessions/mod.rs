@@ -119,6 +119,10 @@ pub struct BackedUpRoomKey {
     /// Chain of Curve25519 keys through which this session was forwarded, via
     /// m.forwarded_room_key events.
     pub forwarding_curve25519_key_chain: Vec<Curve25519PublicKey>,
+
+    /// Whether the key was received (recursively) from an authenticated source.
+    #[serde(default, rename="org.matrix.msc4048.authenticated")]
+    pub authenticated: bool,
 }
 
 impl TryFrom<ExportedRoomKey> for ForwardedRoomKeyContent {
@@ -186,6 +190,7 @@ impl From<ExportedRoomKey> for BackedUpRoomKey {
             session_key: k.session_key,
             sender_claimed_keys: k.sender_claimed_keys,
             forwarding_curve25519_key_chain: k.forwarding_curve25519_key_chain,
+            authenticated: false,
         }
     }
 }

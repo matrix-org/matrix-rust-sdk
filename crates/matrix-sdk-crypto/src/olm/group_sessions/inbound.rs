@@ -146,6 +146,9 @@ pub struct InboundGroupSession {
 
     /// Was this room key backed up to the server.
     backed_up: Arc<AtomicBool>,
+
+    /// Was this room key received (recursively) from an authenticated source.
+    authenticated: bool,
 }
 
 impl InboundGroupSession {
@@ -172,6 +175,7 @@ impl InboundGroupSession {
         session_key: &SessionKey,
         encryption_algorithm: EventEncryptionAlgorithm,
         history_visibility: Option<HistoryVisibility>,
+        authenticated: bool,
     ) -> Result<Self, SessionCreationError> {
         let config = OutboundGroupSession::session_config(&encryption_algorithm)?;
 
@@ -195,6 +199,7 @@ impl InboundGroupSession {
             imported: false,
             algorithm: encryption_algorithm.into(),
             backed_up: AtomicBool::new(false).into(),
+            authenticated,
         })
     }
 
@@ -219,7 +224,7 @@ impl InboundGroupSession {
         let session = InnerSession::import(&backup.session_key, SessionConfig::default());
         let session_id = session.session_id();
 
-        Self::from_export(&ExportedRoomKey {
+        let mut res = Self::from_export(&ExportedRoomKey {
             algorithm: backup.algorithm,
             room_id: room_id.to_owned(),
             sender_key: backup.sender_key,
@@ -227,7 +232,9 @@ impl InboundGroupSession {
             forwarding_curve25519_key_chain: vec![],
             session_key: backup.session_key,
             sender_claimed_keys: backup.sender_claimed_keys,
-        })
+        })?;
+        res.authenticated = backup.authenticated;
+        Ok(res)
     }
 
     /// Store the group session as a base64 encoded string.
@@ -248,6 +255,7 @@ impl InboundGroupSession {
             backed_up: self.backed_up(),
             history_visibility: self.history_visibility.as_ref().clone(),
             algorithm: (*self.algorithm).to_owned(),
+            authenticated: self.authenticated,
         }
     }
 
@@ -332,6 +340,7 @@ impl InboundGroupSession {
             backed_up: AtomicBool::from(pickle.backed_up).into(),
             algorithm: pickle.algorithm.into(),
             imported: pickle.imported,
+            authenticated: pickle.authenticated,
         })
     }
 
@@ -508,6 +517,9 @@ pub struct PickledInboundGroupSession {
     /// The algorithm of this inbound group session.
     #[serde(default = "default_algorithm")]
     pub algorithm: EventEncryptionAlgorithm,
+    /// Whether the key was received from an authenticated source.
+    #[serde(default)]
+    pub authenticated: bool,
 }
 
 fn default_algorithm() -> EventEncryptionAlgorithm {
@@ -535,6 +547,7 @@ impl TryFrom<&ExportedRoomKey> for InboundGroupSession {
             imported: true,
             algorithm: key.algorithm.to_owned().into(),
             backed_up: AtomicBool::from(false).into(),
+            authenticated: false,
         })
     }
 }
@@ -562,6 +575,7 @@ impl From<&ForwardedMegolmV1AesSha2Content> for InboundGroupSession {
             imported: true,
             algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2.into(),
             backed_up: AtomicBool::from(false).into(),
+            authenticated: false,
         }
     }
 }
@@ -585,6 +599,7 @@ impl From<&ForwardedMegolmV2AesSha2Content> for InboundGroupSession {
             imported: true,
             algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2.into(),
             backed_up: AtomicBool::from(false).into(),
+            authenticated: false,
         }
     }
 }
