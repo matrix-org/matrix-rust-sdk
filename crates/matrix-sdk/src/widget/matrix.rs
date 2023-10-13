@@ -86,7 +86,7 @@ impl MatrixDriver {
             Some(state_key) => match state_key {
                 StateKeySelector::Any(_) => {
                     let events = self.room.get_state_events(event_type.to_string().into()).await;
-                    return events.map(|events| convert_and_limit(events));
+                    return events.map(convert_and_limit);
                 }
                 StateKeySelector::Key(state_key) => {
                     let events = self
@@ -96,7 +96,7 @@ impl MatrixDriver {
                             &[state_key.as_str()],
                         )
                         .await;
-                    return events.map(|events| convert_and_limit(events));
+                    return events.map(convert_and_limit);
                 }
             },
             None => {
@@ -173,7 +173,6 @@ impl AddRoomId for Raw<AnySyncTimelineEvent> {
         let mut ev_value = self.deserialize_as::<serde_json::Value>().unwrap();
         let ev_obj = ev_value.as_object_mut().unwrap();
         ev_obj.insert("room_id".to_owned(), room_id.as_str().into());
-        let ev_with_room_id = serde_json::from_value::<Raw<AnyTimelineEvent>>(ev_value).unwrap();
-        ev_with_room_id
+        serde_json::from_value::<Raw<AnyTimelineEvent>>(ev_value).unwrap()
     }
 }
