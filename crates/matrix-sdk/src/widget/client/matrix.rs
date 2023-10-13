@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use matrix_sdk_base::deserialized_responses::RawAnySyncOrStrippedState;
 use ruma::{
     api::client::{
@@ -8,6 +10,7 @@ use ruma::{
     serde::Raw,
     RoomId,
 };
+use serde_json::value::RawValue as RawJsonValue;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{info, warn};
 
@@ -29,12 +32,9 @@ use crate::{
 };
 
 fn attach_room_id(raw_ev: &Raw<AnySyncTimelineEvent>, room_id: &RoomId) -> Raw<AnyTimelineEvent> {
-    // deserialize should be possible if Raw<AnySyncTimelineEvent> is possible
-    let mut ev_value = raw_ev.deserialize_as::<serde_json::Value>().unwrap();
-    let ev_obj = ev_value.as_object_mut().unwrap();
-    ev_obj.insert("room_id".to_owned(), room_id.to_string().into());
-
-    serde_json::from_value::<Raw<AnyTimelineEvent>>(ev_value).unwrap()
+    let mut ev_obj = raw_ev.deserialize_as::<BTreeMap<String, Box<RawJsonValue>>>().unwrap();
+    ev_obj.insert("room_id".to_owned(), serde_json::value::to_raw_value(room_id).unwrap());
+    Raw::new(&ev_obj).unwrap().cast()
 }
 
 #[derive(Debug)]
