@@ -599,7 +599,10 @@ mod tests {
         // now bob turns up, and we start tracking his devices...
         let bob = bob_account();
         let bob_device = ReadOnlyDevice::from_account(&bob);
-        manager.store.update_tracked_users(iter::once(bob.user_id())).await.unwrap();
+        {
+            let cache = manager.store.cache().await.unwrap();
+            cache.update_tracked_users(&manager.store, iter::once(bob.user_id())).await.unwrap();
+        }
 
         // ... and start off an attempt to get the missing sessions. This should block
         // for now.

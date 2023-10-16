@@ -136,9 +136,7 @@ impl StoreCache {
             }
         }
     }
-}
 
-impl StoreCache {
     /// Load the list of users for whom we are tracking their device lists and
     /// fill out our caches.
     ///
@@ -217,6 +215,31 @@ impl StoreCache {
         self.tracked_users.write().unwrap().insert(user.to_owned());
 
         store.inner.store.save_tracked_users(&[(user, true)]).await
+    }
+
+    /// Add entries to the list of users being tracked for device changes
+    ///
+    /// Any users not already on the list are flagged as awaiting a key query.
+    /// Users that were already in the list are unaffected.
+    pub(crate) async fn update_tracked_users(
+        &self,
+        store: &Store,
+        users: impl Iterator<Item = &UserId>,
+    ) -> Result<()> {
+        let mut store_updates = Vec::new();
+        let mut key_query_lock = store.inner.users_for_key_query.lock().await;
+
+        {
+            let mut tracked_users = self.tracked_users.write().unwrap();
+            for user_id in users {
+                if tracked_users.insert(user_id.to_owned()) {
+                    key_query_lock.insert_user(user_id);
+                    store_updates.push((user_id, true))
+                }
+            }
+        }
+
+        store.inner.store.save_tracked_users(&store_updates).await
     }
 }
 
@@ -1096,32 +1119,6 @@ impl Store {
         }
 
         Ok(())
-    }
-
-    /// Add entries to the list of users being tracked for device changes
-    ///
-    /// Any users not already on the list are flagged as awaiting a key query.
-    /// Users that were already in the list are unaffected.
-    pub(crate) async fn update_tracked_users(
-        &self,
-        users: impl Iterator<Item = &UserId>,
-    ) -> Result<()> {
-        let cache = self.cache().await?;
-
-        let mut store_updates = Vec::new();
-        let mut key_query_lock = self.inner.users_for_key_query.lock().await;
-
-        {
-            let mut tracked_users = cache.tracked_users.write().unwrap();
-            for user_id in users {
-                if tracked_users.insert(user_id.to_owned()) {
-                    key_query_lock.insert_user(user_id);
-                    store_updates.push((user_id, true))
-                }
-            }
-        }
-
-        self.inner.store.save_tracked_users(&store_updates).await
     }
 
     /// Flag that the given users devices are now up-to-date.
