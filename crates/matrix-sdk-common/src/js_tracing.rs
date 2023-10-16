@@ -126,6 +126,12 @@ impl Drop for MakeJsLogWriter {
     }
 }
 
+impl Default for MakeJsLogWriter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<'a> MakeWriter<'a> for MakeJsLogWriter {
     type Writer = JsLogWriter;
 
@@ -134,7 +140,7 @@ impl<'a> MakeWriter<'a> for MakeJsLogWriter {
     }
 
     fn make_writer_for(&'a self, meta: &Metadata<'_>) -> JsLogWriter {
-        self.make_writer_for_level(meta.level().clone())
+        self.make_writer_for_level(*meta.level())
     }
 }
 
@@ -186,10 +192,10 @@ fn write_message_to_logger(level: Level, message: &JsValue, logger: &JsLogger) {
 
 fn write_message_to_console(level: Level, message: &JsValue) {
     match level {
-        Level::TRACE | Level::DEBUG => web_sys::console::debug_1(&message),
-        Level::INFO => web_sys::console::info_1(&message),
-        Level::WARN => web_sys::console::warn_1(&message),
-        Level::ERROR => web_sys::console::error_1(&message),
+        Level::TRACE | Level::DEBUG => web_sys::console::debug_1(message),
+        Level::INFO => web_sys::console::info_1(message),
+        Level::WARN => web_sys::console::warn_1(message),
+        Level::ERROR => web_sys::console::error_1(message),
     };
 }
 
