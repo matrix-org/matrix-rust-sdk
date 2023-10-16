@@ -220,3 +220,56 @@ pub fn make_tracing_subscriber(logger: Option<JsLogger>) -> JsLoggingSubscriber 
         .event_format(format)
         .finish()
 }
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use matrix_sdk_test::async_test;
+    use tracing::{debug, subscriber::with_default};
+    use wasm_bindgen::{JsCast, JsValue};
+
+    use crate::js_tracing::make_tracing_subscriber;
+
+    #[async_test]
+    async fn test_make_tracing_subscriber() -> Result<(), js_sys::Error> {
+        // construct a javascript-side object which will catch our logs
+        let logger = js_sys::eval(
+            "({
+                  debug_calls: [],
+                  debug: function (...args) { this.debug_calls.push(args) },
+             })",
+        )?;
+
+        // set up a tracing subscriber which will write to it
+        let subscriber = make_tracing_subscriber(Some(logger.clone().into()));
+
+        // log something to it
+        with_default(subscriber, || {
+            debug!("Test message");
+        });
+
+        // inspect the call log
+        let debug_calls: js_sys::Array =
+            js_sys::Reflect::get(&logger, &JsValue::from_str("debug_calls"))?
+                .dyn_into()
+                .expect("debug_calls not an array");
+
+        // should be one call
+        assert_eq!(debug_calls.length(), 1, "Expected 1 call, got {}", debug_calls.length());
+
+        // with one argument
+        let call_args: js_sys::Array =
+            debug_calls.get(0).dyn_into().expect("call_args not an array");
+        assert_eq!(call_args.length(), 1, "Expected 1 argument, got {}", call_args.length());
+
+        let message_string = call_args.get(0).as_string().unwrap();
+        let expected_prefix = "  DEBUG matrix_sdk_common::js_tracing::tests: Test message";
+        assert!(
+            message_string.starts_with(expected_prefix),
+            "Expected log message to start with '{}', but was '{}'",
+            expected_prefix,
+            message_string
+        );
+
+        Ok(())
+    }
+}

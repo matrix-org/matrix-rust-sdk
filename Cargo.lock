@@ -3143,6 +3143,7 @@ dependencies = [
  "futures-util",
  "gloo-timers 0.3.0",
  "instant",
+ "js-sys",
  "matrix-sdk-test",
  "ruma",
  "serde",
