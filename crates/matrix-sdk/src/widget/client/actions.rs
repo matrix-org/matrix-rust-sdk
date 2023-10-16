@@ -14,11 +14,11 @@
 
 use std::{borrow::Cow, error::Error, ops::Deref};
 
-use ruma::events::TimelineEventType;
+use ruma::events::{MessageLikeEventType, StateEventType, TimelineEventType};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
-use crate::widget::Permissions;
+use crate::widget::{Permissions, StateKeySelector};
 
 /// Action (a command) that client (driver) must perform.
 #[allow(dead_code)] // TODO: Remove once all actions are implemented.
@@ -30,9 +30,11 @@ pub(crate) enum Action {
     AcquirePermissions(Command<Permissions>),
     /// Get OpenId token for a given request ID.
     GetOpenId(Command<()>),
-    /// Read matrix event(s) that corresponds to the given description.
-    ReadMatrixEvent(Command<ReadEventCommand>),
-    // Send matrix event that corresponds to the given description.
+    /// Read message event(s).
+    ReadMessageLikeEvent(Command<ReadMessageLikeEventCommand>),
+    /// Read state event(s).
+    ReadStateEvent(Command<ReadStateEventCommand>),
+    /// Send matrix event that corresponds to the given description.
     SendMatrixEvent(Command<SendEventCommand>),
     /// Subscribe to the events in the *current* room, i.e. a room which this
     /// widget is instantiated with. The client is aware of the room.
@@ -42,12 +44,23 @@ pub(crate) enum Action {
     Unsubscribe,
 }
 
-/// Command to read matrix event(s).
-pub(crate) struct ReadEventCommand {
-    /// Read event(s) of a given type.
-    pub(crate) event_type: TimelineEventType,
-    /// Limits for the Matrix request.
+/// Command to read matrix message event(s).
+pub(crate) struct ReadMessageLikeEventCommand {
+    /// The event type to read.
+    pub(crate) event_type: MessageLikeEventType,
+
+    /// The maximum number of events to return.
     pub(crate) limit: u32,
+}
+
+/// Command to read matrix state event(s).
+pub(crate) struct ReadStateEventCommand {
+    /// The event type to read.
+    pub(crate) event_type: StateEventType,
+
+    /// The `state_key` to read, or `Any` to receive any/all events of the given
+    /// type, regardless of their `state_key`.
+    pub(crate) state_key: StateKeySelector,
 }
 
 /// Command to send matrix event.

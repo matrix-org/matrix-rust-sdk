@@ -21,7 +21,7 @@ use ruma::{
 };
 
 use super::{
-    actions::{ReadEventCommand, SendEventCommand},
+    actions::{ReadMessageLikeEventCommand, SendEventCommand},
     openid::OpenIdResponse,
 };
 use crate::widget::Permissions;
@@ -69,7 +69,7 @@ impl Request for RequestOpenId {
 
 /// Ask the client to read matrix event(s) that corresponds to the given
 /// description and return a list of events as a response.
-pub(crate) struct ReadMatrixEvent(pub(crate) ReadEventCommand);
+pub(crate) struct ReadMatrixEvent(pub(crate) ReadMessageLikeEventCommand);
 impl Request for ReadMatrixEvent {
     type Response = Vec<Raw<AnyTimelineEvent>>;
 }
