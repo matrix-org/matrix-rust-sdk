@@ -241,6 +241,11 @@ impl StoreCache {
 
         store.inner.store.save_tracked_users(&store_updates).await
     }
+
+    /// See the docs for [`crate::OlmMachine::tracked_users()`].
+    pub(crate) fn tracked_users(&self) -> HashSet<OwnedUserId> {
+        self.tracked_users.read().unwrap().iter().cloned().collect()
+    }
 }
 
 pub(crate) struct StoreCacheGuard {
@@ -1203,11 +1208,6 @@ impl Store {
             }
             _ => UserKeyQueryResult::WasPending,
         }
-    }
-
-    /// See the docs for [`crate::OlmMachine::tracked_users()`].
-    pub(crate) async fn tracked_users(&self) -> Result<HashSet<OwnedUserId>> {
-        Ok(self.cache().await?.tracked_users.read().unwrap().iter().cloned().collect())
     }
 
     /// Check whether there is a global flag to only encrypt messages for
