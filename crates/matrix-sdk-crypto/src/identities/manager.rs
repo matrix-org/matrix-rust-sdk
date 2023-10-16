@@ -755,7 +755,7 @@ impl IdentityManager {
     /// key query.
     pub async fn receive_device_changes(
         &self,
-        store: &Store,
+        store: &Store, // TODO: (bnjbvr) remove
         cache: &StoreCache,
         users: impl Iterator<Item = &UserId>,
     ) -> StoreResult<()> {
@@ -767,7 +767,7 @@ impl IdentityManager {
         &self,
         users: impl IntoIterator<Item = &UserId>,
     ) -> StoreResult<()> {
-        self.store.update_tracked_users(users.into_iter()).await
+        self.store.cache().await?.update_tracked_users(&self.store, users.into_iter()).await
     }
 }
 
