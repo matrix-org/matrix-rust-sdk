@@ -94,7 +94,7 @@ mod tests {
             ?widgetId=$matrix_widget_id\
             &deviceId=$org.matrix.msc2873.matrix_device_id\
             &avatarUrl=$matrix_avatar_url\
-            &displayname=$matrix_display_name\
+            &displayName=$matrix_display_name\
             &lang=$org.matrix.msc2873.client_language\
             &theme=$org.matrix.msc2873.client_theme\
             &clientId=$org.matrix.msc2873.client_id\
@@ -106,7 +106,7 @@ mod tests {
         QueryProperties {
             widget_id: String::from("!@/abc_widget_id"),
             avatar_url: "!@/abc_avatar_url".to_owned(),
-            display_name: "I_AM_THEuser".to_owned(),
+            display_name: "I_AM_THE_user".to_owned(),
             user_id: "!@/abc_user_id".to_owned(),
             room_id: "!@/abc_room_id".to_owned(),
             language: "!@/abc_language".to_owned(),
@@ -126,11 +126,11 @@ mod tests {
         let mut url = get_example_url();
 
         const CONVERTED_URL: &str = "\
-            https://my.widget.org/custom/path/using/I_AM_THEuser/in/it\
+            https://my.widget.org/custom/path/using/I_AM_THE_user/in/it\
                 ?widgetId=%21%40%2Fabc_widget_id\
                 &deviceId=%21%40%2Fabc_device_id\
                 &avatarUrl=%21%40%2Fabc_avatar_url\
-                &displayname=I_AM_THEuser\
+                &displayName=I_AM_THE_user\
                 &lang=%21%40%2Fabc_language\
                 &theme=light\
                 &clientId=12345678\

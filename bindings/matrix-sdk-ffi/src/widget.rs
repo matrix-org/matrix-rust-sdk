@@ -114,39 +114,64 @@ pub async fn generate_webview_url(
 /// Properties to create a new virtual Element Call widget.
 #[derive(uniffi::Record, Clone)]
 pub struct VirtualElementCallWidgetOptions {
-    /// the url to the app e.g. <https://call.element.io>, <https://call.element.dev>
+    /// The url to the app.
+    ///
+    /// E.g. <https://call.element.io>, <https://call.element.dev>
     pub element_call_url: String,
-    /// the widget id.
+
+    /// The widget id.
     pub widget_id: String,
+
     /// The url that is used as the target for the PostMessages sent
-    /// by the widget (to the client). For a web app client this is the client
-    /// url. In case of using other platforms the client most likely is setup
-    /// up to listen to postmessages in the same webview the widget is
-    /// hosted. In this case the parent_url is set to the url of the
-    /// webview with the widget. Be aware, that this means, the widget
-    /// will receive its own postmessage messages. The matrix-widget-api
-    /// (js) ignores those so this works but it might break custom
-    /// implementations. So always keep this in mind. Defaults to
-    /// `element_call_url` for the non IFrame (dedicated webview) usecase.
+    /// by the widget (to the client).
+    ///
+    /// For a web app client this is the client url. In case of using other
+    /// platforms the client most likely is setup up to listen to
+    /// postmessages in the same webview the widget is hosted. In this case
+    /// the `parent_url` is set to the url of the webview with the widget. Be
+    /// aware that this means that the widget will receive its own postmessage
+    /// messages. The `matrix-widget-api` (js) ignores those so this works but
+    /// it might break custom implementations.
+    ///
+    /// Defaults to `element_call_url` for the non-iframe (dedicated webview)
+    /// usecase.
     pub parent_url: Option<String>,
-    /// defines if the branding header of Element call should be hidden.
-    /// (default: `true`)
+
+    /// Whether the branding header of Element call should be hidden.
+    ///
+    /// Default: `true`
     pub hide_header: Option<bool>,
-    /// if set, the lobby will be skipped and the widget will join the
-    /// call on the `io.element.join` action. (default: `false`)
+
+    /// If set, the lobby will be skipped and the widget will join the
+    /// call on the `io.element.join` action.
+    ///
+    /// Default: `false`
     pub preload: Option<bool>,
-    /// The font scale which will be used inside element call. (default: `1`)
+
+    /// The font scale which will be used inside element call.
+    ///
+    /// Default: `1`
     pub font_scale: Option<f64>,
-    /// whether element call should prompt the user to open in the browser or
-    /// the app (default: `false`).
+
+    /// Whether element call should prompt the user to open in the browser or
+    /// the app.
+    ///
+    /// Default: `false`
     pub app_prompt: Option<bool>,
-    ///Don't show the lobby and join the call immediately. (default: `false`)
+
+    /// Don't show the lobby and join the call immediately.
+    ///
+    /// Default: `false`
     pub skip_lobby: Option<bool>,
-    ///Make it not possible to get to the calls list in the webview. (default:
-    /// `true`)
+
+    /// Make it not possible to get to the calls list in the webview.
+    ///
+    /// Default: `true`
     pub confine_to_room: Option<bool>,
-    /// A list of fonts to adapt to ios/android system fonts. (default:`[]`)
-    pub fonts: Option<Vec<String>>,
+
+    /// The font to use, to adapt to the system font.
+    pub font: Option<String>,
+
     /// Can be used to pass a PostHog id to element call.
     pub analytics_id: Option<String>,
 }
@@ -163,7 +188,7 @@ impl From<VirtualElementCallWidgetOptions> for matrix_sdk::widget::VirtualElemen
             app_prompt: value.app_prompt,
             skip_lobby: value.skip_lobby,
             confine_to_room: value.confine_to_room,
-            fonts: value.fonts,
+            font: value.font,
             analytics_id: value.analytics_id,
         }
     }

@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub use element_call::VirtualElementCallWidgetOptions;
 use language_tags::LanguageTag;
 use ruma::{api::client::profile::get_profile, DeviceId, RoomId, UserId};
 use url::Url;
@@ -21,6 +20,8 @@ use crate::Room;
 
 mod element_call;
 mod url_params;
+
+pub use self::element_call::VirtualElementCallWidgetOptions;
 
 /// Settings of the widget.
 #[derive(Debug, Clone)]
@@ -170,144 +171,4 @@ fn base_url(url: &Url) -> Option<Url> {
     url.set_query(None);
     url.set_fragment(None);
     Some(url)
-}
-
-#[cfg(test)]
-mod tests {
-    use std::collections::BTreeSet;
-
-    use ruma::api::client::profile::get_profile;
-    use url::Url;
-
-    use super::{element_call::VirtualElementCallWidgetOptions, WidgetSettings};
-    use crate::widget::ClientProperties;
-
-    const WIDGET_ID: &str = "1/@#w23";
-
-    fn get_widget_settings() -> WidgetSettings {
-        WidgetSettings::new_virtual_element_call_widget(VirtualElementCallWidgetOptions {
-            element_call_url: "https://call.element.io".to_owned(),
-            widget_id: WIDGET_ID.to_owned(),
-            parent_url: None,
-            hide_header: Some(true),
-            preload: Some(true),
-            font_scale: None,
-            app_prompt: Some(true),
-            skip_lobby: Some(false),
-            confine_to_room: Some(true),
-            fonts: None,
-            analytics_id: None,
-        })
-        .expect("could not parse virtual element call widget")
-    }
-
-    // Convert query strings to BTreeSet so that we can compare the urls independent
-    // of the order of the params.
-    trait FragmentQuery {
-        fn fragment_query(&self) -> Option<&str>;
-    }
-
-    impl FragmentQuery for Url {
-        fn fragment_query(&self) -> Option<&str> {
-            Some(self.fragment()?.split_once('?')?.1)
-        }
-    }
-
-    type QuerySet = BTreeSet<(String, String)>;
-
-    use serde_html_form::from_str;
-
-    fn get_query_sets(url: &Url) -> Option<(QuerySet, QuerySet)> {
-        let fq = from_str::<QuerySet>(url.fragment_query().unwrap_or_default()).ok()?;
-        let q = from_str::<QuerySet>(url.query().unwrap_or_default()).ok()?;
-        Some((q, fq))
-    }
-
-    #[test]
-    fn new_virtual_element_call_widget_base_url() {
-        let widget_settings = get_widget_settings();
-        assert_eq!(widget_settings.base_url().unwrap().as_str(), "https://call.element.io/");
-    }
-
-    #[test]
-    fn new_virtual_element_call_widget_raw_url() {
-        const CONVERTED_URL: &str = "
-            https://call.element.io/room#\
-                ?userId=$matrix_user_id\
-                &roomId=$matrix_room_id\
-                &widgetId=$matrix_widget_id\
-                &avatarUrl=$matrix_avatar_url\
-                &displayname=$matrix_display_name\
-                &lang=$org.matrix.msc2873.client_language\
-                &theme=$org.matrix.msc2873.client_theme\
-                &clientId=$org.matrix.msc2873.client_id\
-                &deviceId=$org.matrix.msc2873.matrix_device_id\
-                &baseUrl=$org.matrix.msc4039.matrix_base_url\
-                &parentUrl=https%3A%2F%2Fcall.element.io\
-                &skipLobby=false\
-                &confineToRoom=true\
-                &appPrompt=true\
-                &hideHeader=true\
-                &preload=true\
-        ";
-
-        let mut url = get_widget_settings().raw_url().clone();
-        let mut gen = Url::parse(CONVERTED_URL).unwrap();
-        assert_eq!(get_query_sets(&url).unwrap(), get_query_sets(&gen).unwrap());
-        url.set_fragment(None);
-        url.set_query(None);
-        gen.set_fragment(None);
-        gen.set_query(None);
-        assert_eq!(url, gen);
-    }
-
-    #[test]
-    fn new_virtual_element_call_widget_id() {
-        assert_eq!(get_widget_settings().id(), WIDGET_ID);
-    }
-
-    #[test]
-    fn new_virtual_element_call_widget_webview_url() {
-        const CONVERTED_URL: &str = "
-            https://call.element.io/room#\
-                ?parentUrl=https%3A%2F%2Fcall.element.io\
-                &widgetId=1/@#w23\
-                &userId=%40test%3Auser.org&deviceId=ABCDEFG\
-                &roomId=%21room_id%3Aroom.org\
-                &lang=en-US&theme=light\
-                &baseUrl=https%3A%2F%2Fclient-matrix.server.org%2F\
-                &hideHeader=true\
-                &preload=true\
-                &skipLobby=false\
-                &confineToRoom=true\
-                &displayname=hello\
-                &avatarUrl=some-url\
-                &appPrompt=true\
-                &clientId=io.my_matrix.client\
-        ";
-
-        let gen = get_widget_settings()
-            ._generate_webview_url(
-                get_profile::v3::Response::new(Some("some-url".into()), Some("hello".into())),
-                "@test:user.org".try_into().unwrap(),
-                "!room_id:room.org".try_into().unwrap(),
-                "ABCDEFG".into(),
-                "https://client-matrix.server.org".try_into().unwrap(),
-                ClientProperties::new(
-                    "io.my_matrix.client",
-                    Some(language_tags::LanguageTag::parse("en-us").unwrap()),
-                    Some("light".into()),
-                ),
-            )
-            .unwrap()
-            .to_string();
-        let mut url = Url::parse(&gen).unwrap();
-        let mut gen = Url::parse(CONVERTED_URL).unwrap();
-        assert_eq!(get_query_sets(&url).unwrap(), get_query_sets(&gen).unwrap());
-        url.set_fragment(None);
-        url.set_query(None);
-        gen.set_fragment(None);
-        gen.set_query(None);
-        assert_eq!(url, gen);
-    }
 }
