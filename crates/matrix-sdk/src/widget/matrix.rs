@@ -34,24 +34,24 @@ use crate::{
 
 /// Thin wrapper around the Matrix API that provides convenient high level
 /// functions.
-pub struct MatrixDriver {
+pub(crate) struct MatrixDriver {
     room: Room,
 }
 
 impl MatrixDriver {
     /// Creates a new `MatrixDriver` for a given `room`.
-    pub fn new(room: Room) -> Self {
+    pub(crate) fn new(room: Room) -> Self {
         Self { room }
     }
 
     /// Requests an OpenID token for the current user.
-    pub async fn get_open_id(&self) -> HttpResult<OpenIdResponse> {
+    pub(crate) async fn get_open_id(&self) -> HttpResult<OpenIdResponse> {
         let user_id = self.room.own_user_id().to_owned();
         self.room.client.send(OpenIdRequest::new(user_id), None).await
     }
 
     /// Reads the latest `limit` events of a given `event_type` from the room.
-    pub async fn read(
+    pub(crate) async fn read(
         &self,
         event_type: TimelineEventType,
         limit: u32,
@@ -68,7 +68,7 @@ impl MatrixDriver {
     }
 
     /// Sends a given `event` to the room.
-    pub async fn send(
+    pub(crate) async fn send(
         &self,
         event_type: TimelineEventType,
         state_key: Option<String>,
@@ -83,7 +83,7 @@ impl MatrixDriver {
 
     /// Starts forwarding new room events. Once the returned `EventReceiver`
     /// is dropped, forwarding will be stopped.
-    pub fn events(&self) -> EventReceiver {
+    pub(crate) fn events(&self) -> EventReceiver {
         let (tx, rx) = unbounded_channel();
         let handle = self.room.add_event_handler(move |raw: Raw<AnySyncTimelineEvent>| {
             let _ = tx.send(raw.cast());
@@ -97,13 +97,13 @@ impl MatrixDriver {
 
 /// A simple entity that wraps an `UnboundedReceiver`
 /// along with the drop guard for the room event handler.
-pub struct EventReceiver {
+pub(crate) struct EventReceiver {
     rx: UnboundedReceiver<Raw<AnyTimelineEvent>>,
     _drop_guard: EventHandlerDropGuard,
 }
 
 impl EventReceiver {
-    pub async fn recv(&mut self) -> Option<Raw<AnyTimelineEvent>> {
+    pub(crate) async fn recv(&mut self) -> Option<Raw<AnyTimelineEvent>> {
         self.rx.recv().await
     }
 }
