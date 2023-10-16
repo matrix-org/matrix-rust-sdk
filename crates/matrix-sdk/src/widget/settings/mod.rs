@@ -32,6 +32,15 @@ pub struct WidgetSettings {
 }
 
 impl WidgetSettings {
+    /// Create a new WidgetSettings instance
+    pub fn new(
+        id: String,
+        init_on_content_load: bool,
+        raw_url: &str,
+    ) -> Result<Self, url::ParseError> {
+        Ok(Self { id, init_on_content_load, raw_url: Url::parse(raw_url)? })
+    }
+
     /// Widget's unique identifier.
     pub fn id(&self) -> &String {
         &self.id
@@ -119,15 +128,6 @@ impl WidgetSettings {
         url_params::replace_properties(&mut generated_url, query_props);
 
         Ok(generated_url)
-    }
-
-    /// Create a new WidgetSettings instance
-    pub fn new(
-        id: String,
-        init_on_content_load: bool,
-        raw_url: &str,
-    ) -> Result<Self, url::ParseError> {
-        Ok(Self { id, init_on_content_load, raw_url: Url::parse(raw_url)? })
     }
 }
 
