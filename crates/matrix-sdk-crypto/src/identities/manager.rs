@@ -167,7 +167,10 @@ impl IdentityManager {
 
         if let Some(sequence_number) = sequence_number {
             self.store
+                .cache()
+                .await?
                 .mark_tracked_users_as_up_to_date(
+                    &self.store,
                     response.device_keys.keys().map(Deref::deref),
                     sequence_number,
                 )
