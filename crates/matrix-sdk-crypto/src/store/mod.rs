@@ -246,6 +246,37 @@ impl StoreCache {
     pub(crate) fn tracked_users(&self) -> HashSet<OwnedUserId> {
         self.tracked_users.read().unwrap().iter().cloned().collect()
     }
+
+    /// Flag that the given users devices are now up-to-date.
+    ///
+    /// This is called after processing the response to a /keys/query request.
+    /// Any users whose device lists we are tracking are removed from the
+    /// list of those pending a /keys/query.
+    pub(crate) async fn mark_tracked_users_as_up_to_date(
+        &self,
+        store: &Store,
+        users: impl Iterator<Item = &UserId>,
+        sequence_number: SequenceNumber,
+    ) -> Result<()> {
+        let mut store_updates: Vec<(&UserId, bool)> = Vec::new();
+        let mut key_query_lock = store.inner.users_for_key_query.lock().await;
+
+        {
+            let tracked_users = self.tracked_users.read().unwrap();
+            for user_id in users {
+                if tracked_users.contains(user_id) {
+                    let clean = key_query_lock.maybe_remove_user(user_id, sequence_number);
+                    store_updates.push((user_id, !clean));
+                }
+            }
+        }
+
+        store.inner.store.save_tracked_users(&store_updates).await?;
+        // wake up any tasks that may have been waiting for updates
+        store.inner.users_for_key_query_condvar.notify_all();
+
+        Ok(())
+    }
 }
 
 pub(crate) struct StoreCacheGuard {
@@ -1122,36 +1153,6 @@ impl Store {
                 warn!(secret = ?name, "Tried to import an unknown secret");
             }
         }
-
-        Ok(())
-    }
-
-    /// Flag that the given users devices are now up-to-date.
-    ///
-    /// This is called after processing the response to a /keys/query request.
-    /// Any users whose device lists we are tracking are removed from the
-    /// list of those pending a /keys/query.
-    pub(crate) async fn mark_tracked_users_as_up_to_date(
-        &self,
-        users: impl Iterator<Item = &UserId>,
-        sequence_number: SequenceNumber,
-    ) -> Result<()> {
-        let mut store_updates: Vec<(&UserId, bool)> = Vec::new();
-        let mut key_query_lock = self.inner.users_for_key_query.lock().await;
-
-        {
-            let cache = self.cache().await?;
-            let tracked_users = cache.tracked_users.read().unwrap();
-            for user_id in users {
-                if tracked_users.contains(user_id) {
-                    let clean = key_query_lock.maybe_remove_user(user_id, sequence_number);
-                    store_updates.push((user_id, !clean));
-                }
-            }
-        }
-        self.inner.store.save_tracked_users(&store_updates).await?;
-        // wake up any tasks that may have been waiting for updates
-        self.inner.users_for_key_query_condvar.notify_all();
 
         Ok(())
     }
