@@ -438,7 +438,8 @@ impl SessionManager {
             }
         }
 
-        match self.key_request_machine.collect_incoming_key_requests().await {
+        let store_cache = self.store.cache().await?;
+        match self.key_request_machine.collect_incoming_key_requests(&store_cache).await {
             Ok(sessions) => {
                 let changes = Changes { sessions, ..Default::default() };
                 self.store.save_changes(changes).await?

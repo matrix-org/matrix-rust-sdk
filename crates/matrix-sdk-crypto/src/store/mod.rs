@@ -206,6 +206,18 @@ impl StoreCache {
 
         store.inner.store.save_tracked_users(&store_updates).await
     }
+
+    /// Mark the given user as being tracked for device lists, and mark that it
+    /// has an outdated device list.
+    ///
+    /// This means that the user will be considered for a `/keys/query` request
+    /// next time [`Store::users_for_key_query()`] is called.
+    pub(crate) async fn mark_user_as_changed(&self, store: &Store, user: &UserId) -> Result<()> {
+        store.inner.users_for_key_query.lock().await.insert_user(user);
+        self.tracked_users.write().unwrap().insert(user.to_owned());
+
+        store.inner.store.save_tracked_users(&[(user, true)]).await
+    }
 }
 
 pub(crate) struct StoreCacheGuard {
@@ -1084,18 +1096,6 @@ impl Store {
         }
 
         Ok(())
-    }
-
-    /// Mark the given user as being tracked for device lists, and mark that it
-    /// has an outdated device list.
-    ///
-    /// This means that the user will be considered for a `/keys/query` request
-    /// next time [`Store::users_for_key_query()`] is called.
-    pub(crate) async fn mark_user_as_changed(&self, user: &UserId) -> Result<()> {
-        self.inner.users_for_key_query.lock().await.insert_user(user);
-        self.cache().await?.tracked_users.write().unwrap().insert(user.to_owned());
-
-        self.inner.store.save_tracked_users(&[(user, true)]).await
     }
 
     /// Add entries to the list of users being tracked for device changes

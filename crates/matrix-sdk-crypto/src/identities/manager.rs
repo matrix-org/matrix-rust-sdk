@@ -699,7 +699,7 @@ impl IdentityManager {
         // The check for emptiness is done first for performance.
         let (users, sequence_number) =
             if users.is_empty() && !self.store.tracked_users().await?.contains(self.user_id()) {
-                self.store.mark_user_as_changed(self.user_id()).await?;
+                self.store.cache().await?.mark_user_as_changed(&self.store, self.user_id()).await?;
                 self.store.users_for_key_query().await?
             } else {
                 (users, sequence_number)
@@ -1215,7 +1215,7 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn private_identity_invalidation_after_public_keys_change() {
+    async fn test_private_identity_invalidation_after_public_keys_change() {
         let user_id = user_id!("@example1:localhost");
         let manager = manager_test_helper(user_id, "DEVICEID".into()).await;
 
@@ -1304,7 +1304,7 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn no_tracked_users_key_query_request() {
+    async fn test_no_tracked_users_key_query_request() {
         let manager = manager_test_helper(user_id(), device_id()).await;
 
         assert!(
@@ -1359,7 +1359,7 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn failure_handling() {
+    async fn test_failure_handling() {
         let manager = manager_test_helper(user_id(), device_id()).await;
         let alice = user_id!("@alice:example.org");
 
@@ -1367,7 +1367,11 @@ pub(crate) mod tests {
             manager.store.tracked_users().await.unwrap().is_empty(),
             "No users are initially tracked"
         );
-        manager.store.mark_user_as_changed(alice).await.unwrap();
+
+        {
+            let cache = manager.store.cache().await.unwrap();
+            cache.mark_user_as_changed(&manager.store, alice).await.unwrap();
+        }
 
         assert!(
             manager.store.tracked_users().await.unwrap().contains(alice),
@@ -1418,7 +1422,7 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn devices_stream() {
+    async fn test_devices_stream() {
         let manager = manager_test_helper(user_id(), device_id()).await;
         let (request_id, _) = manager.build_key_query_for_users(vec![user_id()]);
 
@@ -1432,7 +1436,7 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn identities_stream() {
+    async fn test_identities_stream() {
         let manager = manager_test_helper(user_id(), device_id()).await;
         let (request_id, _) = manager.build_key_query_for_users(vec![user_id()]);
 
@@ -1446,7 +1450,7 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn identities_stream_raw() {
+    async fn test_identities_stream_raw() {
         let mut manager = Some(manager_test_helper(user_id(), device_id()).await);
         let (request_id, _) = manager.as_ref().unwrap().build_key_query_for_users(vec![user_id()]);
 
@@ -1491,7 +1495,7 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn identities_stream_raw_signature_update() {
+    async fn test_identities_stream_raw_signature_update() {
         let mut manager = Some(manager_test_helper(user_id(), device_id()).await);
         let (request_id, _) =
             manager.as_ref().unwrap().build_key_query_for_users(vec![other_user_id()]);

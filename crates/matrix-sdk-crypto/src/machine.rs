@@ -70,7 +70,7 @@ use crate::{
     session_manager::{GroupSessionManager, SessionManager},
     store::{
         Changes, CryptoStoreWrapper, DeviceChanges, IdentityChanges, IntoCryptoStore, MemoryStore,
-        PendingChanges, Result as StoreResult, RoomKeyInfo, SecretImportError, Store,
+        PendingChanges, Result as StoreResult, RoomKeyInfo, SecretImportError, Store, StoreCache,
         StoreTransaction,
     },
     types::{
@@ -656,7 +656,7 @@ impl OlmMachine {
 
         // Handle the decrypted event, e.g. fetch out Megolm sessions out of
         // the event.
-        self.handle_decrypted_to_device_event(&mut decrypted, changes).await?;
+        self.handle_decrypted_to_device_event(transaction.cache(), &mut decrypted, changes).await?;
 
         Ok(decrypted)
     }
@@ -896,6 +896,7 @@ impl OlmMachine {
     )]
     async fn handle_decrypted_to_device_event(
         &self,
+        cache: &StoreCache,
         decrypted: &mut OlmDecryptionInfo,
         changes: &mut Changes,
     ) -> OlmResult<()> {
@@ -918,7 +919,7 @@ impl OlmMachine {
                 let name = self
                     .inner
                     .key_request_machine
-                    .receive_secret_event(decrypted.result.sender_key, e, changes)
+                    .receive_secret_event(cache, decrypted.result.sender_key, e, changes)
                     .await?;
 
                 // Set the secret name so other consumers of the event know
@@ -1186,8 +1187,11 @@ impl OlmMachine {
             events.push(raw_event);
         }
 
-        let changed_sessions =
-            self.inner.key_request_machine.collect_incoming_key_requests().await?;
+        let changed_sessions = self
+            .inner
+            .key_request_machine
+            .collect_incoming_key_requests(transaction.cache())
+            .await?;
 
         changes.sessions.extend(changed_sessions);
         changes.next_batch_token = sync_changes.next_batch_token;
@@ -2208,7 +2212,7 @@ pub(crate) mod tests {
         (machine, keys)
     }
 
-    async fn get_machine_after_query() -> (OlmMachine, OneTimeKeys) {
+    async fn get_machine_after_query_test_helper() -> (OlmMachine, OneTimeKeys) {
         let (machine, otk) = get_prepared_machine_test_helper(user_id(), false).await;
         let response = keys_query_response();
         let req_id = TransactionId::new();
@@ -2537,7 +2541,7 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_missing_sessions_calculation() {
-        let (machine, _) = get_machine_after_query().await;
+        let (machine, _) = get_machine_after_query_test_helper().await;
 
         let alice = alice_id();
         let alice_device = alice_device_id();
@@ -2815,7 +2819,7 @@ pub(crate) mod tests {
     async fn test_request_missing_secrets_cross_signed() {
         let (alice, bob) = get_machine_pair_with_session(alice_id(), bob_id(), false).await;
 
-        setup_cross_signing_for_machine(&alice, &bob).await;
+        setup_cross_signing_for_machine_test_helper(&alice, &bob).await;
 
         let should_query_secrets = alice.query_missing_secrets_from_other_sessions().await.unwrap();
 
@@ -3092,7 +3096,7 @@ pub(crate) mod tests {
         );
         assert_shield!(encryption_info, Red, Red);
 
-        setup_cross_signing_for_machine(&alice, &bob).await;
+        setup_cross_signing_for_machine_test_helper(&alice, &bob).await;
         let bob_id_from_alice = alice.get_identity(bob.user_id(), None).await.unwrap();
         assert_matches!(bob_id_from_alice, Some(UserIdentities::Other(_)));
         let alice_id_from_bob = bob.get_identity(alice.user_id(), None).await.unwrap();
@@ -3173,7 +3177,7 @@ pub(crate) mod tests {
         );
     }
 
-    async fn setup_cross_signing_for_machine(alice: &OlmMachine, bob: &OlmMachine) {
+    async fn setup_cross_signing_for_machine_test_helper(alice: &OlmMachine, bob: &OlmMachine) {
         let (alice_upload_signing, _) =
             alice.bootstrap_cross_signing(false).await.expect("Expect Alice x-signing key request");
 
@@ -3517,7 +3521,7 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn interactive_verification() {
+    async fn test_interactive_verification() {
         let (alice, bob) =
             get_machine_pair_with_setup_sessions_test_helper(alice_id(), user_id(), false).await;
 
@@ -3913,7 +3917,7 @@ pub(crate) mod tests {
 
         let (alice, bob) =
             get_machine_pair_with_setup_sessions_test_helper(alice_id(), user_id(), false).await;
-        setup_cross_signing_for_machine(&alice, &bob).await;
+        setup_cross_signing_for_machine_test_helper(&alice, &bob).await;
 
         let second_alice = create_additional_machine(&alice).await;
 
