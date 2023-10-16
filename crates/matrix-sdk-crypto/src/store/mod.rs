@@ -1168,9 +1168,6 @@ impl Store {
     pub(crate) async fn users_for_key_query(
         &self,
     ) -> Result<(HashSet<OwnedUserId>, SequenceNumber)> {
-        // Make sure the tracked users set is up to date.
-        let _cache = self.cache().await?;
-
         Ok(self.inner.users_for_key_query.lock().await.users_for_key_query())
     }
 
