@@ -141,7 +141,7 @@ impl WidgetDriver {
 
         // Process events that we receive **from** the client api implementation,
         // i.e. the commands (actions) that the client sends to us.
-        let matrix = MatrixDriver::new(room);
+        let matrix_driver = MatrixDriver::new(room);
         let mut event_forwarding_guard: Option<DropGuard> = None;
         while let Some(action) = actions.recv().await {
             match action {
@@ -152,17 +152,24 @@ impl WidgetDriver {
                     events_tx.send(event).map_err(|_| ())?;
                 }
                 Action::GetOpenId(cmd) => {
-                    let result = cmd.result(matrix.get_open_id().await);
+                    let result = cmd.result(matrix_driver.get_open_id().await);
                     events_tx.send(Event::OpenIdReceived(result)).map_err(|_| ())?;
                 }
-                Action::ReadMatrixEvent(cmd) => {
-                    let matrix_events = matrix.read(cmd.event_type.clone(), cmd.limit).await;
-                    let event = Event::MatrixEventRead(cmd.result(matrix_events));
-                    events_tx.send(event).map_err(|_| ())?;
+                Action::ReadMessageLikeEvent(cmd) => {
+                    let events = matrix_driver
+                        .read_message_like_events(cmd.event_type.clone(), cmd.limit)
+                        .await;
+                    events_tx.send(Event::MatrixEventRead(cmd.result(events))).map_err(|_| ())?;
+                }
+                Action::ReadStateEvent(cmd) => {
+                    let events = matrix_driver
+                        .read_state_events(cmd.event_type.clone(), &cmd.state_key)
+                        .await;
+                    events_tx.send(Event::MatrixEventRead(cmd.result(events))).map_err(|_| ())?;
                 }
                 Action::SendMatrixEvent(cmd) => {
                     let SendEventCommand { event_type, state_key, content } = cmd.clone();
-                    let matrix_event_id = matrix.send(event_type, state_key, content).await;
+                    let matrix_event_id = matrix_driver.send(event_type, state_key, content).await;
                     let event = Event::MatrixEventSent(cmd.result(matrix_event_id));
                     events_tx.send(event).map_err(|_| ())?;
                 }
@@ -175,7 +182,7 @@ impl WidgetDriver {
                         };
 
                         event_forwarding_guard = Some(guard);
-                        let (mut matrix, events_tx) = (matrix.events(), events_tx.clone());
+                        let (mut matrix, events_tx) = (matrix_driver.events(), events_tx.clone());
                         tokio::spawn(async move {
                             loop {
                                 tokio::select! {
@@ -196,4 +203,12 @@ impl WidgetDriver {
 
         Ok(())
     }
+}
+
+// TODO: Decide which module this type should live in
+#[allow(dead_code)]
+#[derive(Clone, Debug)]
+pub(crate) enum StateKeySelector {
+    Key(String),
+    Any,
 }
