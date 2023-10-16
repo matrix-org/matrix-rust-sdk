@@ -796,13 +796,15 @@ impl IdentityManager {
         // tracking ourselves.
         //
         // The check for emptiness is done first for performance.
-        let (users, sequence_number) =
-            if users.is_empty() && !self.store.tracked_users().await?.contains(self.user_id()) {
-                self.store.cache().await?.mark_user_as_changed(&self.store, self.user_id()).await?;
+        let (users, sequence_number) = {
+            let cache = self.store.cache().await?;
+            if users.is_empty() && !cache.tracked_users().contains(self.user_id()) {
+                cache.mark_user_as_changed(&self.store, self.user_id()).await?;
                 self.store.users_for_key_query().await?
             } else {
                 (users, sequence_number)
-            };
+            }
+        };
 
         if users.is_empty() {
             Ok(BTreeMap::new())
@@ -1222,20 +1224,19 @@ pub(crate) mod tests {
         let manager = manager_test_helper(user_id(), device_id()).await;
         let alice = user_id!("@alice:example.org");
 
-        assert!(
-            manager.store.tracked_users().await.unwrap().is_empty(),
-            "No users are initially tracked"
-        );
-
         {
             let cache = manager.store.cache().await.unwrap();
+
+            assert!(cache.tracked_users().is_empty(), "No users are initially tracked");
+
             manager.receive_device_changes(&cache, [alice].iter().map(Deref::deref)).await.unwrap();
+
+            assert!(
+                !cache.tracked_users().contains(alice),
+                "Receiving a device changes update for a user we don't track does nothing"
+            );
         }
 
-        assert!(
-            !manager.store.tracked_users().await.unwrap().contains(alice),
-            "Receiving a device changes update for a user we don't track does nothing"
-        );
         assert!(
             !manager.store.users_for_key_query().await.unwrap().0.contains(alice),
             "The user we don't track doesn't end up in the `/keys/query` request"
@@ -1245,7 +1246,7 @@ pub(crate) mod tests {
     #[async_test]
     async fn test_manager_creation() {
         let manager = manager_test_helper(user_id(), device_id()).await;
-        assert!(manager.store.tracked_users().await.unwrap().is_empty())
+        assert!(manager.store.cache().await.unwrap().tracked_users().is_empty())
     }
 
     #[async_test]
@@ -1403,7 +1404,7 @@ pub(crate) mod tests {
         let manager = manager_test_helper(user_id(), device_id()).await;
 
         assert!(
-            manager.store.tracked_users().await.unwrap().is_empty(),
+            manager.store.cache().await.unwrap().tracked_users().is_empty(),
             "No users are initially tracked"
         );
 
@@ -1411,7 +1412,7 @@ pub(crate) mod tests {
 
         assert!(!requests.is_empty(), "We query the keys for our own user");
         assert!(
-            manager.store.tracked_users().await.unwrap().contains(manager.user_id()),
+            manager.store.cache().await.unwrap().tracked_users().contains(manager.user_id()),
             "Our own user is now tracked"
         );
     }
@@ -1455,20 +1456,18 @@ pub(crate) mod tests {
         let manager = manager_test_helper(user_id(), device_id()).await;
         let alice = user_id!("@alice:example.org");
 
-        assert!(
-            manager.store.tracked_users().await.unwrap().is_empty(),
-            "No users are initially tracked"
-        );
-
         {
             let cache = manager.store.cache().await.unwrap();
+            assert!(cache.tracked_users().is_empty(), "No users are initially tracked");
+
             cache.mark_user_as_changed(&manager.store, alice).await.unwrap();
+
+            assert!(
+                cache.tracked_users().contains(alice),
+                "Alice is tracked after being marked as tracked"
+            );
         }
 
-        assert!(
-            manager.store.tracked_users().await.unwrap().contains(alice),
-            "Alice is tracked after being marked as tracked"
-        );
         let (reqid, req) = manager.users_for_key_query().await.unwrap().pop_first().unwrap();
         assert!(req.device_keys.contains_key(alice));
 

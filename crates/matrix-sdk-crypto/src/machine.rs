@@ -344,7 +344,7 @@ impl OlmMachine {
     /// See [`update_tracked_users`](#method.update_tracked_users) for more
     /// information.
     pub async fn tracked_users(&self) -> StoreResult<HashSet<OwnedUserId>> {
-        self.store().tracked_users().await
+        Ok(self.store().cache().await?.tracked_users())
     }
 
     /// Enable or disable room key forwarding.
