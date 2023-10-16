@@ -52,11 +52,11 @@ extern "C" {
 /// A [`MakeWriter`] which will construct an [`io::Write`] instance that will
 /// write to either a [`JsLogger`] or the JavaScript console.
 ///
-/// You can either construct this as part of an entire [`Subscriber`], via
-/// [`make_tracing_subscriber`], but it's also possible to
-/// call [`MakeJsLogWriter::new`] or [`MakeJsLogWriter::new_with_logger`] and
-/// then feed the result into
-/// [`tracing_subscriber::fmt::SubscriberBuilder::with_writer`], for example:
+/// You can construct this as part of an entire [`Subscriber`], via
+/// [`make_tracing_subscriber`]; alternatively, for more control over log format
+/// etc., call [`MakeJsLogWriter::new`] or [`MakeJsLogWriter::new_with_logger`]
+/// and then feed the result into
+/// [`tracing_subscriber::fmt::SubscriberBuilder::with_writer`]. For example:
 ///
 /// ```
 /// # use matrix_sdk_common::js_tracing::MakeJsLogWriter;
@@ -83,7 +83,9 @@ pub struct MakeJsLogWriter {
     logger_id: Option<u32>,
 }
 
-thread_local!(static LOGGER_MAP: RefCell<HashMap<u32, Rc<JsLogger>>> = RefCell::new(HashMap::new()));
+thread_local! {
+    static LOGGER_MAP: RefCell<HashMap<u32, Rc<JsLogger>>> = RefCell::new(HashMap::new());
+}
 static NEXT_LOGGER_ID: AtomicU32 = AtomicU32::new(0);
 
 impl MakeJsLogWriter {
@@ -156,7 +158,7 @@ impl io::Write for JsLogWriter {
     fn write(&mut self, data: &[u8]) -> Result<usize, io::Error> {
         use std::str;
         let message = str::from_utf8(data)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?
             .trim_end();
         let message = JsValue::from_str(message);
 
@@ -167,6 +169,7 @@ impl io::Write for JsLogWriter {
 
         Ok(data.len())
     }
+
     fn flush(&mut self) -> Result<(), io::Error> {
         Ok(())
     }
