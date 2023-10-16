@@ -1171,7 +1171,6 @@ impl OlmMachine {
             .inner
             .identity_manager
             .receive_device_changes(
-                transaction.store(),
                 transaction.cache(),
                 sync_changes.changed_devices.changed.iter().map(|u| u.as_ref()),
             )

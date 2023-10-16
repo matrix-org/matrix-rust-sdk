@@ -854,11 +854,10 @@ impl IdentityManager {
     /// key query.
     pub async fn receive_device_changes(
         &self,
-        store: &Store, // TODO: (bnjbvr) remove
         cache: &StoreCache,
         users: impl Iterator<Item = &UserId>,
     ) -> StoreResult<()> {
-        cache.mark_tracked_users_as_changed(store, users).await
+        cache.mark_tracked_users_as_changed(&self.store, users).await
     }
 
     /// See the docs for [`OlmMachine::update_tracked_users()`].
@@ -1230,10 +1229,7 @@ pub(crate) mod tests {
 
         {
             let cache = manager.store.cache().await.unwrap();
-            manager
-                .receive_device_changes(&manager.store, &cache, [alice].iter().map(Deref::deref))
-                .await
-                .unwrap();
+            manager.receive_device_changes(&cache, [alice].iter().map(Deref::deref)).await.unwrap();
         }
 
         assert!(
@@ -1436,10 +1432,7 @@ pub(crate) mod tests {
         // another invalidation turns up
         {
             let cache = manager.store.cache().await.unwrap();
-            manager
-                .receive_device_changes(&manager.store, &cache, [alice].into_iter())
-                .await
-                .unwrap();
+            manager.receive_device_changes(&cache, [alice].into_iter()).await.unwrap();
         }
 
         // the response from the query arrives
