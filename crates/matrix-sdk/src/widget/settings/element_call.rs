@@ -85,7 +85,9 @@ pub struct VirtualElementCallWidgetOptions {
     /// Default: `false`
     pub preload: Option<bool>,
 
-    /// The font scale which will be used inside element call. (default: `1`)
+    /// The font scale which will be used inside element call.
+    ///
+    /// Default: `1`
     pub font_scale: Option<f64>,
 
     /// Whether element call should prompt the user to open in the browser or
