@@ -28,10 +28,12 @@ mod events;
 mod openid;
 mod outgoing;
 
-/// State machine that handles the client widget API interractions.
-pub(crate) struct ClientApi;
+/// No I/O state machine.
+///
+/// Handles interactions with the widget as well as the `MatrixDriver`.
+pub(crate) struct WidgetMachine;
 
-impl ClientApi {
+impl WidgetMachine {
     /// Creates a new instance of a client widget API state machine.
     /// Returns the client api handler as well as the channel to receive
     /// actions (commands) from the client.
