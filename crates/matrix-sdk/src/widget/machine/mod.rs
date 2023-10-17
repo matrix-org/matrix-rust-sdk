@@ -17,7 +17,7 @@
 #![warn(unreachable_pub)]
 
 use indexmap::{map::Entry, IndexMap};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue as RawJsonValue;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tracing::{error, instrument};
@@ -25,7 +25,9 @@ use uuid::Uuid;
 
 use self::{
     driver_req::{AcquirePermissions, MatrixDriverRequest, MatrixDriverRequestHandle},
-    to_widget::{RequestPermissions, ToWidgetRequest, ToWidgetRequestHandle},
+    to_widget::{
+        NotifyPermissionsChanged, RequestPermissions, ToWidgetRequest, ToWidgetRequestHandle,
+    },
 };
 
 mod actions;
@@ -72,10 +74,18 @@ impl WidgetMachine {
         if !init_on_content_load {
             machine
                 .send_to_widget_request(RequestPermissions {})
-                // rustfmt please
+                // TODO: Each request can actually fail here, take this into an account.
                 .then(|desired_permissions, machine| {
-                    machine.send_matrix_driver_request(AcquirePermissions { desired_permissions });
-                    // TODO: use the result! (chain another `.then`)
+                    machine
+                        .send_matrix_driver_request(AcquirePermissions {
+                            desired_permissions: desired_permissions.clone(),
+                        })
+                        .then(|granted_permissions, machine| {
+                            machine.send_to_widget_request(NotifyPermissionsChanged {
+                                approved: granted_permissions,
+                                requested: desired_permissions,
+                            });
+                        })
                 });
         }
 
@@ -152,8 +162,49 @@ impl WidgetMachine {
     /// Processes an incoming event (an incoming raw message from a widget,
     /// or a data produced as a result of a previously sent `Action`).
     /// Produceses a list of actions that the client must perform.
-    pub(crate) fn process(&mut self, _event: Event) {
-        // TODO: Process the event.
+    pub(crate) fn process(&mut self, event: Event) {
+        // For now we assume that we only receive responses to the outgoing requests.
+        // TODO: Add other possible valid incoming messages.
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct IncomingMessage {
+            request_id: Uuid,
+            widget_id: String,
+            response: Box<RawJsonValue>,
+        }
+
+        match event {
+            Event::MessageFromWidget(raw) => {
+                let message = match serde_json::from_str::<IncomingMessage>(&raw) {
+                    Ok(msg) => msg,
+                    Err(e) => {
+                        error!("Failed to deserialize incoming message: {e}");
+                        return;
+                    }
+                };
+
+                if message.widget_id != self.widget_id {
+                    error!("Received a message from a wrong widget");
+                    return;
+                }
+
+                self.pending_to_widget_requests
+                    .remove(&message.request_id)
+                    .and_then(|meta| meta.response_fn)
+                    .map(|response_fn| response_fn(message.response, self));
+            }
+
+            Event::PermissionsAcquired(response) => {
+                self.pending_matrix_driver_requests
+                    .remove(&response.request_id)
+                    .and_then(|meta| meta.response_fn)
+                    .map(|response_fn| response_fn(Event::PermissionsAcquired(response), self));
+            }
+
+            _ => {
+                error!("Dropping an event as it's not supported yet");
+            }
+        }
     }
 }
 

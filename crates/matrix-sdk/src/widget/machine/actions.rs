@@ -115,9 +115,9 @@ pub(crate) enum MatrixDriverRequestData {
 #[allow(dead_code)] // TODO: Remove once results are used.
 pub(crate) struct MatrixDriverResponse<T> {
     /// ID of the command that was executed. See `Command::id` for more details.
-    request_id: Uuid,
+    pub(super) request_id: Uuid,
     /// Result of the execution of the command.
-    result: Result<T, String>,
+    pub(super) result: Result<T, String>,
 }
 
 impl<T> MatrixDriverResponse<T> {
