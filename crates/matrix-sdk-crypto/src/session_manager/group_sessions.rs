@@ -102,19 +102,6 @@ impl GroupSessionCache {
         self.sessions.read().unwrap().get(room_id).cloned()
     }
 
-    /// Get or load the session for the given room with the given session id.
-    ///
-    /// This is the same as [get_or_load()](#method.get_or_load) but it will
-    /// filter out the session if it doesn't match the given session id.
-    #[cfg(feature = "automatic-room-key-forwarding")]
-    pub async fn get_with_id(
-        &self,
-        room_id: &RoomId,
-        session_id: &str,
-    ) -> Option<OutboundGroupSession> {
-        self.get_or_load(room_id).await.filter(|o| session_id == o.session_id())
-    }
-
     /// Returns whether any session is withheld with the given device and code.
     fn has_session_withheld_to(&self, device: &Device, code: &WithheldCode) -> bool {
         self.sessions.read().unwrap().values().any(|s| s.is_withheld_to(device, code))
@@ -441,7 +428,7 @@ impl GroupSessionManager {
         Ok(CollectRecipientsResult { should_rotate, devices, withheld_devices })
     }
 
-    pub(crate) async fn encrypt_request(
+    async fn encrypt_request(
         chunk: Vec<Device>,
         outbound: OutboundGroupSession,
         sessions: GroupSessionCache,

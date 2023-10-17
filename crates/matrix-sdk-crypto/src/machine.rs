@@ -2369,7 +2369,7 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn tests_session_invalidation() {
+    async fn test_session_invalidation() {
         let machine = OlmMachine::new(user_id(), alice_device_id()).await;
         let room_id = room_id!("!test:example.org");
 
