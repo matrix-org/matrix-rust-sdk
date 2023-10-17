@@ -40,8 +40,8 @@ use crate::{
     event_handler::EventHandlerDropGuard, room::MessagesOptions, HttpResult, Result, Room,
 };
 
-/// Thin wrapper around the Matrix API that provides convenient high level
-/// functions.
+/// Thin wrapper around a [`Room`] that provides functionality relevant for
+/// widgets.
 pub(crate) struct MatrixDriver {
     room: Room,
 }
