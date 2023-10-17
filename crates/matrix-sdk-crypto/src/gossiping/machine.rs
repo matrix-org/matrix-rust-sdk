@@ -1501,7 +1501,7 @@ mod tests {
 
     #[async_test]
     #[cfg(feature = "automatic-room-key-forwarding")]
-    async fn should_share_key_test() {
+    async fn test_should_share_key() {
         let machine = get_machine_test_helper().await;
         let account = account();
 
