@@ -22,6 +22,7 @@ use crate::widget::{Permissions, StateKeySelector};
 
 /// Action (a command) that client (driver) must perform.
 #[allow(dead_code)] // TODO: Remove once all actions are implemented.
+#[derive(Debug)]
 pub(crate) enum Action {
     /// Send a raw message to the widget.
     SendToWidget(String),
@@ -45,6 +46,7 @@ pub(crate) enum Action {
 }
 
 /// Command to read matrix message event(s).
+#[derive(Debug)]
 pub(crate) struct ReadMessageLikeEventCommand {
     /// The event type to read.
     pub(crate) event_type: MessageLikeEventType,
@@ -54,6 +56,7 @@ pub(crate) struct ReadMessageLikeEventCommand {
 }
 
 /// Command to read matrix state event(s).
+#[derive(Debug)]
 pub(crate) struct ReadStateEventCommand {
     /// The event type to read.
     pub(crate) event_type: StateEventType,
@@ -78,6 +81,7 @@ pub(crate) struct SendEventCommand {
 /// Command that is sent from the client widget API state machine to the
 /// client (driver) that must be performed. Once the command is executed,
 /// the client will typically generate an `Event` with the result of it.
+#[derive(Debug)]
 pub(crate) struct Command<T> {
     /// Certain commands are typically answered with certain event once the
     /// command is performed. The api state machine will "tag" each command

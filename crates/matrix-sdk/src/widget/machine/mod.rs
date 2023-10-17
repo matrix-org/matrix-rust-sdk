@@ -16,7 +16,20 @@
 
 #![warn(unreachable_pub)]
 
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
+use serde::Serialize;
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use tracing::{error, instrument};
+use uuid::Uuid;
+
+use self::to_widget::{RequestPermissions, ToWidgetRequest};
+
+mod actions;
+mod events;
+mod openid;
+mod outgoing;
+#[cfg(test)]
+mod tests;
+mod to_widget;
 
 pub(crate) use self::{
     actions::{Action, SendEventCommand},
@@ -25,23 +38,60 @@ pub(crate) use self::{
 #[cfg(doc)]
 use super::WidgetDriver;
 
-mod actions;
-mod events;
-mod openid;
-mod outgoing;
-
 /// No I/O state machine.
 ///
 /// Handles interactions with the widget as well as the `MatrixDriver`.
-pub(crate) struct WidgetMachine;
+pub(crate) struct WidgetMachine {
+    widget_id: String,
+    actions_sender: UnboundedSender<Action>,
+}
 
 impl WidgetMachine {
     /// Creates a new instance of a client widget API state machine.
     /// Returns the client api handler as well as the channel to receive
     /// actions (commands) from the client.
-    pub(crate) fn new() -> (Self, UnboundedReceiver<Action>) {
-        let (_tx, rx) = unbounded_channel();
-        (Self, rx)
+    pub(crate) fn new(
+        widget_id: String,
+        init_on_content_load: bool,
+    ) -> (Self, UnboundedReceiver<Action>) {
+        let (actions_sender, actions_receiver) = unbounded_channel();
+        let this = Self { widget_id, actions_sender };
+
+        if !init_on_content_load {
+            this.send_to_widget(RequestPermissions {});
+        }
+
+        (this, actions_receiver)
+    }
+
+    #[instrument(skip_all, fields(action = T::ACTION))]
+    fn send_to_widget<T: ToWidgetRequest>(&self, to_widget_request: T) {
+        #[derive(Serialize)]
+        #[serde(tag = "api", rename = "toWidget", rename_all = "camelCase")]
+        struct ToWidgetRequestSerHelper<'a, T> {
+            widget_id: &'a str,
+            request_id: Uuid,
+            action: &'static str,
+            data: T,
+        }
+
+        let full_request = ToWidgetRequestSerHelper {
+            widget_id: &self.widget_id,
+            request_id: Uuid::new_v4(),
+            action: T::ACTION,
+            data: to_widget_request,
+        };
+        let serialized = match serde_json::to_string(&full_request) {
+            Ok(msg) => msg,
+            Err(e) => {
+                error!("Failed to serialize outgoing message: {e}");
+                return;
+            }
+        };
+
+        if let Err(e) = self.actions_sender.send(Action::SendToWidget(serialized)) {
+            error!("Failed to send action: {e}");
+        }
     }
 
     /// Processes an incoming event (an incoming raw message from a widget,
