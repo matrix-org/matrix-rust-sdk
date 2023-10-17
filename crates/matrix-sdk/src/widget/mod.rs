@@ -27,7 +27,7 @@ mod permissions;
 mod settings;
 
 use self::{
-    client::{Action, ClientApi, Event, SendEventCommand},
+    client::{Action, Event, SendEventCommand, WidgetMachine},
     matrix::MatrixDriver,
 };
 pub use self::{
@@ -119,7 +119,7 @@ impl WidgetDriver {
         room: Room,
         permissions_provider: impl PermissionsProvider,
     ) -> Result<(), ()> {
-        let (mut client_api, mut actions) = ClientApi::new();
+        let (mut client_api, mut actions) = WidgetMachine::new();
 
         // Create a channel so that we can conveniently send all events to it.
         let (events_tx, mut events_rx) = unbounded_channel();
