@@ -166,7 +166,7 @@ impl WidgetSettings {
         raw_url.set_fragment(Some(&format!("?{}", query)));
 
         // for EC we always want init on content load to be true.
-        Ok(Self { id: props.widget_id, init_on_content_load: true, raw_url })
+        Ok(Self { widget_id: props.widget_id, init_on_content_load: true, raw_url })
     }
 }
 
@@ -261,7 +261,7 @@ mod tests {
 
     #[test]
     fn new_virtual_element_call_widget_id() {
-        assert_eq!(get_widget_settings().id(), WIDGET_ID);
+        assert_eq!(get_widget_settings().widget_id(), WIDGET_ID);
     }
 
     #[test]
