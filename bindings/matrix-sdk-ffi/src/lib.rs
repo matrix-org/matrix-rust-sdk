@@ -47,7 +47,11 @@ use matrix_sdk::ruma::events::room::{
 };
 use matrix_sdk_ui::timeline::{BackPaginationStatus, EventItemOrigin};
 
-use self::{error::ClientError, task_handle::TaskHandle, timeline::MediaSourceExt};
+use self::{
+    error::ClientError,
+    task_handle::TaskHandle,
+    timeline::{MediaSourceExt, Mentions, RoomMessageEventContentWithoutRelationExt},
+};
 
 uniffi::include_scaffolding!("api");
 
