@@ -81,10 +81,6 @@ pub(crate) struct AcquirePermissions {
     pub(crate) desired_permissions: Permissions,
 }
 
-pub(crate) struct AcquirePermissionsResponse {
-    pub(crate) granted_permissions: Permissions,
-}
-
 impl From<AcquirePermissions> for MatrixDriverRequestData {
     fn from(value: AcquirePermissions) -> Self {
         MatrixDriverRequestData::AcquirePermissions(value)
@@ -92,13 +88,13 @@ impl From<AcquirePermissions> for MatrixDriverRequestData {
 }
 
 impl MatrixDriverRequest for AcquirePermissions {
-    type Response = AcquirePermissionsResponse;
+    type Response = Permissions;
 }
 
-impl MatrixDriverResponse for AcquirePermissionsResponse {
+impl MatrixDriverResponse for Permissions {
     fn from_event(ev: Event) -> Option<Self> {
         match ev {
-            Event::PermissionsAcquired(_) => todo!(),
+            Event::PermissionsAcquired(response) => response.result.ok(),
             Event::MessageFromWidget(_) | Event::MatrixEventReceived(_) => {
                 error!("this should be unreachable, no ID to match");
                 None

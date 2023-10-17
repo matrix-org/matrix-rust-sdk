@@ -69,3 +69,15 @@ impl ToWidgetRequest for RequestPermissions {
     const ACTION: &'static str = "capabilities";
     type ResponseData = Permissions;
 }
+
+/// Notify the widget that the list of the granted capabilities has changed.
+#[derive(Serialize)]
+pub(crate) struct NotifyPermissionsChanged {
+    pub(crate) requested: Permissions,
+    pub(crate) approved: Permissions,
+}
+
+impl ToWidgetRequest for NotifyPermissionsChanged {
+    const ACTION: &'static str = "notify_capabilities";
+    type ResponseData = ();
+}
