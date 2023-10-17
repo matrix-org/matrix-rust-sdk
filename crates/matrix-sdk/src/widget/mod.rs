@@ -18,18 +18,18 @@ use async_channel::{Receiver, Sender};
 use tokio::sync::mpsc::unbounded_channel;
 use tokio_util::sync::{CancellationToken, DropGuard};
 
+use self::{
+    machine::{Action, Event, SendEventCommand, WidgetMachine},
+    matrix::MatrixDriver,
+};
 use crate::{room::Room, Result};
 
-mod client;
 mod filter;
+mod machine;
 mod matrix;
 mod permissions;
 mod settings;
 
-use self::{
-    client::{Action, Event, SendEventCommand, WidgetMachine},
-    matrix::MatrixDriver,
-};
 pub use self::{
     filter::{EventFilter, MessageLikeEventFilter, StateEventFilter},
     permissions::{Permissions, PermissionsProvider},
