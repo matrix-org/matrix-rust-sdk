@@ -52,7 +52,7 @@ impl WidgetDriver {
 #[derive(uniffi::Record, Clone)]
 pub struct WidgetSettings {
     /// Widget's unique identifier.
-    pub id: String,
+    pub widget_id: String,
     /// Whether or not the widget should be initialized on load message
     /// (`ContentLoad` message), or upon creation/attaching of the widget to
     /// the SDK's state machine that drives the API.
@@ -73,15 +73,15 @@ impl TryFrom<WidgetSettings> for matrix_sdk::widget::WidgetSettings {
     type Error = ParseError;
 
     fn try_from(value: WidgetSettings) -> Result<Self, Self::Error> {
-        let WidgetSettings { id, init_after_content_load, raw_url } = value;
-        Ok(matrix_sdk::widget::WidgetSettings::new(id, init_after_content_load, &raw_url)?)
+        let WidgetSettings { widget_id, init_after_content_load, raw_url } = value;
+        Ok(matrix_sdk::widget::WidgetSettings::new(widget_id, init_after_content_load, &raw_url)?)
     }
 }
 
 impl From<matrix_sdk::widget::WidgetSettings> for WidgetSettings {
     fn from(value: matrix_sdk::widget::WidgetSettings) -> Self {
         WidgetSettings {
-            id: value.id().to_owned(),
+            widget_id: value.widget_id().to_owned(),
             init_after_content_load: value.init_on_content_load(),
             raw_url: value.raw_url().to_string(),
         }

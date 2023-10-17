@@ -26,7 +26,7 @@ pub use self::element_call::VirtualElementCallWidgetOptions;
 /// Settings of the widget.
 #[derive(Debug, Clone)]
 pub struct WidgetSettings {
-    id: String,
+    widget_id: String,
     init_on_content_load: bool,
     raw_url: Url,
 }
@@ -38,12 +38,12 @@ impl WidgetSettings {
         init_on_content_load: bool,
         raw_url: &str,
     ) -> Result<Self, url::ParseError> {
-        Ok(Self { id, init_on_content_load, raw_url: Url::parse(raw_url)? })
+        Ok(Self { widget_id: id, init_on_content_load, raw_url: Url::parse(raw_url)? })
     }
 
     /// Widget's unique identifier.
-    pub fn id(&self) -> &String {
-        &self.id
+    pub fn widget_id(&self) -> &str {
+        &self.widget_id
     }
 
     /// Whether or not the widget should be initialized on load message
@@ -113,7 +113,7 @@ impl WidgetSettings {
         let avatar_url = profile.avatar_url.map(|url| url.to_string()).unwrap_or_default();
 
         let query_props = url_params::QueryProperties {
-            widget_id: self.id.clone(),
+            widget_id: self.widget_id.clone(),
             avatar_url,
             display_name: profile.displayname.unwrap_or_default(),
             user_id: user_id.into(),
