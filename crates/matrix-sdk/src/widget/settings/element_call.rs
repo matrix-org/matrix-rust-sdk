@@ -136,7 +136,7 @@ impl WidgetSettings {
             user_id: url_params::USER_ID.to_owned(),
             room_id: url_params::ROOM_ID.to_owned(),
             widget_id: url_params::WIDGET_ID.to_owned(),
-            display_name: url_params::DISPLAY_NAME.to_string(),
+            display_name: url_params::DISPLAY_NAME.to_owned(),
             lang: url_params::LANGUAGE.to_owned(),
             theme: url_params::CLIENT_THEME.to_owned(),
             client_id: url_params::CLIENT_ID.to_owned(),
