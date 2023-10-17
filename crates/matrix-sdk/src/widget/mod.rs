@@ -40,7 +40,6 @@ pub use self::{
 /// or iframe with the Matrix world.
 #[derive(Debug)]
 pub struct WidgetDriver {
-    #[allow(dead_code)]
     settings: WidgetSettings,
 
     /// Raw incoming messages from the widget (normally formatted as JSON).
@@ -119,7 +118,10 @@ impl WidgetDriver {
         room: Room,
         permissions_provider: impl PermissionsProvider,
     ) -> Result<(), ()> {
-        let (mut client_api, mut actions) = WidgetMachine::new();
+        let (mut client_api, mut actions) = WidgetMachine::new(
+            self.settings.widget_id().to_owned(),
+            self.settings.init_on_content_load(),
+        );
 
         // Create a channel so that we can conveniently send all events to it.
         let (events_tx, mut events_rx) = unbounded_channel();

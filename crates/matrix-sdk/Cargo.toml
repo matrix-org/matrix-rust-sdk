@@ -55,7 +55,7 @@ experimental-sliding-sync = [
     "reqwest/gzip",
     "dep:eyeball-im-util",
 ]
-experimental-widgets = ["dep:language-tags"]
+experimental-widgets = ["dep:language-tags", "dep:uuid"]
 
 docsrs = ["e2e-encryption", "sqlite", "sso-login", "qrcode", "image-proc"]
 
@@ -100,6 +100,7 @@ tower = { version = "0.4.13", features = ["make"], optional = true }
 tracing = { workspace = true, features = ["attributes"] }
 url = "2.2.2"
 urlencoding = "2.1.3"
+uuid = { version = "1.4.1", features = ["serde", "v4"], optional = true }
 zeroize = { workspace = true }
 
 [dependencies.image]
