@@ -31,17 +31,12 @@ pub(crate) trait Request {
     type Response;
 }
 
+// `toWidget` requests
+
 /// Send a request to a widget asking it to respond with the list of
 /// permissinos (capabilities) that the widget wants to have.
 pub(crate) struct RequestPermissions;
 impl Request for RequestPermissions {
-    type Response = Permissions;
-}
-
-/// Ask the client (permission provider) to acquire given permissions
-/// from the user. The client must eventually respond with granted permissions.
-pub(crate) struct AcquirePermissions(pub(crate) Permissions);
-impl Request for AcquirePermissions {
     type Response = Permissions;
 }
 
@@ -51,16 +46,25 @@ impl Request for UpdatePermissions {
     type Response = ();
 }
 
-/// Request open ID from the Matrix client.
-pub(crate) struct RequestOpenId;
-impl Request for RequestOpenId {
-    type Response = RumaOpenIdResponse;
-}
-
 /// Send a request to the widget asking it to update its open ID state.
 pub(crate) struct UpdateOpenId(pub(crate) OpenIdResponse);
 impl Request for UpdateOpenId {
     type Response = ();
+}
+
+// requests to the `MatrixDriver`
+
+/// Ask the client (permission provider) to acquire given permissions
+/// from the user. The client must eventually respond with granted permissions.
+pub(crate) struct AcquirePermissions(pub(crate) Permissions);
+impl Request for AcquirePermissions {
+    type Response = Permissions;
+}
+
+/// Request open ID from the Matrix client.
+pub(crate) struct RequestOpenId;
+impl Request for RequestOpenId {
+    type Response = RumaOpenIdResponse;
 }
 
 /// Ask the client to read matrix event(s) that corresponds to the given
