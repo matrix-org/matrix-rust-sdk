@@ -114,6 +114,11 @@ impl GroupSessionCache {
     ) -> Option<OutboundGroupSession> {
         self.get_or_load(room_id).await.filter(|o| session_id == o.session_id())
     }
+
+    /// Returns whether any session is withheld with the given device and code.
+    pub fn has_session_withheld_to(&self, device: &Device, code: &WithheldCode) -> bool {
+        self.sessions.read().unwrap().values().any(|s| s.is_withheld_to(device, code))
+    }
 }
 
 /// Returned by `collect_session_recipients`.
@@ -572,14 +577,7 @@ impl GroupSessionManager {
         // `OutboundGroupSession` and the `Device` both interact with the flag we'll
         // leave it be.
         if code == &WithheldCode::NoOlm {
-            device.was_withheld_code_sent()
-                || self
-                    .sessions
-                    .sessions
-                    .read()
-                    .unwrap()
-                    .values()
-                    .any(|s| s.is_withheld_to(device, code))
+            device.was_withheld_code_sent() || self.sessions.has_session_withheld_to(device, code)
         } else {
             group_session.is_withheld_to(device, code)
         }
