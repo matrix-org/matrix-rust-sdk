@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Internal client widget API implementation.
+//! No I/O logic of the [`WidgetDriver`].
 
 #![warn(unreachable_pub)]
 
@@ -22,6 +22,8 @@ pub(crate) use self::{
     actions::{Action, SendEventCommand},
     events::Event,
 };
+#[cfg(doc)]
+use super::WidgetDriver;
 
 mod actions;
 mod events;
