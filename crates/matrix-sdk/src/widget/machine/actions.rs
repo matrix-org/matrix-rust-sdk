@@ -12,36 +12,45 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{borrow::Cow, error::Error, ops::Deref};
+use std::error::Error;
 
 use ruma::events::{MessageLikeEventType, StateEventType, TimelineEventType};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
+use uuid::Uuid;
 
-use crate::widget::{Permissions, StateKeySelector};
+use super::driver_req::AcquirePermissions;
+use crate::widget::StateKeySelector;
 
 /// Action (a command) that client (driver) must perform.
-#[allow(dead_code)] // TODO: Remove once all actions are implemented.
 #[derive(Debug)]
 pub(crate) enum Action {
     /// Send a raw message to the widget.
     SendToWidget(String),
-    /// Acquire permissions from the user given the set of desired permissions.
-    /// Must eventually be answered with `Event::PermissionsAcquired`.
-    AcquirePermissions(Command<Permissions>),
-    /// Get OpenId token for a given request ID.
-    GetOpenId(Command<()>),
-    /// Read message event(s).
-    ReadMessageLikeEvent(Command<ReadMessageLikeEventCommand>),
-    /// Read state event(s).
-    ReadStateEvent(Command<ReadStateEventCommand>),
-    /// Send matrix event that corresponds to the given description.
-    SendMatrixEvent(Command<SendEventCommand>),
+
+    /// Command that is sent from the client widget API state machine to the
+    /// client (driver) that must be performed. Once the command is executed,
+    /// the client will typically generate an `Event` with the result of it.
+    MatrixDriverRequest {
+        /// Certain commands are typically answered with certain event once the
+        /// command is performed. The api state machine will "tag" each command
+        /// with some "cookie" (in this case just an ID), so that once the
+        /// result of the execution of this command is received, it could be
+        /// matched.
+        request_id: Uuid,
+
+        /// Data associated with this command.
+        data: MatrixDriverRequestData,
+    },
+
     /// Subscribe to the events in the *current* room, i.e. a room which this
     /// widget is instantiated with. The client is aware of the room.
+    #[allow(dead_code)]
     Subscribe,
+
     /// Unsuscribe from the events in the *current* room. Symmetrical to
     /// `Subscribe`.
+    #[allow(dead_code)]
     Unsubscribe,
 }
 
@@ -78,38 +87,24 @@ pub(crate) struct SendEventCommand {
     pub(crate) content: JsonValue,
 }
 
-/// Command that is sent from the client widget API state machine to the
-/// client (driver) that must be performed. Once the command is executed,
-/// the client will typically generate an `Event` with the result of it.
 #[derive(Debug)]
-pub(crate) struct Command<T> {
-    /// Certain commands are typically answered with certain event once the
-    /// command is performed. The api state machine will "tag" each command
-    /// with some "cookie" (in this case just an ID), so that once the
-    /// result of the execution of this command is received, it could be
-    /// matched.
-    id: String,
-    // Data associated with this command.
-    data: T,
-}
+#[allow(dead_code)]
+pub(crate) enum MatrixDriverRequestData {
+    /// Acquire permissions from the user given the set of desired permissions.
+    /// Must eventually be answered with `Event::PermissionsAcquired`.
+    AcquirePermissions(AcquirePermissions),
 
-impl<T> Command<T> {
-    /// Consumes the command and produces a command result with given data.
-    pub(crate) fn result<U, E: Error>(self, result: Result<U, E>) -> CommandResult<U> {
-        CommandResult { id: self.id, result: result.map_err(|e| e.to_string().into()) }
-    }
+    /// Get OpenId token for a given request ID.
+    GetOpenId,
 
-    pub(crate) fn ok<U>(self, value: U) -> CommandResult<U> {
-        CommandResult { id: self.id, result: Ok(value) }
-    }
-}
+    /// Read message event(s).
+    ReadMessageLikeEvent(ReadMessageLikeEventCommand),
 
-impl<T> Deref for Command<T> {
-    type Target = T;
+    /// Read state event(s).
+    ReadStateEvent(ReadStateEventCommand),
 
-    fn deref(&self) -> &Self::Target {
-        &self.data
-    }
+    /// Send matrix event that corresponds to the given description.
+    SendMatrixEvent(SendEventCommand),
 }
 
 /// The result of the execution of a command. Note that this type can only be
@@ -118,9 +113,19 @@ impl<T> Deref for Command<T> {
 /// client (driver) won't be able to send "invalid" commands, because they could
 /// only be generated from a `Command` instance.
 #[allow(dead_code)] // TODO: Remove once results are used.
-pub(crate) struct CommandResult<T> {
+pub(crate) struct MatrixDriverResponse<T> {
     /// ID of the command that was executed. See `Command::id` for more details.
-    id: String,
+    request_id: Uuid,
     /// Result of the execution of the command.
-    result: Result<T, Cow<'static, str>>,
+    result: Result<T, String>,
+}
+
+impl<T> MatrixDriverResponse<T> {
+    pub(crate) fn new<E: Error>(request_id: Uuid, result: Result<T, E>) -> Self {
+        Self { request_id, result: result.map_err(|e| e.to_string()) }
+    }
+
+    pub(crate) fn ok(request_id: Uuid, value: T) -> Self {
+        Self { request_id, result: Ok(value) }
+    }
 }
