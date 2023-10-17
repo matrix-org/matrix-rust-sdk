@@ -17,7 +17,7 @@ use std::{fmt, ops::ControlFlow, pin::pin, sync::Arc, time::Duration};
 use matrix_sdk::{room::MessagesOptions, Result};
 use matrix_sdk_base::timeout::timeout;
 use ruma::assign;
-use tracing::{debug, error, info, instrument, trace, warn};
+use tracing::{error, info, instrument, trace, warn};
 
 use super::{inner::HandleBackPaginatedEventsError, Timeline};
 
@@ -67,7 +67,7 @@ impl Timeline {
                 match timeout(wait_for_token, WAIT_FOR_TOKEN_TIMEOUT).await {
                     Ok(token) => Some(token),
                     Err(_) => {
-                        debug!("Waiting for prev_batch token timed out after 3s");
+                        warn!("Waiting for prev_batch token timed out after 3s");
                         None
                     }
                 }
