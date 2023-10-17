@@ -19,7 +19,10 @@ use tokio::sync::mpsc::unbounded_channel;
 use tokio_util::sync::{CancellationToken, DropGuard};
 
 use self::{
-    machine::{Action, Event, SendEventCommand, WidgetMachine},
+    machine::{
+        Action, Event, MatrixDriverRequestData, MatrixDriverResponse, SendEventCommand,
+        WidgetMachine,
+    },
     matrix::MatrixDriver,
 };
 use crate::{room::Room, Result};
@@ -148,31 +151,40 @@ impl WidgetDriver {
         while let Some(action) = actions.recv().await {
             match action {
                 Action::SendToWidget(msg) => self.to_widget_tx.send(msg).await.map_err(|_| ())?,
-                Action::AcquirePermissions(cmd) => {
-                    let obtained = permissions_provider.acquire_permissions(cmd.clone()).await;
-                    let event = Event::PermissionsAcquired(cmd.ok(obtained));
-                    events_tx.send(event).map_err(|_| ())?;
-                }
-                Action::GetOpenId(cmd) => {
-                    let result = cmd.result(matrix_driver.get_open_id().await);
-                    events_tx.send(Event::OpenIdReceived(result)).map_err(|_| ())?;
-                }
-                Action::ReadMessageLikeEvent(cmd) => {
-                    let events = matrix_driver
-                        .read_message_like_events(cmd.event_type.clone(), cmd.limit)
-                        .await;
-                    events_tx.send(Event::MatrixEventRead(cmd.result(events))).map_err(|_| ())?;
-                }
-                Action::ReadStateEvent(cmd) => {
-                    let events = matrix_driver
-                        .read_state_events(cmd.event_type.clone(), &cmd.state_key)
-                        .await;
-                    events_tx.send(Event::MatrixEventRead(cmd.result(events))).map_err(|_| ())?;
-                }
-                Action::SendMatrixEvent(cmd) => {
-                    let SendEventCommand { event_type, state_key, content } = cmd.clone();
-                    let matrix_event_id = matrix_driver.send(event_type, state_key, content).await;
-                    let event = Event::MatrixEventSent(cmd.result(matrix_event_id));
+                Action::MatrixDriverRequest { request_id: id, data } => {
+                    let event = match data {
+                        MatrixDriverRequestData::AcquirePermissions(cmd) => {
+                            let obtained = permissions_provider
+                                .acquire_permissions(cmd.desired_permissions.clone())
+                                .await;
+
+                            Event::PermissionsAcquired(MatrixDriverResponse::ok(id, obtained))
+                        }
+                        MatrixDriverRequestData::GetOpenId => {
+                            let result =
+                                MatrixDriverResponse::new(id, matrix_driver.get_open_id().await);
+                            Event::OpenIdReceived(result)
+                        }
+                        MatrixDriverRequestData::ReadMessageLikeEvent(cmd) => {
+                            let events = matrix_driver
+                                .read_message_like_events(cmd.event_type.clone(), cmd.limit)
+                                .await;
+                            Event::MatrixEventRead(MatrixDriverResponse::new(id, events))
+                        }
+                        MatrixDriverRequestData::ReadStateEvent(cmd) => {
+                            let events = matrix_driver
+                                .read_state_events(cmd.event_type.clone(), &cmd.state_key)
+                                .await;
+                            Event::MatrixEventRead(MatrixDriverResponse::new(id, events))
+                        }
+                        MatrixDriverRequestData::SendMatrixEvent(cmd) => {
+                            let SendEventCommand { event_type, state_key, content } = cmd.clone();
+                            let matrix_event_id =
+                                matrix_driver.send(event_type, state_key, content).await;
+                            Event::MatrixEventSent(MatrixDriverResponse::new(id, matrix_event_id))
+                        }
+                    };
+
                     events_tx.send(event).map_err(|_| ())?;
                 }
                 Action::Subscribe => {

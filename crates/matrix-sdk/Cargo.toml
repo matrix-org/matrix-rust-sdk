@@ -81,6 +81,7 @@ futures-util = { workspace = true }
 http = { workspace = true }
 hyper = { version = "0.14.20", features = ["http1", "http2", "server"], optional = true }
 imbl = { version = "2.0.0", features = ["serde"] }
+indexmap = "2.0.2"
 language-tags = { version = "0.3.2", optional = true }
 matrix-sdk-base = { version = "0.6.0", path = "../matrix-sdk-base", default_features = false }
 matrix-sdk-common = { version = "0.6.0", path = "../matrix-sdk-common" }

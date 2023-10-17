@@ -17,7 +17,7 @@ use ruma::{
     events::AnyTimelineEvent, serde::Raw, OwnedEventId,
 };
 
-use super::actions::CommandResult;
+use super::actions::MatrixDriverResponse;
 use crate::widget::Permissions;
 
 /// Incoming event that the client API must process.
@@ -29,14 +29,14 @@ pub(crate) enum Event {
     MatrixEventReceived(Raw<AnyTimelineEvent>),
     /// Client acquired permissions from the user.
     /// A response to an `Action::AcquirePermissions` command.
-    PermissionsAcquired(CommandResult<Permissions>),
+    PermissionsAcquired(MatrixDriverResponse<Permissions>),
     /// Client got OpenId token for a given request ID.
     /// A response to an `Action::GetOpenId` command.
-    OpenIdReceived(CommandResult<RumaOpenIdResponse>),
+    OpenIdReceived(MatrixDriverResponse<RumaOpenIdResponse>),
     /// Client read some matrix event(s).
     /// A response to an `Action::ReadMatrixEvent` commands.
-    MatrixEventRead(CommandResult<Vec<Raw<AnyTimelineEvent>>>),
+    MatrixEventRead(MatrixDriverResponse<Vec<Raw<AnyTimelineEvent>>>),
     /// Client sent some matrix event. The response contains the event ID.
     /// A response to an `Action::SendMatrixEvent` command.
-    MatrixEventSent(CommandResult<OwnedEventId>),
+    MatrixEventSent(MatrixDriverResponse<OwnedEventId>),
 }

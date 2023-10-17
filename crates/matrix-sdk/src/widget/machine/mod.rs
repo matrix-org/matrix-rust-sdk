@@ -16,23 +16,28 @@
 
 #![warn(unreachable_pub)]
 
+use indexmap::{map::Entry, IndexMap};
 use serde::Serialize;
+use serde_json::value::RawValue as RawJsonValue;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tracing::{error, instrument};
 use uuid::Uuid;
 
-use self::to_widget::{RequestPermissions, ToWidgetRequest};
+use self::{
+    driver_req::{AcquirePermissions, MatrixDriverRequest, MatrixDriverRequestHandle},
+    to_widget::{RequestPermissions, ToWidgetRequest, ToWidgetRequestHandle},
+};
 
 mod actions;
+mod driver_req;
 mod events;
 mod openid;
-mod outgoing;
 #[cfg(test)]
 mod tests;
 mod to_widget;
 
 pub(crate) use self::{
-    actions::{Action, SendEventCommand},
+    actions::{Action, MatrixDriverRequestData, MatrixDriverResponse, SendEventCommand},
     events::Event,
 };
 #[cfg(doc)]
@@ -44,6 +49,8 @@ use super::WidgetDriver;
 pub(crate) struct WidgetMachine {
     widget_id: String,
     actions_sender: UnboundedSender<Action>,
+    pending_to_widget_requests: IndexMap<Uuid, ToWidgetRequestMeta>,
+    pending_matrix_driver_requests: IndexMap<Uuid, MatrixDriverRequestMeta>,
 }
 
 impl WidgetMachine {
@@ -55,17 +62,31 @@ impl WidgetMachine {
         init_on_content_load: bool,
     ) -> (Self, UnboundedReceiver<Action>) {
         let (actions_sender, actions_receiver) = unbounded_channel();
-        let this = Self { widget_id, actions_sender };
+        let mut machine = Self {
+            widget_id,
+            actions_sender,
+            pending_to_widget_requests: IndexMap::new(),
+            pending_matrix_driver_requests: IndexMap::new(),
+        };
 
         if !init_on_content_load {
-            this.send_to_widget(RequestPermissions {});
+            machine
+                .send_to_widget_request(RequestPermissions {})
+                // rustfmt please
+                .then(|desired_permissions, machine| {
+                    machine.send_matrix_driver_request(AcquirePermissions { desired_permissions });
+                    // TODO: use the result! (chain another `.then`)
+                });
         }
 
-        (this, actions_receiver)
+        (machine, actions_receiver)
     }
 
     #[instrument(skip_all, fields(action = T::ACTION))]
-    fn send_to_widget<T: ToWidgetRequest>(&self, to_widget_request: T) {
+    fn send_to_widget_request<T: ToWidgetRequest>(
+        &mut self,
+        to_widget_request: T,
+    ) -> ToWidgetRequestHandle<'_, T::ResponseData> {
         #[derive(Serialize)]
         #[serde(tag = "api", rename = "toWidget", rename_all = "camelCase")]
         struct ToWidgetRequestSerHelper<'a, T> {
@@ -75,23 +96,57 @@ impl WidgetMachine {
             data: T,
         }
 
+        let request_id = Uuid::new_v4();
         let full_request = ToWidgetRequestSerHelper {
             widget_id: &self.widget_id,
-            request_id: Uuid::new_v4(),
+            request_id,
             action: T::ACTION,
             data: to_widget_request,
         };
+
         let serialized = match serde_json::to_string(&full_request) {
             Ok(msg) => msg,
             Err(e) => {
                 error!("Failed to serialize outgoing message: {e}");
-                return;
+                return ToWidgetRequestHandle::null();
             }
         };
 
         if let Err(e) = self.actions_sender.send(Action::SendToWidget(serialized)) {
             error!("Failed to send action: {e}");
+            return ToWidgetRequestHandle::null();
         }
+
+        let request_meta = ToWidgetRequestMeta::new(T::ACTION);
+        let Entry::Vacant(entry) = self.pending_to_widget_requests.entry(request_id) else {
+            panic!("uuid collision");
+        };
+        let meta = entry.insert(request_meta);
+
+        ToWidgetRequestHandle::new(meta)
+    }
+
+    #[instrument(skip_all)]
+    fn send_matrix_driver_request<T: MatrixDriverRequest>(
+        &mut self,
+        matrix_driver_request: T,
+    ) -> MatrixDriverRequestHandle<'_, T::Response> {
+        let request_id = Uuid::new_v4();
+        if let Err(e) = self
+            .actions_sender
+            .send(Action::MatrixDriverRequest { request_id, data: matrix_driver_request.into() })
+        {
+            error!("Failed to send action: {e}");
+            return MatrixDriverRequestHandle::null();
+        }
+
+        let request_meta = MatrixDriverRequestMeta::new();
+        let Entry::Vacant(entry) = self.pending_matrix_driver_requests.entry(request_id) else {
+            panic!("uuid collision");
+        };
+        let meta = entry.insert(request_meta);
+
+        MatrixDriverRequestHandle::new(meta)
     }
 
     /// Processes an incoming event (an incoming raw message from a widget,
@@ -99,5 +154,31 @@ impl WidgetMachine {
     /// Produceses a list of actions that the client must perform.
     pub(crate) fn process(&mut self, _event: Event) {
         // TODO: Process the event.
+    }
+}
+
+type ToWidgetResponseFn = Box<dyn FnOnce(Box<RawJsonValue>, &mut WidgetMachine) + Send>;
+
+pub(crate) struct ToWidgetRequestMeta {
+    #[allow(dead_code)]
+    action: &'static str,
+    response_fn: Option<ToWidgetResponseFn>,
+}
+
+impl ToWidgetRequestMeta {
+    fn new(action: &'static str) -> Self {
+        Self { action, response_fn: None }
+    }
+}
+
+type MatrixDriverResponseFn = Box<dyn FnOnce(Event, &mut WidgetMachine) + Send>;
+
+pub(crate) struct MatrixDriverRequestMeta {
+    response_fn: Option<MatrixDriverResponseFn>,
+}
+
+impl MatrixDriverRequestMeta {
+    fn new() -> Self {
+        Self { response_fn: None }
     }
 }
