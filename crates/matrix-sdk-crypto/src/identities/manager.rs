@@ -388,7 +388,7 @@ impl IdentityManager {
         Ok(changes)
     }
 
-    /// Check if the given public identity matches our storeed private one.
+    /// Check if the given public identity matches our stored private one.
     ///
     /// If they don't match, this is an indication that our identity has been
     /// rotated. In this case we return `Some(cleared_private_identity)`,
