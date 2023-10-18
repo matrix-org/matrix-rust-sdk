@@ -85,7 +85,7 @@ impl WidgetMachine {
     pub(crate) fn process(&mut self, event: IncomingMessage) {
         match event {
             IncomingMessage::WidgetMessage(raw) => {
-                self.process_message_from_widget(&raw);
+                self.process_widget_message(&raw);
             }
             IncomingMessage::MatrixDriverResponse { request_id, response } => {
                 self.process_matrix_driver_response(request_id, response);
@@ -96,7 +96,7 @@ impl WidgetMachine {
         }
     }
 
-    fn process_message_from_widget(&mut self, raw: &str) {
+    fn process_widget_message(&mut self, raw: &str) {
         let message = match serde_json::from_str::<IncomingWidgetMessage>(raw) {
             Ok(msg) => msg,
             Err(e) => {
