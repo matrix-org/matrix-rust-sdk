@@ -14,7 +14,9 @@
 
 use std::time::Duration;
 
+use assert_matches::assert_matches;
 use async_trait::async_trait;
+use futures_util::FutureExt;
 use matrix_sdk::{
     config::SyncSettings,
     widget::{Permissions, PermissionsProvider, WidgetDriver, WidgetDriverHandle, WidgetSettings},
@@ -42,7 +44,7 @@ macro_rules! json_string {
 const WIDGET_ID: &str = "test-widget";
 static ROOM_ID: Lazy<OwnedRoomId> = Lazy::new(|| owned_room_id!("!a98sd12bjh:example.org"));
 
-async fn run_test_driver() -> (MockServer, WidgetDriverHandle) {
+async fn run_test_driver(init_on_content_load: bool) -> (MockServer, WidgetDriverHandle) {
     struct DummyPermissionsProvider;
 
     #[async_trait]
@@ -66,7 +68,8 @@ async fn run_test_driver() -> (MockServer, WidgetDriverHandle) {
     let room = client.get_room(&ROOM_ID).unwrap();
 
     let (driver, handle) = WidgetDriver::new(
-        WidgetSettings::new(WIDGET_ID.to_owned(), true, "https://foo.bar/widget").unwrap(),
+        WidgetSettings::new(WIDGET_ID.to_owned(), init_on_content_load, "https://foo.bar/widget")
+            .unwrap(),
     );
 
     spawn(async move {
@@ -121,22 +124,10 @@ async fn send_response(
 }
 
 #[async_test]
-#[ignore = "widget API is not yet fully implemented"]
-async fn read_messages() {
-    let (mock_server, driver_handle) = run_test_driver().await;
+async fn negotiate_capabilities_immediately() {
+    let (_, driver_handle) = run_test_driver(false).await;
 
-    {
-        // Tell the driver that we're ready for communication
-        send_request(&driver_handle, "1-content-loaded", "content_loaded", json!({})).await;
-
-        // Receive the response
-        let msg = recv_message(&driver_handle).await;
-        assert_eq!(msg["api"], "fromWidget");
-        assert_eq!(msg["action"], "content_loaded");
-        assert!(msg["data"].as_object().unwrap().is_empty());
-    }
-
-    let caps = json!(["m.receive.event:m.room.message"]);
+    let caps = json!(["org.matrix.msc2762.receive.event:m.room.message"]);
 
     {
         // Receive toWidget capabilities request
@@ -155,7 +146,52 @@ async fn read_messages() {
         let msg = recv_message(&driver_handle).await;
         assert_eq!(msg["api"], "toWidget");
         assert_eq!(msg["action"], "notify_capabilities");
-        assert_eq!(msg["data"], caps);
+        assert_eq!(msg["data"], json!({ "requested": caps, "approved": caps }));
+        let request_id = msg["requestId"].as_str().unwrap();
+
+        // ACK the request
+        send_response(&driver_handle, request_id, "notify_capabilities", caps, json!({})).await;
+    }
+
+    assert_matches!(driver_handle.recv().now_or_never(), None);
+}
+
+#[async_test]
+#[ignore = "widget API is not yet fully implemented"]
+async fn read_messages() {
+    let (mock_server, driver_handle) = run_test_driver(true).await;
+
+    {
+        // Tell the driver that we're ready for communication
+        send_request(&driver_handle, "1-content-loaded", "content_loaded", json!({})).await;
+
+        // Receive the response
+        let msg = recv_message(&driver_handle).await;
+        assert_eq!(msg["api"], "fromWidget");
+        assert_eq!(msg["action"], "content_loaded");
+        assert!(msg["data"].as_object().unwrap().is_empty());
+    }
+
+    let caps = json!(["org.matrix.msc2762.receive.event:m.room.message"]);
+
+    {
+        // Receive toWidget capabilities request
+        let msg = recv_message(&driver_handle).await;
+        assert_eq!(msg["api"], "toWidget");
+        assert_eq!(msg["action"], "capabilities");
+        let data = &msg["data"];
+        let request_id = msg["requestId"].as_str().unwrap();
+
+        // Answer with caps we want
+        send_response(&driver_handle, request_id, "capabilities", data, &caps).await;
+    }
+
+    {
+        // Receive a "request" with the permissions we were actually granted (wtf?)
+        let msg = recv_message(&driver_handle).await;
+        assert_eq!(msg["api"], "toWidget");
+        assert_eq!(msg["action"], "notify_capabilities");
+        assert_eq!(msg["data"], json!({ "requested": caps, "approved": caps }));
         let request_id = msg["requestId"].as_str().unwrap();
 
         // ACK the request
