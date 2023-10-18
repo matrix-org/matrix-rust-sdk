@@ -218,7 +218,7 @@ impl QrVerification {
         matches!(*self.state.read(), InnerState::Cancelled(_))
     }
 
-    /// Is this a verification that is veryfying one of our own devices
+    /// Is this a verification that is verifying one of our own devices
     pub fn is_self_verification(&self) -> bool {
         self.identities.is_self_verification()
     }

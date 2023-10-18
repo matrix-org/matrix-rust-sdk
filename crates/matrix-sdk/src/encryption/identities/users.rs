@@ -157,7 +157,7 @@ impl UserIdentity {
     /// verification flow.
     ///
     /// This will send out a `m.key.verification.request` event. Who such an
-    /// event will be sent to depends on if we're veryfing our own identity or
+    /// event will be sent to depends on if we're verifying our own identity or
     /// someone else's:
     ///
     /// * Our own identity - All our E2EE capable devices will receive the event

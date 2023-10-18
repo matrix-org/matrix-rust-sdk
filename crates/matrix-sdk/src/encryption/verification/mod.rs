@@ -119,7 +119,7 @@ impl Verification {
         }
     }
 
-    /// Is this a verification that is veryfying one of our own devices.
+    /// Is this a verification that is verifying one of our own devices.
     pub fn is_self_verification(&self) -> bool {
         match self {
             Verification::SasV1(v) => v.is_self_verification(),

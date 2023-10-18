@@ -203,7 +203,7 @@ impl SasVerification {
         self.inner.started_from_request()
     }
 
-    /// Is this a verification that is veryfying one of our own devices.
+    /// Is this a verification that is verifying one of our own devices.
     pub fn is_self_verification(&self) -> bool {
         self.inner.is_self_verification()
     }
