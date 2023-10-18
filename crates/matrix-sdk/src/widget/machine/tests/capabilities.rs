@@ -14,6 +14,7 @@
 
 use assert_matches::assert_matches;
 use serde_json::{from_value, json};
+use tokio::sync::mpsc::UnboundedReceiver;
 
 use super::{parse_msg, WIDGET_ID};
 use crate::widget::machine::{
@@ -23,7 +24,48 @@ use crate::widget::machine::{
 #[test]
 fn machine_can_negotiate_capabilities_immediately() {
     let (mut machine, mut actions_recv) = WidgetMachine::new(WIDGET_ID.to_owned(), false);
+    assert_capabilities_dance(&mut machine, &mut actions_recv);
+    assert_matches!(actions_recv.try_recv(), Err(_));
+}
 
+#[test]
+fn machine_can_request_capabilities_on_content_load() {
+    let (mut machine, mut actions_recv) = WidgetMachine::new(WIDGET_ID.to_owned(), true);
+    assert_matches!(actions_recv.try_recv(), Err(_));
+
+    // Content loaded event processed.
+    {
+        machine.process(IncomingMessage::WidgetMessage(json_string!({
+            "api": "fromWidget",
+            "widgetId": WIDGET_ID,
+            "requestId": "content-loaded-request-id",
+            "action": "content_loaded",
+            "data": {},
+        })));
+
+        let action = actions_recv.try_recv().unwrap();
+        let msg = assert_matches!(action, Action::SendToWidget(msg) => msg);
+        let (msg, request_id) = parse_msg(&msg);
+        assert_eq!(request_id, "content-loaded-request-id");
+        assert_eq!(
+            msg,
+            json!({
+                "api": "fromWidget",
+                "widgetId": WIDGET_ID,
+                "action": "content_loaded",
+                "data": {},
+                "response": {},
+            }),
+        );
+    }
+
+    assert_capabilities_dance(&mut machine, &mut actions_recv);
+}
+
+fn assert_capabilities_dance(
+    machine: &mut WidgetMachine,
+    actions_recv: &mut UnboundedReceiver<Action>,
+) {
     // Ask widget to provide desired capabilities.
     {
         let action = actions_recv.try_recv().unwrap();
@@ -99,14 +141,4 @@ fn machine_can_negotiate_capabilities_immediately() {
             "response": {},
         })));
     }
-
-    assert_matches!(actions_recv.try_recv(), Err(_));
-}
-
-#[test]
-fn machine_can_request_capabilities_on_content_load() {
-    let (_machine, mut actions_recv) = WidgetMachine::new(WIDGET_ID.to_owned(), true);
-    assert_matches!(actions_recv.try_recv(), Err(_));
-
-    // TODO: Do the actual content load dance
 }
