@@ -116,6 +116,12 @@ pub(super) fn assert_capabilities_dance(
             .process(IncomingMessage::MatrixDriverResponse { request_id, response: Ok(response) });
     }
 
+    // We get the `Subscribe` command since we requested some reading capabilities.
+    {
+        let action = actions_recv.try_recv().unwrap();
+        assert_matches!(action, Action::Subscribe);
+    }
+
     // Inform the widget about the acquired capabilities.
     {
         let action = actions_recv.try_recv().unwrap();

@@ -112,3 +112,13 @@ impl ToWidgetRequest for NotifyOpenIdChanged {
     const ACTION: &'static str = "openid_credentials";
     type ResponseData = OpenIdResponse;
 }
+
+/// Notify the widget that we received a new matrix event.
+/// This is a "response" to the widget subscribing to the events in the room.
+#[derive(Serialize)]
+pub(crate) struct NotifyNewMatrixEvent(pub(crate) serde_json::Value);
+
+impl ToWidgetRequest for NotifyNewMatrixEvent {
+    const ACTION: &'static str = "send_event";
+    type ResponseData = ();
+}
