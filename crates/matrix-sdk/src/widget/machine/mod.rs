@@ -47,6 +47,7 @@ pub(crate) use self::{
     actions::{Action, MatrixDriverRequestData, SendEventCommand},
     incoming::{IncomingMessage, MatrixDriverResponse},
 };
+use super::Permissions;
 #[cfg(doc)]
 use super::WidgetDriver;
 
@@ -58,6 +59,12 @@ pub(crate) struct WidgetMachine {
     actions_sender: UnboundedSender<Action>,
     pending_to_widget_requests: IndexMap<Uuid, ToWidgetRequestMeta>,
     pending_matrix_driver_requests: IndexMap<Uuid, MatrixDriverRequestMeta>,
+    capabilities: Option<Capabilities>,
+}
+
+enum Capabilities {
+    Negotiating,
+    Negotiated(Permissions),
 }
 
 impl WidgetMachine {
@@ -74,6 +81,7 @@ impl WidgetMachine {
             actions_sender,
             pending_to_widget_requests: IndexMap::new(),
             pending_matrix_driver_requests: IndexMap::new(),
+            capabilities: None,
         };
 
         if !init_on_content_load {
@@ -137,7 +145,9 @@ impl WidgetMachine {
         match request {
             FromWidgetRequest::ContentLoaded {} => {
                 self.send_from_widget_response(raw_request, JsonObject::new());
-                self.negotiate_capabilities();
+                if self.capabilities.is_none() {
+                    self.negotiate_capabilities();
+                }
             }
         }
     }
@@ -298,6 +308,8 @@ impl WidgetMachine {
     }
 
     fn negotiate_capabilities(&mut self) {
+        self.capabilities = Some(Capabilities::Negotiating);
+
         self.send_to_widget_request(RequestPermissions {})
             // TODO: Each request can actually fail here, take this into an account.
             .then(|desired_permissions, machine| {
@@ -306,6 +318,8 @@ impl WidgetMachine {
                         desired_permissions: desired_permissions.clone(),
                     })
                     .then(|granted_permissions, machine| {
+                        machine.capabilities =
+                            Some(Capabilities::Negotiated(granted_permissions.clone()));
                         machine.send_to_widget_request(NotifyPermissionsChanged {
                             approved: granted_permissions,
                             requested: desired_permissions,
