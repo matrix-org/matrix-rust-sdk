@@ -25,7 +25,7 @@ use tracing::{error, instrument, trace, warn};
 use uuid::Uuid;
 
 use self::{
-    driver_req::{AcquirePermissions, MatrixDriverRequest, MatrixDriverRequestHandle},
+    driver_req::{AcquireCapabilities, MatrixDriverRequest, MatrixDriverRequestHandle},
     from_widget::{FromWidgetErrorResponse, FromWidgetRequest, SupportedApiVersionsResponse},
     incoming::{IncomingWidgetMessage, IncomingWidgetMessageKind},
     to_widget::{
@@ -47,7 +47,7 @@ pub(crate) use self::{
     actions::{Action, MatrixDriverRequestData, SendEventCommand},
     incoming::{IncomingMessage, MatrixDriverResponse},
 };
-use super::Permissions;
+use super::Capabilities;
 #[cfg(doc)]
 use super::WidgetDriver;
 
@@ -310,17 +310,17 @@ impl WidgetMachine {
 
         self.send_to_widget_request(RequestPermissions {})
             // TODO: Each request can actually fail here, take this into an account.
-            .then(|desired_permissions, machine| {
+            .then(|desired_capabilities, machine| {
                 machine
-                    .send_matrix_driver_request(AcquirePermissions {
-                        desired_permissions: desired_permissions.clone(),
+                    .send_matrix_driver_request(AcquireCapabilities {
+                        desired_capabilities: desired_capabilities.clone(),
                     })
-                    .then(|granted_permissions, machine| {
+                    .then(|granted_capabilities, machine| {
                         machine.capabilities =
-                            CapabilitiesState::Negotiated(granted_permissions.clone());
+                            CapabilitiesState::Negotiated(granted_capabilities.clone());
                         machine.send_to_widget_request(NotifyPermissionsChanged {
-                            approved: granted_permissions,
-                            requested: desired_permissions,
+                            approved: granted_capabilities,
+                            requested: desired_capabilities,
                         });
                     })
             });
@@ -356,7 +356,7 @@ impl MatrixDriverRequestMeta {
 enum CapabilitiesState {
     Unset,
     Negotiating,
-    Negotiated(Permissions),
+    Negotiated(Capabilities),
 }
 
 impl CapabilitiesState {

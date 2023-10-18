@@ -91,27 +91,27 @@ fn assert_capabilities_dance(
         })));
     }
 
-    // Try to acquire permissions by sending a request to a matrix driver.
+    // Try to acquire capabilities by sending a request to a matrix driver.
     {
         let action = actions_recv.try_recv().unwrap();
-        let (request_id, permissions) = assert_matches!(
+        let (request_id, capabilities) = assert_matches!(
             action,
             Action::MatrixDriverRequest {
                 request_id,
-                data: MatrixDriverRequestData::AcquirePermissions(data)
-            } => (request_id, data.desired_permissions)
+                data: MatrixDriverRequestData::AcquireCapabilities(data)
+            } => (request_id, data.desired_capabilities)
         );
         assert_eq!(
-            permissions,
+            capabilities,
             from_value(json!(["org.matrix.msc2762.receive.state_event:m.room.member"])).unwrap()
         );
 
-        let response = MatrixDriverResponse::PermissionsAcquired(permissions);
+        let response = MatrixDriverResponse::CapabilitiesAcquired(capabilities);
         machine
             .process(IncomingMessage::MatrixDriverResponse { request_id, response: Ok(response) });
     }
 
-    // Inform the widget about the acquired permissions.
+    // Inform the widget about the acquired capabilities.
     {
         let action = actions_recv.try_recv().unwrap();
         let msg = assert_matches!(action, Action::SendToWidget(msg) => msg);

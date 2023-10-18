@@ -34,15 +34,15 @@ impl WidgetDriver {
     pub async fn run(
         &self,
         room: Arc<Room>,
-        permissions_provider: Box<dyn WidgetPermissionsProvider>,
+        capabilities_provider: Box<dyn WidgetCapabilitiesProvider>,
     ) {
         let Some(driver) = self.0.lock().unwrap().take() else {
             error!("Can't call run multiple times on a WidgetDriver");
             return;
         };
 
-        let permissions_provider = PermissionsProviderWrap(permissions_provider.into());
-        if let Err(()) = driver.run(room.inner.clone(), permissions_provider).await {
+        let capabilities_provider = PermissionsProviderWrap(capabilities_provider.into());
+        if let Err(()) = driver.run(room.inner.clone(), capabilities_provider).await {
             // TODO
         }
     }
@@ -265,7 +265,7 @@ pub struct WidgetPermissions {
     pub read: Vec<WidgetEventFilter>,
     /// Types of the messages that a widget wants to be able to send.
     pub send: Vec<WidgetEventFilter>,
-    /// If this permission is requested by the widget, it can not operate
+    /// If this capability is requested by the widget, it can not operate
     /// separately from the matrix client.
     ///
     /// This means clients should not offer to open the widget in a separate
@@ -273,7 +273,7 @@ pub struct WidgetPermissions {
     pub requires_client: bool,
 }
 
-impl From<WidgetPermissions> for matrix_sdk::widget::Permissions {
+impl From<WidgetPermissions> for matrix_sdk::widget::Capabilities {
     fn from(value: WidgetPermissions) -> Self {
         Self {
             read: value.read.into_iter().map(Into::into).collect(),
@@ -283,8 +283,8 @@ impl From<WidgetPermissions> for matrix_sdk::widget::Permissions {
     }
 }
 
-impl From<matrix_sdk::widget::Permissions> for WidgetPermissions {
-    fn from(value: matrix_sdk::widget::Permissions) -> Self {
+impl From<matrix_sdk::widget::Capabilities> for WidgetPermissions {
+    fn from(value: matrix_sdk::widget::Capabilities) -> Self {
         Self {
             read: value.read.into_iter().map(Into::into).collect(),
             send: value.send.into_iter().map(Into::into).collect(),
@@ -347,24 +347,24 @@ impl From<matrix_sdk::widget::EventFilter> for WidgetEventFilter {
 }
 
 #[uniffi::export(callback_interface)]
-pub trait WidgetPermissionsProvider: Send + Sync {
-    fn acquire_permissions(&self, permissions: WidgetPermissions) -> WidgetPermissions;
+pub trait WidgetCapabilitiesProvider: Send + Sync {
+    fn acquire_capabilities(&self, capabilities: WidgetPermissions) -> WidgetPermissions;
 }
 
-struct PermissionsProviderWrap(Arc<dyn WidgetPermissionsProvider>);
+struct PermissionsProviderWrap(Arc<dyn WidgetCapabilitiesProvider>);
 
 #[async_trait]
-impl matrix_sdk::widget::PermissionsProvider for PermissionsProviderWrap {
-    async fn acquire_permissions(
+impl matrix_sdk::widget::CapabilitiesProvider for PermissionsProviderWrap {
+    async fn acquire_capabilities(
         &self,
-        permissions: matrix_sdk::widget::Permissions,
-    ) -> matrix_sdk::widget::Permissions {
+        capabilities: matrix_sdk::widget::Capabilities,
+    ) -> matrix_sdk::widget::Capabilities {
         let this = self.0.clone();
         // This could require a prompt to the user. Ideally the callback
         // interface would just be async, but that's not supported yet so use
         // one of tokio's blocking task threads instead.
         RUNTIME
-            .spawn_blocking(move || this.acquire_permissions(permissions.into()).into())
+            .spawn_blocking(move || this.acquire_capabilities(capabilities.into()).into())
             .await
             // propagate panics from the blocking task
             .unwrap()

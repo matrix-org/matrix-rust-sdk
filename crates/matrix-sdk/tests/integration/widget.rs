@@ -19,7 +19,9 @@ use async_trait::async_trait;
 use futures_util::FutureExt;
 use matrix_sdk::{
     config::SyncSettings,
-    widget::{Permissions, PermissionsProvider, WidgetDriver, WidgetDriverHandle, WidgetSettings},
+    widget::{
+        Capabilities, CapabilitiesProvider, WidgetDriver, WidgetDriverHandle, WidgetSettings,
+    },
 };
 use matrix_sdk_common::executor::spawn;
 use matrix_sdk_test::{async_test, JoinedRoomBuilder, SyncResponseBuilder};
@@ -48,10 +50,10 @@ async fn run_test_driver(init_on_content_load: bool) -> (MockServer, WidgetDrive
     struct DummyPermissionsProvider;
 
     #[async_trait]
-    impl PermissionsProvider for DummyPermissionsProvider {
-        async fn acquire_permissions(&self, permissions: Permissions) -> Permissions {
-            // Grant all permissions that the widget asks for
-            permissions
+    impl CapabilitiesProvider for DummyPermissionsProvider {
+        async fn acquire_capabilities(&self, capabilities: Capabilities) -> Capabilities {
+            // Grant all capabilities that the widget asks for
+            capabilities
         }
     }
 
@@ -142,7 +144,7 @@ async fn negotiate_capabilities_immediately() {
     }
 
     {
-        // Receive a "request" with the permissions we were actually granted (wtf?)
+        // Receive a "request" with the capabilities we were actually granted (wtf?)
         let msg = recv_message(&driver_handle).await;
         assert_eq!(msg["api"], "toWidget");
         assert_eq!(msg["action"], "notify_capabilities");
@@ -187,7 +189,7 @@ async fn read_messages() {
     }
 
     {
-        // Receive a "request" with the permissions we were actually granted (wtf?)
+        // Receive a "request" with the capabilities we were actually granted (wtf?)
         let msg = recv_message(&driver_handle).await;
         assert_eq!(msg["api"], "toWidget");
         assert_eq!(msg["action"], "notify_capabilities");

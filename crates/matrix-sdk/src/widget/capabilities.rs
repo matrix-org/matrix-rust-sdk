@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Types and traits related to the permissions that a widget can request from a
-//! client.
+//! Types and traits related to the capabilities that a widget can request from
+//! a client.
 
 use std::fmt;
 
@@ -27,22 +27,22 @@ use super::{EventFilter, MessageLikeEventFilter, StateEventFilter};
 /// whether a widget is allowed to use certain capabilities (typically by
 /// providing a prompt to the user).
 #[async_trait]
-pub trait PermissionsProvider: Send + Sync + 'static {
-    /// Receives a request for given permissions and returns the actual
-    /// permissions that the clients grants to a given widget (usually by
+pub trait CapabilitiesProvider: Send + Sync + 'static {
+    /// Receives a request for given capabilities and returns the actual
+    /// capabilities that the clients grants to a given widget (usually by
     /// prompting the user).
-    async fn acquire_permissions(&self, permissions: Permissions) -> Permissions;
+    async fn acquire_capabilities(&self, capabilities: Capabilities) -> Capabilities;
 }
 
 /// Permissions that a widget can request from a client.
 #[derive(Clone, Debug, Default)]
 #[cfg_attr(test, derive(PartialEq))]
-pub struct Permissions {
+pub struct Capabilities {
     /// Types of the messages that a widget wants to be able to fetch.
     pub read: Vec<EventFilter>,
     /// Types of the messages that a widget wants to be able to send.
     pub send: Vec<EventFilter>,
-    /// If this permission is requested by the widget, it can not operate
+    /// If this capability is requested by the widget, it can not operate
     /// separately from the matrix client.
     ///
     /// This means clients should not offer to open the widget in a separate
@@ -56,7 +56,7 @@ const SEND_STATE: &str = "org.matrix.msc2762.send.state_event";
 const READ_STATE: &str = "org.matrix.msc2762.receive.state_event";
 const REQUIRES_CLIENT: &str = "io.element.requires_client";
 
-impl Serialize for Permissions {
+impl Serialize for Capabilities {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -124,7 +124,7 @@ impl Serialize for Permissions {
     }
 }
 
-impl<'de> Deserialize<'de> for Permissions {
+impl<'de> Deserialize<'de> for Capabilities {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
@@ -185,18 +185,18 @@ impl<'de> Deserialize<'de> for Permissions {
             }
         }
 
-        let mut permissions = Permissions::default();
-        for permission in Vec::<Permission>::deserialize(deserializer)? {
-            match permission {
-                Permission::RequiresClient => permissions.requires_client = true,
-                Permission::Read(filter) => permissions.read.push(filter),
-                Permission::Send(filter) => permissions.send.push(filter),
-                // ignore unknown permissions
+        let mut capabilities = Capabilities::default();
+        for capability in Vec::<Permission>::deserialize(deserializer)? {
+            match capability {
+                Permission::RequiresClient => capabilities.requires_client = true,
+                Permission::Read(filter) => capabilities.read.push(filter),
+                Permission::Send(filter) => capabilities.send.push(filter),
+                // ignore unknown capabilities
                 Permission::Unknown => {}
             }
         }
 
-        Ok(permissions)
+        Ok(capabilities)
     }
 }
 
@@ -207,8 +207,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn deserialization_of_permissions() {
-        let permissions_str = r#"[
+    fn deserialization_of_capabilities() {
+        let capabilities_str = r#"[
             "m.always_on_screen",
             "io.element.requires_client",
             "org.matrix.msc2762.receive.event:org.matrix.rageshake_request",
@@ -218,8 +218,8 @@ mod tests {
             "org.matrix.msc2762.send.state_event:org.matrix.msc3401.call.member#@user:matrix.server"
         ]"#;
 
-        let parsed = serde_json::from_str::<Permissions>(permissions_str).unwrap();
-        let expected = Permissions {
+        let parsed = serde_json::from_str::<Capabilities>(capabilities_str).unwrap();
+        let expected = Capabilities {
             read: vec![
                 EventFilter::MessageLike(MessageLikeEventFilter::WithType(
                     "org.matrix.rageshake_request".into(),
@@ -246,7 +246,7 @@ mod tests {
 
     #[test]
     fn serialization_and_deserialization_are_symmetrical() {
-        let permissions = Permissions {
+        let capabilities = Capabilities {
             read: vec![
                 EventFilter::MessageLike(MessageLikeEventFilter::WithType(
                     "io.element.custom".into(),
@@ -269,8 +269,8 @@ mod tests {
             requires_client: true,
         };
 
-        let permissions_str = serde_json::to_string(&permissions).unwrap();
-        let parsed = serde_json::from_str::<Permissions>(&permissions_str).unwrap();
-        assert_eq!(parsed, permissions);
+        let capabilities_str = serde_json::to_string(&capabilities).unwrap();
+        let parsed = serde_json::from_str::<Capabilities>(&capabilities_str).unwrap();
+        assert_eq!(parsed, capabilities);
     }
 }
