@@ -825,6 +825,16 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         let own_user_id = self.room_data_provider.own_user_id();
         self.state.write().await.handle_read_receipts(receipt_event_content, own_user_id);
     }
+
+    /// Get the latest read receipt for the given user.
+    ///
+    /// Useful to get the latest read receipt, whether it's private or public.
+    pub(super) async fn latest_user_read_receipt(
+        &self,
+        user_id: &UserId,
+    ) -> Option<(OwnedEventId, Receipt)> {
+        self.state.read().await.latest_user_read_receipt(user_id, &self.room_data_provider).await
+    }
 }
 
 impl TimelineInner {
@@ -924,17 +934,6 @@ impl TimelineInner {
         state.items.set(index, timeline_item(item, internal_id));
 
         Ok(())
-    }
-
-    /// Get the latest read receipt for the given user.
-    ///
-    /// Useful to get the latest read receipt, whether it's private or public.
-    pub(super) async fn latest_user_read_receipt(
-        &self,
-        user_id: &UserId,
-    ) -> Option<(OwnedEventId, Receipt)> {
-        let room = self.room();
-        self.state.read().await.latest_user_read_receipt(user_id, room).await
     }
 
     /// Check whether the given receipt should be sent.
