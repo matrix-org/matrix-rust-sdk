@@ -201,29 +201,29 @@ async fn read_messages() {
     {
         let response_json = json!({
             "chunk": [
-              {
-                "content": {
-                    "body": "hello",
-                    "msgtype": "m.text",
+                {
+                    "content": {
+                        "body": "hello",
+                        "msgtype": "m.text",
+                    },
+                    "event_id": "$msda7m0df9E9op3",
+                    "origin_server_ts": 152037280,
+                    "sender": "@example:localhost",
+                    "type": "m.room.message",
+                    "room_id": &*ROOM_ID,
                 },
-                "event_id": "$msda7m0df9E9op3",
-                "origin_server_ts": 152037280,
-                "sender": "@example:localhost",
-                "type": "m.room.message",
-                "room_id": &*ROOM_ID,
-              },
-              {
-                "content": {
-                    "body": "This room has been replaced",
-                    "replacement_room": "!newroom:localhost",
+                {
+                    "content": {
+                        "body": "This room has been replaced",
+                        "replacement_room": "!newroom:localhost",
+                    },
+                    "event_id": "$foun39djjod0f",
+                    "origin_server_ts": 152039280,
+                    "sender": "@bob:localhost",
+                    "state_key": "",
+                    "type": "m.room.tombstone",
+                    "room_id": &*ROOM_ID,
                 },
-                "event_id": "$foun39djjod0f",
-                "origin_server_ts": 152039280,
-                "sender": "@bob:localhost",
-                "state_key": "",
-                "type": "m.room.tombstone",
-                "room_id": &*ROOM_ID,
-              },
             ],
             "end": "t47409-4357353_219380_26003_2269",
             "start": "t392-516_47314_0_7_1_1_1_11444_1"
