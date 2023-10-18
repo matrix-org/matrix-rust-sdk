@@ -253,7 +253,7 @@ async fn read_messages() {
         let msg = recv_message(&driver_handle).await;
         assert_eq!(msg["api"], "fromWidget");
         assert_eq!(msg["action"], "org.matrix.msc2876.read_events");
-        let events = msg["data"]["events"].as_array().unwrap();
+        let events = msg["response"]["events"].as_array().unwrap();
 
         assert_eq!(events.len(), 2);
         let first_event = &events[0];
