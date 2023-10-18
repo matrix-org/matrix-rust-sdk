@@ -17,31 +17,45 @@ use ruma::{
 };
 use serde::{de, Deserialize, Deserializer};
 use serde_json::value::RawValue as RawJsonValue;
+use uuid::Uuid;
 
-use super::{
-    actions::MatrixDriverResponse, from_widget::FromWidgetRequest, to_widget::ToWidgetResponse,
-};
+use super::{from_widget::FromWidgetRequest, to_widget::ToWidgetResponse};
 use crate::widget::Permissions;
 
 /// Incoming event that the client API must process.
 pub(crate) enum IncomingMessage {
     /// An incoming raw message from the widget.
     WidgetMessage(String),
-    /// Matrix event received. This one is delivered as a result of client
-    /// subscribing to the events (`Action::Subscribe` command).
+
+    /// A response to a request to the `MatrixDriver`.
+    MatrixDriverResponse {
+        /// The ID of the request that this response corresponds to.
+        request_id: Uuid,
+
+        /// The result of the request: response data or error message.
+        response: Result<MatrixDriverResponse, String>,
+    },
+
+    /// The `MatrixDriver` notified the `WidgetMachine` of a new matrix event.
+    ///
+    /// This means that the machine previously subscribed to some events
+    /// (`Action::Subscribe` request).
     MatrixEventReceived(Raw<AnyTimelineEvent>),
+}
+
+pub(crate) enum MatrixDriverResponse {
     /// Client acquired permissions from the user.
     /// A response to an `Action::AcquirePermissions` command.
-    PermissionsAcquired(MatrixDriverResponse<Permissions>),
+    PermissionsAcquired(Permissions),
     /// Client got OpenId token for a given request ID.
     /// A response to an `Action::GetOpenId` command.
-    OpenIdReceived(MatrixDriverResponse<request_openid_token::v3::Response>),
+    OpenIdReceived(request_openid_token::v3::Response),
     /// Client read some matrix event(s).
     /// A response to an `Action::ReadMatrixEvent` commands.
-    MatrixEventRead(MatrixDriverResponse<Vec<Raw<AnyTimelineEvent>>>),
+    MatrixEventRead(Vec<Raw<AnyTimelineEvent>>),
     /// Client sent some matrix event. The response contains the event ID.
     /// A response to an `Action::SendMatrixEvent` command.
-    MatrixEventSent(MatrixDriverResponse<OwnedEventId>),
+    MatrixEventSent(OwnedEventId),
 }
 
 pub(super) enum IncomingWidgetMessage {
