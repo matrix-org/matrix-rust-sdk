@@ -75,21 +75,7 @@ impl WidgetMachine {
         };
 
         if !init_on_content_load {
-            machine
-                .send_to_widget_request(RequestPermissions {})
-                // TODO: Each request can actually fail here, take this into an account.
-                .then(|desired_permissions, machine| {
-                    machine
-                        .send_matrix_driver_request(AcquirePermissions {
-                            desired_permissions: desired_permissions.clone(),
-                        })
-                        .then(|granted_permissions, machine| {
-                            machine.send_to_widget_request(NotifyPermissionsChanged {
-                                approved: granted_permissions,
-                                requested: desired_permissions,
-                            });
-                        })
-                });
+            machine.negotiate_capabilities();
         }
 
         (machine, actions_receiver)
@@ -248,6 +234,23 @@ impl WidgetMachine {
         } else {
             trace!("No response_fn registered");
         }
+    }
+
+    fn negotiate_capabilities(&mut self) {
+        self.send_to_widget_request(RequestPermissions {})
+            // TODO: Each request can actually fail here, take this into an account.
+            .then(|desired_permissions, machine| {
+                machine
+                    .send_matrix_driver_request(AcquirePermissions {
+                        desired_permissions: desired_permissions.clone(),
+                    })
+                    .then(|granted_permissions, machine| {
+                        machine.send_to_widget_request(NotifyPermissionsChanged {
+                            approved: granted_permissions,
+                            requested: desired_permissions,
+                        });
+                    })
+            });
     }
 }
 
