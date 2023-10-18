@@ -347,13 +347,7 @@ impl GroupSessionManager {
         let mut devices: BTreeMap<OwnedUserId, Vec<Device>> = Default::default();
         let mut withheld_devices: Vec<(Device, WithheldCode)> = Default::default();
 
-        trace!(
-            ?users,
-            ?settings,
-            session_id = outbound.session_id(),
-            room_id = outbound.room_id().as_str(),
-            "Calculating group session recipients"
-        );
+        trace!(?users, ?settings, "Calculating group session recipients");
 
         let users_shared_with: BTreeSet<OwnedUserId> =
             outbound.shared_with_set.read().unwrap().keys().cloned().collect();
@@ -429,12 +423,7 @@ impl GroupSessionManager {
             withheld_devices.extend(withheld_recipients);
         }
 
-        trace!(
-            should_rotate = should_rotate,
-            session_id = outbound.session_id(),
-            room_id = outbound.room_id().as_str(),
-            "Done calculating group session recipients"
-        );
+        trace!(should_rotate = should_rotate, "Done calculating group session recipients");
 
         Ok(CollectRecipientsResult { should_rotate, devices, withheld_devices })
     }
@@ -664,10 +653,7 @@ impl GroupSessionManager {
         Ok(())
     }
 
-    fn log_room_key_sharing_result(
-        session: &OutboundGroupSession,
-        requests: &[Arc<ToDeviceRequest>],
-    ) {
+    fn log_room_key_sharing_result(requests: &[Arc<ToDeviceRequest>]) {
         #[cfg(feature = "message-ids")]
         use serde::Deserialize;
 
@@ -738,7 +724,6 @@ impl GroupSessionManager {
         }
 
         info!(
-            session_id = session.session_id(),
             request_count = requests.len(),
             ?messages,
             ?withheld_messages,
@@ -756,7 +741,7 @@ impl GroupSessionManager {
     ///
     /// `encryption_settings` - The settings that should be used for
     /// the room key.
-    #[instrument(skip(self, users, encryption_settings))]
+    #[instrument(skip(self, users, encryption_settings), fields(session_id))]
     pub async fn share_room_key(
         &self,
         room_id: &RoomId,
@@ -771,6 +756,7 @@ impl GroupSessionManager {
         // Try to get an existing session or create a new one.
         let (outbound, inbound) =
             self.get_or_create_outbound_session(room_id, encryption_settings.clone()).await?;
+        tracing::Span::current().record("session_id", outbound.session_id());
 
         // Having an inbound group session here means that we created a new
         // group session pair, which we then need to store.
@@ -829,7 +815,6 @@ impl GroupSessionManager {
             if !outbound.shared() {
                 debug!(
                     room_id = room_id.as_str(),
-                    session_id = outbound.session_id(),
                     "The room key doesn't need to be shared with anyone. Marking as shared."
                 );
 
@@ -837,7 +822,7 @@ impl GroupSessionManager {
                 changes.outbound_group_sessions.push(outbound.clone());
             }
         } else {
-            Self::log_room_key_sharing_result(&outbound, &requests)
+            Self::log_room_key_sharing_result(&requests)
         }
 
         // Persist any changes we might have collected.
@@ -847,8 +832,6 @@ impl GroupSessionManager {
             self.store.save_changes(changes).await?;
 
             trace!(
-                room_id = room_id.as_str(),
-                session_id = outbound.session_id(),
                 session_count = session_count,
                 "Stored the changed sessions after encrypting an room key"
             );
