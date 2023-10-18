@@ -16,8 +16,12 @@ use ruma::{
     api::client::account::request_openid_token::v3::Response as RumaOpenIdResponse,
     events::AnyTimelineEvent, serde::Raw, OwnedEventId,
 };
+use serde::{de, Deserialize, Deserializer};
+use serde_json::value::RawValue as RawJsonValue;
 
-use super::actions::MatrixDriverResponse;
+use super::{
+    actions::MatrixDriverResponse, from_widget::FromWidgetRequest, to_widget::ToWidgetResponse,
+};
 use crate::widget::Permissions;
 
 /// Incoming event that the client API must process.
@@ -39,4 +43,38 @@ pub(crate) enum Event {
     /// Client sent some matrix event. The response contains the event ID.
     /// A response to an `Action::SendMatrixEvent` command.
     MatrixEventSent(MatrixDriverResponse<OwnedEventId>),
+}
+
+pub(super) enum IncomingWidgetMessage {
+    Request(FromWidgetRequest),
+    Response(ToWidgetResponse),
+}
+
+impl<'de> Deserialize<'de> for IncomingWidgetMessage {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw: Box<RawJsonValue> = Box::deserialize(deserializer)?;
+
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        enum ApiTag {
+            FromWidget,
+            ToWidget,
+        }
+
+        #[derive(Deserialize)]
+        struct ExtractApiTag {
+            api: ApiTag,
+        }
+
+        let ExtractApiTag { api } = serde_json::from_str(raw.get()).map_err(de::Error::custom)?;
+
+        let res = match api {
+            ApiTag::FromWidget => serde_json::from_str(raw.get()).map(Self::Request),
+            ApiTag::ToWidget => serde_json::from_str(raw.get()).map(Self::Response),
+        };
+        res.map_err(de::Error::custom)
+    }
 }

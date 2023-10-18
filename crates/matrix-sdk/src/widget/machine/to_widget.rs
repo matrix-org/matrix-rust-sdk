@@ -14,8 +14,10 @@
 
 use std::marker::PhantomData;
 
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde_json::value::RawValue as RawJsonValue;
 use tracing::error;
+use uuid::Uuid;
 
 use super::{ToWidgetRequestMeta, WidgetMachine};
 use crate::widget::Permissions;
@@ -51,6 +53,28 @@ where
             }));
         }
     }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ToWidgetResponse {
+    /// The ID of the widget that sent this.
+    pub(super) widget_id: String,
+
+    /// The request ID that this response corresponds to.
+    pub(super) request_id: Uuid,
+
+    /// The action from the original request.
+    pub(super) action: String,
+
+    /// The data from the original request.
+    #[allow(dead_code)]
+    #[serde(rename = "data")]
+    pub(super) request_data: Box<RawJsonValue>,
+
+    /// The response data.
+    #[serde(rename = "response")]
+    pub(super) response_data: Box<RawJsonValue>,
 }
 
 /// A request that the driver can send to the widget.
