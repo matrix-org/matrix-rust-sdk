@@ -58,7 +58,13 @@ pub(crate) enum MatrixDriverResponse {
     MatrixEventSent(OwnedEventId),
 }
 
-pub(super) enum IncomingWidgetMessage {
+pub(super) struct IncomingWidgetMessage {
+    pub(super) widget_id: String,
+    pub(super) request_id: String,
+    pub(super) kind: IncomingWidgetMessageKind,
+}
+
+pub(super) enum IncomingWidgetMessageKind {
     Request(FromWidgetRequest),
     Response(ToWidgetResponse),
 }
@@ -78,16 +84,25 @@ impl<'de> Deserialize<'de> for IncomingWidgetMessage {
         }
 
         #[derive(Deserialize)]
-        struct ExtractApiTag {
+        #[serde(rename_all = "camelCase")]
+        struct ExtractHeader {
             api: ApiTag,
+            widget_id: String,
+            request_id: String,
         }
 
-        let ExtractApiTag { api } = serde_json::from_str(raw.get()).map_err(de::Error::custom)?;
+        let ExtractHeader { api, widget_id, request_id } =
+            serde_json::from_str(raw.get()).map_err(de::Error::custom)?;
 
-        let res = match api {
-            ApiTag::FromWidget => serde_json::from_str(raw.get()).map(Self::Request),
-            ApiTag::ToWidget => serde_json::from_str(raw.get()).map(Self::Response),
+        let kind = match api {
+            ApiTag::FromWidget => serde_json::from_str(raw.get())
+                .map(IncomingWidgetMessageKind::Request)
+                .map_err(de::Error::custom)?,
+            ApiTag::ToWidget => serde_json::from_str(raw.get())
+                .map(IncomingWidgetMessageKind::Response)
+                .map_err(de::Error::custom)?,
         };
-        res.map_err(de::Error::custom)
+
+        Ok(Self { widget_id, request_id, kind })
     }
 }

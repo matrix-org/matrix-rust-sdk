@@ -25,7 +25,7 @@ use uuid::Uuid;
 
 use self::{
     driver_req::{AcquirePermissions, MatrixDriverRequest, MatrixDriverRequestHandle},
-    incoming::IncomingWidgetMessage,
+    incoming::{IncomingWidgetMessage, IncomingWidgetMessageKind},
     to_widget::{
         NotifyPermissionsChanged, RequestPermissions, ToWidgetRequest, ToWidgetRequestHandle,
         ToWidgetResponse,
@@ -106,26 +106,28 @@ impl WidgetMachine {
                 return;
             }
         };
-        let widget_id_from_msg = match &message {
-            IncomingWidgetMessage::Request(req) => match *req {},
-            IncomingWidgetMessage::Response(res) => &res.widget_id,
-        };
-        if *widget_id_from_msg != self.widget_id {
+
+        if message.widget_id != self.widget_id {
             error!("Received a message from a wrong widget, ignoring");
             return;
         }
 
-        match message {
-            IncomingWidgetMessage::Request(req) => match req {},
-            IncomingWidgetMessage::Response(response) => {
-                self.process_to_widget_response(response);
+        match message.kind {
+            IncomingWidgetMessageKind::Request(req) => match req {},
+            IncomingWidgetMessageKind::Response(response) => {
+                self.process_to_widget_response(message.request_id, response);
             }
         }
     }
 
-    #[instrument(skip_all, fields(request_id = ?response.request_id))]
-    fn process_to_widget_response(&mut self, response: ToWidgetResponse) {
-        let Some(request) = self.pending_to_widget_requests.remove(&response.request_id) else {
+    #[instrument(skip_all, fields(request_id = ?request_id))]
+    fn process_to_widget_response(&mut self, request_id: String, response: ToWidgetResponse) {
+        let Ok(request_id) = Uuid::parse_str(&request_id) else {
+            error!("Response's request_id is not a valid UUID");
+            return;
+        };
+
+        let Some(request) = self.pending_to_widget_requests.remove(&request_id) else {
             warn!("Received response for an unknown request");
             return;
         };

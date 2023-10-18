@@ -15,6 +15,5 @@
 use serde::Deserialize;
 
 #[derive(Deserialize)]
-pub(super) enum FromWidgetRequest {
-    // TODO
-}
+#[serde(rename_all = "camelCase")]
+pub(super) enum FromWidgetRequest {}
