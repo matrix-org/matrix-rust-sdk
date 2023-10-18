@@ -29,6 +29,8 @@ use crate::widget::StateKeySelector;
 pub(super) enum FromWidgetRequest {
     SupportedApiVersions {},
     ContentLoaded {},
+    #[serde(rename = "get_openid")]
+    GetOpenId {},
     #[serde(rename = "org.matrix.msc2876.read_events")]
     ReadEvent(ReadEventRequest),
     SendEvent(SendEventRequest),

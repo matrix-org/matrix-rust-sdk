@@ -18,7 +18,7 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::value::RawValue as RawJsonValue;
 use tracing::error;
 
-use super::{ToWidgetRequestMeta, WidgetMachine};
+use super::{openid::OpenIdResponse, ToWidgetRequestMeta, WidgetMachine};
 use crate::widget::Capabilities;
 
 /// A handle to a pending `toWidget` request.
@@ -102,4 +102,13 @@ pub(super) struct NotifyPermissionsChanged {
 impl ToWidgetRequest for NotifyPermissionsChanged {
     const ACTION: &'static str = "notify_capabilities";
     type ResponseData = ();
+}
+
+/// Notify the widget that the OpenID credentials changed.
+#[derive(Serialize)]
+pub(crate) struct NotifyOpenIdChanged(pub(crate) OpenIdResponse);
+
+impl ToWidgetRequest for NotifyOpenIdChanged {
+    const ACTION: &'static str = "openid_credentials";
+    type ResponseData = OpenIdResponse;
 }
