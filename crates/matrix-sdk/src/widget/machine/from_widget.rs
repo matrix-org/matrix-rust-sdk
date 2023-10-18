@@ -12,8 +12,26 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use serde::Deserialize;
+use std::fmt;
+
+use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) enum FromWidgetRequest {}
+
+#[derive(Serialize)]
+pub(super) struct FromWidgetErrorResponse {
+    error: FromWidgetError,
+}
+
+impl FromWidgetErrorResponse {
+    pub(super) fn new(e: impl fmt::Display) -> Self {
+        Self { error: FromWidgetError { message: e.to_string() } }
+    }
+}
+
+#[derive(Serialize)]
+struct FromWidgetError {
+    message: String,
+}

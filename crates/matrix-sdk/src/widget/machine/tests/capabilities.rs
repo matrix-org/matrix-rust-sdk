@@ -13,27 +13,12 @@
 // limitations under the License.
 
 use assert_matches::assert_matches;
-use ruma::serde::JsonObject;
-use serde_json::{from_value, json, Value as JsonValue};
-use uuid::Uuid;
+use serde_json::{from_value, json};
 
+use super::{parse_msg, WIDGET_ID};
 use crate::widget::machine::{
     incoming::MatrixDriverResponse, Action, IncomingMessage, MatrixDriverRequestData, WidgetMachine,
 };
-
-const WIDGET_ID: &str = "test-widget";
-
-/// Create a JSON string from a [`json!`][serde_json::json] "literal".
-#[macro_export]
-macro_rules! json_string {
-    ($( $tt:tt )*) => { ::serde_json::json!( $($tt)* ).to_string() };
-}
-
-fn parse_msg(msg: &str) -> (JsonValue, Uuid) {
-    let mut deserialized: JsonObject = serde_json::from_str(msg).unwrap();
-    let request_id = from_value(deserialized.remove("requestId").unwrap()).unwrap();
-    (JsonValue::Object(deserialized), request_id)
-}
 
 #[test]
 fn machine_can_negotiate_capabilities_immediately() {

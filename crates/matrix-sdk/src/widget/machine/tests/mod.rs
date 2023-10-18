@@ -12,4 +12,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use assert_matches::assert_matches;
+use ruma::serde::JsonObject;
+use serde_json::Value as JsonValue;
+
+/// Create a JSON string from a [`json!`][serde_json::json] "literal".
+#[macro_export]
+macro_rules! json_string {
+    ($( $tt:tt )*) => { ::serde_json::json!( $($tt)* ).to_string() };
+}
+
 mod capabilities;
+mod error;
+
+const WIDGET_ID: &str = "test-widget";
+
+fn parse_msg(msg: &str) -> (JsonValue, String) {
+    let mut deserialized: JsonObject = serde_json::from_str(msg).unwrap();
+    let request_id =
+        assert_matches!(deserialized.remove("requestId").unwrap(), JsonValue::String(s) => s);
+    (JsonValue::Object(deserialized), request_id)
+}

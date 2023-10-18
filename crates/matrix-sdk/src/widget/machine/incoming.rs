@@ -65,7 +65,7 @@ pub(super) struct IncomingWidgetMessage {
 }
 
 pub(super) enum IncomingWidgetMessageKind {
-    Request(FromWidgetRequest),
+    Request(Raw<FromWidgetRequest>),
     Response(ToWidgetResponse),
 }
 
@@ -95,9 +95,7 @@ impl<'de> Deserialize<'de> for IncomingWidgetMessage {
             serde_json::from_str(raw.get()).map_err(de::Error::custom)?;
 
         let kind = match api {
-            ApiTag::FromWidget => serde_json::from_str(raw.get())
-                .map(IncomingWidgetMessageKind::Request)
-                .map_err(de::Error::custom)?,
+            ApiTag::FromWidget => IncomingWidgetMessageKind::Request(Raw::from_json(raw)),
             ApiTag::ToWidget => serde_json::from_str(raw.get())
                 .map(IncomingWidgetMessageKind::Response)
                 .map_err(de::Error::custom)?,
