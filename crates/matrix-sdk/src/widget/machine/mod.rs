@@ -17,6 +17,7 @@
 #![warn(unreachable_pub)]
 
 use indexmap::{map::Entry, IndexMap};
+use ruma::serde::Raw;
 use serde::Serialize;
 use serde_json::value::RawValue as RawJsonValue;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
@@ -25,6 +26,7 @@ use uuid::Uuid;
 
 use self::{
     driver_req::{AcquirePermissions, MatrixDriverRequest, MatrixDriverRequestHandle},
+    from_widget::{FromWidgetErrorResponse, FromWidgetRequest},
     incoming::{IncomingWidgetMessage, IncomingWidgetMessageKind},
     to_widget::{
         NotifyPermissionsChanged, RequestPermissions, ToWidgetRequest, ToWidgetRequestHandle,
@@ -113,11 +115,26 @@ impl WidgetMachine {
         }
 
         match message.kind {
-            IncomingWidgetMessageKind::Request(req) => match req {},
+            IncomingWidgetMessageKind::Request(request) => {
+                self.process_from_widget_request(request);
+            }
             IncomingWidgetMessageKind::Response(response) => {
                 self.process_to_widget_response(message.request_id, response);
             }
         }
+    }
+
+    #[instrument(skip_all, fields(request_id))]
+    fn process_from_widget_request(&mut self, raw_request: Raw<FromWidgetRequest>) {
+        let request = match raw_request.deserialize() {
+            Ok(r) => r,
+            Err(e) => {
+                self.send_from_widget_response(raw_request, FromWidgetErrorResponse::new(e));
+                return;
+            }
+        };
+
+        match request {}
     }
 
     #[instrument(skip_all, fields(?request_id))]
@@ -170,6 +187,41 @@ impl WidgetMachine {
             response_fn(response, self);
         } else {
             trace!("No response_fn registered");
+        }
+    }
+
+    #[instrument(skip_all, fields(request_id))]
+    fn send_from_widget_response(
+        &self,
+        raw_request: Raw<FromWidgetRequest>,
+        response_data: impl Serialize,
+    ) {
+        let mut object = match raw_request.deserialize_as::<IndexMap<String, Box<RawJsonValue>>>() {
+            Ok(o) => o,
+            Err(e) => {
+                error!("Failed to converted FromWidgetRequest to object representation: {e}");
+                return;
+            }
+        };
+        let response_data = match serde_json::value::to_raw_value(&response_data) {
+            Ok(d) => d,
+            Err(e) => {
+                error!("Failed to serialize response data: {e}");
+                return;
+            }
+        };
+        object.insert("response".to_owned(), response_data);
+
+        let serialized = match serde_json::to_string(&object) {
+            Ok(s) => s,
+            Err(e) => {
+                error!("Failed to serialize response: {e}");
+                return;
+            }
+        };
+
+        if let Err(e) = self.actions_sender.send(Action::SendToWidget(serialized)) {
+            error!("Failed to send action: {e}");
         }
     }
 
