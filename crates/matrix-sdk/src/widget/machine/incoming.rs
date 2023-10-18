@@ -13,8 +13,7 @@
 // limitations under the License.
 
 use ruma::{
-    api::client::account::request_openid_token::v3::Response as RumaOpenIdResponse,
-    events::AnyTimelineEvent, serde::Raw, OwnedEventId,
+    api::client::account::request_openid_token, events::AnyTimelineEvent, serde::Raw, OwnedEventId,
 };
 use serde::{de, Deserialize, Deserializer};
 use serde_json::value::RawValue as RawJsonValue;
@@ -36,7 +35,7 @@ pub(crate) enum IncomingMessage {
     PermissionsAcquired(MatrixDriverResponse<Permissions>),
     /// Client got OpenId token for a given request ID.
     /// A response to an `Action::GetOpenId` command.
-    OpenIdReceived(MatrixDriverResponse<RumaOpenIdResponse>),
+    OpenIdReceived(MatrixDriverResponse<request_openid_token::v3::Response>),
     /// Client read some matrix event(s).
     /// A response to an `Action::ReadMatrixEvent` commands.
     MatrixEventRead(MatrixDriverResponse<Vec<Raw<AnyTimelineEvent>>>),
