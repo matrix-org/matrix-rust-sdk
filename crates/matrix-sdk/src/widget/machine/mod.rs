@@ -120,7 +120,7 @@ impl WidgetMachine {
         }
     }
 
-    #[instrument(skip_all, fields(request_id = ?request_id))]
+    #[instrument(skip_all, fields(?request_id))]
     fn process_to_widget_response(&mut self, request_id: String, response: ToWidgetResponse) {
         let Ok(request_id) = Uuid::parse_str(&request_id) else {
             error!("Response's request_id is not a valid UUID");
