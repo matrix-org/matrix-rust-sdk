@@ -14,6 +14,7 @@
 
 //! Data migration helpers for StateStore implementations.
 
+use std::collections::HashMap;
 use std::collections::HashSet;
 
 #[cfg(feature = "experimental-sliding-sync")]
@@ -199,6 +200,7 @@ impl BaseRoomInfoV1 {
             name,
             tombstone,
             topic,
+            rtc_member: HashMap::new(),
         }
     }
 }

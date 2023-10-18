@@ -30,6 +30,7 @@ use ruma::events::AnySyncTimelineEvent;
 use ruma::{
     api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
     events::{
+        call::member::Membership,
         ignored_user_list::IgnoredUserListEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
         room::{
@@ -1015,6 +1016,38 @@ impl RoomInfo {
 
     fn topic(&self) -> Option<&str> {
         Some(&self.base_info.topic.as_ref()?.as_original()?.content.topic)
+    }
+
+    /// Get a list of all the valid (non expired) matrixRTC memberships and associated UserId's in this room.
+    fn matrix_rtc_memberships(&self) -> Vec<(OwnedUserId, &Membership)> {
+        self.base_info
+            .rtc_member
+            .iter()
+            .filter_map(|(user_id, ev)| match ev.as_original() {
+                Some(ev) => Some(
+                    ev.content.memberships(None).into_iter().map(move |m| (user_id.clone(), m)),
+                ),
+                _ => None,
+            })
+            .flatten()
+            .collect()
+    }
+
+    /// Similar to `matrix_rtc_memberships` but only returns Memberships with application "m.call" and scope "m.room"
+    fn room_call_memberships(&self) -> Vec<(OwnedUserId, &Membership)> {
+        self.matrix_rtc_memberships().into_iter().filter(|(_user_id, m)| m.is_room_call()).collect()
+    }
+
+    /// Is there a non expired membership with application "m.call" and scope "m.room" in this room
+    fn has_room_call(&self) -> bool {
+        !self.room_call_memberships().is_empty()
+    }
+
+    /// Returns a Vec of userId's that participate in the room call. (matrix_rtc memberships with application
+    /// "m.call" and scope "m.room" are considered). A user can occur twice if they join with two devices.
+    /// (convert to a set depending if the different users are required or the amount of sessions).
+    fn room_call_participants(&self) -> Vec<OwnedUserId> {
+        self.room_call_memberships().iter().map(|(user_id, _)| user_id.clone()).collect()
     }
 }
 
