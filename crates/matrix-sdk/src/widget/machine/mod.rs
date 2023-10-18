@@ -40,8 +40,8 @@ use self::{
     incoming::{IncomingWidgetMessage, IncomingWidgetMessageKind},
     openid::{OpenIdResponse, OpenIdState},
     to_widget::{
-        NotifyOpenIdChanged, NotifyPermissionsChanged, RequestCapabilities, ToWidgetRequest,
-        ToWidgetRequestHandle, ToWidgetResponse,
+        NotifyNewMatrixEvent, NotifyOpenIdChanged, NotifyPermissionsChanged, RequestCapabilities,
+        ToWidgetRequest, ToWidgetRequestHandle, ToWidgetResponse,
     },
 };
 #[cfg(doc)]
@@ -143,8 +143,29 @@ impl WidgetMachine {
             IncomingMessage::MatrixDriverResponse { request_id, response } => {
                 self.process_matrix_driver_response(request_id, response);
             }
-            IncomingMessage::MatrixEventReceived(_) => {
-                error!("processing incoming matrix events not yet implemented");
+            IncomingMessage::MatrixEventReceived(event) => {
+                let CapabilitiesState::Negotiated(_capabilities) = &self.capabilities else {
+                    error!("Received matrix event before capabilities negotiation");
+                    return;
+                };
+
+                // TODO: We probably are expected to use `capabilities.read`
+                // filters here before really sending this stuff back to the
+                // widget.
+                // if !capabilities.read.iter().any(|filter| filter.matches(&event)) {
+                //     error!("Received matrix event that is not allowed by the capabilities");
+                //     return;
+                // }
+
+                let event = match serde_json::to_value(event) {
+                    Ok(e) => e,
+                    Err(e) => {
+                        error!("Failed to serialize event: {e}");
+                        return;
+                    }
+                };
+
+                self.send_to_widget_request(NotifyNewMatrixEvent(event));
             }
         }
     }
@@ -478,6 +499,14 @@ impl WidgetMachine {
     }
 
     fn negotiate_capabilities(&mut self) {
+        if let CapabilitiesState::Negotiated(capabilities) = &self.capabilities {
+            if !capabilities.read.is_empty() {
+                if let Err(err) = self.actions_sender.send(Action::Unsubscribe) {
+                    error!("Failed to send action: {err}");
+                }
+            }
+        }
+
         self.capabilities = CapabilitiesState::Negotiating;
 
         self.send_to_widget_request(RequestCapabilities {})
@@ -493,6 +522,12 @@ impl WidgetMachine {
                             error!("Acquiring capabilities failed: {e}");
                             Capabilities::default()
                         });
+
+                        if !approved.read.is_empty() {
+                            if let Err(err) = machine.actions_sender.send(Action::Subscribe) {
+                                error!("Failed to send action: {err}");
+                            }
+                        }
 
                         machine.capabilities = CapabilitiesState::Negotiated(approved.clone());
                         machine.send_to_widget_request(NotifyPermissionsChanged {
