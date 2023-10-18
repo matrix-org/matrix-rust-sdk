@@ -17,8 +17,10 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(super) enum FromWidgetRequest {}
+#[serde(tag = "action", rename_all = "snake_case", content = "data")]
+pub(super) enum FromWidgetRequest {
+    ContentLoaded {},
+}
 
 #[derive(Serialize)]
 pub(super) struct FromWidgetErrorResponse {

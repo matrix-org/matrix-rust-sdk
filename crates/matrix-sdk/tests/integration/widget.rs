@@ -157,7 +157,7 @@ async fn negotiate_capabilities_immediately() {
 }
 
 #[async_test]
-#[ignore = "widget API is not yet fully implemented"]
+#[allow(unused)] // test is incomplete
 async fn read_messages() {
     let (mock_server, driver_handle) = run_test_driver(true).await;
 
@@ -197,6 +197,10 @@ async fn read_messages() {
         // ACK the request
         send_response(&driver_handle, request_id, "notify_capabilities", caps, json!({})).await;
     }
+
+    // No messages from the driver
+    assert_matches!(recv_message(&driver_handle).now_or_never(), None);
+    return; // TODO: Test ends here for now
 
     {
         let response_json = json!({

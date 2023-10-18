@@ -17,7 +17,7 @@
 #![warn(unreachable_pub)]
 
 use indexmap::{map::Entry, IndexMap};
-use ruma::serde::Raw;
+use ruma::serde::{JsonObject, Raw};
 use serde::Serialize;
 use serde_json::value::RawValue as RawJsonValue;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
@@ -134,7 +134,12 @@ impl WidgetMachine {
             }
         };
 
-        match request {}
+        match request {
+            FromWidgetRequest::ContentLoaded {} => {
+                self.send_from_widget_response(raw_request, JsonObject::new());
+                self.negotiate_capabilities();
+            }
+        }
     }
 
     #[instrument(skip_all, fields(?request_id))]
