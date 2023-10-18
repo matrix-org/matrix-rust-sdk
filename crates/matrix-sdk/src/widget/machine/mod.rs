@@ -20,7 +20,7 @@ use indexmap::{map::Entry, IndexMap};
 use serde::Serialize;
 use serde_json::value::RawValue as RawJsonValue;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
-use tracing::{error, instrument, warn};
+use tracing::{error, instrument, trace, warn};
 use uuid::Uuid;
 
 use self::{
@@ -217,7 +217,10 @@ impl WidgetMachine {
         }
 
         if let Some(response_fn) = request.response_fn {
+            trace!("Calling response_fn");
             response_fn(response.response_data, self);
+        } else {
+            trace!("No response_fn registered");
         }
     }
 
@@ -240,7 +243,10 @@ impl WidgetMachine {
         };
 
         if let Some(response_fn) = request.response_fn {
+            trace!("Calling response_fn");
             response_fn(response, self);
+        } else {
+            trace!("No response_fn registered");
         }
     }
 }
