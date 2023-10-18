@@ -34,8 +34,8 @@ use self::{
 
 mod actions;
 mod driver_req;
-mod events;
 mod from_widget;
+mod incoming;
 mod openid;
 #[cfg(test)]
 mod tests;
@@ -43,7 +43,7 @@ mod to_widget;
 
 pub(crate) use self::{
     actions::{Action, MatrixDriverRequestData, MatrixDriverResponse, SendEventCommand},
-    events::Event,
+    incoming::IncomingMessage,
 };
 #[cfg(doc)]
 use super::WidgetDriver;
@@ -165,15 +165,15 @@ impl WidgetMachine {
     /// Processes an incoming event (an incoming raw message from a widget,
     /// or a data produced as a result of a previously sent `Action`).
     /// Produceses a list of actions that the client must perform.
-    pub(crate) fn process(&mut self, event: Event) {
+    pub(crate) fn process(&mut self, event: IncomingMessage) {
         match event {
-            Event::MessageFromWidget(raw) => {
+            IncomingMessage::WidgetMessage(raw) => {
                 self.process_message_from_widget(&raw);
             }
-            Event::MatrixEventReceived(_) => {
+            IncomingMessage::MatrixEventReceived(_) => {
                 error!("processing incoming matrix events not yet implemented");
             }
-            Event::PermissionsAcquired(response) => {
+            IncomingMessage::PermissionsAcquired(response) => {
                 let Some(request) =
                     self.pending_matrix_driver_requests.remove(&response.request_id)
                 else {
@@ -185,16 +185,16 @@ impl WidgetMachine {
                 };
 
                 if let Some(response_fn) = request.response_fn {
-                    response_fn(Event::PermissionsAcquired(response), self);
+                    response_fn(IncomingMessage::PermissionsAcquired(response), self);
                 }
             }
-            Event::OpenIdReceived(_) => {
+            IncomingMessage::OpenIdReceived(_) => {
                 error!("processing open ID response not yet implemented");
             }
-            Event::MatrixEventRead(_) => {
+            IncomingMessage::MatrixEventRead(_) => {
                 error!("processing read matrix events not yet implemented");
             }
-            Event::MatrixEventSent(_) => {
+            IncomingMessage::MatrixEventSent(_) => {
                 error!("processing send-event response not yet implemented");
             }
         }
@@ -259,7 +259,7 @@ impl ToWidgetRequestMeta {
     }
 }
 
-type MatrixDriverResponseFn = Box<dyn FnOnce(Event, &mut WidgetMachine) + Send>;
+type MatrixDriverResponseFn = Box<dyn FnOnce(IncomingMessage, &mut WidgetMachine) + Send>;
 
 pub(crate) struct MatrixDriverRequestMeta {
     response_fn: Option<MatrixDriverResponseFn>,

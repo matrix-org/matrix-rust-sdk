@@ -18,7 +18,7 @@ use serde_json::{from_value, json, Value as JsonValue};
 use uuid::Uuid;
 
 use crate::widget::machine::{
-    Action, Event, MatrixDriverRequestData, MatrixDriverResponse, WidgetMachine,
+    Action, IncomingMessage, MatrixDriverRequestData, MatrixDriverResponse, WidgetMachine,
 };
 
 const WIDGET_ID: &str = "test-widget";
@@ -54,7 +54,7 @@ fn machine_can_negotiate_capabilities_immediately() {
             }),
         );
 
-        machine.process(Event::MessageFromWidget(json_string!({
+        machine.process(IncomingMessage::WidgetMessage(json_string!({
             "api": "toWidget",
             "widgetId": WIDGET_ID,
             "requestId": request_id,
@@ -80,7 +80,7 @@ fn machine_can_negotiate_capabilities_immediately() {
         );
 
         let response = MatrixDriverResponse::ok(request_id, permissions);
-        machine.process(Event::PermissionsAcquired(response));
+        machine.process(IncomingMessage::PermissionsAcquired(response));
     }
 
     // Inform the widget about the acquired permissions.
@@ -101,7 +101,7 @@ fn machine_can_negotiate_capabilities_immediately() {
             }),
         );
 
-        machine.process(Event::MessageFromWidget(json_string!({
+        machine.process(IncomingMessage::WidgetMessage(json_string!({
             "api": "toWidget",
             "widgetId": WIDGET_ID,
             "requestId": request_id,

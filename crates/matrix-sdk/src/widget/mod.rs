@@ -20,7 +20,7 @@ use tokio_util::sync::{CancellationToken, DropGuard};
 
 use self::{
     machine::{
-        Action, Event, MatrixDriverRequestData, MatrixDriverResponse, SendEventCommand,
+        Action, IncomingMessage, MatrixDriverRequestData, MatrixDriverResponse, SendEventCommand,
         WidgetMachine,
     },
     matrix::MatrixDriver,
@@ -133,7 +133,7 @@ impl WidgetDriver {
         let tx = events_tx.clone();
         tokio::spawn(async move {
             while let Ok(msg) = self.from_widget_rx.recv().await {
-                let _ = tx.send(Event::MessageFromWidget(msg));
+                let _ = tx.send(IncomingMessage::WidgetMessage(msg));
             }
         });
 
@@ -158,30 +158,35 @@ impl WidgetDriver {
                                 .acquire_permissions(cmd.desired_permissions.clone())
                                 .await;
 
-                            Event::PermissionsAcquired(MatrixDriverResponse::ok(id, obtained))
+                            IncomingMessage::PermissionsAcquired(MatrixDriverResponse::ok(
+                                id, obtained,
+                            ))
                         }
                         MatrixDriverRequestData::GetOpenId => {
                             let result =
                                 MatrixDriverResponse::new(id, matrix_driver.get_open_id().await);
-                            Event::OpenIdReceived(result)
+                            IncomingMessage::OpenIdReceived(result)
                         }
                         MatrixDriverRequestData::ReadMessageLikeEvent(cmd) => {
                             let events = matrix_driver
                                 .read_message_like_events(cmd.event_type.clone(), cmd.limit)
                                 .await;
-                            Event::MatrixEventRead(MatrixDriverResponse::new(id, events))
+                            IncomingMessage::MatrixEventRead(MatrixDriverResponse::new(id, events))
                         }
                         MatrixDriverRequestData::ReadStateEvent(cmd) => {
                             let events = matrix_driver
                                 .read_state_events(cmd.event_type.clone(), &cmd.state_key)
                                 .await;
-                            Event::MatrixEventRead(MatrixDriverResponse::new(id, events))
+                            IncomingMessage::MatrixEventRead(MatrixDriverResponse::new(id, events))
                         }
                         MatrixDriverRequestData::SendMatrixEvent(cmd) => {
                             let SendEventCommand { event_type, state_key, content } = cmd.clone();
                             let matrix_event_id =
                                 matrix_driver.send(event_type, state_key, content).await;
-                            Event::MatrixEventSent(MatrixDriverResponse::new(id, matrix_event_id))
+                            IncomingMessage::MatrixEventSent(MatrixDriverResponse::new(
+                                id,
+                                matrix_event_id,
+                            ))
                         }
                     };
 
@@ -202,7 +207,7 @@ impl WidgetDriver {
                                 tokio::select! {
                                     _ = stop_forwarding.cancelled() => { return }
                                     Some(event) = matrix.recv() => {
-                                        let _ = events_tx.send(Event::MatrixEventReceived(event));
+                                        let _ = events_tx.send(IncomingMessage::MatrixEventReceived(event));
                                     }
                                 }
                             }

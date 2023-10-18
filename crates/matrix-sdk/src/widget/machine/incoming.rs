@@ -25,9 +25,9 @@ use super::{
 use crate::widget::Permissions;
 
 /// Incoming event that the client API must process.
-pub(crate) enum Event {
+pub(crate) enum IncomingMessage {
     /// An incoming raw message from the widget.
-    MessageFromWidget(String),
+    WidgetMessage(String),
     /// Matrix event received. This one is delivered as a result of client
     /// subscribing to the events (`Action::Subscribe` command).
     MatrixEventReceived(Raw<AnyTimelineEvent>),
