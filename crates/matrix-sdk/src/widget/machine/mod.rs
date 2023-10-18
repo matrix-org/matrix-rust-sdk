@@ -59,12 +59,7 @@ pub(crate) struct WidgetMachine {
     actions_sender: UnboundedSender<Action>,
     pending_to_widget_requests: IndexMap<Uuid, ToWidgetRequestMeta>,
     pending_matrix_driver_requests: IndexMap<Uuid, MatrixDriverRequestMeta>,
-    capabilities: Option<Capabilities>,
-}
-
-enum Capabilities {
-    Negotiating,
-    Negotiated(Permissions),
+    capabilities: CapabilitiesState,
 }
 
 impl WidgetMachine {
@@ -81,7 +76,7 @@ impl WidgetMachine {
             actions_sender,
             pending_to_widget_requests: IndexMap::new(),
             pending_matrix_driver_requests: IndexMap::new(),
-            capabilities: None,
+            capabilities: CapabilitiesState::Unset,
         };
 
         if !init_on_content_load {
@@ -148,7 +143,7 @@ impl WidgetMachine {
             }
             FromWidgetRequest::ContentLoaded {} => {
                 self.send_from_widget_response(raw_request, JsonObject::new());
-                if self.capabilities.is_none() {
+                if self.capabilities.is_unset() {
                     self.negotiate_capabilities();
                 }
             }
@@ -311,7 +306,7 @@ impl WidgetMachine {
     }
 
     fn negotiate_capabilities(&mut self) {
-        self.capabilities = Some(Capabilities::Negotiating);
+        self.capabilities = CapabilitiesState::Negotiating;
 
         self.send_to_widget_request(RequestPermissions {})
             // TODO: Each request can actually fail here, take this into an account.
@@ -322,7 +317,7 @@ impl WidgetMachine {
                     })
                     .then(|granted_permissions, machine| {
                         machine.capabilities =
-                            Some(Capabilities::Negotiated(granted_permissions.clone()));
+                            CapabilitiesState::Negotiated(granted_permissions.clone());
                         machine.send_to_widget_request(NotifyPermissionsChanged {
                             approved: granted_permissions,
                             requested: desired_permissions,
@@ -355,5 +350,18 @@ pub(crate) struct MatrixDriverRequestMeta {
 impl MatrixDriverRequestMeta {
     fn new() -> Self {
         Self { response_fn: None }
+    }
+}
+
+enum CapabilitiesState {
+    Unset,
+    Negotiating,
+    Negotiated(Permissions),
+}
+
+impl CapabilitiesState {
+    #[must_use]
+    fn is_unset(&self) -> bool {
+        matches!(self, Self::Unset)
     }
 }
