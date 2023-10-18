@@ -28,7 +28,7 @@ use super::{
     incoming::MatrixDriverResponse,
     MatrixDriverRequestMeta, SendEventCommand, WidgetMachine,
 };
-use crate::widget::Permissions;
+use crate::widget::Capabilities;
 
 /// A handle to a pending `toWidget` request.
 pub(crate) struct MatrixDriverRequestHandle<'m, T> {
@@ -71,27 +71,27 @@ pub(crate) trait FromMatrixDriverResponse: Sized {
     fn from_response(_: MatrixDriverResponse) -> Option<Self>;
 }
 
-/// Ask the client (permission provider) to acquire given permissions
-/// from the user. The client must eventually respond with granted permissions.
+/// Ask the client (capability provider) to acquire given capabilities
+/// from the user. The client must eventually respond with granted capabilities.
 #[derive(Debug)]
-pub(crate) struct AcquirePermissions {
-    pub(crate) desired_permissions: Permissions,
+pub(crate) struct AcquireCapabilities {
+    pub(crate) desired_capabilities: Capabilities,
 }
 
-impl From<AcquirePermissions> for MatrixDriverRequestData {
-    fn from(value: AcquirePermissions) -> Self {
-        MatrixDriverRequestData::AcquirePermissions(value)
+impl From<AcquireCapabilities> for MatrixDriverRequestData {
+    fn from(value: AcquireCapabilities) -> Self {
+        MatrixDriverRequestData::AcquireCapabilities(value)
     }
 }
 
-impl MatrixDriverRequest for AcquirePermissions {
-    type Response = Permissions;
+impl MatrixDriverRequest for AcquireCapabilities {
+    type Response = Capabilities;
 }
 
-impl FromMatrixDriverResponse for Permissions {
+impl FromMatrixDriverResponse for Capabilities {
     fn from_response(ev: MatrixDriverResponse) -> Option<Self> {
         match ev {
-            MatrixDriverResponse::PermissionsAcquired(response) => Some(response),
+            MatrixDriverResponse::CapabilitiesAcquired(response) => Some(response),
             _ => {
                 error!("bug in MatrixDriver, received wrong event response");
                 None

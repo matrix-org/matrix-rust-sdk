@@ -20,7 +20,7 @@ use serde_json::value::RawValue as RawJsonValue;
 use uuid::Uuid;
 
 use super::{from_widget::FromWidgetRequest, to_widget::ToWidgetResponse};
-use crate::widget::Permissions;
+use crate::widget::Capabilities;
 
 /// Incoming event that the client API must process.
 pub(crate) enum IncomingMessage {
@@ -44,9 +44,10 @@ pub(crate) enum IncomingMessage {
 }
 
 pub(crate) enum MatrixDriverResponse {
-    /// Client acquired permissions from the user.
+    /// Client acquired capabilities from the user.
+    ///
     /// A response to an `Action::AcquirePermissions` command.
-    PermissionsAcquired(Permissions),
+    CapabilitiesAcquired(Capabilities),
     /// Client got OpenId token for a given request ID.
     /// A response to an `Action::GetOpenId` command.
     OpenIdReceived(request_openid_token::v3::Response),

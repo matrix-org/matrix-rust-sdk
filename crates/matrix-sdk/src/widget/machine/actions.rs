@@ -17,7 +17,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use uuid::Uuid;
 
-use super::driver_req::AcquirePermissions;
+use super::driver_req::AcquireCapabilities;
+#[cfg(doc)]
+use super::incoming::MatrixDriverResponse;
 use crate::widget::StateKeySelector;
 
 /// Action (a command) that client (driver) must perform.
@@ -88,9 +90,12 @@ pub(crate) struct SendEventCommand {
 #[derive(Debug)]
 #[allow(dead_code)]
 pub(crate) enum MatrixDriverRequestData {
-    /// Acquire permissions from the user given the set of desired permissions.
-    /// Must eventually be answered with `Event::PermissionsAcquired`.
-    AcquirePermissions(AcquirePermissions),
+    /// Acquire capabilities from the user given the set of desired
+    /// capabilities.
+    ///
+    /// Must eventually be answered with
+    /// [`MatrixDriverResponse::CapabilitiesAcquired`].
+    AcquireCapabilities(AcquireCapabilities),
 
     /// Get OpenId token for a given request ID.
     GetOpenId,

@@ -19,7 +19,7 @@ use serde_json::value::RawValue as RawJsonValue;
 use tracing::error;
 
 use super::{ToWidgetRequestMeta, WidgetMachine};
-use crate::widget::Permissions;
+use crate::widget::Capabilities;
 
 /// A handle to a pending `toWidget` request.
 pub(crate) struct ToWidgetRequestHandle<'m, T> {
@@ -84,14 +84,14 @@ pub(crate) struct RequestPermissions {}
 
 impl ToWidgetRequest for RequestPermissions {
     const ACTION: &'static str = "capabilities";
-    type ResponseData = Permissions;
+    type ResponseData = Capabilities;
 }
 
 /// Notify the widget that the list of the granted capabilities has changed.
 #[derive(Serialize)]
 pub(crate) struct NotifyPermissionsChanged {
-    pub(crate) requested: Permissions,
-    pub(crate) approved: Permissions,
+    pub(crate) requested: Capabilities,
+    pub(crate) approved: Capabilities,
 }
 
 impl ToWidgetRequest for NotifyPermissionsChanged {

@@ -27,15 +27,15 @@ use self::{
 };
 use crate::{room::Room, Result};
 
+mod capabilities;
 mod filter;
 mod machine;
 mod matrix;
-mod permissions;
 mod settings;
 
 pub use self::{
+    capabilities::{Capabilities, CapabilitiesProvider},
     filter::{EventFilter, MessageLikeEventFilter, StateEventFilter},
-    permissions::{Permissions, PermissionsProvider},
     settings::{ClientProperties, VirtualElementCallWidgetOptions, WidgetSettings},
 };
 
@@ -119,7 +119,7 @@ impl WidgetDriver {
     pub async fn run(
         self,
         room: Room,
-        permissions_provider: impl PermissionsProvider,
+        capabilities_provider: impl CapabilitiesProvider,
     ) -> Result<(), ()> {
         let (mut client_api, mut actions) = WidgetMachine::new(
             self.settings.widget_id().to_owned(),
@@ -153,12 +153,12 @@ impl WidgetDriver {
                 Action::SendToWidget(msg) => self.to_widget_tx.send(msg).await.map_err(|_| ())?,
                 Action::MatrixDriverRequest { request_id, data } => {
                     let response = match data {
-                        MatrixDriverRequestData::AcquirePermissions(cmd) => {
-                            let obtained = permissions_provider
-                                .acquire_permissions(cmd.desired_permissions.clone())
+                        MatrixDriverRequestData::AcquireCapabilities(cmd) => {
+                            let obtained = capabilities_provider
+                                .acquire_capabilities(cmd.desired_capabilities.clone())
                                 .await;
 
-                            Ok(MatrixDriverResponse::PermissionsAcquired(obtained))
+                            Ok(MatrixDriverResponse::CapabilitiesAcquired(obtained))
                         }
 
                         MatrixDriverRequestData::GetOpenId => matrix_driver
