@@ -370,6 +370,18 @@ impl Room {
         self.inner.read().topic().map(ToOwned::to_owned)
     }
 
+    /// Is there a non expired membership with application "m.call" and scope "m.room" in this room
+    pub fn has_room_call(&self) -> bool {
+        self.inner.read().has_room_call()
+    }
+
+    /// Returns a Vec of userId's that participate in the room call. (matrix_rtc memberships with application
+    /// "m.call" and scope "m.room" are considered). A user can occur twice if they join with two devices.
+    /// (convert to a set depending if the different users are required or the amount of sessions).
+    pub fn room_call_participants(&self) -> Vec<OwnedUserId> {
+        self.inner.read().room_call_participants()
+    }
+
     /// Return the cached display name of the room if it was provided via sync,
     /// or otherwise calculate it, taking into account its name, aliases and
     /// members.
