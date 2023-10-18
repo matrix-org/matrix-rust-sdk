@@ -27,7 +27,7 @@ use tracing::error;
 use super::{
     actions::MatrixDriverRequestData,
     //actions::{ReadMessageLikeEventCommand, SendEventCommand},
-    Event,
+    IncomingMessage,
     MatrixDriverRequestMeta,
     WidgetMachine,
 };
@@ -57,7 +57,7 @@ where
     ) {
         if let Some(request_meta) = self.request_meta {
             request_meta.response_fn = Some(Box::new(move |event, machine| {
-                if let Some(response_data) = T::from_event(event) {
+                if let Some(response_data) = T::from_incoming_message(event) {
                     response_handler(response_data, machine)
                 }
             }));
@@ -71,7 +71,7 @@ pub(crate) trait MatrixDriverRequest: Into<MatrixDriverRequestData> {
 }
 
 pub(crate) trait MatrixDriverResponse: Sized {
-    fn from_event(_: Event) -> Option<Self>;
+    fn from_incoming_message(_: IncomingMessage) -> Option<Self>;
 }
 
 /// Ask the client (permission provider) to acquire given permissions
@@ -92,14 +92,16 @@ impl MatrixDriverRequest for AcquirePermissions {
 }
 
 impl MatrixDriverResponse for Permissions {
-    fn from_event(ev: Event) -> Option<Self> {
+    fn from_incoming_message(ev: IncomingMessage) -> Option<Self> {
         match ev {
-            Event::PermissionsAcquired(response) => response.result.ok(),
-            Event::MessageFromWidget(_) | Event::MatrixEventReceived(_) => {
+            IncomingMessage::PermissionsAcquired(response) => response.result.ok(),
+            IncomingMessage::WidgetMessage(_) | IncomingMessage::MatrixEventReceived(_) => {
                 error!("this should be unreachable, no ID to match");
                 None
             }
-            Event::OpenIdReceived(_) | Event::MatrixEventSent(_) | Event::MatrixEventRead(_) => {
+            IncomingMessage::OpenIdReceived(_)
+            | IncomingMessage::MatrixEventSent(_)
+            | IncomingMessage::MatrixEventRead(_) => {
                 error!("bug in MatrixDriver, received wrong event response");
                 None
             }
