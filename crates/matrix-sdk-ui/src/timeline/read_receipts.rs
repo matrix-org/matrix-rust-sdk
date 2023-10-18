@@ -19,7 +19,6 @@ use std::{
 
 use eyeball_im::ObservableVectorTransaction;
 use indexmap::IndexMap;
-use matrix_sdk::Room;
 use ruma::{
     events::receipt::{Receipt, ReceiptEventContent, ReceiptThread, ReceiptType},
     EventId, OwnedEventId, OwnedUserId, UserId,
@@ -455,13 +454,15 @@ impl TimelineInnerState {
     /// Get the latest read receipt for the given user.
     ///
     /// Useful to get the latest read receipt, whether it's private or public.
-    pub(super) async fn latest_user_read_receipt(
+    pub(super) async fn latest_user_read_receipt<P: RoomDataProvider>(
         &self,
         user_id: &UserId,
-        room: &Room,
+        room_data_provider: &P,
     ) -> Option<(OwnedEventId, Receipt)> {
-        let public_read_receipt = self.user_receipt(user_id, ReceiptType::Read, room).await;
-        let private_read_receipt = self.user_receipt(user_id, ReceiptType::ReadPrivate, room).await;
+        let public_read_receipt =
+            self.user_receipt(user_id, ReceiptType::Read, room_data_provider).await;
+        let private_read_receipt =
+            self.user_receipt(user_id, ReceiptType::ReadPrivate, room_data_provider).await;
 
         // If we only have one, return it.
         let Some(pub_receipt) = &public_read_receipt else {
@@ -487,11 +488,11 @@ impl TimelineInnerState {
 impl TimelineInnerMetadata {
     /// Get the unthreaded receipt of the given type for the given user in the
     /// timeline.
-    pub(super) async fn user_receipt(
+    pub(super) async fn user_receipt<P: RoomDataProvider>(
         &self,
         user_id: &UserId,
         receipt_type: ReceiptType,
-        room: &Room,
+        room_data_provider: &P,
     ) -> Option<(OwnedEventId, Receipt)> {
         if let Some(receipt) = self
             .read_receipts
@@ -504,21 +505,13 @@ impl TimelineInnerMetadata {
             return Some(receipt);
         }
 
-        let unthreaded_read_receipt = room
+        let unthreaded_read_receipt = room_data_provider
             .user_receipt(receipt_type.clone(), ReceiptThread::Unthreaded, user_id)
-            .await
-            .unwrap_or_else(|e| {
-                error!("Could not get unthreaded user read receipt of type {receipt_type:?}: {e}");
-                None
-            });
+            .await;
 
-        let main_thread_read_receipt = room
+        let main_thread_read_receipt = room_data_provider
             .user_receipt(receipt_type.clone(), ReceiptThread::Main, user_id)
-            .await
-            .unwrap_or_else(|e| {
-                error!("Could not get main thread user read receipt of type {receipt_type:?}: {e}");
-                None
-            });
+            .await;
 
         // If we only have one, return it.
         let Some(unthreaded_receipt) = &unthreaded_read_receipt else {
