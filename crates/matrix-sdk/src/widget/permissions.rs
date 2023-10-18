@@ -19,6 +19,7 @@ use std::fmt;
 
 use async_trait::async_trait;
 use serde::{ser::SerializeSeq, Deserialize, Deserializer, Serialize, Serializer};
+use tracing::debug;
 
 use super::{EventFilter, MessageLikeEventFilter, StateEventFilter};
 
@@ -158,7 +159,10 @@ impl<'de> Deserialize<'de> for Permissions {
                     Some((SEND_STATE, filter_s)) => {
                         Ok(Permission::Send(EventFilter::State(parse_state_event_filter(filter_s))))
                     }
-                    _ => Ok(Self::Unknown),
+                    _ => {
+                        debug!("Unknown capability `{s}`");
+                        Ok(Self::Unknown)
+                    }
                 }
             }
         }
