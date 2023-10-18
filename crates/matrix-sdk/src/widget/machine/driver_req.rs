@@ -26,8 +26,8 @@ use tracing::error;
 
 use super::{
     actions::MatrixDriverRequestData,
+    incoming::MatrixDriverResponse,
     //actions::{ReadMessageLikeEventCommand, SendEventCommand},
-    IncomingMessage,
     MatrixDriverRequestMeta,
     WidgetMachine,
 };
@@ -41,7 +41,7 @@ pub(crate) struct MatrixDriverRequestHandle<'m, T> {
 
 impl<'m, T> MatrixDriverRequestHandle<'m, T>
 where
-    T: MatrixDriverResponse,
+    T: FromMatrixDriverResponse,
 {
     pub(crate) fn new(request_meta: &'m mut MatrixDriverRequestMeta) -> Self {
         Self { request_meta: Some(request_meta), _phantom: PhantomData }
@@ -56,8 +56,8 @@ where
         response_handler: impl FnOnce(T, &mut WidgetMachine) + Send + 'static,
     ) {
         if let Some(request_meta) = self.request_meta {
-            request_meta.response_fn = Some(Box::new(move |event, machine| {
-                if let Some(response_data) = T::from_incoming_message(event) {
+            request_meta.response_fn = Some(Box::new(move |response, machine| {
+                if let Some(response_data) = T::from_response(response) {
                     response_handler(response_data, machine)
                 }
             }));
@@ -67,11 +67,11 @@ where
 
 /// Represents a request that the widget API state machine can send.
 pub(crate) trait MatrixDriverRequest: Into<MatrixDriverRequestData> {
-    type Response: MatrixDriverResponse;
+    type Response: FromMatrixDriverResponse;
 }
 
-pub(crate) trait MatrixDriverResponse: Sized {
-    fn from_incoming_message(_: IncomingMessage) -> Option<Self>;
+pub(crate) trait FromMatrixDriverResponse: Sized {
+    fn from_response(_: MatrixDriverResponse) -> Option<Self>;
 }
 
 /// Ask the client (permission provider) to acquire given permissions
@@ -91,17 +91,11 @@ impl MatrixDriverRequest for AcquirePermissions {
     type Response = Permissions;
 }
 
-impl MatrixDriverResponse for Permissions {
-    fn from_incoming_message(ev: IncomingMessage) -> Option<Self> {
+impl FromMatrixDriverResponse for Permissions {
+    fn from_response(ev: MatrixDriverResponse) -> Option<Self> {
         match ev {
-            IncomingMessage::PermissionsAcquired(response) => response.result.ok(),
-            IncomingMessage::WidgetMessage(_) | IncomingMessage::MatrixEventReceived(_) => {
-                error!("this should be unreachable, no ID to match");
-                None
-            }
-            IncomingMessage::OpenIdReceived(_)
-            | IncomingMessage::MatrixEventSent(_)
-            | IncomingMessage::MatrixEventRead(_) => {
+            MatrixDriverResponse::PermissionsAcquired(response) => Some(response),
+            _ => {
                 error!("bug in MatrixDriver, received wrong event response");
                 None
             }

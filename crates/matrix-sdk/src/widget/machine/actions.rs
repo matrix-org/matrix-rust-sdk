@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::error::Error;
-
 use ruma::events::{MessageLikeEventType, StateEventType, TimelineEventType};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
@@ -105,27 +103,4 @@ pub(crate) enum MatrixDriverRequestData {
 
     /// Send matrix event that corresponds to the given description.
     SendMatrixEvent(SendEventCommand),
-}
-
-/// The result of the execution of a command. Note that this type can only be
-/// constructed within this module, i.e. it can only be constructed as a result
-/// of a command that has been sent from this module, which means that the
-/// client (driver) won't be able to send "invalid" commands, because they could
-/// only be generated from a `Command` instance.
-#[allow(dead_code)] // TODO: Remove once results are used.
-pub(crate) struct MatrixDriverResponse<T> {
-    /// ID of the command that was executed. See `Command::id` for more details.
-    pub(super) request_id: Uuid,
-    /// Result of the execution of the command.
-    pub(super) result: Result<T, String>,
-}
-
-impl<T> MatrixDriverResponse<T> {
-    pub(crate) fn new<E: Error>(request_id: Uuid, result: Result<T, E>) -> Self {
-        Self { request_id, result: result.map_err(|e| e.to_string()) }
-    }
-
-    pub(crate) fn ok(request_id: Uuid, value: T) -> Self {
-        Self { request_id, result: Ok(value) }
-    }
 }

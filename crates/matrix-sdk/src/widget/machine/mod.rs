@@ -25,7 +25,7 @@ use uuid::Uuid;
 
 use self::{
     driver_req::{AcquirePermissions, MatrixDriverRequest, MatrixDriverRequestHandle},
-    events::IncomingWidgetMessage,
+    incoming::IncomingWidgetMessage,
     to_widget::{
         NotifyPermissionsChanged, RequestPermissions, ToWidgetRequest, ToWidgetRequestHandle,
         ToWidgetResponse,
@@ -42,8 +42,8 @@ mod tests;
 mod to_widget;
 
 pub(crate) use self::{
-    actions::{Action, MatrixDriverRequestData, MatrixDriverResponse, SendEventCommand},
-    incoming::IncomingMessage,
+    actions::{Action, MatrixDriverRequestData, SendEventCommand},
+    incoming::{IncomingMessage, MatrixDriverResponse},
 };
 #[cfg(doc)]
 use super::WidgetDriver;
@@ -162,40 +162,17 @@ impl WidgetMachine {
         MatrixDriverRequestHandle::new(meta)
     }
 
-    /// Processes an incoming event (an incoming raw message from a widget,
-    /// or a data produced as a result of a previously sent `Action`).
-    /// Produceses a list of actions that the client must perform.
+    /// Main entry point to drive the state machine.
     pub(crate) fn process(&mut self, event: IncomingMessage) {
         match event {
             IncomingMessage::WidgetMessage(raw) => {
                 self.process_message_from_widget(&raw);
             }
+            IncomingMessage::MatrixDriverResponse { request_id, response } => {
+                self.process_matrix_driver_response(request_id, response);
+            }
             IncomingMessage::MatrixEventReceived(_) => {
                 error!("processing incoming matrix events not yet implemented");
-            }
-            IncomingMessage::PermissionsAcquired(response) => {
-                let Some(request) =
-                    self.pending_matrix_driver_requests.remove(&response.request_id)
-                else {
-                    warn!(
-                        request_id = ?response.request_id,
-                        "Received response for an unknown request"
-                    );
-                    return;
-                };
-
-                if let Some(response_fn) = request.response_fn {
-                    response_fn(IncomingMessage::PermissionsAcquired(response), self);
-                }
-            }
-            IncomingMessage::OpenIdReceived(_) => {
-                error!("processing open ID response not yet implemented");
-            }
-            IncomingMessage::MatrixEventRead(_) => {
-                error!("processing read matrix events not yet implemented");
-            }
-            IncomingMessage::MatrixEventSent(_) => {
-                error!("processing send-event response not yet implemented");
             }
         }
     }
@@ -243,6 +220,29 @@ impl WidgetMachine {
             response_fn(response.response_data, self);
         }
     }
+
+    #[instrument(skip_all, fields(?request_id))]
+    fn process_matrix_driver_response(
+        &mut self,
+        request_id: Uuid,
+        response: Result<MatrixDriverResponse, String>,
+    ) {
+        let Some(request) = self.pending_matrix_driver_requests.remove(&request_id) else {
+            error!("Received response for an unknown request");
+            return;
+        };
+        let response = match response {
+            Ok(r) => r,
+            Err(e) => {
+                error!("Matrix driver request failed: {e}");
+                return;
+            }
+        };
+
+        if let Some(response_fn) = request.response_fn {
+            response_fn(response, self);
+        }
+    }
 }
 
 type ToWidgetResponseFn = Box<dyn FnOnce(Box<RawJsonValue>, &mut WidgetMachine) + Send>;
@@ -259,7 +259,7 @@ impl ToWidgetRequestMeta {
     }
 }
 
-type MatrixDriverResponseFn = Box<dyn FnOnce(IncomingMessage, &mut WidgetMachine) + Send>;
+type MatrixDriverResponseFn = Box<dyn FnOnce(MatrixDriverResponse, &mut WidgetMachine) + Send>;
 
 pub(crate) struct MatrixDriverRequestMeta {
     response_fn: Option<MatrixDriverResponseFn>,
