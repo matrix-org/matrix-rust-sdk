@@ -26,7 +26,7 @@ use uuid::Uuid;
 
 use self::{
     driver_req::{AcquirePermissions, MatrixDriverRequest, MatrixDriverRequestHandle},
-    from_widget::{FromWidgetErrorResponse, FromWidgetRequest},
+    from_widget::{FromWidgetErrorResponse, FromWidgetRequest, SupportedApiVersionsResponse},
     incoming::{IncomingWidgetMessage, IncomingWidgetMessageKind},
     to_widget::{
         NotifyPermissionsChanged, RequestPermissions, ToWidgetRequest, ToWidgetRequestHandle,
@@ -135,6 +135,9 @@ impl WidgetMachine {
         };
 
         match request {
+            FromWidgetRequest::SupportedApiVersions {} => {
+                self.send_from_widget_response(raw_request, SupportedApiVersionsResponse::new());
+            }
             FromWidgetRequest::ContentLoaded {} => {
                 self.send_from_widget_response(raw_request, JsonObject::new());
                 self.negotiate_capabilities();
