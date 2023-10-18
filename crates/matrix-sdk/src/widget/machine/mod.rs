@@ -100,6 +100,8 @@ impl WidgetMachine {
         let message = match serde_json::from_str::<IncomingWidgetMessage>(raw) {
             Ok(msg) => msg,
             Err(e) => {
+                // TODO: There is a special error handling required for the invalid
+                // messages. Refer to the `widget-api-poc` for implementation notes.
                 error!("Failed to parse incoming message: {e}");
                 return;
             }
