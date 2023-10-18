@@ -26,19 +26,22 @@ use ruma::{
 use serde::Serialize;
 use serde_json::value::RawValue as RawJsonValue;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
-use tracing::{debug, error, info_span, instrument, trace, warn};
+use tracing::{debug, error, instrument, trace, warn};
 use uuid::Uuid;
 
 use self::{
-    driver_req::{AcquireCapabilities, MatrixDriverRequest, MatrixDriverRequestHandle},
+    driver_req::{
+        AcquireCapabilities, MatrixDriverRequest, MatrixDriverRequestHandle, RequestOpenId,
+    },
     from_widget::{
         FromWidgetErrorResponse, FromWidgetRequest, ReadEventRequest, ReadEventResponse,
         SendEventResponse, SupportedApiVersionsResponse,
     },
     incoming::{IncomingWidgetMessage, IncomingWidgetMessageKind},
+    openid::{OpenIdResponse, OpenIdState},
     to_widget::{
-        NotifyPermissionsChanged, RequestCapabilities, ToWidgetRequest, ToWidgetRequestHandle,
-        ToWidgetResponse,
+        NotifyOpenIdChanged, NotifyPermissionsChanged, RequestCapabilities, ToWidgetRequest,
+        ToWidgetRequestHandle, ToWidgetResponse,
     },
 };
 #[cfg(doc)]
@@ -164,10 +167,7 @@ impl WidgetMachine {
 
         match message.kind {
             IncomingWidgetMessageKind::Request(request) => {
-                let _guard =
-                    info_span!("process_from_widget_request", request_id = ?message.request_id)
-                        .entered();
-                self.process_from_widget_request(request);
+                self.process_from_widget_request(message.request_id, request);
             }
             IncomingWidgetMessageKind::Response(response) => {
                 self.process_to_widget_response(message.request_id, response);
@@ -175,7 +175,12 @@ impl WidgetMachine {
         }
     }
 
-    fn process_from_widget_request(&mut self, raw_request: Raw<FromWidgetRequest>) {
+    #[instrument(skip_all, fields(?request_id))]
+    fn process_from_widget_request(
+        &mut self,
+        request_id: String,
+        raw_request: Raw<FromWidgetRequest>,
+    ) {
         let request = match raw_request.deserialize() {
             Ok(r) => r,
             Err(e) => {
@@ -202,6 +207,16 @@ impl WidgetMachine {
 
             FromWidgetRequest::SendEvent(req) => {
                 self.process_send_event_request(req, raw_request);
+            }
+
+            FromWidgetRequest::GetOpenId {} => {
+                self.send_from_widget_response(raw_request, OpenIdResponse::Pending);
+                self.send_matrix_driver_request(RequestOpenId).then(|openid, machine| {
+                    // TODO: The request can actually fail here, rewrite the
+                    // `send_matrix_driver_request`, so that we can handle errors here.
+                    let response = OpenIdResponse::Allowed(OpenIdState::new(request_id, openid));
+                    machine.send_to_widget_request(NotifyOpenIdChanged(response));
+                });
             }
         }
     }
