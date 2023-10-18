@@ -18,18 +18,15 @@
 
 use std::marker::PhantomData;
 
-//use ruma::{
-//    api::client::account::request_openid_token::v3::Response as
-// RumaOpenIdResponse,    events::AnyTimelineEvent, serde::Raw, OwnedEventId,
-//};
+use ruma::{
+    api::client::account::request_openid_token, events::AnyTimelineEvent, serde::Raw, OwnedEventId,
+};
 use tracing::error;
 
 use super::{
-    actions::MatrixDriverRequestData,
+    actions::{MatrixDriverRequestData, ReadMessageLikeEventCommand},
     incoming::MatrixDriverResponse,
-    //actions::{ReadMessageLikeEventCommand, SendEventCommand},
-    MatrixDriverRequestMeta,
-    WidgetMachine,
+    MatrixDriverRequestMeta, SendEventCommand, WidgetMachine,
 };
 use crate::widget::Permissions;
 
@@ -103,24 +100,82 @@ impl FromMatrixDriverResponse for Permissions {
     }
 }
 
-/*
 /// Request open ID from the Matrix client.
+#[derive(Debug)]
 pub(crate) struct RequestOpenId;
+
+impl From<RequestOpenId> for MatrixDriverRequestData {
+    fn from(_: RequestOpenId) -> Self {
+        MatrixDriverRequestData::GetOpenId
+    }
+}
+
 impl MatrixDriverRequest for RequestOpenId {
-    type Response = RumaOpenIdResponse;
+    type Response = request_openid_token::v3::Response;
+}
+
+impl FromMatrixDriverResponse for request_openid_token::v3::Response {
+    fn from_response(ev: MatrixDriverResponse) -> Option<Self> {
+        match ev {
+            MatrixDriverResponse::OpenIdReceived(response) => Some(response),
+            _ => {
+                error!("bug in MatrixDriver, received wrong event response");
+                None
+            }
+        }
+    }
 }
 
 /// Ask the client to read matrix event(s) that corresponds to the given
 /// description and return a list of events as a response.
+#[derive(Debug)]
 pub(crate) struct ReadMatrixEvent(pub(crate) ReadMessageLikeEventCommand);
+
+impl From<ReadMatrixEvent> for MatrixDriverRequestData {
+    fn from(value: ReadMatrixEvent) -> Self {
+        MatrixDriverRequestData::ReadMessageLikeEvent(value.0)
+    }
+}
+
 impl MatrixDriverRequest for ReadMatrixEvent {
     type Response = Vec<Raw<AnyTimelineEvent>>;
 }
 
+impl FromMatrixDriverResponse for Vec<Raw<AnyTimelineEvent>> {
+    fn from_response(ev: MatrixDriverResponse) -> Option<Self> {
+        match ev {
+            MatrixDriverResponse::MatrixEventRead(response) => Some(response),
+            _ => {
+                error!("bug in MatrixDriver, received wrong event response");
+                None
+            }
+        }
+    }
+}
+
 /// Ask the client to send matrix event that corresponds to the given
 /// description and return an event ID as a response.
+#[derive(Debug)]
 pub(crate) struct SendMatrixEvent(pub(crate) SendEventCommand);
+
+impl From<SendMatrixEvent> for MatrixDriverRequestData {
+    fn from(value: SendMatrixEvent) -> Self {
+        MatrixDriverRequestData::SendMatrixEvent(value.0)
+    }
+}
+
 impl MatrixDriverRequest for SendMatrixEvent {
     type Response = OwnedEventId;
 }
- */
+
+impl FromMatrixDriverResponse for OwnedEventId {
+    fn from_response(ev: MatrixDriverResponse) -> Option<Self> {
+        match ev {
+            MatrixDriverResponse::MatrixEventSent(response) => Some(response),
+            _ => {
+                error!("bug in MatrixDriver, received wrong event response");
+                None
+            }
+        }
+    }
+}
