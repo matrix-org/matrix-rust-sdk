@@ -17,22 +17,25 @@
 #![warn(unreachable_pub)]
 
 use indexmap::{map::Entry, IndexMap};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::value::RawValue as RawJsonValue;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
-use tracing::{error, instrument};
+use tracing::{error, instrument, warn};
 use uuid::Uuid;
 
 use self::{
     driver_req::{AcquirePermissions, MatrixDriverRequest, MatrixDriverRequestHandle},
+    events::IncomingWidgetMessage,
     to_widget::{
         NotifyPermissionsChanged, RequestPermissions, ToWidgetRequest, ToWidgetRequestHandle,
+        ToWidgetResponse,
     },
 };
 
 mod actions;
 mod driver_req;
 mod events;
+mod from_widget;
 mod openid;
 #[cfg(test)]
 mod tests;
@@ -163,47 +166,81 @@ impl WidgetMachine {
     /// or a data produced as a result of a previously sent `Action`).
     /// Produceses a list of actions that the client must perform.
     pub(crate) fn process(&mut self, event: Event) {
-        // For now we assume that we only receive responses to the outgoing requests.
-        // TODO: Add other possible valid incoming messages.
-        #[derive(Deserialize)]
-        #[serde(rename_all = "camelCase")]
-        struct IncomingMessage {
-            request_id: Uuid,
-            widget_id: String,
-            response: Box<RawJsonValue>,
-        }
-
         match event {
             Event::MessageFromWidget(raw) => {
-                let message = match serde_json::from_str::<IncomingMessage>(&raw) {
-                    Ok(msg) => msg,
-                    Err(e) => {
-                        error!("Failed to deserialize incoming message: {e}");
-                        return;
-                    }
+                self.process_message_from_widget(&raw);
+            }
+            Event::MatrixEventReceived(_) => {
+                error!("processing incoming matrix events not yet implemented");
+            }
+            Event::PermissionsAcquired(response) => {
+                let Some(request) =
+                    self.pending_matrix_driver_requests.remove(&response.request_id)
+                else {
+                    warn!(
+                        request_id = ?response.request_id,
+                        "Received response for an unknown request"
+                    );
+                    return;
                 };
 
-                if message.widget_id != self.widget_id {
-                    error!("Received a message from a wrong widget");
-                    return;
+                if let Some(response_fn) = request.response_fn {
+                    response_fn(Event::PermissionsAcquired(response), self);
                 }
-
-                self.pending_to_widget_requests
-                    .remove(&message.request_id)
-                    .and_then(|meta| meta.response_fn)
-                    .map(|response_fn| response_fn(message.response, self));
             }
-
-            Event::PermissionsAcquired(response) => {
-                self.pending_matrix_driver_requests
-                    .remove(&response.request_id)
-                    .and_then(|meta| meta.response_fn)
-                    .map(|response_fn| response_fn(Event::PermissionsAcquired(response), self));
+            Event::OpenIdReceived(_) => {
+                error!("processing open ID response not yet implemented");
             }
-
-            _ => {
-                error!("Dropping an event as it's not supported yet");
+            Event::MatrixEventRead(_) => {
+                error!("processing read matrix events not yet implemented");
             }
+            Event::MatrixEventSent(_) => {
+                error!("processing send-event response not yet implemented");
+            }
+        }
+    }
+
+    fn process_message_from_widget(&mut self, raw: &str) {
+        let message = match serde_json::from_str::<IncomingWidgetMessage>(raw) {
+            Ok(msg) => msg,
+            Err(e) => {
+                error!("Failed to parse incoming message: {e}");
+                return;
+            }
+        };
+        let widget_id_from_msg = match &message {
+            IncomingWidgetMessage::Request(req) => match *req {},
+            IncomingWidgetMessage::Response(res) => &res.widget_id,
+        };
+        if *widget_id_from_msg != self.widget_id {
+            error!("Received a message from a wrong widget, ignoring");
+            return;
+        }
+
+        match message {
+            IncomingWidgetMessage::Request(req) => match req {},
+            IncomingWidgetMessage::Response(response) => {
+                self.process_to_widget_response(response);
+            }
+        }
+    }
+
+    #[instrument(skip_all, fields(request_id = ?response.request_id))]
+    fn process_to_widget_response(&mut self, response: ToWidgetResponse) {
+        let Some(request) = self.pending_to_widget_requests.remove(&response.request_id) else {
+            warn!("Received response for an unknown request");
+            return;
+        };
+
+        if response.action != request.action {
+            error!(
+                ?request.action, ?response.action,
+                "Received response with different `action` than request"
+            );
+        }
+
+        if let Some(response_fn) = request.response_fn {
+            response_fn(response.response_data, self);
         }
     }
 }
