@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![allow(dead_code)]
-
 //! A high-level API for requests that we send to the matrix driver.
 
 use std::marker::PhantomData;
@@ -32,7 +30,6 @@ use super::{incoming::MatrixDriverResponse, MatrixDriverRequestMeta, WidgetMachi
 use crate::widget::{Capabilities, StateKeySelector};
 
 #[derive(Debug)]
-#[allow(dead_code)]
 pub(crate) enum MatrixDriverRequestData {
     /// Acquire capabilities from the user given the set of desired
     /// capabilities.

@@ -507,7 +507,6 @@ impl WidgetMachine {
 type ToWidgetResponseFn = Box<dyn FnOnce(Box<RawJsonValue>, &mut WidgetMachine) + Send>;
 
 pub(crate) struct ToWidgetRequestMeta {
-    #[allow(dead_code)]
     action: &'static str,
     response_fn: Option<ToWidgetResponseFn>,
 }
