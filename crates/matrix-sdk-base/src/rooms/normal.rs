@@ -1064,7 +1064,7 @@ impl RoomInfo {
 
     /// Is there a non expired membership with application "m.call" and scope
     /// "m.room" in this room.
-    fn has_active_room_call(&self) -> bool {
+    pub fn has_active_room_call(&self) -> bool {
         !self.active_room_call_memberships().is_empty()
     }
 
@@ -1074,7 +1074,7 @@ impl RoomInfo {
     /// considered. A user can occur twice if they join with two devices.
     /// convert to a set depending if the different users are required or the
     /// amount of sessions.
-    fn active_room_call_participants(&self) -> Vec<OwnedUserId> {
+    pub fn active_room_call_participants(&self) -> Vec<OwnedUserId> {
         self.active_room_call_memberships().iter().map(|(user_id, _)| user_id.clone()).collect()
     }
 }

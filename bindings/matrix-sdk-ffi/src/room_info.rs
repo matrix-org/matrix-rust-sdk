@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use matrix_sdk::RoomState;
-use ruma::{OwnedMxcUri, OwnedUserId};
+use ruma::OwnedMxcUri;
 
 use crate::{
     notification_settings::RoomNotificationMode, room::Membership, room_member::RoomMember,
@@ -30,7 +30,7 @@ pub struct RoomInfo {
     notification_count: u64,
     user_defined_notification_mode: Option<RoomNotificationMode>,
     has_room_call: bool,
-    active_room_call_participants: Vec<OwnedUserId>,
+    active_room_call_participants: Vec<String>,
 }
 
 impl RoomInfo {
@@ -70,7 +70,11 @@ impl RoomInfo {
                 .await
                 .map(Into::into),
             has_room_call: room.has_active_room_call(),
-            active_room_call_participants: room.active_room_call_participants(),
+            active_room_call_participants: room
+                .active_room_call_participants()
+                .iter()
+                .map(|u| u.to_string())
+                .collect(),
         })
     }
 }
