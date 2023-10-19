@@ -26,6 +26,8 @@ use tracing::{debug, field::debug, instrument, Span};
 use url::Url;
 
 use super::{Client, ClientInner};
+#[cfg(feature = "e2e-encryption")]
+use crate::encryption::EncryptionSettings;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::http_client::HttpSettings;
 #[cfg(feature = "experimental-oidc")]
@@ -86,6 +88,8 @@ pub struct ClientBuilder {
     server_versions: Option<Box<[MatrixVersion]>>,
     handle_refresh_tokens: bool,
     base_client: Option<BaseClient>,
+    #[cfg(feature = "e2e-encryption")]
+    encryption_settings: EncryptionSettings,
 }
 
 impl ClientBuilder {
@@ -101,6 +105,7 @@ impl ClientBuilder {
             server_versions: None,
             handle_refresh_tokens: false,
             base_client: None,
+            encryption_settings: Default::default(),
         }
     }
 
@@ -322,6 +327,14 @@ impl ClientBuilder {
         self
     }
 
+    /// Enables specific encryption settings that will persist throughout the
+    /// entire lifetime of the `Client`.
+    #[cfg(feature = "e2e-encryption")]
+    pub fn with_encryption_settings(mut self, settings: EncryptionSettings) -> Self {
+        self.encryption_settings = settings;
+        self
+    }
+
     /// Create a [`Client`] with the options set on this builder.
     ///
     /// # Errors
@@ -459,6 +472,8 @@ impl ClientBuilder {
             base_client,
             self.server_versions,
             self.respect_login_well_known,
+            #[cfg(feature = "e2e-encryption")]
+            self.encryption_settings,
         ));
 
         debug!("Done building the Client");

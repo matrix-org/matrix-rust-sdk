@@ -72,6 +72,7 @@ use crate::{
     authentication::{AuthCtx, AuthData, ReloadSessionCallback, SaveSessionCallback},
     config::RequestConfig,
     deduplicating_handler::DeduplicatingHandler,
+    encryption::EncryptionSettings,
     error::{HttpError, HttpResult},
     event_handler::{
         EventHandler, EventHandlerDropGuard, EventHandlerHandle, EventHandlerStore, SyncEvent,
@@ -217,13 +218,16 @@ pub(crate) struct ClientInner {
     /// wait for the sync to get the data to fetch a room object from the state
     /// store.
     pub(crate) sync_beat: event_listener::Event,
+    /// End-to-end encryption settings.
+    #[cfg(feature = "e2e-encryption")]
+    pub(crate) encryption_settings: EncryptionSettings,
 }
 
 impl ClientInner {
     /// Create a new `ClientInner`.
     ///
-    /// All the fields passed here are those that must be cloned upon
-    /// instantiation of a sub-client, e.g. a client specialized for
+    /// All the fields passed as parameters here are those that must be cloned
+    /// upon instantiation of a sub-client, e.g. a client specialized for
     /// notifications.
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -234,6 +238,7 @@ impl ClientInner {
         base_client: BaseClient,
         server_versions: Option<Box<[MatrixVersion]>>,
         respect_login_well_known: bool,
+        #[cfg(feature = "e2e-encryption")] encryption_settings: EncryptionSettings,
     ) -> Self {
         Self {
             homeserver: StdRwLock::new(homeserver),
@@ -250,6 +255,8 @@ impl ClientInner {
             room_update_channels: Default::default(),
             respect_login_well_known,
             sync_beat: event_listener::Event::new(),
+            #[cfg(feature = "e2e-encryption")]
+            encryption_settings,
         }
     }
 }
@@ -1913,6 +1920,8 @@ impl Client {
                 self.inner.base_client.clone_with_in_memory_state_store(),
                 self.inner.server_versions.get().cloned(),
                 self.inner.respect_login_well_known,
+                #[cfg(feature = "e2e-encryption")]
+                self.inner.encryption_settings.clone(),
             )),
         };
 
