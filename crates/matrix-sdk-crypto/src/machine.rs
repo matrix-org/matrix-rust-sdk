@@ -859,8 +859,8 @@ impl OlmMachine {
     ///
     /// # Returns
     ///
-    /// List of the to-device requests that need to be sent out to the server and
-    /// the responses need to be passed back to the state machine with
+    /// List of the to-device requests that need to be sent out to the server
+    /// and the responses need to be passed back to the state machine with
     /// [`mark_request_as_sent`], using the to-device `txn_id` as `request_id`.
     ///
     /// [`mark_request_as_sent`]: #method.mark_request_as_sent
