@@ -84,6 +84,14 @@ pub use self::futures::PrepareEncryptedFile;
 use self::identities::{DeviceUpdates, IdentityUpdates};
 pub use crate::error::RoomKeyImportError;
 
+/// Settings for end-to-end encryption features.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct EncryptionSettings {
+    /// Automatically bootstrap cross-signing for a user once they're logged, in
+    /// case it's not already done yet.
+    pub auto_enable_cross_signing: bool,
+}
+
 impl Client {
     pub(crate) async fn olm_machine(&self) -> RwLockReadGuard<'_, Option<OlmMachine>> {
         self.base_client().olm_machine().await
@@ -472,6 +480,11 @@ pub struct Encryption {
 impl Encryption {
     pub(crate) fn new(client: Client) -> Self {
         Self { client }
+    }
+
+    /// Returns the current encryption settings for this client.
+    pub(crate) fn settings(&self) -> EncryptionSettings {
+        self.client.inner.encryption_settings
     }
 
     /// Get the public ed25519 key of our own device. This is usually what is
