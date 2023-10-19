@@ -30,7 +30,7 @@ pub struct RoomInfo {
     notification_count: u64,
     user_defined_notification_mode: Option<RoomNotificationMode>,
     has_room_call: bool,
-    room_call_participants: Vec<OwnedUserId>,
+    active_room_call_participants: Vec<OwnedUserId>,
 }
 
 impl RoomInfo {
@@ -69,8 +69,8 @@ impl RoomInfo {
                 .user_defined_notification_mode()
                 .await
                 .map(Into::into),
-            has_room_call: room.has_room_call(),
-            room_call_participants: room.room_call_participants(),
+            has_room_call: room.has_active_room_call(),
+            active_room_call_participants: room.active_room_call_participants(),
         })
     }
 }

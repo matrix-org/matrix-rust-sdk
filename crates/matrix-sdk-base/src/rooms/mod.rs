@@ -188,7 +188,7 @@ impl BaseRoomInfo {
 
                 // Remove all events that don't contain any memberships anymore.
                 self.rtc_member.retain(|_, ev| {
-                    ev.as_original().is_some_and(|o| !o.content.memberships(None).is_empty())
+                    ev.as_original().is_some_and(|o| !o.content.active_memberships(None).is_empty())
                 });
             }
             _ => return false,
