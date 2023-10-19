@@ -62,7 +62,7 @@ fn machine_can_request_capabilities_on_content_load() {
     assert_capabilities_dance(&mut machine, &mut actions_recv);
 }
 
-fn assert_capabilities_dance(
+pub(super) fn assert_capabilities_dance(
     machine: &mut WidgetMachine,
     actions_recv: &mut UnboundedReceiver<Action>,
 ) {
