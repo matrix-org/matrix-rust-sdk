@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use assert_matches::assert_matches;
+use ruma::owned_room_id;
 use serde_json::{from_value, json};
 use tokio::sync::mpsc::UnboundedReceiver;
 
@@ -23,14 +24,16 @@ use crate::widget::machine::{
 
 #[test]
 fn machine_can_negotiate_capabilities_immediately() {
-    let (mut machine, mut actions_recv) = WidgetMachine::new(WIDGET_ID.to_owned(), false);
+    let (mut machine, mut actions_recv) =
+        WidgetMachine::new(WIDGET_ID.to_owned(), owned_room_id!("!a98sd12bjh:example.org"), false);
     assert_capabilities_dance(&mut machine, &mut actions_recv);
     assert_matches!(actions_recv.try_recv(), Err(_));
 }
 
 #[test]
 fn machine_can_request_capabilities_on_content_load() {
-    let (mut machine, mut actions_recv) = WidgetMachine::new(WIDGET_ID.to_owned(), true);
+    let (mut machine, mut actions_recv) =
+        WidgetMachine::new(WIDGET_ID.to_owned(), owned_room_id!("!a98sd12bjh:example.org"), true);
     assert_matches!(actions_recv.try_recv(), Err(_));
 
     // Content loaded event processed.

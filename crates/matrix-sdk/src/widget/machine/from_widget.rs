@@ -17,9 +17,11 @@ use std::fmt;
 use ruma::{
     events::{AnyTimelineEvent, MessageLikeEventType, StateEventType},
     serde::Raw,
+    OwnedEventId, RoomId,
 };
 use serde::{Deserialize, Serialize};
 
+use super::SendEventCommand;
 use crate::widget::StateKeySelector;
 
 #[derive(Deserialize)]
@@ -29,6 +31,7 @@ pub(super) enum FromWidgetRequest {
     ContentLoaded {},
     #[serde(rename = "org.matrix.msc2876.read_events")]
     ReadEvent(ReadEventRequest),
+    SendEvent(SendEventCommand),
 }
 
 #[derive(Serialize)]
@@ -125,4 +128,10 @@ pub(super) enum ReadEventRequest {
 #[derive(Debug, Serialize)]
 pub(super) struct ReadEventResponse {
     pub(super) events: Vec<Raw<AnyTimelineEvent>>,
+}
+
+#[derive(Serialize)]
+pub(super) struct SendEventResponse<'a> {
+    pub(super) room_id: &'a RoomId,
+    pub(super) event_id: OwnedEventId,
 }
