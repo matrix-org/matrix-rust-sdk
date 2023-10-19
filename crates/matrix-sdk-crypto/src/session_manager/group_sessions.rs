@@ -665,13 +665,13 @@ impl GroupSessionManager {
         }
     }
 
+    #[cfg(feature = "message-ids")]
     /// Given a to-device request, build a recipient map suitable for logging
     ///
     /// Returns a list of triples of (message_id, user id, device_id)
     fn to_device_request_to_log_list(
         request: &Arc<ToDeviceRequest>,
     ) -> Vec<(String, String, String)> {
-        #[cfg(feature = "message-ids")]
         #[derive(serde::Deserialize)]
         struct ContentStub<'a> {
             #[serde(borrow, default, rename = "org.matrix.msgid")]
@@ -682,23 +682,31 @@ impl GroupSessionManager {
 
         for (user_id, device_map) in &request.messages {
             for (device, content) in device_map {
-                // If the message-ids feature is enabled, then the body may contain a message
-                // id. Attempt to extract it.
-                #[cfg(feature = "message-ids")]
                 let message_id: Option<&str> = content
                     .deserialize_as::<ContentStub>()
                     .expect("We should be able to deserialize the content we generated")
                     .message_id;
-
-                // No point deserialising if message ids are disabled
-                #[cfg(not(feature = "message-ids"))]
-                let message_id: Option<&str> = None;
 
                 result.push((
                     message_id.unwrap_or("<undefined>").to_owned(),
                     user_id.to_string(),
                     device.to_string(),
                 ));
+            }
+        }
+        result
+    }
+
+    #[cfg(not(feature = "message-ids"))]
+    /// Given a to-device request, build a recipient map suitable for logging
+    ///
+    /// Returns a list of pairs of (user id, device_id)
+    fn to_device_request_to_log_list(request: &Arc<ToDeviceRequest>) -> Vec<(String, String)> {
+        let mut result: Vec<(String, String)> = Vec::new();
+
+        for (user_id, device_map) in &request.messages {
+            for device in device_map.keys() {
+                result.push((user_id.to_string(), device.to_string()));
             }
         }
         result
