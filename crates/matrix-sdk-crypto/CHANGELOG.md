@@ -65,3 +65,5 @@
   `OutgoingRequest` to `(OwnedTransactionId, KeysBackupRequest)`.
 
 - Expose new `OlmMachine::get_room_event_encryption_info` method.
+
+- Clean up the logging of to-device messages in `share_room_key`.

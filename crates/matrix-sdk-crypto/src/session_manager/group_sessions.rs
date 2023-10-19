@@ -654,81 +654,54 @@ impl GroupSessionManager {
     }
 
     fn log_room_key_sharing_result(requests: &[Arc<ToDeviceRequest>]) {
-        #[cfg(feature = "message-ids")]
-        use serde::Deserialize;
-
-        let mut withheld_messages: BTreeMap<_, BTreeMap<_, BTreeSet<_>>> = BTreeMap::new();
-
-        #[cfg(feature = "message-ids")]
-        let mut messages: BTreeMap<_, BTreeMap<_, BTreeMap<_, _>>> = BTreeMap::new();
-        #[cfg(not(feature = "message-ids"))]
-        let mut messages: BTreeMap<_, BTreeMap<_, BTreeSet<_>>> = BTreeMap::new();
-
-        #[derive(PartialEq, Eq, PartialOrd, Ord)]
-        struct RequestId<'a>(&'a TransactionId);
-
-        impl Debug for RequestId<'_> {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                f.debug_tuple("RequestId").field(&self.0).finish()
-            }
-        }
-
-        #[cfg(feature = "message-ids")]
-        #[derive(Debug, Deserialize)]
-        #[serde(transparent)]
-        struct MessageId<'a>(&'a str);
-
-        #[cfg(feature = "message-ids")]
-        #[derive(Deserialize)]
-        struct ContentStub<'a> {
-            #[serde(borrow, rename = "org.matrix.msgid")]
-            message_id: MessageId<'a>,
-        }
-
-        // We're just collecting the recipients for logging reasons.
         for request in requests {
-            for (user_id, device_map) in &request.messages {
-                if request.event_type == ToDeviceEventType::RoomEncrypted {
-                    #[cfg(feature = "message-ids")]
-                    for (device, content) in device_map {
-                        let content: ContentStub<'_> = content
-                            .deserialize_as()
-                            .expect("We should be able to deserialize the content we generated");
+            let message_list = Self::to_device_request_to_log_list(request);
+            info!(
+                request_id = ?request.txn_id,
+                ?message_list,
+                "Created batch of to-device messages of type {}",
+                request.event_type
+            );
+        }
+    }
 
-                        let message_id = content.message_id;
-
-                        messages
-                            .entry(RequestId(&request.txn_id))
-                            .or_default()
-                            .entry(user_id)
-                            .or_default()
-                            .insert(device, message_id);
-                    }
-
-                    #[cfg(not(feature = "message-ids"))]
-                    messages
-                        .entry(RequestId(&request.txn_id))
-                        .or_default()
-                        .entry(user_id)
-                        .or_default()
-                        .extend(device_map.keys());
-                } else {
-                    withheld_messages
-                        .entry(RequestId(&request.txn_id))
-                        .or_default()
-                        .entry(user_id)
-                        .or_default()
-                        .extend(device_map.keys());
-                }
-            }
+    /// Given a to-device request, build a recipient map suitable for logging
+    ///
+    /// Returns a list of triples of (message_id, user id, device_id)
+    fn to_device_request_to_log_list(
+        request: &Arc<ToDeviceRequest>,
+    ) -> Vec<(String, String, String)> {
+        #[cfg(feature = "message-ids")]
+        #[derive(serde::Deserialize)]
+        struct ContentStub<'a> {
+            #[serde(borrow, default, rename = "org.matrix.msgid")]
+            message_id: Option<&'a str>,
         }
 
-        info!(
-            request_count = requests.len(),
-            ?messages,
-            ?withheld_messages,
-            "Encrypted a room key and created to-device messages"
-        );
+        let mut result: Vec<(String, String, String)> = Vec::new();
+
+        for (user_id, device_map) in &request.messages {
+            for (device, content) in device_map {
+                // If the message-ids feature is enabled, then the body may contain a message
+                // id. Attempt to extract it.
+                #[cfg(feature = "message-ids")]
+                let message_id: Option<&str> = content
+                    .deserialize_as::<ContentStub>()
+                    .expect("We should be able to deserialize the content we generated")
+                    .message_id;
+
+                // No point deserialising if message ids are disabled
+                #[cfg(not(feature = "message-ids"))]
+                let message_id: Option<&str> = None;
+
+                result.push((
+                    message_id.unwrap_or("<undefined>").to_owned(),
+                    user_id.to_string(),
+                    device.to_string(),
+                ));
+            }
+        }
+        result
     }
 
     /// Get to-device requests to share a room key with users in a room.
