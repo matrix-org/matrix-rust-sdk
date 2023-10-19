@@ -21,7 +21,7 @@ use ruma::serde::{JsonObject, Raw};
 use serde::Serialize;
 use serde_json::value::RawValue as RawJsonValue;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
-use tracing::{error, instrument, trace, warn};
+use tracing::{error, info_span, instrument, trace, warn};
 use uuid::Uuid;
 
 use self::{
@@ -119,6 +119,9 @@ impl WidgetMachine {
 
         match message.kind {
             IncomingWidgetMessageKind::Request(request) => {
+                let _guard =
+                    info_span!("process_from_widget_request", request_id = ?message.request_id)
+                        .entered();
                 self.process_from_widget_request(request);
             }
             IncomingWidgetMessageKind::Response(response) => {
@@ -127,7 +130,6 @@ impl WidgetMachine {
         }
     }
 
-    #[instrument(skip_all, fields(request_id))]
     fn process_from_widget_request(&mut self, raw_request: Raw<FromWidgetRequest>) {
         let request = match raw_request.deserialize() {
             Ok(r) => r,
