@@ -436,11 +436,6 @@ impl RoomListItem {
         Ok(RoomInfo::new(self.inner.inner_room(), avatar_url, latest_event).await?)
     }
 
-    // Temporary workaround for coroutine leaks on Kotlin
-    pub fn room_info_blocking(self: Arc<Self>) -> Result<RoomInfo, ClientError> {
-        RUNTIME.block_on(async move { self.room_info().await })
-    }
-
     /// Building a `Room`.
     ///
     /// Be careful that building a `Room` builds its entire `Timeline` at the

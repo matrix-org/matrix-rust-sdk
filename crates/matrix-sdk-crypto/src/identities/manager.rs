@@ -388,12 +388,23 @@ impl IdentityManager {
         Ok(changes)
     }
 
-    /// Check if the given public identity matches our private one.
+    /// Check if the given public identity matches our stored private one.
     ///
-    /// If they don't match remove the private keys since our identity got
-    /// rotated.
+    /// If they don't match, this is an indication that our identity has been
+    /// rotated. In this case we return `Some(cleared_private_identity)`,
+    /// where `cleared_private_identity` is our currently-stored
+    /// private identity with the conflicting keys removed.
     ///
-    /// If they do match, mark the public identity as verified.
+    /// Otherwise, assuming we do have a private master cross-signing key, we
+    /// mark the public identity as verified.
+    ///
+    /// # Returns
+    ///
+    /// If the private identity needs updating (because it does not match the
+    /// public keys), the updated private identity (which will need to be
+    /// persisted).
+    ///
+    /// Otherwise, `None`.
     async fn check_private_identity(
         &self,
         identity: &ReadOnlyOwnUserIdentity,
@@ -421,6 +432,36 @@ impl IdentityManager {
         }
     }
 
+    /// Process an identity received in a `/keys/query` response that we
+    /// previously knew about.
+    ///
+    /// If the identity is our own, we will look for a user-signing key; if one
+    /// is not found, an error is returned. Otherwise, we then compare the
+    /// received public identity against our stored private identity;
+    /// if they match, the returned public identity is marked as verified and
+    /// `*changed_private_identity` is set to `None`. If they do *not* match,
+    /// it is an indication that our identity has been rotated, and
+    /// `*changed_private_identity` is set to our currently-stored private
+    /// identity with the conflicting keys removed (which will need to be
+    /// persisted).
+    ///
+    /// Whether the identity is our own or that of another, we check whether
+    /// there has been any change to the cross-signing keys, and classify
+    /// the result into [`IdentityUpdateResult::Updated`] or
+    /// [`IdentityUpdateResult::Unchanged`].
+    ///
+    /// # Arguments
+    ///
+    /// * `response` - The entire `/keys/query` response.
+    /// * `master_key` - The public master cross-signing key from the
+    ///   `/keys/query` response.
+    /// * `self_signing` - The public self-signing key from the `/keys/query`
+    ///   response.
+    /// * `i` - The existing identity for this user.
+    /// * `changed_private_identity` - Output parameter. Unchanged if the
+    ///   identity is that of another user. If it is our own, set to `None` or
+    ///   `Some` depending on whether our stored private identity needs
+    ///   updating. See above for more detail.
     async fn handle_changed_identity(
         &self,
         response: &KeysQueryResponse,
@@ -431,42 +472,17 @@ impl IdentityManager {
     ) -> Result<IdentityUpdateResult, SignatureError> {
         match i {
             ReadOnlyUserIdentities::Own(mut identity) => {
-                if let Some(user_signing) = response
-                    .user_signing_keys
-                    .get(self.user_id())
-                    .and_then(|k| k.deserialize_as::<UserSigningPubkey>().ok())
-                {
-                    if user_signing.user_id() != self.user_id() {
-                        warn!(
-                            expected = ?self.user_id(),
-                            got = ?user_signing.user_id(),
-                            "User ID mismatch in our user-signing key",
-                        );
-
-                        Err(SignatureError::UserIdMismatch)
-                    } else {
-                        let has_changed =
-                            identity.update(master_key, self_signing, user_signing)?;
-
-                        *changed_private_identity = self.check_private_identity(&identity).await;
-
-                        if has_changed {
-                            Ok(IdentityUpdateResult::Updated(identity.into()))
-                        } else {
-                            Ok(IdentityUpdateResult::Unchanged(identity.into()))
-                        }
-                    }
+                let user_signing = self.get_user_signing_key_from_response(response)?;
+                let has_changed = identity.update(master_key, self_signing, user_signing)?;
+                *changed_private_identity = self.check_private_identity(&identity).await;
+                if has_changed {
+                    Ok(IdentityUpdateResult::Updated(identity.into()))
                 } else {
-                    warn!(
-                        "User identity for our own user didn't contain a user signing public key"
-                    );
-
-                    Err(SignatureError::MissingSigningKey)
+                    Ok(IdentityUpdateResult::Unchanged(identity.into()))
                 }
             }
             ReadOnlyUserIdentities::Other(mut identity) => {
                 let has_changed = identity.update(master_key, self_signing)?;
-
                 if has_changed {
                     Ok(IdentityUpdateResult::Updated(identity.into()))
                 } else {
@@ -476,6 +492,34 @@ impl IdentityManager {
         }
     }
 
+    /// Process an identity received in a `/keys/query` response that we didn't
+    /// previously know about.
+    ///
+    /// If the identity is our own, we will look for a user-signing key, and if
+    /// it is present and correct, all three keys will be returned in the
+    /// `IdentityChange` result; otherwise, an error is returned. We will also
+    /// compare the received public identity against our stored private
+    /// identity; if they match, the returned public identity is marked as
+    /// verified and `*changed_private_identity` is set to `None`. If they do
+    /// *not* match, it is an indication that our identity has been rotated,
+    /// and `*changed_private_identity` is set to our currently-stored
+    /// private identity with the conflicting keys removed (which will need
+    /// to be persisted).
+    ///
+    /// If the identity is that of another user, we just parse the keys into the
+    /// `IdentityChange` result, since all other checks have already been done.
+    ///
+    /// # Arguments
+    ///
+    /// * `response` - The entire `/keys/query` response.
+    /// * `master_key` - The public master cross-signing key from the
+    ///   `/keys/query` response.
+    /// * `self_signing` - The public self-signing key from the `/keys/query`
+    ///   response.
+    /// * `changed_private_identity` - Output parameter. Unchanged if the
+    ///   identity is that of another user. If it is our own, set to `None` or
+    ///   `Some` depending on whether our stored private identity needs
+    ///   updating. See above for more detail.
     async fn handle_new_identity(
         &self,
         response: &KeysQueryResponse,
@@ -484,46 +528,36 @@ impl IdentityManager {
         changed_private_identity: &mut Option<PrivateCrossSigningIdentity>,
     ) -> Result<ReadOnlyUserIdentities, SignatureError> {
         if master_key.user_id() == self.user_id() {
-            if let Some(user_signing) = response
-                .user_signing_keys
-                .get(self.user_id())
-                .and_then(|k| k.deserialize_as::<UserSigningPubkey>().ok())
-            {
-                if user_signing.user_id() != self.user_id() {
-                    warn!(
-                        expected = ?self.user_id(),
-                        got = ?user_signing.user_id(),
-                        "User ID mismatch in our user-signing key",
-                    );
-                    Err(SignatureError::UserIdMismatch)
-                } else {
-                    let identity =
-                        ReadOnlyOwnUserIdentity::new(master_key, self_signing, user_signing)?;
-
-                    *changed_private_identity = self.check_private_identity(&identity).await;
-
-                    Ok(identity.into())
-                }
-            } else {
-                warn!(
-                    "User identity for our own user didn't contain a user signing pubkey or the key \
-                    isn't valid",
-                );
-
-                Err(SignatureError::MissingSigningKey)
-            }
+            let user_signing = self.get_user_signing_key_from_response(response)?;
+            let identity = ReadOnlyOwnUserIdentity::new(master_key, self_signing, user_signing)?;
+            *changed_private_identity = self.check_private_identity(&identity).await;
+            Ok(identity.into())
         } else {
             let identity = ReadOnlyUserIdentity::new(master_key, self_signing)?;
             Ok(identity.into())
         }
     }
 
-    /// Try to deserialize the the master key and self-signing key of a
-    /// identity.
+    /// Try to deserialize the the master key and self-signing key of an
+    /// identity from a `/keys/query` response.
     ///
     /// Each user identity *must* at least contain a master and self-signing
-    /// key. Our own identity, in addition to those two, also contains a
-    /// user-signing key.
+    /// key, and this function deserializes them. (Our own identity, in addition
+    /// to those two, also contains a user-signing key, but that is not
+    /// extracted here; see
+    /// [`IdentityManager::get_user_signing_key_from_response`])
+    ///
+    /// # Arguments
+    ///
+    ///  * `master_key` - The master key for a particular user from a
+    ///    `/keys/query` response.
+    ///  * `response` - The entire `/keys/query` response.
+    ///
+    /// # Returns
+    ///
+    /// `None` if the self-signing key couldn't be found in the response, or the
+    /// one of the keys couldn't be deserialized. Else, the deserialized
+    /// public keys.
     fn get_minimal_set_of_keys(
         master_key: &Raw<CrossSigningKey>,
         response: &KeysQueryResponse,
@@ -551,6 +585,62 @@ impl IdentityManager {
         }
     }
 
+    /// Try to deserialize the our user-signing key from a `/keys/query`
+    /// response.
+    ///
+    /// If a `/keys/query` response includes our own cross-signing keys, then it
+    /// should include our user-signing key. This method attempts to
+    /// extract, deserialize, and check the key from the response.
+    ///
+    /// # Arguments
+    ///
+    /// * `response` - the entire `/keys/query` response.
+    fn get_user_signing_key_from_response(
+        &self,
+        response: &KeysQueryResponse,
+    ) -> Result<UserSigningPubkey, SignatureError> {
+        let Some(user_signing) = response
+            .user_signing_keys
+            .get(self.user_id())
+            .and_then(|k| k.deserialize_as::<UserSigningPubkey>().ok())
+        else {
+            warn!(
+                "User identity for our own user didn't contain a user signing pubkey or the key \
+                    isn't valid",
+            );
+            return Err(SignatureError::MissingSigningKey);
+        };
+
+        if user_signing.user_id() != self.user_id() {
+            warn!(
+                expected = ?self.user_id(),
+                got = ?user_signing.user_id(),
+                "User ID mismatch in our user-signing key",
+            );
+            return Err(SignatureError::UserIdMismatch);
+        }
+
+        Ok(user_signing)
+    }
+
+    /// Process the cross-signing keys for a particular identity from a
+    /// `/keys/query` response.
+    ///
+    /// Checks that the keys are consistent, verifies the updates, and produces
+    /// a list of changes to be stored.
+    ///
+    /// # Arguments
+    ///
+    /// * `response` - The entire `/keys/query` response.
+    /// * `changes` - The identity results so far, which we will add to.
+    /// * `changed_identity` - Output parameter: Unchanged if the identity is
+    ///   that of another user. If it is our own, set to `None` or `Some`
+    ///   depending on whether our stored private identity needs updating.
+    /// * `user_id` - The user id of the user whose identity is being processed.
+    /// * `master_key` - The public master cross-signing key for this user from
+    ///   the `/keys/query` response.
+    /// * `self_signing` - The public self-signing key from the `/keys/query`
+    ///   response.
     #[instrument(skip_all, fields(user_id))]
     async fn update_or_create_identity(
         &self,
@@ -562,8 +652,9 @@ impl IdentityManager {
         self_signing: SelfSigningPubkey,
     ) -> StoreResult<()> {
         if master_key.user_id() != user_id || self_signing.user_id() != user_id {
-            warn!(?user_id, "User ID mismatch in one of the cross signing keys",);
+            warn!(?user_id, "User ID mismatch in one of the cross signing keys");
         } else if let Some(i) = self.store.get_user_identity(user_id).await? {
+            // an identity we knew about before, which is being updated
             match self
                 .handle_changed_identity(
                     response,
@@ -587,6 +678,7 @@ impl IdentityManager {
                 }
             }
         } else {
+            // an identity we did not know about before
             match self
                 .handle_new_identity(response, master_key, self_signing, changed_private_identity)
                 .await
@@ -608,10 +700,17 @@ impl IdentityManager {
     ///
     /// # Arguments
     ///
-    /// * `response` - The keys query response.
+    /// * `response` - The `/keys/query` response.
     ///
-    /// Returns a list of identities that changed. Changed here means either
-    /// they are new or one of their properties has changed.
+    /// # Returns
+    ///
+    /// The processed results, to be saved to the datastore, comprising:
+    ///
+    ///  * A list of public identities that were received, categorised as "new",
+    ///    "changed" or "unchanged".
+    ///
+    ///  * If our own identity was updated and did not match our private
+    ///    identity, an update to that private identity. Otherwise, `None`.
     async fn handle_cross_signing_keys(
         &self,
         response: &KeysQueryResponse,
@@ -620,8 +719,8 @@ impl IdentityManager {
         let mut changed_identity = None;
 
         for (user_id, master_key) in &response.master_keys {
-            // Get the master and self-signing key for each identity, those are required for
-            // every user identity type, if we don't have those we skip over.
+            // Get the master and self-signing key for each identity; those are required for
+            // every user identity type. If we don't have those we skip over.
             let Some((master_key, self_signing)) =
                 Self::get_minimal_set_of_keys(master_key.cast_ref(), response)
             else {

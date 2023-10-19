@@ -34,10 +34,14 @@ futures-util = { workspace = true, features = ["channel"] }
 wasm-bindgen-futures = { version = "0.4.33", optional = true }
 gloo-timers = { version = "0.3.0", features = ["futures"] }
 web-sys = {version = "0.3.60", features = ["console"] }
-tracing-subscriber = { version = "0.3.14", default-features = false }
+tracing-subscriber = { version = "0.3.14", default-features = false, features = ["fmt", "ansi"] }
+wasm-bindgen = "0.2.84"
 
 [dev-dependencies]
 assert_matches = { workspace = true }
 matrix-sdk-test = { path = "../../testing/matrix-sdk-test/", version= "0.6.0"}
 wasm-bindgen-test = "0.3.33"
 tracing-subscriber = "0.3.15"
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+js-sys = "0.3.64"
