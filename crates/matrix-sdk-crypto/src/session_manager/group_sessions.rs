@@ -665,10 +665,10 @@ impl GroupSessionManager {
         }
     }
 
-    #[cfg(feature = "message-ids")]
     /// Given a to-device request, build a recipient map suitable for logging
     ///
     /// Returns a list of triples of (message_id, user id, device_id)
+    #[cfg(feature = "message-ids")]
     fn to_device_request_to_log_list(
         request: &Arc<ToDeviceRequest>,
     ) -> Vec<(String, String, String)> {
@@ -697,10 +697,10 @@ impl GroupSessionManager {
         result
     }
 
-    #[cfg(not(feature = "message-ids"))]
     /// Given a to-device request, build a recipient map suitable for logging
     ///
     /// Returns a list of pairs of (user id, device_id)
+    #[cfg(not(feature = "message-ids"))]
     fn to_device_request_to_log_list(request: &Arc<ToDeviceRequest>) -> Vec<(String, String)> {
         let mut result: Vec<(String, String)> = Vec::new();
 
