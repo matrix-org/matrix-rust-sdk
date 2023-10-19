@@ -102,6 +102,7 @@ pub struct BaseRoomInfo {
     pub(crate) topic: Option<MinimalStateEvent<RoomTopicEventContent>>,
     /// All Minimal state events that containing one or more running matrixRTC
     /// memberships.
+    #[serde(skip_serializing_if = "HashMap::is_empty", default)]
     pub(crate) rtc_member: HashMap<OwnedUserId, MinimalStateEvent<CallMemberEventContent>>,
 }
 
