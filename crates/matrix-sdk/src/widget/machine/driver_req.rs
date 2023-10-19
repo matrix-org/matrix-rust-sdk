@@ -24,7 +24,7 @@ use ruma::{
 use tracing::error;
 
 use super::{
-    actions::{MatrixDriverRequestData, ReadMessageLikeEventCommand},
+    actions::{MatrixDriverRequestData, ReadMessageLikeEventCommand, ReadStateEventCommand},
     incoming::MatrixDriverResponse,
     MatrixDriverRequestMeta, SendEventCommand, WidgetMachine,
 };
@@ -129,15 +129,15 @@ impl FromMatrixDriverResponse for request_openid_token::v3::Response {
 /// Ask the client to read matrix event(s) that corresponds to the given
 /// description and return a list of events as a response.
 #[derive(Debug)]
-pub(crate) struct ReadMatrixEvent(pub(crate) ReadMessageLikeEventCommand);
+pub(crate) struct ReadMatrixMessageLikeEvent(pub(crate) ReadMessageLikeEventCommand);
 
-impl From<ReadMatrixEvent> for MatrixDriverRequestData {
-    fn from(value: ReadMatrixEvent) -> Self {
+impl From<ReadMatrixMessageLikeEvent> for MatrixDriverRequestData {
+    fn from(value: ReadMatrixMessageLikeEvent) -> Self {
         MatrixDriverRequestData::ReadMessageLikeEvent(value.0)
     }
 }
 
-impl MatrixDriverRequest for ReadMatrixEvent {
+impl MatrixDriverRequest for ReadMatrixMessageLikeEvent {
     type Response = Vec<Raw<AnyTimelineEvent>>;
 }
 
@@ -151,6 +151,21 @@ impl FromMatrixDriverResponse for Vec<Raw<AnyTimelineEvent>> {
             }
         }
     }
+}
+
+/// Ask the client to read matrix event(s) that corresponds to the given
+/// description and return a list of events as a response.
+#[derive(Debug)]
+pub(crate) struct ReadMatrixStateEvent(pub(crate) ReadStateEventCommand);
+
+impl From<ReadMatrixStateEvent> for MatrixDriverRequestData {
+    fn from(value: ReadMatrixStateEvent) -> Self {
+        MatrixDriverRequestData::ReadStateEvent(value.0)
+    }
+}
+
+impl MatrixDriverRequest for ReadMatrixStateEvent {
+    type Response = Vec<Raw<AnyTimelineEvent>>;
 }
 
 /// Ask the client to send matrix event that corresponds to the given
