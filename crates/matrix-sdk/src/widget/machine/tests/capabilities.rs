@@ -90,7 +90,9 @@ pub(super) fn assert_capabilities_dance(
             "requestId": request_id,
             "action": "capabilities",
             "data": {},
-            "response": ["org.matrix.msc2762.receive.state_event:m.room.member"],
+            "response": {
+                "capabilities": ["org.matrix.msc2762.receive.state_event:m.room.member"],
+            },
         })));
     }
 
