@@ -19,21 +19,25 @@
 use std::fmt;
 
 use indexmap::{map::Entry, IndexMap};
-use ruma::serde::{JsonObject, Raw};
+use ruma::{
+    serde::{JsonObject, Raw},
+    OwnedRoomId,
+};
 use serde::Serialize;
 use serde_json::value::RawValue as RawJsonValue;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
-use tracing::{error, info_span, instrument, trace, warn};
+use tracing::{debug, error, info_span, instrument, trace, warn};
 use uuid::Uuid;
 
 use self::{
     actions::ReadStateEventCommand,
     driver_req::{
         AcquireCapabilities, MatrixDriverRequest, MatrixDriverRequestHandle, ReadMatrixStateEvent,
+        SendMatrixEvent,
     },
     from_widget::{
         FromWidgetErrorResponse, FromWidgetRequest, ReadEventRequest, ReadEventResponse,
-        SupportedApiVersionsResponse,
+        SendEventResponse, SupportedApiVersionsResponse,
     },
     incoming::{IncomingWidgetMessage, IncomingWidgetMessageKind},
     to_widget::{
@@ -67,6 +71,7 @@ pub(crate) use self::{
 /// Handles interactions with the widget as well as the `MatrixDriver`.
 pub(crate) struct WidgetMachine {
     widget_id: String,
+    room_id: OwnedRoomId,
     actions_sender: UnboundedSender<Action>,
     pending_to_widget_requests: IndexMap<Uuid, ToWidgetRequestMeta>,
     pending_matrix_driver_requests: IndexMap<Uuid, MatrixDriverRequestMeta>,
@@ -79,11 +84,13 @@ impl WidgetMachine {
     /// actions (commands) from the client.
     pub(crate) fn new(
         widget_id: String,
+        room_id: OwnedRoomId,
         init_on_content_load: bool,
     ) -> (Self, UnboundedReceiver<Action>) {
         let (actions_sender, actions_receiver) = unbounded_channel();
         let mut machine = Self {
             widget_id,
+            room_id,
             actions_sender,
             pending_to_widget_requests: IndexMap::new(),
             pending_matrix_driver_requests: IndexMap::new(),
@@ -165,6 +172,10 @@ impl WidgetMachine {
             FromWidgetRequest::ReadEvent(req) => {
                 self.process_read_event_request(req, raw_request);
             }
+
+            FromWidgetRequest::SendEvent(req) => {
+                self.process_send_event_request(req, raw_request);
+            }
         }
     }
 
@@ -218,6 +229,37 @@ impl WidgetMachine {
                     self.send_from_widget_error_response(raw_request, "Not allowed");
                 }
             }
+        }
+    }
+
+    fn process_send_event_request(
+        &mut self,
+        request: SendEventCommand,
+        raw_request: Raw<FromWidgetRequest>,
+    ) {
+        let CapabilitiesState::Negotiated(capabilities) = &self.capabilities else {
+            error!("Received send event request before capabilities negotiation");
+            return;
+        };
+
+        let filter_in = MatrixEventFilterInput {
+            event_type: request.event_type.clone(),
+            state_key: request.state_key.clone(),
+            content: serde_json::from_value(request.content.clone()).unwrap_or_else(|e| {
+                debug!("Failed to deserialize event content for filter: {e}");
+                // Fallback to empty content is safe because there is no filter
+                // that matches with it when it otherwise wouldn't.
+                Default::default()
+            }),
+        };
+
+        if capabilities.send.iter().any(|filter| filter.matches(&filter_in)) {
+            self.send_matrix_driver_request(SendMatrixEvent(request)).then(|event_id, machine| {
+                let response = SendEventResponse { event_id, room_id: &machine.room_id };
+                machine.send_from_widget_response(raw_request, response);
+            });
+        } else {
+            self.send_from_widget_error_response(raw_request, "Not allowed");
         }
     }
 

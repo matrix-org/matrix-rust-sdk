@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use assert_matches::assert_matches;
+use ruma::owned_room_id;
 use serde_json::json;
 
 use super::{capabilities::assert_capabilities_dance, parse_msg, WIDGET_ID};
@@ -20,7 +21,8 @@ use crate::widget::machine::{Action, IncomingMessage, WidgetMachine};
 
 #[test]
 fn machine_sends_error_for_unknown_request() {
-    let (mut machine, mut actions_recv) = WidgetMachine::new(WIDGET_ID.to_owned(), true);
+    let (mut machine, mut actions_recv) =
+        WidgetMachine::new(WIDGET_ID.to_owned(), owned_room_id!("!a98sd12bjh:example.org"), true);
 
     // No messages from the machine at first
     assert_matches!(actions_recv.try_recv(), Err(_));
@@ -48,7 +50,8 @@ fn machine_sends_error_for_unknown_request() {
 
 #[test]
 fn read_messages_without_capabilities() {
-    let (mut machine, mut actions_recv) = WidgetMachine::new(WIDGET_ID.to_owned(), true);
+    let (mut machine, mut actions_recv) =
+        WidgetMachine::new(WIDGET_ID.to_owned(), owned_room_id!("!a98sd12bjh:example.org"), true);
 
     machine.process(IncomingMessage::WidgetMessage(json_string!({
         "api": "fromWidget",
@@ -74,7 +77,8 @@ fn read_messages_without_capabilities() {
 
 #[test]
 fn read_messages_not_yet_supported() {
-    let (mut machine, mut actions_recv) = WidgetMachine::new(WIDGET_ID.to_owned(), false);
+    let (mut machine, mut actions_recv) =
+        WidgetMachine::new(WIDGET_ID.to_owned(), owned_room_id!("!a98sd12bjh:example.org"), false);
 
     assert_capabilities_dance(&mut machine, &mut actions_recv);
 

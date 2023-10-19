@@ -126,6 +126,7 @@ impl WidgetDriver {
     ) -> Result<(), ()> {
         let (mut client_api, mut actions) = WidgetMachine::new(
             self.settings.widget_id().to_owned(),
+            room.room_id().to_owned(),
             self.settings.init_on_content_load(),
         );
 
