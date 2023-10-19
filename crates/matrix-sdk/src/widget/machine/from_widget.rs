@@ -14,13 +14,21 @@
 
 use std::fmt;
 
+use ruma::{
+    events::{AnyTimelineEvent, MessageLikeEventType, StateEventType},
+    serde::Raw,
+};
 use serde::{Deserialize, Serialize};
+
+use crate::widget::StateKeySelector;
 
 #[derive(Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case", content = "data")]
 pub(super) enum FromWidgetRequest {
     SupportedApiVersions {},
     ContentLoaded {},
+    #[serde(rename = "org.matrix.msc2876.read_events")]
+    ReadEvent(ReadEventRequest),
 }
 
 #[derive(Serialize)]
@@ -96,4 +104,25 @@ pub(super) enum ApiVersion {
     /// Supports access to the TURN servers.
     #[serde(rename = "town.robin.msc3846")]
     MSC3846,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+pub(super) enum ReadEventRequest {
+    ReadStateEvent {
+        #[serde(rename = "type")]
+        event_type: StateEventType,
+        state_key: StateKeySelector,
+    },
+    #[allow(dead_code)]
+    ReadMessageLikeEvent {
+        #[serde(rename = "type")]
+        event_type: MessageLikeEventType,
+        limit: Option<u32>,
+    },
+}
+
+#[derive(Debug, Serialize)]
+pub(super) struct ReadEventResponse {
+    pub(super) events: Vec<Raw<AnyTimelineEvent>>,
 }

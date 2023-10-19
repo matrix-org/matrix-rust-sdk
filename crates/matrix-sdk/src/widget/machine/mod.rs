@@ -16,6 +16,8 @@
 
 #![warn(unreachable_pub)]
 
+use std::fmt;
+
 use indexmap::{map::Entry, IndexMap};
 use ruma::serde::{JsonObject, Raw};
 use serde::Serialize;
@@ -25,13 +27,25 @@ use tracing::{error, info_span, instrument, trace, warn};
 use uuid::Uuid;
 
 use self::{
-    driver_req::{AcquireCapabilities, MatrixDriverRequest, MatrixDriverRequestHandle},
-    from_widget::{FromWidgetErrorResponse, FromWidgetRequest, SupportedApiVersionsResponse},
+    actions::ReadStateEventCommand,
+    driver_req::{
+        AcquireCapabilities, MatrixDriverRequest, MatrixDriverRequestHandle, ReadMatrixStateEvent,
+    },
+    from_widget::{
+        FromWidgetErrorResponse, FromWidgetRequest, ReadEventRequest, ReadEventResponse,
+        SupportedApiVersionsResponse,
+    },
     incoming::{IncomingWidgetMessage, IncomingWidgetMessageKind},
     to_widget::{
         NotifyPermissionsChanged, RequestPermissions, ToWidgetRequest, ToWidgetRequestHandle,
         ToWidgetResponse,
     },
+};
+#[cfg(doc)]
+use super::WidgetDriver;
+use super::{
+    filter::{MatrixEventContent, MatrixEventFilterInput},
+    Capabilities, StateKeySelector,
 };
 
 mod actions;
@@ -47,9 +61,6 @@ pub(crate) use self::{
     actions::{Action, MatrixDriverRequestData, SendEventCommand},
     incoming::{IncomingMessage, MatrixDriverResponse},
 };
-use super::Capabilities;
-#[cfg(doc)]
-use super::WidgetDriver;
 
 /// No I/O state machine.
 ///
@@ -134,7 +145,7 @@ impl WidgetMachine {
         let request = match raw_request.deserialize() {
             Ok(r) => r,
             Err(e) => {
-                self.send_from_widget_response(raw_request, FromWidgetErrorResponse::new(e));
+                self.send_from_widget_error_response(raw_request, e);
                 return;
             }
         };
@@ -143,10 +154,68 @@ impl WidgetMachine {
             FromWidgetRequest::SupportedApiVersions {} => {
                 self.send_from_widget_response(raw_request, SupportedApiVersionsResponse::new());
             }
+
             FromWidgetRequest::ContentLoaded {} => {
                 self.send_from_widget_response(raw_request, JsonObject::new());
                 if self.capabilities.is_unset() {
                     self.negotiate_capabilities();
+                }
+            }
+
+            FromWidgetRequest::ReadEvent(req) => {
+                self.process_read_event_request(req, raw_request);
+            }
+        }
+    }
+
+    fn process_read_event_request(
+        &mut self,
+        request: ReadEventRequest,
+        raw_request: Raw<FromWidgetRequest>,
+    ) {
+        let CapabilitiesState::Negotiated(capabilities) = &self.capabilities else {
+            self.send_from_widget_error_response(
+                raw_request,
+                "Received read event request before capabilities were negotiated",
+            );
+            return;
+        };
+
+        match request {
+            ReadEventRequest::ReadMessageLikeEvent { .. } => {
+                self.send_from_widget_error_response(
+                    raw_request,
+                    "Reading of message events is not yet supported",
+                );
+            }
+            ReadEventRequest::ReadStateEvent { event_type, state_key } => {
+                let allowed = match &state_key {
+                    StateKeySelector::Any => capabilities
+                        .read
+                        .iter()
+                        .any(|filter| filter.matches_state_event_with_any_state_key(&event_type)),
+
+                    StateKeySelector::Key(state_key) => {
+                        let filter_in = MatrixEventFilterInput {
+                            event_type: event_type.to_string().into(),
+                            state_key: Some(state_key.clone()),
+                            // content doesn't matter for state events
+                            content: MatrixEventContent::default(),
+                        };
+
+                        capabilities.read.iter().any(|filter| filter.matches(&filter_in))
+                    }
+                };
+
+                if allowed {
+                    let request =
+                        ReadMatrixStateEvent(ReadStateEventCommand { event_type, state_key });
+                    self.send_matrix_driver_request(request).then(|events, machine| {
+                        machine
+                            .send_from_widget_response(raw_request, ReadEventResponse { events });
+                    });
+                } else {
+                    self.send_from_widget_error_response(raw_request, "Not allowed");
                 }
             }
         }
@@ -238,6 +307,14 @@ impl WidgetMachine {
         if let Err(e) = self.actions_sender.send(Action::SendToWidget(serialized)) {
             error!("Failed to send action: {e}");
         }
+    }
+
+    fn send_from_widget_error_response(
+        &self,
+        raw_request: Raw<FromWidgetRequest>,
+        error: impl fmt::Display,
+    ) {
+        self.send_from_widget_response(raw_request, FromWidgetErrorResponse::new(error))
     }
 
     #[instrument(skip_all, fields(action = T::ACTION))]
