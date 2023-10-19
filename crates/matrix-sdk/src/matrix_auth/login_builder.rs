@@ -192,7 +192,6 @@ impl LoginBuilder {
         // TODO: (#2763) put this into a background task.
         #[cfg(feature = "e2e-encryption")]
         if self.auth.client.encryption().settings().auto_enable_cross_signing {
-            // TODO: We need to test each of those.
             let auth_data = match login_info {
                 login::v3::LoginInfo::Password(p) => {
                     Some(AuthData::Password(Password::new(p.identifier, p.password)))
