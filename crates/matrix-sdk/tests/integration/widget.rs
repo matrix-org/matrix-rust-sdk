@@ -142,7 +142,8 @@ async fn negotiate_capabilities_immediately() {
         let request_id = msg["requestId"].as_str().unwrap();
 
         // Answer with caps we want
-        send_response(&driver_handle, request_id, "capabilities", data, &caps).await;
+        let response = json!({ "capabilities": caps });
+        send_response(&driver_handle, request_id, "capabilities", data, &response).await;
     }
 
     {
@@ -380,7 +381,8 @@ async fn negotiate_capabilities(driver_handle: &WidgetDriverHandle, caps: JsonVa
         let request_id = msg["requestId"].as_str().unwrap();
 
         // Answer with caps we want
-        send_response(driver_handle, request_id, "capabilities", data, &caps).await;
+        let response = json!({ "capabilities": caps });
+        send_response(driver_handle, request_id, "capabilities", data, &response).await;
     }
 
     {

@@ -80,18 +80,23 @@ pub(crate) trait ToWidgetRequest: Serialize {
 
 /// Request the widget to send the list of capabilities that it wants to have.
 #[derive(Serialize)]
-pub(crate) struct RequestPermissions {}
+pub(super) struct RequestCapabilities {}
 
-impl ToWidgetRequest for RequestPermissions {
+impl ToWidgetRequest for RequestCapabilities {
     const ACTION: &'static str = "capabilities";
-    type ResponseData = Capabilities;
+    type ResponseData = RequestCapabilitiesResponse;
+}
+
+#[derive(Deserialize)]
+pub(super) struct RequestCapabilitiesResponse {
+    pub(super) capabilities: Capabilities,
 }
 
 /// Notify the widget that the list of the granted capabilities has changed.
 #[derive(Serialize)]
-pub(crate) struct NotifyPermissionsChanged {
-    pub(crate) requested: Capabilities,
-    pub(crate) approved: Capabilities,
+pub(super) struct NotifyPermissionsChanged {
+    pub(super) requested: Capabilities,
+    pub(super) approved: Capabilities,
 }
 
 impl ToWidgetRequest for NotifyPermissionsChanged {

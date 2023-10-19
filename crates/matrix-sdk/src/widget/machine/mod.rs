@@ -37,7 +37,7 @@ use self::{
     },
     incoming::{IncomingWidgetMessage, IncomingWidgetMessageKind},
     to_widget::{
-        NotifyPermissionsChanged, RequestPermissions, ToWidgetRequest, ToWidgetRequestHandle,
+        NotifyPermissionsChanged, RequestCapabilities, ToWidgetRequest, ToWidgetRequestHandle,
         ToWidgetResponse,
     },
 };
@@ -455,9 +455,10 @@ impl WidgetMachine {
     fn negotiate_capabilities(&mut self) {
         self.capabilities = CapabilitiesState::Negotiating;
 
-        self.send_to_widget_request(RequestPermissions {})
+        self.send_to_widget_request(RequestCapabilities {})
             // TODO: Each request can actually fail here, take this into an account.
-            .then(|desired_capabilities, machine| {
+            .then(|response, machine| {
+                let desired_capabilities = response.capabilities;
                 machine
                     .send_matrix_driver_request(AcquireCapabilities {
                         desired_capabilities: desired_capabilities.clone(),
