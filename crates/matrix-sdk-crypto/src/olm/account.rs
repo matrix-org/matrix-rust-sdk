@@ -1137,11 +1137,13 @@ impl Account {
         };
 
         let existing_sessions = store.get_sessions(&sender_key.to_base64()).await?;
-        if let Some(ref sessions) = existing_sessions {
-            let sessions: &mut Vec<Session> = &mut *sessions.lock().await;
+
+        let session_ids = if let Some(ref sessions) = existing_sessions {
+            let sessions = &mut *sessions.lock().await;
+
             // Try to decrypt the message using each Session we share with the
             // given curve25519 sender key.
-            for session in sessions {
+            for session in sessions.iter_mut() {
                 if let Ok(p) = session.decrypt(message).await {
                     // success!
                     return Ok((SessionType::Existing(session.clone()), p));
@@ -1152,16 +1154,16 @@ impl Account {
                     continue;
                 }
             }
-        }
 
-        let session_ids = if let Some(sessions) = existing_sessions {
-            sessions.lock().await.iter().map(|s| s.session_id().to_owned()).collect()
+            // decryption wasn't successful with any of the sessions. Collect a list of
+            // session IDs to log.
+            sessions.iter().map(|s| s.session_id().to_owned()).collect()
         } else {
             vec![]
         };
 
         warn!(?session_ids, "Failed to decrypt a non-pre-key message with all available sessions");
-        return Err(OlmError::SessionWedged(sender.to_owned(), sender_key));
+        Err(OlmError::SessionWedged(sender.to_owned(), sender_key))
     }
 
     /// Try to decrypt a prekey Olm message.
@@ -1181,7 +1183,7 @@ impl Account {
 
         // First try to decrypt using an existing session.
         let existing_sessions = store.get_sessions(&sender_key.to_base64()).await?;
-        if let Some(ref sessions) = existing_sessions.as_ref() {
+        if let Some(sessions) = existing_sessions {
             // Try to find the right session
             for session in &mut *sessions.lock().await {
                 if prekey_message.session_id() != session.session_id() {
@@ -1189,9 +1191,9 @@ impl Account {
                     continue;
                 }
 
-                return if let Ok(p) = session.decrypt(message).await {
+                if let Ok(p) = session.decrypt(message).await {
                     // success!
-                    Ok((SessionType::Existing(session.clone()), p))
+                    return Ok((SessionType::Existing(session.clone()), p));
                 } else {
                     // The message was intended for this session, but we weren't able to decrypt it.
                     //
@@ -1209,8 +1211,11 @@ impl Account {
                         "Failed to decrypt a pre-key message with the corresponding session"
                     );
 
-                    Err(OlmError::SessionWedged(session.user_id.to_owned(), session.sender_key()))
-                };
+                    return Err(OlmError::SessionWedged(
+                        session.user_id.to_owned(),
+                        session.sender_key(),
+                    ));
+                }
             }
         }
 
