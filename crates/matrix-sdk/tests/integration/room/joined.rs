@@ -37,6 +37,7 @@ async fn invite_user_by_id() {
         .await;
 
     mock_sync(&server, &*test_json::SYNC, None).await;
+    mock_encryption_state(&server, false).await;
 
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 

@@ -474,7 +474,8 @@ mod tests {
                                 3LqBjD21sULYEO5YTKdpMVhi9i6ZSZhdvZvp//tzRpDT7wpWVWI\
                                 00Y3EPEjmpm/HfZ4MMAKpk+tzJVuuvfAcHBZgpnxBGzYOc/DAqa\
                                 pK7Tk3t3QJ1UMSD94HfAqlb1JF5QBPwoh0fOvD8pJdanB8zxz05\
-                                tKFdR73/vo2Q/zE3"
+                                tKFdR73/vo2Q/zE3",
+                "org.matrix.msc3061.shared_history": true
             },
             "type": "m.forwarded_room_key"
         })

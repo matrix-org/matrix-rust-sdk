@@ -483,12 +483,17 @@ impl OutboundGroupSession {
 
     pub(crate) async fn as_content(&self) -> RoomKeyContent {
         let session_key = self.session_key().await;
+        let shared_history = matches!(
+            self.settings.history_visibility,
+            HistoryVisibility::Shared | HistoryVisibility::WorldReadable
+        );
 
         RoomKeyContent::MegolmV1AesSha2(
             MegolmV1AesSha2RoomKeyContent::new(
                 self.room_id().to_owned(),
                 self.session_id().to_owned(),
                 session_key,
+                shared_history,
             )
             .into(),
         )

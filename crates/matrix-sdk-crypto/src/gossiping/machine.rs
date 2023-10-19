@@ -31,8 +31,11 @@ use std::{
 
 use ruma::{
     api::client::keys::claim_keys::v3::Request as KeysClaimRequest,
-    events::secret::request::{
-        RequestAction, SecretName, ToDeviceSecretRequestEvent as SecretRequestEvent,
+    events::{
+        room::history_visibility::HistoryVisibility,
+        secret::request::{
+            RequestAction, SecretName, ToDeviceSecretRequestEvent as SecretRequestEvent,
+        },
     },
     DeviceId, DeviceKeyAlgorithm, OwnedDeviceId, OwnedTransactionId, OwnedUserId, RoomId,
     TransactionId, UserId,
@@ -175,8 +178,14 @@ impl GossipMachine {
         // out using a wildcard instead of a specific device as a recipient.
         //
         // Check if we're the sender of this request event and ignore it if
-        // so.
-        if event.sender() == self.user_id() && event.requesting_device_id() == self.device_id() {
+        // so. However if the request is a room key request, we should allow it
+        // since one of our other devices could be forwarding a room key to us.
+        // This could happen when one device is unable to decrypt an event and
+        // requests the key from another device.
+        if event.sender() == self.user_id()
+            && event.requesting_device_id() == self.device_id()
+            && matches!(event, RequestEvent::Secret(_))
+        {
             trace!("Received a secret request event from ourselves, ignoring")
         } else {
             let request_info = event.to_request_info();
@@ -345,7 +354,7 @@ impl GossipMachine {
     /// `/keys/claim` request to be sent out and retry once the 1-to-1 Olm
     /// session has been established.
     #[cfg(feature = "automatic-room-key-forwarding")]
-    async fn try_to_forward_room_key(
+    pub async fn try_to_forward_room_key(
         &self,
         event: &RoomKeyRequestEvent,
         device: Device,
@@ -589,7 +598,22 @@ impl GossipMachine {
         // information is recorded there.
         } else if let Some(outbound) = outbound_session {
             match outbound.is_shared_with(device) {
-                ShareState::Shared(message_index) => Ok(Some(message_index)),
+                ShareState::Shared(message_index) => {
+                    if let Some(history) = session.history_visibility.as_ref() {
+                        match history {
+                            HistoryVisibility::Shared | HistoryVisibility::WorldReadable => {
+                                Ok(None)
+                            }
+
+                            HistoryVisibility::Invited
+                            | HistoryVisibility::Joined
+                            | HistoryVisibility::_Custom(_) => Ok(Some(message_index)),
+                            _ => Ok(Some(message_index)),
+                        }
+                    } else {
+                        Ok(Some(message_index))
+                    }
+                }
                 ShareState::SharedButChangedSenderKey => Err(KeyForwardDecision::ChangedSenderKey),
                 ShareState::NotShared => Err(KeyForwardDecision::OutboundSessionNotShared),
             }
@@ -977,6 +1001,39 @@ impl GossipMachine {
         let Some(request) =
             self.inner.store.get_secret_request_by_info(&info.clone().into()).await?
         else {
+            // We did not request this key, so determine if this key was
+            // forwarded as a result from a room invite
+            let session = match &event.content {
+                ForwardedRoomKeyContent::MegolmV1AesSha2(c) => {
+                    InboundGroupSession::from(c.as_ref())
+                }
+                #[cfg(feature = "experimental-algorithms")]
+                ForwardedRoomKeyContent::MegolmV2AesSha2(c) => {
+                    InboundGroupSession::from(c.as_ref())
+                }
+                ForwardedRoomKeyContent::Unknown(_) => {
+                    warn!(
+                        sender_key = ?sender_key,
+                        room_id = ?info.room_id(),
+                        session_id = info.session_id(),
+                        sender_key = ?sender_key,
+                        algorithm = ?info.algorithm(),
+                        "Received an unknown forwarded room key that we didn't request",
+                    );
+
+                    return Ok(None);
+                }
+            };
+
+            if let Some(visibility) = session.history_visibility.as_ref() {
+                if matches!(
+                    visibility,
+                    HistoryVisibility::Shared | HistoryVisibility::WorldReadable
+                ) {
+                    return Ok(Some(session));
+                }
+            }
+
             warn!(
                 sender_key = ?sender_key,
                 room_id = ?info.room_id(),
@@ -985,6 +1042,7 @@ impl GossipMachine {
                 algorithm = ?info.algorithm(),
                 "Received a forwarded room key that we didn't request",
             );
+
             return Ok(None);
         };
 
@@ -1464,6 +1522,8 @@ mod tests {
     #[async_test]
     #[cfg(feature = "automatic-room-key-forwarding")]
     async fn should_share_key_test() {
+        use ruma::events::room::history_visibility::HistoryVisibility;
+
         let machine = get_machine().await;
         let account = account();
 
@@ -1527,8 +1587,14 @@ mod tests {
             .await;
         machine.should_share_key(&bob_device, &inbound).await.unwrap();
 
-        let (other_outbound, other_inbound) =
-            account.create_group_session_pair_with_defaults(room_id()).await;
+        let encryption_settings = EncryptionSettings {
+            history_visibility: HistoryVisibility::Invited,
+            ..Default::default()
+        };
+        let (other_outbound, other_inbound) = account
+            .create_group_session_pair(room_id(), encryption_settings)
+            .await
+            .expect("Can't create group session pair");
 
         // But we don't share some other session that doesn't match our outbound
         // session.

@@ -142,7 +142,7 @@ pub struct InboundGroupSession {
 
     /// The history visibility of the room at the time when the room key was
     /// created.
-    history_visibility: Arc<Option<HistoryVisibility>>,
+    pub history_visibility: Arc<Option<HistoryVisibility>>,
 
     /// Was this room key backed up to the server.
     backed_up: Arc<AtomicBool>,
@@ -227,6 +227,7 @@ impl InboundGroupSession {
             forwarding_curve25519_key_chain: vec![],
             session_key: backup.session_key,
             sender_claimed_keys: backup.sender_claimed_keys,
+            shared_history: backup.shared_history,
         })
     }
 
@@ -292,6 +293,12 @@ impl InboundGroupSession {
         let session_key =
             self.inner.lock().await.export_at(message_index).expect("Can't export session");
 
+        let shared_history = if let Some(history) = self.history_visibility.as_ref().clone() {
+            matches!(history, HistoryVisibility::Shared | HistoryVisibility::WorldReadable)
+        } else {
+            false
+        };
+
         ExportedRoomKey {
             algorithm: self.algorithm().to_owned(),
             room_id: self.room_id().to_owned(),
@@ -300,6 +307,7 @@ impl InboundGroupSession {
             forwarding_curve25519_key_chain: vec![],
             sender_claimed_keys: (*self.creator_info.signing_keys).clone(),
             session_key,
+            shared_history,
         }
     }
 
@@ -521,6 +529,10 @@ impl TryFrom<&ExportedRoomKey> for InboundGroupSession {
         let config = OutboundGroupSession::session_config(&key.algorithm)?;
         let session = InnerSession::import(&key.session_key, config);
         let first_known_index = session.first_known_index();
+        // Content does not indicate level of history visibility, so
+        // set it to least permissive for shared history if true
+        let history_visibility =
+            if key.shared_history { Some(HistoryVisibility::Shared) } else { None };
 
         Ok(InboundGroupSession {
             inner: Mutex::new(session).into(),
@@ -529,7 +541,7 @@ impl TryFrom<&ExportedRoomKey> for InboundGroupSession {
                 curve25519_key: key.sender_key,
                 signing_keys: key.sender_claimed_keys.to_owned().into(),
             },
-            history_visibility: None.into(),
+            history_visibility: history_visibility.into(),
             first_known_index,
             room_id: key.room_id.to_owned(),
             imported: true,
@@ -544,6 +556,10 @@ impl From<&ForwardedMegolmV1AesSha2Content> for InboundGroupSession {
         let session = InnerSession::import(&value.session_key, SessionConfig::version_1());
         let session_id = session.session_id().into();
         let first_known_index = session.first_known_index();
+        // Content does not indicate level of history visibility, so
+        // set it to least permissive for shared history if true
+        let history_visibility =
+            if value.shared_history { Some(HistoryVisibility::Shared) } else { None };
 
         InboundGroupSession {
             inner: Mutex::new(session).into(),
@@ -556,7 +572,7 @@ impl From<&ForwardedMegolmV1AesSha2Content> for InboundGroupSession {
                 )])
                 .into(),
             },
-            history_visibility: None.into(),
+            history_visibility: history_visibility.into(),
             first_known_index,
             room_id: value.room_id.to_owned(),
             imported: true,
@@ -571,6 +587,10 @@ impl From<&ForwardedMegolmV2AesSha2Content> for InboundGroupSession {
         let session = InnerSession::import(&value.session_key, SessionConfig::version_2());
         let session_id = session.session_id().into();
         let first_known_index = session.first_known_index();
+        // Content does not indicate level of history visibility, so
+        // set it to least permissive for shared history if true
+        let history_visibility =
+            if value.shared_history { Some(HistoryVisibility::Shared) } else { None };
 
         InboundGroupSession {
             inner: Mutex::new(session).into(),
@@ -579,7 +599,7 @@ impl From<&ForwardedMegolmV2AesSha2Content> for InboundGroupSession {
                 curve25519_key: value.claimed_sender_key,
                 signing_keys: value.claimed_signing_keys.to_owned().into(),
             },
-            history_visibility: None.into(),
+            history_visibility: history_visibility.into(),
             first_known_index,
             room_id: value.room_id.to_owned(),
             imported: true,

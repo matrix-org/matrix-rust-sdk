@@ -749,6 +749,38 @@ impl OlmMachine {
         Ok(requests.into_iter().map(|r| r.as_ref().into()).collect())
     }
 
+    /// Shares historical room keys used in previous sessions with the list of
+    /// users for the given room.
+    ///
+    /// After the request was sent out and a successful response was received
+    /// the response body should be passed back to the state machine using the
+    /// [mark_request_as_sent()](Self::mark_request_as_sent) method.
+    ///
+    /// This method should be called after users have been invited to the room.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The unique id of the room of which previous room keys
+    /// will be sent out.
+    ///
+    /// * `users` - The list of users which are considered to be members of the
+    /// room and should receive previous room keys.
+    pub fn share_room_history_keys(
+        &self,
+        room_id: String,
+        users: Vec<String>,
+    ) -> Result<Vec<Request>, CryptoStoreError> {
+        let users: Vec<OwnedUserId> =
+            users.into_iter().filter_map(|u| UserId::parse(u).ok()).collect();
+
+        let room_id = RoomId::parse(room_id)?;
+        let requests = self.runtime.block_on(
+            self.inner.share_room_history_keys(&room_id, users.iter().map(Deref::deref)),
+        )?;
+
+        Ok(requests.into_iter().map(|r| r.as_ref().into()).collect())
+    }
+
     /// Encrypt the given event with the given type and content for the given
     /// room.
     ///

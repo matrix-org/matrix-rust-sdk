@@ -74,6 +74,7 @@ impl RoomKeyContent {
             pub room_id: &'a RoomId,
             pub session_id: &'a str,
             pub session_key: &'a str,
+            pub shared_history: bool,
             #[serde(flatten)]
             other: &'a BTreeMap<String, Value>,
         }
@@ -83,6 +84,7 @@ impl RoomKeyContent {
                 room_id: &content.room_id,
                 session_id: &content.session_id,
                 session_key: "",
+                shared_history: content.shared_history,
                 other: &content.other,
             };
 
@@ -113,6 +115,9 @@ pub struct MegolmV1AesSha2Content {
     ///
     /// [`InboundGroupSession`]: vodozemac::megolm::InboundGroupSession
     pub session_key: SessionKey,
+    /// Used to mark as having been used for shared history
+    #[serde(default, rename = "org.matrix.msc3061.shared_history")]
+    pub shared_history: bool,
     /// Any other, custom and non-specced fields of the content.
     #[serde(flatten)]
     other: BTreeMap<String, Value>,
@@ -120,8 +125,13 @@ pub struct MegolmV1AesSha2Content {
 
 impl MegolmV1AesSha2Content {
     /// Create a new `m.megolm.v1.aes-sha2` `m.room_key` content.
-    pub fn new(room_id: OwnedRoomId, session_id: String, session_key: SessionKey) -> Self {
-        Self { room_id, session_id, session_key, other: Default::default() }
+    pub fn new(
+        room_id: OwnedRoomId,
+        session_id: String,
+        session_key: SessionKey,
+        shared_history: bool,
+    ) -> Self {
+        Self { room_id, session_id, session_key, shared_history, other: Default::default() }
     }
 }
 
@@ -223,7 +233,8 @@ pub(super) mod tests {
                                 tino//CDQENtcKuEt0I9s0+Kk4YSH310Szse2RQ+vjple31\
                                 QrCexmqfFJzkR/BJ5ogJHrPBQL0LgsPyglIbMTLg7qygIaY\
                                 U5Fe2QdKMH7nTZPNIRHh1RaMfHVETAUJBax88EWZBoifk80\
-                                gdHUwHSgMk77vCc2a5KHKLDA"
+                                gdHUwHSgMk77vCc2a5KHKLDA",
+                "org.matrix.msc3061.shared_history": true
             },
             "type": "m.room_key",
             "m.custom.top": "something custom in the top",

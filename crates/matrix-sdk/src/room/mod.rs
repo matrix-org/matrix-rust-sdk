@@ -986,6 +986,27 @@ impl Room {
         let request = invite_user::v3::Request::new(self.room_id().to_owned(), recipient);
         self.client.send(request, None).await?;
 
+        // MSC3061: Forward past room keys to invitee
+        #[cfg(all(feature = "e2e-encryption", feature = "automatic-room-key-forwarding"))]
+        if self.is_encrypted().await?
+            && matches!(
+                self.history_visibility(),
+                HistoryVisibility::Shared | HistoryVisibility::WorldReadable
+            )
+        {
+            match self.client.olm_machine().await.as_ref() {
+                Some(olm) => {
+                    // Get the most up-to-date device list before forwarding room keys
+                    let (req_id, request) = olm.query_keys_for_users(std::iter::once(user_id));
+                    self.client.keys_query(&req_id, request.device_keys).await?;
+
+                    olm.share_room_history_keys(self.room_id(), std::iter::once(user_id)).await?;
+                    self.client.send_outgoing_requests().await?;
+                }
+                None => panic!("Olm machine wasn't started"),
+            }
+        }
+
         Ok(())
     }
 
@@ -999,6 +1020,9 @@ impl Room {
         let recipient = InvitationRecipient::ThirdPartyId(invite_id);
         let request = invite_user::v3::Request::new(self.room_id().to_owned(), recipient);
         self.client.send(request, None).await?;
+
+        // MSC3061: 3PID invites cannot forward past room keys since UserId
+        // lookup and invite is handled by the homeserver, not the client.
 
         Ok(())
     }

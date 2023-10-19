@@ -95,6 +95,10 @@ pub struct ExportedRoomKey {
         serialize_with = "serialize_curve_key_vec"
     )]
     pub forwarding_curve25519_key_chain: Vec<Curve25519PublicKey>,
+
+    /// Used to mark as having been used for shared history
+    #[serde(default)]
+    pub shared_history: bool,
 }
 
 /// A backed up version of an `InboundGroupSession`
@@ -119,6 +123,10 @@ pub struct BackedUpRoomKey {
     /// Chain of Curve25519 keys through which this session was forwarded, via
     /// m.forwarded_room_key events.
     pub forwarding_curve25519_key_chain: Vec<Curve25519PublicKey>,
+
+    /// Used to mark as having been used for shared history
+    #[serde(default)]
+    pub shared_history: bool,
 }
 
 impl TryFrom<ExportedRoomKey> for ForwardedRoomKeyContent {
@@ -151,6 +159,7 @@ impl TryFrom<ExportedRoomKey> for ForwardedRoomKeyContent {
                             forwarding_curve25519_key_chain: room_key
                                 .forwarding_curve25519_key_chain
                                 .clone(),
+                            shared_history: room_key.shared_history,
                             other: Default::default(),
                         }
                         .into(),
@@ -168,6 +177,7 @@ impl TryFrom<ExportedRoomKey> for ForwardedRoomKeyContent {
                         session_key: room_key.session_key,
                         claimed_sender_key: room_key.sender_key,
                         claimed_signing_keys: room_key.sender_claimed_keys,
+                        shared_history: room_key.shared_history,
                         other: Default::default(),
                     }
                     .into(),
@@ -186,6 +196,7 @@ impl From<ExportedRoomKey> for BackedUpRoomKey {
             session_key: k.session_key,
             sender_claimed_keys: k.sender_claimed_keys,
             forwarding_curve25519_key_chain: k.forwarding_curve25519_key_chain,
+            shared_history: k.shared_history,
         }
     }
 }
@@ -211,6 +222,7 @@ impl TryFrom<ForwardedRoomKeyContent> for ExportedRoomKey {
                     sender_claimed_keys,
                     sender_key: content.claimed_sender_key,
                     session_key: content.session_key,
+                    shared_history: content.shared_history,
                 })
             }
             #[cfg(feature = "experimental-algorithms")]
@@ -222,6 +234,7 @@ impl TryFrom<ForwardedRoomKeyContent> for ExportedRoomKey {
                 sender_claimed_keys: content.claimed_signing_keys,
                 sender_key: content.claimed_sender_key,
                 session_key: content.session_key,
+                shared_history: content.shared_history,
             }),
             ForwardedRoomKeyContent::Unknown(c) => Err(SessionExportError::Algorithm(c.algorithm)),
         }
