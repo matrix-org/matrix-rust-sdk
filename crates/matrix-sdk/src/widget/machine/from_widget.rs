@@ -52,13 +52,13 @@ struct FromWidgetError {
 
 #[derive(Serialize)]
 pub(super) struct SupportedApiVersionsResponse {
-    versions: Vec<ApiVersion>,
+    supported_versions: Vec<ApiVersion>,
 }
 
 impl SupportedApiVersionsResponse {
     pub(super) fn new() -> Self {
         Self {
-            versions: vec![
+            supported_versions: vec![
                 ApiVersion::V0_0_1,
                 ApiVersion::V0_0_2,
                 ApiVersion::MSC2762,
