@@ -1,27 +1,37 @@
+use std::{collections::BTreeMap, sync::Mutex};
+
 use assert_matches::assert_matches;
 use matrix_sdk::{
+    config::RequestConfig,
     matrix_auth::{MatrixSession, MatrixSessionTokens},
-    AuthApi, AuthSession, RumaApiError,
+    AuthApi, AuthSession, Client, RumaApiError,
 };
 use matrix_sdk_base::SessionMeta;
 use matrix_sdk_test::{async_test, test_json};
 use ruma::{
-    api::client::{
-        self as client_api,
-        account::register::{v3::Request as RegistrationRequest, RegistrationKind},
-        session::get_login_types::v3::LoginType,
-        uiaa,
+    api::{
+        client::{
+            self as client_api,
+            account::register::{v3::Request as RegistrationRequest, RegistrationKind},
+            keys::upload_signatures::v3::SignedKeys,
+            session::get_login_types::v3::LoginType,
+            uiaa::{self, AuthData, UserIdentifier},
+        },
+        MatrixVersion,
     },
-    assign, device_id, user_id,
+    assign, device_id,
+    encryption::CrossSigningKey,
+    serde::Raw,
+    user_id, OwnedUserId,
 };
 use serde_json::{from_value as from_json_value, json, to_value as to_json_value};
 use url::Url;
 use wiremock::{
     matchers::{method, path},
-    Mock, ResponseTemplate,
+    Mock, MockServer, Request, ResponseTemplate,
 };
 
-use crate::{logged_in_client, no_retry_test_client};
+use crate::{logged_in_client, no_retry_test_client, test_client_builder};
 
 #[async_test]
 async fn test_restore_session() {
@@ -312,4 +322,291 @@ fn test_serialize_session() {
             "device_id": "EFGHIJ",
         })
     );
+}
+
+#[async_test]
+async fn test_login_with_cross_signing_bootstrapping() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/_matrix/client/r0/keys/query"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "device_keys": {
+                "@alice:example.org": {}
+            }
+        })))
+        .mount(&server)
+        .await;
+
+    let num_calls = Mutex::new(0);
+    Mock::given(method("POST"))
+        .and(path("/_matrix/client/unstable/keys/device_signing/upload"))
+        .respond_with(move |req: &Request| {
+            #[derive(Debug, serde::Deserialize)]
+            struct Parameters {
+                auth: Option<AuthData>,
+                master_key: Option<Raw<CrossSigningKey>>,
+                self_signing_key: Option<Raw<CrossSigningKey>>,
+                user_signing_key: Option<Raw<CrossSigningKey>>,
+            }
+
+            let params: Parameters = req.body_json().unwrap();
+
+            {
+                let mut num_calls = num_calls.lock().unwrap();
+                if *num_calls == 0 {
+                    // First time, we use a password.
+                    let password =
+                        assert_matches!(&params.auth, Some(AuthData::Password(pwd)) => pwd);
+                    assert_eq!(
+                        password.identifier,
+                        UserIdentifier::UserIdOrLocalpart("example".to_owned())
+                    );
+                    assert_eq!(password.password, "hunter2");
+
+                    *num_calls += 1;
+                } else {
+                    // Second time, we use a login token. Pretend MSC3967 is enabled and require an
+                    // empty auth.
+                    assert!(params.auth.is_none());
+                }
+            }
+
+            assert!(params.master_key.is_some());
+            assert!(params.self_signing_key.is_some());
+            assert!(params.user_signing_key.is_some());
+
+            ResponseTemplate::new(200).set_body_json(json!({}))
+        })
+        .expect(2)
+        .mount(&server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/_matrix/client/unstable/keys/signatures/upload"))
+        .respond_with(|req: &Request| {
+            #[derive(Debug, serde::Deserialize)]
+            #[serde(transparent)]
+            struct Parameters(BTreeMap<OwnedUserId, SignedKeys>);
+
+            let params: Parameters = req.body_json().unwrap();
+            assert!(params.0.contains_key(user_id!("@alice:example.org")));
+
+            ResponseTemplate::new(200).set_body_json(json!({
+                "failures": {}
+            }))
+        })
+        .mount(&server)
+        .await;
+
+    {
+        // Login with username and password.
+        let _guard = Mock::given(method("POST"))
+            .and(path("/_matrix/client/r0/login"))
+            .respond_with(|req: &Request| {
+                #[derive(serde::Deserialize)]
+                struct Parameters {
+                    r#type: String,
+                    password: String,
+                }
+
+                let params: Parameters = req.body_json().unwrap();
+                assert_eq!(params.r#type, "m.login.password");
+                assert_eq!(params.password, "hunter2");
+
+                ResponseTemplate::new(200).set_body_json(json!({
+                    "access_token": "abc123",
+                    "device_id": "GHTYAJCE",
+                    "home_server": "example.org",
+                    "user_id": "@alice:example.org"
+                }))
+            })
+            .mount_as_scoped(&server)
+            .await;
+
+        let client = Client::builder()
+            .homeserver_url(server.uri())
+            .server_versions([MatrixVersion::V1_0])
+            .with_encryption_settings(matrix_sdk::encryption::EncryptionSettings {
+                auto_enable_cross_signing: true,
+            })
+            .request_config(RequestConfig::new().disable_retry())
+            .build()
+            .await
+            .unwrap();
+
+        let auth = client.matrix_auth();
+        auth.login_username("example", "hunter2").send().await.unwrap();
+
+        assert!(client.logged_in(), "Client should be logged in");
+        assert!(auth.logged_in(), "Client should be logged in with the MatrixAuth API");
+
+        let me = client.user_id().expect("we are now logged in");
+        let own_identity =
+            client.encryption().get_user_identity(me).await.expect("succeeds").expect("is present");
+
+        assert_eq!(own_identity.user_id(), me);
+        assert!(own_identity.is_verified());
+    }
+
+    {
+        // Login with a token.
+        let _guard = Mock::given(method("POST"))
+            .and(path("/_matrix/client/r0/login"))
+            .respond_with(|req: &Request| {
+                #[derive(serde::Deserialize)]
+                struct Parameters {
+                    r#type: String,
+                    token: String,
+                }
+
+                let params: Parameters = req.body_json().unwrap();
+                assert_eq!(params.r#type, "m.login.token");
+                assert_eq!(params.token, "HUNTER2");
+
+                ResponseTemplate::new(200).set_body_json(json!({
+                    "access_token": "abc123",
+                    "device_id": "GHTYAJCE",
+                    "home_server": "example.org",
+                    "user_id": "@alice:example.org"
+                }))
+            })
+            .mount_as_scoped(&server)
+            .await;
+
+        let client = Client::builder()
+            .homeserver_url(server.uri())
+            .server_versions([MatrixVersion::V1_0])
+            .with_encryption_settings(matrix_sdk::encryption::EncryptionSettings {
+                auto_enable_cross_signing: true,
+            })
+            .request_config(RequestConfig::new().disable_retry())
+            .build()
+            .await
+            .unwrap();
+
+        let auth = client.matrix_auth();
+        auth.login_token("HUNTER2").send().await.unwrap();
+
+        assert!(client.logged_in(), "Client should be logged in");
+        assert!(auth.logged_in(), "Client should be logged in with the MatrixAuth API");
+
+        let me = client.user_id().expect("we are now logged in");
+        let own_identity =
+            client.encryption().get_user_identity(me).await.expect("succeeds").expect("is present");
+
+        assert_eq!(own_identity.user_id(), me);
+        assert!(own_identity.is_verified());
+    }
+}
+
+#[async_test]
+async fn test_login_with_cross_signing_bootstrapping_already_bootstrapped() {
+    // Even if we enabled cross-signing bootstrap for another device, it won't
+    // restart the procedure.
+    let (builder, server) = test_client_builder().await;
+
+    Mock::given(method("POST"))
+        .and(path("/_matrix/client/r0/login"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "access_token": "abc123",
+            "device_id": "FEJILWLI",
+            "home_server": "example.org",
+            "user_id": "@alice:example.org"
+        })))
+        .mount(&server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/_matrix/client/r0/keys/query"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "device_keys": {
+                "@alice:example.org": {
+                    "GHTYAJCE": {
+                      "user_id": "@alice:example.org",
+                      "device_id": "GHTYAJCE",
+                      "algorithms": [
+                        "m.olm.v1.curve25519-aes-sha2",
+                        "m.megolm.v1.aes-sha2"
+                      ],
+                      "keys": {
+                        "curve25519:GHTYAJCE": "okg/vMIocD10QuctIUhBOk9ccrrNLUtBRzTDSJlVRw4",
+                        "ed25519:GHTYAJCE": "MxZSkgCAPVM4KZ3VCy0zG88vYp7Z+jjy8l5z1Ji3B7Y"
+                      },
+                      "signatures": {
+                        "@alice:example.org": {
+                          "ed25519:784pBUxon7VPcJJs69XkvN+AbC1ks07bvMh4qOPnVgY": "369BRaMHLW4nwrpy34eBYl0TpUeZoCs+IFXvTWJUBAv8Va4iqgB07Wi7XcJ+mmE4M7asyKnf5f7Zh4kGjOoNAQ"
+                        }
+                      }
+                    }
+                }
+            },
+            "failures": {},
+            "master_keys": {
+                "@alice:example.org": {
+                    "user_id": "@alice:example.org",
+                    "usage": [
+                      "master"
+                    ],
+                    "keys": {
+                      "ed25519:qGlcu2K7qaDn6wBG3DHOtnOeTgu6Dj1QLsxHSEGtODg": "qGlcu2K7qaDn6wBG3DHOtnOeTgu6Dj1QLsxHSEGtODg"
+                    },
+                    "signatures": {
+                      "@alice:example.org": {
+                        "ed25519:GHTYAJCE": "L3v/GSbEN+qO/vJipVupW6j3fHFn1CPSt8w5Ob0IpByM+LOuxKTc60kpisl94cueQZnl40mnKEFoYzI0JZWTDA",
+                        "ed25519:qGlcu2K7qaDn6wBG3DHOtnOeTgu6Dj1QLsxHSEGtODg": "rb1Y9O5nfF0bU2p7aWF+I4095C4sm3uc/IWxdC55Q8GtrGFNsiR+YTvi3tJahMLDxYOCzgXl7dJ1mXsvzRNwBA"
+                      }
+                    }
+                }
+            },
+            "self_signing_keys": {
+                "@alice:example.org": {
+                    "user_id": "@alice:example.org",
+                    "usage": [
+                      "self_signing"
+                    ],
+                    "keys": {
+                      "ed25519:784pBUxon7VPcJJs69XkvN+AbC1ks07bvMh4qOPnVgY": "784pBUxon7VPcJJs69XkvN+AbC1ks07bvMh4qOPnVgY"
+                    },
+                    "signatures": {
+                      "@alice:example.org": {
+                        "ed25519:qGlcu2K7qaDn6wBG3DHOtnOeTgu6Dj1QLsxHSEGtODg": "TQQOP7BYFB6aZ/cVOa2qOzmzsap2kTpCLMEI1U8nO1kVtGRjXMGU+xoJ43DDWEgRvy2iUA7AMQpC1yCxo79BBA"
+                      }
+                    }
+                }
+            },
+            "user_signing_keys": {
+                "@alice:example.org": {
+                    "user_id": "@alice:example.org",
+                    "usage": [
+                      "user_signing"
+                    ],
+                    "keys": {
+                      "ed25519:D5nFYOzvmWUab4084Tahqhe4NgfQnuJ2XvdETSbOqrs": "D5nFYOzvmWUab4084Tahqhe4NgfQnuJ2XvdETSbOqrs"
+                    },
+                    "signatures": {
+                      "@alice:example.org": {
+                        "ed25519:qGlcu2K7qaDn6wBG3DHOtnOeTgu6Dj1QLsxHSEGtODg": "fFf76W6aPyxiwrINjlEjYxTIvC+35uth/WK7mzNLtQgHCGyzhJqRZECvHVQ4slr/oSu1EAAYJbAkq/QU0bniDg"
+                      }
+                    }
+                }
+            },
+        })))
+        .mount(&server)
+        .await;
+
+    let client = builder
+        .with_encryption_settings(matrix_sdk::encryption::EncryptionSettings {
+            auto_enable_cross_signing: true,
+        })
+        .request_config(RequestConfig::new().disable_retry())
+        .build()
+        .await
+        .unwrap();
+
+    let auth = client.matrix_auth();
+    auth.login_username("example", "hunter2").send().await.unwrap();
+
+    assert!(client.logged_in(), "Client should be logged in");
+    assert!(auth.logged_in(), "Client should be logged in with the MatrixAuth API");
 }
