@@ -34,6 +34,16 @@ impl EventFilter {
             EventFilter::State(state_filter) => state_filter.matches(matrix_event),
         }
     }
+
+    pub(super) fn matches_state_event_with_any_state_key(
+        &self,
+        event_type: &StateEventType,
+    ) -> bool {
+        matches!(
+            self,
+            Self::State(filter) if filter.matches_state_event_with_any_state_key(event_type)
+        )
+    }
 }
 
 /// Filter for message-like events.
@@ -91,6 +101,10 @@ impl StateEventFilter {
                     && state_key == filter_state_key
             }
         }
+    }
+
+    fn matches_state_event_with_any_state_key(&self, event_type: &StateEventType) -> bool {
+        matches!(self, Self::WithType(ty) if ty == event_type)
     }
 }
 
@@ -199,7 +213,14 @@ mod tests {
         )));
     }
 
-    // Tests against an `m.room.member` filter with `state_key = @self:example.me`
+    #[test]
+    fn reaction_event_filter_does_not_match_state_event_any_key() {
+        assert!(
+            !reaction_event_filter().matches_state_event_with_any_state_key(&"m.reaction".into())
+        );
+    }
+
+    // Tests against an `m.room.member` filter with `state_key = "@self:example.me"`
     fn self_member_event_filter() -> EventFilter {
         EventFilter::State(StateEventFilter::WithTypeAndStateKey(
             StateEventType::RoomMember,
@@ -234,6 +255,12 @@ mod tests {
         assert!(!self_member_event_filter().matches(&message_event(TimelineEventType::Reaction)));
     }
 
+    #[test]
+    fn self_member_event_filter_only_matches_specific_state_key() {
+        assert!(!self_member_event_filter()
+            .matches_state_event_with_any_state_key(&StateEventType::RoomMember));
+    }
+
     // Tests against an `m.room.member` filter with any `state_key`.
     fn member_event_filter() -> EventFilter {
         EventFilter::State(StateEventFilter::WithType(StateEventType::RoomMember))
@@ -254,5 +281,25 @@ mod tests {
     #[test]
     fn member_event_filter_does_not_match_reaction_event() {
         assert!(!member_event_filter().matches(&message_event(TimelineEventType::Reaction)));
+    }
+
+    #[test]
+    fn member_event_filter_matches_any_state_key() {
+        assert!(member_event_filter()
+            .matches_state_event_with_any_state_key(&StateEventType::RoomMember));
+    }
+
+    // Tests against an `m.room.topic` filter with `state_key = ""`
+    fn topic_event_filter() -> EventFilter {
+        EventFilter::State(StateEventFilter::WithTypeAndStateKey(
+            StateEventType::RoomTopic,
+            "".to_owned(),
+        ))
+    }
+
+    #[test]
+    fn topic_event_filter_does_not_match_any_state_key() {
+        assert!(!topic_event_filter()
+            .matches_state_event_with_any_state_key(&StateEventType::RoomTopic));
     }
 }
