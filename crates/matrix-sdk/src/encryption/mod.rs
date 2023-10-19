@@ -800,6 +800,8 @@ impl Encryption {
         Ok(())
     }
 
+    /// Query the user's own device keys, if, and only if, we didn't have their
+    /// identity in the first place.
     async fn ensure_initial_key_query(&self) -> Result<()> {
         let olm_machine = self.client.olm_machine().await;
         let olm_machine = olm_machine.as_ref().ok_or(crate::Error::NoOlmMachine)?;
@@ -814,6 +816,52 @@ impl Encryption {
         Ok(())
     }
 
+    /// Create and upload a new cross signing identity, if that has not been
+    /// done yet.
+    ///
+    /// This will only create a new cross-signing identity if the user had never
+    /// done it before. If the user did it before, then this is a no-op.
+    ///
+    /// See also the documentation of [`Self::bootstrap_cross_signing`] for the
+    /// behavior of this function.
+    ///
+    /// # Arguments
+    ///
+    /// * `auth_data` - This request requires user interactive auth, the first
+    /// request needs to set this to `None` and will always fail with an
+    /// `UiaaResponse`. The response will contain information for the
+    /// interactive auth and the same request needs to be made but this time
+    /// with some `auth_data` provided.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// # use std::collections::BTreeMap;
+    /// # use matrix_sdk::{ruma::api::client::uiaa, Client};
+    /// # use url::Url;
+    /// # use serde_json::json;
+    /// # async {
+    /// # let homeserver = Url::parse("http://example.com")?;
+    /// # let client = Client::new(homeserver).await?;
+    /// if let Err(e) = client.encryption().bootstrap_cross_signing_if_needed(None).await {
+    ///     if let Some(response) = e.as_uiaa_response() {
+    ///         let mut password = uiaa::Password::new(
+    ///             uiaa::UserIdentifier::UserIdOrLocalpart("example".to_owned()),
+    ///             "wordpass".to_owned(),
+    ///         );
+    ///         password.session = response.session.clone();
+    ///
+    ///         // Note, on the failed attempt we can use `bootstrap_cross_signing` immediately, to
+    ///         // avoid checks.
+    ///         client
+    ///             .encryption()
+    ///             .bootstrap_cross_signing(Some(uiaa::AuthData::Password(password)))
+    ///             .await
+    ///             .expect("Couldn't bootstrap cross signing")
+    ///     } else {
+    ///         panic!("Error during cross signing bootstrap {:#?}", e);
+    ///     }
+    /// }
+    /// # anyhow::Ok(()) };
     pub async fn bootstrap_cross_signing_if_needed(
         &self,
         auth_data: Option<AuthData>,
