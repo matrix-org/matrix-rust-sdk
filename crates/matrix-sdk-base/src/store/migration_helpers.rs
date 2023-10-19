@@ -14,8 +14,7 @@
 
 //! Data migration helpers for StateStore implementations.
 
-use std::collections::HashMap;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 #[cfg(feature = "experimental-sliding-sync")]
 use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;

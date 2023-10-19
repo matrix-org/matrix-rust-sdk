@@ -100,7 +100,8 @@ pub struct BaseRoomInfo {
     pub(crate) tombstone: Option<MinimalStateEvent<RoomTombstoneEventContent>>,
     /// The topic of this room.
     pub(crate) topic: Option<MinimalStateEvent<RoomTopicEventContent>>,
-    /// All Minimal state events that containing one or more running matrixRTC memberships.
+    /// All Minimal state events that containing one or more running matrixRTC
+    /// memberships.
     pub(crate) rtc_member: HashMap<OwnedUserId, MinimalStateEvent<CallMemberEventContent>>,
 }
 
@@ -178,7 +179,8 @@ impl BaseRoomInfo {
                     return false;
                 };
 
-                // we modify the event so that `origin_sever_ts` gets copied into `content.created_ts`
+                // we modify the event so that `origin_sever_ts` gets copied into
+                // `content.created_ts`
                 let mut o_ev = o_ev.clone();
                 o_ev.content.set_created_ts_if_none(o_ev.origin_server_ts);
 
@@ -246,7 +248,8 @@ impl BaseRoomInfo {
                 self.max_power_level = p.power_levels().max().into();
             }
             AnyStrippedStateEvent::CallMember(_) => {
-                // Ignore stripped call state events. Rooms that are not in Joined or Left state wont have call information.
+                // Ignore stripped call state events. Rooms that are not in Joined or Left state
+                // wont have call information.
                 return false;
             }
             _ => return false,

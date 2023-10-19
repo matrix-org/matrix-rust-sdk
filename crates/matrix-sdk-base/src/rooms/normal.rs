@@ -370,16 +370,18 @@ impl Room {
         self.inner.read().topic().map(ToOwned::to_owned)
     }
 
-    /// Is there a non expired membership with application "m.call" and scope "m.room" in this room
+    /// Is there a non expired membership with application "m.call" and scope
+    /// "m.room" in this room
     pub fn has_active_room_call(&self) -> bool {
         self.inner.read().has_active_room_call()
     }
 
     /// Returns a Vec of userId's that participate in the room call.
     ///
-    /// matrix_rtc memberships with application "m.call" and scope "m.room" are considered.
-    /// A user can occur twice if they join with two devices.
-    /// convert to a set depending if the different users are required or the amount of sessions.
+    /// matrix_rtc memberships with application "m.call" and scope "m.room" are
+    /// considered. A user can occur twice if they join with two devices.
+    /// convert to a set depending if the different users are required or the
+    /// amount of sessions.
     pub fn active_room_call_participants(&self) -> Vec<OwnedUserId> {
         self.inner.read().active_room_call_participants()
     }
@@ -1032,25 +1034,27 @@ impl RoomInfo {
         Some(&self.base_info.topic.as_ref()?.as_original()?.content.topic)
     }
 
-    /// Get a list of all the valid (non expired) matrixRTC memberships and associated UserId's in this room.
+    /// Get a list of all the valid (non expired) matrixRTC memberships and
+    /// associated UserId's in this room.
     fn active_matrix_rtc_memberships(&self) -> Vec<(OwnedUserId, &Membership)> {
         self.base_info
             .rtc_member
             .iter()
-            .filter_map(|(user_id, ev)| match ev.as_original() {
-                Some(ev) => Some(
+            .filter_map(|(user_id, ev)| {
+                ev.as_original().map(|ev| {
                     ev.content
                         .active_memberships(None)
                         .into_iter()
-                        .map(move |m| (user_id.clone(), m)),
-                ),
-                _ => None,
+                        .map(move |m| (user_id.clone(), m))
+                })
             })
             .flatten()
             .collect()
     }
 
-    /// Similar to [`matrix_rtc_memberships`](Self::active_matrix_rtc_memberships) but only returns Memberships with application "m.call" and scope "m.room".
+    /// Similar to
+    /// [`matrix_rtc_memberships`](Self::active_matrix_rtc_memberships) but only
+    /// returns Memberships with application "m.call" and scope "m.room".
     fn active_room_call_memberships(&self) -> Vec<(OwnedUserId, &Membership)> {
         self.active_matrix_rtc_memberships()
             .into_iter()
@@ -1058,16 +1062,18 @@ impl RoomInfo {
             .collect()
     }
 
-    /// Is there a non expired membership with application "m.call" and scope "m.room" in this room.
+    /// Is there a non expired membership with application "m.call" and scope
+    /// "m.room" in this room.
     fn has_active_room_call(&self) -> bool {
         !self.active_room_call_memberships().is_empty()
     }
 
     /// Returns a Vec of userId's that participate in the room call.
     ///
-    /// matrix_rtc memberships with application "m.call" and scope "m.room" are considered.
-    /// A user can occur twice if they join with two devices.
-    /// convert to a set depending if the different users are required or the amount of sessions.
+    /// matrix_rtc memberships with application "m.call" and scope "m.room" are
+    /// considered. A user can occur twice if they join with two devices.
+    /// convert to a set depending if the different users are required or the
+    /// amount of sessions.
     fn active_room_call_participants(&self) -> Vec<OwnedUserId> {
         self.active_room_call_memberships().iter().map(|(user_id, _)| user_id.clone()).collect()
     }
