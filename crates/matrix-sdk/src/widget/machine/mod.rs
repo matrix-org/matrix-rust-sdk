@@ -30,11 +30,7 @@ use tracing::{debug, error, info_span, instrument, trace, warn};
 use uuid::Uuid;
 
 use self::{
-    actions::ReadStateEventCommand,
-    driver_req::{
-        AcquireCapabilities, MatrixDriverRequest, MatrixDriverRequestHandle, ReadMatrixStateEvent,
-        SendMatrixEvent,
-    },
+    driver_req::{AcquireCapabilities, MatrixDriverRequest, MatrixDriverRequestHandle},
     from_widget::{
         FromWidgetErrorResponse, FromWidgetRequest, ReadEventRequest, ReadEventResponse,
         SendEventResponse, SupportedApiVersionsResponse,
@@ -52,7 +48,6 @@ use super::{
     Capabilities, StateKeySelector,
 };
 
-mod actions;
 mod driver_req;
 mod from_widget;
 mod incoming;
@@ -62,9 +57,41 @@ mod tests;
 mod to_widget;
 
 pub(crate) use self::{
-    actions::{Action, MatrixDriverRequestData, SendEventCommand},
+    driver_req::{MatrixDriverRequestData, ReadStateEventRequest, SendEventRequest},
     incoming::{IncomingMessage, MatrixDriverResponse},
 };
+
+/// Action (a command) that client (driver) must perform.
+#[derive(Debug)]
+pub(crate) enum Action {
+    /// Send a raw message to the widget.
+    SendToWidget(String),
+
+    /// Command that is sent from the client widget API state machine to the
+    /// client (driver) that must be performed. Once the command is executed,
+    /// the client will typically generate an `Event` with the result of it.
+    MatrixDriverRequest {
+        /// Certain commands are typically answered with certain event once the
+        /// command is performed. The api state machine will "tag" each command
+        /// with some "cookie" (in this case just an ID), so that once the
+        /// result of the execution of this command is received, it could be
+        /// matched.
+        request_id: Uuid,
+
+        /// Data associated with this command.
+        data: MatrixDriverRequestData,
+    },
+
+    /// Subscribe to the events in the *current* room, i.e. a room which this
+    /// widget is instantiated with. The client is aware of the room.
+    #[allow(dead_code)]
+    Subscribe,
+
+    /// Unsuscribe from the events in the *current* room. Symmetrical to
+    /// `Subscribe`.
+    #[allow(dead_code)]
+    Unsubscribe,
+}
 
 /// No I/O state machine.
 ///
@@ -219,8 +246,7 @@ impl WidgetMachine {
                 };
 
                 if allowed {
-                    let request =
-                        ReadMatrixStateEvent(ReadStateEventCommand { event_type, state_key });
+                    let request = ReadStateEventRequest { event_type, state_key };
                     self.send_matrix_driver_request(request).then(|events, machine| {
                         machine
                             .send_from_widget_response(raw_request, ReadEventResponse { events });
@@ -234,7 +260,7 @@ impl WidgetMachine {
 
     fn process_send_event_request(
         &mut self,
-        request: SendEventCommand,
+        request: SendEventRequest,
         raw_request: Raw<FromWidgetRequest>,
     ) {
         let CapabilitiesState::Negotiated(capabilities) = &self.capabilities else {
@@ -254,7 +280,7 @@ impl WidgetMachine {
         };
 
         if capabilities.send.iter().any(|filter| filter.matches(&filter_in)) {
-            self.send_matrix_driver_request(SendMatrixEvent(request)).then(|event_id, machine| {
+            self.send_matrix_driver_request(request).then(|event_id, machine| {
                 let response = SendEventResponse { event_id, room_id: &machine.room_id };
                 machine.send_from_widget_response(raw_request, response);
             });
