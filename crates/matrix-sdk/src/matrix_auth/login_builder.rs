@@ -20,7 +20,10 @@ use std::{
 };
 
 use ruma::{
-    api::client::{session::login, uiaa::UserIdentifier},
+    api::client::{
+        session::login,
+        uiaa::{AuthData, Password, RegistrationToken, UserIdentifier},
+    },
     assign,
     serde::JsonObject,
 };
@@ -174,7 +177,9 @@ impl LoginBuilder {
         let homeserver = client.homeserver();
         info!(homeserver = homeserver.as_str(), identifier = ?self.login_method.id(), "Logging in");
 
-        let request = assign!(login::v3::Request::new(self.login_method.into_login_info()), {
+        let login_info = self.login_method.into_login_info();
+
+        let request = assign!(login::v3::Request::new(login_info.clone()), {
             device_id: self.device_id.map(Into::into),
             initial_device_display_name: self.initial_device_display_name,
             refresh_token: self.request_refresh_token,
@@ -182,6 +187,23 @@ impl LoginBuilder {
 
         let response = client.send(request, Some(RequestConfig::short_retry())).await?;
         self.auth.receive_login_response(&response).await?;
+
+        // TODO: This is not a good place for this and it will block login for a while.
+        #[cfg(feature = "e2e-encryption")]
+        {
+            // TODO: We need to test each of those. How does this work for OIDC again?
+            let auth_data = match login_info {
+                login::v3::LoginInfo::Password(p) => {
+                    Some(AuthData::Password(Password::new(p.identifier, p.password)))
+                }
+                login::v3::LoginInfo::Token(t) => {
+                    Some(AuthData::RegistrationToken(RegistrationToken::new(t.token)))
+                }
+                _ => None,
+            };
+
+            self.auth.client.encryption().bootstrap_cross_signing_if_needed(auth_data).await?;
+        }
 
         Ok(response)
     }

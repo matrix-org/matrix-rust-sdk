@@ -777,7 +777,7 @@ impl Encryption {
     ///             .await
     ///             .expect("Couldn't bootstrap cross signing")
     ///     } else {
-    ///         panic!("Error durign cross signing bootstrap {:#?}", e);
+    ///         panic!("Error during cross signing bootstrap {:#?}", e);
     ///     }
     /// }
     /// # anyhow::Ok(()) };
@@ -796,6 +796,37 @@ impl Encryption {
 
         self.client.send(request, None).await?;
         self.client.send(signature_request, None).await?;
+
+        Ok(())
+    }
+
+    async fn ensure_initial_key_query(&self) -> Result<()> {
+        let olm_machine = self.client.olm_machine().await;
+        let olm_machine = olm_machine.as_ref().ok_or(crate::Error::NoOlmMachine)?;
+
+        let user_id = olm_machine.user_id();
+
+        if self.client.encryption().get_user_identity(user_id).await?.is_none() {
+            let (request_id, request) = olm_machine.query_keys_for_users([olm_machine.user_id()]);
+            self.client.keys_query(&request_id, request.device_keys).await?;
+        }
+
+        Ok(())
+    }
+
+    pub async fn bootstrap_cross_signing_if_needed(
+        &self,
+        auth_data: Option<AuthData>,
+    ) -> Result<()> {
+        let olm_machine = self.client.olm_machine().await;
+        let olm_machine = olm_machine.as_ref().ok_or(crate::Error::NoOlmMachine)?;
+        let user_id = olm_machine.user_id();
+
+        self.ensure_initial_key_query().await?;
+
+        if self.client.encryption().get_user_identity(user_id).await?.is_none() {
+            self.bootstrap_cross_signing(auth_data).await?;
+        }
 
         Ok(())
     }
