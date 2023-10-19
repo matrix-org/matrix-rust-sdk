@@ -1205,7 +1205,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn get_dm_room_returns_the_room_we_have_with_this_user() {
+    async fn test_get_dm_room_returns_the_room_we_have_with_this_user() {
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
         // This is the user ID that is inside MemberAdditional.
@@ -1228,7 +1228,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn get_dm_room_still_finds_room_where_participant_is_only_invited() {
+    async fn test_get_dm_room_still_finds_room_where_participant_is_only_invited() {
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
         // This is the user ID that is inside MemberInvite
@@ -1249,7 +1249,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn get_dm_room_still_finds_left_room() {
+    async fn test_get_dm_room_still_finds_left_room() {
         // See the discussion in https://github.com/matrix-org/matrix-rust-sdk/issues/2017
         // and the high-level issue at https://github.com/vector-im/element-x-ios/issues/1077
 
