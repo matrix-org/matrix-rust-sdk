@@ -188,17 +188,16 @@ impl LoginBuilder {
         let response = client.send(request, Some(RequestConfig::short_retry())).await?;
         self.auth.receive_login_response(&response).await?;
 
-        // TODO: This is not a good place for this and it will block login for a while.
+        // This may block login for a while, but the user asked for it!
+        // TODO: (#2763) put this into a background task.
         #[cfg(feature = "e2e-encryption")]
-        {
-            // TODO: We need to test each of those. How does this work for OIDC again?
+        if self.auth.client.encryption().settings().auto_enable_cross_signing {
+            // TODO: We need to test each of those.
             let auth_data = match login_info {
                 login::v3::LoginInfo::Password(p) => {
                     Some(AuthData::Password(Password::new(p.identifier, p.password)))
                 }
-                login::v3::LoginInfo::Token(t) => {
-                    Some(AuthData::RegistrationToken(RegistrationToken::new(t.token)))
-                }
+                // Other methods can't be immediately translated to an auth.
                 _ => None,
             };
 

@@ -89,6 +89,9 @@ pub use crate::error::RoomKeyImportError;
 pub struct EncryptionSettings {
     /// Automatically bootstrap cross-signing for a user once they're logged, in
     /// case it's not already done yet.
+    ///
+    /// This requires to login with a username and password, or that MSC3967 is
+    /// enabled on the server, as of 2023-10-20.
     pub auto_enable_cross_signing: bool,
 }
 
