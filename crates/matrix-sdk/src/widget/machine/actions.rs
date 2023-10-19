@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use ruma::events::{MessageLikeEventType, StateEventType, TimelineEventType};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::Value as JsonValue;
 use uuid::Uuid;
 
@@ -76,7 +76,7 @@ pub(crate) struct ReadStateEventCommand {
 }
 
 /// Command to send matrix event.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub(crate) struct SendEventCommand {
     #[serde(rename = "type")]
     /// type of an event.
