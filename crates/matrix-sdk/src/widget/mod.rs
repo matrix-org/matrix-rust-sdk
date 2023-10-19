@@ -23,7 +23,7 @@ use tokio_util::sync::{CancellationToken, DropGuard};
 
 use self::{
     machine::{
-        Action, IncomingMessage, MatrixDriverRequestData, MatrixDriverResponse, SendEventCommand,
+        Action, IncomingMessage, MatrixDriverRequestData, MatrixDriverResponse, SendEventRequest,
         WidgetMachine,
     },
     matrix::MatrixDriver,
@@ -183,8 +183,8 @@ impl WidgetDriver {
                             .map(MatrixDriverResponse::MatrixEventRead)
                             .map_err(|e| e.to_string()),
 
-                        MatrixDriverRequestData::SendMatrixEvent(cmd) => {
-                            let SendEventCommand { event_type, state_key, content } = cmd.clone();
+                        MatrixDriverRequestData::SendMatrixEvent(req) => {
+                            let SendEventRequest { event_type, state_key, content } = req;
 
                             matrix_driver
                                 .send(event_type, state_key, content)

@@ -21,7 +21,7 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 
-use super::SendEventCommand;
+use super::SendEventRequest;
 use crate::widget::StateKeySelector;
 
 #[derive(Deserialize)]
@@ -31,7 +31,7 @@ pub(super) enum FromWidgetRequest {
     ContentLoaded {},
     #[serde(rename = "org.matrix.msc2876.read_events")]
     ReadEvent(ReadEventRequest),
-    SendEvent(SendEventCommand),
+    SendEvent(SendEventRequest),
 }
 
 #[derive(Serialize)]
