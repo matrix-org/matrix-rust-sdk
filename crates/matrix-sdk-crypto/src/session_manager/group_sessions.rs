@@ -683,7 +683,7 @@ impl GroupSessionManager {
         for (user_id, device_map) in &request.messages {
             for (device, content) in device_map {
                 let message_id: Option<&str> = content
-                    .deserialize_as::<ContentStub>()
+                    .deserialize_as::<ContentStub<'_>>()
                     .expect("We should be able to deserialize the content we generated")
                     .message_id;
 
