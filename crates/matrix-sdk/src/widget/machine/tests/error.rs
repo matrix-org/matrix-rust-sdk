@@ -15,7 +15,7 @@
 use assert_matches::assert_matches;
 use serde_json::json;
 
-use super::{parse_msg, WIDGET_ID};
+use super::{capabilities::assert_capabilities_dance, parse_msg, WIDGET_ID};
 use crate::widget::machine::{Action, IncomingMessage, WidgetMachine};
 
 #[test]
@@ -44,4 +44,58 @@ fn machine_sends_error_for_unknown_request() {
     assert_eq!(msg["action"], "I AM ERROR");
     assert_eq!(msg["data"], json!({ "some": "field" }));
     assert!(msg["response"]["error"]["message"].is_string());
+}
+
+#[test]
+fn read_messages_without_capabilities() {
+    let (mut machine, mut actions_recv) = WidgetMachine::new(WIDGET_ID.to_owned(), true);
+
+    machine.process(IncomingMessage::WidgetMessage(json_string!({
+        "api": "fromWidget",
+        "widgetId": WIDGET_ID,
+        "requestId": "get-me-some-messages",
+        "action": "org.matrix.msc2876.read_events",
+        "data": {
+            "type": "m.room.message",
+        },
+    })));
+
+    let action = actions_recv.try_recv().unwrap();
+    let msg = assert_matches!(action, Action::SendToWidget(msg) => msg);
+    let (msg, request_id) = parse_msg(&msg);
+    assert_eq!(request_id, "get-me-some-messages");
+    assert_eq!(msg["api"], "fromWidget");
+    assert_eq!(msg["action"], "org.matrix.msc2876.read_events");
+    assert_eq!(
+        msg["response"]["error"]["message"].as_str().unwrap(),
+        "Received read event request before capabilities were negotiated"
+    );
+}
+
+#[test]
+fn read_messages_not_yet_supported() {
+    let (mut machine, mut actions_recv) = WidgetMachine::new(WIDGET_ID.to_owned(), false);
+
+    assert_capabilities_dance(&mut machine, &mut actions_recv);
+
+    machine.process(IncomingMessage::WidgetMessage(json_string!({
+        "api": "fromWidget",
+        "widgetId": WIDGET_ID,
+        "requestId": "get-me-some-messages",
+        "action": "org.matrix.msc2876.read_events",
+        "data": {
+            "type": "m.room.message",
+        },
+    })));
+
+    let action = actions_recv.try_recv().unwrap();
+    let msg = assert_matches!(action, Action::SendToWidget(msg) => msg);
+    let (msg, request_id) = parse_msg(&msg);
+    assert_eq!(request_id, "get-me-some-messages");
+    assert_eq!(msg["api"], "fromWidget");
+    assert_eq!(msg["action"], "org.matrix.msc2876.read_events");
+    assert_eq!(
+        msg["response"]["error"]["message"].as_str().unwrap(),
+        "Reading of message events is not yet supported"
+    );
 }

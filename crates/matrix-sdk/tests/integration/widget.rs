@@ -28,7 +28,7 @@ use matrix_sdk_test::{async_test, JoinedRoomBuilder, SyncResponseBuilder};
 use once_cell::sync::Lazy;
 use ruma::{owned_room_id, serde::JsonObject, OwnedRoomId};
 use serde::Serialize;
-use serde_json::json;
+use serde_json::{json, Value as JsonValue};
 use tracing::error;
 use wiremock::{
     matchers::{header, method, path_regex, query_param},
@@ -174,31 +174,11 @@ async fn read_messages() {
         assert!(msg["data"].as_object().unwrap().is_empty());
     }
 
-    let caps = json!(["org.matrix.msc2762.receive.event:m.room.message"]);
-
-    {
-        // Receive toWidget capabilities request
-        let msg = recv_message(&driver_handle).await;
-        assert_eq!(msg["api"], "toWidget");
-        assert_eq!(msg["action"], "capabilities");
-        let data = &msg["data"];
-        let request_id = msg["requestId"].as_str().unwrap();
-
-        // Answer with caps we want
-        send_response(&driver_handle, request_id, "capabilities", data, &caps).await;
-    }
-
-    {
-        // Receive a "request" with the capabilities we were actually granted (wtf?)
-        let msg = recv_message(&driver_handle).await;
-        assert_eq!(msg["api"], "toWidget");
-        assert_eq!(msg["action"], "notify_capabilities");
-        assert_eq!(msg["data"], json!({ "requested": caps, "approved": caps }));
-        let request_id = msg["requestId"].as_str().unwrap();
-
-        // ACK the request
-        send_response(&driver_handle, request_id, "notify_capabilities", caps, json!({})).await;
-    }
+    negotiate_capabilities(
+        &driver_handle,
+        json!(["org.matrix.msc2762.receive.event:m.room.message"]),
+    )
+    .await;
 
     // No messages from the driver
     assert_matches!(recv_message(&driver_handle).now_or_never(), None);
@@ -267,4 +247,68 @@ async fn read_messages() {
     }
 
     mock_server.verify().await;
+}
+
+#[async_test]
+async fn read_room_members() {
+    let (mock_server, driver_handle) = run_test_driver(false).await;
+
+    negotiate_capabilities(
+        &driver_handle,
+        json!(["org.matrix.msc2762.receive.state_event:m.room.member"]),
+    )
+    .await;
+
+    // No messages from the driver
+    assert_matches!(recv_message(&driver_handle).now_or_never(), None);
+
+    {
+        // The read-events request is fulfilled from the state store
+        drop(mock_server);
+
+        // Ask the driver to read state events
+        send_request(
+            &driver_handle,
+            "2-read-messages",
+            "org.matrix.msc2876.read_events",
+            json!({ "type": "m.room.member", "state_key": true }),
+        )
+        .await;
+
+        // Receive the response
+        let msg = recv_message(&driver_handle).await;
+        assert_eq!(msg["api"], "fromWidget");
+        assert_eq!(msg["action"], "org.matrix.msc2876.read_events");
+        let events = msg["response"]["events"].as_array().unwrap();
+
+        // No useful data in the state store, that's fine for this test
+        // (we just want to know that a successful response is generated)
+        assert_eq!(events.len(), 0);
+    }
+}
+
+async fn negotiate_capabilities(driver_handle: &WidgetDriverHandle, caps: JsonValue) {
+    {
+        // Receive toWidget capabilities request
+        let msg = recv_message(driver_handle).await;
+        assert_eq!(msg["api"], "toWidget");
+        assert_eq!(msg["action"], "capabilities");
+        let data = &msg["data"];
+        let request_id = msg["requestId"].as_str().unwrap();
+
+        // Answer with caps we want
+        send_response(driver_handle, request_id, "capabilities", data, &caps).await;
+    }
+
+    {
+        // Receive notification with granted capabilities
+        let msg = recv_message(driver_handle).await;
+        assert_eq!(msg["api"], "toWidget");
+        assert_eq!(msg["action"], "notify_capabilities");
+        assert_eq!(msg["data"], json!({ "requested": caps, "approved": caps }));
+        let request_id = msg["requestId"].as_str().unwrap();
+
+        // ACK the notification
+        send_response(driver_handle, request_id, "notify_capabilities", caps, json!({})).await;
+    }
 }
