@@ -937,13 +937,7 @@ impl Account {
     ) -> Result<InboundCreationResult, SessionCreationError> {
         debug!("Creating a new Olm session from a pre-key message");
 
-        let result =
-            self.inner.lock().await.create_inbound_session(their_identity_key, message).map_err(
-                |e| {
-                    warn!("Failed to create a new Olm session from a pre-key message: {e:?}");
-                    e
-                },
-            )?;
+        let result = self.inner.lock().await.create_inbound_session(their_identity_key, message)?;
 
         let now = SecondsSinceUnixEpoch::now();
         let session_id = result.session.session_id();
@@ -1128,32 +1122,77 @@ impl Account {
         Ok(())
     }
 
-    /// Try to decrypt an Olm message.
+    /// Try to decrypt a normal Olm message.
     ///
-    /// This try to decrypt an Olm message using all the sessions we share
+    /// This tries to decrypt an Olm message using all the sessions we share
     /// with the given sender.
-    async fn decrypt_with_existing_sessions(
+    async fn decrypt_normal_olm_message(
         store: &Store,
+        sender: &UserId,
         sender_key: Curve25519PublicKey,
         message: &OlmMessage,
-    ) -> OlmResult<Option<(Session, String)>> {
-        let s = store.get_sessions(&sender_key.to_base64()).await?;
-
-        let Some(sessions) = s else {
-            // We don't have any existing sessions, return early.
-            return Ok(None);
+    ) -> OlmResult<(SessionType, String)> {
+        let OlmMessage::Normal(_) = message else {
+            panic!("decrypt_normal_olm_message called with a prekey message");
         };
 
-        let mut decrypted: Option<(Session, String)> = None;
+        let existing_sessions = store.get_sessions(&sender_key.to_base64()).await?;
+        if let Some(ref sessions) = existing_sessions {
+            let sessions: &mut Vec<Session> = &mut *sessions.lock().await;
+            // Try to decrypt the message using each Session we share with the
+            // given curve25519 sender key.
+            for session in sessions {
+                if let Ok(p) = session.decrypt(message).await {
+                    // success!
+                    return Ok((SessionType::Existing(session.clone()), p));
+                } else {
+                    // An error here is completely normal, after all we don't know
+                    // which session was used to encrypt a message. We will log a
+                    // warning if no session was able to decrypt the message.
+                    continue;
+                }
+            }
+        }
 
-        // Try to decrypt the message using each Session we share with the
-        // given curve25519 sender key.
-        for session in &mut *sessions.lock().await {
-            if let Ok(p) = session.decrypt(message).await {
-                decrypted = Some((session.clone(), p));
-                break;
-            } else if let OlmMessage::PreKey(message) = message {
-                if message.session_id() == session.session_id() {
+        let session_ids = if let Some(sessions) = existing_sessions {
+            sessions.lock().await.iter().map(|s| s.session_id().to_owned()).collect()
+        } else {
+            vec![]
+        };
+
+        warn!(?session_ids, "Failed to decrypt a non-pre-key message with all available sessions");
+        return Err(OlmError::SessionWedged(sender.to_owned(), sender_key));
+    }
+
+    /// Try to decrypt a prekey Olm message.
+    ///
+    /// If we already know about the session corresponding to the message, use
+    /// it to decrypt the message. Otherwise, create a new Olm session.
+    async fn decrypt_prekey_olm_message(
+        &self,
+        store: &Store,
+        sender: &UserId,
+        sender_key: Curve25519PublicKey,
+        message: &OlmMessage,
+    ) -> OlmResult<(SessionType, String)> {
+        let OlmMessage::PreKey(ref prekey_message) = message else {
+            panic!("decrypt_prekey_olm_message called with a non-prekey message");
+        };
+
+        // First try to decrypt using an existing session.
+        let existing_sessions = store.get_sessions(&sender_key.to_base64()).await?;
+        if let Some(ref sessions) = existing_sessions.as_ref() {
+            // Try to find the right session
+            for session in &mut *sessions.lock().await {
+                if prekey_message.session_id() != session.session_id() {
+                    // wrong session
+                    continue;
+                }
+
+                return if let Ok(p) = session.decrypt(message).await {
+                    // success!
+                    Ok((SessionType::Existing(session.clone()), p))
+                } else {
                     // The message was intended for this session, but we weren't able to decrypt it.
                     //
                     // We're going to return early here since no other session will be able to
@@ -1164,24 +1203,39 @@ impl Account {
                     // one-time key would've been already used up in the previous session creation
                     // operation. The one exception where this would not be so is if the fallback
                     // key was used for creating the session in lieu of an OTK.
-                    return Err(OlmError::SessionWedged(
-                        session.user_id.to_owned(),
-                        session.sender_key(),
-                    ));
-                }
-            } else {
-                // An error here is completely normal, after all we don't know
-                // which session was used to encrypt a message. We will log a
-                // warning if no session was able to decrypt the message.
-                continue;
+
+                    warn!(
+                        session_id = session.session_id(),
+                        "Failed to decrypt a pre-key message with the corresponding session"
+                    );
+
+                    Err(OlmError::SessionWedged(session.user_id.to_owned(), session.sender_key()))
+                };
             }
         }
 
-        Ok(decrypted)
+        // We didn't find a matching session; try to create a new session.
+        let result = match self.create_inbound_session(sender_key, prekey_message).await {
+            Ok(r) => r,
+            Err(e) => {
+                warn!("Failed to create a new Olm session from a pre-key message: {e:?}");
+                return Err(OlmError::SessionWedged(sender.to_owned(), sender_key));
+            }
+        };
+
+        // We need to add the new session to the session cache, otherwise
+        // we might try to create the same session again.
+        // TODO: separate the session cache from the storage so we only add
+        // it to the cache but don't store it.
+        store
+            .save_changes(Changes { sessions: vec![result.session.clone()], ..Default::default() })
+            .await?;
+
+        Ok((SessionType::New(result.session), result.plaintext))
     }
 
     /// Decrypt an Olm message, creating a new Olm session if possible.
-    #[instrument(skip(self, message))]
+    #[instrument(skip(self, store, message))]
     async fn decrypt_olm_message(
         &self,
         store: &Store,
@@ -1189,58 +1243,12 @@ impl Account {
         sender_key: Curve25519PublicKey,
         message: &OlmMessage,
     ) -> OlmResult<(SessionType, DecryptionResult)> {
-        // First try to decrypt using an existing session.
-        let (session, plaintext) = if let Some(d) =
-            Self::decrypt_with_existing_sessions(store, sender_key, message).await?
-        {
-            // Decryption succeeded, de-structure the session/plaintext out of
-            // the Option.
-            (SessionType::Existing(d.0), d.1)
-        } else {
-            // Decryption failed with every known session, let's try to create a
-            // new session.
-            match message {
-                // A new session can only be created using a pre-key message,
-                // return with an error if it isn't one.
-                OlmMessage::Normal(_) => {
-                    let session_ids = if let Some(sessions) =
-                        store.get_sessions(&sender_key.to_base64()).await?
-                    {
-                        sessions.lock().await.iter().map(|s| s.session_id().to_owned()).collect()
-                    } else {
-                        vec![]
-                    };
-
-                    warn!(
-                        ?session_ids,
-                        "Failed to decrypt a non-pre-key message with all available sessions",
-                    );
-
-                    return Err(OlmError::SessionWedged(sender.to_owned(), sender_key));
-                }
-
-                OlmMessage::PreKey(m) => {
-                    // Create the new session.
-                    let result = match self.create_inbound_session(sender_key, m).await {
-                        Ok(r) => r,
-                        Err(_) => {
-                            return Err(OlmError::SessionWedged(sender.to_owned(), sender_key));
-                        }
-                    };
-
-                    // We need to add the new session to the session cache, otherwise
-                    // we might try to create the same session again.
-                    // TODO: separate the session cache from the storage so we only add
-                    // it to the cache but don't store it.
-                    store
-                        .save_changes(Changes {
-                            sessions: vec![result.session.clone()],
-                            ..Default::default()
-                        })
-                        .await?;
-
-                    (SessionType::New(result.session), result.plaintext)
-                }
+        let (session, plaintext) = match message {
+            OlmMessage::Normal(_) => {
+                Self::decrypt_normal_olm_message(store, sender, sender_key, message).await?
+            }
+            OlmMessage::PreKey(_) => {
+                Self::decrypt_prekey_olm_message(self, store, sender, sender_key, message).await?
             }
         };
 
