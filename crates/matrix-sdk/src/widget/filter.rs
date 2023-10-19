@@ -234,7 +234,7 @@ mod tests {
         assert!(!self_member_event_filter().matches(&message_event(TimelineEventType::Reaction)));
     }
 
-    // Tests against an `m.room.member` filter with `state_key = @self:example.me`
+    // Tests against an `m.room.member` filter with any `state_key`.
     fn member_event_filter() -> EventFilter {
         EventFilter::State(StateEventFilter::WithType(StateEventType::RoomMember))
     }
