@@ -14,6 +14,7 @@
 
 use std::marker::PhantomData;
 
+use ruma::{events::AnyTimelineEvent, serde::Raw};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::value::RawValue as RawJsonValue;
 use tracing::error;
@@ -116,7 +117,8 @@ impl ToWidgetRequest for NotifyOpenIdChanged {
 /// Notify the widget that we received a new matrix event.
 /// This is a "response" to the widget subscribing to the events in the room.
 #[derive(Serialize)]
-pub(crate) struct NotifyNewMatrixEvent(pub(crate) serde_json::Value);
+#[serde(transparent)]
+pub(crate) struct NotifyNewMatrixEvent(pub(crate) Raw<AnyTimelineEvent>);
 
 impl ToWidgetRequest for NotifyNewMatrixEvent {
     const ACTION: &'static str = "send_event";
