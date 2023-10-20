@@ -933,7 +933,7 @@ mod tests {
             .expect("Can't parse the keys claim response")
     }
 
-    async fn machine_with_user(user_id: &UserId, device_id: &DeviceId) -> OlmMachine {
+    async fn machine_with_user_test_helper(user_id: &UserId, device_id: &DeviceId) -> OlmMachine {
         let keys_query = keys_query_response();
         let keys_claim = keys_claim_response();
         let txn_id = TransactionId::new();
@@ -949,10 +949,10 @@ mod tests {
     }
 
     async fn machine() -> OlmMachine {
-        machine_with_user(alice_id(), alice_device_id()).await
+        machine_with_user_test_helper(alice_id(), alice_device_id()).await
     }
 
-    async fn machine_with_shared_room_key() -> OlmMachine {
+    async fn machine_with_shared_room_key_test_helper() -> OlmMachine {
         let machine = machine().await;
         let room_id = room_id!("!test:localhost");
         let keys_claim = keys_claim_response();
@@ -1083,7 +1083,7 @@ mod tests {
 
     #[async_test]
     async fn ratcheted_sharing() {
-        let machine = machine_with_shared_room_key().await;
+        let machine = machine_with_shared_room_key_test_helper().await;
 
         let room_id = room_id!("!test:localhost");
         let late_joiner = user_id!("@bob:localhost");
@@ -1111,7 +1111,7 @@ mod tests {
 
     #[async_test]
     async fn changing_encryption_settings() {
-        let machine = machine_with_shared_room_key().await;
+        let machine = machine_with_shared_room_key_test_helper().await;
         let room_id = room_id!("!test:localhost");
         let keys_claim = keys_claim_response();
 
@@ -1165,7 +1165,7 @@ mod tests {
         let device_id = device_id!("TESTDEVICE");
         let room_id = room_id!("!test:localhost");
 
-        let machine = machine_with_user(user_id, device_id).await;
+        let machine = machine_with_user_test_helper(user_id, device_id).await;
 
         let (outbound, _) = machine
             .inner
@@ -1307,7 +1307,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn no_olm_withheld_only_sent_once() {
+    async fn test_no_olm_withheld_only_sent_once() {
         let keys_query = keys_query_response();
         let txn_id = TransactionId::new();
 

@@ -14,12 +14,26 @@
 
 use std::fmt;
 
+use ruma::{
+    events::{AnyTimelineEvent, MessageLikeEventType, StateEventType},
+    serde::Raw,
+    OwnedEventId, RoomId,
+};
 use serde::{Deserialize, Serialize};
+
+use super::SendEventRequest;
+use crate::widget::StateKeySelector;
 
 #[derive(Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case", content = "data")]
 pub(super) enum FromWidgetRequest {
+    SupportedApiVersions {},
     ContentLoaded {},
+    #[serde(rename = "get_openid")]
+    GetOpenId {},
+    #[serde(rename = "org.matrix.msc2876.read_events")]
+    ReadEvent(ReadEventRequest),
+    SendEvent(SendEventRequest),
 }
 
 #[derive(Serialize)]
@@ -36,4 +50,90 @@ impl FromWidgetErrorResponse {
 #[derive(Serialize)]
 struct FromWidgetError {
     message: String,
+}
+
+#[derive(Serialize)]
+pub(super) struct SupportedApiVersionsResponse {
+    supported_versions: Vec<ApiVersion>,
+}
+
+impl SupportedApiVersionsResponse {
+    pub(super) fn new() -> Self {
+        Self {
+            supported_versions: vec![
+                ApiVersion::V0_0_1,
+                ApiVersion::V0_0_2,
+                ApiVersion::MSC2762,
+                ApiVersion::MSC2871,
+                ApiVersion::MSC3819,
+            ],
+        }
+    }
+}
+
+#[derive(Serialize)]
+#[allow(dead_code)] // not all variants used right now
+pub(super) enum ApiVersion {
+    /// First stable version.
+    #[serde(rename = "0.0.1")]
+    V0_0_1,
+
+    /// Second stable version.
+    #[serde(rename = "0.0.2")]
+    V0_0_2,
+
+    /// Supports sending and receiving of events.
+    #[serde(rename = "org.matrix.msc2762")]
+    MSC2762,
+
+    /// Supports sending of approved capabilities back to the widget.
+    #[serde(rename = "org.matrix.msc2871")]
+    MSC2871,
+
+    /// Supports navigating to a URI.
+    #[serde(rename = "org.matrix.msc2931")]
+    MSC2931,
+
+    /// Supports capabilities renegotiation.
+    #[serde(rename = "org.matrix.msc2974")]
+    MSC2974,
+
+    /// Supports reading events in a room (deprecated).
+    #[serde(rename = "org.matrix.msc2876")]
+    MSC2876,
+
+    /// Supports sending and receiving of to-device events.
+    #[serde(rename = "org.matrix.msc3819")]
+    MSC3819,
+
+    /// Supports access to the TURN servers.
+    #[serde(rename = "town.robin.msc3846")]
+    MSC3846,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+pub(super) enum ReadEventRequest {
+    ReadStateEvent {
+        #[serde(rename = "type")]
+        event_type: StateEventType,
+        state_key: StateKeySelector,
+    },
+    #[allow(dead_code)]
+    ReadMessageLikeEvent {
+        #[serde(rename = "type")]
+        event_type: MessageLikeEventType,
+        limit: Option<u32>,
+    },
+}
+
+#[derive(Debug, Serialize)]
+pub(super) struct ReadEventResponse {
+    pub(super) events: Vec<Raw<AnyTimelineEvent>>,
+}
+
+#[derive(Serialize)]
+pub(super) struct SendEventResponse<'a> {
+    pub(super) room_id: &'a RoomId,
+    pub(super) event_id: OwnedEventId,
 }

@@ -73,10 +73,6 @@ impl SessionVerificationController {
         Ok(())
     }
 
-    pub fn request_verification_blocking(self: Arc<Self>) -> Result<(), ClientError> {
-        RUNTIME.block_on(async move { self.request_verification().await })
-    }
-
     pub async fn start_sas_verification(&self) -> Result<(), ClientError> {
         let verification_request = self.verification_request.read().unwrap().clone();
 
@@ -103,10 +99,6 @@ impl SessionVerificationController {
         Ok(())
     }
 
-    pub fn start_sas_verification_blocking(self: Arc<Self>) -> Result<(), ClientError> {
-        RUNTIME.block_on(async move { self.start_sas_verification().await })
-    }
-
     pub async fn approve_verification(&self) -> Result<(), ClientError> {
         let sas_verification = self.sas_verification.read().unwrap().clone();
         if let Some(sas_verification) = sas_verification {
@@ -114,10 +106,6 @@ impl SessionVerificationController {
         }
 
         Ok(())
-    }
-
-    pub fn approve_verification_blocking(self: Arc<Self>) -> Result<(), ClientError> {
-        RUNTIME.block_on(async move { self.approve_verification().await })
     }
 
     pub async fn decline_verification(&self) -> Result<(), ClientError> {
@@ -129,10 +117,6 @@ impl SessionVerificationController {
         Ok(())
     }
 
-    pub fn decline_verification_blocking(self: Arc<Self>) -> Result<(), ClientError> {
-        RUNTIME.block_on(async move { self.decline_verification().await })
-    }
-
     pub async fn cancel_verification(&self) -> Result<(), ClientError> {
         let verification_request = self.verification_request.read().unwrap().clone();
         if let Some(verification) = verification_request {
@@ -140,10 +124,6 @@ impl SessionVerificationController {
         }
 
         Ok(())
-    }
-
-    pub fn cancel_verification_blocking(self: Arc<Self>) -> Result<(), ClientError> {
-        RUNTIME.block_on(async move { self.cancel_verification().await })
     }
 }
 

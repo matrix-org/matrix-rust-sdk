@@ -513,7 +513,6 @@ impl PrivateCrossSigningIdentity {
 
         account
             .sign_cross_signing_key(&mut public_key)
-            .await
             .expect("Can't sign our freshly created master key with our account");
 
         master.public_key = public_key
@@ -672,7 +671,7 @@ mod tests {
     }
 
     #[test]
-    fn signature_verification() {
+    fn test_signature_verification() {
         let signing = Signing::new();
         let user_id = user_id();
         let key_id = DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, "DEVICEID".into());
@@ -696,7 +695,7 @@ mod tests {
     }
 
     #[test]
-    fn pickling_signing() {
+    fn test_pickling_signing() {
         let signing = Signing::new();
         let pickled = signing.pickle();
 
@@ -706,7 +705,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn private_identity_creation() {
+    async fn test_private_identity_creation() {
         let identity = PrivateCrossSigningIdentity::new(user_id().to_owned()).await;
 
         let master_key = identity.master_key.lock().await;
@@ -724,7 +723,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn identity_pickling() {
+    async fn test_identity_pickling() {
         let identity = PrivateCrossSigningIdentity::new(user_id().to_owned()).await;
 
         let pickled = identity.pickle().await;
@@ -744,7 +743,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn private_identity_signed_by_account() {
+    async fn test_private_identity_signed_by_account() {
         let account = Account::with_device_id(user_id(), device_id!("DEVICEID"));
         let (identity, _, _) = PrivateCrossSigningIdentity::with_account(&account).await;
         let master = identity.master_key.lock().await;
@@ -767,11 +766,11 @@ mod tests {
     }
 
     #[async_test]
-    async fn sign_device() {
+    async fn test_sign_device() {
         let account = Account::with_device_id(user_id(), device_id!("DEVICEID"));
         let (identity, _, _) = PrivateCrossSigningIdentity::with_account(&account).await;
 
-        let mut device = ReadOnlyDevice::from_account(&account).await;
+        let mut device = ReadOnlyDevice::from_account(&account);
         let self_signing = identity.self_signing_key.lock().await;
         let self_signing = self_signing.as_ref().unwrap();
 
@@ -784,7 +783,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn sign_user_identity() {
+    async fn test_sign_user_identity() {
         let account = Account::with_device_id(user_id(), device_id!("DEVICEID"));
         let (identity, _, _) = PrivateCrossSigningIdentity::with_account(&account).await;
 

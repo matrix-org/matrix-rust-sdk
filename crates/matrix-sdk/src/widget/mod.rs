@@ -14,28 +14,31 @@
 
 //! Widget API implementation.
 
+use std::fmt;
+
 use async_channel::{Receiver, Sender};
+use serde::de::{self, Deserialize, Deserializer, Visitor};
 use tokio::sync::mpsc::unbounded_channel;
 use tokio_util::sync::{CancellationToken, DropGuard};
 
 use self::{
     machine::{
-        Action, IncomingMessage, MatrixDriverRequestData, MatrixDriverResponse, SendEventCommand,
+        Action, IncomingMessage, MatrixDriverRequestData, MatrixDriverResponse, SendEventRequest,
         WidgetMachine,
     },
     matrix::MatrixDriver,
 };
 use crate::{room::Room, Result};
 
+mod capabilities;
 mod filter;
 mod machine;
 mod matrix;
-mod permissions;
 mod settings;
 
 pub use self::{
+    capabilities::{Capabilities, CapabilitiesProvider},
     filter::{EventFilter, MessageLikeEventFilter, StateEventFilter},
-    permissions::{Permissions, PermissionsProvider},
     settings::{ClientProperties, VirtualElementCallWidgetOptions, WidgetSettings},
 };
 
@@ -119,10 +122,11 @@ impl WidgetDriver {
     pub async fn run(
         self,
         room: Room,
-        permissions_provider: impl PermissionsProvider,
+        capabilities_provider: impl CapabilitiesProvider,
     ) -> Result<(), ()> {
         let (mut client_api, mut actions) = WidgetMachine::new(
             self.settings.widget_id().to_owned(),
+            room.room_id().to_owned(),
             self.settings.init_on_content_load(),
         );
 
@@ -153,12 +157,12 @@ impl WidgetDriver {
                 Action::SendToWidget(msg) => self.to_widget_tx.send(msg).await.map_err(|_| ())?,
                 Action::MatrixDriverRequest { request_id, data } => {
                     let response = match data {
-                        MatrixDriverRequestData::AcquirePermissions(cmd) => {
-                            let obtained = permissions_provider
-                                .acquire_permissions(cmd.desired_permissions.clone())
+                        MatrixDriverRequestData::AcquireCapabilities(cmd) => {
+                            let obtained = capabilities_provider
+                                .acquire_capabilities(cmd.desired_capabilities.clone())
                                 .await;
 
-                            Ok(MatrixDriverResponse::PermissionsAcquired(obtained))
+                            Ok(MatrixDriverResponse::CapabilitiesAcquired(obtained))
                         }
 
                         MatrixDriverRequestData::GetOpenId => matrix_driver
@@ -179,8 +183,8 @@ impl WidgetDriver {
                             .map(MatrixDriverResponse::MatrixEventRead)
                             .map_err(|e| e.to_string()),
 
-                        MatrixDriverRequestData::SendMatrixEvent(cmd) => {
-                            let SendEventCommand { event_type, state_key, content } = cmd.clone();
+                        MatrixDriverRequestData::SendMatrixEvent(req) => {
+                            let SendEventRequest { event_type, state_key, content } = req;
 
                             matrix_driver
                                 .send(event_type, state_key, content)
@@ -227,9 +231,84 @@ impl WidgetDriver {
 }
 
 // TODO: Decide which module this type should live in
-#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub(crate) enum StateKeySelector {
     Key(String),
     Any,
+}
+
+impl<'de> Deserialize<'de> for StateKeySelector {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct StateKeySelectorVisitor;
+
+        impl<'de> Visitor<'de> for StateKeySelectorVisitor {
+            type Value = StateKeySelector;
+
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "a string or `true`")
+            }
+
+            fn visit_bool<E>(self, v: bool) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                if v {
+                    Ok(StateKeySelector::Any)
+                } else {
+                    Err(E::invalid_value(de::Unexpected::Bool(v), &self))
+                }
+            }
+
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                self.visit_string(v.to_owned())
+            }
+
+            fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                Ok(StateKeySelector::Key(v))
+            }
+        }
+
+        deserializer.deserialize_any(StateKeySelectorVisitor)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use assert_matches::assert_matches;
+    use serde_json::json;
+
+    use super::StateKeySelector;
+
+    #[test]
+    fn state_key_selector_from_true() {
+        let state_key = serde_json::from_value(json!(true)).unwrap();
+        assert_matches!(state_key, StateKeySelector::Any);
+    }
+
+    #[test]
+    fn state_key_selector_from_string() {
+        let state_key = serde_json::from_value(json!("test")).unwrap();
+        assert_matches!(state_key, StateKeySelector::Key(k) if k == "test");
+    }
+
+    #[test]
+    fn state_key_selector_from_false() {
+        let result = serde_json::from_value::<StateKeySelector>(json!(false));
+        assert_matches!(result, Err(e) if e.is_data());
+    }
+
+    #[test]
+    fn state_key_selector_from_number() {
+        let result = serde_json::from_value::<StateKeySelector>(json!(5));
+        assert_matches!(result, Err(e) if e.is_data());
+    }
 }

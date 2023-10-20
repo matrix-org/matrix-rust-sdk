@@ -12,23 +12,44 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![allow(dead_code)]
-
 //! A high-level API for requests that we send to the matrix driver.
 
 use std::marker::PhantomData;
 
 use ruma::{
-    api::client::account::request_openid_token, events::AnyTimelineEvent, serde::Raw, OwnedEventId,
+    api::client::account::request_openid_token,
+    events::{AnyTimelineEvent, MessageLikeEventType, StateEventType, TimelineEventType},
+    serde::Raw,
+    OwnedEventId,
 };
+use serde::Deserialize;
+use serde_json::Value as JsonValue;
 use tracing::error;
 
-use super::{
-    actions::{MatrixDriverRequestData, ReadMessageLikeEventCommand},
-    incoming::MatrixDriverResponse,
-    MatrixDriverRequestMeta, SendEventCommand, WidgetMachine,
-};
-use crate::widget::Permissions;
+use super::{incoming::MatrixDriverResponse, MatrixDriverRequestMeta, WidgetMachine};
+use crate::widget::{Capabilities, StateKeySelector};
+
+#[derive(Debug)]
+pub(crate) enum MatrixDriverRequestData {
+    /// Acquire capabilities from the user given the set of desired
+    /// capabilities.
+    ///
+    /// Must eventually be answered with
+    /// [`MatrixDriverResponse::CapabilitiesAcquired`].
+    AcquireCapabilities(AcquireCapabilities),
+
+    /// Get OpenId token for a given request ID.
+    GetOpenId,
+
+    /// Read message event(s).
+    ReadMessageLikeEvent(ReadMessageLikeEventRequest),
+
+    /// Read state event(s).
+    ReadStateEvent(ReadStateEventRequest),
+
+    /// Send matrix event that corresponds to the given description.
+    SendMatrixEvent(SendEventRequest),
+}
 
 /// A handle to a pending `toWidget` request.
 pub(crate) struct MatrixDriverRequestHandle<'m, T> {
@@ -50,11 +71,11 @@ where
 
     pub(crate) fn then(
         self,
-        response_handler: impl FnOnce(T, &mut WidgetMachine) + Send + 'static,
+        response_handler: impl FnOnce(Result<T, String>, &mut WidgetMachine) + Send + 'static,
     ) {
         if let Some(request_meta) = self.request_meta {
             request_meta.response_fn = Some(Box::new(move |response, machine| {
-                if let Some(response_data) = T::from_response(response) {
+                if let Some(response_data) = response.map(T::from_response).transpose() {
                     response_handler(response_data, machine)
                 }
             }));
@@ -71,27 +92,27 @@ pub(crate) trait FromMatrixDriverResponse: Sized {
     fn from_response(_: MatrixDriverResponse) -> Option<Self>;
 }
 
-/// Ask the client (permission provider) to acquire given permissions
-/// from the user. The client must eventually respond with granted permissions.
+/// Ask the client (capability provider) to acquire given capabilities
+/// from the user. The client must eventually respond with granted capabilities.
 #[derive(Debug)]
-pub(crate) struct AcquirePermissions {
-    pub(crate) desired_permissions: Permissions,
+pub(crate) struct AcquireCapabilities {
+    pub(crate) desired_capabilities: Capabilities,
 }
 
-impl From<AcquirePermissions> for MatrixDriverRequestData {
-    fn from(value: AcquirePermissions) -> Self {
-        MatrixDriverRequestData::AcquirePermissions(value)
+impl From<AcquireCapabilities> for MatrixDriverRequestData {
+    fn from(value: AcquireCapabilities) -> Self {
+        MatrixDriverRequestData::AcquireCapabilities(value)
     }
 }
 
-impl MatrixDriverRequest for AcquirePermissions {
-    type Response = Permissions;
+impl MatrixDriverRequest for AcquireCapabilities {
+    type Response = Capabilities;
 }
 
-impl FromMatrixDriverResponse for Permissions {
+impl FromMatrixDriverResponse for Capabilities {
     fn from_response(ev: MatrixDriverResponse) -> Option<Self> {
         match ev {
-            MatrixDriverResponse::PermissionsAcquired(response) => Some(response),
+            MatrixDriverResponse::CapabilitiesAcquired(response) => Some(response),
             _ => {
                 error!("bug in MatrixDriver, received wrong event response");
                 None
@@ -129,15 +150,21 @@ impl FromMatrixDriverResponse for request_openid_token::v3::Response {
 /// Ask the client to read matrix event(s) that corresponds to the given
 /// description and return a list of events as a response.
 #[derive(Debug)]
-pub(crate) struct ReadMatrixEvent(pub(crate) ReadMessageLikeEventCommand);
+pub(crate) struct ReadMessageLikeEventRequest {
+    /// The event type to read.
+    pub(crate) event_type: MessageLikeEventType,
 
-impl From<ReadMatrixEvent> for MatrixDriverRequestData {
-    fn from(value: ReadMatrixEvent) -> Self {
-        MatrixDriverRequestData::ReadMessageLikeEvent(value.0)
+    /// The maximum number of events to return.
+    pub(crate) limit: u32,
+}
+
+impl From<ReadMessageLikeEventRequest> for MatrixDriverRequestData {
+    fn from(value: ReadMessageLikeEventRequest) -> Self {
+        MatrixDriverRequestData::ReadMessageLikeEvent(value)
     }
 }
 
-impl MatrixDriverRequest for ReadMatrixEvent {
+impl MatrixDriverRequest for ReadMessageLikeEventRequest {
     type Response = Vec<Raw<AnyTimelineEvent>>;
 }
 
@@ -153,18 +180,48 @@ impl FromMatrixDriverResponse for Vec<Raw<AnyTimelineEvent>> {
     }
 }
 
-/// Ask the client to send matrix event that corresponds to the given
-/// description and return an event ID as a response.
+/// Ask the client to read matrix event(s) that corresponds to the given
+/// description and return a list of events as a response.
 #[derive(Debug)]
-pub(crate) struct SendMatrixEvent(pub(crate) SendEventCommand);
+pub(crate) struct ReadStateEventRequest {
+    /// The event type to read.
+    pub(crate) event_type: StateEventType,
 
-impl From<SendMatrixEvent> for MatrixDriverRequestData {
-    fn from(value: SendMatrixEvent) -> Self {
-        MatrixDriverRequestData::SendMatrixEvent(value.0)
+    /// The `state_key` to read, or `Any` to receive any/all events of the given
+    /// type, regardless of their `state_key`.
+    pub(crate) state_key: StateKeySelector,
+}
+
+impl From<ReadStateEventRequest> for MatrixDriverRequestData {
+    fn from(value: ReadStateEventRequest) -> Self {
+        MatrixDriverRequestData::ReadStateEvent(value)
     }
 }
 
-impl MatrixDriverRequest for SendMatrixEvent {
+impl MatrixDriverRequest for ReadStateEventRequest {
+    type Response = Vec<Raw<AnyTimelineEvent>>;
+}
+
+/// Ask the client to send matrix event that corresponds to the given
+/// description and return an event ID as a response.
+#[derive(Debug, Deserialize)]
+pub(crate) struct SendEventRequest {
+    /// The type of the event.
+    #[serde(rename = "type")]
+    pub(crate) event_type: TimelineEventType,
+    /// State key of an event (if it's a state event).
+    pub(crate) state_key: Option<String>,
+    /// Raw content of an event.
+    pub(crate) content: JsonValue,
+}
+
+impl From<SendEventRequest> for MatrixDriverRequestData {
+    fn from(value: SendEventRequest) -> Self {
+        MatrixDriverRequestData::SendMatrixEvent(value)
+    }
+}
+
+impl MatrixDriverRequest for SendEventRequest {
     type Response = OwnedEventId;
 }
 

@@ -22,8 +22,10 @@ macro_rules! json_string {
     ($( $tt:tt )*) => { ::serde_json::json!( $($tt)* ).to_string() };
 }
 
+mod api_versions;
 mod capabilities;
 mod error;
+mod openid;
 
 const WIDGET_ID: &str = "test-widget";
 

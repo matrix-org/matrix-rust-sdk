@@ -52,6 +52,7 @@ fn encode_key_info(info: &SecretInfo) -> String {
 /// An in-memory only store that will forget all the E2EE key once it's dropped.
 #[derive(Debug)]
 pub struct MemoryStore {
+    account: StdRwLock<Option<Account>>,
     sessions: SessionStore,
     inbound_group_sessions: GroupSessionStore,
     olm_hashes: StdRwLock<HashMap<String, HashSet<String>>>,
@@ -70,6 +71,7 @@ pub struct MemoryStore {
 impl Default for MemoryStore {
     fn default() -> Self {
         MemoryStore {
+            account: Default::default(),
             sessions: SessionStore::new(),
             inbound_group_sessions: GroupSessionStore::new(),
             olm_hashes: Default::default(),
@@ -126,7 +128,7 @@ impl CryptoStore for MemoryStore {
     type Error = Infallible;
 
     async fn load_account(&self) -> Result<Option<Account>> {
-        Ok(None)
+        Ok(self.account.read().unwrap().as_ref().map(|acc| acc.deep_clone()))
     }
 
     async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>> {
@@ -137,8 +139,11 @@ impl CryptoStore for MemoryStore {
         Ok(self.next_batch_token.read().await.clone())
     }
 
-    async fn save_pending_changes(&self, _changes: PendingChanges) -> Result<()> {
-        // TODO(bnjbvr) why didn't save_changes save the account?
+    async fn save_pending_changes(&self, changes: PendingChanges) -> Result<()> {
+        if let Some(account) = changes.account {
+            *self.account.write().unwrap() = Some(account);
+        }
+
         Ok(())
     }
 
@@ -440,13 +445,13 @@ mod tests {
 
     use crate::{
         identities::device::testing::get_device,
-        olm::{tests::get_account_and_session, InboundGroupSession, OlmMessageHash},
+        olm::{tests::get_account_and_session_test_helper, InboundGroupSession, OlmMessageHash},
         store::{memorystore::MemoryStore, Changes, CryptoStore, PendingChanges},
     };
 
     #[async_test]
     async fn test_session_store() {
-        let (account, session) = get_account_and_session().await;
+        let (account, session) = get_account_and_session_test_helper();
         let store = MemoryStore::new();
 
         assert!(store.load_account().await.unwrap().is_none());
@@ -464,7 +469,7 @@ mod tests {
 
     #[async_test]
     async fn test_group_session_store() {
-        let (account, _) = get_account_and_session().await;
+        let (account, _) = get_account_and_session_test_helper();
         let room_id = room_id!("!test:localhost");
         let curve_key = "Nn0L2hkcCMFKqynTjyGsJbth7QrVmX3lbrksMkrGOAw";
 

@@ -124,8 +124,9 @@ impl MatrixDriver {
     /// is dropped, forwarding will be stopped.
     pub(crate) fn events(&self) -> EventReceiver {
         let (tx, rx) = unbounded_channel();
+        let room_id = self.room.room_id().to_owned();
         let handle = self.room.add_event_handler(move |raw: Raw<AnySyncTimelineEvent>| {
-            let _ = tx.send(raw.cast());
+            let _ = tx.send(attach_room_id(&raw, &room_id));
             async {}
         });
 
