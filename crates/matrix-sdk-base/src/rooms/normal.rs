@@ -1166,15 +1166,26 @@ impl RoomStateFilter {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::{
+        collections::HashMap,
+        ops::Sub,
+        str::FromStr,
+        sync::Arc,
+        time::{Duration, SystemTime},
+    };
 
     use assign::assign;
+    use eyeball::ObservableWriteGuard;
     #[cfg(feature = "experimental-sliding-sync")]
     use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
     use matrix_sdk_test::async_test;
     use ruma::{
         api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
         events::{
+            call::member::{
+                Application, CallApplicationContent, CallMemberEventContent, Focus, LivekitFocus,
+                MembershipInit, OriginalSyncCallMemberEvent,
+            },
             room::{
                 canonical_alias::RoomCanonicalAliasEventContent,
                 member::{
@@ -1183,11 +1194,11 @@ mod tests {
                 },
                 name::RoomNameEventContent,
             },
-            StateEventType,
+            AnySyncStateEvent, StateEventType, StateUnsigned, SyncStateEvent,
         },
         room_alias_id, room_id,
         serde::Raw,
-        user_id, UserId,
+        user_id, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId, UserId,
     };
     use serde_json::json;
 
@@ -1682,5 +1693,157 @@ mod tests {
         LatestEvent::new(SyncTimelineEvent::new(
             Raw::from_json_string(json!({ "event_id": event_id }).to_string()).unwrap(),
         ))
+    }
+
+    fn timestamps() -> (MilliSecondsSinceUnixEpoch, MilliSecondsSinceUnixEpoch) {
+        let ten_min_ago = MilliSecondsSinceUnixEpoch::from_system_time(
+            SystemTime::now().sub(Duration::from_secs(60 * 10)),
+        )
+        .expect("date out of range");
+        let now = MilliSecondsSinceUnixEpoch::now();
+        (now, ten_min_ago)
+    }
+    /// `user_a`: empty memberships
+    /// `user_b`: one membership
+    /// `user_c`: two memberships (two devices)
+    fn create_call_with_member_events_for_user(
+        user_a: OwnedUserId,
+        user_b: OwnedUserId,
+        user_c: OwnedUserId,
+    ) -> Room {
+        let (_store, room) = make_room(RoomState::Joined);
+        let (now, ten_min_ago) = timestamps();
+        let application = Application::Call(CallApplicationContent::new(
+            "1".to_owned(),
+            ruma::events::call::member::CallScope::Room,
+        ));
+        let foci_active =
+            vec![Focus::Livekit(LivekitFocus::new("test".to_owned(), "https://lk.org".to_owned()))];
+        let created_ts = Some(now);
+        let expires = Duration::from_millis(3_600_000);
+
+        let m_init_b = MembershipInit {
+            application: application.clone(),
+            device_id: "0".to_owned(),
+            expires,
+            foci_active: foci_active.clone(),
+            created_ts: Some(now),
+            membership_id: "0".to_owned(),
+        };
+        let m_init_c1 = MembershipInit {
+            application: application.clone(),
+            device_id: "0".to_owned(),
+            expires,
+            foci_active: foci_active.clone(),
+            membership_id: "0".to_owned(),
+            created_ts: Some(now),
+        };
+        let m_init_c2 = MembershipInit {
+            application: application.clone(),
+            device_id: "1".to_owned(),
+            expires,
+            foci_active: foci_active.clone(),
+            membership_id: "0".to_owned(),
+            created_ts: Some(ten_min_ago),
+        };
+
+        let memberships_user_a = vec![];
+        let content_a = CallMemberEventContent::new(memberships_user_a);
+
+        let memberships_user_b = vec![m_init_b.into()];
+        let content_b = CallMemberEventContent::new(memberships_user_b);
+
+        let memberships_user_c = vec![m_init_c1.into(), m_init_c2.into()];
+        let content_c = CallMemberEventContent::new(memberships_user_c);
+
+        let a_empty_membership =
+            AnySyncStateEvent::CallMember(SyncStateEvent::Original(OriginalSyncCallMemberEvent {
+                content: content_a,
+                event_id: OwnedEventId::from_str("$1234").unwrap(),
+                sender: user_a.clone(),
+                origin_server_ts: now,
+                state_key: user_a,
+                unsigned: StateUnsigned::new(),
+            }));
+        let b_one_membership =
+            AnySyncStateEvent::CallMember(SyncStateEvent::Original(OriginalSyncCallMemberEvent {
+                content: content_b,
+                event_id: OwnedEventId::from_str("$12345").unwrap(),
+                sender: user_b.clone(),
+                origin_server_ts: now,
+                state_key: user_b,
+                unsigned: StateUnsigned::new(),
+            }));
+        let c_two_memberships =
+            AnySyncStateEvent::CallMember(SyncStateEvent::Original(OriginalSyncCallMemberEvent {
+                content: content_c,
+                event_id: OwnedEventId::from_str("$123456").unwrap(),
+                sender: user_c.clone(),
+                origin_server_ts: now,
+                state_key: user_c,
+                unsigned: StateUnsigned::new(),
+            }));
+
+        {
+            let mut guard = room.inner.write();
+            ObservableWriteGuard::update(&mut guard, |g| {
+                g.handle_state_event(&c_two_memberships);
+                g.handle_state_event(&b_one_membership);
+                g.handle_state_event(&a_empty_membership);
+            });
+        }
+        room
+    }
+    #[test]
+    fn show_correct_active_call_state() {
+        let user_a = OwnedUserId::from_str("@userA:abc.abc").unwrap();
+        let user_b = OwnedUserId::from_str("@userB:abc.abc").unwrap();
+        let user_c = OwnedUserId::from_str("@userC:abc.abc").unwrap();
+        let room =
+            create_call_with_member_events_for_user(user_a.clone(), user_b.clone(), user_c.clone());
+
+        assert_eq!(vec![user_b, user_c.clone(), user_c], room.active_room_call_participants());
+        assert_eq!(true, room.has_active_room_call());
+    }
+
+    #[test]
+    fn active_call_is_false_when_everyone_left() {
+        let user_a = OwnedUserId::from_str("@userA:abc.abc").unwrap();
+        let user_b = OwnedUserId::from_str("@userB:abc.abc").unwrap();
+        let user_c = OwnedUserId::from_str("@userC:abc.abc").unwrap();
+        let (now, ten_min_ago) = timestamps();
+
+        let room =
+            create_call_with_member_events_for_user(user_a.clone(), user_b.clone(), user_c.clone());
+
+        let empty_content = CallMemberEventContent::new(vec![]);
+        let b_empty_membership =
+            AnySyncStateEvent::CallMember(SyncStateEvent::Original(OriginalSyncCallMemberEvent {
+                content: empty_content.clone(),
+                event_id: OwnedEventId::from_str("$1234_1").unwrap(),
+                sender: user_b.clone(),
+                origin_server_ts: now,
+                state_key: user_b,
+                unsigned: StateUnsigned::new(),
+            }));
+        let c_empty_membership =
+            AnySyncStateEvent::CallMember(SyncStateEvent::Original(OriginalSyncCallMemberEvent {
+                content: empty_content,
+                event_id: OwnedEventId::from_str("$12345_1").unwrap(),
+                sender: user_c.clone(),
+                origin_server_ts: ten_min_ago,
+                state_key: user_c,
+                unsigned: StateUnsigned::new(),
+            }));
+        {
+            let mut guard = room.inner.write();
+            ObservableWriteGuard::update(&mut guard, |g| {
+                g.handle_state_event(&b_empty_membership);
+                g.handle_state_event(&c_empty_membership);
+            });
+        }
+        // we have an active call
+        assert_eq!(Vec::<OwnedUserId>::new(), room.active_room_call_participants());
+        assert_eq!(false, room.has_active_room_call());
     }
 }
