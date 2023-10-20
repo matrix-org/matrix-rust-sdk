@@ -95,12 +95,12 @@ pub(super) struct RequestCapabilitiesResponse {
 
 /// Notify the widget that the list of the granted capabilities has changed.
 #[derive(Serialize)]
-pub(super) struct NotifyPermissionsChanged {
+pub(super) struct NotifyCapabilitiesChanged {
     pub(super) requested: Capabilities,
     pub(super) approved: Capabilities,
 }
 
-impl ToWidgetRequest for NotifyPermissionsChanged {
+impl ToWidgetRequest for NotifyCapabilitiesChanged {
     const ACTION: &'static str = "notify_capabilities";
     type ResponseData = Empty;
 }

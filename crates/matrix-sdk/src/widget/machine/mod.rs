@@ -40,7 +40,7 @@ use self::{
     incoming::{IncomingWidgetMessage, IncomingWidgetMessageKind},
     openid::{OpenIdResponse, OpenIdState},
     to_widget::{
-        NotifyNewMatrixEvent, NotifyOpenIdChanged, NotifyPermissionsChanged, RequestCapabilities,
+        NotifyCapabilitiesChanged, NotifyNewMatrixEvent, NotifyOpenIdChanged, RequestCapabilities,
         ToWidgetRequest, ToWidgetRequestHandle, ToWidgetResponse,
     },
 };
@@ -524,7 +524,7 @@ impl WidgetMachine {
                         }
 
                         machine.capabilities = CapabilitiesState::Negotiated(approved.clone());
-                        machine.send_to_widget_request(NotifyPermissionsChanged {
+                        machine.send_to_widget_request(NotifyCapabilitiesChanged {
                             approved,
                             requested,
                         });

@@ -34,7 +34,7 @@ pub trait CapabilitiesProvider: Send + Sync + 'static {
     async fn acquire_capabilities(&self, capabilities: Capabilities) -> Capabilities;
 }
 
-/// Permissions that a widget can request from a client.
+/// Capabilities that a widget can request from a client.
 #[derive(Clone, Debug, Default)]
 #[cfg_attr(test, derive(PartialEq))]
 pub struct Capabilities {
