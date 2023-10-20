@@ -347,13 +347,7 @@ impl GroupSessionManager {
         let mut devices: BTreeMap<OwnedUserId, Vec<Device>> = Default::default();
         let mut withheld_devices: Vec<(Device, WithheldCode)> = Default::default();
 
-        trace!(
-            ?users,
-            ?settings,
-            session_id = outbound.session_id(),
-            room_id = outbound.room_id().as_str(),
-            "Calculating group session recipients"
-        );
+        trace!(?users, ?settings, "Calculating group session recipients");
 
         let users_shared_with: BTreeSet<OwnedUserId> =
             outbound.shared_with_set.read().unwrap().keys().cloned().collect();
@@ -429,12 +423,7 @@ impl GroupSessionManager {
             withheld_devices.extend(withheld_recipients);
         }
 
-        trace!(
-            should_rotate = should_rotate,
-            session_id = outbound.session_id(),
-            room_id = outbound.room_id().as_str(),
-            "Done calculating group session recipients"
-        );
+        trace!(should_rotate, "Done calculating group session recipients");
 
         Ok(CollectRecipientsResult { should_rotate, devices, withheld_devices })
     }
@@ -664,86 +653,63 @@ impl GroupSessionManager {
         Ok(())
     }
 
-    fn log_room_key_sharing_result(
-        session: &OutboundGroupSession,
-        requests: &[Arc<ToDeviceRequest>],
-    ) {
-        #[cfg(feature = "message-ids")]
-        use serde::Deserialize;
-
-        let mut withheld_messages: BTreeMap<_, BTreeMap<_, BTreeSet<_>>> = BTreeMap::new();
-
-        #[cfg(feature = "message-ids")]
-        let mut messages: BTreeMap<_, BTreeMap<_, BTreeMap<_, _>>> = BTreeMap::new();
-        #[cfg(not(feature = "message-ids"))]
-        let mut messages: BTreeMap<_, BTreeMap<_, BTreeSet<_>>> = BTreeMap::new();
-
-        #[derive(PartialEq, Eq, PartialOrd, Ord)]
-        struct RequestId<'a>(&'a TransactionId);
-
-        impl Debug for RequestId<'_> {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                f.debug_tuple("RequestId").field(&self.0).finish()
-            }
-        }
-
-        #[cfg(feature = "message-ids")]
-        #[derive(Debug, Deserialize)]
-        #[serde(transparent)]
-        struct MessageId<'a>(&'a str);
-
-        #[cfg(feature = "message-ids")]
-        #[derive(Deserialize)]
-        struct ContentStub<'a> {
-            #[serde(borrow, rename = "org.matrix.msgid")]
-            message_id: MessageId<'a>,
-        }
-
-        // We're just collecting the recipients for logging reasons.
+    fn log_room_key_sharing_result(requests: &[Arc<ToDeviceRequest>]) {
         for request in requests {
-            for (user_id, device_map) in &request.messages {
-                if request.event_type == ToDeviceEventType::RoomEncrypted {
-                    #[cfg(feature = "message-ids")]
-                    for (device, content) in device_map {
-                        let content: ContentStub<'_> = content
-                            .deserialize_as()
-                            .expect("We should be able to deserialize the content we generated");
+            let message_list = Self::to_device_request_to_log_list(request);
+            info!(
+                request_id = ?request.txn_id,
+                ?message_list,
+                "Created batch of to-device messages of type {}",
+                request.event_type
+            );
+        }
+    }
 
-                        let message_id = content.message_id;
-
-                        messages
-                            .entry(RequestId(&request.txn_id))
-                            .or_default()
-                            .entry(user_id)
-                            .or_default()
-                            .insert(device, message_id);
-                    }
-
-                    #[cfg(not(feature = "message-ids"))]
-                    messages
-                        .entry(RequestId(&request.txn_id))
-                        .or_default()
-                        .entry(user_id)
-                        .or_default()
-                        .extend(device_map.keys());
-                } else {
-                    withheld_messages
-                        .entry(RequestId(&request.txn_id))
-                        .or_default()
-                        .entry(user_id)
-                        .or_default()
-                        .extend(device_map.keys());
-                }
-            }
+    /// Given a to-device request, build a recipient map suitable for logging.
+    ///
+    /// Returns a list of triples of (message_id, user id, device_id).
+    #[cfg(feature = "message-ids")]
+    fn to_device_request_to_log_list(
+        request: &Arc<ToDeviceRequest>,
+    ) -> Vec<(String, String, String)> {
+        #[derive(serde::Deserialize)]
+        struct ContentStub<'a> {
+            #[serde(borrow, default, rename = "org.matrix.msgid")]
+            message_id: Option<&'a str>,
         }
 
-        info!(
-            session_id = session.session_id(),
-            request_count = requests.len(),
-            ?messages,
-            ?withheld_messages,
-            "Encrypted a room key and created to-device messages"
-        );
+        let mut result: Vec<(String, String, String)> = Vec::new();
+
+        for (user_id, device_map) in &request.messages {
+            for (device, content) in device_map {
+                let message_id: Option<&str> = content
+                    .deserialize_as::<ContentStub<'_>>()
+                    .expect("We should be able to deserialize the content we generated")
+                    .message_id;
+
+                result.push((
+                    message_id.unwrap_or("<undefined>").to_owned(),
+                    user_id.to_string(),
+                    device.to_string(),
+                ));
+            }
+        }
+        result
+    }
+
+    /// Given a to-device request, build a recipient map suitable for logging.
+    ///
+    /// Returns a list of pairs of (user id, device_id).
+    #[cfg(not(feature = "message-ids"))]
+    fn to_device_request_to_log_list(request: &Arc<ToDeviceRequest>) -> Vec<(String, String)> {
+        let mut result: Vec<(String, String)> = Vec::new();
+
+        for (user_id, device_map) in &request.messages {
+            for device in device_map.keys() {
+                result.push((user_id.to_string(), device.to_string()));
+            }
+        }
+        result
     }
 
     /// Get to-device requests to share a room key with users in a room.
@@ -756,7 +722,7 @@ impl GroupSessionManager {
     ///
     /// `encryption_settings` - The settings that should be used for
     /// the room key.
-    #[instrument(skip(self, users, encryption_settings))]
+    #[instrument(skip(self, users, encryption_settings), fields(session_id))]
     pub async fn share_room_key(
         &self,
         room_id: &RoomId,
@@ -771,6 +737,7 @@ impl GroupSessionManager {
         // Try to get an existing session or create a new one.
         let (outbound, inbound) =
             self.get_or_create_outbound_session(room_id, encryption_settings.clone()).await?;
+        tracing::Span::current().record("session_id", outbound.session_id());
 
         // Having an inbound group session here means that we created a new
         // group session pair, which we then need to store.
@@ -829,7 +796,6 @@ impl GroupSessionManager {
             if !outbound.shared() {
                 debug!(
                     room_id = room_id.as_str(),
-                    session_id = outbound.session_id(),
                     "The room key doesn't need to be shared with anyone. Marking as shared."
                 );
 
@@ -837,7 +803,7 @@ impl GroupSessionManager {
                 changes.outbound_group_sessions.push(outbound.clone());
             }
         } else {
-            Self::log_room_key_sharing_result(&outbound, &requests)
+            Self::log_room_key_sharing_result(&requests)
         }
 
         // Persist any changes we might have collected.
@@ -847,8 +813,6 @@ impl GroupSessionManager {
             self.store.save_changes(changes).await?;
 
             trace!(
-                room_id = room_id.as_str(),
-                session_id = outbound.session_id(),
                 session_count = session_count,
                 "Stored the changed sessions after encrypting an room key"
             );

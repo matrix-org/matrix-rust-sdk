@@ -66,5 +66,7 @@
 
 - Expose new `OlmMachine::get_room_event_encryption_info` method.
 
+- Clean up the logging of to-device messages in `share_room_key`.
+
 - Remove spurious "Unknown outgoing secret request" warning which was logged
   for every outgoing secret request.
