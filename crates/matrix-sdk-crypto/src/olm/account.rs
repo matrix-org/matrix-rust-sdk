@@ -559,7 +559,6 @@ impl StaticAccountData {
             &outbound.session_key().await,
             algorithm,
             Some(visibility),
-            true,
         )?;
 
         Ok((outbound, inbound))

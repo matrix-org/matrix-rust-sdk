@@ -103,8 +103,8 @@ impl MegolmV1BackupKey {
     }
 
     /// Get the MAC key that is used with the backup key
-    pub fn mac_key(&self) -> &Option<HmacSha256Key> {
-        &self.inner.mac_key
+    pub fn mac_key(&self) -> Option<&HmacSha256Key> {
+        self.inner.mac_key.as_ref()
     }
 
     /// Set the backup version that this `MegolmV1BackupKey` will be used with.
@@ -145,7 +145,7 @@ impl MegolmV1BackupKey {
         let session_data = EncryptedSessionDataInit {
             ephemeral: Base64::new(message.ephemeral_key.to_vec()),
             ciphertext: Base64::new(message.ciphertext),
-            mac: Some(Base64::new(message.mac.unwrap())),
+            mac: Base64::new(message.mac.unwrap()),
             mac2,
         }
         .into();

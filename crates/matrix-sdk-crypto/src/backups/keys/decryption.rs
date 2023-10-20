@@ -334,7 +334,7 @@ mod tests {
         let key_backup_data: KeyBackupData = serde_json::from_value(data).unwrap();
         let ephemeral = key_backup_data.session_data.ephemeral.encode();
         let ciphertext = key_backup_data.session_data.ciphertext.encode();
-        let mac = key_backup_data.session_data.mac.unwrap().encode();
+        let mac = key_backup_data.session_data.mac.encode();
 
         let decrypted = decryption_key
             .decrypt_v1(&ephemeral, Mac::V1(&mac), &ciphertext)
@@ -352,22 +352,24 @@ mod tests {
 
         // mac2 was created from the data in test_decrypt_key using the following Python:
         //
-        //   import base64
-        //   from cryptography.hazmat.primitives.hashes import SHA256
-        //   from cryptography.hazmat.primitives.kdf.hkdf import HKDF
-        //   from cryptography.hazmat.primitives.hmac import HMAC
+        // ```python
+        // import base64
+        // from cryptography.hazmat.primitives.hashes import SHA256
+        // from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+        // from cryptography.hazmat.primitives.hmac import HMAC
 
-        //   key_b64 = "Ha9cklU/9NqFo9WKdVfGzmqUL/9wlkdxfEitbSIPVXw==="
-        //   key = base64.b64decode(key_b64)
+        // key_b64 = "Ha9cklU/9NqFo9WKdVfGzmqUL/9wlkdxfEitbSIPVXw==="
+        // key = base64.b64decode(key_b64)
 
-        //   mac_key = HKDF(SHA256(), length=32, salt=b"", info=b"MATRIX_BACKUP_MAC_KEY").derive(key)
+        // mac_key = HKDF(SHA256(), length=32, salt=b"", info=b"MATRIX_BACKUP_MAC_KEY").derive(key)
 
-        //   ciphertext_b64 = ...
-        //   ciphertext = base64.b64decode(ciphertext_b64)
+        // ciphertext_b64 = ...
+        // ciphertext = base64.b64decode(ciphertext_b64)
 
-        //   hmac = HMAC(mac_key, SHA256())
-        //   hmac.update(ciphertext)
-        //   print(base64.b64encode(hmac.finalize()))
+        // hmac = HMAC(mac_key, SHA256())
+        // hmac.update(ciphertext)
+        // print(base64.b64encode(hmac.finalize()))
+        // ```
         let data = json!({
             "first_message_index": 0,
             "forwarded_count": 0,
@@ -385,7 +387,7 @@ mod tests {
                                fMh05PdGLnxeRpiEFWSMSsJNp+OWAA+5JsF41BoRGrxoXXT+VKqlUDONd+O296Psu8Q+\
                                d8/S618",
                 "mac": "GtMrurhDTwo",
-                "mac2": "+yy4Frb8XHCgbC0INJGHyySqe/JoWfw1uJrDXzb9yh0",
+                "org.matrix.msc4048.mac2": "+yy4Frb8XHCgbC0INJGHyySqe/JoWfw1uJrDXzb9yh0",
             }
         });
 
@@ -419,7 +421,7 @@ mod tests {
                                fMh05PdGLnxeRpiEFWSMSsJNp+OWAA+5JsF41BoRGrxoXXT+VKqlUDONd+O296Psu8Q+\
                                d8/S618",
                 "mac": "GtMrurhDTwo",
-                "mac2": "y+4yrF8bHXgCCbI0JNHGyyqS/eoJfW1wJuDrzX9bhy0",
+                "org.matrix.msc4048.mac2": "y+4yrF8bHXgCCbI0JNHGyyqS/eoJfW1wJuDrzX9bhy0",
             }
         });
 

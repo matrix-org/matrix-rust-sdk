@@ -95,6 +95,25 @@ pub(crate) struct SessionCreatorInfo {
     pub signing_keys: Arc<SigningKeys<DeviceKeyAlgorithm>>,
 }
 
+/// The source of a key.
+///
+/// Indicates where we obtained the key from.  The source affects how
+/// trustworthy we consider the key and its associated information to be.  If
+/// the source is `Direct` or `Backup` with `authenticated: true`, then it is
+/// considered trustworthy.  Otherwise, it is not considered trustworthy.
+#[derive(Clone, Copy, Serialize, Deserialize)]
+pub enum KeySource {
+    /// The key was obtained directly from the session creator via an
+    /// `m.room_key` event.
+    Direct,
+    /// The key was restored from key backup.
+    Backup { authenticated: bool },
+    /// The key was received via an `m.forwarded_room_key` event
+    Forward,
+    /// The key was imported from a key export.
+    OldStyleImport,
+}
+
 /// A structure representing an inbound group session.
 ///
 /// Inbound group sessions, also known as "room keys", are used to facilitate
@@ -126,13 +145,8 @@ pub struct InboundGroupSession {
     /// The Room this GroupSession belongs to
     pub room_id: OwnedRoomId,
 
-    /// A flag recording whether the `InboundGroupSession` was received directly
-    /// as a `m.room_key` event or indirectly via a forward or file import.
-    ///
-    /// If the session is considered to be imported, the information contained
-    /// in the `InboundGroupSession::creator_info` field is not proven to be
-    /// correct.
-    imported: bool,
+    /// Where we obtained the group session from.
+    key_source: KeySource,
 
     /// The messaging algorithm of this [`InboundGroupSession`] as defined by
     /// the [spec]. Will be one of the `m.megolm.*` algorithms.
@@ -146,9 +160,6 @@ pub struct InboundGroupSession {
 
     /// Was this room key backed up to the server.
     backed_up: Arc<AtomicBool>,
-
-    /// Was this room key received (recursively) from an authenticated source.
-    authenticated: bool,
 }
 
 impl InboundGroupSession {
@@ -175,7 +186,6 @@ impl InboundGroupSession {
         session_key: &SessionKey,
         encryption_algorithm: EventEncryptionAlgorithm,
         history_visibility: Option<HistoryVisibility>,
-        authenticated: bool,
     ) -> Result<Self, SessionCreationError> {
         let config = OutboundGroupSession::session_config(&encryption_algorithm)?;
 
@@ -196,10 +206,9 @@ impl InboundGroupSession {
                 signing_keys: keys.into(),
             },
             room_id: room_id.into(),
-            imported: false,
+            key_source: KeySource::Direct,
             algorithm: encryption_algorithm.into(),
             backed_up: AtomicBool::new(false).into(),
-            authenticated,
         })
     }
 
@@ -233,7 +242,7 @@ impl InboundGroupSession {
             session_key: backup.session_key,
             sender_claimed_keys: backup.sender_claimed_keys,
         })?;
-        res.authenticated = backup.authenticated;
+        res.key_source = KeySource::Backup { authenticated: backup.authenticated };
         Ok(res)
     }
 
@@ -251,11 +260,10 @@ impl InboundGroupSession {
             sender_key: self.creator_info.curve25519_key,
             signing_key: (*self.creator_info.signing_keys).clone(),
             room_id: self.room_id().to_owned(),
-            imported: self.imported,
+            key_source: self.key_source,
             backed_up: self.backed_up(),
             history_visibility: self.history_visibility.as_ref().clone(),
             algorithm: (*self.algorithm).to_owned(),
-            authenticated: self.authenticated,
         }
     }
 
@@ -339,8 +347,7 @@ impl InboundGroupSession {
             room_id: (*pickle.room_id).into(),
             backed_up: AtomicBool::from(pickle.backed_up).into(),
             algorithm: pickle.algorithm.into(),
-            imported: pickle.imported,
-            authenticated: pickle.authenticated,
+            key_source: pickle.key_source,
         })
     }
 
@@ -368,7 +375,10 @@ impl InboundGroupSession {
     /// Has the session been imported from a file or server-side backup? As
     /// opposed to being directly received as an `m.room_key` event.
     pub fn has_been_imported(&self) -> bool {
-        self.imported
+        match self.key_source {
+            KeySource::Direct => false,
+            _ => true,
+        }
     }
 
     /// Check if the `InboundGroupSession` is better than the given other
@@ -506,9 +516,8 @@ pub struct PickledInboundGroupSession {
     pub signing_key: SigningKeys<DeviceKeyAlgorithm>,
     /// The id of the room that the session is used in.
     pub room_id: OwnedRoomId,
-    /// Flag remembering if the session was directly sent to us by the sender
-    /// or if it was imported.
-    pub imported: bool,
+    /// Where we obtained the group session from.
+    pub key_source: KeySource,
     /// Flag remembering if the session has been backed up.
     #[serde(default)]
     pub backed_up: bool,
@@ -517,9 +526,6 @@ pub struct PickledInboundGroupSession {
     /// The algorithm of this inbound group session.
     #[serde(default = "default_algorithm")]
     pub algorithm: EventEncryptionAlgorithm,
-    /// Whether the key was received from an authenticated source.
-    #[serde(default)]
-    pub authenticated: bool,
 }
 
 fn default_algorithm() -> EventEncryptionAlgorithm {
@@ -544,10 +550,9 @@ impl TryFrom<&ExportedRoomKey> for InboundGroupSession {
             history_visibility: None.into(),
             first_known_index,
             room_id: key.room_id.to_owned(),
-            imported: true,
+            key_source: KeySource::OldStyleImport,
             algorithm: key.algorithm.to_owned().into(),
             backed_up: AtomicBool::from(false).into(),
-            authenticated: false,
         })
     }
 }
@@ -572,10 +577,9 @@ impl From<&ForwardedMegolmV1AesSha2Content> for InboundGroupSession {
             history_visibility: None.into(),
             first_known_index,
             room_id: value.room_id.to_owned(),
-            imported: true,
+            key_source: KeySource::Forward,
             algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2.into(),
             backed_up: AtomicBool::from(false).into(),
-            authenticated: false,
         }
     }
 }
@@ -596,10 +600,9 @@ impl From<&ForwardedMegolmV2AesSha2Content> for InboundGroupSession {
             history_visibility: None.into(),
             first_known_index,
             room_id: value.room_id.to_owned(),
-            imported: true,
+            key_source: KeySource::Forward,
             algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2.into(),
             backed_up: AtomicBool::from(false).into(),
-            authenticated: false,
         }
     }
 }
@@ -666,7 +669,7 @@ mod tests {
             },
             "room_id": "!test:localhost",
             "forwarding_chains": ["tb6kQKjk+SJl2KnfQ0lKVOZl6gDFMcsb9HcUP9k/4hc"],
-            "imported": false,
+            "key_source": "Direct",
             "backed_up": false,
             "history_visibility": "shared",
             "algorithm": "m.megolm.v1.aes-sha2"
