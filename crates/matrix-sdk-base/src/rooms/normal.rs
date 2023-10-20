@@ -1750,7 +1750,7 @@ mod tests {
         ))];
 
         MembershipInit {
-            application: application,
+            application,
             device_id: device_id.to_owned(),
             expires: Duration::from_millis(3_600_000),
             foci_active,
