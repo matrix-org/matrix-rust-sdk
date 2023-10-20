@@ -128,7 +128,7 @@ impl CryptoStore for MemoryStore {
     type Error = Infallible;
 
     async fn load_account(&self) -> Result<Option<Account>> {
-        Ok(self.account.read().unwrap().as_ref().map(|acc| acc.clone_internal()))
+        Ok(self.account.read().unwrap().as_ref().map(|acc| acc.deep_clone()))
     }
 
     async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>> {
