@@ -144,28 +144,22 @@ impl WidgetMachine {
                 self.process_matrix_driver_response(request_id, response);
             }
             IncomingMessage::MatrixEventReceived(event) => {
-                let CapabilitiesState::Negotiated(_capabilities) = &self.capabilities else {
+                let CapabilitiesState::Negotiated(capabilities) = &self.capabilities else {
                     error!("Received matrix event before capabilities negotiation");
                     return;
                 };
 
-                // TODO: We probably are expected to use `capabilities.read`
-                // filters here before really sending this stuff back to the
-                // widget.
-                // if !capabilities.read.iter().any(|filter| filter.matches(&event)) {
-                //     error!("Received matrix event that is not allowed by the capabilities");
-                //     return;
-                // }
-
-                let event = match serde_json::to_value(event) {
-                    Ok(e) => e,
+                let filter_in = match event.deserialize_as::<MatrixEventFilterInput>() {
+                    Ok(i) => i,
                     Err(e) => {
-                        error!("Failed to serialize event: {e}");
+                        error!("Failed to deserialize event: {e}");
                         return;
                     }
                 };
 
-                self.send_to_widget_request(NotifyNewMatrixEvent(event));
+                if capabilities.read.iter().any(|f| f.matches(&filter_in)) {
+                    self.send_to_widget_request(NotifyNewMatrixEvent(event));
+                }
             }
         }
     }
