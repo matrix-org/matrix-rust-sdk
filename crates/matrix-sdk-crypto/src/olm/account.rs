@@ -15,7 +15,7 @@
 use std::{
     collections::{BTreeMap, HashMap},
     fmt,
-    ops::Deref,
+    ops::{Deref, Not as _},
     sync::Arc,
 };
 
@@ -560,7 +560,7 @@ impl Account {
     /// If no keys need to be uploaded the `DeviceKeys` will be `None` and the
     /// one-time and fallback keys maps will be empty.
     pub fn keys_for_upload(&self) -> (Option<DeviceKeys>, OneTimeKeys, FallbackKeys) {
-        let device_keys = if !self.shared() { Some(self.device_keys()) } else { None };
+        let device_keys = self.shared().not().then(|| self.device_keys());
 
         let one_time_keys = self.signed_one_time_keys();
         let fallback_keys = self.signed_fallback_keys();
