@@ -1735,11 +1735,11 @@ mod tests {
         }))
     }
 
-    fn membership_init_for_my_call(
+    fn membership_for_my_call(
         device_id: &str,
         membership_id: &str,
         minutes_ago: u32,
-    ) -> MembershipInit {
+    ) -> Membership {
         let application = Application::Call(CallApplicationContent::new(
             "my_call_id_1".to_owned(),
             ruma::events::call::member::CallScope::Room,
@@ -1749,14 +1749,16 @@ mod tests {
             "https://lk.org".to_owned(),
         ))];
 
-        MembershipInit {
-            application,
-            device_id: device_id.to_owned(),
-            expires: Duration::from_millis(3_600_000),
-            foci_active,
-            created_ts: Some(timestamp(minutes_ago)),
-            membership_id: membership_id.to_owned(),
-        }
+        assign!(
+            Membership::from(MembershipInit {
+                application,
+                device_id: device_id.to_owned(),
+                expires: Duration::from_millis(3_600_000),
+                foci_active,
+                membership_id: membership_id.to_owned(),
+            }),
+            { created_ts: Some(timestamp(minutes_ago)) }
+        )
     }
 
     fn receive_state_events(room: &Room, events: Vec<&AnySyncStateEvent>) {
@@ -1775,16 +1777,15 @@ mod tests {
         let (_store, room) = make_room(RoomState::Joined);
 
         // make b 10min old
-        let m_init_b = membership_init_for_my_call("0", "0", 10);
+        let m_init_b = membership_for_my_call("0", "0", 10);
         // c1 1min old
-        let m_init_c1 = membership_init_for_my_call("0", "0", 1);
+        let m_init_c1 = membership_for_my_call("0", "0", 1);
         // c2 20min old
-        let m_init_c2 = membership_init_for_my_call("1", "0", 20);
+        let m_init_c2 = membership_for_my_call("1", "0", 20);
 
         let a_empty = call_member_state_event(Vec::new(), "$1234", user_a);
-        let b_one = call_member_state_event(vec![m_init_b.into()], "$12345", user_b);
-        let c_two =
-            call_member_state_event(vec![m_init_c1.into(), m_init_c2.into()], "$123456", user_c);
+        let b_one = call_member_state_event(vec![m_init_b], "$12345", user_b);
+        let c_two = call_member_state_event(vec![m_init_c1, m_init_c2], "$123456", user_c);
 
         receive_state_events(&room, vec![&a_empty, &b_one, &c_two]);
 
