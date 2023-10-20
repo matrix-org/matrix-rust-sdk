@@ -65,6 +65,79 @@ fn machine_can_request_capabilities_on_content_load() {
     assert_capabilities_dance(&mut machine, &mut actions_recv);
 }
 
+#[test]
+fn capabilities_failure_results_into_empty_capabilities() {
+    let (mut machine, mut actions_recv) =
+        WidgetMachine::new(WIDGET_ID.to_owned(), owned_room_id!("!a98sd12bjh:example.org"), false);
+
+    // Ask widget to provide desired capabilities.
+    {
+        let action = actions_recv.try_recv().unwrap();
+        let msg = assert_matches!(action, Action::SendToWidget(msg) => msg);
+        let (msg, request_id) = parse_msg(&msg);
+        assert_eq!(
+            msg,
+            json!({
+                "api": "toWidget",
+                "widgetId": WIDGET_ID,
+                "action": "capabilities",
+                "data": {},
+            }),
+        );
+
+        machine.process(IncomingMessage::WidgetMessage(json_string!({
+            "api": "toWidget",
+            "widgetId": WIDGET_ID,
+            "requestId": request_id,
+            "action": "capabilities",
+            "data": {},
+            "response": {
+                "capabilities": ["org.matrix.msc2762.receive.state_event:m.room.member"],
+            },
+        })));
+    }
+
+    // Try to acquire capabilities by sending a request to a matrix driver.
+    {
+        let action = actions_recv.try_recv().unwrap();
+        let (request_id, capabilities) = assert_matches!(
+            action,
+            Action::MatrixDriverRequest {
+                request_id,
+                data: MatrixDriverRequestData::AcquireCapabilities(data)
+            } => (request_id, data.desired_capabilities)
+        );
+        assert_eq!(
+            capabilities,
+            from_value(json!(["org.matrix.msc2762.receive.state_event:m.room.member"])).unwrap()
+        );
+
+        machine.process(IncomingMessage::MatrixDriverResponse {
+            request_id,
+            response: Err("OHMG!".into()),
+        });
+    }
+
+    // Inform the widget about the new capabilities, or lack of thereof :)
+    let action = actions_recv.try_recv().unwrap();
+    let msg = assert_matches!(action, Action::SendToWidget(msg) => msg);
+    let (msg, _request_id) = parse_msg(&msg);
+    assert_eq!(
+        msg,
+        json!({
+            "api": "toWidget",
+            "widgetId": WIDGET_ID,
+            "action": "notify_capabilities",
+            "data": {
+                "requested": ["org.matrix.msc2762.receive.state_event:m.room.member"],
+                "approved": [],
+            },
+        }),
+    );
+
+    assert_matches!(actions_recv.try_recv(), Err(_));
+}
+
 pub(super) fn assert_capabilities_dance(
     machine: &mut WidgetMachine,
     actions_recv: &mut UnboundedReceiver<Action>,

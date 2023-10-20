@@ -107,3 +107,77 @@ fn openid_request_handling_works() {
     // No further actions expected.
     assert_matches!(actions_recv.try_recv(), Err(_));
 }
+
+#[test]
+fn openid_fail_results_in_response_blocked() {
+    let (mut machine, mut actions_recv) =
+        WidgetMachine::new(WIDGET_ID.to_owned(), owned_room_id!("!a98sd12bjh:example.org"), true);
+
+    // Widget requests an open ID token, since we don't have any caching yet,
+    // we reply with a pending response right away.
+    {
+        machine.process(IncomingMessage::WidgetMessage(json_string!({
+            "api": "fromWidget",
+            "widgetId": WIDGET_ID,
+            "requestId": "openid-request-id",
+            "action": "get_openid",
+            "data": {},
+        })));
+
+        let action = actions_recv.try_recv().unwrap();
+        let msg = assert_matches!(action, Action::SendToWidget(msg) => msg);
+        let (msg, request_id) = parse_msg(&msg);
+        assert_eq!(request_id, "openid-request-id");
+        assert_eq!(
+            msg,
+            json!({
+                "api": "fromWidget",
+                "widgetId": WIDGET_ID,
+                "action": "get_openid",
+                "data": {},
+                "response": {
+                    "state": "request",
+                },
+            }),
+        );
+    }
+
+    // Then we send an OpenID request to the driver and expect a fail.
+    {
+        let action = actions_recv.try_recv().unwrap();
+        let request_id = assert_matches!(
+            action,
+            Action::MatrixDriverRequest {
+                request_id,
+                data: MatrixDriverRequestData::GetOpenId,
+            } => request_id
+        );
+
+        machine.process(IncomingMessage::MatrixDriverResponse {
+            request_id,
+            response: Err("Unlucky one".into()),
+        });
+    }
+
+    // We inform the widget about the new OpenID token.
+    {
+        let action = actions_recv.try_recv().unwrap();
+        let msg = assert_matches!(action, Action::SendToWidget(msg) => msg);
+        let (msg, _request_id) = parse_msg(&msg);
+        assert_eq!(
+            msg,
+            json!({
+                "api": "toWidget",
+                "widgetId": WIDGET_ID,
+                "action": "openid_credentials",
+                "data": {
+                    "state": "blocked",
+                    "original_request_id": "openid-request-id",
+                },
+            }),
+        );
+    }
+
+    // No further actions expected.
+    assert_matches!(actions_recv.try_recv(), Err(_));
+}
