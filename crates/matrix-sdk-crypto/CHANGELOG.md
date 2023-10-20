@@ -65,3 +65,6 @@
   `OutgoingRequest` to `(OwnedTransactionId, KeysBackupRequest)`.
 
 - Expose new `OlmMachine::get_room_event_encryption_info` method.
+
+- Remove spurious "Unknown outgoing secret request" warning which was logged
+  for every outgoing secret request.
