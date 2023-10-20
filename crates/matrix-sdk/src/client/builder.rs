@@ -105,6 +105,7 @@ impl ClientBuilder {
             server_versions: None,
             handle_refresh_tokens: false,
             base_client: None,
+            #[cfg(feature = "e2e-encryption")]
             encryption_settings: Default::default(),
         }
     }

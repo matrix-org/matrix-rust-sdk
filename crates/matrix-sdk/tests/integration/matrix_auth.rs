@@ -324,6 +324,7 @@ fn test_serialize_session() {
     );
 }
 
+#[cfg(feature = "e2e-encryption")]
 #[async_test]
 async fn test_login_with_cross_signing_bootstrapping() {
     let server = MockServer::start().await;
@@ -500,6 +501,7 @@ async fn test_login_with_cross_signing_bootstrapping() {
     }
 }
 
+#[cfg(feature = "e2e-encryption")]
 #[async_test]
 async fn test_login_with_cross_signing_bootstrapping_already_bootstrapped() {
     // Even if we enabled cross-signing bootstrap for another device, it won't
