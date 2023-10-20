@@ -101,7 +101,7 @@ pub(super) struct NotifyPermissionsChanged {
 
 impl ToWidgetRequest for NotifyPermissionsChanged {
     const ACTION: &'static str = "notify_capabilities";
-    type ResponseData = ();
+    type ResponseData = Empty;
 }
 
 /// Notify the widget that the OpenID credentials changed.
@@ -120,5 +120,8 @@ pub(crate) struct NotifyNewMatrixEvent(pub(crate) serde_json::Value);
 
 impl ToWidgetRequest for NotifyNewMatrixEvent {
     const ACTION: &'static str = "send_event";
-    type ResponseData = ();
+    type ResponseData = Empty;
 }
+
+#[derive(Deserialize)]
+pub(crate) struct Empty {}
