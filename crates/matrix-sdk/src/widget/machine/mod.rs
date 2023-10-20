@@ -26,7 +26,7 @@ use ruma::{
 use serde::Serialize;
 use serde_json::value::RawValue as RawJsonValue;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
-use tracing::{debug, error, instrument, trace, warn};
+use tracing::{debug, error, info, instrument, trace, warn};
 use uuid::Uuid;
 
 use self::{
@@ -211,10 +211,15 @@ impl WidgetMachine {
 
             FromWidgetRequest::GetOpenId {} => {
                 self.send_from_widget_response(raw_request, OpenIdResponse::Pending);
-                self.send_matrix_driver_request(RequestOpenId).then(|openid, machine| {
-                    // TODO: The request can actually fail here, rewrite the
-                    // `send_matrix_driver_request`, so that we can handle errors here.
-                    let response = OpenIdResponse::Allowed(OpenIdState::new(request_id, openid));
+                self.send_matrix_driver_request(RequestOpenId).then(|res, machine| {
+                    let response = match res {
+                        Ok(res) => OpenIdResponse::Allowed(OpenIdState::new(request_id, res)),
+                        Err(msg) => {
+                            info!("OpenID request failed: {msg}");
+                            OpenIdResponse::Blocked { original_request_id: request_id }
+                        }
+                    };
+
                     machine.send_to_widget_request(NotifyOpenIdChanged(response));
                 });
             }
@@ -262,9 +267,9 @@ impl WidgetMachine {
 
                 if allowed {
                     let request = ReadStateEventRequest { event_type, state_key };
-                    self.send_matrix_driver_request(request).then(|events, machine| {
-                        machine
-                            .send_from_widget_response(raw_request, ReadEventResponse { events });
+                    self.send_matrix_driver_request(request).then(|result, machine| {
+                        let response = result.map(|events| ReadEventResponse { events });
+                        machine.send_from_widget_result_response(raw_request, response);
                     });
                 } else {
                     self.send_from_widget_error_response(raw_request, "Not allowed");
@@ -295,9 +300,10 @@ impl WidgetMachine {
         };
 
         if capabilities.send.iter().any(|filter| filter.matches(&filter_in)) {
-            self.send_matrix_driver_request(request).then(|event_id, machine| {
-                let response = SendEventResponse { event_id, room_id: &machine.room_id };
-                machine.send_from_widget_response(raw_request, response);
+            self.send_matrix_driver_request(request).then(|result, machine| {
+                let response = result
+                    .map(|event_id| SendEventResponse { event_id, room_id: &machine.room_id });
+                machine.send_from_widget_result_response(raw_request, response);
             });
         } else {
             self.send_from_widget_error_response(raw_request, "Not allowed");
@@ -340,13 +346,6 @@ impl WidgetMachine {
         let Some(request) = self.pending_matrix_driver_requests.remove(&request_id) else {
             error!("Received response for an unknown request");
             return;
-        };
-        let response = match response {
-            Ok(r) => r,
-            Err(e) => {
-                error!("Matrix driver request failed: {e}");
-                return;
-            }
         };
 
         if let Some(response_fn) = request.response_fn {
@@ -398,6 +397,17 @@ impl WidgetMachine {
         error: impl fmt::Display,
     ) {
         self.send_from_widget_response(raw_request, FromWidgetErrorResponse::new(error))
+    }
+
+    fn send_from_widget_result_response(
+        &self,
+        raw_request: Raw<FromWidgetRequest>,
+        result: Result<impl Serialize, impl fmt::Display>,
+    ) {
+        match result {
+            Ok(res) => self.send_from_widget_response(raw_request, res),
+            Err(msg) => self.send_from_widget_error_response(raw_request, msg),
+        }
     }
 
     #[instrument(skip_all, fields(action = T::ACTION))]
@@ -473,17 +483,21 @@ impl WidgetMachine {
         self.send_to_widget_request(RequestCapabilities {})
             // TODO: Each request can actually fail here, take this into an account.
             .then(|response, machine| {
-                let desired_capabilities = response.capabilities;
+                let requested = response.capabilities;
                 machine
                     .send_matrix_driver_request(AcquireCapabilities {
-                        desired_capabilities: desired_capabilities.clone(),
+                        desired_capabilities: requested.clone(),
                     })
-                    .then(|granted_capabilities, machine| {
-                        machine.capabilities =
-                            CapabilitiesState::Negotiated(granted_capabilities.clone());
+                    .then(|result, machine| {
+                        let approved = result.unwrap_or_else(|e| {
+                            error!("Acquiring capabilities failed: {e}");
+                            Capabilities::default()
+                        });
+
+                        machine.capabilities = CapabilitiesState::Negotiated(approved.clone());
                         machine.send_to_widget_request(NotifyPermissionsChanged {
-                            approved: granted_capabilities,
-                            requested: desired_capabilities,
+                            approved,
+                            requested,
                         });
                     })
             });
@@ -504,7 +518,8 @@ impl ToWidgetRequestMeta {
     }
 }
 
-type MatrixDriverResponseFn = Box<dyn FnOnce(MatrixDriverResponse, &mut WidgetMachine) + Send>;
+type MatrixDriverResponseFn =
+    Box<dyn FnOnce(Result<MatrixDriverResponse, String>, &mut WidgetMachine) + Send>;
 
 pub(crate) struct MatrixDriverRequestMeta {
     response_fn: Option<MatrixDriverResponseFn>,

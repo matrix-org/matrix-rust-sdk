@@ -74,11 +74,11 @@ where
 
     pub(crate) fn then(
         self,
-        response_handler: impl FnOnce(T, &mut WidgetMachine) + Send + 'static,
+        response_handler: impl FnOnce(Result<T, String>, &mut WidgetMachine) + Send + 'static,
     ) {
         if let Some(request_meta) = self.request_meta {
             request_meta.response_fn = Some(Box::new(move |response, machine| {
-                if let Some(response_data) = T::from_response(response) {
+                if let Some(response_data) = response.map(T::from_response).transpose() {
                     response_handler(response_data, machine)
                 }
             }));
