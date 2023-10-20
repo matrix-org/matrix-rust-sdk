@@ -47,10 +47,10 @@ const WIDGET_ID: &str = "test-widget";
 static ROOM_ID: Lazy<OwnedRoomId> = Lazy::new(|| owned_room_id!("!a98sd12bjh:example.org"));
 
 async fn run_test_driver(init_on_content_load: bool) -> (MockServer, WidgetDriverHandle) {
-    struct DummyPermissionsProvider;
+    struct DummyCapabilitiesProvider;
 
     #[async_trait]
-    impl CapabilitiesProvider for DummyPermissionsProvider {
+    impl CapabilitiesProvider for DummyCapabilitiesProvider {
         async fn acquire_capabilities(&self, capabilities: Capabilities) -> Capabilities {
             // Grant all capabilities that the widget asks for
             capabilities
@@ -77,7 +77,7 @@ async fn run_test_driver(init_on_content_load: bool) -> (MockServer, WidgetDrive
     );
 
     spawn(async move {
-        if let Err(()) = driver.run(room, DummyPermissionsProvider).await {
+        if let Err(()) = driver.run(room, DummyCapabilitiesProvider).await {
             error!("An error encountered in running the WidgetDriver (no details available yet)");
         }
     });

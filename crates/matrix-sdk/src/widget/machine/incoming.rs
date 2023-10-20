@@ -46,7 +46,7 @@ pub(crate) enum IncomingMessage {
 pub(crate) enum MatrixDriverResponse {
     /// Client acquired capabilities from the user.
     ///
-    /// A response to an `Action::AcquirePermissions` command.
+    /// A response to an `Action::AcquireCapabilities` command.
     CapabilitiesAcquired(Capabilities),
     /// Client got OpenId token for a given request ID.
     /// A response to an `Action::GetOpenId` command.
