@@ -335,11 +335,19 @@ impl StoreTransaction {
     /// Commits all dirty fields to the store, and maintains the cache so it
     /// reflects the current state of the database.
     pub async fn commit(self) -> Result<()> {
+        if self.changes.is_empty() {
+            return Ok(());
+        }
+
         // Save changes in the database.
+        let account = self.changes.account.as_ref().map(|acc| acc.clone_internal());
+
         self.store.save_pending_changes(self.changes).await?;
 
         // Make the cache coherent with the database.
-        // for changes.account: nothing to do, it's the same underlying shared account.
+        if let Some(account) = account {
+            *self.cache.account.lock().await = Some(account);
+        }
 
         Ok(())
     }
