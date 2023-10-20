@@ -76,6 +76,12 @@ pub(crate) struct GossipMachineInner {
     wait_queue: WaitQueue,
     users_for_key_claim: Arc<StdRwLock<BTreeMap<OwnedUserId, BTreeSet<OwnedDeviceId>>>>,
     room_key_forwarding_enabled: AtomicBool,
+    /// A map from the device id to a set of session_id strings for previous
+    /// `InboundGroupSession`s. Used when an olm session is not established
+    /// with a user's device on invite, in which specific keys are flagged to
+    /// allow for sharing with the device when the olm session is established.
+    #[cfg(feature = "automatic-room-key-forwarding")]
+    pending_room_key_forwarding_devices: Arc<StdRwLock<BTreeMap<OwnedDeviceId, BTreeSet<String>>>>,
 }
 
 impl GossipMachine {
@@ -97,6 +103,8 @@ impl GossipMachine {
                 wait_queue: WaitQueue::new(),
                 users_for_key_claim,
                 room_key_forwarding_enabled,
+                #[cfg(feature = "automatic-room-key-forwarding")]
+                pending_room_key_forwarding_devices: Default::default(),
             }),
         }
     }
@@ -360,7 +368,9 @@ impl GossipMachine {
         device: Device,
         session: &InboundGroupSession,
         message_index: Option<u32>,
+        update_outbound_devices: bool,
     ) -> OlmResult<Option<Session>> {
+        use crate::olm::{ShareInfo, ShareState};
         info!(?message_index, "Serving a room key request",);
 
         match self.forward_room_key(session, &device, message_index).await {
@@ -369,6 +379,49 @@ impl GossipMachine {
                 info!(
                     "Key request is missing an Olm session, putting the request in the wait queue",
                 );
+
+                // In the case when we are inviting a user that has a device
+                // with a missing session, we need to ensure that we allow the
+                // forwarded key to be in the outbound session's
+                // `shared_with_set` when the olm session is established
+                if update_outbound_devices {
+                    self.inner
+                        .pending_room_key_forwarding_devices
+                        .write()
+                        .unwrap()
+                        .entry(device.device_id().to_owned())
+                        .or_default()
+                        .insert(session.session_id().to_string());
+
+                    let outbound_session =
+                        self.inner.outbound_group_sessions.get_or_load(session.room_id()).await;
+
+                    if let Some(outbound) = outbound_session {
+                        match outbound.is_shared_with(&device) {
+                            ShareState::NotShared => {
+                                let share_info = ShareInfo::new_shared(
+                                    device.curve25519_key().unwrap(),
+                                    outbound.message_index().await,
+                                );
+                                outbound
+                                    .shared_with_set
+                                    .write()
+                                    .unwrap()
+                                    .entry(device.user_id().to_owned())
+                                    .or_default()
+                                    .insert(device.device_id().to_owned(), share_info);
+
+                                self.inner.outbound_group_sessions.insert(outbound.clone());
+
+                                let mut changes = Changes::default();
+                                changes.outbound_group_sessions.push(outbound);
+                                self.inner.store.save_changes(changes).await?;
+                            }
+                            ShareState::SharedButChangedSenderKey | ShareState::Shared(_) => {}
+                        }
+                    }
+                }
+
                 self.handle_key_share_without_session(device, event.to_owned().into());
 
                 Ok(None)
@@ -406,7 +459,7 @@ impl GossipMachine {
 
         match self.should_share_key(&device, session).await {
             Ok(message_index) => {
-                self.try_to_forward_room_key(event, device, session, message_index).await
+                self.try_to_forward_room_key(event, device, session, message_index, false).await
             }
             Err(e) => {
                 if let KeyForwardDecision::ChangedSenderKey = e {
@@ -582,11 +635,40 @@ impl GossipMachine {
         use super::KeyForwardDecision;
         use crate::olm::ShareState;
 
-        let outbound_session = self
-            .inner
-            .outbound_group_sessions
-            .get_with_id(session.room_id(), session.session_id())
-            .await;
+        // We don't store prior `OutboundGroupSession` objects in the store.
+        // Because of this, we check if the key that is about to be shared has
+        // been flagged as a forwarded key from a result of a user invite.
+        // If so, we must use the current outbound session since it has the
+        // latest `shared_with_set` device map.
+        let mut use_current_session = false;
+        {
+            let mut pending_device_keys =
+                self.inner.pending_room_key_forwarding_devices.write().unwrap();
+
+            if pending_device_keys
+                .get(device.device_id())
+                .is_some_and(|s| s.contains(session.session_id()))
+            {
+                pending_device_keys.entry(device.device_id().to_owned()).and_modify(|s| {
+                    s.remove(session.session_id());
+                });
+
+                if pending_device_keys.get(device.device_id()).is_some_and(|s| s.is_empty()) {
+                    pending_device_keys.remove(device.device_id());
+                }
+
+                use_current_session = true;
+            }
+        }
+
+        let outbound_session = if use_current_session {
+            self.inner.outbound_group_sessions.get_or_load(session.room_id()).await
+        } else {
+            self.inner
+                .outbound_group_sessions
+                .get_with_id(session.room_id(), session.session_id())
+                .await
+        };
 
         // If this is our own, verified device, we share the entire session from the
         // earliest known index.

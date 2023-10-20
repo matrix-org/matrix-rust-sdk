@@ -926,7 +926,7 @@ impl OlmMachine {
                             for device in &devices {
                                 let info = MegolmV1AesSha2Content {
                                     room_id: room_id.to_owned(),
-                                    sender_key: device.curve25519_key().unwrap(),
+                                    sender_key: session.sender_key(),
                                     session_id: session.session_id().to_string(),
                                 };
                                 let content = RoomKeyRequestContent::new_request(
@@ -945,6 +945,7 @@ impl OlmMachine {
                                         device.to_owned(),
                                         session,
                                         None,
+                                        true,
                                     )
                                     .await
                                 {
