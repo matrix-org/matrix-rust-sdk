@@ -20,10 +20,7 @@ use std::{
 };
 
 use ruma::{
-    api::client::{
-        session::login,
-        uiaa::{AuthData, Password, RegistrationToken, UserIdentifier},
-    },
+    api::client::{session::login, uiaa::UserIdentifier},
     assign,
     serde::JsonObject,
 };
@@ -192,6 +189,8 @@ impl LoginBuilder {
         // TODO: (#2763) put this into a background task.
         #[cfg(feature = "e2e-encryption")]
         if self.auth.client.encryption().settings().auto_enable_cross_signing {
+            use ruma::api::client::uiaa::{AuthData, Password};
+
             let auth_data = match login_info {
                 login::v3::LoginInfo::Password(p) => {
                     Some(AuthData::Password(Password::new(p.identifier, p.password)))

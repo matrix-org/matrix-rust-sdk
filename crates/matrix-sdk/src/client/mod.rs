@@ -72,7 +72,6 @@ use crate::{
     authentication::{AuthCtx, AuthData, ReloadSessionCallback, SaveSessionCallback},
     config::RequestConfig,
     deduplicating_handler::DeduplicatingHandler,
-    encryption::EncryptionSettings,
     error::{HttpError, HttpResult},
     event_handler::{
         EventHandler, EventHandlerDropGuard, EventHandlerHandle, EventHandlerStore, SyncEvent,
@@ -85,7 +84,10 @@ use crate::{
     TransmissionProgress,
 };
 #[cfg(feature = "e2e-encryption")]
-use crate::{encryption::Encryption, store_locks::CrossProcessStoreLock};
+use crate::{
+    encryption::{Encryption, EncryptionSettings},
+    store_locks::CrossProcessStoreLock,
+};
 
 mod builder;
 mod futures;
@@ -1921,7 +1923,7 @@ impl Client {
                 self.inner.server_versions.get().cloned(),
                 self.inner.respect_login_well_known,
                 #[cfg(feature = "e2e-encryption")]
-                self.inner.encryption_settings.clone(),
+                self.inner.encryption_settings,
             )),
         };
 
