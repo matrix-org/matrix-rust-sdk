@@ -1802,7 +1802,7 @@ mod tests {
         // we want older events to be in the front.
         // b is 10min old, c1 1min old, c2 20min old
         assert_eq!(vec![user_c.clone(), user_b, user_c], room.active_room_call_participants());
-        assert_eq!(true, room.has_active_room_call());
+        assert!(room.has_active_room_call());
     }
 
     #[test]
@@ -1818,6 +1818,6 @@ mod tests {
 
         // We have no active call anymore after emptying the memberships
         assert_eq!(Vec::<OwnedUserId>::new(), room.active_room_call_participants());
-        assert_eq!(false, room.has_active_room_call());
+        assert!(!room.has_active_room_call());
     }
 }
