@@ -157,6 +157,8 @@ impl Room {
     /// considered. A user can occur twice if they join with two devices.
     /// convert to a set depending if the different users are required or the
     /// amount of sessions.
+    ///
+    /// The vector is ordered by oldest membership user to newest.
     pub fn active_room_call_participants(&self) -> Vec<String> {
         self.inner.active_room_call_participants().iter().map(|u| u.to_string()).collect()
     }

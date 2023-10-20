@@ -15,6 +15,7 @@
 #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
 use std::sync::RwLock as SyncRwLock;
 use std::{
+    cmp::Ordering,
     collections::{BTreeMap, HashSet},
     mem,
     sync::Arc,
@@ -382,6 +383,8 @@ impl Room {
     /// considered. A user can occur twice if they join with two devices.
     /// convert to a set depending if the different users are required or the
     /// amount of sessions.
+    ///
+    /// The vector is ordered by oldest membership user to newest.
     pub fn active_room_call_participants(&self) -> Vec<OwnedUserId> {
         self.inner.read().active_room_call_participants()
     }
@@ -1036,8 +1039,11 @@ impl RoomInfo {
 
     /// Get a list of all the valid (non expired) matrixRTC memberships and
     /// associated UserId's in this room.
+    ///
+    /// The vector is ordered by oldest membership to newest.
     fn active_matrix_rtc_memberships(&self) -> Vec<(OwnedUserId, &Membership)> {
-        self.base_info
+        let mut v = self
+            .base_info
             .rtc_member
             .iter()
             .filter_map(|(user_id, ev)| {
@@ -1049,12 +1055,18 @@ impl RoomInfo {
                 })
             })
             .flatten()
-            .collect()
+            .collect::<Vec<_>>();
+        v.sort_by(|(_, a), (_, b)| {
+            a.created_ts.partial_cmp(&b.created_ts).unwrap_or(Ordering::Equal)
+        });
+        v
     }
 
     /// Similar to
     /// [`matrix_rtc_memberships`](Self::active_matrix_rtc_memberships) but only
     /// returns Memberships with application "m.call" and scope "m.room".
+    ///
+    /// The vector is ordered by oldest membership user to newest.
     fn active_room_call_memberships(&self) -> Vec<(OwnedUserId, &Membership)> {
         self.active_matrix_rtc_memberships()
             .into_iter()
@@ -1074,6 +1086,8 @@ impl RoomInfo {
     /// considered. A user can occur twice if they join with two devices.
     /// convert to a set depending if the different users are required or the
     /// amount of sessions.
+    ///
+    /// The vector is ordered by oldest membership user to newest.
     pub fn active_room_call_participants(&self) -> Vec<OwnedUserId> {
         self.active_room_call_memberships().iter().map(|(user_id, _)| user_id.clone()).collect()
     }
