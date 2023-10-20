@@ -1345,7 +1345,7 @@ impl Account {
     /// Cloning should only be done for testing purposes or when we are certain
     /// that we don't want the inner state to be shared.
     #[doc(hidden)]
-    pub fn clone_internal(&self) -> Self {
+    pub fn deep_clone(&self) -> Self {
         // `vodozemac::Account` isn't really clonable, but... Don't tell anyone.
         Self::from_pickle(self.pickle()).unwrap()
     }
