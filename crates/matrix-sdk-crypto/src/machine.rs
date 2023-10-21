@@ -64,12 +64,13 @@ use crate::{
     olm::{
         Account, CrossSigningStatus, EncryptionSettings, ExportedRoomKey, IdentityKeys,
         InboundGroupSession, OlmDecryptionInfo, PrivateCrossSigningIdentity, SessionType,
+        StaticAccountData,
     },
     requests::{IncomingResponse, OutgoingRequest, UploadSigningKeysRequest},
     session_manager::{GroupSessionManager, SessionManager},
     store::{
         Changes, CryptoStoreWrapper, DeviceChanges, IdentityChanges, IntoCryptoStore, MemoryStore,
-        PendingChanges, Result as StoreResult, RoomKeyInfo, SecretImportError, Store,
+        PendingChanges, Result as StoreResult, RoomKeyInfo, SecretImportError, Store, StoreCache,
         StoreTransaction,
     },
     types::{
@@ -168,25 +169,23 @@ impl OlmMachine {
     ) -> Result<OlmMachine, DehydrationError> {
         let account =
             Account::rehydrate(pickle_key, self.user_id(), device_id, device_data).await?;
+        let static_account = account.static_data().clone();
 
         let store = Arc::new(CryptoStoreWrapper::new(self.user_id(), MemoryStore::new()));
+        store.save_pending_changes(PendingChanges { account: Some(account) }).await?;
 
-        Ok(Self::new_helper(device_id, store, account, self.store().private_identity()))
+        Ok(Self::new_helper(device_id, store, static_account, self.store().private_identity()))
     }
 
     fn new_helper(
         device_id: &DeviceId,
         store: Arc<CryptoStoreWrapper>,
-        account: Account,
+        account: StaticAccountData,
         user_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
     ) -> Self {
-        let verification_machine = VerificationMachine::new(
-            account.static_data().clone(),
-            user_identity.clone(),
-            store.clone(),
-        );
-        let store =
-            Store::new(account.clone(), user_identity.clone(), store, verification_machine.clone());
+        let verification_machine =
+            VerificationMachine::new(account.clone(), user_identity.clone(), store.clone());
+        let store = Store::new(account, user_identity.clone(), store, verification_machine.clone());
 
         let group_session_manager = GroupSessionManager::new(store.clone());
 
@@ -248,7 +247,8 @@ impl OlmMachine {
         store: impl IntoCryptoStore,
     ) -> StoreResult<Self> {
         let store = store.into_crypto_store();
-        let account = match store.load_account().await? {
+
+        let static_account = match store.load_account().await? {
             Some(account) => {
                 if user_id != account.user_id() || device_id != account.device_id() {
                     return Err(CryptoStoreError::MismatchedAccount {
@@ -262,16 +262,18 @@ impl OlmMachine {
                     .record("curve25519_key", display(account.identity_keys().curve25519));
                 debug!("Restored an Olm account");
 
-                account
+                account.static_data().clone()
             }
+
             None => {
                 let account = Account::with_device_id(user_id, device_id);
+                let static_account = account.static_data().clone();
 
                 Span::current()
                     .record("ed25519_key", display(account.identity_keys().ed25519))
                     .record("curve25519_key", display(account.identity_keys().curve25519));
 
-                let device = ReadOnlyDevice::from_account(&account).await;
+                let device = ReadOnlyDevice::from_account(&account);
 
                 // We just created this device from our own Olm `Account`. Since we are the
                 // owners of the private keys of this device we can safely mark
@@ -283,13 +285,11 @@ impl OlmMachine {
                     ..Default::default()
                 };
                 store.save_changes(changes).await?;
-                store
-                    .save_pending_changes(PendingChanges { account: Some(account.clone()) })
-                    .await?;
+                store.save_pending_changes(PendingChanges { account: Some(account) }).await?;
 
                 debug!("Created a new Olm account");
 
-                account
+                static_account
             }
         };
 
@@ -310,7 +310,7 @@ impl OlmMachine {
 
         let identity = Arc::new(Mutex::new(identity));
         let store = Arc::new(CryptoStoreWrapper::new(user_id, store));
-        Ok(OlmMachine::new_helper(device_id, store, account, identity))
+        Ok(OlmMachine::new_helper(device_id, store, static_account, identity))
     }
 
     /// Get the crypto store associated with this `OlmMachine` instance.
@@ -344,7 +344,7 @@ impl OlmMachine {
     /// See [`update_tracked_users`](#method.update_tracked_users) for more
     /// information.
     pub async fn tracked_users(&self) -> StoreResult<HashSet<OwnedUserId>> {
-        self.store().tracked_users().await
+        Ok(self.store().cache().await?.tracked_users())
     }
 
     /// Enable or disable room key forwarding.
@@ -504,7 +504,8 @@ impl OlmMachine {
 
         if reset || identity.is_empty().await {
             info!("Creating new cross signing identity");
-            let account = &self.inner.store.cache().await?.account;
+            let cache = self.inner.store.cache().await?;
+            let account = cache.account().await?;
             let (id, request, signature_request) = account.bootstrap_cross_signing().await;
 
             *identity = id;
@@ -533,13 +534,6 @@ impl OlmMachine {
         }
     }
 
-    /// Get the underlying Olm account of the machine.
-    #[cfg(any(test, feature = "testing"))]
-    #[allow(dead_code)]
-    pub(crate) async fn account(&self) -> Result<Account, CryptoStoreError> {
-        Ok(self.inner.store.cache().await?.account.clone())
-    }
-
     /// Receive a successful keys upload response.
     ///
     /// # Arguments
@@ -554,7 +548,7 @@ impl OlmMachine {
             .store
             .with_transaction(|mut tr| async {
                 let account = tr.account().await?;
-                account.receive_keys_upload_response(response).await?;
+                account.receive_keys_upload_response(response)?;
                 Ok((tr, ()))
             })
             .await
@@ -630,7 +624,7 @@ impl OlmMachine {
     ///
     /// [`receive_keys_upload_response`]: #method.receive_keys_upload_response
     async fn keys_for_upload(&self, account: &Account) -> Option<upload_keys::v3::Request> {
-        let (device_keys, one_time_keys, fallback_keys) = account.keys_for_upload().await;
+        let (device_keys, one_time_keys, fallback_keys) = account.keys_for_upload();
 
         if device_keys.is_none() && one_time_keys.is_empty() && fallback_keys.is_empty() {
             None
@@ -662,7 +656,7 @@ impl OlmMachine {
 
         // Handle the decrypted event, e.g. fetch out Megolm sessions out of
         // the event.
-        self.handle_decrypted_to_device_event(&mut decrypted, changes).await?;
+        self.handle_decrypted_to_device_event(transaction.cache(), &mut decrypted, changes).await?;
 
         Ok(decrypted)
     }
@@ -902,6 +896,7 @@ impl OlmMachine {
     )]
     async fn handle_decrypted_to_device_event(
         &self,
+        cache: &StoreCache,
         decrypted: &mut OlmDecryptionInfo,
         changes: &mut Changes,
     ) -> OlmResult<()> {
@@ -924,7 +919,7 @@ impl OlmMachine {
                 let name = self
                     .inner
                     .key_request_machine
-                    .receive_secret_event(decrypted.result.sender_key, e, changes)
+                    .receive_secret_event(cache, decrypted.result.sender_key, e, changes)
                     .await?;
 
                 // Set the secret name so other consumers of the event know
@@ -1166,18 +1161,19 @@ impl OlmMachine {
 
         {
             let account = transaction.account().await?;
-            account
-                .update_key_counts(
-                    sync_changes.one_time_keys_counts,
-                    sync_changes.unused_fallback_keys,
-                )
-                .await;
+            account.update_key_counts(
+                sync_changes.one_time_keys_counts,
+                sync_changes.unused_fallback_keys,
+            )
         }
 
         if let Err(e) = self
             .inner
             .identity_manager
-            .receive_device_changes(sync_changes.changed_devices.changed.iter().map(|u| u.as_ref()))
+            .receive_device_changes(
+                transaction.cache(),
+                sync_changes.changed_devices.changed.iter().map(|u| u.as_ref()),
+            )
             .await
         {
             error!(error = ?e, "Error marking a tracked user as changed");
@@ -1190,8 +1186,11 @@ impl OlmMachine {
             events.push(raw_event);
         }
 
-        let changed_sessions =
-            self.inner.key_request_machine.collect_incoming_key_requests().await?;
+        let changed_sessions = self
+            .inner
+            .key_request_machine
+            .collect_incoming_key_requests(transaction.cache())
+            .await?;
 
         changes.sessions.extend(changed_sessions);
         changes.next_batch_token = sync_changes.next_batch_token;
@@ -1881,10 +1880,13 @@ impl OlmMachine {
     pub async fn sign(&self, message: &str) -> Result<Signatures, CryptoStoreError> {
         let mut signatures = Signatures::new();
 
-        let account = &self.inner.store.cache().await?.account;
-        let key_id = account.signing_key_id();
-        let signature = account.sign(message).await;
-        signatures.add_signature(self.user_id().to_owned(), key_id, signature);
+        {
+            let cache = self.inner.store.cache().await?;
+            let account = cache.account().await?;
+            let key_id = account.signing_key_id();
+            let signature = account.sign(message);
+            signatures.add_signature(self.user_id().to_owned(), key_id, signature);
+        }
 
         match self.sign_with_master_key(message).await {
             Ok((key_id, signature)) => {
@@ -2032,7 +2034,9 @@ impl OlmMachine {
     /// Testing purposes only.
     #[cfg(any(feature = "testing", test))]
     pub async fn uploaded_key_count(&self) -> Result<u64, CryptoStoreError> {
-        Ok(self.inner.store.cache().await?.account.uploaded_key_count())
+        let cache = self.inner.store.cache().await?;
+        let account = cache.account().await?;
+        Ok(account.uploaded_key_count())
     }
 }
 
@@ -2183,13 +2187,22 @@ pub(crate) mod tests {
     ) -> (OlmMachine, OneTimeKeys) {
         let machine = OlmMachine::new(user_id, bob_device_id()).await;
 
-        let account = machine.account().await.unwrap();
-        account.generate_fallback_key_helper().await;
-        account.update_uploaded_key_count(0);
-        account.generate_one_time_keys().await;
+        let request = machine
+            .store()
+            .with_transaction(|mut tr| async {
+                let account = tr.account().await.unwrap();
+                account.generate_fallback_key_helper();
+                account.update_uploaded_key_count(0);
+                account.generate_one_time_keys();
+                let request = machine
+                    .keys_for_upload(account)
+                    .await
+                    .expect("Can't prepare initial key upload");
+                Ok((tr, request))
+            })
+            .await
+            .unwrap();
 
-        let request =
-            machine.keys_for_upload(&account).await.expect("Can't prepare initial key upload");
         let response = keys_upload_response();
         machine.receive_keys_upload_response(&response).await.unwrap();
 
@@ -2198,7 +2211,7 @@ pub(crate) mod tests {
         (machine, keys)
     }
 
-    async fn get_machine_after_query() -> (OlmMachine, OneTimeKeys) {
+    async fn get_machine_after_query_test_helper() -> (OlmMachine, OneTimeKeys) {
         let (machine, otk) = get_prepared_machine_test_helper(user_id(), false).await;
         let response = keys_query_response();
         let req_id = TransactionId::new();
@@ -2287,7 +2300,9 @@ pub(crate) mod tests {
     #[async_test]
     async fn test_create_olm_machine() {
         let machine = OlmMachine::new(user_id(), alice_device_id()).await;
-        let account = machine.account().await.unwrap();
+
+        let cache = machine.store().cache().await.unwrap();
+        let account = cache.account().await.unwrap();
         assert!(!account.shared());
 
         let own_device = machine
@@ -2302,27 +2317,59 @@ pub(crate) mod tests {
     #[async_test]
     async fn test_generate_one_time_keys() {
         let machine = OlmMachine::new(user_id(), alice_device_id()).await;
-        let account = machine.account().await.unwrap();
 
-        assert!(account.generate_one_time_keys().await.is_some());
+        machine
+            .store()
+            .with_transaction(|mut tr| async {
+                let account = tr.account().await.unwrap();
+                assert!(account.generate_one_time_keys().is_some());
+                Ok((tr, ()))
+            })
+            .await
+            .unwrap();
 
         let mut response = keys_upload_response();
 
         machine.receive_keys_upload_response(&response).await.unwrap();
-        assert!(account.generate_one_time_keys().await.is_some());
+
+        machine
+            .store()
+            .with_transaction(|mut tr| async {
+                let account = tr.account().await.unwrap();
+                assert!(account.generate_one_time_keys().is_some());
+                Ok((tr, ()))
+            })
+            .await
+            .unwrap();
 
         response.one_time_key_counts.insert(DeviceKeyAlgorithm::SignedCurve25519, uint!(50));
+
         machine.receive_keys_upload_response(&response).await.unwrap();
-        assert!(account.generate_one_time_keys().await.is_none());
+
+        machine
+            .store()
+            .with_transaction(|mut tr| async {
+                let account = tr.account().await.unwrap();
+                assert!(account.generate_one_time_keys().is_none());
+
+                Ok((tr, ()))
+            })
+            .await
+            .unwrap();
     }
 
     #[async_test]
     async fn test_device_key_signing() {
         let machine = OlmMachine::new(user_id(), alice_device_id()).await;
 
-        let account = machine.account().await.unwrap();
-        let device_keys = account.device_keys().await;
-        let identity_keys = account.identity_keys();
+        let (device_keys, identity_keys) = {
+            let cache = machine.store().cache().await.unwrap();
+            let account = cache.account().await.unwrap();
+            let device_keys = account.device_keys();
+            let identity_keys = account.identity_keys();
+            (device_keys, identity_keys)
+        };
+
         let ed25519_key = identity_keys.ed25519;
 
         let ret = ed25519_key.verify_json(
@@ -2351,11 +2398,11 @@ pub(crate) mod tests {
             .invalidated());
     }
 
-    #[async_test]
-    async fn test_invalid_signature() {
+    #[test]
+    fn test_invalid_signature() {
         let account = Account::with_device_id(user_id(), alice_device_id());
 
-        let device_keys = account.device_keys().await;
+        let device_keys = account.device_keys();
 
         let key = Ed25519PublicKey::from_slice(&[0u8; 32]).unwrap();
 
@@ -2367,13 +2414,13 @@ pub(crate) mod tests {
         ret.unwrap_err();
     }
 
-    #[async_test]
-    async fn test_one_time_key_signing() {
-        let account = Account::with_device_id(user_id(), alice_device_id());
+    #[test]
+    fn test_one_time_key_signing() {
+        let mut account = Account::with_device_id(user_id(), alice_device_id());
         account.update_uploaded_key_count(49);
-        account.generate_one_time_keys().await;
+        account.generate_one_time_keys();
 
-        let mut one_time_keys = account.signed_one_time_keys().await;
+        let mut one_time_keys = account.signed_one_time_keys();
         let ed25519_key = account.identity_keys().ed25519;
 
         let one_time_key: SignedKey = one_time_keys
@@ -2395,6 +2442,7 @@ pub(crate) mod tests {
     #[async_test]
     async fn test_keys_for_upload() {
         let machine = OlmMachine::new(user_id(), alice_device_id()).await;
+
         let key_counts = BTreeMap::from([(DeviceKeyAlgorithm::SignedCurve25519, 49u8.into())]);
         machine
             .receive_sync_changes(EncryptionSyncChanges {
@@ -2407,11 +2455,15 @@ pub(crate) mod tests {
             .await
             .expect("We should be able to update our one-time key counts");
 
-        let account = machine.account().await.unwrap();
-        let ed25519_key = account.identity_keys().ed25519;
+        let (ed25519_key, mut request) = {
+            let cache = machine.store().cache().await.unwrap();
+            let account = cache.account().await.unwrap();
+            let ed25519_key = account.identity_keys().ed25519;
 
-        let mut request =
-            machine.keys_for_upload(&account).await.expect("Can't prepare initial key upload");
+            let request =
+                machine.keys_for_upload(&account).await.expect("Can't prepare initial key upload");
+            (ed25519_key, request)
+        };
 
         let one_time_key: SignedKey = request
             .one_time_keys
@@ -2437,16 +2489,27 @@ pub(crate) mod tests {
         );
         ret.unwrap();
 
-        let mut response = keys_upload_response();
-        response.one_time_key_counts.insert(
-            DeviceKeyAlgorithm::SignedCurve25519,
-            (account.max_one_time_keys().await).try_into().unwrap(),
-        );
+        let response = {
+            let cache = machine.store().cache().await.unwrap();
+            let account = cache.account().await.unwrap();
+
+            let mut response = keys_upload_response();
+            response.one_time_key_counts.insert(
+                DeviceKeyAlgorithm::SignedCurve25519,
+                account.max_one_time_keys().try_into().unwrap(),
+            );
+
+            response
+        };
 
         machine.receive_keys_upload_response(&response).await.unwrap();
 
-        let ret = machine.keys_for_upload(&account).await;
-        assert!(ret.is_none());
+        {
+            let cache = machine.store().cache().await.unwrap();
+            let account = cache.account().await.unwrap();
+            let ret = machine.keys_for_upload(&account).await;
+            assert!(ret.is_none());
+        }
     }
 
     #[async_test]
@@ -2477,7 +2540,7 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_missing_sessions_calculation() {
-        let (machine, _) = get_machine_after_query().await;
+        let (machine, _) = get_machine_after_query_test_helper().await;
 
         let alice = alice_id();
         let alice_device = alice_device_id();
@@ -2523,7 +2586,7 @@ pub(crate) mod tests {
         let session = alice_machine
             .store()
             .get_sessions(
-                &bob_machine.account().await.unwrap().identity_keys().curve25519.to_base64(),
+                &bob_machine.store().static_account().identity_keys().curve25519.to_base64(),
             )
             .await
             .unwrap()
@@ -2533,7 +2596,7 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn getting_most_recent_session() {
+    async fn test_getting_most_recent_session() {
         let (alice_machine, bob_machine, mut one_time_keys) =
             get_machine_pair(alice_id(), user_id(), false).await;
         let (device_key_id, one_time_key) = one_time_keys.pop_first().unwrap();
@@ -2658,12 +2721,12 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn olm_encryption() {
+    async fn test_olm_encryption() {
         olm_encryption_test_helper(false).await;
     }
 
     #[async_test]
-    async fn olm_encryption_with_fallback_key() {
+    async fn test_olm_encryption_with_fallback_key() {
         olm_encryption_test_helper(true).await;
     }
 
@@ -2755,7 +2818,7 @@ pub(crate) mod tests {
     async fn test_request_missing_secrets_cross_signed() {
         let (alice, bob) = get_machine_pair_with_session(alice_id(), bob_id(), false).await;
 
-        setup_cross_signing_for_machine(&alice, &bob).await;
+        setup_cross_signing_for_machine_test_helper(&alice, &bob).await;
 
         let should_query_secrets = alice.query_missing_secrets_from_other_sessions().await.unwrap();
 
@@ -3032,7 +3095,7 @@ pub(crate) mod tests {
         );
         assert_shield!(encryption_info, Red, Red);
 
-        setup_cross_signing_for_machine(&alice, &bob).await;
+        setup_cross_signing_for_machine_test_helper(&alice, &bob).await;
         let bob_id_from_alice = alice.get_identity(bob.user_id(), None).await.unwrap();
         assert_matches!(bob_id_from_alice, Some(UserIdentities::Other(_)));
         let alice_id_from_bob = bob.get_identity(alice.user_id(), None).await.unwrap();
@@ -3113,7 +3176,7 @@ pub(crate) mod tests {
         );
     }
 
-    async fn setup_cross_signing_for_machine(alice: &OlmMachine, bob: &OlmMachine) {
+    async fn setup_cross_signing_for_machine_test_helper(alice: &OlmMachine, bob: &OlmMachine) {
         let (alice_upload_signing, _) =
             alice.bootstrap_cross_signing(false).await.expect("Expect Alice x-signing key request");
 
@@ -3457,7 +3520,7 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn interactive_verification() {
+    async fn test_interactive_verification() {
         let (alice, bob) =
             get_machine_pair_with_setup_sessions_test_helper(alice_id(), user_id(), false).await;
 
@@ -3853,7 +3916,7 @@ pub(crate) mod tests {
 
         let (alice, bob) =
             get_machine_pair_with_setup_sessions_test_helper(alice_id(), user_id(), false).await;
-        setup_cross_signing_for_machine(&alice, &bob).await;
+        setup_cross_signing_for_machine_test_helper(&alice, &bob).await;
 
         let second_alice = create_additional_machine(&alice).await;
 

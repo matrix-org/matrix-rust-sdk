@@ -21,7 +21,7 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 
-use super::SendEventCommand;
+use super::SendEventRequest;
 use crate::widget::StateKeySelector;
 
 #[derive(Deserialize)]
@@ -29,9 +29,11 @@ use crate::widget::StateKeySelector;
 pub(super) enum FromWidgetRequest {
     SupportedApiVersions {},
     ContentLoaded {},
+    #[serde(rename = "get_openid")]
+    GetOpenId {},
     #[serde(rename = "org.matrix.msc2876.read_events")]
     ReadEvent(ReadEventRequest),
-    SendEvent(SendEventCommand),
+    SendEvent(SendEventRequest),
 }
 
 #[derive(Serialize)]
@@ -52,13 +54,13 @@ struct FromWidgetError {
 
 #[derive(Serialize)]
 pub(super) struct SupportedApiVersionsResponse {
-    versions: Vec<ApiVersion>,
+    supported_versions: Vec<ApiVersion>,
 }
 
 impl SupportedApiVersionsResponse {
     pub(super) fn new() -> Self {
         Self {
-            versions: vec![
+            supported_versions: vec![
                 ApiVersion::V0_0_1,
                 ApiVersion::V0_0_2,
                 ApiVersion::MSC2762,

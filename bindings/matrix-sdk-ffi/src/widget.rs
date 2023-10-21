@@ -41,7 +41,7 @@ impl WidgetDriver {
             return;
         };
 
-        let capabilities_provider = PermissionsProviderWrap(capabilities_provider.into());
+        let capabilities_provider = CapabilitiesProviderWrap(capabilities_provider.into());
         if let Err(()) = driver.run(room.inner.clone(), capabilities_provider).await {
             // TODO
         }
@@ -258,9 +258,9 @@ impl WidgetDriverHandle {
     }
 }
 
-/// Permissions that a widget can request from a client.
+/// Capabilities that a widget can request from a client.
 #[derive(uniffi::Record)]
-pub struct WidgetPermissions {
+pub struct WidgetCapabilities {
     /// Types of the messages that a widget wants to be able to fetch.
     pub read: Vec<WidgetEventFilter>,
     /// Types of the messages that a widget wants to be able to send.
@@ -273,8 +273,8 @@ pub struct WidgetPermissions {
     pub requires_client: bool,
 }
 
-impl From<WidgetPermissions> for matrix_sdk::widget::Capabilities {
-    fn from(value: WidgetPermissions) -> Self {
+impl From<WidgetCapabilities> for matrix_sdk::widget::Capabilities {
+    fn from(value: WidgetCapabilities) -> Self {
         Self {
             read: value.read.into_iter().map(Into::into).collect(),
             send: value.send.into_iter().map(Into::into).collect(),
@@ -283,7 +283,7 @@ impl From<WidgetPermissions> for matrix_sdk::widget::Capabilities {
     }
 }
 
-impl From<matrix_sdk::widget::Capabilities> for WidgetPermissions {
+impl From<matrix_sdk::widget::Capabilities> for WidgetCapabilities {
     fn from(value: matrix_sdk::widget::Capabilities) -> Self {
         Self {
             read: value.read.into_iter().map(Into::into).collect(),
@@ -348,13 +348,13 @@ impl From<matrix_sdk::widget::EventFilter> for WidgetEventFilter {
 
 #[uniffi::export(callback_interface)]
 pub trait WidgetCapabilitiesProvider: Send + Sync {
-    fn acquire_capabilities(&self, capabilities: WidgetPermissions) -> WidgetPermissions;
+    fn acquire_capabilities(&self, capabilities: WidgetCapabilities) -> WidgetCapabilities;
 }
 
-struct PermissionsProviderWrap(Arc<dyn WidgetCapabilitiesProvider>);
+struct CapabilitiesProviderWrap(Arc<dyn WidgetCapabilitiesProvider>);
 
 #[async_trait]
-impl matrix_sdk::widget::CapabilitiesProvider for PermissionsProviderWrap {
+impl matrix_sdk::widget::CapabilitiesProvider for CapabilitiesProviderWrap {
     async fn acquire_capabilities(
         &self,
         capabilities: matrix_sdk::widget::Capabilities,

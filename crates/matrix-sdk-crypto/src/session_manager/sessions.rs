@@ -390,7 +390,7 @@ impl SessionManager {
                 };
 
                 let account = store_transaction.account().await?;
-                let session = match account.create_outbound_session(&device, key_map).await {
+                let session = match account.create_outbound_session(&device, key_map) {
                     Ok(s) => s,
                     Err(e) => {
                         warn!(
@@ -438,7 +438,8 @@ impl SessionManager {
             }
         }
 
-        match self.key_request_machine.collect_incoming_key_requests().await {
+        let store_cache = self.store.cache().await?;
+        match self.key_request_machine.collect_incoming_key_requests(&store_cache).await {
             Ok(sessions) => {
                 let changes = Changes { sessions, ..Default::default() };
                 self.store.save_changes(changes).await?
@@ -484,7 +485,7 @@ mod tests {
         identities::{IdentityManager, ReadOnlyDevice},
         olm::{Account, PrivateCrossSigningIdentity},
         session_manager::GroupSessionCache,
-        store::{CryptoStoreWrapper, MemoryStore, Store},
+        store::{CryptoStoreWrapper, MemoryStore, PendingChanges, Store},
         verification::VerificationMachine,
     };
 
@@ -531,7 +532,6 @@ mod tests {
         let user_id = user_id();
         let device_id = device_id();
 
-        let users_for_key_claim = Arc::new(StdRwLock::new(BTreeMap::new()));
         let account = Account::with_device_id(user_id, device_id);
         let store = Arc::new(CryptoStoreWrapper::new(user_id, MemoryStore::new()));
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(user_id)));
@@ -541,15 +541,12 @@ mod tests {
             store.clone(),
         );
 
-        let store = Store::new(account.clone(), identity, store, verification);
-        {
-            // Perform a dummy transaction to sync in-memory cache with the db.
-            let tr = store.transaction().await.unwrap();
-            tr.commit().await.unwrap();
-        }
+        let store = Store::new(account.static_data().clone(), identity, store, verification);
+        store.save_pending_changes(PendingChanges { account: Some(account) }).await.unwrap();
 
         let session_cache = GroupSessionCache::new(store.clone());
 
+        let users_for_key_claim = Arc::new(StdRwLock::new(BTreeMap::new()));
         let key_request =
             GossipMachine::new(store.clone(), session_cache, users_for_key_claim.clone());
 
@@ -557,11 +554,11 @@ mod tests {
     }
 
     #[async_test]
-    async fn session_creation() {
+    async fn test_session_creation() {
         let manager = session_manager_test_helper().await;
-        let bob = bob_account();
+        let mut bob = bob_account();
 
-        let bob_device = ReadOnlyDevice::from_account(&bob).await;
+        let bob_device = ReadOnlyDevice::from_account(&bob);
 
         manager.store.save_devices(&[bob_device]).await.unwrap();
 
@@ -570,10 +567,10 @@ mod tests {
 
         assert!(request.one_time_keys.contains_key(bob.user_id()));
 
-        bob.generate_one_time_keys_helper(1).await;
-        let one_time = bob.signed_one_time_keys().await;
+        bob.generate_one_time_keys_helper(1);
+        let one_time = bob.signed_one_time_keys();
         assert!(!one_time.is_empty());
-        bob.mark_keys_as_published().await;
+        bob.mark_keys_as_published();
 
         let mut one_time_keys = BTreeMap::new();
         one_time_keys
@@ -601,8 +598,11 @@ mod tests {
 
         // now bob turns up, and we start tracking his devices...
         let bob = bob_account();
-        let bob_device = ReadOnlyDevice::from_account(&bob).await;
-        manager.store.update_tracked_users(iter::once(bob.user_id())).await.unwrap();
+        let bob_device = ReadOnlyDevice::from_account(&bob);
+        {
+            let cache = manager.store.cache().await.unwrap();
+            cache.update_tracked_users(&manager.store, iter::once(bob.user_id())).await.unwrap();
+        }
 
         // ... and start off an attempt to get the missing sessions. This should block
         // for now.
@@ -652,12 +652,19 @@ mod tests {
         use ruma::SecondsSinceUnixEpoch;
 
         let manager = session_manager_test_helper().await;
-        let bob = bob_account();
+        let mut bob = bob_account();
 
-        let manager_account = &manager.store.cache().await.unwrap().account;
-        let (_, mut session) = bob.create_session_for(manager_account).await;
+        let (_, mut session) = manager
+            .store
+            .with_transaction(|mut tr| async {
+                let manager_account = tr.account().await.unwrap();
+                let res = bob.create_session_for(manager_account).await;
+                Ok((tr, res))
+            })
+            .await
+            .unwrap();
 
-        let bob_device = ReadOnlyDevice::from_account(&bob).await;
+        let bob_device = ReadOnlyDevice::from_account(&bob);
         let time = SystemTime::now() - Duration::from_secs(3601);
         session.creation_time = SecondsSinceUnixEpoch::from_system_time(time).unwrap();
 
@@ -679,10 +686,10 @@ mod tests {
 
         assert!(request.one_time_keys.contains_key(bob.user_id()));
 
-        bob.generate_one_time_keys_helper(1).await;
-        let one_time = bob.signed_one_time_keys().await;
+        bob.generate_one_time_keys_helper(1);
+        let one_time = bob.signed_one_time_keys();
         assert!(!one_time.is_empty());
-        bob.mark_keys_as_published().await;
+        bob.mark_keys_as_published();
 
         let mut one_time_keys = BTreeMap::new();
         one_time_keys
@@ -705,7 +712,7 @@ mod tests {
     async fn failure_handling() {
         let alice = user_id!("@alice:example.org");
         let alice_account = Account::with_device_id(alice, "DEVICEID".into());
-        let alice_device = ReadOnlyDevice::from_account(&alice_account).await;
+        let alice_device = ReadOnlyDevice::from_account(&alice_account);
 
         let manager = session_manager_test_helper().await;
 
@@ -747,8 +754,8 @@ mod tests {
         let response = KeyClaimResponse::try_from_http_response(response).unwrap();
 
         let alice = user_id!("@alice:example.org");
-        let alice_account = Account::with_device_id(alice, "DEVICEID".into());
-        let alice_device = ReadOnlyDevice::from_account(&alice_account).await;
+        let mut alice_account = Account::with_device_id(alice, "DEVICEID".into());
+        let alice_device = ReadOnlyDevice::from_account(&alice_account);
 
         let manager = session_manager_test_helper().await;
         manager.store.save_devices(&[alice_device]).await.unwrap();
@@ -765,8 +772,8 @@ mod tests {
         // Since alice is timed out, we won't claim keys for her.
         assert!(manager.get_missing_sessions(iter::once(alice)).await.unwrap().is_none());
 
-        alice_account.generate_one_time_keys_helper(1).await;
-        let one_time = alice_account.signed_one_time_keys().await;
+        alice_account.generate_one_time_keys_helper(1);
+        let one_time = alice_account.signed_one_time_keys();
         assert!(!one_time.is_empty());
 
         let mut one_time_keys = BTreeMap::new();

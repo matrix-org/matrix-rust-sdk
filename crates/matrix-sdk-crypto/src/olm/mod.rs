@@ -79,28 +79,26 @@ pub(crate) mod tests {
         device_id!("BOBDEVICE")
     }
 
-    pub(crate) async fn get_account_and_session() -> (Account, Session) {
+    pub(crate) fn get_account_and_session_test_helper() -> (Account, Session) {
         let alice = Account::with_device_id(alice_id(), alice_device_id());
-        let bob = Account::with_device_id(bob_id(), bob_device_id());
+        let mut bob = Account::with_device_id(bob_id(), bob_device_id());
 
-        bob.generate_one_time_keys_helper(1).await;
-        let one_time_key = *bob.one_time_keys().await.values().next().unwrap();
+        bob.generate_one_time_keys_helper(1);
+        let one_time_key = *bob.one_time_keys().values().next().unwrap();
         let sender_key = bob.identity_keys().curve25519;
-        let session = alice
-            .create_outbound_session_helper(
-                SessionConfig::default(),
-                sender_key,
-                one_time_key,
-                false,
-            )
-            .await;
+        let session = alice.create_outbound_session_helper(
+            SessionConfig::default(),
+            sender_key,
+            one_time_key,
+            false,
+        );
 
         (alice, session)
     }
 
     #[test]
-    fn account_creation() {
-        let account = Account::with_device_id(alice_id(), alice_device_id());
+    fn test_account_creation() {
+        let mut account = Account::with_device_id(alice_id(), alice_device_id());
 
         assert!(!account.shared());
 
@@ -108,45 +106,43 @@ pub(crate) mod tests {
         assert!(account.shared());
     }
 
-    #[async_test]
-    async fn one_time_keys_creation() {
-        let account = Account::with_device_id(alice_id(), alice_device_id());
-        let one_time_keys = account.one_time_keys().await;
+    #[test]
+    fn test_one_time_keys_creation() {
+        let mut account = Account::with_device_id(alice_id(), alice_device_id());
+        let one_time_keys = account.one_time_keys();
 
         assert!(!one_time_keys.is_empty());
-        assert_ne!(account.max_one_time_keys().await, 0);
+        assert_ne!(account.max_one_time_keys(), 0);
 
-        account.generate_one_time_keys_helper(10).await;
-        let one_time_keys = account.one_time_keys().await;
+        account.generate_one_time_keys_helper(10);
+        let one_time_keys = account.one_time_keys();
 
         assert_ne!(one_time_keys.values().len(), 0);
         assert_ne!(one_time_keys.keys().len(), 0);
         assert_ne!(one_time_keys.iter().len(), 0);
 
-        account.mark_keys_as_published().await;
-        let one_time_keys = account.one_time_keys().await;
+        account.mark_keys_as_published();
+        let one_time_keys = account.one_time_keys();
         assert!(one_time_keys.is_empty());
     }
 
     #[async_test]
-    async fn session_creation() {
-        let alice = Account::with_device_id(alice_id(), alice_device_id());
+    async fn test_session_creation() {
+        let mut alice = Account::with_device_id(alice_id(), alice_device_id());
         let bob = Account::with_device_id(bob_id(), bob_device_id());
         let alice_keys = alice.identity_keys();
-        alice.generate_one_time_keys_helper(1).await;
-        let one_time_keys = alice.one_time_keys().await;
-        alice.mark_keys_as_published().await;
+        alice.generate_one_time_keys_helper(1);
+        let one_time_keys = alice.one_time_keys();
+        alice.mark_keys_as_published();
 
         let one_time_key = *one_time_keys.values().next().unwrap();
 
-        let mut bob_session = bob
-            .create_outbound_session_helper(
-                SessionConfig::default(),
-                alice_keys.curve25519,
-                one_time_key,
-                false,
-            )
-            .await;
+        let mut bob_session = bob.create_outbound_session_helper(
+            SessionConfig::default(),
+            alice_keys.curve25519,
+            one_time_key,
+            false,
+        );
 
         let plaintext = "Hello world";
 
@@ -158,8 +154,7 @@ pub(crate) mod tests {
         };
 
         let bob_keys = bob.identity_keys();
-        let result =
-            alice.create_inbound_session(bob_keys.curve25519, &prekey_message).await.unwrap();
+        let result = alice.create_inbound_session(bob_keys.curve25519, &prekey_message).unwrap();
 
         assert_eq!(bob_session.session_id(), result.session.session_id());
 
@@ -167,7 +162,7 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn group_session_creation() {
+    async fn test_group_session_creation() {
         let alice = Account::with_device_id(alice_id(), alice_device_id());
         let room_id = room_id!("!test:localhost");
 

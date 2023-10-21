@@ -842,8 +842,8 @@ pub(crate) mod tests {
         let bob_readonly_identity =
             ReadOnlyOwnUserIdentity::from_private(&*bob_private_identity.lock().await).await;
 
-        let alice_device = ReadOnlyDevice::from_account(&alice).await;
-        let bob_device = ReadOnlyDevice::from_account(&bob).await;
+        let alice_device = ReadOnlyDevice::from_account(&alice);
+        let bob_device = ReadOnlyDevice::from_account(&bob);
 
         let alice_changes = Changes {
             identities: IdentityChanges {
