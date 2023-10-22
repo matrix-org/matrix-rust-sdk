@@ -917,6 +917,19 @@ impl Client {
         }
     }
 
+    pub(crate) async fn set_session_meta(&self, session_meta: SessionMeta) -> Result<()> {
+        self.base_client().set_session_meta(session_meta).await?;
+
+        #[cfg(feature = "e2e-encryption")]
+        {
+            if let Err(e) = self.encryption().backups().setup_and_resume().await {
+                error!("Couldn't setup and resume backups {e:?}");
+            }
+        }
+
+        Ok(())
+    }
+
     /// Refresh the access token using the authentication API used to log into
     /// this session.
     ///
@@ -1957,7 +1970,7 @@ impl Client {
         // overwrite the session information shared with the parent too, and it
         // must be initialized at most once.
         if let Some(session) = self.session() {
-            client.base_client().set_session_meta(session.into_meta()).await?;
+            client.set_session_meta(session.into_meta()).await?;
         }
 
         Ok(client)
