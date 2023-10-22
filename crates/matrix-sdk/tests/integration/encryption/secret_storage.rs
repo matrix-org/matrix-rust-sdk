@@ -500,6 +500,20 @@ async fn restore_cross_signing_from_secret_store() {
         .mount(&server)
         .await;
 
+    Mock::given(method("GET"))
+        .and(path(
+            "_matrix/client/r0/user/@example:morpheus.localhost/account_data/m.megolm_backup.v1",
+        ))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(404).set_body_json(json!({
+            "errcode": "M_NOT_FOUND",
+            "error": "Account data not found"
+        })))
+        .expect(1)
+        .named("m.megolm_backup.v1 account data GET")
+        .mount(&server)
+        .await;
+
     Mock::given(method("POST"))
         .and(path("_matrix/client/unstable/keys/signatures/upload"))
         .and(header("authorization", "Bearer 1234"))
