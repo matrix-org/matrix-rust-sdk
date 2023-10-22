@@ -25,13 +25,13 @@ use crate::widget::machine::{
 
 #[test]
 fn openid_request_handling_works() {
-    let (mut machine, mut actions_recv) =
+    let (mut machine, _) =
         WidgetMachine::new(WIDGET_ID.to_owned(), owned_room_id!("!a98sd12bjh:example.org"), true);
 
     // Widget requests an open ID token, since we don't have any caching yet,
     // we reply with a pending response right away.
-    {
-        machine.process(IncomingMessage::WidgetMessage(json_string!({
+    let actions = {
+        let mut actions = machine.process(IncomingMessage::WidgetMessage(json_string!({
             "api": "fromWidget",
             "widgetId": WIDGET_ID,
             "requestId": "openid-request-id",
@@ -39,7 +39,7 @@ fn openid_request_handling_works() {
             "data": {},
         })));
 
-        let action = actions_recv.try_recv().unwrap();
+        let action = actions.remove(0);
         let msg = assert_matches!(action, Action::SendToWidget(msg) => msg);
         let (msg, request_id) = parse_msg(&msg);
         assert_eq!(request_id, "openid-request-id");
@@ -55,11 +55,13 @@ fn openid_request_handling_works() {
                 },
             }),
         );
-    }
+
+        actions
+    };
 
     // Then we send an OpenID request to the driver and expect an answer.
-    {
-        let action = actions_recv.try_recv().unwrap();
+    let actions = {
+        let [action]: [Action; 1] = actions.try_into().unwrap();
         let request_id = assert_matches!(
             action,
             Action::MatrixDriverRequest {
@@ -78,12 +80,12 @@ fn openid_request_handling_works() {
                     Duration::from_secs(3600),
                 ),
             )),
-        });
-    }
+        })
+    };
 
     // We inform the widget about the new OpenID token.
     {
-        let action = actions_recv.try_recv().unwrap();
+        let [action]: [Action; 1] = actions.try_into().unwrap();
         let msg = assert_matches!(action, Action::SendToWidget(msg) => msg);
         let (msg, _request_id) = parse_msg(&msg);
         assert_eq!(
@@ -103,20 +105,17 @@ fn openid_request_handling_works() {
             }),
         );
     }
-
-    // No further actions expected.
-    assert_matches!(actions_recv.try_recv(), Err(_));
 }
 
 #[test]
 fn openid_fail_results_in_response_blocked() {
-    let (mut machine, mut actions_recv) =
+    let (mut machine, _) =
         WidgetMachine::new(WIDGET_ID.to_owned(), owned_room_id!("!a98sd12bjh:example.org"), true);
 
     // Widget requests an open ID token, since we don't have any caching yet,
     // we reply with a pending response right away.
-    {
-        machine.process(IncomingMessage::WidgetMessage(json_string!({
+    let mut actions = {
+        let mut actions = machine.process(IncomingMessage::WidgetMessage(json_string!({
             "api": "fromWidget",
             "widgetId": WIDGET_ID,
             "requestId": "openid-request-id",
@@ -124,7 +123,7 @@ fn openid_fail_results_in_response_blocked() {
             "data": {},
         })));
 
-        let action = actions_recv.try_recv().unwrap();
+        let action = actions.remove(0);
         let msg = assert_matches!(action, Action::SendToWidget(msg) => msg);
         let (msg, request_id) = parse_msg(&msg);
         assert_eq!(request_id, "openid-request-id");
@@ -140,11 +139,14 @@ fn openid_fail_results_in_response_blocked() {
                 },
             }),
         );
-    }
+
+        actions
+    };
 
     // Then we send an OpenID request to the driver and expect a fail.
-    {
-        let action = actions_recv.try_recv().unwrap();
+    let mut actions = {
+        let action = actions.remove(0);
+        assert!(actions.is_empty());
         let request_id = assert_matches!(
             action,
             Action::MatrixDriverRequest {
@@ -156,12 +158,12 @@ fn openid_fail_results_in_response_blocked() {
         machine.process(IncomingMessage::MatrixDriverResponse {
             request_id,
             response: Err("Unlucky one".into()),
-        });
-    }
+        })
+    };
 
     // We inform the widget about the new OpenID token.
     {
-        let action = actions_recv.try_recv().unwrap();
+        let action = actions.remove(0);
         let msg = assert_matches!(action, Action::SendToWidget(msg) => msg);
         let (msg, _request_id) = parse_msg(&msg);
         assert_eq!(
@@ -179,5 +181,5 @@ fn openid_fail_results_in_response_blocked() {
     }
 
     // No further actions expected.
-    assert_matches!(actions_recv.try_recv(), Err(_));
+    assert!(actions.is_empty());
 }

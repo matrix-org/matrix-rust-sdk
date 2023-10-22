@@ -19,7 +19,7 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::value::RawValue as RawJsonValue;
 use tracing::error;
 
-use super::{openid::OpenIdResponse, ToWidgetRequestMeta, WidgetMachine};
+use super::{openid::OpenIdResponse, Action, ToWidgetRequestMeta, WidgetMachine};
 use crate::widget::Capabilities;
 
 /// A handle to a pending `toWidget` request.
@@ -36,19 +36,18 @@ where
         Self { request_meta: Some(request_meta), _phantom: PhantomData }
     }
 
-    pub(crate) fn null() -> Self {
-        Self { request_meta: None, _phantom: PhantomData }
-    }
-
     pub(crate) fn then(
         self,
-        response_handler: impl FnOnce(T, &mut WidgetMachine) + Send + 'static,
+        response_handler: impl FnOnce(T, &mut WidgetMachine) -> Vec<Action> + Send + 'static,
     ) {
         if let Some(request_meta) = self.request_meta {
             request_meta.response_fn = Some(Box::new(move |raw_response_data, machine| {
                 match serde_json::from_str(raw_response_data.get()) {
                     Ok(response_data) => response_handler(response_data, machine),
-                    Err(e) => error!("Failed to deserialize toWidget response: {e}"),
+                    Err(e) => {
+                        error!("Failed to deserialize toWidget response: {e}");
+                        Vec::new()
+                    }
                 }
             }));
         }
