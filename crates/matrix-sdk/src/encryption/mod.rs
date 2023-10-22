@@ -32,6 +32,7 @@ use futures_util::{
 use matrix_sdk_base::crypto::{
     CrossSigningBootstrapRequests, OlmMachine, OutgoingRequest, RoomMessageRequest, ToDeviceRequest,
 };
+use matrix_sdk_common::executor::spawn;
 use ruma::{
     api::client::{
         backup::add_backup_keys::v3::Response as KeysBackupResponse,
@@ -55,7 +56,7 @@ use ruma::{
     DeviceId, OwnedDeviceId, OwnedUserId, TransactionId, UserId,
 };
 use tokio::sync::RwLockReadGuard;
-use tracing::{debug, instrument, trace, warn};
+use tracing::{debug, error, instrument, trace, warn};
 
 use self::{
     backups::Backups,
@@ -1197,6 +1198,34 @@ impl Encryption {
         let olm_machine = self.client.olm_machine().await;
         let olm_machine = olm_machine.as_ref().ok_or(Error::AuthenticationRequired)?;
         Ok(olm_machine.uploaded_key_count().await?)
+    }
+
+    /// Enables event listeners for the E2EE support.
+    ///
+    /// For now enables only listeners for backups. Should be called once we
+    /// created a [`OlmMachine`], i.e. after logging in.
+    pub(crate) async fn run_initialization_tasks(&self) -> Result<()> {
+        let mut tasks = self.client.inner.tasks.lock().unwrap();
+
+        let this = self.clone();
+        tasks.setup_e2ee = Some(spawn(async move {
+            if let Err(e) = this.backups().setup_and_resume().await {
+                error!("Couldn't setup and resume backups {e:?}");
+            }
+        }));
+
+        Ok(())
+    }
+
+    /// Waits for end-to-end encryption initialization tasks to finish.
+    pub async fn wait_for_e2ee_initialization_tasks(&self) {
+        let task = self.client.inner.tasks.lock().unwrap().setup_e2ee.take();
+
+        if let Some(task) = task {
+            if let Err(err) = task.await {
+                warn!("error when initializing backups: {err}");
+            }
+        }
     }
 }
 

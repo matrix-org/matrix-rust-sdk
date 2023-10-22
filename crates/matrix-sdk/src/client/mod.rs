@@ -95,7 +95,7 @@ pub(crate) mod futures;
 mod tasks;
 
 pub use self::builder::{ClientBuildError, ClientBuilder};
-use self::tasks::ClientTasks;
+use self::tasks::{BackupUploadingTask, ClientTasks};
 
 #[cfg(not(target_arch = "wasm32"))]
 type NotificationHandlerFut = Pin<Box<dyn Future<Output = ()> + Send>>;
@@ -227,7 +227,7 @@ pub(crate) struct ClientInner {
     /// to ensure that only a single call to a method happens at once or to
     /// deduplicate multiple calls to a method.
     locks: ClientLocks,
-    pub(crate) tasks: StdMutex<Option<ClientTasks>>,
+    pub(crate) tasks: StdMutex<ClientTasks>,
     pub(crate) typing_notice_times: StdRwLock<BTreeMap<OwnedRoomId, Instant>>,
     /// Event handlers. See `add_event_handler`.
     pub(crate) event_handlers: EventHandlerStore,
@@ -274,7 +274,7 @@ impl ClientInner {
             sliding_sync_proxy: StdRwLock::new(sliding_sync_proxy),
             http_client,
             base_client,
-            tasks: StdMutex::new(None),
+            tasks: StdMutex::new(Default::default()),
             locks: Default::default(),
             server_versions: OnceCell::new_with(server_versions),
             typing_notice_times: Default::default(),
@@ -291,9 +291,7 @@ impl ClientInner {
         let client = Arc::new(client);
         let weak_client = Arc::downgrade(&client);
 
-        // TODO: Should we use MaybeUninit here to get rid of the option?
-        let tasks = ClientTasks::new(weak_client);
-        *client.tasks.lock().unwrap() = Some(tasks);
+        client.tasks.lock().unwrap().upload_room_keys = Some(BackupUploadingTask::new(weak_client));
 
         client
     }
@@ -929,6 +927,11 @@ impl Client {
             #[cfg(feature = "experimental-oidc")]
             AuthSession::Oidc(s) => Box::pin(self.oidc().restore_session(s)).await,
         }
+    }
+
+    pub(crate) async fn set_session_meta(&self, session_meta: SessionMeta) -> Result<()> {
+        self.base_client().set_session_meta(session_meta).await?;
+        Ok(())
     }
 
     /// Refresh the access token using the authentication API used to log into
@@ -1974,7 +1977,7 @@ impl Client {
         // overwrite the session information shared with the parent too, and it
         // must be initialized at most once.
         if let Some(session) = self.session() {
-            client.base_client().set_session_meta(session.into_meta()).await?;
+            client.set_session_meta(session.into_meta()).await?;
         }
 
         Ok(client)

@@ -24,18 +24,11 @@ use crate::{
     Client,
 };
 
+#[derive(Default)]
 pub(crate) struct ClientTasks {
     #[cfg(feature = "e2e-encryption")]
-    pub(crate) upload_room_keys: BackupUploadingTask,
-}
-
-impl ClientTasks {
-    pub(crate) fn new(client: Weak<ClientInner>) -> Self {
-        Self {
-            #[cfg(feature = "e2e-encryption")]
-            upload_room_keys: BackupUploadingTask::new(client),
-        }
-    }
+    pub(crate) upload_room_keys: Option<BackupUploadingTask>,
+    pub(crate) setup_e2ee: Option<JoinHandle<()>>,
 }
 
 #[cfg(feature = "e2e-encryption")]

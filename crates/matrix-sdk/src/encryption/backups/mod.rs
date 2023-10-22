@@ -154,7 +154,7 @@ impl Backups {
         let result = future.await;
 
         if result.is_err() {
-            self.set_state(BackupState::Unknown)
+            self.set_state(BackupState::Unknown);
         }
 
         result
@@ -865,8 +865,8 @@ impl Backups {
     pub(crate) fn maybe_trigger_backup(&self) {
         let tasks = self.client.inner.tasks.lock().unwrap();
 
-        if let Some(tasks) = tasks.as_ref() {
-            tasks.upload_room_keys.trigger_upload();
+        if let Some(tasks) = tasks.upload_room_keys.as_ref() {
+            tasks.trigger_upload();
         }
     }
 
