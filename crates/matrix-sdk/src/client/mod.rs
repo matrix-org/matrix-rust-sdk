@@ -71,6 +71,7 @@ use crate::{
     authentication::{AuthCtx, AuthData, ReloadSessionCallback, SaveSessionCallback},
     config::RequestConfig,
     deduplicating_handler::DeduplicatingHandler,
+    encryption::backups::BackupClientState,
     error::{HttpError, HttpResult},
     event_handler::{
         EventHandler, EventHandlerDropGuard, EventHandlerHandle, EventHandlerStore, SyncEvent,
@@ -162,6 +163,11 @@ pub(crate) struct ClientLocks {
     /// [`SecretStore::put_secret`]: crate::encryption::secret_storage::SecretStore::put_secret
     #[cfg(feature = "e2e-encryption")]
     pub(crate) store_secret_lock: Mutex<()>,
+    /// Lock ensuring that only one method at a time might modify our backup.
+    pub(crate) backup_modify_lock: Mutex<()>,
+    /// Lock ensuring that we're going to attempt to upload backups for a single
+    /// requester.
+    pub(crate) backup_upload_lock: Mutex<()>,
     /// Handler making sure we only have one group session sharing request in
     /// flight per room.
     #[cfg(feature = "e2e-encryption")]
@@ -237,6 +243,7 @@ pub(crate) struct ClientInner {
     /// End-to-end encryption settings.
     #[cfg(feature = "e2e-encryption")]
     pub(crate) encryption_settings: EncryptionSettings,
+    pub(crate) backups_state: BackupClientState,
 }
 
 impl ClientInner {
@@ -273,6 +280,7 @@ impl ClientInner {
             sync_beat: event_listener::Event::new(),
             #[cfg(feature = "e2e-encryption")]
             encryption_settings,
+            backups_state: Default::default(),
         }
     }
 }
