@@ -464,7 +464,7 @@ impl ClientBuilder {
             oidc: OidcCtx::new(authentication_server_info, allow_insecure_oidc),
         });
 
-        let inner = Arc::new(ClientInner::new(
+        let inner = ClientInner::new(
             auth_ctx,
             homeserver,
             #[cfg(feature = "experimental-sliding-sync")]
@@ -475,7 +475,7 @@ impl ClientBuilder {
             self.respect_login_well_known,
             #[cfg(feature = "e2e-encryption")]
             self.encryption_settings,
-        ));
+        );
 
         debug!("Done building the Client");
 
