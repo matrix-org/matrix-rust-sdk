@@ -28,7 +28,10 @@ use super::{
     compat::{Error as DecryptionError, Message, PkDecryption},
     MegolmV1BackupKey,
 };
-use crate::{store::BackupDecryptionKey, types::RoomKeyBackupInfo};
+use crate::{
+    store::BackupDecryptionKey,
+    types::{MegolmV1AuthData, RoomKeyBackupInfo},
+};
 
 /// Error type for the decoding of a [`BackupDecryptionKey`].
 #[derive(Debug, Error)]
@@ -250,6 +253,16 @@ impl BackupDecryptionKey {
             }
             RoomKeyBackupInfo::Other { .. } => false,
         }
+    }
+
+    /// Create a [`RoomKeyBackupInfo`] from this [`BackupDecryptionKey`].
+    ///
+    /// This can be used to upload and enable the backup on the homeserver.
+    pub fn as_room_key_backup_info(&self) -> RoomKeyBackupInfo {
+        let public_key = self.get_pk_decryption().public_key();
+        let auth_data = MegolmV1AuthData::new(public_key, Default::default());
+
+        RoomKeyBackupInfo::MegolmBackupV1Curve25519AesSha2(auth_data)
     }
 }
 
