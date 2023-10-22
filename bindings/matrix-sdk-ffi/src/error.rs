@@ -37,6 +37,12 @@ impl From<matrix_sdk::Error> for ClientError {
     }
 }
 
+impl From<matrix_sdk::encryption::secret_storage::SecretStorageError> for ClientError {
+    fn from(e: matrix_sdk::encryption::secret_storage::SecretStorageError) -> Self {
+        Self::new(e)
+    }
+}
+
 impl From<StoreError> for ClientError {
     fn from(e: StoreError) -> Self {
         Self::new(e)
