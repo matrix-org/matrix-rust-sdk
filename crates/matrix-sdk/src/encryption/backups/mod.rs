@@ -488,8 +488,11 @@ impl Backups {
     }
 
     pub(crate) fn maybe_trigger_backup(&self) {
-        // TODO: Tell a task that is running in the background to try to upload
-        // some room keys.
+        let tasks = self.client.inner.tasks.lock().unwrap();
+
+        if let Some(tasks) = tasks.as_ref() {
+            tasks.upload_room_keys.trigger_upload();
+        }
     }
 
     async fn handle_deleted_backup_version(&self, olm_machine: &OlmMachine) -> Result<(), Error> {
