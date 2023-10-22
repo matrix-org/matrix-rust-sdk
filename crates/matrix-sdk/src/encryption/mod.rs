@@ -71,6 +71,7 @@ use crate::{
 pub mod backups;
 mod futures;
 pub mod identities;
+pub mod recovery;
 pub mod secret_storage;
 pub mod verification;
 
@@ -88,6 +89,7 @@ pub use self::futures::PrepareEncryptedFile;
 use self::{
     backups::Backups,
     identities::{DeviceUpdates, IdentityUpdates},
+    recovery::Recovery,
     secret_storage::SecretStorage,
 };
 pub use crate::error::RoomKeyImportError;
@@ -113,6 +115,9 @@ pub struct EncryptionSettings {
     ///
     /// [`SecretStore::import_secrets()`]: crate::encryption::secret_storage::SecretStore::import_secrets
     pub auto_download_from_backup: bool,
+
+    /// Automatically create a backup version if no backup exists.
+    pub auto_enable_backups: bool,
 }
 
 impl Client {
@@ -151,6 +156,7 @@ impl Client {
 
         let response = self.send(request, None).await?;
         self.mark_request_as_sent(request_id, &response).await?;
+        self.encryption().recovery().update_state_after_keys_query(&response).await;
 
         Ok(response)
     }
@@ -1082,6 +1088,11 @@ impl Encryption {
     /// Get the secret storage manager of the client.
     pub fn secret_storage(&self) -> SecretStorage {
         SecretStorage { client: self.client.to_owned() }
+    }
+
+    /// Get the recovery manager of the client.
+    pub fn recovery(&self) -> Recovery {
+        Recovery { client: self.client.to_owned() }
     }
 
     /// Enables the crypto-store cross-process lock.

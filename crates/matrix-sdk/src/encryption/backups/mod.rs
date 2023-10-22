@@ -502,6 +502,8 @@ impl Backups {
         // turned off? Turn it off ourselves if it isn't?
         olm_machine.backup_machine().disable_backup().await?;
         self.set_state(BackupState::Disabled);
+        // TODO: The backup module should not depend on the recovery module.
+        self.client.encryption().recovery().update_state_after_backup_disabling().await;
 
         Ok(())
     }

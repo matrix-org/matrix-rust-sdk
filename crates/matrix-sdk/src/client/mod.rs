@@ -62,7 +62,7 @@ use ruma::{
 };
 use serde::de::DeserializeOwned;
 use tokio::sync::{broadcast, Mutex, OnceCell, RwLock, RwLockReadGuard};
-use tracing::{debug, error, instrument, trace, Instrument, Span};
+use tracing::{debug, error, instrument, trace, warn, Instrument, Span};
 use url::Url;
 
 #[cfg(feature = "experimental-oidc")]
@@ -71,7 +71,7 @@ use crate::{
     authentication::{AuthCtx, AuthData, ReloadSessionCallback, SaveSessionCallback},
     config::RequestConfig,
     deduplicating_handler::DeduplicatingHandler,
-    encryption::backups::BackupClientState,
+    encryption::{backups::BackupClientState, recovery::RecoveryState},
     error::{HttpError, HttpResult},
     event_handler::{
         EventHandler, EventHandlerDropGuard, EventHandlerHandle, EventHandlerStore, SyncEvent,
@@ -247,6 +247,7 @@ pub(crate) struct ClientInner {
     #[cfg(feature = "e2e-encryption")]
     pub(crate) encryption_settings: EncryptionSettings,
     pub(crate) backups_state: BackupClientState,
+    pub(crate) recovery_state: SharedObservable<RecoveryState>,
 }
 
 impl ClientInner {
@@ -285,6 +286,7 @@ impl ClientInner {
             #[cfg(feature = "e2e-encryption")]
             encryption_settings,
             backups_state: Default::default(),
+            recovery_state: Default::default(),
         };
 
         let client = Arc::new(client);
@@ -937,6 +939,10 @@ impl Client {
         {
             if let Err(e) = self.encryption().backups().setup_and_resume().await {
                 error!("Couldn't setup and resume backups {e:?}");
+            }
+
+            if let Err(e) = self.encryption().recovery().setup().await {
+                warn!("Couldn't auto enable recovery {e:?}");
             }
         }
 
