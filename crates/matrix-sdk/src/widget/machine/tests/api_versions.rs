@@ -21,10 +21,10 @@ use crate::widget::machine::{Action, IncomingMessage, WidgetMachine};
 
 #[test]
 fn get_supported_api_versions() {
-    let (mut machine, mut actions_recv) =
+    let (mut machine, _) =
         WidgetMachine::new(WIDGET_ID.to_owned(), owned_room_id!("!a98sd12bjh:example.org"), true);
 
-    machine.process(IncomingMessage::WidgetMessage(json_string!({
+    let actions = machine.process(IncomingMessage::WidgetMessage(json_string!({
         "api": "fromWidget",
         "widgetId": WIDGET_ID,
         "requestId": "S2ixNhjaC0kd0jJn",
@@ -32,7 +32,7 @@ fn get_supported_api_versions() {
         "data": {},
     })));
 
-    let action = actions_recv.try_recv().unwrap();
+    let [action]: [Action; 1] = actions.try_into().unwrap();
     let msg = assert_matches!(action, Action::SendToWidget(msg) => msg);
     let msg: JsonValue = serde_json::from_str(&msg).unwrap();
     assert_eq!(

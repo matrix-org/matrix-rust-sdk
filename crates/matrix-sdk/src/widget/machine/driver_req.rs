@@ -26,10 +26,10 @@ use serde::Deserialize;
 use serde_json::Value as JsonValue;
 use tracing::error;
 
-use super::{incoming::MatrixDriverResponse, MatrixDriverRequestMeta, WidgetMachine};
+use super::{incoming::MatrixDriverResponse, Action, MatrixDriverRequestMeta, WidgetMachine};
 use crate::widget::{Capabilities, StateKeySelector};
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) enum MatrixDriverRequestData {
     /// Acquire capabilities from the user given the set of desired
     /// capabilities.
@@ -65,18 +65,18 @@ where
         Self { request_meta: Some(request_meta), _phantom: PhantomData }
     }
 
-    pub(crate) fn null() -> Self {
-        Self { request_meta: None, _phantom: PhantomData }
-    }
-
     pub(crate) fn then(
         self,
-        response_handler: impl FnOnce(Result<T, String>, &mut WidgetMachine) + Send + 'static,
+        response_handler: impl FnOnce(Result<T, String>, &mut WidgetMachine) -> Vec<Action>
+            + Send
+            + 'static,
     ) {
         if let Some(request_meta) = self.request_meta {
             request_meta.response_fn = Some(Box::new(move |response, machine| {
                 if let Some(response_data) = response.map(T::from_response).transpose() {
                     response_handler(response_data, machine)
+                } else {
+                    Vec::new()
                 }
             }));
         }
@@ -94,7 +94,7 @@ pub(crate) trait FromMatrixDriverResponse: Sized {
 
 /// Ask the client (capability provider) to acquire given capabilities
 /// from the user. The client must eventually respond with granted capabilities.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct AcquireCapabilities {
     pub(crate) desired_capabilities: Capabilities,
 }
@@ -149,7 +149,7 @@ impl FromMatrixDriverResponse for request_openid_token::v3::Response {
 
 /// Ask the client to read matrix event(s) that corresponds to the given
 /// description and return a list of events as a response.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct ReadMessageLikeEventRequest {
     /// The event type to read.
     pub(crate) event_type: MessageLikeEventType,
@@ -182,7 +182,7 @@ impl FromMatrixDriverResponse for Vec<Raw<AnyTimelineEvent>> {
 
 /// Ask the client to read matrix event(s) that corresponds to the given
 /// description and return a list of events as a response.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct ReadStateEventRequest {
     /// The event type to read.
     pub(crate) event_type: StateEventType,
@@ -204,7 +204,7 @@ impl MatrixDriverRequest for ReadStateEventRequest {
 
 /// Ask the client to send matrix event that corresponds to the given
 /// description and return an event ID as a response.
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub(crate) struct SendEventRequest {
     /// The type of the event.
     #[serde(rename = "type")]
