@@ -1595,6 +1595,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "example-encryption-recovery"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "futures-util",
+ "matrix-sdk",
+ "tokio",
+ "tracing-subscriber",
+ "url",
+ "zeroize",
+]
+
+[[package]]
 name = "example-get-profiles"
 version = "0.1.0"
 dependencies = [
