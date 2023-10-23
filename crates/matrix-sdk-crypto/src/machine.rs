@@ -3606,7 +3606,7 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn interactive_verification_started_from_request() {
+    async fn test_interactive_verification_started_from_request() {
         let (alice, bob) =
             get_machine_pair_with_setup_sessions_test_helper(alice_id(), user_id(), false).await;
 

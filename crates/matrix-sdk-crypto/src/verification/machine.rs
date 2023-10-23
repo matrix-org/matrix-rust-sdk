@@ -324,7 +324,7 @@ impl VerificationMachine {
                 flow_id = flow_id.as_str(),
                 "Received a verification event with a mismatched flow id, \
                  the verification object was created for a in-room \
-                 verification but a event was received over to-device \
+                 verification but an event was received over to-device \
                  messaging or vice versa"
             );
         };
