@@ -5525,23 +5525,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sliding-sync-integration-test"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "assert_matches",
- "eyeball",
- "eyeball-im",
- "futures-util",
- "matrix-sdk",
- "matrix-sdk-integration-testing",
- "matrix-sdk-ui",
- "tokio",
- "tracing",
- "uuid",
-]
-
-[[package]]
 name = "smallvec"
 version = "1.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

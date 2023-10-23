@@ -1,9 +1,9 @@
 #![cfg(test)]
 
+use crate::helpers::get_client_for_user;
 use anyhow::Context;
 use futures_util::{pin_mut, stream::StreamExt};
-use matrix_sdk::{Client, RoomListEntry, SlidingSyncBuilder, SlidingSyncList, SlidingSyncMode};
-use matrix_sdk_integration_testing::helpers::get_client_for_user;
+use matrix_sdk::{Client, SlidingSyncBuilder, SlidingSyncList, SlidingSyncMode};
 
 mod notification_client;
 
@@ -18,23 +18,6 @@ async fn setup(
         .sliding_sync("test-slidingsync")?
         .sliding_sync_proxy(sliding_sync_proxy_url.parse()?);
     Ok((client, sliding_sync_builder))
-}
-
-#[derive(PartialEq, Eq, Clone, Debug)]
-enum RoomListEntryEasy {
-    Empty,
-    Invalid,
-    Filled,
-}
-
-impl From<&RoomListEntry> for RoomListEntryEasy {
-    fn from(value: &RoomListEntry) -> Self {
-        match value {
-            RoomListEntry::Empty => RoomListEntryEasy::Empty,
-            RoomListEntry::Invalidated(_) => RoomListEntryEasy::Invalid,
-            RoomListEntry::Filled(_) => RoomListEntryEasy::Filled,
-        }
-    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

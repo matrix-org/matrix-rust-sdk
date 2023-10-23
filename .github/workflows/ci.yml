@@ -184,7 +184,7 @@ jobs:
       - name: Test
         run: |
           cargo nextest run --workspace \
-            --exclude matrix-sdk-integration-testing --exclude sliding-sync-integration-test --features testing
+            --exclude matrix-sdk-integration-testing --features testing
 
       - name: Test documentation
         run: |
@@ -343,42 +343,6 @@ jobs:
 
     runs-on: ubuntu-latest
 
-    steps:
-      - name: Checkout the repo
-        uses: actions/checkout@v3
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Load cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-
-      - name: Install nextest
-        uses: taiki-e/install-action@nextest
-
-      - uses: actions/setup-python@v4
-        with:
-          python-version: 3.8
-
-      - uses: michaelkaye/setup-matrix-synapse@main
-        with:
-          installer: venv # TODO revert to poetry once https://github.com/michaelkaye/setup-matrix-synapse/issues/95 is fixed
-          uploadLogs: true
-          httpPort: 8228
-          disableRateLimiting: true
-
-      - name: Test
-        run: |
-          cargo nextest run -p matrix-sdk-integration-testing
-
-
-  sliding-sync-integration-tests:
-    name: Sliding Sync Integration test
-    if: github.event_name == 'push' || !github.event.pull_request.draft
-
-    runs-on: ubuntu-latest
     # run several docker containers with the same networking stack so the hostname 'postgres'
     # maps to the postgres container, etc.
     services:
@@ -422,6 +386,7 @@ jobs:
             SERVER_NAME: synapse
         ports:
             - 8008:8008
+
     steps:
       - name: Checkout the repo
         uses: actions/checkout@v3
@@ -437,10 +402,6 @@ jobs:
       - name: Install nextest
         uses: taiki-e/install-action@nextest
 
-      - uses: actions/setup-python@v4
-        with:
-          python-version: 3.8
-
       - name: Test
         env:
           RUST_LOG: "hyper=trace"
@@ -448,4 +409,4 @@ jobs:
           HOMESERVER_DOMAIN: "synapse"
           SLIDING_SYNC_PROXY_URL: "http://localhost:8118"
         run: |
-          cargo nextest run -p sliding-sync-integration-test
+          cargo nextest run -p matrix-sdk-integration-testing

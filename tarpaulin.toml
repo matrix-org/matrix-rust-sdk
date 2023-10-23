@@ -22,6 +22,4 @@ exclude = [
     # repo automation (ci, codegen)
     "uniffi-bindgen",
     "xtask",
-    # temporary: tiny test suite, expensive to run
-    "sliding-sync-integration-test",
 ]

@@ -24,6 +24,50 @@ jobs:
     runs-on: "ubuntu-latest"
     if: github.event_name == 'push' || !github.event.pull_request.draft
 
+    # run several docker containers with the same networking stack so the hostname 'postgres'
+    # maps to the postgres container, etc.
+    services:
+      # sliding sync needs a postgres container
+      postgres:
+        # Docker Hub image
+        image: postgres
+        # Provide the password for postgres
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_DB: syncv3
+        # Set health checks to wait until postgres has started
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          # Maps tcp port 5432 on service container to the host
+          - 5432:5432
+      # run sliding sync and point it at the postgres container and synapse container.
+      # the postgres container needs to be above this to make sure it has started prior to this service.
+      slidingsync:
+        image: "ghcr.io/matrix-org/sliding-sync:v0.99.11"
+        env:
+          SYNCV3_SERVER: "http://synapse:8008"
+          SYNCV3_SECRET: "SUPER_CI_SECRET"
+          SYNCV3_BINDADDR: ":8118"
+          SYNCV3_DB: "user=postgres password=postgres dbname=syncv3 sslmode=disable host=postgres"
+        ports:
+          - 8118:8118
+      # tests need a synapse: this is a service and not michaelkaye/setup-matrix-synapse@main as the
+      # latter does not provide networking for services to communicate with it.
+      synapse:
+        # Custom image built from https://github.com/matrix-org/synapse/tree/v1.72.0/docker/complement
+        # with a dummy /complement/ca set
+        image: ghcr.io/matrix-org/synapse-service:v1.72.0
+        env:
+            SYNAPSE_COMPLEMENT_DATABASE: sqlite
+            SERVER_NAME: synapse
+        ports:
+            - 8008:8008
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
@@ -53,13 +97,6 @@ jobs:
         with:
           python-version: 3.8
 
-      - uses: michaelkaye/setup-matrix-synapse@main
-        with:
-          installer: venv # TODO revert to poetry once https://github.com/michaelkaye/setup-matrix-synapse/issues/95 is fixed
-          uploadLogs: true
-          httpPort: 8228
-          disableRateLimiting: true
-
       - name: Run tarpaulin
         run: |
           rustup run stable cargo tarpaulin \
@@ -68,6 +105,9 @@ jobs:
         env:
           CARGO_PROFILE_COV_INHERITS: 'dev'
           CARGO_PROFILE_COV_DEBUG: 'false'
+          HOMESERVER_URL: "http://localhost:8008"
+          HOMESERVER_DOMAIN: "synapse"
+          SLIDING_SYNC_PROXY_URL: "http://localhost:8118"
 
       - name: Upload to codecov.io
         uses: codecov/codecov-action@v3
