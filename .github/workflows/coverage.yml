@@ -59,7 +59,7 @@ jobs:
       # tests need a synapse: this is a service and not michaelkaye/setup-matrix-synapse@main as the
       # latter does not provide networking for services to communicate with it.
       synapse:
-        image: ghcr.io/matrix-org/synapse-service:v1.72.0 # keep in sync with ./ci.yml
+        image: ghcr.io/matrix-org/synapse-service:v1.94.0 # keep in sync with ./ci.yml
         env:
             SYNAPSE_COMPLEMENT_DATABASE: sqlite
             SERVER_NAME: synapse
