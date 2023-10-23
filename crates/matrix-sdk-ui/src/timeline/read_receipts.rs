@@ -352,12 +352,10 @@ impl TimelineInnerStateTransaction<'_> {
 
         // Filter out receipts for our own user.
         let own_user_id = room_data_provider.own_user_id();
-        let read_receipts: IndexMap<OwnedUserId, Receipt> =
-            read_receipts.into_iter().filter(|(user_id, _)| user_id != own_user_id).collect();
+        let read_receipts = read_receipts.into_iter().filter(|(user_id, _)| user_id != own_user_id);
 
         // Since they are explicit read receipts, we need to check if they are
         // superseded by implicit read receipts.
-        let own_user_id = room_data_provider.own_user_id();
         for (user_id, receipt) in read_receipts {
             let full_receipt = FullReceipt {
                 event_id,
