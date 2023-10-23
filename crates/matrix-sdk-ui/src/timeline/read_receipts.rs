@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::{
+    cmp::Ordering,
     collections::{HashMap, VecDeque},
     sync::Arc,
 };
@@ -473,9 +474,9 @@ impl TimelineInnerState {
         };
 
         match self.compare_receipts(pub_receipt, priv_receipt) {
-            ReceiptCmp::First => public_read_receipt,
-            ReceiptCmp::Second => private_read_receipt,
-            ReceiptCmp::Unknown => {
+            Some(Ordering::Greater) => public_read_receipt,
+            Some(Ordering::Less) => private_read_receipt,
+            _ => {
                 // As a fallback, let's assume that a private read receipt should be more recent
                 // than a public read receipt, otherwise there's no point in the private read
                 // receipt.
@@ -522,9 +523,9 @@ impl TimelineInnerMetadata {
         };
 
         match self.compare_receipts(unthreaded_receipt, main_thread_receipt) {
-            ReceiptCmp::First => unthreaded_read_receipt,
-            ReceiptCmp::Second => main_thread_read_receipt,
-            ReceiptCmp::Unknown => {
+            Some(Ordering::Greater) => unthreaded_read_receipt,
+            Some(Ordering::Less) => main_thread_read_receipt,
+            _ => {
                 // As a fallback, let's use the unthreaded read receipt, since it's the one
                 // we should be using.
                 unthreaded_read_receipt
@@ -534,44 +535,35 @@ impl TimelineInnerMetadata {
 
     /// Compares two receipts to know which one is more recent.
     ///
-    /// Returns `None` if it's not possible to know which one is the more
-    /// recent.
+    /// Returns `Ordering::Greater` if the first one is more recent than the
+    /// second one, `Ordering::Less` if it is older, and `None` if it's not
+    /// possible to know which one is the more recent.
     fn compare_receipts(
         &self,
         first: &(OwnedEventId, Receipt),
         second: &(OwnedEventId, Receipt),
-    ) -> ReceiptCmp {
+    ) -> Option<Ordering> {
         let (first_event_id, first_receipt) = first;
         let (second_event_id, second_receipt) = second;
 
         // Compare by position in the timeline.
         if let Some(relative_pos) = self.compare_events_positions(first_event_id, second_event_id) {
             if relative_pos == RelativePosition::After {
-                return ReceiptCmp::Second;
+                return Some(Ordering::Less);
             }
 
-            return ReceiptCmp::First;
+            return Some(Ordering::Greater);
         }
 
         // Compare by timestamp.
         if let Some((first_ts, second_ts)) = first_receipt.ts.zip(second_receipt.ts) {
             if second_ts > first_ts {
-                return ReceiptCmp::Second;
+                return Some(Ordering::Less);
             }
 
-            return ReceiptCmp::First;
+            return Some(Ordering::Greater);
         }
 
-        ReceiptCmp::Unknown
+        None
     }
-}
-
-/// Result of read receipts comparison.
-enum ReceiptCmp {
-    /// The first one is more recent.
-    First,
-    /// The second one is more recent.
-    Second,
-    /// We don't know which one is more recent.
-    Unknown,
 }
