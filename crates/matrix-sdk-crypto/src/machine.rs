@@ -849,7 +849,15 @@ impl OlmMachine {
     /// `users` - The list of users that should receive the room key.
     ///
     /// `settings` - Encryption settings that affect when are room keys rotated
-    /// and who are they shared with
+    /// and who are they shared with.
+    ///
+    /// # Returns
+    ///
+    /// List of the to-device requests that need to be sent out to the server
+    /// and the responses need to be passed back to the state machine with
+    /// [`mark_request_as_sent`], using the to-device `txn_id` as `request_id`.
+    ///
+    /// [`mark_request_as_sent`]: #method.mark_request_as_sent
     pub async fn share_room_key(
         &self,
         room_id: &RoomId,
