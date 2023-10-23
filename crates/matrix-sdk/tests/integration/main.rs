@@ -16,6 +16,8 @@ use wiremock::{
 };
 
 mod client;
+#[cfg(feature = "e2e-encryption")]
+mod encryption;
 mod matrix_auth;
 mod refresh_token;
 mod room;

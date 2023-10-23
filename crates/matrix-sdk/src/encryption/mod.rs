@@ -711,7 +711,7 @@ impl Encryption {
     /// let devices_stream = client.encryption().devices_stream().await?;
     /// let user_id = client
     ///     .user_id()
-    ///     .expect("We should know our user id afte we have logged in");
+    ///     .expect("We should know our user id after we have logged in");
     /// pin_mut!(devices_stream);
     ///
     /// for device_updates in devices_stream.next().await {

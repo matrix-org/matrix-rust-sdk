@@ -171,7 +171,7 @@ impl OwnUserIdentity {
         self.request_verification_helper(Some(methods)).await
     }
 
-    /// Does our user identity trust our own device, i.e. have we signed  our
+    /// Does our user identity trust our own device, i.e. have we signed our
     /// own device keys with our self-signing key.
     pub async fn trusts_our_own_device(&self) -> Result<bool, CryptoStoreError> {
         Ok(if let Some(signatures) = self.verification_machine.store.device_signatures().await? {
