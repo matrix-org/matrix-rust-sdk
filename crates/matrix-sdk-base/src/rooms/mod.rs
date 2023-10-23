@@ -3,7 +3,11 @@
 mod members;
 pub(crate) mod normal;
 
-use std::{collections::HashSet, fmt};
+use std::{
+    collections::{BTreeMap, HashSet},
+    fmt,
+    hash::Hash,
+};
 
 use bitflags::bitflags;
 pub use members::RoomMember;
@@ -11,6 +15,7 @@ pub use normal::{Room, RoomInfo, RoomState, RoomStateFilter};
 use ruma::{
     assign,
     events::{
+        call::member::CallMemberEventContent,
         macros::EventContent,
         room::{
             avatar::RoomAvatarEventContent,
@@ -95,6 +100,10 @@ pub struct BaseRoomInfo {
     pub(crate) tombstone: Option<MinimalStateEvent<RoomTombstoneEventContent>>,
     /// The topic of this room.
     pub(crate) topic: Option<MinimalStateEvent<RoomTopicEventContent>>,
+    /// All Minimal state events that containing one or more running matrixRTC
+    /// memberships.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub(crate) rtc_member: BTreeMap<OwnedUserId, MinimalStateEvent<CallMemberEventContent>>,
 }
 
 impl BaseRoomInfo {
@@ -166,6 +175,25 @@ impl BaseRoomInfo {
             AnySyncStateEvent::RoomPowerLevels(p) => {
                 self.max_power_level = p.power_levels().max().into();
             }
+            AnySyncStateEvent::CallMember(m) => {
+                let Some(o_ev) = m.as_original() else {
+                    return false;
+                };
+
+                // we modify the event so that `origin_sever_ts` gets copied into
+                // `content.created_ts`
+                let mut o_ev = o_ev.clone();
+                o_ev.content.set_created_ts_if_none(o_ev.origin_server_ts);
+
+                // add the new event.
+                self.rtc_member
+                    .insert(m.state_key().clone(), SyncStateEvent::Original(o_ev).into());
+
+                // Remove all events that don't contain any memberships anymore.
+                self.rtc_member.retain(|_, ev| {
+                    ev.as_original().is_some_and(|o| !o.content.active_memberships(None).is_empty())
+                });
+            }
             _ => return false,
         }
 
@@ -220,6 +248,11 @@ impl BaseRoomInfo {
             AnyStrippedStateEvent::RoomPowerLevels(p) => {
                 self.max_power_level = p.power_levels().max().into();
             }
+            AnyStrippedStateEvent::CallMember(_) => {
+                // Ignore stripped call state events. Rooms that are not in Joined or Left state
+                // wont have call information.
+                return false;
+            }
             _ => return false,
         }
 
@@ -248,6 +281,8 @@ impl BaseRoomInfo {
             self.tombstone.as_mut().unwrap().redact(&room_version);
         } else if self.topic.has_event_id(redacts) {
             self.topic.as_mut().unwrap().redact(&room_version);
+        } else {
+            self.rtc_member.retain(|_, member_event| member_event.event_id() != Some(redacts));
         }
     }
 }
@@ -281,6 +316,7 @@ impl Default for BaseRoomInfo {
             name: None,
             tombstone: None,
             topic: None,
+            rtc_member: BTreeMap::new(),
         }
     }
 }
