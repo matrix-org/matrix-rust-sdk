@@ -3,7 +3,7 @@ pub use matrix_sdk_test_macros::async_test;
 use once_cell::sync::Lazy;
 use ruma::{
     api::{client::sync::sync_events::v3::Response as SyncResponse, IncomingResponse},
-    user_id, UserId,
+    room_id, user_id, RoomId, UserId,
 };
 use serde_json::Value as JsonValue;
 
@@ -48,6 +48,10 @@ pub use self::{
 pub static ALICE: Lazy<&UserId> = Lazy::new(|| user_id!("@alice:server.name"));
 pub static BOB: Lazy<&UserId> = Lazy::new(|| user_id!("@bob:other.server"));
 pub static CAROL: Lazy<&UserId> = Lazy::new(|| user_id!("@carol:other.server"));
+
+/// The default room ID for tests.
+pub static DEFAULT_TEST_ROOM_ID: Lazy<&RoomId> =
+    Lazy::new(|| room_id!("!SVkFJHzfwvuaIEawgC:localhost"));
 
 /// Embedded sync response files
 pub enum SyncResponseFile {

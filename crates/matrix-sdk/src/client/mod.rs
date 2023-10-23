@@ -1939,6 +1939,7 @@ pub(crate) mod tests {
     use matrix_sdk_base::RoomState;
     use matrix_sdk_test::{
         async_test, test_json, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder,
+        DEFAULT_TEST_ROOM_ID,
     };
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -2050,11 +2051,10 @@ pub(crate) mod tests {
             .build_sync_response();
 
         client.inner.base_client.receive_sync_response(response).await.unwrap();
-        let room_id = &test_json::DEFAULT_SYNC_ROOM_ID;
 
         assert_eq!(client.homeserver(), Url::parse(&server.uri()).unwrap());
 
-        let room = client.get_room(room_id).unwrap();
+        let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
         assert_eq!(room.state(), RoomState::Joined);
     }
 

@@ -10,7 +10,7 @@ use matrix_sdk::{
     room::Receipts,
 };
 use matrix_sdk_base::RoomState;
-use matrix_sdk_test::{async_test, test_json};
+use matrix_sdk_test::{async_test, test_json, DEFAULT_TEST_ROOM_ID};
 use ruma::{
     api::client::{membership::Invite3pidInit, receipt::create_receipt::v3::ReceiptType},
     assign, event_id,
@@ -43,7 +43,7 @@ async fn invite_user_by_id() {
     let _response = client.sync_once(sync_settings).await.unwrap();
 
     let user = user_id!("@example:localhost");
-    let room = client.get_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
 
     room.invite_user_by_id(user).await.unwrap();
 }
@@ -65,7 +65,7 @@ async fn invite_user_by_3pid() {
 
     let _response = client.sync_once(sync_settings).await.unwrap();
 
-    let room = client.get_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
 
     room.invite_user_by_3pid(
         Invite3pidInit {
@@ -97,7 +97,7 @@ async fn leave_room() -> Result<(), anyhow::Error> {
 
     let _response = client.sync_once(sync_settings).await?;
 
-    let room = client.get_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
 
     room.leave().await?;
 
@@ -124,7 +124,7 @@ async fn ban_user() {
     let _response = client.sync_once(sync_settings).await.unwrap();
 
     let user = user_id!("@example:localhost");
-    let room = client.get_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
 
     room.ban_user(user, None).await.unwrap();
 }
@@ -147,7 +147,7 @@ async fn kick_user() {
     let _response = client.sync_once(sync_settings).await.unwrap();
 
     let user = user_id!("@example:localhost");
-    let room = client.get_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
 
     room.kick_user(user, None).await.unwrap();
 }
@@ -170,7 +170,7 @@ async fn send_single_receipt() {
     let _response = client.sync_once(sync_settings).await.unwrap();
 
     let event_id = event_id!("$xxxxxx:example.org").to_owned();
-    let room = client.get_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
 
     room.send_single_receipt(ReceiptType::Read, ReceiptThread::Unthreaded, event_id).await.unwrap();
 }
@@ -193,7 +193,7 @@ async fn send_multiple_receipts() {
     let _response = client.sync_once(sync_settings).await.unwrap();
 
     let event_id = event_id!("$xxxxxx:example.org").to_owned();
-    let room = client.get_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
 
     let receipts = Receipts::new().fully_read_marker(event_id);
     room.send_multiple_receipts(receipts).await.unwrap();
@@ -216,7 +216,7 @@ async fn typing_notice() {
 
     let _response = client.sync_once(sync_settings).await.unwrap();
 
-    let room = client.get_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
 
     room.typing_notice(true).await.unwrap();
 }
@@ -240,9 +240,7 @@ async fn room_state_event_send() {
 
     let _response = client.sync_once(sync_settings).await.unwrap();
 
-    let room_id = &test_json::DEFAULT_SYNC_ROOM_ID;
-
-    let room = client.get_room(room_id).unwrap();
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
 
     let avatar_url = mxc_uri!("mxc://example.org/avA7ar");
     let member_event = assign!(RoomMemberEventContent::new(MembershipState::Join), {
@@ -271,7 +269,7 @@ async fn room_message_send() {
 
     let _response = client.sync_once(sync_settings).await.unwrap();
 
-    let room = client.get_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
 
     let content = RoomMessageEventContent::text_plain("Hello world");
     let txn_id = TransactionId::new();
@@ -313,7 +311,7 @@ async fn room_attachment_send() {
 
     let _response = client.sync_once(sync_settings).await.unwrap();
 
-    let room = client.get_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
 
     let response = room
         .send_attachment(
@@ -363,7 +361,7 @@ async fn room_attachment_send_info() {
 
     let _response = client.sync_once(sync_settings).await.unwrap();
 
-    let room = client.get_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
 
     let config = AttachmentConfig::new().info(AttachmentInfo::Image(BaseImageInfo {
         height: Some(uint!(600)),
@@ -415,7 +413,7 @@ async fn room_attachment_send_wrong_info() {
 
     let _response = client.sync_once(sync_settings).await.unwrap();
 
-    let room = client.get_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
 
     let config = AttachmentConfig::new().info(AttachmentInfo::Video(BaseVideoInfo {
         height: Some(uint!(600)),
@@ -474,7 +472,7 @@ async fn room_attachment_send_info_thumbnail() {
 
     let _response = client.sync_once(sync_settings).await.unwrap();
 
-    let room = client.get_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
 
     let config = AttachmentConfig::with_thumbnail(Thumbnail {
         data: b"Thumbnail".to_vec(),
@@ -511,7 +509,7 @@ async fn room_redact() {
         .mount(&server)
         .await;
 
-    let room = client.get_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
 
     let event_id = event_id!("$xxxxxxxx:example.com");
 
@@ -542,7 +540,7 @@ async fn fetch_members_deduplication() {
         .mount(&server)
         .await;
 
-    let room = client.get_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
 
     let mut tasks = Vec::new();
 
@@ -572,7 +570,7 @@ async fn set_name() {
     let sync_settings = SyncSettings::new();
     client.sync_once(sync_settings).await.unwrap();
 
-    let room = client.get_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
     let name = "The room name";
 
     Mock::given(method("PUT"))

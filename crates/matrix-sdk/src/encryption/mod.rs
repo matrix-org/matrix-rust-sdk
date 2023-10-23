@@ -1057,7 +1057,7 @@ mod tests {
     use matrix_sdk_base::SessionMeta;
     use matrix_sdk_test::{
         async_test, test_json, GlobalAccountDataTestEvent, JoinedRoomBuilder, StateTestEvent,
-        SyncResponseBuilder,
+        SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
     };
     use ruma::{
         device_id, event_id,
@@ -1083,7 +1083,6 @@ mod tests {
         let client = logged_in_client(Some(server.uri())).await;
 
         let event_id = event_id!("$2:example.org");
-        let room_id = &test_json::DEFAULT_SYNC_ROOM_ID;
 
         Mock::given(method("GET"))
             .and(path_regex(r"^/_matrix/client/r0/rooms/.*/state/m.*room.*encryption.?"))
@@ -1114,7 +1113,7 @@ mod tests {
 
         client.base_client().receive_sync_response(response).await.unwrap();
 
-        let room = client.get_room(room_id).expect("Room should exist");
+        let room = client.get_room(&DEFAULT_TEST_ROOM_ID).expect("Room should exist");
         assert!(room.is_encrypted().await.expect("Getting encryption state"));
 
         let event_id = event_id!("$1:example.org");
