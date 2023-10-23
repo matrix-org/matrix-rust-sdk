@@ -88,7 +88,9 @@ impl TimelineItem {
         matches!(self.kind, TimelineItemKind::Virtual(_))
     }
 
-    pub(crate) fn is_day_divider(&self) -> bool {
+    /// Check whether this item is a day divider.
+    #[must_use]
+    pub fn is_day_divider(&self) -> bool {
         matches!(self.kind, TimelineItemKind::Virtual(VirtualTimelineItem::DayDivider(_)))
     }
 
