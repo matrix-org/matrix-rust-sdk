@@ -77,7 +77,7 @@ debug = 2
 # Custom profile for use in (debug) builds of the binding crates, use
 # `--profile reldbg` to select
 [profile.reldbg]
-inherits = "dev"
+inherits = "dbg"
 opt-level = 3
 
 [patch.crates-io]
