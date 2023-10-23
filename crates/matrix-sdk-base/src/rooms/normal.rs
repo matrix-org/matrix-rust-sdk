@@ -1760,7 +1760,7 @@ mod tests {
         room.inner.update_if(|info| {
             let mut res = false;
             for ev in events {
-                res = info.handle_state_event(ev);
+                res |= info.handle_state_event(ev);
             }
             res
         });
