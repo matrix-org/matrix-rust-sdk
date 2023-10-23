@@ -1757,7 +1757,13 @@ mod tests {
     }
 
     fn receive_state_events(room: &Room, events: Vec<&AnySyncStateEvent>) {
-        room.inner.update_if(|info| events.into_iter().any(|ev| info.handle_state_event(ev)));
+        room.inner.update_if(|info| {
+            let mut res = false;
+            for ev in events {
+                res = info.handle_state_event(ev);
+            }
+            res
+        });
     }
 
     /// `user_a`: empty memberships
