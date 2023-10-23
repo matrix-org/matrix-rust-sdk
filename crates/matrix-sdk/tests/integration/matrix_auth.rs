@@ -499,6 +499,77 @@ async fn test_login_with_cross_signing_bootstrapping() {
         assert_eq!(own_identity.user_id(), me);
         assert!(own_identity.is_verified());
     }
+
+    server.verify().await;
+}
+
+#[cfg(feature = "e2e-encryption")]
+#[async_test]
+async fn test_login_doesnt_fail_if_cross_signing_bootstrapping_failed() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/_matrix/client/r0/keys/query"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "device_keys": {
+                "@alice:example.org": {}
+            }
+        })))
+        .mount(&server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/_matrix/client/unstable/keys/device_signing/upload"))
+        .respond_with(ResponseTemplate::new(500).set_body_json(json!({})))
+        .mount(&server)
+        .await;
+
+    // Login with username and password.
+    let _guard = Mock::given(method("POST"))
+        .and(path("/_matrix/client/r0/login"))
+        .respond_with(|req: &Request| {
+            #[derive(serde::Deserialize)]
+            struct Parameters {
+                r#type: String,
+                password: String,
+            }
+
+            let params: Parameters = req.body_json().unwrap();
+            assert_eq!(params.r#type, "m.login.password");
+            assert_eq!(params.password, "hunter2");
+
+            ResponseTemplate::new(200).set_body_json(json!({
+                "access_token": "abc123",
+                "device_id": "GHTYAJCE",
+                "home_server": "example.org",
+                "user_id": "@alice:example.org"
+            }))
+        })
+        .mount_as_scoped(&server)
+        .await;
+
+    let client = Client::builder()
+        .homeserver_url(server.uri())
+        .server_versions([MatrixVersion::V1_0])
+        .with_encryption_settings(matrix_sdk::encryption::EncryptionSettings {
+            auto_enable_cross_signing: true,
+        })
+        .request_config(RequestConfig::new().disable_retry())
+        .build()
+        .await
+        .unwrap();
+
+    let auth = client.matrix_auth();
+    auth.login_username("example", "hunter2").send().await.unwrap();
+
+    assert!(client.logged_in(), "Client should be logged in");
+    assert!(auth.logged_in(), "Client should be logged in with the MatrixAuth API");
+
+    let me = client.user_id().expect("we are now logged in");
+
+    let own_identity = client.encryption().get_user_identity(me).await.expect("succeeds");
+    let identity = own_identity.expect("created local default identity");
+    assert!(identity.is_verified());
 }
 
 #[cfg(feature = "e2e-encryption")]
