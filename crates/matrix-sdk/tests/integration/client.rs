@@ -174,13 +174,11 @@ async fn join_room_by_id() {
         .mount(&server)
         .await;
 
-    let room_id = room_id!("!testroom:example.org");
-
     assert_eq!(
         // this is the `join_by_room_id::Response` but since no PartialEq we check the RoomId
         // field
-        client.join_room_by_id(room_id).await.unwrap().room_id(),
-        room_id
+        client.join_room_by_id(&DEFAULT_TEST_ROOM_ID).await.unwrap().room_id(),
+        *DEFAULT_TEST_ROOM_ID
     );
 }
 
@@ -195,17 +193,18 @@ async fn join_room_by_id_or_alias() {
         .mount(&server)
         .await;
 
-    let room_id = room_id!("!testroom:example.org").into();
-
     assert_eq!(
         // this is the `join_by_room_id::Response` but since no PartialEq we check the RoomId
         // field
         client
-            .join_room_by_id_or_alias(room_id, &["server.com".try_into().unwrap()])
+            .join_room_by_id_or_alias(
+                (&**DEFAULT_TEST_ROOM_ID).into(),
+                &["server.com".try_into().unwrap()]
+            )
             .await
             .unwrap()
             .room_id(),
-        room_id!("!testroom:example.org")
+        *DEFAULT_TEST_ROOM_ID
     );
 }
 
