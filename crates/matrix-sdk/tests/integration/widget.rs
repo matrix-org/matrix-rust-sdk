@@ -141,6 +141,26 @@ async fn negotiate_capabilities_immediately() {
         let data = &msg["data"];
         let request_id = msg["requestId"].as_str().unwrap();
 
+        // Let's send a request to get supported versions in the middle
+        // of a capabilities negotiation to ensure that we're not "deadlocked" by
+        // not processing messages while waiting for a reply from a widget to the
+        // the toWidget request.
+        {
+            send_request(
+                &driver_handle,
+                "get-supported-api-versions",
+                "supported_api_versions",
+                json!({}),
+            )
+            .await;
+
+            let msg = recv_message(&driver_handle).await;
+            assert_eq!(msg["api"], "fromWidget");
+            assert_eq!(msg["action"], "supported_api_versions");
+            assert_eq!(msg["requestId"].as_str().unwrap(), "get-supported-api-versions");
+            assert!(msg["response"]["supported_versions"].is_array());
+        }
+
         // Answer with caps we want
         let response = json!({ "capabilities": caps });
         send_response(&driver_handle, request_id, "capabilities", data, &response).await;
