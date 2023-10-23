@@ -1758,11 +1758,8 @@ mod tests {
     }
 
     fn receive_state_events(room: &Room, events: Vec<&AnySyncStateEvent>) {
-        let mut guard = room.inner.write();
-        ObservableWriteGuard::update(&mut guard, |g| {
-            for e in events {
-                g.handle_state_event(e);
-            }
+        room.inner.update_if(|info| {
+            events.into_iter().any(|ev| info.handle_state_event(ev))
         });
     }
 
