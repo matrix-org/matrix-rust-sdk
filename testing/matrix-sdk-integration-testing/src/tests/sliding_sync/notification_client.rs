@@ -18,7 +18,6 @@ use matrix_sdk::{
     },
     RoomState,
 };
-use matrix_sdk_integration_testing::helpers::get_client_for_user;
 use matrix_sdk_ui::{
     notification_client::{
         Error, NotificationClient, NotificationEvent, NotificationItem, NotificationProcessSetup,
@@ -27,6 +26,8 @@ use matrix_sdk_ui::{
     sync_service::SyncService,
 };
 use tracing::warn;
+
+use crate::helpers::get_client_for_user;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_notification() -> Result<()> {

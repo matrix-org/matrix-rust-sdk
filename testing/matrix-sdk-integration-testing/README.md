@@ -28,11 +28,5 @@ To drop the database of your docker-compose run:
 
 ```bash
 docker-compose -f assets/docker-compose.yml stop
-docker volume rm -f assets_matrix-rust-sdk-ci-data
-```
-
-or simply:
-
-```bash
-docker-compose -f assets/docker-compose.yml down -v
+rm -rf ./assets/data
 ```
