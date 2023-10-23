@@ -493,7 +493,7 @@ async fn initial_public_unthreaded_receipt() {
 async fn initial_public_main_thread_receipt() {
     let event_id = owned_event_id!("$event_with_receipt");
 
-    // Add initial unthreaded public receipt.
+    // Add initial public receipt on the main thread.
     let mut initial_user_receipts = ReadReceiptMap::new();
     initial_user_receipts
         .entry(ReceiptType::Read)
@@ -518,7 +518,7 @@ async fn initial_public_main_thread_receipt() {
 async fn initial_private_unthreaded_receipt() {
     let event_id = owned_event_id!("$event_with_receipt");
 
-    // Add initial unthreaded public receipt.
+    // Add initial unthreaded private receipt.
     let mut initial_user_receipts = ReadReceiptMap::new();
     initial_user_receipts
         .entry(ReceiptType::ReadPrivate)
@@ -543,7 +543,7 @@ async fn initial_private_unthreaded_receipt() {
 async fn initial_private_main_thread_receipt() {
     let event_id = owned_event_id!("$event_with_receipt");
 
-    // Add initial unthreaded public receipt.
+    // Add initial private receipt on the main thread.
     let mut initial_user_receipts = ReadReceiptMap::new();
     initial_user_receipts
         .entry(ReceiptType::ReadPrivate)
