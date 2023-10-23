@@ -179,7 +179,7 @@ async fn test_state_event_getting() {
 async fn room_route() {
     let (client, server) = logged_in_client().await;
     let mut ev_builder = SyncResponseBuilder::new();
-    let room_id = room_id!("!test_room:127.0.0.1");
+    let room_id = &*DEFAULT_TEST_ROOM_ID;
 
     // Without elligible server
     ev_builder.add_joined_room(
@@ -501,7 +501,6 @@ async fn room_event_permalink() {
 
 #[async_test]
 async fn event() {
-    let room_id = room_id!("!a98sd12bjh:example.org");
     let event_id = event_id!("$foun39djjod0f");
 
     let (client, server) = logged_in_client().await;
@@ -511,7 +510,7 @@ async fn event() {
     ev_builder
         // We need the member event and power levels locally so the push rules processor works.
         .add_joined_room(
-            JoinedRoomBuilder::new(room_id)
+            JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)
                 .add_state_event(StateTestEvent::Member)
                 .add_state_event(StateTestEvent::PowerLevels),
         );
@@ -520,7 +519,7 @@ async fn event() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    let room = client.get_room(room_id).unwrap();
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
 
     let response_json = json!({
         "content": {
@@ -532,7 +531,7 @@ async fn event() {
         "sender": "@bob:localhost",
         "state_key": "",
         "type": "m.room.tombstone",
-        "room_id": room_id,
+        "room_id": *DEFAULT_TEST_ROOM_ID,
     });
     Mock::given(method("GET"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/event/"))
