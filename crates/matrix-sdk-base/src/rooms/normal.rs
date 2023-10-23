@@ -15,7 +15,6 @@
 #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
 use std::sync::RwLock as SyncRwLock;
 use std::{
-    cmp::Ordering,
     collections::{BTreeMap, HashSet},
     mem,
     sync::Arc,
@@ -1056,9 +1055,7 @@ impl RoomInfo {
             })
             .flatten()
             .collect::<Vec<_>>();
-        v.sort_by(|(_, a), (_, b)| {
-            a.created_ts.partial_cmp(&b.created_ts).unwrap_or(Ordering::Equal)
-        });
+        v.sort_by_key(|(_, m)| m.created_ts);
         v
     }
 
@@ -1191,7 +1188,7 @@ mod tests {
     use eyeball::ObservableWriteGuard;
     #[cfg(feature = "experimental-sliding-sync")]
     use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
-    use matrix_sdk_test::async_test;
+    use matrix_sdk_test::{async_test, ALICE, BOB, CAROL};
     use ruma::{
         api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
         events::{
@@ -1718,19 +1715,18 @@ mod tests {
     fn call_member_state_event(
         memberships: Vec<Membership>,
         ev_id: &str,
-        user_id: &str,
+        user_id: &UserId,
     ) -> AnySyncStateEvent {
         let content = CallMemberEventContent::new(memberships);
-        let user = OwnedUserId::from_str(user_id).unwrap();
 
         AnySyncStateEvent::CallMember(SyncStateEvent::Original(OriginalSyncCallMemberEvent {
             content,
             event_id: OwnedEventId::from_str(ev_id).unwrap(),
-            sender: user.clone(),
+            sender: user_id.to_owned(),
             // we can simply use now here since this will be dropped when using a MinimalStateEvent
             // in the roomInfo
             origin_server_ts: timestamp(0),
-            state_key: user,
+            state_key: user_id.to_owned(),
             unsigned: StateUnsigned::new(),
         }))
     }
@@ -1773,46 +1769,47 @@ mod tests {
     /// `user_a`: empty memberships
     /// `user_b`: one membership
     /// `user_c`: two memberships (two devices)
-    fn create_call_with_member_events_for_user(user_a: &str, user_b: &str, user_c: &str) -> Room {
-        let (_store, room) = make_room(RoomState::Joined);
+    fn create_call_with_member_events_for_user(a: &UserId, b: &UserId, c: &UserId) -> Room {
+        let (_, room) = make_room(RoomState::Joined);
+
+        let a_empty = call_member_state_event(Vec::new(), "$1234", a);
 
         // make b 10min old
-        let m_init_b = membership_for_my_call("0", "0", 10);
+        let m_init_b = membership_for_my_call("0", "0", 1);
+        let b_one = call_member_state_event(vec![m_init_b], "$12345", b);
+
         // c1 1min old
-        let m_init_c1 = membership_for_my_call("0", "0", 1);
+        let m_init_c1 = membership_for_my_call("0", "0", 10);
         // c2 20min old
         let m_init_c2 = membership_for_my_call("1", "0", 20);
+        let c_two = call_member_state_event(vec![m_init_c1, m_init_c2], "$123456", c);
 
-        let a_empty = call_member_state_event(Vec::new(), "$1234", user_a);
-        let b_one = call_member_state_event(vec![m_init_b], "$12345", user_b);
-        let c_two = call_member_state_event(vec![m_init_c1, m_init_c2], "$123456", user_c);
-
-        receive_state_events(&room, vec![&a_empty, &b_one, &c_two]);
+        // Intentionally use a non time sorted receive order.
+        receive_state_events(&room, vec![&c_two, &a_empty, &b_one]);
 
         room
     }
 
     #[test]
     fn show_correct_active_call_state() {
-        let (user_a, user_b, user_c) = ("@userA:abc.abc", "@userB:abc.abc", "@userC:abc.abc");
+        let room = create_call_with_member_events_for_user(&ALICE, &BOB, &CAROL);
 
-        let room = create_call_with_member_events_for_user(user_a, user_b, user_c);
-
-        // This check also test the ordering.
-        // we want older events to be in the front.
-        // b is 10min old, c1 1min old, c2 20min old
-        assert_eq!(vec![user_c.clone(), user_b, user_c], room.active_room_call_participants());
+        // This check also tests the ordering.
+        // We want older events to be in the front.
+        // user_b (Bob) is 1min old, c1 (CAROL) 10min old, c2 (CAROL) 20min old
+        assert_eq!(
+            vec![CAROL.to_owned(), CAROL.to_owned(), BOB.to_owned()],
+            room.active_room_call_participants()
+        );
         assert!(room.has_active_room_call());
     }
 
     #[test]
     fn active_call_is_false_when_everyone_left() {
-        let (user_a, user_b, user_c) = ("@userA:abc.abc", "@userB:abc.abc", "@userC:abc.abc");
+        let room = create_call_with_member_events_for_user(&ALICE, &BOB, &CAROL);
 
-        let room = create_call_with_member_events_for_user(user_a, user_b, user_c);
-
-        let b_empty_membership = call_member_state_event(Vec::new(), "$1234_1", user_b);
-        let c_empty_membership = call_member_state_event(Vec::new(), "$12345_1", user_c);
+        let b_empty_membership = call_member_state_event(Vec::new(), "$1234_1", &BOB);
+        let c_empty_membership = call_member_state_event(Vec::new(), "$12345_1", &CAROL);
 
         receive_state_events(&room, vec![&b_empty_membership, &c_empty_membership]);
 
