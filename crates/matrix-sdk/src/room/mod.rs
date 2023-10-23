@@ -2448,6 +2448,8 @@ mod tests {
     #[cfg(all(feature = "sqlite", feature = "e2e-encryption"))]
     #[async_test]
     async fn test_cache_invalidation_while_encrypt() {
+        use matrix_sdk_test::DEFAULT_TEST_ROOM_ID;
+
         let sqlite_path = std::env::temp_dir().join("cache_invalidation_while_encrypt.db");
         let session = MatrixSession {
             meta: SessionMeta {
@@ -2470,7 +2472,6 @@ mod tests {
 
         // Mock receiving an event to create an internal room.
         let server = MockServer::start().await;
-        let room_id = &test_json::DEFAULT_SYNC_ROOM_ID;
         {
             Mock::given(method("GET"))
                 .and(path_regex(r"^/_matrix/client/r0/rooms/.*/state/m.*room.*encryption.?"))
@@ -2492,7 +2493,7 @@ mod tests {
             client.base_client().receive_sync_response(response).await.unwrap();
         }
 
-        let room = client.get_room(room_id).expect("Room should exist");
+        let room = client.get_room(&DEFAULT_TEST_ROOM_ID).expect("Room should exist");
 
         // Step 1, preshare the room keys.
         room.preshare_room_key().await.unwrap();

@@ -1,10 +1,10 @@
 use ruma::{
     api::client::sync::sync_events::v3::InvitedRoom, events::AnyStrippedStateEvent, serde::Raw,
-    OwnedRoomId,
+    OwnedRoomId, RoomId,
 };
 
 use super::StrippedStateTestEvent;
-use crate::test_json;
+use crate::DEFAULT_TEST_ROOM_ID;
 
 pub struct InvitedRoomBuilder {
     pub(super) room_id: OwnedRoomId,
@@ -14,10 +14,10 @@ pub struct InvitedRoomBuilder {
 impl InvitedRoomBuilder {
     /// Create a new `InvitedRoomBuilder` for the given room ID.
     ///
-    /// If the room ID is [`test_json::DEFAULT_SYNC_ROOM_ID`],
+    /// If the room ID is [`DEFAULT_TEST_ROOM_ID`],
     /// [`InvitedRoomBuilder::default()`] can be used instead.
-    pub fn new(room_id: impl Into<OwnedRoomId>) -> Self {
-        Self { room_id: room_id.into(), inner: Default::default() }
+    pub fn new(room_id: &RoomId) -> Self {
+        Self { room_id: room_id.to_owned(), inner: Default::default() }
     }
 
     /// Add an event to the state.
@@ -38,6 +38,6 @@ impl InvitedRoomBuilder {
 
 impl Default for InvitedRoomBuilder {
     fn default() -> Self {
-        Self::new(test_json::DEFAULT_SYNC_ROOM_ID.to_owned())
+        Self::new(&DEFAULT_TEST_ROOM_ID)
     }
 }

@@ -8,7 +8,7 @@ use matrix_sdk::{
     sync::RoomUpdate,
 };
 use matrix_sdk_base::RoomState;
-use matrix_sdk_test::{async_test, test_json};
+use matrix_sdk_test::{async_test, test_json, DEFAULT_TEST_ROOM_ID};
 use ruma::{
     api::client::{
         directory::{
@@ -142,17 +142,16 @@ async fn resolve_room_alias() {
 
 #[async_test]
 async fn join_leave_room() {
-    let room_id = &test_json::DEFAULT_SYNC_ROOM_ID;
     let (client, server) = logged_in_client().await;
 
     mock_sync(&server, &*test_json::SYNC, None).await;
 
-    let room = client.get_room(room_id);
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID);
     assert!(room.is_none());
 
     let sync_token = client.sync_once(SyncSettings::default()).await.unwrap().next_batch;
 
-    let room = client.get_room(room_id).unwrap();
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
     assert_eq!(room.state(), RoomState::Joined);
 
     mock_sync(&server, &*test_json::LEAVE_SYNC_EVENT, Some(sync_token.clone())).await;
@@ -160,7 +159,7 @@ async fn join_leave_room() {
     client.sync_once(SyncSettings::default().token(sync_token)).await.unwrap();
 
     assert_eq!(room.state(), RoomState::Left);
-    let room = client.get_room(room_id).unwrap();
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
     assert_eq!(room.state(), RoomState::Left);
 }
 
@@ -273,7 +272,7 @@ async fn left_rooms() {
     assert!(!client.left_rooms().is_empty());
     assert!(client.invited_rooms().is_empty());
 
-    let room = client.get_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
     assert_eq!(room.state(), RoomState::Left);
 }
 
@@ -360,7 +359,7 @@ async fn whoami() {
 async fn room_update_channel() {
     let (client, server) = logged_in_client().await;
 
-    let mut rx = client.subscribe_to_room_updates(room_id!("!SVkFJHzfwvuaIEawgC:localhost"));
+    let mut rx = client.subscribe_to_room_updates(&DEFAULT_TEST_ROOM_ID);
 
     mock_sync(&server, &*test_json::SYNC, None).await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
@@ -387,7 +386,6 @@ async fn room_update_channel() {
 #[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
 #[async_test]
 async fn request_encryption_event_before_sending() {
-    let room_id = &test_json::DEFAULT_SYNC_ROOM_ID;
     let (client, server) = logged_in_client().await;
 
     mock_sync(&server, &*test_json::SYNC, None).await;
@@ -396,7 +394,8 @@ async fn request_encryption_event_before_sending() {
         .await
         .expect("We should be able to performa an initial sync");
 
-    let room = client.get_room(room_id).expect("We should know about our default room");
+    let room =
+        client.get_room(&DEFAULT_TEST_ROOM_ID).expect("We should know about our default room");
 
     Mock::given(method("GET"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/state/m.room.encryption/"))
@@ -438,7 +437,6 @@ async fn request_encryption_event_before_sending() {
 // a DM.
 #[async_test]
 async fn marking_room_as_dm() {
-    let room_id = &test_json::DEFAULT_SYNC_ROOM_ID;
     let (client, server) = logged_in_client().await;
 
     mock_sync(&server, &*test_json::SYNC, None).await;
@@ -500,7 +498,7 @@ async fn marking_room_as_dm() {
 
     client
         .account()
-        .mark_as_dm(room_id, &users)
+        .mark_as_dm(&DEFAULT_TEST_ROOM_ID, &users)
         .await
         .expect("We should be able to mark the room as a DM");
 

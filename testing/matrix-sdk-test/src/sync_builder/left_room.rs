@@ -2,11 +2,11 @@ use ruma::{
     api::client::sync::sync_events::v3::LeftRoom,
     events::{AnyRoomAccountDataEvent, AnySyncStateEvent, AnySyncTimelineEvent},
     serde::Raw,
-    OwnedRoomId,
+    OwnedRoomId, RoomId,
 };
 
 use super::{RoomAccountDataTestEvent, StateTestEvent};
-use crate::test_json;
+use crate::DEFAULT_TEST_ROOM_ID;
 
 pub struct LeftRoomBuilder {
     pub(super) room_id: OwnedRoomId,
@@ -16,10 +16,10 @@ pub struct LeftRoomBuilder {
 impl LeftRoomBuilder {
     /// Create a new `LeftRoomBuilder` for the given room ID.
     ///
-    /// If the room ID is [`test_json::DEFAULT_SYNC_ROOM_ID`],
+    /// If the room ID is [`DEFAULT_TEST_ROOM_ID`],
     /// [`LeftRoomBuilder::default()`] can be used instead.
-    pub fn new(room_id: impl Into<OwnedRoomId>) -> Self {
-        Self { room_id: room_id.into(), inner: Default::default() }
+    pub fn new(room_id: &RoomId) -> Self {
+        Self { room_id: room_id.to_owned(), inner: Default::default() }
     }
 
     /// Add an event to the timeline.
@@ -97,6 +97,6 @@ impl LeftRoomBuilder {
 
 impl Default for LeftRoomBuilder {
     fn default() -> Self {
-        Self::new(test_json::DEFAULT_SYNC_ROOM_ID.to_owned())
+        Self::new(&DEFAULT_TEST_ROOM_ID)
     }
 }

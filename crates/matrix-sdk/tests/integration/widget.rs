@@ -61,7 +61,7 @@ async fn run_test_driver(init_on_content_load: bool) -> (MockServer, WidgetDrive
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
     let mut ev_builder = SyncResponseBuilder::new();
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(ROOM_ID.clone()));
+    ev_builder.add_joined_room(JoinedRoomBuilder::new(&ROOM_ID));
 
     mock_sync(&mock_server, ev_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();

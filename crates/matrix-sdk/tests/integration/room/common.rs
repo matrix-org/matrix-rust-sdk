@@ -4,7 +4,7 @@ use assert_matches::assert_matches;
 use matrix_sdk::{config::SyncSettings, room::RoomMember, DisplayName, RoomMemberships};
 use matrix_sdk_test::{
     async_test, bulk_room_members, sync_timeline_event, test_json, JoinedRoomBuilder,
-    StateTestEvent, SyncResponseBuilder,
+    StateTestEvent, SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
 };
 use ruma::{
     event_id,
@@ -39,7 +39,7 @@ async fn user_presence() {
 
     let _response = client.sync_once(sync_settings).await.unwrap();
 
-    let room = client.get_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
     let members: Vec<RoomMember> = room.members(RoomMemberships::ACTIVE).await.unwrap();
 
     assert_eq!(2, members.len());
@@ -54,7 +54,7 @@ async fn calculate_room_names_from_summary() {
 
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
     let _response = client.sync_once(sync_settings).await.unwrap();
-    let room = client.get_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
 
     assert_eq!(DisplayName::Calculated("example2".to_owned()), room.display_name().await.unwrap());
 }
@@ -70,7 +70,7 @@ async fn room_names() {
     let sync_token = client.sync_once(sync_settings).await.unwrap().next_batch;
 
     assert_eq!(client.rooms().len(), 1);
-    let room = client.get_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
 
     assert_eq!(DisplayName::Aliased("tutorial".to_owned()), room.display_name().await.unwrap());
 
@@ -89,15 +89,13 @@ async fn room_names() {
 
 #[async_test]
 async fn test_state_event_getting() {
-    let room_id = &test_json::DEFAULT_SYNC_ROOM_ID;
-
     let (client, server) = logged_in_client().await;
 
     let sync = json!({
         "next_batch": "1234",
         "rooms": {
             "join": {
-                "!SVkFJHzfwvuaIEawgC:localhost": {
+                *DEFAULT_TEST_ROOM_ID: {
                     "state": {
                       "events": [
                         {
@@ -150,12 +148,12 @@ async fn test_state_event_getting() {
 
     mock_sync(&server, sync, None).await;
 
-    let room = client.get_room(room_id);
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID);
     assert!(room.is_none());
 
     client.sync_once(SyncSettings::default()).await.unwrap();
 
-    let room = client.get_room(room_id).unwrap();
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
 
     let state_events = room.get_state_events(StateEventType::RoomEncryption).await.unwrap();
     assert_eq!(state_events.len(), 1);

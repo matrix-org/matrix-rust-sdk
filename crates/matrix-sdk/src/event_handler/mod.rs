@@ -538,7 +538,7 @@ impl_event_handler!(A, B, C, D, E, F, G, H);
 #[cfg(test)]
 mod tests {
     use matrix_sdk_test::{
-        async_test, test_json::DEFAULT_SYNC_ROOM_ID, InvitedRoomBuilder, JoinedRoomBuilder,
+        async_test, InvitedRoomBuilder, JoinedRoomBuilder, DEFAULT_TEST_ROOM_ID,
     };
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -770,7 +770,7 @@ mod tests {
         });
         let handle_b = client.add_room_event_handler(
             #[allow(unknown_lints, clippy::explicit_auto_deref)] // lint is buggy
-            *DEFAULT_SYNC_ROOM_ID,
+            *DEFAULT_TEST_ROOM_ID,
             move |_ev: OriginalSyncRoomMemberEvent| async {
                 panic!("handler should have been removed");
             },

@@ -4,12 +4,12 @@ use ruma::{
         AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent, AnySyncStateEvent, AnySyncTimelineEvent,
     },
     serde::Raw,
-    OwnedRoomId,
+    OwnedRoomId, RoomId,
 };
 use serde_json::{from_value as from_json_value, Value as JsonValue};
 
 use super::{EphemeralTestEvent, RoomAccountDataTestEvent, StateTestEvent};
-use crate::test_json;
+use crate::DEFAULT_TEST_ROOM_ID;
 
 pub struct JoinedRoomBuilder {
     pub(super) room_id: OwnedRoomId,
@@ -19,10 +19,10 @@ pub struct JoinedRoomBuilder {
 impl JoinedRoomBuilder {
     /// Create a new `JoinedRoomBuilder` for the given room ID.
     ///
-    /// If the room ID is [`test_json::DEFAULT_SYNC_ROOM_ID`],
+    /// If the room ID is [`DEFAULT_TEST_ROOM_ID`],
     /// [`JoinedRoomBuilder::default()`] can be used instead.
-    pub fn new(room_id: impl Into<OwnedRoomId>) -> Self {
-        Self { room_id: room_id.into(), inner: Default::default() }
+    pub fn new(room_id: &RoomId) -> Self {
+        Self { room_id: room_id.to_owned(), inner: Default::default() }
     }
 
     /// Add an event to the timeline.
@@ -127,6 +127,6 @@ impl JoinedRoomBuilder {
 
 impl Default for JoinedRoomBuilder {
     fn default() -> Self {
-        Self::new(test_json::DEFAULT_SYNC_ROOM_ID.to_owned())
+        Self::new(&DEFAULT_TEST_ROOM_ID)
     }
 }
