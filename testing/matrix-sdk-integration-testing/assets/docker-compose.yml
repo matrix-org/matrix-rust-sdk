@@ -27,7 +27,7 @@ services:
       - ./data/db:/var/lib/postgresql/data
 
   sliding-sync-proxy:
-    image: ghcr.io/matrix-org/sliding-sync:v0.99.4
+    image: ghcr.io/matrix-org/sliding-sync:v0.99.11
     depends_on:
       postgres:
         condition: service_healthy

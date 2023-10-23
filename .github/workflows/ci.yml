@@ -367,7 +367,7 @@ jobs:
       # run sliding sync and point it at the postgres container and synapse container.
       # the postgres container needs to be above this to make sure it has started prior to this service.
       slidingsync:
-        image: "ghcr.io/matrix-org/sliding-sync:v0.99.2"
+        image: "ghcr.io/matrix-org/sliding-sync:v0.99.11" # keep in sync with ./coverage.yml
         env:
           SYNCV3_SERVER: "http://synapse:8008"
           SYNCV3_SECRET: "SUPER_CI_SECRET"
@@ -378,9 +378,7 @@ jobs:
       # tests need a synapse: this is a service and not michaelkaye/setup-matrix-synapse@main as the
       # latter does not provide networking for services to communicate with it.
       synapse:
-        # Custom image built from https://github.com/matrix-org/synapse/tree/v1.72.0/docker/complement
-        # with a dummy /complement/ca set
-        image: ghcr.io/matrix-org/synapse-service:v1.72.0
+        image: ghcr.io/matrix-org/synapse-service:v1.72.0 # keep in sync with ./coverage.yml
         env:
             SYNAPSE_COMPLEMENT_DATABASE: sqlite
             SERVER_NAME: synapse
