@@ -199,7 +199,11 @@ impl LoginBuilder {
                 _ => None,
             };
 
-            self.auth.client.encryption().bootstrap_cross_signing_if_needed(auth_data).await?;
+            if let Err(err) =
+                self.auth.client.encryption().bootstrap_cross_signing_if_needed(auth_data).await
+            {
+                tracing::warn!("cross-signing bootstrapping failed: {err}");
+            }
         }
 
         Ok(response)
