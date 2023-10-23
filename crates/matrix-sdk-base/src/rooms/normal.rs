@@ -1185,7 +1185,6 @@ mod tests {
     };
 
     use assign::assign;
-    use eyeball::ObservableWriteGuard;
     #[cfg(feature = "experimental-sliding-sync")]
     use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
     use matrix_sdk_test::{async_test, ALICE, BOB, CAROL};
@@ -1758,9 +1757,7 @@ mod tests {
     }
 
     fn receive_state_events(room: &Room, events: Vec<&AnySyncStateEvent>) {
-        room.inner.update_if(|info| {
-            events.into_iter().any(|ev| info.handle_state_event(ev))
-        });
+        room.inner.update_if(|info| events.into_iter().any(|ev| info.handle_state_event(ev)));
     }
 
     /// `user_a`: empty memberships
