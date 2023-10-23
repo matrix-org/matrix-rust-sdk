@@ -4,7 +4,7 @@ mod members;
 pub(crate) mod normal;
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashSet},
     fmt,
     hash::Hash,
 };
@@ -102,8 +102,8 @@ pub struct BaseRoomInfo {
     pub(crate) topic: Option<MinimalStateEvent<RoomTopicEventContent>>,
     /// All Minimal state events that containing one or more running matrixRTC
     /// memberships.
-    #[serde(skip_serializing_if = "HashMap::is_empty", default)]
-    pub(crate) rtc_member: HashMap<OwnedUserId, MinimalStateEvent<CallMemberEventContent>>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub(crate) rtc_member: BTreeMap<OwnedUserId, MinimalStateEvent<CallMemberEventContent>>,
 }
 
 impl BaseRoomInfo {
@@ -316,7 +316,7 @@ impl Default for BaseRoomInfo {
             name: None,
             tombstone: None,
             topic: None,
-            rtc_member: HashMap::new(),
+            rtc_member: BTreeMap::new(),
         }
     }
 }
