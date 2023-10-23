@@ -70,3 +70,6 @@
 
 - Remove spurious "Unknown outgoing secret request" warning which was logged
   for every outgoing secret request.
+
+- Stop logging large quantities of data about the `Store` during olm
+  decryption.

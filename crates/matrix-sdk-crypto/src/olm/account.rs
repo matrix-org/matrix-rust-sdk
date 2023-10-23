@@ -1164,7 +1164,7 @@ impl Account {
     }
 
     /// Decrypt an Olm message, creating a new Olm session if possible.
-    #[instrument(skip(self, message))]
+    #[instrument(skip(self, store, message))]
     async fn decrypt_olm_message(
         &mut self,
         store: &Store,
