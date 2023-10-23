@@ -281,13 +281,10 @@ impl BaseRoomInfo {
             self.tombstone.as_mut().unwrap().redact(&room_version);
         } else if self.topic.has_event_id(redacts) {
             self.topic.as_mut().unwrap().redact(&room_version);
-        } else if let Some((user_id, _)) = self
-            .rtc_member
-            .clone()
-            .iter()
-            .find(|(_, member_event)| member_event.event_id() == Some(redacts))
-        {
-            self.rtc_member.remove(user_id);
+        } else {
+            self.rtc_member.retain(|(_, member_event)| {
+                member_event.event_id() != Some(redacts)
+            });
         }
     }
 }
