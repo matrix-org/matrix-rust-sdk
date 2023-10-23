@@ -282,9 +282,7 @@ impl BaseRoomInfo {
         } else if self.topic.has_event_id(redacts) {
             self.topic.as_mut().unwrap().redact(&room_version);
         } else {
-            self.rtc_member.retain(|(_, member_event)| {
-                member_event.event_id() != Some(redacts)
-            });
+            self.rtc_member.retain(|_, member_event| member_event.event_id() != Some(redacts));
         }
     }
 }
