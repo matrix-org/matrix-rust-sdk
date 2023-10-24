@@ -564,3 +564,52 @@ async fn initial_private_main_thread_receipt() {
     let (receipt_event_id, _) = timeline.inner.latest_user_read_receipt(*ALICE).await.unwrap();
     assert_eq!(receipt_event_id, event_id);
 }
+
+#[async_test]
+async fn clear_read_receipts() {
+    let room_id = room_id!("!room:localhost");
+    let event_a_id = event_id!("$event_a");
+    let event_b_id = event_id!("$event_b");
+
+    let timeline = TestTimeline::new()
+        .with_settings(TimelineInnerSettings { track_read_receipts: true, ..Default::default() });
+
+    let event_a_content = RoomMessageEventContent::text_plain("A");
+    timeline.handle_live_message_event_with_id(*BOB, event_a_id, event_a_content.clone()).await;
+
+    let items = timeline.inner.items().await;
+    assert_eq!(items.len(), 2);
+
+    // Implicit read receipt of Bob.
+    let event_a = items[1].as_event().unwrap();
+    assert_eq!(event_a.read_receipts().len(), 1);
+    assert!(event_a.read_receipts().get(*BOB).is_some());
+
+    // We received a limited timeline.
+    timeline.inner.clear().await;
+
+    // New message via sync.
+    timeline
+        .handle_live_message_event_with_id(
+            *BOB,
+            event_b_id,
+            RoomMessageEventContent::text_plain("B"),
+        )
+        .await;
+    // Old message via back-pagination.
+    timeline
+        .handle_back_paginated_message_event_with_id(*BOB, room_id, event_a_id, event_a_content)
+        .await;
+
+    let items = timeline.inner.items().await;
+    assert_eq!(items.len(), 3);
+
+    // Old implicit read receipt of Bob is gone.
+    let event_a = items[1].as_event().unwrap();
+    assert_eq!(event_a.read_receipts().len(), 0);
+
+    // New implicit read receipt of Bob.
+    let event_b = items[2].as_event().unwrap();
+    assert_eq!(event_b.read_receipts().len(), 1);
+    assert!(event_b.read_receipts().get(*BOB).is_some());
+}
