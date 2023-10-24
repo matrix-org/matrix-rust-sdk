@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::time::Duration;
+use std::{pin::pin, time::Duration};
 
 use assert_matches::assert_matches;
 use async_trait::async_trait;
@@ -22,11 +22,24 @@ use matrix_sdk::{
     widget::{
         Capabilities, CapabilitiesProvider, WidgetDriver, WidgetDriverHandle, WidgetSettings,
     },
+    Client,
 };
-use matrix_sdk_common::executor::spawn;
-use matrix_sdk_test::{async_test, JoinedRoomBuilder, SyncResponseBuilder};
+use matrix_sdk_common::{executor::spawn, timeout::timeout};
+use matrix_sdk_test::{
+    async_test, EventBuilder, JoinedRoomBuilder, SyncResponseBuilder, ALICE, BOB,
+};
 use once_cell::sync::Lazy;
-use ruma::{owned_room_id, serde::JsonObject, OwnedRoomId};
+use ruma::{
+    events::room::{
+        member::{MembershipState, RoomMemberEventContent},
+        message::RoomMessageEventContent,
+        name::RoomNameEventContent,
+        topic::RoomTopicEventContent,
+    },
+    owned_room_id,
+    serde::JsonObject,
+    user_id, OwnedRoomId,
+};
 use serde::Serialize;
 use serde_json::{json, Value as JsonValue};
 use tracing::error;
@@ -46,7 +59,7 @@ macro_rules! json_string {
 const WIDGET_ID: &str = "test-widget";
 static ROOM_ID: Lazy<OwnedRoomId> = Lazy::new(|| owned_room_id!("!a98sd12bjh:example.org"));
 
-async fn run_test_driver(init_on_content_load: bool) -> (MockServer, WidgetDriverHandle) {
+async fn run_test_driver(init_on_content_load: bool) -> (Client, MockServer, WidgetDriverHandle) {
     struct DummyCapabilitiesProvider;
 
     #[async_trait]
@@ -60,10 +73,10 @@ async fn run_test_driver(init_on_content_load: bool) -> (MockServer, WidgetDrive
     let (client, mock_server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let mut ev_builder = SyncResponseBuilder::new();
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(&ROOM_ID));
+    let mut sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(&ROOM_ID));
 
-    mock_sync(&mock_server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&mock_server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     mock_server.reset().await;
 
@@ -82,11 +95,13 @@ async fn run_test_driver(init_on_content_load: bool) -> (MockServer, WidgetDrive
         }
     });
 
-    (mock_server, handle)
+    (client, mock_server, handle)
 }
 
 async fn recv_message(driver_handle: &WidgetDriverHandle) -> JsonObject {
-    serde_json::from_str(&driver_handle.recv().await.unwrap()).unwrap()
+    let fut = pin!(driver_handle.recv());
+    let msg = timeout(fut, Duration::from_secs(1)).await.unwrap();
+    serde_json::from_str(&msg.unwrap()).unwrap()
 }
 
 async fn send_request(
@@ -129,7 +144,7 @@ async fn send_response(
 
 #[async_test]
 async fn negotiate_capabilities_immediately() {
-    let (_, driver_handle) = run_test_driver(false).await;
+    let (_, _, driver_handle) = run_test_driver(false).await;
 
     let caps = json!(["org.matrix.msc2762.receive.event:m.room.message"]);
 
@@ -184,7 +199,7 @@ async fn negotiate_capabilities_immediately() {
 #[async_test]
 #[allow(unused)] // test is incomplete
 async fn read_messages() {
-    let (mock_server, driver_handle) = run_test_driver(true).await;
+    let (_, mock_server, driver_handle) = run_test_driver(true).await;
 
     {
         // Tell the driver that we're ready for communication
@@ -274,7 +289,7 @@ async fn read_messages() {
 
 #[async_test]
 async fn read_room_members() {
-    let (mock_server, driver_handle) = run_test_driver(false).await;
+    let (_, mock_server, driver_handle) = run_test_driver(false).await;
 
     negotiate_capabilities(
         &driver_handle,
@@ -311,8 +326,107 @@ async fn read_room_members() {
 }
 
 #[async_test]
+async fn receive_live_events() {
+    let (client, mock_server, driver_handle) = run_test_driver(false).await;
+
+    negotiate_capabilities(
+        &driver_handle,
+        json!([
+            "org.matrix.msc2762.receive.event:m.room.member",
+            "org.matrix.msc2762.receive.event:m.room.message#m.text",
+            "org.matrix.msc2762.receive.state_event:m.room.name#",
+            "org.matrix.msc2762.receive.state_event:m.room.member#@example:localhost",
+        ]),
+    )
+    .await;
+
+    // No messages from the driver yet
+    assert_matches!(recv_message(&driver_handle).now_or_never(), None);
+
+    let mut sync_builder = SyncResponseBuilder::new();
+    // bump the internal batch counter, otherwise the response will be seen as
+    // identical to the one done in `run_test_driver`
+    sync_builder.build_json_sync_response();
+
+    let event_builder = EventBuilder::new();
+    sync_builder.add_joined_room(
+        JoinedRoomBuilder::new(&ROOM_ID)
+            // text message from alice - matches filter #2
+            .add_timeline_event(event_builder.make_sync_message_event(
+                &ALICE,
+                RoomMessageEventContent::text_plain("simple text message"),
+            ))
+            // emote from alice - doesn't match
+            .add_timeline_event(event_builder.make_sync_message_event(
+                &ALICE,
+                RoomMessageEventContent::emote_plain("emote message"),
+            ))
+            // pointless member event - matches filter #4
+            .add_timeline_event(event_builder.make_sync_state_event(
+                user_id!("@example:localhost"),
+                "@example:localhost",
+                RoomMemberEventContent::new(MembershipState::Join),
+                Some(RoomMemberEventContent::new(MembershipState::Join)),
+            ))
+            // kick alice - doesn't match because the `#@example:localhost` bit
+            // is about the state_key, not the sender
+            .add_timeline_event(event_builder.make_sync_state_event(
+                user_id!("@example:localhost"),
+                ALICE.as_str(),
+                RoomMemberEventContent::new(MembershipState::Ban),
+                Some(RoomMemberEventContent::new(MembershipState::Join)),
+            ))
+            // set room tpoic - doesn't match
+            .add_timeline_event(event_builder.make_sync_state_event(
+                &BOB,
+                "",
+                RoomTopicEventContent::new("new room topic".to_owned()),
+                None,
+            ))
+            // set room name - matches filter #3
+            .add_timeline_event(event_builder.make_sync_state_event(
+                &BOB,
+                "",
+                RoomNameEventContent::new("New Room Name".to_owned()),
+                None,
+            )),
+    );
+
+    mock_sync(&mock_server, sync_builder.build_json_sync_response(), None).await;
+    let _response =
+        client.sync_once(SyncSettings::new().timeout(Duration::from_millis(3000))).await.unwrap();
+
+    let msg = recv_message(&driver_handle).await;
+    assert_eq!(msg["api"], "toWidget");
+    assert_eq!(msg["action"], "send_event");
+    assert_eq!(msg["data"]["type"], "m.room.message");
+    assert_eq!(msg["data"]["room_id"], ROOM_ID.as_str());
+    assert_eq!(msg["data"]["content"]["msgtype"], "m.text");
+    assert_eq!(msg["data"]["content"]["body"], "simple text message");
+
+    let msg = recv_message(&driver_handle).await;
+    assert_eq!(msg["api"], "toWidget");
+    assert_eq!(msg["action"], "send_event");
+    assert_eq!(msg["data"]["type"], "m.room.member");
+    assert_eq!(msg["data"]["room_id"], ROOM_ID.as_str());
+    assert_eq!(msg["data"]["state_key"], "@example:localhost");
+    assert_eq!(msg["data"]["content"]["membership"], "join");
+    assert_eq!(msg["data"]["unsigned"]["prev_content"]["membership"], "join");
+
+    let msg = recv_message(&driver_handle).await;
+    assert_eq!(msg["api"], "toWidget");
+    assert_eq!(msg["action"], "send_event");
+    assert_eq!(msg["data"]["type"], "m.room.name");
+    assert_eq!(msg["data"]["sender"], BOB.as_str());
+    assert_eq!(msg["data"]["content"]["name"], "New Room Name");
+
+    // No more messages from the driver
+    assert_matches!(recv_message(&driver_handle).now_or_never(), None);
+}
+
+#[async_test]
 async fn send_room_message() {
-    let (mock_server, driver_handle) = run_test_driver(false).await;
+    let (_, mock_server, driver_handle) = run_test_driver(false).await;
 
     negotiate_capabilities(&driver_handle, json!(["org.matrix.msc2762.send.event:m.room.message"]))
         .await;
@@ -351,7 +465,7 @@ async fn send_room_message() {
 
 #[async_test]
 async fn send_room_name() {
-    let (mock_server, driver_handle) = run_test_driver(false).await;
+    let (_, mock_server, driver_handle) = run_test_driver(false).await;
 
     negotiate_capabilities(
         &driver_handle,
