@@ -27,15 +27,15 @@ use matrix_sdk_ui::{
 };
 use tracing::warn;
 
-use crate::helpers::get_client_for_user;
+use crate::helpers::TestClientBuilder;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_notification() -> Result<()> {
     // Create new users for each test run, to avoid conflicts with invites existing
     // from previous runs.
     let time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
-    let alice = get_client_for_user(format!("alice{time}"), true).await?;
-    let bob = get_client_for_user(format!("bob{time}"), true).await?;
+    let alice = TestClientBuilder::new(format!("alice{time}")).use_sqlite().build().await?;
+    let bob = TestClientBuilder::new(format!("bob{time}")).use_sqlite().build().await?;
 
     let dummy_sync_service = Arc::new(SyncService::builder(bob.clone()).build().await?);
     let process_setup =

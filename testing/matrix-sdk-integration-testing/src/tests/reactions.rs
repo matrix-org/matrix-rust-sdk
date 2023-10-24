@@ -31,12 +31,12 @@ use matrix_sdk::{
 };
 use matrix_sdk_ui::timeline::{EventTimelineItem, RoomExt, TimelineItem};
 
-use crate::helpers::get_client_for_user;
+use crate::helpers::TestClientBuilder;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_toggling_reaction() -> Result<()> {
     // Set up
-    let alice = get_client_for_user("alice".to_owned(), true).await?;
+    let alice = TestClientBuilder::new("alice".to_owned()).use_sqlite().build().await?;
     let user_id = alice.user_id().unwrap();
     let room = alice
         .create_room(assign!(CreateRoomRequest::new(), {

@@ -4,20 +4,241 @@ use std::{
 };
 
 use anyhow::Result;
+use assert_matches::assert_matches;
 use assign::assign;
-use matrix_sdk::ruma::{
-    api::client::room::create_room::v3::Request as CreateRoomRequest,
-    events::room::message::{MessageType, RoomMessageEventContent, SyncRoomMessageEvent},
+use matrix_sdk::{
+    crypto::{format_emojis, SasState},
+    encryption::{
+        verification::{Verification, VerificationRequestState},
+        LocalTrust,
+    },
+    ruma::{
+        api::client::room::create_room::v3::Request as CreateRoomRequest,
+        events::{
+            key::verification::request::ToDeviceKeyVerificationRequestEvent,
+            room::message::{
+                MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent,
+                SyncRoomMessageEvent,
+            },
+        },
+    },
+    Client,
 };
 use tracing::warn;
 
-use crate::helpers::get_sync_aware_client_for_user;
+use crate::helpers::{SyncTokenAwareClient, TestClientBuilder};
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_mutual_verification() -> Result<()> {
+    let time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
+
+    let alice = SyncTokenAwareClient::new(
+        TestClientBuilder::new(format!("alice{time}"))
+            .use_sqlite()
+            .bootstrap_cross_signing()
+            .build()
+            .await?,
+    );
+    let bob = SyncTokenAwareClient::new(
+        TestClientBuilder::new(format!("bob{time}"))
+            .use_sqlite()
+            .bootstrap_cross_signing()
+            .build()
+            .await?,
+    );
+
+    warn!("alice's device: {}", alice.device_id().unwrap());
+    warn!("bob's device: {}", bob.device_id().unwrap());
+
+    let invite = vec![bob.user_id().unwrap().to_owned()];
+    let request = assign!(CreateRoomRequest::new(), {
+        invite,
+        is_direct: true,
+    });
+
+    let alice_room = alice.create_room(request).await?;
+    alice_room.enable_encryption().await?;
+
+    warn!("alice has created and enabled encryption in the room");
+
+    bob.sync_once().await?;
+    bob.get_room(alice_room.room_id()).unwrap().join().await?;
+
+    alice.sync_once().await?;
+
+    warn!("alice and bob are both aware of each other in the e2ee room");
+
+    // Bob adds the verification listeners.
+    let bob_verification_request = Arc::new(Mutex::new(None));
+    {
+        let bvr = bob_verification_request.clone();
+        bob.add_event_handler(
+            |ev: ToDeviceKeyVerificationRequestEvent, client: Client| async move {
+                let request = client
+                    .encryption()
+                    .get_verification_request(&ev.sender, &ev.content.transaction_id)
+                    .await
+                    .expect("Request object wasn't created");
+                *bvr.lock().unwrap() = Some(request);
+            },
+        );
+
+        let bvr = bob_verification_request.clone();
+        bob.add_event_handler(|ev: OriginalSyncRoomMessageEvent, client: Client| async move {
+            if let MessageType::VerificationRequest(_) = &ev.content.msgtype {
+                let request = client
+                    .encryption()
+                    .get_verification_request(&ev.sender, &ev.event_id)
+                    .await
+                    .expect("Request object wasn't created");
+                *bvr.lock().unwrap() = Some(request);
+            }
+        });
+    }
+
+    warn!("bob has set up verification listeners");
+
+    let alice_bob_identity = alice
+        .encryption()
+        .get_user_identity(bob.user_id().unwrap())
+        .await?
+        .expect("alice knows bob's identity");
+
+    warn!("alice has found bob's identity");
+
+    let alice_verification_request = alice_bob_identity.request_verification().await?;
+
+    warn!("alice has started verification");
+
+    bob.sync_once().await?;
+    let bob_verification_request = bob_verification_request
+        .lock()
+        .unwrap()
+        .take()
+        .expect("bob received a verification request");
+
+    warn!("bob has received the verification request");
+
+    assert_matches!(bob_verification_request.state(), VerificationRequestState::Requested { .. });
+
+    // Bob notifies Alice he accepts the verification process.
+    bob_verification_request.accept().await.unwrap();
+    assert_matches!(bob_verification_request.state(), VerificationRequestState::Ready { .. });
+
+    warn!("bob has accepted the verification request");
+
+    // Alice receives the accept, and moves to the ready state.
+    assert_matches!(alice_verification_request.state(), VerificationRequestState::Created { .. });
+    alice.sync_once().await.unwrap();
+    assert_matches!(alice_verification_request.state(), VerificationRequestState::Ready { .. });
+
+    let alice_sas =
+        alice_verification_request.start_sas().await?.expect("must have a sas verification");
+
+    bob.sync_once().await?;
+    let bob_sas = assert_matches!(bob_verification_request.state(), VerificationRequestState::Transitioned { verification: Verification::SasV1(bob_sas) } => bob_sas);
+
+    assert_matches!(alice_sas.state(), SasState::Started { .. });
+    assert_matches!(bob_sas.state(), SasState::Started { .. });
+
+    bob_sas.accept().await?;
+    assert_matches!(bob_sas.state(), SasState::Accepted { .. });
+    alice.sync_once().await?;
+    assert_matches!(alice_sas.state(), SasState::Accepted { .. });
+
+    assert!(!alice_sas.can_be_presented());
+    assert!(!bob_sas.can_be_presented());
+
+    // Let a little crypto messages dance happen.
+    alice.sync_once().await?;
+    bob.sync_once().await?;
+    assert_matches!(alice_sas.state(), SasState::Accepted { .. });
+    assert_matches!(bob_sas.state(), SasState::KeysExchanged { .. });
+
+    alice.sync_once().await?;
+    let alice_emojis =
+        assert_matches!(alice_sas.state(), SasState::KeysExchanged { emojis, .. } => emojis)
+            .expect("alice received emojis");
+    let bob_emojis =
+        assert_matches!(bob_sas.state(), SasState::KeysExchanged { emojis, .. } => emojis)
+            .expect("bob received emojis");
+
+    assert!(alice_sas.can_be_presented());
+    assert!(bob_sas.can_be_presented());
+
+    assert_eq!(format_emojis(alice_emojis.emojis), format_emojis(bob_emojis.emojis));
+
+    alice_sas.confirm().await?;
+    bob_sas.confirm().await?;
+    assert_matches!(alice_sas.state(), SasState::Confirmed);
+    assert_matches!(bob_sas.state(), SasState::Confirmed);
+
+    // Moar crypto dancing.
+    alice.sync_once().await?;
+    bob.sync_once().await?;
+    assert_matches!(alice_sas.state(), SasState::Confirmed);
+    assert_matches!(bob_sas.state(), SasState::Done { .. });
+
+    alice.sync_once().await?;
+    assert_matches!(alice_sas.state(), SasState::Done { .. });
+    assert_matches!(bob_sas.state(), SasState::Done { .. });
+
+    // Wait for remote echos for verification status requests.
+    alice.sync_once().await?;
+    bob.sync_once().await?;
+
+    // Both users appear as verified to each other.
+    let alice_bob_ident =
+        alice.encryption().get_user_identity(bob.user_id().unwrap()).await?.unwrap();
+    assert!(alice_bob_ident.is_verified());
+
+    let bob_alice_ident =
+        bob.encryption().get_user_identity(alice.user_id().unwrap()).await?.unwrap();
+    assert!(bob_alice_ident.is_verified());
+
+    // Both user devices appear as verified to the other user.
+    let alice_bob_device = alice_sas.other_device();
+    assert_eq!(alice_bob_device.user_id(), bob.user_id().unwrap());
+    assert_eq!(alice_bob_device.device_id(), bob.device_id().unwrap());
+    assert_eq!(alice_bob_device.local_trust_state(), LocalTrust::Unset);
+
+    let alice_bob_device = alice
+        .encryption()
+        .get_device(bob.user_id().unwrap(), bob.device_id().unwrap())
+        .await?
+        .unwrap();
+    assert!(alice_bob_device.is_verified());
+    assert_eq!(alice_bob_device.local_trust_state(), LocalTrust::Verified);
+    assert!(alice_bob_device.is_locally_trusted());
+    assert!(!alice_bob_device.is_blacklisted());
+
+    let bob_alice_device = bob_sas.other_device();
+    assert_eq!(bob_alice_device.user_id(), alice.user_id().unwrap());
+    assert_eq!(bob_alice_device.device_id(), alice.device_id().unwrap());
+    assert_eq!(bob_alice_device.local_trust_state(), LocalTrust::Unset);
+
+    let bob_alice_device = bob
+        .encryption()
+        .get_device(alice.user_id().unwrap(), alice.device_id().unwrap())
+        .await?
+        .unwrap();
+    assert!(bob_alice_device.is_verified());
+    assert_eq!(bob_alice_device.local_trust_state(), LocalTrust::Verified);
+    assert!(bob_alice_device.is_locally_trusted());
+    assert!(!bob_alice_device.is_blacklisted());
+
+    Ok(())
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_encryption_missing_member_keys() -> Result<()> {
     let time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
-    let alice = get_sync_aware_client_for_user(format!("alice{time}")).await?;
-    let bob = get_sync_aware_client_for_user(format!("bob{time}")).await?;
+    let alice = SyncTokenAwareClient::new(
+        TestClientBuilder::new(format!("alice{time}")).use_sqlite().build().await?,
+    );
+    let bob = SyncTokenAwareClient::new(
+        TestClientBuilder::new(format!("bob{time}")).use_sqlite().build().await?,
+    );
 
     let invite = vec![bob.user_id().unwrap().to_owned()];
     let request = assign!(CreateRoomRequest::new(), {
@@ -37,7 +258,9 @@ async fn test_encryption_missing_member_keys() -> Result<()> {
     warn!("bob has joined");
 
     // New person joins the room.
-    let carl = get_sync_aware_client_for_user(format!("carl{time}").to_owned()).await?;
+    let carl = SyncTokenAwareClient::new(
+        TestClientBuilder::new(format!("carl{time}")).use_sqlite().build().await?,
+    );
     alice_room.invite_user_by_id(carl.user_id().unwrap()).await?;
 
     carl.sync_once().await?;
@@ -133,8 +356,12 @@ async fn test_encryption_missing_member_keys() -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_failed_members_response() -> Result<()> {
     let time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
-    let alice = get_sync_aware_client_for_user(format!("alice{time}")).await?;
-    let bob = get_sync_aware_client_for_user(format!("bob{time}")).await?;
+    let alice = SyncTokenAwareClient::new(
+        TestClientBuilder::new(format!("alice{time}")).use_sqlite().build().await?,
+    );
+    let bob = SyncTokenAwareClient::new(
+        TestClientBuilder::new(format!("bob{time}")).use_sqlite().build().await?,
+    );
 
     let invite = vec![bob.user_id().unwrap().to_owned()];
     let request = assign!(CreateRoomRequest::new(), {

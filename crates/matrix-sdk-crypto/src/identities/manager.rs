@@ -1050,6 +1050,7 @@ pub(crate) mod testing {
             .expect("Can't parse the keys upload response")
     }
 
+    /// Mocked response to a /keys/query request.
     pub fn own_key_query_with_user_id(user_id: &UserId) -> KeyQueryResponse {
         let data = response_from_file(&json!({
           "device_keys": {
