@@ -65,6 +65,10 @@ where
         Self { request_meta: Some(request_meta), _phantom: PhantomData }
     }
 
+    pub(crate) fn null() -> Self {
+        Self { request_meta: None, _phantom: PhantomData }
+    }
+
     pub(crate) fn then(
         self,
         response_handler: impl FnOnce(Result<T, String>, &mut WidgetMachine) -> Vec<Action>

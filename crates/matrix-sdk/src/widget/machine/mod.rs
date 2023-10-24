@@ -16,9 +16,9 @@
 
 #![warn(unreachable_pub)]
 
-use std::fmt;
+use std::{fmt, iter, time::Duration};
 
-use indexmap::{map::Entry, IndexMap};
+use indexmap::IndexMap;
 use ruma::{
     serde::{JsonObject, Raw},
     OwnedRoomId,
@@ -39,6 +39,7 @@ use self::{
     },
     incoming::{IncomingWidgetMessage, IncomingWidgetMessageKind},
     openid::{OpenIdResponse, OpenIdState},
+    pending::{PendingRequests, RequestLimits},
     to_widget::{
         NotifyCapabilitiesChanged, NotifyNewMatrixEvent, NotifyOpenIdChanged, RequestCapabilities,
         ToWidgetRequest, ToWidgetRequestHandle, ToWidgetResponse,
@@ -50,11 +51,13 @@ use super::{
     filter::{MatrixEventContent, MatrixEventFilterInput},
     Capabilities, StateKeySelector,
 };
+use crate::widget::EventFilter;
 
 mod driver_req;
 mod from_widget;
 mod incoming;
 mod openid;
+mod pending;
 #[cfg(test)]
 mod tests;
 mod to_widget;
@@ -102,8 +105,8 @@ pub(crate) enum Action {
 pub(crate) struct WidgetMachine {
     widget_id: String,
     room_id: OwnedRoomId,
-    pending_to_widget_requests: IndexMap<Uuid, ToWidgetRequestMeta>,
-    pending_matrix_driver_requests: IndexMap<Uuid, MatrixDriverRequestMeta>,
+    pending_to_widget_requests: PendingRequests<ToWidgetRequestMeta>,
+    pending_matrix_driver_requests: PendingRequests<MatrixDriverRequestMeta>,
     capabilities: CapabilitiesState,
 }
 
@@ -115,12 +118,18 @@ impl WidgetMachine {
         widget_id: String,
         room_id: OwnedRoomId,
         init_on_content_load: bool,
+        limits: Option<RequestLimits>,
     ) -> (Self, Vec<Action>) {
+        let limits = limits.unwrap_or_else(|| RequestLimits {
+            max_pending_requests: 15,
+            response_timeout: Duration::from_secs(10),
+        });
+
         let mut machine = Self {
             widget_id,
             room_id,
-            pending_to_widget_requests: IndexMap::new(),
-            pending_matrix_driver_requests: IndexMap::new(),
+            pending_to_widget_requests: PendingRequests::new(limits.clone()),
+            pending_matrix_driver_requests: PendingRequests::new(limits),
             capabilities: CapabilitiesState::Unset,
         };
 
@@ -130,6 +139,10 @@ impl WidgetMachine {
 
     /// Main entry point to drive the state machine.
     pub(crate) fn process(&mut self, event: IncomingMessage) -> Vec<Action> {
+        // Clean up stale requests.
+        self.pending_to_widget_requests.remove_expired();
+        self.pending_matrix_driver_requests.remove_expired();
+
         match event {
             IncomingMessage::WidgetMessage(raw) => self.process_widget_message(&raw),
             IncomingMessage::MatrixDriverResponse { request_id, response } => {
@@ -143,7 +156,10 @@ impl WidgetMachine {
 
                 capabilities
                     .raw_event_matches_read_filter(&event)
-                    .then(|| vec![self.send_to_widget_request(NotifyNewMatrixEvent(event)).1])
+                    .then(|| {
+                        let action = self.send_to_widget_request(NotifyNewMatrixEvent(event)).1;
+                        action.map(|a| vec![a]).unwrap_or_default()
+                    })
                     .unwrap_or_default()
             }
         }
@@ -200,9 +216,10 @@ impl WidgetMachine {
                     .unwrap_or(response)
             }
 
-            FromWidgetRequest::ReadEvent(req) => {
-                vec![self.process_read_event_request(req, raw_request)]
-            }
+            FromWidgetRequest::ReadEvent(req) => self
+                .process_read_event_request(req, raw_request)
+                .map(|a| vec![a])
+                .unwrap_or_default(),
 
             FromWidgetRequest::SendEvent(req) => self
                 .process_send_event_request(req, raw_request)
@@ -220,11 +237,12 @@ impl WidgetMachine {
                         }
                     };
 
-                    vec![machine.send_to_widget_request(NotifyOpenIdChanged(response)).1]
+                    let action = machine.send_to_widget_request(NotifyOpenIdChanged(response)).1;
+                    action.map(|a| vec![a]).unwrap_or_default()
                 });
 
                 let response = self.send_from_widget_response(raw_request, OpenIdResponse::Pending);
-                vec![response, request_action]
+                iter::once(response).chain(request_action).collect()
             }
         }
     }
@@ -233,38 +251,37 @@ impl WidgetMachine {
         &mut self,
         request: ReadEventRequest,
         raw_request: Raw<FromWidgetRequest>,
-    ) -> Action {
+    ) -> Option<Action> {
         let CapabilitiesState::Negotiated(capabilities) = &self.capabilities else {
             let text = "Received read event request before capabilities were negotiated";
-            return self.send_from_widget_error_response(raw_request, text);
+            return Some(self.send_from_widget_error_response(raw_request, text));
         };
 
         match request {
             ReadEventRequest::ReadMessageLikeEvent { event_type, limit } => {
-                if !capabilities
-                    .read
-                    .iter()
-                    .any(|filter| filter.matches_message_like_event_type(&event_type))
-                {
-                    self.send_from_widget_error_response(raw_request, "Not allowed")
-                } else {
-                    const DEFAULT_EVENT_LIMIT: u32 = 50;
-                    let limit = limit.unwrap_or(DEFAULT_EVENT_LIMIT);
-                    let request = ReadMessageLikeEventRequest { event_type, limit };
-                    let (request, action) = self.send_matrix_driver_request(request);
-                    request.then(|result, machine| {
-                        let response = result.and_then(|mut events| {
-                            let CapabilitiesState::Negotiated(capabilities) = &machine.capabilities else {
-                                return Err("Received read event request before capabilities were negotiated".into());
-                            };
-
-                            events.retain(|e| capabilities.raw_event_matches_read_filter(e));
-                            Ok(ReadEventResponse { events })
-                        });
-                        vec![machine.send_from_widget_result_response(raw_request, response)]
-                    });
-                    action
+                let filter_fn = |f: &EventFilter| f.matches_message_like_event_type(&event_type);
+                if !capabilities.read.iter().any(filter_fn) {
+                    return Some(self.send_from_widget_error_response(raw_request, "Not allowed"));
                 }
+
+                const DEFAULT_EVENT_LIMIT: u32 = 50;
+                let limit = limit.unwrap_or(DEFAULT_EVENT_LIMIT);
+                let request = ReadMessageLikeEventRequest { event_type, limit };
+                let (request, action) = self.send_matrix_driver_request(request);
+                request.then(|result, machine| {
+                    let response = result.and_then(|mut events| {
+                        let CapabilitiesState::Negotiated(capabilities) = &machine.capabilities
+                        else {
+                            let err = "Received read event request before capabilities negotiation";
+                            return Err(err.into());
+                        };
+
+                        events.retain(|e| capabilities.raw_event_matches_read_filter(e));
+                        Ok(ReadEventResponse { events })
+                    });
+                    vec![machine.send_from_widget_result_response(raw_request, response)]
+                });
+                action
             }
             ReadEventRequest::ReadStateEvent { event_type, state_key } => {
                 let allowed = match &state_key {
@@ -294,7 +311,7 @@ impl WidgetMachine {
                     });
                     action
                 } else {
-                    self.send_from_widget_error_response(raw_request, "Not allowed")
+                    Some(self.send_from_widget_error_response(raw_request, "Not allowed"))
                 }
             }
         }
@@ -321,19 +338,17 @@ impl WidgetMachine {
             }),
         };
 
-        let action = if capabilities.send.iter().any(|filter| filter.matches(&filter_in)) {
-            let (request, action) = self.send_matrix_driver_request(request);
-            request.then(|result, machine| {
-                let room_id = &machine.room_id;
-                let response = result.map(|event_id| SendEventResponse { event_id, room_id });
-                vec![machine.send_from_widget_result_response(raw_request, response)]
-            });
-            action
-        } else {
-            self.send_from_widget_error_response(raw_request, "Not allowed")
-        };
+        if !capabilities.send.iter().any(|filter| filter.matches(&filter_in)) {
+            return Some(self.send_from_widget_error_response(raw_request, "Not allowed"));
+        }
 
-        Some(action)
+        let (request, action) = self.send_matrix_driver_request(request);
+        request.then(|result, machine| {
+            let room_id = &machine.room_id;
+            let response = result.map(|event_id| SendEventResponse { event_id, room_id });
+            vec![machine.send_from_widget_result_response(raw_request, response)]
+        });
+        action
     }
 
     #[instrument(skip_all, fields(?request_id))]
@@ -347,9 +362,12 @@ impl WidgetMachine {
             return Vec::new();
         };
 
-        let Some(request) = self.pending_to_widget_requests.remove(&request_id) else {
-            warn!("Received response for an unknown request");
-            return Vec::new();
+        let request = match self.pending_to_widget_requests.extract(&request_id) {
+            Ok(r) => r,
+            Err(e) => {
+                warn!("{e}");
+                return Vec::new();
+            }
         };
 
         if response.action != request.action {
@@ -372,12 +390,16 @@ impl WidgetMachine {
         request_id: Uuid,
         response: Result<MatrixDriverResponse, String>,
     ) -> Vec<Action> {
-        let Some(request) = self.pending_matrix_driver_requests.remove(&request_id) else {
-            error!("Received response for an unknown request");
-            return Vec::new();
-        };
-
-        request.response_fn.map(|response_fn| response_fn(response, self)).unwrap_or_default()
+        match self.pending_matrix_driver_requests.extract(&request_id) {
+            Ok(request) => request
+                .response_fn
+                .map(|response_fn| response_fn(response, self))
+                .unwrap_or_default(),
+            Err(e) => {
+                warn!("Could not find matching pending response: {e}");
+                Vec::new()
+            }
+        }
     }
 
     #[instrument(skip_all, fields(request_id))]
@@ -419,7 +441,7 @@ impl WidgetMachine {
     fn send_to_widget_request<T: ToWidgetRequest>(
         &mut self,
         to_widget_request: T,
-    ) -> (ToWidgetRequestHandle<'_, T::ResponseData>, Action) {
+    ) -> (ToWidgetRequestHandle<'_, T::ResponseData>, Option<Action>) {
         #[derive(Serialize)]
         #[serde(tag = "api", rename = "toWidget", rename_all = "camelCase")]
         struct ToWidgetRequestSerHelper<'a, T> {
@@ -438,27 +460,30 @@ impl WidgetMachine {
         };
 
         let request_meta = ToWidgetRequestMeta::new(T::ACTION);
-        let Entry::Vacant(entry) = self.pending_to_widget_requests.entry(request_id) else {
-            panic!("uuid collision");
+        let Some(meta) = self.pending_to_widget_requests.insert(request_id, request_meta) else {
+            warn!("Reached limits of pending requests for toWidget requests");
+            return (ToWidgetRequestHandle::null(), None);
         };
-        let meta = entry.insert(request_meta);
 
         let serialized = serde_json::to_string(&full_request).expect("Failed to serialize request");
-        (ToWidgetRequestHandle::new(meta), Action::SendToWidget(serialized))
+        (ToWidgetRequestHandle::new(meta), Some(Action::SendToWidget(serialized)))
     }
 
     #[instrument(skip_all)]
     fn send_matrix_driver_request<T: MatrixDriverRequest>(
         &mut self,
         request: T,
-    ) -> (MatrixDriverRequestHandle<'_, T::Response>, Action) {
+    ) -> (MatrixDriverRequestHandle<'_, T::Response>, Option<Action>) {
         let request_id = Uuid::new_v4();
-        let Entry::Vacant(entry) = self.pending_matrix_driver_requests.entry(request_id) else {
-            panic!("uuid collision");
+        let request_meta = MatrixDriverRequestMeta::new();
+        let Some(meta) = self.pending_matrix_driver_requests.insert(request_id, request_meta)
+        else {
+            warn!("Reached limits of pending requests for matrix driver requests");
+            return (MatrixDriverRequestHandle::null(), None);
         };
-        let meta = entry.insert(MatrixDriverRequestMeta::new());
+
         let action = Action::MatrixDriverRequest { request_id, data: request.into() };
-        (MatrixDriverRequestHandle::new(meta), action)
+        (MatrixDriverRequestHandle::new(meta), Some(action))
     }
 
     fn negotiate_capabilities(&mut self) -> Vec<Action> {
@@ -485,17 +510,13 @@ impl WidgetMachine {
                 let update = NotifyCapabilitiesChanged { approved, requested };
                 let (_request, action) = machine.send_to_widget_request(update);
 
-                (subscribe_required)
-                    .then(|| Action::Subscribe)
-                    .into_iter()
-                    .chain(Some(action))
-                    .collect()
+                (subscribe_required).then(|| Action::Subscribe).into_iter().chain(action).collect()
             });
 
-            vec![action]
+            action.map(|a| vec![a]).unwrap_or_default()
         });
 
-        unsubscribe_required.then(|| Action::Unsubscribe).into_iter().chain(Some(action)).collect()
+        unsubscribe_required.then(|| Action::Unsubscribe).into_iter().chain(action).collect()
     }
 }
 

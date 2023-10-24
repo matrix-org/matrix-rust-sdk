@@ -21,8 +21,8 @@ use crate::widget::machine::{Action, IncomingMessage, WidgetMachine};
 
 #[test]
 fn machine_sends_error_for_unknown_request() {
-    let (mut machine, _) =
-        WidgetMachine::new(WIDGET_ID.to_owned(), owned_room_id!("!a98sd12bjh:example.org"), true);
+    let room_id = owned_room_id!("!a98sd12bjh:example.org");
+    let (mut machine, _) = WidgetMachine::new(WIDGET_ID.to_owned(), room_id, true, None);
 
     let actions = machine.process(IncomingMessage::WidgetMessage(json_string!({
         "api": "fromWidget",
@@ -47,8 +47,12 @@ fn machine_sends_error_for_unknown_request() {
 
 #[test]
 fn read_messages_without_capabilities() {
-    let (mut machine, _) =
-        WidgetMachine::new(WIDGET_ID.to_owned(), owned_room_id!("!a98sd12bjh:example.org"), true);
+    let (mut machine, _) = WidgetMachine::new(
+        WIDGET_ID.to_owned(),
+        owned_room_id!("!a98sd12bjh:example.org"),
+        true,
+        None,
+    );
 
     let actions = machine.process(IncomingMessage::WidgetMessage(json_string!({
         "api": "fromWidget",
@@ -74,8 +78,8 @@ fn read_messages_without_capabilities() {
 
 #[test]
 fn read_request_for_non_allowed_message_like_events() {
-    let (mut machine, actions) =
-        WidgetMachine::new(WIDGET_ID.to_owned(), owned_room_id!("!a98sd12bjh:example.org"), false);
+    let room_id = owned_room_id!("!a98sd12bjh:example.org");
+    let (mut machine, actions) = WidgetMachine::new(WIDGET_ID.to_owned(), room_id, false, None);
     assert_capabilities_dance(&mut machine, actions, None);
 
     let actions = machine.process(IncomingMessage::WidgetMessage(json_string!({
@@ -99,8 +103,8 @@ fn read_request_for_non_allowed_message_like_events() {
 
 #[test]
 fn read_request_for_non_allowed_state_events() {
-    let (mut machine, actions) =
-        WidgetMachine::new(WIDGET_ID.to_owned(), owned_room_id!("!a98sd12bjh:example.org"), false);
+    let room_id = owned_room_id!("!a98sd12bjh:example.org");
+    let (mut machine, actions) = WidgetMachine::new(WIDGET_ID.to_owned(), room_id, false, None);
     assert_capabilities_dance(&mut machine, actions, None);
 
     let actions = machine.process(IncomingMessage::WidgetMessage(json_string!({
@@ -125,8 +129,8 @@ fn read_request_for_non_allowed_state_events() {
 
 #[test]
 fn send_request_for_non_allowed_state_events() {
-    let (mut machine, actions) =
-        WidgetMachine::new(WIDGET_ID.to_owned(), owned_room_id!("!a98sd12bjh:example.org"), false);
+    let room_id = owned_room_id!("!a98sd12bjh:example.org");
+    let (mut machine, actions) = WidgetMachine::new(WIDGET_ID.to_owned(), room_id, false, None);
     assert_capabilities_dance(
         &mut machine,
         actions,
@@ -157,8 +161,8 @@ fn send_request_for_non_allowed_state_events() {
 
 #[test]
 fn send_request_for_non_allowed_message_like_events() {
-    let (mut machine, actions) =
-        WidgetMachine::new(WIDGET_ID.to_owned(), owned_room_id!("!a98sd12bjh:example.org"), false);
+    let room_id = owned_room_id!("!a98sd12bjh:example.org");
+    let (mut machine, actions) = WidgetMachine::new(WIDGET_ID.to_owned(), room_id, false, None);
     assert_capabilities_dance(
         &mut machine,
         actions,
@@ -189,9 +193,8 @@ fn send_request_for_non_allowed_message_like_events() {
 
 #[test]
 fn read_request_for_message_like_with_disallowed_msg_type_fails() {
-    let (mut machine, actions) =
-        WidgetMachine::new(WIDGET_ID.to_owned(), owned_room_id!("!a98sd12bjh:example.org"), false);
-
+    let room_id = owned_room_id!("!a98sd12bjh:example.org");
+    let (mut machine, actions) = WidgetMachine::new(WIDGET_ID.to_owned(), room_id, false, None);
     assert_capabilities_dance(
         &mut machine,
         actions,
