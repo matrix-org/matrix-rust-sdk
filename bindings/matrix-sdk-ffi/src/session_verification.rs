@@ -55,13 +55,10 @@ pub struct SessionVerificationController {
 #[uniffi::export(async_runtime = "tokio")]
 impl SessionVerificationController {
     pub async fn is_verified(&self) -> Result<bool, ClientError> {
-        let identity = self
-            .encryption
-            .get_user_identity(self.user_identity.user_id())
-            .await?
-            .context("Failed retrieving user identity")?;
+        let device =
+            self.encryption.get_own_device().await?.context("Failed retrieving own device")?;
 
-        Ok(identity.is_verified())
+        Ok(device.is_cross_signed_by_owner())
     }
 
     pub fn set_delegate(&self, delegate: Option<Box<dyn SessionVerificationControllerDelegate>>) {
