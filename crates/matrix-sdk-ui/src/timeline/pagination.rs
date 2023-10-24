@@ -269,6 +269,7 @@ pub enum PaginationOptionsInner<'a> {
     },
 }
 
+#[cfg(not(tarpaulin_include))]
 impl<'a> fmt::Debug for PaginationOptions<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.inner {
