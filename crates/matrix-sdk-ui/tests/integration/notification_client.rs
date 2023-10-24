@@ -3,6 +3,7 @@ use std::{
     time::Duration,
 };
 
+use assert_matches::assert_matches;
 use matrix_sdk::config::SyncSettings;
 use matrix_sdk_test::{async_test, sync_timeline_event, JoinedRoomBuilder, SyncResponseBuilder};
 use matrix_sdk_ui::{
@@ -102,7 +103,7 @@ async fn test_notification_client_with_context() {
 
     let item = item.expect("the notification should be found");
 
-    assert_matches::assert_matches!(item.event, NotificationEvent::Timeline(event) => {
+    assert_matches!(item.event, NotificationEvent::Timeline(event) => {
         assert_eq!(event.event_type(), TimelineEventType::RoomMessage);
     });
     assert_eq!(item.sender_display_name.as_deref(), Some("John Mastodon"));
@@ -300,7 +301,7 @@ async fn test_notification_client_sliding_sync() {
         panic!("notification not found");
     };
 
-    assert_matches::assert_matches!(item.event, NotificationEvent::Timeline(event) => {
+    assert_matches!(item.event, NotificationEvent::Timeline(event) => {
         assert_eq!(event.event_type(), TimelineEventType::RoomMessage);
     });
     assert_eq!(item.sender_display_name.as_deref(), Some(sender_display_name));
