@@ -1,6 +1,6 @@
 use std::sync::{Arc, RwLock};
 
-use anyhow::{anyhow, Context as _};
+use anyhow::Context as _;
 use futures_util::StreamExt;
 use matrix_sdk::{
     encryption::{
