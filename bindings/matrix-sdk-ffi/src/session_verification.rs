@@ -56,7 +56,7 @@ pub struct SessionVerificationController {
 impl SessionVerificationController {
     pub async fn is_verified(&self) -> Result<bool, ClientError> {
         let device =
-            self.encryption.get_own_device().await?.context("Failed retrieving own device")?;
+            self.encryption.get_own_device().await?.context("Our own device is missing")?;
 
         Ok(device.is_cross_signed_by_owner())
     }
