@@ -1,5 +1,6 @@
 use std::sync::{Arc, RwLock};
 
+use anyhow::{anyhow, Context as _};
 use futures_util::StreamExt;
 use matrix_sdk::{
     encryption::{
@@ -53,8 +54,14 @@ pub struct SessionVerificationController {
 
 #[uniffi::export(async_runtime = "tokio")]
 impl SessionVerificationController {
-    pub fn is_verified(&self) -> bool {
-        self.user_identity.is_verified()
+    pub async fn is_verified(&self) -> Result<bool, ClientError> {
+        let identity = self
+            .encryption
+            .get_user_identity(self.user_identity.user_id())
+            .await?
+            .context("Failed retrieving user identity")?;
+
+        Ok(identity.is_verified())
     }
 
     pub fn set_delegate(&self, delegate: Option<Box<dyn SessionVerificationControllerDelegate>>) {
