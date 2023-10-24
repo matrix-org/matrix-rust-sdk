@@ -358,3 +358,68 @@ enum PaginateBackwardsOnceResult {
     /// Overflow in reporting the number of events / items processed.
     ResultOverflow,
 }
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        ops::ControlFlow,
+        sync::atomic::{AtomicU8, Ordering},
+    };
+
+    use super::{PaginationOptions, PaginationOutcome};
+
+    fn bump_outcome(outcome: &mut PaginationOutcome) {
+        outcome.events_received = 8;
+        outcome.items_added = 6;
+        outcome.items_updated = 1;
+        outcome.total_events_received += 8;
+        outcome.total_items_added += 6;
+        outcome.total_items_updated += 1;
+    }
+
+    #[test]
+    fn single_request_limits() {
+        let mut opts = PaginationOptions::single_request(10);
+        let mut outcome = PaginationOutcome::new();
+        assert_eq!(opts.next_event_limit(outcome), Some(10));
+
+        bump_outcome(&mut outcome);
+        assert_eq!(opts.next_event_limit(outcome), None);
+    }
+
+    #[test]
+    fn until_num_items_limits() {
+        let mut opts = PaginationOptions::until_num_items(10, 10);
+        let mut outcome = PaginationOutcome::new();
+        assert_eq!(opts.next_event_limit(outcome), Some(10));
+
+        bump_outcome(&mut outcome);
+        assert_eq!(opts.next_event_limit(outcome), Some(10));
+
+        bump_outcome(&mut outcome);
+        assert_eq!(opts.next_event_limit(outcome), None);
+    }
+
+    #[test]
+    fn custom_limits() {
+        let num_calls = AtomicU8::new(0);
+        let mut opts = PaginationOptions::custom(8, |outcome| {
+            num_calls.fetch_add(1, Ordering::AcqRel);
+            if outcome.total_items_added - outcome.total_items_updated < 6 {
+                ControlFlow::Continue(12)
+            } else {
+                ControlFlow::Break(())
+            }
+        });
+        let mut outcome = PaginationOutcome::new();
+        assert_eq!(opts.next_event_limit(outcome), Some(8));
+
+        bump_outcome(&mut outcome);
+        assert_eq!(opts.next_event_limit(outcome), Some(12));
+
+        bump_outcome(&mut outcome);
+        assert_eq!(opts.next_event_limit(outcome), None);
+
+        assert_eq!(num_calls.load(Ordering::Acquire), 2);
+    }
+}
