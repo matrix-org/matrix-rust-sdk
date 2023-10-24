@@ -4,12 +4,12 @@ use matrix_sdk::{
     ruma::api::client::room::create_room::v3::Request as CreateRoomRequest, RoomState,
 };
 
-use crate::helpers::get_client_for_user;
+use crate::helpers::TestClientBuilder;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_invitation_details() -> Result<()> {
-    let tamatoa = get_client_for_user("tamatoa".to_owned(), true).await?;
-    let sebastian = get_client_for_user("sebastian".to_owned(), true).await?;
+    let tamatoa = TestClientBuilder::new("tamatoa".to_owned()).use_sqlite().build().await?;
+    let sebastian = TestClientBuilder::new("sebastian".to_owned()).use_sqlite().build().await?;
 
     let invite = vec![sebastian.user_id().expect("sebastian has a userid!").to_owned()];
     // create a room and invite sebastian;
