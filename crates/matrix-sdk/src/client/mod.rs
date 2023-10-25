@@ -517,6 +517,13 @@ impl Client {
         Oidc::new(self.clone())
     }
 
+    pub async fn logout(&self) -> Result<()> {
+        let request = ruma::api::client::session::logout::v3::Request::new();
+        self.send(request, None).await?;
+
+        Ok(())
+    }
+
     /// Register a handler for a specific event type.
     ///
     /// The handler is a function or closure with one or more arguments. The
