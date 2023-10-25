@@ -532,7 +532,7 @@ impl_crypto_store! {
 
         let account_pickle = if let Some(account) = changes.account {
             *self.static_account.write().unwrap() = Some(account.static_data().clone());
-            Some(account.pickle().await)
+            Some(account.pickle())
         } else {
             None
         };

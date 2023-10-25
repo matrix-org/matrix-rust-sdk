@@ -702,6 +702,7 @@ impl BaseClient {
         // that case we already received this response and there's nothing to
         // do.
         if self.store.sync_token.read().await.as_ref() == Some(&response.next_batch) {
+            info!("Got the same sync response twice");
             return Ok(SyncResponse::default());
         }
 

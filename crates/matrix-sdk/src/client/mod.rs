@@ -84,7 +84,10 @@ use crate::{
     TransmissionProgress,
 };
 #[cfg(feature = "e2e-encryption")]
-use crate::{encryption::Encryption, store_locks::CrossProcessStoreLock};
+use crate::{
+    encryption::{Encryption, EncryptionSettings},
+    store_locks::CrossProcessStoreLock,
+};
 
 mod builder;
 mod futures;
@@ -217,13 +220,16 @@ pub(crate) struct ClientInner {
     /// wait for the sync to get the data to fetch a room object from the state
     /// store.
     pub(crate) sync_beat: event_listener::Event,
+    /// End-to-end encryption settings.
+    #[cfg(feature = "e2e-encryption")]
+    pub(crate) encryption_settings: EncryptionSettings,
 }
 
 impl ClientInner {
     /// Create a new `ClientInner`.
     ///
-    /// All the fields passed here are those that must be cloned upon
-    /// instantiation of a sub-client, e.g. a client specialized for
+    /// All the fields passed as parameters here are those that must be cloned
+    /// upon instantiation of a sub-client, e.g. a client specialized for
     /// notifications.
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -234,6 +240,7 @@ impl ClientInner {
         base_client: BaseClient,
         server_versions: Option<Box<[MatrixVersion]>>,
         respect_login_well_known: bool,
+        #[cfg(feature = "e2e-encryption")] encryption_settings: EncryptionSettings,
     ) -> Self {
         Self {
             homeserver: StdRwLock::new(homeserver),
@@ -250,6 +257,8 @@ impl ClientInner {
             room_update_channels: Default::default(),
             respect_login_well_known,
             sync_beat: event_listener::Event::new(),
+            #[cfg(feature = "e2e-encryption")]
+            encryption_settings,
         }
     }
 }
@@ -1913,6 +1922,8 @@ impl Client {
                 self.inner.base_client.clone_with_in_memory_state_store(),
                 self.inner.server_versions.get().cloned(),
                 self.inner.respect_login_well_known,
+                #[cfg(feature = "e2e-encryption")]
+                self.inner.encryption_settings,
             )),
         };
 
@@ -1939,6 +1950,7 @@ pub(crate) mod tests {
     use matrix_sdk_base::RoomState;
     use matrix_sdk_test::{
         async_test, test_json, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder,
+        DEFAULT_TEST_ROOM_ID,
     };
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -2050,11 +2062,10 @@ pub(crate) mod tests {
             .build_sync_response();
 
         client.inner.base_client.receive_sync_response(response).await.unwrap();
-        let room_id = &test_json::DEFAULT_SYNC_ROOM_ID;
 
         assert_eq!(client.homeserver(), Url::parse(&server.uri()).unwrap());
 
-        let room = client.get_room(room_id).unwrap();
+        let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
         assert_eq!(room.state(), RoomState::Joined);
     }
 

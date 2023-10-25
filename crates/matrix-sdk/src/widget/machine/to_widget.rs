@@ -14,11 +14,12 @@
 
 use std::marker::PhantomData;
 
+use ruma::{events::AnyTimelineEvent, serde::Raw};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::value::RawValue as RawJsonValue;
 use tracing::error;
 
-use super::{ToWidgetRequestMeta, WidgetMachine};
+use super::{openid::OpenIdResponse, Action, ToWidgetRequestMeta, WidgetMachine};
 use crate::widget::Capabilities;
 
 /// A handle to a pending `toWidget` request.
@@ -35,19 +36,18 @@ where
         Self { request_meta: Some(request_meta), _phantom: PhantomData }
     }
 
-    pub(crate) fn null() -> Self {
-        Self { request_meta: None, _phantom: PhantomData }
-    }
-
     pub(crate) fn then(
         self,
-        response_handler: impl FnOnce(T, &mut WidgetMachine) + Send + 'static,
+        response_handler: impl FnOnce(T, &mut WidgetMachine) -> Vec<Action> + Send + 'static,
     ) {
         if let Some(request_meta) = self.request_meta {
             request_meta.response_fn = Some(Box::new(move |raw_response_data, machine| {
                 match serde_json::from_str(raw_response_data.get()) {
                     Ok(response_data) => response_handler(response_data, machine),
-                    Err(e) => error!("Failed to deserialize toWidget response: {e}"),
+                    Err(e) => {
+                        error!("Failed to deserialize toWidget response: {e}");
+                        Vec::new()
+                    }
                 }
             }));
         }
@@ -80,21 +80,49 @@ pub(crate) trait ToWidgetRequest: Serialize {
 
 /// Request the widget to send the list of capabilities that it wants to have.
 #[derive(Serialize)]
-pub(crate) struct RequestPermissions {}
+pub(super) struct RequestCapabilities {}
 
-impl ToWidgetRequest for RequestPermissions {
+impl ToWidgetRequest for RequestCapabilities {
     const ACTION: &'static str = "capabilities";
-    type ResponseData = Capabilities;
+    type ResponseData = RequestCapabilitiesResponse;
+}
+
+#[derive(Deserialize)]
+pub(super) struct RequestCapabilitiesResponse {
+    pub(super) capabilities: Capabilities,
 }
 
 /// Notify the widget that the list of the granted capabilities has changed.
 #[derive(Serialize)]
-pub(crate) struct NotifyPermissionsChanged {
-    pub(crate) requested: Capabilities,
-    pub(crate) approved: Capabilities,
+pub(super) struct NotifyCapabilitiesChanged {
+    pub(super) requested: Capabilities,
+    pub(super) approved: Capabilities,
 }
 
-impl ToWidgetRequest for NotifyPermissionsChanged {
+impl ToWidgetRequest for NotifyCapabilitiesChanged {
     const ACTION: &'static str = "notify_capabilities";
-    type ResponseData = ();
+    type ResponseData = Empty;
 }
+
+/// Notify the widget that the OpenID credentials changed.
+#[derive(Serialize)]
+pub(crate) struct NotifyOpenIdChanged(pub(crate) OpenIdResponse);
+
+impl ToWidgetRequest for NotifyOpenIdChanged {
+    const ACTION: &'static str = "openid_credentials";
+    type ResponseData = OpenIdResponse;
+}
+
+/// Notify the widget that we received a new matrix event.
+/// This is a "response" to the widget subscribing to the events in the room.
+#[derive(Serialize)]
+#[serde(transparent)]
+pub(crate) struct NotifyNewMatrixEvent(pub(crate) Raw<AnyTimelineEvent>);
+
+impl ToWidgetRequest for NotifyNewMatrixEvent {
+    const ACTION: &'static str = "send_event";
+    type ResponseData = Empty;
+}
+
+#[derive(Deserialize)]
+pub(crate) struct Empty {}

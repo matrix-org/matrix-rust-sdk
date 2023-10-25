@@ -1,16 +1,43 @@
-
 version: '3'
 
 services:
+
   synapse:
     build: .
     restart: "no"
     healthcheck:
       disable: true
     volumes:
-      - matrix-rust-sdk-ci-data:/data
+      - ./data/synapse:/data
     ports:
       - 8228:8008/tcp
 
-volumes:
-  matrix-rust-sdk-ci-data:
+  postgres:
+    image: docker.io/postgres
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_DB: syncv3
+    healthcheck:
+      test: ["CMD", "pg_isready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - ./data/db:/var/lib/postgresql/data
+
+  sliding-sync-proxy:
+    image: ghcr.io/matrix-org/sliding-sync:v0.99.11
+    depends_on:
+      postgres:
+        condition: service_healthy
+    links:
+      - synapse
+      - postgres
+    environment:
+      SYNCV3_SERVER: http://synapse:8008
+      SYNCV3_SECRET: SUPER_SECRET
+      SYNCV3_BINDADDR: ":8338"
+      SYNCV3_DB: "user=postgres password=postgres dbname=syncv3 sslmode=disable host=postgres"
+    ports:
+      - 8338:8338

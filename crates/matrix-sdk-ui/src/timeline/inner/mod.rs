@@ -291,12 +291,26 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         Ok(result)
     }
 
-    pub(super) async fn set_initial_user_receipt(
-        &mut self,
-        receipt_type: ReceiptType,
-        receipt: (OwnedEventId, Receipt),
-    ) {
+    pub(super) async fn populate_initial_user_receipt(&mut self, receipt_type: ReceiptType) {
         let own_user_id = self.room_data_provider.own_user_id().to_owned();
+
+        let mut read_receipt = self
+            .room_data_provider
+            .user_receipt(receipt_type.clone(), ReceiptThread::Unthreaded, &own_user_id)
+            .await;
+
+        // Fallback to the one in the main thread.
+        if read_receipt.is_none() {
+            read_receipt = self
+                .room_data_provider
+                .user_receipt(receipt_type.clone(), ReceiptThread::Main, &own_user_id)
+                .await;
+        }
+
+        let Some(read_receipt) = read_receipt else {
+            return;
+        };
+
         self.state
             .write()
             .await
@@ -304,7 +318,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             .users_read_receipts
             .entry(own_user_id)
             .or_default()
-            .insert(receipt_type, receipt);
+            .insert(receipt_type, read_receipt);
     }
 
     pub(super) async fn add_initial_events(
@@ -811,6 +825,16 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         let own_user_id = self.room_data_provider.own_user_id();
         self.state.write().await.handle_read_receipts(receipt_event_content, own_user_id);
     }
+
+    /// Get the latest read receipt for the given user.
+    ///
+    /// Useful to get the latest read receipt, whether it's private or public.
+    pub(super) async fn latest_user_read_receipt(
+        &self,
+        user_id: &UserId,
+    ) -> Option<(OwnedEventId, Receipt)> {
+        self.state.read().await.latest_user_read_receipt(user_id, &self.room_data_provider).await
+    }
 }
 
 impl TimelineInner {
@@ -910,17 +934,6 @@ impl TimelineInner {
         state.items.set(index, timeline_item(item, internal_id));
 
         Ok(())
-    }
-
-    /// Get the latest read receipt for the given user.
-    ///
-    /// Useful to get the latest read receipt, whether it's private or public.
-    pub(super) async fn latest_user_read_receipt(
-        &self,
-        user_id: &UserId,
-    ) -> Option<(OwnedEventId, Receipt)> {
-        let room = self.room();
-        self.state.read().await.latest_user_read_receipt(user_id, room).await
     }
 
     /// Check whether the given receipt should be sent.

@@ -44,7 +44,7 @@ fn session() -> MatrixSession {
 }
 
 #[async_test]
-async fn login_username_refresh_token() {
+async fn test_login_username_refresh_token() {
     let (client, server) = no_retry_test_client().await;
 
     Mock::given(method("POST"))

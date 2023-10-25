@@ -5,7 +5,7 @@ use matrix_sdk::{config::SyncSettings, notification_settings::RoomNotificationMo
 use matrix_sdk_base::RoomState;
 use matrix_sdk_test::{
     async_test, GlobalAccountDataTestEvent, InvitedRoomBuilder, JoinedRoomBuilder,
-    SyncResponseBuilder,
+    SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
 };
 use ruma::room_id;
 use serde_json::json;
@@ -18,7 +18,6 @@ use crate::{logged_in_client, mock_sync};
 
 #[async_test]
 async fn get_notification_mode() {
-    let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
     let room_no_rules_id = room_id!("!jEsUZKDJdhlrceRyVU:localhost");
     let room_not_joined_id = room_id!("!aBfUOMDJhmtucfVzGa:localhost");
     let (client, server) = logged_in_client().await;
@@ -27,7 +26,7 @@ async fn get_notification_mode() {
 
     // Add the rooms for the tests
     let mut ev_builder = SyncResponseBuilder::new();
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    ev_builder.add_joined_room(JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID));
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_no_rules_id));
     ev_builder.add_invited_room(InvitedRoomBuilder::new(room_not_joined_id));
     ev_builder.add_global_account_data_event(GlobalAccountDataTestEvent::PushRules);
@@ -37,7 +36,7 @@ async fn get_notification_mode() {
     server.reset().await;
 
     // Joined room with a user-defined rule
-    let room = client.get_room(room_id).unwrap();
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
     assert_eq!(room.state(), RoomState::Joined);
     let mode = room.notification_mode().await;
     assert_matches!(mode, Some(RoomNotificationMode::AllMessages));

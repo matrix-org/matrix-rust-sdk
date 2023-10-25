@@ -21,13 +21,10 @@ use crate::widget::machine::{Action, IncomingMessage, WidgetMachine};
 
 #[test]
 fn machine_sends_error_for_unknown_request() {
-    let (mut machine, mut actions_recv) =
+    let (mut machine, _) =
         WidgetMachine::new(WIDGET_ID.to_owned(), owned_room_id!("!a98sd12bjh:example.org"), true);
 
-    // No messages from the machine at first
-    assert_matches!(actions_recv.try_recv(), Err(_));
-
-    machine.process(IncomingMessage::WidgetMessage(json_string!({
+    let actions = machine.process(IncomingMessage::WidgetMessage(json_string!({
         "api": "fromWidget",
         "widgetId": WIDGET_ID,
         "requestId": "invalid-req",
@@ -37,7 +34,7 @@ fn machine_sends_error_for_unknown_request() {
         },
     })));
 
-    let action = actions_recv.try_recv().unwrap();
+    let [action]: [Action; 1] = actions.try_into().unwrap();
     let msg = assert_matches!(action, Action::SendToWidget(msg) => msg);
     let (msg, request_id) = parse_msg(&msg);
     assert_eq!(request_id, "invalid-req");
@@ -50,10 +47,10 @@ fn machine_sends_error_for_unknown_request() {
 
 #[test]
 fn read_messages_without_capabilities() {
-    let (mut machine, mut actions_recv) =
+    let (mut machine, _) =
         WidgetMachine::new(WIDGET_ID.to_owned(), owned_room_id!("!a98sd12bjh:example.org"), true);
 
-    machine.process(IncomingMessage::WidgetMessage(json_string!({
+    let actions = machine.process(IncomingMessage::WidgetMessage(json_string!({
         "api": "fromWidget",
         "widgetId": WIDGET_ID,
         "requestId": "get-me-some-messages",
@@ -63,7 +60,7 @@ fn read_messages_without_capabilities() {
         },
     })));
 
-    let action = actions_recv.try_recv().unwrap();
+    let [action]: [Action; 1] = actions.try_into().unwrap();
     let msg = assert_matches!(action, Action::SendToWidget(msg) => msg);
     let (msg, request_id) = parse_msg(&msg);
     assert_eq!(request_id, "get-me-some-messages");
@@ -77,12 +74,11 @@ fn read_messages_without_capabilities() {
 
 #[test]
 fn read_messages_not_yet_supported() {
-    let (mut machine, mut actions_recv) =
+    let (mut machine, actions) =
         WidgetMachine::new(WIDGET_ID.to_owned(), owned_room_id!("!a98sd12bjh:example.org"), false);
+    assert_capabilities_dance(&mut machine, actions);
 
-    assert_capabilities_dance(&mut machine, &mut actions_recv);
-
-    machine.process(IncomingMessage::WidgetMessage(json_string!({
+    let actions = machine.process(IncomingMessage::WidgetMessage(json_string!({
         "api": "fromWidget",
         "widgetId": WIDGET_ID,
         "requestId": "get-me-some-messages",
@@ -92,7 +88,7 @@ fn read_messages_not_yet_supported() {
         },
     })));
 
-    let action = actions_recv.try_recv().unwrap();
+    let [action]: [Action; 1] = actions.try_into().unwrap();
     let msg = assert_matches!(action, Action::SendToWidget(msg) => msg);
     let (msg, request_id) = parse_msg(&msg);
     assert_eq!(request_id, "get-me-some-messages");

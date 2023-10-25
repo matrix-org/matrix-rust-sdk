@@ -30,6 +30,7 @@ use crate::{logged_in_client, mock_sync};
 mod echo;
 mod edit;
 mod pagination;
+mod profiles;
 mod queue;
 mod read_receipts;
 mod replies;

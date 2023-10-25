@@ -30,10 +30,9 @@ pub(crate) struct OpenIdState {
 }
 
 impl OpenIdState {
-    #[allow(dead_code)]
-    pub(crate) fn new(id: impl Into<String>, ruma: request_openid_token::v3::Response) -> Self {
+    pub(crate) fn new(id: String, ruma: request_openid_token::v3::Response) -> Self {
         Self {
-            original_request_id: id.into(),
+            original_request_id: id,
             access_token: ruma.access_token,
             expires_in: ruma.expires_in,
             matrix_server_name: ruma.matrix_server_name,
@@ -47,7 +46,9 @@ impl OpenIdState {
 #[serde(tag = "state")]
 pub(crate) enum OpenIdResponse {
     Allowed(OpenIdState),
-    Blocked,
+    Blocked {
+        original_request_id: String,
+    },
     #[serde(rename = "request")]
     Pending,
 }
