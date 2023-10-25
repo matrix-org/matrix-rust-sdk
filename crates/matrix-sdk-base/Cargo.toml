@@ -32,7 +32,6 @@ as_variant = { workspace = true }
 assert_matches = { workspace = true, optional = true }
 async-trait = { workspace = true }
 bitflags = "2.1.0"
-dashmap = { workspace = true }
 eyeball = { workspace = true }
 futures-util = { workspace = true }
 http = { workspace = true, optional = true }
