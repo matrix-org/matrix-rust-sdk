@@ -14,7 +14,6 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
-    iter,
     sync::RwLock as StdRwLock,
 };
 
@@ -87,26 +86,68 @@ impl MemoryStore {
         Default::default()
     }
 
+    fn get_user_room_receipt_event_impl(
+        &self,
+        room_id: &RoomId,
+        receipt_type: ReceiptType,
+        thread: ReceiptThread,
+        user_id: &UserId,
+    ) -> Option<(OwnedEventId, Receipt)> {
+        self.room_user_receipts
+            .read()
+            .unwrap()
+            .get(room_id)?
+            .get(&(receipt_type.to_string(), thread.as_str().map(ToOwned::to_owned)))?
+            .get(user_id)
+            .cloned()
+    }
+
+    fn get_event_room_receipt_events_impl(
+        &self,
+        room_id: &RoomId,
+        receipt_type: ReceiptType,
+        thread: ReceiptThread,
+        event_id: &EventId,
+    ) -> Option<Vec<(OwnedUserId, Receipt)>> {
+        Some(
+            self.room_event_receipts
+                .read()
+                .unwrap()
+                .get(room_id)?
+                .get(&(receipt_type.to_string(), thread.as_str().map(ToOwned::to_owned)))?
+                .get(event_id)?
+                .iter()
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect(),
+        )
+    }
+}
+
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+impl StateStore for MemoryStore {
+    type Error = StoreError;
+
     async fn get_kv_data(&self, key: StateStoreDataKey<'_>) -> Result<Option<StateStoreDataValue>> {
-        match key {
+        Ok(match key {
             StateStoreDataKey::SyncToken => {
-                Ok(self.sync_token.read().unwrap().clone().map(StateStoreDataValue::SyncToken))
+                self.sync_token.read().unwrap().clone().map(StateStoreDataValue::SyncToken)
             }
-            StateStoreDataKey::Filter(filter_name) => Ok(self
+            StateStoreDataKey::Filter(filter_name) => self
                 .filters
                 .read()
                 .unwrap()
                 .get(filter_name)
                 .cloned()
-                .map(StateStoreDataValue::Filter)),
-            StateStoreDataKey::UserAvatarUrl(user_id) => Ok(self
+                .map(StateStoreDataValue::Filter),
+            StateStoreDataKey::UserAvatarUrl(user_id) => self
                 .user_avatar_url
                 .read()
                 .unwrap()
                 .get(user_id.as_str())
                 .cloned()
-                .map(StateStoreDataValue::UserAvatarUrl)),
-        }
+                .map(StateStoreDataValue::UserAvatarUrl),
+        })
     }
 
     async fn set_kv_data(
@@ -146,7 +187,6 @@ impl MemoryStore {
                 self.filters.write().unwrap().remove(user_id.as_str());
             }
         }
-
         Ok(())
     }
 
@@ -378,19 +418,29 @@ impl MemoryStore {
         Ok(())
     }
 
-    async fn get_presence_events<'a, I>(&self, user_ids: I) -> Result<Vec<Raw<PresenceEvent>>>
-    where
-        I: IntoIterator<Item = &'a UserId>,
-        I::IntoIter: ExactSizeIterator,
-    {
-        let user_ids = user_ids.into_iter();
-        if user_ids.len() == 0 {
-            return Ok(Vec::new());
-        }
+    async fn get_presence_event(&self, user_id: &UserId) -> Result<Option<Raw<PresenceEvent>>> {
+        Ok(self.presence.read().unwrap().get(user_id).cloned())
+    }
 
-        Ok(user_ids
-            .filter_map(|user_id| self.presence.read().unwrap().get(user_id).cloned())
-            .collect())
+    async fn get_presence_events(
+        &self,
+        user_ids: &[OwnedUserId],
+    ) -> Result<Vec<Raw<PresenceEvent>>> {
+        let presence = self.presence.read().unwrap();
+        Ok(user_ids.iter().filter_map(|user_id| presence.get(user_id).cloned()).collect())
+    }
+
+    async fn get_state_event(
+        &self,
+        room_id: &RoomId,
+        event_type: StateEventType,
+        state_key: &str,
+    ) -> Result<Option<RawAnySyncOrStrippedState>> {
+        Ok(self
+            .get_state_events_for_keys(room_id, event_type, &[state_key])
+            .await?
+            .into_iter()
+            .next())
     }
 
     async fn get_state_events(
@@ -398,29 +448,31 @@ impl MemoryStore {
         room_id: &RoomId,
         event_type: StateEventType,
     ) -> Result<Vec<RawAnySyncOrStrippedState>> {
-        if let Some(stripped_state_events) = self
-            .stripped_room_state
-            .read()
-            .unwrap()
-            .get(room_id)
-            .and_then(|events| events.get(&event_type))
-        {
-            Ok(stripped_state_events
-                .values()
-                .cloned()
-                .map(RawAnySyncOrStrippedState::Stripped)
-                .collect::<Vec<_>>())
-        } else if let Some(sync_state_events) =
-            self.room_state.read().unwrap().get(room_id).and_then(|events| events.get(&event_type))
-        {
-            Ok(sync_state_events
-                .values()
-                .cloned()
-                .map(RawAnySyncOrStrippedState::Sync)
-                .collect::<Vec<_>>())
-        } else {
-            Ok(Vec::new())
+        fn get_events<T>(
+            state_map: &HashMap<OwnedRoomId, HashMap<StateEventType, HashMap<String, Raw<T>>>>,
+            room_id: &RoomId,
+            event_type: &StateEventType,
+            to_enum: fn(Raw<T>) -> RawAnySyncOrStrippedState,
+        ) -> Option<Vec<RawAnySyncOrStrippedState>> {
+            let state_events = state_map.get(room_id)?.get(event_type)?;
+            Some(state_events.values().cloned().map(to_enum).collect())
         }
+
+        Ok(get_events(
+            &self.stripped_room_state.read().unwrap(),
+            room_id,
+            &event_type,
+            RawAnySyncOrStrippedState::Stripped,
+        )
+        .or_else(|| {
+            get_events(
+                &self.room_state.read().unwrap(),
+                room_id,
+                &event_type,
+                RawAnySyncOrStrippedState::Sync,
+            )
+        })
+        .unwrap_or_default())
     }
 
     async fn get_state_events_for_keys(
@@ -428,47 +480,64 @@ impl MemoryStore {
         room_id: &RoomId,
         event_type: StateEventType,
         state_keys: &[&str],
-    ) -> Result<Vec<RawAnySyncOrStrippedState>> {
-        if let Some(stripped_state_events) = self
-            .stripped_room_state
+    ) -> Result<Vec<RawAnySyncOrStrippedState>, Self::Error> {
+        Ok(
+            if let Some(stripped_state_events) = self
+                .stripped_room_state
+                .read()
+                .unwrap()
+                .get(room_id)
+                .and_then(|events| events.get(&event_type))
+            {
+                state_keys
+                    .iter()
+                    .filter_map(|k| {
+                        stripped_state_events
+                            .get(*k)
+                            .map(|e| RawAnySyncOrStrippedState::Stripped(e.clone()))
+                    })
+                    .collect()
+            } else if let Some(sync_state_events) = self
+                .room_state
+                .read()
+                .unwrap()
+                .get(room_id)
+                .and_then(|events| events.get(&event_type))
+            {
+                state_keys
+                    .iter()
+                    .filter_map(|k| {
+                        sync_state_events
+                            .get(*k)
+                            .map(|e| RawAnySyncOrStrippedState::Sync(e.clone()))
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            },
+        )
+    }
+
+    async fn get_profile(
+        &self,
+        room_id: &RoomId,
+        user_id: &UserId,
+    ) -> Result<Option<MinimalRoomMemberEvent>> {
+        Ok(self
+            .profiles
             .read()
             .unwrap()
             .get(room_id)
-            .and_then(|events| events.get(&event_type))
-        {
-            Ok(state_keys
-                .iter()
-                .filter_map(|k| {
-                    stripped_state_events
-                        .get(*k)
-                        .map(|e| RawAnySyncOrStrippedState::Stripped(e.clone()))
-                })
-                .collect())
-        } else if let Some(sync_state_events) =
-            self.room_state.read().unwrap().get(room_id).and_then(|events| events.get(&event_type))
-        {
-            Ok(state_keys
-                .iter()
-                .filter_map(|k| {
-                    sync_state_events.get(*k).map(|e| RawAnySyncOrStrippedState::Sync(e.clone()))
-                })
-                .collect())
-        } else {
-            Ok(Vec::new())
-        }
+            .and_then(|room_profiles| room_profiles.get(user_id))
+            .cloned())
     }
 
-    async fn get_profiles<'a, I>(
+    async fn get_profiles<'a>(
         &self,
         room_id: &RoomId,
-        user_ids: I,
-    ) -> Result<BTreeMap<&'a UserId, MinimalRoomMemberEvent>>
-    where
-        I: IntoIterator<Item = &'a UserId>,
-        I::IntoIter: ExactSizeIterator,
-    {
-        let user_ids = user_ids.into_iter();
-        if user_ids.len() == 0 {
+        user_ids: &'a [OwnedUserId],
+    ) -> Result<BTreeMap<&'a UserId, MinimalRoomMemberEvent>> {
+        if user_ids.is_empty() {
             return Ok(BTreeMap::new());
         }
 
@@ -478,63 +547,90 @@ impl MemoryStore {
         };
 
         Ok(user_ids
-            .filter_map(|user_id| room_profiles.get(user_id).map(|p| (user_id, p.clone())))
+            .iter()
+            .filter_map(|user_id| room_profiles.get(user_id).map(|p| (&**user_id, p.clone())))
             .collect())
     }
 
-    /// Get the user IDs for the given room with the given memberships and
-    /// stripped state.
-    ///
-    /// If `memberships` is empty, returns all user IDs in the room with the
-    /// given stripped state.
-    fn get_user_ids_inner(
+    async fn get_user_ids(
         &self,
         room_id: &RoomId,
         memberships: RoomMemberships,
-        stripped: bool,
-    ) -> Vec<OwnedUserId> {
-        let map = if stripped { &self.stripped_members } else { &self.members };
+    ) -> Result<Vec<OwnedUserId>> {
+        /// Get the user IDs for the given room with the given memberships and
+        /// stripped state.
+        ///
+        /// If `memberships` is empty, returns all user IDs in the room with the
+        /// given stripped state.
+        fn get_user_ids_inner(
+            members: &HashMap<OwnedRoomId, HashMap<OwnedUserId, MembershipState>>,
+            room_id: &RoomId,
+            memberships: RoomMemberships,
+        ) -> Vec<OwnedUserId> {
+            members
+                .get(room_id)
+                .map(|members| {
+                    members
+                        .iter()
+                        .filter_map(|(user_id, membership)| {
+                            memberships.matches(membership).then_some(user_id)
+                        })
+                        .cloned()
+                        .collect()
+                })
+                .unwrap_or_default()
+        }
 
-        map.read()
-            .unwrap()
-            .get(room_id)
-            .map(|members| {
-                members
-                    .iter()
-                    .filter_map(|(user_id, membership)| {
-                        memberships.matches(membership).then_some(user_id)
-                    })
-                    .cloned()
-                    .collect()
-            })
-            .unwrap_or_default()
+        let v = get_user_ids_inner(&self.stripped_members.read().unwrap(), room_id, memberships);
+        if !v.is_empty() {
+            return Ok(v);
+        }
+        Ok(get_user_ids_inner(&self.members.read().unwrap(), room_id, memberships))
     }
 
-    fn get_room_infos(&self) -> Vec<RoomInfo> {
-        self.room_info.read().unwrap().values().cloned().collect()
+    async fn get_invited_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
+        StateStore::get_user_ids(self, room_id, RoomMemberships::INVITE).await
     }
 
-    fn get_stripped_room_infos(&self) -> Vec<RoomInfo> {
-        self.room_info
+    async fn get_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
+        StateStore::get_user_ids(self, room_id, RoomMemberships::JOIN).await
+    }
+
+    async fn get_room_infos(&self) -> Result<Vec<RoomInfo>> {
+        Ok(self.room_info.read().unwrap().values().cloned().collect())
+    }
+
+    async fn get_stripped_room_infos(&self) -> Result<Vec<RoomInfo>> {
+        Ok(self
+            .room_info
             .read()
             .unwrap()
             .values()
             .filter(|r| matches!(r.state(), RoomState::Invited))
             .cloned()
-            .collect()
+            .collect())
     }
 
-    async fn get_users_with_display_names<'a, I>(
+    async fn get_users_with_display_name(
         &self,
         room_id: &RoomId,
-        display_names: I,
-    ) -> Result<BTreeMap<&'a str, BTreeSet<OwnedUserId>>>
-    where
-        I: IntoIterator<Item = &'a str>,
-        I::IntoIter: ExactSizeIterator,
-    {
-        let display_names = display_names.into_iter();
-        if display_names.len() == 0 {
+        display_name: &str,
+    ) -> Result<BTreeSet<OwnedUserId>> {
+        Ok(self
+            .display_names
+            .read()
+            .unwrap()
+            .get(room_id)
+            .and_then(|room_names| room_names.get(display_name).cloned())
+            .unwrap_or_default())
+    }
+
+    async fn get_users_with_display_names<'a>(
+        &self,
+        room_id: &RoomId,
+        display_names: &'a [String],
+    ) -> Result<BTreeMap<&'a str, BTreeSet<OwnedUserId>>> {
+        if display_names.is_empty() {
             return Ok(BTreeMap::new());
         }
 
@@ -543,7 +639,10 @@ impl MemoryStore {
             return Ok(BTreeMap::new());
         };
 
-        Ok(display_names.filter_map(|n| room_names.get(n).map(|d| (n, d.clone()))).collect())
+        Ok(display_names
+            .iter()
+            .filter_map(|n| room_names.get(n).map(|d| (n.as_str(), d.clone())))
+            .collect())
     }
 
     async fn get_account_data_event(
@@ -574,10 +673,7 @@ impl MemoryStore {
         thread: ReceiptThread,
         user_id: &UserId,
     ) -> Result<Option<(OwnedEventId, Receipt)>> {
-        Ok(self.room_user_receipts.read().unwrap().get(room_id).and_then(|m| {
-            m.get(&(receipt_type.to_string(), thread.as_str().map(ToOwned::to_owned)))
-                .and_then(|m| m.get(user_id).cloned())
-        }))
+        Ok(self.get_user_room_receipt_event_impl(room_id, receipt_type, thread, user_id))
     }
 
     async fn get_event_room_receipt_events(
@@ -588,17 +684,7 @@ impl MemoryStore {
         event_id: &EventId,
     ) -> Result<Vec<(OwnedUserId, Receipt)>> {
         Ok(self
-            .room_event_receipts
-            .read()
-            .unwrap()
-            .get(room_id)
-            .and_then(|m| {
-                m.get(&(receipt_type.to_string(), thread.as_str().map(ToOwned::to_owned)))
-            })
-            .and_then(|m| {
-                m.get(event_id)
-                    .map(|m| m.iter().map(|(key, value)| (key.clone(), value.clone())).collect())
-            })
+            .get_event_room_receipt_events_impl(room_id, receipt_type, thread, event_id)
             .unwrap_or_default())
     }
 
@@ -641,207 +727,6 @@ impl MemoryStore {
         self.room_event_receipts.write().unwrap().remove(room_id);
 
         Ok(())
-    }
-}
-
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
-impl StateStore for MemoryStore {
-    type Error = StoreError;
-
-    async fn get_kv_data(&self, key: StateStoreDataKey<'_>) -> Result<Option<StateStoreDataValue>> {
-        self.get_kv_data(key).await
-    }
-
-    async fn set_kv_data(
-        &self,
-        key: StateStoreDataKey<'_>,
-        value: StateStoreDataValue,
-    ) -> Result<()> {
-        self.set_kv_data(key, value).await
-    }
-
-    async fn remove_kv_data(&self, key: StateStoreDataKey<'_>) -> Result<()> {
-        self.remove_kv_data(key).await
-    }
-
-    async fn save_changes(&self, changes: &StateChanges) -> Result<()> {
-        self.save_changes(changes).await
-    }
-
-    async fn get_presence_event(&self, user_id: &UserId) -> Result<Option<Raw<PresenceEvent>>> {
-        Ok(self.get_presence_events(iter::once(user_id)).await?.into_iter().next())
-    }
-
-    async fn get_presence_events(
-        &self,
-        user_ids: &[OwnedUserId],
-    ) -> Result<Vec<Raw<PresenceEvent>>> {
-        self.get_presence_events(user_ids.iter().map(AsRef::as_ref)).await
-    }
-
-    async fn get_state_event(
-        &self,
-        room_id: &RoomId,
-        event_type: StateEventType,
-        state_key: &str,
-    ) -> Result<Option<RawAnySyncOrStrippedState>> {
-        Ok(self
-            .get_state_events_for_keys(room_id, event_type, &[state_key])
-            .await?
-            .into_iter()
-            .next())
-    }
-
-    async fn get_state_events(
-        &self,
-        room_id: &RoomId,
-        event_type: StateEventType,
-    ) -> Result<Vec<RawAnySyncOrStrippedState>> {
-        self.get_state_events(room_id, event_type).await
-    }
-
-    async fn get_state_events_for_keys(
-        &self,
-        room_id: &RoomId,
-        event_type: StateEventType,
-        state_keys: &[&str],
-    ) -> Result<Vec<RawAnySyncOrStrippedState>, Self::Error> {
-        self.get_state_events_for_keys(room_id, event_type, state_keys).await
-    }
-
-    async fn get_profile(
-        &self,
-        room_id: &RoomId,
-        user_id: &UserId,
-    ) -> Result<Option<MinimalRoomMemberEvent>> {
-        Ok(self.get_profiles(room_id, iter::once(user_id)).await?.into_values().next())
-    }
-
-    async fn get_profiles<'a>(
-        &self,
-        room_id: &RoomId,
-        user_ids: &'a [OwnedUserId],
-    ) -> Result<BTreeMap<&'a UserId, MinimalRoomMemberEvent>> {
-        self.get_profiles(room_id, user_ids.iter().map(AsRef::as_ref)).await
-    }
-
-    async fn get_user_ids(
-        &self,
-        room_id: &RoomId,
-        memberships: RoomMemberships,
-    ) -> Result<Vec<OwnedUserId>> {
-        let v = self.get_user_ids_inner(room_id, memberships, true);
-        if !v.is_empty() {
-            return Ok(v);
-        }
-        Ok(self.get_user_ids_inner(room_id, memberships, false))
-    }
-
-    async fn get_invited_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
-        StateStore::get_user_ids(self, room_id, RoomMemberships::INVITE).await
-    }
-
-    async fn get_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
-        StateStore::get_user_ids(self, room_id, RoomMemberships::JOIN).await
-    }
-
-    async fn get_room_infos(&self) -> Result<Vec<RoomInfo>> {
-        Ok(self.get_room_infos())
-    }
-
-    async fn get_stripped_room_infos(&self) -> Result<Vec<RoomInfo>> {
-        Ok(self.get_stripped_room_infos())
-    }
-
-    async fn get_users_with_display_name(
-        &self,
-        room_id: &RoomId,
-        display_name: &str,
-    ) -> Result<BTreeSet<OwnedUserId>> {
-        Ok(self
-            .get_users_with_display_names(room_id, iter::once(display_name))
-            .await?
-            .into_values()
-            .next()
-            .unwrap_or_default())
-    }
-
-    async fn get_users_with_display_names<'a>(
-        &self,
-        room_id: &RoomId,
-        display_names: &'a [String],
-    ) -> Result<BTreeMap<&'a str, BTreeSet<OwnedUserId>>> {
-        Ok(self
-            .get_users_with_display_names(room_id, display_names.iter().map(AsRef::as_ref))
-            .await?)
-    }
-
-    async fn get_account_data_event(
-        &self,
-        event_type: GlobalAccountDataEventType,
-    ) -> Result<Option<Raw<AnyGlobalAccountDataEvent>>> {
-        self.get_account_data_event(event_type).await
-    }
-
-    async fn get_room_account_data_event(
-        &self,
-        room_id: &RoomId,
-        event_type: RoomAccountDataEventType,
-    ) -> Result<Option<Raw<AnyRoomAccountDataEvent>>> {
-        self.get_room_account_data_event(room_id, event_type).await
-    }
-
-    async fn get_user_room_receipt_event(
-        &self,
-        room_id: &RoomId,
-        receipt_type: ReceiptType,
-        thread: ReceiptThread,
-        user_id: &UserId,
-    ) -> Result<Option<(OwnedEventId, Receipt)>> {
-        self.get_user_room_receipt_event(room_id, receipt_type, thread, user_id).await
-    }
-
-    async fn get_event_room_receipt_events(
-        &self,
-        room_id: &RoomId,
-        receipt_type: ReceiptType,
-        thread: ReceiptThread,
-        event_id: &EventId,
-    ) -> Result<Vec<(OwnedUserId, Receipt)>> {
-        self.get_event_room_receipt_events(room_id, receipt_type, thread, event_id).await
-    }
-
-    async fn get_custom_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
-        self.get_custom_value(key).await
-    }
-
-    async fn set_custom_value(&self, key: &[u8], value: Vec<u8>) -> Result<Option<Vec<u8>>> {
-        self.set_custom_value(key, value).await
-    }
-
-    async fn remove_custom_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
-        self.remove_custom_value(key).await
-    }
-
-    async fn add_media_content(&self, request: &MediaRequest, data: Vec<u8>) -> Result<()> {
-        self.add_media_content(request, data).await
-    }
-
-    async fn get_media_content(&self, request: &MediaRequest) -> Result<Option<Vec<u8>>> {
-        self.get_media_content(request).await
-    }
-
-    async fn remove_media_content(&self, request: &MediaRequest) -> Result<()> {
-        self.remove_media_content(request).await
-    }
-
-    async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()> {
-        self.remove_media_content_for_uri(uri).await
-    }
-
-    async fn remove_room(&self, room_id: &RoomId) -> Result<()> {
-        self.remove_room(room_id).await
     }
 }
 
