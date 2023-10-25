@@ -22,7 +22,6 @@ use std::{
     sync::{Arc, Mutex as StdMutex, RwLock as StdRwLock},
 };
 
-use dashmap::DashMap;
 use eyeball::{SharedObservable, Subscriber};
 use futures_core::Stream;
 #[cfg(feature = "e2e-encryption")]
@@ -205,7 +204,7 @@ pub(crate) struct ClientInner {
     /// to ensure that only a single call to a method happens at once or to
     /// deduplicate multiple calls to a method.
     locks: ClientLocks,
-    pub(crate) typing_notice_times: DashMap<OwnedRoomId, Instant>,
+    pub(crate) typing_notice_times: StdRwLock<BTreeMap<OwnedRoomId, Instant>>,
     /// Event handlers. See `add_event_handler`.
     pub(crate) event_handlers: EventHandlerStore,
     /// Notification handlers. See `register_notification_handler`.
