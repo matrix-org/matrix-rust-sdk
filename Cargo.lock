@@ -3123,7 +3123,6 @@ dependencies = [
  "async-trait",
  "bitflags 2.4.0",
  "ctor",
- "dashmap",
  "eyeball",
  "futures-executor",
  "futures-util",
