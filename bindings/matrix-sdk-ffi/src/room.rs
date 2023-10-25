@@ -262,15 +262,16 @@ impl Room {
         &self,
         listener: Box<dyn TimelineListener>,
     ) -> RoomTimelineListenerResult {
-        let timeline = self
-            .timeline
-            .write()
-            .await
-            .get_or_insert_with(|| {
-                let timeline = RUNTIME.block_on(self.inner.timeline());
-                Arc::new(timeline)
-            })
-            .clone();
+        let timeline = {
+            let mut write_guard = self.timeline.write().await;
+            if let Some(timeline) = &*write_guard {
+                timeline.clone()
+            } else {
+                let timeline = Arc::new(self.inner.timeline().await);
+                *write_guard = Some(timeline.clone());
+                timeline
+            }
+        };
 
         let (timeline_items, timeline_stream) = timeline.subscribe_batched().await;
         let timeline_stream = TaskHandle::new(RUNTIME.spawn(async move {
