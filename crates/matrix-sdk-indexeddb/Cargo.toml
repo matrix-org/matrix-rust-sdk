@@ -44,6 +44,7 @@ getrandom = { version = "0.2.6", features = ["js"] }
 
 [dev-dependencies]
 assert_matches = { workspace = true }
+assert_matches2 = { workspace = true }
 matrix-sdk-base = { path = "../matrix-sdk-base", features = ["testing"] }
 matrix-sdk-common = { path = "../matrix-sdk-common", features = ["js"] }
 matrix-sdk-crypto = { path = "../matrix-sdk-crypto", features = ["js", "testing"] }

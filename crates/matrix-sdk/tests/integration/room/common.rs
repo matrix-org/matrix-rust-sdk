@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use assert_matches::assert_matches;
+use assert_matches2::assert_let;
 use matrix_sdk::{config::SyncSettings, room::RoomMember, DisplayName, RoomMemberships};
 use matrix_sdk_test::{
     async_test, bulk_room_members, sync_timeline_event, test_json, JoinedRoomBuilder,
@@ -543,9 +543,9 @@ async fn event() {
         .await;
 
     let timeline_event = room.event(event_id).await.unwrap();
-    let event = assert_matches!(
-        timeline_event.event.deserialize().unwrap(),
-        AnyTimelineEvent::State(AnyStateEvent::RoomTombstone(event)) => event
+    assert_let!(
+        AnyTimelineEvent::State(AnyStateEvent::RoomTombstone(event)) =
+            timeline_event.event.deserialize().unwrap()
     );
     assert_eq!(event.event_id(), event_id);
 

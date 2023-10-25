@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use assert_matches::assert_matches;
+use assert_matches2::assert_let;
 use itertools::Itertools;
 use matrix_sdk_test::{ALICE, BOB};
 use ruma::{server_name, uint, user_id, EventId, MilliSecondsSinceUnixEpoch, OwnedUserId, UserId};
@@ -35,10 +35,8 @@ fn by_sender() {
 
     let reaction = *alice_reactions.get(0).unwrap();
 
-    assert_matches!(
-        reaction_1,
-        EventItemIdentifier::EventId(event_id) => { assert_eq!(reaction.1.unwrap(), &event_id) }
-    )
+    assert_let!(EventItemIdentifier::EventId(event_id) = reaction_1);
+    assert_eq!(reaction.1.unwrap(), &event_id);
 }
 
 #[test]

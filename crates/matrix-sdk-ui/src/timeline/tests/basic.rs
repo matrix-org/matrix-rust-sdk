@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use assert_matches::assert_matches;
+use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use imbl::vector;
 use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
@@ -116,8 +117,7 @@ async fn room_member() {
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert!(item.can_be_replied_to());
-    let membership =
-        assert_matches!(item.content(), TimelineItemContent::MembershipChange(ev) => ev);
+    assert_let!(TimelineItemContent::MembershipChange(membership) = item.content());
     assert_matches!(membership.content(), FullStateEventContent::Original { .. });
     assert_matches!(membership.change(), Some(MembershipChange::Invited));
 
@@ -133,8 +133,7 @@ async fn room_member() {
         .await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-    let membership =
-        assert_matches!(item.content(), TimelineItemContent::MembershipChange(ev) => ev);
+    assert_let!(TimelineItemContent::MembershipChange(membership) = item.content());
     assert_matches!(membership.content(), FullStateEventContent::Original { .. });
     assert_matches!(membership.change(), Some(MembershipChange::InvitationAccepted));
 
@@ -150,7 +149,7 @@ async fn room_member() {
         .await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-    let profile = assert_matches!(item.content(), TimelineItemContent::ProfileChange(ev) => ev);
+    assert_let!(TimelineItemContent::ProfileChange(profile) = item.content());
     assert_matches!(profile.displayname_change(), Some(_));
     assert_matches!(profile.avatar_url_change(), None);
 
@@ -163,8 +162,7 @@ async fn room_member() {
         .await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-    let membership =
-        assert_matches!(item.content(), TimelineItemContent::MembershipChange(ev) => ev);
+    assert_let!(TimelineItemContent::MembershipChange(membership) = item.content());
     assert_matches!(membership.content(), FullStateEventContent::Redacted(_));
     assert_matches!(membership.change(), None);
 }
@@ -181,19 +179,17 @@ async fn other_state() {
     let _day_divider = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-    let ev = assert_matches!(item.as_event().unwrap().content(), TimelineItemContent::OtherState(ev) => ev);
-    let full_content =
-        assert_matches!(ev.content(), AnyOtherFullStateEventContent::RoomName(c) => c);
-    let (content, prev_content) = assert_matches!(full_content, FullStateEventContent::Original { content, prev_content } => (content, prev_content));
+    assert_let!(TimelineItemContent::OtherState(ev) = item.as_event().unwrap().content());
+    assert_let!(AnyOtherFullStateEventContent::RoomName(full_content) = ev.content());
+    assert_let!(FullStateEventContent::Original { content, prev_content } = full_content);
     assert_eq!(content.name, "Alice's room");
     assert_matches!(prev_content, None);
 
     timeline.handle_live_redacted_state_event(&ALICE, RedactedRoomTopicEventContent::new()).await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-    let ev = assert_matches!(item.as_event().unwrap().content(), TimelineItemContent::OtherState(ev) => ev);
-    let full_content =
-        assert_matches!(ev.content(), AnyOtherFullStateEventContent::RoomTopic(c) => c);
+    assert_let!(TimelineItemContent::OtherState(ev) = item.as_event().unwrap().content());
+    assert_let!(AnyOtherFullStateEventContent::RoomTopic(full_content) = ev.content());
     assert_matches!(full_content, FullStateEventContent::Redacted(_));
 }
 
@@ -305,8 +301,8 @@ async fn sanitized() {
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let event = item.as_event().unwrap();
-    let message = assert_matches!(event.content(), TimelineItemContent::Message(msg) => msg);
-    let text = assert_matches!(message.msgtype(), MessageType::Text(text) => text);
+    assert_let!(TimelineItemContent::Message(message) = event.content());
+    assert_let!(MessageType::Text(text) = message.msgtype());
     assert_eq!(
         text.formatted.as_ref().unwrap().body,
         "\
@@ -361,15 +357,15 @@ async fn reply() {
     timeline.handle_live_message_event(&BOB, reply).await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-    let message = assert_matches!(item.as_event().unwrap().content(), TimelineItemContent::Message(msg) => msg);
+    assert_let!(TimelineItemContent::Message(message) = item.as_event().unwrap().content());
 
-    let text = assert_matches!(message.msgtype(), MessageType::Text(text) => text);
+    assert_let!(MessageType::Text(text) = message.msgtype());
     assert_eq!(text.body, "I'm replying!");
     assert_eq!(text.formatted.as_ref().unwrap().body, "<p>I'm replying!</p>");
 
     let in_reply_to = message.in_reply_to().unwrap();
     assert_eq!(in_reply_to.event_id, first_event_id);
-    let replied_to_event = assert_matches!(&in_reply_to.event, TimelineDetails::Ready(msg) => msg);
+    assert_let!(TimelineDetails::Ready(replied_to_event) = &in_reply_to.event);
     assert_eq!(replied_to_event.sender(), *ALICE);
 }
 
@@ -400,14 +396,14 @@ async fn thread() {
     timeline.handle_live_message_event(&BOB, reply).await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-    let message = assert_matches!(item.as_event().unwrap().content(), TimelineItemContent::Message(msg) => msg);
+    assert_let!(TimelineItemContent::Message(message) = item.as_event().unwrap().content());
 
-    let text = assert_matches!(message.msgtype(), MessageType::Text(text) => text);
+    assert_let!(MessageType::Text(text) = message.msgtype());
     assert_eq!(text.body, "I'm replying in a thread");
     assert_matches!(text.formatted, None);
 
     let in_reply_to = message.in_reply_to().unwrap();
     assert_eq!(in_reply_to.event_id, first_event_id);
-    let replied_to_event = assert_matches!(&in_reply_to.event, TimelineDetails::Ready(msg) => msg);
+    assert_let!(TimelineDetails::Ready(replied_to_event) = &in_reply_to.event);
     assert_eq!(replied_to_event.sender(), *ALICE);
 }

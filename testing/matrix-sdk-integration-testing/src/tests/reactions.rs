@@ -16,6 +16,7 @@ use std::sync::Arc;
 
 use anyhow::{Ok, Result};
 use assert_matches::assert_matches;
+use assert_matches2::assert_let;
 use assign::assign;
 use eyeball_im::VectorDiff;
 use futures_core::Stream;
@@ -182,10 +183,7 @@ async fn assert_event_is_updated(
     event_id: &EventId,
     index: usize,
 ) -> EventTimelineItem {
-    let (i, event) = assert_matches!(
-        stream.next().await,
-        Some(VectorDiff::Set { index, value }) => (index, value)
-    );
+    assert_let!(Some(VectorDiff::Set { index: i, value: event }) = stream.next().await);
     assert_eq!(i, index);
     let event = event.as_event().unwrap();
     assert_eq!(event.event_id().unwrap(), event_id);

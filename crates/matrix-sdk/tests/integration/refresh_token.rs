@@ -5,6 +5,7 @@ use std::{
 };
 
 use assert_matches::assert_matches;
+use assert_matches2::assert_let;
 use futures_util::StreamExt;
 use matrix_sdk::{
     config::RequestConfig,
@@ -375,7 +376,7 @@ async fn refresh_token_handled_failure() {
         .await;
 
     let res = client.whoami().await;
-    let http_err = assert_matches!(res, Err(HttpError::RefreshToken(RefreshTokenError::MatrixAuth(http_err))) => http_err);
+    assert_let!(Err(HttpError::RefreshToken(RefreshTokenError::MatrixAuth(http_err))) = res);
     assert_matches!(http_err.client_api_error_kind(), Some(ErrorKind::UnknownToken { .. }))
 }
 

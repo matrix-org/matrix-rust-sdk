@@ -221,6 +221,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use assert_matches::assert_matches;
+    use assert_matches2::assert_let;
     use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
     use ruma::{
         events::{
@@ -270,9 +271,9 @@ mod tests {
                 unsigned: MessageLikeUnsigned::new(),
             }),
         ));
-        let m = assert_matches!(
-            is_suitable_for_latest_event(&event),
-            PossibleLatestEvent::YesRoomMessage(SyncMessageLikeEvent::Original(m)) => m
+        assert_let!(
+            PossibleLatestEvent::YesRoomMessage(SyncMessageLikeEvent::Original(m)) =
+                is_suitable_for_latest_event(&event)
         );
 
         assert_eq!(m.content.msgtype.msgtype(), "m.image");
@@ -293,9 +294,9 @@ mod tests {
                 unsigned: MessageLikeUnsigned::new(),
             }),
         ));
-        let m = assert_matches!(
-            is_suitable_for_latest_event(&event),
-            PossibleLatestEvent::YesPoll(SyncMessageLikeEvent::Original(m)) => m
+        assert_let!(
+            PossibleLatestEvent::YesPoll(SyncMessageLikeEvent::Original(m)) =
+                is_suitable_for_latest_event(&event)
         );
 
         assert_eq!(m.content.poll_start().question.text, "do you like rust?");

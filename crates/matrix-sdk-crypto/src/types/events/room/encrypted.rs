@@ -412,6 +412,7 @@ scheme_serialization!(
 #[cfg(test)]
 pub(crate) mod tests {
     use assert_matches::assert_matches;
+    use assert_matches2::assert_let;
     use serde_json::{json, Value};
     use vodozemac::Curve25519PublicKey;
 
@@ -499,9 +500,8 @@ pub(crate) mod tests {
         let json = to_device_json();
         let event: EncryptedToDeviceEvent = serde_json::from_value(json.clone())?;
 
-        let content = assert_matches!(
-            &event.content,
-            ToDeviceEncryptedEventContent::OlmV1Curve25519AesSha2(c) => c.to_owned()
+        assert_let!(
+            ToDeviceEncryptedEventContent::OlmV1Curve25519AesSha2(content) = &event.content
         );
         assert!(content.message_id.is_undefined());
 

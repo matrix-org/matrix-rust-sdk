@@ -17,6 +17,7 @@
 use std::{io::Cursor, iter};
 
 use assert_matches::assert_matches;
+use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use matrix_sdk::crypto::{decrypt_room_key_export, OlmMachine};
 use matrix_sdk_test::{async_test, BOB};
@@ -83,11 +84,11 @@ async fn retry_message_decryption() {
     let _day_divider = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let event = item.as_event().unwrap();
-    let session_id = assert_matches!(
-        event.content(),
-        TimelineItemContent::UnableToDecrypt(
-            EncryptedMessage::MegolmV1AesSha2 { session_id, .. },
-        ) => session_id
+    assert_let!(
+        TimelineItemContent::UnableToDecrypt(EncryptedMessage::MegolmV1AesSha2 {
+            session_id,
+            ..
+        }) = event.content()
     );
     assert_eq!(session_id, SESSION_ID);
 
@@ -111,8 +112,8 @@ async fn retry_message_decryption() {
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 1, value } => value);
     let event = item.as_event().unwrap();
     assert_matches!(event.encryption_info(), Some(_));
-    let text = assert_matches!(event.content(), TimelineItemContent::Message(msg) => msg.body());
-    assert_eq!(text, "It's a secret to everybody");
+    assert_let!(TimelineItemContent::Message(message) = event.content());
+    assert_eq!(message.body(), "It's a secret to everybody");
     assert!(!event.is_highlighted());
 }
 
@@ -217,7 +218,7 @@ async fn retry_edit_decryption() {
     let item = items[1].as_event().unwrap();
 
     assert_matches!(item.encryption_info(), Some(_));
-    let msg = assert_matches!(item.content(), TimelineItemContent::Message(msg) => msg);
+    assert_let!(TimelineItemContent::Message(msg) = item.content());
     assert!(msg.is_edited());
     assert_eq!(msg.body(), "This is Error");
 }
@@ -376,11 +377,11 @@ async fn retry_message_decryption_highlighted() {
     let _day_divider = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let event = item.as_event().unwrap();
-    let session_id = assert_matches!(
-        event.content(),
-        TimelineItemContent::UnableToDecrypt(
-            EncryptedMessage::MegolmV1AesSha2 { session_id, .. },
-        ) => session_id
+    assert_let!(
+        TimelineItemContent::UnableToDecrypt(EncryptedMessage::MegolmV1AesSha2 {
+            session_id,
+            ..
+        }) = event.content()
     );
     assert_eq!(session_id, SESSION_ID);
 
@@ -404,7 +405,7 @@ async fn retry_message_decryption_highlighted() {
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 1, value } => value);
     let event = item.as_event().unwrap();
     assert_matches!(event.encryption_info(), Some(_));
-    let text = assert_matches!(event.content(), TimelineItemContent::Message(msg) => msg.body());
-    assert_eq!(text, "A secret to everybody but Alice");
+    assert_let!(TimelineItemContent::Message(message) = event.content());
+    assert_eq!(message.body(), "A secret to everybody but Alice");
     assert!(event.is_highlighted());
 }

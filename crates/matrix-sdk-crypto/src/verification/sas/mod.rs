@@ -853,6 +853,7 @@ mod tests {
     use std::sync::Arc;
 
     use assert_matches::assert_matches;
+    use assert_matches2::assert_let;
     use matrix_sdk_test::async_test;
     use ruma::{
         device_id,
@@ -1007,7 +1008,7 @@ mod tests {
 
         let content = OutgoingContent::try_from(request).unwrap();
         let content = AcceptContent::try_from(&content).unwrap();
-        let content = assert_matches!(content.method(), AcceptMethod::SasV1(content) => content);
+        assert_let!(AcceptMethod::SasV1(content) = content.method());
 
         assert!(content.short_authentication_string.contains(&ShortAuthenticationString::Decimal));
         assert!(!content.short_authentication_string.contains(&ShortAuthenticationString::Emoji));

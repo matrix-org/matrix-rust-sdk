@@ -15,6 +15,7 @@
 use std::time::Duration;
 
 use assert_matches::assert_matches;
+use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{config::SyncSettings, room::Receipts};
@@ -126,10 +127,11 @@ async fn read_receipts_updates() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    let _day_divider = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    assert_let!(Some(VectorDiff::PushBack { value: day_divider }) = timeline_stream.next().await);
+    assert!(day_divider.is_day_divider());
 
     // We don't list the read receipt of our own user on events.
-    let first_item = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    assert_let!(Some(VectorDiff::PushBack { value: first_item }) = timeline_stream.next().await);
     let first_event = first_item.as_event().unwrap();
     assert!(first_event.read_receipts().is_empty());
 
@@ -137,16 +139,18 @@ async fn read_receipts_updates() {
     assert_eq!(own_receipt_event_id, first_event.event_id().unwrap());
 
     // Implicit read receipt of @alice:localhost.
-    let second_item = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    assert_let!(Some(VectorDiff::PushBack { value: second_item }) = timeline_stream.next().await);
     let second_event = second_item.as_event().unwrap();
     assert_eq!(second_event.read_receipts().len(), 1);
 
     // Read receipt of @alice:localhost is moved to third event.
-    let second_item = assert_matches!(timeline_stream.next().await, Some(VectorDiff::Set { index: 2, value }) => value);
+    assert_let!(
+        Some(VectorDiff::Set { index: 2, value: second_item }) = timeline_stream.next().await
+    );
     let second_event = second_item.as_event().unwrap();
     assert!(second_event.read_receipts().is_empty());
 
-    let third_item = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    assert_let!(Some(VectorDiff::PushBack { value: third_item }) = timeline_stream.next().await);
     let third_event = third_item.as_event().unwrap();
     assert_eq!(third_event.read_receipts().len(), 1);
 
@@ -242,7 +246,9 @@ async fn read_receipts_updates() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    let third_item = assert_matches!(timeline_stream.next().await, Some(VectorDiff::Set { index: 3, value }) => value);
+    assert_let!(
+        Some(VectorDiff::Set { index: 3, value: third_item }) = timeline_stream.next().await
+    );
     let third_event = third_item.as_event().unwrap();
     assert_eq!(third_event.read_receipts().len(), 2);
 
@@ -347,10 +353,11 @@ async fn read_receipts_updates_on_filtered_events() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    let _day_divider = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    assert_let!(Some(VectorDiff::PushBack { value: day_divider }) = timeline_stream.next().await);
+    assert!(day_divider.is_day_divider());
 
     // We don't list the read receipt of our own user on events.
-    let item_a = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    assert_let!(Some(VectorDiff::PushBack { value: item_a }) = timeline_stream.next().await);
     let event_a = item_a.as_event().unwrap();
     assert!(event_a.read_receipts().is_empty());
 
@@ -358,7 +365,7 @@ async fn read_receipts_updates_on_filtered_events() {
     assert_eq!(own_receipt_event_id, event_a_id);
 
     // Implicit read receipt of @bob:localhost.
-    let item_a = assert_matches!(timeline_stream.next().await, Some(VectorDiff::Set { index: 1, value }) => value);
+    assert_let!(Some(VectorDiff::Set { index: 1, value: item_a }) = timeline_stream.next().await);
     let event_a = item_a.as_event().unwrap();
     assert_eq!(event_a.read_receipts().len(), 1);
 
@@ -366,7 +373,7 @@ async fn read_receipts_updates_on_filtered_events() {
     assert_eq!(bob_receipt_event_id, event_b_id);
 
     // Implicit read receipt of @alice:localhost.
-    let item_c = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    assert_let!(Some(VectorDiff::PushBack { value: item_c }) = timeline_stream.next().await);
     let event_c = item_c.as_event().unwrap();
     assert_eq!(event_c.read_receipts().len(), 1);
 
@@ -416,11 +423,11 @@ async fn read_receipts_updates_on_filtered_events() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    let item_a = assert_matches!(timeline_stream.next().await, Some(VectorDiff::Set { index: 1, value }) => value);
+    assert_let!(Some(VectorDiff::Set { index: 1, value: item_a }) = timeline_stream.next().await);
     let event_a = item_a.as_event().unwrap();
     assert!(event_a.read_receipts().is_empty());
 
-    let item_c = assert_matches!(timeline_stream.next().await, Some(VectorDiff::Set { index: 2, value }) => value);
+    assert_let!(Some(VectorDiff::Set { index: 2, value: item_c }) = timeline_stream.next().await);
     let event_c = item_c.as_event().unwrap();
     assert_eq!(event_c.read_receipts().len(), 2);
 

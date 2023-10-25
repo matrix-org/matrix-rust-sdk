@@ -1628,6 +1628,7 @@ mod tests {
     };
 
     use assert_matches::assert_matches;
+    use assert_matches2::assert_let;
     #[cfg(feature = "qrcode")]
     use matrix_sdk_qrcode::QrVerificationData;
     use matrix_sdk_test::async_test;
@@ -1715,15 +1716,16 @@ mod tests {
 
         // the outgoing message should target bob's device specifically
         {
-            let to_device_request =
-                assert_matches!(&outgoing_request, OutgoingVerificationRequest::ToDevice(r) => r);
+            assert_let!(
+                OutgoingVerificationRequest::ToDevice(to_device_request) = &outgoing_request
+            );
 
             assert_eq!(to_device_request.messages.len(), 1);
             let device_ids: Vec<&DeviceIdOrAllDevices> =
                 to_device_request.messages.values().next().unwrap().keys().collect();
             assert_eq!(device_ids.len(), 1);
 
-            let device_id = assert_matches!(device_ids[0], DeviceIdOrAllDevices::DeviceId(r) => r);
+            assert_let!(DeviceIdOrAllDevices::DeviceId(device_id) = &device_ids[0]);
             assert_eq!(device_id, bob_device.device_id());
         }
 
@@ -1867,11 +1869,10 @@ mod tests {
         let bob_qr_code = QrVerificationData::from_bytes(bob_qr_code).unwrap();
         let _ = alice_request.scan_qr_code(bob_qr_code).await.unwrap().unwrap();
 
-        let alice_verification = assert_matches!(
-            alice_request.state(),
+        assert_let!(
             VerificationRequestState::Transitioned {
-                verification: Verification::QrV1(v)
-            } => v
+                verification: Verification::QrV1(alice_verification)
+            } = alice_request.state()
         );
 
         // Finally we assert that the verification has been reciprocated rather than
@@ -1917,9 +1918,9 @@ mod tests {
         bob_request.receive_start(alice_id(), &content).await.unwrap();
 
         // Bob should now have transitioned to SAS...
-        let bob_sas = assert_matches!(
-            bob_request.state(),
-            VerificationRequestState::Transitioned { verification: Verification::SasV1(sas) } => sas
+        assert_let!(
+            VerificationRequestState::Transitioned { verification: Verification::SasV1(bob_sas) } =
+                bob_request.state()
         );
         // ... and, more to the point, it should not be cancelled.
         assert!(!bob_sas.is_cancelled());
@@ -1947,11 +1948,9 @@ mod tests {
         let bob_qr_code = QrVerificationData::from_bytes(bob_qr_code).unwrap();
         let _ = alice_request.scan_qr_code(bob_qr_code).await.unwrap().unwrap();
 
-        let alice_qr = assert_matches!(
-            alice_request.state(),
-            VerificationRequestState::Transitioned {
-                verification: Verification::QrV1(v)
-            } => v
+        assert_let!(
+            VerificationRequestState::Transitioned { verification: Verification::QrV1(alice_qr) } =
+                alice_request.state()
         );
         assert!(alice_qr.reciprocated());
 
@@ -1971,9 +1970,10 @@ mod tests {
         assert!(alice_qr.is_cancelled());
 
         // and she should now have a *cancelled* SAS verification
-        let alice_sas = assert_matches!(
-            alice_request.state(),
-            VerificationRequestState::Transitioned { verification: Verification::SasV1(sas) } => sas
+        assert_let!(
+            VerificationRequestState::Transitioned {
+                verification: Verification::SasV1(alice_sas)
+            } = alice_request.state()
         );
         assert!(alice_sas.is_cancelled());
     }

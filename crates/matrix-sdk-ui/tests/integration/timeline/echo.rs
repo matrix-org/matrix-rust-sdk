@@ -15,6 +15,7 @@
 use std::{sync::Arc, time::Duration};
 
 use assert_matches::assert_matches;
+use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{config::SyncSettings, executor::spawn, ruma::MilliSecondsSinceUnixEpoch};
@@ -72,22 +73,22 @@ async fn echo() {
         timeline.send(RoomMessageEventContent::text_plain("Hello, World!").into()).await
     });
 
-    let _day_divider = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
-    let local_echo = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    assert_let!(Some(VectorDiff::PushBack { value: day_divider }) = timeline_stream.next().await);
+    assert!(day_divider.is_day_divider());
+    assert_let!(Some(VectorDiff::PushBack { value: local_echo }) = timeline_stream.next().await);
     let item = local_echo.as_event().unwrap();
     assert_matches!(item.send_state(), Some(EventSendState::NotSentYet));
     let txn_id = item.transaction_id().unwrap();
 
-    let msg = assert_matches!(item.content(), TimelineItemContent::Message(msg) => msg);
-    let text = assert_matches!(msg.msgtype(), MessageType::Text(text) => text);
+    assert_let!(TimelineItemContent::Message(msg) = item.content());
+    assert_let!(MessageType::Text(text) = msg.msgtype());
     assert_eq!(text.body, "Hello, World!");
 
     // Wait for the sending to finish and assert everything was successful
     send_hdl.await.unwrap();
 
-    let sent_confirmation = assert_matches!(
-        timeline_stream.next().await,
-        Some(VectorDiff::Set { index: 1, value }) => value
+    assert_let!(
+        Some(VectorDiff::Set { index: 1, value: sent_confirmation }) = timeline_stream.next().await
     );
     let item = sent_confirmation.as_event().unwrap();
     assert_matches!(item.send_state(), Some(EventSendState::Sent { .. }));
@@ -116,17 +117,11 @@ async fn echo() {
     assert_matches!(timeline_stream.next().await, Some(VectorDiff::Remove { index: 0 }));
 
     // New day divider is added
-    let new_item = assert_matches!(
-        timeline_stream.next().await,
-        Some(VectorDiff::PushBack { value }) => value
-    );
+    assert_let!(Some(VectorDiff::PushBack { value: new_item }) = timeline_stream.next().await);
     assert_matches!(**new_item, TimelineItemKind::Virtual(VirtualTimelineItem::DayDivider(_)));
 
     // Remote echo is added
-    let remote_echo = assert_matches!(
-        timeline_stream.next().await,
-        Some(VectorDiff::PushBack { value }) => value
-    );
+    assert_let!(Some(VectorDiff::PushBack { value: remote_echo }) = timeline_stream.next().await);
     let item = remote_echo.as_event().unwrap();
     assert!(item.is_own());
     assert_eq!(item.timestamp(), MilliSecondsSinceUnixEpoch(uint!(152038280)));
@@ -160,13 +155,9 @@ async fn retry_failed() {
     });
 
     // Sending fails, the mock server has no matching route yet
-    let txn_id = assert_matches!(
-        timeline_stream.next().await,
-        Some(VectorDiff::Set { index: 0, value }) => {
-            assert_matches!(value.send_state(), Some(EventSendState::SendingFailed { .. }));
-            value.transaction_id().unwrap().to_owned()
-        }
-    );
+    assert_let!(Some(VectorDiff::Set { index: 0, value: item }) = timeline_stream.next().await);
+    assert_matches!(item.send_state(), Some(EventSendState::SendingFailed { .. }));
+    let txn_id = item.transaction_id().unwrap().to_owned();
 
     Mock::given(method("PUT"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
@@ -188,9 +179,8 @@ async fn retry_failed() {
     });
 
     // … before succeeding.
-    assert_matches!(timeline_stream.next().await, Some(VectorDiff::Set { index: 0, value }) => {
-        assert_matches!(value.send_state(), Some(EventSendState::Sent { .. }));
-    });
+    assert_let!(Some(VectorDiff::Set { index: 0, value }) = timeline_stream.next().await);
+    assert_matches!(value.send_state(), Some(EventSendState::Sent { .. }));
 }
 
 #[async_test]
@@ -230,7 +220,7 @@ async fn dedup_by_event_id_late() {
     timeline.send(RoomMessageEventContent::text_plain("Hello, World!").into()).await;
 
     assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { .. })); // day divider
-    let local_echo = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    assert_let!(Some(VectorDiff::PushBack { value: local_echo }) = timeline_stream.next().await);
     let item = local_echo.as_event().unwrap();
     assert_matches!(item.send_state(), Some(EventSendState::NotSentYet));
 
@@ -289,9 +279,8 @@ async fn cancel_failed() {
     });
 
     // Sending fails, the mock server has no matching route
-    assert_matches!(timeline_stream.next().await, Some(VectorDiff::Set { index: 0, value }) => {
-        assert_matches!(value.send_state(), Some(EventSendState::SendingFailed { .. }));
-    });
+    assert_let!(Some(VectorDiff::Set { index: 0, value }) = timeline_stream.next().await);
+    assert_matches!(value.send_state(), Some(EventSendState::SendingFailed { .. }));
 
     // Discard, assert the local echo is found
     assert!(timeline.cancel_send(&txn_id).await);

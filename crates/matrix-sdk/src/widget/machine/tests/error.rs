@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use assert_matches::assert_matches;
+use assert_matches2::assert_let;
 use ruma::owned_room_id;
 use serde_json::json;
 
@@ -35,7 +35,7 @@ fn machine_sends_error_for_unknown_request() {
     })));
 
     let [action]: [Action; 1] = actions.try_into().unwrap();
-    let msg = assert_matches!(action, Action::SendToWidget(msg) => msg);
+    assert_let!(Action::SendToWidget(msg) = action);
     let (msg, request_id) = parse_msg(&msg);
     assert_eq!(request_id, "invalid-req");
     assert_eq!(msg["api"], "fromWidget");
@@ -61,7 +61,7 @@ fn read_messages_without_capabilities() {
     })));
 
     let [action]: [Action; 1] = actions.try_into().unwrap();
-    let msg = assert_matches!(action, Action::SendToWidget(msg) => msg);
+    assert_let!(Action::SendToWidget(msg) = action);
     let (msg, request_id) = parse_msg(&msg);
     assert_eq!(request_id, "get-me-some-messages");
     assert_eq!(msg["api"], "fromWidget");
@@ -89,7 +89,7 @@ fn read_messages_not_yet_supported() {
     })));
 
     let [action]: [Action; 1] = actions.try_into().unwrap();
-    let msg = assert_matches!(action, Action::SendToWidget(msg) => msg);
+    assert_let!(Action::SendToWidget(msg) = action);
     let (msg, request_id) = parse_msg(&msg);
     assert_eq!(request_id, "get-me-some-messages");
     assert_eq!(msg["api"], "fromWidget");

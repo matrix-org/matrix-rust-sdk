@@ -15,6 +15,7 @@
 use std::{sync::Arc, time::Duration};
 
 use assert_matches::assert_matches;
+use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::future::{join, join3};
 use matrix_sdk::config::SyncSettings;
@@ -89,38 +90,29 @@ async fn back_pagination() {
         timeline_stream,
         VectorDiff::Insert { index: 1, value } => value
     );
-    let msg = assert_matches!(
-        message.as_event().unwrap().content(),
-        TimelineItemContent::Message(msg) => msg
-    );
-    let text = assert_matches!(msg.msgtype(), MessageType::Text(text) => text);
+    assert_let!(TimelineItemContent::Message(msg) = message.as_event().unwrap().content());
+    assert_let!(MessageType::Text(text) = msg.msgtype());
     assert_eq!(text.body, "hello world");
 
     let message = assert_next_matches!(
         timeline_stream,
         VectorDiff::Insert { index: 1, value } => value
     );
-    let msg = assert_matches!(
-        message.as_event().unwrap().content(),
-        TimelineItemContent::Message(msg) => msg
-    );
-    let text = assert_matches!(msg.msgtype(), MessageType::Text(text) => text);
+    assert_let!(TimelineItemContent::Message(msg) = message.as_event().unwrap().content());
+    assert_let!(MessageType::Text(text) = msg.msgtype());
     assert_eq!(text.body, "the world is big");
 
     let message = assert_next_matches!(
         timeline_stream,
         VectorDiff::Insert { index: 1, value } => value
     );
-    let state = assert_matches!(
-        message.as_event().unwrap().content(),
-        TimelineItemContent::OtherState(state) => state
-    );
+    assert_let!(TimelineItemContent::OtherState(state) = message.as_event().unwrap().content());
     assert_eq!(state.state_key(), "");
-    let (content, prev_content) = assert_matches!(
-        state.content(),
-        AnyOtherFullStateEventContent::RoomName(
-            FullStateEventContent::Original { content, prev_content }
-        ) => (content, prev_content)
+    assert_let!(
+        AnyOtherFullStateEventContent::RoomName(FullStateEventContent::Original {
+            content,
+            prev_content
+        }) = state.content()
     );
     assert_eq!(content.name, "New room name");
     assert_eq!(prev_content.as_ref().unwrap().name.as_ref().unwrap(), "Old room name");

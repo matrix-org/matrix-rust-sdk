@@ -15,6 +15,7 @@
 use std::sync::Arc;
 
 use assert_matches::assert_matches;
+use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use matrix_sdk_test::{async_test, sync_timeline_event, ALICE, BOB};
 use ruma::{
@@ -60,8 +61,8 @@ async fn default_filter() {
 
     // The edit was applied.
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 1, value } => value);
-    let message = assert_matches!(item.as_event().unwrap().content(), TimelineItemContent::Message(msg) => msg);
-    let text = assert_matches!(message.msgtype(), MessageType::Text(text) => text);
+    assert_let!(TimelineItemContent::Message(message) = item.as_event().unwrap().content());
+    assert_let!(MessageType::Text(text) = message.msgtype());
     assert_eq!(text.body, "The _edited_ first message");
 
     // TODO: After adding raw timeline items, check for one here.

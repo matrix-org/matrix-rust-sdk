@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use assert_matches::assert_matches;
+use assert_matches2::assert_let;
 use ruma::owned_room_id;
 use serde_json::{from_value, json};
 
@@ -45,7 +46,7 @@ fn machine_can_request_capabilities_on_content_load() {
         })));
 
         let action = actions.remove(0);
-        let msg = assert_matches!(action, Action::SendToWidget(msg) => msg);
+        assert_let!(Action::SendToWidget(msg) = action);
         let (msg, request_id) = parse_msg(&msg);
         assert_eq!(request_id, "content-loaded-request-id");
         assert_eq!(
@@ -73,7 +74,7 @@ fn capabilities_failure_results_into_empty_capabilities() {
     // Ask widget to provide desired capabilities.
     let actions = {
         let [action]: [Action; 1] = actions.try_into().unwrap();
-        let msg = assert_matches!(action, Action::SendToWidget(msg) => msg);
+        assert_let!(Action::SendToWidget(msg) = action);
         let (msg, request_id) = parse_msg(&msg);
         assert_eq!(
             msg,
@@ -100,15 +101,14 @@ fn capabilities_failure_results_into_empty_capabilities() {
     // Try to acquire capabilities by sending a request to a matrix driver.
     let actions = {
         let [action]: [Action; 1] = actions.try_into().unwrap();
-        let (request_id, capabilities) = assert_matches!(
-            action,
+        assert_let!(
             Action::MatrixDriverRequest {
                 request_id,
                 data: MatrixDriverRequestData::AcquireCapabilities(data)
-            } => (request_id, data.desired_capabilities)
+            } = action
         );
         assert_eq!(
-            capabilities,
+            data.desired_capabilities,
             from_value(json!(["org.matrix.msc2762.receive.state_event:m.room.member"])).unwrap()
         );
 
@@ -120,7 +120,7 @@ fn capabilities_failure_results_into_empty_capabilities() {
 
     // Inform the widget about the new capabilities, or lack of thereof :)
     let [action]: [Action; 1] = actions.try_into().unwrap();
-    let msg = assert_matches!(action, Action::SendToWidget(msg) => msg);
+    assert_let!(Action::SendToWidget(msg) = action);
     let (msg, _request_id) = parse_msg(&msg);
     assert_eq!(
         msg,
@@ -140,7 +140,7 @@ pub(super) fn assert_capabilities_dance(machine: &mut WidgetMachine, actions: Ve
     // Ask widget to provide desired capabilities.
     let actions = {
         let [action]: [Action; 1] = actions.try_into().unwrap();
-        let msg = assert_matches!(action, Action::SendToWidget(msg) => msg);
+        assert_let!(Action::SendToWidget(msg) = action);
         let (msg, request_id) = parse_msg(&msg);
         assert_eq!(
             msg,
@@ -167,13 +167,13 @@ pub(super) fn assert_capabilities_dance(machine: &mut WidgetMachine, actions: Ve
     // Try to acquire capabilities by sending a request to a matrix driver.
     let mut actions = {
         let [action]: [Action; 1] = actions.try_into().unwrap();
-        let (request_id, capabilities) = assert_matches!(
-            action,
+        assert_let!(
             Action::MatrixDriverRequest {
                 request_id,
                 data: MatrixDriverRequestData::AcquireCapabilities(data)
-            } => (request_id, data.desired_capabilities)
+            } = action
         );
+        let capabilities = data.desired_capabilities;
         assert_eq!(
             capabilities,
             from_value(json!(["org.matrix.msc2762.receive.state_event:m.room.member"])).unwrap()
@@ -193,7 +193,7 @@ pub(super) fn assert_capabilities_dance(machine: &mut WidgetMachine, actions: Ve
     // Inform the widget about the acquired capabilities.
     {
         let [action]: [Action; 1] = actions.try_into().unwrap();
-        let msg = assert_matches!(action, Action::SendToWidget(msg) => msg);
+        assert_let!(Action::SendToWidget(msg) = action);
         let (msg, request_id) = parse_msg(&msg);
         assert_eq!(
             msg,

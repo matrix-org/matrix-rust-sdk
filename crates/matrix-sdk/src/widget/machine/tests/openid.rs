@@ -14,7 +14,7 @@
 
 use std::time::Duration;
 
-use assert_matches::assert_matches;
+use assert_matches2::assert_let;
 use ruma::{api::client::account::request_openid_token, owned_room_id, ServerName};
 use serde_json::json;
 
@@ -40,7 +40,7 @@ fn openid_request_handling_works() {
         })));
 
         let action = actions.remove(0);
-        let msg = assert_matches!(action, Action::SendToWidget(msg) => msg);
+        assert_let!(Action::SendToWidget(msg) = action);
         let (msg, request_id) = parse_msg(&msg);
         assert_eq!(request_id, "openid-request-id");
         assert_eq!(
@@ -62,12 +62,9 @@ fn openid_request_handling_works() {
     // Then we send an OpenID request to the driver and expect an answer.
     let actions = {
         let [action]: [Action; 1] = actions.try_into().unwrap();
-        let request_id = assert_matches!(
-            action,
-            Action::MatrixDriverRequest {
-                request_id,
-                data: MatrixDriverRequestData::GetOpenId,
-            } => request_id
+        assert_let!(
+            Action::MatrixDriverRequest { request_id, data: MatrixDriverRequestData::GetOpenId } =
+                action
         );
 
         machine.process(IncomingMessage::MatrixDriverResponse {
@@ -86,7 +83,7 @@ fn openid_request_handling_works() {
     // We inform the widget about the new OpenID token.
     {
         let [action]: [Action; 1] = actions.try_into().unwrap();
-        let msg = assert_matches!(action, Action::SendToWidget(msg) => msg);
+        assert_let!(Action::SendToWidget(msg) = action);
         let (msg, _request_id) = parse_msg(&msg);
         assert_eq!(
             msg,
@@ -124,7 +121,7 @@ fn openid_fail_results_in_response_blocked() {
         })));
 
         let action = actions.remove(0);
-        let msg = assert_matches!(action, Action::SendToWidget(msg) => msg);
+        assert_let!(Action::SendToWidget(msg) = action);
         let (msg, request_id) = parse_msg(&msg);
         assert_eq!(request_id, "openid-request-id");
         assert_eq!(
@@ -147,12 +144,9 @@ fn openid_fail_results_in_response_blocked() {
     let mut actions = {
         let action = actions.remove(0);
         assert!(actions.is_empty());
-        let request_id = assert_matches!(
-            action,
-            Action::MatrixDriverRequest {
-                request_id,
-                data: MatrixDriverRequestData::GetOpenId,
-            } => request_id
+        assert_let!(
+            Action::MatrixDriverRequest { request_id, data: MatrixDriverRequestData::GetOpenId } =
+                action
         );
 
         machine.process(IncomingMessage::MatrixDriverResponse {
@@ -164,7 +158,7 @@ fn openid_fail_results_in_response_blocked() {
     // We inform the widget about the new OpenID token.
     {
         let action = actions.remove(0);
-        let msg = assert_matches!(action, Action::SendToWidget(msg) => msg);
+        assert_let!(Action::SendToWidget(msg) = action);
         let (msg, _request_id) = parse_msg(&msg);
         assert_eq!(
             msg,
