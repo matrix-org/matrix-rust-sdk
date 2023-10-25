@@ -1161,32 +1161,30 @@ impl Account {
                         if let Ok(p) = session.decrypt(message).await {
                             // success!
                             return Ok((SessionType::Existing(session.clone()), p));
-                        } else {
-                            // The message was intended for this session, but we weren't able to
-                            // decrypt it.
-                            //
-                            // We're going to return early here since no other session will be able
-                            // to decrypt this message, nor should we
-                            // try to create a new one since we had
-                            // already previously created a `Session` with such a pre-key message.
-                            //
-                            // Creating this session would have likely failed anyway since the
-                            // corresponding one-time key would've been
-                            // already used up in the previous session creation
-                            // operation. The one exception where this would not be so is if the
-                            // fallback key was used for creating the
-                            // session in lieu of an OTK.
-
-                            warn!(
-                                session_id = session.session_id(),
-                                "Failed to decrypt a pre-key message with the corresponding session"
-                            );
-
-                            return Err(OlmError::SessionWedged(
-                                session.user_id.to_owned(),
-                                session.sender_key(),
-                            ));
                         }
+
+                        // The message was intended for this session, but we weren't able to
+                        // decrypt it.
+                        //
+                        // There's no point trying any other sessions, nor should we try to
+                        // create a new one since we have already previously created a `Session`
+                        // with the same keys.
+                        //
+                        // (Attempts to create a new session would likely fail anyway since the
+                        // corresponding one-time key would've been already used up in the
+                        // previous session creation operation. The one exception where this
+                        // would not be so is if the fallback key was used for creating the
+                        // session in lieu of an OTK.)
+
+                        warn!(
+                            session_id = session.session_id(),
+                            "Failed to decrypt a pre-key message with the corresponding session"
+                        );
+
+                        return Err(OlmError::SessionWedged(
+                            session.user_id.to_owned(),
+                            session.sender_key(),
+                        ));
                     }
                 }
 
