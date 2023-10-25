@@ -105,7 +105,7 @@ impl From<InnerStoreError> for DecryptionError {
 
 #[cfg(test)]
 mod tests {
-    use assert_matches::assert_matches;
+    use assert_matches2::assert_let;
     use matrix_sdk_crypto::MegolmError;
 
     use super::DecryptionError;
@@ -118,9 +118,8 @@ mod tests {
 
         let binding_error: DecryptionError = inner_error.into();
 
-        let code = assert_matches!(
-            binding_error,
-            DecryptionError::MissingRoomKey { error: _, withheld_code: Some(withheld_code) } => withheld_code
+        assert_let!(
+            DecryptionError::MissingRoomKey { error: _, withheld_code: Some(code) } = binding_error
         );
         assert_eq!("m.unverified", code)
     }

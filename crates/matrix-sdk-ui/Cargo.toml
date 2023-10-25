@@ -49,6 +49,7 @@ url = "2.2.2"
 anyhow = { workspace = true }
 assert-json-diff = { workspace = true }
 assert_matches = { workspace = true }
+assert_matches2 = { workspace = true }
 ctor = { workspace = true }
 eyeball-im-util = { workspace = true }
 matrix-sdk = { version = "0.6.2", path = "../matrix-sdk", default-features = false, features = ["testing"] }

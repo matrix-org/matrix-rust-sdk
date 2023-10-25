@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use assert_matches::assert_matches;
+use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::config::SyncSettings;
@@ -79,13 +80,13 @@ async fn in_reply_to_details() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    let _day_divider = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
-    let first = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    assert_let!(Some(VectorDiff::PushBack { value: day_divider }) = timeline_stream.next().await);
+    assert!(day_divider.is_day_divider());
+    assert_let!(Some(VectorDiff::PushBack { value: first }) = timeline_stream.next().await);
     assert_matches!(first.as_event().unwrap().content(), TimelineItemContent::Message(_));
-    let second = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    assert_let!(Some(VectorDiff::PushBack { value: second }) = timeline_stream.next().await);
     let second_event = second.as_event().unwrap();
-    let message =
-        assert_matches!(second_event.content(), TimelineItemContent::Message(message) => message);
+    assert_let!(TimelineItemContent::Message(message) = second_event.content());
     let in_reply_to = message.in_reply_to().unwrap();
     assert_eq!(in_reply_to.event_id, event_id!("$event1"));
     assert_matches!(in_reply_to.event, TimelineDetails::Ready(_));
@@ -107,16 +108,13 @@ async fn in_reply_to_details() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    let _read_receipt_update =
-        assert_matches!(timeline_stream.next().await, Some(VectorDiff::Set { value, .. }) => value);
-
-    let third = assert_matches!(
-        timeline_stream.next().await,
-        Some(VectorDiff::PushBack { value }) => value
+    assert_let!(
+        Some(VectorDiff::Set { value: _read_receipt_update, .. }) = timeline_stream.next().await
     );
+
+    assert_let!(Some(VectorDiff::PushBack { value: third }) = timeline_stream.next().await);
     let third_event = third.as_event().unwrap();
-    let message =
-        assert_matches!(third_event.content(), TimelineItemContent::Message(message) => message);
+    assert_let!(TimelineItemContent::Message(message) = third_event.content());
     let in_reply_to = message.in_reply_to().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_2);
     assert_matches!(in_reply_to.event, TimelineDetails::Unavailable);
@@ -137,12 +135,12 @@ async fn in_reply_to_details() {
     timeline.fetch_details_for_event(third_event.event_id().unwrap()).await.unwrap();
     server.reset().await;
 
-    let third = assert_matches!(timeline_stream.next().await, Some(VectorDiff::Set { index: 3, value }) => value);
-    let message = assert_matches!(third.as_event().unwrap().content(), TimelineItemContent::Message(message) => message);
+    assert_let!(Some(VectorDiff::Set { index: 3, value: third }) = timeline_stream.next().await);
+    assert_let!(TimelineItemContent::Message(message) = third.as_event().unwrap().content());
     assert_matches!(message.in_reply_to().unwrap().event, TimelineDetails::Pending);
 
-    let third = assert_matches!(timeline_stream.next().await, Some(VectorDiff::Set { index: 3, value }) => value);
-    let message = assert_matches!(third.as_event().unwrap().content(), TimelineItemContent::Message(message) => message);
+    assert_let!(Some(VectorDiff::Set { index: 3, value: third }) = timeline_stream.next().await);
+    assert_let!(TimelineItemContent::Message(message) = third.as_event().unwrap().content());
     assert_matches!(message.in_reply_to().unwrap().event, TimelineDetails::Error(_));
 
     // Set up fetching the replied-to event to succeed
@@ -163,12 +161,12 @@ async fn in_reply_to_details() {
 
     timeline.fetch_details_for_event(third_event.event_id().unwrap()).await.unwrap();
 
-    let third = assert_matches!(timeline_stream.next().await, Some(VectorDiff::Set { index: 3, value }) => value);
-    let message = assert_matches!(third.as_event().unwrap().content(), TimelineItemContent::Message(message) => message);
+    assert_let!(Some(VectorDiff::Set { index: 3, value: third }) = timeline_stream.next().await);
+    assert_let!(TimelineItemContent::Message(message) = third.as_event().unwrap().content());
     assert_matches!(message.in_reply_to().unwrap().event, TimelineDetails::Pending);
 
-    let third = assert_matches!(timeline_stream.next().await, Some(VectorDiff::Set { index: 3, value }) => value);
-    let message = assert_matches!(third.as_event().unwrap().content(), TimelineItemContent::Message(message) => message);
+    assert_let!(Some(VectorDiff::Set { index: 3, value: third }) = timeline_stream.next().await);
+    assert_let!(TimelineItemContent::Message(message) = third.as_event().unwrap().content());
     assert_matches!(message.in_reply_to().unwrap().event, TimelineDetails::Ready(_));
 }
 
@@ -329,8 +327,7 @@ async fn send_reply() {
     // assert_eq!(replied_to_event.sender(), *BOB);
 
     let diff = timeout(timeline_stream.next(), Duration::from_secs(1)).await.unwrap().unwrap();
-    let reply_item_remote_echo =
-        assert_matches!(diff, VectorDiff::Set { index: 0, value } => value);
+    assert_let!(VectorDiff::Set { index: 0, value: reply_item_remote_echo } = diff);
 
     assert_matches!(reply_item_remote_echo.send_state(), Some(EventSendState::Sent { .. }));
     let reply_message = reply_item_remote_echo.content().as_message().unwrap();
@@ -426,13 +423,12 @@ async fn send_reply_to_threaded() {
     let in_reply_to = reply_message.in_reply_to().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_1);
 
-    let replied_to_event = assert_matches!(&in_reply_to.event, TimelineDetails::Ready(ev) => ev);
+    assert_let!(TimelineDetails::Ready(replied_to_event) = &in_reply_to.event);
     assert_eq!(replied_to_event.sender(), *BOB);
 
     // Wait for remote echo
     let diff = timeout(timeline_stream.next(), Duration::from_secs(1)).await.unwrap().unwrap();
-    let reply_item_remote_echo =
-        assert_matches!(diff, VectorDiff::Set { index: 1, value } => value);
+    assert_let!(VectorDiff::Set { index: 1, value: reply_item_remote_echo } = diff);
 
     assert_matches!(reply_item_remote_echo.send_state(), Some(EventSendState::Sent { .. }));
 
@@ -443,7 +439,7 @@ async fn send_reply_to_threaded() {
     let in_reply_to = reply_message.in_reply_to().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_1);
 
-    let replied_to_event = assert_matches!(&in_reply_to.event, TimelineDetails::Ready(ev) => ev);
+    assert_let!(TimelineDetails::Ready(replied_to_event) = &in_reply_to.event);
     assert_eq!(replied_to_event.sender(), *BOB);
 
     server.verify().await;

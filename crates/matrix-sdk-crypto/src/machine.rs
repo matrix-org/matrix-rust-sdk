@@ -2084,6 +2084,7 @@ pub(crate) mod tests {
     };
 
     use assert_matches::assert_matches;
+    use assert_matches2::assert_let;
     use futures_util::{FutureExt, StreamExt};
     use itertools::Itertools;
     use matrix_sdk_common::deserialized_responses::{
@@ -2712,7 +2713,7 @@ pub(crate) mod tests {
             .deserialize()
             .expect("We should be able to deserialize the decrypted event.");
 
-        let decrypted = assert_matches!(decrypted, AnyToDeviceEvent::Dummy(decrypted) => decrypted);
+        assert_let!(AnyToDeviceEvent::Dummy(decrypted) = decrypted);
         assert_eq!(&decrypted.sender, alice.user_id());
 
         // Replaying the event should now result in a decryption failure.

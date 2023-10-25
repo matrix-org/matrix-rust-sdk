@@ -245,6 +245,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b34d609dfbaf33d6889b2b7106d3ca345eacad44200913df5ba02bfd31d2ba9"
 
 [[package]]
+name = "assert_matches2"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6578e995f418897bfdebc40d6c873e5ce91effd67963c7991c2fb96779e53c18"
+
+[[package]]
 name = "assign"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3046,6 +3052,7 @@ dependencies = [
  "as_variant",
  "assert-json-diff",
  "assert_matches",
+ "assert_matches2",
  "async-channel",
  "async-stream",
  "async-trait",
@@ -3111,6 +3118,7 @@ version = "0.6.1"
 dependencies = [
  "as_variant",
  "assert_matches",
+ "assert_matches2",
  "assign",
  "async-trait",
  "bitflags 2.4.0",
@@ -3168,6 +3176,7 @@ dependencies = [
  "anyhow",
  "as_variant",
  "assert_matches",
+ "assert_matches2",
  "async-std",
  "async-trait",
  "bs58",
@@ -3214,7 +3223,7 @@ name = "matrix-sdk-crypto-ffi"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "assert_matches",
+ "assert_matches2",
  "futures-util",
  "hmac",
  "http",
@@ -3284,6 +3293,7 @@ version = "0.2.0"
 dependencies = [
  "anyhow",
  "assert_matches",
+ "assert_matches2",
  "async-trait",
  "base64 0.21.4",
  "getrandom 0.2.10",
@@ -3314,6 +3324,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "assert_matches",
+ "assert_matches2",
  "assign",
  "ctor",
  "eyeball-im",
@@ -3419,6 +3430,7 @@ dependencies = [
  "as_variant",
  "assert-json-diff",
  "assert_matches",
+ "assert_matches2",
  "async-once-cell",
  "async-rx",
  "async-stream",

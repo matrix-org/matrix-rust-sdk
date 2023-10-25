@@ -15,6 +15,7 @@
 use std::time::Duration;
 
 use assert_matches::assert_matches;
+use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::config::SyncSettings;
@@ -120,20 +121,12 @@ async fn event_filter() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    let _day_divider = assert_matches!(
-        timeline_stream.next().await,
-        Some(VectorDiff::PushBack { value }) => value
-    );
-    let first = assert_matches!(
-        timeline_stream.next().await,
-        Some(VectorDiff::PushBack { value }) => value
-    );
+    assert_let!(Some(VectorDiff::PushBack { value: day_divider }) = timeline_stream.next().await);
+    assert!(day_divider.is_day_divider());
+    assert_let!(Some(VectorDiff::PushBack { value: first }) = timeline_stream.next().await);
     let first_event = first.as_event().unwrap();
     assert_eq!(first_event.event_id(), Some(first_event_id));
-    let msg = assert_matches!(
-        first_event.content(),
-        TimelineItemContent::Message(msg) => msg
-    );
+    assert_let!(TimelineItemContent::Message(msg) = first_event.content());
     assert_matches!(msg.msgtype(), MessageType::Text(_));
     assert!(!msg.is_edited());
 
@@ -177,7 +170,7 @@ async fn event_filter() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    let second = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    assert_let!(Some(VectorDiff::PushBack { value: second }) = timeline_stream.next().await);
     let second_event = second.as_event().unwrap();
     assert_eq!(second_event.event_id(), Some(second_event_id));
 
@@ -185,17 +178,11 @@ async fn event_filter() {
     assert_matches!(timeline_stream.next().await, Some(VectorDiff::Set { index: 1, .. }));
 
     // The edit is applied to the first event.
-    let first = assert_matches!(
-        timeline_stream.next().await,
-        Some(VectorDiff::Set { index: 1, value }) => value
-    );
+    assert_let!(Some(VectorDiff::Set { index: 1, value: first }) = timeline_stream.next().await);
     let first_event = first.as_event().unwrap();
     assert!(first_event.read_receipts().is_empty());
-    let msg = assert_matches!(
-        first_event.content(),
-        TimelineItemContent::Message(msg) => msg
-    );
-    let text = assert_matches!(msg.msgtype(), MessageType::Text(text) => text);
+    assert_let!(TimelineItemContent::Message(msg) = first_event.content());
+    assert_let!(MessageType::Text(text) = msg.msgtype());
     assert_eq!(text.body, "hi");
     assert!(msg.is_edited());
 }

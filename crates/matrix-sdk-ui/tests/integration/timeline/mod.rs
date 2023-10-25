@@ -15,6 +15,7 @@
 use std::time::Duration;
 
 use assert_matches::assert_matches;
+use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::config::SyncSettings;
@@ -86,22 +87,16 @@ async fn reaction() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    let _day_divider = assert_matches!(
-        timeline_stream.next().await,
-        Some(VectorDiff::PushBack { value }) => value
-    );
-    let message = assert_matches!(
-        timeline_stream.next().await,
-        Some(VectorDiff::PushBack { value }) => value
-    );
+    assert_let!(Some(VectorDiff::PushBack { value: day_divider }) = timeline_stream.next().await);
+    assert!(day_divider.is_day_divider());
+    assert_let!(Some(VectorDiff::PushBack { value: message }) = timeline_stream.next().await);
     assert_matches!(message.as_event().unwrap().content(), TimelineItemContent::Message(_));
 
-    let updated_message = assert_matches!(
-        timeline_stream.next().await,
-        Some(VectorDiff::Set { index: 1, value }) => value
+    assert_let!(
+        Some(VectorDiff::Set { index: 1, value: updated_message }) = timeline_stream.next().await
     );
     let event_item = updated_message.as_event().unwrap();
-    let msg = assert_matches!(event_item.content(), TimelineItemContent::Message(msg) => msg);
+    assert_let!(TimelineItemContent::Message(msg) = event_item.content());
     assert!(!msg.is_edited());
     assert_eq!(event_item.reactions().len(), 1);
     let group = &event_item.reactions()["👍"];
@@ -126,12 +121,11 @@ async fn reaction() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    let updated_message = assert_matches!(
-        timeline_stream.next().await,
-        Some(VectorDiff::Set { index: 1, value }) => value
+    assert_let!(
+        Some(VectorDiff::Set { index: 1, value: updated_message }) = timeline_stream.next().await
     );
     let event_item = updated_message.as_event().unwrap();
-    let msg = assert_matches!(event_item.content(), TimelineItemContent::Message(msg) => msg);
+    assert_let!(TimelineItemContent::Message(msg) = event_item.content());
     assert!(!msg.is_edited());
     assert_eq!(event_item.reactions().len(), 0);
 }
@@ -186,14 +180,9 @@ async fn redacted_message() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    let _day_divider = assert_matches!(
-        timeline_stream.next().await,
-        Some(VectorDiff::PushBack { value }) => value
-    );
-    let first = assert_matches!(
-        timeline_stream.next().await,
-        Some(VectorDiff::PushBack { value }) => value
-    );
+    assert_let!(Some(VectorDiff::PushBack { value: day_divider }) = timeline_stream.next().await);
+    assert!(day_divider.is_day_divider());
+    assert_let!(Some(VectorDiff::PushBack { value: first }) = timeline_stream.next().await);
     assert_matches!(first.as_event().unwrap().content(), TimelineItemContent::RedactedMessage);
 
     // TODO: After adding raw timeline items, check for one here
@@ -233,8 +222,9 @@ async fn read_marker() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    let _day_divider = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
-    let message = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    assert_let!(Some(VectorDiff::PushBack { value: day_divider }) = timeline_stream.next().await);
+    assert!(day_divider.is_day_divider());
+    assert_let!(Some(VectorDiff::PushBack { value: message }) = timeline_stream.next().await);
     assert_matches!(message.as_event().unwrap().content(), TimelineItemContent::Message(_));
 
     ev_builder.add_joined_room(
@@ -264,12 +254,11 @@ async fn read_marker() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    let message = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    assert_let!(Some(VectorDiff::PushBack { value: message }) = timeline_stream.next().await);
     assert_matches!(message.as_event().unwrap().content(), TimelineItemContent::Message(_));
 
-    let marker = assert_matches!(
-        timeline_stream.next().await,
-        Some(VectorDiff::Insert { index: 2, value }) => value
+    assert_let!(
+        Some(VectorDiff::Insert { index: 2, value: marker }) = timeline_stream.next().await
     );
     assert_matches!(marker.as_virtual().unwrap(), VirtualTimelineItem::ReadMarker);
 }
@@ -314,14 +303,9 @@ async fn sync_highlighted() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    let _day_divider = assert_matches!(
-        timeline_stream.next().await,
-        Some(VectorDiff::PushBack { value }) => value
-    );
-    let first = assert_matches!(
-        timeline_stream.next().await,
-        Some(VectorDiff::PushBack { value }) => value
-    );
+    assert_let!(Some(VectorDiff::PushBack { value: day_divider }) = timeline_stream.next().await);
+    assert!(day_divider.is_day_divider());
+    assert_let!(Some(VectorDiff::PushBack { value: first }) = timeline_stream.next().await);
     let remote_event = first.as_event().unwrap();
     // Own events don't trigger push rules.
     assert!(!remote_event.is_highlighted());
@@ -344,10 +328,7 @@ async fn sync_highlighted() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    let second = assert_matches!(
-        timeline_stream.next().await,
-        Some(VectorDiff::PushBack { value }) => value
-    );
+    assert_let!(Some(VectorDiff::PushBack { value: second }) = timeline_stream.next().await);
     let remote_event = second.as_event().unwrap();
     // `m.room.tombstone` should be highlighted by default.
     assert!(remote_event.is_highlighted());

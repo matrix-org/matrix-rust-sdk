@@ -502,6 +502,7 @@ pub enum EventItemOrigin {
 #[cfg(test)]
 mod tests {
     use assert_matches::assert_matches;
+    use assert_matches2::assert_let;
     use matrix_sdk::{config::RequestConfig, Client, ClientBuilder};
     use matrix_sdk_base::{
         deserialized_responses::SyncTimelineEvent, latest_event::LatestEvent, BaseClient,
@@ -579,7 +580,7 @@ mod tests {
                 .unwrap();
 
         // Then its sender is properly populated
-        let profile = assert_matches!(timeline_item.sender_profile, TimelineDetails::Ready(p) => p);
+        assert_let!(TimelineDetails::Ready(profile) = timeline_item.sender_profile);
         assert_eq!(
             profile,
             Profile {
@@ -625,7 +626,7 @@ mod tests {
         .unwrap();
 
         // Then its sender is properly populated
-        let profile = assert_matches!(timeline_item.sender_profile, TimelineDetails::Ready(p) => p);
+        assert_let!(TimelineDetails::Ready(profile) = timeline_item.sender_profile);
         assert_eq!(
             profile,
             Profile {

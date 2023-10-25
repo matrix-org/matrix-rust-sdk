@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, time::Duration};
 
-use assert_matches::assert_matches;
+use assert_matches2::assert_let;
 use futures_util::FutureExt;
 use matrix_sdk::{
     config::SyncSettings,
@@ -365,7 +365,7 @@ async fn room_update_channel() {
     client.sync_once(sync_settings).await.unwrap();
 
     let update = rx.recv().now_or_never().unwrap().unwrap();
-    let updates = assert_matches!(update, RoomUpdate::Joined { updates, .. } => updates);
+    assert_let!(RoomUpdate::Joined { updates, .. } = update);
 
     assert_eq!(updates.account_data.len(), 1);
     assert_eq!(updates.ephemeral.len(), 1);

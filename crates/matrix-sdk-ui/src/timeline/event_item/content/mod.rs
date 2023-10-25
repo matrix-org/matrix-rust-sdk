@@ -728,7 +728,7 @@ impl OtherState {
 
 #[cfg(test)]
 mod tests {
-    use assert_matches::assert_matches;
+    use assert_matches2::assert_let;
     use matrix_sdk_test::ALICE;
     use ruma::{
         assign,
@@ -755,10 +755,9 @@ mod tests {
         });
 
         let redacted = content.redact(&RoomVersionId::V11);
-        let inner = assert_matches!(redacted, TimelineItemContent::MembershipChange(c) => c);
+        assert_let!(TimelineItemContent::MembershipChange(inner) = redacted);
         assert_eq!(inner.change, Some(MembershipChange::Banned));
-        let inner_content_redacted =
-            assert_matches!(inner.content, FullStateEventContent::Redacted(r) => r);
+        assert_let!(FullStateEventContent::Redacted(inner_content_redacted) = inner.content);
         assert_eq!(inner_content_redacted.membership, MembershipState::Ban);
     }
 }

@@ -736,6 +736,7 @@ mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
     use assert_matches::assert_matches;
+    use assert_matches2::assert_let;
     use indexed_db_futures::prelude::*;
     use matrix_sdk_base::{
         deserialized_responses::RawMemberEvent, store::StateStoreExt,
@@ -918,10 +919,7 @@ mod tests {
         // this didn't create any backup
         assert_eq!(store.has_backups().await?, false);
         // Custom data is still there.
-        let stored_data = assert_matches!(
-            store.get_custom_value(CUSTOM_DATA_KEY).await?,
-            Some(d) => d
-        );
+        assert_let!(Some(stored_data) = store.get_custom_value(CUSTOM_DATA_KEY).await?);
         assert_eq!(stored_data, CUSTOM_DATA);
 
         // Check versions.
@@ -1224,15 +1222,15 @@ mod tests {
         // this transparently migrates to the latest version
         let store = IndexeddbStateStore::builder().name(name).build().await?;
 
-        let stored_member_event = assert_matches!(
-            store.get_member_event(room_id, user_id).await,
-            Ok(Some(RawMemberEvent::Sync(e))) => e
+        assert_let!(
+            Ok(Some(RawMemberEvent::Sync(stored_member_event))) =
+                store.get_member_event(room_id, user_id).await
         );
         assert_eq!(stored_member_event.json().get(), member_event.json().get());
 
-        let stored_stripped_member_event = assert_matches!(
-            store.get_member_event(stripped_room_id, stripped_user_id).await,
-            Ok(Some(RawMemberEvent::Stripped(e))) => e
+        assert_let!(
+            Ok(Some(RawMemberEvent::Stripped(stored_stripped_member_event))) =
+                store.get_member_event(stripped_room_id, stripped_user_id).await
         );
         assert_eq!(stored_stripped_member_event.json().get(), stripped_member_event.json().get());
 

@@ -15,6 +15,7 @@
 use std::{sync::Arc, time::Duration};
 
 use assert_matches::assert_matches;
+use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::config::SyncSettings;
@@ -138,18 +139,15 @@ async fn retry_order() {
 
     // Local echoes are updated with the failed send state as soon as
     // the 404 response is received
-    let txn_id_1 = assert_matches!(
-        timeline_stream.next().await,
-        Some(VectorDiff::Set { index: 0, value }) => {
-            assert_matches!(value.send_state().unwrap(), EventSendState::SendingFailed { .. });
-            value.transaction_id().unwrap().to_owned()
-        }
-    );
+    assert_let!(Some(VectorDiff::Set { index: 0, value: first }) = timeline_stream.next().await);
+    assert_matches!(first.send_state().unwrap(), EventSendState::SendingFailed { .. });
+    let txn_id_1 = first.transaction_id().unwrap().to_owned();
+
     // The second one is cancelled without an extra delay
-    let txn_id_2 = assert_next_matches!(timeline_stream, VectorDiff::Set { index: 1, value } => {
-        assert_matches!(value.send_state().unwrap(), EventSendState::Cancelled);
-        value.transaction_id().unwrap().to_owned()
-    });
+    let second =
+        assert_next_matches!(timeline_stream, VectorDiff::Set { index: 1, value } => value);
+    assert_matches!(second.send_state().unwrap(), EventSendState::Cancelled);
+    let txn_id_2 = second.transaction_id().unwrap().to_owned();
 
     // Response for first message takes 100ms to respond
     Mock::given(method("PUT"))

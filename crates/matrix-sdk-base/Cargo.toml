@@ -25,11 +25,18 @@ message-ids = ["matrix-sdk-crypto?/message-ids"]
 experimental-sliding-sync = ["ruma/unstable-msc3575"]
 
 # helpers for testing features build upon this
-testing = ["dep:http", "dep:matrix-sdk-test", "dep:assert_matches", "matrix-sdk-crypto?/testing"]
+testing = [
+    "dep:assert_matches",
+    "dep:assert_matches2",
+    "dep:http",
+    "dep:matrix-sdk-test",
+    "matrix-sdk-crypto?/testing",
+]
 
 [dependencies]
 as_variant = { workspace = true }
 assert_matches = { workspace = true, optional = true }
+assert_matches2 = { workspace = true, optional = true }
 async-trait = { workspace = true }
 bitflags = "2.1.0"
 dashmap = { workspace = true }
@@ -50,6 +57,7 @@ tracing = { workspace = true }
 
 [dev-dependencies]
 assert_matches = { workspace = true }
+assert_matches2 = { workspace = true }
 assign = "1.1.1"
 ctor = { workspace = true }
 futures-executor = { workspace = true }

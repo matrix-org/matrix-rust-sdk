@@ -327,6 +327,8 @@ fn test_serialize_session() {
 #[cfg(feature = "e2e-encryption")]
 #[async_test]
 async fn test_login_with_cross_signing_bootstrapping() {
+    use assert_matches2::assert_let;
+
     let server = MockServer::start().await;
 
     Mock::given(method("POST"))
@@ -357,8 +359,7 @@ async fn test_login_with_cross_signing_bootstrapping() {
                 let mut num_calls = num_calls.lock().unwrap();
                 if *num_calls == 0 {
                     // First time, we use a password.
-                    let password =
-                        assert_matches!(&params.auth, Some(AuthData::Password(pwd)) => pwd);
+                    assert_let!(Some(AuthData::Password(password)) = &params.auth);
                     assert_eq!(
                         password.identifier,
                         UserIdentifier::UserIdOrLocalpart("example".to_owned())

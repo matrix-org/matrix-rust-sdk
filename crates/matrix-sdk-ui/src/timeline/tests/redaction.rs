@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use assert_matches::assert_matches;
+use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use imbl::vector;
 use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
@@ -51,7 +52,7 @@ async fn redact_state_event() {
         .await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-    let state = assert_matches!(item.content(), TimelineItemContent::OtherState(st) => st);
+    assert_let!(TimelineItemContent::OtherState(state) = item.content());
     assert_matches!(
         state.content,
         AnyOtherFullStateEventContent::RoomName(FullStateEventContent::Original { .. })
@@ -60,7 +61,7 @@ async fn redact_state_event() {
     timeline.handle_live_redaction(&ALICE, item.event_id().unwrap()).await;
 
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
-    let state = assert_matches!(item.content(), TimelineItemContent::OtherState(st) => st);
+    assert_let!(TimelineItemContent::OtherState(state) = item.content());
     assert_matches!(
         state.content,
         AnyOtherFullStateEventContent::RoomName(FullStateEventContent::Redacted(_))
@@ -95,7 +96,7 @@ async fn redact_replied_to_event() {
     let second_item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let message = second_item.content().as_message().unwrap();
     let in_reply_to = message.in_reply_to().unwrap();
-    let replied_to_event = assert_matches!(&in_reply_to.event, TimelineDetails::Ready(val) => val);
+    assert_let!(TimelineDetails::Ready(replied_to_event) = &in_reply_to.event);
     assert_matches!(replied_to_event.content(), TimelineItemContent::Message(_));
 
     timeline.handle_live_redaction(&ALICE, first_item.event_id().unwrap()).await;
@@ -109,7 +110,7 @@ async fn redact_replied_to_event() {
         assert_next_matches!(stream, VectorDiff::Set { index: 1, value } => value);
     let message = second_item_again.content().as_message().unwrap();
     let in_reply_to = message.in_reply_to().unwrap();
-    let replied_to_event = assert_matches!(&in_reply_to.event, TimelineDetails::Ready(val) => val);
+    assert_let!(TimelineDetails::Ready(replied_to_event) = &in_reply_to.event);
     assert_matches!(replied_to_event.content(), TimelineItemContent::RedactedMessage);
 }
 

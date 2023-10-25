@@ -571,6 +571,7 @@ impl SecretStorageKey {
 #[cfg(test)]
 mod test {
     use assert_matches::assert_matches;
+    use assert_matches2::assert_let;
     use ruma::events::EventContentFromType;
     use serde_json::{json, value::to_raw_value};
 
@@ -816,13 +817,13 @@ mod test {
 
         let secret_encrypted_data: SecretEncryptedData = encrypted_data.to_owned().into();
 
-        assert_matches!(
-            secret_encrypted_data,
-            SecretEncryptedData::AesHmacSha2EncryptedData { iv, ciphertext, mac }
-            if mac.as_bytes() == encrypted_data.mac.as_slice()
-            && iv.as_bytes() == encrypted_data.iv.as_slice()
-            && ciphertext == encrypted_data.ciphertext
+        assert_let!(
+            SecretEncryptedData::AesHmacSha2EncryptedData { iv, ciphertext, mac } =
+                secret_encrypted_data
         );
+        assert_eq!(mac.as_bytes(), encrypted_data.mac.as_slice());
+        assert_eq!(iv.as_bytes(), encrypted_data.iv.as_slice());
+        assert_eq!(ciphertext, encrypted_data.ciphertext);
 
         let invalid_mac_json = json!({
               "iv": "bdfCwu+ECYgZ/jWTkGrQ/A==",

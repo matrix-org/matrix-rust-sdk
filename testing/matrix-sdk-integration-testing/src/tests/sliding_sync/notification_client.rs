@@ -5,6 +5,7 @@ use std::{
 
 use anyhow::{ensure, Result};
 use assert_matches::assert_matches;
+use assert_matches2::assert_let;
 use matrix_sdk::{
     config::SyncSettings,
     ruma::{
@@ -89,9 +90,9 @@ async fn test_notification() -> Result<()> {
         // Try with sliding sync first.
         let notification_client =
             NotificationClient::builder(bob.clone(), process_setup.clone()).await.unwrap().build();
-        let notification = assert_matches!(
-            notification_client.get_notification_with_sliding_sync(&room_id, &event_id).await?,
-            NotificationStatus::Event(event) => event
+        assert_let!(
+            NotificationStatus::Event(notification) =
+                notification_client.get_notification_with_sliding_sync(&room_id, &event_id).await?
         );
 
         warn!("sliding_sync: checking invite notification");
@@ -202,9 +203,9 @@ async fn test_notification() -> Result<()> {
 
     let notification_client =
         NotificationClient::builder(bob.clone(), process_setup.clone()).await.unwrap().build();
-    let notification = assert_matches!(
-        notification_client.get_notification_with_sliding_sync(&room_id, &event_id).await?,
-        NotificationStatus::Event(item) => item
+    assert_let!(
+        NotificationStatus::Event(notification) =
+            notification_client.get_notification_with_sliding_sync(&room_id, &event_id).await?
     );
     check_notification(true, notification);
 

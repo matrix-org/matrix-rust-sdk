@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use assert_matches::assert_matches;
+use assert_matches2::assert_let;
 use ruma::owned_room_id;
 use serde_json::{json, Value as JsonValue};
 
@@ -33,7 +33,7 @@ fn get_supported_api_versions() {
     })));
 
     let [action]: [Action; 1] = actions.try_into().unwrap();
-    let msg = assert_matches!(action, Action::SendToWidget(msg) => msg);
+    assert_let!(Action::SendToWidget(msg) = action);
     let msg: JsonValue = serde_json::from_str(&msg).unwrap();
     assert_eq!(
         msg,

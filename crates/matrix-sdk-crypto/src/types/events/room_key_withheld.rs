@@ -487,6 +487,7 @@ pub(super) mod tests {
     use std::collections::BTreeMap;
 
     use assert_matches::assert_matches;
+    use assert_matches2::assert_let;
     use ruma::{device_id, room_id, serde::Raw, to_device::DeviceIdOrAllDevices, user_id};
     use serde_json::{json, Value};
     use vodozemac::Curve25519PublicKey;
@@ -575,7 +576,8 @@ pub(super) mod tests {
             let json = json(&code);
             let event: RoomKeyWithheldEvent = serde_json::from_value(json.clone())?;
 
-            assert_matches!(&event.content, RoomKeyWithheldContent::MegolmV1AesSha2(content) if code == content.withheld_code());
+            assert_let!(RoomKeyWithheldContent::MegolmV1AesSha2(content) = &event.content);
+            assert_eq!(code, content.withheld_code());
 
             assert_eq!(event.content.algorithm(), EventEncryptionAlgorithm::MegolmV1AesSha2);
             let serialized = serde_json::to_value(event)?;
@@ -604,11 +606,8 @@ pub(super) mod tests {
         let event: RoomKeyWithheldEvent = serde_json::from_value(json.clone())?;
         assert_matches!(event.content, RoomKeyWithheldContent::Unknown(_));
 
-        assert_matches!(
-            &event.content,
-            RoomKeyWithheldContent::Unknown(content)
-            if content.code.as_str() == "org.mscXXX.new_code"
-        );
+        assert_let!(RoomKeyWithheldContent::Unknown(content) = &event.content);
+        assert_eq!(content.code.as_str(), "org.mscXXX.new_code");
 
         let serialized = serde_json::to_value(event)?;
         assert_eq!(json, serialized);
@@ -622,11 +621,8 @@ pub(super) mod tests {
         let event: RoomKeyWithheldEvent = serde_json::from_value(json.clone())?;
         assert_matches!(event.content, RoomKeyWithheldContent::Unknown(_));
 
-        if let RoomKeyWithheldContent::Unknown(content) = &event.content {
-            assert_matches!(content.code, WithheldCode::_Custom(_));
-        } else {
-            panic!()
-        }
+        assert_let!(RoomKeyWithheldContent::Unknown(content) = &event.content);
+        assert_matches!(&content.code, WithheldCode::_Custom(_));
         let serialized = serde_json::to_value(event)?;
         assert_eq!(json, serialized);
 
@@ -695,11 +691,12 @@ pub(super) mod tests {
             device_id.to_owned(),
         );
 
-        assert_matches!(
-            content,
-            RoomKeyWithheldContent::MegolmV1AesSha2(MegolmV1AesSha2WithheldContent::NoOlm(content))
-            if content.sender_key == sender_key
+        assert_let!(
+            RoomKeyWithheldContent::MegolmV1AesSha2(MegolmV1AesSha2WithheldContent::NoOlm(
+                content
+            )) = content
         );
+        assert_eq!(content.sender_key, sender_key);
 
         let content = RoomKeyWithheldContent::new(
             EventEncryptionAlgorithm::MegolmV1AesSha2,
@@ -710,10 +707,11 @@ pub(super) mod tests {
             device_id.to_owned(),
         );
 
-        assert_matches!(
-            content,
-            RoomKeyWithheldContent::MegolmV1AesSha2(MegolmV1AesSha2WithheldContent::Unverified(content))
-            if content.session_id == "0ZcULv8j1nqVWx6orFjD6OW9JQHydDPXfaanA+uRyfs"
+        assert_let!(
+            RoomKeyWithheldContent::MegolmV1AesSha2(MegolmV1AesSha2WithheldContent::Unverified(
+                content
+            )) = content
         );
+        assert_eq!(content.session_id, "0ZcULv8j1nqVWx6orFjD6OW9JQHydDPXfaanA+uRyfs");
     }
 }
