@@ -137,7 +137,8 @@ impl TimelineInnerState {
                 }
                 Ok(_) => {}
                 Err(e) => {
-                    warn!("Failed to deserialize account data: {e}");
+                    let event_type = raw_event.get_field::<String>("type").ok().flatten();
+                    warn!(event_type, "Failed to deserialize account data: {e}");
                 }
             }
         }
@@ -152,7 +153,8 @@ impl TimelineInnerState {
                     }
                     Ok(_) => {}
                     Err(e) => {
-                        warn!("Failed to deserialize ephemeral event: {e}");
+                        let event_type = raw_event.get_field::<String>("type").ok().flatten();
+                        warn!(event_type, "Failed to deserialize ephemeral event: {e}");
                     }
                 }
             }
