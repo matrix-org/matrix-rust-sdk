@@ -38,234 +38,269 @@ struct Keys {
     user_signing: BTreeMap<OwnedUserId, Raw<CrossSigningKey>>,
 }
 
+impl Keys {
+    /// Mocks some endpoints associated to key queries and cross-signing.
+    async fn mock_endpoints(server: &MockServer, known_devices: Arc<Mutex<HashSet<String>>>) {
+        let keys = Arc::new(Mutex::new(Self::default()));
+
+        Mock::given(method("POST"))
+            .and(path("/_matrix/client/r0/keys/query"))
+            .respond_with(mock_keys_query(keys.clone()))
+            .mount(server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path("/_matrix/client/r0/keys/upload"))
+            .respond_with(mock_keys_upload(known_devices.clone(), keys.clone()))
+            .mount(server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path("/_matrix/client/unstable/keys/device_signing/upload"))
+            .respond_with(mock_keys_device_signing_upload(keys.clone()))
+            .mount(server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path("/_matrix/client/unstable/keys/signatures/upload"))
+            .respond_with(mock_keys_signature_upload(keys.clone()))
+            .mount(server)
+            .await;
+    }
+}
+
 struct MockedServer {
     server: MockServer,
     known_devices: Arc<Mutex<HashSet<String>>>,
 }
 
+/// Intercepts a `/keys/query` request and mock its results as returned by an
+/// actual homeserver.
+///
+/// Supports filtering by user id, or no filters at all.
+fn mock_keys_query(keys: Arc<Mutex<Keys>>) -> impl Fn(&Request) -> ResponseTemplate {
+    move |req| {
+        #[derive(Debug, serde::Deserialize)]
+        struct Parameters {
+            device_keys: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>>,
+        }
+
+        let params: Parameters = req.body_json().unwrap();
+
+        let keys = keys.lock().unwrap();
+        let mut device_keys = keys.device.clone();
+        if !params.device_keys.is_empty() {
+            device_keys.retain(|user, key_map| {
+                if let Some(devices) = params.device_keys.get(user) {
+                    if !devices.is_empty() {
+                        key_map.retain(|key_id, _json| {
+                            devices.iter().any(|device_id| &device_id.to_string() == key_id)
+                        });
+                    }
+                    true
+                } else {
+                    false
+                }
+            })
+        }
+
+        let master_keys = keys.master.clone();
+        let self_signing_keys = keys.self_signing.clone();
+        let user_signing_keys = keys.user_signing.clone();
+
+        ResponseTemplate::new(200).set_body_json(json!({
+            "device_keys": device_keys,
+            "master_keys": master_keys,
+            "self_signing_keys": self_signing_keys,
+            "user_signing_keys": user_signing_keys,
+        }))
+    }
+}
+
+/// Intercepts a `/keys/upload` query and mocks the behavior it would have on a
+/// real homeserver.
+///
+/// Inserts all the `DeviceKeys` into `Keys::device_keys`, or if already present
+/// in this mapping, only merge the signatures.
+fn mock_keys_upload(
+    known_devices: Arc<Mutex<HashSet<String>>>,
+    keys: Arc<Mutex<Keys>>,
+) -> impl Fn(&Request) -> ResponseTemplate {
+    move |req: &Request| {
+        #[derive(Debug, serde::Deserialize)]
+        struct Parameters {
+            device_keys: Option<Raw<DeviceKeys>>,
+        }
+
+        let params: Parameters = req.body_json().unwrap();
+
+        if let Some(new_device_keys) = params.device_keys {
+            let new_device_keys = new_device_keys.deserialize().unwrap();
+
+            let known_devices = known_devices.lock().unwrap();
+            let key_id = new_device_keys.device_id.to_string();
+            if known_devices.contains(&key_id) {
+                let mut keys = keys.lock().unwrap();
+                let devices = keys.device.entry(new_device_keys.user_id.clone()).or_default();
+
+                // Either merge signatures if an entry is already present, or insert a new one.
+                if let Some(device_keys) = devices.get_mut(&key_id) {
+                    let mut existing = device_keys.deserialize().unwrap();
+
+                    // Merge signatures.
+                    for (uid, sigs) in existing.signatures.iter_mut() {
+                        if let Some(new_sigs) = new_device_keys.signatures.get(uid) {
+                            sigs.extend(new_sigs.clone());
+                        }
+                    }
+                    for (uid, sigs) in new_device_keys.signatures.iter() {
+                        if !existing.signatures.contains_key(uid) {
+                            existing.signatures.insert(uid.clone(), sigs.clone());
+                        }
+                    }
+
+                    *device_keys = Raw::new(&existing).unwrap();
+                } else {
+                    devices.insert(key_id, Raw::new(&new_device_keys).unwrap());
+                }
+            }
+        }
+
+        ResponseTemplate::new(200).set_body_json(json!({
+            "one_time_key_counts": {}
+        }))
+    }
+}
+
+/// Mocks a `/keys/device_signing/upload` request for bootstrapping
+/// cross-signing.
+///
+/// Assumes (and asserts) all keys are updated at the same time.
+///
+/// Saves all the different cross-signing keys into their respective fields of
+/// `Keys`.
+fn mock_keys_device_signing_upload(
+    keys: Arc<Mutex<Keys>>,
+) -> impl Fn(&Request) -> ResponseTemplate {
+    move |req: &Request| {
+        // Accept all cross-signing setups by default.
+        #[derive(Debug, serde::Deserialize)]
+        struct Parameters {
+            master_key: Option<Raw<CrossSigningKey>>,
+            self_signing_key: Option<Raw<CrossSigningKey>>,
+            user_signing_key: Option<Raw<CrossSigningKey>>,
+        }
+
+        let params: Parameters = req.body_json().unwrap();
+        assert!(params.master_key.is_some());
+        assert!(params.self_signing_key.is_some());
+        assert!(params.user_signing_key.is_some());
+
+        let mut keys = keys.lock().unwrap();
+
+        if let Some(key) = params.master_key {
+            let deserialized = key.deserialize().unwrap();
+            let user_id = deserialized.user_id;
+            keys.master.insert(user_id, key);
+        }
+
+        if let Some(key) = params.self_signing_key {
+            let deserialized = key.deserialize().unwrap();
+            let user_id = deserialized.user_id;
+            keys.self_signing.insert(user_id, key);
+        }
+
+        if let Some(key) = params.user_signing_key {
+            let deserialized = key.deserialize().unwrap();
+            let user_id = deserialized.user_id;
+            keys.user_signing.insert(user_id, key);
+        }
+
+        ResponseTemplate::new(200).set_body_json(json!({}))
+    }
+}
+
+/// Mocks a `/keys/signatures/upload` request.
+///
+/// Supports merging signatures for master keys or devices keys.
+fn mock_keys_signature_upload(keys: Arc<Mutex<Keys>>) -> impl Fn(&Request) -> ResponseTemplate {
+    move |req: &Request| {
+        #[derive(Debug, serde::Deserialize)]
+        #[serde(transparent)]
+        struct Parameters(BTreeMap<OwnedUserId, SignedKeys>);
+
+        let params: Parameters = req.body_json().unwrap();
+
+        let mut keys = keys.lock().unwrap();
+
+        for (user, signed_keys) in params.0 {
+            for (key_id, raw_key) in signed_keys.iter() {
+                // Try to find a field in keys.master.
+                if let Some(existing_master_key) = keys.master.get_mut(&user) {
+                    let mut existing = existing_master_key.deserialize().unwrap();
+
+                    let target =
+                        DeviceKeyId::from_parts(ruma::DeviceKeyAlgorithm::Ed25519, key_id.into());
+
+                    if existing.keys.contains_key(&target) {
+                        let param: CrossSigningKey = serde_json::from_str(raw_key.get()).unwrap();
+
+                        for (uid, sigs) in existing.signatures.iter_mut() {
+                            if let Some(new_sigs) = param.signatures.get(uid) {
+                                sigs.extend(new_sigs.clone());
+                            }
+                        }
+                        for (uid, sigs) in param.signatures.iter() {
+                            if !existing.signatures.contains_key(uid) {
+                                existing.signatures.insert(uid.clone(), sigs.clone());
+                            }
+                        }
+
+                        // Update in map.
+                        *existing_master_key = Raw::new(&existing).unwrap();
+                        continue;
+                    }
+                }
+
+                // Otherwise, try to find a field in keys.device.
+                // Either merge signatures if an entry is already present, or insert a new
+                // entry.
+                let known_devices = keys.device.entry(user.clone()).or_default();
+                if let Some(device_keys) = known_devices.get_mut(key_id) {
+                    let param: DeviceKeys = serde_json::from_str(raw_key.get()).unwrap();
+
+                    let mut existing: DeviceKeys = device_keys.deserialize().unwrap();
+
+                    for (uid, sigs) in existing.signatures.iter_mut() {
+                        if let Some(new_sigs) = param.signatures.get(uid) {
+                            sigs.extend(new_sigs.clone());
+                        }
+                    }
+                    for (uid, sigs) in param.signatures.iter() {
+                        if !existing.signatures.contains_key(uid) {
+                            existing.signatures.insert(uid.clone(), sigs.clone());
+                        }
+                    }
+
+                    *device_keys = Raw::new(&existing).unwrap();
+                } else {
+                    tracing::warn!("adding a signature to a key that hasn't been uploaded yet, user={user}, key={key_id}");
+                    known_devices.insert(key_id.to_owned(), Raw::from_json(raw_key.to_owned()));
+                }
+            }
+        }
+
+        ResponseTemplate::new(200).set_body_json(json!({
+            "failures": {}
+        }))
+    }
+}
+
 impl MockedServer {
     async fn new() -> Self {
         let server = MockServer::start().await;
-
         let known_devices: Arc<Mutex<HashSet<String>>> = Default::default();
-        let keys = Arc::new(Mutex::new(Keys::default()));
-
-        let k = keys.clone();
-        Mock::given(method("POST"))
-            .and(path("/_matrix/client/r0/keys/query"))
-            .respond_with(move |req: &Request| {
-                #[derive(Debug, serde::Deserialize)]
-                struct Parameters {
-                    device_keys: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>>,
-                }
-
-                let params: Parameters = req.body_json().unwrap();
-
-                let keys = k.lock().unwrap();
-                let mut device_keys = keys.device.clone();
-                if !params.device_keys.is_empty() {
-                    device_keys.retain(|user, key_map| {
-                        if let Some(devices) = params.device_keys.get(user) {
-                            if !devices.is_empty() {
-                                key_map.retain(|key_id, _json| {
-                                    devices.iter().any(|device_id| &device_id.to_string() == key_id)
-                                });
-                            }
-                            true
-                        } else {
-                            false
-                        }
-                    })
-                }
-
-                let master_keys = keys.master.clone();
-                let self_signing_keys = keys.self_signing.clone();
-                let user_signing_keys = keys.user_signing.clone();
-
-                ResponseTemplate::new(200).set_body_json(json!({
-                    "device_keys": device_keys,
-                    "master_keys": master_keys,
-                    "self_signing_keys": self_signing_keys,
-                    "user_signing_keys": user_signing_keys,
-                }))
-            })
-            .mount(&server)
-            .await;
-
-        let known_devices_clone = known_devices.clone();
-        let k = keys.clone();
-        Mock::given(method("POST"))
-            .and(path("/_matrix/client/r0/keys/upload"))
-            .respond_with(move |req: &Request| {
-                #[derive(Debug, serde::Deserialize)]
-                struct Parameters {
-                    device_keys: Option<Raw<DeviceKeys>>,
-                }
-
-                let params: Parameters = req.body_json().unwrap();
-
-                let mut keys = k.lock().unwrap();
-                let known_devices = known_devices_clone.lock().unwrap();
-                if let Some(new_device_keys) = params.device_keys {
-                    let new_device_keys = new_device_keys.deserialize().unwrap();
-
-                    if known_devices.contains(&new_device_keys.device_id.to_string()) {
-                        let devices =
-                            keys.device.entry(new_device_keys.user_id.clone()).or_default();
-
-                        let key_id = new_device_keys.device_id.to_string();
-                        // Either merge signatures if an entry is already present, or insert a new
-                        // one.
-                        if let Some(device_keys) = devices.get_mut(&key_id) {
-                            let mut existing = device_keys.deserialize().unwrap();
-
-                            // Merge signatures.
-                            for (uid, sigs) in existing.signatures.iter_mut() {
-                                if let Some(new_sigs) = new_device_keys.signatures.get(uid) {
-                                    sigs.extend(new_sigs.clone());
-                                }
-                            }
-                            for (uid, sigs) in new_device_keys.signatures.iter() {
-                                if !existing.signatures.contains_key(uid) {
-                                    existing.signatures.insert(uid.clone(), sigs.clone());
-                                }
-                            }
-
-                            *device_keys = Raw::new(&existing).unwrap();
-                        } else {
-                            devices.insert(key_id, Raw::new(&new_device_keys).unwrap());
-                        }
-                    }
-                }
-
-                ResponseTemplate::new(200).set_body_json(json!({
-                    "one_time_key_counts": {}
-                }))
-            })
-            .mount(&server)
-            .await;
-
-        let k = keys.clone();
-        Mock::given(method("POST"))
-            .and(path("/_matrix/client/unstable/keys/device_signing/upload"))
-            .respond_with(move |req: &Request| {
-                // Accept all cross-signing setups by default.
-                #[derive(Debug, serde::Deserialize)]
-                struct Parameters {
-                    master_key: Option<Raw<CrossSigningKey>>,
-                    self_signing_key: Option<Raw<CrossSigningKey>>,
-                    user_signing_key: Option<Raw<CrossSigningKey>>,
-                }
-
-                let params: Parameters = req.body_json().unwrap();
-                assert!(params.master_key.is_some());
-                assert!(params.self_signing_key.is_some());
-                assert!(params.user_signing_key.is_some());
-
-                let mut keys = k.lock().unwrap();
-
-                if let Some(key) = params.master_key {
-                    let deserialized = key.deserialize().unwrap();
-                    let user_id = deserialized.user_id;
-                    keys.master.insert(user_id, key);
-                }
-
-                if let Some(key) = params.self_signing_key {
-                    let deserialized = key.deserialize().unwrap();
-                    let user_id = deserialized.user_id;
-                    keys.self_signing.insert(user_id, key);
-                }
-
-                if let Some(key) = params.user_signing_key {
-                    let deserialized = key.deserialize().unwrap();
-                    let user_id = deserialized.user_id;
-                    keys.user_signing.insert(user_id, key);
-                }
-
-                ResponseTemplate::new(200).set_body_json(json!({}))
-            })
-            .mount(&server)
-            .await;
-
-        let k = keys.clone();
-        Mock::given(method("POST"))
-            .and(path("/_matrix/client/unstable/keys/signatures/upload"))
-            .respond_with(move |req: &Request| {
-                #[derive(Debug, serde::Deserialize)]
-                #[serde(transparent)]
-                struct Parameters(BTreeMap<OwnedUserId, SignedKeys>);
-
-                let params: Parameters = req.body_json().unwrap();
-
-                let mut keys = k.lock().unwrap();
-
-                for (user, signed_keys) in params.0 {
-                    for (key_id, raw_key) in signed_keys.iter() {
-                        // Try to find a field in keys.master.
-                        if let Some(existing_master_key) = keys.master.get_mut(&user) {
-                            let mut existing = existing_master_key.deserialize().unwrap();
-
-                            let target = DeviceKeyId::from_parts(
-                                ruma::DeviceKeyAlgorithm::Ed25519,
-                                key_id.into(),
-                            );
-
-                            if existing.keys.contains_key(&target) {
-                                let param: CrossSigningKey =
-                                    serde_json::from_str(raw_key.get()).unwrap();
-
-                                for (uid, sigs) in existing.signatures.iter_mut() {
-                                    if let Some(new_sigs) = param.signatures.get(uid) {
-                                        sigs.extend(new_sigs.clone());
-                                    }
-                                }
-                                for (uid, sigs) in param.signatures.iter() {
-                                    if !existing.signatures.contains_key(uid) {
-                                        existing.signatures.insert(uid.clone(), sigs.clone());
-                                    }
-                                }
-
-                                // Update in map.
-                                *existing_master_key = Raw::new(&existing).unwrap();
-                                continue;
-                            }
-                        }
-
-                        // Otherwise, try to find a field in keys.device.
-                        // Either merge signatures if entry is already present, or insert a new
-                        // entry.
-                        let known_devices = keys.device.entry(user.clone()).or_default();
-                        if let Some(device_keys) = known_devices.get_mut(key_id) {
-                            let param: DeviceKeys = serde_json::from_str(raw_key.get()).unwrap();
-
-                            let mut existing: DeviceKeys = device_keys.deserialize().unwrap();
-
-                            for (uid, sigs) in existing.signatures.iter_mut() {
-                                if let Some(new_sigs) = param.signatures.get(uid) {
-                                    sigs.extend(new_sigs.clone());
-                                }
-                            }
-                            for (uid, sigs) in param.signatures.iter() {
-                                if !existing.signatures.contains_key(uid) {
-                                    existing.signatures.insert(uid.clone(), sigs.clone());
-                                }
-                            }
-
-                            *device_keys = Raw::new(&existing).unwrap();
-                        } else {
-                            known_devices
-                                .insert(key_id.to_owned(), Raw::from_json(raw_key.to_owned()));
-                        }
-                    }
-                }
-
-                ResponseTemplate::new(200).set_body_json(json!({
-                    "failures": {}
-                }))
-            })
-            .mount(&server)
-            .await;
-
+        Keys::mock_endpoints(&server, known_devices.clone()).await;
         Self { server, known_devices }
     }
 
