@@ -8,10 +8,7 @@ use assert_matches::assert_matches;
 use assign::assign;
 use matrix_sdk::{
     crypto::{format_emojis, SasState},
-    encryption::{
-        verification::{Verification, VerificationRequestState},
-        LocalTrust,
-    },
+    encryption::{verification::VerificationRequestState, LocalTrust},
     ruma::{
         api::client::room::create_room::v3::Request as CreateRoomRequest,
         events::{
@@ -108,6 +105,9 @@ async fn test_mutual_verification() -> Result<()> {
 
     let alice_verification_request = alice_bob_identity.request_verification().await?;
 
+    assert!(!alice_verification_request.is_passive());
+    assert!(alice_verification_request.we_started());
+
     warn!("alice has started verification");
 
     bob.sync_once().await?;
@@ -119,11 +119,28 @@ async fn test_mutual_verification() -> Result<()> {
 
     warn!("bob has received the verification request");
 
+    assert!(!bob_verification_request.is_done());
+
+    assert!(!bob_verification_request.is_cancelled());
+    assert!(bob_verification_request.cancel_info().is_none());
+
+    assert!(!bob_verification_request.is_ready());
+    assert!(!bob_verification_request.is_passive());
+    assert!(!bob_verification_request.we_started());
+
+    assert_eq!(bob_verification_request.own_user_id(), bob.user_id().unwrap());
+    assert_eq!(bob_verification_request.other_user_id(), alice.user_id().unwrap());
+    assert!(!bob_verification_request.is_self_verification());
+
     assert_matches!(bob_verification_request.state(), VerificationRequestState::Requested { .. });
+    let _flow_id = bob_verification_request.flow_id();
 
     // Bob notifies Alice he accepts the verification process.
     bob_verification_request.accept().await.unwrap();
-    assert_matches!(bob_verification_request.state(), VerificationRequestState::Ready { .. });
+    let our_methods = assert_matches!(bob_verification_request.state(), VerificationRequestState::Ready { our_methods, .. } => our_methods);
+    assert!(bob_verification_request.is_ready());
+
+    assert_eq!(bob_verification_request.their_supported_methods(), Some(our_methods));
 
     warn!("bob has accepted the verification request");
 
@@ -135,8 +152,32 @@ async fn test_mutual_verification() -> Result<()> {
     let alice_sas =
         alice_verification_request.start_sas().await?.expect("must have a sas verification");
 
+    assert_eq!(alice_sas.own_user_id(), alice.user_id().unwrap());
+    assert_eq!(alice_sas.other_user_id(), bob.user_id().unwrap());
+
+    assert!(alice_sas.started_from_request());
+    assert!(!alice_sas.is_self_verification());
+    assert!(alice_sas.we_started());
+    assert!(!alice_sas.is_done());
+    assert!(!alice_sas.is_cancelled());
+    assert!(alice_sas.cancel_info().is_none());
+    assert!(!alice_sas.supports_emoji());
+    assert!(alice_sas.emoji().is_none());
+    assert!(alice_sas.decimals().is_none());
+
     bob.sync_once().await?;
-    let bob_sas = assert_matches!(bob_verification_request.state(), VerificationRequestState::Transitioned { verification: Verification::SasV1(bob_sas) } => bob_sas);
+
+    let bob_verification = assert_matches!(bob_verification_request.state(), VerificationRequestState::Transitioned { verification } => verification);
+
+    assert!(!bob_verification.is_done());
+    assert!(!bob_verification.is_cancelled());
+    assert!(!bob_verification.is_self_verification());
+    assert!(!bob_verification.we_started());
+    assert!(bob_verification.cancel_info().is_none());
+    assert_eq!(bob_verification.own_user_id(), bob.user_id().unwrap());
+    assert_eq!(bob_verification.other_user_id(), alice.user_id().unwrap());
+
+    let bob_sas = bob_verification.sas().unwrap();
 
     assert_matches!(alice_sas.state(), SasState::Started { .. });
     assert_matches!(bob_sas.state(), SasState::Started { .. });
@@ -145,6 +186,7 @@ async fn test_mutual_verification() -> Result<()> {
     assert_matches!(bob_sas.state(), SasState::Accepted { .. });
     alice.sync_once().await?;
     assert_matches!(alice_sas.state(), SasState::Accepted { .. });
+    assert!(alice_sas.supports_emoji());
 
     assert!(!alice_sas.can_be_presented());
     assert!(!bob_sas.can_be_presented());
@@ -186,6 +228,14 @@ async fn test_mutual_verification() -> Result<()> {
     // Wait for remote echos for verification status requests.
     alice.sync_once().await?;
     bob.sync_once().await?;
+
+    assert!(!bob_verification_request.is_cancelled());
+    assert!(!alice_verification_request.is_cancelled());
+
+    assert!(bob_verification_request.is_done());
+    assert!(alice_verification_request.is_done());
+    assert!(bob_sas.is_done());
+    assert!(alice_sas.is_done());
 
     // Both users appear as verified to each other.
     let alice_bob_ident =
