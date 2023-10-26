@@ -349,6 +349,36 @@ impl BackupMachine {
         }
     }
 
+    pub async fn sign_backup(
+        &self,
+        backup_info: &mut RoomKeyBackupInfo,
+    ) -> Result<(), CryptoStoreError> {
+        if let RoomKeyBackupInfo::MegolmBackupV1Curve25519AesSha2(data) = backup_info {
+            let canonical_json = data.to_canonical_json().unwrap();
+
+            let private_identity = self.store.private_identity();
+            let identity = private_identity.lock().await;
+
+            if let Some(key_id) = identity.master_key_id().await {
+                if let Ok(signature) = identity.sign(&canonical_json).await {
+                    data.signatures.add_signature(
+                        self.store.user_id().to_owned(),
+                        key_id,
+                        signature,
+                    );
+                }
+            }
+
+            let cache = self.store.cache().await?;
+            let account = cache.account().await?;
+            let key_id = account.signing_key_id();
+            let signature = account.sign(&canonical_json);
+            data.signatures.add_signature(self.store.user_id().to_owned(), key_id, signature);
+        }
+
+        Ok(())
+    }
+
     /// Activate the given backup key to be used to encrypt and backup room
     /// keys.
     ///
