@@ -1,5 +1,9 @@
 # unreleased
 
+- Add a higher level method to create signatures for the backup info. The
+  `OlmMachine::backup_machine()::sign_backup()` method can be used to add
+  signatures to a `RoomKeyBackupInfo`.
+
 - Remove the `backups_v1` feature, backups support is now enabled by default.
 
 - Use the `Signatures` type as the return value for the
