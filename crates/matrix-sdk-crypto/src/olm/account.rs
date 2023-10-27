@@ -1118,7 +1118,7 @@ impl Account {
 
         match message {
             OlmMessage::Normal(_) => {
-                let session_ids = if let Some(ref sessions) = existing_sessions {
+                let session_ids = if let Some(sessions) = existing_sessions {
                     let sessions = &mut *sessions.lock().await;
 
                     // Try to decrypt the message using each Session we share with the
