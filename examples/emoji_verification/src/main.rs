@@ -5,9 +5,13 @@ use clap::Parser;
 use futures_util::stream::StreamExt;
 use matrix_sdk::{
     config::SyncSettings,
-    encryption::verification::{
-        format_emojis, Emoji, SasState, SasVerification, Verification, VerificationRequest,
-        VerificationRequestState,
+    encryption::{
+        recovery::RecoveryState,
+        verification::{
+            format_emojis, Emoji, SasState, SasVerification, Verification, VerificationRequest,
+            VerificationRequestState,
+        },
+        EncryptionSettings,
     },
     ruma::{
         events::{
@@ -143,9 +147,24 @@ async fn sync(client: Client) -> matrix_sdk::Result<()> {
         }
     });
 
-    client.sync(SyncSettings::new()).await?;
+    loop {
+        if let Err(e) = client.sync(SyncSettings::new()).await {
+            eprintln!("Error syncing, what the fuck is going on with this synapse {e:?}")
+        }
+    }
+}
 
-    Ok(())
+async fn listen_for_recovery_state_changes(client: Client) {
+    let mut stream = client.encryption().recovery().state_stream();
+
+    while let Some(state) = stream.next().await {
+        match state {
+            RecoveryState::Unknown => println!("The recovery state is now unknown"),
+            RecoveryState::Enabled => println!("Recovery is now enabled"),
+            RecoveryState::Disabled => println!("Recovery is now disabled"),
+            RecoveryState::Incomplete => println!("Recovery is now incomplete"),
+        }
+    }
 }
 
 #[derive(Parser, Debug)]
@@ -172,7 +191,15 @@ struct Cli {
 }
 
 async fn login(cli: Cli) -> Result<Client> {
-    let builder = Client::builder().homeserver_url(cli.homeserver);
+    let encryption_settings = EncryptionSettings {
+        auto_enable_cross_signing: true,
+        auto_download_from_backup: true,
+        auto_enable_backups: true,
+    };
+
+    let builder = Client::builder()
+        .homeserver_url(cli.homeserver)
+        .with_encryption_settings(encryption_settings);
 
     let builder = if let Some(proxy) = cli.proxy { builder.proxy(proxy) } else { builder };
 
@@ -196,6 +223,11 @@ async fn main() -> Result<()> {
     }
 
     let client = login(cli).await?;
+
+    let _recovery_state_task = tokio::spawn({
+        let client = client.to_owned();
+        async move { listen_for_recovery_state_changes(client.to_owned()).await }
+    });
 
     sync(client).await?;
 
