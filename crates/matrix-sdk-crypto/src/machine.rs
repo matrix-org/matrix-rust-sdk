@@ -373,13 +373,12 @@ impl OlmMachine {
         let mut requests = Vec::new();
 
         {
-            let mut store_transaction = self.inner.store.transaction().await?;
-            let account = store_transaction.account().await?;
-            if let Some(r) = self.keys_for_upload(account).await.map(|r| OutgoingRequest {
+            let store_cache = self.inner.store.cache().await?;
+            let account = store_cache.account().await?;
+            if let Some(r) = self.keys_for_upload(&*account).await.map(|r| OutgoingRequest {
                 request_id: TransactionId::new(),
                 request: Arc::new(r.into()),
             }) {
-                store_transaction.commit().await?; // Note: this saves the account.
                 requests.push(r);
             }
         }
