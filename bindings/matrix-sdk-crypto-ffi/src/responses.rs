@@ -72,7 +72,7 @@ impl From<RustUploadSigningKeysRequest> for UploadSigningKeysRequest {
 #[derive(uniffi::Record)]
 pub struct BootstrapCrossSigningResult {
     pub upload_signing_keys_request: UploadSigningKeysRequest,
-    pub signature_request: SignatureUploadRequest,
+    pub upload_signature_request: SignatureUploadRequest,
 }
 
 impl From<(RustUploadSigningKeysRequest, RustSignatureUploadRequest)>
@@ -81,7 +81,7 @@ impl From<(RustUploadSigningKeysRequest, RustSignatureUploadRequest)>
     fn from(requests: (RustUploadSigningKeysRequest, RustSignatureUploadRequest)) -> Self {
         Self {
             upload_signing_keys_request: requests.0.into(),
-            signature_request: requests.1.into(),
+            upload_signature_request: requests.1.into(),
         }
     }
 }
