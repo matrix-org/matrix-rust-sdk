@@ -73,7 +73,7 @@ fn read_messages_without_capabilities() {
 }
 
 #[test]
-fn read_messages_not_yet_supported() {
+fn read_request_for_non_allowed_message_like_events() {
     let (mut machine, actions) =
         WidgetMachine::new(WIDGET_ID.to_owned(), owned_room_id!("!a98sd12bjh:example.org"), false);
     assert_capabilities_dance(&mut machine, actions, None);
@@ -94,10 +94,7 @@ fn read_messages_not_yet_supported() {
     assert_eq!(request_id, "get-me-some-messages");
     assert_eq!(msg["api"], "fromWidget");
     assert_eq!(msg["action"], "org.matrix.msc2876.read_events");
-    assert_eq!(
-        msg["response"]["error"]["message"].as_str().unwrap(),
-        "Reading of message events is not yet supported"
-    );
+    assert_eq!(msg["response"]["error"]["message"].as_str().unwrap(), "Not allowed");
 }
 
 #[test]
@@ -187,5 +184,36 @@ fn send_request_for_non_allowed_message_like_events() {
     assert_eq!(request_id, "send-me-a-message");
     assert_eq!(msg["api"], "fromWidget");
     assert_eq!(msg["action"], "send_event");
+    assert_eq!(msg["response"]["error"]["message"].as_str().unwrap(), "Not allowed");
+}
+
+#[test]
+fn read_request_for_message_like_with_disallowed_msg_type_fails() {
+    let (mut machine, actions) =
+        WidgetMachine::new(WIDGET_ID.to_owned(), owned_room_id!("!a98sd12bjh:example.org"), false);
+
+    assert_capabilities_dance(
+        &mut machine,
+        actions,
+        Some("org.matrix.msc2762.receive.event:m.room.message#m.text"),
+    );
+
+    let actions = machine.process(IncomingMessage::WidgetMessage(json_string!({
+        "api": "fromWidget",
+        "widgetId": WIDGET_ID,
+        "requestId": "get-me-some-messages",
+        "action": "org.matrix.msc2876.read_events",
+        "data": {
+            "type": "m.reaction",
+            "limit": 1,
+        },
+    })));
+
+    let [action]: [Action; 1] = actions.try_into().unwrap();
+    assert_let!(Action::SendToWidget(msg) = action);
+    let (msg, request_id) = parse_msg(&msg);
+    assert_eq!(request_id, "get-me-some-messages");
+    assert_eq!(msg["api"], "fromWidget");
+    assert_eq!(msg["action"], "org.matrix.msc2876.read_events");
     assert_eq!(msg["response"]["error"]["message"].as_str().unwrap(), "Not allowed");
 }

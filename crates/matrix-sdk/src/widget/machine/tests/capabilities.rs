@@ -136,8 +136,8 @@ fn capabilities_failure_results_into_empty_capabilities() {
     );
 }
 
-/// Performs a capability "dance", if no capability is specified, we assume that it's:
-/// `org.matrix.msc2762.receive.state_event:m.room.member`.
+/// Performs a capability "dance", if no capability is specified, we assume that
+/// it's: `org.matrix.msc2762.receive.state_event:m.room.member`.
 pub(super) fn assert_capabilities_dance(
     machine: &mut WidgetMachine,
     actions: Vec<Action>,
