@@ -76,7 +76,7 @@ fn read_messages_without_capabilities() {
 fn read_messages_not_yet_supported() {
     let (mut machine, actions) =
         WidgetMachine::new(WIDGET_ID.to_owned(), owned_room_id!("!a98sd12bjh:example.org"), false);
-    assert_capabilities_dance(&mut machine, actions);
+    assert_capabilities_dance(&mut machine, actions, None);
 
     let actions = machine.process(IncomingMessage::WidgetMessage(json_string!({
         "api": "fromWidget",
@@ -98,4 +98,94 @@ fn read_messages_not_yet_supported() {
         msg["response"]["error"]["message"].as_str().unwrap(),
         "Reading of message events is not yet supported"
     );
+}
+
+#[test]
+fn read_request_for_non_allowed_state_events() {
+    let (mut machine, actions) =
+        WidgetMachine::new(WIDGET_ID.to_owned(), owned_room_id!("!a98sd12bjh:example.org"), false);
+    assert_capabilities_dance(&mut machine, actions, None);
+
+    let actions = machine.process(IncomingMessage::WidgetMessage(json_string!({
+        "api": "fromWidget",
+        "widgetId": WIDGET_ID,
+        "requestId": "get-me-some-messages",
+        "action": "org.matrix.msc2876.read_events",
+        "data": {
+            "type": "m.room.topic",
+            "state_key": true,
+        },
+    })));
+
+    let [action]: [Action; 1] = actions.try_into().unwrap();
+    assert_let!(Action::SendToWidget(msg) = action);
+    let (msg, request_id) = parse_msg(&msg);
+    assert_eq!(request_id, "get-me-some-messages");
+    assert_eq!(msg["api"], "fromWidget");
+    assert_eq!(msg["action"], "org.matrix.msc2876.read_events");
+    assert_eq!(msg["response"]["error"]["message"].as_str().unwrap(), "Not allowed");
+}
+
+#[test]
+fn send_request_for_non_allowed_state_events() {
+    let (mut machine, actions) =
+        WidgetMachine::new(WIDGET_ID.to_owned(), owned_room_id!("!a98sd12bjh:example.org"), false);
+    assert_capabilities_dance(
+        &mut machine,
+        actions,
+        Some("org.matrix.msc2762.send.state_event:m.room.member"),
+    );
+
+    let actions = machine.process(IncomingMessage::WidgetMessage(json_string!({
+        "api": "fromWidget",
+        "widgetId": WIDGET_ID,
+        "requestId": "send-me-a-message",
+        "action": "send_event",
+        "data": {
+            "type": "m.room.topic",
+            "content": {
+                "topic": "Hello world",
+            },
+        },
+    })));
+
+    let [action]: [Action; 1] = actions.try_into().unwrap();
+    assert_let!(Action::SendToWidget(msg) = action);
+    let (msg, request_id) = parse_msg(&msg);
+    assert_eq!(request_id, "send-me-a-message");
+    assert_eq!(msg["api"], "fromWidget");
+    assert_eq!(msg["action"], "send_event");
+    assert_eq!(msg["response"]["error"]["message"].as_str().unwrap(), "Not allowed");
+}
+
+#[test]
+fn send_request_for_non_allowed_message_like_events() {
+    let (mut machine, actions) =
+        WidgetMachine::new(WIDGET_ID.to_owned(), owned_room_id!("!a98sd12bjh:example.org"), false);
+    assert_capabilities_dance(
+        &mut machine,
+        actions,
+        Some("org.matrix.msc2762.send.event:m.room.message#m.text"),
+    );
+
+    let actions = machine.process(IncomingMessage::WidgetMessage(json_string!({
+        "api": "fromWidget",
+        "widgetId": WIDGET_ID,
+        "requestId": "send-me-a-message",
+        "action": "send_event",
+        "data": {
+            "type": "m.room.message",
+            "content": {
+                "msgtype": "m.custom",
+            },
+        },
+    })));
+
+    let [action]: [Action; 1] = actions.try_into().unwrap();
+    assert_let!(Action::SendToWidget(msg) = action);
+    let (msg, request_id) = parse_msg(&msg);
+    assert_eq!(request_id, "send-me-a-message");
+    assert_eq!(msg["api"], "fromWidget");
+    assert_eq!(msg["action"], "send_event");
+    assert_eq!(msg["response"]["error"]["message"].as_str().unwrap(), "Not allowed");
 }
