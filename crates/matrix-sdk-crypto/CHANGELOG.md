@@ -73,3 +73,6 @@
 
 - Stop logging large quantities of data about the `Store` during olm
   decryption.
+
+- Change the return value of `bootstrap_cross_signing` so it returns an extra keys upload request.
+  The three requests must be sent in the order they appear in the return tuple.
