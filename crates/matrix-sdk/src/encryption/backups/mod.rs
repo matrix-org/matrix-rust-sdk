@@ -15,7 +15,7 @@
 #![allow(missing_docs)]
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     sync::{Arc, RwLock},
     time::Duration,
 };
@@ -26,7 +26,7 @@ use matrix_sdk_base::crypto::{
     backups::MegolmV1BackupKey,
     store::{BackupDecryptionKey, RoomKeyCounts},
     types::RoomKeyBackupInfo,
-    GossippedSecret, KeysBackupRequest, OlmMachine,
+    GossippedSecret, KeysBackupRequest, OlmMachine, RoomKeyImportResult,
 };
 use ruma::{
     api::client::{
@@ -107,6 +107,7 @@ pub(crate) struct BackupClientState {
     upload_delay: Arc<RwLock<Duration>>,
     pub(crate) upload_progress: ChannelObservable<UploadState>,
     global_state: ChannelObservable<BackupState>,
+    room_keys_broadcaster: broadcast::Sender<RoomKeyImportResult>,
 }
 
 impl Default for BackupClientState {
@@ -115,6 +116,7 @@ impl Default for BackupClientState {
             upload_delay: RwLock::new(Duration::from_millis(100)).into(),
             upload_progress: ChannelObservable::new(UploadState::Idle),
             global_state: Default::default(),
+            room_keys_broadcaster: broadcast::Sender::new(100),
         }
     }
 }
@@ -615,15 +617,45 @@ impl Backups {
             }
         }
 
-        olm_machine
+        let result = olm_machine
             .backup_machine()
             .import_backed_up_room_keys(decrypted_room_keys, |_, _| {})
             .await?;
 
-        // TODO: Since we can't use the usual room keys stream from the `OlmMachine`
-        // fire out something so the timeline can retry decryption.
+        // Since we can't use the usual room keys stream from the `OlmMachine`
+        // we're going to send things out in our own custom broadcaster.
+        let _ = self.client.inner.backups_state.room_keys_broadcaster.send(result);
 
         Ok(())
+    }
+
+    fn room_keys_stream(
+        &self,
+    ) -> impl Stream<Item = Result<RoomKeyImportResult, BroadcastStreamRecvError>> {
+        BroadcastStream::new(self.client.inner.backups_state.room_keys_broadcaster.subscribe())
+    }
+
+    pub fn room_keys_for_room_stream(
+        &self,
+        room_id: &RoomId,
+    ) -> impl Stream<Item = Result<BTreeMap<String, BTreeSet<String>>, BroadcastStreamRecvError>>
+    {
+        let room_id = room_id.to_owned();
+        // TODO: This is a bit crap to say the least, the type is non descriptive and
+        // doesn't even contain all the important data, it should be a stream of
+        // `RoomKeyInfo` like the OlmMachine has... But on the other hand we
+        // should just used the OlmMachine stream and remove this.
+
+        self.room_keys_stream().filter_map(move |import_result| {
+            let room_id = room_id.to_owned();
+
+            async move {
+                match import_result {
+                    Ok(mut import_result) => import_result.keys.remove(&room_id).map(Ok),
+                    Err(e) => Some(Err(e)),
+                }
+            }
+        })
     }
 
     pub async fn download_room_keys_for_room(&self, room_id: &RoomId) -> Result<(), Error> {

@@ -732,6 +732,7 @@ struct TimelineDropHandle {
     event_handler_handles: Vec<EventHandlerHandle>,
     room_update_join_handle: JoinHandle<()>,
     ignore_user_list_update_join_handle: JoinHandle<()>,
+    room_key_from_backups_join_handle: JoinHandle<()>,
 }
 
 impl Drop for TimelineDropHandle {
@@ -741,6 +742,7 @@ impl Drop for TimelineDropHandle {
         }
         self.room_update_join_handle.abort();
         self.ignore_user_list_update_join_handle.abort();
+        self.room_key_from_backups_join_handle.abort();
     }
 }
 
