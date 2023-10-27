@@ -814,17 +814,18 @@ impl Encryption {
         let olm = self.client.olm_machine().await;
         let olm = olm.as_ref().ok_or(Error::NoOlmMachine)?;
 
-        let (request, signature_request) = olm.bootstrap_cross_signing(false).await?;
+        let (upload_signing_keys_req, upload_signatures_req) =
+            olm.bootstrap_cross_signing(false).await?;
 
-        let request = assign!(UploadSigningKeysRequest::new(), {
+        let upload_signing_keys_req = assign!(UploadSigningKeysRequest::new(), {
             auth: auth_data,
-            master_key: request.master_key.map(|c| c.to_raw()),
-            self_signing_key: request.self_signing_key.map(|c| c.to_raw()),
-            user_signing_key: request.user_signing_key.map(|c| c.to_raw()),
+            master_key: upload_signing_keys_req.master_key.map(|c| c.to_raw()),
+            self_signing_key: upload_signing_keys_req.self_signing_key.map(|c| c.to_raw()),
+            user_signing_key: upload_signing_keys_req.user_signing_key.map(|c| c.to_raw()),
         });
 
-        self.client.send(request, None).await?;
-        self.client.send(signature_request, None).await?;
+        self.client.send(upload_signing_keys_req, None).await?;
+        self.client.send(upload_signatures_req, None).await?;
 
         Ok(())
     }

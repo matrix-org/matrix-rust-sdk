@@ -505,9 +505,10 @@ impl OlmMachine {
             info!("Creating new cross signing identity");
             let cache = self.inner.store.cache().await?;
             let account = cache.account().await?;
-            let (id, request, signature_request) = account.bootstrap_cross_signing().await;
+            let (new_identity, upload_signing_keys_req, upload_signatures_req) =
+                account.bootstrap_cross_signing().await;
 
-            *identity = id;
+            *identity = new_identity;
 
             let public = identity.to_public_identity().await.expect(
                 "Couldn't create a public version of the identity from a new private identity",
@@ -521,15 +522,15 @@ impl OlmMachine {
 
             self.store().save_changes(changes).await?;
 
-            Ok((request, signature_request))
+            Ok((upload_signing_keys_req, upload_signatures_req))
         } else {
             info!("Trying to upload the existing cross signing identity");
-            let request = identity.as_upload_request().await;
+            let upload_signing_keys_req = identity.as_upload_request().await;
             let account = self.inner.store.static_account();
             // TODO remove this expect.
-            let signature_request =
+            let upload_signatures_req =
                 identity.sign_account(account).await.expect("Can't sign device keys");
-            Ok((request, signature_request))
+            Ok((upload_signing_keys_req, upload_signatures_req))
         }
     }
 
