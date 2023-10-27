@@ -547,6 +547,14 @@ async fn cross_signing_status() {
         .mount(&server)
         .await;
 
+    Mock::given(method("POST"))
+        .and(path("/_matrix/client/r0/keys/upload"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "one_time_key_counts": {}
+        })))
+        .mount(&server)
+        .await;
+
     let status = client
         .encryption()
         .cross_signing_status()

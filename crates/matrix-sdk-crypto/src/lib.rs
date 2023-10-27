@@ -81,7 +81,7 @@ pub use identities::{
     Device, LocalTrust, OwnUserIdentity, ReadOnlyDevice, ReadOnlyOwnUserIdentity,
     ReadOnlyUserIdentities, ReadOnlyUserIdentity, UserDevices, UserIdentities, UserIdentity,
 };
-pub use machine::{EncryptionSyncChanges, OlmMachine};
+pub use machine::{CrossSigningBootstrapRequests, EncryptionSyncChanges, OlmMachine};
 #[cfg(feature = "qrcode")]
 pub use matrix_sdk_qrcode;
 pub use olm::{Account, CrossSigningStatus, EncryptionSettings, Session};

@@ -266,27 +266,26 @@ fn mock_keys_signature_upload(keys: Arc<Mutex<Keys>>) -> impl Fn(&Request) -> Re
                 // Either merge signatures if an entry is already present, or insert a new
                 // entry.
                 let known_devices = keys.device.entry(user.clone()).or_default();
-                if let Some(device_keys) = known_devices.get_mut(key_id) {
-                    let param: DeviceKeys = serde_json::from_str(raw_key.get()).unwrap();
+                let device_keys = known_devices
+                    .get_mut(key_id)
+                    .expect("trying to add a signature for a missing key");
 
-                    let mut existing: DeviceKeys = device_keys.deserialize().unwrap();
+                let param: DeviceKeys = serde_json::from_str(raw_key.get()).unwrap();
 
-                    for (uid, sigs) in existing.signatures.iter_mut() {
-                        if let Some(new_sigs) = param.signatures.get(uid) {
-                            sigs.extend(new_sigs.clone());
-                        }
+                let mut existing: DeviceKeys = device_keys.deserialize().unwrap();
+
+                for (uid, sigs) in existing.signatures.iter_mut() {
+                    if let Some(new_sigs) = param.signatures.get(uid) {
+                        sigs.extend(new_sigs.clone());
                     }
-                    for (uid, sigs) in param.signatures.iter() {
-                        if !existing.signatures.contains_key(uid) {
-                            existing.signatures.insert(uid.clone(), sigs.clone());
-                        }
-                    }
-
-                    *device_keys = Raw::new(&existing).unwrap();
-                } else {
-                    tracing::warn!("adding a signature to a key that hasn't been uploaded yet, user={user}, key={key_id}");
-                    known_devices.insert(key_id.to_owned(), Raw::from_json(raw_key.to_owned()));
                 }
+                for (uid, sigs) in param.signatures.iter() {
+                    if !existing.signatures.contains_key(uid) {
+                        existing.signatures.insert(uid.clone(), sigs.clone());
+                    }
+                }
+
+                *device_keys = Raw::new(&existing).unwrap();
             }
         }
 

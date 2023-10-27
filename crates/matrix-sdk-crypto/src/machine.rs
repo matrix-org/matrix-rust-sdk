@@ -29,7 +29,7 @@ use ruma::{
         keys::{
             claim_keys::v3::{Request as KeysClaimRequest, Response as KeysClaimResponse},
             get_keys::v3::Response as KeysQueryResponse,
-            upload_keys,
+            upload_keys::v3::{Request as UploadKeysRequest, Response as UploadKeysResponse},
             upload_signatures::v3::Request as UploadSignaturesRequest,
         },
         sync::sync_events::DeviceLists,
@@ -375,7 +375,7 @@ impl OlmMachine {
         {
             let store_cache = self.inner.store.cache().await?;
             let account = store_cache.account().await?;
-            if let Some(r) = self.keys_for_upload(&*account).await.map(|r| OutgoingRequest {
+            if let Some(r) = self.keys_for_upload(&account).await.map(|r| OutgoingRequest {
                 request_id: TransactionId::new(),
                 request: Arc::new(r.into()),
             }) {
@@ -482,15 +482,17 @@ impl OlmMachine {
     /// Create a new cross signing identity and get the upload request to push
     /// the new public keys to the server.
     ///
-    /// **Warning**: This will delete any existing cross signing keys that might
-    /// exist on the server and thus will reset the trust between all the
-    /// devices.
+    /// **Warning**: if called with `reset`, this will delete any existing cross
+    /// signing keys that might exist on the server and thus will reset the
+    /// trust between all the devices.
     ///
     /// # Returns
     ///
-    /// A pair of requests which should be sent out to the server. Once
-    /// sent, the responses should be passed back to the state machine using
-    /// [`mark_request_as_sent`].
+    /// A triple of requests which should be sent out to the server, in the
+    /// order they appear in the return tuple.
+    ///
+    /// The first request's response, if present, should be passed back to the
+    /// state machine using [`mark_request_as_sent`].
     ///
     /// These requests may require user interactive auth.
     ///
@@ -498,15 +500,18 @@ impl OlmMachine {
     pub async fn bootstrap_cross_signing(
         &self,
         reset: bool,
-    ) -> StoreResult<(UploadSigningKeysRequest, UploadSignaturesRequest)> {
+    ) -> StoreResult<CrossSigningBootstrapRequests> {
         let mut identity = self.inner.user_identity.lock().await;
 
-        if reset || identity.is_empty().await {
+        let (upload_signing_keys_req, upload_signatures_req) = if reset || identity.is_empty().await
+        {
             info!("Creating new cross signing identity");
-            let cache = self.inner.store.cache().await?;
-            let account = cache.account().await?;
-            let (new_identity, upload_signing_keys_req, upload_signatures_req) =
-                account.bootstrap_cross_signing().await;
+
+            let (new_identity, upload_signing_keys_req, upload_signatures_req) = {
+                let cache = self.inner.store.cache().await?;
+                let account = cache.account().await?;
+                account.bootstrap_cross_signing().await
+            };
 
             *identity = new_identity;
 
@@ -514,24 +519,46 @@ impl OlmMachine {
                 "Couldn't create a public version of the identity from a new private identity",
             );
 
-            let changes = Changes {
-                identities: IdentityChanges { new: vec![public.into()], ..Default::default() },
-                private_identity: Some(identity.clone()),
-                ..Default::default()
-            };
+            self.store()
+                .save_changes(Changes {
+                    identities: IdentityChanges { new: vec![public.into()], ..Default::default() },
+                    private_identity: Some(identity.clone()),
+                    ..Default::default()
+                })
+                .await?;
 
-            self.store().save_changes(changes).await?;
-
-            Ok((upload_signing_keys_req, upload_signatures_req))
+            (upload_signing_keys_req, upload_signatures_req)
         } else {
             info!("Trying to upload the existing cross signing identity");
             let upload_signing_keys_req = identity.as_upload_request().await;
-            let account = self.inner.store.static_account();
+
             // TODO remove this expect.
-            let upload_signatures_req =
-                identity.sign_account(account).await.expect("Can't sign device keys");
-            Ok((upload_signing_keys_req, upload_signatures_req))
-        }
+            let upload_signatures_req = identity
+                .sign_account(self.inner.store.static_account())
+                .await
+                .expect("Can't sign device keys");
+
+            (upload_signing_keys_req, upload_signatures_req)
+        };
+
+        // If there are any *device* keys to upload (i.e. the account isn't shared),
+        // upload them before we upload the signatures, since the signatures may
+        // reference keys to be uploaded.
+        let upload_keys_req = {
+            let cache = self.store().cache().await?;
+            let account = cache.account().await?;
+            if account.shared() {
+                None
+            } else {
+                self.keys_for_upload(&account).await.map(OutgoingRequest::from)
+            }
+        };
+
+        Ok(CrossSigningBootstrapRequests {
+            upload_signing_keys_req,
+            upload_keys_req,
+            upload_signatures_req,
+        })
     }
 
     /// Receive a successful keys upload response.
@@ -540,10 +567,7 @@ impl OlmMachine {
     ///
     /// * `response` - The keys upload response of the request that the client
     /// performed.
-    async fn receive_keys_upload_response(
-        &self,
-        response: &upload_keys::v3::Response,
-    ) -> OlmResult<()> {
+    async fn receive_keys_upload_response(&self, response: &UploadKeysResponse) -> OlmResult<()> {
         self.inner
             .store
             .with_transaction(|mut tr| async {
@@ -623,7 +647,7 @@ impl OlmMachine {
     /// the [`OlmMachine`] with the [`receive_keys_upload_response`].
     ///
     /// [`receive_keys_upload_response`]: #method.receive_keys_upload_response
-    async fn keys_for_upload(&self, account: &Account) -> Option<upload_keys::v3::Request> {
+    async fn keys_for_upload(&self, account: &Account) -> Option<UploadKeysRequest> {
         let (device_keys, one_time_keys, fallback_keys) = account.keys_for_upload();
 
         if device_keys.is_none() && one_time_keys.is_empty() && fallback_keys.is_empty() {
@@ -631,7 +655,7 @@ impl OlmMachine {
         } else {
             let device_keys = device_keys.map(|d| d.to_raw());
 
-            Some(assign!(upload_keys::v3::Request::new(), {
+            Some(assign!(UploadKeysRequest::new(), {
                 device_keys, one_time_keys, fallback_keys
             }))
         }
@@ -2048,6 +2072,30 @@ impl OlmMachine {
     }
 }
 
+/// A set of requests to be executed when bootstrapping cross-signing using
+/// [`OlmMachine::bootstrap_cross_signing`].
+#[derive(Debug)]
+pub struct CrossSigningBootstrapRequests {
+    /// An optional request to upload a device key.
+    ///
+    /// Should be sent first, if present.
+    ///
+    /// If present, its result must be processed back with
+    /// `OlmMachine::mark_request_as_sent`.
+    pub upload_keys_req: Option<OutgoingRequest>,
+
+    /// Request to upload the cross-signing keys.
+    ///
+    /// Should be sent second.
+    pub upload_signing_keys_req: UploadSigningKeysRequest,
+
+    /// Request to upload key signatures, including those for the cross-signing
+    /// keys, and maybe some for the optional uploaded key too.
+    ///
+    /// Should be sent last.
+    pub upload_signatures_req: UploadSignaturesRequest,
+}
+
 /// Data contained from a sync response and that needs to be processed by the
 /// OlmMachine.
 #[derive(Debug)]
@@ -2122,7 +2170,7 @@ pub(crate) mod tests {
         Curve25519PublicKey, Ed25519PublicKey,
     };
 
-    use super::testing::response_from_file;
+    use super::{testing::response_from_file, CrossSigningBootstrapRequests};
     use crate::{
         error::EventError,
         machine::{EncryptionSyncChanges, OlmMachine},
@@ -3186,10 +3234,10 @@ pub(crate) mod tests {
     }
 
     async fn setup_cross_signing_for_machine_test_helper(alice: &OlmMachine, bob: &OlmMachine) {
-        let (alice_upload_signing, _) =
+        let CrossSigningBootstrapRequests { upload_signing_keys_req: alice_upload_signing, .. } =
             alice.bootstrap_cross_signing(false).await.expect("Expect Alice x-signing key request");
 
-        let (bob_upload_signing, _) =
+        let CrossSigningBootstrapRequests { upload_signing_keys_req: bob_upload_signing, .. } =
             bob.bootstrap_cross_signing(false).await.expect("Expect Bob x-signing key request");
 
         let bob_device_keys = bob
@@ -3239,8 +3287,11 @@ pub(crate) mod tests {
     }
 
     async fn sign_alice_device_for_machine_test_helper(alice: &OlmMachine, bob: &OlmMachine) {
-        let (upload_signing, upload_signature) =
-            alice.bootstrap_cross_signing(false).await.expect("Expect Alice x-signing key request");
+        let CrossSigningBootstrapRequests {
+            upload_signing_keys_req: upload_signing,
+            upload_signatures_req: upload_signature,
+            ..
+        } = alice.bootstrap_cross_signing(false).await.expect("Expect Alice x-signing key request");
 
         let mut device_keys = alice
             .get_device(alice.user_id(), alice.device_id(), None)
@@ -3320,7 +3371,7 @@ pub(crate) mod tests {
             .bootstrap_cross_signing(false)
             .await
             .expect("Expect Alice x-signing key request")
-            .0
+            .upload_signing_keys_req
             .user_signing_key
             .unwrap()
             .get_first_key_and_id()
@@ -3342,7 +3393,7 @@ pub(crate) mod tests {
             .bootstrap_cross_signing(false)
             .await
             .expect("Expect Alice x-signing key request")
-            .0;
+            .upload_signing_keys_req;
 
         let json = json!({
             "device_keys": {

@@ -341,6 +341,14 @@ async fn test_login_with_cross_signing_bootstrapping() {
         .mount(&server)
         .await;
 
+    Mock::given(method("POST"))
+        .and(path("/_matrix/client/r0/keys/upload"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "one_time_key_counts": {}
+        })))
+        .mount(&server)
+        .await;
+
     let num_calls = Mutex::new(0);
     Mock::given(method("POST"))
         .and(path("/_matrix/client/unstable/keys/device_signing/upload"))

@@ -29,7 +29,9 @@ use futures_util::{
     future::try_join,
     stream::{self, StreamExt},
 };
-use matrix_sdk_base::crypto::{OlmMachine, OutgoingRequest, RoomMessageRequest, ToDeviceRequest};
+use matrix_sdk_base::crypto::{
+    CrossSigningBootstrapRequests, OlmMachine, OutgoingRequest, RoomMessageRequest, ToDeviceRequest,
+};
 use ruma::{
     api::client::{
         backup::add_backup_keys::v3::Response as KeysBackupResponse,
@@ -814,8 +816,11 @@ impl Encryption {
         let olm = self.client.olm_machine().await;
         let olm = olm.as_ref().ok_or(Error::NoOlmMachine)?;
 
-        let (upload_signing_keys_req, upload_signatures_req) =
-            olm.bootstrap_cross_signing(false).await?;
+        let CrossSigningBootstrapRequests {
+            upload_signing_keys_req,
+            upload_keys_req,
+            upload_signatures_req,
+        } = olm.bootstrap_cross_signing(false).await?;
 
         let upload_signing_keys_req = assign!(UploadSigningKeysRequest::new(), {
             auth: auth_data,
@@ -824,6 +829,9 @@ impl Encryption {
             user_signing_key: upload_signing_keys_req.user_signing_key.map(|c| c.to_raw()),
         });
 
+        if let Some(req) = upload_keys_req {
+            self.client.send_outgoing_request(req).await?;
+        }
         self.client.send(upload_signing_keys_req, None).await?;
         self.client.send(upload_signatures_req, None).await?;
 

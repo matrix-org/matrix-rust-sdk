@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use http::Response;
 use matrix_sdk_crypto::{
-    IncomingResponse, KeysBackupRequest, OutgoingRequest,
+    CrossSigningBootstrapRequests, IncomingResponse, KeysBackupRequest, OutgoingRequest,
     OutgoingVerificationRequest as SdkVerificationRequest, RoomMessageRequest, ToDeviceRequest,
     UploadSigningKeysRequest as RustUploadSigningKeysRequest,
 };
@@ -71,17 +71,23 @@ impl From<RustUploadSigningKeysRequest> for UploadSigningKeysRequest {
 
 #[derive(uniffi::Record)]
 pub struct BootstrapCrossSigningResult {
+    /// Optional request to upload some device keys alongside.
+    ///
+    /// Must be sent first if present, and marked with `mark_request_as_sent`.
+    pub upload_keys_request: Option<Request>,
+    /// Request to upload the signing keys. Must be sent second.
     pub upload_signing_keys_request: UploadSigningKeysRequest,
+    /// Request to upload the keys signatures, including for the signing keys
+    /// and optionally for the device keys. Must be sent last.
     pub upload_signature_request: SignatureUploadRequest,
 }
 
-impl From<(RustUploadSigningKeysRequest, RustSignatureUploadRequest)>
-    for BootstrapCrossSigningResult
-{
-    fn from(requests: (RustUploadSigningKeysRequest, RustSignatureUploadRequest)) -> Self {
+impl From<CrossSigningBootstrapRequests> for BootstrapCrossSigningResult {
+    fn from(requests: CrossSigningBootstrapRequests) -> Self {
         Self {
-            upload_signing_keys_request: requests.0.into(),
-            upload_signature_request: requests.1.into(),
+            upload_signing_keys_request: requests.upload_signing_keys_req.into(),
+            upload_keys_request: requests.upload_keys_req.map(Request::from),
+            upload_signature_request: requests.upload_signatures_req.into(),
         }
     }
 }
