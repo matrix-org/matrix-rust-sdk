@@ -556,7 +556,7 @@ macro_rules! cryptostore_integration_tests {
             async fn private_identity_saving() {
                 let (_, store) = get_loaded_store("private_identity_saving").await;
                 assert!(store.load_identity().await.unwrap().is_none());
-                let identity = PrivateCrossSigningIdentity::new(alice_id().to_owned()).await;
+                let identity = PrivateCrossSigningIdentity::new(alice_id().to_owned());
 
                 let changes =
                     Changes { private_identity: Some(identity.clone()), ..Default::default() };

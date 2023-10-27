@@ -850,7 +850,7 @@ impl Store {
     #[cfg(test)]
     /// test helper to reset the cross signing identity
     pub(crate) async fn reset_cross_signing_identity(&self) {
-        self.inner.identity.lock().await.reset().await;
+        self.inner.identity.lock().await.reset();
     }
 
     /// PrivateCrossSigningIdentity associated with this store
