@@ -44,6 +44,16 @@ impl EventFilter {
             Self::State(filter) if filter.matches_state_event_with_any_state_key(event_type)
         )
     }
+
+    pub(super) fn matches_message_like_event_type(
+        &self,
+        event_type: &MessageLikeEventType,
+    ) -> bool {
+        matches!(
+            self,
+            Self::MessageLike(filter) if filter.matches_message_like_event_type(event_type)
+        )
+    }
 }
 
 /// Filter for message-like events.
@@ -70,6 +80,15 @@ impl MessageLikeEventFilter {
             MessageLikeEventFilter::RoomMessageWithMsgtype(msgtype) => {
                 matrix_event.event_type == TimelineEventType::RoomMessage
                     && matrix_event.content.msgtype.as_ref() == Some(msgtype)
+            }
+        }
+    }
+
+    fn matches_message_like_event_type(&self, event_type: &MessageLikeEventType) -> bool {
+        match self {
+            MessageLikeEventFilter::WithType(filter_event_type) => filter_event_type == event_type,
+            MessageLikeEventFilter::RoomMessageWithMsgtype(_) => {
+                event_type == &MessageLikeEventType::RoomMessage
             }
         }
     }
@@ -301,5 +320,56 @@ mod tests {
     fn topic_event_filter_does_not_match_any_state_key() {
         assert!(!topic_event_filter()
             .matches_state_event_with_any_state_key(&StateEventType::RoomTopic));
+    }
+
+    // Tests against an `m.room.message` filter with `msgtype = m.custom`
+    fn room_message_custom_event_filter() -> EventFilter {
+        EventFilter::MessageLike(MessageLikeEventFilter::RoomMessageWithMsgtype(
+            "m.custom".to_owned(),
+        ))
+    }
+
+    // Tests against an `m.room.message` filter without a `msgtype`
+    fn room_message_filter() -> EventFilter {
+        EventFilter::MessageLike(MessageLikeEventFilter::WithType(
+            MessageLikeEventType::RoomMessage,
+        ))
+    }
+
+    #[test]
+    fn room_message_event_type_matches_room_message_text_event_filter() {
+        assert!(room_message_text_event_filter()
+            .matches_message_like_event_type(&MessageLikeEventType::RoomMessage));
+    }
+
+    #[test]
+    fn reaction_event_type_does_not_match_room_message_text_event_filter() {
+        assert!(!room_message_text_event_filter()
+            .matches_message_like_event_type(&MessageLikeEventType::Reaction));
+    }
+
+    #[test]
+    fn room_message_event_type_matches_room_message_custom_event_filter() {
+        assert!(room_message_custom_event_filter()
+            .matches_message_like_event_type(&MessageLikeEventType::RoomMessage));
+    }
+
+    #[test]
+    fn reaction_event_type_does_not_match_room_message_custom_event_filter() {
+        assert!(!room_message_custom_event_filter()
+            .matches_message_like_event_type(&MessageLikeEventType::Reaction));
+    }
+
+    #[test]
+    fn room_message_event_type_matches_room_message_event_filter() {
+        assert!(room_message_filter()
+            .matches_message_like_event_type(&MessageLikeEventType::RoomMessage));
+    }
+
+    #[test]
+    fn reaction_event_type_does_not_match_room_message_event_filter() {
+        assert!(
+            !room_message_filter().matches_message_like_event_type(&MessageLikeEventType::Reaction)
+        );
     }
 }

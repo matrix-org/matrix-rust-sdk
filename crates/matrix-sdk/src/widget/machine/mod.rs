@@ -30,7 +30,8 @@ use uuid::Uuid;
 
 use self::{
     driver_req::{
-        AcquireCapabilities, MatrixDriverRequest, MatrixDriverRequestHandle, RequestOpenId,
+        AcquireCapabilities, MatrixDriverRequest, MatrixDriverRequestHandle,
+        ReadMessageLikeEventRequest, RequestOpenId,
     },
     from_widget::{
         FromWidgetErrorResponse, FromWidgetRequest, ReadEventRequest, ReadEventResponse,
@@ -140,18 +141,8 @@ impl WidgetMachine {
                     return Vec::new();
                 };
 
-                let filter_in = match event.deserialize_as::<MatrixEventFilterInput>() {
-                    Ok(i) => i,
-                    Err(e) => {
-                        error!("Failed to deserialize event: {e}");
-                        return Vec::new();
-                    }
-                };
-
                 capabilities
-                    .read
-                    .iter()
-                    .any(|f| f.matches(&filter_in))
+                    .raw_event_matches_read_filter(&event)
                     .then(|| vec![self.send_to_widget_request(NotifyNewMatrixEvent(event)).1])
                     .unwrap_or_default()
             }
@@ -249,9 +240,31 @@ impl WidgetMachine {
         };
 
         match request {
-            ReadEventRequest::ReadMessageLikeEvent { .. } => {
-                let text = "Reading of message events is not yet supported";
-                self.send_from_widget_error_response(raw_request, text)
+            ReadEventRequest::ReadMessageLikeEvent { event_type, limit } => {
+                if !capabilities
+                    .read
+                    .iter()
+                    .any(|filter| filter.matches_message_like_event_type(&event_type))
+                {
+                    self.send_from_widget_error_response(raw_request, "Not allowed")
+                } else {
+                    const DEFAULT_EVENT_LIMIT: u32 = 50;
+                    let limit = limit.unwrap_or(DEFAULT_EVENT_LIMIT);
+                    let request = ReadMessageLikeEventRequest { event_type, limit };
+                    let (request, action) = self.send_matrix_driver_request(request);
+                    request.then(|result, machine| {
+                        let response = result.and_then(|mut events| {
+                            let CapabilitiesState::Negotiated(capabilities) = &machine.capabilities else {
+                                return Err("Received read event request before capabilities were negotiated".into());
+                            };
+
+                            events.retain(|e| capabilities.raw_event_matches_read_filter(e));
+                            Ok(ReadEventResponse { events })
+                        });
+                        vec![machine.send_from_widget_result_response(raw_request, response)]
+                    });
+                    action
+                }
             }
             ReadEventRequest::ReadStateEvent { event_type, state_key } => {
                 let allowed = match &state_key {

@@ -18,10 +18,13 @@
 use std::fmt;
 
 use async_trait::async_trait;
+use ruma::{events::AnyTimelineEvent, serde::Raw};
 use serde::{ser::SerializeSeq, Deserialize, Deserializer, Serialize, Serializer};
-use tracing::debug;
+use tracing::{debug, error};
 
-use super::{EventFilter, MessageLikeEventFilter, StateEventFilter};
+use super::{
+    filter::MatrixEventFilterInput, EventFilter, MessageLikeEventFilter, StateEventFilter,
+};
 
 /// Must be implemented by a component that provides functionality of deciding
 /// whether a widget is allowed to use certain capabilities (typically by
@@ -48,6 +51,21 @@ pub struct Capabilities {
     /// This means clients should not offer to open the widget in a separate
     /// browser/tab/webview that is not connected to the postmessage widget-api.
     pub requires_client: bool,
+}
+
+impl Capabilities {
+    /// Tells if a given raw event matches the read filter.
+    pub fn raw_event_matches_read_filter(&self, raw: &Raw<AnyTimelineEvent>) -> bool {
+        let filter_in = match raw.deserialize_as::<MatrixEventFilterInput>() {
+            Ok(filter) => filter,
+            Err(err) => {
+                error!("Failed to deserialize raw event as MatrixEventFilterInput: {err}");
+                return false;
+            }
+        };
+
+        self.read.iter().any(|f| f.matches(&filter_in))
+    }
 }
 
 const SEND_EVENT: &str = "org.matrix.msc2762.send.event";
