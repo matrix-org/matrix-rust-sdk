@@ -526,7 +526,7 @@ impl PrivateCrossSigningIdentity {
             .try_into()
             .expect("We can always convert our own CrossSignigKey into a MasterPubkey");
 
-        let identity = Self::new_helper(account.user_id(), master).await;
+        let identity = Self::new_helper(account.user_id(), master);
         let signature_request = identity
             .sign_account(account.static_data())
             .await
@@ -537,7 +537,7 @@ impl PrivateCrossSigningIdentity {
         (identity, request, signature_request)
     }
 
-    async fn new_helper(user_id: &UserId, master: MasterSigning) -> Self {
+    fn new_helper(user_id: &UserId, master: MasterSigning) -> Self {
         let user = Signing::new();
         let mut public_key = user.cross_signing_key(user_id.to_owned(), KeyUsage::UserSigning);
         master.sign_subkey(&mut public_key);
@@ -574,17 +574,17 @@ impl PrivateCrossSigningIdentity {
     /// created it.
     #[cfg(any(test, feature = "testing"))]
     #[allow(dead_code)]
-    pub async fn new(user_id: OwnedUserId) -> Self {
+    pub fn new(user_id: OwnedUserId) -> Self {
         let master = MasterSigning::new(user_id.to_owned());
-        Self::new_helper(&user_id, master).await
+        Self::new_helper(&user_id, master)
     }
 
     #[cfg(any(test, feature = "testing"))]
     #[allow(dead_code)]
     /// Testing helper to reset this CrossSigning with a fresh one using the
     /// local identity
-    pub async fn reset(&mut self) {
-        let new = Self::new(self.user_id().to_owned()).await;
+    pub fn reset(&mut self) {
+        let new = Self::new(self.user_id().to_owned());
         *self = new
     }
 
@@ -713,7 +713,7 @@ mod tests {
 
     #[async_test]
     async fn test_private_identity_creation() {
-        let identity = PrivateCrossSigningIdentity::new(user_id().to_owned()).await;
+        let identity = PrivateCrossSigningIdentity::new(user_id().to_owned());
 
         let master_key = identity.master_key.lock().await;
         let master_key = master_key.as_ref().unwrap();
@@ -731,7 +731,7 @@ mod tests {
 
     #[async_test]
     async fn test_identity_pickling() {
-        let identity = PrivateCrossSigningIdentity::new(user_id().to_owned()).await;
+        let identity = PrivateCrossSigningIdentity::new(user_id().to_owned());
 
         let pickled = identity.pickle().await;
 

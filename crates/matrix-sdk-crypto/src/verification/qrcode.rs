@@ -916,7 +916,7 @@ mod tests {
         let account = Account::with_device_id(user_id(), device_id());
         let store = memory_store(account.user_id());
 
-        let private_identity = PrivateCrossSigningIdentity::new(user_id().to_owned()).await;
+        let private_identity = PrivateCrossSigningIdentity::new(user_id().to_owned());
         let master_key = private_identity.master_public_key().await.unwrap();
         let master_key = master_key.get_first_key().unwrap().to_owned();
 
@@ -959,8 +959,7 @@ mod tests {
         assert_eq!(verification.inner.first_key(), master_key);
         assert_eq!(verification.inner.second_key(), device_key);
 
-        let bob_identity =
-            PrivateCrossSigningIdentity::new(user_id!("@bob:example").to_owned()).await;
+        let bob_identity = PrivateCrossSigningIdentity::new(user_id!("@bob:example").to_owned());
         let bob_master_key = bob_identity.master_public_key().await.unwrap();
         let bob_master_key = bob_master_key.get_first_key().unwrap().to_owned();
 
@@ -981,7 +980,7 @@ mod tests {
             let alice_account = Account::with_device_id(user_id(), device_id());
             let store = memory_store(alice_account.user_id());
 
-            let private_identity = PrivateCrossSigningIdentity::new(user_id().to_owned()).await;
+            let private_identity = PrivateCrossSigningIdentity::new(user_id().to_owned());
 
             let store = VerificationStore {
                 account: alice_account.static_data.clone(),
@@ -992,7 +991,7 @@ mod tests {
             let bob_account =
                 Account::with_device_id(alice_account.user_id(), device_id!("BOBDEVICE"));
 
-            let private_identity = PrivateCrossSigningIdentity::new(user_id().to_owned()).await;
+            let private_identity = PrivateCrossSigningIdentity::new(user_id().to_owned());
             let identity = private_identity.to_public_identity().await.unwrap();
 
             let master_key = private_identity.master_public_key().await.unwrap();
@@ -1020,7 +1019,7 @@ mod tests {
 
             let bob_store = memory_store(bob_account.user_id());
 
-            let private_identity = PrivateCrossSigningIdentity::new(user_id().to_owned()).await;
+            let private_identity = PrivateCrossSigningIdentity::new(user_id().to_owned());
             let bob_store = VerificationStore {
                 account: bob_account.static_data.clone(),
                 inner: bob_store,

@@ -753,7 +753,7 @@ pub(crate) mod testing {
     /// Generate default other "own" identity for tests
     #[cfg(test)]
     pub async fn get_other_own_identity() -> ReadOnlyOwnUserIdentity {
-        let private_identity = PrivateCrossSigningIdentity::new(other_user_id().into()).await;
+        let private_identity = PrivateCrossSigningIdentity::new(other_user_id().into());
         ReadOnlyOwnUserIdentity::from_private(&private_identity).await
     }
 

@@ -912,7 +912,7 @@ pub(crate) mod testing {
         user_id: &UserId,
         device_id: &DeviceId,
     ) -> IdentityManager {
-        let identity = PrivateCrossSigningIdentity::new(user_id.into()).await;
+        let identity = PrivateCrossSigningIdentity::new(user_id.into());
         let identity = Arc::new(Mutex::new(identity));
         let user_id = user_id.to_owned();
         let account = Account::with_device_id(&user_id, device_id);
@@ -1358,7 +1358,7 @@ pub(crate) mod tests {
         assert!(identity.is_verified());
 
         let identity_request = {
-            let private_identity = PrivateCrossSigningIdentity::new(user_id.into()).await;
+            let private_identity = PrivateCrossSigningIdentity::new(user_id.into());
             private_identity.as_upload_request().await
         };
 
