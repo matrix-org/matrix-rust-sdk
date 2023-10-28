@@ -472,11 +472,13 @@ impl TimelineInnerState {
         }
     }
 
+    /// Get the ID of the visible timeline event with the latest read receipt
+    /// for the given user.
     pub(super) fn latest_user_read_receipt_timeline_event_id(
         &self,
         user_id: &UserId,
     ) -> Option<OwnedEventId> {
-        // We only need to use the local map. Since receipts for known events are
+        // We only need to use the local map, since receipts for known events are
         // already loaded from the store.
         let public_read_receipt = self
             .read_receipts
