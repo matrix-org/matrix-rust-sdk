@@ -464,7 +464,11 @@ impl TimelineInnerState {
         let private_read_receipt =
             self.user_receipt(user_id, ReceiptType::ReadPrivate, room_data_provider).await;
 
-        match self.pub_or_priv_receipt(public_read_receipt.as_ref(), private_read_receipt.as_ref())
+        // Let's assume that a private read receipt should be more recent than a public
+        // read receipt, otherwise there's no point in the private read receipt,
+        // and use it as default.
+        match self
+            .compare_optional_receipts(public_read_receipt.as_ref(), private_read_receipt.as_ref())
         {
             Ordering::Greater => public_read_receipt,
             Ordering::Less => private_read_receipt,
@@ -491,8 +495,11 @@ impl TimelineInnerState {
             .get(user_id)
             .and_then(|user_map| user_map.get(&ReceiptType::ReadPrivate));
 
+        // Let's assume that a private read receipt should be more recent than a public
+        // read receipt, otherwise there's no point in the private read receipt,
+        // and use it as default.
         let (latest_receipt_id, _) =
-            match self.pub_or_priv_receipt(public_read_receipt, private_read_receipt) {
+            match self.compare_optional_receipts(public_read_receipt, private_read_receipt) {
                 Ordering::Greater => public_read_receipt?,
                 Ordering::Less => private_read_receipt?,
                 _ => unreachable!(),
@@ -536,84 +543,55 @@ impl TimelineInnerMetadata {
             .user_receipt(receipt_type.clone(), ReceiptThread::Main, user_id)
             .await;
 
-        // If we only have one, return it.
-        let Some(unthreaded_receipt) = &unthreaded_read_receipt else {
-            return main_thread_read_receipt;
-        };
-        let Some(main_thread_receipt) = &main_thread_read_receipt else {
-            return unthreaded_read_receipt;
-        };
-
-        match self.compare_receipts(unthreaded_receipt, main_thread_receipt) {
-            Some(Ordering::Greater) => unthreaded_read_receipt,
-            Some(Ordering::Less) => main_thread_read_receipt,
-            _ => {
-                // As a fallback, let's use the unthreaded read receipt, since it's the one
-                // we should be using.
-                unthreaded_read_receipt
-            }
+        // Let's use the unthreaded read receipt as default, since it's the one we
+        // should be using.
+        match self.compare_optional_receipts(
+            main_thread_read_receipt.as_ref(),
+            unthreaded_read_receipt.as_ref(),
+        ) {
+            Ordering::Greater => main_thread_read_receipt,
+            Ordering::Less => unthreaded_read_receipt,
+            _ => unreachable!(),
         }
     }
 
-    /// Compares two receipts to know which one is more recent.
+    /// Compares two optional receipts to know which one is more recent.
     ///
-    /// Returns `Ordering::Greater` if the first one is more recent than the
-    /// second one, `Ordering::Less` if it is older, and `None` if it's not
-    /// possible to know which one is the more recent.
-    fn compare_receipts(
+    /// Returns `Ordering::Greater` if the left-hand side is more recent than
+    /// the right-hand side, and `Ordering::Less` if it is older. If it's
+    /// not possible to know which one is the more recent, defaults to
+    /// `Ordering::Less`, making the right-hand side the default.
+    fn compare_optional_receipts(
         &self,
-        first: &(OwnedEventId, Receipt),
-        second: &(OwnedEventId, Receipt),
-    ) -> Option<Ordering> {
-        let (first_event_id, first_receipt) = first;
-        let (second_event_id, second_receipt) = second;
-
-        // Compare by position in the timeline.
-        if let Some(relative_pos) = self.compare_events_positions(first_event_id, second_event_id) {
-            if relative_pos == RelativePosition::After {
-                return Some(Ordering::Less);
-            }
-
-            return Some(Ordering::Greater);
-        }
-
-        // Compare by timestamp.
-        if let Some((first_ts, second_ts)) = first_receipt.ts.zip(second_receipt.ts) {
-            if second_ts > first_ts {
-                return Some(Ordering::Less);
-            }
-
-            return Some(Ordering::Greater);
-        }
-
-        None
-    }
-
-    /// Compares a private and a pub receipt to know which one is more recent.
-    ///
-    /// Returns `Ordering::Greater` if the public receipt is more recent than
-    /// the private one, and `Ordering::Less` if it is older.
-    fn pub_or_priv_receipt(
-        &self,
-        pub_receipt: Option<&(OwnedEventId, Receipt)>,
-        priv_receipt: Option<&(OwnedEventId, Receipt)>,
+        lhs: Option<&(OwnedEventId, Receipt)>,
+        rhs_or_default: Option<&(OwnedEventId, Receipt)>,
     ) -> Ordering {
         // If we only have one, use it.
-        let Some(pub_receipt) = pub_receipt else {
+        let Some((lhs_event_id, lhs_receipt)) = lhs else {
             return Ordering::Less;
         };
-        let Some(priv_receipt) = priv_receipt else {
+        let Some((rhs_event_id, rhs_receipt)) = rhs_or_default else {
             return Ordering::Greater;
         };
 
-        match self.compare_receipts(pub_receipt, priv_receipt) {
-            Some(cmp) => cmp,
-            _ => {
-                // As a fallback, let's assume that a private read receipt should be more recent
-                // than a public read receipt, otherwise there's no point in the private read
-                // receipt.
-                Ordering::Less
+        // Compare by position in the timeline.
+        if let Some(relative_pos) = self.compare_events_positions(lhs_event_id, rhs_event_id) {
+            if relative_pos == RelativePosition::Before {
+                return Ordering::Greater;
             }
+
+            return Ordering::Less;
         }
+
+        // Compare by timestamp.
+        if let Some((lhs_ts, rhs_ts)) = lhs_receipt.ts.zip(rhs_receipt.ts) {
+            if lhs_ts > rhs_ts {
+                return Ordering::Greater;
+            }
+
+            return Ordering::Less;
+        }
+
+        Ordering::Less
     }
 }
