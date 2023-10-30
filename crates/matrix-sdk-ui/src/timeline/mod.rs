@@ -484,7 +484,7 @@ impl Timeline {
 
         let event_content =
             AnyMessageLikeEventContent::Reaction(ReactionEventContent::from(annotation.clone()));
-        let response = room.send(event_content, Some(&txn_id)).await;
+        let response = room.send(event_content).with_transaction_id(&txn_id).await;
 
         match response {
             Ok(response) => {

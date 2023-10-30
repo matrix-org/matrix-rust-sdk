@@ -69,7 +69,7 @@ use thiserror::Error;
 use tokio::sync::broadcast;
 use tracing::{debug, instrument, warn};
 
-use self::futures::SendAttachment;
+use self::futures::{SendAttachment, SendMessageLikeEvent, SendRawMessageLikeEvent};
 use crate::{
     attachment::AttachmentConfig,
     error::WrongRoomState,
@@ -1291,22 +1291,13 @@ impl Room {
     /// **Note**: If you just want to send a custom JSON payload to a room, you
     /// can use the [`send_raw()`][Self::send_raw] method for that.
     ///
+    /// If you want to set a transaction ID for the event, use
+    /// [`.with_transaction_id()`][SendMessageLikeEvent::with_transaction_id]
+    /// on the returned value before `.await`ing it.
+    ///
     /// # Arguments
     ///
     /// * `content` - The content of the message event.
-    ///
-    /// * `txn_id` - A locally-unique ID describing a message transaction with
-    ///   the homeserver. Unless you're doing something special, you can pass in
-    ///   `None` which will create a suitable one for you automatically.
-    ///     * On the sending side, this field is used for re-trying earlier
-    ///       failed transactions. Subsequent messages *must never* re-use an
-    ///       earlier transaction ID.
-    ///     * On the receiving side, the field is used for recognizing our own
-    ///       messages when they arrive down the sync: the server includes the
-    ///       ID in the [`MessageLikeUnsigned`] field [`transaction_id`] of the
-    ///       corresponding [`SyncMessageLikeEvent`], but only for the *sending*
-    ///       device. Other devices will not see it. This is then used to ignore
-    ///       events sent by our own device and/or to implement local echo.
     ///
     /// # Examples
     ///
@@ -1332,7 +1323,7 @@ impl Room {
     /// let txn_id = TransactionId::new();
     ///
     /// if let Some(room) = client.get_room(&room_id) {
-    ///     room.send(content, Some(&txn_id)).await?;
+    ///     room.send(content).with_transaction_id(&txn_id).await?;
     /// }
     ///
     /// // Custom events work too:
@@ -1352,26 +1343,14 @@ impl Room {
     ///         MilliSecondsSinceUnixEpoch(now.0 + uint!(30_000))
     ///     },
     /// };
-    /// let txn_id = TransactionId::new();
     ///
     /// if let Some(room) = client.get_room(&room_id) {
-    ///     room.send(content, Some(&txn_id)).await?;
+    ///     room.send(content).await?;
     /// }
     /// # anyhow::Ok(()) };
     /// ```
-    ///
-    /// [`SyncMessageLikeEvent`]: ruma::events::SyncMessageLikeEvent
-    /// [`MessageLikeUnsigned`]: ruma::events::MessageLikeUnsigned
-    /// [`transaction_id`]: ruma::events::MessageLikeUnsigned#structfield.transaction_id
-    pub async fn send(
-        &self,
-        content: impl MessageLikeEventContent,
-        txn_id: Option<&TransactionId>,
-    ) -> Result<send_message_event::v3::Response> {
-        let event_type = content.event_type().to_string();
-        let content = serde_json::to_value(&content)?;
-
-        self.send_raw(content, &event_type, txn_id).await
+    pub fn send(&self, content: impl MessageLikeEventContent) -> SendMessageLikeEvent<'_> {
+        SendMessageLikeEvent::new(self, content)
     }
 
     /// Run /keys/query requests for all the non-tracked users.
@@ -1419,24 +1398,15 @@ impl Room {
     /// allows sending custom JSON payloads, e.g. constructed using the
     /// [`serde_json::json!()`] macro.
     ///
+    /// If you want to set a transaction ID for the event, use
+    /// [`.with_transaction_id()`][SendRawMessageLikeEvent::with_transaction_id]
+    /// on the returned value before `.await`ing it.
+    ///
     /// # Arguments
     ///
     /// * `content` - The content of the event as a json `Value`.
     ///
     /// * `event_type` - The type of the event.
-    ///
-    /// * `txn_id` - A locally-unique ID describing a message transaction with
-    ///   the homeserver. Unless you're doing something special, you can pass in
-    ///   `None` which will create a suitable one for you automatically.
-    ///     * On the sending side, this field is used for re-trying earlier
-    ///       failed transactions. Subsequent messages *must never* re-use an
-    ///       earlier transaction ID.
-    ///     * On the receiving side, the field is used for recognizing our own
-    ///       messages when they arrive down the sync: the server includes the
-    ///       ID in the [`StateUnsigned`] field [`transaction_id`] of the
-    ///       corresponding [`SyncMessageLikeEvent`], but only for the *sending*
-    ///       device. Other devices will not see it. This is then used to ignore
-    ///       events sent by our own device and/or to implement local echo.
     ///
     /// # Examples
     ///
@@ -1456,82 +1426,17 @@ impl Room {
     /// });
     ///
     /// if let Some(room) = client.get_room(&room_id) {
-    ///     room.send_raw(content, "m.room.message", None).await?;
+    ///     room.send_raw(content, "m.room.message").await?;
     /// }
     /// # anyhow::Ok(()) };
     /// ```
-    ///
-    /// [`SyncMessageLikeEvent`]: ruma::events::SyncMessageLikeEvent
-    /// [`StateUnsigned`]: ruma::events::StateUnsigned
-    /// [`transaction_id`]: ruma::events::StateUnsigned#structfield.transaction_id
     #[instrument(skip_all, fields(event_type, room_id = ?self.room_id(), transaction_id, encrypted))]
-    pub async fn send_raw(
-        &self,
+    pub fn send_raw<'a>(
+        &'a self,
         content: serde_json::Value,
-        event_type: &str,
-        txn_id: Option<&TransactionId>,
-    ) -> Result<send_message_event::v3::Response> {
-        self.ensure_room_joined()?;
-
-        let txn_id: OwnedTransactionId = txn_id.map_or_else(TransactionId::new, ToOwned::to_owned);
-        tracing::Span::current().record("transaction_id", tracing::field::debug(&txn_id));
-
-        #[cfg(not(feature = "e2e-encryption"))]
-        let content = {
-            debug!("Sending plaintext event to room because we don't have encryption support.");
-            Raw::new(&content)?.cast()
-        };
-
-        #[cfg(feature = "e2e-encryption")]
-        let (content, event_type) = if self.is_encrypted().await? {
-            tracing::Span::current().record("encrypted", tracing::field::debug(&txn_id));
-            // Reactions are currently famously not encrypted, skip encrypting
-            // them until they are.
-            if event_type == "m.reaction" {
-                debug!("Sending plaintext event because of the event type.");
-                (Raw::new(&content)?.cast(), event_type)
-            } else {
-                debug!(
-                    room_id = self.room_id().as_str(),
-                    "Sending encrypted event because the room is encrypted.",
-                );
-
-                if !self.are_members_synced() {
-                    self.sync_members().await?;
-                }
-
-                // Query keys in case we don't have them for newly synced members.
-                //
-                // Note we do it all the time, because we might have sync'd members before
-                // sending a message (so didn't enter the above branch), but
-                // could have not query their keys ever.
-                self.query_keys_for_untracked_users().await?;
-
-                self.preshare_room_key().await?;
-
-                let olm = self.client.olm_machine().await;
-                let olm = olm.as_ref().expect("Olm machine wasn't started");
-
-                let encrypted_content =
-                    olm.encrypt_room_event_raw(self.room_id(), content, event_type).await?;
-
-                (encrypted_content.cast(), "m.room.encrypted")
-            }
-        } else {
-            debug!("Sending plaintext event because the room is NOT encrypted.",);
-
-            (Raw::new(&content)?.cast(), event_type)
-        };
-
-        let request = send_message_event::v3::Request::new_raw(
-            self.room_id().to_owned(),
-            txn_id,
-            event_type.into(),
-            content,
-        );
-
-        let response = self.client.send(request, None).await?;
-        Ok(response)
+        event_type: &'a str,
+    ) -> SendRawMessageLikeEvent<'a> {
+        SendRawMessageLikeEvent::new(self, event_type, content)
     }
 
     /// Send an attachment to this room.
@@ -1665,7 +1570,11 @@ impl Room {
             )
             .await?;
 
-        self.send(RoomMessageEventContent::new(content), config.txn_id.as_deref()).await
+        let mut fut = self.send(RoomMessageEventContent::new(content));
+        if let Some(txn_id) = &config.txn_id {
+            fut = fut.with_transaction_id(txn_id);
+        }
+        fut.await
     }
 
     /// Update the power levels of a select set of users of this room.

@@ -324,7 +324,7 @@ async fn test_encryption_missing_member_keys() -> Result<()> {
     let bob_room = bob.get_room(alice_room.room_id()).unwrap();
     let message = "Hello world!";
     let bob_message_content = Arc::new(Mutex::new(message));
-    bob_room.send(RoomMessageEventContent::text_plain(message), None).await?;
+    bob_room.send(RoomMessageEventContent::text_plain(message)).await?;
     warn!("bob is done sending the message");
 
     // Alice was in the room when Bob sent the message, so they'll see it.
@@ -383,7 +383,7 @@ async fn test_encryption_missing_member_keys() -> Result<()> {
     let bob_room = bob.get_room(alice_room.room_id()).unwrap();
     let message = "Wassup";
     *bob_message_content.lock().unwrap() = message;
-    bob_room.send(RoomMessageEventContent::text_plain(message), None).await?;
+    bob_room.send(RoomMessageEventContent::text_plain(message)).await?;
     warn!("bob is done sending another message");
 
     {
@@ -442,7 +442,7 @@ async fn test_failed_members_response() -> Result<()> {
     let bob_room = bob.get_room(alice_room.room_id()).unwrap();
     let message = "Hello world!";
     let bob_message_content = Arc::new(Mutex::new(message));
-    bob_room.send(RoomMessageEventContent::text_plain(message), None).await?;
+    bob_room.send(RoomMessageEventContent::text_plain(message)).await?;
     warn!("bob is done sending the message");
 
     // Alice sees the message.

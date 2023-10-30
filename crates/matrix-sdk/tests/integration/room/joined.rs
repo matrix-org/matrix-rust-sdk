@@ -273,7 +273,7 @@ async fn room_message_send() {
 
     let content = RoomMessageEventContent::text_plain("Hello world");
     let txn_id = TransactionId::new();
-    let response = room.send(content, Some(&txn_id)).await.unwrap();
+    let response = room.send(content).with_transaction_id(&txn_id).await.unwrap();
 
     assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id)
 }
