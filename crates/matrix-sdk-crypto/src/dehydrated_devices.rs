@@ -240,7 +240,7 @@ impl RehydratedDevice {
 
         // Let us first give the events to the rehydrated device, this will decrypt any
         // encrypted to-device events and fetch out the room keys.
-        let mut rehydrated_transaction = self.rehydrated.store().transaction().await?;
+        let mut rehydrated_transaction = self.rehydrated.store().transaction().await;
 
         let (_, changes) = self
             .rehydrated
@@ -315,7 +315,7 @@ impl DehydratedDevice {
         initial_device_display_name: String,
         pickle_key: &[u8; 32],
     ) -> Result<put_dehydrated_device::unstable::Request, DehydrationError> {
-        let mut transaction = self.store.transaction().await?;
+        let mut transaction = self.store.transaction().await;
 
         let account = transaction.account().await?;
         account.generate_fallback_key_helper();
