@@ -245,7 +245,7 @@ pub(super) struct KeysQueryWaiter {
 /// which each user was last invalidated. Then, we attach the current sequence
 /// number to each `/keys/query` request, and when we get the response we can
 /// tell if any users have been invalidated more recently than that request.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub(super) struct UsersForKeyQuery {
     /// The sequence number we will assign to the next addition to user_map
     next_sequence_number: SequenceNumber,
@@ -262,15 +262,6 @@ pub(super) struct UsersForKeyQuery {
 }
 
 impl UsersForKeyQuery {
-    /// Create a new, empty, `UsersForKeyQueryCache`
-    pub(super) fn new() -> Self {
-        UsersForKeyQuery {
-            next_sequence_number: Default::default(),
-            user_map: Default::default(),
-            tasks_awaiting_key_query: Default::default(),
-        }
-    }
-
     /// Record a new user that requires a key query
     pub(super) fn insert_user(&mut self, user: &UserId) {
         let sequence_number = self.next_sequence_number;

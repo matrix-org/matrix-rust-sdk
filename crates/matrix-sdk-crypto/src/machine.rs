@@ -344,7 +344,7 @@ impl OlmMachine {
     /// See [`update_tracked_users`](#method.update_tracked_users) for more
     /// information.
     pub async fn tracked_users(&self) -> StoreResult<HashSet<OwnedUserId>> {
-        Ok(self.store().cache().await?.tracked_users())
+        Ok(self.store().cache().await?.keys_query_manager().await?.tracked_users())
     }
 
     /// Enable or disable room key forwarding.
@@ -1603,10 +1603,21 @@ impl OlmMachine {
         self.inner.identity_manager.update_tracked_users(users).await
     }
 
-    async fn wait_if_user_pending(&self, user_id: &UserId, timeout: Option<Duration>) {
+    async fn wait_if_user_pending(
+        &self,
+        user_id: &UserId,
+        timeout: Option<Duration>,
+    ) -> StoreResult<()> {
         if let Some(timeout) = timeout {
-            self.store().wait_if_user_key_query_pending(timeout, user_id).await;
+            self.store()
+                .cache()
+                .await?
+                .keys_query_manager()
+                .await?
+                .wait_if_user_key_query_pending(timeout, user_id)
+                .await;
         }
+        Ok(())
     }
 
     /// Get a specific device of a user.
@@ -1644,7 +1655,7 @@ impl OlmMachine {
         device_id: &DeviceId,
         timeout: Option<Duration>,
     ) -> StoreResult<Option<Device>> {
-        self.wait_if_user_pending(user_id, timeout).await;
+        self.wait_if_user_pending(user_id, timeout).await?;
         self.store().get_device(user_id, device_id).await
     }
 
@@ -1666,7 +1677,7 @@ impl OlmMachine {
         user_id: &UserId,
         timeout: Option<Duration>,
     ) -> StoreResult<Option<UserIdentities>> {
-        self.wait_if_user_pending(user_id, timeout).await;
+        self.wait_if_user_pending(user_id, timeout).await?;
         self.store().get_identity(user_id).await
     }
 
@@ -1701,7 +1712,7 @@ impl OlmMachine {
         user_id: &UserId,
         timeout: Option<Duration>,
     ) -> StoreResult<UserDevices> {
-        self.wait_if_user_pending(user_id, timeout).await;
+        self.wait_if_user_pending(user_id, timeout).await?;
         self.store().get_user_devices(user_id).await
     }
 

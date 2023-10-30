@@ -169,8 +169,9 @@ impl IdentityManager {
             self.store
                 .cache()
                 .await?
+                .keys_query_manager()
+                .await?
                 .mark_tracked_users_as_up_to_date(
-                    &self.store,
                     response.device_keys.keys().map(Deref::deref),
                     sequence_number,
                 )
@@ -792,8 +793,6 @@ impl IdentityManager {
         // Forget about any previous key queries in flight.
         *self.keys_query_request_details.lock().await = None;
 
-        let (users, sequence_number) = self.store.users_for_key_query().await?;
-
         // We always want to track our own user, but in case we aren't in an encrypted
         // room yet, we won't be tracking ourselves yet. This ensures we are always
         // tracking ourselves.
@@ -801,9 +800,13 @@ impl IdentityManager {
         // The check for emptiness is done first for performance.
         let (users, sequence_number) = {
             let cache = self.store.cache().await?;
-            if users.is_empty() && !cache.tracked_users().contains(self.user_id()) {
-                cache.mark_user_as_changed(&self.store, self.user_id()).await?;
-                self.store.users_for_key_query().await?
+            let key_query_manager = cache.keys_query_manager().await?;
+
+            let (users, sequence_number) = key_query_manager.users_for_key_query().await;
+
+            if users.is_empty() && !key_query_manager.tracked_users().contains(self.user_id()) {
+                key_query_manager.mark_user_as_changed(self.user_id()).await?;
+                key_query_manager.users_for_key_query().await
             } else {
                 (users, sequence_number)
             }
@@ -862,7 +865,7 @@ impl IdentityManager {
         cache: &StoreCache,
         users: impl Iterator<Item = &UserId>,
     ) -> StoreResult<()> {
-        cache.mark_tracked_users_as_changed(&self.store, users).await
+        cache.keys_query_manager().await?.mark_tracked_users_as_changed(users).await
     }
 
     /// See the docs for [`OlmMachine::update_tracked_users()`].
@@ -870,7 +873,13 @@ impl IdentityManager {
         &self,
         users: impl IntoIterator<Item = &UserId>,
     ) -> StoreResult<()> {
-        self.store.cache().await?.update_tracked_users(&self.store, users.into_iter()).await
+        self.store
+            .cache()
+            .await?
+            .keys_query_manager()
+            .await?
+            .update_tracked_users(users.into_iter())
+            .await
     }
 }
 
@@ -1227,21 +1236,20 @@ pub(crate) mod tests {
         let manager = manager_test_helper(user_id(), device_id()).await;
         let alice = user_id!("@alice:example.org");
 
-        {
-            let cache = manager.store.cache().await.unwrap();
+        let cache = manager.store.cache().await.unwrap();
+        let key_query_manager = cache.keys_query_manager().await.unwrap();
 
-            assert!(cache.tracked_users().is_empty(), "No users are initially tracked");
+        assert!(key_query_manager.tracked_users().is_empty(), "No users are initially tracked");
 
-            manager.receive_device_changes(&cache, [alice].iter().map(Deref::deref)).await.unwrap();
-
-            assert!(
-                !cache.tracked_users().contains(alice),
-                "Receiving a device changes update for a user we don't track does nothing"
-            );
-        }
+        manager.receive_device_changes(&cache, [alice].iter().map(Deref::deref)).await.unwrap();
 
         assert!(
-            !manager.store.users_for_key_query().await.unwrap().0.contains(alice),
+            !key_query_manager.tracked_users().contains(alice),
+            "Receiving a device changes update for a user we don't track does nothing"
+        );
+
+        assert!(
+            !key_query_manager.users_for_key_query().await.0.contains(alice),
             "The user we don't track doesn't end up in the `/keys/query` request"
         );
     }
@@ -1249,7 +1257,16 @@ pub(crate) mod tests {
     #[async_test]
     async fn test_manager_creation() {
         let manager = manager_test_helper(user_id(), device_id()).await;
-        assert!(manager.store.cache().await.unwrap().tracked_users().is_empty())
+        assert!(manager
+            .store
+            .cache()
+            .await
+            .unwrap()
+            .keys_query_manager()
+            .await
+            .unwrap()
+            .tracked_users()
+            .is_empty())
     }
 
     #[async_test]
@@ -1413,7 +1430,16 @@ pub(crate) mod tests {
         let manager = manager_test_helper(user_id(), device_id()).await;
 
         assert!(
-            manager.store.cache().await.unwrap().tracked_users().is_empty(),
+            manager
+                .store
+                .cache()
+                .await
+                .unwrap()
+                .keys_query_manager()
+                .await
+                .unwrap()
+                .tracked_users()
+                .is_empty(),
             "No users are initially tracked"
         );
 
@@ -1421,7 +1447,16 @@ pub(crate) mod tests {
 
         assert!(!requests.is_empty(), "We query the keys for our own user");
         assert!(
-            manager.store.cache().await.unwrap().tracked_users().contains(manager.user_id()),
+            manager
+                .store
+                .cache()
+                .await
+                .unwrap()
+                .keys_query_manager()
+                .await
+                .unwrap()
+                .tracked_users()
+                .contains(manager.user_id()),
             "Our own user is now tracked"
         );
     }
@@ -1467,12 +1502,13 @@ pub(crate) mod tests {
 
         {
             let cache = manager.store.cache().await.unwrap();
-            assert!(cache.tracked_users().is_empty(), "No users are initially tracked");
+            let key_query_manager = cache.keys_query_manager().await.unwrap();
+            assert!(key_query_manager.tracked_users().is_empty(), "No users are initially tracked");
 
-            cache.mark_user_as_changed(&manager.store, alice).await.unwrap();
+            key_query_manager.mark_user_as_changed(alice).await.unwrap();
 
             assert!(
-                cache.tracked_users().contains(alice),
+                key_query_manager.tracked_users().contains(alice),
                 "Alice is tracked after being marked as tracked"
             );
         }
