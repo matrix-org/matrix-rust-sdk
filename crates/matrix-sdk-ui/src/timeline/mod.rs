@@ -55,11 +55,13 @@ use thiserror::Error;
 use tokio::sync::{mpsc::Sender, Mutex, Notify};
 use tracing::{error, info, instrument, warn};
 
+use self::futures::SendAttachment;
+
 mod builder;
 mod error;
 mod event_handler;
 mod event_item;
-mod futures;
+pub mod futures;
 mod inner;
 mod item;
 mod pagination;
@@ -85,7 +87,6 @@ pub use self::{
         Message, OtherState, Profile, ReactionGroup, RepliedToEvent, RoomMembershipChange, Sticker,
         TimelineDetails, TimelineItemContent,
     },
-    futures::SendAttachment,
     item::{TimelineItem, TimelineItemKind},
     pagination::{BackPaginationStatus, PaginationOptions, PaginationOutcome},
     polls::PollResult,

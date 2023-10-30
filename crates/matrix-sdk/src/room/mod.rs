@@ -69,6 +69,7 @@ use thiserror::Error;
 use tokio::sync::broadcast;
 use tracing::{debug, instrument, warn};
 
+use self::futures::SendAttachment;
 use crate::{
     attachment::AttachmentConfig,
     error::WrongRoomState,
@@ -79,12 +80,11 @@ use crate::{
     BaseRoom, Client, Error, HttpError, HttpResult, Result, RoomState, TransmissionProgress,
 };
 
-mod futures;
+pub mod futures;
 mod member;
 mod messages;
 
 pub use self::{
-    futures::SendAttachment,
     member::RoomMember,
     messages::{Messages, MessagesOptions},
 };

@@ -47,7 +47,8 @@ use tokio::{fs::File as TokioFile, io::AsyncWriteExt};
 
 use crate::{
     attachment::{AttachmentInfo, Thumbnail},
-    Client, Result, SendRequest, TransmissionProgress,
+    futures::SendRequest,
+    Client, Result, TransmissionProgress,
 };
 
 /// A conservative upload speed of 1Mbps

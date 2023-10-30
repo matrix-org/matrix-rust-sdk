@@ -65,6 +65,7 @@ use tokio::sync::{broadcast, Mutex, OnceCell, RwLock, RwLockReadGuard};
 use tracing::{debug, error, instrument, trace, Instrument, Span};
 use url::Url;
 
+use self::futures::SendRequest;
 #[cfg(feature = "experimental-oidc")]
 use crate::oidc::Oidc;
 use crate::{
@@ -89,12 +90,9 @@ use crate::{
 };
 
 mod builder;
-mod futures;
+pub(crate) mod futures;
 
-pub use self::{
-    builder::{ClientBuildError, ClientBuilder},
-    futures::SendRequest,
-};
+pub use self::builder::{ClientBuildError, ClientBuilder};
 
 #[cfg(not(target_arch = "wasm32"))]
 type NotificationHandlerFut = Pin<Box<dyn Future<Output = ()> + Send>>;
