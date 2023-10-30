@@ -1778,12 +1778,12 @@ impl Room {
     ///
     /// # Arguments
     ///
-    /// * `content` - The raw content of the state event.
-    ///
     /// * `event_type` - The type of the event that we're sending out.
     ///
     /// * `state_key` - A unique key which defines the overwriting semantics for
     /// this piece of room state. This value is often a zero-length string.
+    ///
+    /// * `content` - The raw content of the state event.
     ///
     /// # Examples
     ///
@@ -1794,23 +1794,22 @@ impl Room {
     /// # let homeserver = url::Url::parse("http://localhost:8080")?;
     /// # let mut client = matrix_sdk::Client::new(homeserver).await?;
     /// # let room_id = matrix_sdk::ruma::room_id!("!test:localhost");
-    /// let content = json!({
-    ///     "avatar_url": "mxc://example.org/SEsfnsuifSDFSSEF",
-    ///     "displayname": "Alice Margatroid",
-    ///     "membership": "join"
-    /// });
     ///
     /// if let Some(room) = client.get_room(&room_id) {
-    ///     room.send_state_event_raw(content, "m.room.member", "").await?;
+    ///     room.send_state_event_raw("m.room.member", "", json!({
+    ///         "avatar_url": "mxc://example.org/SEsfnsuifSDFSSEF",
+    ///         "displayname": "Alice Margatroid",
+    ///         "membership": "join",
+    ///     })).await?;
     /// }
     /// # anyhow::Ok(()) };
     /// ```
     #[instrument(skip_all)]
     pub async fn send_state_event_raw(
         &self,
-        content: serde_json::Value,
         event_type: &str,
         state_key: &str,
+        content: serde_json::Value,
     ) -> Result<send_state_event::v3::Response> {
         self.ensure_room_joined()?;
 
