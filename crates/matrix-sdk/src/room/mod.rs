@@ -1404,9 +1404,9 @@ impl Room {
     ///
     /// # Arguments
     ///
-    /// * `content` - The content of the event as a json `Value`.
-    ///
     /// * `event_type` - The type of the event.
+    ///
+    /// * `content` - The content of the event as a json `Value`.
     ///
     /// # Examples
     ///
@@ -1421,20 +1421,16 @@ impl Room {
     /// # let room_id = room_id!("!test:localhost");
     /// use serde_json::json;
     ///
-    /// let content = json!({
-    ///     "body": "Hello world",
-    /// });
-    ///
     /// if let Some(room) = client.get_room(&room_id) {
-    ///     room.send_raw(content, "m.room.message").await?;
+    ///     room.send_raw("m.room.message", json!({ "body": "Hello world" })).await?;
     /// }
     /// # anyhow::Ok(()) };
     /// ```
     #[instrument(skip_all, fields(event_type, room_id = ?self.room_id(), transaction_id, encrypted))]
     pub fn send_raw<'a>(
         &'a self,
-        content: serde_json::Value,
         event_type: &'a str,
+        content: serde_json::Value,
     ) -> SendRawMessageLikeEvent<'a> {
         SendRawMessageLikeEvent::new(self, event_type, content)
     }

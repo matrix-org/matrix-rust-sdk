@@ -86,7 +86,7 @@ impl<'a> IntoFuture for SendMessageLikeEvent<'a> {
         let Self { room, event_type, content, transaction_id } = self;
         Box::pin(async move {
             let content = content?;
-            assign!(room.send_raw(content, &event_type), { transaction_id }).await
+            assign!(room.send_raw(&event_type, content), { transaction_id }).await
         })
     }
 }
