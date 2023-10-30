@@ -14,11 +14,7 @@
 
 #![deny(unreachable_pub)]
 
-use std::{
-    fmt::Debug,
-    future::{Future, IntoFuture},
-    pin::Pin,
-};
+use std::{fmt::Debug, future::IntoFuture};
 
 use cfg_vis::cfg_vis;
 use eyeball::SharedObservable;
@@ -32,6 +28,7 @@ use mas_oidc_client::{
     },
     types::errors::ClientErrorCode,
 };
+use matrix_sdk_common::boxed_into_future;
 use ruma::api::{client::error::ErrorKind, error::FromHttpResponseError, OutgoingRequest};
 #[cfg(feature = "experimental-oidc")]
 use tracing::error;
@@ -87,10 +84,7 @@ where
     HttpError: From<FromHttpResponseError<R::EndpointError>>,
 {
     type Output = HttpResult<R::IncomingResponse>;
-    #[cfg(target_arch = "wasm32")]
-    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output>>>;
-    #[cfg(not(target_arch = "wasm32"))]
-    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send>>;
+    boxed_into_future!();
 
     fn into_future(self) -> Self::IntoFuture {
         let Self { client, request, config, send_progress, sliding_sync_proxy_url } = self;

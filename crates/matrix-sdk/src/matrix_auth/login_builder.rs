@@ -14,11 +14,9 @@
 // limitations under the License.
 #![cfg_attr(not(target_arch = "wasm32"), deny(clippy::future_not_send))]
 
-use std::{
-    future::{Future, IntoFuture},
-    pin::Pin,
-};
+use std::future::{Future, IntoFuture};
 
+use matrix_sdk_common::boxed_into_future;
 use ruma::{
     api::client::{session::login, uiaa::UserIdentifier},
     assign,
@@ -212,8 +210,7 @@ impl LoginBuilder {
 
 impl IntoFuture for LoginBuilder {
     type Output = Result<login::v3::Response>;
-    // TODO: Use impl Trait once allowed in this position on stable
-    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output>>>;
+    boxed_into_future!();
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(self.send())
@@ -479,8 +476,7 @@ where
     Fut: Future<Output = Result<()>> + Send + 'static,
 {
     type Output = Result<login::v3::Response>;
-    // TODO: Use impl Trait once allowed in this position on stable
-    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output>>>;
+    boxed_into_future!();
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(self.send())

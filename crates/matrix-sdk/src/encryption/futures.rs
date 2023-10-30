@@ -17,16 +17,13 @@
 
 #![deny(unreachable_pub)]
 
-use std::{
-    future::{Future, IntoFuture},
-    io::Read,
-    pin::Pin,
-};
+use std::{future::IntoFuture, io::Read};
 
 use cfg_vis::cfg_vis;
 use eyeball::SharedObservable;
 #[cfg(not(target_arch = "wasm32"))]
 use eyeball::Subscriber;
+use matrix_sdk_common::boxed_into_future;
 use ruma::events::room::{EncryptedFile, EncryptedFileInit};
 
 use crate::{Client, Result, TransmissionProgress};
@@ -73,10 +70,7 @@ where
     R: Read + Send + ?Sized + 'a,
 {
     type Output = Result<EncryptedFile>;
-    #[cfg(target_arch = "wasm32")]
-    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + 'a>>;
-    #[cfg(not(target_arch = "wasm32"))]
-    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send + 'a>>;
+    boxed_into_future!(extra_bounds: 'a);
 
     fn into_future(self) -> Self::IntoFuture {
         let Self { client, content_type, reader, send_progress } = self;

@@ -66,3 +66,21 @@ impl<T> SyncOutsideWasm for T {}
 /// implemented, while other targets will.
 pub trait AsyncTraitDeps: std::fmt::Debug + SendOutsideWasm + SyncOutsideWasm {}
 impl<T: std::fmt::Debug + SendOutsideWasm + SyncOutsideWasm> AsyncTraitDeps for T {}
+
+// TODO: Remove in favor of impl Trait once allowed in associated types
+#[macro_export]
+macro_rules! boxed_into_future {
+    () => {
+        $crate::boxed_into_future!(extra_bounds: );
+    };
+    (extra_bounds: $($extra_bounds:tt)*) => {
+        #[cfg(target_arch = "wasm32")]
+        type IntoFuture = ::std::pin::Pin<::std::boxed::Box<
+            dyn ::std::future::Future<Output = Self::Output> + $($extra_bounds)*
+        >>;
+        #[cfg(not(target_arch = "wasm32"))]
+        type IntoFuture = ::std::pin::Pin<::std::boxed::Box<
+            dyn ::std::future::Future<Output = Self::Output> + Send + $($extra_bounds)*
+        >>;
+    };
+}
