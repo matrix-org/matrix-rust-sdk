@@ -43,6 +43,7 @@ use vodozemac::{megolm::SessionOrdering, Curve25519PublicKey};
 use super::{GossipRequest, GossippedSecret, RequestEvent, RequestInfo, SecretInfo, WaitQueue};
 use crate::{
     error::{EventError, OlmError, OlmResult},
+    identities::IdentityManager,
     olm::{InboundGroupSession, Session},
     requests::{OutgoingRequest, ToDeviceRequest},
     session_manager::GroupSessionCache,
@@ -73,11 +74,13 @@ pub(crate) struct GossipMachineInner {
     wait_queue: WaitQueue,
     users_for_key_claim: Arc<StdRwLock<BTreeMap<OwnedUserId, BTreeSet<OwnedDeviceId>>>>,
     room_key_forwarding_enabled: AtomicBool,
+    identity_manager: IdentityManager,
 }
 
 impl GossipMachine {
     pub fn new(
         store: Store,
+        identity_manager: IdentityManager,
         #[allow(unused)] outbound_group_sessions: GroupSessionCache,
         users_for_key_claim: Arc<StdRwLock<BTreeMap<OwnedUserId, BTreeSet<OwnedDeviceId>>>>,
     ) -> Self {
@@ -94,8 +97,13 @@ impl GossipMachine {
                 wait_queue: WaitQueue::new(),
                 users_for_key_claim,
                 room_key_forwarding_enabled,
+                identity_manager,
             }),
         }
+    }
+
+    pub(crate) fn identity_manager(&self) -> &IdentityManager {
+        &self.inner.identity_manager
     }
 
     #[cfg(feature = "automatic-room-key-forwarding")]
@@ -335,7 +343,13 @@ impl GossipMachine {
                 ?secret_name,
                 "Received a secret request from an unknown device",
             );
-            cache.keys_query_manager().await?.mark_user_as_changed(&event.sender).await?;
+            self.inner
+                .identity_manager
+                .key_query_manager
+                .synced(cache)
+                .await?
+                .mark_user_as_changed(&event.sender)
+                .await?;
 
             None
         })
@@ -395,7 +409,12 @@ impl GossipMachine {
 
         let Some(device) = device else {
             warn!("Received a key request from an unknown device");
-            cache.keys_query_manager().await?.mark_user_as_changed(&event.sender).await?;
+            self.identity_manager()
+                .key_query_manager
+                .synced(cache)
+                .await?
+                .mark_user_as_changed(&event.sender)
+                .await?;
 
             return Ok(None);
         };
@@ -857,7 +876,12 @@ impl GossipMachine {
         } else {
             warn!("Received a m.secret.send event from an unknown device");
 
-            cache.keys_query_manager().await?.mark_user_as_changed(&secret.event.sender).await?;
+            self.identity_manager()
+                .key_query_manager
+                .synced(cache)
+                .await?
+                .mark_user_as_changed(&secret.event.sender)
+                .await?;
         }
 
         Ok(())
@@ -1074,7 +1098,7 @@ mod tests {
         EncryptionSettings, OutgoingRequests,
     };
     use crate::{
-        identities::{LocalTrust, ReadOnlyDevice},
+        identities::{IdentityManager, LocalTrust, ReadOnlyDevice},
         olm::{Account, PrivateCrossSigningIdentity},
         session_manager::GroupSessionCache,
         store::{CryptoStoreWrapper, MemoryStore, PendingChanges, Store},
@@ -1134,8 +1158,9 @@ mod tests {
         store.save_pending_changes(PendingChanges { account: Some(account) }).await.unwrap();
 
         let session_cache = GroupSessionCache::new(store.clone());
+        let identity_manager = IdentityManager::new(store.clone());
 
-        GossipMachine::new(store, session_cache, Default::default())
+        GossipMachine::new(store, identity_manager, session_cache, Default::default())
     }
 
     async fn get_machine_test_helper() -> GossipMachine {
@@ -1155,7 +1180,9 @@ mod tests {
         store.save_pending_changes(PendingChanges { account: Some(account) }).await.unwrap();
         let session_cache = GroupSessionCache::new(store.clone());
 
-        GossipMachine::new(store, session_cache, Default::default())
+        let identity_manager = IdentityManager::new(store.clone());
+
+        GossipMachine::new(store, identity_manager, session_cache, Default::default())
     }
 
     #[cfg(feature = "automatic-room-key-forwarding")]

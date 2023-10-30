@@ -36,8 +36,8 @@ use crate::{
     olm::PrivateCrossSigningIdentity,
     requests::KeysQueryRequest,
     store::{
-        caches::SequenceNumber, Changes, DeviceChanges, IdentityChanges, Result as StoreResult,
-        Store, StoreCache,
+        caches::SequenceNumber, Changes, DeviceChanges, IdentityChanges, KeyQueryManager,
+        Result as StoreResult, Store, StoreCache,
     },
     types::{CrossSigningKey, DeviceKeys, MasterPubkey, SelfSigningPubkey, UserSigningPubkey},
     utilities::FailuresCache,
@@ -64,6 +64,8 @@ pub(crate) struct IdentityManager {
     failures: FailuresCache<OwnedServerName>,
     store: Store,
 
+    pub(crate) key_query_manager: Arc<KeyQueryManager>,
+
     /// Details of the current "in-flight" key query request, if any
     keys_query_request_details: Arc<Mutex<Option<KeysQueryRequestDetails>>>,
 }
@@ -89,6 +91,7 @@ impl IdentityManager {
 
         IdentityManager {
             store,
+            key_query_manager: Default::default(),
             failures: Default::default(),
             keys_query_request_details: keys_query_request_details.into(),
         }
@@ -166,10 +169,9 @@ impl IdentityManager {
         };
 
         if let Some(sequence_number) = sequence_number {
-            self.store
-                .cache()
-                .await?
-                .keys_query_manager()
+            let cache = self.store.cache().await?;
+            self.key_query_manager
+                .synced(&cache)
                 .await?
                 .mark_tracked_users_as_up_to_date(
                     response.device_keys.keys().map(Deref::deref),
@@ -800,7 +802,7 @@ impl IdentityManager {
         // The check for emptiness is done first for performance.
         let (users, sequence_number) = {
             let cache = self.store.cache().await?;
-            let key_query_manager = cache.keys_query_manager().await?;
+            let key_query_manager = self.key_query_manager.synced(&cache).await?;
 
             let (users, sequence_number) = key_query_manager.users_for_key_query().await;
 
@@ -865,7 +867,7 @@ impl IdentityManager {
         cache: &StoreCache,
         users: impl Iterator<Item = &UserId>,
     ) -> StoreResult<()> {
-        cache.keys_query_manager().await?.mark_tracked_users_as_changed(users).await
+        self.key_query_manager.synced(cache).await?.mark_tracked_users_as_changed(users).await
     }
 
     /// See the docs for [`OlmMachine::update_tracked_users()`].
@@ -873,13 +875,8 @@ impl IdentityManager {
         &self,
         users: impl IntoIterator<Item = &UserId>,
     ) -> StoreResult<()> {
-        self.store
-            .cache()
-            .await?
-            .keys_query_manager()
-            .await?
-            .update_tracked_users(users.into_iter())
-            .await
+        let cache = self.store.cache().await?;
+        self.key_query_manager.synced(&cache).await?.update_tracked_users(users.into_iter()).await
     }
 }
 
@@ -1237,7 +1234,7 @@ pub(crate) mod tests {
         let alice = user_id!("@alice:example.org");
 
         let cache = manager.store.cache().await.unwrap();
-        let key_query_manager = cache.keys_query_manager().await.unwrap();
+        let key_query_manager = manager.key_query_manager.synced(&cache).await.unwrap();
 
         assert!(key_query_manager.tracked_users().is_empty(), "No users are initially tracked");
 
@@ -1257,16 +1254,8 @@ pub(crate) mod tests {
     #[async_test]
     async fn test_manager_creation() {
         let manager = manager_test_helper(user_id(), device_id()).await;
-        assert!(manager
-            .store
-            .cache()
-            .await
-            .unwrap()
-            .keys_query_manager()
-            .await
-            .unwrap()
-            .tracked_users()
-            .is_empty())
+        let cache = manager.store.cache().await.unwrap();
+        assert!(manager.key_query_manager.synced(&cache).await.unwrap().tracked_users().is_empty())
     }
 
     #[async_test]
@@ -1429,30 +1418,19 @@ pub(crate) mod tests {
     async fn test_no_tracked_users_key_query_request() {
         let manager = manager_test_helper(user_id(), device_id()).await;
 
+        let cache = manager.store.cache().await.unwrap();
         assert!(
-            manager
-                .store
-                .cache()
-                .await
-                .unwrap()
-                .keys_query_manager()
-                .await
-                .unwrap()
-                .tracked_users()
-                .is_empty(),
+            manager.key_query_manager.synced(&cache).await.unwrap().tracked_users().is_empty(),
             "No users are initially tracked"
         );
 
         let requests = manager.users_for_key_query().await.unwrap();
-
         assert!(!requests.is_empty(), "We query the keys for our own user");
+
         assert!(
             manager
-                .store
-                .cache()
-                .await
-                .unwrap()
-                .keys_query_manager()
+                .key_query_manager
+                .synced(&cache)
                 .await
                 .unwrap()
                 .tracked_users()
@@ -1502,7 +1480,7 @@ pub(crate) mod tests {
 
         {
             let cache = manager.store.cache().await.unwrap();
-            let key_query_manager = cache.keys_query_manager().await.unwrap();
+            let key_query_manager = manager.key_query_manager.synced(&cache).await.unwrap();
             assert!(key_query_manager.tracked_users().is_empty(), "No users are initially tracked");
 
             key_query_manager.mark_user_as_changed(alice).await.unwrap();

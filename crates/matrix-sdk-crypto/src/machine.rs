@@ -189,9 +189,12 @@ impl OlmMachine {
 
         let group_session_manager = GroupSessionManager::new(store.clone());
 
+        let identity_manager = IdentityManager::new(store.clone());
+
         let users_for_key_claim = Arc::new(StdRwLock::new(BTreeMap::new()));
         let key_request_machine = GossipMachine::new(
             store.clone(),
+            identity_manager.clone(),
             group_session_manager.session_cache(),
             users_for_key_claim.clone(),
         );
@@ -201,8 +204,6 @@ impl OlmMachine {
 
         #[cfg(feature = "backups_v1")]
         let backup_machine = BackupMachine::new(store.clone(), None);
-
-        let identity_manager = IdentityManager::new(store.clone());
 
         let inner = Arc::new(OlmMachineInner {
             user_id: store.user_id().to_owned(),
@@ -344,7 +345,8 @@ impl OlmMachine {
     /// See [`update_tracked_users`](#method.update_tracked_users) for more
     /// information.
     pub async fn tracked_users(&self) -> StoreResult<HashSet<OwnedUserId>> {
-        Ok(self.store().cache().await?.keys_query_manager().await?.tracked_users())
+        let cache = self.store().cache().await?;
+        Ok(self.inner.identity_manager.key_query_manager.synced(&cache).await?.tracked_users())
     }
 
     /// Enable or disable room key forwarding.
@@ -1609,10 +1611,11 @@ impl OlmMachine {
         timeout: Option<Duration>,
     ) -> StoreResult<()> {
         if let Some(timeout) = timeout {
-            self.store()
-                .cache()
-                .await?
-                .keys_query_manager()
+            let cache = self.store().cache().await?;
+            self.inner
+                .identity_manager
+                .key_query_manager
+                .synced(&cache)
                 .await?
                 .wait_if_user_key_query_pending(timeout, user_id)
                 .await;

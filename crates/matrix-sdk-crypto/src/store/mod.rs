@@ -106,7 +106,7 @@ pub struct Store {
 }
 
 #[derive(Debug, Default)]
-struct KeyQueryManager {
+pub(crate) struct KeyQueryManager {
     /// Record of the users that are waiting for a /keys/query.
     //
     // This uses an async_std::sync::Mutex rather than a
@@ -118,90 +118,12 @@ struct KeyQueryManager {
     users_for_key_query_condvar: Condvar,
 }
 
-pub(crate) struct BoundKeyQueryManager<'a> {
-    cache: &'a StoreCache,
-    manager: &'a KeyQueryManager,
-}
-
-impl<'a> BoundKeyQueryManager<'a> {
-    /// Add entries to the list of users being tracked for device changes
-    ///
-    /// Any users not already on the list are flagged as awaiting a key query.
-    /// Users that were already in the list are unaffected.
-    pub async fn update_tracked_users(&self, users: impl Iterator<Item = &UserId>) -> Result<()> {
-        self.manager.update_tracked_users(self.cache, users).await
-    }
-
-    /// Wait for a `/keys/query` response to be received if one is expected for
-    /// the given user.
-    ///
-    /// If the given timeout elapses, the method will stop waiting and return
-    /// `UserKeyQueryResult::TimeoutExpired`
-    pub async fn wait_if_user_key_query_pending(
-        &self,
-        timeout_duration: Duration,
-        user: &UserId,
-    ) -> UserKeyQueryResult {
-        self.manager.wait_if_user_key_query_pending(timeout_duration, user).await
-    }
-
-    /// Process notifications that users have changed devices.
-    ///
-    /// This is used to handle the list of device-list updates that is received
-    /// from the `/sync` response. Any users *whose device lists we are
-    /// tracking* are flagged as needing a key query. Users whose devices we
-    /// are not tracking are ignored.
-    pub async fn mark_tracked_users_as_changed(
-        &self,
-        users: impl Iterator<Item = &UserId>,
-    ) -> Result<()> {
-        self.manager.mark_tracked_users_as_changed(self.cache, users).await
-    }
-
-    /// Flag that the given users devices are now up-to-date.
-    ///
-    /// This is called after processing the response to a /keys/query request.
-    /// Any users whose device lists we are tracking are removed from the
-    /// list of those pending a /keys/query.
-    pub async fn mark_tracked_users_as_up_to_date(
-        &self,
-        users: impl Iterator<Item = &UserId>,
-        sequence_number: SequenceNumber,
-    ) -> Result<()> {
-        self.manager.mark_tracked_users_as_up_to_date(self.cache, users, sequence_number).await
-    }
-
-    /// Get the set of users that has the outdate/dirty flag set for their list
-    /// of devices.
-    ///
-    /// This set should be included in a `/keys/query` request which will update
-    /// the device list.
-    ///
-    /// # Returns
-    ///
-    /// A pair `(users, sequence_number)`, where `users` is the list of users to
-    /// be queried, and `sequence_number` is the current sequence number,
-    /// which should be returned in `mark_tracked_users_as_up_to_date`.
-    pub async fn users_for_key_query(&self) -> (HashSet<OwnedUserId>, SequenceNumber) {
-        self.manager.users_for_key_query().await
-    }
-
-    /// See the docs for [`crate::OlmMachine::tracked_users()`].
-    pub fn tracked_users(&self) -> HashSet<OwnedUserId> {
-        self.manager.tracked_users(self.cache)
-    }
-
-    /// Mark the given user as being tracked for device lists, and mark that it
-    /// has an outdated device list.
-    ///
-    /// This means that the user will be considered for a `/keys/query` request
-    /// next time [`Store::users_for_key_query()`] is called.
-    pub async fn mark_user_as_changed(&self, user: &UserId) -> Result<()> {
-        self.manager.mark_user_as_changed(self.cache, user).await
-    }
-}
-
 impl KeyQueryManager {
+    pub async fn synced<'a>(&'a self, cache: &'a StoreCache) -> Result<SyncedKeyQueryManager<'a>> {
+        self.ensure_sync_tracked_users(cache).await?;
+        Ok(SyncedKeyQueryManager { cache, manager: self })
+    }
+
     /// Load the list of users for whom we are tracking their device lists and
     /// fill out our caches.
     ///
@@ -242,60 +164,24 @@ impl KeyQueryManager {
 
         Ok(())
     }
+}
 
-    /// Process notifications that users have changed devices.
-    ///
-    /// This is used to handle the list of device-list updates that is received
-    /// from the `/sync` response. Any users *whose device lists we are
-    /// tracking* are flagged as needing a key query. Users whose devices we
-    /// are not tracking are ignored.
-    pub async fn mark_tracked_users_as_changed(
-        &self,
-        cache: &StoreCache,
-        users: impl Iterator<Item = &UserId>,
-    ) -> Result<()> {
-        let mut store_updates: Vec<(&UserId, bool)> = Vec::new();
-        let mut key_query_lock = self.users_for_key_query.lock().await;
+pub(crate) struct SyncedKeyQueryManager<'a> {
+    cache: &'a StoreCache,
+    manager: &'a KeyQueryManager,
+}
 
-        {
-            let tracked_users = &cache.tracked_users.read().unwrap();
-            for user_id in users {
-                if tracked_users.contains(user_id) {
-                    key_query_lock.insert_user(user_id);
-                    store_updates.push((user_id, true));
-                }
-            }
-        }
-
-        cache.store.save_tracked_users(&store_updates).await
-    }
-
-    /// Mark the given user as being tracked for device lists, and mark that it
-    /// has an outdated device list.
-    ///
-    /// This means that the user will be considered for a `/keys/query` request
-    /// next time [`Store::users_for_key_query()`] is called.
-    pub async fn mark_user_as_changed(&self, cache: &StoreCache, user: &UserId) -> Result<()> {
-        self.users_for_key_query.lock().await.insert_user(user);
-        cache.tracked_users.write().unwrap().insert(user.to_owned());
-
-        cache.store.save_tracked_users(&[(user, true)]).await
-    }
-
+impl<'a> SyncedKeyQueryManager<'a> {
     /// Add entries to the list of users being tracked for device changes
     ///
     /// Any users not already on the list are flagged as awaiting a key query.
     /// Users that were already in the list are unaffected.
-    pub async fn update_tracked_users(
-        &self,
-        cache: &StoreCache,
-        users: impl Iterator<Item = &UserId>,
-    ) -> Result<()> {
+    pub async fn update_tracked_users(&self, users: impl Iterator<Item = &UserId>) -> Result<()> {
         let mut store_updates = Vec::new();
-        let mut key_query_lock = self.users_for_key_query.lock().await;
+        let mut key_query_lock = self.manager.users_for_key_query.lock().await;
 
         {
-            let mut tracked_users = cache.tracked_users.write().unwrap();
+            let mut tracked_users = self.cache.tracked_users.write().unwrap();
             for user_id in users {
                 if tracked_users.insert(user_id.to_owned()) {
                     key_query_lock.insert_user(user_id);
@@ -304,58 +190,7 @@ impl KeyQueryManager {
             }
         }
 
-        cache.store.save_tracked_users(&store_updates).await
-    }
-
-    /// See the docs for [`crate::OlmMachine::tracked_users()`].
-    pub fn tracked_users(&self, cache: &StoreCache) -> HashSet<OwnedUserId> {
-        cache.tracked_users.read().unwrap().iter().cloned().collect()
-    }
-
-    /// Flag that the given users devices are now up-to-date.
-    ///
-    /// This is called after processing the response to a /keys/query request.
-    /// Any users whose device lists we are tracking are removed from the
-    /// list of those pending a /keys/query.
-    pub async fn mark_tracked_users_as_up_to_date(
-        &self,
-        cache: &StoreCache,
-        users: impl Iterator<Item = &UserId>,
-        sequence_number: SequenceNumber,
-    ) -> Result<()> {
-        let mut store_updates: Vec<(&UserId, bool)> = Vec::new();
-        let mut key_query_lock = self.users_for_key_query.lock().await;
-
-        {
-            let tracked_users = cache.tracked_users.read().unwrap();
-            for user_id in users {
-                if tracked_users.contains(user_id) {
-                    let clean = key_query_lock.maybe_remove_user(user_id, sequence_number);
-                    store_updates.push((user_id, !clean));
-                }
-            }
-        }
-
-        cache.store.save_tracked_users(&store_updates).await?;
-        // wake up any tasks that may have been waiting for updates
-        self.users_for_key_query_condvar.notify_all();
-
-        Ok(())
-    }
-
-    /// Get the set of users that has the outdate/dirty flag set for their list
-    /// of devices.
-    ///
-    /// This set should be included in a `/keys/query` request which will update
-    /// the device list.
-    ///
-    /// # Returns
-    ///
-    /// A pair `(users, sequence_number)`, where `users` is the list of users to
-    /// be queried, and `sequence_number` is the current sequence number,
-    /// which should be returned in `mark_tracked_users_as_up_to_date`.
-    pub async fn users_for_key_query(&self) -> (HashSet<OwnedUserId>, SequenceNumber) {
-        self.users_for_key_query.lock().await.users_for_key_query()
+        self.cache.store.save_tracked_users(&store_updates).await
     }
 
     /// Wait for a `/keys/query` response to be received if one is expected for
@@ -368,7 +203,7 @@ impl KeyQueryManager {
         timeout_duration: Duration,
         user: &UserId,
     ) -> UserKeyQueryResult {
-        let mut users_for_key_query = self.users_for_key_query.lock().await;
+        let mut users_for_key_query = self.manager.users_for_key_query.lock().await;
 
         let Some(waiter) = users_for_key_query.maybe_register_waiting_task(user) else {
             return UserKeyQueryResult::WasNotPending;
@@ -377,7 +212,7 @@ impl KeyQueryManager {
         let wait_for_completion = async {
             while !waiter.completed.load(Ordering::Relaxed) {
                 users_for_key_query =
-                    self.users_for_key_query_condvar.wait(users_for_key_query).await;
+                    self.manager.users_for_key_query_condvar.wait(users_for_key_query).await;
             }
         };
 
@@ -394,12 +229,99 @@ impl KeyQueryManager {
             _ => UserKeyQueryResult::WasPending,
         }
     }
+
+    /// Process notifications that users have changed devices.
+    ///
+    /// This is used to handle the list of device-list updates that is received
+    /// from the `/sync` response. Any users *whose device lists we are
+    /// tracking* are flagged as needing a key query. Users whose devices we
+    /// are not tracking are ignored.
+    pub async fn mark_tracked_users_as_changed(
+        &self,
+        users: impl Iterator<Item = &UserId>,
+    ) -> Result<()> {
+        let mut store_updates: Vec<(&UserId, bool)> = Vec::new();
+        let mut key_query_lock = self.manager.users_for_key_query.lock().await;
+
+        {
+            let tracked_users = &self.cache.tracked_users.read().unwrap();
+            for user_id in users {
+                if tracked_users.contains(user_id) {
+                    key_query_lock.insert_user(user_id);
+                    store_updates.push((user_id, true));
+                }
+            }
+        }
+
+        self.cache.store.save_tracked_users(&store_updates).await
+    }
+
+    /// Flag that the given users devices are now up-to-date.
+    ///
+    /// This is called after processing the response to a /keys/query request.
+    /// Any users whose device lists we are tracking are removed from the
+    /// list of those pending a /keys/query.
+    pub async fn mark_tracked_users_as_up_to_date(
+        &self,
+        users: impl Iterator<Item = &UserId>,
+        sequence_number: SequenceNumber,
+    ) -> Result<()> {
+        let mut store_updates: Vec<(&UserId, bool)> = Vec::new();
+        let mut key_query_lock = self.manager.users_for_key_query.lock().await;
+
+        {
+            let tracked_users = self.cache.tracked_users.read().unwrap();
+            for user_id in users {
+                if tracked_users.contains(user_id) {
+                    let clean = key_query_lock.maybe_remove_user(user_id, sequence_number);
+                    store_updates.push((user_id, !clean));
+                }
+            }
+        }
+
+        self.cache.store.save_tracked_users(&store_updates).await?;
+        // wake up any tasks that may have been waiting for updates
+        self.manager.users_for_key_query_condvar.notify_all();
+
+        Ok(())
+    }
+
+    /// Get the set of users that has the outdate/dirty flag set for their list
+    /// of devices.
+    ///
+    /// This set should be included in a `/keys/query` request which will update
+    /// the device list.
+    ///
+    /// # Returns
+    ///
+    /// A pair `(users, sequence_number)`, where `users` is the list of users to
+    /// be queried, and `sequence_number` is the current sequence number,
+    /// which should be returned in `mark_tracked_users_as_up_to_date`.
+    pub async fn users_for_key_query(&self) -> (HashSet<OwnedUserId>, SequenceNumber) {
+        self.manager.users_for_key_query.lock().await.users_for_key_query()
+    }
+
+    /// See the docs for [`crate::OlmMachine::tracked_users()`].
+    pub fn tracked_users(&self) -> HashSet<OwnedUserId> {
+        self.cache.tracked_users.read().unwrap().iter().cloned().collect()
+    }
+
+    /// Mark the given user as being tracked for device lists, and mark that it
+    /// has an outdated device list.
+    ///
+    /// This means that the user will be considered for a `/keys/query` request
+    /// next time [`Store::users_for_key_query()`] is called.
+    pub async fn mark_user_as_changed(&self, user: &UserId) -> Result<()> {
+        self.manager.users_for_key_query.lock().await.insert_user(user);
+        self.cache.tracked_users.write().unwrap().insert(user.to_owned());
+
+        self.cache.store.save_tracked_users(&[(user, true)]).await
+    }
 }
 
 #[derive(Debug)]
 pub(crate) struct StoreCache {
     store: Arc<CryptoStoreWrapper>,
-    key_query_manager: KeyQueryManager,
 
     tracked_users: StdRwLock<BTreeSet<OwnedUserId>>,
     loaded_tracked_users: RwLock<bool>,
@@ -431,12 +353,6 @@ impl StoreCache {
                 None => Err(CryptoStoreError::AccountUnset),
             }
         }
-    }
-
-    pub async fn keys_query_manager(&self) -> Result<BoundKeyQueryManager<'_>> {
-        self.key_query_manager.ensure_sync_tracked_users(self).await?;
-
-        Ok(BoundKeyQueryManager { cache: &self, manager: &self.key_query_manager })
     }
 }
 
@@ -958,7 +874,6 @@ impl Store {
                 verification_machine,
                 cache: Arc::new(RwLock::new(StoreCache {
                     store,
-                    key_query_manager: Default::default(),
                     tracked_users: Default::default(),
                     loaded_tracked_users: Default::default(),
                     account: Default::default(),

@@ -182,11 +182,12 @@ impl SessionManager {
         let user_devices = self.store.get_readonly_devices_filtered(user_id).await?;
 
         let user_devices = if user_devices.is_empty() {
+            let cache = self.store.cache().await?;
             match self
-                .store
-                .cache()
-                .await?
-                .keys_query_manager()
+                .key_request_machine
+                .identity_manager()
+                .key_query_manager
+                .synced(&cache)
                 .await?
                 .wait_if_user_key_query_pending(Self::KEYS_QUERY_WAIT_TIME, user_id)
                 .await
@@ -201,7 +202,7 @@ impl SessionManager {
         Ok(user_devices)
     }
 
-    /// Get the a key claiming request for the user/device pairs that we are
+    /// Get a key claiming request for the user/device pairs that we are
     /// missing Olm sessions for.
     ///
     /// Returns None if no key claiming request needs to be sent out.
@@ -532,7 +533,7 @@ mod tests {
         KeyClaimResponse::try_from_http_response(response).unwrap()
     }
 
-    async fn session_manager_test_helper() -> SessionManager {
+    async fn session_manager_test_helper() -> (SessionManager, IdentityManager) {
         let user_id = user_id();
         let device_id = device_id();
 
@@ -549,17 +550,22 @@ mod tests {
         store.save_pending_changes(PendingChanges { account: Some(account) }).await.unwrap();
 
         let session_cache = GroupSessionCache::new(store.clone());
+        let identity_manager = IdentityManager::new(store.clone());
 
         let users_for_key_claim = Arc::new(StdRwLock::new(BTreeMap::new()));
-        let key_request =
-            GossipMachine::new(store.clone(), session_cache, users_for_key_claim.clone());
+        let key_request = GossipMachine::new(
+            store.clone(),
+            identity_manager.clone(),
+            session_cache,
+            users_for_key_claim.clone(),
+        );
 
-        SessionManager::new(users_for_key_claim, key_request, store)
+        (SessionManager::new(users_for_key_claim, key_request, store), identity_manager)
     }
 
     #[async_test]
     async fn test_session_creation() {
-        let manager = session_manager_test_helper().await;
+        let (manager, _identity_manager) = session_manager_test_helper().await;
         let mut bob = bob_account();
 
         let bob_device = ReadOnlyDevice::from_account(&bob);
@@ -591,8 +597,7 @@ mod tests {
 
     #[async_test]
     async fn test_session_creation_waits_for_keys_query() {
-        let manager = session_manager_test_helper().await;
-        let identity_manager = IdentityManager::new(manager.store.clone());
+        let (manager, identity_manager) = session_manager_test_helper().await;
 
         // start a keys query request. At this point, we are only interested in our own
         // devices.
@@ -605,8 +610,9 @@ mod tests {
         let bob_device = ReadOnlyDevice::from_account(&bob);
         {
             let cache = manager.store.cache().await.unwrap();
-            cache
-                .keys_query_manager()
+            identity_manager
+                .key_query_manager
+                .synced(&cache)
                 .await
                 .unwrap()
                 .update_tracked_users(iter::once(bob.user_id()))
@@ -661,7 +667,7 @@ mod tests {
         use matrix_sdk_common::instant::{Duration, SystemTime};
         use ruma::SecondsSinceUnixEpoch;
 
-        let manager = session_manager_test_helper().await;
+        let (manager, _identity_manager) = session_manager_test_helper().await;
         let mut bob = bob_account();
 
         let (_, mut session) = manager
@@ -724,7 +730,7 @@ mod tests {
         let alice_account = Account::with_device_id(alice, "DEVICEID".into());
         let alice_device = ReadOnlyDevice::from_account(&alice_account);
 
-        let manager = session_manager_test_helper().await;
+        let (manager, _identity_manager) = session_manager_test_helper().await;
 
         manager.store.save_devices(&[alice_device]).await.unwrap();
 
@@ -767,7 +773,7 @@ mod tests {
         let mut alice_account = Account::with_device_id(alice, "DEVICEID".into());
         let alice_device = ReadOnlyDevice::from_account(&alice_account);
 
-        let manager = session_manager_test_helper().await;
+        let (manager, _identity_manager) = session_manager_test_helper().await;
         manager.store.save_devices(&[alice_device]).await.unwrap();
 
         // Since we don't have a session with Alice yet, the machine will try to claim
