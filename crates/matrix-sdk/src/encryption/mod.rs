@@ -57,6 +57,10 @@ use ruma::{
 use tokio::sync::RwLockReadGuard;
 use tracing::{debug, instrument, trace, warn};
 
+use self::{
+    futures::PrepareEncryptedFile,
+    identities::{DeviceUpdates, IdentityUpdates},
+};
 use crate::{
     attachment::{AttachmentInfo, Thumbnail},
     encryption::{
@@ -68,7 +72,7 @@ use crate::{
     Client, Error, Result, Room, TransmissionProgress,
 };
 
-mod futures;
+pub mod futures;
 pub mod identities;
 pub mod verification;
 
@@ -82,8 +86,6 @@ pub use matrix_sdk_base::crypto::{
     SessionCreationError, SignatureError, VERSION,
 };
 
-pub use self::futures::PrepareEncryptedFile;
-use self::identities::{DeviceUpdates, IdentityUpdates};
 pub use crate::error::RoomKeyImportError;
 
 /// Settings for end-to-end encryption features.

@@ -47,7 +47,11 @@ pub mod notification_settings;
 #[cfg(feature = "experimental-oidc")]
 pub mod oidc;
 pub mod room;
+pub mod futures {
+    //! Named futures returned from methods on types in [the crate root][crate].
 
+    pub use super::client::futures::SendRequest;
+}
 #[cfg(feature = "experimental-sliding-sync")]
 pub mod sliding_sync;
 pub mod sync;
@@ -56,7 +60,7 @@ pub mod widget;
 
 pub use account::Account;
 pub use authentication::{AuthApi, AuthSession, SessionTokens};
-pub use client::{Client, ClientBuildError, ClientBuilder, LoopCtrl, SendRequest, SessionChange};
+pub use client::{Client, ClientBuildError, ClientBuilder, LoopCtrl, SessionChange};
 #[cfg(feature = "image-proc")]
 pub use error::ImageError;
 pub use error::{
