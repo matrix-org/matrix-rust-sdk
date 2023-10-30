@@ -115,7 +115,7 @@ impl MatrixDriver {
     ) -> Result<OwnedEventId> {
         let type_str = event_type.to_string();
         Ok(match state_key {
-            Some(key) => self.room.send_state_event_raw(content, &type_str, &key).await?.event_id,
+            Some(key) => self.room.send_state_event_raw(&type_str, &key, content).await?.event_id,
             None => self.room.send_raw(&type_str, content).await?.event_id,
         })
     }
