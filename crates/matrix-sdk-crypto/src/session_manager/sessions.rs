@@ -363,7 +363,7 @@ impl SessionManager {
         let mut changes = Changes::default();
         let mut new_sessions: BTreeMap<&UserId, BTreeMap<&DeviceId, SessionInfo>> = BTreeMap::new();
 
-        let mut store_transaction = self.store.transaction().await?;
+        let mut store_transaction = self.store.transaction().await;
         for (user_id, user_devices) in &response.one_time_keys {
             for (device_id, key_map) in user_devices {
                 let device = match self.store.get_readonly_device(user_id, device_id).await {

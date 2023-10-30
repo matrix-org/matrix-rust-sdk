@@ -1163,7 +1163,7 @@ impl OlmMachine {
         &self,
         sync_changes: EncryptionSyncChanges<'_>,
     ) -> OlmResult<(Vec<Raw<AnyToDeviceEvent>>, Vec<RoomKeyInfo>)> {
-        let mut store_transaction = self.inner.store.transaction().await?;
+        let mut store_transaction = self.inner.store.transaction().await;
 
         let (events, changes) =
             self.preprocess_sync_changes(&mut store_transaction, sync_changes).await?;

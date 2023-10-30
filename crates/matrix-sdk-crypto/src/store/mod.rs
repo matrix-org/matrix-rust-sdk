@@ -325,14 +325,10 @@ pub struct StoreTransaction {
 
 impl StoreTransaction {
     /// Starts a new `StoreTransaction`.
-    pub async fn new(store: Store) -> Result<Self> {
+    async fn new(store: Store) -> Self {
         let cache = store.inner.cache.clone();
 
-        Ok(Self {
-            store,
-            changes: PendingChanges::default(),
-            cache: cache.clone().write_owned().await,
-        })
+        Self { store, changes: PendingChanges::default(), cache: cache.clone().write_owned().await }
     }
 
     pub(crate) fn cache(&self) -> &StoreCache {
@@ -854,7 +850,7 @@ impl Store {
         Ok(cache)
     }
 
-    pub(crate) async fn transaction(&self) -> Result<StoreTransaction> {
+    pub(crate) async fn transaction(&self) -> StoreTransaction {
         StoreTransaction::new(self.clone()).await
     }
 
@@ -868,7 +864,7 @@ impl Store {
         &self,
         func: F,
     ) -> Result<T, crate::OlmError> {
-        let tr = self.transaction().await?;
+        let tr = self.transaction().await;
         let (tr, res) = func(tr).await?;
         tr.commit().await?;
         Ok(res)
