@@ -26,8 +26,10 @@ use matrix_sdk::{
     Client,
 };
 use matrix_sdk_base::SessionMeta;
-use matrix_sdk_test::async_test;
-use ruma::{device_id, room_id, user_id, UserId};
+use matrix_sdk_test::{async_test, JoinedRoomBuilder, SyncResponseBuilder};
+use ruma::{
+    device_id, event_id, events::room::message::RoomMessageEvent, room_id, user_id, UserId,
+};
 use serde_json::json;
 use tempfile::tempdir;
 use tokio::spawn;
@@ -36,7 +38,7 @@ use wiremock::{
     Mock, ResponseTemplate,
 };
 
-use crate::{no_retry_test_client, test_client_builder};
+use crate::{mock_sync, no_retry_test_client, test_client_builder};
 
 const ROOM_KEY: &[u8] = b"\
         -----BEGIN MEGOLM SESSION DATA-----\n\
@@ -671,6 +673,7 @@ async fn enable_from_secret_storage() {
 
     let user_id = user_id!("@example2:morpheus.localhost");
     let room_id = room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost");
+    let event_id = event_id!("$JbFHtZpEJiH8uaajZjPLz0QUZc1xtBR9rPGBOjF6WFM");
 
     let session = MatrixSession {
         meta: SessionMeta { user_id: user_id.into(), device_id: device_id!("DEVICEID").to_owned() },
@@ -689,6 +692,50 @@ async fn enable_from_secret_storage() {
     client.restore_session(session).await.unwrap();
 
     mock_secret_store_with_backup_key(user_id, KEY_ID, &server).await;
+
+    let sync = SyncResponseBuilder::new()
+        .add_joined_room(JoinedRoomBuilder::new(room_id))
+        .build_json_sync_response();
+    mock_sync(&server, sync, None).await;
+
+    client.sync_once(Default::default()).await.expect("We should be able to sync with the server");
+
+    Mock::given(method("GET"))
+        .and(path("_matrix/client/r0/rooms/!DovneieKSTkdHKpIXy:morpheus.localhost/event/$JbFHtZpEJiH8uaajZjPLz0QUZc1xtBR9rPGBOjF6WFM"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "content": {
+                "algorithm": "m.megolm.v1.aes-sha2",
+                "ciphertext": "AwgAEpABhetEzzZzyYrxtEVUtlJnZtJcURBlQUQJ9irVeklCTs06LwgTMQj61PMUS4Vy\
+                               YOX+PD67+hhU40/8olOww+Ud0m2afjMjC3wFX+4fFfSkoWPVHEmRVucfcdSF1RSB4EmK\
+                               PIP4eo1X6x8kCIMewBvxl2sI9j4VNvDvAN7M3zkLJfFLOFHbBviI4FN7hSFHFeM739Zg\
+                               iwxEs3hIkUXEiAfrobzaMEM/zY7SDrTdyffZndgJo7CZOVhoV6vuaOhmAy4X2t4UnbuV\
+                               JGJjKfV57NAhp8W+9oT7ugwO",
+                "device_id": "KIUVQQSDTM",
+                "sender_key": "LvryVyoCjdONdBCi2vvoSbI34yTOx7YrCFACUEKoXnc",
+                "session_id": "64H7XKokIx0ASkYDHZKlT5zd/Zccz/cQspPNdvnNULA"
+            },
+            "event_id": "$JbFHtZpEJiH8uaajZjPLz0QUZc1xtBR9rPGBOjF6WFM",
+            "origin_server_ts": 1698579035927u64,
+            "sender": "@example2:morpheus.localhost",
+            "type": "m.room.encrypted",
+            "unsigned": {
+                "age": 14393491
+            }
+        })))
+        .expect(2)
+        .mount(&server)
+        .await;
+
+    let room = client.get_room(room_id).expect("We should have access to the room after the sync");
+    let event = room.event(event_id).await.expect("We should be able to fetch our encrypted event");
+
+    assert_matches!(
+        event.encryption_info,
+        None,
+        "We should not be able to decrypt our encrypted event before we import the room keys from \
+         the backup"
+    );
 
     let secret_storage = client.encryption().secret_storage();
 
@@ -775,11 +822,13 @@ async fn enable_from_secret_storage() {
 
     task.await.unwrap();
 
-    /* TODO: Check if we can decrypt an event so we're sure that the room key got imported.
-    let room = client.get_room(room_id).expect("TODO");
+    let event = room.event(event_id).await.expect("We should be able to fetch our encrypted event");
 
-    room.event(event_id).await?;
-    */
+    assert_matches!(event.encryption_info, Some(..), "The event should now be decrypted");
+    let event: RoomMessageEvent =
+        event.event.deserialize_as().expect("We should be able to deserialize the event");
+    let event = event.as_original().unwrap();
+    assert_eq!(event.content.body(), "tt");
 
     assert_eq!(client.encryption().backups().state(), BackupState::Enabled);
 
@@ -902,4 +951,210 @@ async fn enable_from_secret_storage_mismatched_key() {
         "The backup should go into the disabled state if we the current backup isn't using the \
          backup recovery key we received from secret storage"
     );
+}
+
+#[async_test]
+async fn enable_from_secret_storage_manual_download() {
+    const SECRET_STORE_KEY: &str = "mypassphrase";
+    const KEY_ID: &str = "yJWwBm2Ts8jHygTBslKpABFyykavhhfA";
+    let user_id = user_id!("@example2:morpheus.localhost");
+
+    let session = MatrixSession {
+        meta: SessionMeta { user_id: user_id.into(), device_id: device_id!("DEVICEID").to_owned() },
+        tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
+    };
+    let (builder, server) = test_client_builder().await;
+    let client =
+        builder.request_config(RequestConfig::new().disable_retry()).build().await.unwrap();
+
+    client.restore_session(session).await.unwrap();
+
+    mock_secret_store_with_backup_key(user_id, KEY_ID, &server).await;
+
+    let secret_storage = client.encryption().secret_storage();
+
+    let store = secret_storage
+        .open_secret_store(SECRET_STORE_KEY)
+        .await
+        .expect("We should be able to open our secret store");
+
+    Mock::given(method("GET"))
+        .and(path("_matrix/client/r0/room_keys/version"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(404).set_body_json(json!({
+            "errcode": "M_NOT_FOUND",
+            "error": "No current backup version"
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    store.import_secrets().await.unwrap();
+    assert_eq!(client.encryption().backups().state(), BackupState::Disabled);
+}
+
+#[async_test]
+async fn enable_from_secret_storage_and_manual_download() {
+    const SECRET_STORE_KEY: &str = "mypassphrase";
+    const KEY_ID: &str = "yJWwBm2Ts8jHygTBslKpABFyykavhhfA";
+
+    let user_id = user_id!("@example2:morpheus.localhost");
+    let room_id = room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost");
+
+    let session = MatrixSession {
+        meta: SessionMeta { user_id: user_id.into(), device_id: device_id!("DEVICEID").to_owned() },
+        tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
+    };
+    let (builder, server) = test_client_builder().await;
+    let encryption_settings =
+        EncryptionSettings { auto_download_from_backup: true, ..Default::default() };
+    let client = builder
+        .request_config(RequestConfig::new().disable_retry())
+        .with_encryption_settings(encryption_settings)
+        .build()
+        .await
+        .unwrap();
+
+    client.restore_session(session).await.unwrap();
+
+    mock_secret_store_with_backup_key(user_id, KEY_ID, &server).await;
+
+    let secret_storage = client.encryption().secret_storage();
+
+    let store = secret_storage
+        .open_secret_store(SECRET_STORE_KEY)
+        .await
+        .expect("We should be able to open our secret store");
+
+    Mock::given(method("GET"))
+        .and(path("_matrix/client/r0/room_keys/version"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "algorithm": "m.megolm_backup.v1.curve25519-aes-sha2",
+            "auth_data": {
+                "public_key": "hdx5rSn94rBuvJI5cwnhKAVmFyZgfJjk7vwEBD6mIHc",
+                "signatures": {}
+            },
+            "count": 1,
+            "etag": "1",
+            "version": "6"
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    store.import_secrets().await.unwrap();
+
+    Mock::given(method("GET"))
+        .and(path("/_matrix/client/r0/room_keys/keys/!DovneieKSTkdHKpIXy:morpheus.localhost"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "sessions": {
+                "64H7XKokIx0ASkYDHZKlT5zd/Zccz/cQspPNdvnNULA": {
+                    "first_message_index": 0,
+                    "forwarded_count": 0,
+                    "is_verified": true,
+                    "session_data": {
+                        "ciphertext": "UaxxJxPZN5jqhSoFw59s83KlK0k77KJRxowPUC3P2/bS+TIBXw2y\
+                                       qMHCpv01s+8mE95XU6RZO2/elktHiW1/mzx/2vqb4pFuARtj3rxF\
+                                       zCBO7cpVhmrSU6uKW9KH2HirZMZzyXLqr3v6xoOTe5roIF5scPR0\
+                                       cWxPcS/4+BZz4xGhGCVuTPFjWDszY1/iz4JAVosAF7XZLGh7aVhF\
+                                       +ciDDoaaqwkD2nnMUlGEl2uchWuZv7v2q9Pmmd+qzRCdLx5c+GK3\
+                                       OyT8qCSxubOvuSruwTliBl++drlMnh4vRO8UKPTuMNvEN89YKiSC\
+                                       MVzXVDCS6tnjligxUENYkyUqYCKdASLDFs1cCXJDED16oQGonkU8\
+                                       Lf7ccGg6XboJCmJfobrmDc3s/9IymtKaxquA2Vw2pW8Otoy4x9PK\
+                                       17xHLo2nT2nf3Amp6xaCYx+tblGkLIqw8H3YZZVPVuKAVpPdAhgC\
+                                       +aJA9n8qow3BLcCJSdGRMSV9MquidGgbEA/DCd6Eq3jokshcXR4v\
+                                       Ma5nT4CokeZ6OdAtMWgZSaGltyNNoc+b6hk6AqcYaoMslG58DC32\
+                                       EVSiFFwtSpKx7I6+J+hlV813Vx6IK0DoqTcYyVm4kFMvKnIoyAKJ\
+                                       yoCSik4NQpL7DcokDhs56UJ1LcDgQTnGLqhH2Q",
+                        "ephemeral": "+KmnQw7ECkCD+s2Hc0hhntT8n9zTLJvFHgX7g3XKBjs",
+                        "mac": "xdzih3IkRv4"
+                    }
+                }
+            }
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let room_key_stream = client.encryption().backups().room_keys_for_room_stream(room_id);
+
+    let task = spawn(async move {
+        pin_mut!(room_key_stream);
+
+        while let Some(room_keys) = room_key_stream.next().await {
+            let Ok(room_keys) = room_keys else {
+                panic!("Failed to get an update about room keys being imported from the backup")
+            };
+
+            let (_, room_key_set) = room_keys.first_key_value().unwrap();
+            assert!(room_key_set.contains("64H7XKokIx0ASkYDHZKlT5zd/Zccz/cQspPNdvnNULA"));
+
+            break;
+        }
+    });
+
+    client
+        .encryption()
+        .backups()
+        .download_room_keys_for_room(&room_id)
+        .await
+        .expect("We should be able to download room keys for a certain room");
+
+    task.await.unwrap();
+
+    let room_key_stream = client.encryption().backups().room_keys_for_room_stream(room_id);
+
+    let task = spawn(async move {
+        pin_mut!(room_key_stream);
+
+        while let Some(room_keys) = room_key_stream.next().await {
+            let Ok(room_keys) = room_keys else {
+                panic!("Failed to get an update about room keys being imported from the backup")
+            };
+
+            let (_, room_key_set) = room_keys.first_key_value().unwrap();
+            assert!(room_key_set.contains("D5SdVi/nyxdkl97K6EZrpb5N6GcF3YzmvE9EegkVDns"));
+
+            break;
+        }
+    });
+
+    Mock::given(method("GET"))
+        .and(path("/_matrix/client/r0/room_keys/keys/!DovneieKSTkdHKpIXy:morpheus.localhost/D5SdVi%2Fnyxdkl97K6EZrpb5N6GcF3YzmvE9EegkVDns"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "first_message_index": 0,
+            "forwarded_count": 0,
+            "is_verified": true,
+            "session_data": {
+                "ciphertext": "JSPY1qaa8QwuurezB8l2QsK+wcwXJ6Rm3gA5AHQYrJCK1wnbIexJMx6vKFklpobTFiV6\
+                               9fh7VtcpYlZoiWTjiqwPU8ceUsmI7+Q1ZXjwS6Z6PbKszvWbUdaTKY7gcJKQWz93NAmV\
+                               PkAh/xjRqkKeJBlKZWzWctZ2k6QkwH5c9gHbPgQBe1usQefln7RHsEjM0+6nSV6+6qBm\
+                               20uK+xfpElMBZ8d3IZvbapoT11UktzUikSQ0E6DXMj+cAfX9CftXbA5BsStXvThNldad\
+                               49ZByrntoJ0yMLMk6G0uom4NaPTt75u8tX+AEHrgxFV8C7hICUPFsOFPU2ykb5qvK0JU\
+                               JdJ0qkZ2GJybhCZiQdLOC5Ciwm12k4eYBKktJAGYlPhh9oWTlITGoaDpHorDFwZpSZqY\
+                               rXaHyuCpAtd8Gc8L5HuZXDt9uN29ZTCGr3R8zpMqUG4DbpV1aV2QBrLfIZGt9OURU502\
+                               OSonHf+USrfR3ap+Yunde8gYnkyMuydRZ/0dvWqBKST0CtRQrQ+uWbPP1ATcjdhs3XnI\
+                               +N5FRIOrcrJtxbqDk1Lz+sRbFBnMZzuYTJZpPazu94AZx/t1CZyk9NZ5qbnE3wNxp2mj\
+                               YvMjwbEEQ98zvwdF7PzeDoMa/9M+tXzEOuM/A+LjMpczxKFAqQ",
+                "ephemeral": "Kv+mvdiIk4gvrocQWM5kdr5FzyFLgwJ4o6WL/r1EC0s",
+                "mac": "5MTP4/BAzXc"
+            }
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    client
+        .encryption()
+        .backups()
+        .download_room_key(&room_id, "D5SdVi/nyxdkl97K6EZrpb5N6GcF3YzmvE9EegkVDns")
+        .await
+        .expect("We should be able to download a single room key");
+
+    task.await.unwrap();
+
+    server.verify().await;
 }
