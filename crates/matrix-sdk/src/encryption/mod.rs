@@ -1240,7 +1240,7 @@ mod tests {
         let reaction = ReactionEventContent::new(Annotation::new(event_id.into(), "🐈".to_owned()));
         room.send(reaction).await.expect("Sending the reaction should not fail");
 
-        room.send_raw(json!({}), "m.reaction").await.expect("Sending the reaction should not fail");
+        room.send_raw("m.reaction", json!({})).await.expect("Sending the reaction should not fail");
     }
 
     #[async_test]
