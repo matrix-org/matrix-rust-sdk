@@ -642,7 +642,7 @@ impl Timeline {
     /// Get the ID of the timeline event with the latest read receipt for the
     /// given user.
     ///
-    /// Contrary to [`Self::latest_user_read_receipt()`], this allows to know
+    /// In contrary to [`Self::latest_user_read_receipt()`], this allows to know
     /// the position of the read receipt in the timeline even if the event it
     /// applies to is not visible in the timeline, unless the event is unknown
     /// by this timeline.
