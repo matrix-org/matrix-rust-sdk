@@ -210,14 +210,14 @@ impl KeyQueryManager {
     /// concurrent calls to this method get deduplicated.
     async fn ensure_sync_tracked_users(&self, cache: &StoreCache) -> Result<()> {
         // Check if the users are loaded, and in that case do nothing.
-        let loaded = cache.tracked_user_loading_lock.read().await;
+        let loaded = cache.loaded_tracked_users.read().await;
         if *loaded {
             return Ok(());
         }
 
         // Otherwise, we may load the users.
         drop(loaded);
-        let mut loaded = cache.tracked_user_loading_lock.write().await;
+        let mut loaded = cache.loaded_tracked_users.write().await;
 
         // Check again if the users have been loaded, in case another call to this
         // method loaded the tracked users between the time we tried to
@@ -402,7 +402,7 @@ pub(crate) struct StoreCache {
     key_query_manager: KeyQueryManager,
 
     tracked_users: StdRwLock<BTreeSet<OwnedUserId>>,
-    tracked_user_loading_lock: RwLock<bool>,
+    loaded_tracked_users: RwLock<bool>,
     account: Mutex<Option<Account>>,
 }
 
@@ -960,7 +960,7 @@ impl Store {
                     store,
                     key_query_manager: Default::default(),
                     tracked_users: Default::default(),
-                    tracked_user_loading_lock: Default::default(),
+                    loaded_tracked_users: Default::default(),
                     account: Default::default(),
                 })),
             }),
