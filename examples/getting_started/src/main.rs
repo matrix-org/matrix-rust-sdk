@@ -161,9 +161,7 @@ async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
         println!("sending");
 
         // send our message to the room we found the "!party" command in
-        // the last parameter is an optional transaction id which we don't
-        // care about.
-        room.send(content, None).await.unwrap();
+        room.send(content).await.unwrap();
 
         println!("message sent");
     }

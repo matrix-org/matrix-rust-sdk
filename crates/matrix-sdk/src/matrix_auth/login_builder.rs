@@ -14,7 +14,9 @@
 // limitations under the License.
 #![cfg_attr(not(target_arch = "wasm32"), deny(clippy::future_not_send))]
 
-use std::future::{Future, IntoFuture};
+#[cfg(feature = "sso-login")]
+use std::future::Future;
+use std::future::IntoFuture;
 
 use matrix_sdk_common::boxed_into_future;
 use ruma::{

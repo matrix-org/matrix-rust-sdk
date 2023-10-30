@@ -141,7 +141,7 @@ async fn test_notification() -> Result<()> {
     bob.get_room(alice_room.room_id()).unwrap().join().await?;
 
     // Now Alice sends a message to Bob.
-    alice_room.send(RoomMessageEventContent::text_plain("Hello world!"), None).await?;
+    alice_room.send(RoomMessageEventContent::text_plain("Hello world!")).await?;
 
     // In this sync, bob receives the message from Alice.
     let bob_response = bob.sync_once(SyncSettings::default().token(sync_token)).await?;

@@ -514,7 +514,7 @@ impl OtherUserIdentity {
         };
 
         let response = room
-            .send(RoomMessageEventContent::new(MessageType::VerificationRequest(content)), None)
+            .send(RoomMessageEventContent::new(MessageType::VerificationRequest(content)))
             .await?;
 
         let verification =

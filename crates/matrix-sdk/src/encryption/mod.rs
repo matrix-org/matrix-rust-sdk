@@ -169,7 +169,7 @@ impl Client {
     /// let mut reader = std::io::Cursor::new(b"Hello, world!");
     /// let encrypted_file = client.prepare_encrypted_file(&mime::TEXT_PLAIN, &mut reader).await?;
     ///
-    /// room.send(CustomEventContent { encrypted_file }, None).await?;
+    /// room.send(CustomEventContent { encrypted_file }).await?;
     /// # anyhow::Ok(()) };
     /// ```
     pub fn prepare_encrypted_file<'a, R: Read + ?Sized + 'a>(
@@ -339,7 +339,8 @@ impl Client {
 
         self.get_room(room_id)
             .expect("Can't send a message to a room that isn't known to the store")
-            .send(content, Some(txn_id))
+            .send(content)
+            .with_transaction_id(txn_id)
             .await
     }
 
@@ -1237,11 +1238,9 @@ mod tests {
 
         let event_id = event_id!("$1:example.org");
         let reaction = ReactionEventContent::new(Annotation::new(event_id.into(), "🐈".to_owned()));
-        room.send(reaction, None).await.expect("Sending the reaction should not fail");
+        room.send(reaction).await.expect("Sending the reaction should not fail");
 
-        room.send_raw(json!({}), "m.reaction", None)
-            .await
-            .expect("Sending the reaction should not fail");
+        room.send_raw(json!({}), "m.reaction").await.expect("Sending the reaction should not fail");
     }
 
     #[async_test]
