@@ -115,14 +115,18 @@ pub(crate) struct StoreCache {
 }
 
 impl StoreCache {
-    /// Returns a reference to the `Account.`
+    /// Returns a reference to the `Account`.
     ///
-    /// Either load the account from the cache, or the store, if missing from
+    /// Either load the account from the cache, or the store if missing from
     /// the cache.
     ///
     /// Note there should always be an account stored at least in the store, so
     /// this doesn't return an `Option`.
-    pub async fn account(&self) -> Result<impl Deref<Target = Account> + '_> {
+    ///
+    /// Note: this method should remain private, otherwise it's possible to ask
+    /// for a `StoreTransaction`, then get the `StoreTransaction::cache()`
+    /// and thus have two different live copies of the `Account` at once.
+    async fn account(&self) -> Result<impl Deref<Target = Account> + '_> {
         let mut guard = self.account.lock().await;
         if guard.is_some() {
             Ok(MutexGuard::map(guard, |acc| acc.as_mut().unwrap()))
@@ -279,9 +283,27 @@ impl StoreCache {
     }
 }
 
+/// Read-only store cache guard.
+///
+/// This type should hold all the methods that are available when the cache is
+/// borrowed in read-only mode, while all the write operations on those fields
+/// should happen as part of a `StoreTransaction`.
 pub(crate) struct StoreCacheGuard {
     cache: OwnedRwLockReadGuard<StoreCache>,
     // TODO: (bnjbvr, #2624) add cross-process lock guard here.
+}
+
+impl StoreCacheGuard {
+    /// Returns a reference to the `Account`.
+    ///
+    /// Either load the account from the cache, or the store if missing from
+    /// the cache.
+    ///
+    /// Note there should always be an account stored at least in the store, so
+    /// this doesn't return an `Option`.
+    pub async fn account(&self) -> Result<impl Deref<Target = Account> + '_> {
+        self.cache.account().await
+    }
 }
 
 impl Deref for StoreCacheGuard {
@@ -323,6 +345,11 @@ impl StoreTransaction {
     }
 
     /// Gets a `Account` for update.
+    ///
+    /// Note: since it's guaranteed that one can't have both a
+    /// `StoreTransaction` and a `StoreCacheGuard` at runtime (since the
+    /// underlying `StoreCache` is guarded by a `RwLock` mutex), this ensures
+    /// that we can't have two copies of an `Account` alive at the same time.
     pub async fn account(&mut self) -> Result<&mut Account> {
         if self.changes.account.is_none() {
             // Make sure the cache loaded the account.
