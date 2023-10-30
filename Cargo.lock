@@ -2861,35 +2861,17 @@ dependencies = [
 [[package]]
 name = "javascriptcore"
 version = "0.0.5"
-source = "git+https://github.com/Hywan/javascriptcore.rs?branch=feat-value-new-construction-callback#b542dacfca7186bb4cf0b3b59d6119b7309172e6"
+source = "git+https://github.com/Hywan/javascriptcore.rs?branch=feat-typed-array#2053482af00cb9408b54dd0c224744625d820278"
 dependencies = [
- "javascriptcore-macros 0.0.1 (git+https://github.com/Hywan/javascriptcore.rs?branch=feat-value-new-construction-callback)",
- "javascriptcore-sys 0.0.5 (git+https://github.com/Hywan/javascriptcore.rs?branch=feat-value-new-construction-callback)",
+ "javascriptcore-macros",
+ "javascriptcore-sys",
  "thiserror",
 ]
 
 [[package]]
-name = "javascriptcore"
-version = "0.0.5"
-source = "git+https://github.com/endoli/javascriptcore.rs?branch=main#612cd3a5ff980cea4c8e339effa751dbba613fca"
-dependencies = [
- "javascriptcore-macros 0.0.1 (git+https://github.com/endoli/javascriptcore.rs?branch=main)",
- "javascriptcore-sys 0.0.5 (git+https://github.com/endoli/javascriptcore.rs?branch=main)",
-]
-
-[[package]]
 name = "javascriptcore-macros"
 version = "0.0.1"
-source = "git+https://github.com/Hywan/javascriptcore.rs?branch=feat-value-new-construction-callback#b542dacfca7186bb4cf0b3b59d6119b7309172e6"
-dependencies = [
- "quote",
- "syn 2.0.38",
-]
-
-[[package]]
-name = "javascriptcore-macros"
-version = "0.0.1"
-source = "git+https://github.com/endoli/javascriptcore.rs?branch=main#612cd3a5ff980cea4c8e339effa751dbba613fca"
+source = "git+https://github.com/Hywan/javascriptcore.rs?branch=feat-typed-array#2053482af00cb9408b54dd0c224744625d820278"
 dependencies = [
  "quote",
  "syn 2.0.38",
@@ -2898,15 +2880,7 @@ dependencies = [
 [[package]]
 name = "javascriptcore-sys"
 version = "0.0.5"
-source = "git+https://github.com/Hywan/javascriptcore.rs?branch=feat-value-new-construction-callback#b542dacfca7186bb4cf0b3b59d6119b7309172e6"
-dependencies = [
- "pkg-config",
-]
-
-[[package]]
-name = "javascriptcore-sys"
-version = "0.0.5"
-source = "git+https://github.com/endoli/javascriptcore.rs?branch=main#612cd3a5ff980cea4c8e339effa751dbba613fca"
+source = "git+https://github.com/Hywan/javascriptcore.rs?branch=feat-typed-array#2053482af00cb9408b54dd0c224744625d820278"
 dependencies = [
  "pkg-config",
 ]
@@ -3521,7 +3495,7 @@ name = "matrix-sdk-extensions"
 version = "0.0.1"
 dependencies = [
  "anyhow",
- "javascriptcore 0.0.5 (git+https://github.com/Hywan/javascriptcore.rs?branch=feat-value-new-construction-callback)",
+ "javascriptcore",
  "wasmtime",
 ]
 
@@ -3537,7 +3511,6 @@ dependencies = [
  "eyeball-im",
  "futures-core",
  "futures-util",
- "javascriptcore 0.0.5 (git+https://github.com/endoli/javascriptcore.rs?branch=main)",
  "log-panics",
  "matrix-sdk",
  "matrix-sdk-ui",
