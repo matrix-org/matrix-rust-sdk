@@ -1,12 +1,8 @@
-use std::{
-    fs,
-    future::{Future, IntoFuture},
-    path::Path,
-    pin::Pin,
-};
+use std::{fs, future::IntoFuture, path::Path};
 
 use eyeball::{SharedObservable, Subscriber};
 use matrix_sdk::{attachment::AttachmentConfig, TransmissionProgress};
+use matrix_sdk_base::boxed_into_future;
 use mime::Mime;
 
 use super::{Error, Timeline};
@@ -39,10 +35,7 @@ impl<'a> SendAttachment<'a> {
 
 impl<'a> IntoFuture for SendAttachment<'a> {
     type Output = Result<(), Error>;
-    #[cfg(target_arch = "wasm32")]
-    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + 'a>>;
-    #[cfg(not(target_arch = "wasm32"))]
-    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send + 'a>>;
+    boxed_into_future!(extra_bounds: 'a);
 
     fn into_future(self) -> Self::IntoFuture {
         let Self { timeline, url, mime_type, config, send_progress } = self;

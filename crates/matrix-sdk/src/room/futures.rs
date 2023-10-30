@@ -16,14 +16,12 @@
 
 #![deny(unreachable_pub)]
 
+use std::future::IntoFuture;
 #[cfg(feature = "image-proc")]
 use std::io::Cursor;
-use std::{
-    future::{Future, IntoFuture},
-    pin::Pin,
-};
 
 use eyeball::SharedObservable;
+use matrix_sdk_common::boxed_into_future;
 use mime::Mime;
 use ruma::api::client::message::send_message_event;
 use tracing::{Instrument, Span};
@@ -81,10 +79,7 @@ impl<'a> SendAttachment<'a> {
 
 impl<'a> IntoFuture for SendAttachment<'a> {
     type Output = Result<send_message_event::v3::Response>;
-    #[cfg(target_arch = "wasm32")]
-    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + 'a>>;
-    #[cfg(not(target_arch = "wasm32"))]
-    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send + 'a>>;
+    boxed_into_future!(extra_bounds: 'a);
 
     fn into_future(self) -> Self::IntoFuture {
         let Self { room, body, content_type, data, config, tracing_span, send_progress } = self;
