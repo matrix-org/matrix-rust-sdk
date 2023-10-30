@@ -184,6 +184,10 @@ impl SessionManager {
         let user_devices = if user_devices.is_empty() {
             match self
                 .store
+                .cache()
+                .await?
+                .keys_query_manager()
+                .await?
                 .wait_if_user_key_query_pending(Self::KEYS_QUERY_WAIT_TIME, user_id)
                 .await
             {
@@ -601,7 +605,13 @@ mod tests {
         let bob_device = ReadOnlyDevice::from_account(&bob);
         {
             let cache = manager.store.cache().await.unwrap();
-            cache.update_tracked_users(&manager.store, iter::once(bob.user_id())).await.unwrap();
+            cache
+                .keys_query_manager()
+                .await
+                .unwrap()
+                .update_tracked_users(iter::once(bob.user_id()))
+                .await
+                .unwrap();
         }
 
         // ... and start off an attempt to get the missing sessions. This should block

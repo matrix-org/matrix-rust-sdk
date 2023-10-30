@@ -333,9 +333,9 @@ impl GossipMachine {
                 user_id = event.sender.as_str(),
                 device_id = event.content.requesting_device_id.as_str(),
                 ?secret_name,
-                "Received a secret request form an unknown device",
+                "Received a secret request from an unknown device",
             );
-            cache.mark_user_as_changed(&self.inner.store, &event.sender).await?;
+            cache.keys_query_manager().await?.mark_user_as_changed(&event.sender).await?;
 
             None
         })
@@ -395,7 +395,7 @@ impl GossipMachine {
 
         let Some(device) = device else {
             warn!("Received a key request from an unknown device");
-            cache.mark_user_as_changed(&self.inner.store, &event.sender).await?;
+            cache.keys_query_manager().await?.mark_user_as_changed(&event.sender).await?;
 
             return Ok(None);
         };
@@ -857,7 +857,7 @@ impl GossipMachine {
         } else {
             warn!("Received a m.secret.send event from an unknown device");
 
-            cache.mark_user_as_changed(&self.inner.store, &secret.event.sender).await?;
+            cache.keys_query_manager().await?.mark_user_as_changed(&secret.event.sender).await?;
         }
 
         Ok(())
