@@ -1464,7 +1464,7 @@ impl Room {
     /// [`SyncMessageLikeEvent`]: ruma::events::SyncMessageLikeEvent
     /// [`StateUnsigned`]: ruma::events::StateUnsigned
     /// [`transaction_id`]: ruma::events::StateUnsigned#structfield.transaction_id
-    #[instrument(skip_all, fields(event_type, room_id = %self.room_id(), transaction_id, encrypted))]
+    #[instrument(skip_all, fields(event_type, room_id = ?self.room_id(), transaction_id, encrypted))]
     pub async fn send_raw(
         &self,
         content: serde_json::Value,
@@ -1478,10 +1478,7 @@ impl Room {
 
         #[cfg(not(feature = "e2e-encryption"))]
         let content = {
-            debug!(
-                room_id = ?self.room_id(),
-                "Sending plaintext event to room because we don't have encryption support.",
-            );
+            debug!("Sending plaintext event to room because we don't have encryption support.");
             Raw::new(&content)?.cast()
         };
 
@@ -1491,10 +1488,7 @@ impl Room {
             // Reactions are currently famously not encrypted, skip encrypting
             // them until they are.
             if event_type == "m.reaction" {
-                debug!(
-                    room_id = ?self.room_id(),
-                    "Sending plaintext event because the event type is {event_type}",
-                );
+                debug!("Sending plaintext event because of the event type.");
                 (Raw::new(&content)?.cast(), event_type)
             } else {
                 debug!(
@@ -1524,10 +1518,7 @@ impl Room {
                 (encrypted_content.cast(), "m.room.encrypted")
             }
         } else {
-            debug!(
-                room_id = ?self.room_id(),
-                "Sending plaintext event because the room is NOT encrypted.",
-            );
+            debug!("Sending plaintext event because the room is NOT encrypted.",);
 
             (Raw::new(&content)?.cast(), event_type)
         };
