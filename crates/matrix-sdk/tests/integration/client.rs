@@ -583,3 +583,141 @@ async fn cross_signing_status() {
 
     server.verify().await;
 }
+
+#[cfg(feature = "e2e-encryption")]
+#[async_test]
+async fn encrypt_room_event() {
+    use std::sync::Arc;
+
+    use ruma::events::room::encrypted::RoomEncryptedEventContent;
+
+    let (client, server) = logged_in_client().await;
+    let user_id = client.user_id().unwrap();
+
+    Mock::given(method("POST"))
+        .and(path("/_matrix/client/r0/keys/query"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "device_keys": {
+                user_id: {}
+            }
+        })))
+        .mount(&server)
+        .await;
+
+    mock_sync(&server, &*test_json::SYNC, None).await;
+    client
+        .sync_once(SyncSettings::default())
+        .await
+        .expect("We should be able to performa an initial sync");
+
+    let room =
+        client.get_room(&DEFAULT_TEST_ROOM_ID).expect("We should know about our default room");
+
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/state/m.room.encryption/"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "algorithm": "m.megolm.v1.aes-sha2",
+            "rotation_period_ms": 604800000,
+            "rotation_period_msgs": 100
+        })))
+        .mount(&server)
+        .await;
+
+    assert!(
+        room.is_encrypted().await.expect("We should be able to check if the room is encrypted"),
+        "The room should be encrypted"
+    );
+
+    Mock::given(method("GET"))
+        .and(path_regex("/_matrix/client/r0/rooms/!SVkFJHzfwvuaIEawgC:localhost/members"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "chunk": []})))
+        .mount(&server)
+        .await;
+
+    let event_content = Arc::new(std::sync::Mutex::new(None));
+
+    let event_content_matcher = {
+        let event_content = event_content.to_owned();
+        move |request: &wiremock::Request| {
+            let mut path_segments =
+                request.url.path_segments().expect("The URL should be able to be a base");
+
+            let event_type = path_segments
+                .nth_back(1)
+                .expect("The path should have a event type as the last segment")
+                .to_owned();
+
+            assert_eq!(
+                event_type, "m.room.encrypted",
+                "The event type should be the `m.room.encrypted` event type"
+            );
+
+            let content: RoomEncryptedEventContent = request
+                .body_json()
+                .expect("The uploaded content should be a valid `m.room.encrypted` event content");
+
+            *event_content.lock().unwrap() = Some(content);
+
+            true
+        }
+    };
+
+    Mock::given(method("PUT"))
+        .and(path(
+            "/_matrix/client/r0/rooms/!SVkFJHzfwvuaIEawgC:localhost/send/m.room.encrypted/foobar",
+        ))
+        .and(event_content_matcher)
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "event_id": "$foobar"
+        })))
+        .mount(&server)
+        .await;
+
+    room.send_raw("m.room.message", json!({"body": "Hello", "msgtype": "m.text"}))
+        .with_transaction_id("foobar".into())
+        .await
+        .expect("We should be able to send a message to the encrypted room");
+
+    let content = event_content
+        .lock()
+        .unwrap()
+        .take()
+        .expect("We should have intercepted an `m.room.encrypted` event content");
+
+    let event = ruma::serde::Raw::new(&json!({
+        "room_id": room.room_id(),
+        "event_id": "$foobar",
+        "origin_server_ts": 1600000u64,
+        "sender": user_id,
+        "content": content,
+    }))
+    .expect("We should be able to construct a full event from the encrypted event content")
+    .cast();
+
+    let timeline_event = room
+        .decrypt_event(&event)
+        .await
+        .expect("We should be able to decrypt an event that we ourselves have encrypted");
+
+    let event = timeline_event
+        .event
+        .deserialize()
+        .expect("We should be able to deserialize the decrypted event");
+
+    assert_let!(
+        ruma::events::AnyTimelineEvent::MessageLike(
+            ruma::events::AnyMessageLikeEvent::RoomMessage(message_event)
+        ) = event
+    );
+
+    let message_event =
+        message_event.as_original().expect("The decrypted event should not be a redacted event");
+
+    assert_eq!(
+        message_event.content.body(),
+        "Hello",
+        "The now decrypted message should match to our plaintext payload"
+    );
+}
