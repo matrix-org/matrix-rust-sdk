@@ -416,8 +416,8 @@ impl Device {
     #[instrument(
         skip_all,
         fields(
-            recipient = %self.user_id(),
-            recipient_device = %self.device_id(),
+            recipient = ?self.user_id(),
+            recipient_device = ?self.device_id(),
             recipient_key = ?self.curve25519_key(),
             event_type,
             session,

@@ -967,19 +967,19 @@ fn compute_limited(
 
         let remote_events = &remote_room.timeline;
         if remote_events.is_empty() {
-            trace!(%room_id, "no timeline updates in the response => not limited");
+            trace!(?room_id, "no timeline updates in the response => not limited");
             continue;
         }
 
         let Some(local_room) = local_rooms.get(room_id) else {
-            trace!(%room_id, "room isn't known locally => not limited");
+            trace!(?room_id, "room isn't known locally => not limited");
             continue;
         };
 
         let local_events = local_room.timeline_queue();
 
         if local_events.is_empty() {
-            trace!(%room_id, "local timeline had no events => not limited");
+            trace!(?room_id, "local timeline had no events => not limited");
             continue;
         }
 
@@ -1009,7 +1009,7 @@ fn compute_limited(
         remote_room.limited = !overlap;
 
         trace!(
-            %room_id,
+            ?room_id,
             num_events_response = remote_events.len(),
             num_local_events,
             num_local_events_with_ids = local_events_with_ids.len(),
