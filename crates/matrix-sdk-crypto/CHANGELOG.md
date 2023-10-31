@@ -79,3 +79,5 @@
 
 - The parameter order of `OlmMachine::encrypt_room_event_raw` and
   `OutboundGroupSession::encrypt` has changed, `content` is now last
+  - The parameter type of `content` has also changed, from `serde_json::Value`
+    to `&Raw<AnyMessageLikeEventContent>`

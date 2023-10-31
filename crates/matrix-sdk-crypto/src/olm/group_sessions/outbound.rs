@@ -24,13 +24,16 @@ use std::{
 };
 
 use ruma::{
-    events::room::{encryption::RoomEncryptionEventContent, history_visibility::HistoryVisibility},
+    events::{
+        room::{encryption::RoomEncryptionEventContent, history_visibility::HistoryVisibility},
+        AnyMessageLikeEventContent,
+    },
     serde::Raw,
     DeviceId, OwnedDeviceId, OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId,
     SecondsSinceUnixEpoch, TransactionId, UserId,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::json;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info};
 use vodozemac::{megolm::SessionConfig, Curve25519PublicKey};
@@ -360,7 +363,7 @@ impl OutboundGroupSession {
     /// event will become `m.room.encrypted`.
     ///
     /// * `content` - The plaintext content of the message that should be
-    /// encrypted in raw json [`Value`] form.
+    /// encrypted in raw JSON form.
     ///
     /// # Panics
     ///
@@ -368,7 +371,7 @@ impl OutboundGroupSession {
     pub async fn encrypt(
         &self,
         event_type: &str,
-        content: Value,
+        content: &Raw<AnyMessageLikeEventContent>,
     ) -> Raw<RoomEncryptedEventContent> {
         let json_content = json!({
             "content": content,
@@ -377,7 +380,7 @@ impl OutboundGroupSession {
         });
 
         let plaintext = json_content.to_string();
-        let relates_to = content.get("m.relates_to").cloned();
+        let relates_to = json_content["content"].get("m.relates_to").cloned();
 
         let ciphertext = self.encrypt_helper(plaintext).await;
         let scheme: RoomEventEncryptionScheme = match self.settings.algorithm {
@@ -762,7 +765,7 @@ mod tests {
     #[async_test]
     #[cfg(any(target_os = "linux", target_os = "macos", target_arch = "wasm32"))]
     async fn test_expiration() -> Result<(), MegolmError> {
-        use ruma::SecondsSinceUnixEpoch;
+        use ruma::{serde::Raw, SecondsSinceUnixEpoch};
 
         let settings = EncryptionSettings { rotation_period_msgs: 1, ..Default::default() };
 
@@ -778,7 +781,7 @@ mod tests {
         let _ = session
             .encrypt(
                 "m.room.message",
-                serde_json::to_value(RoomMessageEventContent::text_plain("Test message"))?,
+                &Raw::new(&RoomMessageEventContent::text_plain("Test message"))?.cast(),
             )
             .await;
         assert!(session.expired());
@@ -811,7 +814,7 @@ mod tests {
         let _ = session
             .encrypt(
                 "m.room.message",
-                serde_json::to_value(RoomMessageEventContent::text_plain("Test message"))?,
+                &Raw::new(&RoomMessageEventContent::text_plain("Test message"))?.cast(),
             )
             .await;
         assert!(session.expired());

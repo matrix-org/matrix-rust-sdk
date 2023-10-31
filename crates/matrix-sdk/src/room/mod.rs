@@ -2350,7 +2350,7 @@ mod tests {
     #[cfg(all(feature = "sqlite", feature = "e2e-encryption"))]
     #[async_test]
     async fn test_cache_invalidation_while_encrypt() {
-        use matrix_sdk_test::DEFAULT_TEST_ROOM_ID;
+        use matrix_sdk_test::{message_like_event_content, DEFAULT_TEST_ROOM_ID};
 
         let sqlite_path = std::env::temp_dir().join("cache_invalidation_while_encrypt.db");
         let session = MatrixSession {
@@ -2432,7 +2432,7 @@ mod tests {
         // Now pretend we're encrypting an event; the olm machine shouldn't rely on
         // caching the outgoing session before.
         let _encrypted_content = olm
-            .encrypt_room_event_raw(room.room_id(), "test-event", serde_json::json!({}))
+            .encrypt_room_event_raw(room.room_id(), "test-event", &message_like_event_content!({}))
             .await
             .unwrap();
     }
