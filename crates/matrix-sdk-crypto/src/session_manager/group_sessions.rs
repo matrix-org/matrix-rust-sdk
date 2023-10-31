@@ -121,7 +121,7 @@ impl GroupSessionCache {
 /// (`devices`) or not the session,  including withheld reason
 /// `withheld_devices`.
 #[derive(Debug)]
-pub struct CollectRecipientsResult {
+pub(crate) struct CollectRecipientsResult {
     /// If true the outbound group session should be rotated
     pub should_rotate: bool,
     /// The map of user|device that should receive the session
@@ -132,7 +132,7 @@ pub struct CollectRecipientsResult {
 }
 
 #[derive(Debug, Clone)]
-pub struct GroupSessionManager {
+pub(crate) struct GroupSessionManager {
     /// Store for the encryption keys.
     /// Persists all the encryption keys so a client can resume the session
     /// without the need to create new keys.
@@ -144,7 +144,7 @@ pub struct GroupSessionManager {
 impl GroupSessionManager {
     const MAX_TO_DEVICE_MESSAGES: usize = 250;
 
-    pub(crate) fn new(store: Store) -> Self {
+    pub fn new(store: Store) -> Self {
         Self { store: store.clone(), sessions: GroupSessionCache::new(store) }
     }
 
