@@ -755,7 +755,7 @@ impl Oidc {
             }
         }
 
-        self.client.encryption().enable_backups_and_recovery().await?;
+        self.client.encryption().enable_backups_and_recovery().await;
 
         Ok(())
     }
@@ -954,7 +954,7 @@ impl Oidc {
             }
         }
 
-        self.client.encryption().enable_backups_and_recovery().await?;
+        self.client.encryption().enable_backups_and_recovery().await;
 
         Ok(())
     }

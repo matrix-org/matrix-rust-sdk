@@ -1056,7 +1056,7 @@ impl Encryption {
     /// );
     /// # anyhow::Ok(()) };
     /// ```
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(all(not(target_arch = "wasm32")))]
     pub async fn import_room_keys(
         &self,
         path: PathBuf,
@@ -1211,14 +1211,29 @@ impl Encryption {
     }
 
     /// Enables automated backup and recovery.
-    pub async fn enable_backups_and_recovery(&self) -> Result<()> {
-        if let Err(e) = self.backups().setup_and_resume().await {
-            error!("Couldn't setup and resume backups {e:?}");
+    pub async fn enable_backups_and_recovery(&self) {
+        let mut tasks = self.client.inner.tasks.lock().unwrap();
+
+        let this = self.clone();
+        tasks.auto_enable_backup_and_recovery = Some(tokio::spawn(async move {
+            if let Err(e) = this.backups().setup_and_resume().await {
+                error!("Couldn't setup and resume backups {e:?}");
+            }
+            if let Err(e) = this.recovery().setup().await {
+                warn!("Couldn't auto enable recovery {e:?}");
+            }
+        }));
+    }
+
+    /// Waits for the backup and recovery enabling to finish, if requested with
+    /// [`Self::enable_backups_and_recovery`].
+    pub async fn wait_for_backups_and_recovery(&self) {
+        let task = self.client.inner.tasks.lock().unwrap().auto_enable_backup_and_recovery.take();
+        if let Some(task) = task {
+            if let Err(err) = task.await {
+                warn!("error when initializing backups and recovery: {err}");
+            }
         }
-        if let Err(e) = self.recovery().setup().await {
-            warn!("Couldn't auto enable recovery {e:?}");
-        }
-        Ok(())
     }
 }
 
