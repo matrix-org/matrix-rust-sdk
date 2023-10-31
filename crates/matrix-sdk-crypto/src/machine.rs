@@ -27,7 +27,7 @@ use ruma::{
     api::client::{
         dehydrated_device::DehydratedDeviceData,
         keys::{
-            claim_keys::v3::{Request as KeysClaimRequest, Response as KeysClaimResponse},
+            claim_keys::v3::Request as KeysClaimRequest,
             get_keys::v3::Response as KeysQueryResponse,
             upload_keys::v3::{Request as UploadKeysRequest, Response as UploadKeysResponse},
             upload_signatures::v3::Request as UploadSignaturesRequest,
@@ -449,7 +449,7 @@ impl OlmMachine {
                 self.receive_keys_query_response(request_id, response).await?;
             }
             IncomingResponse::KeysClaim(response) => {
-                self.receive_keys_claim_response(response).await?;
+                self.inner.session_manager.receive_keys_claim_response(response).await?;
             }
             IncomingResponse::ToDevice(_) => {
                 self.mark_to_device_request_as_sent(request_id).await?;
@@ -613,16 +613,6 @@ impl OlmMachine {
         users: impl Iterator<Item = &UserId>,
     ) -> StoreResult<Option<(OwnedTransactionId, KeysClaimRequest)>> {
         self.inner.session_manager.get_missing_sessions(users).await
-    }
-
-    /// Receive a successful key claim response and create new Olm sessions with
-    /// the claimed keys.
-    ///
-    /// # Arguments
-    ///
-    /// * `response` - The response containing the claimed one-time keys.
-    async fn receive_keys_claim_response(&self, response: &KeysClaimResponse) -> OlmResult<()> {
-        self.inner.session_manager.receive_keys_claim_response(response).await
     }
 
     /// Receive a successful keys query response.
