@@ -641,11 +641,11 @@ async fn encrypt_room_event() {
     let event_content_matcher = {
         let event_content = event_content.to_owned();
         move |request: &wiremock::Request| {
-            let path_segments =
+            let mut path_segments =
                 request.url.path_segments().expect("The URL should be able to be a base");
 
             let event_type = path_segments
-                .last()
+                .nth_back(1)
                 .expect("The path should have a event type as the last segment")
                 .to_owned();
 
@@ -706,11 +706,10 @@ async fn encrypt_room_event() {
         .deserialize()
         .expect("We should be able to deserialize the decrypted event");
 
-    let message_event = assert_matches::assert_matches!(
-        event,
-        ruma::events::AnyTimelineEvent::MessageLike(ruma::events::AnyMessageLikeEvent::RoomMessage(
-            message_event
-        )) => message_event
+    assert_let!(
+        ruma::events::AnyTimelineEvent::MessageLike(
+            ruma::events::AnyMessageLikeEvent::RoomMessage(message_event)
+        ) = event
     );
 
     let message_event =
