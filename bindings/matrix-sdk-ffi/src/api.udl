@@ -16,9 +16,9 @@ interface ClientError {
 
 [Error]
 interface SteadyStateError {
-    BackupDisabled,
-    Connection,
-    Laged,
+    BackupDisabled();
+    Connection();
+    Laged();
 };
 
 interface MediaSource {

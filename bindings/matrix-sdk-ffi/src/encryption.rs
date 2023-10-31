@@ -42,7 +42,7 @@ pub enum BackupUploadState {
     Done,
 }
 
-#[derive(Debug, thiserror::Error, uniffi::Enum)]
+#[derive(Debug, thiserror::Error)]
 pub enum SteadyStateError {
     #[error("The backup got disabled while waiting for the room keys to be uploaded.")]
     BackupDisabled,
