@@ -33,7 +33,6 @@ use ruma::{
     SecondsSinceUnixEpoch, TransactionId, UserId,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info};
 use vodozemac::{megolm::SessionConfig, Curve25519PublicKey};
@@ -373,16 +372,23 @@ impl OutboundGroupSession {
         event_type: &str,
         content: &Raw<AnyMessageLikeEventContent>,
     ) -> Raw<RoomEncryptedEventContent> {
-        let json_content = json!({
-            "content": content,
-            "room_id": &*self.room_id,
-            "type": event_type,
-        });
+        #[derive(Serialize)]
+        struct Payload<'a> {
+            #[serde(rename = "type")]
+            event_type: &'a str,
+            content: &'a Raw<AnyMessageLikeEventContent>,
+            room_id: &'a RoomId,
+        }
 
-        let plaintext = json_content.to_string();
-        let relates_to = json_content["content"].get("m.relates_to").cloned();
+        let payload = Payload { event_type, content, room_id: &self.room_id };
+        let payload_json =
+            serde_json::to_string(&payload).expect("payload serialization never fails");
 
-        let ciphertext = self.encrypt_helper(plaintext).await;
+        let relates_to = content
+            .get_field::<serde_json::Value>("m.relates_to")
+            .expect("serde_json::Value deserialization with valid JSON input never fails");
+
+        let ciphertext = self.encrypt_helper(payload_json).await;
         let scheme: RoomEventEncryptionScheme = match self.settings.algorithm {
             EventEncryptionAlgorithm::MegolmV1AesSha2 => MegolmV1AesSha2Content {
                 ciphertext,
