@@ -292,9 +292,8 @@ impl SlidingSync {
 
         {
             debug!(
-                pos = ?sliding_sync_response.pos,
                 delta_token = ?sliding_sync_response.delta_token,
-                "Update position markers`"
+                "Update position markers"
             );
 
             // Look up for this new `pos` in the past position markers.
@@ -489,7 +488,11 @@ impl SlidingSync {
             if let Some(fields) = &restored_fields {
                 // Override the memory one with the database one, for consistency.
                 if fields.pos != position_guard.pos {
-                    info!("Pos from previous request ('{:?}') was different from pos in database ('{:?}').", position_guard.pos, fields.pos);
+                    info!(
+                        "Pos from previous request ('{:?}') was different from \
+                         pos in database ('{:?}').",
+                        position_guard.pos, fields.pos
+                    );
                     position_guard.pos = fields.pos.clone();
                 }
                 fields.pos.clone()
