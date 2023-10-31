@@ -44,6 +44,17 @@ use crate::{
 #[derive(Debug, Clone)]
 pub(crate) struct SessionManager {
     store: Store,
+
+    /// If there is an active /keys/claim request, its details.
+    ///
+    /// This is used when processing the response, so that we can spot missing
+    /// users/devices.
+    ///
+    /// According to the doc on [`crate::OlmMachine::get_missing_sessions`],
+    /// there should only be one such request active at a time, so we only need
+    /// to keep a record of the most recent.
+    current_key_claim_request: Arc<StdRwLock<Option<(OwnedTransactionId, KeysClaimRequest)>>>,
+
     /// A map of user/devices that we need to automatically claim keys for.
     /// Submodules can insert user/device pairs into this map and the
     /// user/device paris will be added to the list of users when
@@ -68,6 +79,7 @@ impl SessionManager {
     ) -> Self {
         Self {
             store,
+            current_key_claim_request: Default::default(),
             key_request_machine,
             users_for_key_claim,
             wedged_devices: Default::default(),
@@ -290,8 +302,8 @@ impl SessionManager {
             }
         }
 
-        if missing.is_empty() {
-            Ok(None)
+        let result = if missing.is_empty() {
+            None
         } else {
             debug!(
                 ?missing,
@@ -299,13 +311,18 @@ impl SessionManager {
                 "Collected user/device pairs that are missing an Olm session"
             );
 
-            Ok(Some((
+            Some((
                 TransactionId::new(),
                 assign!(KeysClaimRequest::new(missing), {
                     timeout: Some(Self::KEY_CLAIM_TIMEOUT),
                 }),
-            )))
-        }
+            ))
+        };
+
+        // stash the details of the request so that we can refer to it when handling the
+        // response
+        *(self.current_key_claim_request.write().unwrap()) = result.clone();
+        Ok(result)
     }
 
     fn is_user_timed_out(&self, user_id: &UserId, device_id: &DeviceId) -> bool {
@@ -317,8 +334,33 @@ impl SessionManager {
     ///
     /// # Arguments
     ///
+    /// * `request_id` - The unique id of the request that was sent out. This is
+    ///   needed to couple the response with the sent out request.
+    ///
     /// * `response` - The response containing the claimed one-time keys.
-    pub async fn receive_keys_claim_response(&self, response: &KeysClaimResponse) -> OlmResult<()> {
+    pub async fn receive_keys_claim_response(
+        &self,
+        request_id: &TransactionId,
+        response: &KeysClaimResponse,
+    ) -> OlmResult<()> {
+        // First check that the response is for the request we were expecting.
+        let _request = {
+            let mut guard = self.current_key_claim_request.write().unwrap();
+            let expected_request_id = guard.as_ref().map(|e| e.0.as_ref());
+            if Some(request_id) != expected_request_id {
+                error!(
+                    ?request_id,
+                    ?expected_request_id,
+                    "Received a `/keys/claim` response for the wrong request: ignoring"
+                );
+                return Ok(());
+            }
+
+            // We have a confirmed match. Clear the expectation, but hang onto the details
+            // of the request.
+            guard.take().unwrap().1
+        };
+
         // Collect the (user_id, device_id, device_key_id) triple for logging reasons.
         let one_time_keys: BTreeMap<_, BTreeMap<_, BTreeSet<_>>> = response
             .one_time_keys
@@ -336,7 +378,7 @@ impl SessionManager {
             })
             .collect();
 
-        debug!(?one_time_keys, failures = ?response.failures, "Received a `/keys/claim` response");
+        debug!(?request_id, ?one_time_keys, failures = ?response.failures, "Received a `/keys/claim` response");
 
         let failed_servers = response
             .failures
@@ -532,7 +574,7 @@ mod tests {
             },
             IncomingResponse,
         },
-        device_id, user_id, DeviceId, UserId,
+        device_id, owned_server_name, user_id, DeviceId, UserId,
     };
     use serde_json::json;
     use tokio::sync::Mutex;
@@ -626,7 +668,7 @@ mod tests {
 
         manager.store.save_devices(&[bob_device]).await.unwrap();
 
-        let (_, request) =
+        let (txn_id, request) =
             manager.get_missing_sessions(iter::once(bob.user_id())).await.unwrap().unwrap();
 
         assert!(request.one_time_keys.contains_key(bob.user_id()));
@@ -644,7 +686,7 @@ mod tests {
 
         let response = KeyClaimResponse::new(one_time_keys);
 
-        manager.receive_keys_claim_response(&response).await.unwrap();
+        manager.receive_keys_claim_response(&txn_id, &response).await.unwrap();
 
         assert!(manager.get_missing_sessions(iter::once(bob.user_id())).await.unwrap().is_none());
     }
@@ -751,7 +793,7 @@ mod tests {
         assert!(manager.is_device_wedged(&bob_device));
         assert!(manager.users_for_key_claim.read().unwrap().contains_key(bob.user_id()));
 
-        let (_, request) =
+        let (txn_id, request) =
             manager.get_missing_sessions(iter::once(bob.user_id())).await.unwrap().unwrap();
 
         assert!(request.one_time_keys.contains_key(bob.user_id()));
@@ -771,7 +813,7 @@ mod tests {
 
         assert!(manager.outgoing_to_device_requests.read().unwrap().is_empty());
 
-        manager.receive_keys_claim_response(&response).await.unwrap();
+        manager.receive_keys_claim_response(&txn_id, &response).await.unwrap();
 
         assert!(!manager.is_device_wedged(&bob_device));
         assert!(manager.get_missing_sessions(iter::once(bob.user_id())).await.unwrap().is_none());
@@ -788,15 +830,21 @@ mod tests {
 
         manager.store.save_devices(&[alice_device]).await.unwrap();
 
-        let (_, users_for_key_claim) =
+        let (txn_id, users_for_key_claim) =
             manager.get_missing_sessions(iter::once(alice)).await.unwrap().unwrap();
         assert!(users_for_key_claim.one_time_keys.contains_key(alice));
 
-        manager.receive_keys_claim_response(&keys_claim_with_failure()).await.unwrap();
+        manager.receive_keys_claim_response(&txn_id, &keys_claim_with_failure()).await.unwrap();
         assert!(manager.get_missing_sessions(iter::once(alice)).await.unwrap().is_none());
 
-        manager.receive_keys_claim_response(&keys_claim_without_failure()).await.unwrap();
+        // expire the failure
+        manager.failures.expire(&owned_server_name!("example.org"));
+
+        let (txn_id, users_for_key_claim) =
+            manager.get_missing_sessions(iter::once(alice)).await.unwrap().unwrap();
         assert!(users_for_key_claim.one_time_keys.contains_key(alice));
+
+        manager.receive_keys_claim_response(&txn_id, &keys_claim_without_failure()).await.unwrap();
     }
 
     #[async_test]
@@ -851,13 +899,13 @@ mod tests {
 
         // Since we don't have a session with Alice yet, the machine will try to claim
         // some keys for alice.
-        let (_, users_for_key_claim) =
+        let (txn_id, users_for_key_claim) =
             manager.get_missing_sessions(iter::once(alice)).await.unwrap().unwrap();
         assert!(users_for_key_claim.one_time_keys.contains_key(alice));
 
         // We receive a response with an invalid one-time key, this will mark Alice as
         // timed out.
-        manager.receive_keys_claim_response(&response).await.unwrap();
+        manager.receive_keys_claim_response(&txn_id, &response).await.unwrap();
         // Since alice is timed out, we won't claim keys for her.
         assert!(manager.get_missing_sessions(iter::once(alice)).await.unwrap().is_none());
 
@@ -879,12 +927,12 @@ mod tests {
             .get(alice)
             .unwrap()
             .expire(&alice_account.device_id().to_owned());
-        let (_, users_for_key_claim) =
+        let (txn_id, users_for_key_claim) =
             manager.get_missing_sessions(iter::once(alice)).await.unwrap().unwrap();
         assert!(users_for_key_claim.one_time_keys.contains_key(alice));
 
         let response = KeyClaimResponse::new(one_time_keys);
-        manager.receive_keys_claim_response(&response).await.unwrap();
+        manager.receive_keys_claim_response(&txn_id, &response).await.unwrap();
 
         // Alice isn't timed out anymore.
         assert!(manager

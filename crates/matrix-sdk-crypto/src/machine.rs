@@ -452,7 +452,10 @@ impl OlmMachine {
                 Box::pin(self.receive_keys_query_response(request_id, response)).await?;
             }
             IncomingResponse::KeysClaim(response) => {
-                Box::pin(self.inner.session_manager.receive_keys_claim_response(response)).await?;
+                Box::pin(
+                    self.inner.session_manager.receive_keys_claim_response(request_id, response),
+                )
+                .await?;
             }
             IncomingResponse::ToDevice(_) => {
                 Box::pin(self.mark_to_device_request_as_sent(request_id)).await?;
