@@ -1038,7 +1038,7 @@ impl Account {
         self.decrypt_olm_helper(store, sender, content.sender_key, &content.ciphertext).await
     }
 
-    #[instrument(skip_all, fields(sender, sender_key = %content.sender_key))]
+    #[instrument(skip_all, fields(sender, sender_key = ?content.sender_key))]
     async fn decrypt_olm_v1(
         &mut self,
         store: &Store,

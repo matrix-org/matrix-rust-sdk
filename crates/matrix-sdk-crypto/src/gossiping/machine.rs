@@ -445,9 +445,9 @@ impl GossipMachine {
     #[tracing::instrument(
         skip_all,
         fields(
-            user_id = %event.sender,
-            device_id = %event.content.requesting_device_id,
-            %room_id,
+            user_id = ?event.sender,
+            device_id = ?event.content.requesting_device_id,
+            ?room_id,
             session_id
         )
     )]
@@ -835,7 +835,7 @@ impl GossipMachine {
                 // secret.
                 Err(e) => {
                     warn!(
-                        secret_name = %secret.secret_name,
+                        secret_name = ?secret.secret_name,
                         error = ?e,
                         "Error while importing a secret"
                     );

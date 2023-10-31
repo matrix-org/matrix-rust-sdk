@@ -509,7 +509,7 @@ impl GroupSessionManager {
             info!(
                 ?recipients,
                 message_index,
-                room_id = %group_session.room_id(),
+                room_id = ?group_session.room_id(),
                 session_id = group_session.session_id(),
                 "Trying to encrypt a room key",
             );
