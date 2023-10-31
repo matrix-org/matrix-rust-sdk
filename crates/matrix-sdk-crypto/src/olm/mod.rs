@@ -232,7 +232,7 @@ pub(crate) mod tests {
         assert_eq!(outbound.session_id(), inbound.session_id());
 
         let encrypted_content =
-            outbound.encrypt(serde_json::to_value(content).unwrap(), "m.room.message").await;
+            outbound.encrypt("m.room.message", serde_json::to_value(content).unwrap()).await;
 
         let event = json!({
             "sender": alice.user_id(),
@@ -274,7 +274,7 @@ pub(crate) mod tests {
         let content = json!({
             "m.relates_to": relation_json,
         });
-        let encrypted = outbound.encrypt(content, "m.dummy").await;
+        let encrypted = outbound.encrypt("m.dummy", content).await;
 
         let event = json!({
             "sender": alice.user_id(),
@@ -299,7 +299,7 @@ pub(crate) mod tests {
         assert_eq!(relation, Some(&relation_json), "The decrypted event should contain a relation");
 
         let content = json!({});
-        let encrypted = outbound.encrypt(content, "m.dummy").await;
+        let encrypted = outbound.encrypt("m.dummy", content).await;
         let mut encrypted: Value = json_convert(&encrypted).unwrap();
         encrypted.as_object_mut().unwrap().insert("m.relates_to".to_owned(), relation_json.clone());
 

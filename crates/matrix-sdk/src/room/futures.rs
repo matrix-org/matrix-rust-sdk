@@ -175,7 +175,7 @@ impl<'a> IntoFuture for SendRawMessageLikeEvent<'a> {
                     let olm = olm.as_ref().expect("Olm machine wasn't started");
 
                     let encrypted_content =
-                        olm.encrypt_room_event_raw(room.room_id(), content, event_type).await?;
+                        olm.encrypt_room_event_raw(room.room_id(), event_type, content).await?;
 
                     (encrypted_content.cast(), "m.room.encrypted")
                 }

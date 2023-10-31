@@ -825,7 +825,7 @@ impl OlmMachine {
     ) -> MegolmResult<Raw<RoomEncryptedEventContent>> {
         let event_type = content.event_type().to_string();
         let content = serde_json::to_value(&content)?;
-        self.encrypt_room_event_raw(room_id, content, &event_type).await
+        self.encrypt_room_event_raw(room_id, &event_type, content).await
     }
 
     /// Encrypt a json [`Value`] content for the given room.
@@ -850,10 +850,10 @@ impl OlmMachine {
     pub async fn encrypt_room_event_raw(
         &self,
         room_id: &RoomId,
-        content: Value,
         event_type: &str,
+        content: Value,
     ) -> MegolmResult<Raw<RoomEncryptedEventContent>> {
-        self.inner.group_session_manager.encrypt(room_id, content, event_type).await
+        self.inner.group_session_manager.encrypt(room_id, event_type, content).await
     }
 
     /// Invalidate the currently active outbound group session for the given
@@ -3885,7 +3885,7 @@ pub(crate) mod tests {
         });
 
         let encrypted_content =
-            alice.encrypt_room_event_raw(room_id, content, "m.room_key").await.unwrap();
+            alice.encrypt_room_event_raw(room_id, "m.room_key", content).await.unwrap();
         let event = json!({
             "sender": alice.user_id(),
             "content": encrypted_content,
@@ -3947,7 +3947,7 @@ pub(crate) mod tests {
         inbound.creator_info.signing_keys = signing_keys.into();
 
         let content = json!({});
-        let content = outbound.encrypt(content, "m.dummy").await;
+        let content = outbound.encrypt("m.dummy", content).await;
         alice.store().save_inbound_group_sessions(&[inbound]).await.unwrap();
 
         let event = json!({

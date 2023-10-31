@@ -202,15 +202,15 @@ impl GroupSessionManager {
     pub async fn encrypt(
         &self,
         room_id: &RoomId,
-        content: Value,
         event_type: &str,
+        content: Value,
     ) -> MegolmResult<Raw<RoomEncryptedEventContent>> {
         let session =
             self.sessions.get_or_load(room_id).await.expect("Session wasn't created nor shared");
 
         assert!(!session.expired(), "Session expired");
 
-        let content = session.encrypt(content, event_type).await;
+        let content = session.encrypt(event_type, content).await;
 
         let mut changes = Changes::default();
         changes.outbound_group_sessions.push(session);

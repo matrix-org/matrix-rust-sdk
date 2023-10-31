@@ -356,19 +356,19 @@ impl OutboundGroupSession {
     ///
     /// # Arguments
     ///
-    /// * `content` - The plaintext content of the message that should be
-    /// encrypted in raw json [`Value`] form.
-    ///
     /// * `event_type` - The plaintext type of the event, the outer type of the
     /// event will become `m.room.encrypted`.
+    ///
+    /// * `content` - The plaintext content of the message that should be
+    /// encrypted in raw json [`Value`] form.
     ///
     /// # Panics
     ///
     /// Panics if the content can't be serialized.
     pub async fn encrypt(
         &self,
-        content: Value,
         event_type: &str,
+        content: Value,
     ) -> Raw<RoomEncryptedEventContent> {
         let json_content = json!({
             "content": content,
@@ -777,8 +777,8 @@ mod tests {
         assert!(!session.expired());
         let _ = session
             .encrypt(
-                serde_json::to_value(RoomMessageEventContent::text_plain("Test message"))?,
                 "m.room.message",
+                serde_json::to_value(RoomMessageEventContent::text_plain("Test message"))?,
             )
             .await;
         assert!(session.expired());
@@ -810,8 +810,8 @@ mod tests {
 
         let _ = session
             .encrypt(
-                serde_json::to_value(RoomMessageEventContent::text_plain("Test message"))?,
                 "m.room.message",
+                serde_json::to_value(RoomMessageEventContent::text_plain("Test message"))?,
             )
             .await;
         assert!(session.expired());
