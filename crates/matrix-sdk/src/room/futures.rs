@@ -26,13 +26,19 @@ use mime::Mime;
 #[cfg(doc)]
 use ruma::events::{MessageLikeUnsigned, SyncMessageLikeEvent};
 use ruma::{
-    api::client::message::send_message_event, assign, events::MessageLikeEventContent, serde::Raw,
+    api::client::message::send_message_event,
+    assign,
+    events::{AnyMessageLikeEventContent, MessageLikeEventContent},
+    serde::Raw,
     OwnedTransactionId, TransactionId,
 };
 use tracing::{debug, Instrument, Span};
 
 use super::Room;
-use crate::{attachment::AttachmentConfig, Result, TransmissionProgress};
+use crate::{
+    attachment::AttachmentConfig, utils::IntoRawMessageLikeEventContent, Result,
+    TransmissionProgress,
+};
 #[cfg(feature = "image-proc")]
 use crate::{
     attachment::{generate_image_thumbnail, Thumbnail},
@@ -96,13 +102,18 @@ impl<'a> IntoFuture for SendMessageLikeEvent<'a> {
 pub struct SendRawMessageLikeEvent<'a> {
     room: &'a Room,
     event_type: &'a str,
-    content: serde_json::Value,
+    content: Raw<AnyMessageLikeEventContent>,
     tracing_span: Span,
     transaction_id: Option<OwnedTransactionId>,
 }
 
 impl<'a> SendRawMessageLikeEvent<'a> {
-    pub(crate) fn new(room: &'a Room, event_type: &'a str, content: serde_json::Value) -> Self {
+    pub(crate) fn new(
+        room: &'a Room,
+        event_type: &'a str,
+        content: impl IntoRawMessageLikeEventContent,
+    ) -> Self {
+        let content = content.into_raw_message_like_event_content();
         Self { room, event_type, content, tracing_span: Span::current(), transaction_id: None }
     }
 
@@ -131,7 +142,8 @@ impl<'a> IntoFuture for SendRawMessageLikeEvent<'a> {
     boxed_into_future!(extra_bounds: 'a);
 
     fn into_future(self) -> Self::IntoFuture {
-        let Self { room, event_type, content, tracing_span, transaction_id } = self;
+        #[cfg_attr(not(feature = "e2e-encryption"), allow(unused_mut))]
+        let Self { room, mut event_type, mut content, tracing_span, transaction_id } = self;
         let fut = async move {
             room.ensure_room_joined()?;
 
@@ -139,19 +151,15 @@ impl<'a> IntoFuture for SendRawMessageLikeEvent<'a> {
             tracing::Span::current().record("transaction_id", tracing::field::debug(&txn_id));
 
             #[cfg(not(feature = "e2e-encryption"))]
-            let content = {
-                debug!("Sending plaintext event to room because we don't have encryption support.");
-                Raw::new(&content)?.cast()
-            };
+            debug!("Sending plaintext event to room because we don't have encryption support.");
 
             #[cfg(feature = "e2e-encryption")]
-            let (content, event_type) = if room.is_encrypted().await? {
+            if room.is_encrypted().await? {
                 tracing::Span::current().record("encrypted", true);
                 // Reactions are currently famously not encrypted, skip encrypting
                 // them until they are.
                 if event_type == "m.reaction" {
                     debug!("Sending plaintext event because of the event type.");
-                    (Raw::new(&content)?.cast(), event_type)
                 } else {
                     debug!(
                         room_id = room.room_id().as_str(),
@@ -174,21 +182,15 @@ impl<'a> IntoFuture for SendRawMessageLikeEvent<'a> {
                     let olm = room.client.olm_machine().await;
                     let olm = olm.as_ref().expect("Olm machine wasn't started");
 
-                    let encrypted_content = olm
-                        .encrypt_room_event_raw(
-                            room.room_id(),
-                            event_type,
-                            &Raw::new(&content)?.cast(),
-                        )
-                        .await?;
-
-                    (encrypted_content.cast(), "m.room.encrypted")
+                    event_type = "m.room.encrypted";
+                    content = olm
+                        .encrypt_room_event_raw(room.room_id(), event_type, &content)
+                        .await?
+                        .cast();
                 }
             } else {
                 tracing::Span::current().record("encrypted", false);
                 debug!("Sending plaintext event because the room is NOT encrypted.",);
-
-                (Raw::new(&content)?.cast(), event_type)
             };
 
             let request = send_message_event::v3::Request::new_raw(

@@ -47,6 +47,7 @@ pub mod notification_settings;
 #[cfg(feature = "experimental-oidc")]
 pub mod oidc;
 pub mod room;
+pub mod utils;
 pub mod futures {
     //! Named futures returned from methods on types in [the crate root][crate].
 
