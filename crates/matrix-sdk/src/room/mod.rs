@@ -2432,7 +2432,7 @@ mod tests {
         // Now pretend we're encrypting an event; the olm machine shouldn't rely on
         // caching the outgoing session before.
         let _encrypted_content = olm
-            .encrypt_room_event_raw(room.room_id(), serde_json::json!({}), "test-event")
+            .encrypt_room_event_raw(room.room_id(), "test-event", serde_json::json!({}))
             .await
             .unwrap();
     }

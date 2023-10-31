@@ -1253,7 +1253,7 @@ mod tests {
             .await
             .unwrap();
 
-        let content = group_session.encrypt(json!({}), "m.dummy").await;
+        let content = group_session.encrypt("m.dummy", json!({})).await;
         let event = wrap_encrypted_content(bob_machine.user_id(), content);
 
         // Alice wants to request the outbound group session from bob.
@@ -1343,7 +1343,7 @@ mod tests {
 
         let (outbound, session) = account.create_group_session_pair_with_defaults(room_id()).await;
 
-        let content = outbound.encrypt(json!({}), "m.dummy").await;
+        let content = outbound.encrypt("m.dummy", json!({})).await;
         let event = wrap_encrypted_content(machine.user_id(), content);
 
         assert!(machine.outgoing_to_device_requests().await.unwrap().is_empty());
@@ -1371,7 +1371,7 @@ mod tests {
         machine.inner.store.save_devices(&[alice_device]).await.unwrap();
 
         let (outbound, session) = account.create_group_session_pair_with_defaults(room_id()).await;
-        let content = outbound.encrypt(json!({}), "m.dummy").await;
+        let content = outbound.encrypt("m.dummy", json!({})).await;
         let event = wrap_encrypted_content(machine.user_id(), content);
 
         assert!(machine.outgoing_to_device_requests().await.unwrap().is_empty());
@@ -1404,7 +1404,7 @@ mod tests {
         machine.inner.store.save_devices(&[alice_device.clone()]).await.unwrap();
 
         let (outbound, session) = account.create_group_session_pair_with_defaults(room_id()).await;
-        let content = outbound.encrypt(json!({}), "m.dummy").await;
+        let content = outbound.encrypt("m.dummy", json!({})).await;
         let room_event = wrap_encrypted_content(machine.user_id(), content);
 
         machine.create_outgoing_key_request(session.room_id(), &room_event).await.unwrap();
