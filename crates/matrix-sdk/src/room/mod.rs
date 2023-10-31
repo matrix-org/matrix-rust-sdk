@@ -1281,15 +1281,16 @@ impl Room {
         }
     }
 
-    /// Send a room message to this room.
+    /// Send a message-like event to this room.
     ///
     /// Returns the parsed response from the server.
     ///
     /// If the encryption feature is enabled this method will transparently
-    /// encrypt the room message if this room is encrypted.
+    /// encrypt the event if this room is encrypted (except for `m.reaction`
+    /// events, which are never encrypted).
     ///
-    /// **Note**: If you just want to send a custom JSON payload to a room, you
-    /// can use the [`send_raw()`][Self::send_raw] method for that.
+    /// **Note**: If you just want to send an event with custom JSON content to
+    /// a room, you can use the [`send_raw()`][Self::send_raw] method for that.
     ///
     /// If you want to set a transaction ID for the event, use
     /// [`.with_transaction_id()`][SendMessageLikeEvent::with_transaction_id]
@@ -1387,12 +1388,13 @@ impl Room {
         Ok(())
     }
 
-    /// Send a room message to this room from a json `Value`.
+    /// Send a message-like event with custom JSON content to this room.
     ///
     /// Returns the parsed response from the server.
     ///
     /// If the encryption feature is enabled this method will transparently
-    /// encrypt the room message if this room is encrypted.
+    /// encrypt the event if this room is encrypted (except for `m.reaction`
+    /// events, which are never encrypted).
     ///
     /// This method is equivalent to the [`send()`][Self::send] method but
     /// allows sending custom JSON payloads, e.g. constructed using the
