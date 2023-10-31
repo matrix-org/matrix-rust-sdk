@@ -16,7 +16,7 @@ futures-util = { version = "0.3.21", default-features = false }
 http = { workspace = true }
 hyper = { version = "0.14.20", features = ["http1", "http2", "server"]}
 matrix-sdk-ui = { path = "../../crates/matrix-sdk-ui" }
-rand = "0.8.5"
+rand = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { version = "1.24.2", features = ["macros", "rt-multi-thread"] }

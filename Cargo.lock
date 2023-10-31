@@ -3318,6 +3318,7 @@ dependencies = [
  "matrix-sdk",
  "matrix-sdk-ui",
  "once_cell",
+ "rand 0.8.5",
  "tempfile",
  "tokio",
  "tracing",
