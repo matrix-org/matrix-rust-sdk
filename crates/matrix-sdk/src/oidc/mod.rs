@@ -755,6 +755,8 @@ impl Oidc {
             }
         }
 
+        self.client.encryption().enable_backups_and_recovery().await?;
+
         Ok(())
     }
 
@@ -951,6 +953,8 @@ impl Oidc {
                     .map_err(|err| crate::Error::Oidc(err.into()))?;
             }
         }
+
+        self.client.encryption().enable_backups_and_recovery().await?;
 
         Ok(())
     }

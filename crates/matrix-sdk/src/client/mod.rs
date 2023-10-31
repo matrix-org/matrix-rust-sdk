@@ -939,18 +939,6 @@ impl Client {
 
     pub(crate) async fn set_session_meta(&self, session_meta: SessionMeta) -> Result<()> {
         self.base_client().set_session_meta(session_meta).await?;
-
-        #[cfg(feature = "e2e-encryption")]
-        {
-            if let Err(e) = self.encryption().backups().setup_and_resume().await {
-                error!("Couldn't setup and resume backups {e:?}");
-            }
-
-            if let Err(e) = self.encryption().recovery().setup().await {
-                warn!("Couldn't auto enable recovery {e:?}");
-            }
-        }
-
         Ok(())
     }
 
