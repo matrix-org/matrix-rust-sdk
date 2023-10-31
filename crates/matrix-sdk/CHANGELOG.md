@@ -26,6 +26,12 @@ Breaking changes:
 - `Room::sync_members` doesn't return the underlying Ruma response anymore. If you need to get the
   room members, you can use `Room::members` or `Room::get_member` which will make sure that the
   members are up to date.
+- The `transaction_id` parameter of `Room::{send, send_raw}` was removed
+  - Instead, both methods now return types that implement `IntoFuture` (so can be awaited like
+    before) and have a `with_transaction_id` builder-style method
+- The parameter order of `Room::{send_raw, send_state_event_raw}` has changed, `content` is now last
+- All "named futures" (structs implementing `IntoFuture`) are now exported from modules named
+  `futures` instead of directly in the respective parent module
 
 Bug fixes:
 
