@@ -24,6 +24,7 @@ use ruma::{
     },
     assign,
     events::dummy::ToDeviceDummyEventContent,
+    serde::Raw,
     DeviceId, DeviceKeyAlgorithm, OwnedDeviceId, OwnedServerName, OwnedTransactionId, OwnedUserId,
     SecondsSinceUnixEpoch, ServerName, TransactionId, UserId,
 };
@@ -349,6 +350,37 @@ impl SessionManager {
         self.failures.extend(failed_servers);
         self.failures.remove(successful_servers);
 
+        // build a map of user_id -> device_id -> key for each device to we can start
+        // a session with.
+        let mut device_map: BTreeMap<
+            OwnedUserId,
+            BTreeMap<OwnedDeviceId, &Raw<ruma::encryption::OneTimeKey>>,
+        > = BTreeMap::new();
+
+        for (user_id, user_devices) in response.one_time_keys.iter() {
+            for (device_id, key_map) in user_devices {
+                match key_map.values().next() {
+                    Some(k) => {
+                        device_map.entry(user_id.clone()).or_default().insert(device_id.clone(), k);
+                    }
+                    None => {
+                        warn!(
+                            user_id = user_id.as_str(),
+                            device_id = device_id.as_str(),
+                            "Tried to create a new Olm session, but the signed one-time key is missing",
+                        );
+
+                        self.failed_devices
+                            .write()
+                            .unwrap()
+                            .entry(user_id.clone())
+                            .or_default()
+                            .insert(device_id.clone());
+                    }
+                };
+            }
+        }
+
         struct SessionInfo {
             session_id: String,
             algorithm: EventEncryptionAlgorithm,
@@ -370,8 +402,8 @@ impl SessionManager {
         let mut new_sessions: BTreeMap<&UserId, BTreeMap<&DeviceId, SessionInfo>> = BTreeMap::new();
 
         let mut store_transaction = self.store.transaction().await;
-        for (user_id, user_devices) in &response.one_time_keys {
-            for (device_id, key_map) in user_devices {
+        for (user_id, user_devices) in device_map.iter() {
+            for (device_id, one_time_key) in user_devices {
                 let device = match self.store.get_readonly_device(user_id, device_id).await {
                     Ok(Some(d)) => d,
                     Ok(None) => {
@@ -396,7 +428,7 @@ impl SessionManager {
                 };
 
                 let account = store_transaction.account().await?;
-                let session = match account.create_outbound_session(&device, key_map) {
+                let session = match account.create_outbound_session(&device, one_time_key) {
                     Ok(s) => s,
                     Err(e) => {
                         warn!(

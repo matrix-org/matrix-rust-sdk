@@ -851,15 +851,8 @@ impl Account {
     pub fn create_outbound_session(
         &self,
         device: &ReadOnlyDevice,
-        key_map: &BTreeMap<OwnedDeviceKeyId, Raw<ruma::encryption::OneTimeKey>>,
+        one_time_key: &Raw<ruma::encryption::OneTimeKey>,
     ) -> Result<Session, SessionCreationError> {
-        let one_time_key = key_map.values().next().ok_or_else(|| {
-            SessionCreationError::OneTimeKeyMissing(
-                device.user_id().to_owned(),
-                device.device_id().into(),
-            )
-        })?;
-
         let one_time_key: SignedKey = match one_time_key.deserialize_as() {
             Ok(OneTimeKey::SignedKey(k)) => k,
             Ok(OneTimeKey::Key(_)) => {
@@ -956,11 +949,12 @@ impl Account {
         use ruma::events::dummy::ToDeviceDummyEventContent;
 
         other.generate_one_time_keys_helper(1);
-        let one_time = other.signed_one_time_keys();
+        let one_time_map = other.signed_one_time_keys();
+        let one_time = one_time_map.values().next().unwrap();
 
         let device = ReadOnlyDevice::from_account(other);
 
-        let mut our_session = self.create_outbound_session(&device, &one_time).unwrap();
+        let mut our_session = self.create_outbound_session(&device, one_time).unwrap();
 
         other.mark_keys_as_published();
 
