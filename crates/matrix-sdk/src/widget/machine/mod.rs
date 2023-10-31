@@ -330,7 +330,7 @@ impl WidgetMachine {
         let filter_in = MatrixEventFilterInput {
             event_type: request.event_type.clone(),
             state_key: request.state_key.clone(),
-            content: serde_json::from_value(request.content.clone()).unwrap_or_else(|e| {
+            content: serde_json::from_str(request.content.get()).unwrap_or_else(|e| {
                 debug!("Failed to deserialize event content for filter: {e}");
                 // Fallback to empty content is safe because there is no filter
                 // that matches with it when it otherwise wouldn't.

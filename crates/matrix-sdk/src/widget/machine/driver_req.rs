@@ -23,7 +23,7 @@ use ruma::{
     OwnedEventId,
 };
 use serde::Deserialize;
-use serde_json::Value as JsonValue;
+use serde_json::value::RawValue as RawJsonValue;
 use tracing::error;
 
 use super::{incoming::MatrixDriverResponse, Action, MatrixDriverRequestMeta, WidgetMachine};
@@ -216,7 +216,7 @@ pub(crate) struct SendEventRequest {
     /// State key of an event (if it's a state event).
     pub(crate) state_key: Option<String>,
     /// Raw content of an event.
-    pub(crate) content: JsonValue,
+    pub(crate) content: Box<RawJsonValue>,
 }
 
 impl From<SendEventRequest> for MatrixDriverRequestData {
