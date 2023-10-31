@@ -827,6 +827,9 @@ impl MatrixAuth {
         self.set_session_tokens(session.tokens);
         self.client.set_session_meta(session.meta).await?;
 
+        #[cfg(feature = "e2e-encryption")]
+        self.client.encryption().enable_backups_and_recovery().await?;
+
         Ok(())
     }
 }
