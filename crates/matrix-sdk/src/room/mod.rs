@@ -77,6 +77,7 @@ use crate::{
     media::{MediaFormat, MediaRequest},
     notification_settings::{IsEncrypted, IsOneToOne, RoomNotificationMode},
     sync::RoomUpdate,
+    utils::{IntoRawMessageLikeEventContent, IntoRawStateEventContent},
     BaseRoom, Client, Error, HttpError, HttpResult, Result, RoomState, TransmissionProgress,
 };
 
@@ -1408,7 +1409,10 @@ impl Room {
     ///
     /// * `event_type` - The type of the event.
     ///
-    /// * `content` - The content of the event as a json `Value`.
+    /// * `content` - The content of the event as a raw JSON value. The argument
+    ///   type can be `serde_json::Value`, but also other raw JSON types; for
+    ///   the full list check the documentation of
+    ///   [`IntoRawMessageLikeEventContent`].
     ///
     /// # Examples
     ///
@@ -1432,7 +1436,7 @@ impl Room {
     pub fn send_raw<'a>(
         &'a self,
         event_type: &'a str,
-        content: serde_json::Value,
+        content: impl IntoRawMessageLikeEventContent,
     ) -> SendRawMessageLikeEvent<'a> {
         SendRawMessageLikeEvent::new(self, event_type, content)
     }
@@ -1785,7 +1789,9 @@ impl Room {
     /// * `state_key` - A unique key which defines the overwriting semantics for
     /// this piece of room state. This value is often a zero-length string.
     ///
-    /// * `content` - The raw content of the state event.
+    /// * `content` - The content of the event as a raw JSON value. The argument
+    ///   type can be `serde_json::Value`, but also other raw JSON types; for
+    ///   the full list check the documentation of [`IntoRawStateEventContent`].
     ///
     /// # Examples
     ///
@@ -1811,16 +1817,15 @@ impl Room {
         &self,
         event_type: &str,
         state_key: &str,
-        content: serde_json::Value,
+        content: impl IntoRawStateEventContent,
     ) -> Result<send_state_event::v3::Response> {
         self.ensure_room_joined()?;
 
-        let content = Raw::new(&content)?.cast();
         let request = send_state_event::v3::Request::new_raw(
             self.room_id().to_owned(),
             event_type.into(),
             state_key.to_owned(),
-            content,
+            content.into_raw_state_event_content(),
         );
 
         Ok(self.client.send(request, None).await?)
