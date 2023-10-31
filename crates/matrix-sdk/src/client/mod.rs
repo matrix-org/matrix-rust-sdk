@@ -62,7 +62,7 @@ use ruma::{
 };
 use serde::de::DeserializeOwned;
 use tokio::sync::{broadcast, Mutex, OnceCell, RwLock, RwLockReadGuard};
-use tracing::{debug, error, instrument, trace, warn, Instrument, Span};
+use tracing::{debug, error, instrument, trace, Instrument, Span};
 use url::Url;
 
 #[cfg(feature = "experimental-oidc")]
@@ -93,7 +93,7 @@ mod builder;
 mod futures;
 mod tasks;
 
-use self::tasks::ClientTasks;
+use self::tasks::{BackupUploadingTask, ClientTasks};
 pub use self::{
     builder::{ClientBuildError, ClientBuilder},
     futures::SendRequest,
@@ -227,7 +227,7 @@ pub(crate) struct ClientInner {
     /// to ensure that only a single call to a method happens at once or to
     /// deduplicate multiple calls to a method.
     locks: ClientLocks,
-    pub(crate) tasks: StdMutex<Option<ClientTasks>>,
+    pub(crate) tasks: StdMutex<ClientTasks>,
     pub(crate) typing_notice_times: StdRwLock<BTreeMap<OwnedRoomId, Instant>>,
     /// Event handlers. See `add_event_handler`.
     pub(crate) event_handlers: EventHandlerStore,
@@ -274,7 +274,7 @@ impl ClientInner {
             sliding_sync_proxy: StdRwLock::new(sliding_sync_proxy),
             http_client,
             base_client,
-            tasks: StdMutex::new(None),
+            tasks: StdMutex::new(Default::default()),
             locks: Default::default(),
             server_versions: OnceCell::new_with(server_versions),
             typing_notice_times: Default::default(),
@@ -292,9 +292,7 @@ impl ClientInner {
         let client = Arc::new(client);
         let weak_client = Arc::downgrade(&client);
 
-        // TODO: Should we use MaybeUninit here to get rid of the option?
-        let tasks = ClientTasks::new(weak_client);
-        *client.tasks.lock().unwrap() = Some(tasks);
+        client.tasks.lock().unwrap().upload_room_keys = Some(BackupUploadingTask::new(weak_client));
 
         client
     }
