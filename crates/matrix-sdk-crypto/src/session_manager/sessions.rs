@@ -381,6 +381,22 @@ impl SessionManager {
             }
         }
 
+        self.create_sessions(&device_map).await
+    }
+
+    /// Create new Olm sessions for the requested devices.
+    ///
+    /// # Arguments
+    ///
+    ///  * `device_map` - a map from user ID, to device ID, to key object, for
+    ///    each device we should create a session for.
+    pub(crate) async fn create_sessions(
+        &self,
+        device_map: &BTreeMap<
+            OwnedUserId,
+            BTreeMap<OwnedDeviceId, &Raw<ruma::encryption::OneTimeKey>>,
+        >,
+    ) -> OlmResult<()> {
         struct SessionInfo {
             session_id: String,
             algorithm: EventEncryptionAlgorithm,

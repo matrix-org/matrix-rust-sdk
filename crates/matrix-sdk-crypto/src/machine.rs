@@ -2157,9 +2157,7 @@ pub(crate) mod tests {
     use ruma::{
         api::{
             client::{
-                keys::{
-                    claim_keys, get_keys, get_keys::v3::Response as KeyQueryResponse, upload_keys,
-                },
+                keys::{get_keys, get_keys::v3::Response as KeyQueryResponse, upload_keys},
                 sync::sync_events::DeviceLists,
                 to_device::send_event_to_device::v3::Response as ToDeviceResponse,
             },
@@ -2320,17 +2318,12 @@ pub(crate) mod tests {
 
         let mut bob_keys = BTreeMap::new();
 
-        let (device_key_id, one_time_key) = one_time_keys.iter().next().unwrap();
-        let mut keys = BTreeMap::new();
-        keys.insert(device_key_id.clone(), one_time_key.clone());
-        bob_keys.insert(bob.device_id().into(), keys);
+        let one_time_key = one_time_keys.values().next().unwrap();
+        bob_keys.insert(bob.device_id().to_owned(), one_time_key);
 
         let mut one_time_keys = BTreeMap::new();
         one_time_keys.insert(bob.user_id().to_owned(), bob_keys);
-
-        let response = claim_keys::v3::Response::new(one_time_keys);
-
-        alice.receive_keys_claim_response(&response).await.unwrap();
+        alice.inner.session_manager.create_sessions(&one_time_keys).await.unwrap();
 
         (alice, bob)
     }
@@ -2629,15 +2622,12 @@ pub(crate) mod tests {
         machine: &OlmMachine,
         user_id: &UserId,
         device_id: &DeviceId,
-        key_id: OwnedDeviceKeyId,
+        _key_id: OwnedDeviceKeyId,
         one_time_key: Raw<OneTimeKey>,
     ) {
-        let keys = BTreeMap::from([(key_id, one_time_key)]);
-        let keys = BTreeMap::from([(device_id.to_owned(), keys)]);
+        let keys = BTreeMap::from([(device_id.to_owned(), &one_time_key)]);
         let one_time_keys = BTreeMap::from([(user_id.to_owned(), keys)]);
-        let response = claim_keys::v3::Response::new(one_time_keys);
-
-        machine.receive_keys_claim_response(&response).await.unwrap();
+        machine.inner.session_manager.create_sessions(&one_time_keys).await.unwrap();
     }
 
     #[async_test]
