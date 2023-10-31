@@ -55,7 +55,7 @@ use ruma::{
     DeviceId, OwnedDeviceId, OwnedUserId, TransactionId, UserId,
 };
 use tokio::sync::RwLockReadGuard;
-use tracing::{debug, instrument, trace, warn};
+use tracing::{debug, error, instrument, trace, warn};
 
 use crate::{
     attachment::{AttachmentInfo, Thumbnail},
@@ -1207,6 +1207,17 @@ impl Encryption {
         let olm_machine = self.client.olm_machine().await;
         let olm_machine = olm_machine.as_ref().ok_or(Error::AuthenticationRequired)?;
         Ok(olm_machine.uploaded_key_count().await?)
+    }
+
+    /// Enables automated backup and recovery.
+    pub async fn enable_backups_and_recovery(&self) -> Result<()> {
+        if let Err(e) = self.backups().setup_and_resume().await {
+            error!("Couldn't setup and resume backups {e:?}");
+        }
+        if let Err(e) = self.recovery().setup().await {
+            warn!("Couldn't auto enable recovery {e:?}");
+        }
+        Ok(())
     }
 }
 
