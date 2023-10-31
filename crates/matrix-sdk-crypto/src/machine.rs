@@ -2607,7 +2607,6 @@ pub(crate) mod tests {
         machine: &OlmMachine,
         user_id: &UserId,
         device_id: &DeviceId,
-        _key_id: OwnedDeviceKeyId,
         one_time_key: Raw<OneTimeKey>,
     ) {
         let keys = BTreeMap::from([(device_id.to_owned(), &one_time_key)]);
@@ -2619,13 +2618,12 @@ pub(crate) mod tests {
     async fn test_session_creation() {
         let (alice_machine, bob_machine, mut one_time_keys) =
             get_machine_pair(alice_id(), user_id(), false).await;
-        let (device_key_id, one_time_key) = one_time_keys.pop_first().unwrap();
+        let (_key_id, one_time_key) = one_time_keys.pop_first().unwrap();
 
         create_session(
             &alice_machine,
             bob_machine.user_id(),
             bob_machine.device_id(),
-            device_key_id,
             one_time_key,
         )
         .await;
@@ -2646,7 +2644,7 @@ pub(crate) mod tests {
     async fn test_getting_most_recent_session() {
         let (alice_machine, bob_machine, mut one_time_keys) =
             get_machine_pair(alice_id(), user_id(), false).await;
-        let (device_key_id, one_time_key) = one_time_keys.pop_first().unwrap();
+        let (_key_id, one_time_key) = one_time_keys.pop_first().unwrap();
 
         let device = alice_machine
             .get_device(bob_machine.user_id(), bob_machine.device_id(), None)
@@ -2660,19 +2658,17 @@ pub(crate) mod tests {
             &alice_machine,
             bob_machine.user_id(),
             bob_machine.device_id(),
-            device_key_id,
             one_time_key.to_owned(),
         )
         .await;
 
         for _ in 0..10 {
-            let (device_key_id, one_time_key) = one_time_keys.pop_first().unwrap();
+            let (_key_id, one_time_key) = one_time_keys.pop_first().unwrap();
 
             create_session(
                 &alice_machine,
                 bob_machine.user_id(),
                 bob_machine.device_id(),
-                device_key_id,
                 one_time_key.to_owned(),
             )
             .await;

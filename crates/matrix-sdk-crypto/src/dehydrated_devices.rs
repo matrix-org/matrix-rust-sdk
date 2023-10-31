@@ -491,7 +491,7 @@ mod tests {
             .await
             .expect("We should be able to create a request to upload a dehydrated device");
 
-        let (key_id, one_time_key) = request
+        let (_key_id, one_time_key) = request
             .one_time_keys
             .pop_first()
             .expect("The dehydrated device creation request should contain a one-time key");
@@ -499,7 +499,7 @@ mod tests {
         // Ensure that we know about the public keys of the dehydrated device.
         receive_device_keys(&alice, user_id(), &request.device_id, request.device_keys).await;
         // Create a 1-to-1 Olm session with the dehydrated device.
-        create_session(&alice, user_id(), &request.device_id, key_id, one_time_key).await;
+        create_session(&alice, user_id(), &request.device_id, one_time_key).await;
 
         // Send a room key to the dehydrated device.
         let (event, group_session) = send_room_key(&alice, room_id, user_id()).await;
