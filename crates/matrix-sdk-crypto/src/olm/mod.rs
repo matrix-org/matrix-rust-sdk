@@ -39,7 +39,7 @@ pub use vodozemac::{olm::IdentityKeys, Curve25519PublicKey};
 #[cfg(test)]
 pub(crate) mod tests {
     use assert_matches::assert_matches;
-    use matrix_sdk_test::async_test;
+    use matrix_sdk_test::{async_test, message_like_event_content};
     use ruma::{
         device_id, event_id,
         events::{
@@ -47,7 +47,9 @@ pub(crate) mod tests {
             room::message::{Relation, RoomMessageEventContent},
             AnyMessageLikeEvent, AnyTimelineEvent, MessageLikeEvent,
         },
-        room_id, user_id, DeviceId, UserId,
+        room_id,
+        serde::Raw,
+        user_id, DeviceId, UserId,
     };
     use serde_json::{json, Value};
     use vodozemac::{
@@ -232,7 +234,7 @@ pub(crate) mod tests {
         assert_eq!(outbound.session_id(), inbound.session_id());
 
         let encrypted_content =
-            outbound.encrypt("m.room.message", serde_json::to_value(content).unwrap()).await;
+            outbound.encrypt("m.room.message", &Raw::new(&content).unwrap().cast()).await;
 
         let event = json!({
             "sender": alice.user_id(),
@@ -271,10 +273,10 @@ pub(crate) mod tests {
 
         // We first test that we're copying the relation from the content that
         // will be encrypted to the content that will stay plaintext.
-        let content = json!({
+        let content = message_like_event_content!({
             "m.relates_to": relation_json,
         });
-        let encrypted = outbound.encrypt("m.dummy", content).await;
+        let encrypted = outbound.encrypt("m.dummy", &content).await;
 
         let event = json!({
             "sender": alice.user_id(),
@@ -298,8 +300,8 @@ pub(crate) mod tests {
         let relation = decrypted.get("content").and_then(|c| c.get("m.relates_to"));
         assert_eq!(relation, Some(&relation_json), "The decrypted event should contain a relation");
 
-        let content = json!({});
-        let encrypted = outbound.encrypt("m.dummy", content).await;
+        let content = message_like_event_content!({});
+        let encrypted = outbound.encrypt("m.dummy", &content).await;
         let mut encrypted: Value = json_convert(&encrypted).unwrap();
         encrypted.as_object_mut().unwrap().insert("m.relates_to".to_owned(), relation_json.clone());
 

@@ -23,10 +23,12 @@ use futures_util::future::join_all;
 use itertools::{Either, Itertools};
 use matrix_sdk_common::executor::spawn;
 use ruma::{
-    events::ToDeviceEventType, serde::Raw, to_device::DeviceIdOrAllDevices, DeviceId,
-    OwnedDeviceId, OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UserId,
+    events::{AnyMessageLikeEventContent, ToDeviceEventType},
+    serde::Raw,
+    to_device::DeviceIdOrAllDevices,
+    DeviceId, OwnedDeviceId, OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId,
+    UserId,
 };
-use serde_json::Value;
 use tracing::{debug, error, info, instrument, trace};
 
 use crate::{
@@ -203,7 +205,7 @@ impl GroupSessionManager {
         &self,
         room_id: &RoomId,
         event_type: &str,
-        content: Value,
+        content: &Raw<AnyMessageLikeEventContent>,
     ) -> MegolmResult<Raw<RoomEncryptedEventContent>> {
         let session =
             self.sessions.get_or_load(room_id).await.expect("Session wasn't created nor shared");

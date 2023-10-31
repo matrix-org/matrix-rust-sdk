@@ -789,11 +789,11 @@ impl OlmMachine {
         content: String,
     ) -> Result<String, CryptoStoreError> {
         let room_id = RoomId::parse(room_id)?;
-        let content: Value = serde_json::from_str(&content)?;
+        let content = serde_json::from_str(&content)?;
 
         let encrypted_content = self
             .runtime
-            .block_on(self.inner.encrypt_room_event_raw(&room_id, &event_type, content))
+            .block_on(self.inner.encrypt_room_event_raw(&room_id, &event_type, &content))
             .expect("Encrypting an event produced an error");
 
         Ok(serde_json::to_string(&encrypted_content)?)

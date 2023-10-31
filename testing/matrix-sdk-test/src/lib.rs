@@ -7,6 +7,18 @@ use ruma::{
 };
 use serde_json::Value as JsonValue;
 
+/// Create a `Raw<AnyMessageLikeEventContent>` from arbitrary JSON.
+///
+/// Forwards all arguments to [`serde_json::json`].
+#[macro_export]
+macro_rules! message_like_event_content {
+    ($( $tt:tt )*) => {
+        ::ruma::serde::Raw::new(&::serde_json::json!( $($tt)* ))
+            .unwrap()
+            .cast::<::ruma::events::AnyMessageLikeEventContent>()
+    }
+}
+
 /// Create a `Raw<AnyTimelineEvent>` from arbitrary JSON.
 ///
 /// Forwards all arguments to [`serde_json::json`].
