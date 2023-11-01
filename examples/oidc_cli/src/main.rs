@@ -48,7 +48,7 @@ use matrix_sdk::{
 use matrix_sdk_ui::sync_service::SyncService;
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use serde::{Deserialize, Serialize};
-use tokio::{fs, net::TcpListener, sync::oneshot};
+use tokio::{fs, io::AsyncBufReadExt as _, net::TcpListener, sync::oneshot};
 use tower::make::Shared;
 use url::Url;
 
@@ -483,7 +483,7 @@ impl OidcCli {
             let mut num_running = 0;
 
             let mut _unused = String::new();
-            let stdin = async_std::io::stdin();
+            let mut stdin = tokio::io::BufReader::new(tokio::io::stdin());
 
             loop {
                 // Concurrently wait for an update from the sync service OR for the user to

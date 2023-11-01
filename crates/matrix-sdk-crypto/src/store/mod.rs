@@ -42,12 +42,12 @@ use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     fmt::Debug,
     ops::Deref,
+    pin::pin,
     sync::{atomic::Ordering, Arc, RwLock as StdRwLock},
     time::Duration,
 };
 
 use as_variant::as_variant;
-use async_std::sync::{Condvar, Mutex as AsyncStdMutex};
 use futures_core::Stream;
 use futures_util::StreamExt;
 use ruma::{
@@ -55,7 +55,7 @@ use ruma::{
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use thiserror::Error;
-use tokio::sync::{Mutex, MutexGuard, OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
+use tokio::sync::{Mutex, MutexGuard, Notify, OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
 use tracing::{info, warn};
 use vodozemac::{base64_encode, megolm::SessionOrdering, Curve25519PublicKey};
 use zeroize::Zeroize;
@@ -108,14 +108,10 @@ pub struct Store {
 #[derive(Debug, Default)]
 pub(crate) struct KeyQueryManager {
     /// Record of the users that are waiting for a /keys/query.
-    //
-    // This uses an async_std::sync::Mutex rather than a
-    // matrix_sdk_common::locks::Mutex because it has to match the Condvar (and tokio lacks a
-    // working Condvar implementation)
-    users_for_key_query: AsyncStdMutex<UsersForKeyQuery>,
+    users_for_key_query: Mutex<UsersForKeyQuery>,
 
-    // condition variable that is notified each time an update is received for a user.
-    users_for_key_query_condvar: Condvar,
+    /// Notifier that is triggered each time an update is received for a user.
+    users_for_key_query_notify: Notify,
 }
 
 impl KeyQueryManager {
@@ -204,15 +200,26 @@ impl<'a> SyncedKeyQueryManager<'a> {
         user: &UserId,
     ) -> UserKeyQueryResult {
         let mut users_for_key_query = self.manager.users_for_key_query.lock().await;
-
         let Some(waiter) = users_for_key_query.maybe_register_waiting_task(user) else {
             return UserKeyQueryResult::WasNotPending;
         };
 
         let wait_for_completion = async {
             while !waiter.completed.load(Ordering::Relaxed) {
-                users_for_key_query =
-                    self.manager.users_for_key_query_condvar.wait(users_for_key_query).await;
+                // Register for being notified before releasing the mutex, so
+                // it's impossible to miss a wakeup between the last check for
+                // whether we should wait, and starting to wait.
+                let mut notified = pin!(self.manager.users_for_key_query_notify.notified());
+                notified.as_mut().enable();
+                drop(users_for_key_query);
+
+                // Wait for a notification
+                notified.await;
+
+                // Reclaim the lock before checking the flag to avoid races
+                // when two notifications happen right after each other and the
+                // second one sets the flag we want to wait for.
+                users_for_key_query = self.manager.users_for_key_query.lock().await;
             }
         };
 
@@ -281,7 +288,7 @@ impl<'a> SyncedKeyQueryManager<'a> {
 
         self.cache.store.save_tracked_users(&store_updates).await?;
         // wake up any tasks that may have been waiting for updates
-        self.manager.users_for_key_query_condvar.notify_all();
+        self.manager.users_for_key_query_notify.notify_waiters();
 
         Ok(())
     }
