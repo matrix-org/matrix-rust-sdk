@@ -796,7 +796,19 @@ mod tests {
 
     #[async_test]
     async fn failed_devices_handling() {
-        let response_with_invalid_signature = json!({
+        // Alice's device is present but with no keys
+        test_invalid_claim_response(json!({
+            "one_time_keys": {
+                "@alice:example.org": {
+                    "DEVICEID": {}
+                }
+            },
+            "failures": {},
+        }))
+        .await;
+
+        // Alice's device is present with a bad signature
+        test_invalid_claim_response(json!({
             "one_time_keys": {
                 "@alice:example.org": {
                     "DEVICEID": {
@@ -813,9 +825,16 @@ mod tests {
                 }
             },
             "failures": {},
-        });
+        })).await;
+    }
 
-        let response = response_from_file(&response_with_invalid_signature);
+    /// Helper for failed_devices_handling.
+    ///
+    /// Takes an invalid /keys/claim response for Alice's device DEVICEID and
+    /// checks that it is handled correctly. (The device should be marked as
+    /// 'failed'; and once that
+    async fn test_invalid_claim_response(response_json: serde_json::Value) {
+        let response = response_from_file(&response_json);
         let response = KeyClaimResponse::try_from_http_response(response).unwrap();
 
         let alice = user_id!("@alice:example.org");
