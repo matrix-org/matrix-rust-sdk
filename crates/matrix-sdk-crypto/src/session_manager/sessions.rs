@@ -344,7 +344,7 @@ impl SessionManager {
         response: &KeysClaimResponse,
     ) -> OlmResult<()> {
         // First check that the response is for the request we were expecting.
-        let _request = {
+        let request = {
             let mut guard = self.current_key_claim_request.write().unwrap();
             let expected_request_id = guard.as_ref().map(|e| e.0.as_ref());
             if Some(request_id) != expected_request_id {
@@ -380,14 +380,15 @@ impl SessionManager {
 
         debug!(?request_id, ?one_time_keys, failures = ?response.failures, "Received a `/keys/claim` response");
 
-        let failed_servers = response
+        let failed_servers: BTreeSet<_> = response
             .failures
             .keys()
             .filter_map(|s| ServerName::parse(s).ok())
-            .filter(|s| s != self.store.static_account().user_id.server_name());
+            .filter(|s| s != self.store.static_account().user_id.server_name())
+            .collect();
         let successful_servers = response.one_time_keys.keys().map(|u| u.server_name());
 
-        self.failures.extend(failed_servers);
+        self.failures.extend(failed_servers.iter().cloned());
         self.failures.remove(successful_servers);
 
         // build a map of user_id -> device_id -> key for each device we can start a
@@ -401,16 +402,32 @@ impl SessionManager {
         // missing
         let mut missing_devices: Vec<(OwnedUserId, OwnedDeviceId)> = Vec::new();
 
-        for (user_id, user_devices) in response.one_time_keys.iter() {
-            for (device_id, key_map) in user_devices {
-                match key_map.values().next() {
+        for (user_id, user_devices) in request.one_time_keys.into_iter() {
+            // If the user's server is listed within the failed_servers, don't bother
+            // hunting for it in the results. (This mainly ensures that we don't
+            // end up recording the user's devices in `failed_devices` *as well as* the
+            // server in `failures`.)
+            if failed_servers.contains(user_id.server_name()) {
+                warn!(
+                    ?user_id,
+                    "Tried to create a new Olm session, but the user's server is unreachable",
+                );
+
+                continue;
+            }
+
+            let user_response = response.one_time_keys.get(&user_id);
+            for (device_id, _algorithm) in user_devices.into_iter() {
+                let key_map = user_response.map_or(None, |r| r.get(&device_id));
+
+                match key_map.map_or(None, |m| m.values().next()) {
                     Some(k) => {
-                        device_map.entry(user_id.clone()).or_default().insert(device_id.clone(), k);
+                        device_map.entry(user_id.clone()).or_default().insert(device_id, k);
                     }
                     None => {
                         missing_devices.push((user_id.clone(), device_id.clone()));
                     }
-                };
+                }
             }
         }
 
