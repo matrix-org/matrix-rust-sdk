@@ -871,17 +871,29 @@ mod tests {
             .or_insert_with(BTreeMap::new)
             .insert(alice_account.device_id().to_owned(), one_time);
 
-        // Now we receive a valid one-time key from Alice.
+        // Now we expire Alice's timeout, and receive a valid one-time key for her.
+        manager
+            .failed_devices
+            .write()
+            .unwrap()
+            .get(alice)
+            .unwrap()
+            .expire(&alice_account.device_id().to_owned());
+        let (_, users_for_key_claim) =
+            manager.get_missing_sessions(iter::once(alice)).await.unwrap().unwrap();
+        assert!(users_for_key_claim.one_time_keys.contains_key(alice));
+
         let response = KeyClaimResponse::new(one_time_keys);
         manager.receive_keys_claim_response(&response).await.unwrap();
 
         // Alice isn't timed out anymore.
-        assert!(!manager
+        assert!(manager
             .failed_devices
-            .write()
+            .read()
             .unwrap()
-            .entry(alice.to_owned())
-            .or_default()
-            .contains(alice_account.device_id()));
+            .get(alice)
+            .unwrap()
+            .failure_count(alice_account.device_id())
+            .is_none());
     }
 }
