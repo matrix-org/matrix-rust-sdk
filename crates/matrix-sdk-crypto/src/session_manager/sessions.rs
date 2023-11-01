@@ -866,6 +866,22 @@ mod tests {
 
     #[async_test]
     async fn failed_devices_handling() {
+        // Alice is missing altogether
+        test_invalid_claim_response(json!({
+            "one_time_keys": {},
+            "failures": {},
+        }))
+        .await;
+
+        // Alice is present but with no devices
+        test_invalid_claim_response(json!({
+            "one_time_keys": {
+                "@alice:example.org": {}
+            },
+            "failures": {},
+        }))
+        .await;
+
         // Alice's device is present but with no keys
         test_invalid_claim_response(json!({
             "one_time_keys": {
