@@ -109,8 +109,6 @@ mod tests {
     async fn test_timer_name() {
         use tracing::{span, Level};
 
-        tracing_subscriber::fmt().with_max_level(tracing::Level::DEBUG).init();
-
         tracing::warn!("Starting test...");
 
         mod time123 {

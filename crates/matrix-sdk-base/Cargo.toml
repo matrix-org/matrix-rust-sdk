@@ -58,11 +58,9 @@ tracing = { workspace = true }
 assert_matches = { workspace = true }
 assert_matches2 = { workspace = true }
 assign = "1.1.1"
-ctor = { workspace = true }
 futures-executor = { workspace = true }
 http = { workspace = true }
 matrix-sdk-test = { version = "0.6.0", path = "../../testing/matrix-sdk-test" }
-tracing-subscriber = { version = "0.3.11", features = ["env-filter"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

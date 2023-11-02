@@ -20,21 +20,6 @@ use tokio::sync::Mutex;
 
 static USERS: Lazy<Mutex<HashMap<String, (Client, TempDir)>>> = Lazy::new(Mutex::default);
 
-#[ctor::ctor]
-fn init_logging() {
-    use tracing::Level;
-    use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::builder()
-                .with_default_directive(Level::TRACE.into())
-                .from_env()
-                .unwrap(),
-        )
-        .with(tracing_subscriber::fmt::layer().with_test_writer())
-        .init();
-}
-
 pub struct TestClientBuilder {
     username: String,
     use_sqlite: bool,

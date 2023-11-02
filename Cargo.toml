@@ -27,7 +27,6 @@ async-trait = "0.1.60"
 as_variant = "1.2.0"
 base64 = "0.21.0"
 byteorder = "1.4.3"
-ctor = "0.2.0"
 eyeball = { version = "0.8.7", features = ["tracing"] }
 eyeball-im = { version = "0.4.1", features = ["tracing"] }
 eyeball-im-util = "0.5.1"

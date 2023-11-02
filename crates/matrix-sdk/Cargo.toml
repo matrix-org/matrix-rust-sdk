@@ -159,6 +159,5 @@ tracing-subscriber = { version = "0.3.11", features = ["env-filter"] }
 wasm-bindgen-test = "0.3.33"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
-ctor = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 wiremock = "0.5.13"
