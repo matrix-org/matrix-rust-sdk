@@ -3048,7 +3048,6 @@ dependencies = [
  "bytesize",
  "cfg-vis",
  "chrono",
- "ctor",
  "dirs",
  "event-listener 3.0.0",
  "eyeball",
@@ -3108,7 +3107,6 @@ dependencies = [
  "assign",
  "async-trait",
  "bitflags 2.4.0",
- "ctor",
  "eyeball",
  "futures-executor",
  "futures-util",
@@ -3124,7 +3122,6 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
- "tracing-subscriber",
  "wasm-bindgen-test",
 ]
 
@@ -3168,7 +3165,6 @@ dependencies = [
  "byteorder",
  "cbc",
  "cfg-if",
- "ctor",
  "ctr",
  "eyeball",
  "futures-core",
@@ -3197,7 +3193,6 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tracing",
- "tracing-subscriber",
  "ulid",
  "vodozemac",
  "zeroize",
@@ -3311,18 +3306,17 @@ dependencies = [
  "assert_matches",
  "assert_matches2",
  "assign",
- "ctor",
  "eyeball-im",
  "futures-core",
  "futures-util",
  "matrix-sdk",
+ "matrix-sdk-test",
  "matrix-sdk-ui",
  "once_cell",
  "rand 0.8.5",
  "tempfile",
  "tokio",
  "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -3343,7 +3337,6 @@ version = "0.1.0"
 dependencies = [
  "assert_matches",
  "async-trait",
- "ctor",
  "deadpool-sqlite",
  "glob",
  "itertools 0.11.0",
@@ -3361,7 +3354,6 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
- "tracing-subscriber",
  "vodozemac",
 ]
 
@@ -3389,6 +3381,7 @@ dependencies = [
 name = "matrix-sdk-test"
 version = "0.6.0"
 dependencies = [
+ "ctor",
  "getrandom 0.2.10",
  "http",
  "matrix-sdk-test-macros",
@@ -3397,6 +3390,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "tracing-subscriber",
  "wasm-bindgen-test",
 ]
 
@@ -3423,7 +3417,6 @@ dependencies = [
  "async-trait",
  "async_cell",
  "chrono",
- "ctor",
  "eyeball",
  "eyeball-im",
  "eyeball-im-util",
@@ -3447,7 +3440,6 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
- "tracing-subscriber",
  "unicode-normalization",
  "url",
  "wiremock",

@@ -33,15 +33,7 @@ mod sliding_sync;
 mod sync_service;
 mod timeline;
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
-#[ctor::ctor]
-fn init_logging() {
-    use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-    tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::from_default_env())
-        .with(tracing_subscriber::fmt::layer().with_test_writer())
-        .init();
-}
+matrix_sdk_test::init_tracing_for_tests!();
 
 async fn test_client_builder() -> (ClientBuilder, MockServer) {
     let server = MockServer::start().await;
