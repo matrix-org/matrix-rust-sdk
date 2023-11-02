@@ -111,6 +111,32 @@ pub async fn generate_webview_url(
     .map(|url| url.to_string())?)
 }
 
+/// Defines if a call is encrypted and which encryption system should be used.
+///
+/// This controls the url parameters: `enableE2EE`, `perParticipantE2EE`, `password`.
+#[derive(uniffi::Enum, Clone)]
+pub enum EncryptionSystem {
+    /// equivalent to the element call url parameter: `enableE2EE=false`
+    Unencrypted,
+    /// equivalent to the element call url parameters: `enableE2EE=true&perParticipantE2EE=true`
+    PerSenderKeys,
+    /// equivalent to the element call url parameters: `enableE2EE=true&password={secret}`
+    SharedSecret {
+        /// The secret/password which is used in the url.
+        secret: String,
+    },
+}
+
+impl From<EncryptionSystem> for matrix_sdk::widget::EncryptionSystem {
+    fn from(value: EncryptionSystem) -> Self {
+        match value {
+            EncryptionSystem::Unencrypted => Self::Unencrypted,
+            EncryptionSystem::PerSenderKeys => Self::PerParticipantKeys,
+            EncryptionSystem::SharedSecret { secret } => Self::SharedSecret { secret },
+        }
+    }
+}
+
 /// Properties to create a new virtual Element Call widget.
 #[derive(uniffi::Record, Clone)]
 pub struct VirtualElementCallWidgetOptions {
@@ -175,21 +201,10 @@ pub struct VirtualElementCallWidgetOptions {
     /// Can be used to pass a PostHog id to element call.
     pub analytics_id: Option<String>,
 
-    /// Whether to use e2ee.
-    /// If `per_participant_e2ee` is enabled,
-    /// this will use matrix to exchange keys.
-    /// Otherwise a password in the url is expected.
-    /// (A password should only be used for sharable links and not in embedded
-    /// mode. Passwords are planned to get deprecated and are not supported
-    /// in the rust sdk.)
+    /// The encryption system to use.
     ///
-    /// Default: `true`
-    pub enable_e2ee: Option<bool>,
-
-    /// Use matrix to exchange per participant keys.
-    ///
-    /// Default: `true`
-    pub per_participant_e2ee: Option<bool>,
+    /// Use `EncryptionSystem::Unencrypted` to disable encryption.
+    pub encryption: EncryptionSystem,
 }
 
 impl From<VirtualElementCallWidgetOptions> for matrix_sdk::widget::VirtualElementCallWidgetOptions {
@@ -206,8 +221,7 @@ impl From<VirtualElementCallWidgetOptions> for matrix_sdk::widget::VirtualElemen
             confine_to_room: value.confine_to_room,
             font: value.font,
             analytics_id: value.analytics_id,
-            enable_e2ee: value.enable_e2ee,
-            per_participant_e2ee: value.per_participant_e2ee,
+            encryption: value.encryption.into(),
         }
     }
 }

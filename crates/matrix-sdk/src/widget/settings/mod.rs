@@ -21,7 +21,7 @@ use crate::Room;
 mod element_call;
 mod url_params;
 
-pub use self::element_call::VirtualElementCallWidgetOptions;
+pub use self::element_call::{EncryptionSystem, VirtualElementCallWidgetOptions};
 
 /// Settings of the widget.
 #[derive(Debug, Clone)]

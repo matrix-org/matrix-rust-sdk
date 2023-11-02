@@ -50,6 +50,23 @@ struct ElementCallParams {
     enable_e2ee: bool,
     #[serde(rename = "perParticipantE2EE")]
     per_participant_e2ee: bool,
+    password: Option<String>,
+}
+
+/// Defines if a call is encrypted and which encryption system should be used.
+///
+/// This controls the url parameters: `enableE2EE`, `perParticipantE2EE`, `password`.
+#[derive(Debug, PartialEq)]
+pub enum EncryptionSystem {
+    /// equivalent to the element call url parameter: `enableE2EE=false`
+    Unencrypted,
+    /// equivalent to the element call url parameters: `enableE2EE=true&perParticipantE2EE=true`
+    PerParticipantKeys,
+    /// equivalent to the element call url parameters: `enableE2EE=true&password={secret}`
+    SharedSecret {
+        /// The secret/password which is used in the url.
+        secret: String,
+    },
 }
 
 /// Properties to create a new virtual Element Call widget.
@@ -116,21 +133,10 @@ pub struct VirtualElementCallWidgetOptions {
     /// Can be used to pass a PostHog id to element call.
     pub analytics_id: Option<String>,
 
-    /// Whether to use e2ee.
-    /// If `per_participant_e2ee` is enabled,
-    /// this will use matrix to exchange keys.
-    /// Otherwise a password in the url is expected.
-    /// (A password should only be used for sharable links and not in embedded
-    /// mode. Passwords are planned to get deprecated and are not supported
-    /// in the rust sdk.)
+    /// The encryption system to use.
     ///
-    /// Default: `true`
-    pub enable_e2ee: Option<bool>,
-
-    /// Use matrix to exchange per participant keys.
-    ///
-    /// Default: `true`
-    pub per_participant_e2ee: Option<bool>,
+    /// Use `EncryptionSystem::Unencrypted` to disable encryption.
+    pub encryption: EncryptionSystem,
 }
 
 impl WidgetSettings {
@@ -172,8 +178,12 @@ impl WidgetSettings {
             analytics_id: props.analytics_id,
             font_scale: props.font_scale,
             font: props.font,
-            enable_e2ee: props.enable_e2ee.unwrap_or(true),
-            per_participant_e2ee: props.per_participant_e2ee.unwrap_or(true),
+            enable_e2ee: { props.encryption != EncryptionSystem::Unencrypted },
+            per_participant_e2ee: props.encryption == EncryptionSystem::PerParticipantKeys,
+            password: match props.encryption {
+                EncryptionSystem::SharedSecret { secret } => Some(secret),
+                _ => None,
+            },
         };
 
         let query =
@@ -203,7 +213,7 @@ mod tests {
 
     const WIDGET_ID: &str = "1/@#w23";
 
-    fn get_widget_settings() -> WidgetSettings {
+    fn get_widget_settings(encryption: Option<EncryptionSystem>) -> WidgetSettings {
         WidgetSettings::new_virtual_element_call_widget(VirtualElementCallWidgetOptions {
             element_call_url: "https://call.element.io".to_owned(),
             widget_id: WIDGET_ID.to_owned(),
@@ -216,8 +226,7 @@ mod tests {
             confine_to_room: Some(true),
             font: None,
             analytics_id: None,
-            enable_e2ee: None,
-            per_participant_e2ee: None,
+            encryption: encryption.unwrap_or(EncryptionSystem::PerParticipantKeys),
         })
         .expect("could not parse virtual element call widget")
     }
@@ -238,7 +247,7 @@ mod tests {
 
     use serde_html_form::from_str;
 
-    use super::VirtualElementCallWidgetOptions;
+    use super::{EncryptionSystem, VirtualElementCallWidgetOptions};
 
     fn get_query_sets(url: &Url) -> Option<(QuerySet, QuerySet)> {
         let fq = from_str::<QuerySet>(url.fragment_query().unwrap_or_default()).ok()?;
@@ -248,7 +257,7 @@ mod tests {
 
     #[test]
     fn new_virtual_element_call_widget_base_url() {
-        let widget_settings = get_widget_settings();
+        let widget_settings = get_widget_settings(None);
         assert_eq!(widget_settings.base_url().unwrap().as_str(), "https://call.element.io/");
     }
 
@@ -275,7 +284,7 @@ mod tests {
                 &perParticipantE2EE=true\
         ";
 
-        let mut url = get_widget_settings().raw_url().clone();
+        let mut url = get_widget_settings(None).raw_url().clone();
         let mut gen = Url::parse(CONVERTED_URL).unwrap();
         assert_eq!(get_query_sets(&url).unwrap(), get_query_sets(&gen).unwrap());
         url.set_fragment(None);
@@ -287,7 +296,25 @@ mod tests {
 
     #[test]
     fn new_virtual_element_call_widget_id() {
-        assert_eq!(get_widget_settings().widget_id(), WIDGET_ID);
+        assert_eq!(get_widget_settings(None).widget_id(), WIDGET_ID);
+    }
+
+    fn setting_to_example_url(settings: WidgetSettings) -> String {
+        settings
+            ._generate_webview_url(
+                get_profile::v3::Response::new(Some("some-url".into()), Some("hello".into())),
+                "@test:user.org".try_into().unwrap(),
+                "!room_id:room.org".try_into().unwrap(),
+                "ABCDEFG".into(),
+                "https://client-matrix.server.org".try_into().unwrap(),
+                ClientProperties::new(
+                    "io.my_matrix.client",
+                    Some(language_tags::LanguageTag::parse("en-us").unwrap()),
+                    Some("light".into()),
+                ),
+            )
+            .unwrap()
+            .to_string()
     }
 
     #[test]
@@ -311,21 +338,8 @@ mod tests {
                 &perParticipantE2EE=true\
         ";
 
-        let gen = get_widget_settings()
-            ._generate_webview_url(
-                get_profile::v3::Response::new(Some("some-url".into()), Some("hello".into())),
-                "@test:user.org".try_into().unwrap(),
-                "!room_id:room.org".try_into().unwrap(),
-                "ABCDEFG".into(),
-                "https://client-matrix.server.org".try_into().unwrap(),
-                ClientProperties::new(
-                    "io.my_matrix.client",
-                    Some(language_tags::LanguageTag::parse("en-us").unwrap()),
-                    Some("light".into()),
-                ),
-            )
-            .unwrap()
-            .to_string();
+        let gen = setting_to_example_url(get_widget_settings(None));
+
         let mut url = Url::parse(&gen).unwrap();
         let mut gen = Url::parse(CONVERTED_URL).unwrap();
         assert_eq!(get_query_sets(&url).unwrap(), get_query_sets(&gen).unwrap());
@@ -334,5 +348,61 @@ mod tests {
         gen.set_fragment(None);
         gen.set_query(None);
         assert_eq!(url, gen);
+    }
+
+    #[test]
+    fn password_url_props_from_widget_settings() {
+        {
+            // PerParticipantKeys
+            let url = setting_to_example_url(get_widget_settings(Some(
+                EncryptionSystem::PerParticipantKeys,
+            )));
+            let query_set = get_query_sets(&Url::parse(&url).unwrap()).unwrap().1;
+            let expected_elements = [
+                ("perParticipantE2EE".to_owned(), "true".to_owned()),
+                ("enableE2EE".to_owned(), "true".to_owned()),
+            ];
+            for e in expected_elements {
+                assert!(
+                    query_set.contains(&e),
+                    "The query elements: \n{:?}\nDid not contain: \n{:?}",
+                    query_set,
+                    e
+                );
+            }
+        }
+        {
+            // Unencrypted
+            let url =
+                setting_to_example_url(get_widget_settings(Some(EncryptionSystem::Unencrypted)));
+            let query_set = get_query_sets(&Url::parse(&url).unwrap()).unwrap().1;
+            let expected_elements = ("enableE2EE".to_owned(), "false".to_owned());
+            assert!(
+                query_set.contains(&expected_elements),
+                "The query elements: \n{:?}\nDid not contain: \n{:?}",
+                query_set,
+                expected_elements
+            );
+        }
+        {
+            // SharedSecret
+            let url =
+                setting_to_example_url(get_widget_settings(Some(EncryptionSystem::SharedSecret {
+                    secret: "this_surely_is_save".to_owned(),
+                })));
+            let query_set = get_query_sets(&Url::parse(&url).unwrap()).unwrap().1;
+            let expected_elements = [
+                ("password".to_owned(), "this_surely_is_save".to_owned()),
+                ("enableE2EE".to_owned(), "true".to_owned()),
+            ];
+            for e in expected_elements {
+                assert!(
+                    query_set.contains(&e),
+                    "The query elements: \n{:?}\nDid not contain: \n{:?}",
+                    query_set,
+                    e
+                );
+            }
+        }
     }
 }
