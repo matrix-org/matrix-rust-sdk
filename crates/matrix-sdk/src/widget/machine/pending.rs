@@ -80,7 +80,7 @@ impl<T> PendingRequests<T> {
         self.requests.retain(|id, req| {
             let expired = req.expired();
             if expired {
-                warn!(id, "Dropping response for an expired request");
+                warn!(?id, "Dropping response for an expired request");
             }
             expired
         });
