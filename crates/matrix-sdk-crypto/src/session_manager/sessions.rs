@@ -350,12 +350,16 @@ impl SessionManager {
         self.failures.extend(failed_servers);
         self.failures.remove(successful_servers);
 
-        // build a map of user_id -> device_id -> key for each device to we can start
-        // a session with.
+        // build a map of user_id -> device_id -> key for each device we can start a
+        // session with...
         let mut device_map: BTreeMap<
             OwnedUserId,
             BTreeMap<OwnedDeviceId, &Raw<ruma::encryption::OneTimeKey>>,
         > = BTreeMap::new();
+
+        // ... and a list of (user_id, device_id) pairs where the one-time-key is
+        // missing
+        let mut missing_devices: Vec<(OwnedUserId, OwnedDeviceId)> = Vec::new();
 
         for (user_id, user_devices) in response.one_time_keys.iter() {
             for (device_id, key_map) in user_devices {
@@ -364,20 +368,23 @@ impl SessionManager {
                         device_map.entry(user_id.clone()).or_default().insert(device_id.clone(), k);
                     }
                     None => {
-                        warn!(
-                            user_id = user_id.as_str(),
-                            device_id = device_id.as_str(),
-                            "Tried to create a new Olm session, but the signed one-time key is missing",
-                        );
-
-                        self.failed_devices
-                            .write()
-                            .unwrap()
-                            .entry(user_id.clone())
-                            .or_default()
-                            .insert(device_id.clone());
+                        missing_devices.push((user_id.clone(), device_id.clone()));
                     }
                 };
+            }
+        }
+
+        // process all the missing devices at once to save repeatedly grabbing the lock
+        if !missing_devices.is_empty() {
+            warn!(
+                ?missing_devices,
+                "Tried to create a new sessions, but the signed one-time key was missing for some devices",
+            );
+
+            let mut failed_devices_lock = self.failed_devices.write().unwrap();
+
+            for (user_id, device_id) in missing_devices {
+                failed_devices_lock.entry(user_id).or_default().insert(device_id);
             }
         }
 
