@@ -115,11 +115,17 @@ pub struct VirtualElementCallWidgetOptions {
 
     /// Can be used to pass a PostHog id to element call.
     pub analytics_id: Option<String>,
-    /// Whether to use e2ee. If `per_participant_e2ee` is enabled,
+
+    /// Whether to use e2ee.
+    /// If `per_participant_e2ee` is enabled,
     /// this will use matrix to exchange keys.
+    /// Otherwise a password in the url is expected.
+    /// (A password should only be used for sharable links and not in embedded mode.
+    /// Passwords are planned to get deprecated and are not supported in the rust sdk.)
     ///
     /// Default: `true`
     pub enable_e2ee: Option<bool>,
+
     /// Use matrix to exchange per participant keys.
     ///
     /// Default: `true`
