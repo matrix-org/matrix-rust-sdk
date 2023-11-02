@@ -55,14 +55,17 @@ struct ElementCallParams {
 
 /// Defines if a call is encrypted and which encryption system should be used.
 ///
-/// This controls the url parameters: `enableE2EE`, `perParticipantE2EE`, `password`.
+/// This controls the url parameters: `enableE2EE`, `perParticipantE2EE`,
+/// `password`.
 #[derive(Debug, PartialEq)]
 pub enum EncryptionSystem {
-    /// equivalent to the element call url parameter: `enableE2EE=false`
+    /// Equivalent to the element call url parameter: `enableE2EE=false`
     Unencrypted,
-    /// equivalent to the element call url parameters: `enableE2EE=true&perParticipantE2EE=true`
+    /// Equivalent to the element call url parameters:
+    /// `enableE2EE=true&perParticipantE2EE=true`
     PerParticipantKeys,
-    /// equivalent to the element call url parameters: `enableE2EE=true&password={secret}`
+    /// Equivalent to the element call url parameters:
+    /// `enableE2EE=true&password={secret}`
     SharedSecret {
         /// The secret/password which is used in the url.
         secret: String,
@@ -299,7 +302,7 @@ mod tests {
         assert_eq!(get_widget_settings(None).widget_id(), WIDGET_ID);
     }
 
-    fn setting_to_example_url(settings: WidgetSettings) -> String {
+    fn build_url_from_widget_settings(settings: WidgetSettings) -> String {
         settings
             ._generate_webview_url(
                 get_profile::v3::Response::new(Some("some-url".into()), Some("hello".into())),
@@ -338,7 +341,7 @@ mod tests {
                 &perParticipantE2EE=true\
         ";
 
-        let gen = setting_to_example_url(get_widget_settings(None));
+        let gen = build_url_from_widget_settings(get_widget_settings(None));
 
         let mut url = Url::parse(&gen).unwrap();
         let mut gen = Url::parse(CONVERTED_URL).unwrap();
@@ -354,7 +357,7 @@ mod tests {
     fn password_url_props_from_widget_settings() {
         {
             // PerParticipantKeys
-            let url = setting_to_example_url(get_widget_settings(Some(
+            let url = build_url_from_widget_settings(get_widget_settings(Some(
                 EncryptionSystem::PerParticipantKeys,
             )));
             let query_set = get_query_sets(&Url::parse(&url).unwrap()).unwrap().1;
@@ -373,8 +376,9 @@ mod tests {
         }
         {
             // Unencrypted
-            let url =
-                setting_to_example_url(get_widget_settings(Some(EncryptionSystem::Unencrypted)));
+            let url = build_url_from_widget_settings(get_widget_settings(Some(
+                EncryptionSystem::Unencrypted,
+            )));
             let query_set = get_query_sets(&Url::parse(&url).unwrap()).unwrap().1;
             let expected_elements = ("enableE2EE".to_owned(), "false".to_owned());
             assert!(
@@ -386,10 +390,9 @@ mod tests {
         }
         {
             // SharedSecret
-            let url =
-                setting_to_example_url(get_widget_settings(Some(EncryptionSystem::SharedSecret {
-                    secret: "this_surely_is_save".to_owned(),
-                })));
+            let url = build_url_from_widget_settings(get_widget_settings(Some(
+                EncryptionSystem::SharedSecret { secret: "this_surely_is_save".to_owned() },
+            )));
             let query_set = get_query_sets(&Url::parse(&url).unwrap()).unwrap().1;
             let expected_elements = [
                 ("password".to_owned(), "this_surely_is_save".to_owned()),
