@@ -5,11 +5,7 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
-[features]
-# activate to steal helper functions from this crate for other testing
-helpers = []
-
-[dependencies]
+[dev-dependencies]
 assert_matches = { workspace = true }
 assert_matches2 = { workspace = true }
 anyhow = { workspace = true }
