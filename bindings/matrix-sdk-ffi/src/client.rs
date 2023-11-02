@@ -278,7 +278,7 @@ impl Client {
                 )
                 .await?;
 
-            Ok(Arc::new(MediaFileHandle { inner: handle }))
+            Ok(Arc::new(MediaFileHandle::new(handle)))
         })
     }
 
@@ -1124,13 +1124,45 @@ fn gen_transaction_id() -> String {
 /// is dropped, the file will be removed from the disk.
 #[derive(uniffi::Object)]
 pub struct MediaFileHandle {
-    inner: SdkMediaFileHandle,
+    inner: RwLock<Option<SdkMediaFileHandle>>,
+}
+
+impl MediaFileHandle {
+    fn new(handle: SdkMediaFileHandle) -> Self {
+        Self { inner: RwLock::new(Some(handle)) }
+    }
 }
 
 #[uniffi::export]
 impl MediaFileHandle {
     /// Get the media file's path.
-    pub fn path(&self) -> String {
-        self.inner.path().to_str().unwrap().to_owned()
+    pub fn path(&self) -> Result<String, ClientError> {
+        Ok(self
+            .inner
+            .read()
+            .unwrap()
+            .as_ref()
+            .context("MediaFileHandle must not be used after calling persist")?
+            .path()
+            .to_str()
+            .unwrap()
+            .to_owned())
+    }
+
+    pub fn persist(&self, path: String) -> Result<bool, ClientError> {
+        let mut guard = self.inner.write().unwrap();
+        Ok(
+            match guard
+                .take()
+                .context("MediaFileHandle was already persisted")?
+                .persist(path.as_ref())
+            {
+                Ok(_) => true,
+                Err(e) => {
+                    *guard = Some(e.file);
+                    false
+                }
+            },
+        )
     }
 }
