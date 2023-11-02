@@ -1616,10 +1616,8 @@ impl OlmMachine {
             self.inner
                 .identity_manager
                 .key_query_manager
-                .synced(&cache)
-                .await?
-                .wait_if_user_key_query_pending(timeout, user_id)
-                .await;
+                .wait_if_user_key_query_pending(cache, timeout, user_id)
+                .await?;
         }
         Ok(())
     }
