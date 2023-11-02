@@ -119,7 +119,7 @@ pub enum EncryptionSystem {
     /// equivalent to the element call url parameter: `enableE2EE=false`
     Unencrypted,
     /// equivalent to the element call url parameters: `enableE2EE=true&perParticipantE2EE=true`
-    PerSenderKeys,
+    PerParticipantKeys,
     /// equivalent to the element call url parameters: `enableE2EE=true&password={secret}`
     SharedSecret {
         /// The secret/password which is used in the url.
@@ -131,7 +131,7 @@ impl From<EncryptionSystem> for matrix_sdk::widget::EncryptionSystem {
     fn from(value: EncryptionSystem) -> Self {
         match value {
             EncryptionSystem::Unencrypted => Self::Unencrypted,
-            EncryptionSystem::PerSenderKeys => Self::PerParticipantKeys,
+            EncryptionSystem::PerParticipantKeys => Self::PerParticipantKeys,
             EncryptionSystem::SharedSecret { secret } => Self::SharedSecret { secret },
         }
     }
