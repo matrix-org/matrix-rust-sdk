@@ -120,8 +120,9 @@ pub struct VirtualElementCallWidgetOptions {
     /// If `per_participant_e2ee` is enabled,
     /// this will use matrix to exchange keys.
     /// Otherwise a password in the url is expected.
-    /// (A password should only be used for sharable links and not in embedded mode.
-    /// Passwords are planned to get deprecated and are not supported in the rust sdk.)
+    /// (A password should only be used for sharable links and not in embedded
+    /// mode. Passwords are planned to get deprecated and are not supported
+    /// in the rust sdk.)
     ///
     /// Default: `true`
     pub enable_e2ee: Option<bool>,
