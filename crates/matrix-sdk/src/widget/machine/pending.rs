@@ -82,7 +82,7 @@ impl<T> PendingRequests<T> {
             if expired {
                 warn!(?id, "Dropping response for an expired request");
             }
-            expired
+            !expired
         });
     }
 }
