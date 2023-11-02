@@ -355,6 +355,7 @@ impl SessionManager {
             fallback_key_used: bool,
         }
 
+        #[cfg(not(tarpaulin_include))]
         impl std::fmt::Debug for SessionInfo {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 write!(

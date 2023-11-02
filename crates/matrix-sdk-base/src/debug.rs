@@ -27,6 +27,7 @@ use ruma::{
 /// that only prints the event type of each item.
 pub struct DebugListOfRawEventsNoId<'a, T>(pub &'a [Raw<T>]);
 
+#[cfg(not(tarpaulin_include))]
 impl<'a, T> fmt::Debug for DebugListOfRawEventsNoId<'a, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut list = f.debug_list();
