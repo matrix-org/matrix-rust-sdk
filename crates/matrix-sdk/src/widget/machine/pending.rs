@@ -78,11 +78,11 @@ impl<T> PendingRequests<T> {
     /// Removes all expired requests from the map.
     pub(super) fn remove_expired(&mut self) {
         self.requests.retain(|id, req| {
-            if req.expired() {
-                warn!("Dropping response for an expired request ({id})");
-                return false;
+            let expired = req.expired();
+            if expired {
+                warn!(id, "Dropping response for an expired request");
             }
-            true
+            expired
         });
     }
 }
