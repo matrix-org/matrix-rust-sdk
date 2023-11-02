@@ -46,6 +46,10 @@ struct ElementCallParams {
     analytics_id: Option<String>,
     font_scale: Option<f64>,
     font: Option<String>,
+    #[serde(rename = "enableE2EE")]
+    enable_e2ee: bool,
+    #[serde(rename = "perParticipantE2EE")]
+    per_participant_e2ee: bool,
 }
 
 /// Properties to create a new virtual Element Call widget.
@@ -111,6 +115,15 @@ pub struct VirtualElementCallWidgetOptions {
 
     /// Can be used to pass a PostHog id to element call.
     pub analytics_id: Option<String>,
+    /// Whether to use e2ee. If `per_participant_e2ee` is enabled,
+    /// this will use matrix to exchange keys.
+    ///
+    /// Default: `true`
+    pub enable_e2ee: Option<bool>,
+    /// Use matrix to exchange per participant keys.
+    ///
+    /// Default: `true`
+    pub per_participant_e2ee: Option<bool>,
 }
 
 impl WidgetSettings {
@@ -152,6 +165,8 @@ impl WidgetSettings {
             analytics_id: props.analytics_id,
             font_scale: props.font_scale,
             font: props.font,
+            enable_e2ee: props.enable_e2ee.unwrap_or(true),
+            per_participant_e2ee: props.per_participant_e2ee.unwrap_or(true),
         };
 
         let query =
@@ -194,6 +209,8 @@ mod tests {
             confine_to_room: Some(true),
             font: None,
             analytics_id: None,
+            enable_e2ee: None,
+            per_participant_e2ee: None,
         })
         .expect("could not parse virtual element call widget")
     }
@@ -247,6 +264,8 @@ mod tests {
                 &appPrompt=true\
                 &hideHeader=true\
                 &preload=true\
+                &enableE2EE=true\
+                &perParticipantE2EE=true\
         ";
 
         let mut url = get_widget_settings().raw_url().clone();
@@ -281,6 +300,8 @@ mod tests {
                 &displayName=hello\
                 &appPrompt=true\
                 &clientId=io.my_matrix.client\
+                &enableE2EE=true\
+                &perParticipantE2EE=true\
         ";
 
         let gen = get_widget_settings()
