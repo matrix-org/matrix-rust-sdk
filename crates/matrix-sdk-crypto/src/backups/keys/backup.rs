@@ -41,6 +41,7 @@ pub struct MegolmV1BackupKey {
     inner: Arc<InnerBackupKey>,
 }
 
+#[cfg(not(tarpaulin_include))]
 impl std::fmt::Debug for MegolmV1BackupKey {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter

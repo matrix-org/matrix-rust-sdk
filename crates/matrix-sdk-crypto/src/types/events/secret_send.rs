@@ -66,6 +66,7 @@ impl Drop for SecretSendContent {
     }
 }
 
+#[cfg(not(tarpaulin_include))]
 impl std::fmt::Debug for SecretSendContent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SecretSendContent")

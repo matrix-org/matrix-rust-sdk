@@ -83,6 +83,7 @@ impl SyncResponse {
     }
 }
 
+#[cfg(not(tarpaulin_include))]
 impl fmt::Debug for SyncResponse {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SyncResponse")
@@ -122,6 +123,7 @@ pub enum RoomUpdate {
     },
 }
 
+#[cfg(not(tarpaulin_include))]
 impl fmt::Debug for RoomUpdate {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

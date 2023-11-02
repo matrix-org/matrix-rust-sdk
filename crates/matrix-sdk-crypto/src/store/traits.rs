@@ -277,6 +277,7 @@ pub trait CryptoStore: AsyncTraitDeps {
 #[repr(transparent)]
 struct EraseCryptoStoreError<T>(T);
 
+#[cfg(not(tarpaulin_include))]
 impl<T: fmt::Debug> fmt::Debug for EraseCryptoStoreError<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)

@@ -71,6 +71,7 @@ pub struct SqliteStateStore {
     pool: SqlitePool,
 }
 
+#[cfg(not(tarpaulin_include))]
 impl fmt::Debug for SqliteStateStore {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if let Some(path) = &self.path {
