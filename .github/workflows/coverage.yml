@@ -17,6 +17,9 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  # without matrix_sdk=trace, expressions in `trace!` fields are not evaluated
+  # when the `trace!` statement is hit, and thus not covered
+  RUST_LOG: info,matrix_sdk=trace
 
 jobs:
   code_coverage:
