@@ -17,9 +17,9 @@
 
 #[cfg(feature = "e2e-encryption")]
 use std::io::Read;
-#[cfg(not(target_arch = "wasm32"))]
-use std::path::Path;
 use std::time::Duration;
+#[cfg(not(target_arch = "wasm32"))]
+use std::{fmt, fs::File, io, path::Path};
 
 use eyeball::SharedObservable;
 use futures_util::future::try_join;
@@ -81,6 +81,37 @@ impl MediaFileHandle {
     /// Get the media file's path.
     pub fn path(&self) -> &Path {
         self.file.path()
+    }
+
+    /// Persist the media file to the given path.
+    pub fn persist(self, path: &Path) -> Result<File, PersistError> {
+        self.file.persist(path).map_err(|e| PersistError {
+            error: e.error,
+            file: Self { file: e.file, _directory: self._directory },
+        })
+    }
+}
+
+/// Error returned when [`MediaFileHandle::persist`] fails.
+#[cfg(not(target_arch = "wasm32"))]
+pub struct PersistError {
+    /// The underlying IO error.
+    pub error: io::Error,
+    /// The temporary file that couldn't be persisted.
+    pub file: MediaFileHandle,
+}
+
+#[cfg(not(any(target_arch = "wasm32", tarpaulin_include)))]
+impl fmt::Debug for PersistError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "PersistError({:?})", self.error)
+    }
+}
+
+#[cfg(not(any(target_arch = "wasm32", tarpaulin_include)))]
+impl fmt::Display for PersistError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "failed to persist temporary file: {}", self.error)
     }
 }
 
