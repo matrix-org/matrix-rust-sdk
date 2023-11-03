@@ -50,6 +50,7 @@ use crate::{
     notification::NotificationClientBuilder,
     notification_settings::NotificationSettings,
     sync_service::{SyncService, SyncServiceBuilder},
+    task_handle::TaskHandle,
     ClientError,
 };
 
@@ -153,6 +154,21 @@ pub struct Client {
         Arc<tokio::sync::RwLock<Option<SessionVerificationController>>>,
 }
 
+impl Drop for Client {
+    fn drop(&mut self) {
+        // HACK: the Client holds references to deadpool's pools, which require to be in
+        // a tokio Runtime because their `Drop` impl will use `block_on`. Now, we can't
+        // just drop the stores without breaking all the abstractions, so what
+        // we do instead is that we replace the entire client with a new dummy
+        // one, configured with in-memory stores; that will drop the previous
+        // one.
+        RUNTIME.block_on(async move {
+            let url = self.inner.homeserver();
+            self.inner = MatrixClient::builder().homeserver_url(url).build().await.unwrap();
+        });
+    }
+}
+
 impl Client {
     pub fn new(
         sdk_client: MatrixClient,
@@ -176,21 +192,6 @@ impl Client {
             inner: sdk_client,
             delegate: RwLock::new(None),
             session_verification_controller,
-        });
-
-        let mut session_change_receiver = client.inner.subscribe_to_session_changes();
-        let client_clone = client.clone();
-        RUNTIME.spawn(async move {
-            loop {
-                match session_change_receiver.recv().await {
-                    Ok(session_change) => client_clone.process_session_change(session_change),
-                    Err(receive_error) => {
-                        if let RecvError::Closed = receive_error {
-                            break;
-                        }
-                    }
-                }
-            }
         });
 
         if let Some(process_id) = cross_process_refresh_lock_id {
@@ -345,8 +346,29 @@ impl Client {
 
 #[uniffi::export]
 impl Client {
-    pub fn set_delegate(&self, delegate: Option<Box<dyn ClientDelegate>>) {
-        *self.delegate.write().unwrap() = delegate.map(Arc::from);
+    pub fn set_delegate(
+        self: Arc<Self>,
+        delegate: Option<Box<dyn ClientDelegate>>,
+    ) -> Option<Arc<TaskHandle>> {
+        delegate.map(|delegate| {
+            let mut session_change_receiver = self.inner.subscribe_to_session_changes();
+            let client_clone = self.clone();
+            let session_change_task = RUNTIME.spawn(async move {
+                loop {
+                    match session_change_receiver.recv().await {
+                        Ok(session_change) => client_clone.process_session_change(session_change),
+                        Err(receive_error) => {
+                            if let RecvError::Closed = receive_error {
+                                break;
+                            }
+                        }
+                    }
+                }
+            });
+
+            *self.delegate.write().unwrap() = Some(Arc::from(delegate));
+            Arc::new(TaskHandle::new(session_change_task))
+        })
     }
 
     pub fn session(&self) -> Result<Session, ClientError> {
