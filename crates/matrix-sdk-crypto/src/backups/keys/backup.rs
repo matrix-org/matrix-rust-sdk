@@ -22,10 +22,7 @@ use vodozemac::Curve25519PublicKey;
 use zeroize::Zeroizing;
 
 use super::{compat::PkEncryption, decryption::DecodeError};
-use crate::{
-    olm::InboundGroupSession,
-    types::{MegolmV1AuthData, RoomKeyBackupInfo, Signatures},
-};
+use crate::{olm::InboundGroupSession, types::Signatures};
 
 #[derive(Debug)]
 struct InnerBackupKey {
