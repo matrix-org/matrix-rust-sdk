@@ -408,7 +408,7 @@ impl OlmMachine {
     /// This can be useful if we need the results from [`get_identity`] or
     /// [`get_user_devices`] to be as up-to-date as possible.
     ///
-    /// Note that this request won't be awaiten by other calls waiting for a
+    /// Note that this request won't be awaited by other calls waiting for a
     /// user's or device's keys, since this is an out-of-band query.
     ///
     /// # Arguments
