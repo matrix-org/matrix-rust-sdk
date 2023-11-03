@@ -314,7 +314,7 @@ impl StaticAccountData {
 pub struct Account {
     pub(crate) static_data: StaticAccountData,
     /// `vodozemac` account.
-    inner: InnerAccount,
+    inner: Box<InnerAccount>,
     /// Is this account ready to encrypt messages? (i.e. has it shared keys with
     /// a homeserver)
     shared: bool,
@@ -397,7 +397,7 @@ impl Account {
                 identity_keys: Arc::new(identity_keys),
                 creation_local_time: MilliSecondsSinceUnixEpoch::now(),
             },
-            inner: account,
+            inner: Box::new(account),
             shared: false,
             uploaded_signed_key_count: 0,
         }
@@ -644,7 +644,7 @@ impl Account {
                 identity_keys: Arc::new(identity_keys),
                 creation_local_time: pickle.creation_local_time,
             },
-            inner: account,
+            inner: Box::new(account),
             shared: pickle.shared,
             uploaded_signed_key_count: pickle.uploaded_signed_key_count,
         })
