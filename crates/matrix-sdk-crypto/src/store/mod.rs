@@ -160,6 +160,66 @@ impl KeyQueryManager {
 
         Ok(())
     }
+
+    /// Wait for a `/keys/query` response to be received if one is expected for
+    /// the given user.
+    ///
+    /// If the given timeout elapses, the method will stop waiting and return
+    /// `UserKeyQueryResult::TimeoutExpired`.
+    ///
+    /// Requires a [`StoreCacheGuard`] to make sure the users for which a key
+    /// query is pending are up to date, but doesn't hold on to it
+    /// thereafter: the lock is short-lived in this case.
+    pub async fn wait_if_user_key_query_pending(
+        &self,
+        cache: StoreCacheGuard,
+        timeout_duration: Duration,
+        user: &UserId,
+    ) -> Result<UserKeyQueryResult> {
+        {
+            // Drop the cache early, so we don't keep it while waiting (since writing the
+            // results requires to write in the cache, thus take another lock).
+            self.ensure_sync_tracked_users(&cache).await?;
+            drop(cache);
+        }
+
+        let mut users_for_key_query = self.users_for_key_query.lock().await;
+        let Some(waiter) = users_for_key_query.maybe_register_waiting_task(user) else {
+            return Ok(UserKeyQueryResult::WasNotPending);
+        };
+
+        let wait_for_completion = async {
+            while !waiter.completed.load(Ordering::Relaxed) {
+                // Register for being notified before releasing the mutex, so
+                // it's impossible to miss a wakeup between the last check for
+                // whether we should wait, and starting to wait.
+                let mut notified = pin!(self.users_for_key_query_notify.notified());
+                notified.as_mut().enable();
+                drop(users_for_key_query);
+
+                // Wait for a notification
+                notified.await;
+
+                // Reclaim the lock before checking the flag to avoid races
+                // when two notifications happen right after each other and the
+                // second one sets the flag we want to wait for.
+                users_for_key_query = self.users_for_key_query.lock().await;
+            }
+        };
+
+        match timeout(Box::pin(wait_for_completion), timeout_duration).await {
+            Err(_) => {
+                warn!(
+                    user_id = ?user,
+                    "The user has a pending `/key/query` request which did \
+                    not finish yet, some devices might be missing."
+                );
+
+                Ok(UserKeyQueryResult::TimeoutExpired)
+            }
+            _ => Ok(UserKeyQueryResult::WasPending),
+        }
+    }
 }
 
 pub(crate) struct SyncedKeyQueryManager<'a> {
@@ -187,54 +247,6 @@ impl<'a> SyncedKeyQueryManager<'a> {
         }
 
         self.cache.store.save_tracked_users(&store_updates).await
-    }
-
-    /// Wait for a `/keys/query` response to be received if one is expected for
-    /// the given user.
-    ///
-    /// If the given timeout elapses, the method will stop waiting and return
-    /// `UserKeyQueryResult::TimeoutExpired`
-    pub async fn wait_if_user_key_query_pending(
-        &self,
-        timeout_duration: Duration,
-        user: &UserId,
-    ) -> UserKeyQueryResult {
-        let mut users_for_key_query = self.manager.users_for_key_query.lock().await;
-        let Some(waiter) = users_for_key_query.maybe_register_waiting_task(user) else {
-            return UserKeyQueryResult::WasNotPending;
-        };
-
-        let wait_for_completion = async {
-            while !waiter.completed.load(Ordering::Relaxed) {
-                // Register for being notified before releasing the mutex, so
-                // it's impossible to miss a wakeup between the last check for
-                // whether we should wait, and starting to wait.
-                let mut notified = pin!(self.manager.users_for_key_query_notify.notified());
-                notified.as_mut().enable();
-                drop(users_for_key_query);
-
-                // Wait for a notification
-                notified.await;
-
-                // Reclaim the lock before checking the flag to avoid races
-                // when two notifications happen right after each other and the
-                // second one sets the flag we want to wait for.
-                users_for_key_query = self.manager.users_for_key_query.lock().await;
-            }
-        };
-
-        match timeout(Box::pin(wait_for_completion), timeout_duration).await {
-            Err(_) => {
-                warn!(
-                    user_id = ?user,
-                    "The user has a pending `/key/query` request which did \
-                    not finish yet, some devices might be missing."
-                );
-
-                UserKeyQueryResult::TimeoutExpired
-            }
-            _ => UserKeyQueryResult::WasPending,
-        }
     }
 
     /// Process notifications that users have changed devices.

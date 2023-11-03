@@ -188,10 +188,8 @@ impl SessionManager {
                 .key_request_machine
                 .identity_manager()
                 .key_query_manager
-                .synced(&cache)
+                .wait_if_user_key_query_pending(cache, Self::KEYS_QUERY_WAIT_TIME, user_id)
                 .await?
-                .wait_if_user_key_query_pending(Self::KEYS_QUERY_WAIT_TIME, user_id)
-                .await
             {
                 WasPending => self.store.get_readonly_devices_filtered(user_id).await?,
                 _ => user_devices,

@@ -408,6 +408,9 @@ impl OlmMachine {
     /// This can be useful if we need the results from [`get_identity`] or
     /// [`get_user_devices`] to be as up-to-date as possible.
     ///
+    /// Note that this request won't be awaited by other calls waiting for a
+    /// user's or device's keys, since this is an out-of-band query.
+    ///
     /// # Arguments
     ///
     /// * `users` - list of users whose keys should be queried
@@ -1606,10 +1609,8 @@ impl OlmMachine {
             self.inner
                 .identity_manager
                 .key_query_manager
-                .synced(&cache)
-                .await?
-                .wait_if_user_key_query_pending(timeout, user_id)
-                .await;
+                .wait_if_user_key_query_pending(cache, timeout, user_id)
+                .await?;
         }
         Ok(())
     }
@@ -4028,5 +4029,53 @@ pub(crate) mod tests {
             !identity.is_verified(),
             "Our identity should not be verified when there's a mismatch in the cross-signing keys"
         );
+    }
+
+    #[async_test]
+    async fn test_wait_on_key_query_doesnt_block_store() {
+        // Waiting for a key query shouldn't delay other write attempts to the store.
+        // This test will end immediately if it works, and times out after a few seconds
+        // if it failed.
+
+        let machine = OlmMachine::new(bob_id(), bob_device_id()).await;
+
+        // Mark Alice as a tracked user, so it gets into the groups of users for which
+        // we need to query keys.
+        machine.update_tracked_users([alice_id()]).await.unwrap();
+
+        // Start a background task that will wait for the key query to finish silently
+        // in the background.
+        let machine_cloned = machine.clone();
+        let wait = tokio::spawn(async move {
+            let machine = machine_cloned;
+            let user_devices =
+                machine.get_user_devices(alice_id(), Some(Duration::from_secs(10))).await.unwrap();
+            assert!(user_devices.devices().next().is_some());
+        });
+
+        // Let the background task work first.
+        tokio::task::yield_now().await;
+
+        // Create a key upload request and process it back immediately.
+        let requests = machine.bootstrap_cross_signing(false).await.unwrap();
+
+        let req = requests.upload_keys_req.expect("upload keys request should be there");
+        let response = keys_upload_response();
+        let mark_request_as_sent = machine.mark_request_as_sent(&req.request_id, &response);
+        tokio::time::timeout(Duration::from_secs(5), mark_request_as_sent)
+            .await
+            .expect("no timeout")
+            .expect("the underlying request has been marked as sent");
+
+        // Answer the key query, so the background task completes immediately?
+        let response = keys_query_response();
+        let key_queries = machine.inner.identity_manager.users_for_key_query().await.unwrap();
+
+        for (id, _) in key_queries {
+            machine.mark_request_as_sent(&id, &response).await.unwrap();
+        }
+
+        // The waiting should successfully complete.
+        wait.await.unwrap();
     }
 }
