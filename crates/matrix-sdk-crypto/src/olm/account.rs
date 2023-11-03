@@ -313,7 +313,7 @@ impl StaticAccountData {
 pub struct Account {
     pub(crate) static_data: StaticAccountData,
     /// `vodozemac` account.
-    inner: InnerAccount,
+    inner: Box<InnerAccount>,
     /// Is this account ready to encrypt messages? (i.e. has it shared keys with
     /// a homeserver)
     shared: bool,
@@ -396,7 +396,7 @@ impl Account {
                 identity_keys: Arc::new(identity_keys),
                 creation_local_time: MilliSecondsSinceUnixEpoch::now(),
             },
-            inner: account,
+            inner: Box::new(account),
             shared: false,
             uploaded_signed_key_count: 0,
         }
@@ -643,7 +643,7 @@ impl Account {
                 identity_keys: Arc::new(identity_keys),
                 creation_local_time: pickle.creation_local_time,
             },
-            inner: account,
+            inner: Box::new(account),
             shared: pickle.shared,
             uploaded_signed_key_count: pickle.uploaded_signed_key_count,
         })
@@ -850,15 +850,8 @@ impl Account {
     pub fn create_outbound_session(
         &self,
         device: &ReadOnlyDevice,
-        key_map: &BTreeMap<OwnedDeviceKeyId, Raw<ruma::encryption::OneTimeKey>>,
+        one_time_key: &Raw<ruma::encryption::OneTimeKey>,
     ) -> Result<Session, SessionCreationError> {
-        let one_time_key = key_map.values().next().ok_or_else(|| {
-            SessionCreationError::OneTimeKeyMissing(
-                device.user_id().to_owned(),
-                device.device_id().into(),
-            )
-        })?;
-
         let one_time_key: SignedKey = match one_time_key.deserialize_as() {
             Ok(OneTimeKey::SignedKey(k)) => k,
             Ok(OneTimeKey::Key(_)) => {
@@ -955,11 +948,12 @@ impl Account {
         use ruma::events::dummy::ToDeviceDummyEventContent;
 
         other.generate_one_time_keys_helper(1);
-        let one_time = other.signed_one_time_keys();
+        let one_time_map = other.signed_one_time_keys();
+        let one_time = one_time_map.values().next().unwrap();
 
         let device = ReadOnlyDevice::from_account(other);
 
-        let mut our_session = self.create_outbound_session(&device, &one_time).unwrap();
+        let mut our_session = self.create_outbound_session(&device, one_time).unwrap();
 
         other.mark_keys_as_published();
 
@@ -1037,7 +1031,7 @@ impl Account {
         self.decrypt_olm_helper(store, sender, content.sender_key, &content.ciphertext).await
     }
 
-    #[instrument(skip_all, fields(sender, sender_key = %content.sender_key))]
+    #[instrument(skip_all, fields(sender, sender_key = ?content.sender_key))]
     async fn decrypt_olm_v1(
         &mut self,
         store: &Store,

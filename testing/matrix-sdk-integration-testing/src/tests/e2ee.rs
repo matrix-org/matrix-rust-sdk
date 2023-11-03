@@ -1,7 +1,4 @@
-use std::{
-    sync::{Arc, Mutex},
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
 use assert_matches::assert_matches;
@@ -27,17 +24,17 @@ use crate::helpers::{SyncTokenAwareClient, TestClientBuilder};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_mutual_verification() -> Result<()> {
-    let time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
-
     let alice = SyncTokenAwareClient::new(
-        TestClientBuilder::new(format!("alice{time}"))
+        TestClientBuilder::new("alice")
+            .randomize_username()
             .use_sqlite()
             .bootstrap_cross_signing()
             .build()
             .await?,
     );
     let bob = SyncTokenAwareClient::new(
-        TestClientBuilder::new(format!("bob{time}"))
+        TestClientBuilder::new("bob")
+            .randomize_username()
             .use_sqlite()
             .bootstrap_cross_signing()
             .build()
@@ -282,12 +279,11 @@ async fn test_mutual_verification() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_encryption_missing_member_keys() -> Result<()> {
-    let time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
     let alice = SyncTokenAwareClient::new(
-        TestClientBuilder::new(format!("alice{time}")).use_sqlite().build().await?,
+        TestClientBuilder::new("alice").randomize_username().use_sqlite().build().await?,
     );
     let bob = SyncTokenAwareClient::new(
-        TestClientBuilder::new(format!("bob{time}")).use_sqlite().build().await?,
+        TestClientBuilder::new("bob").randomize_username().use_sqlite().build().await?,
     );
 
     let invite = vec![bob.user_id().unwrap().to_owned()];
@@ -309,7 +305,7 @@ async fn test_encryption_missing_member_keys() -> Result<()> {
 
     // New person joins the room.
     let carl = SyncTokenAwareClient::new(
-        TestClientBuilder::new(format!("carl{time}")).use_sqlite().build().await?,
+        TestClientBuilder::new("carl").randomize_username().use_sqlite().build().await?,
     );
     alice_room.invite_user_by_id(carl.user_id().unwrap()).await?;
 
@@ -330,7 +326,7 @@ async fn test_encryption_missing_member_keys() -> Result<()> {
     // Alice was in the room when Bob sent the message, so they'll see it.
     let alice_found_event = Arc::new(Mutex::new(false));
     {
-        warn!("alice is looking for decrypted message");
+        warn!("alice is looking for the decrypted message");
 
         let found_event_handler = alice_found_event.clone();
         let bob_message_content = bob_message_content.clone();
@@ -355,7 +351,7 @@ async fn test_encryption_missing_member_keys() -> Result<()> {
     // won't see it first.
     let carl_found_event = Arc::new(Mutex::new(false));
     {
-        warn!("carl is looking for decrypted message");
+        warn!("carl is looking for the decrypted message");
 
         let found_event_handler = carl_found_event.clone();
         let bob_message_content = bob_message_content.clone();
@@ -405,12 +401,11 @@ async fn test_encryption_missing_member_keys() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_failed_members_response() -> Result<()> {
-    let time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
     let alice = SyncTokenAwareClient::new(
-        TestClientBuilder::new(format!("alice{time}")).use_sqlite().build().await?,
+        TestClientBuilder::new("alice").randomize_username().use_sqlite().build().await?,
     );
     let bob = SyncTokenAwareClient::new(
-        TestClientBuilder::new(format!("bob{time}")).use_sqlite().build().await?,
+        TestClientBuilder::new("bob").randomize_username().use_sqlite().build().await?,
     );
 
     let invite = vec![bob.user_id().unwrap().to_owned()];
@@ -447,7 +442,7 @@ async fn test_failed_members_response() -> Result<()> {
 
     // Alice sees the message.
     let alice_found_event = Arc::new(Mutex::new(false));
-    warn!("alice is looking for decrypted message");
+    warn!("alice is looking for the decrypted message");
 
     let found_event_handler = alice_found_event.clone();
     let bob_message_content = bob_message_content.clone();

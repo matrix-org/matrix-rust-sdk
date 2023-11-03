@@ -46,6 +46,7 @@ pub struct AttachmentDecryptor<'a, R: Read> {
     aes: Aes256Ctr,
 }
 
+#[cfg(not(tarpaulin_include))]
 impl<'a, R: 'a + Read + std::fmt::Debug> std::fmt::Debug for AttachmentDecryptor<'a, R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AttachmentDecryptor")
@@ -165,6 +166,7 @@ pub struct AttachmentEncryptor<'a, R: Read + ?Sized> {
     sha: Sha256,
 }
 
+#[cfg(not(tarpaulin_include))]
 impl<'a, R: 'a + Read + std::fmt::Debug + ?Sized> std::fmt::Debug for AttachmentEncryptor<'a, R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AttachmentEncryptor")

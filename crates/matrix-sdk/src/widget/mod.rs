@@ -39,7 +39,9 @@ mod settings;
 pub use self::{
     capabilities::{Capabilities, CapabilitiesProvider},
     filter::{EventFilter, MessageLikeEventFilter, StateEventFilter},
-    settings::{ClientProperties, VirtualElementCallWidgetOptions, WidgetSettings},
+    settings::{
+        ClientProperties, EncryptionSystem, VirtualElementCallWidgetOptions, WidgetSettings,
+    },
 };
 
 /// An object that handles all interactions of a widget living inside a webview
@@ -140,6 +142,7 @@ impl WidgetDriver {
             self.settings.widget_id().to_owned(),
             room.room_id().to_owned(),
             self.settings.init_on_content_load(),
+            None,
         );
 
         // The environment for the processing of actions from the widget machine.

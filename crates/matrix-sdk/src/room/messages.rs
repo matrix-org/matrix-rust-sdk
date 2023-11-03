@@ -107,6 +107,7 @@ impl MessagesOptions {
     }
 }
 
+#[cfg(not(tarpaulin_include))]
 impl fmt::Debug for MessagesOptions {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let Self { from, to, dir, limit, filter } = self;

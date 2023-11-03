@@ -25,8 +25,12 @@ use crate::widget::machine::{
 
 #[test]
 fn openid_request_handling_works() {
-    let (mut machine, _) =
-        WidgetMachine::new(WIDGET_ID.to_owned(), owned_room_id!("!a98sd12bjh:example.org"), true);
+    let (mut machine, _) = WidgetMachine::new(
+        WIDGET_ID.to_owned(),
+        owned_room_id!("!a98sd12bjh:example.org"),
+        true,
+        None,
+    );
 
     // Widget requests an open ID token, since we don't have any caching yet,
     // we reply with a pending response right away.
@@ -106,8 +110,12 @@ fn openid_request_handling_works() {
 
 #[test]
 fn openid_fail_results_in_response_blocked() {
-    let (mut machine, _) =
-        WidgetMachine::new(WIDGET_ID.to_owned(), owned_room_id!("!a98sd12bjh:example.org"), true);
+    let (mut machine, _) = WidgetMachine::new(
+        WIDGET_ID.to_owned(),
+        owned_room_id!("!a98sd12bjh:example.org"),
+        true,
+        None,
+    );
 
     // Widget requests an open ID token, since we don't have any caching yet,
     // we reply with a pending response right away.

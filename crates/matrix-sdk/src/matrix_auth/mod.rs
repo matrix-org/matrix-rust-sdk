@@ -58,6 +58,7 @@ pub(crate) struct MatrixAuthData {
     pub(crate) tokens: SharedObservable<MatrixSessionTokens>,
 }
 
+#[cfg(not(tarpaulin_include))]
 impl fmt::Debug for MatrixAuthData {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("MatrixAuthData").finish_non_exhaustive()

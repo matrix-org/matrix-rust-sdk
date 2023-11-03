@@ -7,7 +7,9 @@ use matrix_sdk_ui::notification_client::{
 };
 use ruma::{EventId, RoomId};
 
-use crate::{error::ClientError, event::TimelineEvent, helpers::unwrap_or_clone_arc, RUNTIME};
+use crate::{
+    client::Client, error::ClientError, event::TimelineEvent, helpers::unwrap_or_clone_arc, RUNTIME,
+};
 
 #[derive(uniffi::Enum)]
 pub enum NotificationEvent {
@@ -76,17 +78,19 @@ impl NotificationItem {
 
 #[derive(Clone, uniffi::Object)]
 pub struct NotificationClientBuilder {
+    client: Arc<Client>,
     builder: MatrixNotificationClientBuilder,
 }
 
 impl NotificationClientBuilder {
     pub(crate) fn new(
-        client: matrix_sdk::Client,
+        client: Arc<Client>,
         process_setup: NotificationProcessSetup,
     ) -> Result<Arc<Self>, ClientError> {
-        let builder = RUNTIME
-            .block_on(async { MatrixNotificationClient::builder(client, process_setup).await })?;
-        Ok(Arc::new(Self { builder }))
+        let builder = RUNTIME.block_on(async {
+            MatrixNotificationClient::builder(client.inner.clone(), process_setup).await
+        })?;
+        Ok(Arc::new(Self { builder, client }))
     }
 }
 
@@ -97,18 +101,25 @@ impl NotificationClientBuilder {
     pub fn filter_by_push_rules(self: Arc<Self>) -> Arc<Self> {
         let this = unwrap_or_clone_arc(self);
         let builder = this.builder.filter_by_push_rules();
-        Arc::new(Self { builder })
+        Arc::new(Self { builder, client: this.client })
     }
 
     pub fn finish(self: Arc<Self>) -> Arc<NotificationClient> {
         let this = unwrap_or_clone_arc(self);
-        Arc::new(NotificationClient { inner: this.builder.build() })
+        Arc::new(NotificationClient { inner: this.builder.build(), _client: this.client })
     }
 }
 
 #[derive(uniffi::Object)]
 pub struct NotificationClient {
     inner: MatrixNotificationClient,
+
+    /// A reference to the FFI client.
+    ///
+    /// Note: we do this to make it so that the FFI `NotificationClient` keeps
+    /// the FFI `Client` and thus the SDK `Client` alive. Otherwise, we
+    /// would need to repeat the hack done in the FFI `Client::drop` method.
+    _client: Arc<Client>,
 }
 
 #[uniffi::export]

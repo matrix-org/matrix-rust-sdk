@@ -1,7 +1,4 @@
-use std::{
-    sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::sync::Arc;
 
 use anyhow::{ensure, Result};
 use assert_matches::assert_matches;
@@ -34,9 +31,8 @@ use crate::helpers::TestClientBuilder;
 async fn test_notification() -> Result<()> {
     // Create new users for each test run, to avoid conflicts with invites existing
     // from previous runs.
-    let time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
-    let alice = TestClientBuilder::new(format!("alice{time}")).use_sqlite().build().await?;
-    let bob = TestClientBuilder::new(format!("bob{time}")).use_sqlite().build().await?;
+    let alice = TestClientBuilder::new("alice").randomize_username().use_sqlite().build().await?;
+    let bob = TestClientBuilder::new("bob").randomize_username().use_sqlite().build().await?;
 
     let dummy_sync_service = Arc::new(SyncService::builder(bob.clone()).build().await?);
     let process_setup =

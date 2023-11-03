@@ -1,5 +1,8 @@
 # unreleased
 
+- Use the `Signatures` type as the return value for the
+  `MegolmV1BackupKey::signatures()` method.
+
 - Add two new methods to import room keys,
   `OlmMachine::store()::import_exported_room_keys()` for file exports and
   `OlmMachine::backup_machine()::import_backed_up_room_keys()` for backups. The
@@ -81,3 +84,8 @@
 
 - Change the return value of `bootstrap_cross_signing` so it returns an extra keys upload request.
   The three requests must be sent in the order they appear in the return tuple.
+
+- The parameter order of `OlmMachine::encrypt_room_event_raw` and
+  `OutboundGroupSession::encrypt` has changed, `content` is now last
+  - The parameter type of `content` has also changed, from `serde_json::Value`
+    to `&Raw<AnyMessageLikeEventContent>`

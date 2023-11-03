@@ -114,6 +114,7 @@ pub struct JoinedRoom {
     pub ephemeral: Vec<Raw<AnySyncEphemeralRoomEvent>>,
 }
 
+#[cfg(not(tarpaulin_include))]
 impl fmt::Debug for JoinedRoom {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("JoinedRoom")
@@ -182,6 +183,7 @@ impl LeftRoom {
     }
 }
 
+#[cfg(not(tarpaulin_include))]
 impl fmt::Debug for LeftRoom {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("JoinedRoom")

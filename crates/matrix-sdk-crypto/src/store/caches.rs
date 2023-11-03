@@ -359,22 +359,19 @@ impl UsersForKeyQuery {
         &mut self,
         user: &UserId,
     ) -> Option<Arc<KeysQueryWaiter>> {
-        match self.user_map.get(user) {
-            None => None,
-            Some(&sequence_number) => {
-                trace!(?user, %sequence_number, "Registering new waiting task");
+        self.user_map.get(user).map(|&sequence_number| {
+            trace!(?user, %sequence_number, "Registering new waiting task");
 
-                let waiter = Arc::new(KeysQueryWaiter {
-                    sequence_number,
-                    user: user.to_owned(),
-                    completed: AtomicBool::new(false),
-                });
+            let waiter = Arc::new(KeysQueryWaiter {
+                sequence_number,
+                user: user.to_owned(),
+                completed: AtomicBool::new(false),
+            });
 
-                self.tasks_awaiting_key_query.push(Arc::downgrade(&waiter));
+            self.tasks_awaiting_key_query.push(Arc::downgrade(&waiter));
 
-                Some(waiter)
-            }
-        }
+            waiter
+        })
     }
 }
 

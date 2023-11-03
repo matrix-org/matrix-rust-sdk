@@ -65,9 +65,10 @@ pub struct SlidingSyncListBuilder {
     bump_event_types: Vec<TimelineEventType>,
 }
 
-// Print debug values for the builder, except `once_built` which is ignored.
+#[cfg(not(tarpaulin_include))]
 impl fmt::Debug for SlidingSyncListBuilder {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Print debug values for the builder, except `once_built` which is ignored.
         formatter
             .debug_struct("SlidingSyncListBuilder")
             .field("sync_mode", &self.sync_mode)

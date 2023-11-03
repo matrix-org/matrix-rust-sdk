@@ -371,6 +371,7 @@ pub trait StateStore: AsyncTraitDeps {
 #[repr(transparent)]
 struct EraseStateStoreError<T>(T);
 
+#[cfg(not(tarpaulin_include))]
 impl<T: fmt::Debug> fmt::Debug for EraseStateStoreError<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)

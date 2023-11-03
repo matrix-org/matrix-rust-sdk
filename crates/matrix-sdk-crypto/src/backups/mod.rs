@@ -596,22 +596,6 @@ impl BackupMachine {
     ///
     /// Returns a [`RoomKeyImportResult`] containing information about room keys
     /// which were imported.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// # use std::io::Cursor;
-    /// # use matrix_sdk_crypto::{OlmMachine, decrypt_room_key_export};
-    /// # use ruma::{device_id, user_id};
-    /// # let alice = user_id!("@alice:example.org");
-    /// # async {
-    /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
-    /// # let export = Cursor::new("".to_owned());
-    /// let exported_keys = decrypt_room_key_export(export, "1234")?;
-    /// machine.backup_machine().import_backed_up_room_keys(exported_keys, |_, _| {}).await?;
-    /// # anyhow::Ok(())
-    /// # }
-    /// ```
     pub async fn import_backed_up_room_keys(
         &self,
         room_keys: BTreeMap<OwnedRoomId, BTreeMap<String, BackedUpRoomKey>>,
@@ -637,11 +621,33 @@ impl BackupMachine {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
+    use assert_matches2::assert_let;
     use matrix_sdk_test::async_test;
     use ruma::{device_id, room_id, user_id, CanonicalJsonValue, DeviceId, RoomId, UserId};
     use serde_json::json;
 
-    use crate::{store::BackupDecryptionKey, types::RoomKeyBackupInfo, OlmError, OlmMachine};
+    use crate::{
+        olm::BackedUpRoomKey, store::BackupDecryptionKey, types::RoomKeyBackupInfo, OlmError,
+        OlmMachine,
+    };
+
+    fn room_key() -> BackedUpRoomKey {
+        let json = json!({
+            "algorithm": "m.megolm.v1.aes-sha2",
+            "sender_key": "DeHIg4gwhClxzFYcmNntPNF9YtsdZbmMy8+3kzCMXHA",
+            "session_key": "AQAAAABvWMNZjKFtebYIePKieQguozuoLgzeY6wKcyJjLJcJtQgy1dPqTBD12U+XrYLrRHn\
+                            lKmxoozlhFqJl456+9hlHCL+yq+6ScFuBHtJepnY1l2bdLb4T0JMDkNsNErkiLiLnD6yp3J\
+                            DSjIhkdHxmup/huygrmroq6/L5TaThEoqvW4DPIuO14btKudsS34FF82pwjKS4p6Mlch+0e\
+                            fHAblQV",
+            "sender_claimed_keys":{},
+            "forwarding_curve25519_key_chain":[]
+        });
+
+        serde_json::from_value(json)
+            .expect("We should be able to deserialize our backed up room key")
+    }
 
     fn alice_id() -> &'static UserId {
         user_id!("@alice:example.org")
@@ -794,5 +800,40 @@ mod tests {
         assert!(!state.other_signatures.values().any(|s| s.trusted()));
 
         Ok(())
+    }
+
+    #[async_test]
+    async fn import_backed_up_room_keys() {
+        let machine = OlmMachine::new(alice_id(), alice_device_id()).await;
+        let backup_machine = machine.backup_machine();
+
+        let room_id = room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost");
+        let session_id = "gM8i47Xhu0q52xLfgUXzanCMpLinoyVyH7R58cBuVBU";
+        let room_key = room_key();
+
+        let room_keys: BTreeMap<_, BTreeMap<_, _>> = BTreeMap::from([(
+            room_id.to_owned(),
+            BTreeMap::from([(session_id.to_owned(), room_key)]),
+        )]);
+
+        let session =
+            machine.store().get_inbound_group_session(room_id, &session_id).await.unwrap();
+
+        assert!(session.is_none(), "Initially we should not have the session in the store");
+
+        backup_machine
+            .import_backed_up_room_keys(room_keys, |_, _| {})
+            .await
+            .expect("We should be able to import a room key");
+
+        let session =
+            machine.store().get_inbound_group_session(room_id, &session_id).await.unwrap();
+
+        assert_let!(Some(session) = session);
+        assert!(
+            session.backed_up(),
+            "If a session was imported from a backup, it should be considered to be backed up"
+        );
+        assert!(session.has_been_imported());
     }
 }

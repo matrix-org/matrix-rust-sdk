@@ -445,9 +445,9 @@ impl GossipMachine {
     #[tracing::instrument(
         skip_all,
         fields(
-            user_id = %event.sender,
-            device_id = %event.content.requesting_device_id,
-            %room_id,
+            user_id = ?event.sender,
+            device_id = ?event.content.requesting_device_id,
+            ?room_id,
             session_id
         )
     )]
@@ -754,7 +754,10 @@ impl GossipMachine {
     ) -> Result<bool, CryptoStoreError> {
         if let Some(info) = event.room_key_info(room_id).map(|i| i.into()) {
             if self.should_request_key(&info).await? {
-                self.request_key_helper(info).await?;
+                // Size of the request_key_helper future should not impact this
+                // async fn since it is likely enough that this branch won't be
+                // entered.
+                Box::pin(self.request_key_helper(info)).await?;
                 return Ok(true);
             }
         }
@@ -835,7 +838,7 @@ impl GossipMachine {
                 // secret.
                 Err(e) => {
                     warn!(
-                        secret_name = %secret.secret_name,
+                        secret_name = ?secret.secret_name,
                         error = ?e,
                         "Error while importing a secret"
                     );
@@ -1069,7 +1072,7 @@ mod tests {
 
     #[cfg(feature = "automatic-room-key-forwarding")]
     use assert_matches::assert_matches;
-    use matrix_sdk_test::async_test;
+    use matrix_sdk_test::{async_test, message_like_event_content};
     use ruma::{
         device_id, event_id,
         events::{
@@ -1080,7 +1083,6 @@ mod tests {
         serde::Raw,
         user_id, DeviceId, RoomId, UserId,
     };
-    use serde_json::json;
     use tokio::sync::Mutex;
 
     use super::GossipMachine;
@@ -1253,7 +1255,7 @@ mod tests {
             .await
             .unwrap();
 
-        let content = group_session.encrypt(json!({}), "m.dummy").await;
+        let content = group_session.encrypt("m.dummy", &message_like_event_content!({})).await;
         let event = wrap_encrypted_content(bob_machine.user_id(), content);
 
         // Alice wants to request the outbound group session from bob.
@@ -1341,7 +1343,7 @@ mod tests {
 
         let (outbound, session) = account.create_group_session_pair_with_defaults(room_id()).await;
 
-        let content = outbound.encrypt(json!({}), "m.dummy").await;
+        let content = outbound.encrypt("m.dummy", &message_like_event_content!({})).await;
         let event = wrap_encrypted_content(machine.user_id(), content);
 
         assert!(machine.outgoing_to_device_requests().await.unwrap().is_empty());
@@ -1369,7 +1371,7 @@ mod tests {
         machine.inner.store.save_devices(&[alice_device]).await.unwrap();
 
         let (outbound, session) = account.create_group_session_pair_with_defaults(room_id()).await;
-        let content = outbound.encrypt(json!({}), "m.dummy").await;
+        let content = outbound.encrypt("m.dummy", &message_like_event_content!({})).await;
         let event = wrap_encrypted_content(machine.user_id(), content);
 
         assert!(machine.outgoing_to_device_requests().await.unwrap().is_empty());
@@ -1402,7 +1404,7 @@ mod tests {
         machine.inner.store.save_devices(&[alice_device.clone()]).await.unwrap();
 
         let (outbound, session) = account.create_group_session_pair_with_defaults(room_id()).await;
-        let content = outbound.encrypt(json!({}), "m.dummy").await;
+        let content = outbound.encrypt("m.dummy", &message_like_event_content!({})).await;
         let room_event = wrap_encrypted_content(machine.user_id(), content);
 
         machine.create_outgoing_key_request(session.room_id(), &room_event).await.unwrap();

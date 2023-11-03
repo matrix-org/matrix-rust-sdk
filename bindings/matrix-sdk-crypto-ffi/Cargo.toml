@@ -22,7 +22,7 @@ futures-util = "0.3.28"
 hmac = "0.12.1"
 http = { workspace = true }
 pbkdf2 = "0.12.2"
-rand = "0.8.5"
+rand = { workspace = true }
 ruma = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

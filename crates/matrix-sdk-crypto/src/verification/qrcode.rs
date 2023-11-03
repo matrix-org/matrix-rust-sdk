@@ -155,6 +155,7 @@ pub struct QrVerification {
     we_started: bool,
 }
 
+#[cfg(not(tarpaulin_include))]
 impl std::fmt::Debug for QrVerification {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("QrVerification")

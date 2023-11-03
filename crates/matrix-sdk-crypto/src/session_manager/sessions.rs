@@ -24,6 +24,7 @@ use ruma::{
     },
     assign,
     events::dummy::ToDeviceDummyEventContent,
+    serde::Raw,
     DeviceId, DeviceKeyAlgorithm, OwnedDeviceId, OwnedServerName, OwnedTransactionId, OwnedUserId,
     SecondsSinceUnixEpoch, ServerName, TransactionId, UserId,
 };
@@ -187,10 +188,8 @@ impl SessionManager {
                 .key_request_machine
                 .identity_manager()
                 .key_query_manager
-                .synced(&cache)
+                .wait_if_user_key_query_pending(cache, Self::KEYS_QUERY_WAIT_TIME, user_id)
                 .await?
-                .wait_if_user_key_query_pending(Self::KEYS_QUERY_WAIT_TIME, user_id)
-                .await
             {
                 WasPending => self.store.get_readonly_devices_filtered(user_id).await?,
                 _ => user_devices,
@@ -239,7 +238,7 @@ impl SessionManager {
         // Add the list of devices that the user wishes to establish sessions
         // right now.
         for user_id in users.filter(|u| !self.failures.contains(u.server_name())) {
-            let user_devices = self.get_user_devices(user_id).await?;
+            let user_devices = Box::pin(self.get_user_devices(user_id)).await?;
 
             for (device_id, device) in user_devices {
                 if !(device.supports_olm()) {
@@ -349,12 +348,67 @@ impl SessionManager {
         self.failures.extend(failed_servers);
         self.failures.remove(successful_servers);
 
+        // build a map of user_id -> device_id -> key for each device we can start a
+        // session with...
+        let mut device_map: BTreeMap<
+            OwnedUserId,
+            BTreeMap<OwnedDeviceId, &Raw<ruma::encryption::OneTimeKey>>,
+        > = BTreeMap::new();
+
+        // ... and a list of (user_id, device_id) pairs where the one-time-key is
+        // missing
+        let mut missing_devices: Vec<(OwnedUserId, OwnedDeviceId)> = Vec::new();
+
+        for (user_id, user_devices) in response.one_time_keys.iter() {
+            for (device_id, key_map) in user_devices {
+                match key_map.values().next() {
+                    Some(k) => {
+                        device_map.entry(user_id.clone()).or_default().insert(device_id.clone(), k);
+                    }
+                    None => {
+                        missing_devices.push((user_id.clone(), device_id.clone()));
+                    }
+                };
+            }
+        }
+
+        // process all the missing devices at once to save repeatedly grabbing the lock
+        if !missing_devices.is_empty() {
+            warn!(
+                ?missing_devices,
+                "Tried to create a new sessions, but the signed one-time key was missing for some devices",
+            );
+
+            let mut failed_devices_lock = self.failed_devices.write().unwrap();
+
+            for (user_id, device_id) in missing_devices {
+                failed_devices_lock.entry(user_id).or_default().insert(device_id);
+            }
+        }
+
+        self.create_sessions(&device_map).await
+    }
+
+    /// Create new Olm sessions for the requested devices.
+    ///
+    /// # Arguments
+    ///
+    ///  * `device_map` - a map from user ID, to device ID, to key object, for
+    ///    each device we should create a session for.
+    pub(crate) async fn create_sessions(
+        &self,
+        device_map: &BTreeMap<
+            OwnedUserId,
+            BTreeMap<OwnedDeviceId, &Raw<ruma::encryption::OneTimeKey>>,
+        >,
+    ) -> OlmResult<()> {
         struct SessionInfo {
             session_id: String,
             algorithm: EventEncryptionAlgorithm,
             fallback_key_used: bool,
         }
 
+        #[cfg(not(tarpaulin_include))]
         impl std::fmt::Debug for SessionInfo {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 write!(
@@ -369,8 +423,8 @@ impl SessionManager {
         let mut new_sessions: BTreeMap<&UserId, BTreeMap<&DeviceId, SessionInfo>> = BTreeMap::new();
 
         let mut store_transaction = self.store.transaction().await;
-        for (user_id, user_devices) in &response.one_time_keys {
-            for (device_id, key_map) in user_devices {
+        for (user_id, user_devices) in device_map.iter() {
+            for (device_id, one_time_key) in user_devices {
                 let device = match self.store.get_readonly_device(user_id, device_id).await {
                     Ok(Some(d)) => d,
                     Ok(None) => {
@@ -395,7 +449,7 @@ impl SessionManager {
                 };
 
                 let account = store_transaction.account().await?;
-                let session = match account.create_outbound_session(&device, key_map) {
+                let session = match account.create_outbound_session(&device, one_time_key) {
                     Ok(s) => s,
                     Err(e) => {
                         warn!(
@@ -747,7 +801,19 @@ mod tests {
 
     #[async_test]
     async fn failed_devices_handling() {
-        let response_with_invalid_signature = json!({
+        // Alice's device is present but with no keys
+        test_invalid_claim_response(json!({
+            "one_time_keys": {
+                "@alice:example.org": {
+                    "DEVICEID": {}
+                }
+            },
+            "failures": {},
+        }))
+        .await;
+
+        // Alice's device is present with a bad signature
+        test_invalid_claim_response(json!({
             "one_time_keys": {
                 "@alice:example.org": {
                     "DEVICEID": {
@@ -764,9 +830,16 @@ mod tests {
                 }
             },
             "failures": {},
-        });
+        })).await;
+    }
 
-        let response = response_from_file(&response_with_invalid_signature);
+    /// Helper for failed_devices_handling.
+    ///
+    /// Takes an invalid /keys/claim response for Alice's device DEVICEID and
+    /// checks that it is handled correctly. (The device should be marked as
+    /// 'failed'; and once that
+    async fn test_invalid_claim_response(response_json: serde_json::Value) {
+        let response = response_from_file(&response_json);
         let response = KeyClaimResponse::try_from_http_response(response).unwrap();
 
         let alice = user_id!("@alice:example.org");

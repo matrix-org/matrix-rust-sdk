@@ -14,25 +14,11 @@ use matrix_sdk::{
     Client,
 };
 use once_cell::sync::Lazy;
+use rand::Rng as _;
 use tempfile::{tempdir, TempDir};
 use tokio::sync::Mutex;
 
 static USERS: Lazy<Mutex<HashMap<String, (Client, TempDir)>>> = Lazy::new(Mutex::default);
-
-#[ctor::ctor]
-fn init_logging() {
-    use tracing::Level;
-    use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::builder()
-                .with_default_directive(Level::TRACE.into())
-                .from_env()
-                .unwrap(),
-        )
-        .with(tracing_subscriber::fmt::layer().with_test_writer())
-        .init();
-}
 
 pub struct TestClientBuilder {
     username: String,
@@ -41,8 +27,14 @@ pub struct TestClientBuilder {
 }
 
 impl TestClientBuilder {
-    pub fn new(username: String) -> Self {
-        Self { username, use_sqlite: false, bootstrap_cross_signing: false }
+    pub fn new(username: impl Into<String>) -> Self {
+        Self { username: username.into(), use_sqlite: false, bootstrap_cross_signing: false }
+    }
+
+    pub fn randomize_username(mut self) -> Self {
+        let suffix: u128 = rand::thread_rng().gen();
+        self.username = format!("{}{}", self.username, suffix);
+        self
     }
 
     pub fn use_sqlite(mut self) -> Self {
@@ -130,7 +122,11 @@ impl SyncTokenAwareClient {
         }
 
         let response = self.client.sync_once(settings).await?;
-        *self.token.lock().unwrap() = Some(response.next_batch);
+
+        let mut prev_token = self.token.lock().unwrap();
+        if prev_token.as_ref() != Some(&response.next_batch) {
+            *prev_token = Some(response.next_batch);
+        }
         Ok(())
     }
 }

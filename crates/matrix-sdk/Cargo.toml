@@ -89,7 +89,7 @@ matrix-sdk-indexeddb = { version = "0.2.0", path = "../matrix-sdk-indexeddb", de
 matrix-sdk-sqlite = { version = "0.1.0", path = "../matrix-sdk-sqlite", default-features = false, optional = true }
 mime = "0.3.16"
 mime2ext = "0.1.52"
-rand = { version = "0.8.5", optional = true }
+rand = { workspace = true , optional = true }
 ruma = { workspace = true, features = ["rand", "unstable-msc2448", "unstable-msc2965", "unstable-msc3930", "unstable-msc3245-v1-compat"] }
 serde = { workspace = true }
 serde_html_form = { workspace = true }
@@ -161,6 +161,5 @@ tracing-subscriber = { version = "0.3.11", features = ["env-filter"] }
 wasm-bindgen-test = "0.3.33"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
-ctor = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 wiremock = "0.5.13"

@@ -244,6 +244,7 @@ pub struct IndexeddbStateStore {
     pub(crate) store_cipher: Option<Arc<StoreCipher>>,
 }
 
+#[cfg(not(tarpaulin_include))]
 impl std::fmt::Debug for IndexeddbStateStore {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("IndexeddbStateStore").field("name", &self.name).finish()

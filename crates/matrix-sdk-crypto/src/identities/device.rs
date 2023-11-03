@@ -96,6 +96,7 @@ fn default_timestamp() -> MilliSecondsSinceUnixEpoch {
     MilliSecondsSinceUnixEpoch(UInt::default())
 }
 
+#[cfg(not(tarpaulin_include))]
 impl std::fmt::Debug for ReadOnlyDevice {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ReadOnlyDevice")
@@ -119,6 +120,7 @@ pub struct Device {
     pub(crate) device_owner_identity: Option<ReadOnlyUserIdentities>,
 }
 
+#[cfg(not(tarpaulin_include))]
 impl std::fmt::Debug for Device {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Device").field("device", &self.inner).finish()
@@ -414,8 +416,8 @@ impl Device {
     #[instrument(
         skip_all,
         fields(
-            recipient = %self.user_id(),
-            recipient_device = %self.device_id(),
+            recipient = ?self.user_id(),
+            recipient_device = ?self.device_id(),
             recipient_key = ?self.curve25519_key(),
             event_type,
             session,

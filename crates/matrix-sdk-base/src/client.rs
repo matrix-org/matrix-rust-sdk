@@ -620,12 +620,21 @@ impl BaseClient {
     /// decrypted event if we found one, along with its index in the
     /// latest_encrypted_events list, or None if we didn't find one.
     #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
-    async fn decrypt_latest_suitable_event(&self, room: &Room) -> Option<(LatestEvent, usize)> {
+    async fn decrypt_latest_suitable_event(
+        &self,
+        room: &Room,
+    ) -> Option<(Box<LatestEvent>, usize)> {
         let enc_events = room.latest_encrypted_events();
 
         // Walk backwards through the encrypted events, looking for one we can decrypt
         for (i, event) in enc_events.iter().enumerate().rev() {
-            if let Ok(Some(decrypted)) = self.decrypt_sync_room_event(event, room.room_id()).await {
+            // Size of the decrypt_sync_room_event future should not impact this
+            // async fn since it is likely that there aren't even any encrypted
+            // events when calling it.
+            let decrypt_sync_room_event =
+                Box::pin(self.decrypt_sync_room_event(event, room.room_id()));
+
+            if let Ok(Some(decrypted)) = decrypt_sync_room_event.await {
                 // We found an event we can decrypt
                 if let Ok(any_sync_event) = decrypted.event.deserialize() {
                     // We can deserialize it to find its type
@@ -633,7 +642,7 @@ impl BaseClient {
                         is_suitable_for_latest_event(&any_sync_event)
                     {
                         // The event is the right type for us to use as latest_event
-                        return Some((LatestEvent::new(decrypted), i));
+                        return Some((Box::new(LatestEvent::new(decrypted)), i));
                     }
                 }
             }

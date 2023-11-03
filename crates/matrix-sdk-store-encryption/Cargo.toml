@@ -20,7 +20,7 @@ displaydoc = "0.2.4"
 getrandom = { version = "0.2.10", optional = true }
 hmac = "0.12.1"
 pbkdf2 = "0.12.2"
-rand = "0.8.5"
+rand = { workspace = true }
 rmp-serde = "1.1.2"
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }

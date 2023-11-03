@@ -325,6 +325,7 @@ pub struct NoOlmWithheldContent {
     other: BTreeMap<String, Value>,
 }
 
+#[cfg(not(tarpaulin_include))]
 impl std::fmt::Debug for CommonWithheldCodeContent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AnyWithheldContent")
@@ -336,6 +337,7 @@ impl std::fmt::Debug for CommonWithheldCodeContent {
     }
 }
 
+#[cfg(not(tarpaulin_include))]
 impl std::fmt::Debug for NoOlmWithheldContent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("NoOlmWithheldContent")

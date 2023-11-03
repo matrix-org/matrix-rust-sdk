@@ -66,6 +66,7 @@ impl UnsupportedReplyItem {
     pub(super) const MISSING_JSON: Self = Self(UnsupportedReplyItemInner::MissingJson);
 }
 
+#[cfg(not(tarpaulin_include))]
 impl fmt::Debug for UnsupportedReplyItem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
@@ -89,6 +90,7 @@ impl UnsupportedEditItem {
     pub(super) const NOT_ROOM_MESSAGE: Self = Self(UnsupportedEditItemInner::NotRoomMessage);
 }
 
+#[cfg(not(tarpaulin_include))]
 impl fmt::Debug for UnsupportedEditItem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)

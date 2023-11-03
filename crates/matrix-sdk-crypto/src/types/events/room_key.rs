@@ -125,6 +125,7 @@ impl MegolmV1AesSha2Content {
     }
 }
 
+#[cfg(not(tarpaulin_include))]
 impl std::fmt::Debug for MegolmV1AesSha2Content {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MegolmV1AesSha2Content")
