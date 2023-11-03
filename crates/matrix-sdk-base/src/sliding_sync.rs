@@ -524,11 +524,11 @@ async fn cache_latest_events(
                         }
                     }
 
-                    let latest_event = LatestEvent::new_with_sender_details(
+                    let latest_event = Box::new(LatestEvent::new_with_sender_details(
                         event.clone(),
                         sender_profile,
                         sender_name_is_ambiguous,
-                    );
+                    ));
 
                     // Store it in the return RoomInfo, and in the Room, to make sure they are
                     // consistent

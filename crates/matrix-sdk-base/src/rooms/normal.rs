@@ -403,12 +403,12 @@ impl Room {
     /// sliding sync.
     #[cfg(feature = "experimental-sliding-sync")]
     pub fn latest_event(&self) -> Option<LatestEvent> {
-        self.inner.read().latest_event.clone()
+        self.inner.read().latest_event.as_deref().cloned()
     }
 
     /// Update the last event in the room
     #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
-    pub(crate) fn set_latest_event(&self, latest_event: Option<LatestEvent>) {
+    pub(crate) fn set_latest_event(&self, latest_event: Option<Box<LatestEvent>>) {
         self.inner.update(|info| info.latest_event = latest_event);
     }
 
@@ -429,7 +429,7 @@ impl Room {
     /// Panics if index is not a valid index in the latest_encrypted_events
     /// list.
     #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
-    pub(crate) fn on_latest_event_decrypted(&self, latest_event: LatestEvent, index: usize) {
+    pub(crate) fn on_latest_event_decrypted(&self, latest_event: Box<LatestEvent>, index: usize) {
         self.set_latest_event(Some(latest_event));
         self.latest_encrypted_events.write().unwrap().drain(0..=index);
     }
@@ -732,10 +732,10 @@ pub struct RoomInfo {
     pub(crate) encryption_state_synced: bool,
     /// The last event send by sliding sync
     #[cfg(feature = "experimental-sliding-sync")]
-    pub(crate) latest_event: Option<LatestEvent>,
+    pub(crate) latest_event: Option<Box<LatestEvent>>,
     /// Base room info which holds some basic event contents important for the
     /// room state.
-    pub(crate) base_info: BaseRoomInfo,
+    pub(crate) base_info: Box<BaseRoomInfo>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -769,7 +769,7 @@ impl RoomInfo {
             encryption_state_synced: false,
             #[cfg(feature = "experimental-sliding-sync")]
             latest_event: None,
-            base_info: BaseRoomInfo::new(),
+            base_info: Box::new(BaseRoomInfo::new()),
         }
     }
 
@@ -1246,10 +1246,10 @@ mod tests {
             last_prev_batch: Some("pb".to_owned()),
             sync_info: SyncInfo::FullySynced,
             encryption_state_synced: true,
-            latest_event: Some(LatestEvent::new(
+            latest_event: Some(Box::new(LatestEvent::new(
                 Raw::from_json_string(json!({"sender": "@u:i.uk"}).to_string()).unwrap().into(),
-            )),
-            base_info: BaseRoomInfo::new(),
+            ))),
+            base_info: Box::new(BaseRoomInfo::new()),
         };
 
         let info_json = json!({
@@ -1698,10 +1698,10 @@ mod tests {
     }
 
     #[cfg(feature = "experimental-sliding-sync")]
-    fn make_latest_event(event_id: &str) -> LatestEvent {
-        LatestEvent::new(SyncTimelineEvent::new(
+    fn make_latest_event(event_id: &str) -> Box<LatestEvent> {
+        Box::new(LatestEvent::new(SyncTimelineEvent::new(
             Raw::from_json_string(json!({ "event_id": event_id }).to_string()).unwrap(),
-        ))
+        )))
     }
 
     fn timestamp(minutes_ago: u32) -> MilliSecondsSinceUnixEpoch {
