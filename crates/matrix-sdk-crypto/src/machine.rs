@@ -446,19 +446,19 @@ impl OlmMachine {
     ) -> OlmResult<()> {
         match response.into() {
             IncomingResponse::KeysUpload(response) => {
-                self.receive_keys_upload_response(response).await?;
+                Box::pin(self.receive_keys_upload_response(response)).await?;
             }
             IncomingResponse::KeysQuery(response) => {
-                self.receive_keys_query_response(request_id, response).await?;
+                Box::pin(self.receive_keys_query_response(request_id, response)).await?;
             }
             IncomingResponse::KeysClaim(response) => {
-                self.inner.session_manager.receive_keys_claim_response(response).await?;
+                Box::pin(self.inner.session_manager.receive_keys_claim_response(response)).await?;
             }
             IncomingResponse::ToDevice(_) => {
-                self.mark_to_device_request_as_sent(request_id).await?;
+                Box::pin(self.mark_to_device_request_as_sent(request_id)).await?;
             }
             IncomingResponse::SigningKeysUpload(_) => {
-                self.receive_cross_signing_upload_response().await?;
+                Box::pin(self.receive_cross_signing_upload_response()).await?;
             }
             IncomingResponse::SignatureUpload(_) => {
                 self.inner.verification_machine.mark_request_as_sent(request_id);
@@ -468,7 +468,7 @@ impl OlmMachine {
             }
             IncomingResponse::KeysBackup(_) => {
                 #[cfg(feature = "backups_v1")]
-                self.inner.backup_machine.mark_request_as_sent(request_id).await?;
+                Box::pin(self.inner.backup_machine.mark_request_as_sent(request_id)).await?;
             }
         };
 

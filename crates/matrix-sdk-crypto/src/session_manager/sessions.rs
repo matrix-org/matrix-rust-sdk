@@ -238,7 +238,7 @@ impl SessionManager {
         // Add the list of devices that the user wishes to establish sessions
         // right now.
         for user_id in users.filter(|u| !self.failures.contains(u.server_name())) {
-            let user_devices = self.get_user_devices(user_id).await?;
+            let user_devices = Box::pin(self.get_user_devices(user_id)).await?;
 
             for (device_id, device) in user_devices {
                 if !(device.supports_olm()) {
