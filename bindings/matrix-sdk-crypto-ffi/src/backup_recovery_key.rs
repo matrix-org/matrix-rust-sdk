@@ -149,7 +149,22 @@ impl BackupRecoveryKey {
         let signatures: HashMap<String, HashMap<String, String>> = public_key
             .signatures()
             .into_iter()
-            .map(|(k, v)| (k.to_string(), v.into_iter().map(|(k, v)| (k.to_string(), v)).collect()))
+            .map(|(k, v)| {
+                (
+                    k.to_string(),
+                    v.into_iter()
+                        .map(|(k, v)| {
+                            (
+                                k.to_string(),
+                                match v {
+                                    Ok(s) => s.to_base64(),
+                                    Err(s) => s.source,
+                                },
+                            )
+                        })
+                        .collect(),
+                )
+            })
             .collect();
 
         MegolmV1BackupKey {
