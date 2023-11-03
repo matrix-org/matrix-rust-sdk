@@ -832,14 +832,11 @@ impl From<RumaUnstableAudioDetailsContentBlock> for UnstableAudioDetailsContent 
 }
 
 #[derive(Clone, uniffi::Record)]
-pub struct UnstableVoiceContent {
-    // DO NOT USE: Dummy field to work around https://github.com/mozilla/uniffi-rs/issues/1760
-    do_not_use: bool,
-}
+pub struct UnstableVoiceContent {}
 
 impl From<RumaUnstableVoiceContentBlock> for UnstableVoiceContent {
     fn from(_details: RumaUnstableVoiceContentBlock) -> Self {
-        Self { do_not_use: false }
+        Self {}
     }
 }
 
