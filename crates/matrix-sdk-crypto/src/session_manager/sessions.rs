@@ -347,18 +347,19 @@ impl SessionManager {
         let request = {
             let mut guard = self.current_key_claim_request.write().unwrap();
             let expected_request_id = guard.as_ref().map(|e| e.0.as_ref());
-            if Some(request_id) != expected_request_id {
-                error!(
+
+            if Some(request_id) == expected_request_id {
+                // We have a confirmed match. Clear the expectation, but hang onto the details
+                // of the request.
+                guard.take().map(|(_, request)| request)
+            } else {
+                warn!(
                     ?request_id,
                     ?expected_request_id,
-                    "Received a `/keys/claim` response for the wrong request: ignoring"
+                    "Received a `/keys/claim` response for the wrong request"
                 );
-                return Ok(());
+                None
             }
-
-            // We have a confirmed match. Clear the expectation, but hang onto the details
-            // of the request.
-            guard.take().unwrap().1
         };
 
         // Collect the (user_id, device_id, device_key_id) triple for logging reasons.
@@ -391,75 +392,71 @@ impl SessionManager {
         self.failures.extend(failed_servers.iter().cloned());
         self.failures.remove(successful_servers);
 
-        // build a map of user_id -> device_id -> key for each device we can start a
-        // session with...
-        let mut device_map: BTreeMap<
-            OwnedUserId,
-            BTreeMap<OwnedDeviceId, &Raw<ruma::encryption::OneTimeKey>>,
-        > = BTreeMap::new();
+        // build a map of (user_id, device_id) -> key from the response
+        let sessions_to_create: BTreeMap<(OwnedUserId, OwnedDeviceId), _> = response
+            .one_time_keys
+            .iter()
+            .flat_map(|(user_id, device_map)| {
+                device_map.iter().filter_map(|(device_id, key_map)| {
+                    // For devices that returned at least one key, this will yield
+                    // `Some((user_id, device_id), first_key)`. For devices that returned an
+                    // empty map, this will yield `None`.
+                    //
+                    // The `None` entries are then filtered out by `filter_map`.
+                    key_map.values().next().map(|key| ((user_id.clone(), device_id.clone()), key))
+                })
+            })
+            .collect();
 
-        // ... and a list of (user_id, device_id) pairs where the one-time-key is
-        // missing
-        let mut missing_devices: Vec<(OwnedUserId, OwnedDeviceId)> = Vec::new();
+        // if we were able to pair this response with a request, look for devices that
+        // were present in the request but did not elicit a successful response.
+        if let Some(request) = request {
+            let missing_devices: Vec<(OwnedUserId, OwnedDeviceId)> = request
+                .one_time_keys
+                .iter()
+                .filter(|(user_id, _)| {
+                    // skip over users whose homeservers were in the "failed servers" list: we don't
+                    // want to mark individual devices as broken *as well as* the server.
+                    !failed_servers.contains(user_id.server_name())
+                })
+                .flat_map(|(user_id, device_map)| {
+                    device_map.keys().filter_map(|device_id| {
+                        let k = (user_id.clone(), device_id.clone());
+                        if sessions_to_create.contains_key(&k) {
+                            None
+                        } else {
+                            Some(k)
+                        }
+                    })
+                })
+                .collect();
 
-        for (user_id, user_devices) in request.one_time_keys.into_iter() {
-            // If the user's server is listed within the failed_servers, don't bother
-            // hunting for it in the results. (This mainly ensures that we don't
-            // end up recording the user's devices in `failed_devices` *as well as* the
-            // server in `failures`.)
-            if failed_servers.contains(user_id.server_name()) {
+            if !missing_devices.is_empty() {
                 warn!(
-                    ?user_id,
-                    "Tried to create a new Olm session, but the user's server is unreachable",
+                    ?missing_devices,
+                    "Tried to create a new sessions, but the signed one-time key was missing for some devices",
                 );
 
-                continue;
-            }
+                let mut failed_devices_lock = self.failed_devices.write().unwrap();
 
-            let user_response = response.one_time_keys.get(&user_id);
-            for (device_id, _algorithm) in user_devices.into_iter() {
-                let key_map = user_response.map_or(None, |r| r.get(&device_id));
-
-                match key_map.map_or(None, |m| m.values().next()) {
-                    Some(k) => {
-                        device_map.entry(user_id.clone()).or_default().insert(device_id, k);
-                    }
-                    None => {
-                        missing_devices.push((user_id.clone(), device_id.clone()));
-                    }
+                for (user_id, device_id) in missing_devices {
+                    failed_devices_lock.entry(user_id).or_default().insert(device_id);
                 }
             }
-        }
+        };
 
-        // process all the missing devices at once to save repeatedly grabbing the lock
-        if !missing_devices.is_empty() {
-            warn!(
-                ?missing_devices,
-                "Tried to create a new sessions, but the signed one-time key was missing for some devices",
-            );
-
-            let mut failed_devices_lock = self.failed_devices.write().unwrap();
-
-            for (user_id, device_id) in missing_devices {
-                failed_devices_lock.entry(user_id).or_default().insert(device_id);
-            }
-        }
-
-        self.create_sessions(&device_map).await
+        self.create_sessions(&sessions_to_create).await
     }
 
     /// Create new Olm sessions for the requested devices.
     ///
     /// # Arguments
     ///
-    ///  * `device_map` - a map from user ID, to device ID, to key object, for
-    ///    each device we should create a session for.
+    ///  * `device_map` - a map from (user ID, device ID) pairs to key object,
+    ///    for each device we should create a session for.
     pub(crate) async fn create_sessions(
         &self,
-        device_map: &BTreeMap<
-            OwnedUserId,
-            BTreeMap<OwnedDeviceId, &Raw<ruma::encryption::OneTimeKey>>,
-        >,
+        device_map: &BTreeMap<(OwnedUserId, OwnedDeviceId), &Raw<ruma::encryption::OneTimeKey>>,
     ) -> OlmResult<()> {
         struct SessionInfo {
             session_id: String,
@@ -482,68 +479,66 @@ impl SessionManager {
         let mut new_sessions: BTreeMap<&UserId, BTreeMap<&DeviceId, SessionInfo>> = BTreeMap::new();
 
         let mut store_transaction = self.store.transaction().await;
-        for (user_id, user_devices) in device_map.iter() {
-            for (device_id, one_time_key) in user_devices {
-                let device = match self.store.get_readonly_device(user_id, device_id).await {
-                    Ok(Some(d)) => d,
-                    Ok(None) => {
-                        warn!(
-                            user_id = user_id.as_str(),
-                            device_id = device_id.as_str(),
-                            "Tried to create an Olm session but the device is \
+        for ((user_id, device_id), one_time_key) in device_map {
+            let device = match self.store.get_readonly_device(user_id, device_id).await {
+                Ok(Some(d)) => d,
+                Ok(None) => {
+                    warn!(
+                        user_id = user_id.as_str(),
+                        device_id = device_id.as_str(),
+                        "Tried to create an Olm session but the device is \
                             unknown",
-                        );
-                        continue;
-                    }
-                    Err(e) => {
-                        warn!(
-                            user_id = user_id.as_str(),
-                            device_id = device_id.as_str(),
-                            error = ?e,
-                            "Tried to create an Olm session, but we can't \
-                            fetch the device from the store",
-                        );
-                        continue;
-                    }
-                };
-
-                let account = store_transaction.account().await?;
-                let session = match account.create_outbound_session(&device, one_time_key) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        warn!(
-                            user_id = user_id.as_str(),
-                            device_id = device_id.as_str(),
-                            error = ?e,
-                            "Error creating outbound session"
-                        );
-
-                        self.failed_devices
-                            .write()
-                            .unwrap()
-                            .entry(user_id.to_owned())
-                            .or_default()
-                            .insert(device_id.to_owned());
-
-                        continue;
-                    }
-                };
-
-                self.key_request_machine.retry_keyshare(user_id, device_id);
-
-                if let Err(e) = self.check_if_unwedged(user_id, device_id).await {
-                    error!(?user_id, ?device_id, "Error while treating an unwedged device: {e:?}");
+                    );
+                    continue;
                 }
+                Err(e) => {
+                    warn!(
+                        user_id = user_id.as_str(),
+                        device_id = device_id.as_str(),
+                        error = ?e,
+                        "Tried to create an Olm session, but we can't \
+                        fetch the device from the store",
+                    );
+                    continue;
+                }
+            };
 
-                let session_info = SessionInfo {
-                    session_id: session.session_id().to_owned(),
-                    algorithm: session.algorithm().await,
-                    fallback_key_used: session.created_using_fallback_key,
-                };
+            let account = store_transaction.account().await?;
+            let session = match account.create_outbound_session(&device, one_time_key) {
+                Ok(s) => s,
+                Err(e) => {
+                    warn!(
+                        user_id = user_id.as_str(),
+                        device_id = device_id.as_str(),
+                        error = ?e,
+                        "Error creating outbound session"
+                    );
 
-                changes.sessions.push(session);
-                new_sessions.entry(user_id).or_default().insert(device_id, session_info);
+                    self.failed_devices
+                        .write()
+                        .unwrap()
+                        .entry(user_id.to_owned())
+                        .or_default()
+                        .insert(device_id.to_owned());
+
+                    continue;
+                }
+            };
+
+            self.key_request_machine.retry_keyshare(user_id, device_id);
+
+            if let Err(e) = self.check_if_unwedged(user_id, device_id).await {
+                error!(?user_id, ?device_id, "Error while treating an unwedged device: {e:?}");
             }
+
+            let session_info = SessionInfo {
+                session_id: session.session_id().to_owned(),
+                algorithm: session.algorithm().await,
+                fallback_key_used: session.created_using_fallback_key,
+            };
+
+            changes.sessions.push(session);
+            new_sessions.entry(user_id).or_default().insert(device_id, session_info);
         }
 
         store_transaction.commit().await?;

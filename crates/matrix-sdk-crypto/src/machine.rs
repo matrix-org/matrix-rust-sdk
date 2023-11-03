@@ -2310,13 +2310,12 @@ pub(crate) mod tests {
     ) -> (OlmMachine, OlmMachine) {
         let (alice, bob, one_time_keys) = get_machine_pair(alice, bob, use_fallback_key).await;
 
-        let mut bob_keys = BTreeMap::new();
-
         let one_time_key = one_time_keys.values().next().unwrap();
-        bob_keys.insert(bob.device_id().to_owned(), one_time_key);
 
-        let mut one_time_keys = BTreeMap::new();
-        one_time_keys.insert(bob.user_id().to_owned(), bob_keys);
+        let one_time_keys = BTreeMap::from([(
+            (bob.user_id().to_owned(), bob.device_id().to_owned()),
+            one_time_key,
+        )]);
         alice.inner.session_manager.create_sessions(&one_time_keys).await.unwrap();
 
         (alice, bob)
@@ -2618,8 +2617,8 @@ pub(crate) mod tests {
         device_id: &DeviceId,
         one_time_key: Raw<OneTimeKey>,
     ) {
-        let keys = BTreeMap::from([(device_id.to_owned(), &one_time_key)]);
-        let one_time_keys = BTreeMap::from([(user_id.to_owned(), keys)]);
+        let one_time_keys =
+            BTreeMap::from([((user_id.to_owned(), device_id.to_owned()), &one_time_key)]);
         machine.inner.session_manager.create_sessions(&one_time_keys).await.unwrap();
     }
 
