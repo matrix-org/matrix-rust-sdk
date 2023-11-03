@@ -193,6 +193,14 @@ impl TimelineInnerState {
             total.items_updated = total.items_updated.checked_add(res.items_updated)?;
         }
 
+        if num_events == 0 {
+            trace!("Received an empty chunk");
+
+            if let Some(token) = back_pagination_token {
+                txn.set_back_pagination_token(token, None);
+            }
+        }
+
         txn.commit();
 
         Some(total)
@@ -491,6 +499,11 @@ impl TimelineInnerStateTransaction<'_> {
         }
     }
 
+    fn set_back_pagination_token(&mut self, token: String, event_id: Option<OwnedEventId>) {
+        trace!(token, ?event_id, "Adding back-pagination token");
+        self.meta.back_pagination_tokens.push((event_id, token));
+    }
+
     /// Handle a live remote event.
     ///
     /// Shorthand for `handle_remote_event` with a `position` of
@@ -561,7 +574,14 @@ impl TimelineInnerStateTransaction<'_> {
                         timestamp: Some(event.origin_server_ts()),
                         visible: false,
                     };
-                    self.add_event(event_meta, position, room_data_provider, settings).await;
+                    self.add_event(
+                        event_meta,
+                        back_pagination_token,
+                        position,
+                        room_data_provider,
+                        settings,
+                    )
+                    .await;
 
                     return HandleEventResult::default();
                 }
@@ -584,18 +604,22 @@ impl TimelineInnerStateTransaction<'_> {
                             timestamp,
                             visible: false,
                         };
-                        self.add_event(event_meta, position, room_data_provider, settings).await;
+                        self.add_event(
+                            event_meta,
+                            back_pagination_token,
+                            position,
+                            room_data_provider,
+                            settings,
+                        )
+                        .await;
+                    } else if let Some(token) = back_pagination_token {
+                        self.set_back_pagination_token(token, None);
                     }
 
                     return HandleEventResult::default();
                 }
             },
         };
-
-        if let Some(token) = back_pagination_token {
-            trace!(token, ?event_id, "Adding back-pagination token");
-            self.meta.back_pagination_tokens.push((event_id.clone(), token));
-        }
 
         let is_own_event = sender == room_data_provider.own_user_id();
 
@@ -606,7 +630,8 @@ impl TimelineInnerStateTransaction<'_> {
             timestamp: Some(timestamp),
             visible: should_add,
         };
-        self.add_event(event_meta, position, room_data_provider, settings).await;
+        self.add_event(event_meta, back_pagination_token, position, room_data_provider, settings)
+            .await;
 
         let sender_profile = room_data_provider.profile_from_user_id(&sender).await;
         let ctx = TimelineEventContext {
@@ -699,6 +724,7 @@ impl TimelineInnerStateTransaction<'_> {
     async fn add_event<P: RoomDataProvider>(
         &mut self,
         event_meta: FullEventMeta<'_>,
+        back_pagination_token: Option<String>,
         position: TimelineItemPosition,
         room_data_provider: &P,
         settings: &TimelineInnerSettings,
@@ -739,6 +765,10 @@ impl TimelineInnerStateTransaction<'_> {
             self.load_read_receipts_for_event(event_meta.event_id, room_data_provider).await;
 
             self.maybe_add_implicit_read_receipt(event_meta);
+        }
+
+        if let Some(token) = back_pagination_token {
+            self.set_back_pagination_token(token, Some(event_meta.event_id.to_owned()));
         }
     }
 }
@@ -794,7 +824,7 @@ pub(in crate::timeline) struct TimelineInnerMetadata {
     /// timeline items (to allow efficient pushing and popping).
     ///
     /// Private because it's not needed by `TimelineEventHandler`.
-    back_pagination_tokens: Vec<(OwnedEventId, String)>,
+    back_pagination_tokens: Vec<(Option<OwnedEventId>, String)>,
 }
 
 impl TimelineInnerMetadata {
