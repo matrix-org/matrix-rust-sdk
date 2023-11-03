@@ -687,10 +687,10 @@ impl Client {
     }
 
     pub fn notification_client(
-        &self,
+        self: Arc<Self>,
         process_setup: NotificationProcessSetup,
     ) -> Result<Arc<NotificationClientBuilder>, ClientError> {
-        NotificationClientBuilder::new(self.inner.clone(), process_setup.into())
+        NotificationClientBuilder::new(self.clone(), process_setup.into())
     }
 
     pub fn sync_service(&self) -> Arc<SyncServiceBuilder> {
