@@ -886,9 +886,9 @@ impl Client {
     pub async fn restore_session(&self, session: impl Into<AuthSession>) -> Result<()> {
         let session = session.into();
         match session {
-            AuthSession::Matrix(s) => self.matrix_auth().restore_session(s).await,
+            AuthSession::Matrix(s) => Box::pin(self.matrix_auth().restore_session(s)).await,
             #[cfg(feature = "experimental-oidc")]
-            AuthSession::Oidc(s) => self.oidc().restore_session(s).await,
+            AuthSession::Oidc(s) => Box::pin(self.oidc().restore_session(s)).await,
         }
     }
 
@@ -905,12 +905,12 @@ impl Client {
         match auth_api {
             AuthApi::Matrix(api) => {
                 trace!("Token refresh: Using the homeserver.");
-                api.refresh_access_token().await?;
+                Box::pin(api.refresh_access_token()).await?;
             }
             #[cfg(feature = "experimental-oidc")]
             AuthApi::Oidc(api) => {
                 trace!("Token refresh: Using OIDC.");
-                api.refresh_access_token().await?;
+                Box::pin(api.refresh_access_token()).await?;
             }
         }
 
@@ -1310,8 +1310,11 @@ impl Client {
     }
 
     pub(crate) async fn server_versions(&self) -> HttpResult<&[MatrixVersion]> {
-        let server_versions =
-            self.inner.server_versions.get_or_try_init(|| self.request_server_versions()).await?;
+        let server_versions = self
+            .inner
+            .server_versions
+            .get_or_try_init(|| Box::pin(self.request_server_versions()))
+            .await?;
 
         Ok(server_versions)
     }

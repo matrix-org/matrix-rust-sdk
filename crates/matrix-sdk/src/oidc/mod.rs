@@ -741,7 +741,7 @@ impl Oidc {
             // hash. Otherwise, we save our hash into the database.
 
             if guard.hash_mismatch {
-                self.handle_session_hash_mismatch(&mut guard)
+                Box::pin(self.handle_session_hash_mismatch(&mut guard))
                     .await
                     .map_err(|err| crate::Error::Oidc(err.into()))?;
             } else {
@@ -1175,7 +1175,7 @@ impl Oidc {
                 };
 
                 if cross_process_guard.hash_mismatch {
-                    self.handle_session_hash_mismatch(&mut cross_process_guard)
+                    Box::pin(self.handle_session_hash_mismatch(&mut cross_process_guard))
                         .await
                         .map_err(|err| RefreshTokenError::Oidc(Arc::new(err.into())))?;
                     // Optimistic exit: assume that the underlying process did update fast enough.

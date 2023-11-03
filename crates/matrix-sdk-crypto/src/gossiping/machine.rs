@@ -754,7 +754,10 @@ impl GossipMachine {
     ) -> Result<bool, CryptoStoreError> {
         if let Some(info) = event.room_key_info(room_id).map(|i| i.into()) {
             if self.should_request_key(&info).await? {
-                self.request_key_helper(info).await?;
+                // Size of the request_key_helper future should not impact this
+                // async fn since it is likely enough that this branch won't be
+                // entered.
+                Box::pin(self.request_key_helper(info)).await?;
                 return Ok(true);
             }
         }
