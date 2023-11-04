@@ -246,6 +246,20 @@ impl BackupDecryptionKey {
 
         Ok(result?)
     }
+
+    /// Check if the given public key from the [`RoomKeyBackupInfo`] matches to
+    /// this [`BackupDecryptionKey`].
+    pub fn backup_key_matches(&self, info: &RoomKeyBackupInfo) -> bool {
+        match info {
+            RoomKeyBackupInfo::MegolmBackupV1Curve25519AesSha2(info) => {
+                let pk = self.get_pk_decryption();
+                let public_key = pk.public_key();
+
+                info.public_key == public_key
+            }
+            RoomKeyBackupInfo::Other { .. } => false,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -382,5 +396,17 @@ mod tests {
         let _ = decryption_key
             .decrypt_session_data(encrypted.session_data)
             .expect("We should be able to decrypt a just encrypted room key");
+    }
+
+    #[test]
+    fn key_matches() {
+        let decryption_key = BackupDecryptionKey::new().unwrap();
+
+        let key_info = decryption_key.to_backup_info();
+
+        assert!(
+            decryption_key.backup_key_matches(&key_info),
+            "The backup info should match the decryption key"
+        );
     }
 }
