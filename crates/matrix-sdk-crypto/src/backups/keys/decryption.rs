@@ -59,16 +59,6 @@ pub enum DecodeError {
     PublicKey(#[from] vodozemac::KeyError),
 }
 
-#[derive(Debug, Error)]
-pub enum UnpicklingError {
-    #[error(transparent)]
-    Json(#[from] serde_json::Error),
-    // #[error("Couldn't decrypt the pickle: {0}")]
-    // Decryption(String),
-    #[error(transparent)]
-    Decode(#[from] DecodeError),
-}
-
 impl TryFrom<String> for BackupDecryptionKey {
     type Error = DecodeError;
 
