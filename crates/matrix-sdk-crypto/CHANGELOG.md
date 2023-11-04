@@ -1,5 +1,8 @@
 # unreleased
 
+- Add the higher level decryption method `decrypt_session_data` to the
+  `BackupDecryptionKey` type.
+
 - Add a higher level method to create signatures for the backup info. The
   `OlmMachine::backup_machine()::sign_backup()` method can be used to add
   signatures to a `RoomKeyBackupInfo`.
