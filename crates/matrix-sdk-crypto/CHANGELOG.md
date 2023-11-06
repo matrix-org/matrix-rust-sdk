@@ -1,5 +1,14 @@
 # unreleased
 
+- Add the higher level decryption method `decrypt_session_data` to the
+  `BackupDecryptionKey` type.
+
+- Add a higher level method to create signatures for the backup info. The
+  `OlmMachine::backup_machine()::sign_backup()` method can be used to add
+  signatures to a `RoomKeyBackupInfo`.
+
+- Remove the `backups_v1` feature, backups support is now enabled by default.
+
 - Use the `Signatures` type as the return value for the
   `MegolmV1BackupKey::signatures()` method.
 
@@ -9,6 +18,11 @@
   `OlmMachine::import_room_keys()` method is now deprecated.
 
 - Add support for secret storage.
+
+- The parameter order of `OlmMachine::encrypt_room_event_raw` and
+  `OutboundGroupSession::encrypt` has changed, `content` is now last
+  - The parameter type of `content` has also changed, from `serde_json::Value`
+    to `&Raw<AnyMessageLikeEventContent>`
 
 - Add initial support for MSC3814 - dehydrated devices.
 
@@ -84,8 +98,3 @@
 
 - Change the return value of `bootstrap_cross_signing` so it returns an extra keys upload request.
   The three requests must be sent in the order they appear in the return tuple.
-
-- The parameter order of `OlmMachine::encrypt_room_event_raw` and
-  `OutboundGroupSession::encrypt` has changed, `content` is now last
-  - The parameter type of `content` has also changed, from `serde_json::Value`
-    to `&Raw<AnyMessageLikeEventContent>`

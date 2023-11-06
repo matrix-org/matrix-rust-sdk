@@ -37,7 +37,9 @@ pub struct MegolmV1AuthData {
 }
 
 impl MegolmV1AuthData {
-    pub fn new(public_key: Curve25519PublicKey, signatures: Signatures) -> Self {
+    // Create a new [`MegolmV1AuthData`] from a public Curve25519 key and a
+    // [`Signatures`] map.
+    pub(crate) fn new(public_key: Curve25519PublicKey, signatures: Signatures) -> Self {
         Self { public_key, signatures, extra: Default::default() }
     }
 }

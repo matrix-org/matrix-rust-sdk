@@ -1336,7 +1336,6 @@ impl OlmMachine {
     /// ```
     pub async fn query_missing_secrets_from_other_sessions(&self) -> StoreResult<bool> {
         let identity = self.inner.user_identity.lock().await;
-        #[allow(unused_mut)]
         let mut secrets = identity.get_missing_secrets().await;
 
         if self.store().load_backup_keys().await?.decryption_key.is_none() {

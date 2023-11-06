@@ -46,9 +46,10 @@ pub struct DehydratedDevices {
 impl Drop for DehydratedDevices {
     fn drop(&mut self) {
         // See the drop implementation for the `crate::OlmMachine` for an explanation.
-        let inner = unsafe { ManuallyDrop::take(&mut self.inner) };
         let _guard = self.runtime.enter();
-        drop(inner);
+        unsafe {
+            ManuallyDrop::drop(&mut self.inner);
+        }
     }
 }
 
@@ -99,9 +100,10 @@ pub struct RehydratedDevice {
 impl Drop for RehydratedDevice {
     fn drop(&mut self) {
         // See the drop implementation for the `crate::OlmMachine` for an explanation.
-        let inner = unsafe { ManuallyDrop::take(&mut self.inner) };
         let _guard = self.runtime.enter();
-        drop(inner);
+        unsafe {
+            ManuallyDrop::drop(&mut self.inner);
+        }
     }
 }
 
@@ -124,9 +126,10 @@ pub struct DehydratedDevice {
 impl Drop for DehydratedDevice {
     fn drop(&mut self) {
         // See the drop implementation for the `crate::OlmMachine` for an explanation.
-        let inner = unsafe { ManuallyDrop::take(&mut self.inner) };
         let _guard = self.runtime.enter();
-        drop(inner);
+        unsafe {
+            ManuallyDrop::drop(&mut self.inner);
+        }
     }
 }
 

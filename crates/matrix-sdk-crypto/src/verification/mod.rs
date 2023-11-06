@@ -609,7 +609,6 @@ impl IdentitiesBeingVerified {
     }
 
     async fn request_missing_secrets(&self) -> Result<Vec<GossipRequest>, CryptoStoreError> {
-        #[allow(unused_mut)]
         let mut secrets = self.private_identity.get_missing_secrets().await;
 
         if self.store.inner.load_backup_keys().await?.decryption_key.is_none() {

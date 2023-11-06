@@ -1,4 +1,7 @@
-use std::sync::{Arc, RwLock};
+use std::{
+    mem::ManuallyDrop,
+    sync::{Arc, RwLock},
+};
 
 use anyhow::{anyhow, Context as _};
 use matrix_sdk::{
@@ -149,7 +152,7 @@ impl From<matrix_sdk::TransmissionProgress> for TransmissionProgress {
 
 #[derive(uniffi::Object)]
 pub struct Client {
-    pub(crate) inner: MatrixClient,
+    pub(crate) inner: ManuallyDrop<MatrixClient>,
     delegate: RwLock<Option<Arc<dyn ClientDelegate>>>,
     session_verification_controller:
         Arc<tokio::sync::RwLock<Option<SessionVerificationController>>>,
@@ -157,16 +160,15 @@ pub struct Client {
 
 impl Drop for Client {
     fn drop(&mut self) {
-        // HACK: the Client holds references to deadpool's pools, which require to be in
-        // a tokio Runtime because their `Drop` impl will use `block_on`. Now, we can't
-        // just drop the stores without breaking all the abstractions, so what
-        // we do instead is that we replace the entire client with a new dummy
-        // one, configured with in-memory stores; that will drop the previous
-        // one.
-        RUNTIME.block_on(async move {
-            let url = self.inner.homeserver();
-            self.inner = MatrixClient::builder().homeserver_url(url).build().await.unwrap();
-        });
+        // Dropping the inner OlmMachine must happen within a tokio context
+        // because deadpool drops sqlite connections in the DB pool on tokio's
+        // blocking threadpool to avoid blocking async worker threads.
+        let _guard = RUNTIME.enter();
+        // SAFETY: self.inner is never used again, which is the only requirement
+        //         for ManuallyDrop::drop to be used safely.
+        unsafe {
+            ManuallyDrop::drop(&mut self.inner);
+        }
     }
 }
 
@@ -190,7 +192,7 @@ impl Client {
         });
 
         let client = Arc::new(Client {
-            inner: sdk_client,
+            inner: ManuallyDrop::new(sdk_client),
             delegate: RwLock::new(None),
             session_verification_controller,
         });
@@ -260,6 +262,7 @@ impl Client {
         media_source: Arc<MediaSource>,
         body: Option<String>,
         mime_type: String,
+        use_cache: bool,
         temp_dir: Option<String>,
     ) -> Result<Arc<MediaFileHandle>, ClientError> {
         let client = self.inner.clone();
@@ -273,12 +276,12 @@ impl Client {
                     &MediaRequest { source, format: MediaFormat::File },
                     body,
                     &mime_type,
-                    true,
+                    use_cache,
                     temp_dir,
                 )
                 .await?;
 
-            Ok(Arc::new(MediaFileHandle { inner: handle }))
+            Ok(Arc::new(MediaFileHandle::new(handle)))
         })
     }
 
@@ -373,7 +376,7 @@ impl Client {
     }
 
     pub fn session(&self) -> Result<Session, ClientError> {
-        RUNTIME.block_on(async move { Self::session_inner(self.inner.clone()).await })
+        RUNTIME.block_on(async move { Self::session_inner((*self.inner).clone()).await })
     }
 
     pub fn account_url(
@@ -695,13 +698,13 @@ impl Client {
     }
 
     pub fn sync_service(&self) -> Arc<SyncServiceBuilder> {
-        SyncServiceBuilder::new(self.inner.clone())
+        SyncServiceBuilder::new((*self.inner).clone())
     }
 
     pub fn get_notification_settings(&self) -> Arc<NotificationSettings> {
         RUNTIME.block_on(async move {
             Arc::new(NotificationSettings::new(
-                self.inner.clone(),
+                (*self.inner).clone(),
                 self.inner.notification_settings().await,
             ))
         })
@@ -1128,13 +1131,45 @@ fn gen_transaction_id() -> String {
 /// is dropped, the file will be removed from the disk.
 #[derive(uniffi::Object)]
 pub struct MediaFileHandle {
-    inner: SdkMediaFileHandle,
+    inner: RwLock<Option<SdkMediaFileHandle>>,
+}
+
+impl MediaFileHandle {
+    fn new(handle: SdkMediaFileHandle) -> Self {
+        Self { inner: RwLock::new(Some(handle)) }
+    }
 }
 
 #[uniffi::export]
 impl MediaFileHandle {
     /// Get the media file's path.
-    pub fn path(&self) -> String {
-        self.inner.path().to_str().unwrap().to_owned()
+    pub fn path(&self) -> Result<String, ClientError> {
+        Ok(self
+            .inner
+            .read()
+            .unwrap()
+            .as_ref()
+            .context("MediaFileHandle must not be used after calling persist")?
+            .path()
+            .to_str()
+            .unwrap()
+            .to_owned())
+    }
+
+    pub fn persist(&self, path: String) -> Result<bool, ClientError> {
+        let mut guard = self.inner.write().unwrap();
+        Ok(
+            match guard
+                .take()
+                .context("MediaFileHandle was already persisted")?
+                .persist(path.as_ref())
+            {
+                Ok(_) => true,
+                Err(e) => {
+                    *guard = Some(e.file);
+                    false
+                }
+            },
+        )
     }
 }

@@ -182,8 +182,11 @@ impl Backups {
 
             let backup_key = decryption_key.megolm_v1_public_key();
 
-            let mut backup_info = decryption_key.as_room_key_backup_info();
-            olm_machine.backup_machine().sign_backup(&mut backup_info).await?;
+            let mut backup_info = decryption_key.to_backup_info();
+
+            if let Err(e) = olm_machine.backup_machine().sign_backup(&mut backup_info).await {
+                warn!("Could not sign the newly created backup {e:?}");
+            }
 
             let algorithm = Raw::new(&backup_info)?.cast();
             let request = create_backup_version::v3::Request::new(algorithm);
@@ -609,7 +612,6 @@ impl Backups {
                 else {
                     continue;
                 };
-                let Ok(room_key) = serde_json::from_slice(&room_key) else { continue };
 
                 decrypted_room_keys
                     .entry(room_id.to_owned())

@@ -207,6 +207,13 @@ pub enum Error {
     /// The message failed to be decoded.
     #[error("The message could not been decoded: {0}")]
     Decoding(#[from] MessageDecodeError),
+    /// The message's Curve25519 key failed to be decoded.
+    #[error("The message's ephemeral Curve25519 key could not been decoded: {0}")]
+    InvalidCurveKey(#[from] KeyError),
+    /// The decrypted message should contain a backed up room key, but the
+    /// plaintext isn't valid JSON.
+    #[error("The decrypted message isn't valid JSON: {0}")]
+    Json(#[from] serde_json::error::Error),
 }
 
 #[cfg(test)]
