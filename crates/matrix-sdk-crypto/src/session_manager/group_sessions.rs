@@ -165,34 +165,33 @@ impl GroupSessionManager {
     }
 
     pub async fn mark_request_as_sent(&self, request_id: &TransactionId) -> StoreResult<()> {
-        let removed_session = self.sessions.remove_from_being_shared(request_id);
-        if let Some(session) = removed_session {
-            let no_olm = session.mark_request_as_sent(request_id);
+        let Some(session) = self.sessions.remove_from_being_shared(request_id) else {
+            return Ok(());
+        };
 
-            let mut changes = Changes::default();
+        let no_olm = session.mark_request_as_sent(request_id);
 
-            for (user_id, devices) in &no_olm {
-                for device_id in devices {
-                    let device = self.store.get_device(user_id, device_id).await;
+        let mut changes = Changes::default();
 
-                    if let Ok(Some(device)) = device {
-                        device.mark_withheld_code_as_sent();
-                        changes.devices.changed.push(device.inner.clone());
-                    } else {
-                        error!(
-                            ?request_id,
-                            "Marking to-device no olm as sent but device not found, might \
+        for (user_id, devices) in &no_olm {
+            for device_id in devices {
+                let device = self.store.get_device(user_id, device_id).await;
+
+                if let Ok(Some(device)) = device {
+                    device.mark_withheld_code_as_sent();
+                    changes.devices.changed.push(device.inner.clone());
+                } else {
+                    error!(
+                        ?request_id,
+                        "Marking to-device no olm as sent but device not found, might \
                             have been deleted?"
-                        );
-                    }
+                    );
                 }
             }
-
-            changes.outbound_group_sessions.push(session.clone());
-            self.store.save_changes(changes).await?;
         }
 
-        Ok(())
+        changes.outbound_group_sessions.push(session.clone());
+        self.store.save_changes(changes).await
     }
 
     #[cfg(test)]
