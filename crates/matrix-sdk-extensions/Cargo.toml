@@ -14,5 +14,5 @@ javascriptcore = ["dep:javascriptcore"]
 [dependencies]
 wasmtime = { version ="13.0.0", features = ["component-model"], optional = true }
 # javascriptcore = { git = "https://github.com/endoli/javascriptcore.rs", branch = "main", optional = true }
-javascriptcore = { git = "https://github.com/Hywan/javascriptcore.rs", branch = "feat-typed-array", optional = true }
+javascriptcore = { git = "https://github.com/Hywan/javascriptcore.rs", branch = "fix-macro-imports", optional = true }
 anyhow.workspace = true

@@ -33,8 +33,7 @@ where
 
 impl<M> Instance<M> for NativeInstance<M>
 where
-    M: Module,
-    M: ModuleNativeExt<M::State, M::Bindings>,
+    M: Module + ModuleNativeExt<M::State, M::Bindings>,
 {
     fn new<P>(wasm_module: P) -> Result<Self>
     where

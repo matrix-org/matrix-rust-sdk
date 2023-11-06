@@ -28,14 +28,14 @@ function utf8Encode(s, realloc, memory) {
   return ptr;
 }
 
-export async function instantiate(compileCore, imports, instantiateCore = WebAssembly.instantiate) {
+function instantiate(compileCore, imports, instantiateCore = WebAssembly.instantiate) {
   const module0 = compileCore('timeline.core.wasm');
   const module1 = compileCore('timeline.core2.wasm');
   const module2 = compileCore('timeline.core3.wasm');
   const { print } = imports['matrix:ui-timeline/std'];
   let exports0;
   let exports1;
-  
+
   function trampoline0(arg0, arg1) {
     const ptr0 = arg0;
     const len0 = arg1;
@@ -46,15 +46,17 @@ export async function instantiate(compileCore, imports, instantiateCore = WebAss
   let exports2;
   let realloc0;
   const instanceFlags0 = new WebAssembly.Global({ value: "i32", mutable: true }, 3);
-  Promise.all([module0, module1, module2]).catch(() => {});
-  ({ exports: exports0 } = await instantiateCore(await module1));
-  ({ exports: exports1 } = await instantiateCore(await module0, {
+  // Promise.all([module0, module1, module2]).catch(() => {});
+
+  const m = module1;
+  ({ exports: exports0 } = instantiateCore(m /* module1 */));
+  ({ exports: exports1 } = instantiateCore(module0, {
     'matrix:ui-timeline/std': {
       print: exports0['0'],
     },
   }));
   memory0 = exports1.memory;
-  ({ exports: exports2 } = await instantiateCore(await module2, {
+  ({ exports: exports2 } = instantiateCore(module2, {
     '': {
       $imports: exports0.$imports,
       '0': trampoline0,

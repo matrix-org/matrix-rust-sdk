@@ -14,7 +14,7 @@ where
     M: Module,
     Self: Sized,
 {
-    fn new<P>(wasm_module: P) -> Result<Self>
+    fn new<P>(path_to_entry_point: P) -> Result<Self>
     where
         P: AsRef<Path>;
 }
