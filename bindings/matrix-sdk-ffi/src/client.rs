@@ -1,4 +1,7 @@
-use std::sync::{Arc, RwLock};
+use std::{
+    mem::ManuallyDrop,
+    sync::{Arc, RwLock},
+};
 
 use anyhow::{anyhow, Context as _};
 use matrix_sdk::{
@@ -148,7 +151,7 @@ impl From<matrix_sdk::TransmissionProgress> for TransmissionProgress {
 
 #[derive(uniffi::Object)]
 pub struct Client {
-    pub(crate) inner: MatrixClient,
+    pub(crate) inner: ManuallyDrop<MatrixClient>,
     delegate: RwLock<Option<Arc<dyn ClientDelegate>>>,
     session_verification_controller:
         Arc<tokio::sync::RwLock<Option<SessionVerificationController>>>,
@@ -156,16 +159,15 @@ pub struct Client {
 
 impl Drop for Client {
     fn drop(&mut self) {
-        // HACK: the Client holds references to deadpool's pools, which require to be in
-        // a tokio Runtime because their `Drop` impl will use `block_on`. Now, we can't
-        // just drop the stores without breaking all the abstractions, so what
-        // we do instead is that we replace the entire client with a new dummy
-        // one, configured with in-memory stores; that will drop the previous
-        // one.
-        RUNTIME.block_on(async move {
-            let url = self.inner.homeserver();
-            self.inner = MatrixClient::builder().homeserver_url(url).build().await.unwrap();
-        });
+        // Dropping the inner OlmMachine must happen within a tokio context
+        // because deadpool drops sqlite connections in the DB pool on tokio's
+        // blocking threadpool to avoid blocking async worker threads.
+        let _guard = RUNTIME.enter();
+        // SAFETY: self.inner is never used again, which is the only requirement
+        //         for ManuallyDrop::drop to be used safely.
+        unsafe {
+            ManuallyDrop::drop(&mut self.inner);
+        }
     }
 }
 
@@ -189,7 +191,7 @@ impl Client {
         });
 
         let client = Arc::new(Client {
-            inner: sdk_client,
+            inner: ManuallyDrop::new(sdk_client),
             delegate: RwLock::new(None),
             session_verification_controller,
         });
@@ -373,7 +375,7 @@ impl Client {
     }
 
     pub fn session(&self) -> Result<Session, ClientError> {
-        RUNTIME.block_on(async move { Self::session_inner(self.inner.clone()).await })
+        RUNTIME.block_on(async move { Self::session_inner((*self.inner).clone()).await })
     }
 
     pub fn account_url(
@@ -695,13 +697,13 @@ impl Client {
     }
 
     pub fn sync_service(&self) -> Arc<SyncServiceBuilder> {
-        SyncServiceBuilder::new(self.inner.clone())
+        SyncServiceBuilder::new((*self.inner).clone())
     }
 
     pub fn get_notification_settings(&self) -> Arc<NotificationSettings> {
         RUNTIME.block_on(async move {
             Arc::new(NotificationSettings::new(
-                self.inner.clone(),
+                (*self.inner).clone(),
                 self.inner.notification_settings().await,
             ))
         })
