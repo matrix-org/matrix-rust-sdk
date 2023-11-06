@@ -19,6 +19,11 @@
 
 - Add support for secret storage.
 
+- The parameter order of `OlmMachine::encrypt_room_event_raw` and
+  `OutboundGroupSession::encrypt` has changed, `content` is now last
+  - The parameter type of `content` has also changed, from `serde_json::Value`
+    to `&Raw<AnyMessageLikeEventContent>`
+
 - Add initial support for MSC3814 - dehydrated devices.
 
 - Mark our `OwnUserIdentity` as verified if we successfully import the matching
@@ -93,8 +98,3 @@
 
 - Change the return value of `bootstrap_cross_signing` so it returns an extra keys upload request.
   The three requests must be sent in the order they appear in the return tuple.
-
-- The parameter order of `OlmMachine::encrypt_room_event_raw` and
-  `OutboundGroupSession::encrypt` has changed, `content` is now last
-  - The parameter type of `content` has also changed, from `serde_json::Value`
-    to `&Raw<AnyMessageLikeEventContent>`
