@@ -248,6 +248,11 @@ pub fn new_virtual_element_call_widget(
         .map(|w| w.into())?)
 }
 
+#[uniffi::export]
+pub fn get_element_call_required_permissions() -> WidgetCapabilities {
+    matrix_sdk::widget::get_element_call_required_permissions().into()
+}
+
 #[derive(uniffi::Record)]
 pub struct ClientProperties {
     /// The client_id provides the widget with the option to behave differently
