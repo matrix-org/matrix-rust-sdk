@@ -40,6 +40,7 @@ use crate::{
     store::{BackupDecryptionKey, BackupKeys, Changes, RoomKeyCounts, Store},
     types::{MegolmV1AuthData, RoomKeyBackupInfo, Signatures},
     CryptoStoreError, Device, KeysBackupRequest, OutgoingRequest, RoomKeyImportResult,
+    SignatureError,
 };
 
 mod keys;
@@ -325,7 +326,7 @@ impl BackupMachine {
     ///
     /// # Arguments
     ///
-    /// * `backup_version`: The backup version that should be verified. Should
+    /// * `backup_info`: The backup info that should be verified. Should
     /// be fetched from the server using the [`/room_keys/version`] endpoint.
     ///
     /// * `compute_all_signatures`: *Useful for debugging only*. If this
@@ -346,6 +347,46 @@ impl BackupMachine {
             self.verify_auth_data_v1(data, compute_all_signatures).await
         } else {
             Ok(Default::default())
+        }
+    }
+
+    /// Sign a [`RoomKeyBackupInfo`] using the device's identity key and, if
+    /// available, the cross-signing master key.
+    ///
+    /// # Arguments
+    ///
+    /// * `backup_info`: The backup version that should be verified. Should
+    /// be created from the [`BackupDecryptionKey`] using the
+    /// [`BackupDecryptionKey::to_backup_info()`] method.
+    pub async fn sign_backup(
+        &self,
+        backup_info: &mut RoomKeyBackupInfo,
+    ) -> Result<(), SignatureError> {
+        if let RoomKeyBackupInfo::MegolmBackupV1Curve25519AesSha2(data) = backup_info {
+            let canonical_json = data.to_canonical_json()?;
+
+            let private_identity = self.store.private_identity();
+            let identity = private_identity.lock().await;
+
+            if let Some(key_id) = identity.master_key_id().await {
+                if let Ok(signature) = identity.sign(&canonical_json).await {
+                    data.signatures.add_signature(
+                        self.store.user_id().to_owned(),
+                        key_id,
+                        signature,
+                    );
+                }
+            }
+
+            let cache = self.store.cache().await?;
+            let account = cache.account().await?;
+            let key_id = account.signing_key_id();
+            let signature = account.sign(&canonical_json);
+            data.signatures.add_signature(self.store.user_id().to_owned(), key_id, signature);
+
+            Ok(())
+        } else {
+            Err(SignatureError::UnsupportedAlgorithm)
         }
     }
 
@@ -803,5 +844,24 @@ mod tests {
             "If a session was imported from a backup, it should be considered to be backed up"
         );
         assert!(session.has_been_imported());
+    }
+
+    #[async_test]
+    async fn sign_backup_info() {
+        let machine = OlmMachine::new(alice_id(), alice_device_id()).await;
+        let backup_machine = machine.backup_machine();
+
+        let decryption_key = BackupDecryptionKey::new().unwrap();
+        let mut backup_info = decryption_key.to_backup_info();
+
+        let result = backup_machine.verify_backup(backup_info.to_owned(), false).await.unwrap();
+
+        assert!(!result.trusted());
+
+        backup_machine.sign_backup(&mut backup_info).await.unwrap();
+
+        let result = backup_machine.verify_backup(backup_info, false).await.unwrap();
+
+        assert!(result.trusted());
     }
 }
