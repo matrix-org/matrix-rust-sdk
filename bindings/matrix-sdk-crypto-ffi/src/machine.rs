@@ -113,14 +113,15 @@ pub struct OlmMachine {
 
 impl Drop for OlmMachine {
     fn drop(&mut self) {
-        // SAFETY: self.inner is never used again, which is the only requirement
-        //         for ManuallyDrop::take to be used safely.
-        let inner = unsafe { ManuallyDrop::take(&mut self.inner) };
-        let _guard = self.runtime.enter();
         // Dropping the inner OlmMachine must happen within a tokio context
         // because deadpool drops sqlite connections in the DB pool on tokio's
         // blocking threadpool to avoid blocking async worker threads.
-        drop(inner);
+        let _guard = self.runtime.enter();
+        // SAFETY: self.inner is never used again, which is the only requirement
+        //         for ManuallyDrop::drop to be used safely.
+        unsafe {
+            ManuallyDrop::drop(&mut self.inner);
+        }
     }
 }
 
