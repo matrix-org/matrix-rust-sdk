@@ -88,7 +88,7 @@ impl NotificationClientBuilder {
         process_setup: NotificationProcessSetup,
     ) -> Result<Arc<Self>, ClientError> {
         let builder = RUNTIME.block_on(async {
-            MatrixNotificationClient::builder(client.inner.clone(), process_setup).await
+            MatrixNotificationClient::builder((*client.inner).clone(), process_setup).await
         })?;
         Ok(Arc::new(Self { builder, client }))
     }
