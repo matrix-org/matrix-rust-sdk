@@ -383,9 +383,11 @@ impl BackupMachine {
             let key_id = account.signing_key_id();
             let signature = account.sign(&canonical_json);
             data.signatures.add_signature(self.store.user_id().to_owned(), key_id, signature);
-        }
 
-        Ok(())
+            Ok(())
+        } else {
+            Err(SignatureError::UnsupportedAlgorithm)
+        }
     }
 
     /// Activate the given backup key to be used to encrypt and backup room
