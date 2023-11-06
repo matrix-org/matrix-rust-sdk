@@ -45,20 +45,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "aes-gcm"
-version = "0.10.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "831010a0f742e1209b3bcea8fab6a8e149051ba6099432c8cb2cc117dec3ead1"
-dependencies = [
- "aead",
- "aes",
- "cipher",
- "ctr",
- "ghash",
- "subtle",
-]
-
-[[package]]
 name = "ahash"
 version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -861,22 +847,6 @@ name = "constant_time_eq"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f7144d30dcf0fafbce74250a3963025d8d52177934239851c917d29f1df280c2"
-
-[[package]]
-name = "cookie"
-version = "0.17.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7efb37c3e1ccb1ff97164ad95ac1606e8ccd35b3fa0a7d99a304c7f4a428cc24"
-dependencies = [
- "aes-gcm",
- "base64 0.21.4",
- "hkdf",
- "rand 0.8.5",
- "sha2",
- "subtle",
- "time",
- "version_check",
-]
 
 [[package]]
 name = "core-foundation"
@@ -1895,16 +1865,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ghash"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d930750de5717d2dd0b8c0d42c076c0e884c81a73e6cab859bbd2339c71e3e40"
-dependencies = [
- "opaque-debug",
- "polyval",
-]
-
-[[package]]
 name = "gif"
 version = "0.11.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2604,7 +2564,7 @@ version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e2abad23fbc42b3700f2f279844dc832adb2b2eb069b2df918f455c4e18cc646"
 dependencies = [
- "spin",
+ "spin 0.5.2",
 ]
 
 [[package]]
@@ -2704,8 +2664,8 @@ dependencies = [
 
 [[package]]
 name = "mas-http"
-version = "0.1.0"
-source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=4280045b24bc71ef1fa100c0a046ed15e6e20748#4280045b24bc71ef1fa100c0a046ed15e6e20748"
+version = "0.5.0-rc.2"
+source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=357481b52e6dc092178a16b8a7d86df036aac608#357481b52e6dc092178a16b8a7d86df036aac608"
 dependencies = [
  "bytes",
  "futures-util",
@@ -2723,13 +2683,13 @@ dependencies = [
  "tower",
  "tower-http",
  "tracing",
- "tracing-opentelemetry",
+ "tracing-opentelemetry 0.21.0",
 ]
 
 [[package]]
 name = "mas-iana"
-version = "0.1.0"
-source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=4280045b24bc71ef1fa100c0a046ed15e6e20748#4280045b24bc71ef1fa100c0a046ed15e6e20748"
+version = "0.5.0-rc.2"
+source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=357481b52e6dc092178a16b8a7d86df036aac608#357481b52e6dc092178a16b8a7d86df036aac608"
 dependencies = [
  "schemars",
  "serde",
@@ -2737,8 +2697,8 @@ dependencies = [
 
 [[package]]
 name = "mas-jose"
-version = "0.1.0"
-source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=4280045b24bc71ef1fa100c0a046ed15e6e20748#4280045b24bc71ef1fa100c0a046ed15e6e20748"
+version = "0.5.0-rc.2"
+source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=357481b52e6dc092178a16b8a7d86df036aac608#357481b52e6dc092178a16b8a7d86df036aac608"
 dependencies = [
  "base64ct",
  "chrono",
@@ -2767,14 +2727,13 @@ dependencies = [
 
 [[package]]
 name = "mas-keystore"
-version = "0.1.0"
-source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=4280045b24bc71ef1fa100c0a046ed15e6e20748#4280045b24bc71ef1fa100c0a046ed15e6e20748"
+version = "0.5.0-rc.2"
+source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=357481b52e6dc092178a16b8a7d86df036aac608#357481b52e6dc092178a16b8a7d86df036aac608"
 dependencies = [
  "aead",
  "base64ct",
  "chacha20poly1305",
  "const-oid",
- "cookie",
  "der",
  "ecdsa",
  "elliptic-curve",
@@ -2796,8 +2755,8 @@ dependencies = [
 
 [[package]]
 name = "mas-oidc-client"
-version = "0.1.0"
-source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=4280045b24bc71ef1fa100c0a046ed15e6e20748#4280045b24bc71ef1fa100c0a046ed15e6e20748"
+version = "0.5.0-rc.2"
+source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=357481b52e6dc092178a16b8a7d86df036aac608#357481b52e6dc092178a16b8a7d86df036aac608"
 dependencies = [
  "base64ct",
  "bytes",
@@ -2834,8 +2793,8 @@ dependencies = [
 
 [[package]]
 name = "mas-tower"
-version = "0.1.0"
-source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=4280045b24bc71ef1fa100c0a046ed15e6e20748#4280045b24bc71ef1fa100c0a046ed15e6e20748"
+version = "0.5.0-rc.2"
+source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=357481b52e6dc092178a16b8a7d86df036aac608#357481b52e6dc092178a16b8a7d86df036aac608"
 dependencies = [
  "http",
  "opentelemetry",
@@ -2845,7 +2804,7 @@ dependencies = [
  "tokio",
  "tower",
  "tracing",
- "tracing-opentelemetry",
+ "tracing-opentelemetry 0.21.0",
 ]
 
 [[package]]
@@ -3114,7 +3073,7 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-core",
- "tracing-opentelemetry",
+ "tracing-opentelemetry 0.20.0",
  "tracing-subscriber",
  "uniffi",
  "url",
@@ -3558,13 +3517,12 @@ dependencies = [
 
 [[package]]
 name = "oauth2-types"
-version = "0.1.0"
-source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=4280045b24bc71ef1fa100c0a046ed15e6e20748#4280045b24bc71ef1fa100c0a046ed15e6e20748"
+version = "0.5.0-rc.2"
+source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=357481b52e6dc092178a16b8a7d86df036aac608#357481b52e6dc092178a16b8a7d86df036aac608"
 dependencies = [
  "chrono",
  "data-encoding",
  "http",
- "indoc",
  "language-tags",
  "mas-iana",
  "mas-jose",
@@ -4173,18 +4131,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "polyval"
-version = "0.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d52cff9d1d4dee5fe6d03729099f4a310a41179e0a10dbf542039873f2e826fb"
-dependencies = [
- "cfg-if",
- "cpufeatures",
- "opaque-debug",
- "universal-hash",
-]
-
-[[package]]
 name = "pprof"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4654,10 +4600,24 @@ dependencies = [
  "cc",
  "libc",
  "once_cell",
- "spin",
- "untrusted",
+ "spin 0.5.2",
+ "untrusted 0.7.1",
  "web-sys",
  "winapi",
+]
+
+[[package]]
+name = "ring"
+version = "0.17.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fb0205304757e5d899b9c2e448b867ffd03ae7f988002e47cd24954391394d0b"
+dependencies = [
+ "cc",
+ "getrandom 0.2.10",
+ "libc",
+ "spin 0.9.8",
+ "untrusted 0.9.0",
+ "windows-sys",
 ]
 
 [[package]]
@@ -4905,12 +4865,12 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.21.7"
+version = "0.21.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cd8d6c9f025a446bc4d18ad9632e69aec8f287aa84499ee335599fabd20c3fd8"
+checksum = "446e14c5cda4f3f30fe71863c34ec70f5ac79d6087097ad0bb433e1be5edf04c"
 dependencies = [
  "log",
- "ring",
+ "ring 0.17.5",
  "rustls-webpki",
  "sct",
 ]
@@ -4938,12 +4898,12 @@ dependencies = [
 
 [[package]]
 name = "rustls-webpki"
-version = "0.101.6"
+version = "0.101.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3c7d5dece342910d9ba34d259310cae3e0154b873b35408b787b59bce53d34fe"
+checksum = "8b6275d1ee7a1cd780b64aca7726599a1dbc893b1e64144529e55c3c2f745765"
 dependencies = [
- "ring",
- "untrusted",
+ "ring 0.17.5",
+ "untrusted 0.9.0",
 ]
 
 [[package]]
@@ -5073,8 +5033,8 @@ version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d53dcdb7c9f8158937a7981b48accfd39a43af418591a5d008c7b22b5e1b7ca4"
 dependencies = [
- "ring",
- "untrusted",
+ "ring 0.16.20",
+ "untrusted 0.7.1",
 ]
 
 [[package]]
@@ -5125,9 +5085,9 @@ dependencies = [
 
 [[package]]
 name = "serde"
-version = "1.0.188"
+version = "1.0.190"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cf9e0fcba69a370eed61bcf2b728575f726b50b55cba78064753d708ddc7549e"
+checksum = "91d3c334ca1ee894a2c6f6ad698fe8c435b76d504b13d436f0685d648d6d96f7"
 dependencies = [
  "serde_derive",
 ]
@@ -5154,9 +5114,9 @@ dependencies = [
 
 [[package]]
 name = "serde_derive"
-version = "1.0.188"
+version = "1.0.190"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4eca7ac642d82aa35b60049a6eccb4be6be75e599bd2e9adb5f875a737654af2"
+checksum = "67c5609f394e5c2bd7fc51efda478004ea80ef42fee983d5c67a65e34f32c0e3"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5189,9 +5149,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.107"
+version = "1.0.108"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6b420ce6e3d8bd882e9b243c6eed35dbc9a6110c9769e74b584e0d68d1f20c65"
+checksum = "3d1c7e3eac408d115102c4c24ad393e0821bb3a5df4d506a80f85f7a742a526b"
 dependencies = [
  "itoa",
  "ryu",
@@ -5232,9 +5192,9 @@ dependencies = [
 
 [[package]]
 name = "serde_with"
-version = "3.3.0"
+version = "3.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1ca3b16a3d82c4088f343b7480a93550b3eabe1a358569c2dfe38bbcead07237"
+checksum = "64cd236ccc1b7a29e7e2739f27c0b2dd199804abc4290e32f59f3b68d6405c23"
 dependencies = [
  "base64 0.21.4",
  "chrono",
@@ -5249,9 +5209,9 @@ dependencies = [
 
 [[package]]
 name = "serde_with_macros"
-version = "3.3.0"
+version = "3.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e6be15c453eb305019bfa438b1593c731f36a289a7853f7707ee29e870b3b3c"
+checksum = "93634eb5f75a2323b16de4748022ac4297f9e76b6dced2be287a099f41b5e788"
 dependencies = [
  "darling",
  "proc-macro2",
@@ -5352,6 +5312,12 @@ name = "spin"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6e63cff320ae2c57904679ba7cb63280a3dc4613885beafb148ee7bf9aa9042d"
+
+[[package]]
+name = "spin"
+version = "0.9.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6980e8d7511241f8acf4aebddbb1ff938df5eebe98691418c4468d0b72a96a67"
 
 [[package]]
 name = "spki"
@@ -5528,18 +5494,18 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
-version = "1.0.49"
+version = "1.0.50"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1177e8c6d7ede7afde3585fd2513e611227efd6481bd78d2e82ba1ce16557ed4"
+checksum = "f9a7210f5c9a7156bb50aa36aed4c95afb51df0df00713949448cf9e97d382d2"
 dependencies = [
  "thiserror-impl",
 ]
 
 [[package]]
 name = "thiserror-impl"
-version = "1.0.49"
+version = "1.0.50"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "10712f02019e9288794769fba95cd6847df9874d49d871d062172f9dd41bc4cc"
+checksum = "266b2e40bc00e5a6c09c3584011e08b06f123c00362c92b975ba9843aaaa14b8"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5935,6 +5901,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "tracing-opentelemetry"
+version = "0.21.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75327c6b667828ddc28f5e3f169036cb793c3f588d83bf0f262a7f062ffed3c8"
+dependencies = [
+ "once_cell",
+ "opentelemetry",
+ "opentelemetry_sdk",
+ "smallvec",
+ "tracing",
+ "tracing-core",
+ "tracing-log",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "tracing-subscriber"
 version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6176,6 +6158,12 @@ name = "untrusted"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a156c684c91ea7d62626509bce3cb4e1d9ed5c4d978f7b4352658f96a4c26b4a"
+
+[[package]]
+name = "untrusted"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 
 [[package]]
 name = "url"
