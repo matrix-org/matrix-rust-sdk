@@ -495,6 +495,27 @@ pub static ROOM_MESSAGES_BATCH_1: Lazy<JsonValue> = Lazy::new(|| {
     })
 });
 
+pub static ROOM_MESSAGES_BATCH_2: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
+        "chunk": [
+          {
+            "age": 1042,
+            "content": {
+              "body": "hello room then",
+              "msgtype": "m.text"
+            },
+            "event_id": "$1444812213350496Cdddf:example.com",
+            "origin_server_ts": 1444812213737i64,
+            "room_id": "!Xq3620DUiqCaoxq:example.com",
+            "sender": "@alice:example.com",
+            "type": "m.room.message"
+          },
+        ],
+        "start": "t54392-516_47314_0_7_1_1_1_11444_1",
+        "start": "t59392-516_47314_0_7_1_1_1_11444_1",
+    })
+});
+
 #[async_test]
 async fn empty_chunk() {
     let room_id = room_id!("!a98sd12bjh:example.org");
@@ -583,4 +604,111 @@ async fn empty_chunk() {
     );
     assert_eq!(content.name, "New room name");
     assert_eq!(prev_content.as_ref().unwrap().name.as_ref().unwrap(), "Old room name");
+}
+
+#[async_test]
+async fn until_num_items_with_empty_chunk() {
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let (client, server) = logged_in_client().await;
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+    let mut ev_builder = SyncResponseBuilder::new();
+    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+
+    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    let room = client.get_room(room_id).unwrap();
+    let timeline = Arc::new(room.timeline().await);
+    let (_, mut timeline_stream) = timeline.subscribe().await;
+    let mut back_pagination_status = timeline.back_pagination_status();
+
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
+        .and(query_param_is_missing("from"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&*ROOM_MESSAGES_BATCH_1))
+        .expect(1)
+        .named("messages_batch_1")
+        .mount(&server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
+        .and(query_param("from", "t47409-4357353_219380_26003_2269"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "chunk": [],
+            "start": "t47409-4357353_219380_26003_2269",
+            "end": "t54392-516_47314_0_7_1_1_1_11444_1",
+        })))
+        .expect(1)
+        .named("messages_empty_chunk")
+        .mount(&server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
+        .and(query_param("from", "t54392-516_47314_0_7_1_1_1_11444_1"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&*ROOM_MESSAGES_BATCH_2))
+        .expect(1)
+        .named("messages_batch_2")
+        .mount(&server)
+        .await;
+
+    let paginate = async {
+        timeline.paginate_backwards(PaginationOptions::until_num_items(4, 4)).await.unwrap();
+        server.reset().await;
+    };
+    let observe_paginating = async {
+        assert_eq!(back_pagination_status.next().await, Some(BackPaginationStatus::Paginating));
+    };
+    join(paginate, observe_paginating).await;
+
+    let day_divider = assert_next_matches!(
+        timeline_stream,
+        VectorDiff::PushFront { value } => value
+    );
+    assert_matches!(day_divider.as_virtual().unwrap(), VirtualTimelineItem::DayDivider(_));
+
+    let message = assert_next_matches!(
+        timeline_stream,
+        VectorDiff::Insert { index: 1, value } => value
+    );
+    assert_let!(TimelineItemContent::Message(msg) = message.as_event().unwrap().content());
+    assert_let!(MessageType::Text(text) = msg.msgtype());
+    assert_eq!(text.body, "hello world");
+
+    let message = assert_next_matches!(
+        timeline_stream,
+        VectorDiff::Insert { index: 1, value } => value
+    );
+    assert_let!(TimelineItemContent::Message(msg) = message.as_event().unwrap().content());
+    assert_let!(MessageType::Text(text) = msg.msgtype());
+    assert_eq!(text.body, "the world is big");
+
+    let message = assert_next_matches!(
+        timeline_stream,
+        VectorDiff::Insert { index: 1, value } => value
+    );
+    assert_let!(TimelineItemContent::OtherState(state) = message.as_event().unwrap().content());
+    assert_eq!(state.state_key(), "");
+    assert_let!(
+        AnyOtherFullStateEventContent::RoomName(FullStateEventContent::Original {
+            content,
+            prev_content
+        }) = state.content()
+    );
+    assert_eq!(content.name, "New room name");
+    assert_eq!(prev_content.as_ref().unwrap().name.as_ref().unwrap(), "Old room name");
+
+    let message = assert_next_matches!(
+        timeline_stream,
+        VectorDiff::Insert { index: 1, value } => value
+    );
+    assert_let!(TimelineItemContent::Message(msg) = message.as_event().unwrap().content());
+    assert_let!(MessageType::Text(text) = msg.msgtype());
+    assert_eq!(text.body, "hello room then");
 }
