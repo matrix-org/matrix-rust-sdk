@@ -1062,7 +1062,7 @@ impl Oidc {
         let metadata = data.metadata.clone();
 
         spawn(async move {
-            tracing::trace!(
+            trace!(
                 "Token refresh: attempting to refresh with refresh_token {:x}",
                 hash_str(&refresh_token)
             );
