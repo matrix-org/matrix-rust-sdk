@@ -79,7 +79,7 @@ impl TimelineInnerState {
     }
 
     pub(super) fn back_pagination_token(&self) -> Option<&str> {
-        let (_, token) = self.meta.back_pagination_tokens.last()?;
+        let (_, token) = self.meta.back_pagination_tokens.back()?;
         Some(token)
     }
 
@@ -95,15 +95,22 @@ impl TimelineInnerState {
 
         let mut txn = self.transaction();
         for event in events {
-            txn.handle_remote_event(
-                event,
-                TimelineItemPosition::End { from_cache: true },
-                // back pagination token, if any, is added to the first event
-                back_pagination_token.take(),
-                room_data_provider,
-                settings,
-            )
-            .await;
+            let (event_id, _) = txn
+                .handle_remote_event(
+                    event,
+                    TimelineItemPosition::End { from_cache: true },
+                    room_data_provider,
+                    settings,
+                )
+                .await;
+
+            // Back-pagination token, if any, is added to the first added event.
+            if let Some(event_id) = event_id {
+                if let Some(token) = back_pagination_token.take() {
+                    trace!(token, ?event_id, "Adding back-pagination token to the front");
+                    txn.meta.back_pagination_tokens.push_front((event_id, token));
+                }
+            }
         }
         txn.commit();
     }
@@ -167,38 +174,34 @@ impl TimelineInnerState {
     pub(super) async fn handle_back_paginated_events<P: RoomDataProvider>(
         &mut self,
         events: Vec<TimelineEvent>,
-        mut back_pagination_token: Option<String>,
+        back_pagination_token: Option<String>,
         room_data_provider: &P,
         settings: &TimelineInnerSettings,
     ) -> Option<HandleManyEventsResult> {
         let mut txn = self.transaction();
 
-        let num_events = events.len();
+        let mut latest_event_id = None;
         let mut total = HandleManyEventsResult::default();
-        for (i, event) in events.into_iter().enumerate() {
-            // back pagination token is used for the last event in the chunk
-            // because back-paginated events have reverse order from sync events
-            let token = if i == num_events - 1 { back_pagination_token.take() } else { None };
-            let res = txn
+        for event in events {
+            let (event_id, res) = txn
                 .handle_remote_event(
                     event.into(),
                     TimelineItemPosition::Start,
-                    token,
                     room_data_provider,
                     settings,
                 )
                 .await;
 
+            latest_event_id = event_id.or(latest_event_id);
             total.items_added = total.items_added.checked_add(res.item_added as u16)?;
             total.items_updated = total.items_updated.checked_add(res.items_updated)?;
         }
 
-        if num_events == 0 {
-            trace!("Received an empty chunk");
-
-            if let Some(token) = back_pagination_token {
-                txn.set_back_pagination_token(token, None);
-            }
+        // Back-pagination token, if any, is added to the last added event.
+        if let Some((event_id, token)) = latest_event_id.zip(back_pagination_token) {
+            trace!(token, ?event_id, "Adding back-pagination token to the back");
+            txn.meta.back_pagination_tokens.push_back((event_id, token));
+            total.back_pagination_token_updated = true;
         }
 
         txn.commit();
@@ -214,7 +217,7 @@ impl TimelineInnerState {
         settings: &TimelineInnerSettings,
     ) {
         let mut txn = self.transaction();
-        txn.handle_live_event(event, None, room_data_provider, settings).await;
+        txn.handle_live_event(event, room_data_provider, settings).await;
         txn.commit();
     }
 
@@ -313,11 +316,10 @@ impl TimelineInnerState {
                 push_rules.get_actions(&event.event, push_context).to_owned()
             });
 
-            let result = txn
+            let (_, result) = txn
                 .handle_remote_event(
                     event.into(),
                     TimelineItemPosition::Update(idx),
-                    None,
                     room_data_provider,
                     settings,
                 )
@@ -494,14 +496,16 @@ impl TimelineInnerStateTransaction<'_> {
         let num_events = timeline.events.len();
         for (i, event) in timeline.events.into_iter().enumerate() {
             trace!("Handling event {} out of {num_events}", i + 1);
-            self.handle_live_event(event, timeline.prev_batch.take(), room_data_provider, settings)
-                .await;
-        }
-    }
+            let (event_id, _) = self.handle_live_event(event, room_data_provider, settings).await;
 
-    fn set_back_pagination_token(&mut self, token: String, event_id: Option<OwnedEventId>) {
-        trace!(token, ?event_id, "Adding back-pagination token");
-        self.meta.back_pagination_tokens.push((event_id, token));
+            // Back-pagination token, if any, is added to the first added event.
+            if let Some(event_id) = event_id {
+                if let Some(token) = timeline.prev_batch.take() {
+                    trace!(token, ?event_id, "Adding back-pagination token to the front");
+                    self.meta.back_pagination_tokens.push_front((event_id, token));
+                }
+            }
+        }
     }
 
     /// Handle a live remote event.
@@ -511,14 +515,12 @@ impl TimelineInnerStateTransaction<'_> {
     async fn handle_live_event<P: RoomDataProvider>(
         &mut self,
         event: SyncTimelineEvent,
-        back_pagination_token: Option<String>,
         room_data_provider: &P,
         settings: &TimelineInnerSettings,
-    ) -> HandleEventResult {
+    ) -> (Option<OwnedEventId>, HandleEventResult) {
         self.handle_remote_event(
             event,
             TimelineItemPosition::End { from_cache: false },
-            back_pagination_token,
             room_data_provider,
             settings,
         )
@@ -532,10 +534,9 @@ impl TimelineInnerStateTransaction<'_> {
         &mut self,
         event: SyncTimelineEvent,
         position: TimelineItemPosition,
-        back_pagination_token: Option<String>,
         room_data_provider: &P,
         settings: &TimelineInnerSettings,
-    ) -> HandleEventResult {
+    ) -> (Option<OwnedEventId>, HandleEventResult) {
         let should_add_event = &*settings.event_filter;
         let raw = event.event;
         let (event_id, sender, timestamp, txn_id, event_kind, should_add) = match raw.deserialize()
@@ -574,23 +575,17 @@ impl TimelineInnerStateTransaction<'_> {
                         timestamp: Some(event.origin_server_ts()),
                         visible: false,
                     };
-                    self.add_event(
-                        event_meta,
-                        back_pagination_token,
-                        position,
-                        room_data_provider,
-                        settings,
-                    )
-                    .await;
+                    self.add_event(event_meta, position, room_data_provider, settings).await;
 
-                    return HandleEventResult::default();
+                    return (Some(event_id.to_owned()), HandleEventResult::default());
                 }
                 Err(e) => {
                     let event_type: Option<String> = raw.get_field("type").ok().flatten();
                     let event_id: Option<String> = raw.get_field("event_id").ok().flatten();
                     warn!(event_type, event_id, "Failed to deserialize timeline event: {e}");
 
-                    if let Some(Ok(event_id)) = event_id.map(EventId::parse) {
+                    let event_id = event_id.and_then(|s| EventId::parse(s).ok());
+                    if let Some(event_id) = &event_id {
                         let sender: Option<OwnedUserId> = raw.get_field("sender").ok().flatten();
                         let is_own_event =
                             sender.as_ref().is_some_and(|s| s == room_data_provider.own_user_id());
@@ -598,25 +593,16 @@ impl TimelineInnerStateTransaction<'_> {
                             raw.get_field("origin_server_ts").ok().flatten();
 
                         let event_meta = FullEventMeta {
-                            event_id: &event_id,
+                            event_id,
                             sender: sender.as_deref(),
                             is_own_event,
                             timestamp,
                             visible: false,
                         };
-                        self.add_event(
-                            event_meta,
-                            back_pagination_token,
-                            position,
-                            room_data_provider,
-                            settings,
-                        )
-                        .await;
-                    } else if let Some(token) = back_pagination_token {
-                        self.set_back_pagination_token(token, None);
+                        self.add_event(event_meta, position, room_data_provider, settings).await;
                     }
 
-                    return HandleEventResult::default();
+                    return (event_id, HandleEventResult::default());
                 }
             },
         };
@@ -630,8 +616,7 @@ impl TimelineInnerStateTransaction<'_> {
             timestamp: Some(timestamp),
             visible: should_add,
         };
-        self.add_event(event_meta, back_pagination_token, position, room_data_provider, settings)
-            .await;
+        self.add_event(event_meta, position, room_data_provider, settings).await;
 
         let sender_profile = room_data_provider.profile_from_user_id(&sender).await;
         let ctx = TimelineEventContext {
@@ -650,10 +635,17 @@ impl TimelineInnerStateTransaction<'_> {
                 Default::default()
             },
             is_highlighted: event.push_actions.iter().any(Action::is_highlight),
-            flow: Flow::Remote { event_id, raw_event: raw, txn_id, position, should_add },
+            flow: Flow::Remote {
+                event_id: event_id.clone(),
+                raw_event: raw,
+                txn_id,
+                position,
+                should_add,
+            },
         };
 
-        TimelineEventHandler::new(self, ctx).handle_event(event_kind)
+        let result = TimelineEventHandler::new(self, ctx).handle_event(event_kind);
+        (Some(event_id), result)
     }
 
     fn clear(&mut self) {
@@ -724,7 +716,6 @@ impl TimelineInnerStateTransaction<'_> {
     async fn add_event<P: RoomDataProvider>(
         &mut self,
         event_meta: FullEventMeta<'_>,
-        back_pagination_token: Option<String>,
         position: TimelineItemPosition,
         room_data_provider: &P,
         settings: &TimelineInnerSettings,
@@ -765,10 +756,6 @@ impl TimelineInnerStateTransaction<'_> {
             self.load_read_receipts_for_event(event_meta.event_id, room_data_provider).await;
 
             self.maybe_add_implicit_read_receipt(event_meta);
-        }
-
-        if let Some(token) = back_pagination_token {
-            self.set_back_pagination_token(token, Some(event_meta.event_id.to_owned()));
         }
     }
 }
@@ -824,7 +811,7 @@ pub(in crate::timeline) struct TimelineInnerMetadata {
     /// timeline items (to allow efficient pushing and popping).
     ///
     /// Private because it's not needed by `TimelineEventHandler`.
-    back_pagination_tokens: Vec<(Option<OwnedEventId>, String)>,
+    back_pagination_tokens: VecDeque<(OwnedEventId, String)>,
 }
 
 impl TimelineInnerMetadata {
@@ -840,7 +827,7 @@ impl TimelineInnerMetadata {
             reaction_state: Default::default(),
             in_flight_reaction: Default::default(),
             room_version,
-            back_pagination_tokens: Vec::new(),
+            back_pagination_tokens: VecDeque::new(),
         }
     }
 
