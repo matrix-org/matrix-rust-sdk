@@ -40,7 +40,7 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 use tracing::{error, info};
 
-use crate::{encryption::secret_storage::Result, Client};
+use crate::{encryption::secret_storage::Result, Client, Error};
 
 mod futures;
 
@@ -101,11 +101,17 @@ impl Recovery {
 
     /// Enable backups only.
     pub async fn enable_backup(&self) -> Result<()> {
-        self.mark_backup_as_enabled().await?;
-        self.client.encryption().backups().create().await?;
-        self.client.encryption().backups().maybe_trigger_backup();
+        if !self.client.encryption().backups().exists_on_server().await? {
+            self.mark_backup_as_enabled().await?;
 
-        Ok(())
+            self.client.encryption().backups().create().await?;
+            self.client.encryption().backups().maybe_trigger_backup();
+
+            Ok(())
+        } else {
+            // TODO: Pick a better error.
+            Err(Error::InconsistentState.into())
+        }
     }
 
     /// Disable recovery completely.
