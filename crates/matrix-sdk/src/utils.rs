@@ -14,14 +14,80 @@
 
 //! Utility types and traits.
 
+#[cfg(feature = "e2e-encryption")]
+use std::sync::{Arc, RwLock};
+
+#[cfg(feature = "e2e-encryption")]
+use futures_core::Stream;
+#[cfg(feature = "e2e-encryption")]
+use futures_util::StreamExt;
 use ruma::{
     events::{AnyMessageLikeEventContent, AnyStateEventContent},
     serde::Raw,
 };
 use serde_json::value::{RawValue as RawJsonValue, Value as JsonValue};
+#[cfg(feature = "e2e-encryption")]
+use tokio::sync::broadcast;
+#[cfg(feature = "e2e-encryption")]
+use tokio_stream::wrappers::{errors::BroadcastStreamRecvError, BroadcastStream};
 
 #[cfg(doc)]
 use crate::Room;
+
+/// An observable with channel semantics.
+///
+/// This type allows you to have a shared mutable value where updates to the
+/// value will be send out to subscribers. Each update will be send to all the
+/// subscribers and intermediate updates to the value will not be skipped.
+#[cfg(feature = "e2e-encryption")]
+#[derive(Clone, Debug)]
+pub(crate) struct ChannelObservable<T: Clone + Send> {
+    value: Arc<RwLock<T>>,
+    channel: broadcast::Sender<T>,
+}
+
+#[cfg(feature = "e2e-encryption")]
+impl<T: Default + Clone + Send + 'static> Default for ChannelObservable<T> {
+    fn default() -> Self {
+        let value = Default::default();
+        Self::new(value)
+    }
+}
+
+#[cfg(feature = "e2e-encryption")]
+impl<T: 'static + Send + Clone> ChannelObservable<T> {
+    /// Create a new [`ChannelObservable`] with the given value for the
+    /// underlying data.
+    pub(crate) fn new(value: T) -> Self {
+        let channel = broadcast::Sender::new(100);
+        Self { value: RwLock::new(value).into(), channel }
+    }
+
+    /// Subscribe to updates to the underlying data of the
+    /// [`ChannelObservable`].
+    ///
+    /// The current value will always be emitted as the first item in the
+    /// stream.
+    pub(crate) fn subscribe(&self) -> impl Stream<Item = Result<T, BroadcastStreamRecvError>> {
+        let current_value = self.value.read().unwrap().to_owned();
+        let initial_stream = tokio_stream::once(Ok(current_value));
+        let broadcast_stream = BroadcastStream::new(self.channel.subscribe());
+
+        initial_stream.chain(broadcast_stream)
+    }
+
+    /// Set the underlying data to the new value.
+    pub(crate) fn set(&self, new_value: T) {
+        *self.value.write().unwrap() = new_value.to_owned();
+        // We're ignoring the error case where no receivers exist.
+        let _ = self.channel.send(new_value);
+    }
+
+    /// Get the current value of the underlying data.
+    pub(crate) fn get(&self) -> T {
+        self.value.read().unwrap().to_owned()
+    }
+}
 
 /// The set of types that can be used with [`Room::send_raw`].
 pub trait IntoRawMessageLikeEventContent {
