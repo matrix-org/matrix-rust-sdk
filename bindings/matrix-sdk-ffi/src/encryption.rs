@@ -175,6 +175,19 @@ impl Encryption {
         self.inner.backups().state().into()
     }
 
+    /// Does a backup exist on the server.
+    ///
+    /// Because the homeserver doesn't notify us about changes to the backup
+    /// version the [`BackupState`] and its listener are a bit crippled.
+    /// The `BackupState::Unknown` state might mean there is no backup at all or
+    /// a backup exists but we don't have access to it.
+    ///
+    /// Therefore it is necessary to poll the server for an answer every time
+    /// you want to differentiate between those two states.
+    pub async fn backup_exists_on_server(&self) -> Result<bool, ClientError> {
+        Ok(self.inner.backups().exists_on_server().await?)
+    }
+
     pub fn recovery_state(&self) -> RecoveryState {
         self.inner.recovery().state().into()
     }

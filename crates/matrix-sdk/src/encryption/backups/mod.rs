@@ -749,7 +749,8 @@ impl Backups {
         }
     }
 
-    pub(crate) async fn exists_on_server(&self) -> Result<bool, Error> {
+    /// Does a backup version exist on the server?
+    pub async fn exists_on_server(&self) -> Result<bool, Error> {
         Ok(self.get_current_version().await?.is_some())
     }
 }
