@@ -19,12 +19,10 @@
 // TODO: The goal is to have not any Element Call specific code
 // in the rust sdk. Find a better solution for this.
 
-use ruma::events::{MessageLikeEventType, StateEventType};
 use serde::Serialize;
 use url::Url;
 
 use super::{url_params, WidgetSettings};
-use crate::widget::{Capabilities, EventFilter, MessageLikeEventFilter, StateEventFilter};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -204,31 +202,6 @@ impl WidgetSettings {
 
         // for EC we always want init on content load to be true.
         Ok(Self { widget_id: props.widget_id, init_on_content_load: true, raw_url })
-    }
-}
-
-/// The Capabilities required to run a element call widget. This is intended to
-/// be used in combination with: `acquire_capabilities` of the
-/// `CapabilitiesProvider`.
-pub fn get_element_call_required_permissions() -> Capabilities {
-    use EventFilter::{MessageLike, State};
-    use MessageLikeEventFilter::WithType as MessageType;
-    use StateEventFilter::WithType as StateType;
-    Capabilities {
-        read: vec![
-            State(StateType(StateEventType::CallMember)),
-            State(StateType(StateEventType::RoomMember)),
-            MessageLike(MessageType(MessageLikeEventType::from("org.matrix.rageshake_request"))),
-            MessageLike(MessageType(MessageLikeEventType::from("io.element.call.encryption_keys"))),
-        ],
-
-        send: vec![
-            State(StateType(StateEventType::CallMember)),
-            MessageLike(MessageType(MessageLikeEventType::from("org.matrix.rageshake_request"))),
-            MessageLike(MessageType(MessageLikeEventType::from("io.element.call.encryption_keys"))),
-        ],
-
-        requires_client: true,
     }
 }
 

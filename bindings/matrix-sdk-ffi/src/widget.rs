@@ -262,7 +262,30 @@ pub fn new_virtual_element_call_widget(
 /// adjusted
 #[uniffi::export]
 pub fn get_element_call_required_permissions() -> WidgetCapabilities {
-    matrix_sdk::widget::get_element_call_required_permissions().into()
+    use ruma::events::StateEventType;
+
+    WidgetCapabilities {
+        read: vec![
+            WidgetEventFilter::StateWithType { event_type: StateEventType::CallMember.to_string() },
+            WidgetEventFilter::StateWithType { event_type: StateEventType::RoomMember.to_string() },
+            WidgetEventFilter::MessageLikeWithType {
+                event_type: "org.matrix.rageshake_request".to_owned(),
+            },
+            WidgetEventFilter::MessageLikeWithType {
+                event_type: "io.element.call.encryption_keys".to_owned(),
+            },
+        ],
+        send: vec![
+            WidgetEventFilter::StateWithType { event_type: StateEventType::CallMember.to_string() },
+            WidgetEventFilter::StateWithType {
+                event_type: "org.matrix.rageshake_request".to_owned(),
+            },
+            WidgetEventFilter::StateWithType {
+                event_type: "io.element.call.encryption_keys".to_owned(),
+            },
+        ],
+        requires_client: true,
+    }
 }
 
 #[derive(uniffi::Record)]

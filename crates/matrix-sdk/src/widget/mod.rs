@@ -40,8 +40,7 @@ pub use self::{
     capabilities::{Capabilities, CapabilitiesProvider},
     filter::{EventFilter, MessageLikeEventFilter, StateEventFilter},
     settings::{
-        get_element_call_required_permissions, ClientProperties, EncryptionSystem,
-        VirtualElementCallWidgetOptions, WidgetSettings,
+        ClientProperties, EncryptionSystem, VirtualElementCallWidgetOptions, WidgetSettings,
     },
 };
 
