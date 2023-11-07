@@ -19,8 +19,34 @@ use super::OidcSessionTokens;
 const OIDC_SESSION_HASH_KEY: &str = "oidc_session_hash";
 
 /// Newtype to identify that a value is a session tokens' hash.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 struct SessionHash(Vec<u8>);
+
+impl SessionHash {
+    fn to_hex(&self) -> String {
+        static CHARS: &[char; 16] =
+            &['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'];
+        let mut res = String::with_capacity(2 * self.0.len() + 2);
+        if !self.0.is_empty() {
+            res.push('0');
+            res.push('x');
+        }
+        for &c in &self.0 {
+            // We don't really care about little vs big endianness, since we only need a
+            // stable format, so we pick one: little endian (print high bits
+            // first).
+            res.push(CHARS[(c >> 4) as usize]);
+            res.push(CHARS[(c & 0b1111) as usize]);
+        }
+        res
+    }
+}
+
+impl std::fmt::Debug for SessionHash {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("SessionHash").field(&self.to_hex()).finish()
+    }
+}
 
 /// Compute a hash uniquely identifying the OIDC session tokens.
 fn compute_session_hash(tokens: &OidcSessionTokens) -> SessionHash {
@@ -243,6 +269,7 @@ mod tests {
     use crate::{
         oidc::{
             backend::mock::{MockImpl, ISSUER_URL},
+            cross_process::SessionHash,
             tests,
             tests::mock_registered_client_data,
             Oidc, OidcSessionTokens,
@@ -613,5 +640,14 @@ mod tests {
         }
 
         Ok(())
+    }
+
+    #[test]
+    fn test_session_hash_to_hex() {
+        let hash = SessionHash(vec![]);
+        assert_eq!(hash.to_hex(), "");
+
+        let hash = SessionHash(vec![0x13, 0x37, 0x42, 0xde, 0xad, 0xca, 0xfe]);
+        assert_eq!(hash.to_hex(), "0x133742deadcafe");
     }
 }
