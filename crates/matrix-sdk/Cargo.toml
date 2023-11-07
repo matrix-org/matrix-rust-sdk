@@ -47,6 +47,7 @@ experimental-oidc = [
     "dep:language-tags",
     "dep:mas-oidc-client",
     "dep:rand",
+    "dep:sha2",
     "dep:tower",
 ]
 experimental-sliding-sync = [
@@ -54,13 +55,14 @@ experimental-sliding-sync = [
     "reqwest/gzip",
     "dep:eyeball-im-util",
 ]
-experimental-widgets = ["dep:language-tags"]
+experimental-widgets = ["dep:language-tags", "dep:uuid"]
 
 docsrs = ["e2e-encryption", "sqlite", "sso-login", "qrcode", "image-proc"]
 
 [dependencies]
 anyhow = { workspace = true, optional = true }
 anymap2 = "0.13.0"
+aquamarine = "0.3.2"
 as_variant = { workspace = true }
 async-channel = "1.9.0"
 async-stream = { workspace = true }
@@ -69,7 +71,6 @@ bytes = "1.1.0"
 bytesize = "1.1"
 cfg-vis = "0.3.0"
 chrono = { version = "0.4.23", optional = true }
-dashmap = { workspace = true }
 event-listener = "3.0.0"
 eyeball = { workspace = true }
 eyeball-im = { workspace = true }
@@ -80,6 +81,7 @@ futures-util = { workspace = true }
 http = { workspace = true }
 hyper = { version = "0.14.20", features = ["http1", "http2", "server"], optional = true }
 imbl = { version = "2.0.0", features = ["serde"] }
+indexmap = "2.0.2"
 language-tags = { version = "0.3.2", optional = true }
 matrix-sdk-base = { version = "0.6.0", path = "../matrix-sdk-base", default_features = false }
 matrix-sdk-common = { version = "0.6.0", path = "../matrix-sdk-common" }
@@ -87,17 +89,19 @@ matrix-sdk-indexeddb = { version = "0.2.0", path = "../matrix-sdk-indexeddb", de
 matrix-sdk-sqlite = { version = "0.1.0", path = "../matrix-sdk-sqlite", default-features = false, optional = true }
 mime = "0.3.16"
 mime2ext = "0.1.52"
-rand = { version = "0.8.5", optional = true }
-ruma = { workspace = true, features = ["rand", "unstable-msc2448", "unstable-msc2965", "unstable-msc3930"] }
+rand = { workspace = true , optional = true }
+ruma = { workspace = true, features = ["rand", "unstable-msc2448", "unstable-msc2965", "unstable-msc3930", "unstable-msc3245-v1-compat"] }
 serde = { workspace = true }
 serde_html_form = { workspace = true }
 serde_json = { workspace = true }
+sha2 = { workspace = true, optional = true }
 tempfile = "3.3.0"
 thiserror = { workspace = true }
 tower = { version = "0.4.13", features = ["make"], optional = true }
 tracing = { workspace = true, features = ["attributes"] }
 url = "2.2.2"
 urlencoding = "2.1.3"
+uuid = { version = "1.4.1", features = ["serde", "v4"], optional = true }
 zeroize = { workspace = true }
 
 [dependencies.image]
@@ -122,7 +126,7 @@ optional = true
 
 [dependencies.mas-oidc-client]
 git = "https://github.com/matrix-org/matrix-authentication-service"
-rev = "4280045b24bc71ef1fa100c0a046ed15e6e20748"
+rev = "357481b52e6dc092178a16b8a7d86df036aac608"
 optional = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -142,18 +146,19 @@ tokio-util = "0.7.9"
 anyhow = { workspace = true }
 assert-json-diff = { workspace = true }
 assert_matches = { workspace = true }
+assert_matches2 = { workspace = true }
 dirs = "5.0.1"
 futures-executor = { workspace = true }
 matrix-sdk-base = { version = "0.6.0", path = "../matrix-sdk-base", default_features = false, features = ["testing"] }
 matrix-sdk-test = { version = "0.6.0", path = "../../testing/matrix-sdk-test" }
 once_cell = { workspace = true }
 serde_urlencoded = "0.7.1"
+stream_assert = { workspace = true }
 tracing-subscriber = { version = "0.3.11", features = ["env-filter"] }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test = "0.3.33"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
-ctor = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 wiremock = "0.5.13"

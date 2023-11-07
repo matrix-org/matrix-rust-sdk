@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use matrix_sdk::config::SyncSettings;
 use matrix_sdk_base::RoomState;
-use matrix_sdk_test::{async_test, test_json};
+use matrix_sdk_test::{async_test, test_json, DEFAULT_TEST_ROOM_ID};
 use serde_json::json;
 use wiremock::{
     matchers::{header, method, path_regex},
@@ -27,7 +27,7 @@ async fn forget_room() {
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
     let _response = client.sync_once(sync_settings).await.unwrap();
 
-    let room = client.get_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
     assert_eq!(room.state(), RoomState::Left);
 
     room.forget().await.unwrap();
@@ -41,8 +41,7 @@ async fn rejoin_room() {
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/join"))
         .and(header("authorization", "Bearer 1234"))
         .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(json!({ "room_id": *test_json::DEFAULT_SYNC_ROOM_ID })),
+            ResponseTemplate::new(200).set_body_json(json!({ "room_id": *DEFAULT_TEST_ROOM_ID })),
         )
         .mount(&server)
         .await;
@@ -51,7 +50,7 @@ async fn rejoin_room() {
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
     let _response = client.sync_once(sync_settings).await.unwrap();
 
-    let room = client.get_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
     assert_eq!(room.state(), RoomState::Left);
 
     room.join().await.unwrap();

@@ -29,6 +29,8 @@ pub struct RoomInfo {
     highlight_count: u64,
     notification_count: u64,
     user_defined_notification_mode: Option<RoomNotificationMode>,
+    has_room_call: bool,
+    active_room_call_participants: Vec<String>,
 }
 
 impl RoomInfo {
@@ -67,6 +69,12 @@ impl RoomInfo {
                 .user_defined_notification_mode()
                 .await
                 .map(Into::into),
+            has_room_call: room.has_active_room_call(),
+            active_room_call_participants: room
+                .active_room_call_participants()
+                .iter()
+                .map(|u| u.to_string())
+                .collect(),
         })
     }
 }

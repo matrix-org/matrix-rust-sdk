@@ -1,13 +1,29 @@
-use std::{
-    future::{Future, IntoFuture},
-    io::Read,
-    pin::Pin,
-};
+// Copyright 2023 The Matrix.org Foundation C.I.C.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+//! Named futures returned from methods on types in
+//! [the `encryption` module][super].
+
+#![deny(unreachable_pub)]
+
+use std::{future::IntoFuture, io::Read};
 
 use cfg_vis::cfg_vis;
 use eyeball::SharedObservable;
 #[cfg(not(target_arch = "wasm32"))]
 use eyeball::Subscriber;
+use matrix_sdk_common::boxed_into_future;
 use ruma::events::room::{EncryptedFile, EncryptedFileInit};
 
 use crate::{Client, Result, TransmissionProgress};
@@ -54,10 +70,7 @@ where
     R: Read + Send + ?Sized + 'a,
 {
     type Output = Result<EncryptedFile>;
-    #[cfg(target_arch = "wasm32")]
-    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + 'a>>;
-    #[cfg(not(target_arch = "wasm32"))]
-    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send + 'a>>;
+    boxed_into_future!(extra_bounds: 'a);
 
     fn into_future(self) -> Self::IntoFuture {
         let Self { client, content_type, reader, send_progress } = self;

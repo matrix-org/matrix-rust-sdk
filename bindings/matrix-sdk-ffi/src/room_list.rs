@@ -23,12 +23,17 @@ use crate::{
     RUNTIME,
 };
 
-#[derive(uniffi::Error)]
+#[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum RoomListError {
+    #[error("sliding sync error: {error}")]
     SlidingSync { error: String },
+    #[error("unknown list `{list_name}`")]
     UnknownList { list_name: String },
+    #[error("input cannot be applied")]
     InputCannotBeApplied,
+    #[error("room `{room_name}` not found")]
     RoomNotFound { room_name: String },
+    #[error("invalid room ID: {error}")]
     InvalidRoomId { error: String },
 }
 
@@ -429,11 +434,6 @@ impl RoomListItem {
         let avatar_url = self.inner.avatar_url();
         let latest_event = self.inner.latest_event().await.map(EventTimelineItem).map(Arc::new);
         Ok(RoomInfo::new(self.inner.inner_room(), avatar_url, latest_event).await?)
-    }
-
-    // Temporary workaround for coroutine leaks on Kotlin
-    pub fn room_info_blocking(self: Arc<Self>) -> Result<RoomInfo, ClientError> {
-        RUNTIME.block_on(async move { self.room_info().await })
     }
 
     /// Building a `Room`.

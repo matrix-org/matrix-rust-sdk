@@ -19,12 +19,9 @@ use imbl::Vector;
 use matrix_sdk::{
     deserialized_responses::SyncTimelineEvent, executor::spawn, sync::RoomUpdate, Room,
 };
-use ruma::events::{
-    receipt::{ReceiptThread, ReceiptType},
-    AnySyncTimelineEvent,
-};
+use ruma::events::{receipt::ReceiptType, AnySyncTimelineEvent};
 use tokio::sync::{broadcast, mpsc, Notify};
-use tracing::{error, info, info_span, trace, warn, Instrument, Span};
+use tracing::{info, info_span, trace, warn, Instrument, Span};
 
 #[cfg(feature = "e2e-encryption")]
 use super::to_device::{handle_forwarded_room_key_event, handle_room_key_event};
@@ -123,42 +120,8 @@ impl TimelineBuilder {
         let mut inner = TimelineInner::new(room).with_settings(settings);
 
         if track_read_marker_and_receipts {
-            match inner
-                .room()
-                .user_receipt(
-                    ReceiptType::Read,
-                    ReceiptThread::Unthreaded,
-                    inner.room().own_user_id(),
-                )
-                .await
-            {
-                Ok(Some(read_receipt)) => {
-                    inner.set_initial_user_receipt(ReceiptType::Read, read_receipt).await;
-                }
-                Err(e) => {
-                    error!("Failed to get public read receipt of own user from the store: {e}");
-                }
-                _ => {}
-            }
-            match inner
-                .room()
-                .user_receipt(
-                    ReceiptType::ReadPrivate,
-                    ReceiptThread::Unthreaded,
-                    inner.room().own_user_id(),
-                )
-                .await
-            {
-                Ok(Some(private_read_receipt)) => {
-                    inner
-                        .set_initial_user_receipt(ReceiptType::ReadPrivate, private_read_receipt)
-                        .await;
-                }
-                Err(e) => {
-                    error!("Failed to get private read receipt of own user from the store: {e}");
-                }
-                _ => {}
-            }
+            inner.populate_initial_user_receipt(ReceiptType::Read).await;
+            inner.populate_initial_user_receipt(ReceiptType::ReadPrivate).await;
         }
 
         if has_events {

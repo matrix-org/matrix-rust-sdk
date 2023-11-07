@@ -1,32 +1,53 @@
+// Copyright 2023 The Matrix.org Foundation C.I.C.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! Widget API implementation.
 
+use std::fmt;
+
 use async_channel::{Receiver, Sender};
-use tokio::sync::mpsc::unbounded_channel;
+use serde::de::{self, Deserialize, Deserializer, Visitor};
+use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 use tokio_util::sync::{CancellationToken, DropGuard};
 
-use crate::{room::Room, Result};
-
-mod client;
-mod filter;
-mod matrix;
-mod permissions;
-mod widget_settings;
-
 use self::{
-    client::{Action, ClientApi, Event, SendEventCommand},
+    machine::{
+        Action, IncomingMessage, MatrixDriverRequestData, MatrixDriverResponse, SendEventRequest,
+        WidgetMachine,
+    },
     matrix::MatrixDriver,
 };
+use crate::{room::Room, Result};
+
+mod capabilities;
+mod filter;
+mod machine;
+mod matrix;
+mod settings;
+
 pub use self::{
+    capabilities::{Capabilities, CapabilitiesProvider},
     filter::{EventFilter, MessageLikeEventFilter, StateEventFilter},
-    permissions::{Permissions, PermissionsProvider},
-    widget_settings::{ClientProperties, VirtualElementCallWidgetOptions, WidgetSettings},
+    settings::{
+        ClientProperties, EncryptionSystem, VirtualElementCallWidgetOptions, WidgetSettings,
+    },
 };
 
 /// An object that handles all interactions of a widget living inside a webview
 /// or iframe with the Matrix world.
 #[derive(Debug)]
 pub struct WidgetDriver {
-    #[allow(dead_code)]
     settings: WidgetSettings,
 
     /// Raw incoming messages from the widget (normally formatted as JSON).
@@ -103,80 +124,231 @@ impl WidgetDriver {
     pub async fn run(
         self,
         room: Room,
-        permissions_provider: impl PermissionsProvider,
+        capabilities_provider: impl CapabilitiesProvider,
     ) -> Result<(), ()> {
         // Create a channel so that we can conveniently send all events to it.
         let (events_tx, mut events_rx) = unbounded_channel();
 
-        // `from.map(|m| Ok(Event::MessageFromWidget(msg)).forward(events_tx)`,
-        // but apparently `UnboundedSender<T>` does not implement `Sink<T>`.
+        // Forward all of the incoming messages from the widget to the `events_tx`.
         let tx = events_tx.clone();
         tokio::spawn(async move {
             while let Ok(msg) = self.from_widget_rx.recv().await {
-                let _ = tx.send(Event::MessageFromWidget(msg));
+                let _ = tx.send(IncomingMessage::WidgetMessage(msg));
             }
         });
 
-        // Our "state" (everything we need to process events).
-        let (mut client_api, matrix) = (ClientApi::new(), MatrixDriver::new(room));
-        let mut event_forwarding_guard: Option<DropGuard> = None;
+        // Create widget API machine.
+        let (client_api, initial_actions) = WidgetMachine::new(
+            self.settings.widget_id().to_owned(),
+            room.room_id().to_owned(),
+            self.settings.init_on_content_load(),
+            None,
+        );
 
-        // Process events by passing them to the `ClientApi` implementation.
+        // The environment for the processing of actions from the widget machine.
+        let mut ctx = ProcessingContext {
+            widget_machine: client_api,
+            matrix_driver: MatrixDriver::new(room.clone()),
+            event_forwarding_guard: None,
+            to_widget_tx: self.to_widget_tx,
+            events_tx,
+            capabilities_provider,
+        };
+
+        // Process initial actions that "initialise" the widget api machine.
+        for action in initial_actions {
+            ctx.process_action(action).await?;
+        }
+
+        // Process incoming events.
         while let Some(event) = events_rx.recv().await {
-            for action in client_api.process(event) {
-                match action {
-                    Action::SendToWidget(msg) => {
-                        self.to_widget_tx.send(msg).await.map_err(|_| ())?
-                    }
-                    Action::AcquirePermissions(cmd) => {
-                        let obtained = permissions_provider.acquire_permissions(cmd.clone()).await;
-                        let event = Event::PermissionsAcquired(cmd.ok(obtained));
-                        events_tx.send(event).map_err(|_| ())?;
-                    }
-                    Action::GetOpenId(cmd) => {
-                        let result = cmd.result(matrix.get_open_id().await);
-                        events_tx.send(Event::OpenIdReceived(result)).map_err(|_| ())?;
-                    }
-                    Action::ReadMatrixEvent(cmd) => {
-                        let matrix_events = matrix.read(cmd.event_type.clone(), cmd.limit).await;
-                        let event = Event::MatrixEventRead(cmd.result(matrix_events));
-                        events_tx.send(event).map_err(|_| ())?;
-                    }
-                    Action::SendMatrixEvent(cmd) => {
-                        let SendEventCommand { event_type, state_key, content } = cmd.clone();
-                        let matrix_event_id = matrix.send(event_type, state_key, content).await;
-                        let event = Event::MatrixEventSent(cmd.result(matrix_event_id));
-                        events_tx.send(event).map_err(|_| ())?;
-                    }
-                    Action::Subscribe => {
-                        // Only subscribe if we are not already subscribed.
-                        if event_forwarding_guard.is_none() {
-                            let (stop_forwarding, guard) = {
-                                let token = CancellationToken::new();
-                                (token.child_token(), token.drop_guard())
-                            };
+            ctx.process_event(event).await?;
+        }
 
-                            event_forwarding_guard = Some(guard);
-                            let (mut matrix, events_tx) = (matrix.events(), events_tx.clone());
-                            tokio::spawn(async move {
-                                loop {
-                                    tokio::select! {
-                                        _ = stop_forwarding.cancelled() => { return }
-                                        Some(event) = matrix.recv() => {
-                                            let _ = events_tx.send(Event::MatrixEventReceived(event));
-                                        }
-                                    }
+        Ok(())
+    }
+}
+
+/// A small wrapper of all the data that we need to process an incoming event.
+struct ProcessingContext<T> {
+    widget_machine: WidgetMachine,
+    matrix_driver: MatrixDriver,
+    event_forwarding_guard: Option<DropGuard>,
+    to_widget_tx: Sender<String>,
+    events_tx: UnboundedSender<IncomingMessage>,
+    capabilities_provider: T,
+}
+
+impl<T: CapabilitiesProvider> ProcessingContext<T> {
+    async fn process_event(&mut self, event: IncomingMessage) -> Result<(), ()> {
+        for action in self.widget_machine.process(event) {
+            self.process_action(action).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn process_action(&mut self, action: Action) -> Result<(), ()> {
+        match action {
+            Action::SendToWidget(msg) => {
+                self.to_widget_tx.send(msg).await.map_err(|_| ())?;
+            }
+            Action::MatrixDriverRequest { request_id, data } => {
+                let response = match data {
+                    MatrixDriverRequestData::AcquireCapabilities(cmd) => {
+                        let obtained = self
+                            .capabilities_provider
+                            .acquire_capabilities(cmd.desired_capabilities)
+                            .await;
+                        Ok(MatrixDriverResponse::CapabilitiesAcquired(obtained))
+                    }
+
+                    MatrixDriverRequestData::GetOpenId => self
+                        .matrix_driver
+                        .get_open_id()
+                        .await
+                        .map(MatrixDriverResponse::OpenIdReceived)
+                        .map_err(|e| e.to_string()),
+
+                    MatrixDriverRequestData::ReadMessageLikeEvent(cmd) => self
+                        .matrix_driver
+                        .read_message_like_events(cmd.event_type.clone(), cmd.limit)
+                        .await
+                        .map(MatrixDriverResponse::MatrixEventRead)
+                        .map_err(|e| e.to_string()),
+
+                    MatrixDriverRequestData::ReadStateEvent(cmd) => self
+                        .matrix_driver
+                        .read_state_events(cmd.event_type.clone(), &cmd.state_key)
+                        .await
+                        .map(MatrixDriverResponse::MatrixEventRead)
+                        .map_err(|e| e.to_string()),
+
+                    MatrixDriverRequestData::SendMatrixEvent(req) => {
+                        let SendEventRequest { event_type, state_key, content } = req;
+                        self.matrix_driver
+                            .send(event_type, state_key, content)
+                            .await
+                            .map(MatrixDriverResponse::MatrixEventSent)
+                            .map_err(|e| e.to_string())
+                    }
+                };
+
+                self.events_tx
+                    .send(IncomingMessage::MatrixDriverResponse { request_id, response })
+                    .map_err(|_| ())?;
+            }
+            Action::Subscribe => {
+                // Only subscribe if we are not already subscribed.
+                if self.event_forwarding_guard.is_none() {
+                    let (stop_forwarding, guard) = {
+                        let token = CancellationToken::new();
+                        (token.child_token(), token.drop_guard())
+                    };
+
+                    self.event_forwarding_guard = Some(guard);
+                    let (mut matrix, events_tx) =
+                        (self.matrix_driver.events(), self.events_tx.clone());
+                    tokio::spawn(async move {
+                        loop {
+                            tokio::select! {
+                                _ = stop_forwarding.cancelled() => { return }
+                                Some(event) = matrix.recv() => {
+                                    let _ = events_tx.send(IncomingMessage::MatrixEventReceived(event));
                                 }
-                            });
+                            }
                         }
-                    }
-                    Action::Unsubscribe => {
-                        event_forwarding_guard = None;
-                    }
+                    });
                 }
+            }
+            Action::Unsubscribe => {
+                self.event_forwarding_guard = None;
             }
         }
 
         Ok(())
+    }
+}
+
+// TODO: Decide which module this type should live in
+#[derive(Clone, Debug)]
+pub(crate) enum StateKeySelector {
+    Key(String),
+    Any,
+}
+
+impl<'de> Deserialize<'de> for StateKeySelector {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct StateKeySelectorVisitor;
+
+        impl<'de> Visitor<'de> for StateKeySelectorVisitor {
+            type Value = StateKeySelector;
+
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "a string or `true`")
+            }
+
+            fn visit_bool<E>(self, v: bool) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                if v {
+                    Ok(StateKeySelector::Any)
+                } else {
+                    Err(E::invalid_value(de::Unexpected::Bool(v), &self))
+                }
+            }
+
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                self.visit_string(v.to_owned())
+            }
+
+            fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                Ok(StateKeySelector::Key(v))
+            }
+        }
+
+        deserializer.deserialize_any(StateKeySelectorVisitor)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use assert_matches::assert_matches;
+    use serde_json::json;
+
+    use super::StateKeySelector;
+
+    #[test]
+    fn state_key_selector_from_true() {
+        let state_key = serde_json::from_value(json!(true)).unwrap();
+        assert_matches!(state_key, StateKeySelector::Any);
+    }
+
+    #[test]
+    fn state_key_selector_from_string() {
+        let state_key = serde_json::from_value(json!("test")).unwrap();
+        assert_matches!(state_key, StateKeySelector::Key(k) if k == "test");
+    }
+
+    #[test]
+    fn state_key_selector_from_false() {
+        let result = serde_json::from_value::<StateKeySelector>(json!(false));
+        assert_matches!(result, Err(e) if e.is_data());
+    }
+
+    #[test]
+    fn state_key_selector_from_number() {
+        let result = serde_json::from_value::<StateKeySelector>(json!(5));
+        assert_matches!(result, Err(e) if e.is_data());
     }
 }

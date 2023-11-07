@@ -5,6 +5,7 @@ use std::{
 };
 
 use assert_matches::assert_matches;
+use assert_matches2::assert_let;
 use futures_util::StreamExt;
 use matrix_sdk::{
     config::RequestConfig,
@@ -44,7 +45,7 @@ fn session() -> MatrixSession {
 }
 
 #[async_test]
-async fn login_username_refresh_token() {
+async fn test_login_username_refresh_token() {
     let (client, server) = no_retry_test_client().await;
 
     Mock::given(method("POST"))
@@ -162,7 +163,7 @@ async fn no_refresh_token() {
 }
 
 #[async_test]
-async fn refresh_token() {
+async fn test_refresh_token() {
     let (builder, server) = test_client_builder().await;
     let client = builder
         .request_config(RequestConfig::new().disable_retry())
@@ -375,7 +376,7 @@ async fn refresh_token_handled_failure() {
         .await;
 
     let res = client.whoami().await;
-    let http_err = assert_matches!(res, Err(HttpError::RefreshToken(RefreshTokenError::MatrixAuth(http_err))) => http_err);
+    assert_let!(Err(HttpError::RefreshToken(RefreshTokenError::MatrixAuth(http_err))) = res);
     assert_matches!(http_err.client_api_error_kind(), Some(ErrorKind::UnknownToken { .. }))
 }
 

@@ -1,6 +1,9 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{
+    collections::{BTreeSet, HashMap},
+    sync::Arc,
+    time::Duration,
+};
 
-use anyhow::bail;
 use as_variant::as_variant;
 use extension_trait::extension_trait;
 use eyeball_im::VectorDiff;
@@ -32,7 +35,7 @@ use matrix_sdk::{
     },
 };
 use matrix_sdk_ui::timeline::{EventItemOrigin, PollResult, Profile, TimelineDetails};
-use ruma::{assign, UInt};
+use ruma::{assign, serde::JsonObject, OwnedUserId, UInt, UserId};
 use tracing::{info, warn};
 
 use crate::{
@@ -49,8 +52,8 @@ pub fn media_source_from_url(url: String) -> Arc<MediaSource> {
 #[uniffi::export]
 pub fn message_event_content_new(
     msgtype: MessageType,
-) -> Arc<RoomMessageEventContentWithoutRelation> {
-    Arc::new(RoomMessageEventContentWithoutRelation::new(msgtype.into()))
+) -> Result<Arc<RoomMessageEventContentWithoutRelation>, ClientError> {
+    Ok(Arc::new(RoomMessageEventContentWithoutRelation::new(msgtype.try_into()?)))
 }
 
 #[uniffi::export]
@@ -539,8 +542,8 @@ pub struct Message(matrix_sdk_ui::timeline::Message);
 
 #[uniffi::export]
 impl Message {
-    pub fn msgtype(&self) -> Option<MessageType> {
-        self.0.msgtype().clone().try_into().ok()
+    pub fn msgtype(&self) -> MessageType {
+        self.0.msgtype().clone().into()
     }
 
     pub fn body(&self) -> String {
@@ -570,11 +573,14 @@ pub enum MessageType {
     Notice { content: NoticeMessageContent },
     Text { content: TextMessageContent },
     Location { content: LocationContent },
+    Other { msgtype: String, body: String },
 }
 
-impl From<MessageType> for RumaMessageType {
-    fn from(value: MessageType) -> Self {
-        match value {
+impl TryFrom<MessageType> for RumaMessageType {
+    type Error = serde_json::Error;
+
+    fn try_from(value: MessageType) -> Result<Self, Self::Error> {
+        Ok(match value {
             MessageType::Emote { content } => {
                 Self::Emote(assign!(RumaEmoteMessageEventContent::plain(content.body), {
                     formatted: content.formatted.map(Into::into),
@@ -610,15 +616,16 @@ impl From<MessageType> for RumaMessageType {
             MessageType::Location { content } => {
                 Self::Location(RumaLocationMessageEventContent::new(content.body, content.geo_uri))
             }
-        }
+            MessageType::Other { msgtype, body } => {
+                Self::new(&msgtype, body, JsonObject::default())?
+            }
+        })
     }
 }
 
-impl TryFrom<RumaMessageType> for MessageType {
-    type Error = anyhow::Error;
-
-    fn try_from(value: RumaMessageType) -> anyhow::Result<Self> {
-        let message_type = match value {
+impl From<RumaMessageType> for MessageType {
+    fn from(value: RumaMessageType) -> Self {
+        match value {
             RumaMessageType::Emote(c) => MessageType::Emote {
                 content: EmoteMessageContent {
                     body: c.body.clone(),
@@ -685,9 +692,11 @@ impl TryFrom<RumaMessageType> for MessageType {
                     },
                 }
             }
-            _ => bail!("Unsupported type"),
-        };
-        Ok(message_type)
+            _ => MessageType::Other {
+                msgtype: value.msgtype().to_owned(),
+                body: value.body().to_owned(),
+            },
+        }
     }
 }
 
@@ -823,14 +832,11 @@ impl From<RumaUnstableAudioDetailsContentBlock> for UnstableAudioDetailsContent 
 }
 
 #[derive(Clone, uniffi::Record)]
-pub struct UnstableVoiceContent {
-    // DO NOT USE: Dummy field to work around https://github.com/mozilla/uniffi-rs/issues/1760
-    do_not_use: bool,
-}
+pub struct UnstableVoiceContent {}
 
 impl From<RumaUnstableVoiceContentBlock> for UnstableVoiceContent {
     fn from(_details: RumaUnstableVoiceContentBlock) -> Self {
-        Self { do_not_use: false }
+        Self {}
     }
 }
 
@@ -1372,5 +1378,34 @@ impl From<PollResult> for TimelineItemContentKind {
             votes: value.votes,
             end_time: value.end_time,
         }
+    }
+}
+
+#[extension_trait]
+pub impl RoomMessageEventContentWithoutRelationExt for RoomMessageEventContentWithoutRelation {
+    fn with_mentions(self: Arc<Self>, mentions: Mentions) -> Arc<Self> {
+        let mut content = unwrap_or_clone_arc(self);
+        content.mentions = Some(mentions.into());
+        Arc::new(content)
+    }
+}
+
+pub struct Mentions {
+    pub user_ids: Vec<String>,
+    pub room: bool,
+}
+
+impl From<Mentions> for ruma::events::Mentions {
+    fn from(value: Mentions) -> Self {
+        let mut user_ids = BTreeSet::<OwnedUserId>::new();
+        for user_id in value.user_ids {
+            if let Ok(user_id) = UserId::parse(user_id) {
+                user_ids.insert(user_id);
+            }
+        }
+        let mut result = Self::default();
+        result.user_ids = user_ids;
+        result.room = value.room;
+        result
     }
 }

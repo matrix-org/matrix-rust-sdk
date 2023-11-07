@@ -59,12 +59,17 @@ pub enum CryptoStoreError {
     Identifier(#[from] IdParseError),
 }
 
-#[derive(Debug, uniffi::Error)]
+#[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum DecryptionError {
+    #[error("serialization error: {error}")]
     Serialization { error: String },
+    #[error("identifier parsing error: {error}")]
     Identifier { error: String },
+    #[error("megolm error: {error}")]
     Megolm { error: String },
+    #[error("missing room key: {error}")]
     MissingRoomKey { error: String, withheld_code: Option<String> },
+    #[error("store error: {error}")]
     Store { error: String },
 }
 
@@ -100,7 +105,7 @@ impl From<InnerStoreError> for DecryptionError {
 
 #[cfg(test)]
 mod tests {
-    use assert_matches::assert_matches;
+    use assert_matches2::assert_let;
     use matrix_sdk_crypto::MegolmError;
 
     use super::DecryptionError;
@@ -113,9 +118,8 @@ mod tests {
 
         let binding_error: DecryptionError = inner_error.into();
 
-        let code = assert_matches!(
-            binding_error,
-            DecryptionError::MissingRoomKey { error: _, withheld_code: Some(withheld_code) } => withheld_code
+        assert_let!(
+            DecryptionError::MissingRoomKey { error: _, withheld_code: Some(code) } = binding_error
         );
         assert_eq!("m.unverified", code)
     }

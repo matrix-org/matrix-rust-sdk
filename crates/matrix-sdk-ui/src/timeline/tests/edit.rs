@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use assert_matches::assert_matches;
+use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use matrix_sdk_test::{async_test, sync_timeline_event, ALICE};
 use ruma::{
@@ -73,8 +73,8 @@ async fn live_sanitized() {
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let first_event = item.as_event().unwrap();
-    let message = assert_matches!(first_event.content(), TimelineItemContent::Message(msg) => msg);
-    let text = assert_matches!(message.msgtype(), MessageType::Text(text) => text);
+    assert_let!(TimelineItemContent::Message(message) = first_event.content());
+    assert_let!(MessageType::Text(text) = message.msgtype());
     assert_eq!(text.body, "**original** message");
     assert_eq!(text.formatted.as_ref().unwrap().body, "<strong>original</strong> message");
 
@@ -98,8 +98,8 @@ async fn live_sanitized() {
 
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 1, value } => value);
     let first_event = item.as_event().unwrap();
-    let message = assert_matches!(first_event.content(), TimelineItemContent::Message(msg) => msg);
-    let text = assert_matches!(message.msgtype(), MessageType::Text(text) => text);
+    assert_let!(TimelineItemContent::Message(message) = first_event.content());
+    assert_let!(MessageType::Text(text) = message.msgtype());
     assert_eq!(text.body, new_plain_content);
     assert_eq!(text.formatted.as_ref().unwrap().body, " <strong>better</strong> message");
 }
@@ -153,8 +153,8 @@ async fn aggregated_sanitized() {
     let _day_divider = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let first_event = item.as_event().unwrap();
-    let message = assert_matches!(first_event.content(), TimelineItemContent::Message(msg) => msg);
-    let text = assert_matches!(message.msgtype(), MessageType::Text(text) => text);
+    assert_let!(TimelineItemContent::Message(message) = first_event.content());
+    assert_let!(MessageType::Text(text) = message.msgtype());
     assert_eq!(text.body, "!!edited!! **better** message");
     assert_eq!(text.formatted.as_ref().unwrap().body, " <strong>better</strong> message");
 }

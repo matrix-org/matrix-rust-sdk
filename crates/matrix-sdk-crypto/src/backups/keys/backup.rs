@@ -12,10 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    collections::BTreeMap,
-    sync::{Arc, Mutex},
-};
+use std::sync::{Arc, Mutex};
 
 use hmac::{Hmac, Mac as MacT};
 use sha2::Sha256;
@@ -23,13 +20,12 @@ use sha2::Sha256;
 use ruma::{
     api::client::backup::{EncryptedSessionDataInit, KeyBackupData, KeyBackupDataInit},
     serde::Base64,
-    OwnedDeviceKeyId, OwnedUserId,
 };
 use vodozemac::Curve25519PublicKey;
 use zeroize::Zeroizing;
 
 use super::{compat::PkEncryption, decryption::DecodeError};
-use crate::olm::InboundGroupSession;
+use crate::{olm::InboundGroupSession, types::Signatures};
 
 pub type HmacSha256 = Hmac<Sha256>;
 
@@ -39,7 +35,7 @@ pub type HmacSha256Key = Zeroizing<[u8; 32]>;
 struct InnerBackupKey {
     key: Curve25519PublicKey,
     mac_key: Option<HmacSha256Key>,
-    signatures: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, String>>,
+    signatures: Signatures,
     version: Mutex<Option<String>>,
 }
 
@@ -49,6 +45,7 @@ pub struct MegolmV1BackupKey {
     inner: Arc<InnerBackupKey>,
 }
 
+#[cfg(not(tarpaulin_include))]
 impl std::fmt::Debug for MegolmV1BackupKey {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
@@ -78,7 +75,7 @@ impl MegolmV1BackupKey {
     }
 
     /// Get all the signatures of this `MegolmV1BackupKey`.
-    pub fn signatures(&self) -> BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, String>> {
+    pub fn signatures(&self) -> Signatures {
         self.inner.signatures.to_owned()
     }
 
@@ -171,7 +168,6 @@ mod tests {
     use crate::{
         backups::keys::decryption::Mac,
         store::BackupDecryptionKey,
-        EncryptionSettings,
         OlmMachine,
     };
 
@@ -182,8 +178,7 @@ mod tests {
         let backup_key = decryption_key.megolm_v1_public_key();
 
         let olm_machine = OlmMachine::new(user_id!("@alice:localhost"), device_id!("ABCDEFG")).await;
-        let settings = EncryptionSettings::default();
-        let (_, inbound) = olm_machine.account().create_group_session_pair(room_id!("!room_id:localhost"), settings)
+        let inbound = olm_machine.create_inbound_session(room_id!("!room_id:localhost"))
             .await
             .expect("Could not create group session");
         let key_backup_data = backup_key.encrypt(inbound).await;

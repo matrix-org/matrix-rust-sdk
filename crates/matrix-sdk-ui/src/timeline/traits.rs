@@ -17,10 +17,11 @@ use indexmap::IndexMap;
 use matrix_sdk::Room;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk::{deserialized_responses::TimelineEvent, Result};
+use matrix_sdk_base::latest_event::LatestEvent;
 use ruma::{
     events::receipt::{Receipt, ReceiptThread, ReceiptType},
     push::{PushConditionRoomCtx, Ruleset},
-    EventId, OwnedUserId, RoomVersionId, UserId,
+    EventId, OwnedEventId, OwnedUserId, RoomVersionId, UserId,
 };
 #[cfg(feature = "e2e-encryption")]
 use ruma::{events::AnySyncTimelineEvent, serde::Raw};
@@ -66,7 +67,14 @@ impl RoomExt for Room {
 pub(super) trait RoomDataProvider: Clone + Send + Sync + 'static {
     fn own_user_id(&self) -> &UserId;
     fn room_version(&self) -> RoomVersionId;
-    async fn profile(&self, user_id: &UserId) -> Option<Profile>;
+    async fn profile_from_user_id(&self, user_id: &UserId) -> Option<Profile>;
+    async fn profile_from_latest_event(&self, latest_event: &LatestEvent) -> Option<Profile>;
+    async fn user_receipt(
+        &self,
+        receipt_type: ReceiptType,
+        thread: ReceiptThread,
+        user_id: &UserId,
+    ) -> Option<(OwnedEventId, Receipt)>;
     async fn read_receipts_for_event(&self, event_id: &EventId) -> IndexMap<OwnedUserId, Receipt>;
     async fn push_rules_and_context(&self) -> Option<(Ruleset, PushConditionRoomCtx)>;
 }
@@ -84,18 +92,14 @@ impl RoomDataProvider for Room {
         })
     }
 
-    async fn profile(&self, user_id: &UserId) -> Option<Profile> {
+    async fn profile_from_user_id(&self, user_id: &UserId) -> Option<Profile> {
         match self.get_member_no_sync(user_id).await {
             Ok(Some(member)) => Some(Profile {
                 display_name: member.display_name().map(ToOwned::to_owned),
                 display_name_ambiguous: member.name_ambiguous(),
                 avatar_url: member.avatar_url().map(ToOwned::to_owned),
             }),
-            Ok(None) if self.are_members_synced() => Some(Profile {
-                display_name: None,
-                display_name_ambiguous: false,
-                avatar_url: None,
-            }),
+            Ok(None) if self.are_members_synced() => Some(Profile::default()),
             Ok(None) => None,
             Err(e) => {
                 error!(%user_id, "Failed to fetch room member information: {e}");
@@ -104,14 +108,60 @@ impl RoomDataProvider for Room {
         }
     }
 
-    async fn read_receipts_for_event(&self, event_id: &EventId) -> IndexMap<OwnedUserId, Receipt> {
-        match self.event_receipts(ReceiptType::Read, ReceiptThread::Unthreaded, event_id).await {
-            Ok(receipts) => receipts.into_iter().collect(),
+    async fn profile_from_latest_event(&self, latest_event: &LatestEvent) -> Option<Profile> {
+        if !latest_event.has_sender_profile() {
+            return None;
+        }
+
+        Some(Profile {
+            display_name: latest_event.sender_display_name().map(ToOwned::to_owned),
+            display_name_ambiguous: latest_event.sender_name_ambiguous().unwrap_or(false),
+            avatar_url: latest_event.sender_avatar_url().map(ToOwned::to_owned),
+        })
+    }
+
+    async fn user_receipt(
+        &self,
+        receipt_type: ReceiptType,
+        thread: ReceiptThread,
+        user_id: &UserId,
+    ) -> Option<(OwnedEventId, Receipt)> {
+        match self.user_receipt(receipt_type.clone(), thread.clone(), user_id).await {
+            Ok(receipt) => receipt,
             Err(e) => {
-                error!(?event_id, "Failed to get read receipts for event: {e}");
-                IndexMap::new()
+                error!(
+                    ?receipt_type,
+                    ?thread,
+                    ?user_id,
+                    "Failed to get read receipt for user: {e}"
+                );
+                None
             }
         }
+    }
+
+    async fn read_receipts_for_event(&self, event_id: &EventId) -> IndexMap<OwnedUserId, Receipt> {
+        let mut unthreaded_receipts =
+            match self.event_receipts(ReceiptType::Read, ReceiptThread::Unthreaded, event_id).await
+            {
+                Ok(receipts) => receipts.into_iter().collect(),
+                Err(e) => {
+                    error!(?event_id, "Failed to get unthreaded read receipts for event: {e}");
+                    IndexMap::new()
+                }
+            };
+
+        let main_thread_receipts =
+            match self.event_receipts(ReceiptType::Read, ReceiptThread::Main, event_id).await {
+                Ok(receipts) => receipts,
+                Err(e) => {
+                    error!(?event_id, "Failed to get main thread read receipts for event: {e}");
+                    Vec::new()
+                }
+            };
+
+        unthreaded_receipts.extend(main_thread_receipts);
+        unthreaded_receipts
     }
 
     async fn push_rules_and_context(&self) -> Option<(Ruleset, PushConditionRoomCtx)> {

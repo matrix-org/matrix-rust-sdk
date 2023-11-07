@@ -17,9 +17,9 @@
 
 #[cfg(feature = "e2e-encryption")]
 use std::io::Read;
-#[cfg(not(target_arch = "wasm32"))]
-use std::path::Path;
 use std::time::Duration;
+#[cfg(not(target_arch = "wasm32"))]
+use std::{fmt, fs::File, io, path::Path};
 
 use eyeball::SharedObservable;
 use futures_util::future::try_join;
@@ -32,8 +32,9 @@ use ruma::{
     assign,
     events::room::{
         message::{
-            self, AudioInfo, FileInfo, FileMessageEventContent, ImageMessageEventContent,
-            MessageType, VideoInfo, VideoMessageEventContent,
+            self, AudioInfo, AudioMessageEventContent, FileInfo, FileMessageEventContent,
+            ImageMessageEventContent, MessageType, UnstableAudioDetailsContentBlock,
+            UnstableVoiceContentBlock, VideoInfo, VideoMessageEventContent,
         },
         ImageInfo, MediaSource, ThumbnailInfo,
     },
@@ -46,7 +47,8 @@ use tokio::{fs::File as TokioFile, io::AsyncWriteExt};
 
 use crate::{
     attachment::{AttachmentInfo, Thumbnail},
-    Client, Result, SendRequest, TransmissionProgress,
+    futures::SendRequest,
+    Client, Result, TransmissionProgress,
 };
 
 /// A conservative upload speed of 1Mbps
@@ -79,6 +81,37 @@ impl MediaFileHandle {
     /// Get the media file's path.
     pub fn path(&self) -> &Path {
         self.file.path()
+    }
+
+    /// Persist the media file to the given path.
+    pub fn persist(self, path: &Path) -> Result<File, PersistError> {
+        self.file.persist(path).map_err(|e| PersistError {
+            error: e.error,
+            file: Self { file: e.file, _directory: self._directory },
+        })
+    }
+}
+
+/// Error returned when [`MediaFileHandle::persist`] fails.
+#[cfg(not(target_arch = "wasm32"))]
+pub struct PersistError {
+    /// The underlying IO error.
+    pub error: io::Error,
+    /// The temporary file that couldn't be persisted.
+    pub file: MediaFileHandle,
+}
+
+#[cfg(not(any(target_arch = "wasm32", tarpaulin_include)))]
+impl fmt::Debug for PersistError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "PersistError({:?})", self.error)
+    }
+}
+
+#[cfg(not(any(target_arch = "wasm32", tarpaulin_include)))]
+impl fmt::Display for PersistError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "failed to persist temporary file: {}", self.error)
     }
 }
 
@@ -438,13 +471,13 @@ impl Media {
                 )
             }
             mime::AUDIO => {
-                let info = assign!(info.map(AudioInfo::from).unwrap_or_default(), {
-                    mimetype: Some(content_type.as_ref().to_owned()),
-                });
-                MessageType::Audio(
-                    message::AudioMessageEventContent::plain(body.to_owned(), url)
-                        .info(Box::new(info)),
-                )
+                let audio_message_event_content =
+                    message::AudioMessageEventContent::plain(body.to_owned(), url);
+                MessageType::Audio(update_audio_message_event(
+                    audio_message_event_content,
+                    content_type,
+                    info,
+                ))
             }
             mime::VIDEO => {
                 let info = assign!(info.map(VideoInfo::from).unwrap_or_default(), {
@@ -494,4 +527,22 @@ impl Media {
             Ok((None, None))
         }
     }
+}
+
+pub(crate) fn update_audio_message_event(
+    mut audio_message_event_content: AudioMessageEventContent,
+    content_type: &Mime,
+    info: Option<AttachmentInfo>,
+) -> AudioMessageEventContent {
+    if let Some(AttachmentInfo::Voice { audio_info, waveform: Some(waveform_vec) }) = &info {
+        if let Some(duration) = audio_info.duration {
+            let waveform = waveform_vec.iter().map(|v| (*v).into()).collect();
+            audio_message_event_content.audio =
+                Some(UnstableAudioDetailsContentBlock::new(duration, waveform));
+        }
+        audio_message_event_content.voice = Some(UnstableVoiceContentBlock::new());
+    }
+
+    let audio_info = assign!(info.map(AudioInfo::from).unwrap_or_default(), {mimetype: Some(content_type.as_ref().to_owned()), });
+    audio_message_event_content.info(Box::new(audio_info))
 }

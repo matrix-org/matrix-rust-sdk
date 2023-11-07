@@ -81,7 +81,7 @@ impl TracingTimer {
 #[macro_export]
 macro_rules! timer {
     ($level:expr, $string:expr) => {{
-        static CALLSITE: tracing::callsite::DefaultCallsite = tracing::callsite2! {
+        static __CALLSITE: tracing::callsite::DefaultCallsite = tracing::callsite2! {
             name: tracing::__macro_support::concat!(
                 "event ",
                 file!(),
@@ -94,7 +94,7 @@ macro_rules! timer {
             fields: []
         };
 
-        $crate::tracing_timer::TracingTimer::new_debug(&CALLSITE, $string.into(), $level)
+        $crate::tracing_timer::TracingTimer::new_debug(&__CALLSITE, $string.into(), $level)
     }};
 
     ($string:expr) => {
@@ -109,7 +109,7 @@ mod tests {
     async fn test_timer_name() {
         use tracing::{span, Level};
 
-        tracing_subscriber::fmt::init();
+        tracing::warn!("Starting test...");
 
         mod time123 {
             pub async fn run() {
@@ -128,6 +128,8 @@ mod tests {
 
         let _timer_guard = timer!("in span");
         tokio::time::sleep(instant::Duration::from_millis(256)).await;
+
+        tracing::warn!("Test about to finish.");
         // Displays: 2023-08-25T15:18:31.427070Z DEBUG le 256ms span:
         // matrix_sdk_common::tracing_timer::tests: in span finished in 257ms
     }

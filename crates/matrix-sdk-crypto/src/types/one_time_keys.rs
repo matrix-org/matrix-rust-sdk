@@ -114,7 +114,7 @@ pub enum OneTimeKey {
 
 #[cfg(test)]
 mod tests {
-    use assert_matches::assert_matches;
+    use assert_matches2::assert_let;
     use ruma::{device_id, user_id, DeviceKeyAlgorithm, DeviceKeyId};
     use serde_json::json;
     use vodozemac::{Curve25519PublicKey, Ed25519Signature};
@@ -151,17 +151,21 @@ mod tests {
         let key: OneTimeKey =
             serde_json::from_value(json.clone()).expect("Can't deserialize a valid one-time key");
 
-        assert_matches!(
-            key,
-            OneTimeKey::SignedKey(ref k) if k.key == curve_key
-            && k
-                .signatures()
-                .get_signature(user_id, &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, device_id))
-                == Some(signature)
-            && k
-                .signatures()
-                .get(user_id).unwrap().get(&DeviceKeyId::from_parts("other".into(), device_id))
-                == Some(&Ok(custom_signature))
+        assert_let!(OneTimeKey::SignedKey(k) = &key);
+        assert_eq!(k.key, curve_key);
+        assert_eq!(
+            k.signatures().get_signature(
+                user_id,
+                &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, device_id)
+            ),
+            Some(signature)
+        );
+        assert_eq!(
+            k.signatures()
+                .get(user_id)
+                .unwrap()
+                .get(&DeviceKeyId::from_parts("other".into(), device_id)),
+            Some(&Ok(custom_signature))
         );
 
         let serialized = serde_json::to_value(key).expect("Can't reserialize a signed key");

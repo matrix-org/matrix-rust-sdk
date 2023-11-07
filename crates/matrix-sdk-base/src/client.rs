@@ -54,7 +54,7 @@ use tokio::sync::RwLockReadGuard;
 use tracing::{debug, info, instrument, trace, warn};
 
 #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
-use crate::latest_event::{is_suitable_for_latest_event, PossibleLatestEvent};
+use crate::latest_event::{is_suitable_for_latest_event, LatestEvent, PossibleLatestEvent};
 use crate::{
     deserialized_responses::{AmbiguityChanges, MembersResponse, SyncTimelineEvent},
     error::Result,
@@ -623,12 +623,18 @@ impl BaseClient {
     async fn decrypt_latest_suitable_event(
         &self,
         room: &Room,
-    ) -> Option<(SyncTimelineEvent, usize)> {
+    ) -> Option<(Box<LatestEvent>, usize)> {
         let enc_events = room.latest_encrypted_events();
 
         // Walk backwards through the encrypted events, looking for one we can decrypt
         for (i, event) in enc_events.iter().enumerate().rev() {
-            if let Ok(Some(decrypted)) = self.decrypt_sync_room_event(event, room.room_id()).await {
+            // Size of the decrypt_sync_room_event future should not impact this
+            // async fn since it is likely that there aren't even any encrypted
+            // events when calling it.
+            let decrypt_sync_room_event =
+                Box::pin(self.decrypt_sync_room_event(event, room.room_id()));
+
+            if let Ok(Some(decrypted)) = decrypt_sync_room_event.await {
                 // We found an event we can decrypt
                 if let Ok(any_sync_event) = decrypted.event.deserialize() {
                     // We can deserialize it to find its type
@@ -636,7 +642,7 @@ impl BaseClient {
                         is_suitable_for_latest_event(&any_sync_event)
                     {
                         // The event is the right type for us to use as latest_event
-                        return Some((decrypted, i));
+                        return Some((Box::new(LatestEvent::new(decrypted)), i));
                     }
                 }
             }
@@ -705,6 +711,7 @@ impl BaseClient {
         // that case we already received this response and there's nothing to
         // do.
         if self.store.sync_token.read().await.as_ref() == Some(&response.next_batch) {
+            info!("Got the same sync response twice");
             return Ok(SyncResponse::default());
         }
 

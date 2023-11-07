@@ -23,16 +23,18 @@ use futures_util::future::join_all;
 use itertools::{Either, Itertools};
 use matrix_sdk_common::executor::spawn;
 use ruma::{
-    events::ToDeviceEventType, serde::Raw, to_device::DeviceIdOrAllDevices, DeviceId,
-    OwnedDeviceId, OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UserId,
+    events::{AnyMessageLikeEventContent, ToDeviceEventType},
+    serde::Raw,
+    to_device::DeviceIdOrAllDevices,
+    DeviceId, OwnedDeviceId, OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId,
+    UserId,
 };
-use serde_json::Value;
 use tracing::{debug, error, info, instrument, trace};
 
 use crate::{
     error::{EventError, MegolmResult, OlmResult},
     identities::device::MaybeEncryptedRoomKey,
-    olm::{Account, InboundGroupSession, OutboundGroupSession, Session, ShareInfo, ShareState},
+    olm::{InboundGroupSession, OutboundGroupSession, Session, ShareInfo, ShareState},
     store::{Changes, Result as StoreResult, Store},
     types::events::{room::encrypted::RoomEncryptedEventContent, room_key_withheld::WithheldCode},
     Device, EncryptionSettings, OlmError, ToDeviceRequest,
@@ -121,7 +123,7 @@ impl GroupSessionCache {
 /// (`devices`) or not the session,  including withheld reason
 /// `withheld_devices`.
 #[derive(Debug)]
-pub struct CollectRecipientsResult {
+pub(crate) struct CollectRecipientsResult {
     /// If true the outbound group session should be rotated
     pub should_rotate: bool,
     /// The map of user|device that should receive the session
@@ -132,8 +134,7 @@ pub struct CollectRecipientsResult {
 }
 
 #[derive(Debug, Clone)]
-pub struct GroupSessionManager {
-    account: Account,
+pub(crate) struct GroupSessionManager {
     /// Store for the encryption keys.
     /// Persists all the encryption keys so a client can resume the session
     /// without the need to create new keys.
@@ -145,8 +146,8 @@ pub struct GroupSessionManager {
 impl GroupSessionManager {
     const MAX_TO_DEVICE_MESSAGES: usize = 250;
 
-    pub(crate) fn new(account: Account, store: Store) -> Self {
-        Self { account, store: store.clone(), sessions: GroupSessionCache::new(store) }
+    pub fn new(store: Store) -> Self {
+        Self { store: store.clone(), sessions: GroupSessionCache::new(store) }
     }
 
     pub async fn invalidate_group_session(&self, room_id: &RoomId) -> StoreResult<bool> {
@@ -203,15 +204,15 @@ impl GroupSessionManager {
     pub async fn encrypt(
         &self,
         room_id: &RoomId,
-        content: Value,
         event_type: &str,
+        content: &Raw<AnyMessageLikeEventContent>,
     ) -> MegolmResult<Raw<RoomEncryptedEventContent>> {
         let session =
             self.sessions.get_or_load(room_id).await.expect("Session wasn't created nor shared");
 
         assert!(!session.expired(), "Session expired");
 
-        let content = session.encrypt(content, event_type).await;
+        let content = session.encrypt(event_type, content).await;
 
         let mut changes = Changes::default();
         changes.outbound_group_sessions.push(session);
@@ -230,8 +231,8 @@ impl GroupSessionManager {
         settings: EncryptionSettings,
     ) -> OlmResult<(OutboundGroupSession, InboundGroupSession)> {
         let (outbound, inbound) = self
-            .account
-            .static_data
+            .store
+            .static_account()
             .create_group_session_pair(room_id, settings)
             .await
             .map_err(|_| EventError::UnsupportedAlgorithm)?;
@@ -348,13 +349,7 @@ impl GroupSessionManager {
         let mut devices: BTreeMap<OwnedUserId, Vec<Device>> = Default::default();
         let mut withheld_devices: Vec<(Device, WithheldCode)> = Default::default();
 
-        trace!(
-            ?users,
-            ?settings,
-            session_id = outbound.session_id(),
-            room_id = outbound.room_id().as_str(),
-            "Calculating group session recipients"
-        );
+        trace!(?users, ?settings, "Calculating group session recipients");
 
         let users_shared_with: BTreeSet<OwnedUserId> =
             outbound.shared_with_set.read().unwrap().keys().cloned().collect();
@@ -430,12 +425,7 @@ impl GroupSessionManager {
             withheld_devices.extend(withheld_recipients);
         }
 
-        trace!(
-            should_rotate = should_rotate,
-            session_id = outbound.session_id(),
-            room_id = outbound.room_id().as_str(),
-            "Done calculating group session recipients"
-        );
+        trace!(should_rotate, "Done calculating group session recipients");
 
         Ok(CollectRecipientsResult { should_rotate, devices, withheld_devices })
     }
@@ -519,7 +509,7 @@ impl GroupSessionManager {
             info!(
                 ?recipients,
                 message_index,
-                room_id = %group_session.room_id(),
+                room_id = ?group_session.room_id(),
                 session_id = group_session.session_id(),
                 "Trying to encrypt a room key",
             );
@@ -665,86 +655,63 @@ impl GroupSessionManager {
         Ok(())
     }
 
-    fn log_room_key_sharing_result(
-        session: &OutboundGroupSession,
-        requests: &[Arc<ToDeviceRequest>],
-    ) {
-        #[cfg(feature = "message-ids")]
-        use serde::Deserialize;
-
-        let mut withheld_messages: BTreeMap<_, BTreeMap<_, BTreeSet<_>>> = BTreeMap::new();
-
-        #[cfg(feature = "message-ids")]
-        let mut messages: BTreeMap<_, BTreeMap<_, BTreeMap<_, _>>> = BTreeMap::new();
-        #[cfg(not(feature = "message-ids"))]
-        let mut messages: BTreeMap<_, BTreeMap<_, BTreeSet<_>>> = BTreeMap::new();
-
-        #[derive(PartialEq, Eq, PartialOrd, Ord)]
-        struct RequestId<'a>(&'a TransactionId);
-
-        impl Debug for RequestId<'_> {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                f.debug_tuple("RequestId").field(&self.0).finish()
-            }
-        }
-
-        #[cfg(feature = "message-ids")]
-        #[derive(Debug, Deserialize)]
-        #[serde(transparent)]
-        struct MessageId<'a>(&'a str);
-
-        #[cfg(feature = "message-ids")]
-        #[derive(Deserialize)]
-        struct ContentStub<'a> {
-            #[serde(borrow, rename = "org.matrix.msgid")]
-            message_id: MessageId<'a>,
-        }
-
-        // We're just collecting the recipients for logging reasons.
+    fn log_room_key_sharing_result(requests: &[Arc<ToDeviceRequest>]) {
         for request in requests {
-            for (user_id, device_map) in &request.messages {
-                if request.event_type == ToDeviceEventType::RoomEncrypted {
-                    #[cfg(feature = "message-ids")]
-                    for (device, content) in device_map {
-                        let content: ContentStub<'_> = content
-                            .deserialize_as()
-                            .expect("We should be able to deserialize the content we generated");
+            let message_list = Self::to_device_request_to_log_list(request);
+            info!(
+                request_id = ?request.txn_id,
+                ?message_list,
+                "Created batch of to-device messages of type {}",
+                request.event_type
+            );
+        }
+    }
 
-                        let message_id = content.message_id;
-
-                        messages
-                            .entry(RequestId(&request.txn_id))
-                            .or_default()
-                            .entry(user_id)
-                            .or_default()
-                            .insert(device, message_id);
-                    }
-
-                    #[cfg(not(feature = "message-ids"))]
-                    messages
-                        .entry(RequestId(&request.txn_id))
-                        .or_default()
-                        .entry(user_id)
-                        .or_default()
-                        .extend(device_map.keys());
-                } else {
-                    withheld_messages
-                        .entry(RequestId(&request.txn_id))
-                        .or_default()
-                        .entry(user_id)
-                        .or_default()
-                        .extend(device_map.keys());
-                }
-            }
+    /// Given a to-device request, build a recipient map suitable for logging.
+    ///
+    /// Returns a list of triples of (message_id, user id, device_id).
+    #[cfg(feature = "message-ids")]
+    fn to_device_request_to_log_list(
+        request: &Arc<ToDeviceRequest>,
+    ) -> Vec<(String, String, String)> {
+        #[derive(serde::Deserialize)]
+        struct ContentStub<'a> {
+            #[serde(borrow, default, rename = "org.matrix.msgid")]
+            message_id: Option<&'a str>,
         }
 
-        info!(
-            session_id = session.session_id(),
-            request_count = requests.len(),
-            ?messages,
-            ?withheld_messages,
-            "Encrypted a room key and created to-device messages"
-        );
+        let mut result: Vec<(String, String, String)> = Vec::new();
+
+        for (user_id, device_map) in &request.messages {
+            for (device, content) in device_map {
+                let message_id: Option<&str> = content
+                    .deserialize_as::<ContentStub<'_>>()
+                    .expect("We should be able to deserialize the content we generated")
+                    .message_id;
+
+                result.push((
+                    message_id.unwrap_or("<undefined>").to_owned(),
+                    user_id.to_string(),
+                    device.to_string(),
+                ));
+            }
+        }
+        result
+    }
+
+    /// Given a to-device request, build a recipient map suitable for logging.
+    ///
+    /// Returns a list of pairs of (user id, device_id).
+    #[cfg(not(feature = "message-ids"))]
+    fn to_device_request_to_log_list(request: &Arc<ToDeviceRequest>) -> Vec<(String, String)> {
+        let mut result: Vec<(String, String)> = Vec::new();
+
+        for (user_id, device_map) in &request.messages {
+            for device in device_map.keys() {
+                result.push((user_id.to_string(), device.to_string()));
+            }
+        }
+        result
     }
 
     /// Get to-device requests to share a room key with users in a room.
@@ -757,7 +724,7 @@ impl GroupSessionManager {
     ///
     /// `encryption_settings` - The settings that should be used for
     /// the room key.
-    #[instrument(skip(self, users, encryption_settings))]
+    #[instrument(skip(self, users, encryption_settings), fields(session_id))]
     pub async fn share_room_key(
         &self,
         room_id: &RoomId,
@@ -772,6 +739,7 @@ impl GroupSessionManager {
         // Try to get an existing session or create a new one.
         let (outbound, inbound) =
             self.get_or_create_outbound_session(room_id, encryption_settings.clone()).await?;
+        tracing::Span::current().record("session_id", outbound.session_id());
 
         // Having an inbound group session here means that we created a new
         // group session pair, which we then need to store.
@@ -830,7 +798,6 @@ impl GroupSessionManager {
             if !outbound.shared() {
                 debug!(
                     room_id = room_id.as_str(),
-                    session_id = outbound.session_id(),
                     "The room key doesn't need to be shared with anyone. Marking as shared."
                 );
 
@@ -838,7 +805,7 @@ impl GroupSessionManager {
                 changes.outbound_group_sessions.push(outbound.clone());
             }
         } else {
-            Self::log_room_key_sharing_result(&outbound, &requests)
+            Self::log_room_key_sharing_result(&requests)
         }
 
         // Persist any changes we might have collected.
@@ -848,8 +815,6 @@ impl GroupSessionManager {
             self.store.save_changes(changes).await?;
 
             trace!(
-                room_id = room_id.as_str(),
-                session_id = outbound.session_id(),
                 session_count = session_count,
                 "Stored the changed sessions after encrypting an room key"
             );
@@ -970,7 +935,7 @@ mod tests {
             .expect("Can't parse the keys claim response")
     }
 
-    async fn machine_with_user(user_id: &UserId, device_id: &DeviceId) -> OlmMachine {
+    async fn machine_with_user_test_helper(user_id: &UserId, device_id: &DeviceId) -> OlmMachine {
         let keys_query = keys_query_response();
         let keys_claim = keys_claim_response();
         let txn_id = TransactionId::new();
@@ -986,10 +951,10 @@ mod tests {
     }
 
     async fn machine() -> OlmMachine {
-        machine_with_user(alice_id(), alice_device_id()).await
+        machine_with_user_test_helper(alice_id(), alice_device_id()).await
     }
 
-    async fn machine_with_shared_room_key() -> OlmMachine {
+    async fn machine_with_shared_room_key_test_helper() -> OlmMachine {
         let machine = machine().await;
         let room_id = room_id!("!test:localhost");
         let keys_claim = keys_claim_response();
@@ -1120,7 +1085,7 @@ mod tests {
 
     #[async_test]
     async fn ratcheted_sharing() {
-        let machine = machine_with_shared_room_key().await;
+        let machine = machine_with_shared_room_key_test_helper().await;
 
         let room_id = room_id!("!test:localhost");
         let late_joiner = user_id!("@bob:localhost");
@@ -1148,7 +1113,7 @@ mod tests {
 
     #[async_test]
     async fn changing_encryption_settings() {
-        let machine = machine_with_shared_room_key().await;
+        let machine = machine_with_shared_room_key_test_helper().await;
         let room_id = room_id!("!test:localhost");
         let keys_claim = keys_claim_response();
 
@@ -1202,7 +1167,7 @@ mod tests {
         let device_id = device_id!("TESTDEVICE");
         let room_id = room_id!("!test:localhost");
 
-        let machine = machine_with_user(user_id, device_id).await;
+        let machine = machine_with_user_test_helper(user_id, device_id).await;
 
         let (outbound, _) = machine
             .inner
@@ -1344,7 +1309,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn no_olm_withheld_only_sent_once() {
+    async fn test_no_olm_withheld_only_sent_once() {
         let keys_query = keys_query_response();
         let txn_id = TransactionId::new();
 

@@ -20,11 +20,11 @@ macro_rules! cryptostore_integration_tests {
             use $crate::{
                 olm::{
                     Curve25519PublicKey, InboundGroupSession, OlmMessageHash,
-                    PrivateCrossSigningIdentity, ReadOnlyAccount, Session,
+                    PrivateCrossSigningIdentity, Account, Session,
                 },
                 store::{
                     BackupKeys, Changes, CryptoStore, DeviceChanges,
-                    GossipRequest, IdentityChanges, BackupDecryptionKey, RoomSettings,
+                    GossipRequest, IdentityChanges, BackupDecryptionKey, RoomSettings, PendingChanges,
                 },
                 testing::{get_device, get_other_identity, get_own_identity},
                 types::{
@@ -62,25 +62,25 @@ macro_rules! cryptostore_integration_tests {
                 device_id!("BOBDEVICE")
             }
 
-            pub async fn get_loaded_store(name: &str) -> (ReadOnlyAccount, impl CryptoStore) {
+            pub async fn get_loaded_store(name: &str) -> (Account, impl CryptoStore) {
                 let store = get_store(name, None).await;
                 let account = get_account();
 
-                store.save_changes(Changes { account: Some(account.clone()), ..Default::default() }).await.expect("Can't save account");
+                store.save_pending_changes(PendingChanges { account: Some(account.deep_clone()), }).await.expect("Can't save account");
 
                 (account, store)
             }
 
-            fn get_account() -> ReadOnlyAccount {
-                ReadOnlyAccount::with_device_id(alice_id(), alice_device_id())
+            fn get_account() -> Account {
+                Account::with_device_id(alice_id(), alice_device_id())
             }
 
-            async fn get_account_and_session() -> (ReadOnlyAccount, Session) {
-                let alice = ReadOnlyAccount::with_device_id(alice_id(), alice_device_id());
-                let bob = ReadOnlyAccount::with_device_id(bob_id(), bob_device_id());
+            async fn get_account_and_session() -> (Account, Session) {
+                let alice = Account::with_device_id(alice_id(), alice_device_id());
+                let mut bob = Account::with_device_id(bob_id(), bob_device_id());
 
-                bob.generate_one_time_keys_helper(1).await;
-                let one_time_key = *bob.one_time_keys().await.values().next().unwrap();
+                bob.generate_one_time_keys_helper(1);
+                let one_time_key = *bob.one_time_keys().values().next().unwrap();
                 let sender_key = bob.identity_keys().curve25519;
                 let session = alice
                     .create_outbound_session_helper(
@@ -88,8 +88,7 @@ macro_rules! cryptostore_integration_tests {
                         sender_key,
                         one_time_key,
                         false,
-                    )
-                    .await;
+                    );
 
                 (alice, session)
             }
@@ -102,7 +101,7 @@ macro_rules! cryptostore_integration_tests {
                 let account = get_account();
 
                 store
-                    .save_changes(Changes { account: Some(account), ..Default::default() })
+                    .save_pending_changes(PendingChanges { account: Some(account), })
                     .await
                     .expect("Can't save account");
                 assert!(store.get_static_account().is_some());
@@ -115,7 +114,7 @@ macro_rules! cryptostore_integration_tests {
                 assert!(store.load_account().await.unwrap().is_none());
                 let account = get_account();
 
-                store.save_changes(Changes { account: Some(account), ..Default::default() }).await.expect("Can't save account");
+                store.save_pending_changes(PendingChanges { account: Some(account), }).await.expect("Can't save account");
                 assert!(store.get_static_account().is_some());
             }
 
@@ -124,7 +123,7 @@ macro_rules! cryptostore_integration_tests {
                 let store = get_store("load_account", None).await;
                 let account = get_account();
 
-                store.save_changes(Changes { account: Some(account.clone()), ..Default::default() }).await.expect("Can't save account");
+                store.save_pending_changes(PendingChanges { account: Some(account.deep_clone()), }).await.expect("Can't save account");
 
                 let loaded_account = store.load_account().await.expect("Can't load account");
                 let loaded_account = loaded_account.unwrap();
@@ -138,7 +137,7 @@ macro_rules! cryptostore_integration_tests {
                     get_store("load_account_with_passphrase", Some("secret_passphrase")).await;
                 let account = get_account();
 
-                store.save_changes(Changes { account: Some(account.clone()), ..Default::default() }).await.expect("Can't save account");
+                store.save_pending_changes(PendingChanges { account: Some(account.deep_clone()), }).await.expect("Can't save account");
 
                 let loaded_account = store.load_account().await.expect("Can't load account");
                 let loaded_account = loaded_account.unwrap();
@@ -149,14 +148,14 @@ macro_rules! cryptostore_integration_tests {
             #[async_test]
             async fn save_and_share_account() {
                 let store = get_store("save_and_share_account", None).await;
-                let account = get_account();
+                let mut account = get_account();
 
-                store.save_changes(Changes { account: Some(account.clone()), ..Default::default() }).await.expect("Can't save account");
+                store.save_pending_changes(PendingChanges { account: Some(account.deep_clone()), }).await.expect("Can't save account");
 
                 account.mark_as_shared();
                 account.update_uploaded_key_count(50);
 
-                store.save_changes(Changes { account: Some(account.clone()), ..Default::default() }).await.expect("Can't save account");
+                store.save_pending_changes(PendingChanges { account: Some(account.deep_clone()), }).await.expect("Can't save account");
 
                 let loaded_account = store.load_account().await.expect("Can't load account");
                 let loaded_account = loaded_account.unwrap();
@@ -169,7 +168,7 @@ macro_rules! cryptostore_integration_tests {
             async fn load_sessions() {
                 let store = get_store("load_sessions", None).await;
                 let (account, session) = get_account_and_session().await;
-                store.save_changes(Changes { account: Some(account.clone()), ..Default::default() }).await.expect("Can't save account");
+                store.save_pending_changes(PendingChanges { account: Some(account.deep_clone()), }).await.expect("Can't save account");
 
                 let changes = Changes { sessions: vec![session.clone()], ..Default::default() };
 
@@ -193,7 +192,7 @@ macro_rules! cryptostore_integration_tests {
                 let sender_key = session.sender_key.to_base64();
                 let session_id = session.session_id().to_owned();
 
-                store.save_changes(Changes { account: Some(account.clone()), ..Default::default() }).await.expect("Can't save account");
+                store.save_pending_changes(PendingChanges { account: Some(account.deep_clone()), }).await.expect("Can't save account");
 
                 let changes = Changes { sessions: vec![session.clone()], ..Default::default() };
                 store.save_changes(changes).await.unwrap();
@@ -399,21 +398,19 @@ macro_rules! cryptostore_integration_tests {
             }
 
             #[async_test]
-            async fn device_saving() {
+            async fn test_device_saving() {
                 let dir = "device_saving";
                 let (_account, store) = get_loaded_store(dir.clone()).await;
 
-                let alice_device_1 = ReadOnlyDevice::from_account(&ReadOnlyAccount::with_device_id(
+                let alice_device_1 = ReadOnlyDevice::from_account(&Account::with_device_id(
                     "@alice:localhost".try_into().unwrap(),
                     "FIRSTDEVICE".into(),
-                ))
-                .await;
+                ));
 
-                let alice_device_2 = ReadOnlyDevice::from_account(&ReadOnlyAccount::with_device_id(
+                let alice_device_2 = ReadOnlyDevice::from_account(&Account::with_device_id(
                     "@alice:localhost".try_into().unwrap(),
                     "SECONDDEVICE".into(),
-                ))
-                .await;
+                ));
 
                 let changes = Changes {
                     devices: DeviceChanges {
@@ -481,7 +478,7 @@ macro_rules! cryptostore_integration_tests {
             }
 
             #[async_test]
-            async fn user_saving() {
+            async fn test_user_saving() {
                 let dir = "user_saving";
 
                 let user_id = user_id!("@example:localhost");
@@ -489,9 +486,9 @@ macro_rules! cryptostore_integration_tests {
 
                 let store = get_store(dir, None).await;
 
-                let account = ReadOnlyAccount::with_device_id(&user_id, device_id);
+                let account = Account::with_device_id(&user_id, device_id);
 
-                store.save_changes(Changes { account: Some(account.clone()), ..Default::default() })
+                store.save_pending_changes(PendingChanges { account: Some(account), })
                     .await
                     .expect("Can't save account");
 
@@ -559,7 +556,7 @@ macro_rules! cryptostore_integration_tests {
             async fn private_identity_saving() {
                 let (_, store) = get_loaded_store("private_identity_saving").await;
                 assert!(store.load_identity().await.unwrap().is_none());
-                let identity = PrivateCrossSigningIdentity::new(alice_id().to_owned()).await;
+                let identity = PrivateCrossSigningIdentity::new(alice_id().to_owned());
 
                 let changes =
                     Changes { private_identity: Some(identity.clone()), ..Default::default() };

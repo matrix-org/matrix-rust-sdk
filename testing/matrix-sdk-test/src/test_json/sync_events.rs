@@ -3,6 +3,8 @@
 use once_cell::sync::Lazy;
 use serde_json::{json, Value as JsonValue};
 
+use crate::DEFAULT_TEST_ROOM_ID;
+
 pub static ALIAS: Lazy<JsonValue> = Lazy::new(|| {
     json!({
         "content": {
@@ -58,7 +60,7 @@ pub static CREATE: Lazy<JsonValue> = Lazy::new(|| {
 pub static DIRECT: Lazy<JsonValue> = Lazy::new(|| {
     json!({
         "content": {
-            "@invited:localhost": ["!SVkFJHzfwvuaIEawgC:localhost"],
+            "@invited:localhost": [*DEFAULT_TEST_ROOM_ID],
         },
         "event_id": "$757957878228ekrDs:localhost",
         "origin_server_ts": 17195787,
@@ -420,7 +422,7 @@ pub static PUSH_RULES: Lazy<JsonValue> = Lazy::new(|| {
                           "value": "default"
                         }
                       ],
-                      "rule_id": "!SVkFJHzfwvuaIEawgC:localhost",
+                      "rule_id": *DEFAULT_TEST_ROOM_ID,
                       "default": false,
                       "enabled": true
                     }

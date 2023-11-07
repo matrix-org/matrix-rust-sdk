@@ -3,6 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use assert_matches::assert_matches;
+use assert_matches2::assert_let;
 use async_trait::async_trait;
 use matrix_sdk_test::test_json;
 use ruma::{
@@ -484,9 +485,9 @@ impl StateStoreIntegrationTests for DynStateStore {
         )
         .await
         .unwrap();
-        let stored_filter_id = assert_matches!(
-            self.get_kv_data(StateStoreDataKey::Filter(filter_name)).await,
-            Ok(Some(StateStoreDataValue::Filter(s))) => s
+        assert_let!(
+            Ok(Some(StateStoreDataValue::Filter(stored_filter_id))) =
+                self.get_kv_data(StateStoreDataKey::Filter(filter_name)).await
         );
         assert_eq!(stored_filter_id, filter_id);
 
@@ -503,9 +504,9 @@ impl StateStoreIntegrationTests for DynStateStore {
         let changes =
             StateChanges { sync_token: Some(sync_token_1.to_owned()), ..Default::default() };
         self.save_changes(&changes).await.unwrap();
-        let stored_sync_token = assert_matches!(
-            self.get_kv_data(StateStoreDataKey::SyncToken).await,
-            Ok(Some(StateStoreDataValue::SyncToken(s))) => s
+        assert_let!(
+            Ok(Some(StateStoreDataValue::SyncToken(stored_sync_token))) =
+                self.get_kv_data(StateStoreDataKey::SyncToken).await
         );
         assert_eq!(stored_sync_token, sync_token_1);
 
@@ -515,9 +516,9 @@ impl StateStoreIntegrationTests for DynStateStore {
         )
         .await
         .unwrap();
-        let stored_sync_token = assert_matches!(
-            self.get_kv_data(StateStoreDataKey::SyncToken).await,
-            Ok(Some(StateStoreDataValue::SyncToken(s))) => s
+        assert_let!(
+            Ok(Some(StateStoreDataValue::SyncToken(stored_sync_token))) =
+                self.get_kv_data(StateStoreDataKey::SyncToken).await
         );
         assert_eq!(stored_sync_token, sync_token_2);
 

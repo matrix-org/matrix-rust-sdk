@@ -219,6 +219,10 @@ pub enum SignatureError {
     /// The signed object couldn't be deserialized.
     #[error(transparent)]
     JsonError(#[from] CanonicalJsonError),
+
+    /// The store ran into an error.
+    #[error(transparent)]
+    StoreError(#[from] CryptoStoreError),
 }
 
 impl From<SerdeError> for SignatureError {
@@ -237,13 +241,6 @@ pub enum SessionCreationError {
         one-time key isn't a signed curve key"
     )]
     OneTimeKeyNotSigned(OwnedUserId, OwnedDeviceId),
-
-    /// The signed one-time key is missing.
-    #[error(
-        "Tried to create a new Olm session for {0} {1}, but the signed \
-        one-time key is missing"
-    )]
-    OneTimeKeyMissing(OwnedUserId, OwnedDeviceId),
 
     /// The one-time key algorithm is unsupported.
     #[error(

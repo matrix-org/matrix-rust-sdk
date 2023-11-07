@@ -5,22 +5,19 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
-[features]
-# activate to steal helper functions from this crate for other testing
-helpers = []
-
-[dependencies]
-assert_matches.workspace = true
+[dev-dependencies]
+assert_matches = { workspace = true }
+assert_matches2 = { workspace = true }
 anyhow = { workspace = true }
 assign = "1"
-ctor = { workspace = true }
 eyeball-im = { workspace = true }
 futures-core = { workspace = true }
 futures-util = { workspace = true }
 matrix-sdk = { path = "../../crates/matrix-sdk", features = ["testing"] }
 matrix-sdk-ui = { path = "../../crates/matrix-sdk-ui" }
+matrix-sdk-test = { path = "../matrix-sdk-test" }
 once_cell = { workspace = true }
+rand = { workspace = true }
 tempfile = "3.3.0"
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }
 tracing = { workspace = true }
-tracing-subscriber = { version = "0.3.15", features = ["env-filter"] }

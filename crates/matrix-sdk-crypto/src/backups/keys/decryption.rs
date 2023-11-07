@@ -18,18 +18,24 @@ use std::{
 };
 
 use bs58;
-use hmac::Mac as MacT;
 use hkdf::Hkdf;
+use hmac::Mac as MacTrait;
 use sha2::Sha256;
+use ruma::api::client::backup::EncryptedSessionData;
 use thiserror::Error;
-use zeroize::Zeroizing;
+use vodozemac::Curve25519PublicKey;
+use zeroize::{Zeroize, Zeroizing};
 
 use super::{
     backup::{HmacSha256, HmacSha256Key},
     compat::{Error as DecryptionError, Message, MessageDecodeError, PkDecryption},
     MegolmV1BackupKey,
 };
-use crate::store::BackupDecryptionKey;
+use crate::{
+    olm::BackedUpRoomKey,
+    store::BackupDecryptionKey,
+    types::{MegolmV1AuthData, RoomKeyBackupInfo},
+};
 
 /// Error type for the decoding of a [`BackupDecryptionKey`].
 #[derive(Debug, Error)]
@@ -55,16 +61,6 @@ pub enum DecodeError {
     /// The recovery key, a Curve25519 public key, couldn't be decoded.
     #[error(transparent)]
     PublicKey(#[from] vodozemac::KeyError),
-}
-
-#[derive(Debug, Error)]
-pub enum UnpicklingError {
-    #[error(transparent)]
-    Json(#[from] serde_json::Error),
-    // #[error("Couldn't decrypt the pickle: {0}")]
-    // Decryption(String),
-    #[error(transparent)]
-    Decode(#[from] DecodeError),
 }
 
 impl TryFrom<String> for BackupDecryptionKey {
@@ -206,6 +202,17 @@ impl BackupDecryptionKey {
         MegolmV1BackupKey::new(pk.public_key(), Some(mac_key), None)
     }
 
+    /// Get the [`RoomKeyBackupInfo`] for this [`BackupDecryptionKey`].
+    ///
+    /// The [`RoomKeyBackupInfo`] can be uploaded to the homeserver to activate
+    /// a new backup version.
+    pub fn to_backup_info(&self) -> RoomKeyBackupInfo {
+        let pk = self.get_pk_decryption();
+        let auth_data = MegolmV1AuthData::new(pk.public_key(), Default::default());
+
+        RoomKeyBackupInfo::MegolmBackupV1Curve25519AesSha2(auth_data)
+    }
+
     /// Try to decrypt the given ciphertext using this [`BackupDecryptionKey`].
     ///
     /// This will use the [`m.megolm_backup.v1.curve25519-aes-sha2`] algorithm
@@ -243,21 +250,76 @@ impl BackupDecryptionKey {
 
         Ok(String::from_utf8_lossy(&decrypted).to_string())
     }
+
+    /// Try to decrypt the given [`EncryptedSessionData`] using this
+    /// [`BackupDecryptionKey`].
+    pub fn decrypt_session_data(
+        &self,
+        session_data: EncryptedSessionData,
+    ) -> Result<BackedUpRoomKey, DecryptionError> {
+        let message = Message {
+            ciphertext: session_data.ciphertext.into_inner(),
+            mac: Some(session_data.mac.into_inner()),
+            ephemeral_key: Curve25519PublicKey::from_slice(session_data.ephemeral.as_bytes())?,
+        };
+
+        let pk = self.get_pk_decryption();
+
+        let mut decrypted = pk.decrypt(&message)?;
+        let result = serde_json::from_slice(&decrypted);
+
+        decrypted.zeroize();
+
+        Ok(result?)
+    }
+
+    /// Check if the given public key from the [`RoomKeyBackupInfo`] matches to
+    /// this [`BackupDecryptionKey`].
+    pub fn backup_key_matches(&self, info: &RoomKeyBackupInfo) -> bool {
+        match info {
+            RoomKeyBackupInfo::MegolmBackupV1Curve25519AesSha2(info) => {
+                let pk = self.get_pk_decryption();
+                let public_key = pk.public_key();
+
+                info.public_key == public_key
+            }
+            RoomKeyBackupInfo::Other { .. } => false,
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use matrix_sdk_test::async_test;
     use ruma::api::client::backup::KeyBackupData;
     use serde_json::json;
 
     use super::{BackupDecryptionKey, DecodeError, Mac};
-    use crate::olm::BackedUpRoomKey;
+    use crate::olm::{BackedUpRoomKey, ExportedRoomKey, InboundGroupSession};
 
     const TEST_KEY: [u8; 32] = [
         0x77, 0x07, 0x6D, 0x0A, 0x73, 0x18, 0xA5, 0x7D, 0x3C, 0x16, 0xC1, 0x72, 0x51, 0xB2, 0x66,
         0x45, 0xDF, 0x4C, 0x2F, 0x87, 0xEB, 0xC0, 0x99, 0x2A, 0xB1, 0x77, 0xFB, 0xA5, 0x1D, 0xB9,
         0x2C, 0x2A,
     ];
+
+    fn room_key() -> ExportedRoomKey {
+        let json = json!({
+            "algorithm": "m.megolm.v1.aes-sha2",
+            "sender_key": "DeHIg4gwhClxzFYcmNntPNF9YtsdZbmMy8+3kzCMXHA",
+            "session_id": "gM8i47Xhu0q52xLfgUXzanCMpLinoyVyH7R58cBuVBU",
+            "room_id": "!DovneieKSTkdHKpIXy:morpheus.localhost",
+            "session_key": "AQAAAABvWMNZjKFtebYIePKieQguozuoLgzeY6wKcyJjLJcJtQgy1dPqTBD12U+XrYLrRHn\
+                            lKmxoozlhFqJl456+9hlHCL+yq+6ScFuBHtJepnY1l2bdLb4T0JMDkNsNErkiLiLnD6yp3J\
+                            DSjIhkdHxmup/huygrmroq6/L5TaThEoqvW4DPIuO14btKudsS34FF82pwjKS4p6Mlch+0e\
+                            fHAblQV",
+            "sender_claimed_keys":{},
+            "forwarding_curve25519_key_chain":[]
+        });
+
+        serde_json::from_value(json)
+            .expect("We should be able to deserialize our backed up room key")
+    }
 
     #[test]
     fn base64_decoding() -> Result<(), DecodeError> {
@@ -342,6 +404,36 @@ mod tests {
 
         let _: BackedUpRoomKey = serde_json::from_str(&decrypted)
             .expect("The decrypted payload should contain valid JSON");
+
+        let _ = decryption_key
+            .decrypt_session_data(key_backup_data.session_data)
+            .expect("The backed up key should be decrypted successfully");
+    }
+
+    #[async_test]
+    async fn test_encryption_cycle() {
+        let session = InboundGroupSession::from_export(&room_key()).unwrap();
+
+        let decryption_key = BackupDecryptionKey::new().unwrap();
+        let encryption_key = decryption_key.megolm_v1_public_key();
+
+        let encrypted = encryption_key.encrypt(session).await;
+
+        let _ = decryption_key
+            .decrypt_session_data(encrypted.session_data)
+            .expect("We should be able to decrypt a just encrypted room key");
+    }
+
+    #[test]
+    fn key_matches() {
+        let decryption_key = BackupDecryptionKey::new().unwrap();
+
+        let key_info = decryption_key.to_backup_info();
+
+        assert!(
+            decryption_key.backup_key_matches(&key_info),
+            "The backup info should match the decryption key"
+        );
     }
 
     #[test]

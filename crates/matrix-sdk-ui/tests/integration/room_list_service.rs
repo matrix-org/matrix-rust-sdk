@@ -274,6 +274,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
                     "required_state": [
                         ["m.room.avatar", ""],
                         ["m.room.encryption", ""],
+                        ["m.room.member", "$LAZY"],
                         ["m.room.power_levels", ""],
                     ],
                     "filters": {
@@ -2495,15 +2496,9 @@ async fn test_room_latest_event() -> Result<(), Error> {
     };
 
     // The latest event has been updated.
-    let latest_event = assert_matches!(
-        room.latest_event().await,
-        Some(event) => {
-            assert!(event.is_local_echo().not());
-            assert_eq!(event.event_id(), Some(event_id!("$x1:bar.org")));
-
-            event
-        }
-    );
+    let latest_event = room.latest_event().await.unwrap();
+    assert!(latest_event.is_local_echo().not());
+    assert_eq!(latest_event.event_id(), Some(event_id!("$x1:bar.org")));
 
     // Now let's compare with the result of the `Timeline`.
     let timeline = room.timeline().await;

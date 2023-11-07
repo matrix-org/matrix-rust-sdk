@@ -283,6 +283,12 @@ impl From<SignatureUploadRequest> for OutgoingRequest {
     }
 }
 
+impl From<KeysUploadRequest> for OutgoingRequest {
+    fn from(r: KeysUploadRequest) -> Self {
+        Self { request_id: TransactionId::new(), request: Arc::new(r.into()) }
+    }
+}
+
 /// Enum over all the incoming responses we need to receive.
 #[derive(Debug)]
 pub enum IncomingResponse<'a> {

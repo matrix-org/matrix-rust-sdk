@@ -47,7 +47,12 @@ pub mod notification_settings;
 #[cfg(feature = "experimental-oidc")]
 pub mod oidc;
 pub mod room;
+pub mod utils;
+pub mod futures {
+    //! Named futures returned from methods on types in [the crate root][crate].
 
+    pub use super::client::futures::SendRequest;
+}
 #[cfg(feature = "experimental-sliding-sync")]
 pub mod sliding_sync;
 pub mod sync;
@@ -56,7 +61,7 @@ pub mod widget;
 
 pub use account::Account;
 pub use authentication::{AuthApi, AuthSession, SessionTokens};
-pub use client::{Client, ClientBuildError, ClientBuilder, LoopCtrl, SendRequest, SessionChange};
+pub use client::{Client, ClientBuildError, ClientBuilder, LoopCtrl, SessionChange};
 #[cfg(feature = "image-proc")]
 pub use error::ImageError;
 pub use error::{
@@ -78,15 +83,8 @@ pub use sliding_sync::{
 #[cfg(any(test, feature = "testing"))]
 pub mod test_utils;
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
-#[ctor::ctor]
-fn init_logging() {
-    use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-    tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::from_default_env())
-        .with(tracing_subscriber::fmt::layer().with_test_writer())
-        .init();
-}
+#[cfg(test)]
+matrix_sdk_test::init_tracing_for_tests!();
 
 /// Creates a server name from a user supplied string. The string is first
 /// sanitized by removing whitespace, the http(s) scheme and any trailing

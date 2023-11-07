@@ -200,7 +200,7 @@ impl SendMessageTask {
         debug!("Spawning message-sending task");
         let txn_id = msg.txn_id.clone();
         let join_handle = spawn(async move {
-            let result = room.send(msg.content, Some(&msg.txn_id)).await;
+            let result = room.send(msg.content).with_transaction_id(&msg.txn_id).await;
             let (room, send_state) = match result {
                 Ok(response) => (Some(room), EventSendState::Sent { event_id: response.event_id }),
                 Err(error) => (None, EventSendState::SendingFailed { error: Arc::new(error) }),

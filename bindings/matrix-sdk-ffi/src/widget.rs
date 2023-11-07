@@ -34,15 +34,15 @@ impl WidgetDriver {
     pub async fn run(
         &self,
         room: Arc<Room>,
-        permissions_provider: Box<dyn WidgetPermissionsProvider>,
+        capabilities_provider: Box<dyn WidgetCapabilitiesProvider>,
     ) {
         let Some(driver) = self.0.lock().unwrap().take() else {
             error!("Can't call run multiple times on a WidgetDriver");
             return;
         };
 
-        let permissions_provider = PermissionsProviderWrap(permissions_provider.into());
-        if let Err(()) = driver.run(room.inner.clone(), permissions_provider).await {
+        let capabilities_provider = CapabilitiesProviderWrap(capabilities_provider.into());
+        if let Err(()) = driver.run(room.inner.clone(), capabilities_provider).await {
             // TODO
         }
     }
@@ -52,7 +52,7 @@ impl WidgetDriver {
 #[derive(uniffi::Record, Clone)]
 pub struct WidgetSettings {
     /// Widget's unique identifier.
-    pub id: String,
+    pub widget_id: String,
     /// Whether or not the widget should be initialized on load message
     /// (`ContentLoad` message), or upon creation/attaching of the widget to
     /// the SDK's state machine that drives the API.
@@ -73,16 +73,18 @@ impl TryFrom<WidgetSettings> for matrix_sdk::widget::WidgetSettings {
     type Error = ParseError;
 
     fn try_from(value: WidgetSettings) -> Result<Self, Self::Error> {
-        let WidgetSettings { id, init_after_content_load, raw_url } = value;
-        Ok(matrix_sdk::widget::WidgetSettings::new(id, init_after_content_load, &raw_url)?)
+        let WidgetSettings { widget_id, init_after_content_load, raw_url } = value;
+        Ok(matrix_sdk::widget::WidgetSettings::new(widget_id, init_after_content_load, &raw_url)?)
     }
 }
 
 impl From<matrix_sdk::widget::WidgetSettings> for WidgetSettings {
     fn from(value: matrix_sdk::widget::WidgetSettings) -> Self {
-        let (id, init_after_content_load, raw_url) =
-            (value.id().to_owned(), value.init_after_content_load(), value.raw_url().to_string());
-        WidgetSettings { id, init_after_content_load, raw_url }
+        WidgetSettings {
+            widget_id: value.widget_id().to_owned(),
+            init_after_content_load: value.init_on_content_load(),
+            raw_url: value.raw_url().to_string(),
+        }
     }
 }
 
@@ -109,44 +111,103 @@ pub async fn generate_webview_url(
     .map(|url| url.to_string())?)
 }
 
+/// Defines if a call is encrypted and which encryption system should be used.
+///
+/// This controls the url parameters: `enableE2EE`, `perParticipantE2EE`,
+/// `password`.
+#[derive(uniffi::Enum, Clone)]
+pub enum EncryptionSystem {
+    /// Equivalent to the element call url parameter: `enableE2EE=false`
+    Unencrypted,
+    /// Equivalent to the element call url parameters:
+    /// `enableE2EE=true&perParticipantE2EE=true`
+    PerParticipantKeys,
+    /// Equivalent to the element call url parameters:
+    /// `enableE2EE=true&password={secret}`
+    SharedSecret {
+        /// The secret/password which is used in the url.
+        secret: String,
+    },
+}
+
+impl From<EncryptionSystem> for matrix_sdk::widget::EncryptionSystem {
+    fn from(value: EncryptionSystem) -> Self {
+        match value {
+            EncryptionSystem::Unencrypted => Self::Unencrypted,
+            EncryptionSystem::PerParticipantKeys => Self::PerParticipantKeys,
+            EncryptionSystem::SharedSecret { secret } => Self::SharedSecret { secret },
+        }
+    }
+}
+
 /// Properties to create a new virtual Element Call widget.
 #[derive(uniffi::Record, Clone)]
 pub struct VirtualElementCallWidgetOptions {
-    /// the url to the app e.g. <https://call.element.io>, <https://call.element.dev>
+    /// The url to the app.
+    ///
+    /// E.g. <https://call.element.io>, <https://call.element.dev>
     pub element_call_url: String,
-    /// the widget id.
+
+    /// The widget id.
     pub widget_id: String,
+
     /// The url that is used as the target for the PostMessages sent
-    /// by the widget (to the client). For a web app client this is the client
-    /// url. In case of using other platforms the client most likely is setup
-    /// up to listen to postmessages in the same webview the widget is
-    /// hosted. In this case the parent_url is set to the url of the
-    /// webview with the widget. Be aware, that this means, the widget
-    /// will receive its own postmessage messages. The matrix-widget-api
-    /// (js) ignores those so this works but it might break custom
-    /// implementations. So always keep this in mind. Defaults to
-    /// `element_call_url` for the non IFrame (dedicated webview) usecase.
+    /// by the widget (to the client).
+    ///
+    /// For a web app client this is the client url. In case of using other
+    /// platforms the client most likely is setup up to listen to
+    /// postmessages in the same webview the widget is hosted. In this case
+    /// the `parent_url` is set to the url of the webview with the widget. Be
+    /// aware that this means that the widget will receive its own postmessage
+    /// messages. The `matrix-widget-api` (js) ignores those so this works but
+    /// it might break custom implementations.
+    ///
+    /// Defaults to `element_call_url` for the non-iframe (dedicated webview)
+    /// usecase.
     pub parent_url: Option<String>,
-    /// defines if the branding header of Element call should be hidden.
-    /// (default: `true`)
+
+    /// Whether the branding header of Element call should be hidden.
+    ///
+    /// Default: `true`
     pub hide_header: Option<bool>,
-    /// if set, the lobby will be skipped and the widget will join the
-    /// call on the `io.element.join` action. (default: `false`)
+
+    /// If set, the lobby will be skipped and the widget will join the
+    /// call on the `io.element.join` action.
+    ///
+    /// Default: `false`
     pub preload: Option<bool>,
-    /// The font scale which will be used inside element call. (default: `1`)
+
+    /// The font scale which will be used inside element call.
+    ///
+    /// Default: `1`
     pub font_scale: Option<f64>,
-    /// whether element call should prompt the user to open in the browser or
-    /// the app (default: `false`).
+
+    /// Whether element call should prompt the user to open in the browser or
+    /// the app.
+    ///
+    /// Default: `false`
     pub app_prompt: Option<bool>,
-    ///Don't show the lobby and join the call immediately. (default: `false`)
+
+    /// Don't show the lobby and join the call immediately.
+    ///
+    /// Default: `false`
     pub skip_lobby: Option<bool>,
-    ///Make it not possible to get to the calls list in the webview. (default:
-    /// `true`)
+
+    /// Make it not possible to get to the calls list in the webview.
+    ///
+    /// Default: `true`
     pub confine_to_room: Option<bool>,
-    /// A list of fonts to adapt to ios/android system fonts. (default:`[]`)
-    pub fonts: Option<Vec<String>>,
+
+    /// The font to use, to adapt to the system font.
+    pub font: Option<String>,
+
     /// Can be used to pass a PostHog id to element call.
     pub analytics_id: Option<String>,
+
+    /// The encryption system to use.
+    ///
+    /// Use `EncryptionSystem::Unencrypted` to disable encryption.
+    pub encryption: EncryptionSystem,
 }
 
 impl From<VirtualElementCallWidgetOptions> for matrix_sdk::widget::VirtualElementCallWidgetOptions {
@@ -161,8 +222,9 @@ impl From<VirtualElementCallWidgetOptions> for matrix_sdk::widget::VirtualElemen
             app_prompt: value.app_prompt,
             skip_lobby: value.skip_lobby,
             confine_to_room: value.confine_to_room,
-            fonts: value.fonts,
+            font: value.font,
             analytics_id: value.analytics_id,
+            encryption: value.encryption.into(),
         }
     }
 }
@@ -231,14 +293,14 @@ impl WidgetDriverHandle {
     }
 }
 
-/// Permissions that a widget can request from a client.
+/// Capabilities that a widget can request from a client.
 #[derive(uniffi::Record)]
-pub struct WidgetPermissions {
+pub struct WidgetCapabilities {
     /// Types of the messages that a widget wants to be able to fetch.
     pub read: Vec<WidgetEventFilter>,
     /// Types of the messages that a widget wants to be able to send.
     pub send: Vec<WidgetEventFilter>,
-    /// If this permission is requested by the widget, it can not operate
+    /// If this capability is requested by the widget, it can not operate
     /// separately from the matrix client.
     ///
     /// This means clients should not offer to open the widget in a separate
@@ -246,8 +308,8 @@ pub struct WidgetPermissions {
     pub requires_client: bool,
 }
 
-impl From<WidgetPermissions> for matrix_sdk::widget::Permissions {
-    fn from(value: WidgetPermissions) -> Self {
+impl From<WidgetCapabilities> for matrix_sdk::widget::Capabilities {
+    fn from(value: WidgetCapabilities) -> Self {
         Self {
             read: value.read.into_iter().map(Into::into).collect(),
             send: value.send.into_iter().map(Into::into).collect(),
@@ -256,8 +318,8 @@ impl From<WidgetPermissions> for matrix_sdk::widget::Permissions {
     }
 }
 
-impl From<matrix_sdk::widget::Permissions> for WidgetPermissions {
-    fn from(value: matrix_sdk::widget::Permissions) -> Self {
+impl From<matrix_sdk::widget::Capabilities> for WidgetCapabilities {
+    fn from(value: matrix_sdk::widget::Capabilities) -> Self {
         Self {
             read: value.read.into_iter().map(Into::into).collect(),
             send: value.send.into_iter().map(Into::into).collect(),
@@ -320,24 +382,24 @@ impl From<matrix_sdk::widget::EventFilter> for WidgetEventFilter {
 }
 
 #[uniffi::export(callback_interface)]
-pub trait WidgetPermissionsProvider: Send + Sync {
-    fn acquire_permissions(&self, permissions: WidgetPermissions) -> WidgetPermissions;
+pub trait WidgetCapabilitiesProvider: Send + Sync {
+    fn acquire_capabilities(&self, capabilities: WidgetCapabilities) -> WidgetCapabilities;
 }
 
-struct PermissionsProviderWrap(Arc<dyn WidgetPermissionsProvider>);
+struct CapabilitiesProviderWrap(Arc<dyn WidgetCapabilitiesProvider>);
 
 #[async_trait]
-impl matrix_sdk::widget::PermissionsProvider for PermissionsProviderWrap {
-    async fn acquire_permissions(
+impl matrix_sdk::widget::CapabilitiesProvider for CapabilitiesProviderWrap {
+    async fn acquire_capabilities(
         &self,
-        permissions: matrix_sdk::widget::Permissions,
-    ) -> matrix_sdk::widget::Permissions {
+        capabilities: matrix_sdk::widget::Capabilities,
+    ) -> matrix_sdk::widget::Capabilities {
         let this = self.0.clone();
         // This could require a prompt to the user. Ideally the callback
         // interface would just be async, but that's not supported yet so use
         // one of tokio's blocking task threads instead.
         RUNTIME
-            .spawn_blocking(move || this.acquire_permissions(permissions.into()).into())
+            .spawn_blocking(move || this.acquire_capabilities(capabilities.into()).into())
             .await
             // propagate panics from the blocking task
             .unwrap()

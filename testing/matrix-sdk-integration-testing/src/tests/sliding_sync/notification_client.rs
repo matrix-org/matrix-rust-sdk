@@ -1,10 +1,8 @@
-use std::{
-    sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::sync::Arc;
 
 use anyhow::{ensure, Result};
 use assert_matches::assert_matches;
+use assert_matches2::assert_let;
 use matrix_sdk::{
     config::SyncSettings,
     ruma::{
@@ -18,7 +16,6 @@ use matrix_sdk::{
     },
     RoomState,
 };
-use matrix_sdk_integration_testing::helpers::get_client_for_user;
 use matrix_sdk_ui::{
     notification_client::{
         Error, NotificationClient, NotificationEvent, NotificationItem, NotificationProcessSetup,
@@ -28,13 +25,14 @@ use matrix_sdk_ui::{
 };
 use tracing::warn;
 
+use crate::helpers::TestClientBuilder;
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_notification() -> Result<()> {
     // Create new users for each test run, to avoid conflicts with invites existing
     // from previous runs.
-    let time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
-    let alice = get_client_for_user(format!("alice{time}"), true).await?;
-    let bob = get_client_for_user(format!("bob{time}"), true).await?;
+    let alice = TestClientBuilder::new("alice").randomize_username().use_sqlite().build().await?;
+    let bob = TestClientBuilder::new("bob").randomize_username().use_sqlite().build().await?;
 
     let dummy_sync_service = Arc::new(SyncService::builder(bob.clone()).build().await?);
     let process_setup =
@@ -88,9 +86,9 @@ async fn test_notification() -> Result<()> {
         // Try with sliding sync first.
         let notification_client =
             NotificationClient::builder(bob.clone(), process_setup.clone()).await.unwrap().build();
-        let notification = assert_matches!(
-            notification_client.get_notification_with_sliding_sync(&room_id, &event_id).await?,
-            NotificationStatus::Event(event) => event
+        assert_let!(
+            NotificationStatus::Event(notification) =
+                notification_client.get_notification_with_sliding_sync(&room_id, &event_id).await?
         );
 
         warn!("sliding_sync: checking invite notification");
@@ -139,7 +137,7 @@ async fn test_notification() -> Result<()> {
     bob.get_room(alice_room.room_id()).unwrap().join().await?;
 
     // Now Alice sends a message to Bob.
-    alice_room.send(RoomMessageEventContent::text_plain("Hello world!"), None).await?;
+    alice_room.send(RoomMessageEventContent::text_plain("Hello world!")).await?;
 
     // In this sync, bob receives the message from Alice.
     let bob_response = bob.sync_once(SyncSettings::default().token(sync_token)).await?;
@@ -201,9 +199,9 @@ async fn test_notification() -> Result<()> {
 
     let notification_client =
         NotificationClient::builder(bob.clone(), process_setup.clone()).await.unwrap().build();
-    let notification = assert_matches!(
-        notification_client.get_notification_with_sliding_sync(&room_id, &event_id).await?,
-        NotificationStatus::Event(item) => item
+    assert_let!(
+        NotificationStatus::Event(notification) =
+            notification_client.get_notification_with_sliding_sync(&room_id, &event_id).await?
     );
     check_notification(true, notification);
 

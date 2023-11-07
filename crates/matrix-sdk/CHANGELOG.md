@@ -26,12 +26,24 @@ Breaking changes:
 - `Room::sync_members` doesn't return the underlying Ruma response anymore. If you need to get the
   room members, you can use `Room::members` or `Room::get_member` which will make sure that the
   members are up to date.
+- The `transaction_id` parameter of `Room::{send, send_raw}` was removed
+  - Instead, both methods now return types that implement `IntoFuture` (so can be awaited like
+    before) and have a `with_transaction_id` builder-style method
+- The parameter order of `Room::{send_raw, send_state_event_raw}` has changed, `content` is now last
+  - The parameter type of `content` has also changed to a generic; `serde_json::Value` arguments
+    are still allowed, but so are other types like `Box<serde_json::value::RawValue>`
+- All "named futures" (structs implementing `IntoFuture`) are now exported from modules named
+  `futures` instead of directly in the respective parent module
 
 Bug fixes:
 
 - `Client::rooms` now returns all rooms, even invited, as advertised.
 
 Additions:
+
+- Add secret storage support, the secret store can be opened using the
+  `Client::encryption()::open_secret_store()` method, which allows you to import
+  or export secrets from the account-data backed secret-store.
 
 - Add `VerificationRequest::state` and `VerificationRequest::changes` to check
   and listen to changes in the state of the `VerificationRequest`. This removes

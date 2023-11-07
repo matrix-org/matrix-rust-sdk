@@ -21,15 +21,17 @@ use ruma::{
 };
 use tokio::sync::Mutex;
 
-use super::{BackupKeys, Changes, CryptoStoreError, Result, RoomKeyCounts, RoomSettings};
+use super::{
+    BackupKeys, Changes, CryptoStoreError, PendingChanges, Result, RoomKeyCounts, RoomSettings,
+};
 use crate::{
     olm::{
         InboundGroupSession, OlmMessageHash, OutboundGroupSession, PrivateCrossSigningIdentity,
         Session,
     },
     types::events::room_key_withheld::RoomKeyWithheldEvent,
-    GossipRequest, GossippedSecret, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities,
-    SecretInfo, TrackedUser,
+    Account, GossipRequest, GossippedSecret, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
+    TrackedUser,
 };
 
 /// Represents a store that the `OlmMachine` uses to store E2EE data (such as
@@ -41,7 +43,7 @@ pub trait CryptoStore: AsyncTraitDeps {
     type Error: fmt::Debug + Into<CryptoStoreError>;
 
     /// Load an account that was previously stored.
-    async fn load_account(&self) -> Result<Option<ReadOnlyAccount>, Self::Error>;
+    async fn load_account(&self) -> Result<Option<Account>, Self::Error>;
 
     /// Try to load a private cross signing identity, if one is stored.
     async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>, Self::Error>;
@@ -52,6 +54,16 @@ pub trait CryptoStore: AsyncTraitDeps {
     ///
     /// * `changes` - The set of changes that should be stored.
     async fn save_changes(&self, changes: Changes) -> Result<(), Self::Error>;
+
+    /// Save the set of changes to the store.
+    ///
+    /// This is an updated version of `save_changes` that will replace it as
+    /// #2624 makes progress.
+    ///
+    /// # Arguments
+    ///
+    /// * `changes` - The set of changes that should be stored.
+    async fn save_pending_changes(&self, changes: PendingChanges) -> Result<(), Self::Error>;
 
     /// Get all the sessions that belong to the given sender key.
     ///
@@ -265,6 +277,7 @@ pub trait CryptoStore: AsyncTraitDeps {
 #[repr(transparent)]
 struct EraseCryptoStoreError<T>(T);
 
+#[cfg(not(tarpaulin_include))]
 impl<T: fmt::Debug> fmt::Debug for EraseCryptoStoreError<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
@@ -276,7 +289,7 @@ impl<T: fmt::Debug> fmt::Debug for EraseCryptoStoreError<T> {
 impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
     type Error = CryptoStoreError;
 
-    async fn load_account(&self) -> Result<Option<ReadOnlyAccount>> {
+    async fn load_account(&self) -> Result<Option<Account>> {
         self.0.load_account().await.map_err(Into::into)
     }
 
@@ -286,6 +299,10 @@ impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
 
     async fn save_changes(&self, changes: Changes) -> Result<()> {
         self.0.save_changes(changes).await.map_err(Into::into)
+    }
+
+    async fn save_pending_changes(&self, changes: PendingChanges) -> Result<()> {
+        self.0.save_pending_changes(changes).await.map_err(Into::into)
     }
 
     async fn get_sessions(&self, sender_key: &str) -> Result<Option<Arc<Mutex<Vec<Session>>>>> {

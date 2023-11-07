@@ -21,7 +21,7 @@
 //! request can then be accepted, or it needs to be accepted by the other side
 //! of the verification flow.
 //!
-//! Once both sides have agreed to pereform the verification, and the
+//! Once both sides have agreed to perform the verification, and the
 //! [VerificationRequest::is_ready()] method returns true, the verification can
 //! transition into one of the supported verification flows:
 //!
@@ -119,7 +119,7 @@ impl Verification {
         }
     }
 
-    /// Is this a verification that is veryfying one of our own devices.
+    /// Is this a verification that is verifying one of our own devices.
     pub fn is_self_verification(&self) -> bool {
         match self {
             Verification::SasV1(v) => v.is_self_verification(),

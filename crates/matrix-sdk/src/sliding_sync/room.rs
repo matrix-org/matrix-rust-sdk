@@ -5,7 +5,7 @@ use std::{
 };
 
 use eyeball_im::Vector;
-use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
+use matrix_sdk_base::{deserialized_responses::SyncTimelineEvent, latest_event::LatestEvent};
 use ruma::{
     api::client::sync::sync_events::{v4, UnreadNotificationsCount},
     events::AnySyncStateEvent,
@@ -133,7 +133,7 @@ impl SlidingSyncRoom {
     }
 
     /// Find the latest event in this room
-    pub fn latest_event(&self) -> Option<SyncTimelineEvent> {
+    pub fn latest_event(&self) -> Option<LatestEvent> {
         self.inner.client.get_room(&self.inner.room_id).and_then(|room| room.latest_event())
     }
 

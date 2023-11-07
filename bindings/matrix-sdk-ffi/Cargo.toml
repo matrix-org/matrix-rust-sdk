@@ -31,8 +31,6 @@ futures-core = { workspace = true }
 futures-util = { workspace = true }
 matrix-sdk-ui = { path = "../../crates/matrix-sdk-ui", default-features = false, features = ["e2e-encryption"] }
 mime = "0.3.16"
-# FIXME: we currently can't feature flag anything in the api.udl, therefore we must enforce experimental-sliding-sync being exposed here..
-# see https://github.com/matrix-org/matrix-rust-sdk/issues/1014
 once_cell = { workspace = true }
 opentelemetry = { version = "0.20.0", features = ["rt-tokio"] }
 opentelemetry-otlp = { version = "0.13.0", features = ["tokio", "reqwest-client", "http-proto"] }
@@ -43,7 +41,7 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 tracing-core = { workspace = true }
-tracing-opentelemetry = { version = "0.20.0" }
+tracing-opentelemetry = "0.21.0"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = { version = "0.2.2" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

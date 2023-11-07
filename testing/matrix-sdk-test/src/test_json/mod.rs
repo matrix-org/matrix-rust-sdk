@@ -7,6 +7,8 @@
 use once_cell::sync::Lazy;
 use serde_json::{json, Value as JsonValue};
 
+use crate::DEFAULT_TEST_ROOM_ID;
+
 pub mod api_responses;
 pub mod members;
 pub mod search_users;
@@ -21,8 +23,8 @@ pub use api_responses::{
 };
 pub use members::MEMBERS;
 pub use sync::{
-    DEFAULT_SYNC_ROOM_ID, DEFAULT_SYNC_SUMMARY, INVITE_SYNC, LEAVE_SYNC, LEAVE_SYNC_EVENT,
-    MORE_SYNC, MORE_SYNC_2, SYNC, VOIP_SYNC,
+    DEFAULT_SYNC_SUMMARY, INVITE_SYNC, LEAVE_SYNC, LEAVE_SYNC_EVENT, MORE_SYNC, MORE_SYNC_2, SYNC,
+    VOIP_SYNC,
 };
 pub use sync_events::{
     ALIAS, ALIASES, DIRECT, ENCRYPTION, MEMBER, MEMBER_ADDITIONAL, MEMBER_BAN, MEMBER_INVITE,
@@ -44,6 +46,6 @@ pub static EVENT_ID: Lazy<JsonValue> = Lazy::new(|| {
 /// A response with only a room ID.
 pub static ROOM_ID: Lazy<JsonValue> = Lazy::new(|| {
     json!({
-        "room_id": "!testroom:example.org"
+        "room_id": *DEFAULT_TEST_ROOM_ID
     })
 });

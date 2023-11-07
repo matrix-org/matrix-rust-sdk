@@ -324,7 +324,7 @@ impl VerificationMachine {
                 flow_id = flow_id.as_str(),
                 "Received a verification event with a mismatched flow id, \
                  the verification object was created for a in-room \
-                 verification but a event was received over to-device \
+                 verification but an event was received over to-device \
                  messaging or vice versa"
             );
         };
@@ -411,7 +411,7 @@ impl VerificationMachine {
             AnyVerificationContent::Start(c) => {
                 if let Some(request) = self.get_request(event.sender(), flow_id.as_str()) {
                     if request.flow_id() == &flow_id {
-                        request.receive_start(event.sender(), c).await?
+                        Box::pin(request.receive_start(event.sender(), c)).await?
                     } else {
                         flow_id_mismatch();
                     }
@@ -470,7 +470,7 @@ impl VerificationMachine {
                 let content = s.receive_any_event(event.sender(), &content);
 
                 if s.is_done() {
-                    self.mark_sas_as_done(&s, content.map(|(c, _)| c)).await?;
+                    Box::pin(self.mark_sas_as_done(&s, content.map(|(c, _)| c))).await?;
                 } else {
                     // Even if we are not done (yet), there might be content to
                     // send out, e.g. in the case where we are done with our
@@ -497,12 +497,12 @@ impl VerificationMachine {
                         let content = sas.receive_any_event(event.sender(), &content);
 
                         if sas.is_done() {
-                            self.mark_sas_as_done(&sas, content.map(|(c, _)| c)).await?;
+                            Box::pin(self.mark_sas_as_done(&sas, content.map(|(c, _)| c))).await?;
                         }
                     }
                     #[cfg(feature = "qrcode")]
                     Some(Verification::QrV1(qr)) => {
-                        let (cancellation, request) = qr.receive_done(c).await?;
+                        let (cancellation, request) = Box::pin(qr.receive_done(c)).await?;
 
                         if let Some(c) = cancellation {
                             self.verifications.add_request(c.into())
@@ -539,7 +539,7 @@ mod tests {
             tests::{alice_device_id, alice_id, setup_stores, wrap_any_to_device_content},
             FlowId, VerificationStore,
         },
-        ReadOnlyAccount, VerificationRequest,
+        Account, VerificationRequest,
     };
 
     async fn verification_machine() -> (VerificationMachine, VerificationStore) {
@@ -574,7 +574,7 @@ mod tests {
 
     #[async_test]
     async fn create() {
-        let alice = ReadOnlyAccount::with_device_id(alice_id(), alice_device_id());
+        let alice = Account::with_device_id(alice_id(), alice_device_id());
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())));
         let _ = VerificationMachine::new(
             alice.static_data,

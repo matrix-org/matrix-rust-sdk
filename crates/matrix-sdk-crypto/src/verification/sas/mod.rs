@@ -270,7 +270,7 @@ impl Sas {
         self.inner.read().started_from_request()
     }
 
-    /// Is this a verification that is veryfying one of our own devices.
+    /// Is this a verification that is verifying one of our own devices.
     pub fn is_self_verification(&self) -> bool {
         self.identities_being_verified.is_self_verification()
     }
@@ -853,6 +853,7 @@ mod tests {
     use std::sync::Arc;
 
     use assert_matches::assert_matches;
+    use assert_matches2::assert_let;
     use matrix_sdk_test::async_test;
     use ruma::{
         device_id,
@@ -869,7 +870,7 @@ mod tests {
             event_enums::{AcceptContent, KeyContent, MacContent, OutgoingContent, StartContent},
             VerificationStore,
         },
-        ReadOnlyAccount, ReadOnlyDevice, SasState,
+        Account, ReadOnlyDevice, SasState,
     };
 
     fn alice_id() -> &'static UserId {
@@ -888,13 +889,13 @@ mod tests {
         device_id!("BOBDEVCIE")
     }
 
-    async fn machine_pair() -> (VerificationStore, ReadOnlyDevice, VerificationStore, ReadOnlyDevice)
-    {
-        let alice = ReadOnlyAccount::with_device_id(alice_id(), alice_device_id());
-        let alice_device = ReadOnlyDevice::from_account(&alice).await;
+    fn machine_pair_test_helper(
+    ) -> (VerificationStore, ReadOnlyDevice, VerificationStore, ReadOnlyDevice) {
+        let alice = Account::with_device_id(alice_id(), alice_device_id());
+        let alice_device = ReadOnlyDevice::from_account(&alice);
 
-        let bob = ReadOnlyAccount::with_device_id(bob_id(), bob_device_id());
-        let bob_device = ReadOnlyDevice::from_account(&bob).await;
+        let bob = Account::with_device_id(bob_id(), bob_device_id());
+        let bob_device = ReadOnlyDevice::from_account(&bob);
 
         let alice_store = VerificationStore {
             account: alice.static_data.clone(),
@@ -916,7 +917,7 @@ mod tests {
 
     #[async_test]
     async fn sas_wrapper_full() {
-        let (alice_store, alice_device, bob_store, bob_device) = machine_pair().await;
+        let (alice_store, alice_device, bob_store, bob_device) = machine_pair_test_helper();
 
         let identities = alice_store.get_identities(bob_device).await.unwrap();
 
@@ -990,7 +991,7 @@ mod tests {
 
     #[async_test]
     async fn sas_with_restricted_methods() {
-        let (alice_store, alice_device, bob_store, bob_device) = machine_pair().await;
+        let (alice_store, alice_device, bob_store, bob_device) = machine_pair_test_helper();
         let identities = alice_store.get_identities(bob_device).await.unwrap();
 
         let short_auth_strings = vec![ShortAuthenticationString::Decimal];
@@ -1007,7 +1008,7 @@ mod tests {
 
         let content = OutgoingContent::try_from(request).unwrap();
         let content = AcceptContent::try_from(&content).unwrap();
-        let content = assert_matches!(content.method(), AcceptMethod::SasV1(content) => content);
+        assert_let!(AcceptMethod::SasV1(content) = content.method());
 
         assert!(content.short_authentication_string.contains(&ShortAuthenticationString::Decimal));
         assert!(!content.short_authentication_string.contains(&ShortAuthenticationString::Emoji));

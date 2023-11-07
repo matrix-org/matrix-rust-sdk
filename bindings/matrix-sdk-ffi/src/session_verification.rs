@@ -1,5 +1,6 @@
 use std::sync::{Arc, RwLock};
 
+use anyhow::Context as _;
 use futures_util::StreamExt;
 use matrix_sdk::{
     encryption::{
@@ -53,8 +54,11 @@ pub struct SessionVerificationController {
 
 #[uniffi::export(async_runtime = "tokio")]
 impl SessionVerificationController {
-    pub fn is_verified(&self) -> bool {
-        self.user_identity.is_verified()
+    pub async fn is_verified(&self) -> Result<bool, ClientError> {
+        let device =
+            self.encryption.get_own_device().await?.context("Our own device is missing")?;
+
+        Ok(device.is_cross_signed_by_owner())
     }
 
     pub fn set_delegate(&self, delegate: Option<Box<dyn SessionVerificationControllerDelegate>>) {
@@ -71,10 +75,6 @@ impl SessionVerificationController {
         *self.verification_request.write().unwrap() = Some(verification_request);
 
         Ok(())
-    }
-
-    pub fn request_verification_blocking(self: Arc<Self>) -> Result<(), ClientError> {
-        RUNTIME.block_on(async move { self.request_verification().await })
     }
 
     pub async fn start_sas_verification(&self) -> Result<(), ClientError> {
@@ -103,10 +103,6 @@ impl SessionVerificationController {
         Ok(())
     }
 
-    pub fn start_sas_verification_blocking(self: Arc<Self>) -> Result<(), ClientError> {
-        RUNTIME.block_on(async move { self.start_sas_verification().await })
-    }
-
     pub async fn approve_verification(&self) -> Result<(), ClientError> {
         let sas_verification = self.sas_verification.read().unwrap().clone();
         if let Some(sas_verification) = sas_verification {
@@ -114,10 +110,6 @@ impl SessionVerificationController {
         }
 
         Ok(())
-    }
-
-    pub fn approve_verification_blocking(self: Arc<Self>) -> Result<(), ClientError> {
-        RUNTIME.block_on(async move { self.approve_verification().await })
     }
 
     pub async fn decline_verification(&self) -> Result<(), ClientError> {
@@ -129,10 +121,6 @@ impl SessionVerificationController {
         Ok(())
     }
 
-    pub fn decline_verification_blocking(self: Arc<Self>) -> Result<(), ClientError> {
-        RUNTIME.block_on(async move { self.decline_verification().await })
-    }
-
     pub async fn cancel_verification(&self) -> Result<(), ClientError> {
         let verification_request = self.verification_request.read().unwrap().clone();
         if let Some(verification) = verification_request {
@@ -140,10 +128,6 @@ impl SessionVerificationController {
         }
 
         Ok(())
-    }
-
-    pub fn cancel_verification_blocking(self: Arc<Self>) -> Result<(), ClientError> {
-        RUNTIME.block_on(async move { self.cancel_verification().await })
     }
 }
 

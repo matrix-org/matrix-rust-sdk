@@ -59,7 +59,7 @@ async fn on_regular_room_message(event: OriginalSyncRoomMessageEvent, room: Room
         let content = PingEventContent {};
 
         println!("sending ping");
-        room.send(content, None).await.unwrap();
+        room.send(content).await.unwrap();
         println!("ping sent");
     }
 }
@@ -75,7 +75,7 @@ async fn on_ping_event(event: SyncPingEvent, room: Room) {
     // Send an ack with the event_id of the ping, as our 'protocol' demands
     let content = AckEventContent { ping_id: event_id };
     println!("sending ack");
-    room.send(content, None).await.unwrap();
+    room.send(content).await.unwrap();
 
     println!("ack sent");
 }

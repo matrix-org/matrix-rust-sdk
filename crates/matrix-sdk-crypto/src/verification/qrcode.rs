@@ -155,6 +155,7 @@ pub struct QrVerification {
     we_started: bool,
 }
 
+#[cfg(not(tarpaulin_include))]
 impl std::fmt::Debug for QrVerification {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("QrVerification")
@@ -218,7 +219,7 @@ impl QrVerification {
         matches!(*self.state.read(), InnerState::Cancelled(_))
     }
 
-    /// Is this a verification that is veryfying one of our own devices
+    /// Is this a verification that is verifying one of our own devices
     pub fn is_self_verification(&self) -> bool {
         self.identities.is_self_verification()
     }
@@ -890,7 +891,7 @@ mod tests {
     use tokio::sync::Mutex;
 
     use crate::{
-        olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
+        olm::{Account, PrivateCrossSigningIdentity},
         store::{Changes, CryptoStoreWrapper, MemoryStore},
         verification::{
             event_enums::{DoneContent, OutgoingContent, StartContent},
@@ -913,10 +914,10 @@ mod tests {
 
     #[async_test]
     async fn test_verification_creation() {
-        let account = ReadOnlyAccount::with_device_id(user_id(), device_id());
+        let account = Account::with_device_id(user_id(), device_id());
         let store = memory_store(account.user_id());
 
-        let private_identity = PrivateCrossSigningIdentity::new(user_id().to_owned()).await;
+        let private_identity = PrivateCrossSigningIdentity::new(user_id().to_owned());
         let master_key = private_identity.master_public_key().await.unwrap();
         let master_key = master_key.get_first_key().unwrap().to_owned();
 
@@ -929,7 +930,7 @@ mod tests {
         let flow_id = FlowId::ToDevice("test_transaction".into());
 
         let device_key = account.static_data.identity_keys.ed25519;
-        let alice_device = ReadOnlyDevice::from_account(&account).await;
+        let alice_device = ReadOnlyDevice::from_account(&account);
 
         let identities = store.get_identities(alice_device).await.unwrap();
 
@@ -959,8 +960,7 @@ mod tests {
         assert_eq!(verification.inner.first_key(), master_key);
         assert_eq!(verification.inner.second_key(), device_key);
 
-        let bob_identity =
-            PrivateCrossSigningIdentity::new(user_id!("@bob:example").to_owned()).await;
+        let bob_identity = PrivateCrossSigningIdentity::new(user_id!("@bob:example").to_owned());
         let bob_master_key = bob_identity.master_public_key().await.unwrap();
         let bob_master_key = bob_master_key.get_first_key().unwrap().to_owned();
 
@@ -978,10 +978,10 @@ mod tests {
     #[async_test]
     async fn test_reciprocate_receival() {
         let test = |flow_id: FlowId| async move {
-            let alice_account = ReadOnlyAccount::with_device_id(user_id(), device_id());
+            let alice_account = Account::with_device_id(user_id(), device_id());
             let store = memory_store(alice_account.user_id());
 
-            let private_identity = PrivateCrossSigningIdentity::new(user_id().to_owned()).await;
+            let private_identity = PrivateCrossSigningIdentity::new(user_id().to_owned());
 
             let store = VerificationStore {
                 account: alice_account.static_data.clone(),
@@ -990,16 +990,16 @@ mod tests {
             };
 
             let bob_account =
-                ReadOnlyAccount::with_device_id(alice_account.user_id(), device_id!("BOBDEVICE"));
+                Account::with_device_id(alice_account.user_id(), device_id!("BOBDEVICE"));
 
-            let private_identity = PrivateCrossSigningIdentity::new(user_id().to_owned()).await;
+            let private_identity = PrivateCrossSigningIdentity::new(user_id().to_owned());
             let identity = private_identity.to_public_identity().await.unwrap();
 
             let master_key = private_identity.master_public_key().await.unwrap();
             let master_key = master_key.get_first_key().unwrap().to_owned();
 
-            let alice_device = ReadOnlyDevice::from_account(&alice_account).await;
-            let bob_device = ReadOnlyDevice::from_account(&bob_account).await;
+            let alice_device = ReadOnlyDevice::from_account(&alice_account);
+            let bob_device = ReadOnlyDevice::from_account(&bob_account);
 
             let mut changes = Changes::default();
             changes.identities.new.push(identity.clone().into());
@@ -1020,7 +1020,7 @@ mod tests {
 
             let bob_store = memory_store(bob_account.user_id());
 
-            let private_identity = PrivateCrossSigningIdentity::new(user_id().to_owned()).await;
+            let private_identity = PrivateCrossSigningIdentity::new(user_id().to_owned());
             let bob_store = VerificationStore {
                 account: bob_account.static_data.clone(),
                 inner: bob_store,

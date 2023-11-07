@@ -42,7 +42,7 @@ use ruma::{
         room::{
             message::{
                 AddMentions, ForwardThread, OriginalRoomMessageEvent, ReplacementMetadata,
-                RoomMessageEventContent,
+                RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
             },
             redaction::RoomRedactionEventContent,
         },
@@ -55,11 +55,13 @@ use thiserror::Error;
 use tokio::sync::{mpsc::Sender, Mutex, Notify};
 use tracing::{error, info, instrument, warn};
 
+use self::futures::SendAttachment;
+
 mod builder;
 mod error;
 mod event_handler;
 mod event_item;
-mod futures;
+pub mod futures;
 mod inner;
 mod item;
 mod pagination;
@@ -85,7 +87,6 @@ pub use self::{
         Message, OtherState, Profile, ReactionGroup, RepliedToEvent, RoomMembershipChange, Sticker,
         TimelineDetails, TimelineItemContent,
     },
-    futures::SendAttachment,
     item::{TimelineItem, TimelineItemKind},
     pagination::{BackPaginationStatus, PaginationOptions, PaginationOutcome},
     polls::PollResult,
@@ -171,7 +172,7 @@ impl Timeline {
         loop {
             match self.paginate_backwards_impl(options.clone()).await {
                 Ok(ControlFlow::Continue(())) => {
-                    // loop
+                    // fall through and continue the loop
                 }
                 Ok(ControlFlow::Break(status)) => {
                     self.back_pagination_status.set_if_not_eq(status);
@@ -302,6 +303,10 @@ impl Timeline {
     /// change. Please check [`EventTimelineItem::can_be_replied_to`] to decide
     /// whether to render a reply button.
     ///
+    /// If the `content.mentions` is `Some(_)`, the sender of `reply_item` will
+    /// be added to the mentions of the reply. If `content.mentions` is `None`,
+    /// it will be kept as-is.
+    ///
     /// # Arguments
     ///
     /// * `content` - The content of the reply
@@ -311,22 +316,21 @@ impl Timeline {
     /// * `forward_thread` - Usually `Yes`, unless you explicitly want to the
     ///   reply to show up in the main timeline even though the `reply_item` is
     ///   part of a thread
-    ///
-    /// * `add_mentions` - Set to `Yes` if the `mentions` of `content` are
-    ///   propagated according to user intent, `No` otherwise
     #[instrument(skip(self, content, reply_item))]
     pub async fn send_reply(
         &self,
-        content: RoomMessageEventContent,
+        content: RoomMessageEventContentWithoutRelation,
         reply_item: &EventTimelineItem,
         forward_thread: ForwardThread,
-        add_mentions: AddMentions,
     ) -> Result<(), UnsupportedReplyItem> {
         // Error returns here must be in sync with
         // `EventTimelineItem::can_be_replied_to`
         let Some(event_id) = reply_item.event_id() else {
             return Err(UnsupportedReplyItem::MISSING_EVENT_ID);
         };
+
+        let add_mentions =
+            if content.mentions.is_some() { AddMentions::Yes } else { AddMentions::No };
 
         let content = match reply_item.content() {
             TimelineItemContent::Message(msg) => {
@@ -480,7 +484,7 @@ impl Timeline {
 
         let event_content =
             AnyMessageLikeEventContent::Reaction(ReactionEventContent::from(annotation.clone()));
-        let response = room.send(event_content, Some(&txn_id)).await;
+        let response = room.send(event_content).with_transaction_id(&txn_id).await;
 
         match response {
             Ok(response) => {
@@ -634,6 +638,21 @@ impl Timeline {
         user_id: &UserId,
     ) -> Option<(OwnedEventId, Receipt)> {
         self.inner.latest_user_read_receipt(user_id).await
+    }
+
+    /// Get the ID of the timeline event with the latest read receipt for the
+    /// given user.
+    ///
+    /// In contrary to [`Self::latest_user_read_receipt()`], this allows to know
+    /// the position of the read receipt in the timeline even if the event it
+    /// applies to is not visible in the timeline, unless the event is unknown
+    /// by this timeline.
+    #[instrument(skip(self))]
+    pub async fn latest_user_read_receipt_timeline_event_id(
+        &self,
+        user_id: &UserId,
+    ) -> Option<OwnedEventId> {
+        self.inner.latest_user_read_receipt_timeline_event_id(user_id).await
     }
 
     /// Send the given receipt.

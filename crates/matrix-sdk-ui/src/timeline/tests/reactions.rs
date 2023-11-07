@@ -15,6 +15,7 @@
 use std::{ops::RangeInclusive, sync::Arc};
 
 use assert_matches::assert_matches;
+use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_core::Stream;
 use imbl::vector;
@@ -44,7 +45,7 @@ async fn add_reaction_failed() {
     let reaction = create_reaction(&msg_id);
 
     let action = timeline.toggle_reaction_local(&reaction).await.unwrap();
-    let txn_id = assert_matches!(action, ReactionAction::SendRemote(txn_id) => txn_id);
+    assert_let!(ReactionAction::SendRemote(txn_id) = action);
     assert_reaction_is_updated(&mut stream, &msg_id, msg_pos, None, Some(&txn_id)).await;
 
     timeline
@@ -76,7 +77,7 @@ async fn add_reaction_success() {
     let reaction = create_reaction(&msg_id);
 
     let action = timeline.toggle_reaction_local(&reaction).await.unwrap();
-    let txn_id = assert_matches!(action, ReactionAction::SendRemote(txn_id) => txn_id);
+    assert_let!(ReactionAction::SendRemote(txn_id) = action);
     assert_reaction_is_updated(&mut stream, &msg_id, msg_pos, None, Some(&txn_id)).await;
 
     let event_id = EventId::new(server_name!("example.org"));
@@ -162,7 +163,7 @@ async fn toggle_during_request_resolves_new_action() {
 
     // Add a reaction
     let action = timeline.toggle_reaction_local(&reaction).await.unwrap();
-    let txn_id = assert_matches!(action, ReactionAction::SendRemote(txn_id) => txn_id);
+    assert_let!(ReactionAction::SendRemote(txn_id) = action);
     assert_reaction_is_added(&mut stream, &msg_id, msg_pos).await;
 
     // Toggle before response is received
@@ -189,7 +190,7 @@ async fn toggle_during_request_resolves_new_action() {
         .handle_reaction_response(&reaction, &ReactionToggleResult::RedactSuccess)
         .await
         .unwrap();
-    let txn_id = assert_matches!(action, ReactionAction::SendRemote(txn_id) => txn_id);
+    assert_let!(ReactionAction::SendRemote(txn_id) = action);
     assert_no_more_updates(&mut stream).await;
 
     // Receive response and resolve to no new action

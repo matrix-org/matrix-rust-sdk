@@ -101,7 +101,7 @@ pub(crate) struct SessionCreatorInfo {
 /// trustworthy we consider the key and its associated information to be.  If
 /// the source is `Direct` or `Backup` with `authenticated: true`, then it is
 /// considered trustworthy.  Otherwise, it is not considered trustworthy.
-#[derive(Clone, Copy, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum KeySource {
     /// The key was obtained directly from the session creator via an
     /// `m.room_key` event.
@@ -417,7 +417,6 @@ impl InboundGroupSession {
 
     /// Export the inbound group session into a format that can be uploaded to
     /// the server as a backup.
-    #[cfg(feature = "backups_v1")]
     pub async fn to_backup(&self) -> BackedUpRoomKey {
         self.export().await.into()
     }
@@ -628,7 +627,7 @@ mod tests {
     use ruma::{device_id, room_id, user_id, DeviceId, UserId};
     use vodozemac::{megolm::SessionOrdering, Curve25519PublicKey};
 
-    use crate::{olm::InboundGroupSession, ReadOnlyAccount};
+    use crate::{olm::InboundGroupSession, Account};
 
     fn alice_id() -> &'static UserId {
         user_id!("@alice:example.org")
@@ -685,7 +684,7 @@ mod tests {
 
     #[async_test]
     async fn session_comparison() {
-        let alice = ReadOnlyAccount::with_device_id(alice_id(), alice_device_id());
+        let alice = Account::with_device_id(alice_id(), alice_device_id());
         let room_id = room_id!("!test:localhost");
 
         let (_, inbound) = alice.create_group_session_pair_with_defaults(room_id).await;
