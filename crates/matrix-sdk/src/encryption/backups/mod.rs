@@ -130,7 +130,6 @@ pub enum BackupState {
     Enabled,
     Downloading,
     Disabling,
-    Disabled,
 }
 
 impl Default for BackupState {
@@ -241,7 +240,7 @@ impl Backups {
                     ruma::api::client::backup::delete_backup_version::v3::Request::new(version);
 
                 self.client.send(request, Default::default()).await?;
-                self.set_state(BackupState::Disabled);
+                self.set_state(BackupState::Unknown);
 
                 info!("Backup successfully disabled and deleted");
             } else {
@@ -360,13 +359,13 @@ impl Backups {
                 if enabled {
                     self.set_state(BackupState::Enabled);
                 } else {
-                    self.set_state(BackupState::Disabled);
+                    self.set_state(BackupState::Unknown);
                 }
 
                 Ok(enabled)
             }
             Err(e) => {
-                self.set_state(BackupState::Disabled);
+                self.set_state(BackupState::Unknown);
 
                 Err(e)
             }
@@ -503,7 +502,7 @@ impl Backups {
         // TODO: Do we want to check if auto enabling via the account data event is
         // turned off? Turn it off ourselves if it isn't?
         olm_machine.backup_machine().disable_backup().await?;
-        self.set_state(BackupState::Disabled);
+        self.set_state(BackupState::Unknown);
         // TODO: The backup module should not depend on the recovery module.
         self.client.encryption().recovery().update_state_after_backup_disabling().await;
 
@@ -827,7 +826,7 @@ mod test {
             .await
             .expect_err("Backups should be disabled");
 
-        assert_eq!(client.encryption().backups().state(), BackupState::Disabled);
+        assert_eq!(client.encryption().backups().state(), BackupState::Unknown);
     }
 
     #[async_test]

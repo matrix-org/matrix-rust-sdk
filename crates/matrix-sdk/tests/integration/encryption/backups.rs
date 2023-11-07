@@ -288,7 +288,7 @@ async fn disabling() {
                     assert_eq!(counter, 1, "The second state should be the disabling state");
                     counter += 1;
                 }
-                BackupState::Disabled => {
+                BackupState::Unknown => {
                     assert_eq!(counter, 2, "The final state should be the disabled state");
                     counter += 1;
                     break;
@@ -304,7 +304,7 @@ async fn disabling() {
 
     assert_eq!(
         client.encryption().backups().state(),
-        BackupState::Disabled,
+        BackupState::Unknown,
         "Backups should be disabled."
     );
 
@@ -877,7 +877,7 @@ async fn enable_from_secret_storage_no_existing_backup() {
     store.import_secrets().await.expect_err(
         "We should return an error if we couldn't fetch the backup version from the server",
     );
-    assert_eq!(client.encryption().backups().state(), BackupState::Disabled);
+    assert_eq!(client.encryption().backups().state(), BackupState::Unknown);
 
     Mock::given(method("GET"))
         .and(path("_matrix/client/r0/room_keys/version"))
@@ -891,7 +891,7 @@ async fn enable_from_secret_storage_no_existing_backup() {
         .await;
 
     store.import_secrets().await.unwrap();
-    assert_eq!(client.encryption().backups().state(), BackupState::Disabled);
+    assert_eq!(client.encryption().backups().state(), BackupState::Unknown);
 }
 
 #[async_test]
@@ -947,7 +947,7 @@ async fn enable_from_secret_storage_mismatched_key() {
     store.import_secrets().await.unwrap();
     assert_eq!(
         client.encryption().backups().state(),
-        BackupState::Disabled,
+        BackupState::Unknown,
         "The backup should go into the disabled state if we the current backup isn't using the \
          backup recovery key we received from secret storage"
     );
@@ -990,7 +990,7 @@ async fn enable_from_secret_storage_manual_download() {
         .await;
 
     store.import_secrets().await.unwrap();
-    assert_eq!(client.encryption().backups().state(), BackupState::Disabled);
+    assert_eq!(client.encryption().backups().state(), BackupState::Unknown);
 }
 
 #[async_test]

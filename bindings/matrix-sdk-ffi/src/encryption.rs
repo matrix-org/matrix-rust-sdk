@@ -71,7 +71,6 @@ pub enum BackupState {
     Enabled,
     Downloading,
     Disabling,
-    Disabled,
 }
 
 impl From<backups::BackupState> for BackupState {
@@ -84,7 +83,6 @@ impl From<backups::BackupState> for BackupState {
             backups::BackupState::Enabled => BackupState::Enabled,
             backups::BackupState::Downloading => BackupState::Downloading,
             backups::BackupState::Disabling => BackupState::Disabling,
-            backups::BackupState::Disabled => BackupState::Disabled,
         }
     }
 }
