@@ -12,51 +12,100 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use assert_matches2::assert_matches;
 use matrix_sdk_base::deserialized_responses::TimelineEvent;
 use matrix_sdk_test::async_test;
 use ruma::serde::Raw;
 use serde_json::json;
 
 use super::TestTimeline;
-use crate::timeline::pagination::PaginationTokens;
+use crate::timeline::{inner::HandleBackPaginatedEventsError, pagination::PaginationTokens};
 
 #[async_test]
-async fn empty_chunk() {
+async fn back_pagination_token_not_updated_with_empty_chunk() {
     let timeline = TestTimeline::new();
 
     timeline
+        .inner
         .handle_back_paginated_events(
             vec![],
-            PaginationTokens { from: None, to: Some("a".to_owned()) },
+            PaginationTokens { from: None, check_from: true, to: Some("a".to_owned()) },
         )
-        .await;
+        .await
+        .unwrap();
 
-    timeline
+    // Checking the token fails because it has not been updated.
+    let err = timeline
+        .inner
         .handle_back_paginated_events(
             vec![],
-            PaginationTokens { from: Some("a".to_owned()), to: Some("b".to_owned()) },
+            PaginationTokens {
+                from: Some("a".to_owned()),
+                check_from: true,
+                to: Some("b".to_owned()),
+            },
         )
-        .await;
+        .await
+        .unwrap_err();
+    assert_matches!(err, HandleBackPaginatedEventsError::TokenMismatch);
+
+    // Not checking the token works.
+    timeline
+        .inner
+        .handle_back_paginated_events(
+            vec![],
+            PaginationTokens {
+                from: Some("a".to_owned()),
+                check_from: false,
+                to: Some("b".to_owned()),
+            },
+        )
+        .await
+        .unwrap();
 }
 
 #[async_test]
-async fn invalid_event() {
+async fn back_pagination_token_not_updated_invalid_event() {
     let timeline = TestTimeline::new();
 
     // Invalid empty event.
     let raw = Raw::new(&json!({})).unwrap();
 
     timeline
+        .inner
         .handle_back_paginated_events(
             vec![TimelineEvent::new(raw.cast())],
-            PaginationTokens { from: None, to: Some("a".to_owned()) },
+            PaginationTokens { from: None, check_from: true, to: Some("a".to_owned()) },
         )
-        .await;
+        .await
+        .unwrap();
 
-    timeline
+    // Checking the token fails because it has not been updated.
+    let err = timeline
+        .inner
         .handle_back_paginated_events(
             vec![],
-            PaginationTokens { from: Some("a".to_owned()), to: Some("b".to_owned()) },
+            PaginationTokens {
+                from: Some("a".to_owned()),
+                check_from: true,
+                to: Some("b".to_owned()),
+            },
         )
-        .await;
+        .await
+        .unwrap_err();
+    assert_matches!(err, HandleBackPaginatedEventsError::TokenMismatch);
+
+    // Not checking the token works.
+    timeline
+        .inner
+        .handle_back_paginated_events(
+            vec![],
+            PaginationTokens {
+                from: Some("a".to_owned()),
+                check_from: false,
+                to: Some("b".to_owned()),
+            },
+        )
+        .await
+        .unwrap();
 }

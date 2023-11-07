@@ -611,9 +611,11 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         pagination_tokens: PaginationTokens,
     ) -> Result<HandleManyEventsResult, HandleBackPaginatedEventsError> {
         let mut state = self.state.write().await;
-        if let Some(token) = pagination_tokens.from {
-            if state.back_pagination_token() != Some(&token) {
-                return Err(HandleBackPaginatedEventsError::TokenMismatch);
+        if pagination_tokens.check_from {
+            if let Some(token) = pagination_tokens.from {
+                if state.back_pagination_token() != Some(&token) {
+                    return Err(HandleBackPaginatedEventsError::TokenMismatch);
+                }
             }
         }
 
@@ -1006,7 +1008,7 @@ impl TimelineInner {
     }
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub(super) struct HandleManyEventsResult {
     pub items_added: u16,
     pub items_updated: u16,
@@ -1014,7 +1016,7 @@ pub(super) struct HandleManyEventsResult {
 }
 
 #[derive(Debug)]
-pub(super) enum HandleBackPaginatedEventsError {
+pub(in crate::timeline) enum HandleBackPaginatedEventsError {
     /// The `from` token is not equal to the first event item's back-pagination
     /// token.
     ///
