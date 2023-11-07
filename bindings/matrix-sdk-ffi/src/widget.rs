@@ -248,6 +248,18 @@ pub fn new_virtual_element_call_widget(
         .map(|w| w.into())?)
 }
 
+/// The Capabilities required to run a element call widget.
+///
+/// This is intended to be used in combination with: `acquire_capabilities` of
+/// the `CapabilitiesProvider`.
+///
+/// `acquire_capabilities` can simply return the `WidgetCapabilities` from this
+/// function. Even if there are non intersecting permissions to what the widget
+/// requested.
+///
+/// Editing and extending the capabilities from this function is also possible,
+/// but should only be done as temporal workarounds until this function is
+/// adjusted
 #[uniffi::export]
 pub fn get_element_call_required_permissions() -> WidgetCapabilities {
     matrix_sdk::widget::get_element_call_required_permissions().into()

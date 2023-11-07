@@ -208,7 +208,8 @@ impl WidgetSettings {
 }
 
 /// The Capabilities required to run a element call widget. This is intended to
-/// be used in combination with: `acquire_capabilities` of the `CapabilitiesProvider`.
+/// be used in combination with: `acquire_capabilities` of the
+/// `CapabilitiesProvider`.
 pub fn get_element_call_required_permissions() -> Capabilities {
     use EventFilter::{MessageLike, State};
     use MessageLikeEventFilter::WithType as MessageType;
