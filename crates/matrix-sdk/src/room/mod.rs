@@ -3,6 +3,8 @@
 use std::{borrow::Borrow, collections::BTreeMap, ops::Deref, time::Duration};
 
 use eyeball::SharedObservable;
+use futures_core::Stream;
+use futures_util::stream::FuturesUnordered;
 use matrix_sdk_base::{
     deserialized_responses::{
         RawAnySyncOrStrippedState, RawSyncOrStrippedState, SyncOrStrippedState, TimelineEvent,
@@ -53,15 +55,16 @@ use ruma::{
             topic::RoomTopicEventContent,
             MediaSource,
         },
+        space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
         tag::{TagInfo, TagName},
         AnyRoomAccountDataEvent, AnyStateEvent, EmptyStateKey, MessageLikeEventContent,
         MessageLikeEventType, RedactContent, RedactedStateEventContent, RoomAccountDataEvent,
         RoomAccountDataEventContent, RoomAccountDataEventType, StateEventContent, StateEventType,
-        StaticEventContent, StaticStateEventContent,
+        StaticEventContent, StaticStateEventContent, SyncStateEvent,
     },
     push::{Action, PushConditionRoomCtx},
     serde::Raw,
-    uint, EventId, Int, MatrixToUri, MatrixUri, MxcUri, OwnedEventId, OwnedServerName,
+    uint, EventId, Int, MatrixToUri, MatrixUri, MxcUri, OwnedEventId, OwnedRoomId, OwnedServerName,
     OwnedTransactionId, OwnedUserId, TransactionId, UInt, UserId,
 };
 use serde::de::DeserializeOwned;
@@ -748,6 +751,65 @@ impl Room {
         K: AsRef<str> + ?Sized + Sync,
     {
         Ok(self.client.store().get_state_event_static_for_key(self.room_id(), state_key).await?)
+    }
+
+    /// Returns the parents this room advertises as its parents.
+    ///
+    /// Results are in no particular order.
+    pub async fn parent_spaces<'a>(&'a self) -> Result<impl Stream<Item = ParentSpace> + 'a> {
+        // Implements this algorithm:
+        // https://spec.matrix.org/v1.8/client-server-api/#mspaceparent-relationships
+
+        // Get all m.room.parent events for this room
+        Ok(self.get_state_events_static::<SpaceParentEventContent>()
+            .await?
+            .into_iter()
+            // Extract state key (ie. the parent's id) and sender
+            .flat_map(|parent_event| match parent_event.deserialize() {
+                Ok(SyncOrStrippedState::Sync(SyncStateEvent::Original(e))) => {
+                    Some((e.state_key.to_owned(), e.sender))
+                }
+                Ok(SyncOrStrippedState::Sync(SyncStateEvent::Redacted(_))) => None,
+                Ok(SyncOrStrippedState::Stripped(e)) => Some((e.state_key.to_owned(), e.sender)),
+                Err(_) => None, // Ignore deserialization errors
+            })
+            // Check whether the parent recognizes this room as its child
+            .map(|(state_key, sender): (OwnedRoomId, OwnedUserId)| async move {
+                let Some(parent_room) = self.client.get_room(&state_key) else {
+                    // We are not in the room, cannot check if the relationship is reciprocal
+                    // TODO: try peeking into the room
+                    return ParentSpace::Unverifiable(state_key);
+                };
+                // Get the m.room.child state of the parent with this room's id
+                // as state key.
+                if let Ok(Some(child_event)) = parent_room
+                    .get_state_event_static_for_key::<SpaceChildEventContent, _>(self.room_id())
+                    .await
+                {
+                    if let Ok(SyncOrStrippedState::Sync(SyncStateEvent::Original(_))) =
+                        child_event.deserialize()
+                    {
+                        // There is a valid m.room.child in the parent pointing to
+                        // this room
+                        return ParentSpace::Reciprocal(parent_room);
+                    }
+                }
+
+                // No reciprocal m.room.child found, let's check if the sender has the
+                // power to set it
+                let Ok(Some(member)) = parent_room.get_member(&sender).await else {
+                    // Sender is not even in the parent room
+                    return ParentSpace::Illegitimate(parent_room);
+                };
+
+                if member.can_send_state(StateEventType::SpaceChild) {
+                    // Sender does have the power to set m.room.child
+                    ParentSpace::WithPowerlevel(parent_room)
+                } else {
+                    ParentSpace::Illegitimate(parent_room)
+                }
+            })
+            .collect::<FuturesUnordered<_>>())
     }
 
     /// Get account data in this room.
@@ -2332,6 +2394,25 @@ impl Receipts {
             && self.public_read_receipt.is_none()
             && self.private_read_receipt.is_none()
     }
+}
+
+/// [Parent space](https://spec.matrix.org/v1.8/client-server-api/#mspaceparent-relationships)
+/// listed by a room, possibly validated by checking the space's state.
+#[derive(Debug)]
+pub enum ParentSpace {
+    /// The room recognizes the given room as its parent, and the parent recognizes
+    /// it as its child.
+    Reciprocal(Room),
+    /// The room recognizes the given room as its parent, but the parent does not
+    /// recognizes it as its child. However, a member of the parent has a sufficient
+    /// power level to do so.
+    WithPowerlevel(Room),
+    /// The room recognizes the given room as its parent, but the parent does not
+    /// recognizes it as its child.
+    Illegitimate(Room),
+    /// The room recognizes the given id as its parent room, but we cannot check whether
+    /// the parent does not recognizes it as its child.
+    Unverifiable(OwnedRoomId),
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
