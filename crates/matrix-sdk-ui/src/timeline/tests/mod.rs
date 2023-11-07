@@ -50,7 +50,6 @@ use ruma::{
 use super::{
     event_item::EventItemIdentifier,
     inner::{ReactionAction, TimelineInnerSettings},
-    pagination::PaginationTokens,
     reactions::ReactionToggleResult,
     traits::RoomDataProvider,
     EventTimelineItem, Profile, TimelineInner, TimelineItem,
@@ -238,14 +237,6 @@ impl TestTimeline {
             .handle_back_paginated_events(vec![timeline_event], Default::default())
             .await
             .unwrap();
-    }
-
-    async fn handle_back_paginated_events(
-        &self,
-        events: Vec<TimelineEvent>,
-        pagination_tokens: PaginationTokens,
-    ) {
-        self.inner.handle_back_paginated_events(events, pagination_tokens).await.unwrap();
     }
 
     async fn handle_read_receipts(

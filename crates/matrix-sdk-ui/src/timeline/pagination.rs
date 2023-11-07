@@ -79,12 +79,12 @@ impl Timeline {
 
         let mut outcome = PaginationOutcome::new();
         while let Some(limit) = options.next_event_limit(outcome) {
-            match self.paginate_backwards_once(limit, from, &mut outcome).await? {
-                PaginateBackwardsOnceResult::Success { from: None } => {
+            match self.paginate_backwards_until_new_token(limit, from, &mut outcome).await? {
+                PaginateBackwardsOnceResult::Success { from: None, .. } => {
                     trace!("Start of timeline was reached");
                     return Ok(ControlFlow::Break(BackPaginationStatus::TimelineStartReached));
                 }
-                PaginateBackwardsOnceResult::Success { from: Some(f) } => {
+                PaginateBackwardsOnceResult::Success { from: Some(f), .. } => {
                     from = Some(f);
                     // fall through and continue the loop
                 }
@@ -102,6 +102,30 @@ impl Timeline {
         Ok(ControlFlow::Break(BackPaginationStatus::Idle))
     }
 
+    /// Do back-pagination requests until the back-pagination token is updated.
+    #[instrument(skip(self, outcome))]
+    async fn paginate_backwards_until_new_token(
+        &self,
+        limit: u16,
+        mut from: Option<String>,
+        outcome: &mut PaginationOutcome,
+    ) -> Result<PaginateBackwardsOnceResult> {
+        let mut check_from = true;
+        loop {
+            match self.paginate_backwards_once(limit, from, check_from, outcome).await? {
+                PaginateBackwardsOnceResult::Success {
+                    from: Some(f),
+                    back_pagination_token_updated,
+                } if !back_pagination_token_updated => {
+                    trace!("Back-pagination token not updated");
+                    from = Some(f);
+                    check_from = false;
+                }
+                res => return Ok(res),
+            }
+        }
+    }
+
     /// Do a single back-pagination request.
     ///
     /// Returns `Ok(ControlFlow::Continue(true))` if back-pagination should be
@@ -116,11 +140,11 @@ impl Timeline {
     /// Returns `Err(_)` if the a pagination request failed. This doesn't mean
     /// that no events were added to the timeline though, it is possible that
     /// one or more pagination requests succeeded before the failure.
-    #[instrument(skip(self, outcome))]
     async fn paginate_backwards_once(
         &self,
         limit: u16,
         from: Option<String>,
+        check_from: bool,
         outcome: &mut PaginationOutcome,
     ) -> Result<PaginateBackwardsOnceResult> {
         trace!("Requesting messages");
@@ -134,7 +158,7 @@ impl Timeline {
             .await?;
         let chunk_len = messages.chunk.len();
 
-        let tokens = PaginationTokens { from, to: messages.end.clone() };
+        let tokens = PaginationTokens { from, check_from, to: messages.end.clone() };
         let res = match self.inner.handle_back_paginated_events(messages.chunk, tokens).await {
             Ok(result) => result,
             Err(HandleBackPaginatedEventsError::TokenMismatch) => {
@@ -162,7 +186,10 @@ impl Timeline {
         };
 
         Ok(match update_outcome() {
-            Some(()) => PaginateBackwardsOnceResult::Success { from: messages.end },
+            Some(()) => PaginateBackwardsOnceResult::Success {
+                from: messages.end,
+                back_pagination_token_updated: res.back_pagination_token_updated,
+            },
             None => PaginateBackwardsOnceResult::ResultOverflow,
         })
     }
@@ -176,12 +203,12 @@ pub struct PaginationOptions<'a> {
 }
 
 impl<'a> PaginationOptions<'a> {
-    /// Do a single pagination request, asking the server for the given
-    /// maximum number of events.
+    /// Do pagination requests until we receive some events, asking the server
+    /// for the given maximum number of events.
     ///
     /// The server may choose to return fewer events, even if the start or end
     /// of the visible timeline is not yet reached.
-    pub fn single_request(event_limit: u16) -> Self {
+    pub fn simple_request(event_limit: u16) -> Self {
         Self::new(PaginationOptionsInner::SingleRequest { event_limit_if_first: Some(event_limit) })
     }
 
@@ -340,6 +367,9 @@ pub enum BackPaginationStatus {
 pub(super) struct PaginationTokens {
     /// The `from` parameter of the pagination request.
     pub from: Option<String>,
+    /// Whether to check the `from` token against the latest back-pagination
+    /// token.
+    pub check_from: bool,
     /// The `end` parameter of the pagination response.
     pub to: Option<String>,
 }
@@ -347,7 +377,12 @@ pub(super) struct PaginationTokens {
 /// The `Ok` result of `paginate_backwards_once`.
 enum PaginateBackwardsOnceResult {
     /// Success, the items from the response were prepended.
-    Success { from: Option<String> },
+    Success {
+        /// The back-pagination token for the next batch.
+        from: Option<String>,
+        /// Whether to back-pagination token was updated.
+        back_pagination_token_updated: bool,
+    },
     /// The `from` token is not equal to the first event item's back-pagination
     /// token.
     ///
@@ -378,8 +413,8 @@ mod tests {
     }
 
     #[test]
-    fn single_request_limits() {
-        let mut opts = PaginationOptions::single_request(10);
+    fn simple_request_limits() {
+        let mut opts = PaginationOptions::simple_request(10);
         let mut outcome = PaginationOutcome::new();
         assert_eq!(opts.next_event_limit(outcome), Some(10));
 
