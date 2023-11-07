@@ -1010,6 +1010,7 @@ impl TimelineInner {
 pub(super) struct HandleManyEventsResult {
     pub items_added: u16,
     pub items_updated: u16,
+    pub back_pagination_token_updated: bool,
 }
 
 #[derive(Debug)]
