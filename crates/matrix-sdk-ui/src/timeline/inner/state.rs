@@ -79,7 +79,7 @@ impl TimelineInnerState {
     }
 
     pub(super) fn back_pagination_token(&self) -> Option<&str> {
-        let (_, token) = self.meta.back_pagination_tokens.back()?;
+        let (_, token) = self.meta.back_pagination_tokens.front()?;
         Some(token)
     }
 
@@ -107,8 +107,8 @@ impl TimelineInnerState {
             // Back-pagination token, if any, is added to the first added event.
             if let Some(event_id) = event_id {
                 if let Some(token) = back_pagination_token.take() {
-                    trace!(token, ?event_id, "Adding back-pagination token to the front");
-                    txn.meta.back_pagination_tokens.push_front((event_id, token));
+                    trace!(token, ?event_id, "Adding back-pagination token to the back");
+                    txn.meta.back_pagination_tokens.push_back((event_id, token));
                 }
             }
         }
@@ -199,8 +199,8 @@ impl TimelineInnerState {
 
         // Back-pagination token, if any, is added to the last added event.
         if let Some((event_id, token)) = latest_event_id.zip(back_pagination_token) {
-            trace!(token, ?event_id, "Adding back-pagination token to the back");
-            txn.meta.back_pagination_tokens.push_back((event_id, token));
+            trace!(token, ?event_id, "Adding back-pagination token to the front");
+            txn.meta.back_pagination_tokens.push_front((event_id, token));
             total.back_pagination_token_updated = true;
         }
 
@@ -501,8 +501,8 @@ impl TimelineInnerStateTransaction<'_> {
             // Back-pagination token, if any, is added to the first added event.
             if let Some(event_id) = event_id {
                 if let Some(token) = timeline.prev_batch.take() {
-                    trace!(token, ?event_id, "Adding back-pagination token to the front");
-                    self.meta.back_pagination_tokens.push_front((event_id, token));
+                    trace!(token, ?event_id, "Adding back-pagination token to the back");
+                    self.meta.back_pagination_tokens.push_back((event_id, token));
                 }
             }
         }
@@ -807,8 +807,8 @@ pub(in crate::timeline) struct TimelineInnerMetadata {
     pub in_flight_reaction: IndexMap<AnnotationKey, ReactionState>,
     pub room_version: RoomVersionId,
 
-    /// Back-pagination tokens, reversed in order compared to the associated
-    /// timeline items (to allow efficient pushing and popping).
+    /// Back-pagination tokens, in the same order as the associated timeline
+    /// items.
     ///
     /// Private because it's not needed by `TimelineEventHandler`.
     back_pagination_tokens: VecDeque<(OwnedEventId, String)>,
