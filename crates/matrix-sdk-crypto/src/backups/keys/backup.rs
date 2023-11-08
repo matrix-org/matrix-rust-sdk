@@ -166,7 +166,6 @@ mod tests {
     use matrix_sdk_test::async_test;
     use ruma::{device_id, room_id, user_id};
     use crate::{
-        backups::keys::decryption::Mac,
         store::BackupDecryptionKey,
         OlmMachine,
     };
@@ -182,12 +181,9 @@ mod tests {
             .await
             .expect("Could not create group session");
         let key_backup_data = backup_key.encrypt(inbound).await;
-        let ephemeral = key_backup_data.session_data.ephemeral.encode();
-        let ciphertext = key_backup_data.session_data.ciphertext.encode();
-        let mac2 = key_backup_data.session_data.mac2.unwrap().encode();
 
         let _ = decryption_key
-            .decrypt_v1(&ephemeral, Mac::V2(&mac2), &ciphertext)
+            .decrypt_session_data(key_backup_data.session_data)
             .expect("The backed up key should be decrypted successfully");
 
         Ok(())

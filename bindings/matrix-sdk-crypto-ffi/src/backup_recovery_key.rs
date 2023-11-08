@@ -63,6 +63,18 @@ pub struct MegolmV1BackupKey {
     pub backup_algorithm: String,
 }
 
+#[derive(uniffi::Record)]
+pub struct EncryptedSessionData {
+    /// Unpadded base64-encoded public half of the ephemeral key.
+    pub ephemeral: String,
+    /// Ciphertext, encrypted using AES-CBC-256 with PKCS#7 padding, encoded in base64.
+    pub ciphertext: String,
+    /// First 8 bytes of MAC key, encoded in base64.
+    pub mac: String,
+    /// MAC of the key, encoded in base64
+    pub mac2: Option<String>,
+}
+
 impl BackupRecoveryKey {
     const KEY_SIZE: usize = 32;
     const SALT_SIZE: usize = 32;
@@ -180,16 +192,39 @@ impl BackupRecoveryKey {
     pub fn decrypt_v1(
         &self,
         ephemeral_key: String,
-        macv1: String,
-        macv2: Option<String>,
+        mac: String,
         ciphertext: String,
     ) -> Result<String, PkDecryptionError> {
-        let mac = if let Some(macv2) = macv2 {
-            Mac::V2(&macv2)
-        } else {
-            Mac::V1(&macv1)
-        };
         self.inner.decrypt_v1(&ephemeral_key, mac, &ciphertext).map_err(|e| e.into())
+    }
+
+    /// Try to decrypt a message that was encrypted using the public part of the
+    /// backup key.
+    pub fn decrypt_session_data(
+        &self,
+        session_data: EncryptedSessionData,
+    ) -> Result<BackedUpRoomKey, PkDecryptionError> {
+        let session_data = matrix_sdk_crypto::backup::keys::EncryptedSessionData {
+            ephemeral: Base64::new(
+                vodozemac::base64_decode(session_data.ephemeral)
+                    .map_err(|e| DecryptionError::Decoding(MessageDecodeError::Base64(e)).into())?
+            ),
+            ciphertext: Base64::new(
+                vodozemac::base64_decode(session_data.ciphertext)
+                    .map_err(|e| DecryptionError::Decoding(MessageDecodeError::Base64(e)).into())?
+            ),
+            mac: Base64::new(
+                vodozemac::base64_decode(session_data.mac)
+                    .map_err(|e| DecryptionError::Decoding(MessageDecodeError::Base64(e)).into())?
+            ),
+            mac2: session_data.mac2.map(
+                |mac2| Base64::new(
+                    vodozemac::base64_decode(mac2)
+                        .map_err(|e| DecryptionError::Decoding(MessageDecodeError::Base64(e)).into())?
+                )
+            ),
+        };
+        self.inner.decrypt_session_data(session_data).map_err(|e| e.into())
     }
 }
 
@@ -233,7 +268,7 @@ mod tests {
         let mac = key_backup_data.session_data.mac.encode();
 
         let _ = recovery_key
-            .decrypt_v1(ephemeral, Some(mac), None, ciphertext)
+            .decrypt_v1(ephemeral, mac, ciphertext)
             .expect("The backed up key should be decrypted successfully");
     }
 }
