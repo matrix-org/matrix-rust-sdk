@@ -57,7 +57,7 @@ experimental-sliding-sync = [
 ]
 experimental-widgets = ["dep:language-tags", "dep:uuid"]
 
-docsrs = ["e2e-encryption", "sqlite", "sso-login", "qrcode", "image-proc"]
+docsrs = ["e2e-encryption", "sqlite", "indexeddb", "sso-login", "qrcode", "image-proc"]
 
 [dependencies]
 anyhow = { workspace = true, optional = true }
