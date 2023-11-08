@@ -144,7 +144,15 @@ impl HttpClient {
                 self.serialize_request(request, config, homeserver, access_token, server_versions)?;
 
             let method = request.method();
-            span.record("method", debug(method)).record("uri", request.uri().to_string());
+
+            let mut uri_parts = request.uri().clone().into_parts();
+            if let Some(path_and_query) = &mut uri_parts.path_and_query {
+                *path_and_query =
+                    path_and_query.path().try_into().expect("path is valid PathAndQuery");
+            }
+            let uri = http::Uri::from_parts(uri_parts).expect("created from valid URI");
+
+            span.record("method", debug(method)).record("uri", uri.to_string());
 
             // POST, PUT, PATCH are the only methods that are reasonably used
             // in conjunction with request bodies
