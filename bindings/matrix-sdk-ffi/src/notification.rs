@@ -44,6 +44,7 @@ pub struct NotificationItem {
     /// Can be `None` if we couldn't determine this, because we lacked
     /// information to create a push context.
     pub is_noisy: Option<bool>,
+    pub has_mention: Option<bool>,
 }
 
 impl NotificationItem {
@@ -72,6 +73,7 @@ impl NotificationItem {
                 is_direct: item.is_direct_message_room,
             },
             is_noisy: item.is_noisy,
+            has_mention: item.has_mention,
         }
     }
 }
