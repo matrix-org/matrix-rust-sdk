@@ -683,8 +683,8 @@ mod tests {
         assert_eq!(counts.total, 0, "Initially no keys exist");
         assert_eq!(counts.backed_up, 0, "Initially no backed up keys exist");
 
-        machine.create_outbound_group_session_with_defaults(room_id()).await?;
-        machine.create_outbound_group_session_with_defaults(room_id2()).await?;
+        machine.create_outbound_group_session_with_defaults_test_helper(room_id()).await?;
+        machine.create_outbound_group_session_with_defaults_test_helper(room_id2()).await?;
 
         let counts = backup_machine.store.inbound_group_session_counts().await?;
         assert_eq!(counts.total, 2, "Two room keys need to exist in the store");

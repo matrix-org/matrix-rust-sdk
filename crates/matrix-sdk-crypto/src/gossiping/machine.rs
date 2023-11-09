@@ -606,8 +606,9 @@ impl GossipMachine {
         let outbound_session = self
             .inner
             .outbound_group_sessions
-            .get_with_id(session.room_id(), session.session_id())
-            .await;
+            .get_or_load(session.room_id())
+            .await
+            .filter(|outgoing_session| outgoing_session.session_id() == session.session_id());
 
         // If this is our own, verified device, we share the entire session from the
         // earliest known index.
@@ -1501,7 +1502,7 @@ mod tests {
 
     #[async_test]
     #[cfg(feature = "automatic-room-key-forwarding")]
-    async fn should_share_key_test() {
+    async fn test_should_share_key() {
         let machine = get_machine_test_helper().await;
         let account = account();
 

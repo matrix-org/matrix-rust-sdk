@@ -761,7 +761,7 @@ impl OlmMachine {
     }
 
     #[cfg(test)]
-    pub(crate) async fn create_outbound_group_session_with_defaults(
+    pub(crate) async fn create_outbound_group_session_with_defaults_test_helper(
         &self,
         room_id: &RoomId,
     ) -> OlmResult<()> {
@@ -778,7 +778,7 @@ impl OlmMachine {
 
     #[cfg(test)]
     #[allow(dead_code)]
-    pub(crate) async fn create_inbound_session(
+    pub(crate) async fn create_inbound_session_test_helper(
         &self,
         room_id: &RoomId,
     ) -> OlmResult<InboundGroupSession> {
@@ -2369,11 +2369,11 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn tests_session_invalidation() {
+    async fn test_session_invalidation() {
         let machine = OlmMachine::new(user_id(), alice_device_id()).await;
         let room_id = room_id!("!test:example.org");
 
-        machine.create_outbound_group_session_with_defaults(room_id).await.unwrap();
+        machine.create_outbound_group_session_with_defaults_test_helper(room_id).await.unwrap();
         assert!(machine.inner.group_session_manager.get_outbound_group_session(room_id).is_some());
 
         machine.invalidate_group_session(room_id).await.unwrap();
@@ -3435,7 +3435,7 @@ pub(crate) mod tests {
             .expect("should exist")
             .set_trust_state(crate::LocalTrust::Verified);
 
-        alice.create_outbound_group_session_with_defaults(room_id).await.unwrap();
+        alice.create_outbound_group_session_with_defaults_test_helper(room_id).await.unwrap();
 
         let plaintext = "It is a secret to everybody";
 

@@ -102,17 +102,17 @@ impl GroupSessionCache {
         self.sessions.read().unwrap().get(room_id).cloned()
     }
 
-    /// Get or load the session for the given room with the given session id.
-    ///
-    /// This is the same as [get_or_load()](#method.get_or_load) but it will
-    /// filter out the session if it doesn't match the given session id.
-    #[cfg(feature = "automatic-room-key-forwarding")]
-    pub async fn get_with_id(
-        &self,
-        room_id: &RoomId,
-        session_id: &str,
-    ) -> Option<OutboundGroupSession> {
-        self.get_or_load(room_id).await.filter(|o| session_id == o.session_id())
+    /// Returns whether any session is withheld with the given device and code.
+    fn has_session_withheld_to(&self, device: &Device, code: &WithheldCode) -> bool {
+        self.sessions.read().unwrap().values().any(|s| s.is_withheld_to(device, code))
+    }
+
+    fn remove_from_being_shared(&self, id: &TransactionId) -> Option<OutboundGroupSession> {
+        self.sessions_being_shared.write().unwrap().remove(id)
+    }
+
+    fn mark_as_being_shared(&self, id: OwnedTransactionId, session: OutboundGroupSession) {
+        self.sessions_being_shared.write().unwrap().insert(id, session);
     }
 }
 
@@ -165,35 +165,33 @@ impl GroupSessionManager {
     }
 
     pub async fn mark_request_as_sent(&self, request_id: &TransactionId) -> StoreResult<()> {
-        let removed_session =
-            self.sessions.sessions_being_shared.write().unwrap().remove(request_id);
-        if let Some(session) = removed_session {
-            let no_olm = session.mark_request_as_sent(request_id);
+        let Some(session) = self.sessions.remove_from_being_shared(request_id) else {
+            return Ok(());
+        };
 
-            let mut changes = Changes::default();
+        let no_olm = session.mark_request_as_sent(request_id);
 
-            for (user_id, devices) in &no_olm {
-                for device_id in devices {
-                    let device = self.store.get_device(user_id, device_id).await;
+        let mut changes = Changes::default();
 
-                    if let Ok(Some(device)) = device {
-                        device.mark_withheld_code_as_sent();
-                        changes.devices.changed.push(device.inner.clone());
-                    } else {
-                        error!(
-                            ?request_id,
-                            "Marking to-device no olm as sent but device not found, might \
+        for (user_id, devices) in &no_olm {
+            for device_id in devices {
+                let device = self.store.get_device(user_id, device_id).await;
+
+                if let Ok(Some(device)) = device {
+                    device.mark_withheld_code_as_sent();
+                    changes.devices.changed.push(device.inner.clone());
+                } else {
+                    error!(
+                        ?request_id,
+                        "Marking to-device no olm as sent but device not found, might \
                             have been deleted?"
-                        );
-                    }
+                    );
                 }
             }
-
-            changes.outbound_group_sessions.push(session.clone());
-            self.store.save_changes(changes).await?;
         }
 
-        Ok(())
+        changes.outbound_group_sessions.push(session.clone());
+        self.store.save_changes(changes).await
     }
 
     #[cfg(test)]
@@ -223,8 +221,7 @@ impl GroupSessionManager {
 
     /// Create a new outbound group session.
     ///
-    /// This also creates a matching inbound group session and saves that one in
-    /// the store.
+    /// This also creates a matching inbound group session.
     pub async fn create_outbound_group_session(
         &self,
         room_id: &RoomId,
@@ -430,10 +427,10 @@ impl GroupSessionManager {
         Ok(CollectRecipientsResult { should_rotate, devices, withheld_devices })
     }
 
-    pub async fn encrypt_request(
+    async fn encrypt_request(
         chunk: Vec<Device>,
         outbound: OutboundGroupSession,
-        being_shared: Arc<StdRwLock<BTreeMap<OwnedTransactionId, OutboundGroupSession>>>,
+        sessions: GroupSessionCache,
     ) -> OlmResult<(Vec<Session>, Vec<(Device, WithheldCode)>)> {
         let (id, request, share_infos, used_sessions, no_olm) =
             Self::encrypt_session_for(outbound.clone(), chunk).await?;
@@ -446,7 +443,7 @@ impl GroupSessionManager {
             );
 
             outbound.add_request(id.clone(), request.into(), share_infos);
-            being_shared.write().unwrap().insert(id, outbound.clone());
+            sessions.mark_as_being_shared(id, outbound.clone());
         }
 
         Ok((used_sessions, no_olm))
@@ -525,7 +522,7 @@ impl GroupSessionManager {
                 spawn(Self::encrypt_request(
                     chunk.to_vec(),
                     group_session.clone(),
-                    self.sessions.sessions_being_shared.clone(),
+                    self.sessions.clone(),
                 ))
             })
             .collect();
@@ -572,14 +569,7 @@ impl GroupSessionManager {
         // `OutboundGroupSession` and the `Device` both interact with the flag we'll
         // leave it be.
         if code == &WithheldCode::NoOlm {
-            device.was_withheld_code_sent()
-                || self
-                    .sessions
-                    .sessions
-                    .read()
-                    .unwrap()
-                    .values()
-                    .any(|s| s.is_withheld_to(device, code))
+            device.was_withheld_code_sent() || self.sessions.has_session_withheld_to(device, code)
         } else {
             group_session.is_withheld_to(device, code)
         }
@@ -642,13 +632,12 @@ impl GroupSessionManager {
             .map(chunk_to_request)
             .collect();
 
-        let mut sessions_being_shared = self.sessions.sessions_being_shared.write().unwrap();
         for (request, share_info) in result {
             if !request.messages.is_empty() {
                 let txn_id = request.txn_id.to_owned();
                 group_session.add_request(txn_id.to_owned(), request.into(), share_info);
 
-                sessions_being_shared.insert(txn_id, group_session.clone());
+                self.sessions.mark_as_being_shared(txn_id, group_session.clone());
             }
         }
 
@@ -1160,7 +1149,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn key_recipient_collecting() {
+    async fn test_key_recipient_collecting() {
         // The user id comes from the fact that the keys_query.json file uses
         // this one.
         let user_id = user_id!("@example:localhost");

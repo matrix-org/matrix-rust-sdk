@@ -292,7 +292,7 @@ mod tests {
         let (machine, _) = get_prepared_machine_test_helper(user_id, false).await;
         let room_id = room_id!("!test:localhost");
 
-        machine.create_outbound_group_session_with_defaults(room_id).await.unwrap();
+        machine.create_outbound_group_session_with_defaults_test_helper(room_id).await.unwrap();
         let export = machine.export_room_keys(|s| s.room_id() == room_id).await.unwrap();
 
         assert!(!export.is_empty());
@@ -316,7 +316,7 @@ mod tests {
 
         let (machine, _) = get_prepared_machine_test_helper(user_id, false).await;
         let room_id = room_id!("!test:localhost");
-        let session = machine.create_inbound_session(room_id).await?;
+        let session = machine.create_inbound_session_test_helper(room_id).await?;
 
         let export = vec![session.export_at_index(10).await];
 
@@ -347,7 +347,7 @@ mod tests {
             keys
         );
 
-        let another_session = machine.create_inbound_session(room_id).await?;
+        let another_session = machine.create_inbound_session_test_helper(room_id).await?;
         let export = vec![another_session.export_at_index(10).await];
 
         let keys = RoomKeyImportResult::new(
