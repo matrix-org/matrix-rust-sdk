@@ -393,7 +393,7 @@ impl SessionManager {
         self.failures.remove(successful_servers);
 
         // build a map of (user_id, device_id) -> key from the response
-        let sessions_to_create: BTreeMap<(OwnedUserId, OwnedDeviceId), _> = response
+        let sessions_to_create: BTreeMap<(_, _), _> = response
             .one_time_keys
             .iter()
             .flat_map(|(user_id, device_map)| {
