@@ -3,7 +3,7 @@ mod traits;
 #[cfg(feature = "native")]
 mod native;
 
-// #[cfg(feature = "javascriptcore")]
+#[cfg(feature = "javascriptcore")]
 mod javascriptcore;
 
 // #[cfg(feature = "javascriptcore")]
