@@ -1,4 +1,4 @@
-import { MatrixUiTimelineStd } from './interfaces/matrix-ui-timeline-std';
+import { MatrixUiTimelineStd } from './interfaces/matrix-ui-timeline-std.js';
 export interface ImportObject {
   'matrix:ui-timeline/std': typeof MatrixUiTimelineStd,
 }
@@ -11,7 +11,7 @@ export interface Root {
 * returns a map of all the exports of the component.
 *
 * This function is intended to be similar to the
-* `WebAssembly.instantiate` function. The second `imports`
+* `WebAssembly.Instantiate` constructor. The second `imports`
 * argument is the "import object" for wasm, except here it
 * uses component-model-layer types instead of core wasm
 * integers/numbers/etc.
@@ -22,12 +22,12 @@ export interface Root {
 * will be invoked per core wasm module. The caller of this
 * function is responsible for reading the core wasm module
 * identified by `path` and returning its compiled
-* WebAssembly.Module object. This would use `compileStreaming`
-* on the web, for example.
+* `WebAssembly.Module` object. This would use the
+* `WebAssembly.Module` constructor on the web, for example.
 */
 export function instantiate(
-compileCore: (path: string, imports: Record<string, any>) => Promise<WebAssembly.Module>,
+compileCore: (path: string, imports: Record<string, any>) => WebAssembly.Module,
 imports: ImportObject,
-instantiateCore?: (module: WebAssembly.Module, imports: Record<string, any>) => Promise<WebAssembly.Instance>
-): Promise<Root>;
+instantiateCore?: (module: WebAssembly.Module, imports: Record<string, any>) => WebAssembly.Instance
+): Root;
 

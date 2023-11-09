@@ -1,3 +1,5 @@
+const instantiateCore = WebAssembly.Instance;
+
 const utf8Decoder = new TextDecoder();
 
 const utf8Encoder = new TextEncoder();
@@ -28,14 +30,15 @@ function utf8Encode(s, realloc, memory) {
   return ptr;
 }
 
-function instantiate(compileCore, imports, instantiateCore = WebAssembly.instantiate) {
+export function instantiate(compileCore, imports, instantiateCore = WebAssembly.Instance) {
   const module0 = compileCore('timeline.core.wasm');
   const module1 = compileCore('timeline.core2.wasm');
   const module2 = compileCore('timeline.core3.wasm');
+  
   const { print } = imports['matrix:ui-timeline/std'];
   let exports0;
   let exports1;
-
+  
   function trampoline0(arg0, arg1) {
     const ptr0 = arg0;
     const len0 = arg1;
@@ -46,10 +49,7 @@ function instantiate(compileCore, imports, instantiateCore = WebAssembly.instant
   let exports2;
   let realloc0;
   const instanceFlags0 = new WebAssembly.Global({ value: "i32", mutable: true }, 3);
-  // Promise.all([module0, module1, module2]).catch(() => {});
-
-  const m = module1;
-  ({ exports: exports0 } = instantiateCore(m /* module1 */));
+  ({ exports: exports0 } = instantiateCore(module1));
   ({ exports: exports1 } = instantiateCore(module0, {
     'matrix:ui-timeline/std': {
       print: exports0['0'],

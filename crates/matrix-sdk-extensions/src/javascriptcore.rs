@@ -86,11 +86,7 @@ where
 
         // Run the script.
         {
-            let timeline_script = fs::read_to_string(js_file)
-                .unwrap()
-                .replace("export async function", "function")
-                .replace(" await ", " ")
-                .replace("(await ", "(");
+            let timeline_script = fs::read_to_string(js_file).unwrap().replace("export ", "");
 
             let _result = evaluate_script(
                 &context,
