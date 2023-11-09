@@ -1,4 +1,4 @@
-use std::{fs, path::Path, result::Result as StdResult};
+use std::{error::Error, fmt, fs, path::Path, result::Result as StdResult};
 
 use javascriptcore::{
     evaluate_script, function_callback, JSClass, JSContext, JSException, JSObject, JSValue,
@@ -8,6 +8,25 @@ use crate::{
     traits::{Instance, Module},
     Result,
 };
+
+#[derive(Debug)]
+struct JSError {
+    error: String,
+}
+
+impl fmt::Display for JSError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "JSError: {}", self.error)
+    }
+}
+
+impl Error for JSError {}
+
+impl From<JSException> for JSError {
+    fn from(exception: JSException) -> Self {
+        Self { error: exception.to_string() }
+    }
+}
 
 pub struct JSInstance {
     exports: JSObject,
@@ -21,25 +40,30 @@ where
     where
         P: AsRef<Path>,
     {
+        Ok(Self::new_impl(js_file).map_err(JSError::from)?)
+    }
+}
+
+impl JSInstance {
+    fn new_impl<P>(js_file: P) -> StdResult<Self, JSException>
+    where
+        P: AsRef<Path>,
+    {
         let js_file = js_file.as_ref();
         let context = JSContext::default();
-        let global_object = context.global_object().unwrap();
+        let global_object = context.global_object()?;
 
         // Set up.
         {
-            let text_encoder = JSClass::builder(&context, "TextEncoder")
-                .unwrap()
+            let text_encoder = JSClass::builder(&context, "TextEncoder")?
                 .constructor(Some(env::text_encoder))
-                .build()
-                .unwrap();
-            let text_decoder = JSClass::builder(&context, "TextDecoder")
-                .unwrap()
+                .build()?;
+            let text_decoder = JSClass::builder(&context, "TextDecoder")?
                 .constructor(Some(env::text_decoder))
-                .build()
-                .unwrap();
+                .build()?;
 
-            global_object.set_property("TextEncoder", text_encoder.new_object().into()).unwrap();
-            global_object.set_property("TextDecoder", text_decoder.new_object().into()).unwrap();
+            global_object.set_property("TextEncoder", text_encoder.new_object().into())?;
+            global_object.set_property("TextDecoder", text_decoder.new_object().into())?;
         }
 
         let compile_function =
@@ -60,25 +84,20 @@ where
                 Ok(JSValue::new_undefined(ctx))
             }
 
-            let imports =
-                JSValue::new_from_json(&context, r#"{"matrix:ui-timeline/std": {}}"#).unwrap();
-
-            {
-                let imports_as_object = imports.as_object().unwrap();
-
-                let ui_timeline_std =
-                    imports_as_object.get_property("matrix:ui-timeline/std").as_object().unwrap();
-                ui_timeline_std
-                    .set_property("print", JSValue::new_function(&context, "print", Some(print)))
-                    .unwrap();
-            }
-
-            global_object
-                .set_property("my_print", JSValue::new_function(&context, "my_print", Some(print)))
+            let imports = JSValue::new_from_json(&context, r#"{"matrix:ui-timeline/std": {}}"#)
+                // SAFETY: The JSON string is static, and is valid.
                 .unwrap();
 
+            {
+                let imports_as_object = imports.as_object()?;
+
+                let ui_timeline_std =
+                    imports_as_object.get_property("matrix:ui-timeline/std").as_object()?;
+                ui_timeline_std
+                    .set_property("print", JSValue::new_function(&context, "print", Some(print)))?;
+            }
+
             imports
-            // JSValue::new_undefined(&context)
         };
 
         let instantiate_function =
@@ -94,8 +113,7 @@ where
                 None,
                 js_file.to_string_lossy().into_owned(),
                 1,
-            )
-            .unwrap();
+            )?;
         }
 
         // Run the `instantiate` function from the script.
@@ -104,12 +122,9 @@ where
         assert!(instantiate.is_object(), "`instantiate` does not exist");
 
         let exports = instantiate
-            .as_object()
-            .unwrap()
-            .call_as_function(None, &[compile_function, imports, instantiate_function])
-            .unwrap()
-            .as_object()
-            .unwrap();
+            .as_object()?
+            .call_as_function(None, &[compile_function, imports, instantiate_function])?
+            .as_object()?;
 
         Ok(Self { exports })
     }
@@ -262,7 +277,6 @@ mod env {
         }
 
         let wasm_path = arguments[0].as_string()?.to_string();
-        dbg!(&wasm_path);
 
         let mut wasm_file = File::open(format!("guests/timeline/js/{}", wasm_path)).unwrap();
         let mut wasm_bytes = Vec::new();
