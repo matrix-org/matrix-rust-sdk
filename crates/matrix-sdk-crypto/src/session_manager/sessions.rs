@@ -411,23 +411,21 @@ impl SessionManager {
         // if we were able to pair this response with a request, look for devices that
         // were present in the request but did not elicit a successful response.
         if let Some(request) = request {
-            let missing_devices: Vec<(OwnedUserId, OwnedDeviceId)> = request
+            let devices_in_response: BTreeSet<_> =
+                sessions_to_create.iter().map(|((u, d), _)| (u, d)).collect();
+
+            let devices_in_request: BTreeSet<(_, _)> = request
                 .one_time_keys
                 .iter()
+                .flat_map(|(u, d)| d.keys().map(|d| (u, d)).collect::<BTreeSet<_>>())
+                .collect();
+
+            let missing_devices: BTreeSet<_> = devices_in_request
+                .difference(&devices_in_response)
                 .filter(|(user_id, _)| {
                     // skip over users whose homeservers were in the "failed servers" list: we don't
                     // want to mark individual devices as broken *as well as* the server.
                     !failed_servers.contains(user_id.server_name())
-                })
-                .flat_map(|(user_id, device_map)| {
-                    device_map.keys().filter_map(|device_id| {
-                        let k = (user_id.clone(), device_id.clone());
-                        if sessions_to_create.contains_key(&k) {
-                            None
-                        } else {
-                            Some(k)
-                        }
-                    })
                 })
                 .collect();
 
@@ -440,7 +438,10 @@ impl SessionManager {
                 let mut failed_devices_lock = self.failed_devices.write().unwrap();
 
                 for (user_id, device_id) in missing_devices {
-                    failed_devices_lock.entry(user_id).or_default().insert(device_id);
+                    failed_devices_lock
+                        .entry((*user_id).clone())
+                        .or_default()
+                        .insert((*device_id).clone());
                 }
             }
         };
