@@ -815,7 +815,7 @@ impl GroupSessionManager {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeSet, ops::Deref, sync::Arc};
+    use std::{collections::BTreeSet, iter, ops::Deref, sync::Arc};
 
     use matrix_sdk_test::{async_test, response_from_file};
     use ruma::{
@@ -853,6 +853,7 @@ mod tests {
         device_id!("JLAFKJWSCS")
     }
 
+    /// Returns a /keys/query response for user "@example:localhost"
     fn keys_query_response() -> get_keys::v3::Response {
         let data = include_bytes!("../../../../benchmarks/benches/crypto_bench/keys_query.json");
         let data: Value = serde_json::from_slice(data).unwrap();
@@ -892,6 +893,8 @@ mod tests {
             .expect("Can't parse the keys upload response")
     }
 
+    /// Returns a keys claim response for device `BOBDEVICE` of user
+    /// `@bob:localhost`.
     fn bob_one_time_key() -> claim_keys::v3::Response {
         let data = json!({
             "failures": {},
@@ -916,6 +919,8 @@ mod tests {
             .expect("Can't parse the keys claim response")
     }
 
+    /// Returns a key claim response for device `NMMBNBUSNR` of user
+    /// `@example2:localhost`
     fn keys_claim_response() -> claim_keys::v3::Response {
         let data = include_bytes!("../../../../benchmarks/benches/crypto_bench/keys_claim.json");
         let data: Value = serde_json::from_slice(data).unwrap();
@@ -926,14 +931,27 @@ mod tests {
 
     async fn machine_with_user_test_helper(user_id: &UserId, device_id: &DeviceId) -> OlmMachine {
         let keys_query = keys_query_response();
-        let keys_claim = keys_claim_response();
         let txn_id = TransactionId::new();
 
         let machine = OlmMachine::new(user_id, device_id).await;
 
+        // complete a /keys/query and /keys/claim for @example:localhost
         machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+        let (txn_id, _keys_claim_request) = machine
+            .get_missing_sessions(iter::once(user_id!("@example:localhost")))
+            .await
+            .unwrap()
+            .unwrap();
+        let keys_claim = keys_claim_response();
         machine.mark_request_as_sent(&txn_id, &keys_claim).await.unwrap();
+
+        // complete a /keys/query and /keys/claim for @bob:localhost
         machine.mark_request_as_sent(&txn_id, &bob_keys_query_response()).await.unwrap();
+        let (txn_id, _keys_claim_request) = machine
+            .get_missing_sessions(iter::once(user_id!("@bob:localhost")))
+            .await
+            .unwrap()
+            .unwrap();
         machine.mark_request_as_sent(&txn_id, &bob_one_time_key()).await.unwrap();
 
         machine

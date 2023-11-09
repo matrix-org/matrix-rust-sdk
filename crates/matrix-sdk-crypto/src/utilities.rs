@@ -45,6 +45,10 @@ pub struct FailuresCache<T: Eq + Hash> {
 struct FailuresItem {
     insertion_time: Instant,
     duration: Duration,
+
+    /// Number of times that this item has failed after it was first added to
+    /// the cache. (In other words, one less than the total number of
+    /// failures.)
     failure_count: u8,
 }
 
@@ -52,6 +56,15 @@ impl FailuresItem {
     /// Has the item expired.
     fn expired(&self) -> bool {
         self.insertion_time.elapsed() >= self.duration
+    }
+
+    /// Force the expiry of this item.
+    ///
+    /// This doesn't reset the failure count, but does mark the item as ready
+    /// for immediate retry.
+    #[cfg(test)]
+    fn expire(&mut self) {
+        self.duration = Duration::from_secs(0);
     }
 }
 
@@ -77,6 +90,26 @@ where
         let contains = if let Some(item) = lock.get(key) { !item.expired() } else { false };
 
         contains
+    }
+
+    /// Get the failure count for a given key.
+    ///
+    /// # Returns
+    ///
+    ///  * `None` if this key is not in the failure cache. (It has never failed,
+    ///    or it has been [`remove`]d since the last failure.)
+    ///
+    ///  * `Some(u8)`: the number of times it has failed since it was first
+    ///    added to the failure cache. (In other words, one less than the total
+    ///    number of failures.)
+    #[cfg(test)]
+    pub fn failure_count<Q>(&self, key: &Q) -> Option<u8>
+    where
+        T: Borrow<Q>,
+        Q: Hash + Eq + ?Sized,
+    {
+        let lock = self.inner.read().unwrap();
+        lock.get(key).map(|i| i.failure_count)
     }
 
     /// This will calculate a duration that determines how long an item is
@@ -133,6 +166,16 @@ where
         for item in iterator {
             lock.remove(item);
         }
+    }
+
+    /// Force the expiry of the given item, if it is present in the cache.
+    ///
+    /// This doesn't reset the failure count, but does mark the item as ready
+    /// for immediate retry.
+    #[cfg(test)]
+    pub(crate) fn expire(&self, item: &T) {
+        let mut lock = self.inner.write().unwrap();
+        lock.get_mut(item).map(FailuresItem::expire);
     }
 }
 
