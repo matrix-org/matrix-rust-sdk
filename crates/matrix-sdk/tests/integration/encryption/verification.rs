@@ -436,7 +436,7 @@ async fn test_unchecked_mutual_verification() {
 
     // Have Alice track Bob, so she queries his keys later.
     {
-        let alice_olm = alice.olm_machine_for_testing().await;
+        let alice_olm = alice.olm_machine_for_testing().await; // requires --features testing
         let alice_olm = alice_olm.as_ref().unwrap();
         alice_olm.update_tracked_users([bob_user_id.as_ref()]).await.unwrap();
     }
@@ -471,7 +471,7 @@ async fn test_unchecked_mutual_verification() {
     // Notify Alice's devices that some identify changed, so it does another
     // /keys/query request.
     {
-        let alice_olm = alice.olm_machine_for_testing().await;
+        let alice_olm = alice.olm_machine_for_testing().await; // requires --features testing
         let alice_olm = alice_olm.as_ref().unwrap();
         let changed_devices = &assign!(DeviceLists::default(), {
             changed: vec![bob_user_id.clone()]
