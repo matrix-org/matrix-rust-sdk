@@ -14,6 +14,9 @@
 
 use std::sync::{Arc, Mutex};
 
+use hmac::{Hmac, Mac as MacT};
+use sha2::Sha256;
+
 use ruma::{
     api::client::backup::{EncryptedSessionDataInit, KeyBackupData, KeyBackupDataInit},
     serde::Base64,
@@ -24,9 +27,14 @@ use zeroize::Zeroizing;
 use super::{compat::PkEncryption, decryption::DecodeError};
 use crate::{olm::InboundGroupSession, types::Signatures};
 
+pub type HmacSha256 = Hmac<Sha256>;
+
+pub type HmacSha256Key = Zeroizing<[u8; 32]>;
+
 #[derive(Debug)]
 struct InnerBackupKey {
     key: Curve25519PublicKey,
+    mac_key: Option<HmacSha256Key>,
     signatures: Signatures,
     version: Mutex<Option<String>>,
 }
@@ -49,10 +57,11 @@ impl std::fmt::Debug for MegolmV1BackupKey {
 }
 
 impl MegolmV1BackupKey {
-    pub(super) fn new(key: Curve25519PublicKey, version: Option<String>) -> Self {
+    pub(super) fn new(key: Curve25519PublicKey, mac_key: Option<HmacSha256Key>, version: Option<String>) -> Self {
         Self {
             inner: InnerBackupKey {
                 key,
+                mac_key,
                 signatures: Default::default(),
                 version: Mutex::new(version),
             }
@@ -75,7 +84,7 @@ impl MegolmV1BackupKey {
         let key = Curve25519PublicKey::from_base64(public_key)?;
 
         let inner =
-            InnerBackupKey { key, signatures: Default::default(), version: Mutex::new(None) };
+            InnerBackupKey { key, mac_key: None, signatures: Default::default(), version: Mutex::new(None) };
 
         Ok(MegolmV1BackupKey { inner: inner.into() })
     }
@@ -88,6 +97,11 @@ impl MegolmV1BackupKey {
     /// Get the backup version that this key is used with, if any.
     pub fn backup_version(&self) -> Option<String> {
         self.inner.version.lock().unwrap().clone()
+    }
+
+    /// Get the MAC key that is used with the backup key
+    pub fn mac_key(&self) -> Option<&HmacSha256Key> {
+        self.inner.mac_key.as_ref()
     }
 
     /// Set the backup version that this `MegolmV1BackupKey` will be used with.
@@ -115,11 +129,21 @@ impl MegolmV1BackupKey {
             Zeroizing::new(serde_json::to_vec(&key).expect("Can't serialize exported room key"));
 
         let message = pk.encrypt(&key);
+        let mac2 = if let Some(mac_key) = self.mac_key() {
+            let mut hmac = HmacSha256::new_from_slice(mac_key.as_ref())
+                .expect("We should be able to create a Hmac object from a 32 byte key");
+            hmac.update(&message.ciphertext);
+            let mac: Base64 = Base64::new(hmac.finalize().into_bytes().to_vec());
+            Some(mac)
+        } else {
+            None
+        };
 
         let session_data = EncryptedSessionDataInit {
             ephemeral: Base64::new(message.ephemeral_key.to_vec()),
             ciphertext: Base64::new(message.ciphertext),
-            mac: Base64::new(message.mac),
+            mac: Base64::new(message.mac.unwrap()),
+            mac2,
         }
         .into();
 
@@ -134,5 +158,34 @@ impl MegolmV1BackupKey {
             session_data,
         }
         .into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use matrix_sdk_test::async_test;
+    use ruma::{device_id, room_id, user_id};
+    use crate::{
+        store::BackupDecryptionKey,
+        OlmMachine,
+    };
+
+    #[async_test]
+    async fn create_mac2() -> Result<(), ()> {
+        let decryption_key = BackupDecryptionKey::new().expect("Can't create new recovery key");
+
+        let backup_key = decryption_key.megolm_v1_public_key();
+
+        let olm_machine = OlmMachine::new(user_id!("@alice:localhost"), device_id!("ABCDEFG")).await;
+        let inbound = olm_machine.create_inbound_session(room_id!("!room_id:localhost"))
+            .await
+            .expect("Could not create group session");
+        let key_backup_data = backup_key.encrypt(inbound).await;
+
+        let _ = decryption_key
+            .decrypt_session_data(key_backup_data.session_data)
+            .expect("The backed up key should be decrypted successfully");
+
+        Ok(())
     }
 }

@@ -18,12 +18,16 @@ use std::{
 };
 
 use bs58;
+use hkdf::Hkdf;
+use hmac::Mac;
+use sha2::Sha256;
 use ruma::api::client::backup::EncryptedSessionData;
 use thiserror::Error;
 use vodozemac::Curve25519PublicKey;
 use zeroize::{Zeroize, Zeroizing};
 
 use super::{
+    backup::{HmacSha256, HmacSha256Key},
     compat::{Error as DecryptionError, Message, PkDecryption},
     MegolmV1BackupKey,
 };
@@ -177,10 +181,19 @@ impl BackupDecryptionKey {
         PkDecryption::from_bytes(self.inner.as_ref())
     }
 
+    fn calculate_mac_key(&self) -> HmacSha256Key {
+        let hkdf: Hkdf<Sha256> = Hkdf::new(None, self.as_bytes());
+        let mut output = HmacSha256Key::new([0u8; 32]);
+        hkdf.expand(b"MATRIX_BACKUP_MAC_KEY", output.as_mut())
+            .expect("We should be able to HKDF the key into 32 bytes");
+        output
+    }
+
     /// Extract the megolm.v1 public key from this [`BackupDecryptionKey`].
     pub fn megolm_v1_public_key(&self) -> MegolmV1BackupKey {
         let pk = self.get_pk_decryption();
-        MegolmV1BackupKey::new(pk.public_key(), None)
+        let mac_key = self.calculate_mac_key();
+        MegolmV1BackupKey::new(pk.public_key(), Some(mac_key), None)
     }
 
     /// Get the [`RoomKeyBackupInfo`] for this [`BackupDecryptionKey`].
@@ -207,7 +220,7 @@ impl BackupDecryptionKey {
         mac: &str,
         ciphertext: &str,
     ) -> Result<String, DecryptionError> {
-        let message = Message::from_base64(ciphertext, mac, ephemeral_key)?;
+        let message = Message::from_base64(ciphertext, Some(mac), ephemeral_key)?;
         let pk = self.get_pk_decryption();
 
         let decrypted = pk.decrypt(&message)?;
@@ -221,10 +234,25 @@ impl BackupDecryptionKey {
         &self,
         session_data: EncryptedSessionData,
     ) -> Result<BackedUpRoomKey, DecryptionError> {
-        let message = Message {
-            ciphertext: session_data.ciphertext.into_inner(),
-            mac: session_data.mac.into_inner(),
-            ephemeral_key: Curve25519PublicKey::from_slice(session_data.ephemeral.as_bytes())?,
+        let message = match session_data.mac2 {
+            None => Message {
+                ciphertext: session_data.ciphertext.into_inner(),
+                mac: Some(session_data.mac.into_inner()),
+                ephemeral_key: Curve25519PublicKey::from_slice(session_data.ephemeral.as_bytes())?,
+            },
+            Some(mac) => {
+                let mac_key = self.calculate_mac_key();
+                let mut hmac = HmacSha256::new_from_slice(mac_key.as_ref())
+                    .expect("We should be able to create a Hmac object from a 32 byte key");
+                hmac.update(session_data.ciphertext.as_bytes());
+                hmac.verify_slice(mac.as_bytes())
+                    .map_err(|e| DecryptionError::Mac(e))?;
+                Message {
+                    ciphertext: session_data.ciphertext.into_inner(),
+                    mac: None,
+                    ephemeral_key: Curve25519PublicKey::from_slice(session_data.ephemeral.as_bytes())?,
+                }
+            },
         };
 
         let pk = self.get_pk_decryption();
@@ -398,5 +426,88 @@ mod tests {
             decryption_key.backup_key_matches(&key_info),
             "The backup info should match the decryption key"
         );
+    }
+
+    #[test]
+    fn test_mac2_check() {
+        let decryption_key =
+            BackupDecryptionKey::from_base64("Ha9cklU/9NqFo9WKdVfGzmqUL/9wlkdxfEitbSIPVXw")
+                .unwrap();
+
+        // mac2 was created from the data in test_decrypt_key using the following Python:
+        //
+        // ```python
+        // import base64
+        // from cryptography.hazmat.primitives.hashes import SHA256
+        // from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+        // from cryptography.hazmat.primitives.hmac import HMAC
+
+        // key_b64 = "Ha9cklU/9NqFo9WKdVfGzmqUL/9wlkdxfEitbSIPVXw==="
+        // key = base64.b64decode(key_b64)
+
+        // mac_key = HKDF(SHA256(), length=32, salt=b"", info=b"MATRIX_BACKUP_MAC_KEY").derive(key)
+
+        // ciphertext_b64 = ...
+        // ciphertext = base64.b64decode(ciphertext_b64)
+
+        // hmac = HMAC(mac_key, SHA256())
+        // hmac.update(ciphertext)
+        // print(base64.b64encode(hmac.finalize()))
+        // ```
+        let data = json!({
+            "first_message_index": 0,
+            "forwarded_count": 0,
+            "is_verified": false,
+            "session_data": {
+                "ephemeral": "HlLi76oV6wxHz3PCqE/bxJi6yF1HnYz5Dq3T+d/KpRw",
+                "ciphertext": "MuM8E3Yc6TSAvhVGb77rQ++jE6p9dRepx63/3YPD2wACKAppkZHeFrnTH6wJ/HSyrmzo\
+                               7HfwqVl6tKNpfooSTHqUf6x1LHz+h4B/Id5ITO1WYt16AaI40LOnZqTkJZCfSPuE2oxa\
+                               lwEHnCS3biWybutcnrBFPR3LMtaeHvvkb+k3ny9l5ZpsU9G7vCm3XoeYkWfLekWXvDhb\
+                               qWrylXD0+CNUuaQJ/S527TzLd4XKctqVjjO/cCH7q+9utt9WJAfK8LGaWT/mZ3AeWjf5\
+                               kiqOpKKf5Cn4n5SSil5p/pvGYmjnURvZSEeQIzHgvunIBEPtzK/MYEPOXe/P5achNGlC\
+                               x+5N19Ftyp9TFaTFlTWCTi0mpD7ePfCNISrwpozAz9HZc0OhA8+1aSc7rhYFIeAYXFU3\
+                               26NuFIFHI5pvpSxjzPQlOA+mavIKmiRAtjlLw11IVKTxgrdT4N8lXeMr4ndCSmvIkAzF\
+                               Mo1uZA4fzjiAdQJE4/2WeXFNNpvdfoYmX8Zl9CAYjpSO5HvpwkAbk4/iLEH3hDfCVUwD\
+                               fMh05PdGLnxeRpiEFWSMSsJNp+OWAA+5JsF41BoRGrxoXXT+VKqlUDONd+O296Psu8Q+\
+                               d8/S618",
+                "mac": "GtMrurhDTwo",
+                "org.matrix.msc4048.mac2": "+yy4Frb8XHCgbC0INJGHyySqe/JoWfw1uJrDXzb9yh0",
+            }
+        });
+
+        let key_backup_data: KeyBackupData = serde_json::from_value(data).unwrap();
+
+        let _ = decryption_key
+            .decrypt_session_data(key_backup_data.session_data)
+            .expect("The backed up key should be decrypted successfully");
+
+        // bad data, created by swapping characters in mac2
+        let data_bad = json!({
+            "first_message_index": 0,
+            "forwarded_count": 0,
+            "is_verified": false,
+            "session_data": {
+                "ephemeral": "HlLi76oV6wxHz3PCqE/bxJi6yF1HnYz5Dq3T+d/KpRw",
+                "ciphertext": "MuM8E3Yc6TSAvhVGb77rQ++jE6p9dRepx63/3YPD2wACKAppkZHeFrnTH6wJ/HSyrmzo\
+                               7HfwqVl6tKNpfooSTHqUf6x1LHz+h4B/Id5ITO1WYt16AaI40LOnZqTkJZCfSPuE2oxa\
+                               lwEHnCS3biWybutcnrBFPR3LMtaeHvvkb+k3ny9l5ZpsU9G7vCm3XoeYkWfLekWXvDhb\
+                               qWrylXD0+CNUuaQJ/S527TzLd4XKctqVjjO/cCH7q+9utt9WJAfK8LGaWT/mZ3AeWjf5\
+                               kiqOpKKf5Cn4n5SSil5p/pvGYmjnURvZSEeQIzHgvunIBEPtzK/MYEPOXe/P5achNGlC\
+                               x+5N19Ftyp9TFaTFlTWCTi0mpD7ePfCNISrwpozAz9HZc0OhA8+1aSc7rhYFIeAYXFU3\
+                               26NuFIFHI5pvpSxjzPQlOA+mavIKmiRAtjlLw11IVKTxgrdT4N8lXeMr4ndCSmvIkAzF\
+                               Mo1uZA4fzjiAdQJE4/2WeXFNNpvdfoYmX8Zl9CAYjpSO5HvpwkAbk4/iLEH3hDfCVUwD\
+                               fMh05PdGLnxeRpiEFWSMSsJNp+OWAA+5JsF41BoRGrxoXXT+VKqlUDONd+O296Psu8Q+\
+                               d8/S618",
+                "mac": "GtMrurhDTwo",
+                "org.matrix.msc4048.mac2": "y+4yrF8bHXgCCbI0JNHGyyqS/eoJfW1wJuDrzX9bhy0",
+            }
+        });
+
+        let key_backup_data: KeyBackupData = serde_json::from_value(data_bad).unwrap();
+
+        let _ = decryption_key
+            .decrypt_session_data(key_backup_data.session_data)
+            .and(Ok(())) // without this, expect_err will fail because BackedUpRoomKey doesn't implement Debug
+            .expect_err("The backed up key should not be decrypted successfully");
     }
 }
