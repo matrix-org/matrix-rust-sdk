@@ -1,5 +1,8 @@
 # unreleased
 
+- Handle missing devices in `/keys/claim` responses.
+  ([#2805](https://github.com/matrix-org/matrix-rust-sdk/pull/2805))
+
 - Add the higher level decryption method `decrypt_session_data` to the
   `BackupDecryptionKey` type.
 
@@ -17,12 +20,26 @@
   `OlmMachine::backup_machine()::import_backed_up_room_keys()` for backups. The
   `OlmMachine::import_room_keys()` method is now deprecated.
 
-- Add support for secret storage.
-
 - The parameter order of `OlmMachine::encrypt_room_event_raw` and
   `OutboundGroupSession::encrypt` has changed, `content` is now last
   - The parameter type of `content` has also changed, from `serde_json::Value`
     to `&Raw<AnyMessageLikeEventContent>`
+
+- Change the return value of `bootstrap_cross_signing` so it returns an extra
+  keys upload request.  The three requests must be sent in the order they
+  appear in the return tuple.
+
+- Stop logging large quantities of data about the `Store` during olm
+  decryption.
+
+- Remove spurious "Unknown outgoing secret request" warning which was logged
+  for every outgoing secret request.
+
+- Clean up the logging of to-device messages in `share_room_key`.
+
+- Expose new `OlmMachine::get_room_event_encryption_info` method.
+
+- Add support for secret storage.
 
 - Add initial support for MSC3814 - dehydrated devices.
 
@@ -85,16 +102,3 @@
 
 - Change the returned success value type of `BackupMachine::backup` from
   `OutgoingRequest` to `(OwnedTransactionId, KeysBackupRequest)`.
-
-- Expose new `OlmMachine::get_room_event_encryption_info` method.
-
-- Clean up the logging of to-device messages in `share_room_key`.
-
-- Remove spurious "Unknown outgoing secret request" warning which was logged
-  for every outgoing secret request.
-
-- Stop logging large quantities of data about the `Store` during olm
-  decryption.
-
-- Change the return value of `bootstrap_cross_signing` so it returns an extra keys upload request.
-  The three requests must be sent in the order they appear in the return tuple.
