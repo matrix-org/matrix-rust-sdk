@@ -106,6 +106,8 @@ pub static CAROL: Lazy<&UserId> = Lazy::new(|| user_id!("@carol:other.server"));
 /// The default room ID for tests.
 pub static DEFAULT_TEST_ROOM_ID: Lazy<&RoomId> =
     Lazy::new(|| room_id!("!SVkFJHzfwvuaIEawgC:localhost"));
+pub static DEFAULT_TEST_SPACE_ID: Lazy<&RoomId> =
+    Lazy::new(|| room_id!("!hIMjEx205EXNyjVPCV:localhost"));
 
 /// Embedded sync response files
 pub enum SyncResponseFile {

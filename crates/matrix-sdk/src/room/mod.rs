@@ -761,7 +761,8 @@ impl Room {
         // https://spec.matrix.org/v1.8/client-server-api/#mspaceparent-relationships
 
         // Get all m.room.parent events for this room
-        Ok(self.get_state_events_static::<SpaceParentEventContent>()
+        Ok(self
+            .get_state_events_static::<SpaceParentEventContent>()
             .await?
             .into_iter()
             // Extract state key (ie. the parent's id) and sender
@@ -793,6 +794,9 @@ impl Room {
                         // this room
                         return ParentSpace::Reciprocal(parent_room);
                     }
+                    // Otherwise the event is either invalid or redacted. If redacted it would
+                    // be missing the `via` key, thereby invalidating that end of the relationship:
+                    // https://spec.matrix.org/v1.8/client-server-api/#mspacechild
                 }
 
                 // No reciprocal m.room.child found, let's check if the sender has the
