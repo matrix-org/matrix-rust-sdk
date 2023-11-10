@@ -794,9 +794,10 @@ impl Room {
                         // this room
                         return ParentSpace::Reciprocal(parent_room);
                     }
-                    // Otherwise the event is either invalid or redacted. If redacted it would
-                    // be missing the `via` key, thereby invalidating that end of the relationship:
-                    // https://spec.matrix.org/v1.8/client-server-api/#mspacechild
+                    // Otherwise the event is either invalid or redacted. If
+                    // redacted it would be missing the
+                    // `via` key, thereby invalidating that end of the
+                    // relationship: https://spec.matrix.org/v1.8/client-server-api/#mspacechild
                 }
 
                 // No reciprocal m.room.child found, let's check if the sender has the
@@ -2404,18 +2405,18 @@ impl Receipts {
 /// listed by a room, possibly validated by checking the space's state.
 #[derive(Debug)]
 pub enum ParentSpace {
-    /// The room recognizes the given room as its parent, and the parent recognizes
-    /// it as its child.
-    Reciprocal(Room),
-    /// The room recognizes the given room as its parent, but the parent does not
-    /// recognizes it as its child. However, a member of the parent has a sufficient
-    /// power level to do so.
-    WithPowerlevel(Room),
-    /// The room recognizes the given room as its parent, but the parent does not
+    /// The room recognizes the given room as its parent, and the parent
     /// recognizes it as its child.
+    Reciprocal(Room),
+    /// The room recognizes the given room as its parent, but the parent does
+    /// not recognizes it as its child. However, a member of the parent has
+    /// a sufficient power level to do so.
+    WithPowerlevel(Room),
+    /// The room recognizes the given room as its parent, but the parent does
+    /// not recognizes it as its child.
     Illegitimate(Room),
-    /// The room recognizes the given id as its parent room, but we cannot check whether
-    /// the parent does not recognizes it as its child.
+    /// The room recognizes the given id as its parent room, but we cannot check
+    /// whether the parent does not recognizes it as its child.
     Unverifiable(OwnedRoomId),
 }
 

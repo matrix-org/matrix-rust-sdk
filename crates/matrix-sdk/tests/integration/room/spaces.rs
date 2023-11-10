@@ -2,15 +2,12 @@ use std::time::Duration;
 
 use assert_matches2::assert_let;
 use futures_util::StreamExt;
-use serde_json::{json, Value as JsonValue};
-
 use matrix_sdk::{config::SyncSettings, room::ParentSpace, Client};
-
 use matrix_sdk_test::{
     async_test, sync_timeline_event, test_json, SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
     DEFAULT_TEST_SPACE_ID,
 };
-
+use serde_json::{json, Value as JsonValue};
 use wiremock::{
     matchers::{header, method, path_regex},
     Mock, ResponseTemplate,
@@ -36,8 +33,8 @@ async fn initial_sync_with_m_space_parent(
     client.sync_once(SyncSettings::new().token(sync_token)).await.unwrap().next_batch
 }
 
-/// Syncs with a parent space, using the previous `sync_token` and including any custom
-/// `state_events` for the current test.
+/// Syncs with a parent space, using the previous `sync_token` and including any
+/// custom `state_events` for the current test.
 /// Returns the next sync token.
 async fn sync_space(
     client: &Client,
@@ -45,7 +42,8 @@ async fn sync_space(
     sync_token: String,
     state_events: Vec<JsonValue>,
 ) -> String {
-    // synthetize a summary for the space by using a sample summary and replacing the room id
+    // synthetize a summary for the space by using a sample summary and replacing
+    // the room id
     let mut parent_sync = test_json::DEFAULT_SYNC_SUMMARY.clone();
     let join = &mut parent_sync["rooms"]["join"].as_object_mut().unwrap();
     let mut timeline = join.remove(DEFAULT_TEST_ROOM_ID.as_str()).unwrap();
@@ -292,7 +290,7 @@ async fn parent_space_powerlevel() {
     let sync_token =
         initial_sync_with_m_space_parent(&client, &server, &*test_json::PARENT_SPACE_SYNC).await;
 
-    setup_parent_member(&client, &server, sync_token, 2).await;  // >= PL for m.room.child
+    setup_parent_member(&client, &server, sync_token, 2).await; // >= PL for m.room.child
 
     let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
 
@@ -309,7 +307,7 @@ async fn parent_space_powerlevel_too_low() {
     let sync_token =
         initial_sync_with_m_space_parent(&client, &server, &*test_json::PARENT_SPACE_SYNC).await;
 
-    setup_parent_member(&client, &server, sync_token, 1).await;  // < PL for m.room.child
+    setup_parent_member(&client, &server, sync_token, 1).await; // < PL for m.room.child
 
     let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
 
