@@ -13,9 +13,10 @@
 // limitations under the License.
 
 use std::{
-    collections::{BTreeMap, BTreeSet, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     ops::Deref,
     sync::Arc,
+    time::Duration,
 };
 
 use futures_util::future::join_all;
@@ -37,7 +38,7 @@ use crate::{
     requests::KeysQueryRequest,
     store::{
         caches::SequenceNumber, Changes, DeviceChanges, IdentityChanges, KeyQueryManager,
-        Result as StoreResult, Store, StoreCache,
+        Result as StoreResult, Store, StoreCache, UserKeyQueryResult,
     },
     types::{CrossSigningKey, DeviceKeys, MasterPubkey, SelfSigningPubkey, UserSigningPubkey},
     utilities::FailuresCache,
@@ -877,6 +878,53 @@ impl IdentityManager {
     ) -> StoreResult<()> {
         let cache = self.store.cache().await?;
         self.key_query_manager.synced(&cache).await?.update_tracked_users(users.into_iter()).await
+    }
+
+    /// Retrieve a list of a user's current devices, so we can encrypt a message
+    /// to them.
+    ///
+    /// If we have not yet seen any devices for the user, and their device list
+    /// has been marked as outdated, then we wait for the `/keys/query` request
+    /// to complete. This helps ensure that we attempt at least once to fetch a
+    /// user's devices before encrypting to them.
+    pub async fn get_user_devices_for_encryption(
+        &self,
+        user_id: &UserId,
+    ) -> StoreResult<HashMap<OwnedDeviceId, ReadOnlyDevice>> {
+        // how long we wait for /keys/query to complete
+        const KEYS_QUERY_WAIT_TIME: Duration = Duration::from_secs(5);
+
+        let user_devices = self.store.get_readonly_devices_filtered(user_id).await?;
+
+        // If the user has no devices at all, that implies we have never (successfully)
+        // done a `/keys/query` for them; we wait for one to complete if it is
+        // in flight. (Of course, the user might genuinely have no devices, but
+        // that's fine, it just means we redundantly grab the cache guard and
+        // check the pending-query flag.)
+        //
+        // The device list may also be outdated for users who *do* have devices. But in
+        // that situation, we are racing between sending a message and retrieving their
+        // device list. That's an inherently racy situation and there is no real
+        // benefit to waiting for the `/keys/query` request to complete. So we don't
+        // bother.
+
+        let user_devices = if user_devices.is_empty() {
+            let cache = self.store.cache().await?;
+            match self
+                .key_query_manager
+                .wait_if_user_key_query_pending(cache, KEYS_QUERY_WAIT_TIME, user_id)
+                .await?
+            {
+                UserKeyQueryResult::WasPending => {
+                    self.store.get_readonly_devices_filtered(user_id).await?
+                }
+                _ => user_devices,
+            }
+        } else {
+            user_devices
+        };
+
+        Ok(user_devices)
     }
 }
 

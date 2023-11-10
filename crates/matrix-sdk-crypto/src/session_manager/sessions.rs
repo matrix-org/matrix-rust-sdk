@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet},
     sync::{Arc, RwLock as StdRwLock},
     time::Duration,
 };
@@ -35,7 +35,7 @@ use crate::{
     error::OlmResult,
     gossiping::GossipMachine,
     requests::{OutgoingRequest, ToDeviceRequest},
-    store::{Changes, Result as StoreResult, Store, UserKeyQueryResult},
+    store::{Changes, Result as StoreResult, Store},
     types::{events::EventType, EventEncryptionAlgorithm},
     utilities::FailuresCache,
     ReadOnlyDevice,
@@ -70,7 +70,6 @@ pub(crate) struct SessionManager {
 impl SessionManager {
     const KEY_CLAIM_TIMEOUT: Duration = Duration::from_secs(10);
     const UNWEDGING_INTERVAL: Duration = Duration::from_secs(60 * 60);
-    const KEYS_QUERY_WAIT_TIME: Duration = Duration::from_secs(5);
 
     pub fn new(
         users_for_key_claim: Arc<StdRwLock<BTreeMap<OwnedUserId, BTreeSet<OwnedDeviceId>>>>,
@@ -186,33 +185,6 @@ impl SessionManager {
         Ok(())
     }
 
-    async fn get_user_devices(
-        &self,
-        user_id: &UserId,
-    ) -> StoreResult<HashMap<OwnedDeviceId, ReadOnlyDevice>> {
-        use UserKeyQueryResult::*;
-
-        let user_devices = self.store.get_readonly_devices_filtered(user_id).await?;
-
-        let user_devices = if user_devices.is_empty() {
-            let cache = self.store.cache().await?;
-            match self
-                .key_request_machine
-                .identity_manager()
-                .key_query_manager
-                .wait_if_user_key_query_pending(cache, Self::KEYS_QUERY_WAIT_TIME, user_id)
-                .await?
-            {
-                WasPending => self.store.get_readonly_devices_filtered(user_id).await?,
-                _ => user_devices,
-            }
-        } else {
-            user_devices
-        };
-
-        Ok(user_devices)
-    }
-
     /// Get a key claiming request for the user/device pairs that we are
     /// missing Olm sessions for.
     ///
@@ -250,7 +222,12 @@ impl SessionManager {
         // Add the list of devices that the user wishes to establish sessions
         // right now.
         for user_id in users.filter(|u| !self.failures.contains(u.server_name())) {
-            let user_devices = Box::pin(self.get_user_devices(user_id)).await?;
+            let user_devices = Box::pin(
+                self.key_request_machine
+                    .identity_manager()
+                    .get_user_devices_for_encryption(user_id),
+            )
+            .await?;
 
             for (device_id, device) in user_devices {
                 if !(device.supports_olm()) {
