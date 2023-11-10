@@ -58,8 +58,10 @@ use tokio::sync::RwLockReadGuard;
 use tracing::{debug, instrument, trace, warn};
 
 use self::{
+    backups::Backups,
     futures::PrepareEncryptedFile,
     identities::{DeviceUpdates, IdentityUpdates},
+    secret_storage::SecretStorage,
 };
 use crate::{
     attachment::{AttachmentInfo, Thumbnail},
@@ -72,6 +74,7 @@ use crate::{
     Client, Error, Result, Room, TransmissionProgress,
 };
 
+pub mod backups;
 pub mod futures;
 pub mod identities;
 pub mod secret_storage;
@@ -87,7 +90,6 @@ pub use matrix_sdk_base::crypto::{
     SessionCreationError, SignatureError, VERSION,
 };
 
-use self::secret_storage::SecretStorage;
 pub use crate::error::RoomKeyImportError;
 
 /// Settings for end-to-end encryption features.
@@ -99,6 +101,18 @@ pub struct EncryptionSettings {
     /// This requires to login with a username and password, or that MSC3967 is
     /// enabled on the server, as of 2023-10-20.
     pub auto_enable_cross_signing: bool,
+
+    /// Automatically download all room keys from the backup when the backup
+    /// recovery key has been received. The backup recovery key can be received
+    /// in two ways:
+    ///
+    /// 1. Received as a `m.secret.send` to-device event, after a successful
+    ///    interactive verification.
+    /// 2. Imported from secret storage using the
+    ///    [`SecretStore::import_secrets()`] method.
+    ///
+    /// [`SecretStore::import_secrets()`]: crate::encryption::secret_storage::SecretStore::import_secrets
+    pub auto_download_from_backup: bool,
 }
 
 impl Client {
@@ -1054,12 +1068,21 @@ impl Encryption {
         let task = tokio::task::spawn_blocking(decrypt);
         let import = task.await.expect("Task join error")?;
 
-        Ok(olm.store().import_exported_room_keys(import, |_, _| {}).await?)
+        let ret = olm.store().import_exported_room_keys(import, |_, _| {}).await?;
+
+        self.backups().maybe_trigger_backup();
+
+        Ok(ret)
     }
 
     /// Get the secret storage manager of the client.
     pub fn secret_storage(&self) -> SecretStorage {
         SecretStorage { client: self.client.to_owned() }
+    }
+
+    /// Get the backups manager of the client.
+    pub fn backups(&self) -> Backups {
+        Backups { client: self.client.to_owned() }
     }
 
     /// Enables the crypto-store cross-process lock.
