@@ -3,10 +3,7 @@ use std::time::Duration;
 use assert_matches2::assert_let;
 use futures_util::StreamExt;
 use matrix_sdk::{config::SyncSettings, room::ParentSpace, Client};
-use matrix_sdk_test::{
-    async_test, sync_timeline_event, test_json, SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
-    DEFAULT_TEST_SPACE_ID,
-};
+use matrix_sdk_test::{async_test, test_json, DEFAULT_TEST_ROOM_ID, DEFAULT_TEST_SPACE_ID};
 use serde_json::{json, Value as JsonValue};
 use wiremock::{
     matchers::{header, method, path_regex},

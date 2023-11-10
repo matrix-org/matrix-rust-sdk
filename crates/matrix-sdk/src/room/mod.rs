@@ -756,7 +756,7 @@ impl Room {
     /// Returns the parents this room advertises as its parents.
     ///
     /// Results are in no particular order.
-    pub async fn parent_spaces<'a>(&'a self) -> Result<impl Stream<Item = ParentSpace> + 'a> {
+    pub async fn parent_spaces(&self) -> Result<impl Stream<Item = ParentSpace> + '_> {
         // Implements this algorithm:
         // https://spec.matrix.org/v1.8/client-server-api/#mspaceparent-relationships
 
