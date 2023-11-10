@@ -34,12 +34,14 @@ pub(crate) struct ClientTasks {
 #[cfg(feature = "e2e-encryption")]
 pub(crate) struct BackupUploadingTask {
     sender: mpsc::UnboundedSender<()>,
+    #[allow(dead_code)]
     join_handle: JoinHandle<()>,
 }
 
 #[cfg(feature = "e2e-encryption")]
 impl Drop for BackupUploadingTask {
     fn drop(&mut self) {
+        #[cfg(not(target_arch = "wasm32"))]
         self.join_handle.abort();
     }
 }

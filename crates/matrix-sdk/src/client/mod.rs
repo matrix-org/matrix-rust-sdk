@@ -92,9 +92,11 @@ use crate::{
 
 mod builder;
 pub(crate) mod futures;
+#[cfg(feature = "e2e-encryption")]
 mod tasks;
 
 pub use self::builder::{ClientBuildError, ClientBuilder};
+#[cfg(feature = "e2e-encryption")]
 use self::tasks::{BackupUploadingTask, ClientTasks};
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -227,6 +229,7 @@ pub(crate) struct ClientInner {
     /// to ensure that only a single call to a method happens at once or to
     /// deduplicate multiple calls to a method.
     locks: ClientLocks,
+    #[cfg(feature = "e2e-encryption")]
     pub(crate) tasks: StdMutex<ClientTasks>,
     pub(crate) typing_notice_times: StdRwLock<BTreeMap<OwnedRoomId, Instant>>,
     /// Event handlers. See `add_event_handler`.
@@ -274,6 +277,7 @@ impl ClientInner {
             sliding_sync_proxy: StdRwLock::new(sliding_sync_proxy),
             http_client,
             base_client,
+            #[cfg(feature = "e2e-encryption")]
             tasks: StdMutex::new(Default::default()),
             locks: Default::default(),
             server_versions: OnceCell::new_with(server_versions),
@@ -285,13 +289,20 @@ impl ClientInner {
             sync_beat: event_listener::Event::new(),
             #[cfg(feature = "e2e-encryption")]
             encryption_settings,
+            #[cfg(feature = "e2e-encryption")]
             backup_state: Default::default(),
         };
 
+        #[allow(clippy::let_and_return)]
         let client = Arc::new(client);
-        let weak_client = Arc::downgrade(&client);
 
-        client.tasks.lock().unwrap().upload_room_keys = Some(BackupUploadingTask::new(weak_client));
+        #[cfg(feature = "e2e-encryption")]
+        {
+            let weak_client = Arc::downgrade(&client);
+
+            client.tasks.lock().unwrap().upload_room_keys =
+                Some(BackupUploadingTask::new(weak_client));
+        }
 
         client
     }
