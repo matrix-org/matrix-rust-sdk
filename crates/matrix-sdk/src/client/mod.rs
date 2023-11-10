@@ -92,8 +92,10 @@ use crate::{
 
 mod builder;
 pub(crate) mod futures;
+mod tasks;
 
 pub use self::builder::{ClientBuildError, ClientBuilder};
+use self::tasks::ClientTasks;
 
 #[cfg(not(target_arch = "wasm32"))]
 type NotificationHandlerFut = Pin<Box<dyn Future<Output = ()> + Send>>;
@@ -225,6 +227,7 @@ pub(crate) struct ClientInner {
     /// to ensure that only a single call to a method happens at once or to
     /// deduplicate multiple calls to a method.
     locks: ClientLocks,
+    pub(crate) tasks: StdMutex<Option<ClientTasks>>,
     pub(crate) typing_notice_times: StdRwLock<BTreeMap<OwnedRoomId, Instant>>,
     /// Event handlers. See `add_event_handler`.
     pub(crate) event_handlers: EventHandlerStore,
@@ -263,14 +266,15 @@ impl ClientInner {
         server_versions: Option<Box<[MatrixVersion]>>,
         respect_login_well_known: bool,
         #[cfg(feature = "e2e-encryption")] encryption_settings: EncryptionSettings,
-    ) -> Self {
-        Self {
+    ) -> Arc<Self> {
+        let client = Self {
             homeserver: StdRwLock::new(homeserver),
             auth_ctx,
             #[cfg(feature = "experimental-sliding-sync")]
             sliding_sync_proxy: StdRwLock::new(sliding_sync_proxy),
             http_client,
             base_client,
+            tasks: StdMutex::new(None),
             locks: Default::default(),
             server_versions: OnceCell::new_with(server_versions),
             typing_notice_times: Default::default(),
@@ -282,7 +286,16 @@ impl ClientInner {
             #[cfg(feature = "e2e-encryption")]
             encryption_settings,
             backup_state: Default::default(),
-        }
+        };
+
+        let client = Arc::new(client);
+        let weak_client = Arc::downgrade(&client);
+
+        // TODO: Should we use MaybeUninit here to get rid of the option?
+        let tasks = ClientTasks::new(weak_client);
+        *client.tasks.lock().unwrap() = Some(tasks);
+
+        client
     }
 }
 
@@ -1939,7 +1952,7 @@ impl Client {
     /// Create a new specialized `Client` that can process notifications.
     pub async fn notification_client(&self) -> Result<Client> {
         let client = Client {
-            inner: Arc::new(ClientInner::new(
+            inner: ClientInner::new(
                 self.inner.auth_ctx.clone(),
                 self.homeserver(),
                 #[cfg(feature = "experimental-sliding-sync")]
@@ -1950,7 +1963,7 @@ impl Client {
                 self.inner.respect_login_well_known,
                 #[cfg(feature = "e2e-encryption")]
                 self.inner.encryption_settings,
-            )),
+            ),
         };
 
         // Copy the parent's session meta into the child. This initializes the in-memory

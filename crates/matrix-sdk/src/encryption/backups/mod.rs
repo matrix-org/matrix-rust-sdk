@@ -863,7 +863,11 @@ impl Backups {
     /// Send a notification to the task which is responsible to upload room keys
     /// to the backup that it might have new room keys to back up.
     pub(crate) fn maybe_trigger_backup(&self) {
-        // TODO: Wake a background task up to upload room keys
+        let tasks = self.client.inner.tasks.lock().unwrap();
+
+        if let Some(tasks) = tasks.as_ref() {
+            tasks.upload_room_keys.trigger_upload();
+        }
     }
 
     /// Disable our backups locally if we notice that the backup has been
