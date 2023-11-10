@@ -19,13 +19,13 @@ async fn initial_sync_with_m_space_parent(
     server: &MockServer,
     sync: &JsonValue,
 ) -> String {
-    mock_sync(&server, &*test_json::SYNC, None).await;
+    mock_sync(server, &*test_json::SYNC, None).await;
 
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
     let sync_token = client.sync_once(sync_settings).await.unwrap().next_batch;
 
-    mock_sync(&server, sync, Some(sync_token.clone())).await;
+    mock_sync(server, sync, Some(sync_token.clone())).await;
 
     client.sync_once(SyncSettings::new().token(sync_token)).await.unwrap().next_batch
 }
@@ -44,10 +44,10 @@ async fn sync_space(
     let mut parent_sync = test_json::DEFAULT_SYNC_SUMMARY.clone();
     let join = &mut parent_sync["rooms"]["join"].as_object_mut().unwrap();
     let mut timeline = join.remove(DEFAULT_TEST_ROOM_ID.as_str()).unwrap();
-    timeline["state"]["events"].as_array_mut().unwrap().extend(state_events.into_iter()); // add custom events
+    timeline["state"]["events"].as_array_mut().unwrap().extend(state_events); // add custom events
     join.insert(DEFAULT_TEST_SPACE_ID.to_string(), timeline);
 
-    mock_sync(&server, parent_sync, Some(sync_token.clone())).await;
+    mock_sync(server, parent_sync, Some(sync_token.clone())).await;
     client.sync_once(SyncSettings::new().token(sync_token)).await.unwrap().next_batch
 }
 
@@ -114,7 +114,7 @@ async fn parent_space_redacted() {
 async fn parent_space_unverifiable() {
     let (client, server) = logged_in_client().await;
 
-    initial_sync_with_m_space_parent(&client, &server, &*test_json::PARENT_SPACE_SYNC).await;
+    initial_sync_with_m_space_parent(&client, &server, &test_json::PARENT_SPACE_SYNC).await;
 
     let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
 
@@ -129,7 +129,7 @@ async fn parent_space_illegitimate() {
     let (client, server) = logged_in_client().await;
 
     let sync_token =
-        initial_sync_with_m_space_parent(&client, &server, &*test_json::PARENT_SPACE_SYNC).await;
+        initial_sync_with_m_space_parent(&client, &server, &test_json::PARENT_SPACE_SYNC).await;
 
     sync_space(&client, &server, sync_token, vec![]).await;
 
@@ -146,7 +146,7 @@ async fn parent_space_reciprocal() {
     let (client, server) = logged_in_client().await;
 
     let sync_token =
-        initial_sync_with_m_space_parent(&client, &server, &*test_json::PARENT_SPACE_SYNC).await;
+        initial_sync_with_m_space_parent(&client, &server, &test_json::PARENT_SPACE_SYNC).await;
 
     let child_event = json!({
         "content": {
@@ -183,7 +183,7 @@ async fn parent_space_redacted_reciprocal() {
     let (client, server) = logged_in_client().await;
 
     let sync_token =
-        initial_sync_with_m_space_parent(&client, &server, &*test_json::PARENT_SPACE_SYNC).await;
+        initial_sync_with_m_space_parent(&client, &server, &test_json::PARENT_SPACE_SYNC).await;
 
     let child_event = json!({
         "content": {},  // Redacted -> missing "via" key -> invalidates the relationship
@@ -241,7 +241,7 @@ async fn setup_parent_member(
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/members"))
         .and(header("authorization", "Bearer 1234"))
         .respond_with(ResponseTemplate::new(200).set_body_json(members))
-        .mount(&server)
+        .mount(server)
         .await;
 
     let pl_event = json!({
@@ -277,7 +277,7 @@ async fn setup_parent_member(
         }
     });
 
-    sync_space(&client, &server, sync_token, vec![pl_event]).await
+    sync_space(client, server, sync_token, vec![pl_event]).await
 }
 
 #[async_test]
@@ -285,7 +285,7 @@ async fn parent_space_powerlevel() {
     let (client, server) = logged_in_client().await;
 
     let sync_token =
-        initial_sync_with_m_space_parent(&client, &server, &*test_json::PARENT_SPACE_SYNC).await;
+        initial_sync_with_m_space_parent(&client, &server, &test_json::PARENT_SPACE_SYNC).await;
 
     setup_parent_member(&client, &server, sync_token, 2).await; // >= PL for m.room.child
 
@@ -302,7 +302,7 @@ async fn parent_space_powerlevel_too_low() {
     let (client, server) = logged_in_client().await;
 
     let sync_token =
-        initial_sync_with_m_space_parent(&client, &server, &*test_json::PARENT_SPACE_SYNC).await;
+        initial_sync_with_m_space_parent(&client, &server, &test_json::PARENT_SPACE_SYNC).await;
 
     setup_parent_member(&client, &server, sync_token, 1).await; // < PL for m.room.child
 
