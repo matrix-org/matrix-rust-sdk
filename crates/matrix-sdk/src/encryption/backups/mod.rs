@@ -862,6 +862,7 @@ impl Backups {
     /// removed on the homeserver.
     async fn handle_deleted_backup_version(&self, olm_machine: &OlmMachine) -> Result<(), Error> {
         olm_machine.backup_machine().disable_backup().await?;
+        self.client.encryption().recovery().update_state_after_backup_disabling().await;
         self.set_state(BackupState::Unknown);
 
         Ok(())

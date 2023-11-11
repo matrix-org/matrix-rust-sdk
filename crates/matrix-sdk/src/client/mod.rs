@@ -85,8 +85,9 @@ use crate::{
 };
 #[cfg(feature = "e2e-encryption")]
 use crate::{
-    encryption::backups::types::BackupClientState,
-    encryption::{Encryption, EncryptionSettings},
+    encryption::{
+        backups::types::BackupClientState, recovery::RecoveryState, Encryption, EncryptionSettings,
+    },
     store_locks::CrossProcessStoreLock,
 };
 
@@ -251,6 +252,8 @@ pub(crate) struct ClientInner {
     pub(crate) encryption_settings: EncryptionSettings,
     #[cfg(feature = "e2e-encryption")]
     pub(crate) backup_state: BackupClientState,
+    #[cfg(feature = "e2e-encryption")]
+    pub(crate) recovery_state: SharedObservable<RecoveryState>,
 }
 
 impl ClientInner {
@@ -291,6 +294,8 @@ impl ClientInner {
             encryption_settings,
             #[cfg(feature = "e2e-encryption")]
             backup_state: Default::default(),
+            #[cfg(feature = "e2e-encryption")]
+            recovery_state: Default::default(),
         };
 
         #[allow(clippy::let_and_return)]
