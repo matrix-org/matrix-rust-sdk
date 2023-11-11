@@ -52,6 +52,7 @@ use url::Url;
 use super::{room::Room, session_verification::SessionVerificationController, RUNTIME};
 use crate::{
     client,
+    encryption::Encryption,
     notification::NotificationClientBuilder,
     notification_settings::NotificationSettings,
     sync_service::{SyncService, SyncServiceBuilder},
@@ -709,6 +710,10 @@ impl Client {
                 self.inner.notification_settings().await,
             ))
         })
+    }
+
+    pub fn encryption(&self) -> Arc<Encryption> {
+        Arc::new(self.inner.encryption().into())
     }
 }
 
