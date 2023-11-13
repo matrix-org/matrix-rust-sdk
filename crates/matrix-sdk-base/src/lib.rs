@@ -23,6 +23,7 @@ use serde::{Deserialize, Serialize};
 
 pub use crate::error::{Error, Result};
 
+mod calls;
 mod client;
 pub mod debug;
 pub mod deserialized_responses;
@@ -36,6 +37,7 @@ pub mod store;
 pub mod sync;
 mod utils;
 
+pub use calls::{CallMemberIdentifier, RoomCall};
 pub use client::BaseClient;
 #[cfg(any(test, feature = "testing"))]
 pub use http;

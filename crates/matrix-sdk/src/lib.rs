@@ -23,9 +23,9 @@ pub use matrix_sdk_base::crypto;
 pub use matrix_sdk_base::{
     deserialized_responses,
     store::{DynStateStore, MemoryStore, StateStoreExt},
-    DisplayName, Room as BaseRoom, RoomCreateWithCreatorEventContent, RoomInfo,
-    RoomMember as BaseRoomMember, RoomMemberships, RoomState, SessionMeta, StateChanges,
-    StateStore, StoreError,
+    CallMemberIdentifier, DisplayName, Room as BaseRoom, RoomCall,
+    RoomCreateWithCreatorEventContent, RoomInfo, RoomMember as BaseRoomMember, RoomMemberships,
+    RoomState, SessionMeta, StateChanges, StateStore, StoreError,
 };
 pub use matrix_sdk_common::*;
 pub use reqwest;
