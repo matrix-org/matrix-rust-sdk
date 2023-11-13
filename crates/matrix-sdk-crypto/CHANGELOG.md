@@ -1,5 +1,9 @@
 # unreleased
 
+- `get_missing_sessions`: Don't block waiting for `/keys/query` requests on
+  blacklisted servers, and improve performance.
+  ([#2845](https://github.com/matrix-org/matrix-rust-sdk/pull/2845))
+
 - Handle missing devices in `/keys/claim` responses.
   ([#2805](https://github.com/matrix-org/matrix-rust-sdk/pull/2805))
 
