@@ -62,6 +62,10 @@ enum IdentityUpdateResult {
 
 #[derive(Debug, Clone)]
 pub(crate) struct IdentityManager {
+    /// Servers that have previously appeared in the `failures` section of a
+    /// `/keys/query` response.
+    ///
+    /// See also [`crate::session_manager::SessionManager::failures`].
     failures: FailuresCache<OwnedServerName>,
     store: Store,
 
@@ -908,20 +912,40 @@ impl IdentityManager {
         // benefit to waiting for the `/keys/query` request to complete. So we don't
         // bother.
 
-        let user_devices = if user_devices.is_empty() {
-            let cache = self.store.cache().await?;
-            match self
-                .key_query_manager
-                .wait_if_user_key_query_pending(cache, KEYS_QUERY_WAIT_TIME, user_id)
-                .await?
-            {
-                UserKeyQueryResult::WasPending => {
-                    self.store.get_readonly_devices_filtered(user_id).await?
-                }
-                _ => user_devices,
+        if !user_devices.is_empty() {
+            return Ok(user_devices);
+        }
+
+        // *However*, if the user's server is currently subject to a backoff due to
+        // previous failures, then `users_for_key_query` won't attempt to query
+        // for the user's devices, so there's no point waiting.
+        //
+        // XXX: this is racy. It's possible that:
+        //  * `failures` included the user's server when `users_for_key_query` was
+        //    called, so the user was not returned in the `KeyQueryRequest`, and:
+        //  * The backoff has now expired.
+        //
+        // In that case, we'll end up waiting for the *next* `users_for_key_query` call,
+        // which might not be for 30 seconds or so. (And by then, it might be `failed`
+        // again.)
+        if self.failures.contains(user_id.server_name()) {
+            info!(
+                ?user_id,
+                "Not waiting for `/keys/query` for user whose server has previously failed"
+            );
+            return Ok(user_devices);
+        }
+
+        let cache = self.store.cache().await?;
+        let user_devices = match self
+            .key_query_manager
+            .wait_if_user_key_query_pending(cache, KEYS_QUERY_WAIT_TIME, user_id)
+            .await?
+        {
+            UserKeyQueryResult::WasPending => {
+                self.store.get_readonly_devices_filtered(user_id).await?
             }
-        } else {
-            user_devices
+            _ => user_devices,
         };
 
         Ok(user_devices)

@@ -63,7 +63,13 @@ pub(crate) struct SessionManager {
     wedged_devices: Arc<StdRwLock<BTreeMap<OwnedUserId, BTreeSet<OwnedDeviceId>>>>,
     key_request_machine: GossipMachine,
     outgoing_to_device_requests: Arc<StdRwLock<BTreeMap<OwnedTransactionId, OutgoingRequest>>>,
+
+    /// Servers that have previously appeared in the `failures` section of a
+    /// `/keys/claim` response.
+    ///
+    /// See also [`crate::identities::IdentityManager::failures`].
     failures: FailuresCache<OwnedServerName>,
+
     failed_devices: Arc<StdRwLock<BTreeMap<OwnedUserId, FailuresCache<OwnedDeviceId>>>>,
 }
 
@@ -553,6 +559,7 @@ mod tests {
         iter,
         ops::Deref,
         sync::{Arc, RwLock as StdRwLock},
+        time::Duration,
     };
 
     use matrix_sdk_test::{async_test, response_from_file};
@@ -564,7 +571,7 @@ mod tests {
             },
             IncomingResponse,
         },
-        device_id, owned_server_name, user_id, DeviceId, UserId,
+        device_id, owned_server_name, user_id, DeviceId, OwnedUserId, UserId,
     };
     use serde_json::json;
     use tokio::sync::Mutex;
@@ -743,6 +750,45 @@ mod tests {
         info!("Key claim request: {:?}", keys_claim_request.one_time_keys);
         let bob_key_claims = keys_claim_request.one_time_keys.get(bob.user_id()).unwrap();
         assert!(bob_key_claims.contains_key(bob_device.device_id()));
+    }
+
+    #[async_test]
+    async fn test_session_creation_does_not_wait_for_keys_query_on_failed_server() {
+        let (manager, identity_manager) = session_manager_test_helper().await;
+
+        // We start tracking Bob's devices.
+        let other_user_id = OwnedUserId::try_from("@bob:example.com").unwrap();
+        {
+            let cache = manager.store.cache().await.unwrap();
+            identity_manager
+                .key_query_manager
+                .synced(&cache)
+                .await
+                .unwrap()
+                .update_tracked_users(iter::once(other_user_id.as_ref()))
+                .await
+                .unwrap();
+        }
+
+        // Do a keys query request, in which Bob's server is a failure.
+        let (key_query_txn_id, _key_query_request) =
+            identity_manager.users_for_key_query().await.unwrap().pop_first().unwrap();
+        let response = KeysQueryResponse::try_from_http_response(response_from_file(
+                &json!({ "device_keys": {}, "failures": { other_user_id.server_name(): "unreachable" }})
+        )).unwrap();
+        identity_manager.receive_keys_query_response(&key_query_txn_id, &response).await.unwrap();
+
+        // Now, an attempt to get the missing sessions should now *not* block. We use a
+        // timeout so that we can detect the call blocking.
+        let result = tokio::time::timeout(
+            Duration::from_millis(10),
+            manager.get_missing_sessions(iter::once(other_user_id.as_ref())),
+        )
+        .await
+        .expect("get_missing_sessions blocked rather than completing quickly")
+        .expect("get_missing_sessions returned an error");
+
+        assert!(result.is_none(), "get_missing_sessions returned Some(...)");
     }
 
     // This test doesn't run on macos because we're modifying the session
