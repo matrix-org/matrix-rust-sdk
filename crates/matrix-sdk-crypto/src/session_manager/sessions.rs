@@ -225,16 +225,21 @@ impl SessionManager {
         let mut missing: BTreeMap<_, BTreeMap<_, _>> = BTreeMap::new();
         let mut timed_out: BTreeMap<_, BTreeSet<_>> = BTreeMap::new();
 
-        // Add the list of devices that the user wishes to establish sessions
-        // right now.
-        for user_id in users.filter(|u| !self.failures.contains(u.server_name())) {
-            let user_devices = Box::pin(
-                self.key_request_machine
-                    .identity_manager()
-                    .get_user_devices_for_encryption(user_id),
-            )
-            .await?;
+        let unfailed_users = users.filter(|u| !self.failures.contains(u.server_name()));
 
+        // XXX: You'd think this would be unnecessary, but if you omit it, Rust starts
+        // yelling about lifetimes and Send for reasons that I don't really understand.
+        let unfailed_users: Vec<_> = unfailed_users.collect();
+
+        // Get the current list of devices for each user.
+        let devices_by_user = Box::pin(
+            self.key_request_machine
+                .identity_manager()
+                .get_user_devices_for_encryption(unfailed_users),
+        )
+        .await?;
+
+        for (user_id, user_devices) in devices_by_user {
             for (device_id, device) in user_devices {
                 if !(device.supports_olm()) {
                     warn!(
@@ -253,7 +258,7 @@ impl SessionManager {
                         true
                     };
 
-                    let is_timed_out = self.is_user_timed_out(user_id, &device_id);
+                    let is_timed_out = self.is_user_timed_out(&user_id, &device_id);
 
                     if is_missing && is_timed_out {
                         timed_out.entry(user_id.to_owned()).or_default().insert(device_id);
