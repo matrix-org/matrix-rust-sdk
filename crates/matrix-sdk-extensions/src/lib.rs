@@ -1,10 +1,10 @@
-mod traits;
+pub mod traits;
 
 #[cfg(feature = "native")]
-mod native;
+pub mod native;
 
 #[cfg(feature = "javascriptcore")]
-mod javascriptcore;
+pub mod javascriptcore;
 
 // #[cfg(feature = "javascriptcore")]
 // pub use javascriptcore::NativeInstance as Instance;

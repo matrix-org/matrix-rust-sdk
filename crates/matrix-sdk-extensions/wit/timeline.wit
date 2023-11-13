@@ -1,4 +1,4 @@
-package matrix:ui-timeline
+package matrix:ui-timeline;
 
 interface std {
     print: func(msg: string);

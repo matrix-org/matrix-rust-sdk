@@ -8,10 +8,11 @@ version = "0.0.1"
 
 [features]
 default = ["native", "javascriptcore"]
-native = ["dep:wasmtime"]
-javascriptcore = ["dep:javascriptcore"]
+native = ["dep:wasmtime", "matrix-sdk-extensions-macros/wasmtime"]
+javascriptcore = ["dep:javascriptcore", "matrix-sdk-extensions-macros/javascriptcore"]
 
 [dependencies]
+matrix-sdk-extensions-macros = { path = "../matrix-sdk-extensions-macros", default-features = false }
 wasmtime = { version ="13.0.0", features = ["component-model"], optional = true }
 # javascriptcore = { git = "https://github.com/endoli/javascriptcore.rs", branch = "main", optional = true }
 javascriptcore = { git = "https://github.com/Hywan/javascriptcore.rs", branch = "fix-macro-imports", optional = true }

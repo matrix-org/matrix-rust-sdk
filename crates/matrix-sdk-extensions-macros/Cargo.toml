@@ -1,0 +1,23 @@
+[package]
+authors = ["Ivan Enderlin <ivan@mnt.io>"]
+edition = "2021"
+name = "matrix-sdk-extensions-macros"
+repository = "https://github.com/matrix-org/matrix-rust-sdk"
+rust-version = { workspace = true }
+version = "0.0.1"
+
+[lib]
+proc-macro = true
+
+[features]
+default = ["wasmtime", "javascriptcore"]
+wasmtime = ["dep:wasmtime-wit-bindgen"]
+javascriptcore = []
+
+[dependencies]
+heck = { version = "0.4.1" }
+proc-macro2 = "1.0.69"
+quote = "1.0.33"
+syn = { version = "2.0.39", features = ["full"] }
+wasmtime-wit-bindgen = { version = "14.0.4", optional = true }
+wit-parser = "0.12.1"

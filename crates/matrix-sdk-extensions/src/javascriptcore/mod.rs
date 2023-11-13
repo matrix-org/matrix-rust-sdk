@@ -169,23 +169,19 @@ mod tests {
         struct TimelineModule;
 
         impl Module for TimelineModule {
-            type State = TimelineState;
+            type Environment = TimelineState;
             type Bindings = Timeline;
 
-            fn new_state() -> Self::State {
+            fn new_environment() -> Self::Environment {
                 TimelineState::default()
             }
         }
 
         let instance = <JSInstance as Instance<TimelineModule>>::new(TIMELINE_SCRIPT_PATH).unwrap();
 
-        //     let greet = exports.get_property("greet").as_object()?;
-        //     let result =
-        //         greet.call_as_function(None, &[JSValue::new_string(&context, "from
-        // Rusty")]);
-
-        //     // panic!("{}", result.unwrap().as_string().unwrap().to_string());
-        // }
+        let greet = instance.exports.get_property("greet").as_object()?;
+        let result =
+            greet.call_as_function(None, &[JSValue::new_string(&instance.context, "from Rusty")]);
 
         Ok(())
     }

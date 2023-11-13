@@ -3,10 +3,10 @@ use std::path::Path;
 use crate::Result;
 
 pub(crate) trait Module {
-    type State;
+    type Environment: Default;
     type Bindings;
 
-    fn new_state() -> Self::State;
+    fn new_environment() -> Self::Environment;
 }
 
 pub(crate) trait Instance<M>
