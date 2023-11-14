@@ -56,7 +56,8 @@ struct ElementCallParams {
 /// This controls the url parameters: `perParticipantE2EE`, `password`.
 #[derive(Debug, PartialEq)]
 pub enum EncryptionSystem {
-    /// Equivalent to the element call url parameter: `perParticipantE2EE=false` and no password.
+    /// Equivalent to the element call url parameter: `perParticipantE2EE=false`
+    /// and no password.
     Unencrypted,
     /// Equivalent to the element call url parameters:
     /// `perParticipantE2EE=true`
