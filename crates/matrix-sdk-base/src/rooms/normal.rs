@@ -577,8 +577,8 @@ impl Room {
         };
 
         debug!(
-            room_id = self.room_id().as_str(),
-            own_user = self.own_user_id.as_str(),
+            room_id = ?self.room_id(),
+            own_user = ?self.own_user_id,
             joined, invited,
             heroes = ?members,
             "Calculating name for a room",

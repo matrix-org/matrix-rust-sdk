@@ -255,8 +255,8 @@ impl SessionManager {
             for (device_id, device) in user_devices {
                 if !(device.supports_olm()) {
                     warn!(
-                        user_id = device.user_id().as_str(),
-                        device_id = device.device_id().as_str(),
+                        user_id = ?device.user_id(),
+                        device_id = ?device.device_id(),
                         algorithms = ?device.algorithms(),
                         "Device doesn't support any of our 1-to-1 E2EE \
                         algorithms, can't establish an Olm session"
@@ -282,8 +282,8 @@ impl SessionManager {
                     }
                 } else {
                     warn!(
-                        user_id = device.user_id().as_str(),
-                        device_id = device.device_id().as_str(),
+                        user_id = ?device.user_id(),
+                        device_id = ?device.device_id(),
                         "Device doesn't have a valid Curve25519 key, \
                         can't establish an Olm session"
                     );
@@ -485,18 +485,15 @@ impl SessionManager {
                 Ok(Some(d)) => d,
                 Ok(None) => {
                     warn!(
-                        user_id = user_id.as_str(),
-                        device_id = device_id.as_str(),
-                        "Tried to create an Olm session but the device is \
-                            unknown",
+                        ?user_id,
+                        ?device_id,
+                        "Tried to create an Olm session but the device is unknown",
                     );
                     continue;
                 }
                 Err(e) => {
                     warn!(
-                        user_id = user_id.as_str(),
-                        device_id = device_id.as_str(),
-                        error = ?e,
+                        ?user_id, ?device_id, error = ?e,
                         "Tried to create an Olm session, but we can't \
                         fetch the device from the store",
                     );
@@ -509,9 +506,7 @@ impl SessionManager {
                 Ok(s) => s,
                 Err(e) => {
                     warn!(
-                        user_id = user_id.as_str(),
-                        device_id = device_id.as_str(),
-                        error = ?e,
+                        ?user_id, ?device_id, error = ?e,
                         "Error creating outbound session"
                     );
 

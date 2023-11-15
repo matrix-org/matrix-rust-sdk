@@ -162,7 +162,7 @@ impl<'a> IntoFuture for SendRawMessageLikeEvent<'a> {
                     debug!("Sending plaintext event because of the event type.");
                 } else {
                     debug!(
-                        room_id = room.room_id().as_str(),
+                        room_id = ?room.room_id(),
                         "Sending encrypted event because the room is encrypted.",
                     );
 
