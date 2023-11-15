@@ -785,10 +785,7 @@ impl GroupSessionManager {
 
         if requests.is_empty() {
             if !outbound.shared() {
-                debug!(
-                    room_id = room_id.as_str(),
-                    "The room key doesn't need to be shared with anyone. Marking as shared."
-                );
+                debug!("The room key doesn't need to be shared with anyone. Marking as shared.");
 
                 outbound.mark_as_shared();
                 changes.outbound_group_sessions.push(outbound.clone());
