@@ -2263,10 +2263,8 @@ pub(crate) mod tests {
         let bob_device =
             alice.get_device(bob.user_id(), bob.device_id(), None).await.unwrap().unwrap();
 
-        let (session, content) = bob_device
-            .encrypt("m.dummy", serde_json::to_value(ToDeviceDummyEventContent::new()).unwrap())
-            .await
-            .unwrap();
+        let (session, content) =
+            bob_device.encrypt("m.dummy", ToDeviceDummyEventContent::new()).await.unwrap();
         alice.store().save_sessions(&[session]).await.unwrap();
 
         let event =
@@ -2661,7 +2659,7 @@ pub(crate) mod tests {
             alice.get_device(bob.user_id(), bob.device_id(), None).await.unwrap().unwrap();
 
         let (_, content) = bob_device
-            .encrypt("m.dummy", serde_json::to_value(ToDeviceDummyEventContent::new()).unwrap())
+            .encrypt("m.dummy", ToDeviceDummyEventContent::new())
             .await
             .expect("We should be able to encrypt a dummy event.");
 

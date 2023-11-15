@@ -30,7 +30,6 @@ use ruma::{
     OwnedDeviceKeyId, UInt, UserId,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use tokio::sync::Mutex;
 use tracing::{instrument, trace, warn};
 use vodozemac::{olm::SessionConfig, Curve25519PublicKey, Ed25519PublicKey};
@@ -427,7 +426,7 @@ impl Device {
     pub(crate) async fn encrypt(
         &self,
         event_type: &str,
-        content: Value,
+        content: impl Serialize,
     ) -> OlmResult<(Session, Raw<ToDeviceEncryptedEventContent>)> {
         #[cfg(feature = "message-ids")]
         let message_id = {
@@ -455,8 +454,6 @@ impl Device {
         let content = session.as_content().await;
         let message_index = session.message_index().await;
         let event_type = content.event_type();
-        let content =
-            serde_json::to_value(content).expect("We can always serialize our own room key");
 
         match self.encrypt(event_type, content).await {
             Ok((session, encrypted)) => Ok(MaybeEncryptedRoomKey::Encrypted {
@@ -487,7 +484,7 @@ impl Device {
             };
             let content: ForwardedRoomKeyContent = export.try_into()?;
 
-            (content.event_type(), serde_json::to_value(content)?)
+            (content.event_type(), content)
         };
 
         self.encrypt(event_type, content).await
@@ -776,7 +773,7 @@ impl ReadOnlyDevice {
         &self,
         store: &CryptoStoreWrapper,
         event_type: &str,
-        content: Value,
+        content: impl Serialize,
         message_id: Option<String>,
     ) -> OlmResult<(Session, Raw<ToDeviceEncryptedEventContent>)> {
         let session = self.get_most_recent_session(store).await?;

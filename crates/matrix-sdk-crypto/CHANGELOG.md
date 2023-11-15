@@ -1,5 +1,10 @@
 # unreleased
 
+- Generalize `olm::Session::encrypt` to accept any value implementing
+  `Serialize` for the `value` parameter, instead of specifically
+  `serde_json::Value`. Note that references to `Serialize`-implementing types
+  themselves implement `Serialize`.
+
 - Handle missing devices in `/keys/claim` responses.
   ([#2805](https://github.com/matrix-org/matrix-rust-sdk/pull/2805))
 

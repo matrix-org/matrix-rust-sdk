@@ -161,8 +161,8 @@ impl SessionManager {
             .is_some_and(|d| d.remove(device_id))
         {
             if let Some(device) = self.store.get_device(user_id, device_id).await? {
-                let content = serde_json::to_value(ToDeviceDummyEventContent::new())?;
-                let (_, content) = device.encrypt("m.dummy", content).await?;
+                let (_, content) =
+                    device.encrypt("m.dummy", ToDeviceDummyEventContent::new()).await?;
 
                 let request = ToDeviceRequest::new(
                     device.user_id(),
