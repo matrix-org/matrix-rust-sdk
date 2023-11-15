@@ -16,7 +16,7 @@ use std::{fmt, sync::Arc};
 
 use ruma::{serde::Raw, JsOption, OwnedDeviceId, OwnedUserId, SecondsSinceUnixEpoch};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::json;
 use tokio::sync::Mutex;
 use tracing::{field::debug, instrument, trace, Span};
 use vodozemac::{
@@ -150,7 +150,7 @@ impl Session {
         &mut self,
         recipient_device: &ReadOnlyDevice,
         event_type: &str,
-        content: Value,
+        content: impl Serialize,
         message_id: Option<String>,
     ) -> OlmResult<Raw<ToDeviceEncryptedEventContent>> {
         let plaintext = {

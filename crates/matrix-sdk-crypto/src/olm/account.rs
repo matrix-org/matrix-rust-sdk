@@ -958,12 +958,7 @@ impl Account {
         other.mark_keys_as_published();
 
         let message = our_session
-            .encrypt(
-                &device,
-                "m.dummy",
-                serde_json::to_value(ToDeviceDummyEventContent::new()).unwrap(),
-                None,
-            )
+            .encrypt(&device, "m.dummy", ToDeviceDummyEventContent::new(), None)
             .await
             .unwrap()
             .deserialize()
