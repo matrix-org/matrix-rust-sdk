@@ -139,7 +139,7 @@ impl UserIdentity {
     /// let user = client.encryption().get_user_identity(alice).await?;
     ///
     /// if let Some(user) = user {
-    ///     println!("This user identity belongs to {}", user.user_id().as_str());
+    ///     println!("This user identity belongs to {}", user.user_id());
     /// }
     ///
     /// # anyhow::Ok(()) };
@@ -368,9 +368,9 @@ impl UserIdentity {
     ///
     /// if let Some(user) = user {
     ///     if user.is_verified() {
-    ///         println!("User {} is verified", user.user_id().as_str());
+    ///         println!("User {} is verified", user.user_id());
     ///     } else {
-    ///         println!("User {} is not verified", user.user_id().as_str());
+    ///         println!("User {} is not verified", user.user_id());
     ///     }
     /// }
     /// # anyhow::Ok(()) };
@@ -414,14 +414,11 @@ impl UserIdentity {
     ///     {
     ///         println!(
     ///             "Master keys match for user {}, marking the user as verified",
-    ///             user.user_id().as_str(),
+    ///             user.user_id(),
     ///         );
     ///         user.verify().await?;
     ///     } else {
-    ///         println!(
-    ///             "Master keys don't match for user {}",
-    ///             user.user_id().as_str()
-    ///         );
+    ///         println!("Master keys don't match for user {}", user.user_id());
     ///     }
     /// }
     /// # anyhow::Ok(()) };

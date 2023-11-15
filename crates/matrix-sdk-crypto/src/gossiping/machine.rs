@@ -294,8 +294,8 @@ impl GossipMachine {
             if device.user_id() == self.user_id() {
                 if device.is_verified() {
                     info!(
-                        user_id = device.user_id().as_str(),
-                        device_id = device.device_id().as_str(),
+                        user_id = ?device.user_id(),
+                        device_id = ?device.device_id(),
                         ?secret_name,
                         "Sharing a secret with a device",
                     );
@@ -304,9 +304,9 @@ impl GossipMachine {
                         Ok(s) => Ok(Some(s)),
                         Err(OlmError::MissingSession) => {
                             info!(
-                                user_id = device.user_id().as_str(),
-                                device_id = device.device_id().as_str(),
-                                secret_name = secret_name.as_ref(),
+                                user_id = ?device.user_id(),
+                                device_id = ?device.device_id(),
+                                ?secret_name,
                                 "Secret request is missing an Olm session, \
                                 putting the request in the wait queue",
                             );
@@ -318,8 +318,8 @@ impl GossipMachine {
                     }?
                 } else {
                     info!(
-                        user_id = device.user_id().as_str(),
-                        device_id = device.device_id().as_str(),
+                        user_id = ?device.user_id(),
+                        device_id = ?device.device_id(),
                         ?secret_name,
                         "Received a secret request that we won't serve, the device isn't trusted",
                     );
@@ -328,8 +328,8 @@ impl GossipMachine {
                 }
             } else {
                 info!(
-                    user_id = device.user_id().as_str(),
-                    device_id = device.device_id().as_str(),
+                    user_id = ?device.user_id(),
+                    device_id = ?device.device_id(),
                     ?secret_name,
                     "Received a secret request that we won't serve, the device doesn't belong to us",
                 );
@@ -338,8 +338,8 @@ impl GossipMachine {
             }
         } else {
             warn!(
-                user_id = event.sender.as_str(),
-                device_id = event.content.requesting_device_id.as_str(),
+                user_id = ?event.sender,
+                device_id = ?event.content.requesting_device_id,
                 ?secret_name,
                 "Received a secret request from an unknown device",
             );
@@ -788,9 +788,9 @@ impl GossipMachine {
 
         if let Some(mut info) = info {
             trace!(
-                recipient = info.request_recipient.as_str(),
+                recipient = ?info.request_recipient,
                 request_type = info.request_type(),
-                request_id = info.request_id.to_string().as_str(),
+                request_id = ?info.request_id,
                 "Marking outgoing secret request as sent"
             );
             info.sent_out = true;
@@ -807,9 +807,9 @@ impl GossipMachine {
     /// This will queue up a request cancellation.
     async fn mark_as_done(&self, key_info: &GossipRequest) -> Result<(), CryptoStoreError> {
         trace!(
-            recipient = key_info.request_recipient.as_str(),
+            recipient = ?key_info.request_recipient,
             request_type = key_info.request_type(),
-            request_id = key_info.request_id.to_string().as_str(),
+            request_id = ?key_info.request_id,
             "Successfully received a secret, removing the request"
         );
 
@@ -951,7 +951,7 @@ impl GossipMachine {
                     info!(
                         ?sender_key,
                         claimed_sender_key = ?session.sender_key(),
-                        room_id = session.room_id().as_str(),
+                        room_id = ?session.room_id(),
                         session_id = session.session_id(),
                         algorithm = ?session.algorithm(),
                         "Received a forwarded room key",
