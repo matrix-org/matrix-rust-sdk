@@ -73,7 +73,7 @@ impl fmt::Debug for Session {
 impl Session {
     /// Decrypt the given Olm message.
     ///
-    /// Returns the decrypted plaintext or an `DecryptionError` if decryption
+    /// Returns the decrypted plaintext or a [`DecryptionError`] if decryption
     /// failed.
     ///
     /// # Arguments
@@ -99,12 +99,12 @@ impl Session {
         self.sender_key
     }
 
-    /// Get the `SessionConfig` that this session is using.
+    /// Get the [`SessionConfig`] that this session is using.
     pub async fn session_config(&self) -> SessionConfig {
         self.inner.lock().await.session_config()
     }
 
-    /// Get the `EventEncryptionAlgorithm` of t his `Session`.
+    /// Get the [`EventEncryptionAlgorithm`] of this [`Session`].
     pub async fn algorithm(&self) -> EventEncryptionAlgorithm {
         #[cfg(feature = "experimental-algorithms")]
         if self.session_config().await.version() == 2 {
