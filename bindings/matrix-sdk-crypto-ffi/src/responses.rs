@@ -149,7 +149,7 @@ impl From<OutgoingRequest> for Request {
                 Request::KeysUpload {
                     request_id: r.request_id().to_string(),
                     body: serde_json::to_string(&body)
-                        .expect("Can't serialize keys upload request"),
+                        .expect("Can't serialize `/keys/upload` request"),
                 }
             }
             KeysQuery(k) => {
