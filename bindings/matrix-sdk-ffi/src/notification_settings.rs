@@ -303,6 +303,28 @@ impl NotificationSettings {
         Ok(enabled)
     }
 
+    /// Check if [MSC 4028 push rule][rule] is enabled.
+    ///
+    /// [rule]: https://github.com/matrix-org/matrix-spec-proposals/blob/giomfo/push_encrypted_events/proposals/4028-push-all-encrypted-events-except-for-muted-rooms.md
+    pub async fn can_homeserver_push_encrypted_event_to_device(&self) -> bool {
+        let notification_settings = self.sdk_notification_settings.read().await;
+        // Check stable identifier
+        if let Ok(enabled) = notification_settings
+            .is_push_rule_enabled(RuleKind::Override, ".m.rule.encrypted_event")
+            .await
+        {
+            enabled
+        // Check unstable identifier
+        } else if let Ok(enabled) = notification_settings
+            .is_push_rule_enabled(RuleKind::Override, ".org.matrix.msc4028.encrypted_event")
+            .await
+        {
+            enabled
+        } else {
+            false
+        }
+    }
+
     /// Set whether user mentions are enabled.
     pub async fn set_user_mention_enabled(
         &self,

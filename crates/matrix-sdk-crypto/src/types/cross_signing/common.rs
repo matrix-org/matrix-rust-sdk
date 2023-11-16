@@ -71,7 +71,7 @@ impl CrossSigningKey {
 
     /// Serialize the cross signing key into a Raw version.
     pub fn to_raw<T>(&self) -> Raw<T> {
-        Raw::from_json(to_raw_value(&self).expect("Coulnd't serialize cross signing keys"))
+        Raw::from_json(to_raw_value(&self).expect("Couldn't serialize cross signing keys"))
     }
 
     /// Get the Ed25519 cross-signing key (and its ID).

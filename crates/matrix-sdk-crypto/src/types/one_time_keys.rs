@@ -93,7 +93,7 @@ impl SignedKey {
     /// Serialize the one-time key into a Raw version.
     pub fn into_raw<T>(self) -> Raw<T> {
         let key = OneTimeKey::SignedKey(self);
-        Raw::from_json(to_raw_value(&key).expect("Coulnd't serialize one-time key"))
+        Raw::from_json(to_raw_value(&key).expect("Couldn't serialize one-time key"))
     }
 }
 

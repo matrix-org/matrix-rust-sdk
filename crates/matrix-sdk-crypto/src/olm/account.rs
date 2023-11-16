@@ -600,7 +600,7 @@ impl Account {
             .expect("We should be able to convert a freshly created Account into a libolm pickle");
 
         let data = DehydratedDeviceData::V1(DehydratedDeviceV1::new(device_pickle));
-        Raw::from_json(to_raw_value(&data).expect("Coulnd't our dehydrated device data"))
+        Raw::from_json(to_raw_value(&data).expect("Couldn't serialize our dehydrated device data"))
     }
 
     pub(crate) async fn rehydrate(
@@ -958,12 +958,7 @@ impl Account {
         other.mark_keys_as_published();
 
         let message = our_session
-            .encrypt(
-                &device,
-                "m.dummy",
-                serde_json::to_value(ToDeviceDummyEventContent::new()).unwrap(),
-                None,
-            )
+            .encrypt(&device, "m.dummy", ToDeviceDummyEventContent::new(), None)
             .await
             .unwrap()
             .deserialize()

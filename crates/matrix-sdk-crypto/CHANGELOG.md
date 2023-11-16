@@ -4,6 +4,16 @@
   blacklisted servers, and improve performance.
   ([#2845](https://github.com/matrix-org/matrix-rust-sdk/pull/2845))
 
+- Generalize `olm::Session::encrypt` to accept any value implementing
+  `Serialize` for the `value` parameter, instead of specifically
+  `serde_json::Value`. Note that references to `Serialize`-implementing types
+  themselves implement `Serialize`.
+
+- Change the argument to `OlmMachine::receive_sync_changes` to be an
+  `EncryptionSyncChanges` struct packing all the arguments instead of many
+  single arguments. The new `next_batch_token` field there should be the
+  `next_batch` value read from the latest sync response.
+
 - Handle missing devices in `/keys/claim` responses.
   ([#2805](https://github.com/matrix-org/matrix-rust-sdk/pull/2805))
 

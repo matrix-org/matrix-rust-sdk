@@ -478,7 +478,7 @@ impl QrVerification {
             };
 
             trace!(
-                sender = sender.as_str(),
+                ?sender,
                 code = content.cancel_code().as_str(),
                 "Cancelling a QR verification, other user has cancelled"
             );

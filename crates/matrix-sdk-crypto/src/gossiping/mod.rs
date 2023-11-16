@@ -109,12 +109,9 @@ impl SecretInfo {
     /// comparison.
     pub fn as_key(&self) -> String {
         match &self {
-            SecretInfo::KeyRequest(info) => format!(
-                "keyRequest:{}:{}:{}",
-                info.room_id().as_str(),
-                info.session_id(),
-                &info.algorithm(),
-            ),
+            SecretInfo::KeyRequest(info) => {
+                format!("keyRequest:{}:{}:{}", info.room_id(), info.session_id(), info.algorithm())
+            }
             SecretInfo::SecretRequest(sname) => format!("secretName:{sname}"),
         }
     }

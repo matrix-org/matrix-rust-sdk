@@ -230,8 +230,8 @@ impl IdentityManager {
         if let Some(mut device) = old_device {
             if let Err(e) = device.update_device(&device_keys) {
                 warn!(
-                    user_id = device.user_id().as_str(),
-                    device_id = device.device_id().as_str(),
+                    user_id = ?device.user_id(),
+                    device_id = ?device.device_id(),
                     error = ?e,
                     "Failed to update device keys",
                 );
@@ -253,8 +253,8 @@ impl IdentityManager {
                             d.set_trust_state(LocalTrust::Verified);
 
                             trace!(
-                                user_id = d.user_id().as_str(),
-                                device_id = d.device_id().as_str(),
+                                user_id = ?d.user_id(),
+                                device_id = ?d.device_id(),
                                 keys = ?d.keys(),
                                 "Adding our own device to the device store, \
                                 marking it as locally verified",
@@ -266,8 +266,8 @@ impl IdentityManager {
                         }
                     } else {
                         trace!(
-                            user_id = d.user_id().as_str(),
-                            device_id = d.device_id().as_str(),
+                            user_id = ?d.user_id(),
+                            device_id = ?d.device_id(),
                             keys = ?d.keys(),
                             "Adding a new device to the device store",
                         );
@@ -277,8 +277,8 @@ impl IdentityManager {
                 }
                 Err(e) => {
                     warn!(
-                        user_id = device_keys.user_id.as_str(),
-                        device_id = device_keys.device_id.as_str(),
+                        user_id = ?device_keys.user_id,
+                        device_id = ?device_keys.device_id,
                         error = ?e,
                         "Failed to create a new device",
                     );
@@ -306,10 +306,10 @@ impl IdentityManager {
             Ok(device_keys) => {
                 if user_id != device_keys.user_id || device_id != device_keys.device_id {
                     warn!(
-                        user_id = user_id.as_str(),
-                        device_id = device_id.as_str(),
-                        device_key_user = device_keys.user_id.as_str(),
-                        device_key_device_id = device_keys.device_id.as_str(),
+                        ?user_id,
+                        ?device_id,
+                        device_key_user = ?device_keys.user_id,
+                        device_key_device_id = ?device_keys.device_id,
                         "Mismatch in the device keys payload",
                     );
                     None
@@ -319,9 +319,7 @@ impl IdentityManager {
             }
             Err(e) => {
                 warn!(
-                    user_id = user_id.as_str(),
-                    device_id = device_id.as_str(),
-                    error = ?e,
+                    ?user_id, ?device_id, error = ?e,
                     "Device keys failed to deserialize",
                 );
                 None
@@ -351,8 +349,8 @@ impl IdentityManager {
                 let identity_keys = store.static_account().identity_keys();
 
                 warn!(
-                    user_id = own_user_id.as_str(),
-                    device_id = own_device_id.as_str(),
+                    user_id = ?own_user_id,
+                    device_id = ?own_device_id,
                     curve25519_key = ?identity_keys.curve25519,
                     ed25519_key = ?identity_keys.ed25519,
                     "Our own device might have been deleted"
