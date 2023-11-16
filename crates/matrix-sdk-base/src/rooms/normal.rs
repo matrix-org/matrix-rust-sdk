@@ -55,13 +55,13 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, field::debug, info, instrument, trace, warn};
 
 use super::{
+    calls::RoomCall,
     members::{MemberInfo, MemberRoomInfo},
     BaseRoomInfo, DisplayName, RoomCreateWithCreatorEventContent, RoomMember,
 };
 #[cfg(feature = "experimental-sliding-sync")]
 use crate::latest_event::LatestEvent;
 use crate::{
-    calls::{CallMemberData, CallMemberIdentifier, RoomCall},
     deserialized_responses::MemberEvent,
     store::{DynStateStore, Result as StoreResult, StateStoreExt},
     sync::UnreadNotificationsCount,
@@ -1024,30 +1024,9 @@ impl RoomInfo {
         Some(&self.base_info.topic.as_ref()?.as_original()?.content.topic)
     }
 
-    /// Returns an active (on-going) room call (also known as matrix RTC
-    /// session).
+    /// Returns an active (on-going) room call.
     pub fn active_room_call(&self) -> Option<RoomCall> {
-        let members: BTreeMap<_, _> = self
-            .base_info
-            .rtc_member
-            .iter()
-            .filter_map(|(user_id, ev)| {
-                let ev = ev.as_original()?;
-                let active = ev.content.active_memberships(None);
-                let room_call_memberships = active.into_iter().filter(|m| m.is_room_call());
-                Some(room_call_memberships.filter_map(|m| {
-                    let id = CallMemberIdentifier {
-                        user_id: user_id.clone(),
-                        device_id: m.device_id.clone().into(),
-                    };
-                    let data = CallMemberData { member_since: m.created_ts?, valid_for: m.expires };
-                    Some((id, data))
-                }))
-            })
-            .flatten()
-            .collect();
-
-        (!members.is_empty()).then_some(RoomCall { members })
+        self.base_info.call_memberships.room_call()
     }
 }
 
@@ -1251,6 +1230,9 @@ mod tests {
                 "name": null,
                 "tombstone": null,
                 "topic": null,
+                "call_memberships": {
+                    "memberships": {},
+                },
             }
         });
 
@@ -1294,6 +1276,9 @@ mod tests {
                 "name": null,
                 "tombstone": null,
                 "topic": null,
+                "call_memberships": {
+                    "memberships": {},
+                },
             }
         });
 

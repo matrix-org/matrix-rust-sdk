@@ -14,7 +14,7 @@
 
 //! Data migration helpers for StateStore implementations.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::HashSet;
 
 #[cfg(feature = "experimental-sliding-sync")]
 use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
@@ -189,6 +189,7 @@ impl BaseRoomInfoV1 {
             MinimalStateEvent::Redacted(ev) => MinimalStateEvent::Redacted(ev),
         });
 
+        let call_memberships = Default::default();
         Box::new(BaseRoomInfo {
             avatar,
             canonical_alias,
@@ -202,7 +203,7 @@ impl BaseRoomInfoV1 {
             name,
             tombstone,
             topic,
-            rtc_member: BTreeMap::new(),
+            call_memberships,
         })
     }
 }
