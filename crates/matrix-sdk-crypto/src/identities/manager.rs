@@ -893,57 +893,59 @@ impl IdentityManager {
     /// user's devices before encrypting to them.
     pub async fn get_user_devices_for_encryption(
         &self,
-        users: impl IntoIterator<Item = &UserId>,
+        users: impl Iterator<Item = &UserId>,
     ) -> StoreResult<HashMap<OwnedUserId, HashMap<OwnedDeviceId, ReadOnlyDevice>>> {
-        // how long we wait for /keys/query to complete
+        // How long we wait for /keys/query to complete.
         const KEYS_QUERY_WAIT_TIME: Duration = Duration::from_secs(5);
 
-        // first of all, check the store for each user.
         let mut devices_by_user = HashMap::new();
+        let mut users_with_no_devices_on_failed_servers = Vec::new();
+        let mut users_with_no_devices_on_unfailed_servers = Vec::new();
+
         for user_id in users {
-            devices_by_user.insert(
-                user_id.to_owned(),
-                self.store.get_readonly_devices_filtered(user_id).await?,
-            );
+            // First of all, check the store for this user.
+            let devices = self.store.get_readonly_devices_filtered(user_id).await?;
+
+            // Now, look for users who have no devices at all.
+            //
+            // If a user has no devices at all, that implies we have never (successfully)
+            // done a `/keys/query` for them; we wait for one to complete if it is
+            // in flight. (Of course, the user might genuinely have no devices, but
+            // that's fine, it just means we redundantly grab the cache guard and
+            // check the pending-query flag.)
+            if !devices.is_empty() {
+                // This user has at least one known device.
+                //
+                // The device list may also be outdated in this case; but in this
+                // situation, we are racing between sending a message and retrieving their
+                // device list. That's an inherently racy situation and there is no real
+                // benefit to waiting for the `/keys/query` request to complete. So we don't
+                // bother.
+                //
+                // We just add their devices to the result and carry on.
+                devices_by_user.insert(user_id.to_owned(), devices);
+                continue;
+            }
+
+            // *However*, if the user's server is currently subject to a backoff due to
+            // previous failures, then `users_for_key_query` won't attempt to query
+            // for the user's devices, so there's no point waiting.
+            //
+            // XXX: this is racy. It's possible that:
+            //  * `failures` included the user's server when `users_for_key_query` was
+            //    called, so the user was not returned in the `KeyQueryRequest`, and:
+            //  * The backoff has now expired.
+            //
+            // In that case, we'll end up waiting for the *next* `users_for_key_query` call,
+            // which might not be for 30 seconds or so. (And by then, it might be `failed`
+            // again.)
+            if self.failures.contains(user_id.server_name()) {
+                users_with_no_devices_on_failed_servers.push(user_id);
+                continue;
+            }
+
+            users_with_no_devices_on_unfailed_servers.push(user_id);
         }
-
-        // Now, look for users who have no devices at all.
-        //
-        // If a user has no devices at all, that implies we have never (successfully)
-        // done a `/keys/query` for them; we wait for one to complete if it is
-        // in flight. (Of course, the user might genuinely have no devices, but
-        // that's fine, it just means we redundantly grab the cache guard and
-        // check the pending-query flag.)
-        //
-        // The device list may also be outdated for users who *do* have devices. But in
-        // that situation, we are racing between sending a message and retrieving their
-        // device list. That's an inherently racy situation and there is no real
-        // benefit to waiting for the `/keys/query` request to complete. So we don't
-        // bother.
-
-        let users_with_no_devices: BTreeSet<OwnedUserId> = devices_by_user
-            .iter()
-            .filter(|(_user_id, devices)| devices.is_empty())
-            .map(|(user_id, _devices)| user_id.clone())
-            .collect();
-
-        // *However*, if the user's server is currently subject to a backoff due to
-        // previous failures, then `users_for_key_query` won't attempt to query
-        // for the user's devices, so there's no point waiting.
-        //
-        // XXX: this is racy. It's possible that:
-        //  * `failures` included the user's server when `users_for_key_query` was
-        //    called, so the user was not returned in the `KeyQueryRequest`, and:
-        //  * The backoff has now expired.
-        //
-        // In that case, we'll end up waiting for the *next* `users_for_key_query` call,
-        // which might not be for 30 seconds or so. (And by then, it might be `failed`
-        // again.)
-        let users_with_no_devices_on_failed_servers: BTreeSet<OwnedUserId> = users_with_no_devices
-            .iter()
-            .filter(|user_id| self.failures.contains(user_id.server_name()))
-            .cloned()
-            .collect();
 
         if !users_with_no_devices_on_failed_servers.is_empty() {
             info!(
@@ -952,26 +954,31 @@ impl IdentityManager {
             );
         }
 
-        let users_with_no_devices_on_unfailed_servers =
-            users_with_no_devices.difference(&users_with_no_devices_on_failed_servers);
+        if !users_with_no_devices_on_unfailed_servers.is_empty() {
+            info!(
+                ?users_with_no_devices_on_unfailed_servers,
+                "Waiting for `/keys/query` to complete for users who have no devices"
+            );
 
-        // for each user, fire off a task to wait for a keys/query result if one is
-        // pending.
-        //
-        // We don't actually update the `devices_by_user` map here since that could
-        // require concurrent access to it. Instead each task returns a
-        // `(OwnedUserId, HashMap)` pair (or rather, an `Option` of one) so that we can
-        // add the results to the map.
-        let results = join_all(
-            users_with_no_devices_on_unfailed_servers
-                .map(|user_id| self.get_updated_keys_for_user(KEYS_QUERY_WAIT_TIME, user_id)),
-        )
-        .await;
+            // For each user with no devices, fire off a task to wait for a keys/query
+            // result if one is pending.
+            //
+            // We don't actually update the `devices_by_user` map here since that could
+            // require concurrent access to it. Instead each task returns a
+            // `(OwnedUserId, HashMap)` pair (or rather, an `Option` of one) so that we can
+            // add the results to the map.
+            let results = join_all(
+                users_with_no_devices_on_unfailed_servers
+                    .into_iter()
+                    .map(|user_id| self.get_updated_keys_for_user(KEYS_QUERY_WAIT_TIME, user_id)),
+            )
+            .await;
 
-        // once all the tasks have completed, process the results.
-        for r in results {
-            if let Some((user_id, updated_devices)) = r? {
-                devices_by_user.insert(user_id, updated_devices);
+            // Once all the tasks have completed, process the results.
+            for result in results {
+                if let Some((user_id, updated_devices)) = result? {
+                    devices_by_user.insert(user_id.to_owned(), updated_devices);
+                }
             }
         }
 
@@ -983,11 +990,11 @@ impl IdentityManager {
     /// Waits for any pending `/keys/query` for the given user. If one was
     /// pending, reloads the device list and returns `Some(user_id,
     /// device_list)`. If no request was pending, returns `None`.
-    async fn get_updated_keys_for_user(
+    async fn get_updated_keys_for_user<'a>(
         &self,
         timeout_duration: Duration,
-        user_id: &OwnedUserId,
-    ) -> Result<Option<(OwnedUserId, HashMap<OwnedDeviceId, ReadOnlyDevice>)>, CryptoStoreError>
+        user_id: &'a UserId,
+    ) -> Result<Option<(&'a UserId, HashMap<OwnedDeviceId, ReadOnlyDevice>)>, CryptoStoreError>
     {
         let cache = self.store.cache().await?;
         match self
@@ -995,10 +1002,9 @@ impl IdentityManager {
             .wait_if_user_key_query_pending(cache, timeout_duration, user_id)
             .await?
         {
-            UserKeyQueryResult::WasPending => Ok(Some((
-                user_id.clone(),
-                self.store.get_readonly_devices_filtered(user_id).await?,
-            ))),
+            UserKeyQueryResult::WasPending => {
+                Ok(Some((user_id, self.store.get_readonly_devices_filtered(user_id).await?)))
+            }
             _ => Ok(None),
         }
     }

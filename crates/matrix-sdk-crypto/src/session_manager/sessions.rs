@@ -227,10 +227,6 @@ impl SessionManager {
 
         let unfailed_users = users.filter(|u| !self.failures.contains(u.server_name()));
 
-        // XXX: You'd think this would be unnecessary, but if you omit it, Rust starts
-        // yelling about lifetimes and Send for reasons that I don't really understand.
-        let unfailed_users: Vec<_> = unfailed_users.collect();
-
         // Get the current list of devices for each user.
         let devices_by_user = Box::pin(
             self.key_request_machine
