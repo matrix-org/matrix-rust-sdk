@@ -536,6 +536,46 @@ impl Room {
         Ok(())
     }
 
+    pub fn edit_poll(
+        &self,
+        question: String,
+        answers: Vec<String>,
+        max_selections: u8,
+        poll_kind: PollKind,
+        edit_item: Arc<EventTimelineItem>,
+    ) -> Result<(), ClientError>  {
+        let timeline = match &*RUNTIME.block_on(self.timeline.read()) {
+            Some(t) => Arc::clone(t),
+            None => return Err(anyhow!("Timeline not set up, can't send message").into()),
+        };
+        
+        // AG: Refactor poll creation to avoid code duplication
+        let poll_answers_vec: Vec<UnstablePollAnswer> = answers
+            .iter()
+            .map(|answer| UnstablePollAnswer::new(Uuid::new_v4().to_string(), answer))
+            .collect();
+
+        let poll_answers = UnstablePollAnswers::try_from(poll_answers_vec)
+            .context("Failed to create poll answers")?;
+
+        let mut poll_content_block =
+            UnstablePollStartContentBlock::new(question.clone(), poll_answers);
+        poll_content_block.kind = poll_kind.into();
+        poll_content_block.max_selections = max_selections.into();
+
+        let fallback_text = answers
+            .iter()
+            .enumerate()
+            .fold(question, |acc, (index, answer)| format!("{acc}\n{}. {answer}", index + 1));
+        
+        RUNTIME.block_on(async move {
+            timeline.edit_poll(fallback_text, poll_content_block,&edit_item.0).await?;
+            anyhow::Ok(())
+        })?;
+
+        Ok(())
+    }
+
     /// Redacts an event from the room.
     ///
     /// # Arguments
