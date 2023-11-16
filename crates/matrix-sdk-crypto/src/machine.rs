@@ -1134,18 +1134,12 @@ impl OlmMachine {
     /// This will decrypt and handle to-device events returning the decrypted
     /// versions of them.
     ///
-    /// To decrypt an event from the room timeline call [`decrypt_room_event`].
+    /// To decrypt an event from the room timeline, call [`decrypt_room_event`].
     ///
     /// # Arguments
     ///
-    /// * `to_device_events` - The to-device events of the current sync
-    /// response.
-    ///
-    /// * `changed_devices` - The list of devices that changed in this sync
-    /// response.
-    ///
-    /// * `one_time_keys_count` - The current one-time keys counts that the sync
-    /// response returned.
+    /// * `sync_changes` - an [`EncryptionSyncChanges`] value, constructed from
+    ///   a sync response.
     ///
     /// [`decrypt_room_event`]: #method.decrypt_room_event
     ///
@@ -2043,9 +2037,10 @@ pub struct CrossSigningBootstrapRequests {
 pub struct EncryptionSyncChanges<'a> {
     /// The list of to-device events received in the sync.
     pub to_device_events: Vec<Raw<AnyToDeviceEvent>>,
-    /// The mapping of changed and left devices, per user.
+    /// The mapping of changed and left devices, per user, as returned in the
+    /// sync response.
     pub changed_devices: &'a DeviceLists,
-    /// The number of one time keys.
+    /// The number of one time keys, as returned in the sync response.
     pub one_time_keys_counts: &'a BTreeMap<DeviceKeyAlgorithm, UInt>,
     /// An optional list of fallback keys.
     pub unused_fallback_keys: Option<&'a [DeviceKeyAlgorithm]>,
