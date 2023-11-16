@@ -980,7 +980,7 @@ impl IdentityManager {
 
     /// Helper for get_user_devices_for_encryption.
     ///
-    /// Waits for any pending `/keys/query` for the given device. If one was
+    /// Waits for any pending `/keys/query` for the given user. If one was
     /// pending, reloads the device list and returns `Some(user_id,
     /// device_list)`. If no request was pending, returns `None`.
     async fn get_updated_keys_for_user(
