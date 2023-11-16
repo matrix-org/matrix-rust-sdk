@@ -4676,9 +4676,9 @@ dependencies = [
 
 [[package]]
 name = "ruma-client-api"
-version = "0.17.1"
+version = "0.17.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f155ae754720735972f7e63f377654fa70f7f1fc8e880b792b279d244d9c4b9f"
+checksum = "2428ee1488551cbc2bc4ef936c9452ac35ccd5c7e4e4df12c54b67afa6b262fb"
 dependencies = [
  "assign",
  "bytes",
@@ -4695,9 +4695,9 @@ dependencies = [
 
 [[package]]
 name = "ruma-common"
-version = "0.12.0"
+version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1bd6a9c0dd0dc4986bf5fb963765f59fb0e3f462b7ca8ba466f47d217688865c"
+checksum = "3bca4c33c50e47b4cdceeac71bdef0c04153b0e29aa992d9030ec14a62323e85"
 dependencies = [
  "as_variant",
  "base64 0.21.5",
