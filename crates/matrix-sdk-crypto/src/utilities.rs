@@ -15,12 +15,14 @@
 use std::{
     borrow::Borrow,
     collections::HashMap,
+    fmt::Debug,
     hash::Hash,
     sync::{Arc, RwLock},
     time::Duration,
 };
 
 use matrix_sdk_common::instant::Instant;
+use tracing::trace;
 
 #[cfg(test)]
 pub(crate) fn json_convert<T, U>(value: &T) -> serde_json::Result<U>
@@ -70,14 +72,14 @@ impl FailuresItem {
 
 impl<T> FailuresCache<T>
 where
-    T: Eq + Hash,
+    T: Eq + Hash + Debug,
 {
     pub fn new() -> Self {
         Self { inner: Default::default() }
     }
 
-    const MAX_DELAY: u64 = 15 * 60;
-    const MULTIPLIER: u64 = 15;
+    const MAX_DELAY_SECONDS: u64 = 24 * 60 * 60;
+    const INITIAL_DELAY_SECONDS: u64 = 15 * 60;
 
     /// Is the given key non-expired and part of the cache.
     pub fn contains<Q>(&self, key: &Q) -> bool
@@ -119,7 +121,9 @@ where
     ///      [0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 15.0]
     fn calculate_delay(failure_count: u8) -> Duration {
         let exponential_backoff = 2u64.saturating_pow(failure_count.into());
-        let delay = exponential_backoff.saturating_mul(Self::MULTIPLIER).clamp(1, Self::MAX_DELAY);
+        let delay = exponential_backoff
+            .saturating_mul(Self::INITIAL_DELAY_SECONDS)
+            .clamp(1, Self::MAX_DELAY_SECONDS);
 
         Duration::from_secs(delay)
     }
@@ -146,6 +150,8 @@ where
                 0
             };
 
+            trace!(item=?key, failure_count, "Marking item as failing");
+
             let delay = Self::calculate_delay(failure_count);
 
             let item = FailuresItem { insertion_time: now, duration: delay, failure_count };
@@ -159,12 +165,15 @@ where
     where
         I: Iterator<Item = &'a Q>,
         T: Borrow<Q>,
-        Q: Hash + Eq + 'a + ?Sized,
+        Q: Hash + Eq + Debug + 'a + ?Sized,
     {
         let mut lock = self.inner.write().unwrap();
 
         for item in iterator {
-            lock.remove(item);
+            let r = lock.remove(item);
+            if r.is_some() {
+                trace!(?item, "Marking item as recovered");
+            }
         }
     }
 
@@ -179,7 +188,7 @@ where
     }
 }
 
-impl<T: Eq + Hash> Default for FailuresCache<T> {
+impl<T: Eq + Hash + Debug> Default for FailuresCache<T> {
     fn default() -> Self {
         Self::new()
     }
