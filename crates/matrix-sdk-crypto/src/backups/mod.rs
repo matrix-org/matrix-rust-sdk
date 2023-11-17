@@ -30,7 +30,7 @@ use std::{
 
 use ruma::{
     api::client::backup::RoomKeyBackup, serde::Raw, DeviceId, DeviceKeyAlgorithm, OwnedDeviceId,
-    OwnedRoomId, OwnedTransactionId, TransactionId,
+    OwnedRoomId, OwnedTransactionId, TransactionId, UserId,
 };
 use tokio::sync::RwLock;
 use tracing::{debug, info, instrument, trace, warn};
@@ -542,7 +542,7 @@ impl BackupMachine {
         }
 
         let key_count = sessions.len();
-        let (backup, session_record) = Self::backup_keys(sessions, backup_key).await;
+        let (backup, session_record) = Self::backup_keys(self.store.user_id(), sessions, backup_key).await;
 
         info!(
             key_count = key_count,
@@ -562,6 +562,7 @@ impl BackupMachine {
 
     /// Backup all the non-backed up room keys we know about
     async fn backup_keys(
+        user_id: &UserId,
         sessions: Vec<InboundGroupSession>,
         backup_key: &MegolmV1BackupKey,
     ) -> (
@@ -576,7 +577,7 @@ impl BackupMachine {
             let room_id = session.room_id().to_owned();
             let session_id = session.session_id().to_owned();
             let sender_key = session.sender_key().to_owned();
-            let session = backup_key.encrypt(session).await;
+            let session = backup_key.encrypt(user_id, session).await;
 
             session_record
                 .entry(room_id.to_owned())

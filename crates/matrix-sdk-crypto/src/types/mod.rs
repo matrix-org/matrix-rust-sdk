@@ -38,7 +38,7 @@ use ruma::{
 use serde::{Deserialize, Serialize, Serializer};
 use vodozemac::{Curve25519PublicKey, Ed25519PublicKey, Ed25519Signature, KeyError};
 
-mod backup;
+pub(crate) mod backup;
 mod cross_signing;
 mod device_keys;
 pub mod events;
@@ -321,7 +321,7 @@ impl Algorithm for DeviceKeyAlgorithm {
 // truly private (only `#[doc(hidden)]`).
 #[doc(hidden)]
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct PrivOwnedStr(Box<str>);
+pub struct PrivOwnedStr(pub(crate) Box<str>);
 
 #[cfg(not(tarpaulin_include))]
 impl std::fmt::Debug for PrivOwnedStr {

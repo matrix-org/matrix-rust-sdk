@@ -29,7 +29,7 @@ pub(crate) use group_sessions::ShareState;
 pub use group_sessions::{
     BackedUpRoomKey, EncryptionSettings, ExportedRoomKey, InboundGroupSession,
     OutboundGroupSession, PickledInboundGroupSession, PickledOutboundGroupSession,
-    SessionCreationError, SessionExportError, SessionKey, ShareInfo,
+    SessionCreationError, SessionExportError, SessionKey, ShareInfo, UnauthenticatedSource,
 };
 pub use session::{PickledSession, Session};
 pub use signing::{CrossSigningStatus, PickledCrossSigningIdentity, PrivateCrossSigningIdentity};

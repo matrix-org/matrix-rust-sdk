@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ruma::{DeviceKeyAlgorithm, OwnedRoomId};
+use ruma::{DeviceKeyAlgorithm, OwnedRoomId, serde::StringEnum};
 use serde::{Deserialize, Serialize};
 
 mod inbound;
@@ -26,6 +26,8 @@ pub use outbound::{
 use thiserror::Error;
 pub use vodozemac::megolm::{ExportedSessionKey, SessionKey};
 use vodozemac::{megolm::SessionKeyDecodeError, Curve25519PublicKey};
+
+use crate::types::PrivOwnedStr;
 
 #[cfg(feature = "experimental-algorithms")]
 use crate::types::events::forwarded_room_key::ForwardedMegolmV2AesSha2Content;
@@ -115,6 +117,26 @@ impl ExportedRoomKey {
     }
 }
 
+/// The original source for an unauthenticated key from backup
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, StringEnum)]
+#[non_exhaustive]
+pub enum UnauthenticatedSource {
+    /// The key source was not specified
+    #[ruma_enum(rename = "m.undefined")]
+    Undefined,
+
+    /// The key was from a legacy v1 key backup
+    #[ruma_enum(rename = "m.legacy-v1")]
+    LegacyV1,
+
+    /// The key was forwarded
+    #[ruma_enum(rename = "m.forwarded_room_key")]
+    Forwarded,
+
+    #[doc(hidden)]
+    _Custom(PrivOwnedStr),
+}
+
 /// A backed up version of an `InboundGroupSession`
 ///
 /// This can be used to backup the `InboundGroupSession` to the server.
@@ -138,9 +160,9 @@ pub struct BackedUpRoomKey {
     /// m.forwarded_room_key events.
     pub forwarding_curve25519_key_chain: Vec<Curve25519PublicKey>,
 
-    /// Whether the key was received (recursively) from an authenticated source.
-    #[serde(default, rename="org.matrix.msc4048.authenticated")]
-    pub authenticated: bool,
+    /// Whether the key should be considered unauthenticated
+    #[serde(default, rename="org.matrix.msc4048.unauthenticated")]
+    pub unauthenticated: Option<UnauthenticatedSource>,
 }
 
 impl TryFrom<ExportedRoomKey> for ForwardedRoomKeyContent {
@@ -208,7 +230,7 @@ impl From<ExportedRoomKey> for BackedUpRoomKey {
             session_key: k.session_key,
             sender_claimed_keys: k.sender_claimed_keys,
             forwarding_curve25519_key_chain: k.forwarding_curve25519_key_chain,
-            authenticated: false,
+            unauthenticated: Some(UnauthenticatedSource::Undefined),
         }
     }
 }

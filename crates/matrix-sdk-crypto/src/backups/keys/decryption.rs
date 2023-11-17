@@ -19,20 +19,23 @@ use std::{
 
 use bs58;
 use hkdf::Hkdf;
-use hmac::Mac;
+use hmac::digest::MacError;
 use sha2::Sha256;
-use ruma::api::client::backup::EncryptedSessionData;
+use ruma::{
+    DeviceKeyAlgorithm, DeviceKeyId, UserId,
+    api::client::backup::EncryptedSessionData,
+};
 use thiserror::Error;
 use vodozemac::Curve25519PublicKey;
 use zeroize::{Zeroize, Zeroizing};
 
 use super::{
-    backup::{HmacSha256, HmacSha256Key},
+    backup::HmacSha256Key,
     compat::{Error as DecryptionError, Message, PkDecryption},
-    MegolmV1BackupKey,
+    MegolmV1BackupKey, BackupV2Key,
 };
 use crate::{
-    olm::BackedUpRoomKey,
+    olm::{BackedUpRoomKey, UnauthenticatedSource},
     store::BackupDecryptionKey,
     types::{MegolmV1AuthData, RoomKeyBackupInfo},
 };
@@ -183,10 +186,10 @@ impl BackupDecryptionKey {
 
     fn calculate_mac_key(&self) -> HmacSha256Key {
         let hkdf: Hkdf<Sha256> = Hkdf::new(None, self.as_bytes());
-        let mut output = HmacSha256Key::new([0u8; 32]);
+        let mut output = Box::new([0u8; 32]);
         hkdf.expand(b"MATRIX_BACKUP_MAC_KEY", output.as_mut())
             .expect("We should be able to HKDF the key into 32 bytes");
-        output
+        HmacSha256Key::new(output)
     }
 
     /// Extract the megolm.v1 public key from this [`BackupDecryptionKey`].
@@ -194,6 +197,13 @@ impl BackupDecryptionKey {
         let pk = self.get_pk_decryption();
         let mac_key = self.calculate_mac_key();
         MegolmV1BackupKey::new(pk.public_key(), Some(mac_key), None)
+    }
+
+    /// Extract the megolm.v1 public key from this [`BackupDecryptionKey`].
+    pub fn megolm_v2_public_key(&self) -> BackupV2Key {
+        let pk = self.get_pk_decryption();
+        let mac_key = self.calculate_mac_key();
+        BackupV2Key::new(pk.public_key(), mac_key, None)
     }
 
     /// Get the [`RoomKeyBackupInfo`] for this [`BackupDecryptionKey`].
@@ -232,33 +242,39 @@ impl BackupDecryptionKey {
     /// [`BackupDecryptionKey`].
     pub fn decrypt_session_data(
         &self,
+        user_id: &UserId,
         session_data: EncryptedSessionData,
     ) -> Result<BackedUpRoomKey, DecryptionError> {
-        let message = match session_data.mac2 {
-            None => Message {
-                ciphertext: session_data.ciphertext.into_inner(),
-                mac: Some(session_data.mac.into_inner()),
-                ephemeral_key: Curve25519PublicKey::from_slice(session_data.ephemeral.as_bytes())?,
-            },
-            Some(mac) => {
+        let message = match (&session_data.mac, &session_data.signatures) {
+            (_, Some(_)) => {
                 let mac_key = self.calculate_mac_key();
-                let mut hmac = HmacSha256::new_from_slice(mac_key.as_ref())
-                    .expect("We should be able to create a Hmac object from a 32 byte key");
-                hmac.update(session_data.ciphertext.as_bytes());
-                hmac.verify_slice(mac.as_bytes())
-                    .map_err(|e| DecryptionError::Mac(e))?;
+                mac_key.verify(user_id, &DeviceKeyId::from_parts(DeviceKeyAlgorithm::HmacSha256, "backup_mac_key".into()), &session_data)
+                    .map_err(|_| DecryptionError::Mac(MacError))?;
                 Message {
                     ciphertext: session_data.ciphertext.into_inner(),
                     mac: None,
                     ephemeral_key: Curve25519PublicKey::from_slice(session_data.ephemeral.as_bytes())?,
                 }
             },
+            (Some(mac), _) => Message {
+                // FIXME: if we're in a V2 backup, this should be an error
+                ciphertext: session_data.ciphertext.into_inner(),
+                mac: Some(mac.clone().into_inner()),
+                ephemeral_key: Curve25519PublicKey::from_slice(session_data.ephemeral.as_bytes())?,
+            },
+            (None, None) => Err(DecryptionError::Mac(MacError))?
         };
 
         let pk = self.get_pk_decryption();
 
         let mut decrypted = pk.decrypt(&message)?;
-        let result = serde_json::from_slice(&decrypted);
+        let result = serde_json::from_slice::<BackedUpRoomKey>(&decrypted)
+            .map(|mut result| {
+                if session_data.signatures.is_none() {
+                    result.unauthenticated = Some(UnauthenticatedSource::LegacyV1);
+                }
+                result
+            });
 
         decrypted.zeroize();
 
@@ -283,6 +299,10 @@ impl BackupDecryptionKey {
 #[cfg(test)]
 mod tests {
     use matrix_sdk_test::async_test;
+    use ruma::{
+        DeviceKeyAlgorithm, DeviceKeyId,
+        user_id
+    };
     use ruma::api::client::backup::KeyBackupData;
     use serde_json::json;
 
@@ -388,7 +408,7 @@ mod tests {
         let key_backup_data: KeyBackupData = serde_json::from_value(data).unwrap();
         let ephemeral = key_backup_data.session_data.ephemeral.encode();
         let ciphertext = key_backup_data.session_data.ciphertext.encode();
-        let mac = key_backup_data.session_data.mac.encode();
+        let mac = key_backup_data.session_data.mac.as_ref().unwrap().encode();
 
         let decrypted = decryption_key
             .decrypt_v1(&ephemeral, &mac, &ciphertext)
@@ -398,7 +418,7 @@ mod tests {
             .expect("The decrypted payload should contain valid JSON");
 
         let _ = decryption_key
-            .decrypt_session_data(key_backup_data.session_data)
+            .decrypt_session_data(user_id!("@alice:localhost"), key_backup_data.session_data)
             .expect("The backed up key should be decrypted successfully");
     }
 
@@ -409,10 +429,16 @@ mod tests {
         let decryption_key = BackupDecryptionKey::new().unwrap();
         let encryption_key = decryption_key.megolm_v1_public_key();
 
-        let encrypted = encryption_key.encrypt(session).await;
+        let encrypted = encryption_key.encrypt(user_id!("@alice:localhost"), session).await;
+
+        assert!(encrypted.session_data.signatures.as_ref().is_some_and(|signatures| {
+            signatures.get(user_id!("@alice:localhost")).is_some_and(|device_sigs| {
+                device_sigs.get(&DeviceKeyId::from_parts(DeviceKeyAlgorithm::HmacSha256, "backup_mac_key".into())).is_some()
+            })
+        }));
 
         let _ = decryption_key
-            .decrypt_session_data(encrypted.session_data)
+            .decrypt_session_data(user_id!("@alice:localhost"), encrypted.session_data)
             .expect("We should be able to decrypt a just encrypted room key");
     }
 
@@ -438,6 +464,7 @@ mod tests {
         //
         // ```python
         // import base64
+        // import canonicaljson
         // from cryptography.hazmat.primitives.hashes import SHA256
         // from cryptography.hazmat.primitives.kdf.hkdf import HKDF
         // from cryptography.hazmat.primitives.hmac import HMAC
@@ -447,11 +474,11 @@ mod tests {
 
         // mac_key = HKDF(SHA256(), length=32, salt=b"", info=b"MATRIX_BACKUP_MAC_KEY").derive(key)
 
-        // ciphertext_b64 = ...
-        // ciphertext = base64.b64decode(ciphertext_b64)
+        // data = { ... }
+        // canonical = canonicaljson.encode_canonical_json(data)
 
         // hmac = HMAC(mac_key, SHA256())
-        // hmac.update(ciphertext)
+        // hmac.update(canonical)
         // print(base64.b64encode(hmac.finalize()))
         // ```
         let data = json!({
@@ -471,17 +498,21 @@ mod tests {
                                fMh05PdGLnxeRpiEFWSMSsJNp+OWAA+5JsF41BoRGrxoXXT+VKqlUDONd+O296Psu8Q+\
                                d8/S618",
                 "mac": "GtMrurhDTwo",
-                "org.matrix.msc4048.mac2": "+yy4Frb8XHCgbC0INJGHyySqe/JoWfw1uJrDXzb9yh0",
+                "signatures": {
+                    "@alice:localhost": {
+                        "org.matrix.msc4048.hmac-sha-256:backup_mac_key": "Q3Z4X36MdXmBzo0TwnCKirEtWYGwJepfRRTft7cM6Uc",
+                    }
+                },
             }
         });
 
         let key_backup_data: KeyBackupData = serde_json::from_value(data).unwrap();
 
         let _ = decryption_key
-            .decrypt_session_data(key_backup_data.session_data)
+            .decrypt_session_data(user_id!("@alice:localhost"), key_backup_data.session_data)
             .expect("The backed up key should be decrypted successfully");
 
-        // bad data, created by swapping characters in mac2
+        // bad data, created by swapping characters in the MAC
         let data_bad = json!({
             "first_message_index": 0,
             "forwarded_count": 0,
@@ -499,14 +530,18 @@ mod tests {
                                fMh05PdGLnxeRpiEFWSMSsJNp+OWAA+5JsF41BoRGrxoXXT+VKqlUDONd+O296Psu8Q+\
                                d8/S618",
                 "mac": "GtMrurhDTwo",
-                "org.matrix.msc4048.mac2": "y+4yrF8bHXgCCbI0JNHGyyqS/eoJfW1wJuDrzX9bhy0",
+                "signatures": {
+                    "@alice:localhost": {
+                        "org.matrix.msc4048.hmac-sha-256:backup_mac_key": "Q3Z4X36MdXmBzo0TwnCKirEtWYGwJepfRRTft7cM6cU",
+                    }
+                },
             }
         });
 
         let key_backup_data: KeyBackupData = serde_json::from_value(data_bad).unwrap();
 
         let _ = decryption_key
-            .decrypt_session_data(key_backup_data.session_data)
+            .decrypt_session_data(user_id!("@alice:localhost"), key_backup_data.session_data)
             .and(Ok(())) // without this, expect_err will fail because BackedUpRoomKey doesn't implement Debug
             .expect_err("The backed up key should not be decrypted successfully");
     }

@@ -38,7 +38,7 @@ use vodozemac::{
 };
 
 use super::{
-    BackedUpRoomKey, ExportedRoomKey, OutboundGroupSession, SessionCreationError, SessionKey,
+    BackedUpRoomKey, ExportedRoomKey, OutboundGroupSession, SessionCreationError, SessionKey, UnauthenticatedSource
 };
 use crate::{
     error::{EventError, MegolmResult},
@@ -101,13 +101,13 @@ pub(crate) struct SessionCreatorInfo {
 /// trustworthy we consider the key and its associated information to be.  If
 /// the source is `Direct` or `Backup` with `authenticated: true`, then it is
 /// considered trustworthy.  Otherwise, it is not considered trustworthy.
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum KeySource {
     /// The key was obtained directly from the session creator via an
     /// `m.room_key` event.
     Direct,
     /// The key was restored from key backup.
-    Backup { authenticated: bool },
+    Backup { unauthenticated: Option<UnauthenticatedSource> },
     /// The key was received via an `m.forwarded_room_key` event
     Forward,
     /// The key was imported from a key export.
@@ -242,7 +242,7 @@ impl InboundGroupSession {
             session_key: backup.session_key,
             sender_claimed_keys: backup.sender_claimed_keys,
         })?;
-        res.key_source = KeySource::Backup { authenticated: backup.authenticated };
+        res.key_source = KeySource::Backup { unauthenticated: backup.unauthenticated.clone() };
         Ok(res)
     }
 
@@ -260,7 +260,7 @@ impl InboundGroupSession {
             sender_key: self.creator_info.curve25519_key,
             signing_key: (*self.creator_info.signing_keys).clone(),
             room_id: self.room_id().to_owned(),
-            key_source: self.key_source,
+            key_source: self.key_source.clone(),
             backed_up: self.backed_up(),
             history_visibility: self.history_visibility.as_ref().clone(),
             algorithm: (*self.algorithm).to_owned(),
@@ -418,7 +418,14 @@ impl InboundGroupSession {
     /// Export the inbound group session into a format that can be uploaded to
     /// the server as a backup.
     pub async fn to_backup(&self) -> BackedUpRoomKey {
-        self.export().await.into()
+        let mut result: BackedUpRoomKey = self.export().await.into();
+        result.unauthenticated = match &self.key_source {
+            KeySource::Direct => None,
+            KeySource::Backup{unauthenticated: src} => src.clone(),
+            KeySource::Forward => Some(UnauthenticatedSource::Forwarded),
+            KeySource::OldStyleImport => Some(UnauthenticatedSource::Undefined),
+        };
+        result
     }
 
     /// Decrypt an event from a room timeline.
