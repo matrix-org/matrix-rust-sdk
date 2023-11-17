@@ -424,26 +424,15 @@ impl Room {
             }
         };
 
-        let poll_answers_vec: Vec<UnstablePollAnswer> = answers
-            .iter()
-            .map(|answer| UnstablePollAnswer::new(Uuid::new_v4().to_string(), answer))
-            .collect();
-
-        let poll_answers = UnstablePollAnswers::try_from(poll_answers_vec)
-            .context("Failed to create poll answers")?;
-
-        let mut poll_content_block =
-            UnstablePollStartContentBlock::new(question.clone(), poll_answers);
-        poll_content_block.kind = poll_kind.into();
-        poll_content_block.max_selections = max_selections.into();
-
-        let fallback_text = answers
-            .iter()
-            .enumerate()
-            .fold(question, |acc, (index, answer)| format!("{acc}\n{}. {answer}", index + 1));
+        let poll_data = PollData {
+            question,
+            answers,
+            max_selections,
+            poll_kind,
+        };
 
         let poll_start_event_content =
-            NewUnstablePollStartEventContent::plain_text(fallback_text, poll_content_block);
+            NewUnstablePollStartEventContent::plain_text(poll_data.fallback_text(), poll_data.try_into()?);
         let event_content =
             AnyMessageLikeEventContent::UnstablePollStart(poll_start_event_content.into());
 
@@ -548,28 +537,16 @@ impl Room {
             Some(t) => Arc::clone(t),
             None => return Err(anyhow!("Timeline not set up, can't send message").into()),
         };
-        
-        // AG: Refactor poll creation to avoid code duplication
-        let poll_answers_vec: Vec<UnstablePollAnswer> = answers
-            .iter()
-            .map(|answer| UnstablePollAnswer::new(Uuid::new_v4().to_string(), answer))
-            .collect();
 
-        let poll_answers = UnstablePollAnswers::try_from(poll_answers_vec)
-            .context("Failed to create poll answers")?;
-
-        let mut poll_content_block =
-            UnstablePollStartContentBlock::new(question.clone(), poll_answers);
-        poll_content_block.kind = poll_kind.into();
-        poll_content_block.max_selections = max_selections.into();
-
-        let fallback_text = answers
-            .iter()
-            .enumerate()
-            .fold(question, |acc, (index, answer)| format!("{acc}\n{}. {answer}", index + 1));
+        let poll_data = PollData {
+            question,
+            answers,
+            max_selections,
+            poll_kind,
+        };
         
         RUNTIME.block_on(async move {
-            timeline.edit_poll(fallback_text, poll_content_block,&edit_item.0).await?;
+            timeline.edit_poll(poll_data.fallback_text(), poll_data.try_into()?,&edit_item.0).await?;
             anyhow::Ok(())
         })?;
 
@@ -1237,5 +1214,43 @@ impl TryFrom<ImageInfo> for RumaAvatarImageInfo {
             thumbnail_url: thumbnail_url,
             blurhash: value.blurhash,
         }))
+    }
+}
+
+struct PollData {
+    question: String,
+    answers: Vec<String>,
+    max_selections: u8,
+    poll_kind: PollKind,
+}
+
+impl PollData {
+    fn fallback_text(&self) -> String {
+        self.answers
+            .iter()
+            .enumerate()
+            .fold(self.question.clone(), |acc, (index, answer)| format!("{acc}\n{}. {answer}", index + 1))
+    }
+}
+
+impl TryFrom<PollData> for UnstablePollStartContentBlock {
+    type Error = ClientError;
+
+    fn try_from(value: PollData) -> Result<Self, Self::Error> {
+        let poll_answers_vec: Vec<UnstablePollAnswer> = value
+            .answers
+            .iter()
+            .map(|answer| UnstablePollAnswer::new(Uuid::new_v4().to_string(), answer))
+            .collect();
+
+        let poll_answers = UnstablePollAnswers::try_from(poll_answers_vec)
+            .context("Failed to create poll answers")?;
+
+        let mut poll_content_block =
+            UnstablePollStartContentBlock::new(value.question.clone(), poll_answers);
+        poll_content_block.kind = value.poll_kind.into();
+        poll_content_block.max_selections = value.max_selections.into();
+
+        Ok(poll_content_block)
     }
 }
