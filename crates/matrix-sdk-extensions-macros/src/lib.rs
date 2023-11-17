@@ -1,20 +1,21 @@
 use std::{env, path::PathBuf};
 
 use heck::{ToSnakeCase as _, ToUpperCamelCase as _};
-use proc_macro2::Span;
+use proc_macro2::{Ident, Span, TokenStream};
 use quote::quote;
 use syn::{
     braced,
     parse::{Error, Parse, ParseStream, Result},
+    parse_macro_input,
     punctuated::Punctuated,
     LitStr, Token, TypePath,
 };
-use wit_parser::{Resolve, Type, WorldId};
+use wit_parser::{Resolve, Results, Type, WorldId, WorldItem};
 
 struct Configuration {
     resolve: Resolve,
     world: WorldId,
-    module_type: TypePath,
+    // module_type: TypePath,
     environment_type: TypePath,
     matrix_sdk_extensions_alias: Option<TypePath>,
 }
@@ -34,7 +35,7 @@ impl Parse for Configuration {
 
         let mut world = None;
         let mut environment_type = None;
-        let mut module = None;
+        // let mut module = None;
         let mut matrix_sdk_extensions_alias = None;
 
         {
@@ -48,8 +49,7 @@ impl Parse for Configuration {
                         world = Some(w.value());
                     }
 
-                    Opt::Module(m) => module = Some(m),
-
+                    // Opt::Module(m) => module = Some(m),
                     Opt::Environment(e) => environment_type = Some(e),
 
                     Opt::MatrixSdkExtensionsAlias(a) => matrix_sdk_extensions_alias = Some(a),
@@ -58,7 +58,7 @@ impl Parse for Configuration {
         }
 
         let world = world.expect("`world` is missing");
-        let module_type = module.expect("`module` is missing");
+        // let module_type = module.expect("`module` is missing");
         let environment_type = environment_type.expect("`environment` is missing");
 
         let root = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
@@ -75,17 +75,16 @@ impl Parse for Configuration {
         Ok(Configuration {
             resolve,
             world,
-            module_type,
+            // module_type,
             environment_type,
             matrix_sdk_extensions_alias,
         })
     }
 }
 
-#[derive(Debug)]
 enum Opt {
     World(LitStr),
-    Module(TypePath),
+    // Module(TypePath),
     Environment(TypePath),
     MatrixSdkExtensionsAlias(TypePath),
 }
@@ -99,11 +98,11 @@ impl Parse for Opt {
             input.parse::<Token![:]>()?;
 
             Ok(Opt::World(input.parse()?))
-        } else if look.peek(keyword::module) {
-            input.parse::<keyword::module>()?;
-            input.parse::<Token![:]>()?;
+        // } else if look.peek(keyword::module) {
+        //     input.parse::<keyword::module>()?;
+        //     input.parse::<Token![:]>()?;
 
-            Ok(Opt::Module(input.parse()?))
+        //     Ok(Opt::Module(input.parse()?))
         } else if look.peek(keyword::environment) {
             input.parse::<keyword::environment>()?;
             input.parse::<Token![:]>()?;
@@ -149,10 +148,6 @@ fn to_rust_type(ty: &Type) -> String {
 #[cfg(feature = "wasmtime")]
 #[proc_macro]
 pub fn wasmtime_bindgen(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    use proc_macro2::{Ident, TokenStream};
-    use syn::parse_macro_input;
-    use wit_parser::{Results, WorldItem};
-
     let call_site = Span::call_site();
 
     let configuration = parse_macro_input!(input as Configuration);
@@ -164,7 +159,7 @@ pub fn wasmtime_bindgen(input: proc_macro::TokenStream) -> proc_macro::TokenStre
     let world = &resolve.worlds[configuration.world];
     let world_type_name = to_rust_upper_camel_case(&world.name);
     let world_type = Ident::new(&world_type_name, call_site);
-    let module_type = &configuration.module_type;
+    let module_type = Ident::new(&format!("{}Module", world_type_name), call_site);
     let environment_type = &configuration.environment_type;
 
     let use_matrix_sdk_extensions = configuration
@@ -273,16 +268,18 @@ pub fn wasmtime_bindgen(input: proc_macro::TokenStream) -> proc_macro::TokenStre
 
     let impl_module = {
         quote! {
+            struct #module_type;
+
             impl matrix_sdk_extensions::traits::Module for #module_type {
                 type Environment = #environment_type;
-                type Bindings = #world_type;
+                type Bindings = #private_mod::#world_type;
 
                 fn new_environment() -> Self::Environment {
                     #environment_type::default()
                 }
             }
 
-            impl matrix_sdk_extensions::native::ModuleNativeExt<#environment_type, #world_type> for #module_type {
+            impl matrix_sdk_extensions::native::ModuleExt<#environment_type, #private_mod::#world_type> for #module_type {
                 fn link(
                     linker: &mut wasmtime::component::Linker<#environment_type>,
                     get: impl Fn(&mut #environment_type) -> &mut #environment_type
@@ -291,15 +288,15 @@ pub fn wasmtime_bindgen(input: proc_macro::TokenStream) -> proc_macro::TokenStre
                         + Copy
                         + 'static,
                 ) -> matrix_sdk_extensions::Result<()> {
-                    #world_type::add_to_linker(linker, get)
+                    #private_mod::#world_type::add_to_linker(linker, get)
                 }
 
                 fn instantiate_component(
                     store: &mut wasmtime::Store<#environment_type>,
                     component: &wasmtime::component::Component,
                     linker: &wasmtime::component::Linker<#environment_type>,
-                ) -> matrix_sdk_extensions::Result<#world_type> {
-                    let (bindings, _) = #world_type::instantiate(store, component, linker)?;
+                ) -> matrix_sdk_extensions::Result<#private_mod::#world_type> {
+                    let (bindings, _) = #private_mod::#world_type::instantiate(store, component, linker)?;
 
                     Ok(bindings)
                 }
@@ -320,7 +317,6 @@ pub fn wasmtime_bindgen(input: proc_macro::TokenStream) -> proc_macro::TokenStre
             #generated
         };
 
-        pub use #private_mod::#world_type;
         #use_matrix_sdk_extensions;
 
         #host_trait
@@ -336,6 +332,239 @@ pub fn wasmtime_bindgen(input: proc_macro::TokenStream) -> proc_macro::TokenStre
 
 #[cfg(feature = "javascriptcore")]
 #[proc_macro]
-pub fn javascriptcore_bindgen(_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    todo!()
+pub fn javascriptcore_bindgen(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let call_site = Span::call_site();
+
+    let configuration = parse_macro_input!(input as Configuration);
+
+    let resolve = &configuration.resolve;
+    let world = &resolve.worlds[configuration.world];
+    let world_type_name = to_rust_upper_camel_case(&world.name);
+    let world_type = Ident::new(&world_type_name, call_site);
+    let module_type = Ident::new(&format!("{}Module", world_type_name), call_site);
+    let environment_type = &configuration.environment_type;
+
+    let use_matrix_sdk_extensions = configuration
+        .matrix_sdk_extensions_alias
+        .map(|alias| quote! { use #alias as matrix_sdk_extensions; });
+
+    let private_mod = Ident::new(&format!("__private_{}", world.name), call_site);
+
+    let host_trait = {
+        let package = world.package.and_then(|package| resolve.packages.get(package));
+
+        let mut imports = Vec::new();
+
+        for (_import_key, import) in world.imports.iter() {
+            match import {
+                WorldItem::Interface(interface_id) => {
+                    let interface = resolve.interfaces.get(*interface_id).unwrap();
+
+                    let mut functions = Vec::new();
+
+                    for function in interface.functions.values() {
+                        let function_name = Ident::new(&function.name.to_snake_case(), call_site);
+                        let arguments = function.params.iter().map(|(name, ty)| {
+                            let name = Ident::new(&name.to_snake_case(), call_site);
+                            let ty = Ident::new(&to_rust_type(ty), call_site);
+
+                            quote! {
+                                #name: #ty
+                            }
+                        });
+                        let results = match &function.results {
+                            Results::Named(results) => match results.len() {
+                                0 => "()".to_owned(),
+                                1 => to_rust_type(&results[0].1),
+                                _ => results.iter().fold(String::new(), |mut acc, (name, ty)| {
+                                    acc.push_str(&format!(
+                                        "{name}: {ty}, ",
+                                        ty = to_rust_type(&ty)
+                                    ));
+                                    acc
+                                }),
+                            },
+                            r => unimplemented!("{:?}", r),
+                        }
+                        .parse::<TokenStream>()
+                        .unwrap();
+
+                        functions.push(quote! {
+                            fn #function_name( &mut self #( , #arguments )* ) -> matrix_sdk_extensions::Result< #results >;
+                        });
+                    }
+
+                    let mut import = quote! {
+                        pub trait Host {
+                            #( #functions )*
+                        }
+
+                        pub fn add_to_linker<Environment>(
+                            context: &matrix_sdk_extensions::javascriptcore::JSContext,
+                            imports: &matrix_sdk_extensions::javascriptcore::JSObject,
+                            environment: &std::sync::Arc<std::sync::Mutex<Environment>>,
+                        ) -> matrix_sdk_extensions::Result<()>
+                        where
+                            Environment: Host,
+                        {
+                            use matrix_sdk_extensions::javascriptcore::{function_callback, JSContext, JSException, JSObject, JSValue};
+
+                            imports.set_property("matrix:ui-timeline/std", JSValue::new_from_json(context, "{}").unwrap()).unwrap();
+                            let namespace = imports.get_property("matrix:ui-timeline/std").as_object().unwrap();
+
+                            {
+                                #[function_callback]
+                                fn js_function<Environment>(
+                                    context: &JSContext,
+                                    _function: Option<&JSObject>,
+                                    this_object: Option<&JSObject>,
+                                    arguments: &[JSValue],
+                                ) -> core::result::Result<JSValue, JSException>
+                                where
+                                    Environment: Host,
+                                {
+                                    use core::borrow::BorrowMut;
+
+                                    let this_object = this_object.expect("`this_object` is `None`");
+                                    let env_ptr = this_object.as_number().expect("`this_object` must be a number") as usize;
+                                    let env = unsafe { std::sync::Arc::from_raw(env_ptr as *const std::sync::Mutex<Environment>) };
+                                    let mut env_lock = env.lock().unwrap();
+                                    let env_mut: &mut Environment = env_lock.borrow_mut();
+
+                                    let arg0 = arguments[0].as_string().unwrap().to_string();
+
+                                    Host::print(env_mut, arg0).unwrap();
+
+                                    Ok(JSValue::new_undefined(context))
+                                }
+
+                                let function = JSValue::new_function(&context, "print", Some(js_function::<Environment>))
+                                    .as_object()
+                                    .unwrap();
+
+                                namespace
+                                    .set_property(
+                                        "print",
+                                        function
+                                            .get_property("bind")
+                                            .as_object()
+                                            .unwrap()
+                                            .call_as_function(
+                                                Some(&function),
+                                                &[JSValue::new_number(
+                                                    context,
+                                                    std::sync::Arc::into_raw(environment.clone()) as usize as f64,
+                                                )],
+                                            )
+                                            .unwrap(),
+                                    )
+                                    .unwrap();
+                            }
+
+                            Ok(())
+                        }
+                    };
+
+                    if let Some(interface_name) = &interface.name {
+                        let interface_name = Ident::new(&interface_name.to_snake_case(), call_site);
+
+                        import = quote! {
+                            pub mod #interface_name {
+                                #use_matrix_sdk_extensions
+
+                                #import
+                            }
+                        };
+                    }
+
+                    imports.push(import);
+                }
+                i => unimplemented!("{:?}", i),
+            }
+        }
+
+        let mut output = quote! {
+            #( #imports )*
+        };
+
+        if let Some(package) = package {
+            let package_namespace = Ident::new(&package.name.namespace.to_snake_case(), call_site);
+            let package_name = Ident::new(&package.name.name.to_snake_case(), call_site);
+
+            output = quote! {
+                pub mod #package_namespace {
+                    pub mod #package_name {
+                        #output
+                    }
+                }
+            };
+        }
+
+        output
+    };
+
+    let impl_module = {
+        quote! {
+            struct #module_type;
+
+            impl matrix_sdk_extensions::traits::Module for #module_type {
+                type Environment = #environment_type;
+                type Bindings = #private_mod :: #world_type;
+
+                fn new_environment() -> Self::Environment {
+                    #environment_type ::default()
+                }
+            }
+
+            impl matrix_sdk_extensions::javascriptcore::ModuleExt< #environment_type > for #module_type {
+                fn link(
+                    context: &matrix_sdk_extensions::javascriptcore::JSContext,
+                    imports: &matrix_sdk_extensions::javascriptcore::JSObject,
+                    environment: &std::sync::Arc<std::sync::Mutex< #environment_type >>,
+                ) -> matrix_sdk_extensions::Result<()> {
+                    matrix::ui_timeline::std::add_to_linker::< #environment_type >(context, imports, environment)?;
+
+                    Ok(())
+                }
+            }
+        }
+    };
+
+    let instance_alias = {
+        let ident = Ident::new(&format!("{}Instance", world_type_name), call_site);
+
+        quote! {
+            type #ident = matrix_sdk_extensions::javascriptcore::JSInstance<#module_type>;
+        }
+    };
+
+    quote! {
+        mod #private_mod {
+            #use_matrix_sdk_extensions
+
+            pub struct #world_type;
+
+            /*
+            impl #world_type {
+                pub fn add_to_linker<Environment>(
+                    context: &matrix_sdk_extensions::javascriptcore::JSContext,
+                    imports: &matrix_sdk_extensions::javascriptcore::JSObject
+                ) -> matrix_sdk_extensions::Result<()> {
+                    super::matrix::ui_timeline::std::add_to_linker::<Environment>(context, imports)?;
+
+                    Ok(())
+                }
+            }
+            */
+        }
+
+        #use_matrix_sdk_extensions
+
+        #host_trait
+
+        #impl_module
+
+        #instance_alias
+    }
+    .into()
 }

@@ -11,16 +11,16 @@ use crate::{
     Result,
 };
 
-pub trait ModuleNativeExt<State, Bindings> {
+pub trait ModuleExt<Environment, Bindings> {
     fn link(
-        linker: &mut Linker<State>,
-        get: impl Fn(&mut State) -> &mut State + Send + Sync + Copy + 'static,
+        linker: &mut Linker<Environment>,
+        get: impl Fn(&mut Environment) -> &mut Environment + Send + Sync + Copy + 'static,
     ) -> Result<()>;
 
     fn instantiate_component(
-        store: &mut Store<State>,
+        store: &mut Store<Environment>,
         component: &Component,
-        linker: &Linker<State>,
+        linker: &Linker<Environment>,
     ) -> Result<Bindings>;
 }
 
@@ -34,8 +34,10 @@ where
 
 impl<M> Instance<M> for NativeInstance<M>
 where
-    M: Module + ModuleNativeExt<M::Environment, M::Bindings>,
+    M: Module + ModuleExt<M::Environment, M::Bindings>,
 {
+    // type EnvironmentReader = M::Environment;
+
     fn new<P>(wasm_module: P) -> Result<Self>
     where
         P: AsRef<Path>,
@@ -44,15 +46,19 @@ where
         config.wasm_component_model(true);
 
         let engine = Engine::new(&config)?;
-        let mut store = Store::new(&engine, <M as Module>::new_environment());
+        let mut store = Store::new(&engine, M::new_environment());
         let component = Component::from_file(&engine, wasm_module)?;
         let mut linker = Linker::new(&engine);
-        M::link(&mut linker, |state: &mut <M as Module>::Environment| state)?;
+        M::link(&mut linker, |state: &mut M::Environment| state)?;
 
         let bindings = M::instantiate_component(&mut store, &component, &linker)?;
 
         Ok(Self { store, exports: bindings })
     }
+
+    // fn environment(&self) -> &M::Environment {
+    //     self.store.data()
+    // }
 }
 
 #[cfg(test)]
@@ -63,14 +69,11 @@ mod tests {
     fn test_instance() {
         bindgen!({
             world: "timeline",
-            module: TimelineModule,
             environment: TimelineEnvironment,
             matrix_sdk_extensions_alias: crate,
         });
 
-        struct TimelineModule;
-
-        #[derive(Default)]
+        #[derive(Default, Debug)]
         struct TimelineEnvironment {
             output: String,
         }

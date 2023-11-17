@@ -1,10 +1,16 @@
 mod web_api;
 
-use std::{error::Error, fmt, fs, path::Path, result::Result as StdResult};
-
-use javascriptcore::{
-    evaluate_script, function_callback, JSClass, JSContext, JSException, JSObject, JSValue,
+use std::{
+    error::Error,
+    fmt, fs,
+    path::Path,
+    result::Result as StdResult,
+    sync::{Arc, Mutex},
 };
+
+use javascriptcore::{evaluate_script, JSClass};
+pub use javascriptcore::{function_callback, JSContext, JSException, JSObject, JSValue};
+pub use matrix_sdk_extensions_macros::javascriptcore_bindgen as bindgen;
 
 use crate::{
     traits::{Instance, Module},
@@ -30,24 +36,45 @@ impl From<JSException> for JSError {
     }
 }
 
-pub struct JSInstance {
-    context: JSContext,
-    exports: JSObject,
+pub trait ModuleExt<Environment> {
+    fn link(
+        context: &JSContext,
+        imports: &JSObject,
+        environment: &Arc<Mutex<Environment>>,
+    ) -> Result<()>;
 }
 
-impl<M> Instance<M> for JSInstance
+pub struct JSInstance<M>
 where
     M: Module,
 {
+    context: JSContext,
+    exports: JSObject,
+    environment: Arc<Mutex<M::Environment>>,
+}
+
+impl<M> Instance<M> for JSInstance<M>
+where
+    M: Module + ModuleExt<M::Environment>,
+{
+    // type EnvironmentReader<'a> = std::sync::MutexGuard<'a, M::Environment>;
+
     fn new<P>(js_file: P) -> Result<Self>
     where
         P: AsRef<Path>,
     {
         Ok(Self::new_impl(js_file).map_err(JSError::from)?)
     }
+
+    // fn environment(&self) -> Self::EnvironmentReader {
+    //     self.environment.lock().unwrap()
+    // }
 }
 
-impl JSInstance {
+impl<M> JSInstance<M>
+where
+    M: Module + ModuleExt<M::Environment>,
+{
     fn new_impl<P>(js_file: P) -> StdResult<Self, JSException>
     where
         P: AsRef<Path>,
@@ -69,36 +96,77 @@ impl JSInstance {
             global_object.set_property("TextDecoder", text_decoder.new_object().into())?;
         }
 
+        let environment = Arc::new(Mutex::new(M::Environment::default()));
+
         let compile_function =
             JSValue::new_function(&context, "compile_core", Some(web_api::compile_wasm));
 
         let imports = {
+            /*
             #[function_callback]
-            fn print(
+            fn print<E>(
                 ctx: &JSContext,
                 _function: Option<&JSObject>,
-                _this_object: Option<&JSObject>,
+                this_object: Option<&JSObject>,
                 arguments: &[JSValue],
-            ) -> StdResult<JSValue, JSException> {
+            ) -> StdResult<JSValue, JSException>
+            where
+                E: std::fmt::Debug,
+            {
+                let this_object = this_object.unwrap();
+
+                let env_ptr = this_object.as_number().unwrap() as usize;
+                let env = unsafe { Arc::from_raw(env_ptr as *const Mutex<E>) };
+
+                dbg!(&env);
+
                 for argument in arguments {
                     println!("==> {}", argument.as_string()?);
                 }
 
                 Ok(JSValue::new_undefined(ctx))
             }
+            */
 
-            let imports = JSValue::new_from_json(&context, r#"{"matrix:ui-timeline/std": {}}"#)
-                // SAFETY: The JSON string is static, and is valid.
-                .unwrap();
+            let imports = JSValue::new_from_json(&context, r#"{}"#).unwrap();
+            let imports_as_object = imports.as_object()?;
 
+            M::link(&context, &imports_as_object, &environment).unwrap();
+
+            /*
             {
                 let imports_as_object = imports.as_object()?;
 
+                imports_as_object
+                    .set_property(
+                        "matrix:ui-timeline/std",
+                        JSValue::new_from_json(&context, "{}").unwrap(),
+                    )
+                    .unwrap();
+
                 let ui_timeline_std =
                     imports_as_object.get_property("matrix:ui-timeline/std").as_object()?;
-                ui_timeline_std
-                    .set_property("print", JSValue::new_function(&context, "print", Some(print)))?;
+
+                let f = JSValue::new_function(&context, "print", Some(print::<M::Environment>))
+                    .as_object()
+                    .unwrap();
+
+                ui_timeline_std.set_property(
+                    "print",
+                    f.get_property("bind")
+                        .as_object()
+                        .unwrap()
+                        .call_as_function(
+                            Some(&f),
+                            &[JSValue::new_number(
+                                &context,
+                                Arc::into_raw(environment.clone()) as usize as f64,
+                            )],
+                        )
+                        .unwrap(),
+                )?;
             }
+            */
 
             imports
         };
@@ -129,35 +197,28 @@ impl JSInstance {
             .call_as_function(None, &[compile_function, imports, instantiate_function])?
             .as_object()?;
 
-        Ok(Self { context, exports })
+        Ok(Self { context, exports, environment })
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::result::Result as StdResult;
-
-    use javascriptcore::*;
-    use wasmtime::component::bindgen;
-
-    use super::JSInstance;
-    use crate::{
-        traits::{Instance, Module},
-        Result,
-    };
+    use super::*;
 
     #[test]
-    fn test_basics() -> StdResult<(), JSException> {
-        const TIMELINE_SCRIPT_PATH: &str = "guests/timeline/js/timeline.js";
+    fn test_instance() -> Result<()> {
+        bindgen!({
+            world: "timeline",
+            environment: TimelineEnvironment,
+            matrix_sdk_extensions_alias: crate,
+        });
 
-        bindgen!("timeline");
-
-        #[derive(Default)]
-        struct TimelineState {
+        #[derive(Default, Debug)]
+        struct TimelineEnvironment {
             output: String,
         }
 
-        impl matrix::ui_timeline::std::Host for TimelineState {
+        impl matrix::ui_timeline::std::Host for TimelineEnvironment {
             fn print(&mut self, msg: String) -> Result<()> {
                 self.output.push_str(&msg);
                 self.output.push_str("\n");
@@ -166,22 +227,13 @@ mod tests {
             }
         }
 
-        struct TimelineModule;
-
-        impl Module for TimelineModule {
-            type Environment = TimelineState;
-            type Bindings = Timeline;
-
-            fn new_environment() -> Self::Environment {
-                TimelineState::default()
-            }
-        }
-
-        let instance = <JSInstance as Instance<TimelineModule>>::new(TIMELINE_SCRIPT_PATH).unwrap();
-
-        let greet = instance.exports.get_property("greet").as_object()?;
+        let instance = TimelineInstance::new("guests/timeline/js/timeline.js").unwrap();
+        let greet = instance.exports.get_property("greet").as_object().unwrap();
         let result =
-            greet.call_as_function(None, &[JSValue::new_string(&instance.context, "from Rusty")]);
+            greet.call_as_function(None, &[JSValue::new_string(&instance.context, "Gordon")]);
+
+        let env = instance.environment.lock().unwrap();
+        assert_eq!(env.output, "Hello, Gordon!\n");
 
         Ok(())
     }

@@ -15,5 +15,5 @@ javascriptcore = ["dep:javascriptcore", "matrix-sdk-extensions-macros/javascript
 matrix-sdk-extensions-macros = { path = "../matrix-sdk-extensions-macros", default-features = false }
 wasmtime = { version ="13.0.0", features = ["component-model"], optional = true }
 # javascriptcore = { git = "https://github.com/endoli/javascriptcore.rs", branch = "main", optional = true }
-javascriptcore = { git = "https://github.com/Hywan/javascriptcore.rs", branch = "fix-macro-imports", optional = true }
+javascriptcore = { git = "https://github.com/Hywan/javascriptcore.rs", branch = "feat-macros-generics", optional = true }
 anyhow.workspace = true
