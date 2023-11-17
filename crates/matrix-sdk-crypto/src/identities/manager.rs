@@ -13,9 +13,10 @@
 // limitations under the License.
 
 use std::{
-    collections::{BTreeMap, BTreeSet, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     ops::Deref,
     sync::Arc,
+    time::Duration,
 };
 
 use futures_util::future::join_all;
@@ -37,11 +38,11 @@ use crate::{
     requests::KeysQueryRequest,
     store::{
         caches::SequenceNumber, Changes, DeviceChanges, IdentityChanges, KeyQueryManager,
-        Result as StoreResult, Store, StoreCache,
+        Result as StoreResult, Store, StoreCache, UserKeyQueryResult,
     },
     types::{CrossSigningKey, DeviceKeys, MasterPubkey, SelfSigningPubkey, UserSigningPubkey},
     utilities::FailuresCache,
-    LocalTrust, SignatureError,
+    CryptoStoreError, LocalTrust, SignatureError,
 };
 
 enum DeviceChange {
@@ -61,6 +62,10 @@ enum IdentityUpdateResult {
 
 #[derive(Debug, Clone)]
 pub(crate) struct IdentityManager {
+    /// Servers that have previously appeared in the `failures` section of a
+    /// `/keys/query` response.
+    ///
+    /// See also [`crate::session_manager::SessionManager::failures`].
     failures: FailuresCache<OwnedServerName>,
     store: Store,
 
@@ -875,6 +880,131 @@ impl IdentityManager {
     ) -> StoreResult<()> {
         let cache = self.store.cache().await?;
         self.key_query_manager.synced(&cache).await?.update_tracked_users(users.into_iter()).await
+    }
+
+    /// Retrieve a list of a user's current devices, so we can encrypt a message
+    /// to them.
+    ///
+    /// If we have not yet seen any devices for the user, and their device list
+    /// has been marked as outdated, then we wait for the `/keys/query` request
+    /// to complete. This helps ensure that we attempt at least once to fetch a
+    /// user's devices before encrypting to them.
+    pub async fn get_user_devices_for_encryption(
+        &self,
+        users: impl Iterator<Item = &UserId>,
+    ) -> StoreResult<HashMap<OwnedUserId, HashMap<OwnedDeviceId, ReadOnlyDevice>>> {
+        // How long we wait for /keys/query to complete.
+        const KEYS_QUERY_WAIT_TIME: Duration = Duration::from_secs(5);
+
+        let mut devices_by_user = HashMap::new();
+        let mut users_with_no_devices_on_failed_servers = Vec::new();
+        let mut users_with_no_devices_on_unfailed_servers = Vec::new();
+
+        for user_id in users {
+            // First of all, check the store for this user.
+            let devices = self.store.get_readonly_devices_filtered(user_id).await?;
+
+            // Now, look for users who have no devices at all.
+            //
+            // If a user has no devices at all, that implies we have never (successfully)
+            // done a `/keys/query` for them; we wait for one to complete if it is
+            // in flight. (Of course, the user might genuinely have no devices, but
+            // that's fine, it just means we redundantly grab the cache guard and
+            // check the pending-query flag.)
+            if !devices.is_empty() {
+                // This user has at least one known device.
+                //
+                // The device list may also be outdated in this case; but in this
+                // situation, we are racing between sending a message and retrieving their
+                // device list. That's an inherently racy situation and there is no real
+                // benefit to waiting for the `/keys/query` request to complete. So we don't
+                // bother.
+                //
+                // We just add their devices to the result and carry on.
+                devices_by_user.insert(user_id.to_owned(), devices);
+                continue;
+            }
+
+            // *However*, if the user's server is currently subject to a backoff due to
+            // previous failures, then `users_for_key_query` won't attempt to query
+            // for the user's devices, so there's no point waiting.
+            //
+            // XXX: this is racy. It's possible that:
+            //  * `failures` included the user's server when `users_for_key_query` was
+            //    called, so the user was not returned in the `KeyQueryRequest`, and:
+            //  * The backoff has now expired.
+            //
+            // In that case, we'll end up waiting for the *next* `users_for_key_query` call,
+            // which might not be for 30 seconds or so. (And by then, it might be `failed`
+            // again.)
+            if self.failures.contains(user_id.server_name()) {
+                users_with_no_devices_on_failed_servers.push(user_id);
+                continue;
+            }
+
+            users_with_no_devices_on_unfailed_servers.push(user_id);
+        }
+
+        if !users_with_no_devices_on_failed_servers.is_empty() {
+            info!(
+                ?users_with_no_devices_on_failed_servers,
+                "Not waiting for `/keys/query` for users whose server has previously failed"
+            );
+        }
+
+        if !users_with_no_devices_on_unfailed_servers.is_empty() {
+            info!(
+                ?users_with_no_devices_on_unfailed_servers,
+                "Waiting for `/keys/query` to complete for users who have no devices"
+            );
+
+            // For each user with no devices, fire off a task to wait for a keys/query
+            // result if one is pending.
+            //
+            // We don't actually update the `devices_by_user` map here since that could
+            // require concurrent access to it. Instead each task returns a
+            // `(OwnedUserId, HashMap)` pair (or rather, an `Option` of one) so that we can
+            // add the results to the map.
+            let results = join_all(
+                users_with_no_devices_on_unfailed_servers
+                    .into_iter()
+                    .map(|user_id| self.get_updated_keys_for_user(KEYS_QUERY_WAIT_TIME, user_id)),
+            )
+            .await;
+
+            // Once all the tasks have completed, process the results.
+            for result in results {
+                if let Some((user_id, updated_devices)) = result? {
+                    devices_by_user.insert(user_id.to_owned(), updated_devices);
+                }
+            }
+        }
+
+        Ok(devices_by_user)
+    }
+
+    /// Helper for get_user_devices_for_encryption.
+    ///
+    /// Waits for any pending `/keys/query` for the given user. If one was
+    /// pending, reloads the device list and returns `Some(user_id,
+    /// device_list)`. If no request was pending, returns `None`.
+    async fn get_updated_keys_for_user<'a>(
+        &self,
+        timeout_duration: Duration,
+        user_id: &'a UserId,
+    ) -> Result<Option<(&'a UserId, HashMap<OwnedDeviceId, ReadOnlyDevice>)>, CryptoStoreError>
+    {
+        let cache = self.store.cache().await?;
+        match self
+            .key_query_manager
+            .wait_if_user_key_query_pending(cache, timeout_duration, user_id)
+            .await?
+        {
+            UserKeyQueryResult::WasPending => {
+                Ok(Some((user_id, self.store.get_readonly_devices_filtered(user_id).await?)))
+            }
+            _ => Ok(None),
+        }
     }
 }
 

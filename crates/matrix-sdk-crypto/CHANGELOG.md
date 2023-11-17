@@ -1,5 +1,9 @@
 # unreleased
 
+- `get_missing_sessions`: Don't block waiting for `/keys/query` requests on
+  blacklisted servers, and improve performance.
+  ([#2845](https://github.com/matrix-org/matrix-rust-sdk/pull/2845))
+
 - Generalize `olm::Session::encrypt` to accept any value implementing
   `Serialize` for the `value` parameter, instead of specifically
   `serde_json::Value`. Note that references to `Serialize`-implementing types
