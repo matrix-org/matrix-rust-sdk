@@ -44,7 +44,7 @@ impl PollState {
         &self,
         replacement: &NewUnstablePollStartEventContentWithoutRelation,
     ) -> Result<Self, ()> {
-        if self.response_data.is_empty() && self.end_event_timestamp.is_none() {
+        if self.end_event_timestamp.is_none() {
             let mut clone = self.clone();
             clone.start_event_content.poll_start = replacement.poll_start.clone();
             clone.start_event_content.text = replacement.text.clone();
