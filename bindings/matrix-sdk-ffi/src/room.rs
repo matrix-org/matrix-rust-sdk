@@ -424,15 +424,12 @@ impl Room {
             }
         };
 
-        let poll_data = PollData {
-            question,
-            answers,
-            max_selections,
-            poll_kind,
-        };
+        let poll_data = PollData { question, answers, max_selections, poll_kind };
 
-        let poll_start_event_content =
-            NewUnstablePollStartEventContent::plain_text(poll_data.fallback_text(), poll_data.try_into()?);
+        let poll_start_event_content = NewUnstablePollStartEventContent::plain_text(
+            poll_data.fallback_text(),
+            poll_data.try_into()?,
+        );
         let event_content =
             AnyMessageLikeEventContent::UnstablePollStart(poll_start_event_content.into());
 
@@ -532,21 +529,18 @@ impl Room {
         max_selections: u8,
         poll_kind: PollKind,
         edit_item: Arc<EventTimelineItem>,
-    ) -> Result<(), ClientError>  {
+    ) -> Result<(), ClientError> {
         let timeline = match &*RUNTIME.block_on(self.timeline.read()) {
             Some(t) => Arc::clone(t),
             None => return Err(anyhow!("Timeline not set up, can't send message").into()),
         };
 
-        let poll_data = PollData {
-            question,
-            answers,
-            max_selections,
-            poll_kind,
-        };
-        
+        let poll_data = PollData { question, answers, max_selections, poll_kind };
+
         RUNTIME.block_on(async move {
-            timeline.edit_poll(poll_data.fallback_text(), poll_data.try_into()?,&edit_item.0).await?;
+            timeline
+                .edit_poll(poll_data.fallback_text(), poll_data.try_into()?, &edit_item.0)
+                .await?;
             anyhow::Ok(())
         })?;
 
@@ -1226,10 +1220,9 @@ struct PollData {
 
 impl PollData {
     fn fallback_text(&self) -> String {
-        self.answers
-            .iter()
-            .enumerate()
-            .fold(self.question.clone(), |acc, (index, answer)| format!("{acc}\n{}. {answer}", index + 1))
+        self.answers.iter().enumerate().fold(self.question.clone(), |acc, (index, answer)| {
+            format!("{acc}\n{}. {answer}", index + 1)
+        })
     }
 }
 

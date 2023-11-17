@@ -38,7 +38,12 @@ pub(super) struct ResponseData {
 
 impl PollState {
     pub(super) fn new(content: NewUnstablePollStartEventContent) -> Self {
-        Self { start_event_content: content, response_data: vec![], end_event_timestamp: None, has_been_edited: false }
+        Self {
+            start_event_content: content,
+            response_data: vec![],
+            end_event_timestamp: None,
+            has_been_edited: false,
+        }
     }
 
     pub(super) fn edit(
@@ -115,7 +120,7 @@ impl PollState {
                 .map(|i| ((*i.0).to_owned(), i.1.iter().map(|i| i.to_string()).collect()))
                 .collect(),
             end_time: self.end_event_timestamp.map(|millis| millis.0.into()),
-            has_been_edited: self.has_been_edited
+            has_been_edited: self.has_been_edited,
         }
     }
 }

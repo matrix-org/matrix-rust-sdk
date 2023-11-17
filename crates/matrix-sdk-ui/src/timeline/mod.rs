@@ -35,7 +35,10 @@ use pin_project_lite::pin_project;
 use ruma::{
     api::client::receipt::create_receipt::v3::ReceiptType,
     events::{
-        poll::unstable_start::{UnstablePollStartEventContent, ReplacementUnstablePollStartEventContent, UnstablePollStartContentBlock},
+        poll::unstable_start::{
+            ReplacementUnstablePollStartEventContent, UnstablePollStartContentBlock,
+            UnstablePollStartEventContent,
+        },
         reaction::ReactionEventContent,
         receipt::{Receipt, ReceiptThread},
         relation::Annotation,
@@ -432,7 +435,11 @@ impl Timeline {
             return Err(UnsupportedEditItem::NOT_POLL_EVENT);
         };
 
-        let replacement_poll = ReplacementUnstablePollStartEventContent::plain_text(fallback_text, poll, event_id.into());
+        let replacement_poll = ReplacementUnstablePollStartEventContent::plain_text(
+            fallback_text,
+            poll,
+            event_id.into(),
+        );
         self.send(UnstablePollStartEventContent::from(replacement_poll).into()).await;
         Ok(())
     }

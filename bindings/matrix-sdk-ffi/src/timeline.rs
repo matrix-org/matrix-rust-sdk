@@ -1377,7 +1377,7 @@ impl From<PollResult> for TimelineItemContentKind {
                 .map(|i| PollAnswer { id: i.id, text: i.text })
                 .collect(),
             votes: value.votes,
-            end_time: value.end_time, 
+            end_time: value.end_time,
             has_been_edited: value.has_been_edited,
         }
     }
