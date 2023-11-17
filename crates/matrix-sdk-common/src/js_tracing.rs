@@ -313,13 +313,14 @@ impl<'a> tracing::field::Visit for JsFieldVisitor<'a> {
             return;
         }
 
-        self.result = match field.name() {
-            "message" => {
-                // Already handled by FindMessageVisitor.
-                Ok(())
-            }
-            name => self.pad_and_record(name, value),
-        };
+        let name = field.name();
+
+        if name == "message" {
+            // Already handled by FindMessageVisitor.
+            return;
+        }
+
+        self.result = self.pad_and_record(name, value);
     }
 }
 
