@@ -372,10 +372,10 @@ mod tests {
                 EncryptionSystem::Unencrypted,
             )));
             let query_set = get_query_sets(&Url::parse(&url).unwrap()).unwrap().1;
-            let expected_elements = ("perParticipantE2EE".to_owned(), "true".to_owned());
+            let expected_elements = ("perParticipantE2EE".to_owned(), "false".to_owned());
             assert!(
-                !query_set.contains(&expected_elements),
-                "The query elements: \n{:?}\nDid not contain: \n{:?}",
+                query_set.contains(&expected_elements),
+                "The url query elements for an unencrypted call: \n{:?}\nDid not contain: \n{:?}",
                 query_set,
                 expected_elements
             );
