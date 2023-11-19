@@ -222,8 +222,8 @@ impl SessionManager {
         &self,
         users: impl Iterator<Item = &UserId>,
     ) -> StoreResult<Option<(OwnedTransactionId, KeysClaimRequest)>> {
-        let mut missing: BTreeMap<_, BTreeMap<_, _>> = BTreeMap::new();
-        let mut timed_out: BTreeMap<_, BTreeSet<_>> = BTreeMap::new();
+        let mut missing_session_devices_by_user: BTreeMap<_, BTreeSet<_>> = BTreeMap::new();
+        let mut timed_out_devices_by_user: BTreeMap<_, BTreeSet<_>> = BTreeMap::new();
 
         let unfailed_users = users.filter(|u| !self.failures.contains(u.server_name()));
 
@@ -235,16 +235,19 @@ impl SessionManager {
         )
         .await?;
 
+        // A map from user ID to a map from device ID to list of algorithms.
+        let mut non_olm_devices_by_user: BTreeMap<_, BTreeMap<_, _>> = BTreeMap::new();
+
+        // A map from user id to a set of device IDs.
+        let mut bad_key_devices: BTreeMap<_, BTreeSet<_>> = BTreeMap::new();
+
         for (user_id, user_devices) in devices_by_user {
             for (device_id, device) in user_devices {
                 if !(device.supports_olm()) {
-                    warn!(
-                        user_id = ?device.user_id(),
-                        device_id = ?device.device_id(),
-                        algorithms = ?device.algorithms(),
-                        "Device doesn't support any of our 1-to-1 E2EE \
-                        algorithms, can't establish an Olm session"
-                    );
+                    non_olm_devices_by_user
+                        .entry(user_id.clone())
+                        .or_default()
+                        .insert(device_id, Vec::from(device.algorithms()));
                 } else if let Some(sender_key) = device.curve25519_key() {
                     let sessions = self.store.get_sessions(&sender_key.to_base64()).await?;
 
@@ -257,20 +260,18 @@ impl SessionManager {
                     let is_timed_out = self.is_user_timed_out(&user_id, &device_id);
 
                     if is_missing && is_timed_out {
-                        timed_out.entry(user_id.to_owned()).or_default().insert(device_id);
-                    } else if is_missing && !is_timed_out {
-                        missing
+                        timed_out_devices_by_user
                             .entry(user_id.to_owned())
                             .or_default()
-                            .insert(device_id, DeviceKeyAlgorithm::SignedCurve25519);
+                            .insert(device_id);
+                    } else if is_missing && !is_timed_out {
+                        missing_session_devices_by_user
+                            .entry(user_id.to_owned())
+                            .or_default()
+                            .insert(device_id);
                     }
                 } else {
-                    warn!(
-                        user_id = ?device.user_id(),
-                        device_id = ?device.device_id(),
-                        "Device doesn't have a valid Curve25519 key, \
-                        can't establish an Olm session"
-                    );
+                    bad_key_devices.entry(user_id.clone()).or_default().insert(device_id);
                 }
             }
         }
@@ -278,22 +279,51 @@ impl SessionManager {
         // Add the list of sessions that for some reason automatically need to
         // create an Olm session.
         for (user, device_ids) in self.users_for_key_claim.read().unwrap().iter() {
-            for device_id in device_ids {
-                missing
-                    .entry(user.to_owned())
-                    .or_default()
-                    .insert(device_id.to_owned(), DeviceKeyAlgorithm::SignedCurve25519);
-            }
+            missing_session_devices_by_user
+                .entry(user.to_owned())
+                .or_default()
+                .extend(device_ids.iter().cloned());
         }
 
-        let result = if missing.is_empty() {
+        debug!(
+            ?missing_session_devices_by_user,
+            ?timed_out_devices_by_user,
+            "Collected user/device pairs that are missing an Olm session"
+        );
+
+        if !non_olm_devices_by_user.is_empty() {
+            warn!(
+                ?non_olm_devices_by_user,
+                "Some devices don't support any of our 1-to-1 E2EE algorithms: \
+                can't establish an Olm session with them"
+            );
+        }
+
+        if !bad_key_devices.is_empty() {
+            warn!(
+                ?bad_key_devices,
+                "Some devices don't have a valid Curve25519 key: \
+                can't establish an Olm session with them"
+            );
+        }
+
+        let result = if missing_session_devices_by_user.is_empty() {
             None
         } else {
-            debug!(
-                ?missing,
-                ?timed_out,
-                "Collected user/device pairs that are missing an Olm session"
-            );
+            // rewrite the missing_session_devices_by_user map to include the desired
+            // algorithm for each device
+            let missing: BTreeMap<_, _> = missing_session_devices_by_user
+                .into_iter()
+                .map(|(user_id, user_devices)| {
+                    (
+                        user_id,
+                        user_devices
+                            .into_iter()
+                            .map(|device_id| (device_id, DeviceKeyAlgorithm::SignedCurve25519))
+                            .collect::<BTreeMap<_, _>>(),
+                    )
+                })
+                .collect();
 
             Some((
                 TransactionId::new(),
