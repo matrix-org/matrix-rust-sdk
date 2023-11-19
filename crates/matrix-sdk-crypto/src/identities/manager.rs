@@ -988,6 +988,7 @@ impl IdentityManager {
     /// Waits for any pending `/keys/query` for the given user. If one was
     /// pending, reloads the device list and returns `Some(user_id,
     /// device_list)`. If no request was pending, returns `None`.
+    #[instrument(skip(self))]
     async fn get_updated_keys_for_user<'a>(
         &self,
         timeout_duration: Duration,
