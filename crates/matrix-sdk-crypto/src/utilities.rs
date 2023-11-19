@@ -118,7 +118,7 @@ where
     /// considered to be valid while being in the cache.
     ///
     /// The returned duration will follow this sequence, values are in minutes:
-    ///      [0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 15.0]
+    ///      [15, 30, 60, ..., 960, 1440 ]
     fn calculate_delay(failure_count: u8) -> Duration {
         let exponential_backoff = 2u64.saturating_pow(failure_count.into());
         let delay = exponential_backoff
@@ -219,14 +219,9 @@ mod tests {
 
     #[test]
     fn failures_cache_timeout() {
-        assert_eq!(FailuresCache::<u8>::calculate_delay(0).as_secs(), 15);
-        assert_eq!(FailuresCache::<u8>::calculate_delay(1).as_secs(), 30);
-        assert_eq!(FailuresCache::<u8>::calculate_delay(2).as_secs(), 60);
-        assert_eq!(FailuresCache::<u8>::calculate_delay(3).as_secs(), 120);
-        assert_eq!(FailuresCache::<u8>::calculate_delay(4).as_secs(), 240);
-        assert_eq!(FailuresCache::<u8>::calculate_delay(5).as_secs(), 480);
-        assert_eq!(FailuresCache::<u8>::calculate_delay(6).as_secs(), 900);
-        assert_eq!(FailuresCache::<u8>::calculate_delay(7).as_secs(), 900);
+        assert_eq!(FailuresCache::<u8>::calculate_delay(0).as_secs(), 15 * 60);
+        assert_eq!(FailuresCache::<u8>::calculate_delay(6).as_secs(), 960 * 60);
+        assert_eq!(FailuresCache::<u8>::calculate_delay(7).as_secs(), 24 * 60 * 60);
     }
 
     proptest! {
@@ -234,8 +229,8 @@ mod tests {
         fn failures_cache_proptest_timeout(count in 0..10u8) {
             let delay = FailuresCache::<u8>::calculate_delay(count).as_secs();
 
-            assert!(delay <= 900);
-            assert!(delay >= 15);
+            assert!(delay <= 24 * 60 * 60);
+            assert!(delay >= 15 * 60);
         }
     }
 }
