@@ -230,9 +230,8 @@ where
         // write the message
         let mut v = FindMessageVisitor::default();
         event.record(&mut v);
-        match v.message {
-            Some(m) => writer.write_str(m.as_str())?,
-            None => (),
+        if let Some(m) = v.message {
+            writer.write_str(m.as_str())?
         }
 
         // write the other fields
