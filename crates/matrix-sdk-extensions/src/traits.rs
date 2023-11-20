@@ -14,7 +14,7 @@ where
     M: Module,
     Self: Sized,
 {
-    type EnvironmentReader<'a>: Deref<Target = M::Environment>
+    type EnvironmentRef<'a>: Deref<Target = M::Environment>
     where
         Self: 'a;
 
@@ -22,5 +22,5 @@ where
     where
         P: AsRef<Path>;
 
-    fn environment<'a>(&'a self) -> Self::EnvironmentReader<'a>;
+    fn environment<'a>(&'a self) -> Self::EnvironmentRef<'a>;
 }

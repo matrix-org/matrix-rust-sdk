@@ -1,3 +1,4 @@
+mod from_into;
 mod web_api;
 
 use std::{
@@ -73,7 +74,7 @@ impl<M> Instance<M> for JSInstance<M>
 where
     M: Module + ModuleExt<M::Environment>,
 {
-    type EnvironmentReader<'a> = EnvironmentGuard<'a, M> where Self: 'a;
+    type EnvironmentRef<'a> = EnvironmentGuard<'a, M> where Self: 'a;
 
     fn new<P>(js_file: P) -> Result<Self>
     where
@@ -82,7 +83,7 @@ where
         Ok(Self::new_impl(js_file).map_err(JSError::from)?)
     }
 
-    fn environment<'a>(&'a self) -> Self::EnvironmentReader<'a> {
+    fn environment<'a>(&'a self) -> Self::EnvironmentRef<'a> {
         EnvironmentGuard(self.environment.lock().unwrap())
     }
 }

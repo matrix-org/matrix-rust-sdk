@@ -36,7 +36,7 @@ impl<M> Instance<M> for NativeInstance<M>
 where
     M: Module + ModuleExt<M::Environment, M::Bindings>,
 {
-    type EnvironmentReader<'a> = &'a M::Environment where Self: 'a;
+    type EnvironmentRef<'a> = &'a M::Environment where Self: 'a;
 
     fn new<P>(wasm_module: P) -> Result<Self>
     where
@@ -56,7 +56,7 @@ where
         Ok(Self { store, exports: bindings })
     }
 
-    fn environment<'a>(&'a self) -> Self::EnvironmentReader<'a> {
+    fn environment<'a>(&'a self) -> Self::EnvironmentRef<'a> {
         self.store.data()
     }
 }

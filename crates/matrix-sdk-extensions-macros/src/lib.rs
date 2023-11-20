@@ -350,29 +350,36 @@ pub fn javascriptcore_bindgen(input: proc_macro::TokenStream) -> proc_macro::Tok
 
     let private_mod = Ident::new(&format!("__private_{}", world.name), call_site);
 
+    let mut add_to_linkers = Vec::new();
+
     let host_trait = {
         let package = world.package.and_then(|package| resolve.packages.get(package));
 
         let mut imports = Vec::new();
 
-        for (_import_key, import) in world.imports.iter() {
-            match import {
+        for (_import_key, import_item) in world.imports.iter() {
+            match import_item {
                 WorldItem::Interface(interface_id) => {
                     let interface = resolve.interfaces.get(*interface_id).unwrap();
 
-                    let mut functions = Vec::new();
+                    let mut trait_functions = Vec::new();
+                    let mut bindings = Vec::new();
 
-                    for function in interface.functions.values() {
-                        let function_name = Ident::new(&function.name.to_snake_case(), call_site);
-                        let arguments = function.params.iter().map(|(name, ty)| {
-                            let name = Ident::new(&name.to_snake_case(), call_site);
-                            let ty = Ident::new(&to_rust_type(ty), call_site);
+                    for import in interface.functions.values() {
+                        let function_name = Ident::new(&import.name.to_snake_case(), call_site);
+                        let ((argument_names, argument_indexed_names), argument_types) = import
+                            .params
+                            .iter()
+                            .enumerate()
+                            .map(|(nth, (name, ty))| {
+                                let name = Ident::new(&name.to_snake_case(), call_site);
+                                let indexed_name = Ident::new(&format!("arg{nth}"), call_site);
+                                let ty = Ident::new(&to_rust_type(ty), call_site);
 
-                            quote! {
-                                #name: #ty
-                            }
-                        });
-                        let results = match &function.results {
+                                ((name, indexed_name), ty)
+                            })
+                            .unzip::<_, _, (Vec<_>, Vec<_>), Vec<_>>();
+                        let results = match &import.results {
                             Results::Named(results) => match results.len() {
                                 0 => "()".to_owned(),
                                 1 => to_rust_type(&results[0].1),
@@ -389,14 +396,75 @@ pub fn javascriptcore_bindgen(input: proc_macro::TokenStream) -> proc_macro::Tok
                         .parse::<TokenStream>()
                         .unwrap();
 
-                        functions.push(quote! {
-                            fn #function_name( &mut self #( , #arguments )* ) -> matrix_sdk_extensions::Result< #results >;
+                        trait_functions.push(quote! {
+                            fn #function_name( &mut self #( , #argument_names : #argument_types )* ) -> matrix_sdk_extensions::Result< #results >;
                         });
+
+                        bindings.push(quote! {
+                            {
+                                #[function_callback]
+                                fn js_function<Environment>(
+                                    context: &JSContext,
+                                    _function: Option<&JSObject>,
+                                    this_object: Option<&JSObject>,
+                                    arguments: &[JSValue],
+                                ) -> core::result::Result<JSValue, JSException>
+                                where
+                                    Environment: Host,
+                                {
+                                    #use_matrix_sdk_extensions
+
+                                    use matrix_sdk_extensions::javascriptcore::from_into::TryIntoRust;
+
+                                    let this_object = this_object.expect("`this_object` is `None`");
+                                    let env_ptr = this_object.as_number().expect("`this_object` must be a number") as usize;
+                                    let env = unsafe { std::sync::Arc::from_raw(env_ptr as *const std::sync::Mutex<Environment>) };
+                                    let mut env_lock = env.lock().unwrap();
+                                    let env_mut: &mut Environment = &mut env_lock;
+
+                                    let mut arguments = arguments.iter();
+
+                                    #( let #argument_indexed_names: #argument_types = arguments
+                                        .next()
+                                        .expect(concat!("Argument `", stringify!( #argument_indexed_names ), "` is missing"))
+                                        .try_into_rust()?; )*
+
+                                    Host:: #function_name (env_mut #( , #argument_indexed_names )* ).unwrap();
+
+                                    Ok(JSValue::new_undefined(context))
+                                }
+
+                                let function_name = stringify!( #function_name );
+                                let function = JSValue::new_function(&context, function_name, Some(js_function::<Environment>))
+                                    .as_object()
+                                    .unwrap();
+
+                                namespace
+                                    .set_property(
+                                        function_name,
+                                        function
+                                            .get_property("bind")
+                                            .as_object()
+                                            .unwrap()
+                                            .call_as_function(
+                                                Some(&function),
+                                                &[JSValue::new_number(
+                                                    context,
+                                                    // FIXME: converting from u64 to f64 loss precision, and can be dramatic.
+                                                    // Use the `conv` crate instead?
+                                                    std::sync::Arc::into_raw(environment.clone()) as usize as u64 as f64,
+                                                )],
+                                            )
+                                            .unwrap(),
+                                    )
+                                    .unwrap();
+                            }
+                        })
                     }
 
-                    let mut import = quote! {
+                    let import = quote! {
                         pub trait Host {
-                            #( #functions )*
+                            #( #trait_functions )*
                         }
 
                         pub fn add_to_linker<Environment>(
@@ -412,54 +480,7 @@ pub fn javascriptcore_bindgen(input: proc_macro::TokenStream) -> proc_macro::Tok
                             imports.set_property("matrix:ui-timeline/std", JSValue::new_from_json(context, "{}").unwrap()).unwrap();
                             let namespace = imports.get_property("matrix:ui-timeline/std").as_object().unwrap();
 
-                            {
-                                #[function_callback]
-                                fn js_function<Environment>(
-                                    context: &JSContext,
-                                    _function: Option<&JSObject>,
-                                    this_object: Option<&JSObject>,
-                                    arguments: &[JSValue],
-                                ) -> core::result::Result<JSValue, JSException>
-                                where
-                                    Environment: Host,
-                                {
-                                    use core::borrow::BorrowMut;
-
-                                    let this_object = this_object.expect("`this_object` is `None`");
-                                    let env_ptr = this_object.as_number().expect("`this_object` must be a number") as usize;
-                                    let env = unsafe { std::sync::Arc::from_raw(env_ptr as *const std::sync::Mutex<Environment>) };
-                                    let mut env_lock = env.lock().unwrap();
-                                    let env_mut: &mut Environment = env_lock.borrow_mut();
-
-                                    let arg0 = arguments[0].as_string().unwrap().to_string();
-
-                                    Host::print(env_mut, arg0).unwrap();
-
-                                    Ok(JSValue::new_undefined(context))
-                                }
-
-                                let function = JSValue::new_function(&context, "print", Some(js_function::<Environment>))
-                                    .as_object()
-                                    .unwrap();
-
-                                namespace
-                                    .set_property(
-                                        "print",
-                                        function
-                                            .get_property("bind")
-                                            .as_object()
-                                            .unwrap()
-                                            .call_as_function(
-                                                Some(&function),
-                                                &[JSValue::new_number(
-                                                    context,
-                                                    std::sync::Arc::into_raw(environment.clone()) as usize as f64,
-                                                )],
-                                            )
-                                            .unwrap(),
-                                    )
-                                    .unwrap();
-                            }
+                            #( #bindings )*
 
                             Ok(())
                         }
@@ -468,16 +489,18 @@ pub fn javascriptcore_bindgen(input: proc_macro::TokenStream) -> proc_macro::Tok
                     if let Some(interface_name) = &interface.name {
                         let interface_name = Ident::new(&interface_name.to_snake_case(), call_site);
 
-                        import = quote! {
+                        imports.push(quote! {
                             pub mod #interface_name {
                                 #use_matrix_sdk_extensions
 
                                 #import
                             }
-                        };
+                        });
+                        add_to_linkers.push(quote! { #interface_name::add_to_linker });
+                    } else {
+                        imports.push(import);
+                        add_to_linkers.push(quote! { add_to_linker });
                     }
-
-                    imports.push(import);
                 }
                 i => unimplemented!("{:?}", i),
             }
@@ -498,6 +521,15 @@ pub fn javascriptcore_bindgen(input: proc_macro::TokenStream) -> proc_macro::Tok
                     }
                 }
             };
+
+            add_to_linkers = add_to_linkers
+                .iter()
+                .map(|add_to_linker| {
+                    quote! {
+                        #package_namespace :: #package_name :: #add_to_linker
+                    }
+                })
+                .collect();
         }
 
         output
@@ -522,7 +554,8 @@ pub fn javascriptcore_bindgen(input: proc_macro::TokenStream) -> proc_macro::Tok
                     imports: &matrix_sdk_extensions::javascriptcore::JSObject,
                     environment: &std::sync::Arc<std::sync::Mutex< #environment_type >>,
                 ) -> matrix_sdk_extensions::Result<()> {
-                    matrix::ui_timeline::std::add_to_linker::< #environment_type >(context, imports, environment)?;
+                    #( #add_to_linkers ::< #environment_type >(context, imports, environment)?; )*
+                    // matrix::ui_timeline::std::add_to_linker::< #environment_type >(context, imports, environment)?;
 
                     Ok(())
                 }
@@ -543,19 +576,6 @@ pub fn javascriptcore_bindgen(input: proc_macro::TokenStream) -> proc_macro::Tok
             #use_matrix_sdk_extensions
 
             pub struct #world_type;
-
-            /*
-            impl #world_type {
-                pub fn add_to_linker<Environment>(
-                    context: &matrix_sdk_extensions::javascriptcore::JSContext,
-                    imports: &matrix_sdk_extensions::javascriptcore::JSObject
-                ) -> matrix_sdk_extensions::Result<()> {
-                    super::matrix::ui_timeline::std::add_to_linker::<Environment>(context, imports)?;
-
-                    Ok(())
-                }
-            }
-            */
         }
 
         #use_matrix_sdk_extensions
