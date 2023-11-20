@@ -265,7 +265,7 @@ impl GroupSessionManager {
     async fn encrypt_session_for(
         store: Arc<CryptoStoreWrapper>,
         group_session: OutboundGroupSession,
-        devices: Vec<Device>,
+        devices: Vec<ReadOnlyDevice>,
     ) -> OlmResult<(
         OwnedTransactionId,
         ToDeviceRequest,
@@ -275,7 +275,7 @@ impl GroupSessionManager {
     )> {
         // Use a named type instead of a tuple with rather long type name
         pub struct DeviceResult {
-            device: Device,
+            device: ReadOnlyDevice,
             maybe_encrypted_room_key: MaybeEncryptedRoomKey,
         }
 
@@ -287,10 +287,9 @@ impl GroupSessionManager {
         // XXX is there a way to do this that doesn't involve cloning the
         // `Arc<CryptoStoreWrapper>` fore each device?
         let encrypt = |store: Arc<CryptoStoreWrapper>,
-                       device: Device,
+                       device: ReadOnlyDevice,
                        session: OutboundGroupSession| async move {
-            let encryption_result =
-                device.inner.maybe_encrypt_room_key(store.as_ref(), session).await?;
+            let encryption_result = device.maybe_encrypt_room_key(store.as_ref(), session).await?;
 
             Ok::<_, OlmError>(DeviceResult { device, maybe_encrypted_room_key: encryption_result })
         };
@@ -323,7 +322,7 @@ impl GroupSessionManager {
                         .insert(device_id, share_info);
                 }
                 MaybeEncryptedRoomKey::Withheld { code } => {
-                    withheld_devices.push((result.device.inner, code));
+                    withheld_devices.push((result.device, code));
                 }
             }
         }
@@ -443,8 +442,9 @@ impl GroupSessionManager {
         outbound: OutboundGroupSession,
         sessions: GroupSessionCache,
     ) -> OlmResult<(Vec<Session>, Vec<(ReadOnlyDevice, WithheldCode)>)> {
+        let inner_devices = chunk.into_iter().map(|device| device.inner).collect();
         let (id, request, share_infos, used_sessions, no_olm) =
-            Self::encrypt_session_for(store, outbound.clone(), chunk).await?;
+            Self::encrypt_session_for(store, outbound.clone(), inner_devices).await?;
 
         if !request.messages.is_empty() {
             trace!(
