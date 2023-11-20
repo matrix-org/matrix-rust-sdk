@@ -36,7 +36,7 @@ impl<M> Instance<M> for NativeInstance<M>
 where
     M: Module + ModuleExt<M::Environment, M::Bindings>,
 {
-    // type EnvironmentReader = M::Environment;
+    type EnvironmentReader<'a> = &'a M::Environment where Self: 'a;
 
     fn new<P>(wasm_module: P) -> Result<Self>
     where
@@ -56,9 +56,9 @@ where
         Ok(Self { store, exports: bindings })
     }
 
-    // fn environment(&self) -> &M::Environment {
-    //     self.store.data()
-    // }
+    fn environment<'a>(&'a self) -> Self::EnvironmentReader<'a> {
+        self.store.data()
+    }
 }
 
 #[cfg(test)]
@@ -91,6 +91,7 @@ mod tests {
 
         instance.exports.call_greet(&mut instance.store, "Gordon").unwrap();
 
-        assert_eq!(instance.store.data().output, "Hello, Gordon!\n");
+        let env = instance.environment();
+        assert_eq!(env.output, "Hello, Gordon!\n");
     }
 }

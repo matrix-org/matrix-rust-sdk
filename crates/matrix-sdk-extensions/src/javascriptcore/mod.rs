@@ -3,9 +3,10 @@ mod web_api;
 use std::{
     error::Error,
     fmt, fs,
+    ops::Deref,
     path::Path,
     result::Result as StdResult,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, MutexGuard},
 };
 
 use javascriptcore::{evaluate_script, JSClass};
@@ -53,11 +54,26 @@ where
     environment: Arc<Mutex<M::Environment>>,
 }
 
+pub struct EnvironmentGuard<'a, M>(MutexGuard<'a, M::Environment>)
+where
+    M: Module;
+
+impl<'a, M> Deref for EnvironmentGuard<'a, M>
+where
+    M: Module,
+{
+    type Target = M::Environment;
+
+    fn deref(&self) -> &Self::Target {
+        self.0.deref()
+    }
+}
+
 impl<M> Instance<M> for JSInstance<M>
 where
     M: Module + ModuleExt<M::Environment>,
 {
-    // type EnvironmentReader<'a> = std::sync::MutexGuard<'a, M::Environment>;
+    type EnvironmentReader<'a> = EnvironmentGuard<'a, M> where Self: 'a;
 
     fn new<P>(js_file: P) -> Result<Self>
     where
@@ -66,9 +82,9 @@ where
         Ok(Self::new_impl(js_file).map_err(JSError::from)?)
     }
 
-    // fn environment(&self) -> Self::EnvironmentReader {
-    //     self.environment.lock().unwrap()
-    // }
+    fn environment<'a>(&'a self) -> Self::EnvironmentReader<'a> {
+        EnvironmentGuard(self.environment.lock().unwrap())
+    }
 }
 
 impl<M> JSInstance<M>
@@ -102,71 +118,10 @@ where
             JSValue::new_function(&context, "compile_core", Some(web_api::compile_wasm));
 
         let imports = {
-            /*
-            #[function_callback]
-            fn print<E>(
-                ctx: &JSContext,
-                _function: Option<&JSObject>,
-                this_object: Option<&JSObject>,
-                arguments: &[JSValue],
-            ) -> StdResult<JSValue, JSException>
-            where
-                E: std::fmt::Debug,
-            {
-                let this_object = this_object.unwrap();
-
-                let env_ptr = this_object.as_number().unwrap() as usize;
-                let env = unsafe { Arc::from_raw(env_ptr as *const Mutex<E>) };
-
-                dbg!(&env);
-
-                for argument in arguments {
-                    println!("==> {}", argument.as_string()?);
-                }
-
-                Ok(JSValue::new_undefined(ctx))
-            }
-            */
-
             let imports = JSValue::new_from_json(&context, r#"{}"#).unwrap();
             let imports_as_object = imports.as_object()?;
 
             M::link(&context, &imports_as_object, &environment).unwrap();
-
-            /*
-            {
-                let imports_as_object = imports.as_object()?;
-
-                imports_as_object
-                    .set_property(
-                        "matrix:ui-timeline/std",
-                        JSValue::new_from_json(&context, "{}").unwrap(),
-                    )
-                    .unwrap();
-
-                let ui_timeline_std =
-                    imports_as_object.get_property("matrix:ui-timeline/std").as_object()?;
-
-                let f = JSValue::new_function(&context, "print", Some(print::<M::Environment>))
-                    .as_object()
-                    .unwrap();
-
-                ui_timeline_std.set_property(
-                    "print",
-                    f.get_property("bind")
-                        .as_object()
-                        .unwrap()
-                        .call_as_function(
-                            Some(&f),
-                            &[JSValue::new_number(
-                                &context,
-                                Arc::into_raw(environment.clone()) as usize as f64,
-                            )],
-                        )
-                        .unwrap(),
-                )?;
-            }
-            */
 
             imports
         };
@@ -232,7 +187,7 @@ mod tests {
         let result =
             greet.call_as_function(None, &[JSValue::new_string(&instance.context, "Gordon")]);
 
-        let env = instance.environment.lock().unwrap();
+        let env = instance.environment();
         assert_eq!(env.output, "Hello, Gordon!\n");
 
         Ok(())
