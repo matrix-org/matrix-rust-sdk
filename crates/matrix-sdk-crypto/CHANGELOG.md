@@ -1,5 +1,8 @@
 # unreleased
 
+- Improve performance of `share_room_key`.
+  ([#2862](https://github.com/matrix-org/matrix-rust-sdk/pull/2862))
+
 - `get_missing_sessions`: Don't block waiting for `/keys/query` requests on
   blacklisted servers, and improve performance.
   ([#2845](https://github.com/matrix-org/matrix-rust-sdk/pull/2845))

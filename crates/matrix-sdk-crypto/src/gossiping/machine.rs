@@ -618,7 +618,7 @@ impl GossipMachine {
         // at. For this, we need an outbound session because this
         // information is recorded there.
         } else if let Some(outbound) = outbound_session {
-            match outbound.is_shared_with(device) {
+            match outbound.is_shared_with(&device.inner) {
                 ShareState::Shared(message_index) => Ok(Some(message_index)),
                 ShareState::SharedButChangedSenderKey => Err(KeyForwardDecision::ChangedSenderKey),
                 ShareState::NotShared => Err(KeyForwardDecision::OutboundSessionNotShared),
