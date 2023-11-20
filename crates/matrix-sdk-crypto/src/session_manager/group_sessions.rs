@@ -285,7 +285,7 @@ impl GroupSessionManager {
         let mut withheld_devices = Vec::new();
 
         // XXX is there a way to do this that doesn't involve cloning the
-        // `Arc<CryptoStoreWrapper>` fore each device?
+        // `Arc<CryptoStoreWrapper>` for each device?
         let encrypt = |store: Arc<CryptoStoreWrapper>,
                        device: ReadOnlyDevice,
                        session: OutboundGroupSession| async move {
