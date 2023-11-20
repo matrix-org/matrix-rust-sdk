@@ -415,7 +415,7 @@ impl SessionManager {
 
             if !missing_devices.is_empty() {
                 let mut missing_devices_by_user: BTreeMap<_, BTreeSet<_>> = BTreeMap::new();
-                for (user_id, device_id) in missing_devices.into_iter() {
+                for (user_id, device_id) in missing_devices {
                     missing_devices_by_user
                         .entry(user_id)
                         .or_default()
