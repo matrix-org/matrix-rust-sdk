@@ -770,7 +770,7 @@ impl GroupSessionManager {
             .into_iter()
             .flat_map(|(_, d)| {
                 d.into_iter()
-                    .filter(|d| matches!(outbound.is_shared_with(d), ShareState::NotShared))
+                    .filter(|d| matches!(outbound.is_shared_with(&d.inner), ShareState::NotShared))
             })
             .map(|d| d.inner)
             .collect();
