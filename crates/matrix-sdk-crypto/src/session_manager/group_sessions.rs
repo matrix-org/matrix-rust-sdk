@@ -438,13 +438,12 @@ impl GroupSessionManager {
 
     async fn encrypt_request(
         store: Arc<CryptoStoreWrapper>,
-        chunk: Vec<Device>,
+        chunk: Vec<ReadOnlyDevice>,
         outbound: OutboundGroupSession,
         sessions: GroupSessionCache,
     ) -> OlmResult<(Vec<Session>, Vec<(ReadOnlyDevice, WithheldCode)>)> {
-        let inner_devices = chunk.into_iter().map(|device| device.inner).collect();
         let (id, request, share_infos, used_sessions, no_olm) =
-            Self::encrypt_session_for(store, outbound.clone(), inner_devices).await?;
+            Self::encrypt_session_for(store, outbound.clone(), chunk).await?;
 
         if !request.messages.is_empty() {
             trace!(
@@ -496,7 +495,7 @@ impl GroupSessionManager {
 
     async fn encrypt_for_devices(
         &self,
-        recipient_devices: Vec<Device>,
+        recipient_devices: Vec<ReadOnlyDevice>,
         group_session: &OutboundGroupSession,
         changes: &mut Changes,
     ) -> OlmResult<Vec<(ReadOnlyDevice, WithheldCode)>> {
@@ -767,12 +766,13 @@ impl GroupSessionManager {
 
         // Filter out the devices that already received this room key or have a
         // to-device message already queued up.
-        let devices: Vec<Device> = devices
+        let devices: Vec<_> = devices
             .into_iter()
             .flat_map(|(_, d)| {
                 d.into_iter()
                     .filter(|d| matches!(outbound.is_shared_with(d), ShareState::NotShared))
             })
+            .map(|d| d.inner)
             .collect();
 
         // The `encrypt_for_devices()` method adds the to-device requests that will send
