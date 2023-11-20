@@ -379,8 +379,18 @@ impl GroupSessionManager {
         // This is calculated in the following code and stored in this variable.
         let mut should_rotate = user_left || visibility_changed || algorithm_changed;
 
+        let own_identity =
+            self.store.get_user_identity(self.store.user_id()).await?.and_then(|i| i.into_own());
+
         for user_id in users {
-            let user_devices = self.store.get_user_devices_filtered(user_id).await?;
+            let user_devices = self.store.get_readonly_devices_filtered(user_id).await?;
+
+            // We only need the user identity if settings.only_allow_trusted_devices is set.
+            let device_owner_identity = if settings.only_allow_trusted_devices {
+                self.store.get_user_identity(user_id).await?
+            } else {
+                None
+            };
 
             // From all the devices a user has, we're splitting them into two
             // buckets, a bucket of devices that should receive the
@@ -389,13 +399,15 @@ impl GroupSessionManager {
             let (recipients, withheld_recipients): (
                 Vec<ReadOnlyDevice>,
                 Vec<(ReadOnlyDevice, WithheldCode)>,
-            ) = user_devices.devices().partition_map(|d| {
+            ) = user_devices.into_values().partition_map(|d| {
                 if d.is_blacklisted() {
-                    Either::Right((d.inner, WithheldCode::Blacklisted))
-                } else if settings.only_allow_trusted_devices && !d.is_verified() {
-                    Either::Right((d.inner, WithheldCode::Unverified))
+                    Either::Right((d, WithheldCode::Blacklisted))
+                } else if settings.only_allow_trusted_devices
+                    && !d.is_verified(&own_identity, &device_owner_identity)
+                {
+                    Either::Right((d, WithheldCode::Unverified))
                 } else {
-                    Either::Left(d.inner)
+                    Either::Left(d)
                 }
             });
 
