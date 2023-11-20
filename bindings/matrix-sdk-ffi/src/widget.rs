@@ -118,10 +118,10 @@ pub async fn generate_webview_url(
 pub enum EncryptionSystem {
     /// Equivalent to the element call url parameter: `enableE2EE=false`
     Unencrypted,
-    /// Equivalent to the element call url parameters:
+    /// Equivalent to the element call url parameter:
     /// `perParticipantE2EE=true`
     PerParticipantKeys,
-    /// Equivalent to the element call url parameters:
+    /// Equivalent to the element call url parameter:
     /// `password={secret}`
     SharedSecret {
         /// The secret/password which is used in the url.
