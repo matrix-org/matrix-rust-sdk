@@ -1069,18 +1069,6 @@ impl Store {
 
     /// Get all devices associated with the given `user_id`
     ///
-    /// *Note*: This doesn't return our own device.
-    pub(crate) async fn get_user_devices_filtered(&self, user_id: &UserId) -> Result<UserDevices> {
-        self.get_user_devices(user_id).await.map(|mut d| {
-            if user_id == self.user_id() {
-                d.inner.remove(self.device_id());
-            }
-            d
-        })
-    }
-
-    /// Get all devices associated with the given `user_id`
-    ///
     /// *Note*: This does also return our own device.
     pub(crate) async fn get_user_devices(&self, user_id: &UserId) -> Result<UserDevices> {
         let devices = self.get_readonly_devices_unfiltered(user_id).await?;
