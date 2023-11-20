@@ -56,7 +56,7 @@ use crate::{
         },
         EventEncryptionAlgorithm,
     },
-    Device, ToDeviceRequest,
+    Device, ReadOnlyDevice, ToDeviceRequest,
 };
 
 const ROTATION_PERIOD: Duration = Duration::from_millis(604800000);
@@ -548,7 +548,7 @@ impl OutboundGroupSession {
         }
     }
 
-    pub(crate) fn is_withheld_to(&self, device: &Device, code: &WithheldCode) -> bool {
+    pub(crate) fn is_withheld_to(&self, device: &ReadOnlyDevice, code: &WithheldCode) -> bool {
         self.shared_with_set
             .read()
             .unwrap()
