@@ -1591,6 +1591,10 @@ impl Store {
     ) -> Result<RoomKeyImportResult> {
         self.import_room_keys(exported_keys, false, progress_listener).await
     }
+
+    pub(crate) fn crypto_store(&self) -> Arc<CryptoStoreWrapper> {
+        self.inner.store.clone()
+    }
 }
 
 impl Deref for Store {

@@ -35,7 +35,7 @@ use crate::{
     error::{EventError, MegolmResult, OlmResult},
     identities::device::MaybeEncryptedRoomKey,
     olm::{InboundGroupSession, OutboundGroupSession, Session, ShareInfo, ShareState},
-    store::{Changes, Result as StoreResult, Store},
+    store::{Changes, CryptoStoreWrapper, Result as StoreResult, Store},
     types::events::{room::encrypted::RoomEncryptedEventContent, room_key_withheld::WithheldCode},
     Device, EncryptionSettings, OlmError, ToDeviceRequest,
 };
@@ -263,6 +263,7 @@ impl GroupSessionManager {
     /// Encrypt the given content for the given devices and create a to-device
     /// requests that sends the encrypted content to them.
     async fn encrypt_session_for(
+        store: Arc<CryptoStoreWrapper>,
         group_session: OutboundGroupSession,
         devices: Vec<Device>,
     ) -> OlmResult<(
@@ -283,14 +284,21 @@ impl GroupSessionManager {
         let mut share_infos = BTreeMap::new();
         let mut withheld_devices = Vec::new();
 
-        let encrypt = |device: Device, session: OutboundGroupSession| async move {
-            let encryption_result = device.maybe_encrypt_room_key(session).await?;
+        // XXX is there a way to do this that doesn't involve cloning the
+        // `Arc<CryptoStoreWrapper>` fore each device?
+        let encrypt = |store: Arc<CryptoStoreWrapper>,
+                       device: Device,
+                       session: OutboundGroupSession| async move {
+            let encryption_result =
+                device.inner.maybe_encrypt_room_key(store.as_ref(), session).await?;
 
             Ok::<_, OlmError>(DeviceResult { device, maybe_encrypted_room_key: encryption_result })
         };
 
-        let tasks: Vec<_> =
-            devices.iter().map(|d| spawn(encrypt(d.clone(), group_session.clone()))).collect();
+        let tasks: Vec<_> = devices
+            .iter()
+            .map(|d| spawn(encrypt(store.clone(), d.clone(), group_session.clone())))
+            .collect();
 
         let results = join_all(tasks).await;
 
@@ -428,12 +436,13 @@ impl GroupSessionManager {
     }
 
     async fn encrypt_request(
+        store: Arc<CryptoStoreWrapper>,
         chunk: Vec<Device>,
         outbound: OutboundGroupSession,
         sessions: GroupSessionCache,
     ) -> OlmResult<(Vec<Session>, Vec<(Device, WithheldCode)>)> {
         let (id, request, share_infos, used_sessions, no_olm) =
-            Self::encrypt_session_for(outbound.clone(), chunk).await?;
+            Self::encrypt_session_for(store, outbound.clone(), chunk).await?;
 
         if !request.messages.is_empty() {
             trace!(
@@ -520,6 +529,7 @@ impl GroupSessionManager {
             .chunks(Self::MAX_TO_DEVICE_MESSAGES)
             .map(|chunk| {
                 spawn(Self::encrypt_request(
+                    self.store.crypto_store(),
                     chunk.to_vec(),
                     group_session.clone(),
                     self.sessions.clone(),

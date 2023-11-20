@@ -431,28 +431,6 @@ impl Device {
         self.inner.encrypt(self.verification_machine.store.inner(), event_type, content).await
     }
 
-    pub(crate) async fn maybe_encrypt_room_key(
-        &self,
-        session: OutboundGroupSession,
-    ) -> OlmResult<MaybeEncryptedRoomKey> {
-        let content = session.as_content().await;
-        let message_index = session.message_index().await;
-        let event_type = content.event_type();
-
-        match self.encrypt(event_type, content).await {
-            Ok((session, encrypted)) => Ok(MaybeEncryptedRoomKey::Encrypted {
-                share_info: ShareInfo::new_shared(session.sender_key().to_owned(), message_index),
-                used_session: session,
-                message: encrypted.cast(),
-            }),
-
-            Err(OlmError::MissingSession | OlmError::EventError(EventError::MissingSenderKey)) => {
-                Ok(MaybeEncryptedRoomKey::Withheld { code: WithheldCode::NoOlm })
-            }
-            Err(e) => Err(e),
-        }
-    }
-
     /// Encrypt the given inbound group session as a forwarded room key for this
     /// device.
     pub async fn encrypt_room_key_for_forwarding(
@@ -785,6 +763,29 @@ impl ReadOnlyDevice {
             warn!("Trying to encrypt an event for a device, but no Olm session is found.",);
 
             Err(OlmError::MissingSession)
+        }
+    }
+
+    pub(crate) async fn maybe_encrypt_room_key(
+        &self,
+        store: &CryptoStoreWrapper,
+        session: OutboundGroupSession,
+    ) -> OlmResult<MaybeEncryptedRoomKey> {
+        let content = session.as_content().await;
+        let message_index = session.message_index().await;
+        let event_type = content.event_type();
+
+        match self.encrypt(store, event_type, content).await {
+            Ok((session, encrypted)) => Ok(MaybeEncryptedRoomKey::Encrypted {
+                share_info: ShareInfo::new_shared(session.sender_key().to_owned(), message_index),
+                used_session: session,
+                message: encrypted.cast(),
+            }),
+
+            Err(OlmError::MissingSession | OlmError::EventError(EventError::MissingSenderKey)) => {
+                Ok(MaybeEncryptedRoomKey::Withheld { code: WithheldCode::NoOlm })
+            }
+            Err(e) => Err(e),
         }
     }
 
