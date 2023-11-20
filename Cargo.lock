@@ -2861,7 +2861,7 @@ dependencies = [
 [[package]]
 name = "javascriptcore"
 version = "0.0.5"
-source = "git+https://github.com/Hywan/javascriptcore.rs?branch=fix-macro-imports#749dcb21b1fdd89581081791232b5aaf4313eaa5"
+source = "git+https://github.com/endoli/javascriptcore.rs?branch=main#9791f15e5c6c08fcb451f70099ba049cbe439d61"
 dependencies = [
  "javascriptcore-macros",
  "javascriptcore-sys",
@@ -2871,7 +2871,7 @@ dependencies = [
 [[package]]
 name = "javascriptcore-macros"
 version = "0.0.1"
-source = "git+https://github.com/Hywan/javascriptcore.rs?branch=fix-macro-imports#749dcb21b1fdd89581081791232b5aaf4313eaa5"
+source = "git+https://github.com/endoli/javascriptcore.rs?branch=main#9791f15e5c6c08fcb451f70099ba049cbe439d61"
 dependencies = [
  "quote",
  "syn 2.0.39",
@@ -2880,7 +2880,7 @@ dependencies = [
 [[package]]
 name = "javascriptcore-sys"
 version = "0.0.5"
-source = "git+https://github.com/Hywan/javascriptcore.rs?branch=fix-macro-imports#749dcb21b1fdd89581081791232b5aaf4313eaa5"
+source = "git+https://github.com/endoli/javascriptcore.rs?branch=main#9791f15e5c6c08fcb451f70099ba049cbe439d61"
 dependencies = [
  "pkg-config",
 ]
