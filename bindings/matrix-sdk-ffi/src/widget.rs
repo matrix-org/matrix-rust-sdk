@@ -113,17 +113,16 @@ pub async fn generate_webview_url(
 
 /// Defines if a call is encrypted and which encryption system should be used.
 ///
-/// This controls the url parameters: `enableE2EE`, `perParticipantE2EE`,
-/// `password`.
+/// This controls the url parameters: `perParticipantE2EE`, `password`.
 #[derive(uniffi::Enum, Clone)]
 pub enum EncryptionSystem {
     /// Equivalent to the element call url parameter: `enableE2EE=false`
     Unencrypted,
-    /// Equivalent to the element call url parameters:
-    /// `enableE2EE=true&perParticipantE2EE=true`
+    /// Equivalent to the element call url parameter:
+    /// `perParticipantE2EE=true`
     PerParticipantKeys,
-    /// Equivalent to the element call url parameters:
-    /// `enableE2EE=true&password={secret}`
+    /// Equivalent to the element call url parameter:
+    /// `password={secret}`
     SharedSecret {
         /// The secret/password which is used in the url.
         secret: String,
