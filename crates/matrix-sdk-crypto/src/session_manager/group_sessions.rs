@@ -37,7 +37,7 @@ use crate::{
     olm::{InboundGroupSession, OutboundGroupSession, Session, ShareInfo, ShareState},
     store::{Changes, CryptoStoreWrapper, Result as StoreResult, Store},
     types::events::{room::encrypted::RoomEncryptedEventContent, room_key_withheld::WithheldCode},
-    Device, EncryptionSettings, OlmError, ReadOnlyDevice, ToDeviceRequest,
+    EncryptionSettings, OlmError, ReadOnlyDevice, ToDeviceRequest,
 };
 
 #[derive(Clone, Debug)]
@@ -127,7 +127,7 @@ pub(crate) struct CollectRecipientsResult {
     /// If true the outbound group session should be rotated
     pub should_rotate: bool,
     /// The map of user|device that should receive the session
-    pub devices: BTreeMap<OwnedUserId, Vec<Device>>,
+    pub devices: BTreeMap<OwnedUserId, Vec<ReadOnlyDevice>>,
     /// The map of user|device that won't receive the key with the withheld
     /// code.
     pub withheld_devices: Vec<(ReadOnlyDevice, WithheldCode)>,
@@ -350,7 +350,7 @@ impl GroupSessionManager {
         outbound: &OutboundGroupSession,
     ) -> OlmResult<CollectRecipientsResult> {
         let users: BTreeSet<&UserId> = users.collect();
-        let mut devices: BTreeMap<OwnedUserId, Vec<Device>> = Default::default();
+        let mut devices: BTreeMap<OwnedUserId, Vec<ReadOnlyDevice>> = Default::default();
         let mut withheld_devices: Vec<(ReadOnlyDevice, WithheldCode)> = Default::default();
 
         trace!(?users, ?settings, "Calculating group session recipients");
@@ -387,7 +387,7 @@ impl GroupSessionManager {
             // room key and a bucket of devices that should receive
             // a withheld code.
             let (recipients, withheld_recipients): (
-                Vec<Device>,
+                Vec<ReadOnlyDevice>,
                 Vec<(ReadOnlyDevice, WithheldCode)>,
             ) = user_devices.devices().partition_map(|d| {
                 if d.is_blacklisted() {
@@ -395,7 +395,7 @@ impl GroupSessionManager {
                 } else if settings.only_allow_trusted_devices && !d.is_verified() {
                     Either::Right((d.inner, WithheldCode::Unverified))
                 } else {
-                    Either::Left(d)
+                    Either::Left(d.inner)
                 }
             });
 
@@ -770,9 +770,8 @@ impl GroupSessionManager {
             .into_iter()
             .flat_map(|(_, d)| {
                 d.into_iter()
-                    .filter(|d| matches!(outbound.is_shared_with(&d.inner), ShareState::NotShared))
+                    .filter(|d| matches!(outbound.is_shared_with(d), ShareState::NotShared))
             })
-            .map(|d| d.inner)
             .collect();
 
         // The `encrypt_for_devices()` method adds the to-device requests that will send
