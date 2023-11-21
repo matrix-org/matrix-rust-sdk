@@ -72,7 +72,7 @@ pub struct EncryptedSessionData {
     /// First 8 bytes of MAC key, encoded in base64.
     pub mac: String,
     /// MAC of the key, encoded in base64
-    pub mac2: Option<String>,
+    pub signatures: Option<HashMap<String, HashMap<String, String>>>,
 }
 
 impl BackupRecoveryKey {
@@ -195,36 +195,57 @@ impl BackupRecoveryKey {
         mac: String,
         ciphertext: String,
     ) -> Result<String, PkDecryptionError> {
-        self.inner.decrypt_v1(&ephemeral_key, mac, &ciphertext).map_err(|e| e.into())
+        self.inner.decrypt_v1(&ephemeral_key, &mac, &ciphertext).map_err(|e| e.into())
     }
 
     /// Try to decrypt a message that was encrypted using the public part of the
     /// backup key.
     pub fn decrypt_session_data(
         &self,
+        user_id: String,
         session_data: EncryptedSessionData,
     ) -> Result<BackedUpRoomKey, PkDecryptionError> {
-        let session_data = matrix_sdk_crypto::backup::keys::EncryptedSessionData {
-            ephemeral: Base64::new(
-                vodozemac::base64_decode(session_data.ephemeral)
-                    .map_err(|e| DecryptionError::Decoding(MessageDecodeError::Base64(e)).into())?
-            ),
-            ciphertext: Base64::new(
-                vodozemac::base64_decode(session_data.ciphertext)
-                    .map_err(|e| DecryptionError::Decoding(MessageDecodeError::Base64(e)).into())?
-            ),
-            mac: Base64::new(
-                vodozemac::base64_decode(session_data.mac)
-                    .map_err(|e| DecryptionError::Decoding(MessageDecodeError::Base64(e)).into())?
-            ),
-            mac2: session_data.mac2.map(
-                |mac2| Base64::new(
-                    vodozemac::base64_decode(mac2)
-                        .map_err(|e| DecryptionError::Decoding(MessageDecodeError::Base64(e)).into())?
-                )
-            ),
+        let session_data = match &session_data.signatures {
+            Some(signatures) => {
+                let signatures_map = BTreeMap::from_iter(
+                    signatures.iter().map(|(user, device_sigs)| {
+                        (OwnedUserId::try_from(user).unwrap(), BTreeMap::from_iter(device_sigs.iter().map(|(key_id, signature)| (OwnedDeviceKeyId::try_from(key_id).unwrap(), signature))))
+                    })
+                );
+                matrix_sdk_crypto::backup::keys::EncryptedSessionDataV2Init {
+                    ephemeral: Base64::new(
+                        vodozemac::base64_decode(session_data.ephemeral)
+                            .map_err(|e| DecryptionError::Decoding(MessageDecodeError::Base64(e)).into())?
+                    ),
+                    ciphertext: Base64::new(
+                        vodozemac::base64_decode(session_data.ciphertext)
+                            .map_err(|e| DecryptionError::Decoding(MessageDecodeError::Base64(e)).into())?
+                    ),
+                    mac: Some(Base64::new(
+                        vodozemac::base64_decode(session_data.mac)
+                            .map_err(|e| DecryptionError::Decoding(MessageDecodeError::Base64(e)).into())?)
+                    ),
+                    signatures: signatures_map,
+                }.into()
+            },
+            None => {
+                matrix_sdk_crypto::backup::keys::EncryptedSessionDataInit {
+                    ephemeral: Base64::new(
+                        vodozemac::base64_decode(session_data.ephemeral)
+                            .map_err(|e| DecryptionError::Decoding(MessageDecodeError::Base64(e)).into())?
+                    ),
+                    ciphertext: Base64::new(
+                        vodozemac::base64_decode(session_data.ciphertext)
+                            .map_err(|e| DecryptionError::Decoding(MessageDecodeError::Base64(e)).into())?
+                    ),
+                    mac: Base64::new(
+                        vodozemac::base64_decode(session_data.mac)
+                            .map_err(|e| DecryptionError::Decoding(MessageDecodeError::Base64(e)).into())?
+                    ),
+                }.into()
+            },
         };
-        self.inner.decrypt_session_data(session_data).map_err(|e| e.into())
+        self.inner.decrypt_session_data(user_id!(user_id), session_data).map_err(|e| e.into())
     }
 }
 
@@ -236,7 +257,7 @@ mod tests {
     use super::BackupRecoveryKey;
 
     #[test]
-    fn test_decrypt_key() {
+    fn test_decrypt_v1_key() {
         let recovery_key = BackupRecoveryKey::from_base64(
             "Ha9cklU/9NqFo9WKdVfGzmqUL/9wlkdxfEitbSIPVXw".to_owned(),
         )
@@ -269,6 +290,51 @@ mod tests {
 
         let _ = recovery_key
             .decrypt_v1(ephemeral, mac, ciphertext)
+            .expect("The backed up key should be decrypted successfully");
+    }
+
+    #[test]
+    fn test_decrypt_key() {
+        let recovery_key = BackupRecoveryKey::from_base64(
+            "Ha9cklU/9NqFo9WKdVfGzmqUL/9wlkdxfEitbSIPVXw".to_owned(),
+        )
+        .unwrap();
+
+        let data = json!({
+            "first_message_index": 0,
+            "forwarded_count": 0,
+            "is_verified": false,
+            "session_data": {
+                "ephemeral": "HlLi76oV6wxHz3PCqE/bxJi6yF1HnYz5Dq3T+d/KpRw",
+                "ciphertext": "MuM8E3Yc6TSAvhVGb77rQ++jE6p9dRepx63/3YPD2wACKAppkZHeFrnTH6wJ/HSyrmzo\
+                               7HfwqVl6tKNpfooSTHqUf6x1LHz+h4B/Id5ITO1WYt16AaI40LOnZqTkJZCfSPuE2oxa\
+                               lwEHnCS3biWybutcnrBFPR3LMtaeHvvkb+k3ny9l5ZpsU9G7vCm3XoeYkWfLekWXvDhb\
+                               qWrylXD0+CNUuaQJ/S527TzLd4XKctqVjjO/cCH7q+9utt9WJAfK8LGaWT/mZ3AeWjf5\
+                               kiqOpKKf5Cn4n5SSil5p/pvGYmjnURvZSEeQIzHgvunIBEPtzK/MYEPOXe/P5achNGlC\
+                               x+5N19Ftyp9TFaTFlTWCTi0mpD7ePfCNISrwpozAz9HZc0OhA8+1aSc7rhYFIeAYXFU3\
+                               26NuFIFHI5pvpSxjzPQlOA+mavIKmiRAtjlLw11IVKTxgrdT4N8lXeMr4ndCSmvIkAzF\
+                               Mo1uZA4fzjiAdQJE4/2WeXFNNpvdfoYmX8Zl9CAYjpSO5HvpwkAbk4/iLEH3hDfCVUwD\
+                               fMh05PdGLnxeRpiEFWSMSsJNp+OWAA+5JsF41BoRGrxoXXT+VKqlUDONd+O296Psu8Q+\
+                               d8/S618",
+                "mac": "GtMrurhDTwo",
+                "signatures": {
+                    "@alice:localhost": {
+                        "org.matrix.msc4048.hmac-sha-256:backup_mac_key": "Q3Z4X36MdXmBzo0TwnCKirEtWYGwJepfRRTft7cM6cU",
+                    }
+                },
+            }
+        });
+
+        let key_backup_data: KeyBackupData = serde_json::from_value(data).unwrap();
+
+        let encrypted_session_data = EncryptedSessionData {
+            ephemeral: key_backup_data.session_data.ephemeral.encode(),
+            ciphertext: key_backup_data.session_data.ciphertext.encode(),
+            mac: key_backup_data.session_data.mac.encode(),
+        };
+
+        let _ = recovery_key
+            .decrypt_session_data(user_id!("@alice:localhost"), encrypted_session_data)
             .expect("The backed up key should be decrypted successfully");
     }
 }
