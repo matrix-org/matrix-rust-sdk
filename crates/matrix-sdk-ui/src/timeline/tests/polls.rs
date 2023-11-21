@@ -37,10 +37,13 @@ async fn edited_poll_is_displayed() {
     let event = timeline.poll_event().await;
     let event_id = event.event_id().unwrap();
     timeline.send_poll_edit(&ALICE, event_id, fakes::poll_b()).await;
+    let poll_state = event.poll_state();
     let edited_poll_state = timeline.poll_state().await;
 
-    assert_poll_start_eq(&event.poll_state().start_event_content.poll_start, &fakes::poll_a());
+    assert_poll_start_eq(&poll_state.start_event_content.poll_start, &fakes::poll_a());
     assert_poll_start_eq(&edited_poll_state.start_event_content.poll_start, &fakes::poll_b());
+    assert!(!poll_state.has_been_edited);
+    assert!(edited_poll_state.has_been_edited);
 }
 
 #[async_test]
