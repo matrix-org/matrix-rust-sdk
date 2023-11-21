@@ -102,7 +102,7 @@ impl fmt::Debug for UnsupportedEditItem {
 enum UnsupportedEditItemInner {
     #[error("local messages whose event ID is not known can't be edited currently")]
     MissingEventId,
-    #[error("tried to edit a non message event")]
+    #[error("tried to edit a non-message event")]
     NotRoomMessage,
     #[error("tried to edit a non poll event")]
     NotPollEvent,
