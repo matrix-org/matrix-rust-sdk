@@ -91,8 +91,7 @@ fn the_protocol_definitions(
         ],
         hashes: HASHES.to_vec(),
     }
-    .try_into()
-    .expect("Invalid protocol definition.")
+    .into()
 }
 
 // The max time a SAS flow can take from start to done.

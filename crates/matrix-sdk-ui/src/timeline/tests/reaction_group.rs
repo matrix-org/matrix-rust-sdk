@@ -33,7 +33,7 @@ fn by_sender() {
 
     let alice_reactions = reaction_group.by_sender(&alice).collect::<Vec<_>>();
 
-    let reaction = *alice_reactions.get(0).unwrap();
+    let reaction = alice_reactions[0];
 
     assert_let!(EventItemIdentifier::EventId(event_id) = reaction_1);
     assert_eq!(reaction.1.unwrap(), &event_id);

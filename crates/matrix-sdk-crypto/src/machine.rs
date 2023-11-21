@@ -3647,7 +3647,7 @@ pub(crate) mod tests {
         // Alice sends a key
         let msgs = alice.inner.verification_machine.outgoing_messages();
         assert!(msgs.len() == 1);
-        let msg = msgs.first().unwrap();
+        let msg = &msgs[0];
         let event = outgoing_request_to_event(alice.user_id(), msg);
         alice.inner.verification_machine.mark_request_as_sent(&msg.request_id);
 
@@ -3660,7 +3660,7 @@ pub(crate) mod tests {
         // Now bob sends a key
         let msgs = bob.inner.verification_machine.outgoing_messages();
         assert!(msgs.len() == 1);
-        let msg = msgs.first().unwrap();
+        let msg = &msgs[0];
         let event = outgoing_request_to_event(bob.user_id(), msg);
         bob.inner.verification_machine.mark_request_as_sent(&msg.request_id);
 

@@ -1384,7 +1384,7 @@ mod tests {
         let requests = machine.outgoing_to_device_requests().await.unwrap();
         assert_eq!(requests.len(), 1);
 
-        let request = requests.get(0).unwrap();
+        let request = &requests[0];
 
         machine.mark_outgoing_request_as_sent(&request.request_id).await.unwrap();
         assert!(machine.outgoing_to_device_requests().await.unwrap().is_empty());
@@ -1410,7 +1410,7 @@ mod tests {
         machine.create_outgoing_key_request(session.room_id(), &room_event).await.unwrap();
 
         let requests = machine.outgoing_to_device_requests().await.unwrap();
-        let request = requests.get(0).unwrap();
+        let request = &requests[0];
         let id = &request.request_id;
 
         machine.mark_outgoing_request_as_sent(id).await.unwrap();
@@ -1889,7 +1889,7 @@ mod tests {
             vec![SecretName::RecoveryKey],
         );
         let mut changes = Changes::default();
-        let request_id = key_requests.first().unwrap().request_id.to_owned();
+        let request_id = key_requests[0].request_id.to_owned();
         changes.key_requests = key_requests;
         bob_machine.store().save_changes(changes).await.unwrap();
         for request in bob_machine.outgoing_requests().await.unwrap() {
@@ -2000,7 +2000,7 @@ mod tests {
         // Bob only has a keys claim request, since we're lacking a session
         assert_eq!(bob_machine.outgoing_to_device_requests().await.unwrap().len(), 1);
         assert_matches!(
-            bob_machine.outgoing_to_device_requests().await.unwrap().first().unwrap().request(),
+            bob_machine.outgoing_to_device_requests().await.unwrap()[0].request(),
             OutgoingRequests::KeysClaim(_)
         );
         assert!(!bob_machine.inner.users_for_key_claim.read().unwrap().is_empty());
