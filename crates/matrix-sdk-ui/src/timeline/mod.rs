@@ -426,8 +426,6 @@ impl Timeline {
         poll: UnstablePollStartContentBlock,
         edit_item: &EventTimelineItem,
     ) -> Result<(), UnsupportedEditItem> {
-        // Early returns here must be in sync with
-        // `EventTimelineItem::can_be_edited`
         let Some(event_id) = edit_item.event_id() else {
             return Err(UnsupportedEditItem::MISSING_EVENT_ID);
         };
