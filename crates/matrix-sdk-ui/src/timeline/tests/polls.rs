@@ -190,11 +190,11 @@ impl TestTimeline {
     }
 
     async fn poll_event(&self) -> EventTimelineItem {
-        self.event_items().await.first().unwrap().clone()
+        self.event_items().await[0].clone()
     }
 
     async fn poll_state(&self) -> PollState {
-        self.event_items().await.first().unwrap().clone().poll_state()
+        self.event_items().await[0].clone().poll_state()
     }
 
     async fn send_poll_start(&self, sender: &UserId, content: UnstablePollStartContentBlock) {

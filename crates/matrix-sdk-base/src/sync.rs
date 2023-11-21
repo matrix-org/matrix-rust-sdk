@@ -96,7 +96,7 @@ impl fmt::Debug for Rooms {
 }
 
 /// Updates to joined rooms.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct JoinedRoom {
     /// Counts of unread notifications for this room.
     pub unread_notifications: UnreadNotificationsCount,

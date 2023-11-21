@@ -56,7 +56,7 @@ use crate::{
         },
         EventEncryptionAlgorithm,
     },
-    Device, ToDeviceRequest,
+    ReadOnlyDevice, ToDeviceRequest,
 };
 
 const ROTATION_PERIOD: Duration = Duration::from_millis(604800000);
@@ -504,7 +504,7 @@ impl OutboundGroupSession {
     }
 
     /// Has or will the session be shared with the given user/device pair.
-    pub(crate) fn is_shared_with(&self, device: &Device) -> ShareState {
+    pub(crate) fn is_shared_with(&self, device: &ReadOnlyDevice) -> ShareState {
         // Check if we shared the session.
         let shared_state =
             self.shared_with_set.read().unwrap().get(device.user_id()).and_then(|d| {
@@ -548,7 +548,7 @@ impl OutboundGroupSession {
         }
     }
 
-    pub(crate) fn is_withheld_to(&self, device: &Device, code: &WithheldCode) -> bool {
+    pub(crate) fn is_withheld_to(&self, device: &ReadOnlyDevice, code: &WithheldCode) -> bool {
         self.shared_with_set
             .read()
             .unwrap()

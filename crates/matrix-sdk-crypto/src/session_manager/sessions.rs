@@ -111,7 +111,7 @@ impl SessionManager {
                 let mut sessions = sessions.lock().await;
                 sessions.sort_by_key(|s| s.creation_time);
 
-                let session = sessions.get(0);
+                let session = sessions.first();
 
                 if let Some(session) = session {
                     info!(sender_key = ?curve_key, "Marking session to be unwedged");
@@ -414,18 +414,20 @@ impl SessionManager {
                 .collect();
 
             if !missing_devices.is_empty() {
+                let mut missing_devices_by_user: BTreeMap<_, BTreeSet<_>> = BTreeMap::new();
+                for &(user_id, device_id) in missing_devices {
+                    missing_devices_by_user.entry(user_id).or_default().insert(device_id.clone());
+                }
+
                 warn!(
-                    ?missing_devices,
-                    "Tried to create a new sessions, but the signed one-time key was missing for some devices",
+                    ?missing_devices_by_user,
+                    "Tried to create new Olm sessions, but the signed one-time key was missing for some devices",
                 );
 
                 let mut failed_devices_lock = self.failed_devices.write().unwrap();
 
-                for (user_id, device_id) in missing_devices {
-                    failed_devices_lock
-                        .entry((*user_id).clone())
-                        .or_default()
-                        .insert((*device_id).clone());
+                for (user_id, device_set) in missing_devices_by_user {
+                    failed_devices_lock.entry(user_id.clone()).or_default().extend(device_set);
                 }
             }
         };
@@ -491,7 +493,7 @@ impl SessionManager {
                 Err(e) => {
                     warn!(
                         ?user_id, ?device_id, error = ?e,
-                        "Error creating outbound session"
+                        "Error creating Olm session"
                     );
 
                     self.failed_devices
@@ -770,7 +772,7 @@ mod tests {
         let (key_query_txn_id, _key_query_request) =
             identity_manager.users_for_key_query().await.unwrap().pop_first().unwrap();
         let response = KeysQueryResponse::try_from_http_response(response_from_file(
-                &json!({ "device_keys": {}, "failures": { other_user_id.server_name(): "unreachable" }})
+            &json!({ "device_keys": {}, "failures": { other_user_id.server_name(): "unreachable" }})
         )).unwrap();
         identity_manager.receive_keys_query_response(&key_query_txn_id, &response).await.unwrap();
 
