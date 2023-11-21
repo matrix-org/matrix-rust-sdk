@@ -775,7 +775,7 @@ mod tests {
         let (key_query_txn_id, _key_query_request) =
             identity_manager.users_for_key_query().await.unwrap().pop_first().unwrap();
         let response = KeysQueryResponse::try_from_http_response(response_from_file(
-                &json!({ "device_keys": {}, "failures": { other_user_id.server_name(): "unreachable" }})
+            &json!({ "device_keys": {}, "failures": { other_user_id.server_name(): "unreachable" }})
         )).unwrap();
         identity_manager.receive_keys_query_response(&key_query_txn_id, &response).await.unwrap();
 
