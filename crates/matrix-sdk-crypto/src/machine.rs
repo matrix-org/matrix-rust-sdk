@@ -609,7 +609,7 @@ impl OlmMachine {
     /// this method between sync requests.
     ///
     /// [`mark_request_as_sent`]: #method.mark_request_as_sent
-    #[instrument(skip(users))]
+    #[instrument(skip_all)]
     pub async fn get_missing_sessions(
         &self,
         users: impl Iterator<Item = &UserId>,
@@ -1635,7 +1635,7 @@ impl OlmMachine {
     /// println!("{:?}", device);
     /// # });
     /// ```
-    #[instrument()]
+    #[instrument(skip(self))]
     pub async fn get_device(
         &self,
         user_id: &UserId,
@@ -1659,7 +1659,7 @@ impl OlmMachine {
     ///
     /// Returns a `UserIdentities` enum if one is found and the crypto store
     /// didn't throw an error.
-    #[instrument()]
+    #[instrument(skip(self))]
     pub async fn get_identity(
         &self,
         user_id: &UserId,
@@ -1695,7 +1695,7 @@ impl OlmMachine {
     /// }
     /// # });
     /// ```
-    #[instrument()]
+    #[instrument(skip(self))]
     pub async fn get_user_devices(
         &self,
         user_id: &UserId,
