@@ -111,7 +111,7 @@ impl SessionManager {
                 let mut sessions = sessions.lock().await;
                 sessions.sort_by_key(|s| s.creation_time);
 
-                let session = sessions.get(0);
+                let session = sessions.first();
 
                 if let Some(session) = session {
                     info!(sender_key = ?curve_key, "Marking session to be unwedged");

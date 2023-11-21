@@ -52,5 +52,5 @@ mod compat;
 mod decryption;
 
 pub use backup::MegolmV1BackupKey;
-pub use compat::{Error as DecryptionError, MessageDecodeError};
+pub use compat::Error as DecryptionError;
 pub use decryption::DecodeError;

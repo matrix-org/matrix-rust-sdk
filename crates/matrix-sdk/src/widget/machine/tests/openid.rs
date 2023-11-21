@@ -15,7 +15,10 @@
 use std::time::Duration;
 
 use assert_matches2::assert_let;
-use ruma::{api::client::account::request_openid_token, owned_room_id, ServerName};
+use ruma::{
+    api::client::account::request_openid_token, authentication::TokenType, owned_room_id,
+    ServerName,
+};
 use serde_json::json;
 
 use super::{parse_msg, WIDGET_ID};
@@ -76,7 +79,7 @@ fn openid_request_handling_works() {
             response: Ok(MatrixDriverResponse::OpenIdReceived(
                 request_openid_token::v3::Response::new(
                     "access_token".to_owned(),
-                    "Bearer".try_into().unwrap(),
+                    TokenType::Bearer,
                     ServerName::parse("example.org").unwrap().to_owned(),
                     Duration::from_secs(3600),
                 ),

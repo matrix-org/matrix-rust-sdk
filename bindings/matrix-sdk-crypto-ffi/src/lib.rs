@@ -460,7 +460,7 @@ fn collect_sessions(
                 .signing_key
                 .into_iter()
                 .map(|(k, v)| {
-                    let algorithm = DeviceKeyAlgorithm::try_from(k)?;
+                    let algorithm = DeviceKeyAlgorithm::from(k);
                     let key = SigningKey::from_parts(&algorithm, v)?;
 
                     Ok((algorithm, key))

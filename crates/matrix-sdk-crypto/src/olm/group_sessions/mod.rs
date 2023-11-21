@@ -21,7 +21,7 @@ mod outbound;
 pub use inbound::{InboundGroupSession, PickledInboundGroupSession};
 pub(crate) use outbound::ShareState;
 pub use outbound::{
-    EncryptionSettings, GroupSession, OutboundGroupSession, PickledOutboundGroupSession, ShareInfo,
+    EncryptionSettings, OutboundGroupSession, PickledOutboundGroupSession, ShareInfo,
 };
 use thiserror::Error;
 pub use vodozemac::megolm::{ExportedSessionKey, SessionKey};
