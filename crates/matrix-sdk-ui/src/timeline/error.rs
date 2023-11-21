@@ -104,6 +104,6 @@ enum UnsupportedEditItemInner {
     MissingEventId,
     #[error("tried to edit a non-message event")]
     NotRoomMessage,
-    #[error("tried to edit a non poll event")]
+    #[error("tried to edit a non-poll event")]
     NotPollEvent,
 }
