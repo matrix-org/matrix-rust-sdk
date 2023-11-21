@@ -462,7 +462,7 @@ mod tests {
 
         test_avatar_unset {
             avatar_url() = None;
-            receives room_response!({"avatar": null});
+            receives room_response!({ "avatar": null });
             _ = None;
             receives nothing;
             _ = None;
