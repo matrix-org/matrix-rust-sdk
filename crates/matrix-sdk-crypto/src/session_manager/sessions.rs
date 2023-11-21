@@ -28,7 +28,7 @@ use ruma::{
     DeviceId, DeviceKeyAlgorithm, OwnedDeviceId, OwnedServerName, OwnedTransactionId, OwnedUserId,
     SecondsSinceUnixEpoch, ServerName, TransactionId, UserId,
 };
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, instrument, warn};
 use vodozemac::Curve25519PublicKey;
 
 use crate::{
@@ -322,6 +322,7 @@ impl SessionManager {
     ///   needed to couple the response with the sent out request.
     ///
     /// * `response` - The response containing the claimed one-time keys.
+    #[instrument(skip(self, response))]
     pub async fn receive_keys_claim_response(
         &self,
         request_id: &TransactionId,
