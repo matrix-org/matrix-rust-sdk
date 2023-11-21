@@ -48,7 +48,7 @@ impl std::fmt::Debug for HmacSha256Key {
     }
 }
 
-pub(crate) fn to_signable_json(value: &EncryptedSessionData) -> Result<String, SignatureError> {
+fn to_signable_json(value: &EncryptedSessionData) -> Result<String, SignatureError> {
     let mut json_value = CanonicalJsonObject::from([
         ("ephemeral".to_string(), value.ephemeral.encode().into()),
         ("ciphertext".to_string(), value.ciphertext.encode().into()),

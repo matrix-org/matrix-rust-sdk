@@ -160,7 +160,8 @@ pub struct BackedUpRoomKey {
     /// m.forwarded_room_key events.
     pub forwarding_curve25519_key_chain: Vec<Curve25519PublicKey>,
 
-    /// Whether the key should be considered unauthenticated
+    /// Whether the key should be considered unauthenticated, and if so, where
+    /// we originally got it from.
     #[serde(default, rename="org.matrix.msc4048.unauthenticated")]
     pub unauthenticated: Option<UnauthenticatedSource>,
 }

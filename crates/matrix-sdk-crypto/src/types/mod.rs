@@ -38,7 +38,7 @@ use ruma::{
 use serde::{Deserialize, Serialize, Serializer};
 use vodozemac::{Curve25519PublicKey, Ed25519PublicKey, Ed25519Signature, KeyError};
 
-pub(crate) mod backup;
+mod backup;
 mod cross_signing;
 mod device_keys;
 pub mod events;

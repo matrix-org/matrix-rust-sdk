@@ -247,6 +247,8 @@ impl BackupDecryptionKey {
     ) -> Result<BackedUpRoomKey, DecryptionError> {
         let message = match (&session_data.mac, &session_data.signatures) {
             (_, Some(_)) => {
+                // FIXME: how do we handle the signatures property existing,
+                // but without a MAC?
                 let mac_key = self.calculate_mac_key();
                 mac_key.verify(user_id, &DeviceKeyId::from_parts(DeviceKeyAlgorithm::HmacSha256, "backup_mac_key".into()), &session_data)
                     .map_err(|_| DecryptionError::Mac(MacError))?;
