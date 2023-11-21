@@ -1,4 +1,4 @@
-use std::{convert::TryFrom, fs, sync::Arc};
+use std::{convert::TryFrom, fmt::Write, fs, sync::Arc};
 
 use anyhow::{anyhow, Context, Result};
 use futures_util::{pin_mut, StreamExt};
@@ -1220,8 +1220,9 @@ struct PollData {
 
 impl PollData {
     fn fallback_text(&self) -> String {
-        self.answers.iter().enumerate().fold(self.question.clone(), |acc, (index, answer)| {
-            format!("{acc}\n{}. {answer}", index + 1)
+        self.answers.iter().enumerate().fold(self.question.clone(), |mut acc, (index, answer)| {
+            write!(&mut acc, "\n{}. {answer}", index + 1).unwrap();
+            acc
         })
     }
 }
