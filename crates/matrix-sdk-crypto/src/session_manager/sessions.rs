@@ -415,11 +415,8 @@ impl SessionManager {
 
             if !missing_devices.is_empty() {
                 let mut missing_devices_by_user: BTreeMap<_, BTreeSet<_>> = BTreeMap::new();
-                for (user_id, device_id) in missing_devices {
-                    missing_devices_by_user
-                        .entry(user_id)
-                        .or_default()
-                        .insert((*device_id).clone());
+                for &(user_id, device_id) in missing_devices {
+                    missing_devices_by_user.entry(user_id).or_default().insert(device_id.clone());
                 }
 
                 warn!(
@@ -430,7 +427,7 @@ impl SessionManager {
                 let mut failed_devices_lock = self.failed_devices.write().unwrap();
 
                 for (user_id, device_set) in missing_devices_by_user {
-                    failed_devices_lock.entry((*user_id).clone()).or_default().extend(device_set);
+                    failed_devices_lock.entry(user_id.clone()).or_default().extend(device_set);
                 }
             }
         };
