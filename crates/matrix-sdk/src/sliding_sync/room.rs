@@ -460,6 +460,14 @@ mod tests {
             _ = Some(mxc_uri!("mxc://homeserver/media").to_owned());
         }
 
+        test_avatar_unset {
+            avatar_url() = None;
+            receives room_response!({"avatar": null});
+            _ = None;
+            receives nothing;
+            _ = None;
+        }
+
         test_room_is_dm {
             is_dm() = None;
             receives room_response!({"is_dm": true});
@@ -1043,5 +1051,22 @@ mod tests {
                 &format!("$x{max}:baz.org")
             );
         }
+    }
+
+    #[async_test]
+    async fn test_avatar_set_then_unset() {
+        let mut room = new_room(room_id!("!foo:bar.org"), room_response!({})).await;
+        assert_eq!(room.avatar_url(), None);
+
+        room.update(room_response!({ "avatar": "mxc://homeserver/media" }), vec![]);
+        assert_eq!(room.avatar_url().as_deref(), Some(mxc_uri!("mxc://homeserver/media")));
+
+        // avatar is undefined.
+        room.update(room_response!({}), vec![]);
+        assert_eq!(room.avatar_url().as_deref(), Some(mxc_uri!("mxc://homeserver/media")));
+
+        // avatar is null => reset it to None.
+        room.update(room_response!({ "avatar": null }), vec![]);
+        assert_eq!(room.avatar_url().as_deref(), None);
     }
 }
