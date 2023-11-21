@@ -532,7 +532,7 @@ impl Room {
     ) -> Result<(), ClientError> {
         let timeline = match &*RUNTIME.block_on(self.timeline.read()) {
             Some(t) => Arc::clone(t),
-            None => return Err(anyhow!("Timeline not set up, can't send message").into()),
+            None => return Err(anyhow!("Timeline not set up, can't edit poll").into()),
         };
 
         let poll_data = PollData { question, answers, max_selections, poll_kind };
