@@ -84,23 +84,23 @@ pub static PARENT_SPACE_SYNC: Lazy<JsonValue> = Lazy::new(|| {
 async fn mock_members(server: &MockServer) {
     let members = json!({
         "chunk": [
-        {
-            "content": {
-                "avatar_url": null,
-                "displayname": "Space Administrator",
-                "membership": "join"
-            },
-            "event_id": "$151800140517rfvjc:localhost",
-            "membership": "join",
-            "origin_server_ts": 151800140,
-            "room_id": *DEFAULT_TEST_SPACE_ID,
-            "sender": "@spaceadmin:localhost",
-            "state_key": "@spaceadmin:localhost",
-            "type": "m.room.member",
-            "unsigned": {
-                "age": 2970366,
+            {
+                "content": {
+                    "avatar_url": null,
+                    "displayname": "Space Administrator",
+                    "membership": "join"
+                },
+                "event_id": "$151800140517rfvjc:localhost",
+                "membership": "join",
+                "origin_server_ts": 151800140,
+                "room_id": *DEFAULT_TEST_SPACE_ID,
+                "sender": "@spaceadmin:localhost",
+                "state_key": "@spaceadmin:localhost",
+                "type": "m.room.member",
+                "unsigned": {
+                    "age": 2970366,
+                }
             }
-        }
         ]
     });
     Mock::given(method("GET"))
