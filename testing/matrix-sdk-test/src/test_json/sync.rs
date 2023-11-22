@@ -3,7 +3,7 @@
 use once_cell::sync::Lazy;
 use serde_json::{json, Value as JsonValue};
 
-use crate::{DEFAULT_TEST_ROOM_ID, DEFAULT_TEST_SPACE_ID};
+use crate::DEFAULT_TEST_ROOM_ID;
 
 pub static SYNC: Lazy<JsonValue> = Lazy::new(|| {
     json!({
@@ -1331,70 +1331,6 @@ pub static VOIP_SYNC: Lazy<JsonValue> = Lazy::new(|| {
                             }
                         ],
                         "limited": true,
-                        "prev_batch": "t392-516_47314_0_7_1_1_1_11444_1"
-                    },
-                    "unread_notifications": {
-                        "highlight_count": 0,
-                        "notification_count": 11
-                    }
-                }
-            },
-            "leave": {}
-        },
-        "to_device": {
-            "events": []
-        },
-        "presence": {
-            "events": []
-        }
-    })
-});
-
-pub static PARENT_SPACE_SYNC: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "device_one_time_keys_count": {},
-        "next_batch": "s526_47314_0_7_1_1_1_11444_2",
-        "device_lists": {
-            "changed": [
-                "@example:example.org"
-            ],
-            "left": []
-        },
-        "rooms": {
-            "invite": {},
-            "join": {
-                *DEFAULT_TEST_ROOM_ID: {
-                    "summary": {},
-                    "account_data": {
-                        "events": []
-                    },
-                    "ephemeral": {
-                        "events": []
-                    },
-                    "state": {
-                        "events": []
-                    },
-                    "timeline": {
-                        "events": [
-                            {
-                                "content": {
-                                    "canonical": true,
-                                    "via": [
-                                        "example.org",
-                                        "other.example.org"
-                                    ]
-                                },
-                                "event_id": "$143273582443PhrSn:localhost",
-                                "origin_server_ts": 152037280000000_u64,
-                                "sender": "@spaceadmin:localhost",
-                                "state_key": *DEFAULT_TEST_SPACE_ID,
-                                "type": "m.space.parent",
-                                "unsigned": {
-                                    "age": 598971425
-                                }
-                            },
-                        ],
-                        "limited": false,
                         "prev_batch": "t392-516_47314_0_7_1_1_1_11444_1"
                     },
                     "unread_notifications": {

@@ -3,7 +3,9 @@ use std::time::Duration;
 use assert_matches2::assert_let;
 use futures_util::StreamExt;
 use matrix_sdk::{config::SyncSettings, room::ParentSpace, Client};
-use matrix_sdk_test::{async_test, test_json, DEFAULT_TEST_ROOM_ID, DEFAULT_TEST_SPACE_ID};
+use matrix_sdk_test::{async_test, test_json, DEFAULT_TEST_ROOM_ID};
+use once_cell::sync::Lazy;
+use ruma::{room_id, RoomId};
 use serde_json::{json, Value as JsonValue};
 use wiremock::{
     matchers::{header, method, path_regex},
@@ -11,6 +13,73 @@ use wiremock::{
 };
 
 use crate::{logged_in_client, mock_sync, MockServer};
+
+pub static DEFAULT_TEST_SPACE_ID: Lazy<&RoomId> =
+    Lazy::new(|| room_id!("!hIMjEx205EXNyjVPCV:localhost"));
+
+pub static PARENT_SPACE_SYNC: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
+        "device_one_time_keys_count": {},
+        "next_batch": "s526_47314_0_7_1_1_1_11444_2",
+        "device_lists": {
+            "changed": [
+                "@example:example.org"
+            ],
+            "left": []
+        },
+        "rooms": {
+            "invite": {},
+            "join": {
+                *DEFAULT_TEST_ROOM_ID: {
+                    "summary": {},
+                    "account_data": {
+                        "events": []
+                    },
+                    "ephemeral": {
+                        "events": []
+                    },
+                    "state": {
+                        "events": []
+                    },
+                    "timeline": {
+                        "events": [
+                            {
+                                "content": {
+                                    "canonical": true,
+                                    "via": [
+                                        "example.org",
+                                        "other.example.org"
+                                    ]
+                                },
+                                "event_id": "$143273582443PhrSn:localhost",
+                                "origin_server_ts": 152037280000000_u64,
+                                "sender": "@spaceadmin:localhost",
+                                "state_key": *DEFAULT_TEST_SPACE_ID,
+                                "type": "m.space.parent",
+                                "unsigned": {
+                                    "age": 598971425
+                                }
+                            },
+                        ],
+                        "limited": false,
+                        "prev_batch": "t392-516_47314_0_7_1_1_1_11444_1"
+                    },
+                    "unread_notifications": {
+                        "highlight_count": 0,
+                        "notification_count": 11
+                    }
+                }
+            },
+            "leave": {}
+        },
+        "to_device": {
+            "events": []
+        },
+        "presence": {
+            "events": []
+        }
+    })
+});
 
 async fn mock_members(server: &MockServer) {
     let members = json!({
@@ -103,7 +172,7 @@ async fn no_parent_space() {
 async fn parent_space_undeserializable() {
     let (client, server) = logged_in_client().await;
 
-    let mut sync = test_json::PARENT_SPACE_SYNC.clone();
+    let mut sync = PARENT_SPACE_SYNC.clone();
     sync["rooms"]["join"][DEFAULT_TEST_ROOM_ID.as_str()]["timeline"]["events"][0]["content"]
         ["canonical"] = JsonValue::from("true"); // invalid, must be a boolean
     initial_sync_with_m_space_parent(&client, &server, &sync).await;
@@ -119,7 +188,7 @@ async fn parent_space_undeserializable() {
 async fn parent_space_redacted() {
     let (client, server) = logged_in_client().await;
 
-    let mut sync = test_json::PARENT_SPACE_SYNC.clone();
+    let mut sync = PARENT_SPACE_SYNC.clone();
     let timeline = &mut sync["rooms"]["join"][DEFAULT_TEST_ROOM_ID.as_str()]["timeline"]["events"];
     let event_id = timeline[0]["event_id"].clone();
     timeline.as_array_mut().unwrap().push(json!({
@@ -148,7 +217,7 @@ async fn parent_space_redacted() {
 async fn parent_space_unverifiable() {
     let (client, server) = logged_in_client().await;
 
-    initial_sync_with_m_space_parent(&client, &server, &test_json::PARENT_SPACE_SYNC).await;
+    initial_sync_with_m_space_parent(&client, &server, &PARENT_SPACE_SYNC).await;
 
     let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
 
@@ -165,8 +234,7 @@ async fn parent_space_illegitimate() {
 
     mock_members(&server).await;
 
-    let sync_token =
-        initial_sync_with_m_space_parent(&client, &server, &test_json::PARENT_SPACE_SYNC).await;
+    let sync_token = initial_sync_with_m_space_parent(&client, &server, &PARENT_SPACE_SYNC).await;
 
     sync_space(&client, &server, sync_token, vec![]).await;
 
@@ -183,8 +251,7 @@ async fn parent_space_illegitimate() {
 async fn parent_space_reciprocal() {
     let (client, server) = logged_in_client().await;
 
-    let sync_token =
-        initial_sync_with_m_space_parent(&client, &server, &test_json::PARENT_SPACE_SYNC).await;
+    let sync_token = initial_sync_with_m_space_parent(&client, &server, &PARENT_SPACE_SYNC).await;
 
     let child_event = json!({
         "content": {
@@ -223,8 +290,7 @@ async fn parent_space_redacted_reciprocal() {
 
     mock_members(&server).await;
 
-    let sync_token =
-        initial_sync_with_m_space_parent(&client, &server, &test_json::PARENT_SPACE_SYNC).await;
+    let sync_token = initial_sync_with_m_space_parent(&client, &server, &PARENT_SPACE_SYNC).await;
 
     let child_event = json!({
         "content": {},  // Redacted -> missing "via" key -> invalidates the relationship
@@ -300,8 +366,7 @@ async fn setup_parent_member(
 async fn parent_space_powerlevel() {
     let (client, server) = logged_in_client().await;
 
-    let sync_token =
-        initial_sync_with_m_space_parent(&client, &server, &test_json::PARENT_SPACE_SYNC).await;
+    let sync_token = initial_sync_with_m_space_parent(&client, &server, &PARENT_SPACE_SYNC).await;
 
     setup_parent_member(&client, &server, sync_token, 2).await; // >= PL for m.room.child
 
@@ -318,8 +383,7 @@ async fn parent_space_powerlevel() {
 async fn parent_space_powerlevel_too_low() {
     let (client, server) = logged_in_client().await;
 
-    let sync_token =
-        initial_sync_with_m_space_parent(&client, &server, &test_json::PARENT_SPACE_SYNC).await;
+    let sync_token = initial_sync_with_m_space_parent(&client, &server, &PARENT_SPACE_SYNC).await;
 
     setup_parent_member(&client, &server, sync_token, 1).await; // < PL for m.room.child
 
