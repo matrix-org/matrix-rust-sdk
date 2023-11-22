@@ -35,9 +35,9 @@ use crate::{
     error::{EventError, MegolmResult, OlmResult},
     identities::device::MaybeEncryptedRoomKey,
     olm::{InboundGroupSession, OutboundGroupSession, Session, ShareInfo, ShareState},
-    store::{Changes, Result as StoreResult, Store},
+    store::{Changes, CryptoStoreWrapper, Result as StoreResult, Store},
     types::events::{room::encrypted::RoomEncryptedEventContent, room_key_withheld::WithheldCode},
-    Device, EncryptionSettings, OlmError, ToDeviceRequest,
+    EncryptionSettings, OlmError, ReadOnlyDevice, ToDeviceRequest,
 };
 
 #[derive(Clone, Debug)]
@@ -103,7 +103,7 @@ impl GroupSessionCache {
     }
 
     /// Returns whether any session is withheld with the given device and code.
-    fn has_session_withheld_to(&self, device: &Device, code: &WithheldCode) -> bool {
+    fn has_session_withheld_to(&self, device: &ReadOnlyDevice, code: &WithheldCode) -> bool {
         self.sessions.read().unwrap().values().any(|s| s.is_withheld_to(device, code))
     }
 
@@ -127,10 +127,10 @@ pub(crate) struct CollectRecipientsResult {
     /// If true the outbound group session should be rotated
     pub should_rotate: bool,
     /// The map of user|device that should receive the session
-    pub devices: BTreeMap<OwnedUserId, Vec<Device>>,
+    pub devices: BTreeMap<OwnedUserId, Vec<ReadOnlyDevice>>,
     /// The map of user|device that won't receive the key with the withheld
     /// code.
-    pub withheld_devices: Vec<(Device, WithheldCode)>,
+    pub withheld_devices: Vec<(ReadOnlyDevice, WithheldCode)>,
 }
 
 #[derive(Debug, Clone)]
@@ -263,18 +263,19 @@ impl GroupSessionManager {
     /// Encrypt the given content for the given devices and create a to-device
     /// requests that sends the encrypted content to them.
     async fn encrypt_session_for(
+        store: Arc<CryptoStoreWrapper>,
         group_session: OutboundGroupSession,
-        devices: Vec<Device>,
+        devices: Vec<ReadOnlyDevice>,
     ) -> OlmResult<(
         OwnedTransactionId,
         ToDeviceRequest,
         BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, ShareInfo>>,
         Vec<Session>,
-        Vec<(Device, WithheldCode)>,
+        Vec<(ReadOnlyDevice, WithheldCode)>,
     )> {
         // Use a named type instead of a tuple with rather long type name
         pub struct DeviceResult {
-            device: Device,
+            device: ReadOnlyDevice,
             maybe_encrypted_room_key: MaybeEncryptedRoomKey,
         }
 
@@ -283,14 +284,20 @@ impl GroupSessionManager {
         let mut share_infos = BTreeMap::new();
         let mut withheld_devices = Vec::new();
 
-        let encrypt = |device: Device, session: OutboundGroupSession| async move {
-            let encryption_result = device.maybe_encrypt_room_key(session).await?;
+        // XXX is there a way to do this that doesn't involve cloning the
+        // `Arc<CryptoStoreWrapper>` for each device?
+        let encrypt = |store: Arc<CryptoStoreWrapper>,
+                       device: ReadOnlyDevice,
+                       session: OutboundGroupSession| async move {
+            let encryption_result = device.maybe_encrypt_room_key(store.as_ref(), session).await?;
 
             Ok::<_, OlmError>(DeviceResult { device, maybe_encrypted_room_key: encryption_result })
         };
 
-        let tasks: Vec<_> =
-            devices.iter().map(|d| spawn(encrypt(d.clone(), group_session.clone()))).collect();
+        let tasks: Vec<_> = devices
+            .iter()
+            .map(|d| spawn(encrypt(store.clone(), d.clone(), group_session.clone())))
+            .collect();
 
         let results = join_all(tasks).await;
 
@@ -343,8 +350,8 @@ impl GroupSessionManager {
         outbound: &OutboundGroupSession,
     ) -> OlmResult<CollectRecipientsResult> {
         let users: BTreeSet<&UserId> = users.collect();
-        let mut devices: BTreeMap<OwnedUserId, Vec<Device>> = Default::default();
-        let mut withheld_devices: Vec<(Device, WithheldCode)> = Default::default();
+        let mut devices: BTreeMap<OwnedUserId, Vec<ReadOnlyDevice>> = Default::default();
+        let mut withheld_devices: Vec<(ReadOnlyDevice, WithheldCode)> = Default::default();
 
         trace!(?users, ?settings, "Calculating group session recipients");
 
@@ -372,23 +379,37 @@ impl GroupSessionManager {
         // This is calculated in the following code and stored in this variable.
         let mut should_rotate = user_left || visibility_changed || algorithm_changed;
 
+        let own_identity =
+            self.store.get_user_identity(self.store.user_id()).await?.and_then(|i| i.into_own());
+
         for user_id in users {
-            let user_devices = self.store.get_user_devices_filtered(user_id).await?;
+            let user_devices = self.store.get_readonly_devices_filtered(user_id).await?;
+
+            // We only need the user identity if settings.only_allow_trusted_devices is set.
+            let device_owner_identity = if settings.only_allow_trusted_devices {
+                self.store.get_user_identity(user_id).await?
+            } else {
+                None
+            };
 
             // From all the devices a user has, we're splitting them into two
             // buckets, a bucket of devices that should receive the
             // room key and a bucket of devices that should receive
             // a withheld code.
-            let (recipients, withheld_recipients): (Vec<Device>, Vec<(Device, WithheldCode)>) =
-                user_devices.devices().partition_map(|d| {
-                    if d.is_blacklisted() {
-                        Either::Right((d, WithheldCode::Blacklisted))
-                    } else if settings.only_allow_trusted_devices && !d.is_verified() {
-                        Either::Right((d, WithheldCode::Unverified))
-                    } else {
-                        Either::Left(d)
-                    }
-                });
+            let (recipients, withheld_recipients): (
+                Vec<ReadOnlyDevice>,
+                Vec<(ReadOnlyDevice, WithheldCode)>,
+            ) = user_devices.into_values().partition_map(|d| {
+                if d.is_blacklisted() {
+                    Either::Right((d, WithheldCode::Blacklisted))
+                } else if settings.only_allow_trusted_devices
+                    && !d.is_verified(&own_identity, &device_owner_identity)
+                {
+                    Either::Right((d, WithheldCode::Unverified))
+                } else {
+                    Either::Left(d)
+                }
+            });
 
             // If we haven't already concluded that the session should be
             // rotated for other reasons, we also need to check whether any
@@ -428,12 +449,13 @@ impl GroupSessionManager {
     }
 
     async fn encrypt_request(
-        chunk: Vec<Device>,
+        store: Arc<CryptoStoreWrapper>,
+        chunk: Vec<ReadOnlyDevice>,
         outbound: OutboundGroupSession,
         sessions: GroupSessionCache,
-    ) -> OlmResult<(Vec<Session>, Vec<(Device, WithheldCode)>)> {
+    ) -> OlmResult<(Vec<Session>, Vec<(ReadOnlyDevice, WithheldCode)>)> {
         let (id, request, share_infos, used_sessions, no_olm) =
-            Self::encrypt_session_for(outbound.clone(), chunk).await?;
+            Self::encrypt_session_for(store, outbound.clone(), chunk).await?;
 
         if !request.messages.is_empty() {
             trace!(
@@ -485,10 +507,10 @@ impl GroupSessionManager {
 
     async fn encrypt_for_devices(
         &self,
-        recipient_devices: Vec<Device>,
+        recipient_devices: Vec<ReadOnlyDevice>,
         group_session: &OutboundGroupSession,
         changes: &mut Changes,
-    ) -> OlmResult<Vec<(Device, WithheldCode)>> {
+    ) -> OlmResult<Vec<(ReadOnlyDevice, WithheldCode)>> {
         // If we have some recipients, log them here.
         if !recipient_devices.is_empty() {
             #[allow(unknown_lints, clippy::unwrap_or_default)] // false positive
@@ -520,6 +542,7 @@ impl GroupSessionManager {
             .chunks(Self::MAX_TO_DEVICE_MESSAGES)
             .map(|chunk| {
                 spawn(Self::encrypt_request(
+                    self.store.crypto_store(),
                     chunk.to_vec(),
                     group_session.clone(),
                     self.sessions.clone(),
@@ -548,7 +571,7 @@ impl GroupSessionManager {
     fn is_withheld_to(
         &self,
         group_session: &OutboundGroupSession,
-        device: &Device,
+        device: &ReadOnlyDevice,
         code: &WithheldCode,
     ) -> bool {
         // The `m.no_olm` withheld code is special because it is supposed to be sent
@@ -578,7 +601,7 @@ impl GroupSessionManager {
     async fn handle_withheld_devices(
         &self,
         group_session: &OutboundGroupSession,
-        withheld_devices: Vec<(Device, WithheldCode)>,
+        withheld_devices: Vec<(ReadOnlyDevice, WithheldCode)>,
     ) -> OlmResult<()> {
         // Convert a withheld code for the group session into a to-device event content.
         let to_content = |code| {
@@ -593,7 +616,7 @@ impl GroupSessionManager {
             let mut share_infos = BTreeMap::new();
 
             for (device, code) in chunk {
-                let device: Device = device;
+                let device: ReadOnlyDevice = device;
                 let code: WithheldCode = code;
 
                 let user_id = device.user_id().to_owned();
@@ -755,7 +778,7 @@ impl GroupSessionManager {
 
         // Filter out the devices that already received this room key or have a
         // to-device message already queued up.
-        let devices: Vec<Device> = devices
+        let devices: Vec<_> = devices
             .into_iter()
             .flat_map(|(_, d)| {
                 d.into_iter()

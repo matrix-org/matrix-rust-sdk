@@ -1662,8 +1662,8 @@ mod tests {
         // Then the encrypted events list is shortened to only newer events
         let enc_evs = room.latest_encrypted_events();
         assert_eq!(enc_evs.len(), 2);
-        assert_eq!(enc_evs.get(0).unwrap().get_field::<&str>("event_id").unwrap().unwrap(), "$2");
-        assert_eq!(enc_evs.get(1).unwrap().get_field::<&str>("event_id").unwrap().unwrap(), "$3");
+        assert_eq!(enc_evs[0].get_field::<&str>("event_id").unwrap().unwrap(), "$2");
+        assert_eq!(enc_evs[1].get_field::<&str>("event_id").unwrap().unwrap(), "$3");
 
         // And the event is stored
         assert_eq!(room.latest_event().unwrap().event_id(), new_event.event_id());

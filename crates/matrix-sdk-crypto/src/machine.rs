@@ -609,6 +609,7 @@ impl OlmMachine {
     /// this method between sync requests.
     ///
     /// [`mark_request_as_sent`]: #method.mark_request_as_sent
+    #[instrument(skip_all)]
     pub async fn get_missing_sessions(
         &self,
         users: impl Iterator<Item = &UserId>,
@@ -1634,6 +1635,7 @@ impl OlmMachine {
     /// println!("{:?}", device);
     /// # });
     /// ```
+    #[instrument(skip(self))]
     pub async fn get_device(
         &self,
         user_id: &UserId,
@@ -1657,6 +1659,7 @@ impl OlmMachine {
     ///
     /// Returns a `UserIdentities` enum if one is found and the crypto store
     /// didn't throw an error.
+    #[instrument(skip(self))]
     pub async fn get_identity(
         &self,
         user_id: &UserId,
@@ -1692,6 +1695,7 @@ impl OlmMachine {
     /// }
     /// # });
     /// ```
+    #[instrument(skip(self))]
     pub async fn get_user_devices(
         &self,
         user_id: &UserId,
@@ -3647,7 +3651,7 @@ pub(crate) mod tests {
         // Alice sends a key
         let msgs = alice.inner.verification_machine.outgoing_messages();
         assert!(msgs.len() == 1);
-        let msg = msgs.first().unwrap();
+        let msg = &msgs[0];
         let event = outgoing_request_to_event(alice.user_id(), msg);
         alice.inner.verification_machine.mark_request_as_sent(&msg.request_id);
 
@@ -3660,7 +3664,7 @@ pub(crate) mod tests {
         // Now bob sends a key
         let msgs = bob.inner.verification_machine.outgoing_messages();
         assert!(msgs.len() == 1);
-        let msg = msgs.first().unwrap();
+        let msg = &msgs[0];
         let event = outgoing_request_to_event(bob.user_id(), msg);
         bob.inner.verification_machine.mark_request_as_sent(&msg.request_id);
 

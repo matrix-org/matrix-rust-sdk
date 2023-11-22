@@ -19,7 +19,7 @@ use std::collections::BTreeMap;
 use ruma::{
     exports::ruma_macros::AsStrAsRefStr,
     serde::{AsRefStr, DebugAsRefStr, DeserializeFromCowStr, FromString, SerializeAsRefStr},
-    JsOption, OwnedDeviceId, OwnedRoomId,
+    OwnedDeviceId, OwnedRoomId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -107,7 +107,7 @@ impl RoomKeyWithheldContent {
         sender_key: Curve25519PublicKey,
         from_device: OwnedDeviceId,
     ) -> Self {
-        let from_device = JsOption::Some(from_device);
+        let from_device = Some(from_device);
 
         match algorithm {
             EventEncryptionAlgorithm::MegolmV1AesSha2 => {
@@ -222,7 +222,7 @@ impl std::fmt::Display for WithheldCode {
 #[derive(Debug, Deserialize, Serialize)]
 struct WithheldHelper {
     pub algorithm: EventEncryptionAlgorithm,
-    pub reason: JsOption<String>,
+    pub reason: Option<String>,
     pub code: WithheldCode,
     #[serde(flatten)]
     other: Value,
@@ -259,8 +259,8 @@ pub struct CommonWithheldCodeContent {
 
     /// The device ID of the device sending the m.room_key.withheld message
     /// MSC3735.
-    #[serde(default, skip_serializing_if = "JsOption::is_undefined")]
-    pub from_device: JsOption<OwnedDeviceId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from_device: Option<OwnedDeviceId>,
 
     #[serde(flatten)]
     other: BTreeMap<String, Value>,
@@ -278,7 +278,7 @@ impl CommonWithheldCodeContent {
             room_id,
             session_id,
             sender_key,
-            from_device: JsOption::Some(device_id),
+            from_device: Some(device_id),
             other: Default::default(),
         }
     }
@@ -318,8 +318,8 @@ pub struct NoOlmWithheldContent {
 
     /// The device ID of the device sending the m.room_key.withheld message
     /// MSC3735.
-    #[serde(default, skip_serializing_if = "JsOption::is_undefined")]
-    pub from_device: JsOption<OwnedDeviceId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from_device: Option<OwnedDeviceId>,
 
     #[serde(flatten)]
     other: BTreeMap<String, Value>,
@@ -358,8 +358,8 @@ pub struct UnknownRoomKeyWithHeld {
     /// The withheld code
     pub code: WithheldCode,
     /// A human-readable reason for why the key was not sent.
-    #[serde(default, skip_serializing_if = "JsOption::is_undefined")]
-    pub reason: JsOption<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
     /// The other data of the unknown room key.
     #[serde(flatten)]
     other: BTreeMap<String, Value>,
@@ -429,7 +429,7 @@ impl Serialize for RoomKeyWithheldContent {
         let helper = match self {
             Self::MegolmV1AesSha2(r) => {
                 let code = r.withheld_code();
-                let reason = JsOption::Some(code.to_string());
+                let reason = Some(code.to_string());
 
                 match r {
                     MegolmV1AesSha2WithheldContent::BlackListed(content)
@@ -452,7 +452,7 @@ impl Serialize for RoomKeyWithheldContent {
             #[cfg(feature = "experimental-algorithms")]
             Self::MegolmV2AesSha2(r) => {
                 let code = r.withheld_code();
-                let reason = JsOption::Some(code.to_string());
+                let reason = Some(code.to_string());
 
                 match r {
                     MegolmV1AesSha2WithheldContent::BlackListed(content)
