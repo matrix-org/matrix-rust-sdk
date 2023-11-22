@@ -112,9 +112,6 @@ pub enum OneTimeKey {
 impl OneTimeKey {
     /// Deserialize the [`OneTimeKey`] from a [`DeviceKeyAlgorithm`] and a Raw
     /// JSON value.
-    ///
-    /// The [`DeviceKeyAlgorithm`] is needed because multiple algorithms might
-    /// have the same JSON representation.
     pub fn deserialize(
         algorithm: DeviceKeyAlgorithm,
         key: &Raw<ruma::encryption::OneTimeKey>,
