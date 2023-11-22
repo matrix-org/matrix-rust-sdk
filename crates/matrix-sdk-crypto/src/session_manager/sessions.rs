@@ -18,6 +18,7 @@ use std::{
     time::Duration,
 };
 
+use itertools::Itertools;
 use ruma::{
     api::client::keys::claim_keys::v3::{
         Request as KeysClaimRequest, Response as KeysClaimResponse,
@@ -222,7 +223,7 @@ impl SessionManager {
         &self,
         users: impl Iterator<Item = &UserId>,
     ) -> StoreResult<Option<(OwnedTransactionId, KeysClaimRequest)>> {
-        let mut missing_session_devices_by_user: BTreeMap<_, BTreeSet<_>> = BTreeMap::new();
+        let mut missing_session_devices_by_user: BTreeMap<_, BTreeMap<_, _>> = BTreeMap::new();
         let mut timed_out_devices_by_user: BTreeMap<_, BTreeSet<_>> = BTreeMap::new();
 
         let unfailed_users = users.filter(|u| !self.failures.contains(u.server_name()));
@@ -268,7 +269,7 @@ impl SessionManager {
                         missing_session_devices_by_user
                             .entry(user_id.to_owned())
                             .or_default()
-                            .insert(device_id);
+                            .insert(device_id, DeviceKeyAlgorithm::SignedCurve25519);
                     }
                 } else {
                     bad_key_devices.entry(user_id.clone()).or_default().insert(device_id);
@@ -279,14 +280,19 @@ impl SessionManager {
         // Add the list of sessions that for some reason automatically need to
         // create an Olm session.
         for (user, device_ids) in self.users_for_key_claim.read().unwrap().iter() {
-            missing_session_devices_by_user
-                .entry(user.to_owned())
-                .or_default()
-                .extend(device_ids.iter().cloned());
+            missing_session_devices_by_user.entry(user.to_owned()).or_default().extend(
+                device_ids
+                    .iter()
+                    .map(|device_id| (device_id.clone(), DeviceKeyAlgorithm::SignedCurve25519)),
+            );
         }
 
         debug!(
-            ?missing_session_devices_by_user,
+            // Reformat the map to skip the encryption algorithm, which isn't very useful.
+            missing_session_devices_by_user = ?missing_session_devices_by_user
+                .iter()
+                .map(|(user_id, devices)| (user_id, devices.keys().collect::<Vec<_>>()))
+                .format(", "),
             ?timed_out_devices_by_user,
             "Collected user/device pairs that are missing an Olm session"
         );
@@ -310,24 +316,9 @@ impl SessionManager {
         let result = if missing_session_devices_by_user.is_empty() {
             None
         } else {
-            // rewrite the missing_session_devices_by_user map to include the desired
-            // algorithm for each device
-            let missing: BTreeMap<_, _> = missing_session_devices_by_user
-                .into_iter()
-                .map(|(user_id, user_devices)| {
-                    (
-                        user_id,
-                        user_devices
-                            .into_iter()
-                            .map(|device_id| (device_id, DeviceKeyAlgorithm::SignedCurve25519))
-                            .collect::<BTreeMap<_, _>>(),
-                    )
-                })
-                .collect();
-
             Some((
                 TransactionId::new(),
-                assign!(KeysClaimRequest::new(missing), {
+                assign!(KeysClaimRequest::new(missing_session_devices_by_user), {
                     timeout: Some(Self::KEY_CLAIM_TIMEOUT),
                 }),
             ))
