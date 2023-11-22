@@ -724,6 +724,8 @@ impl ReadOnlyDevice {
     ///
     /// # Arguments
     ///
+    /// * `store` - The crypto store. Used to find an established Olm session
+    ///   for this device.
     /// * `event_type` - The type of the event that should be encrypted.
     /// * `content` - The content of the event that should be encrypted.
     ///
