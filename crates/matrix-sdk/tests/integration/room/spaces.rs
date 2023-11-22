@@ -12,6 +12,36 @@ use wiremock::{
 
 use crate::{logged_in_client, mock_sync, MockServer};
 
+async fn mock_members(server: &MockServer) {
+    let members = json!({
+        "chunk": [
+        {
+            "content": {
+                "avatar_url": null,
+                "displayname": "Space Administrator",
+                "membership": "join"
+            },
+            "event_id": "$151800140517rfvjc:localhost",
+            "membership": "join",
+            "origin_server_ts": 151800140,
+            "room_id": *DEFAULT_TEST_SPACE_ID,
+            "sender": "@spaceadmin:localhost",
+            "state_key": "@spaceadmin:localhost",
+            "type": "m.room.member",
+            "unsigned": {
+                "age": 2970366,
+            }
+        }
+        ]
+    });
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/members"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(members))
+        .mount(server)
+        .await;
+}
+
 /// Performs an initial sync with sample data, then with the provided `sync`.
 /// Returns the next sync token.
 async fn initial_sync_with_m_space_parent(
@@ -64,7 +94,8 @@ async fn no_parent_space() {
 
     let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
 
-    let spaces: Vec<ParentSpace> = room.parent_spaces().await.unwrap().collect().await;
+    let spaces: Vec<ParentSpace> =
+        room.parent_spaces().await.unwrap().map(Result::unwrap).collect().await;
     assert_eq!(spaces.len(), 0);
 }
 
@@ -79,7 +110,8 @@ async fn parent_space_undeserializable() {
 
     let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
 
-    let spaces: Vec<ParentSpace> = room.parent_spaces().await.unwrap().collect().await;
+    let spaces: Vec<ParentSpace> =
+        room.parent_spaces().await.unwrap().map(Result::unwrap).collect().await;
     assert_eq!(spaces.len(), 0);
 }
 
@@ -107,7 +139,8 @@ async fn parent_space_redacted() {
 
     let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
 
-    let spaces: Vec<ParentSpace> = room.parent_spaces().await.unwrap().collect().await;
+    let spaces: Vec<ParentSpace> =
+        room.parent_spaces().await.unwrap().map(Result::unwrap).collect().await;
     assert_eq!(spaces.len(), 0);
 }
 
@@ -119,7 +152,8 @@ async fn parent_space_unverifiable() {
 
     let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
 
-    let spaces: Vec<ParentSpace> = room.parent_spaces().await.unwrap().collect().await;
+    let spaces: Vec<ParentSpace> =
+        room.parent_spaces().await.unwrap().map(Result::unwrap).collect().await;
     assert_eq!(spaces.len(), 1);
     assert_let!(Some(ParentSpace::Unverifiable(space_id)) = spaces.get(0));
     assert_eq!(space_id, *DEFAULT_TEST_SPACE_ID);
@@ -129,6 +163,8 @@ async fn parent_space_unverifiable() {
 async fn parent_space_illegitimate() {
     let (client, server) = logged_in_client().await;
 
+    mock_members(&server).await;
+
     let sync_token =
         initial_sync_with_m_space_parent(&client, &server, &test_json::PARENT_SPACE_SYNC).await;
 
@@ -136,7 +172,8 @@ async fn parent_space_illegitimate() {
 
     let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
 
-    let spaces: Vec<ParentSpace> = room.parent_spaces().await.unwrap().collect().await;
+    let spaces: Vec<ParentSpace> =
+        room.parent_spaces().await.unwrap().map(Result::unwrap).collect().await;
     assert_eq!(spaces.len(), 1);
     assert_let!(Some(ParentSpace::Illegitimate(space)) = spaces.get(0));
     assert_eq!(space.room_id(), *DEFAULT_TEST_SPACE_ID);
@@ -173,7 +210,8 @@ async fn parent_space_reciprocal() {
 
     let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
 
-    let spaces: Vec<ParentSpace> = room.parent_spaces().await.unwrap().collect().await;
+    let spaces: Vec<ParentSpace> =
+        room.parent_spaces().await.unwrap().map(Result::unwrap).collect().await;
     assert_eq!(spaces.len(), 1);
     assert_let!(Some(ParentSpace::Reciprocal(space)) = spaces.get(0));
     assert_eq!(space.room_id(), *DEFAULT_TEST_SPACE_ID);
@@ -182,6 +220,8 @@ async fn parent_space_reciprocal() {
 #[async_test]
 async fn parent_space_redacted_reciprocal() {
     let (client, server) = logged_in_client().await;
+
+    mock_members(&server).await;
 
     let sync_token =
         initial_sync_with_m_space_parent(&client, &server, &test_json::PARENT_SPACE_SYNC).await;
@@ -204,7 +244,8 @@ async fn parent_space_redacted_reciprocal() {
 
     let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
 
-    let spaces: Vec<ParentSpace> = room.parent_spaces().await.unwrap().collect().await;
+    let spaces: Vec<ParentSpace> =
+        room.parent_spaces().await.unwrap().map(Result::unwrap).collect().await;
     assert_eq!(spaces.len(), 1);
     assert_let!(Some(ParentSpace::Illegitimate(space)) = spaces.get(0));
     assert_eq!(space.room_id(), *DEFAULT_TEST_SPACE_ID);
@@ -217,33 +258,7 @@ async fn setup_parent_member(
     sync_token: String,
     level: u64,
 ) -> String {
-    let members = json!({
-        "chunk": [
-        {
-            "content": {
-                "avatar_url": null,
-                "displayname": "Space Administrator",
-                "membership": "join"
-            },
-            "event_id": "$151800140517rfvjc:localhost",
-            "membership": "join",
-            "origin_server_ts": 151800140,
-            "room_id": *DEFAULT_TEST_SPACE_ID,
-            "sender": "@spaceadmin:localhost",
-            "state_key": "@spaceadmin:localhost",
-            "type": "m.room.member",
-            "unsigned": {
-                "age": 2970366,
-            }
-        }
-        ]
-    });
-    Mock::given(method("GET"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/members"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(members))
-        .mount(server)
-        .await;
+    mock_members(server).await;
 
     let pl_event = json!({
         "content": {
@@ -292,7 +307,8 @@ async fn parent_space_powerlevel() {
 
     let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
 
-    let spaces: Vec<ParentSpace> = room.parent_spaces().await.unwrap().collect().await;
+    let spaces: Vec<ParentSpace> =
+        room.parent_spaces().await.unwrap().map(Result::unwrap).collect().await;
     assert_eq!(spaces.len(), 1);
     assert_let!(Some(ParentSpace::WithPowerlevel(space)) = spaces.get(0));
     assert_eq!(space.room_id(), *DEFAULT_TEST_SPACE_ID);
@@ -309,7 +325,8 @@ async fn parent_space_powerlevel_too_low() {
 
     let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
 
-    let spaces: Vec<ParentSpace> = room.parent_spaces().await.unwrap().collect().await;
+    let spaces: Vec<ParentSpace> =
+        room.parent_spaces().await.unwrap().map(Result::unwrap).collect().await;
     assert_eq!(spaces.len(), 1);
     assert_let!(Some(ParentSpace::Illegitimate(space)) = spaces.get(0));
     assert_eq!(space.room_id(), *DEFAULT_TEST_SPACE_ID);
