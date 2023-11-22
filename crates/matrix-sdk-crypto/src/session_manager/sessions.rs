@@ -361,13 +361,23 @@ impl SessionManager {
         if let Some(request) = request {
             let devices_in_response: BTreeSet<_> = one_time_keys
                 .iter()
-                .flat_map(|&(u, d)| d.keys().map(|d| (u, d)).collect::<BTreeSet<_>>())
+                .flat_map(|(user_id, device_key_map)| {
+                    device_key_map
+                        .keys()
+                        .map(|device_id| (*user_id, *device_id))
+                        .collect::<BTreeSet<_>>()
+                })
                 .collect();
 
             let devices_in_request: BTreeSet<(_, _)> = request
                 .one_time_keys
                 .iter()
-                .flat_map(|(u, d)| d.keys().map(|d| (u, d)).collect::<BTreeSet<_>>())
+                .flat_map(|(user_id, device_key_map)| {
+                    device_key_map
+                        .keys()
+                        .map(|device_id| (user_id, device_id))
+                        .collect::<BTreeSet<_>>()
+                })
                 .collect();
 
             let missing_devices: BTreeSet<_> = devices_in_request
