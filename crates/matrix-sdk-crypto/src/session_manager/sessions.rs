@@ -318,9 +318,10 @@ impl SessionManager {
     /// As per [spec], if a user/device pair does not have any one-time keys on
     /// the homeserver, the server will just omit the user/device pair from
     /// the response:
-    ///     > If the homeserver could be reached, but the user or device was
-    ///     > unknown, no failure is recorded. Instead, the corresponding user
-    ///     > or device is missing from the one_time_keys result.
+    ///
+    /// > If the homeserver could be reached, but the user or device was
+    /// > unknown, no failure is recorded. Instead, the corresponding user
+    /// > or device is missing from the one_time_keys result.
     ///
     /// The user/device pairs which are missing from the response are going to
     /// be put in the failures cache so we don't retry to claim a one-time
@@ -360,7 +361,7 @@ impl SessionManager {
         if let Some(request) = request {
             let devices_in_response: BTreeSet<_> = one_time_keys
                 .iter()
-                .flat_map(|(u, d)| d.keys().map(|d| (*u, *d)).collect::<BTreeSet<_>>())
+                .flat_map(|&(u, d)| d.keys().map(|d| (u, d)).collect::<BTreeSet<_>>())
                 .collect();
 
             let devices_in_request: BTreeSet<(_, _)> = request

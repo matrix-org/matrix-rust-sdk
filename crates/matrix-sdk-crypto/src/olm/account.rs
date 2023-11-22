@@ -843,8 +843,8 @@ impl Account {
     #[instrument(
         skip_all,
         fields(
-            user_id = %device.user_id(),
-            device_id = %device.device_id(),
+            user_id = ?device.user_id(),
+            device_id = ?device.device_id(),
             algorithms = ?device.algorithms()
         )
     )]
@@ -864,7 +864,7 @@ impl Account {
         let first_key_id = first_key.0.to_owned();
         let first_key = OneTimeKey::deserialize(first_key_id.algorithm(), first_key.1)?;
 
-        let ret = match first_key {
+        let result = match first_key {
             OneTimeKey::SignedKey(key) => Ok(PrekeyBundle::Olm3DH { key }),
             _ => Err(SessionCreationError::OneTimeKeyUnknown(
                 device.user_id().to_owned(),
@@ -872,9 +872,9 @@ impl Account {
             )),
         };
 
-        trace!(result = ?ret, "Finished searching for a valid pre-key bundle");
+        trace!(?result, "Finished searching for a valid pre-key bundle");
 
-        ret
+        result
     }
 
     /// Create a new session with another account given a one-time key and a
