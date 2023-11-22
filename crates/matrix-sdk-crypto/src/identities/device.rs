@@ -412,17 +412,6 @@ impl Device {
     /// # Arguments
     ///
     /// * `content` - The content of the event that should be encrypted.
-    #[instrument(
-        skip_all,
-        fields(
-            recipient = ?self.user_id(),
-            recipient_device = ?self.device_id(),
-            recipient_key = ?self.curve25519_key(),
-            event_type,
-            session,
-            message_id,
-        ))
-    ]
     pub(crate) async fn encrypt(
         &self,
         event_type: &str,
@@ -731,6 +720,34 @@ impl ReadOnlyDevice {
         )
     }
 
+    /// Encrypt the given content for this device.
+    ///
+    /// # Arguments
+    ///
+    /// * `store` - The crypto store. Used to find an established Olm session
+    ///   for this device.
+    /// * `event_type` - The type of the event that should be encrypted.
+    /// * `content` - The content of the event that should be encrypted.
+    ///
+    /// # Returns
+    ///
+    /// On success, a tuple `(session, content)`, where `session` is the Olm
+    /// [`Session`] that was used to encrypt the content, and `content` is
+    /// the content for the `m.room.encrypted` to-device event.
+    ///
+    /// If an Olm session has not already been established with this device,
+    /// returns `Err(OlmError::MissingSession)`.
+    #[instrument(
+        skip_all,
+        fields(
+            recipient = ?self.user_id(),
+            recipient_device = ?self.device_id(),
+            recipient_key = ?self.curve25519_key(),
+            event_type,
+            session,
+            message_id,
+        ))
+    ]
     pub(crate) async fn encrypt(
         &self,
         store: &CryptoStoreWrapper,
