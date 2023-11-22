@@ -302,7 +302,17 @@ async fn parent_space_redacted_reciprocal() {
         "type": "m.space.child",
         "unsigned": {
             "age": 1234,
-            "redacted_by": "$15275047031IXQRi:localhost"
+            "redacted_because": {
+                "content": {},
+                "event_id": "$15275047031IXQRi:localhost",
+                "origin_server_ts": 152750470000000_u64,
+                "redacts": "$15275046980maRLj:localhost",
+                "sender": "@example:localhost",
+                "type": "m.room.redaction",
+                "unsigned": {
+                    "age": 14523
+                }
+            },
         }
     });
 
