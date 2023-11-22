@@ -214,7 +214,7 @@ impl IdentityManager {
             ?deleted_devices,
             ?new_identities,
             ?changed_identities,
-            "Finished handling of the /keys/query response"
+            "Finished handling of the `/keys/query` response"
         );
 
         Ok((devices, identities))
