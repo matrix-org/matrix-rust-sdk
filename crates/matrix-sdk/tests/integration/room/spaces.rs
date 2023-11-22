@@ -32,6 +32,7 @@ async fn initial_sync_with_m_space_parent(
 
 /// Syncs with a parent space, using the previous `sync_token` and including any
 /// custom `state_events` for the current test.
+///
 /// Returns the next sync token.
 async fn sync_space(
     client: &Client,

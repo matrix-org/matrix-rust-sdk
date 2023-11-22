@@ -2416,7 +2416,7 @@ pub enum ParentSpace {
     /// not recognizes it as its child.
     Illegitimate(Room),
     /// The room recognizes the given id as its parent room, but we cannot check
-    /// whether the parent does not recognizes it as its child.
+    /// whether the parent recognizes it as its child.
     Unverifiable(OwnedRoomId),
 }
 
