@@ -12,6 +12,7 @@ use matrix_sdk::{
         api::client::{receipt::create_receipt::v3::ReceiptType, room::report_content},
         events::{
             location::{AssetType as RumaAssetType, LocationContent, ZoomLevel},
+            notify::{ApplicationType, CallNotifyEventContent, NotifyType},
             poll::unstable_start::{
                 UnstablePollAnswer, UnstablePollAnswers, UnstablePollStartContentBlock,
             },
@@ -161,6 +162,50 @@ impl Room {
     /// The vector is ordered by oldest membership user to newest.
     pub fn active_room_call_participants(&self) -> Vec<String> {
         self.inner.active_room_call_participants().iter().map(|u| u.to_string()).collect()
+    }
+
+    /// This will only send a call notify event if appropriate.
+    ///
+    /// This function is supposed to be called whenever the user creates a room call.
+    /// It will consider send a notify event if:
+    ///  - there is not yet a running call.
+    /// It will configure the notify type: ring or notify based on:
+    ///  - is this a DM room -> ring
+    ///  - is this a group with more then one other member -> notify
+    pub fn try_send_room_call_notify(&self) {
+        if self.inner.has_active_room_call() {
+            return;
+        }
+        let notify_type = if self.is_direct() { NotifyType::Ring } else { NotifyType::Notify };
+        self.send_call_notify(
+            "".to_owned(),
+            ApplicationType::Call,
+            notify_type,
+            ruma::events::Mentions::with_room_mention(),
+        )
+    }
+
+    /// Send a call notify event in the current room.
+    ///
+    /// This is only supposed to be used in **custom** situations where the user
+    /// explicitly chooses to send call.notify event to invite/notify someone explicitly in unusual conditions.
+    /// The default should be to use [`try_send_room_call_notify`] just before a new room call is created/joined.
+    ///
+    /// One example could be that the UI allows to start a call with a subset of users of the room members first.
+    /// And then later on the user can invite more users to the call.
+    pub fn send_call_notify(
+        &self,
+        call_id: String,
+        application: ApplicationType,
+        notify_type: NotifyType,
+        mentions: ruma::events::Mentions,
+    ) {
+        let mut call_notify_event_content =
+            CallNotifyEventContent::new(call_id, application, notify_type, mentions);
+        let room_message_call_notify = RoomMessageEventContentWithoutRelation::new(
+            MessageType::CallNotify(call_notify_event_content),
+        );
+        self.send(Arc::new(room_message_call_notify))
     }
 
     pub fn inviter(&self) -> Option<Arc<RoomMember>> {
