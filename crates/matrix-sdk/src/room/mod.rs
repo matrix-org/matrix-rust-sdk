@@ -2422,7 +2422,7 @@ pub enum ParentSpace {
     /// The room recognizes the given room as its parent, but the parent does
     /// not recognizes it as its child. However, the author of the
     /// `m.room.parent` event in the room has a sufficient power level in the
-    /// parent to do do.
+    /// parent to create the child event.
     WithPowerlevel(Room),
     /// The room recognizes the given room as its parent, but the parent does
     /// not recognizes it as its child.
