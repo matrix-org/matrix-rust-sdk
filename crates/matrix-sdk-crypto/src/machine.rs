@@ -2082,7 +2082,9 @@ pub(crate) mod tests {
     use ruma::{
         api::{
             client::{
-                keys::{get_keys, get_keys::v3::Response as KeyQueryResponse, upload_keys},
+                keys::{
+                    claim_keys, get_keys, get_keys::v3::Response as KeyQueryResponse, upload_keys,
+                },
                 sync::sync_events::DeviceLists,
                 to_device::send_event_to_device::v3::Response as ToDeviceResponse,
             },
@@ -2239,15 +2241,20 @@ pub(crate) mod tests {
         bob: &UserId,
         use_fallback_key: bool,
     ) -> (OlmMachine, OlmMachine) {
-        let (alice, bob, one_time_keys) = get_machine_pair(alice, bob, use_fallback_key).await;
+        let (alice, bob, mut one_time_keys) = get_machine_pair(alice, bob, use_fallback_key).await;
 
-        let one_time_key = one_time_keys.values().next().unwrap();
+        let (device_key_id, one_time_key) = one_time_keys.pop_first().unwrap();
 
         let one_time_keys = BTreeMap::from([(
-            (bob.user_id().to_owned(), bob.device_id().to_owned()),
-            one_time_key,
+            bob.user_id().to_owned(),
+            BTreeMap::from([(
+                bob.device_id().to_owned(),
+                BTreeMap::from([(device_key_id, one_time_key)]),
+            )]),
         )]);
-        alice.inner.session_manager.create_sessions(&one_time_keys).await.unwrap();
+
+        let response = claim_keys::v3::Response::new(one_time_keys);
+        alice.inner.session_manager.create_sessions(&response).await.unwrap();
 
         (alice, bob)
     }
@@ -2544,23 +2551,29 @@ pub(crate) mod tests {
         machine: &OlmMachine,
         user_id: &UserId,
         device_id: &DeviceId,
+        key_id: OwnedDeviceKeyId,
         one_time_key: Raw<OneTimeKey>,
     ) {
-        let one_time_keys =
-            BTreeMap::from([((user_id.to_owned(), device_id.to_owned()), &one_time_key)]);
-        machine.inner.session_manager.create_sessions(&one_time_keys).await.unwrap();
+        let one_time_keys = BTreeMap::from([(
+            user_id.to_owned(),
+            BTreeMap::from([(device_id.to_owned(), BTreeMap::from([(key_id, one_time_key)]))]),
+        )]);
+
+        let response = claim_keys::v3::Response::new(one_time_keys);
+        machine.inner.session_manager.create_sessions(&response).await.unwrap();
     }
 
     #[async_test]
     async fn test_session_creation() {
         let (alice_machine, bob_machine, mut one_time_keys) =
             get_machine_pair(alice_id(), user_id(), false).await;
-        let (_key_id, one_time_key) = one_time_keys.pop_first().unwrap();
+        let (key_id, one_time_key) = one_time_keys.pop_first().unwrap();
 
         create_session(
             &alice_machine,
             bob_machine.user_id(),
             bob_machine.device_id(),
+            key_id,
             one_time_key,
         )
         .await;
@@ -2581,7 +2594,7 @@ pub(crate) mod tests {
     async fn test_getting_most_recent_session() {
         let (alice_machine, bob_machine, mut one_time_keys) =
             get_machine_pair(alice_id(), user_id(), false).await;
-        let (_key_id, one_time_key) = one_time_keys.pop_first().unwrap();
+        let (key_id, one_time_key) = one_time_keys.pop_first().unwrap();
 
         let device = alice_machine
             .get_device(bob_machine.user_id(), bob_machine.device_id(), None)
@@ -2595,17 +2608,19 @@ pub(crate) mod tests {
             &alice_machine,
             bob_machine.user_id(),
             bob_machine.device_id(),
+            key_id,
             one_time_key.to_owned(),
         )
         .await;
 
         for _ in 0..10 {
-            let (_key_id, one_time_key) = one_time_keys.pop_first().unwrap();
+            let (key_id, one_time_key) = one_time_keys.pop_first().unwrap();
 
             create_session(
                 &alice_machine,
                 bob_machine.user_id(),
                 bob_machine.device_id(),
+                key_id,
                 one_time_key.to_owned(),
             )
             .await;

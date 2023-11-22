@@ -24,9 +24,8 @@ use ruma::{
     },
     assign,
     events::dummy::ToDeviceDummyEventContent,
-    serde::Raw,
-    DeviceId, DeviceKeyAlgorithm, OwnedDeviceId, OwnedServerName, OwnedTransactionId, OwnedUserId,
-    SecondsSinceUnixEpoch, ServerName, TransactionId, UserId,
+    DeviceId, DeviceKeyAlgorithm, OwnedDeviceId, OwnedDeviceKeyId, OwnedServerName,
+    OwnedTransactionId, OwnedUserId, SecondsSinceUnixEpoch, ServerName, TransactionId, UserId,
 };
 use tracing::{debug, error, info, instrument, warn};
 use vodozemac::Curve25519PublicKey;
@@ -313,21 +312,31 @@ impl SessionManager {
         self.failed_devices.read().unwrap().get(user_id).is_some_and(|d| d.contains(device_id))
     }
 
-    /// Receive a successful key claim response and create new Olm sessions with
-    /// the claimed keys.
+    /// This method will try to figure out for which devices a one-time key was
+    /// requested but is not present in the response.
     ///
-    /// # Arguments
+    /// As per [spec], if a user/device pair does not have any one-time keys on
+    /// the homeserver, the server will just omit the user/device pair from
+    /// the response:
     ///
-    /// * `request_id` - The unique id of the request that was sent out. This is
-    ///   needed to couple the response with the sent out request.
+    /// > If the homeserver could be reached, but the user or device was
+    /// > unknown, no failure is recorded. Instead, the corresponding user
+    /// > or device is missing from the one_time_keys result.
     ///
-    /// * `response` - The response containing the claimed one-time keys.
-    #[instrument(skip(self, response))]
-    pub async fn receive_keys_claim_response(
+    /// The user/device pairs which are missing from the response are going to
+    /// be put in the failures cache so we don't retry to claim a one-time
+    /// key right away next time the user tries to send a message.
+    ///
+    /// [spec]: https://spec.matrix.org/unstable/client-server-api/#post_matrixclientv3keysclaim
+    fn handle_otk_exhaustion_failure(
         &self,
         request_id: &TransactionId,
-        response: &KeysClaimResponse,
-    ) -> OlmResult<()> {
+        failed_servers: &BTreeSet<OwnedServerName>,
+        one_time_keys: &BTreeMap<
+            &OwnedUserId,
+            BTreeMap<&OwnedDeviceId, BTreeSet<&OwnedDeviceKeyId>>,
+        >,
+    ) {
         // First check that the response is for the request we were expecting.
         let request = {
             let mut guard = self.current_key_claim_request.write().unwrap();
@@ -347,6 +356,75 @@ impl SessionManager {
             }
         };
 
+        // If we were able to pair this response with a request, look for devices that
+        // were present in the request but did not elicit a successful response.
+        if let Some(request) = request {
+            let devices_in_response: BTreeSet<_> = one_time_keys
+                .iter()
+                .flat_map(|(user_id, device_key_map)| {
+                    device_key_map
+                        .keys()
+                        .map(|device_id| (*user_id, *device_id))
+                        .collect::<BTreeSet<_>>()
+                })
+                .collect();
+
+            let devices_in_request: BTreeSet<(_, _)> = request
+                .one_time_keys
+                .iter()
+                .flat_map(|(user_id, device_key_map)| {
+                    device_key_map
+                        .keys()
+                        .map(|device_id| (user_id, device_id))
+                        .collect::<BTreeSet<_>>()
+                })
+                .collect();
+
+            let missing_devices: BTreeSet<_> = devices_in_request
+                .difference(&devices_in_response)
+                .filter(|(user_id, _)| {
+                    // Skip over users whose homeservers were in the "failed servers" list: we don't
+                    // want to mark individual devices as broken *as well as* the server.
+                    !failed_servers.contains(user_id.server_name())
+                })
+                .collect();
+
+            if !missing_devices.is_empty() {
+                let mut missing_devices_by_user: BTreeMap<_, BTreeSet<_>> = BTreeMap::new();
+
+                for &(user_id, device_id) in missing_devices {
+                    missing_devices_by_user.entry(user_id).or_default().insert(device_id.clone());
+                }
+
+                warn!(
+                    ?missing_devices_by_user,
+                    "Tried to create new Olm sessions, but the signed one-time key was missing for some devices",
+                );
+
+                let mut failed_devices_lock = self.failed_devices.write().unwrap();
+
+                for (user_id, device_set) in missing_devices_by_user {
+                    failed_devices_lock.entry(user_id.clone()).or_default().extend(device_set);
+                }
+            }
+        };
+    }
+
+    /// Receive a successful key claim response and create new Olm sessions with
+    /// the claimed keys.
+    ///
+    /// # Arguments
+    ///
+    /// * `request_id` - The unique id of the request that was sent out. This is
+    ///   needed to couple the response with the sent out request.
+    ///
+    /// * `response` - The response containing the claimed one-time keys.
+    #[instrument(skip(self, response))]
+    pub async fn receive_keys_claim_response(
+        &self,
+        request_id: &TransactionId,
+        response: &KeysClaimResponse,
+    ) -> OlmResult<()> {
         // Collect the (user_id, device_id, device_key_id) triple for logging reasons.
         let one_time_keys: BTreeMap<_, BTreeMap<_, BTreeSet<_>>> = response
             .one_time_keys
@@ -366,6 +444,7 @@ impl SessionManager {
 
         debug!(?request_id, ?one_time_keys, failures = ?response.failures, "Received a `/keys/claim` response");
 
+        // Collect all the servers in the `failures` field of the response.
         let failed_servers: BTreeSet<_> = response
             .failures
             .keys()
@@ -374,66 +453,16 @@ impl SessionManager {
             .collect();
         let successful_servers = response.one_time_keys.keys().map(|u| u.server_name());
 
-        self.failures.extend(failed_servers.iter().cloned());
+        // Add the user/device pairs that don't have any one-time keys to the failures
+        // cache.
+        self.handle_otk_exhaustion_failure(request_id, &failed_servers, &one_time_keys);
+        // Add the failed servers to the failures cache.
+        self.failures.extend(failed_servers);
+        // Remove the servers we successfully contacted from the failures cache.
         self.failures.remove(successful_servers);
 
-        // build a map of (user_id, device_id) -> key from the response
-        let sessions_to_create: BTreeMap<(_, _), _> = response
-            .one_time_keys
-            .iter()
-            .flat_map(|(user_id, device_map)| {
-                device_map.iter().filter_map(|(device_id, key_map)| {
-                    // For devices that returned at least one key, this will yield
-                    // `Some((user_id, device_id), first_key)`. For devices that returned an
-                    // empty map, this will yield `None`.
-                    //
-                    // The `None` entries are then filtered out by `filter_map`.
-                    key_map.values().next().map(|key| ((user_id.clone(), device_id.clone()), key))
-                })
-            })
-            .collect();
-
-        // if we were able to pair this response with a request, look for devices that
-        // were present in the request but did not elicit a successful response.
-        if let Some(request) = request {
-            let devices_in_response: BTreeSet<_> =
-                sessions_to_create.iter().map(|((u, d), _)| (u, d)).collect();
-
-            let devices_in_request: BTreeSet<(_, _)> = request
-                .one_time_keys
-                .iter()
-                .flat_map(|(u, d)| d.keys().map(|d| (u, d)).collect::<BTreeSet<_>>())
-                .collect();
-
-            let missing_devices: BTreeSet<_> = devices_in_request
-                .difference(&devices_in_response)
-                .filter(|(user_id, _)| {
-                    // skip over users whose homeservers were in the "failed servers" list: we don't
-                    // want to mark individual devices as broken *as well as* the server.
-                    !failed_servers.contains(user_id.server_name())
-                })
-                .collect();
-
-            if !missing_devices.is_empty() {
-                let mut missing_devices_by_user: BTreeMap<_, BTreeSet<_>> = BTreeMap::new();
-                for &(user_id, device_id) in missing_devices {
-                    missing_devices_by_user.entry(user_id).or_default().insert(device_id.clone());
-                }
-
-                warn!(
-                    ?missing_devices_by_user,
-                    "Tried to create new Olm sessions, but the signed one-time key was missing for some devices",
-                );
-
-                let mut failed_devices_lock = self.failed_devices.write().unwrap();
-
-                for (user_id, device_set) in missing_devices_by_user {
-                    failed_devices_lock.entry(user_id.clone()).or_default().extend(device_set);
-                }
-            }
-        };
-
-        self.create_sessions(&sessions_to_create).await
+        // Finally, create some 1-to-1 sessions.
+        self.create_sessions(response).await
     }
 
     /// Create new Olm sessions for the requested devices.
@@ -442,10 +471,7 @@ impl SessionManager {
     ///
     ///  * `device_map` - a map from (user ID, device ID) pairs to key object,
     ///    for each device we should create a session for.
-    pub(crate) async fn create_sessions(
-        &self,
-        device_map: &BTreeMap<(OwnedUserId, OwnedDeviceId), &Raw<ruma::encryption::OneTimeKey>>,
-    ) -> OlmResult<()> {
+    pub(crate) async fn create_sessions(&self, response: &KeysClaimResponse) -> OlmResult<()> {
         struct SessionInfo {
             session_id: String,
             algorithm: EventEncryptionAlgorithm,
@@ -465,63 +491,65 @@ impl SessionManager {
 
         let mut changes = Changes::default();
         let mut new_sessions: BTreeMap<&UserId, BTreeMap<&DeviceId, SessionInfo>> = BTreeMap::new();
-
         let mut store_transaction = self.store.transaction().await;
-        for ((user_id, device_id), one_time_key) in device_map {
-            let device = match self.store.get_readonly_device(user_id, device_id).await {
-                Ok(Some(d)) => d,
-                Ok(None) => {
-                    warn!(
-                        ?user_id,
-                        ?device_id,
-                        "Tried to create an Olm session but the device is unknown",
-                    );
-                    continue;
+
+        for (user_id, user_devices) in &response.one_time_keys {
+            for (device_id, key_map) in user_devices {
+                let device = match self.store.get_readonly_device(user_id, device_id).await {
+                    Ok(Some(d)) => d,
+                    Ok(None) => {
+                        warn!(
+                            ?user_id,
+                            ?device_id,
+                            "Tried to create an Olm session but the device is unknown",
+                        );
+                        continue;
+                    }
+                    Err(e) => {
+                        warn!(
+                            ?user_id, ?device_id, error = ?e,
+                            "Tried to create an Olm session, but we can't \
+                            fetch the device from the store",
+                        );
+                        continue;
+                    }
+                };
+
+                let account = store_transaction.account().await?;
+                let session = match account.create_outbound_session(&device, key_map) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        warn!(
+                            ?user_id, ?device_id, error = ?e,
+                            "Error creating Olm session"
+                        );
+
+                        self.failed_devices
+                            .write()
+                            .unwrap()
+                            .entry(user_id.to_owned())
+                            .or_default()
+                            .insert(device_id.to_owned());
+
+                        continue;
+                    }
+                };
+
+                self.key_request_machine.retry_keyshare(user_id, device_id);
+
+                if let Err(e) = self.check_if_unwedged(user_id, device_id).await {
+                    error!(?user_id, ?device_id, "Error while treating an unwedged device: {e:?}");
                 }
-                Err(e) => {
-                    warn!(
-                        ?user_id, ?device_id, error = ?e,
-                        "Tried to create an Olm session, but we can't \
-                        fetch the device from the store",
-                    );
-                    continue;
-                }
-            };
 
-            let account = store_transaction.account().await?;
-            let session = match account.create_outbound_session(&device, one_time_key) {
-                Ok(s) => s,
-                Err(e) => {
-                    warn!(
-                        ?user_id, ?device_id, error = ?e,
-                        "Error creating Olm session"
-                    );
+                let session_info = SessionInfo {
+                    session_id: session.session_id().to_owned(),
+                    algorithm: session.algorithm().await,
+                    fallback_key_used: session.created_using_fallback_key,
+                };
 
-                    self.failed_devices
-                        .write()
-                        .unwrap()
-                        .entry(user_id.to_owned())
-                        .or_default()
-                        .insert(device_id.to_owned());
-
-                    continue;
-                }
-            };
-
-            self.key_request_machine.retry_keyshare(user_id, device_id);
-
-            if let Err(e) = self.check_if_unwedged(user_id, device_id).await {
-                error!(?user_id, ?device_id, "Error while treating an unwedged device: {e:?}");
+                changes.sessions.push(session);
+                new_sessions.entry(user_id).or_default().insert(device_id, session_info);
             }
-
-            let session_info = SessionInfo {
-                session_id: session.session_id().to_owned(),
-                algorithm: session.algorithm().await,
-                fallback_key_used: session.created_using_fallback_key,
-            };
-
-            changes.sessions.push(session);
-            new_sessions.entry(user_id).or_default().insert(device_id, session_info);
         }
 
         store_transaction.commit().await?;
