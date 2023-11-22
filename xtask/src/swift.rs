@@ -109,10 +109,7 @@ fn generate_uniffi(library_file: &Utf8Path, ffi_directory: &Utf8Path) -> Result<
     Ok(())
 }
 
-fn build_for_target(target: &str, profile: &str) -> Result<Utf8PathBuf> {
-    cmd!("rustup run stable cargo build -p matrix-sdk-ffi --target {target} --profile {profile}")
-        .run()?;
-
+fn build_path_for_target(target: &str, profile: &str) -> Result<Utf8PathBuf> {
     // The builtin dev profile has its files stored under target/debug, all
     // other targets have matching directory names
     let profile_dir_name = if profile == "dev" { "debug" } else { profile };
@@ -139,22 +136,34 @@ fn build_xcframework(
 
     let (libs, uniff_lib_path) = if let Some(target) = only_target {
         println!("-- Building for {target} 1/1");
-        let build_path = build_for_target(target.as_str(), profile)?;
+
+        cmd!(
+            "rustup run stable cargo build -p matrix-sdk-ffi --target {target} --profile {profile}"
+        )
+        .run()?;
+
+        let build_path = build_path_for_target(target.as_str(), profile)?;
 
         (vec![build_path.clone()], build_path)
     } else {
-        println!("-- Building for iOS [1/5]");
-        let ios_path = build_for_target("aarch64-apple-ios", profile)?;
+        println!("-- Building for 5 targets");
 
-        println!("-- Building for macOS (Apple Silicon) [2/5]");
-        let darwin_arm_path = build_for_target("aarch64-apple-darwin", profile)?;
-        println!("-- Building for macOS (Intel) [3/5]");
-        let darwin_x86_path = build_for_target("x86_64-apple-darwin", profile)?;
+        cmd!(
+            "rustup run stable cargo build -p matrix-sdk-ffi
+            --target aarch64-apple-ios 
+            --target aarch64-apple-darwin 
+            --target x86_64-apple-darwin 
+            --target aarch64-apple-ios-sim 
+            --target x86_64-apple-ios 
+            --profile {profile}"
+        )
+        .run()?;
 
-        println!("-- Building for iOS Simulator (Apple Silicon) [4/5]");
-        let ios_sim_arm_path = build_for_target("aarch64-apple-ios-sim", profile)?;
-        println!("-- Building for iOS Simulator (Intel) [5/5]");
-        let ios_sim_x86_path = build_for_target("x86_64-apple-ios", profile)?;
+        let ios_path = build_path_for_target("aarch64-apple-ios", profile)?;
+        let darwin_arm_path = build_path_for_target("aarch64-apple-darwin", profile)?;
+        let darwin_x86_path = build_path_for_target("x86_64-apple-darwin", profile)?;
+        let ios_sim_arm_path = build_path_for_target("aarch64-apple-ios-sim", profile)?;
+        let ios_sim_x86_path = build_path_for_target("x86_64-apple-ios", profile)?;
 
         println!("-- Running Lipo for macOS [1/2]");
         // # macOS
