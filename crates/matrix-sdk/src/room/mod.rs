@@ -2409,8 +2409,9 @@ pub enum ParentSpace {
     /// recognizes it as its child.
     Reciprocal(Room),
     /// The room recognizes the given room as its parent, but the parent does
-    /// not recognizes it as its child. However, a member of the parent has
-    /// a sufficient power level to do so.
+    /// not recognizes it as its child. However, the author of the
+    /// `m.room.parent` event in the room has a sufficient power level in the
+    /// parent to do do.
     WithPowerlevel(Room),
     /// The room recognizes the given room as its parent, but the parent does
     /// not recognizes it as its child.
