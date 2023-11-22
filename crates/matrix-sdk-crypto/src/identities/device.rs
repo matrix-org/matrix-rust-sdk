@@ -887,14 +887,14 @@ impl ReadOnlyDevice {
 
     /// Create a `ReadOnlyDevice` from an `Account`
     ///
-    /// We will have our own device in the store once we receive a keys/query
+    /// We will have our own device in the store once we receive a `/keys/query`
     /// response, but this is useful to create it before we receive such a
     /// response.
     ///
     /// It also makes it easier to check that the server doesn't lie about our
     /// own device.
     ///
-    /// *Don't* use this after we received a keys/query response, other
+    /// *Don't* use this after we received a `/keys/query` response, other
     /// users/devices might add signatures to our own device, which can't be
     /// replicated locally.
     pub fn from_account(account: &Account) -> ReadOnlyDevice {

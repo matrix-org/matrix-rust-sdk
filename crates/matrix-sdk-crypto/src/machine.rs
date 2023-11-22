@@ -565,12 +565,12 @@ impl OlmMachine {
         })
     }
 
-    /// Receive a successful keys upload response.
+    /// Receive a successful `/keys/upload` response.
     ///
     /// # Arguments
     ///
-    /// * `response` - The keys upload response of the request that the client
-    /// performed.
+    /// * `response` - The response of the `/keys/upload` request that the
+    ///   client performed.
     async fn receive_keys_upload_response(&self, response: &UploadKeysResponse) -> OlmResult<()> {
         self.inner
             .store
@@ -617,15 +617,15 @@ impl OlmMachine {
         self.inner.session_manager.get_missing_sessions(users).await
     }
 
-    /// Receive a successful keys query response.
+    /// Receive a successful `/keys/query` response.
     ///
     /// Returns a list of devices newly discovered devices and devices that
     /// changed.
     ///
     /// # Arguments
     ///
-    /// * `response` - The keys query response of the request that the client
-    /// performed.
+    /// * `response` - The response of the `/keys/query` request that the client
+    ///   performed.
     async fn receive_keys_query_response(
         &self,
         request_id: &TransactionId,
@@ -2152,13 +2152,13 @@ pub(crate) mod tests {
     fn keys_upload_response() -> upload_keys::v3::Response {
         let data = response_from_file(&test_json::KEYS_UPLOAD);
         upload_keys::v3::Response::try_from_http_response(data)
-            .expect("Can't parse the keys upload response")
+            .expect("Can't parse the `/keys/upload` response")
     }
 
     fn keys_query_response() -> get_keys::v3::Response {
         let data = response_from_file(&test_json::KEYS_QUERY);
         get_keys::v3::Response::try_from_http_response(data)
-            .expect("Can't parse the keys upload response")
+            .expect("Can't parse the `/keys/upload` response")
     }
 
     pub fn to_device_requests_to_content(
@@ -3210,7 +3210,7 @@ pub(crate) mod tests {
         );
 
         let kq_response = KeyQueryResponse::try_from_http_response(response_from_file(&json))
-            .expect("Can't parse the keys upload response");
+            .expect("Can't parse the `/keys/upload` response");
 
         alice.receive_keys_query_response(&TransactionId::new(), &kq_response).await.unwrap();
         bob.receive_keys_query_response(&TransactionId::new(), &kq_response).await.unwrap();
@@ -3278,7 +3278,7 @@ pub(crate) mod tests {
         );
 
         let kq_response = KeyQueryResponse::try_from_http_response(response_from_file(&json))
-            .expect("Can't parse the keys upload response");
+            .expect("Can't parse the `/keys/upload` response");
 
         alice.receive_keys_query_response(&TransactionId::new(), &kq_response).await.unwrap();
         bob.receive_keys_query_response(&TransactionId::new(), &kq_response).await.unwrap();
@@ -3343,7 +3343,7 @@ pub(crate) mod tests {
         );
 
         let kq_response = KeyQueryResponse::try_from_http_response(response_from_file(&json))
-            .expect("Can't parse the keys upload response");
+            .expect("Can't parse the `/keys/upload` response");
 
         alice.receive_keys_query_response(&TransactionId::new(), &kq_response).await.unwrap();
         bob.receive_keys_query_response(&TransactionId::new(), &kq_response).await.unwrap();
@@ -3368,7 +3368,7 @@ pub(crate) mod tests {
 
         let data = response_from_file(&test_json::KEYS_QUERY_TWO_DEVICES_ONE_SIGNED);
         let response = get_keys::v3::Response::try_from_http_response(data)
-            .expect("Can't parse the keys upload response");
+            .expect("Can't parse the `/keys/upload` response");
 
         let (device_change, identity_change) =
             bob.receive_keys_query_response(&TransactionId::new(), &response).await.unwrap();

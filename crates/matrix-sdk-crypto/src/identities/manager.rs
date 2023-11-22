@@ -106,7 +106,7 @@ impl IdentityManager {
         &self.store.static_account().user_id
     }
 
-    /// Receive a successful keys query response.
+    /// Receive a successful `/keys/query` response.
     ///
     /// Returns a list of devices newly discovered devices and devices that
     /// changed.
@@ -115,7 +115,7 @@ impl IdentityManager {
     ///
     /// * `request_id` - The request_id returned by `users_for_key_query` or
     ///   `build_key_query_for_users`
-    /// * `response` - The keys query response of the request that the client
+    /// * `response` - The response of the `/keys/query` request that the client
     /// performed.
     pub async fn receive_keys_query_response(
         &self,
@@ -126,7 +126,7 @@ impl IdentityManager {
             ?request_id,
             users = ?response.device_keys.keys().collect::<BTreeSet<_>>(),
             failures = ?response.failures,
-            "Handling a keys query response"
+            "Handling a `/keys/query` response"
         );
 
         // Parse the strings into server names and filter out our own server. We should
@@ -214,7 +214,7 @@ impl IdentityManager {
             ?deleted_devices,
             ?new_identities,
             ?changed_identities,
-            "Finished handling of the keys/query response"
+            "Finished handling of the `/keys/query` response"
         );
 
         Ok((devices, identities))
@@ -958,7 +958,7 @@ impl IdentityManager {
                 "Waiting for `/keys/query` to complete for users who have no devices"
             );
 
-            // For each user with no devices, fire off a task to wait for a keys/query
+            // For each user with no devices, fire off a task to wait for a `/keys/query`
             // result if one is pending.
             //
             // We don't actually update the `devices_by_user` map here since that could
@@ -1117,7 +1117,7 @@ pub(crate) mod testing {
             "user_signing_keys": {}
         }));
         KeyQueryResponse::try_from_http_response(data)
-            .expect("Can't parse the keys upload response")
+            .expect("Can't parse the `/keys/upload` response")
     }
 
     // An updated version of `other_key_query` featuring an additional signature on
@@ -1183,7 +1183,7 @@ pub(crate) mod testing {
             "user_signing_keys": {}
         }));
         KeyQueryResponse::try_from_http_response(data)
-            .expect("Can't parse the keys upload response")
+            .expect("Can't parse the `/keys/upload` response")
     }
 
     /// Mocked response to a /keys/query request.
@@ -1285,7 +1285,7 @@ pub(crate) mod testing {
           }
         }));
         KeyQueryResponse::try_from_http_response(data)
-            .expect("Can't parse the keys upload response")
+            .expect("Can't parse the `/keys/upload` response")
     }
 
     pub fn own_key_query() -> KeyQueryResponse {
@@ -1316,7 +1316,7 @@ pub(crate) mod testing {
         );
 
         KeyQueryResponse::try_from_http_response(response_from_file(&json))
-            .expect("Can't parse the keys upload response")
+            .expect("Can't parse the `/keys/upload` response")
     }
 }
 
@@ -1485,7 +1485,7 @@ pub(crate) mod tests {
         });
 
         let response = KeysQueryResponse::try_from_http_response(response_from_file(&response))
-            .expect("Can't parse the keys query response");
+            .expect("Can't parse the `/keys/query` response");
 
         manager.receive_keys_query_response(&TransactionId::new(), &response).await.unwrap();
 
@@ -1535,7 +1535,7 @@ pub(crate) mod tests {
         });
 
         let response = KeysQueryResponse::try_from_http_response(response_from_file(&response))
-            .expect("Can't parse the keys query response");
+            .expect("Can't parse the `/keys/query` response");
 
         let (_, private_identity) = manager.handle_cross_signing_keys(&response).await.unwrap();
 
@@ -1719,7 +1719,7 @@ pub(crate) mod tests {
         let (new_request_id, _) =
             manager.as_ref().unwrap().build_key_query_for_users(vec![user_id()]);
 
-        // A second `keys/query` response with the same result shouldn't fire a change
+        // A second `/keys/query` response with the same result shouldn't fire a change
         // notification: the identity should be unchanged.
         manager
             .as_ref()

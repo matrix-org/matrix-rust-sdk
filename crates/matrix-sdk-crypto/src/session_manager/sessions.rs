@@ -719,8 +719,8 @@ mod tests {
     async fn test_session_creation_waits_for_keys_query() {
         let (manager, identity_manager) = session_manager_test_helper().await;
 
-        // start a keys query request. At this point, we are only interested in our own
-        // devices.
+        // start a `/keys/query` request. At this point, we are only interested in our
+        // own devices.
         let (key_query_txn_id, key_query_request) =
             identity_manager.users_for_key_query().await.unwrap().pop_first().unwrap();
         info!("Initial key query: {:?}", key_query_request);
@@ -752,7 +752,7 @@ mod tests {
             })
         };
 
-        // the initial keys query completes, and we start another
+        // the initial `/keys/query` completes, and we start another
         let response_json =
             json!({ "device_keys": { manager.store.static_account().user_id.to_owned(): {}}});
         let response =
@@ -797,7 +797,7 @@ mod tests {
                 .unwrap();
         }
 
-        // Do a keys query request, in which Bob's server is a failure.
+        // Do a `/keys/query` request, in which Bob's server is a failure.
         let (key_query_txn_id, _key_query_request) =
             identity_manager.users_for_key_query().await.unwrap().pop_first().unwrap();
         let response = KeysQueryResponse::try_from_http_response(response_from_file(
