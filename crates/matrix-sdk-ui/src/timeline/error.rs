@@ -88,6 +88,7 @@ pub struct UnsupportedEditItem(UnsupportedEditItemInner);
 impl UnsupportedEditItem {
     pub(super) const MISSING_EVENT_ID: Self = Self(UnsupportedEditItemInner::MissingEventId);
     pub(super) const NOT_ROOM_MESSAGE: Self = Self(UnsupportedEditItemInner::NotRoomMessage);
+    pub(super) const NOT_POLL_EVENT: Self = Self(UnsupportedEditItemInner::NotPollEvent);
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -101,6 +102,8 @@ impl fmt::Debug for UnsupportedEditItem {
 enum UnsupportedEditItemInner {
     #[error("local messages whose event ID is not known can't be edited currently")]
     MissingEventId,
-    #[error("only message events can be edited")]
+    #[error("tried to edit a non-message event")]
     NotRoomMessage,
+    #[error("tried to edit a non-poll event")]
+    NotPollEvent,
 }
