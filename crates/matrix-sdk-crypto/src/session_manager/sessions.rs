@@ -244,7 +244,7 @@ impl SessionManager {
 
         for (user_id, user_devices) in devices_by_user {
             for (device_id, device) in user_devices {
-                if !(device.supports_olm()) {
+                if !device.supports_olm() {
                     non_olm_devices_by_user
                         .entry(user_id.clone())
                         .or_default()
@@ -297,19 +297,11 @@ impl SessionManager {
             "Collected user/device pairs that are missing an Olm session"
         );
 
-        if !non_olm_devices_by_user.is_empty() {
+        if !non_olm_devices_by_user.is_empty() || !bad_key_devices.is_empty() {
             warn!(
                 ?non_olm_devices_by_user,
-                "Some devices don't support any of our 1-to-1 E2EE algorithms: \
-                can't establish an Olm session with them"
-            );
-        }
-
-        if !bad_key_devices.is_empty() {
-            warn!(
                 ?bad_key_devices,
-                "Some devices don't have a valid Curve25519 key: \
-                can't establish an Olm session with them"
+                "Can't establish an Olm session some devices due to missing Olm support or bad keys",
             );
         }
 
