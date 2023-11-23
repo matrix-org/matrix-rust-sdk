@@ -57,10 +57,8 @@ use crate::{
     error::{ClientError, MediaInfoError, RoomError},
     room_info::RoomInfo,
     room_member::{MessageLikeEventType, RoomMember, StateEventType},
-    timeline::{
-        AudioInfo, EventTimelineItem, FileInfo, ImageInfo, PollKind, ThumbnailInfo, TimelineDiff,
-        TimelineItem, TimelineListener, VideoInfo,
-    },
+    ruma::{AssetType, AudioInfo, FileInfo, ImageInfo, PollKind, ThumbnailInfo, VideoInfo},
+    timeline::{EventTimelineItem, TimelineDiff, TimelineItem, TimelineListener},
     utils::u64_to_uint,
     TaskHandle,
 };
@@ -1145,21 +1143,6 @@ impl From<PaginationOptions> for matrix_sdk_ui::timeline::PaginationOptions<'sta
         }
 
         opts
-    }
-}
-
-#[derive(Clone, uniffi::Enum)]
-pub enum AssetType {
-    Sender,
-    Pin,
-}
-
-impl From<AssetType> for RumaAssetType {
-    fn from(value: AssetType) -> Self {
-        match value {
-            AssetType::Sender => Self::Self_,
-            AssetType::Pin => Self::Pin,
-        }
     }
 }
 
