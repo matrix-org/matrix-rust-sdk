@@ -3,9 +3,8 @@ use std::collections::BTreeMap;
 use clap::{Args, Subcommand};
 use xshell::{cmd, pushd};
 
-use crate::{build_docs, workspace, DenyWarnings, Result};
+use crate::{build_docs, workspace, DenyWarnings, Result, NIGHTLY};
 
-const NIGHTLY: &str = "nightly-2023-07-03";
 const WASM_TIMEOUT_ENV_KEY: &str = "WASM_BINDGEN_TEST_TIMEOUT";
 const WASM_TIMEOUT_VALUE: &str = "120";
 
