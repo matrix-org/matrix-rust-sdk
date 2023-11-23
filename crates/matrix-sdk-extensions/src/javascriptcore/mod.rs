@@ -115,8 +115,9 @@ where
 
         let environment = Arc::new(Mutex::new(M::Environment::default()));
 
-        let compile_function =
-            JSValue::new_function(&context, "compile_core", Some(web_api::compile_wasm));
+        // let compile_function =
+        //     JSValue::new_function(&context, "compile_core",
+        // Some(web_api::compile_wasm));
 
         let imports = {
             let imports = JSValue::new_from_json(&context, r#"{}"#).unwrap();
@@ -127,8 +128,9 @@ where
             imports
         };
 
-        let instantiate_function =
-            JSValue::new_function(&context, "instantiate_core", Some(web_api::instantiate_wasm));
+        // let instantiate_function =
+        //     JSValue::new_function(&context, "instantiate_core",
+        // Some(web_api::instantiate_wasm));
 
         // Run the script.
         {
@@ -150,7 +152,7 @@ where
 
         let exports = instantiate
             .as_object()?
-            .call_as_function(None, &[compile_function, imports, instantiate_function])?
+            .call_as_function(None, &[/* compile_function, */ imports /* instantiate_function */])?
             .as_object()?;
 
         Ok(Self { context, exports, environment })

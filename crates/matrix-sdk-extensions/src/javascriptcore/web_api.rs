@@ -126,6 +126,7 @@ pub(super) fn text_decoder(
     Ok(constructor.into())
 }
 
+/*
 #[function_callback]
 pub(super) fn compile_wasm(
     ctx: &JSContext,
@@ -172,3 +173,4 @@ pub(super) fn instantiate_wasm(
 
     webassembly_instance.call_as_constructor(arguments)
 }
+*/

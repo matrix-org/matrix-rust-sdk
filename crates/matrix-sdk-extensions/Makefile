@@ -6,4 +6,4 @@ build-timeline-guest: transpile-timeline-guest-to-js
 		wasm-tools component new target/wasm32-unknown-unknown/release/timeline.wasm -o ../../timeline.wasm
 
 transpile-timeline-guest-to-js:
-	jco transpile --instantiation sync --optimize --no-typescript --out-dir guests/timeline/js/ timeline.wasm
+	jco transpile --instantiation sync --optimize --no-typescript --no-nodejs-compat --js --out-dir guests/timeline/js/ timeline.wasm

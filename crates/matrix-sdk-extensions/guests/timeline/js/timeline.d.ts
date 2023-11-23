@@ -16,7 +16,7 @@ export interface Root {
 * uses component-model-layer types instead of core wasm
 * integers/numbers/etc.
 *
-* The first argument to this function, `compileCore`, is
+* The first argument to this function, `getCoreModule`, is
 * used to compile core wasm modules within the component.
 * Components are composed of core wasm modules and this callback
 * will be invoked per core wasm module. The caller of this
@@ -26,7 +26,7 @@ export interface Root {
 * `WebAssembly.Module` constructor on the web, for example.
 */
 export function instantiate(
-compileCore: (path: string, imports: Record<string, any>) => WebAssembly.Module,
+getCoreModule: (path: string) => WebAssembly.Module,
 imports: ImportObject,
 instantiateCore?: (module: WebAssembly.Module, imports: Record<string, any>) => WebAssembly.Instance
 ): Root;
