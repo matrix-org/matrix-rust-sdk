@@ -19,8 +19,11 @@ use matrix_sdk_ui::room_list_service::filters::{
 use tokio::sync::RwLock;
 
 use crate::{
-    error::ClientError, room::Room, room_info::RoomInfo, timeline::EventTimelineItem, TaskHandle,
-    RUNTIME,
+    error::ClientError,
+    room::Room,
+    room_info::RoomInfo,
+    timeline::{EventTimelineItem, Timeline},
+    TaskHandle, RUNTIME,
 };
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
@@ -445,7 +448,7 @@ impl RoomListItem {
     async fn full_room(&self) -> Arc<Room> {
         Arc::new(Room::with_timeline(
             self.inner.inner_room().clone(),
-            Arc::new(RwLock::new(Some(self.inner.timeline().await))),
+            Arc::new(RwLock::new(Some(Timeline::from_arc(self.inner.timeline().await)))),
         ))
     }
 
