@@ -1,11 +1,6 @@
-use std::{
-    collections::{BTreeSet, HashMap},
-    sync::Arc,
-    time::Duration,
-};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use as_variant::as_variant;
-use extension_trait::extension_trait;
 use eyeball_im::VectorDiff;
 use matrix_sdk::{
     attachment::{BaseAudioInfo, BaseFileInfo, BaseImageInfo, BaseThumbnailInfo, BaseVideoInfo},
@@ -35,7 +30,7 @@ use matrix_sdk::{
     },
 };
 use matrix_sdk_ui::timeline::{EventItemOrigin, PollResult, Profile, TimelineDetails};
-use ruma::{assign, serde::JsonObject, OwnedUserId, UInt, UserId};
+use ruma::{assign, serde::JsonObject, UInt};
 use tracing::{info, warn};
 
 use crate::{
@@ -1184,25 +1179,6 @@ pub enum VirtualTimelineItem {
     ReadMarker,
 }
 
-#[extension_trait]
-pub impl MediaSourceExt for MediaSource {
-    fn from_json(json: String) -> Result<MediaSource, ClientError> {
-        let res = serde_json::from_str(&json)?;
-        Ok(res)
-    }
-
-    fn to_json(&self) -> String {
-        serde_json::to_string(self).expect("Media source should always be serializable ")
-    }
-
-    fn url(&self) -> String {
-        match self {
-            MediaSource::Plain(url) => url.to_string(),
-            MediaSource::Encrypted(file) => file.url.to_string(),
-        }
-    }
-}
-
 #[derive(Clone, uniffi::Enum)]
 pub enum MembershipChange {
     None,
@@ -1380,34 +1356,5 @@ impl From<PollResult> for TimelineItemContentKind {
             end_time: value.end_time,
             has_been_edited: value.has_been_edited,
         }
-    }
-}
-
-#[extension_trait]
-pub impl RoomMessageEventContentWithoutRelationExt for RoomMessageEventContentWithoutRelation {
-    fn with_mentions(self: Arc<Self>, mentions: Mentions) -> Arc<Self> {
-        let mut content = unwrap_or_clone_arc(self);
-        content.mentions = Some(mentions.into());
-        Arc::new(content)
-    }
-}
-
-pub struct Mentions {
-    pub user_ids: Vec<String>,
-    pub room: bool,
-}
-
-impl From<Mentions> for ruma::events::Mentions {
-    fn from(value: Mentions) -> Self {
-        let mut user_ids = BTreeSet::<OwnedUserId>::new();
-        for user_id in value.user_ids {
-            if let Ok(user_id) = UserId::parse(user_id) {
-                user_ids.insert(user_id);
-            }
-        }
-        let mut result = Self::default();
-        result.user_ids = user_ids;
-        result.room = value.room;
-        result
     }
 }
