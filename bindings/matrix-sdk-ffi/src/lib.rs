@@ -40,6 +40,7 @@ mod sync_service;
 mod task_handle;
 mod timeline;
 mod tracing;
+mod utils;
 mod widget;
 
 use async_compat::TOKIO1 as RUNTIME;

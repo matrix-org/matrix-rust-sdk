@@ -58,9 +58,10 @@ use crate::{
     room_info::RoomInfo,
     room_member::{MessageLikeEventType, RoomMember, StateEventType},
     timeline::{
-        u64_to_uint, AudioInfo, EventTimelineItem, FileInfo, ImageInfo, PollKind, ThumbnailInfo,
-        TimelineDiff, TimelineItem, TimelineListener, VideoInfo,
+        AudioInfo, EventTimelineItem, FileInfo, ImageInfo, PollKind, ThumbnailInfo, TimelineDiff,
+        TimelineItem, TimelineListener, VideoInfo,
     },
+    utils::u64_to_uint,
     TaskHandle,
 };
 
