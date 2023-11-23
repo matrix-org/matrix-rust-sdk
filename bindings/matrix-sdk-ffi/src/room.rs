@@ -177,16 +177,6 @@ impl Room {
         }
     }
 
-    /// Removes the timeline.
-    ///
-    /// Timeline items cached in memory as well as timeline listeners are
-    /// dropped.
-    pub fn remove_timeline(&self) {
-        RUNTIME.block_on(async {
-            *self.timeline.write().await = None;
-        });
-    }
-
     pub fn retry_decryption(&self, session_ids: Vec<String>) {
         let timeline = match &*RUNTIME.block_on(self.timeline.read()) {
             Some(t) => Arc::clone(t),
