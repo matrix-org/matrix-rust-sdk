@@ -11,7 +11,7 @@ use kotlin::KotlinArgs;
 use swift::SwiftArgs;
 use xshell::cmd;
 
-const NIGHTLY: &str = "nightly-2023-07-03";
+const NIGHTLY: &str = "nightly-2023-11-08";
 
 type Result<T, E = Box<dyn std::error::Error>> = std::result::Result<T, E>;
 
