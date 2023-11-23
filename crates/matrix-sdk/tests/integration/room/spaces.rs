@@ -142,7 +142,7 @@ async fn sync_space(
     // synthetize a summary for the space by using a sample summary and replacing
     // the room id
     let mut parent_sync = test_json::DEFAULT_SYNC_SUMMARY.clone();
-    let join = &mut parent_sync["rooms"]["join"].as_object_mut().unwrap();
+    let join = parent_sync["rooms"]["join"].as_object_mut().unwrap();
     let mut timeline = join.remove(DEFAULT_TEST_ROOM_ID.as_str()).unwrap();
     timeline["state"]["events"].as_array_mut().unwrap().extend(state_events); // add custom events
     join.insert(DEFAULT_TEST_SPACE_ID.to_string(), timeline);
@@ -224,7 +224,7 @@ async fn parent_space_unverifiable() {
     let spaces: Vec<ParentSpace> =
         room.parent_spaces().await.unwrap().map(Result::unwrap).collect().await;
     assert_eq!(spaces.len(), 1);
-    assert_let!(Some(ParentSpace::Unverifiable(space_id)) = spaces.get(0));
+    assert_let!(ParentSpace::Unverifiable(space_id) = spaces.first().unwrap());
     assert_eq!(space_id, *DEFAULT_TEST_SPACE_ID);
 }
 
@@ -243,7 +243,7 @@ async fn parent_space_illegitimate() {
     let spaces: Vec<ParentSpace> =
         room.parent_spaces().await.unwrap().map(Result::unwrap).collect().await;
     assert_eq!(spaces.len(), 1);
-    assert_let!(Some(ParentSpace::Illegitimate(space)) = spaces.get(0));
+    assert_let!(ParentSpace::Illegitimate(space) = spaces.first().unwrap());
     assert_eq!(space.room_id(), *DEFAULT_TEST_SPACE_ID);
 }
 
@@ -280,7 +280,7 @@ async fn parent_space_reciprocal() {
     let spaces: Vec<ParentSpace> =
         room.parent_spaces().await.unwrap().map(Result::unwrap).collect().await;
     assert_eq!(spaces.len(), 1);
-    assert_let!(Some(ParentSpace::Reciprocal(space)) = spaces.get(0));
+    assert_let!(ParentSpace::Reciprocal(space) = spaces.first().unwrap());
     assert_eq!(space.room_id(), *DEFAULT_TEST_SPACE_ID);
 }
 
@@ -323,7 +323,7 @@ async fn parent_space_redacted_reciprocal() {
     let spaces: Vec<ParentSpace> =
         room.parent_spaces().await.unwrap().map(Result::unwrap).collect().await;
     assert_eq!(spaces.len(), 1);
-    assert_let!(Some(ParentSpace::Illegitimate(space)) = spaces.get(0));
+    assert_let!(ParentSpace::Illegitimate(space) = spaces.first().unwrap());
     assert_eq!(space.room_id(), *DEFAULT_TEST_SPACE_ID);
 }
 
@@ -385,7 +385,7 @@ async fn parent_space_powerlevel() {
     let spaces: Vec<ParentSpace> =
         room.parent_spaces().await.unwrap().map(Result::unwrap).collect().await;
     assert_eq!(spaces.len(), 1);
-    assert_let!(Some(ParentSpace::WithPowerlevel(space)) = spaces.get(0));
+    assert_let!(ParentSpace::WithPowerlevel(space) = spaces.first().unwrap());
     assert_eq!(space.room_id(), *DEFAULT_TEST_SPACE_ID);
 }
 
@@ -402,6 +402,6 @@ async fn parent_space_powerlevel_too_low() {
     let spaces: Vec<ParentSpace> =
         room.parent_spaces().await.unwrap().map(Result::unwrap).collect().await;
     assert_eq!(spaces.len(), 1);
-    assert_let!(Some(ParentSpace::Illegitimate(space)) = spaces.get(0));
+    assert_let!(ParentSpace::Illegitimate(space) = spaces.first().unwrap());
     assert_eq!(space.room_id(), *DEFAULT_TEST_SPACE_ID);
 }
