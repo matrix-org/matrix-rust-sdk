@@ -16,67 +16,14 @@ use std::{collections::HashMap, sync::Arc};
 
 use as_variant::as_variant;
 use eyeball_im::VectorDiff;
-use matrix_sdk::ruma::events::room::{
-    message::{MessageType as RumaMessageType, RoomMessageEventContentWithoutRelation},
-    MediaSource,
-};
 use matrix_sdk_ui::timeline::{EventItemOrigin, Profile, TimelineDetails};
 use tracing::warn;
 
-use crate::{error::ClientError, helpers::unwrap_or_clone_arc};
+use crate::helpers::unwrap_or_clone_arc;
 
 mod content;
 
-pub use self::content::{
-    AudioInfo, FileInfo, ImageInfo, MessageType, PollKind, Reaction, ReactionSenderData,
-    ThumbnailInfo, TimelineItemContent, VideoInfo,
-};
-
-#[uniffi::export]
-pub fn media_source_from_url(url: String) -> Arc<MediaSource> {
-    Arc::new(MediaSource::Plain(url.into()))
-}
-
-#[uniffi::export]
-pub fn message_event_content_new(
-    msgtype: MessageType,
-) -> Result<Arc<RoomMessageEventContentWithoutRelation>, ClientError> {
-    Ok(Arc::new(RoomMessageEventContentWithoutRelation::new(msgtype.try_into()?)))
-}
-
-#[uniffi::export]
-pub fn message_event_content_from_markdown(
-    md: String,
-) -> Arc<RoomMessageEventContentWithoutRelation> {
-    Arc::new(RoomMessageEventContentWithoutRelation::new(RumaMessageType::text_markdown(md)))
-}
-
-#[uniffi::export]
-pub fn message_event_content_from_markdown_as_emote(
-    md: String,
-) -> Arc<RoomMessageEventContentWithoutRelation> {
-    Arc::new(RoomMessageEventContentWithoutRelation::new(RumaMessageType::emote_markdown(md)))
-}
-
-#[uniffi::export]
-pub fn message_event_content_from_html(
-    body: String,
-    html_body: String,
-) -> Arc<RoomMessageEventContentWithoutRelation> {
-    Arc::new(RoomMessageEventContentWithoutRelation::new(RumaMessageType::text_html(
-        body, html_body,
-    )))
-}
-
-#[uniffi::export]
-pub fn message_event_content_from_html_as_emote(
-    body: String,
-    html_body: String,
-) -> Arc<RoomMessageEventContentWithoutRelation> {
-    Arc::new(RoomMessageEventContentWithoutRelation::new(RumaMessageType::emote_html(
-        body, html_body,
-    )))
-}
+pub use self::content::{Reaction, ReactionSenderData, TimelineItemContent};
 
 #[uniffi::export(callback_interface)]
 pub trait TimelineListener: Sync + Send {
