@@ -58,10 +58,10 @@ pub struct Backups {
 }
 
 impl Backups {
-    /// Create a new backup recovery key and backup version.
+    /// Create a new backup version, encrypted with a new backup recovery key.
     ///
     /// The backup recovery key will be persisted locally and shared with
-    /// trusted devices as `m.secret.send` events.
+    /// trusted devices as `m.secret.send` to-device messages.
     ///
     /// After the backup has been created, all room keys will be uploaded to the
     /// homeserver.
@@ -87,7 +87,8 @@ impl Backups {
 
         self.set_state(BackupState::Creating);
 
-        // Create a future so we can catch errors and go back to the `Unknown` state.
+        // Create a future so we can catch errors and go back to the `Unknown`
+        // state. This is a hack to get around the lack of `try` blocks in Rust.
         let future = async {
             let olm_machine = self.client.olm_machine().await;
             let olm_machine = olm_machine.as_ref().ok_or(Error::NoOlmMachine)?;
@@ -106,9 +107,9 @@ impl Backups {
             // `BackupDecryptionKey` can do so, as per [spec]:
             //
             // Clients must only store keys in backups after they have ensured that the
-            // auth_data  is trusted. This can be done either by:
+            // `auth_data` has not been tampered with. This can be done either by:
             //
-            //  * checking that it is signed by the user’s master cross-signing key or by a
+            //  * checking that it is signed by the user's master cross-signing key or by a
             //    verified device belonging to the same user, or
             //  * by deriving the public key from a private key that it obtained from a
             //    trusted source. Trusted sources for the private key include the user
@@ -116,9 +117,6 @@ impl Backups {
             //    obtaining the key via secret sharing from a verified device belonging to
             //    the same user.
             //
-            // Do note, I do think that the signature checking should be completely removed,
-            // and once we have proper authentication for backups from MSC4048, activating a
-            // backup without access to the backup recovery key won't be possible.
             //
             // [1]: https://spec.matrix.org/v1.8/client-server-api/#post_matrixclientv3room_keysversion
             // [spec]: https://spec.matrix.org/v1.8/client-server-api/#server-side-key-backups
@@ -221,11 +219,11 @@ impl Backups {
         result
     }
 
-    /// Wait for room keys to be uploaded.
+    /// Returns a future to wait for room keys to be uploaded.
     ///
-    /// This method will wake up a task to upload room keys which have not yet
-    /// been uploaded to the homeserver. It will then wait for the task to
-    /// finish uploading.
+    /// Awaiting the future will wake up a task to upload room keys which have
+    /// not yet been uploaded to the homeserver. It will then wait for the task
+    /// to finish uploading.
     ///
     /// # Examples
     ///
@@ -335,7 +333,8 @@ impl Backups {
         Ok(self.get_current_version().await?.is_some())
     }
 
-    /// Subscribe to a stream of room keys we download and import from backups.
+    /// Subscribe to a stream that notifies when a room key for the specified
+    /// room is downloaded from the key backup.
     pub fn room_keys_for_room_stream(
         &self,
         room_id: &RoomId,
@@ -343,10 +342,13 @@ impl Backups {
     {
         let room_id = room_id.to_owned();
 
-        // TODO: This is a bit crap to say the least, the type is non descriptive and
-        // doesn't even contain all the important data, it should be a stream of
-        // `RoomKeyInfo` like the OlmMachine has... But on the other hand we
-        // should just used the OlmMachine stream and remove this.
+        // TODO: This is a bit crap to say the least. The type is
+        // non-descriptive and doesn't even contain all the important data. It
+        // should be a stream of `RoomKeyInfo` like the OlmMachine has... But on
+        // the other hand we should just be able to use the corresponding
+        // OlmMachine stream and remove this. Currently we can't do this because
+        // the OlmMachine gets destroyed and recreated all the time to be able
+        // to support the notifications-related multiprocessing on iOS.
         self.room_keys_stream().filter_map(move |import_result| {
             let room_id = room_id.to_owned();
 
@@ -359,8 +361,8 @@ impl Backups {
         })
     }
 
-    /// Download all room keys for a certain room from the backup on the
-    /// homeserver.
+    /// Download all room keys for a certain room from the server-side key
+    /// backup.
     pub async fn download_room_keys_for_room(&self, room_id: &RoomId) -> Result<(), Error> {
         let olm_machine = self.client.olm_machine().await;
         let olm_machine = olm_machine.as_ref().ok_or(Error::NoOlmMachine)?;
@@ -372,6 +374,8 @@ impl Backups {
                 let request =
                     get_backup_keys_for_room::v3::Request::new(version, room_id.to_owned());
                 let response = self.client.send(request, Default::default()).await?;
+
+                // Transform response to standard format (map of room ID -> room key).
                 let response = get_backup_keys::v3::Response::new(BTreeMap::from([(
                     room_id.to_owned(),
                     RoomKeyBackup::new(response.sessions),
@@ -384,7 +388,7 @@ impl Backups {
         Ok(())
     }
 
-    /// Download a single room key from the backup on the homeserver.
+    /// Download a single room key from the server-side key backup.
     pub async fn download_room_key(&self, room_id: &RoomId, session_id: &str) -> Result<(), Error> {
         let olm_machine = self.client.olm_machine().await;
         let olm_machine = olm_machine.as_ref().ok_or(Error::NoOlmMachine)?;
@@ -399,6 +403,8 @@ impl Backups {
                     session_id.to_owned(),
                 );
                 let response = self.client.send(request, Default::default()).await?;
+
+                // Transform response to standard format (map of room ID -> room key).
                 let response = get_backup_keys::v3::Response::new(BTreeMap::from([(
                     room_id.to_owned(),
                     RoomKeyBackup::new(BTreeMap::from([(
@@ -449,7 +455,7 @@ impl Backups {
             for (session_id, room_key) in room_keys.sessions {
                 // TODO: Log that we're skipping some keys here.
                 let Ok(room_key) = room_key.deserialize() else {
-                    warn!("Couldn't deseriazlie a room key we downloaded from backups, session ID: {session_id}");
+                    warn!("Couldn't deserialize a room key we downloaded from backups, session ID: {session_id}");
                     continue;
                 };
 
@@ -532,9 +538,9 @@ impl Backups {
     ) -> Result<(), Error> {
         trace!("Uploading some room keys");
 
-        let request = add_backup_keys::v3::Request::new(request.version, request.rooms);
+        let add_backup_keys = add_backup_keys::v3::Request::new(request.version, request.rooms);
 
-        match self.client.send(request, Default::default()).await {
+        match self.client.send(add_backup_keys, Default::default()).await {
             Ok(response) => {
                 olm_machine.mark_request_as_sent(request_id, &response).await?;
 
@@ -559,14 +565,14 @@ impl Backups {
                 if let Some(kind) = error.client_api_error_kind() {
                     match kind {
                         ErrorKind::NotFound => {
-                            warn!("No backup found on the server, the backup got likely deleted, disabling backups.");
+                            warn!("No backup found on the server, the backup likely got deleted, disabling backups.");
 
                             self.handle_deleted_backup_version(olm_machine).await?;
                         }
                         ErrorKind::WrongRoomKeysVersion { current_version } => {
                             warn!(
                                 new_version = current_version,
-                                "A new backup version was found on the server, disabling backups"
+                                "A new backup version was found on the server, disabling backups."
                             );
 
                             // TODO: If we're verified and there are other devices besides us,
@@ -628,16 +634,17 @@ impl Backups {
     ///
     /// This should be called if we receive a backup recovery, either:
     ///
-    /// * As a `m.secret.send` to-device event from a trusted device
-    /// * From the `m.megolm_backup.v1` global account data event.
+    /// * As an `m.secret.send` to-device message from a trusted device.
+    /// * From 4S (i.e. from the `m.megolm_backup.v1` event global account
+    ///   data).
     ///
     /// In both cases the method will compare the currently active backup
-    /// version to the backup recovery key and if we have received a
-    /// machting key activate backups on this device and start uploading
-    /// room keys to the backup.
+    /// version to the backup recovery key's version and, if there is a match,
+    /// activate backups on this device and start uploading room keys to the
+    /// backup.
     ///
-    /// Returns true if backups are already or have been enabled, otherwise
-    /// false.
+    /// Returns true if backups were just enabled or were already enabled,
+    /// otherwise false.
     #[instrument(skip_all)]
     pub(crate) async fn maybe_enable_backups(
         &self,
@@ -683,8 +690,8 @@ impl Backups {
                 Ok(true)
             } else if decryption_key.backup_key_matches(&backup_info) {
                 info!(
-                    "We have found the correct backup recovery key, storing the backup recovery \
-                     key and enabling backups"
+                    "We have found the correct backup recovery key. Storing the backup recovery \
+                     key and enabling backups."
                 );
 
                 // We're enabling a new backup, reset the `backed_up` flags on the room keys and
@@ -732,7 +739,7 @@ impl Backups {
                 warn!(
                     ?derived_key,
                     ?downloaded_key,
-                    "Found an active backup but the recovery key we received isn't the one used in \
+                    "Found an active backup but the recovery key we received isn't the one used for \
                      this backup version"
                 );
 
@@ -783,8 +790,8 @@ impl Backups {
         }
     }
 
-    /// Try to resume backups by iterating through the `m.secret.send` events
-    /// the [`OlmMachine`] has received and stored in the secret inbox.
+    /// Try to resume backups by iterating through the `m.secret.send` to-device
+    /// messages the [`OlmMachine`] has received and stored in the secret inbox.
     async fn maybe_resume_from_secret_inbox(&self, olm_machine: &OlmMachine) -> Result<(), Error> {
         let secrets = olm_machine.store().get_secrets_from_inbox(&SecretName::RecoveryKey).await?;
 
@@ -815,7 +822,7 @@ impl Backups {
         Ok(())
     }
 
-    /// Listen for `m.secret.send` to-device events and check the secret inbox
+    /// Listen for `m.secret.send` to-device messages and check the secret inbox
     /// if we do receive one.
     pub(crate) async fn secret_send_event_handler(_: ToDeviceSecretSendEvent, client: Client) {
         let olm_machine = client.olm_machine().await;
@@ -837,7 +844,7 @@ impl Backups {
 
     /// Try to enable backups using the secret found in the [`GossippedSecret`].
     ///
-    /// The [`GossippedSecret`] represents a `m.secret.send` event we received
+    /// The [`GossippedSecret`] represents an `m.secret.send` event we received
     /// from a trusted device and have pulled out of the secret inbox.
     ///
     /// Returns true if we enabled backups, false otherwise.
@@ -860,8 +867,8 @@ impl Backups {
         }
     }
 
-    /// Send a notification to the task which is responsible to upload room keys
-    /// to the backup that it might have new room keys to back up.
+    /// Send a notification to the task which is responsible for uploading room
+    /// keys to the backup that it might have new room keys to back up.
     pub(crate) fn maybe_trigger_backup(&self) {
         let tasks = self.client.inner.tasks.lock().unwrap();
 

@@ -109,7 +109,7 @@ pub struct EncryptionSettings {
     ///
     /// 1. Received as a `m.secret.send` to-device event, after a successful
     ///    interactive verification.
-    /// 2. Imported from secret storage using the
+    /// 2. Imported from secret storage (4S) using the
     ///    [`SecretStore::import_secrets()`] method.
     ///
     /// [`SecretStore::import_secrets()`]: crate::encryption::secret_storage::SecretStore::import_secrets

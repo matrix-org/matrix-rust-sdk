@@ -26,7 +26,8 @@ use tracing::trace;
 use super::{Backups, UploadState};
 use crate::utils::ChannelObservable;
 
-/// Error describin how waiting for the backup upload to settle down can fail.
+/// Error describing the ways that waiting for the backup upload to settle down
+/// can fail.
 #[derive(Clone, Copy, Debug, Error)]
 pub enum SteadyStateError {
     /// The currently active backup got either deleted or a new one was created.
@@ -35,11 +36,11 @@ pub enum SteadyStateError {
     /// backup.
     #[error("The backup got disabled while waiting for the room keys to be uploaded.")]
     BackupDisabled,
-    /// Uploading the room keys to the homeserver failed.
+    /// Uploading the room keys to the homeserver failed due to a network error.
     ///
     /// Uploading will be retried again at a later point in time, or
     /// immediately if you wait for the steady state again.
-    #[error("There was a connection error.")]
+    #[error("There was a network connection error.")]
     Connection,
     /// We missed some updates to the [`UploadState`] from the upload task.
     ///
@@ -94,7 +95,7 @@ impl<'a> IntoFuture for WaitForSteadyState<'a> {
 
             trace!("Creating a stream to wait for the steady state");
 
-            let mut stream = progress.subscribe();
+            let mut progress_stream = progress.subscribe();
 
             let old_delay = if let Some(delay) = timeout {
                 let mut lock = backups.client.inner.backup_state.upload_delay.write().unwrap();
@@ -117,7 +118,7 @@ impl<'a> IntoFuture for WaitForSteadyState<'a> {
                 // TODO: Do we want to be smart here and remember the count when we started
                 // waiting and prevent the total from increasing, in case new room
                 // keys arrive after we started waiting.
-                while let Some(state) = stream.next().await {
+                while let Some(state) = progress_stream.next().await {
                     trace!(?state, "Update state while waiting for the backup steady state");
 
                     match state {

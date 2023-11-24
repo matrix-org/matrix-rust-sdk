@@ -35,7 +35,7 @@ use crate::{
 /// [`Backups::wait_for_steady_state()`]: crate::encryption::backups::Backups::wait_for_steady_state
 #[derive(Clone, Debug)]
 pub enum UploadState {
-    /// The task is iddle, waiting for new room keys to arrive to try to upload
+    /// The task is idle, waiting for new room keys to arrive to try to upload
     /// them.
     Idle,
     /// The task has awoken and is checking if new room keys need to be
@@ -71,20 +71,19 @@ impl Default for BackupClientState {
     }
 }
 
-/// The states the backup support for the current [`Client`] can be in.
+/// The possible states of the [`Client`]'s room key backup mechanism.
 ///
-/// Backups can be either enabled automatically if we receive a valid backup
-/// recovery key[[1]] or the [`Client`] can create a new backup themselves.
+/// A local backup instance can be created either by receiving a valid backup
+/// recovery key [[1]] or by having the [`Client`] create a new backup itself.
 ///
 /// The [`Client`] can also delete and disable a currently active backup.
 ///
 /// Backups will be enabled automatically if we receive the backup recovery key
 /// either from:
 ///
-/// * Another device using `m.secret.send`[[2]], this usually happens after
-///   interactive
-/// verification has been done.
-/// * Secret storage[[3]], this can be done with the
+/// * Another device using `m.secret.send`[[2]], which usually happens after
+///   completing interactive verification.
+/// * Secret storage[[3]], which is done by calling the
 ///   [`SecretStore::import_secrets()`] method.
 ///
 /// [1]: https://spec.matrix.org/v1.8/client-server-api/#recovery-key
@@ -92,36 +91,34 @@ impl Default for BackupClientState {
 /// [3]: https://spec.matrix.org/v1.8/client-server-api/#secret-storage
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum BackupState {
-    /// Backups are not active locally and we don't know if they exist on the
-    /// server.
+    /// There is no locally active backup and we don't know whether there backup
+    /// exists on the server.
     ///
-    /// The reason why we don't know if a backup might exist is that we don't
-    /// get notified by the server about the creation or deletion of
-    /// backups. If we want to know the current state of things we need to poll
-    /// the server, this can be done with the
-    /// [`Backups::exists_on_server()`] method.
+    /// The reason we don't know whether a server-side backup exists is that we
+    /// don't get notified by the server about the creation and deletion of
+    /// backups. If we want to know the current state, we need to poll the
+    /// server, which is done using the [`Backups::exists_on_server()`] method.
     #[default]
     Unknown,
-    /// A new backup is being created by this [`Client`], this state will be
+    /// A new backup is being created by this [`Client`]. This state will be
     /// entered if you call the [`Backups::create()`] method.
     Creating,
-    /// An existing backup is being enabled to be used by this [`Client`]. We
+    /// An existing backup is being enabled for use by this [`Client`]. We
     /// will enter this state if we have received a backup recovery key.
     Enabling,
     /// An existing backup will be enabled to be used by this [`Client`] after
     /// the client has been restored. This state happens every time a
-    /// [`Client`] is restored and we previously have enabled a backup.
+    /// [`Client`] is restored after we'd previously enabled a backup.
     Resuming,
-    /// Backups are enabled and room keys are actively being backed up.
+    /// The backup is enabled and room keys are actively being backed up.
     Enabled,
     /// Room keys are currently being downloaded. This state will only happen
-    /// after a `Enabling` state. The [`Client`] will attempt to download
+    /// after an `Enabling` state. The [`Client`] will attempt to download
     /// all room keys from the backup before transitioning into the
     /// `Enabled` state.
     Downloading,
-    /// The backups are being disabled and deleted from the server. This state
-    /// will happen when you call the [`Backups::disable()`] method, after
-    /// backups have been disabled we're going to transition into the
-    /// `Unknown` state.
+    /// The backup is being disabled and deleted from the server. This state
+    /// will happen when you call the [`Backups::disable()`] method. After it
+    /// has been disabled, we're going to transition into the `Unknown` state.
     Disabling,
 }

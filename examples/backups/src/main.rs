@@ -106,8 +106,8 @@ async fn main() -> Result<()> {
         client.encryption().secret_storage().open_secret_store(&cli.secret_store_key).await?;
 
     let _task = tokio::spawn({
-        let client = client.to_owned();
-        async move { listen_for_backup_state_changes(client.to_owned()).await }
+        let client = client.clone();
+        async move { listen_for_backup_state_changes(client).await }
     });
 
     import_known_secrets(&client, secret_store).await?;

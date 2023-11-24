@@ -36,9 +36,9 @@ use crate::Room;
 
 /// An observable with channel semantics.
 ///
-/// This type allows you to have a shared mutable value where updates to the
-/// value will be send out to subscribers. Each update will be send to all the
-/// subscribers and intermediate updates to the value will not be skipped.
+/// Channel semantics means that each update to the shared mutable value will be
+/// sent out to subscribers. That is, intermediate updates to the value will not
+/// be skipped like they would be in an observable without channel semantics.
 #[cfg(feature = "e2e-encryption")]
 #[derive(Clone, Debug)]
 pub(crate) struct ChannelObservable<T: Clone + Send> {
@@ -63,8 +63,7 @@ impl<T: 'static + Send + Clone> ChannelObservable<T> {
         Self { value: RwLock::new(value).into(), channel }
     }
 
-    /// Subscribe to updates to the underlying data of the
-    /// [`ChannelObservable`].
+    /// Subscribe to updates to the observable value.
     ///
     /// The current value will always be emitted as the first item in the
     /// stream.
