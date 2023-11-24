@@ -38,9 +38,6 @@ pub enum UploadState {
     /// The task is idle, waiting for new room keys to arrive to try to upload
     /// them.
     Idle,
-    /// The task has awoken and is checking if new room keys need to be
-    /// uploaded.
-    CheckingIfUploadNeeded(RoomKeyCounts),
     /// The task is currently uploading room keys to the homeserver.
     Uploading(RoomKeyCounts),
     /// There was an error while trying to upload room keys, the task will go

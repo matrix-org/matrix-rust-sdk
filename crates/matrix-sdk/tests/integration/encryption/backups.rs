@@ -454,27 +454,22 @@ async fn steady_state_waiting() {
                     assert_eq!(counter, 0, "The initial state should be the idle state");
                     counter += 1;
                 }
-                UploadState::CheckingIfUploadNeeded(counts) => {
-                    assert_eq!(counter, 1, "The second state should be the checking if state");
-                    assert_eq!(counts.total, 1, "We should have one room key in total");
-                    assert_eq!(counts.backed_up, 0, "No room key should be yet backed up.");
-                    counter += 1;
-                }
                 UploadState::Uploading(counts) => {
-                    assert_eq!(counter, 2, "The third state should be the upload state");
+                    assert_eq!(counter, 1, "The third state should be the upload state");
                     assert_eq!(counts.total, 1, "We should have one room key in total");
                     assert_eq!(counts.backed_up, 1, "All room keys should be uploaded");
                     counter += 1;
                 }
                 UploadState::Done => {
-                    assert_eq!(counter, 3, "The final state should be the Done state");
+                    assert_eq!(counter, 2, "The final state should be the Done state");
+                    counter += 1;
                     break;
                 }
                 UploadState::Error => panic!("We should not have entered the error state"),
             }
         }
 
-        assert_eq!(counter, 3, "We should have gone through 4 states, counter: {counter}");
+        assert_eq!(counter, 3, "We should have gone through 3 states, counter: {counter}");
     });
 
     task.await.unwrap();
@@ -537,14 +532,8 @@ async fn steady_state_waiting_errors() {
                     assert_eq!(counter, 0, "The initial state should be the idle state");
                     counter += 1;
                 }
-                UploadState::CheckingIfUploadNeeded(counts) => {
-                    assert_eq!(counter, 1, "The second state should be the checking if state");
-                    assert_eq!(counts.total, 1, "We should have one room key in total");
-                    assert_eq!(counts.backed_up, 0, "No room key should be yet backed up.");
-                    counter += 1;
-                }
                 UploadState::Error => {
-                    assert_eq!(counter, 2, "The third state should be the error state");
+                    assert_eq!(counter, 1, "The second state should be the error state");
                     counter += 1;
                     break;
                 }
@@ -552,7 +541,7 @@ async fn steady_state_waiting_errors() {
             }
         }
 
-        assert_eq!(counter, 3, "We should have gone through 3 states, counter: {counter}");
+        assert_eq!(counter, 2, "We should have gone through 2 states, counter: {counter}");
     });
 
     let result = wait_for_steady_state.await;

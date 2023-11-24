@@ -602,14 +602,6 @@ impl Backups {
         let olm_machine = self.client.olm_machine().await;
         let olm_machine = olm_machine.as_ref().ok_or(Error::NoOlmMachine)?;
 
-        let old_counts = olm_machine.backup_machine().room_key_counts().await?;
-
-        self.client
-            .inner
-            .backup_state
-            .upload_progress
-            .set(UploadState::CheckingIfUploadNeeded(old_counts));
-
         while let Some((request_id, request)) = olm_machine.backup_machine().backup().await? {
             self.send_backup_request(olm_machine, &request_id, request).await?;
         }
@@ -1136,7 +1128,6 @@ mod test {
 
                     match state {
                         UploadState::Idle => (),
-                        UploadState::CheckingIfUploadNeeded(_) => (),
                         UploadState::Done => {
                             let current_delay = {
                                 client.inner.backup_state.upload_delay.read().unwrap().to_owned()
