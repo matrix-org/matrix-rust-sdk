@@ -189,17 +189,12 @@ impl Backups {
 
             if let Some(version) = backup_keys.backup_version {
                 Span::current().record("version", &version);
+                info!("Deleting and disabling backup");
 
-                info!("Disabling and deleting backup");
+                self.delete_backup_from_server(version).await?;
+                info!("Backup successfully deleted");
 
                 olm_machine.backup_machine().disable_backup().await?;
-
-                info!("Backup successfully disabled");
-
-                let request =
-                    ruma::api::client::backup::delete_backup_version::v3::Request::new(version);
-
-                self.client.send(request, Default::default()).await?;
                 self.set_state(BackupState::Unknown);
 
                 info!("Backup successfully disabled and deleted");
@@ -519,6 +514,25 @@ impl Backups {
                 if let Some(kind) = e.client_api_error_kind() {
                     if kind == &ErrorKind::NotFound {
                         Ok(None)
+                    } else {
+                        Err(e.into())
+                    }
+                } else {
+                    Err(e.into())
+                }
+            }
+        }
+    }
+
+    async fn delete_backup_from_server(&self, version: String) -> Result<(), Error> {
+        let request = ruma::api::client::backup::delete_backup_version::v3::Request::new(version);
+
+        match self.client.send(request, Default::default()).await {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                if let Some(kind) = e.client_api_error_kind() {
+                    if kind == &ErrorKind::NotFound {
+                        Ok(())
                     } else {
                         Err(e.into())
                     }
