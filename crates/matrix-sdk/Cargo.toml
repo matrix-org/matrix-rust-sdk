@@ -64,14 +64,14 @@ anyhow = { workspace = true, optional = true }
 anymap2 = "0.13.0"
 aquamarine = "0.3.2"
 as_variant = { workspace = true }
-async-channel = "1.9.0"
+async-channel = "2.1.0"
 async-stream = { workspace = true }
 async-trait = { workspace = true }
 bytes = "1.1.0"
 bytesize = "1.1"
 cfg-vis = "0.3.0"
 chrono = { version = "0.4.23", optional = true }
-event-listener = "3.0.0"
+event-listener = "4.0.0"
 eyeball = { workspace = true }
 eyeball-im = { workspace = true }
 eyeball-im-util = { workspace = true, optional = true }
