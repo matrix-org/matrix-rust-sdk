@@ -100,7 +100,7 @@ pub async fn upgrade_meta_db(
         Ok(())
     }));
 
-    let meta_db: IdbDatabase = db_req.into_future().await?;
+    let meta_db: IdbDatabase = db_req.await?;
 
     let store_cipher = if let Some(passphrase) = passphrase {
         let tx: IdbTransaction<'_> = meta_db
@@ -153,7 +153,7 @@ pub async fn upgrade_inner_db(
     migration_strategy: MigrationConflictStrategy,
     meta_db: &IdbDatabase,
 ) -> Result<IdbDatabase> {
-    let mut db = IdbDatabase::open(name)?.into_future().await?;
+    let mut db = IdbDatabase::open(name)?.await?;
 
     // Even if the web-sys bindings expose the version as a f64, the IndexedDB API
     // works with an unsigned integer.
@@ -242,7 +242,7 @@ pub async fn upgrade_inner_db(
                 )
             },
         ));
-        db = db_req.into_future().await?;
+        db = db_req.await?;
     }
 
     Ok(db)
@@ -271,7 +271,7 @@ async fn apply_migration(
         Ok(())
     }));
 
-    let db = db_req.into_future().await?;
+    let db = db_req.await?;
 
     // Finally, we can add data to the newly created tables if needed.
     if !migration.data.is_empty() {
@@ -328,7 +328,7 @@ async fn backup_v1(source: &IdbDatabase, meta: &IdbDatabase) -> Result<()> {
         }
         Ok(())
     }));
-    let target = db_req.into_future().await?;
+    let target = db_req.await?;
 
     for name in V1_STORES {
         let source_tx = source.transaction_on_one_with_mode(name, IdbTransactionMode::Readonly)?;
@@ -417,7 +417,7 @@ async fn migrate_to_v3(db: IdbDatabase, store_cipher: Option<&StoreCipher>) -> R
     db.close();
 
     // Update the version of the database.
-    Ok(IdbDatabase::open_u32(&name, 3)?.into_future().await?)
+    Ok(IdbDatabase::open_u32(&name, 3)?.await?)
 }
 
 /// Move the content of the SYNC_TOKEN and SESSION stores to the new KV store.
@@ -728,7 +728,7 @@ async fn migrate_to_v8(db: IdbDatabase, store_cipher: Option<&StoreCipher>) -> R
     db.close();
 
     // Update the version of the database.
-    Ok(IdbDatabase::open_u32(&name, 8)?.into_future().await?)
+    Ok(IdbDatabase::open_u32(&name, 8)?.await?)
 }
 
 #[cfg(all(test, target_arch = "wasm32"))]
@@ -831,7 +831,7 @@ mod tests {
                 Ok(())
             },
         ));
-        db_req.into_future().await.map_err(Into::into)
+        db_req.await.map_err(Into::into)
     }
 
     fn room_info_v1_json(
