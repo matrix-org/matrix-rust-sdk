@@ -23,10 +23,13 @@ use std::{
     sync::atomic::{AtomicU32, Ordering},
 };
 
-use tracing::{level_filters::LevelFilter, Level, Metadata};
-use tracing_subscriber::fmt::{
-    format::{DefaultFields, Format, Pretty},
-    MakeWriter, Subscriber,
+use tracing::{field::Field, level_filters::LevelFilter, Event, Level, Metadata};
+use tracing_subscriber::{
+    fmt::{
+        format::{DefaultFields, Writer},
+        FmtContext, FormatEvent, FormatFields, FormattedFields, MakeWriter, Subscriber,
+    },
+    registry::LookupSpan,
 };
 use wasm_bindgen::prelude::*;
 
@@ -199,9 +202,130 @@ fn write_message_to_console(level: Level, message: &JsValue) {
     };
 }
 
+/// An implementation of [`FormatEvent`] which formats events in a sensible way
+/// for sending events to the JS console.
+#[derive(Debug, Default)]
+pub struct JsEventFormatter {}
+
+impl JsEventFormatter {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl<C, N> FormatEvent<C, N> for JsEventFormatter
+where
+    C: tracing::Subscriber + for<'a> LookupSpan<'a>,
+    N: for<'a> FormatFields<'a> + 'static,
+{
+    fn format_event(
+        &self,
+        ctx: &FmtContext<'_, C, N>,
+        mut writer: Writer<'_>,
+        event: &Event<'_>,
+    ) -> fmt::Result {
+        let meta = event.metadata();
+        write!(writer, "{} {}: ", meta.level(), meta.target())?;
+
+        // write the message
+        let mut v = FindMessageVisitor::default();
+        event.record(&mut v);
+        if let Some(m) = v.message {
+            writer.write_str(m.as_str())?
+        }
+
+        // write the other fields
+        let mut v = JsFieldVisitor::new(writer.by_ref());
+        event.record(&mut v);
+
+        if let Some(file) = meta.file() {
+            write!(writer, "\n    at {file}")?;
+            if let Some(line) = meta.line() {
+                write!(writer, ":{line}")?;
+            }
+        }
+
+        let span = event.parent().and_then(|id| ctx.span(id)).or_else(|| ctx.lookup_current());
+        let scope = span.into_iter().flat_map(|span| span.scope());
+        for span in scope {
+            let meta = span.metadata();
+            write!(writer, "\n    in {}::{}", meta.target(), meta.name())?;
+
+            let ext = span.extensions();
+            let fields = &ext
+                .get::<FormattedFields<N>>()
+                .expect("Unable to find FormattedFields in extensions; this is a bug");
+            if !fields.is_empty() {
+                write!(writer, " with {fields}")?;
+            }
+        }
+
+        Ok(())
+    }
+}
+
+/// A field visitor which is used by [`JsEventFormatter`] to find the "message"
+/// for the event.
+#[derive(Debug, Default)]
+struct FindMessageVisitor {
+    message: Option<String>,
+}
+
+impl tracing::field::Visit for FindMessageVisitor {
+    fn record_debug(&mut self, field: &Field, value: &dyn Debug) {
+        if field.name() == "message" {
+            self.message = Some(format!("{value:?}"));
+        }
+    }
+}
+
+/// A field visitor which is used by [`JsEventFormatter`] to print the fields
+/// other than `message`.
+struct JsFieldVisitor<'a> {
+    writer: Writer<'a>,
+    result: fmt::Result,
+    is_empty: bool,
+}
+
+impl<'a> JsFieldVisitor<'a> {
+    fn new(writer: Writer<'a>) -> Self {
+        Self { writer, result: Ok(()), is_empty: true }
+    }
+
+    fn pad_and_record(&mut self, name: &str, value: &dyn Debug) -> fmt::Result {
+        // If this is the first field since the message, make a new line. Otherwise,
+        // just print a space.
+        if self.is_empty {
+            self.is_empty = false;
+            write!(self.writer, "\n    ")?;
+        } else {
+            write!(self.writer, " ")?;
+        }
+
+        write!(self.writer, "{name}={value:?}")
+    }
+}
+
+impl<'a> tracing::field::Visit for JsFieldVisitor<'a> {
+    fn record_debug(&mut self, field: &Field, value: &dyn Debug) {
+        if self.result.is_err() {
+            return;
+        }
+
+        let name = field.name();
+
+        if name == "message" {
+            // Already handled by FindMessageVisitor.
+            return;
+        }
+
+        self.result = self.pad_and_record(name, value);
+    }
+}
+
 /// The type of [`Subscriber`] returned by [`make_tracing_subscriber`]
 pub type JsLoggingSubscriber =
-    Subscriber<DefaultFields, Format<Pretty, ()>, LevelFilter, MakeJsLogWriter>;
+    Subscriber<DefaultFields, JsEventFormatter, LevelFilter, MakeJsLogWriter>;
 
 /// Construct a [`tracing::Subscriber`] which will format logs and send them to
 /// the Javascript console or the given logging object.
@@ -217,13 +341,11 @@ pub fn make_tracing_subscriber(logger: Option<JsLogger>) -> JsLoggingSubscriber 
         None => MakeJsLogWriter::new(),
     };
 
-    let format = tracing_subscriber::fmt::format().without_time().pretty();
-
     tracing_subscriber::fmt()
         .with_max_level(Level::TRACE)
         .with_writer(make_writer)
         .with_ansi(false)
-        .event_format(format)
+        .event_format(JsEventFormatter::new())
         .finish()
 }
 
@@ -250,7 +372,7 @@ pub(crate) mod tests {
 
         // log something to it
         with_default(subscriber, || {
-            debug!("Test message");
+            debug!(value = 1, "Test message");
         });
 
         // inspect the call log
@@ -268,7 +390,8 @@ pub(crate) mod tests {
         assert_eq!(call_args.length(), 1, "Expected 1 argument, got {}", call_args.length());
 
         let message_string = call_args.get(0).as_string().unwrap();
-        let expected_prefix = "  DEBUG matrix_sdk_common::js_tracing::tests: Test message";
+        let expected_prefix =
+            "DEBUG matrix_sdk_common::js_tracing::tests: Test message\n    value=1\n";
         assert!(
             message_string.starts_with(expected_prefix),
             "Expected log message to start with '{}', but was '{}'",
