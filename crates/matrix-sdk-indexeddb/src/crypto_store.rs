@@ -245,7 +245,7 @@ impl IndexeddbCryptoStore {
             Ok(())
         }));
 
-        let db: IdbDatabase = db_req.into_future().await?;
+        let db: IdbDatabase = db_req.await?;
         let session_cache = SessionStore::new();
 
         Ok(Self {
@@ -333,7 +333,7 @@ impl IndexeddbCryptoStore {
             Ok(())
         }));
 
-        let db: IdbDatabase = db_req.into_future().await?;
+        let db: IdbDatabase = db_req.await?;
 
         let tx: IdbTransaction<'_> =
             db.transaction_on_one_with_mode("matrix-sdk-crypto", IdbTransactionMode::Readonly)?;
