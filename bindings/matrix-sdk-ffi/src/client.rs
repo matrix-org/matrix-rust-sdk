@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeMap,
     mem::ManuallyDrop,
     sync::{Arc, RwLock},
 };
@@ -39,6 +40,8 @@ use matrix_sdk_ui::notification_client::NotificationProcessSetup as MatrixNotifi
 use mime::Mime;
 use ruma::{
     api::client::discovery::discover_homeserver::AuthenticationServerInfo,
+    events::{room::power_levels::RoomPowerLevelsEventContent, TimelineEventType},
+    int,
     push::{HttpPusherData as RumaHttpPusherData, PushFormat as RumaPushFormat},
 };
 use serde::{Deserialize, Serialize};
@@ -858,7 +861,11 @@ impl From<CreateRoomParameters> for create_room::v3::Request {
             content.url = Some(url.into());
             initial_state.push(InitialStateEvent::new(content).to_raw_any());
         }
-
+        {
+            let mut power_levels = RoomPowerLevelsEventContent::new();
+            power_levels.events = BTreeMap::from([(TimelineEventType::CallMember, int!(0))]);
+            initial_state.push(InitialStateEvent::new(power_levels).to_raw_any());
+        }
         request.initial_state = initial_state;
 
         request
