@@ -374,7 +374,7 @@ impl IndexeddbCryptoStore {
             // serialize and encrypt the data about the request
             request: self.serialize_value_as_bytes(gossip_request)?,
 
-            unsent: if gossip_request.sent_out { None } else { Some(1) },
+            unsent: !gossip_request.sent_out,
         };
 
         Ok(obj.try_into()?)
@@ -1209,19 +1209,18 @@ struct GossipRequestIndexedDbObject {
 
     /// Whether the request has yet to be sent out.
     ///
-    /// Really, this represents a boolean value, but booleans don't work as keys
-    /// in indexeddb (see [ECMA spec]). In any case, we don't need to be
-    /// able to retrieve entries where `unsent` is false, so we may as well
-    /// omit them from the index (see also [Stack Overflow]).
+    /// Since we only need to be able to find requests where this is `true`, we
+    /// skip serialization in cases where it is `false`. That has the effect
+    /// of omitting it from the indexeddb index.
     ///
-    /// To avoid too much `serde` magic, we use an `Option`, and omit the value
-    /// altogether if it is `None`, which means it will be excluded from the
-    /// "unsent" index. If it is `Some`, the actual value is unimportant.
-    ///
-    /// [ECMA spec]: https://w3c.github.io/IndexedDB/#key
-    /// [Stack overflow]: https://stackoverflow.com/a/24501949/637864
-    #[serde(skip_serializing_if = "Option::is_none")]
-    unsent: Option<u8>,
+    /// We also use a custom serializer because bools can't be used as keys in
+    /// indexeddb.
+    #[serde(
+        default,
+        skip_serializing_if = "std::ops::Not::not",
+        with = "crate::serialize_bool_for_indexeddb"
+    )]
+    unsent: bool,
 }
 
 impl TryInto<JsValue> for GossipRequestIndexedDbObject {
