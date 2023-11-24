@@ -138,6 +138,12 @@ impl From<indexed_db_futures::web_sys::DomException> for IndexeddbCryptoStoreErr
     }
 }
 
+impl From<serde_wasm_bindgen::Error> for IndexeddbCryptoStoreError {
+    fn from(e: serde_wasm_bindgen::Error) -> Self {
+        IndexeddbCryptoStoreError::Json(serde::de::Error::custom(e.to_string()))
+    }
+}
+
 impl From<IndexeddbCryptoStoreError> for CryptoStoreError {
     fn from(frm: IndexeddbCryptoStoreError) -> CryptoStoreError {
         match frm {
@@ -363,10 +369,7 @@ impl IndexeddbCryptoStore {
 
     /// Transform a [`GossipRequest`] into a `JsValue` holding a
     /// [`GossipRequestIndexedDbObject`], ready for storing
-    fn serialize_gossip_request(
-        &self,
-        gossip_request: &GossipRequest,
-    ) -> Result<JsValue, CryptoStoreError> {
+    fn serialize_gossip_request(&self, gossip_request: &GossipRequest) -> Result<JsValue> {
         let obj = GossipRequestIndexedDbObject {
             // hash the info as a key so that it can be used in index lookups.
             info: self.encode_key_as_string(keys::GOSSIP_REQUESTS, gossip_request.info.as_key()),
@@ -377,17 +380,15 @@ impl IndexeddbCryptoStore {
             unsent: !gossip_request.sent_out,
         };
 
-        Ok(obj.try_into()?)
+        Ok(serde_wasm_bindgen::to_value(&obj)?)
     }
 
     /// Transform a JsValue holding a [`GossipRequestIndexedDbObject`] back into
     /// a [`GossipRequest`]
-    fn deserialize_gossip_request(
-        &self,
-        stored_request: JsValue,
-    ) -> Result<GossipRequest, CryptoStoreError> {
-        let idb_object: GossipRequestIndexedDbObject = stored_request.try_into()?;
-        self.deserialize_value_from_bytes(&idb_object.request)
+    fn deserialize_gossip_request(&self, stored_request: JsValue) -> Result<GossipRequest> {
+        let idb_object: GossipRequestIndexedDbObject =
+            serde_wasm_bindgen::from_value(stored_request)?;
+        Ok(self.deserialize_value_from_bytes(&idb_object.request)?)
     }
 }
 
@@ -732,14 +733,14 @@ impl_crypto_store! {
         request_id: &TransactionId,
     ) -> Result<Option<GossipRequest>> {
         let jskey = self.encode_key(keys::GOSSIP_REQUESTS, request_id.as_str());
-        Ok(self
+        self
             .inner
             .transaction_on_one_with_mode(keys::GOSSIP_REQUESTS, IdbTransactionMode::Readonly)?
             .object_store(keys::GOSSIP_REQUESTS)?
             .get_owned(jskey)?
             .await?
             .map(|val| self.deserialize_gossip_request(val))
-            .transpose()?)
+            .transpose()
     }
 
     async fn load_account(&self) -> Result<Option<Account>> {
@@ -1221,24 +1222,6 @@ struct GossipRequestIndexedDbObject {
         with = "crate::serialize_bool_for_indexeddb"
     )]
     unsent: bool,
-}
-
-impl TryInto<JsValue> for GossipRequestIndexedDbObject {
-    type Error = IndexeddbCryptoStoreError;
-
-    fn try_into(self) -> std::result::Result<JsValue, Self::Error> {
-        serde_wasm_bindgen::to_value(&self)
-            .map_err(|e| IndexeddbCryptoStoreError::Json(serde::ser::Error::custom(e.to_string())))
-    }
-}
-
-impl TryFrom<JsValue> for GossipRequestIndexedDbObject {
-    type Error = IndexeddbCryptoStoreError;
-
-    fn try_from(value: JsValue) -> std::result::Result<Self, Self::Error> {
-        serde_wasm_bindgen::from_value(value)
-            .map_err(|e| IndexeddbCryptoStoreError::Json(serde::de::Error::custom(e.to_string())))
-    }
 }
 
 #[cfg(all(test, target_arch = "wasm32"))]
