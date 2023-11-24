@@ -126,7 +126,7 @@ optional = true
 
 [dependencies.mas-oidc-client]
 git = "https://github.com/matrix-org/matrix-authentication-service"
-rev = "357481b52e6dc092178a16b8a7d86df036aac608"
+rev = "4a0eadccd5c5d74a09f8f454d81a226a01d024f4"
 optional = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
