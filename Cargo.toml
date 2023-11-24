@@ -46,6 +46,7 @@ sha2 = "0.10.8"
 stream_assert = "0.1.1"
 thiserror = "1.0.38"
 tokio = { version = "1.30.0", default-features = false, features = ["sync"] }
+tokio-stream = "0.1.14"
 tracing = { version = "0.1.40", default-features = false, features = ["std"] }
 tracing-core = "0.1.32"
 uniffi = { git = "https://github.com/mozilla/uniffi-rs", rev = "0a03b713306d6ce3de033157fc2ce92a238c2e24" }

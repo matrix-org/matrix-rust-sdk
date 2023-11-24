@@ -439,6 +439,7 @@ async fn test_login_with_cross_signing_bootstrapping() {
             .server_versions([MatrixVersion::V1_0])
             .with_encryption_settings(matrix_sdk::encryption::EncryptionSettings {
                 auto_enable_cross_signing: true,
+                ..Default::default()
             })
             .request_config(RequestConfig::new().disable_retry())
             .build()
@@ -489,6 +490,7 @@ async fn test_login_with_cross_signing_bootstrapping() {
             .server_versions([MatrixVersion::V1_0])
             .with_encryption_settings(matrix_sdk::encryption::EncryptionSettings {
                 auto_enable_cross_signing: true,
+                ..Default::default()
             })
             .request_config(RequestConfig::new().disable_retry())
             .build()
@@ -562,6 +564,7 @@ async fn test_login_doesnt_fail_if_cross_signing_bootstrapping_failed() {
         .server_versions([MatrixVersion::V1_0])
         .with_encryption_settings(matrix_sdk::encryption::EncryptionSettings {
             auto_enable_cross_signing: true,
+            ..Default::default()
         })
         .request_config(RequestConfig::new().disable_retry())
         .build()
@@ -680,6 +683,7 @@ async fn test_login_with_cross_signing_bootstrapping_already_bootstrapped() {
     let client = builder
         .with_encryption_settings(matrix_sdk::encryption::EncryptionSettings {
             auto_enable_cross_signing: true,
+            ..Default::default()
         })
         .request_config(RequestConfig::new().disable_retry())
         .build()

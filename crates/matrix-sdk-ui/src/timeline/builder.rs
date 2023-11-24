@@ -12,9 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::{collections::BTreeSet, sync::Arc};
 
 use eyeball::SharedObservable;
+use futures_util::{pin_mut, StreamExt};
 use imbl::Vector;
 use matrix_sdk::{
     deserialized_responses::SyncTimelineEvent, executor::spawn, sync::RoomUpdate, Room,
@@ -205,6 +206,35 @@ impl TimelineBuilder {
             forwarded_room_key_handle,
         ];
 
+        let room_key_from_backups_join_handle = {
+            let inner = inner.clone();
+            let room_id = inner.room().room_id();
+
+            let stream = client.encryption().backups().room_keys_for_room_stream(room_id);
+
+            spawn(async move {
+                pin_mut!(stream);
+
+                while let Some(update) = stream.next().await {
+                    let room = inner.room();
+
+                    match update {
+                        Ok(info) => {
+                            let mut session_ids = BTreeSet::new();
+
+                            for set in info.into_values() {
+                                session_ids.extend(set);
+                            }
+
+                            inner.retry_event_decryption(room, Some(session_ids)).await;
+                        }
+                        // We lagged, so retry every event.
+                        Err(_) => inner.retry_event_decryption(room, None).await,
+                    }
+                }
+            })
+        };
+
         let (msg_sender, msg_receiver) = mpsc::channel(1);
         info!("Starting message-sending loop");
         spawn(send_queued_messages(inner.clone(), room.clone(), msg_receiver));
@@ -220,6 +250,7 @@ impl TimelineBuilder {
                 event_handler_handles: handles,
                 room_update_join_handle,
                 ignore_user_list_update_join_handle,
+                room_key_from_backups_join_handle,
             }),
         };
 

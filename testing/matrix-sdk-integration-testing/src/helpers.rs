@@ -68,7 +68,10 @@ impl TestClientBuilder {
 
         if self.bootstrap_cross_signing {
             client_builder = client_builder.with_encryption_settings(
-                matrix_sdk::encryption::EncryptionSettings { auto_enable_cross_signing: true },
+                matrix_sdk::encryption::EncryptionSettings {
+                    auto_enable_cross_signing: true,
+                    ..Default::default()
+                },
             );
         }
 

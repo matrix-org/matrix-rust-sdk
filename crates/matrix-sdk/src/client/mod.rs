@@ -85,14 +85,19 @@ use crate::{
 };
 #[cfg(feature = "e2e-encryption")]
 use crate::{
+    encryption::backups::types::BackupClientState,
     encryption::{Encryption, EncryptionSettings},
     store_locks::CrossProcessStoreLock,
 };
 
 mod builder;
 pub(crate) mod futures;
+#[cfg(feature = "e2e-encryption")]
+mod tasks;
 
 pub use self::builder::{ClientBuildError, ClientBuilder};
+#[cfg(feature = "e2e-encryption")]
+use self::tasks::{BackupUploadingTask, ClientTasks};
 
 #[cfg(not(target_arch = "wasm32"))]
 type NotificationHandlerFut = Pin<Box<dyn Future<Output = ()> + Send>>;
@@ -160,6 +165,13 @@ pub(crate) struct ClientLocks {
     /// [`SecretStore::put_secret`]: crate::encryption::secret_storage::SecretStore::put_secret
     #[cfg(feature = "e2e-encryption")]
     pub(crate) store_secret_lock: Mutex<()>,
+    /// Lock ensuring that only one method at a time might modify our backup.
+    #[cfg(feature = "e2e-encryption")]
+    pub(crate) backup_modify_lock: Mutex<()>,
+    /// Lock ensuring that we're going to attempt to upload backups for a single
+    /// requester.
+    #[cfg(feature = "e2e-encryption")]
+    pub(crate) backup_upload_lock: Mutex<()>,
     /// Handler making sure we only have one group session sharing request in
     /// flight per room.
     #[cfg(feature = "e2e-encryption")]
@@ -217,6 +229,8 @@ pub(crate) struct ClientInner {
     /// to ensure that only a single call to a method happens at once or to
     /// deduplicate multiple calls to a method.
     locks: ClientLocks,
+    #[cfg(feature = "e2e-encryption")]
+    pub(crate) tasks: StdMutex<ClientTasks>,
     pub(crate) typing_notice_times: StdRwLock<BTreeMap<OwnedRoomId, Instant>>,
     /// Event handlers. See `add_event_handler`.
     pub(crate) event_handlers: EventHandlerStore,
@@ -235,6 +249,8 @@ pub(crate) struct ClientInner {
     /// End-to-end encryption settings.
     #[cfg(feature = "e2e-encryption")]
     pub(crate) encryption_settings: EncryptionSettings,
+    #[cfg(feature = "e2e-encryption")]
+    pub(crate) backup_state: BackupClientState,
 }
 
 impl ClientInner {
@@ -253,14 +269,16 @@ impl ClientInner {
         server_versions: Option<Box<[MatrixVersion]>>,
         respect_login_well_known: bool,
         #[cfg(feature = "e2e-encryption")] encryption_settings: EncryptionSettings,
-    ) -> Self {
-        Self {
+    ) -> Arc<Self> {
+        let client = Self {
             homeserver: StdRwLock::new(homeserver),
             auth_ctx,
             #[cfg(feature = "experimental-sliding-sync")]
             sliding_sync_proxy: StdRwLock::new(sliding_sync_proxy),
             http_client,
             base_client,
+            #[cfg(feature = "e2e-encryption")]
+            tasks: StdMutex::new(Default::default()),
             locks: Default::default(),
             server_versions: OnceCell::new_with(server_versions),
             typing_notice_times: Default::default(),
@@ -271,7 +289,22 @@ impl ClientInner {
             sync_beat: event_listener::Event::new(),
             #[cfg(feature = "e2e-encryption")]
             encryption_settings,
+            #[cfg(feature = "e2e-encryption")]
+            backup_state: Default::default(),
+        };
+
+        #[allow(clippy::let_and_return)]
+        let client = Arc::new(client);
+
+        #[cfg(feature = "e2e-encryption")]
+        {
+            let weak_client = Arc::downgrade(&client);
+
+            client.tasks.lock().unwrap().upload_room_keys =
+                Some(BackupUploadingTask::new(weak_client));
         }
+
+        client
     }
 }
 
@@ -524,7 +557,7 @@ impl Client {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```no_run
     /// # use url::Url;
     /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
     /// use matrix_sdk::{
@@ -675,7 +708,7 @@ impl Client {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```no_run
     /// # use url::Url;
     /// # use tokio::sync::mpsc;
     /// #
@@ -727,7 +760,7 @@ impl Client {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```no_run
     /// use matrix_sdk::{
     ///     event_handler::Ctx, ruma::events::room::message::SyncRoomMessageEvent,
     ///     Room,
@@ -905,6 +938,11 @@ impl Client {
             #[cfg(feature = "experimental-oidc")]
             AuthSession::Oidc(s) => Box::pin(self.oidc().restore_session(s)).await,
         }
+    }
+
+    pub(crate) async fn set_session_meta(&self, session_meta: SessionMeta) -> Result<()> {
+        self.base_client().set_session_meta(session_meta).await?;
+        Ok(())
     }
 
     /// Refresh the access token using the authentication API used to log into
@@ -1928,7 +1966,7 @@ impl Client {
     /// Create a new specialized `Client` that can process notifications.
     pub async fn notification_client(&self) -> Result<Client> {
         let client = Client {
-            inner: Arc::new(ClientInner::new(
+            inner: ClientInner::new(
                 self.inner.auth_ctx.clone(),
                 self.homeserver(),
                 #[cfg(feature = "experimental-sliding-sync")]
@@ -1939,7 +1977,7 @@ impl Client {
                 self.inner.respect_login_well_known,
                 #[cfg(feature = "e2e-encryption")]
                 self.inner.encryption_settings,
-            )),
+            ),
         };
 
         // Copy the parent's session meta into the child. This initializes the in-memory
@@ -1950,7 +1988,7 @@ impl Client {
         // overwrite the session information shared with the parent too, and it
         // must be initialized at most once.
         if let Some(session) = self.session() {
-            client.base_client().set_session_meta(session.into_meta()).await?;
+            client.set_session_meta(session.into_meta()).await?;
         }
 
         Ok(client)
