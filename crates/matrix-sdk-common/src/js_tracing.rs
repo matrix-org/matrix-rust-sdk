@@ -239,9 +239,9 @@ where
         event.record(&mut v);
 
         if let Some(file) = meta.file() {
-            write!(writer, "\n    at {}", file)?;
+            write!(writer, "\n    at {file}")?;
             if let Some(line) = meta.line() {
-                write!(writer, ":{}", line)?;
+                write!(writer, ":{line}")?;
             }
         }
 
@@ -249,14 +249,14 @@ where
         let scope = span.into_iter().flat_map(|span| span.scope());
         for span in scope {
             let meta = span.metadata();
-            write!(writer, "\n    in {}::{}", meta.target(), meta.name(),)?;
+            write!(writer, "\n    in {}::{}", meta.target(), meta.name())?;
 
             let ext = span.extensions();
             let fields = &ext
                 .get::<FormattedFields<N>>()
                 .expect("Unable to find FormattedFields in extensions; this is a bug");
             if !fields.is_empty() {
-                write!(writer, " with {}", fields)?;
+                write!(writer, " with {fields}")?;
             }
         }
 
@@ -274,7 +274,7 @@ struct FindMessageVisitor {
 impl tracing::field::Visit for FindMessageVisitor {
     fn record_debug(&mut self, field: &Field, value: &dyn Debug) {
         if field.name() == "message" {
-            self.message = Some(format!("{:?}", value));
+            self.message = Some(format!("{value:?}"));
         }
     }
 }
@@ -302,7 +302,7 @@ impl<'a> JsFieldVisitor<'a> {
             write!(self.writer, " ")?;
         }
 
-        write!(self.writer, "{}={:?}", name, value)
+        write!(self.writer, "{name}={value:?}")
     }
 }
 
