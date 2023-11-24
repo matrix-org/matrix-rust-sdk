@@ -26,7 +26,7 @@ use futures_core::Stream;
 use futures_util::StreamExt;
 use matrix_sdk_base::crypto::{
     backups::MegolmV1BackupKey, store::BackupDecryptionKey, types::RoomKeyBackupInfo,
-    GossippedSecret, KeysBackupRequest, OlmMachine, RoomKeyImportResult,
+    KeysBackupRequest, OlmMachine, RoomKeyImportResult,
 };
 use ruma::{
     api::client::{
@@ -788,7 +788,7 @@ impl Backups {
         let secrets = olm_machine.store().get_secrets_from_inbox(&SecretName::RecoveryKey).await?;
 
         for secret in secrets {
-            if self.handle_received_secret(secret).await? {
+            if self.maybe_enable_backups(&secret.event.content.secret).await? {
                 break;
             }
         }
@@ -831,31 +831,6 @@ impl Backups {
             }
         } else {
             error!("Tried to handle a `m.secret.send` event but no OlmMachine was initialized");
-        }
-    }
-
-    /// Try to enable backups using the secret found in the [`GossippedSecret`].
-    ///
-    /// The [`GossippedSecret`] represents an `m.secret.send` event we received
-    /// from a trusted device and have pulled out of the secret inbox.
-    ///
-    /// Returns true if we enabled backups, false otherwise.
-    pub(crate) async fn handle_received_secret(
-        &self,
-        secret: GossippedSecret,
-    ) -> Result<bool, Error> {
-        if secret.secret_name == SecretName::RecoveryKey {
-            if self.maybe_enable_backups(&secret.event.content.secret).await? {
-                let olm_machine = self.client.olm_machine().await;
-                let olm_machine = olm_machine.as_ref().ok_or(Error::NoOlmMachine)?;
-                olm_machine.store().delete_secrets_from_inbox(&secret.secret_name).await?;
-
-                Ok(true)
-            } else {
-                Ok(false)
-            }
-        } else {
-            Ok(false)
         }
     }
 
