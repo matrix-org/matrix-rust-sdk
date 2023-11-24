@@ -236,18 +236,21 @@ impl SessionManager {
         )
         .await?;
 
-        // A map from user ID to a map from device ID to list of algorithms.
-        let mut non_olm_devices_by_user: BTreeMap<_, BTreeMap<_, _>> = BTreeMap::new();
+        #[derive(Debug, Default)]
+        struct UserFailedDeviceInfo {
+            non_olm_devices: BTreeMap<OwnedDeviceId, Vec<EventEncryptionAlgorithm>>,
+            bad_key_devices: BTreeSet<OwnedDeviceId>,
+        }
 
-        // A map from user id to a set of device IDs.
-        let mut bad_key_devices: BTreeMap<_, BTreeSet<_>> = BTreeMap::new();
+        let mut failed_devices_by_user: BTreeMap<_, UserFailedDeviceInfo> = BTreeMap::new();
 
         for (user_id, user_devices) in devices_by_user {
             for (device_id, device) in user_devices {
                 if !device.supports_olm() {
-                    non_olm_devices_by_user
+                    failed_devices_by_user
                         .entry(user_id.clone())
                         .or_default()
+                        .non_olm_devices
                         .insert(device_id, Vec::from(device.algorithms()));
                 } else if let Some(sender_key) = device.curve25519_key() {
                     let sessions = self.store.get_sessions(&sender_key.to_base64()).await?;
@@ -272,7 +275,11 @@ impl SessionManager {
                             .insert(device_id, DeviceKeyAlgorithm::SignedCurve25519);
                     }
                 } else {
-                    bad_key_devices.entry(user_id.clone()).or_default().insert(device_id);
+                    failed_devices_by_user
+                        .entry(user_id.clone())
+                        .or_default()
+                        .bad_key_devices
+                        .insert(device_id);
                 }
             }
         }
@@ -297,10 +304,9 @@ impl SessionManager {
             "Collected user/device pairs that are missing an Olm session"
         );
 
-        if !non_olm_devices_by_user.is_empty() || !bad_key_devices.is_empty() {
+        if !failed_devices_by_user.is_empty() {
             warn!(
-                ?non_olm_devices_by_user,
-                ?bad_key_devices,
+                ?failed_devices_by_user,
                 "Can't establish an Olm session some devices due to missing Olm support or bad keys",
             );
         }
