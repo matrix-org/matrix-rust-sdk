@@ -879,7 +879,7 @@ mod tests {
         let data: Value = serde_json::from_slice(data).unwrap();
         let data = response_from_file(&data);
         get_keys::v3::Response::try_from_http_response(data)
-            .expect("Can't parse the keys upload response")
+            .expect("Can't parse the `/keys/upload` response")
     }
 
     fn bob_keys_query_response() -> get_keys::v3::Response {
@@ -910,7 +910,7 @@ mod tests {
         let data = response_from_file(&data);
 
         get_keys::v3::Response::try_from_http_response(data)
-            .expect("Can't parse the keys upload response")
+            .expect("Can't parse the `/keys/upload` response")
     }
 
     /// Returns a keys claim response for device `BOBDEVICE` of user

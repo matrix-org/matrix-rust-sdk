@@ -199,9 +199,9 @@ impl KeysQueryRequest {
 /// Enum over the different outgoing requests we can have.
 #[derive(Debug)]
 pub enum OutgoingRequests {
-    /// The keys upload request, uploading device and one-time keys.
+    /// The `/keys/upload` request, uploading device and one-time keys.
     KeysUpload(KeysUploadRequest),
-    /// The keys query request, fetching the device and cross signing keys of
+    /// The `/keys/query` request, fetching the device and cross signing keys of
     /// other users.
     KeysQuery(KeysQueryRequest),
     /// The request to claim one-time keys for a user/device pair from the
@@ -292,18 +292,18 @@ impl From<KeysUploadRequest> for OutgoingRequest {
 /// Enum over all the incoming responses we need to receive.
 #[derive(Debug)]
 pub enum IncomingResponse<'a> {
-    /// The keys upload response, notifying us about the amount of uploaded
+    /// The `/keys/upload` response, notifying us about the amount of uploaded
     /// one-time keys.
     KeysUpload(&'a KeysUploadResponse),
-    /// The keys query response, giving us the device and cross signing keys of
-    /// other users.
+    /// The `/keys/query` response, giving us the device and cross signing keys
+    /// of other users.
     KeysQuery(&'a KeysQueryResponse),
     /// The to-device response, an empty response.
     ToDevice(&'a ToDeviceResponse),
     /// The key claiming requests, giving us new one-time keys of other users so
     /// new Olm sessions can be created.
     KeysClaim(&'a KeysClaimResponse),
-    /// The cross signing keys upload response, marking our private cross
+    /// The cross signing `/keys/upload` response, marking our private cross
     /// signing identity as shared.
     SigningKeysUpload(&'a SigningKeysUploadResponse),
     /// The cross signing signature upload response.

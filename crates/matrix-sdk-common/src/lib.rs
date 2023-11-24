@@ -28,7 +28,10 @@ pub mod store_locks;
 pub mod timeout;
 pub mod tracing_timer;
 
-#[cfg(target_arch = "wasm32")]
+// We cannot currently measure test coverage in the WASM environment, so
+// js_tracing is incorrectly flagged as untested. Disable coverage checking for
+// it.
+#[cfg(all(target_arch = "wasm32", not(tarpaulin_include)))]
 pub mod js_tracing;
 
 pub use store_locks::LEASE_DURATION_MS;

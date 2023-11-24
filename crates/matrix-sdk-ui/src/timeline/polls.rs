@@ -26,6 +26,7 @@ pub struct PollState {
     pub(super) start_event_content: NewUnstablePollStartEventContent,
     pub(super) response_data: Vec<ResponseData>,
     pub(super) end_event_timestamp: Option<MilliSecondsSinceUnixEpoch>,
+    pub(super) has_been_edited: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -37,17 +38,23 @@ pub(super) struct ResponseData {
 
 impl PollState {
     pub(super) fn new(content: NewUnstablePollStartEventContent) -> Self {
-        Self { start_event_content: content, response_data: vec![], end_event_timestamp: None }
+        Self {
+            start_event_content: content,
+            response_data: vec![],
+            end_event_timestamp: None,
+            has_been_edited: false,
+        }
     }
 
     pub(super) fn edit(
         &self,
         replacement: &NewUnstablePollStartEventContentWithoutRelation,
     ) -> Result<Self, ()> {
-        if self.response_data.is_empty() && self.end_event_timestamp.is_none() {
+        if self.end_event_timestamp.is_none() {
             let mut clone = self.clone();
             clone.start_event_content.poll_start = replacement.poll_start.clone();
             clone.start_event_content.text = replacement.text.clone();
+            clone.has_been_edited = true;
             Ok(clone)
         } else {
             Err(())
@@ -113,6 +120,7 @@ impl PollState {
                 .map(|i| ((*i.0).to_owned(), i.1.iter().map(|i| i.to_string()).collect()))
                 .collect(),
             end_time: self.end_event_timestamp.map(|millis| millis.0.into()),
+            has_been_edited: self.has_been_edited,
         }
     }
 }
@@ -178,6 +186,7 @@ pub struct PollResult {
     pub answers: Vec<PollResultAnswer>,
     pub votes: HashMap<String, Vec<String>>,
     pub end_time: Option<u64>,
+    pub has_been_edited: bool,
 }
 
 #[derive(Debug)]

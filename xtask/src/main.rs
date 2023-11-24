@@ -11,6 +11,8 @@ use kotlin::KotlinArgs;
 use swift::SwiftArgs;
 use xshell::cmd;
 
+const NIGHTLY: &str = "nightly-2023-11-08";
+
 type Result<T, E = Box<dyn std::error::Error>> = std::result::Result<T, E>;
 
 #[derive(Parser)]
@@ -60,7 +62,7 @@ fn build_docs(
     }
 
     // Keep in sync with .github/workflows/docs.yml
-    cmd!("rustup run nightly cargo doc --no-deps --workspace --features docsrs")
+    cmd!("rustup run {NIGHTLY} cargo doc --no-deps --workspace --features docsrs")
         // Work around https://github.com/rust-lang/cargo/issues/10744
         .env("CARGO_TARGET_APPLIES_TO_HOST", "true")
         .env("RUSTDOCFLAGS", rustdocflags)
