@@ -306,7 +306,7 @@ impl SessionManager {
         if !failed_devices_by_user.is_empty() {
             warn!(
                 ?failed_devices_by_user,
-                "Can't establish an Olm session some devices due to missing Olm support or bad keys",
+                "Can't establish an Olm session with some devices due to missing Olm support or bad keys",
             );
         }
 
