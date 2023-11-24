@@ -4659,9 +4659,9 @@ dependencies = [
 
 [[package]]
 name = "ruma"
-version = "0.9.2"
+version = "0.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cc39664df66d707506b1dd318c30e600f25ebc1e7feadf4804ae45db67922c53"
+checksum = "278d22d2e51c95da0ac677b868c524a8e5dce634cd22b7b966733c1bd945bb14"
 dependencies = [
  "assign",
  "js_int",
