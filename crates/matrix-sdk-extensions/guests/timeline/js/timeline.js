@@ -43,7 +43,6 @@ function _instantiate(getCoreModule, imports, instantiateCore = WebAssembly.Inst
   let memory0;
   let exports2;
   let realloc0;
-  const instanceFlags0 = new WebAssembly.Global({ value: "i32", mutable: true }, 3);
   ({ exports: exports0 } = instantiateCore(module1));
   ({ exports: exports1 } = instantiateCore(module0, {
     'matrix:ui-timeline/std': {
