@@ -953,11 +953,6 @@ impl IdentityManager {
         }
 
         if !users_with_no_devices_on_unfailed_servers.is_empty() {
-            info!(
-                ?users_with_no_devices_on_unfailed_servers,
-                "Waiting for `/keys/query` to complete for users who have no devices"
-            );
-
             // For each user with no devices, fire off a task to wait for a `/keys/query`
             // result if one is pending.
             //
@@ -973,10 +968,19 @@ impl IdentityManager {
             .await;
 
             // Once all the tasks have completed, process the results.
+            let mut updated_users = Vec::new();
             for result in results {
                 if let Some((user_id, updated_devices)) = result? {
                     devices_by_user.insert(user_id.to_owned(), updated_devices);
+                    updated_users.push(user_id);
                 }
+            }
+
+            if !updated_users.is_empty() {
+                info!(
+                    ?updated_users,
+                    "Waited for `/keys/query` to complete for users who have no devices"
+                );
             }
         }
 

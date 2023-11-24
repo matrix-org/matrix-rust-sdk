@@ -772,13 +772,10 @@ impl ReadOnlyDevice {
 
         if let Some(mut session) = session {
             let message = session.encrypt(self, event_type, content, message_id).await?;
-
             trace!("Successfully encrypted an event");
-
             Ok((session, message))
         } else {
-            warn!("Trying to encrypt an event for a device, but no Olm session is found.",);
-
+            trace!("Trying to encrypt an event for a device, but no Olm session is found.");
             Err(OlmError::MissingSession)
         }
     }
