@@ -604,6 +604,7 @@ impl Timeline {
     ///   state of `SendState::NotYetSent` might be supported in the future as
     ///   well, but there can be no guarantee for that actually stopping the
     ///   event from reaching the server.
+    #[instrument(skip(self))]
     pub async fn cancel_send(&self, txn_id: &TransactionId) -> bool {
         self.inner.discard_local_echo(txn_id).await
     }

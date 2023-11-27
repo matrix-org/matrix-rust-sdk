@@ -578,8 +578,10 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             rfind_event_item(&state.items, |it| it.transaction_id() == Some(txn_id))
         {
             state.items.remove(idx);
+            debug!("Discarded local echo");
             true
         } else {
+            debug!("Can't find local echo to discard");
             false
         }
     }
