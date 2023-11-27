@@ -40,11 +40,9 @@ use ruma::{
 };
 use tokio::sync::Mutex;
 use wasm_bindgen::JsValue;
-use web_sys::IdbKeyRange;
 
-use crate::{
-    crypto_store::{indexeddb_serializer::IndexeddbSerializer, migrations::open_and_upgrade_db},
-    safe_encode::SafeEncode,
+use crate::crypto_store::{
+    indexeddb_serializer::IndexeddbSerializer, migrations::open_and_upgrade_db,
 };
 
 mod indexeddb_serializer;
@@ -102,8 +100,6 @@ pub struct IndexeddbCryptoStore {
     pub(crate) inner: IdbDatabase,
 
     serializer: IndexeddbSerializer,
-    store_cipher: Option<Arc<StoreCipher>>,
-
     session_cache: SessionStore,
     save_changes_lock: Arc<Mutex<()>>,
 }
@@ -167,7 +163,7 @@ impl IndexeddbCryptoStore {
     ) -> Result<Self> {
         let name = format!("{prefix:0}::matrix-sdk-crypto");
 
-        let serializer = IndexeddbSerializer::new(store_cipher.clone());
+        let serializer = IndexeddbSerializer::new(store_cipher);
         let db = open_and_upgrade_db(&name).await?;
         let session_cache = SessionStore::new();
 
@@ -176,7 +172,6 @@ impl IndexeddbCryptoStore {
             session_cache,
             inner: db,
             serializer,
-            store_cipher,
             static_account: RwLock::new(None),
             save_changes_lock: Default::default(),
         })
@@ -185,60 +180,6 @@ impl IndexeddbCryptoStore {
     /// Open a new `IndexeddbCryptoStore` with default name and no passphrase
     pub async fn open() -> Result<Self> {
         IndexeddbCryptoStore::open_with_store_cipher("crypto", None).await
-    }
-
-    /// Hash the given key securely for the given tablename, using the store
-    /// cipher.
-    ///
-    /// First calls [`SafeEncode::as_encoded_string`]
-    /// on the `key` to encode it into a formatted string.
-    ///
-    /// Then, if a cipher is configured, hashes the formatted key and returns
-    /// the hash encoded as unpadded base64.
-    ///
-    /// If no cipher is configured, just returns the formatted key.
-    ///
-    /// This is faster than [`serialize_value`] and reliably gives the same
-    /// output for the same input, making it suitable for index keys.
-    fn encode_key<T>(&self, table_name: &str, key: T) -> JsValue
-    where
-        T: SafeEncode,
-    {
-        self.encode_key_as_string(table_name, key).into()
-    }
-
-    /// Hash the given key securely for the given tablename, using the store
-    /// cipher.
-    ///
-    /// The same as [`encode_key`], but stops short of converting the resulting
-    /// base64 string into a JsValue
-    fn encode_key_as_string<T>(&self, table_name: &str, key: T) -> String
-    where
-        T: SafeEncode,
-    {
-        match &self.store_cipher {
-            Some(cipher) => key.as_secure_string(table_name, cipher),
-            None => key.as_encoded_string(),
-        }
-    }
-
-    fn encode_to_range<T>(
-        &self,
-        table_name: &str,
-        key: T,
-    ) -> Result<IdbKeyRange, IndexeddbCryptoStoreError>
-    where
-        T: SafeEncode,
-    {
-        match &self.store_cipher {
-            Some(cipher) => key.encode_to_range_secure(table_name, cipher),
-            None => key.encode_to_range(),
-        }
-        .map_err(|e| IndexeddbCryptoStoreError::DomException {
-            code: 0,
-            name: "IdbKeyRangeMakeError".to_owned(),
-            message: e,
-        })
     }
 
     /// Open a new `IndexeddbCryptoStore` with given name and passphrase
@@ -315,7 +256,9 @@ impl IndexeddbCryptoStore {
     fn serialize_gossip_request(&self, gossip_request: &GossipRequest) -> Result<JsValue> {
         let obj = GossipRequestIndexedDbObject {
             // hash the info as a key so that it can be used in index lookups.
-            info: self.encode_key_as_string(keys::GOSSIP_REQUESTS, gossip_request.info.as_key()),
+            info: self
+                .serializer
+                .encode_key_as_string(keys::GOSSIP_REQUESTS, gossip_request.info.as_key()),
 
             // serialize and encrypt the data about the request
             request: self.serializer.serialize_value_as_bytes(gossip_request)?,
@@ -489,7 +432,7 @@ impl_crypto_store! {
                 let session_id = session.session_id();
 
                 let pickle = session.pickle().await;
-                let key = self.encode_key(keys::SESSION, (&sender_key, session_id));
+                let key = self.serializer.encode_key(keys::SESSION, (&sender_key, session_id));
 
                 sessions.put_key_val(&key, &self.serializer.serialize_value(&pickle)?)?;
             }
@@ -501,7 +444,7 @@ impl_crypto_store! {
             for session in changes.inbound_group_sessions {
                 let room_id = session.room_id();
                 let session_id = session.session_id();
-                let key = self.encode_key(keys::INBOUND_GROUP_SESSIONS, (room_id, session_id));
+                let key = self.serializer.encode_key(keys::INBOUND_GROUP_SESSIONS, (room_id, session_id));
                 let pickle = session.pickle().await;
 
                 sessions.put_key_val(&key, &self.serializer.serialize_value(&pickle)?)?;
@@ -515,7 +458,7 @@ impl_crypto_store! {
                 let room_id = session.room_id();
                 let pickle = session.pickle().await;
                 sessions.put_key_val(
-                    &self.encode_key(keys::OUTBOUND_GROUP_SESSIONS, room_id),
+                    &self.serializer.encode_key(keys::OUTBOUND_GROUP_SESSIONS, room_id),
                     &self.serializer.serialize_value(&pickle)?,
                 )?;
             }
@@ -531,7 +474,7 @@ impl_crypto_store! {
         if !device_changes.new.is_empty() || !device_changes.changed.is_empty() {
             let device_store = tx.object_store(keys::DEVICES)?;
             for device in device_changes.new.iter().chain(&device_changes.changed) {
-                let key = self.encode_key(keys::DEVICES, (device.user_id(), device.device_id()));
+                let key = self.serializer.encode_key(keys::DEVICES, (device.user_id(), device.device_id()));
                 let device = self.serializer.serialize_value(&device)?;
 
                 device_store.put_key_val(&key, &device)?;
@@ -542,7 +485,7 @@ impl_crypto_store! {
             let device_store = tx.object_store(keys::DEVICES)?;
 
             for device in &device_changes.deleted {
-                let key = self.encode_key(keys::DEVICES, (device.user_id(), device.device_id()));
+                let key = self.serializer.encode_key(keys::DEVICES, (device.user_id(), device.device_id()));
                 device_store.delete(&key)?;
             }
         }
@@ -551,7 +494,7 @@ impl_crypto_store! {
             let identities = tx.object_store(keys::IDENTITIES)?;
             for identity in identity_changes.changed.iter().chain(&identity_changes.new) {
                 identities.put_key_val(
-                    &self.encode_key(keys::IDENTITIES, identity.user_id()),
+                    &self.serializer.encode_key(keys::IDENTITIES, identity.user_id()),
                     &self.serializer.serialize_value(&identity)?,
                 )?;
             }
@@ -561,7 +504,7 @@ impl_crypto_store! {
             let hashes = tx.object_store(keys::OLM_HASHES)?;
             for hash in &olm_hashes {
                 hashes.put_key_val(
-                    &self.encode_key(keys::OLM_HASHES, (&hash.sender_key, &hash.hash)),
+                    &self.serializer.encode_key(keys::OLM_HASHES, (&hash.sender_key, &hash.hash)),
                     &JsValue::TRUE,
                 )?;
             }
@@ -571,7 +514,7 @@ impl_crypto_store! {
             let gossip_requests = tx.object_store(keys::GOSSIP_REQUESTS)?;
 
             for gossip_request in &key_requests {
-                let key_request_id = self.encode_key(keys::GOSSIP_REQUESTS, gossip_request.request_id.as_str());
+                let key_request_id = self.serializer.encode_key(keys::GOSSIP_REQUESTS, gossip_request.request_id.as_str());
                 let key_request_value = self.serialize_gossip_request(gossip_request)?;
                 gossip_requests.put_key_val_owned(
                     key_request_id,
@@ -586,7 +529,7 @@ impl_crypto_store! {
             for (room_id, data) in withheld_session_info {
                 for (session_id, event) in data {
 
-                    let key = self.encode_key(keys::DIRECT_WITHHELD_INFO, (session_id, &room_id));
+                    let key = self.serializer.encode_key(keys::DIRECT_WITHHELD_INFO, (session_id, &room_id));
                     withhelds.put_key_val(&key, &self.serializer.serialize_value(&event)?)?;
                 }
             }
@@ -596,7 +539,7 @@ impl_crypto_store! {
             let settings_store = tx.object_store(keys::ROOM_SETTINGS)?;
 
             for (room_id, settings) in &room_settings_changes {
-                let key = self.encode_key(keys::ROOM_SETTINGS, room_id);
+                let key = self.serializer.encode_key(keys::ROOM_SETTINGS, room_id);
                 let value = self.serializer.serialize_value(&settings)?;
                 settings_store.put_key_val(&key, &value)?;
             }
@@ -606,7 +549,7 @@ impl_crypto_store! {
             let secrets_store = tx.object_store(keys::SECRETS_INBOX)?;
 
             for secret in changes.secrets {
-                let key = self.encode_key(keys::SECRETS_INBOX, (secret.secret_name.as_str(), secret.event.content.request_id.as_str()));
+                let key = self.serializer.encode_key(keys::SECRETS_INBOX, (secret.secret_name.as_str(), secret.event.content.request_id.as_str()));
                 let value = self.serializer.serialize_value(&secret)?;
 
                 secrets_store.put_key_val(&key, &value)?;
@@ -655,7 +598,7 @@ impl_crypto_store! {
                 IdbTransactionMode::Readonly,
             )?
             .object_store(keys::OUTBOUND_GROUP_SESSIONS)?
-            .get(&self.encode_key(keys::OUTBOUND_GROUP_SESSIONS, room_id))?
+            .get(&self.serializer.encode_key(keys::OUTBOUND_GROUP_SESSIONS, room_id))?
             .await?
         {
             Ok(Some(
@@ -675,7 +618,7 @@ impl_crypto_store! {
         &self,
         request_id: &TransactionId,
     ) -> Result<Option<GossipRequest>> {
-        let jskey = self.encode_key(keys::GOSSIP_REQUESTS, request_id.as_str());
+        let jskey = self.serializer.encode_key(keys::GOSSIP_REQUESTS, request_id.as_str());
         self
             .inner
             .transaction_on_one_with_mode(keys::GOSSIP_REQUESTS, IdbTransactionMode::Readonly)?
@@ -745,7 +688,7 @@ impl_crypto_store! {
         let account_info = self.get_static_account().ok_or(CryptoStoreError::AccountUnset)?;
 
         if self.session_cache.get(sender_key).is_none() {
-            let range = self.encode_to_range(keys::SESSION, sender_key)?;
+            let range = self.serializer.encode_to_range(keys::SESSION, sender_key)?;
             let sessions: Vec<Session> = self
                 .inner
                 .transaction_on_one_with_mode(keys::SESSION, IdbTransactionMode::Readonly)?
@@ -774,7 +717,7 @@ impl_crypto_store! {
         room_id: &RoomId,
         session_id: &str,
     ) -> Result<Option<InboundGroupSession>> {
-        let key = self.encode_key(keys::INBOUND_GROUP_SESSIONS, (room_id, session_id));
+        let key = self.serializer.encode_key(keys::INBOUND_GROUP_SESSIONS, (room_id, session_id));
         if let Some(pickle) = self
             .inner
             .transaction_on_one_with_mode(
@@ -868,7 +811,7 @@ impl_crypto_store! {
         user_id: &UserId,
         device_id: &DeviceId,
     ) -> Result<Option<ReadOnlyDevice>> {
-        let key = self.encode_key(keys::DEVICES, (user_id, device_id));
+        let key = self.serializer.encode_key(keys::DEVICES, (user_id, device_id));
         Ok(self
             .inner
             .transaction_on_one_with_mode(keys::DEVICES, IdbTransactionMode::Readonly)?
@@ -883,7 +826,7 @@ impl_crypto_store! {
         &self,
         user_id: &UserId,
     ) -> Result<HashMap<OwnedDeviceId, ReadOnlyDevice>> {
-        let range = self.encode_to_range(keys::DEVICES, user_id)?;
+        let range = self.serializer.encode_to_range(keys::DEVICES, user_id)?;
         Ok(self
             .inner
             .transaction_on_one_with_mode(keys::DEVICES, IdbTransactionMode::Readonly)?
@@ -903,7 +846,7 @@ impl_crypto_store! {
             .inner
             .transaction_on_one_with_mode(keys::IDENTITIES, IdbTransactionMode::Readonly)?
             .object_store(keys::IDENTITIES)?
-            .get(&self.encode_key(keys::IDENTITIES, user_id))?
+            .get(&self.serializer.encode_key(keys::IDENTITIES, user_id))?
             .await?
             .map(|i| self.serializer.deserialize_value(i))
             .transpose()?)
@@ -914,7 +857,7 @@ impl_crypto_store! {
             .inner
             .transaction_on_one_with_mode(keys::OLM_HASHES, IdbTransactionMode::Readonly)?
             .object_store(keys::OLM_HASHES)?
-            .get(&self.encode_key(keys::OLM_HASHES, (&hash.sender_key, &hash.hash)))?
+            .get(&self.serializer.encode_key(keys::OLM_HASHES, (&hash.sender_key, &hash.hash)))?
             .await?
             .is_some())
     }
@@ -923,7 +866,7 @@ impl_crypto_store! {
         &self,
         secret_name: &SecretName,
         ) -> Result<Vec<GossippedSecret>> {
-        let range = self.encode_to_range(keys::SECRETS_INBOX, secret_name.as_str())?;
+        let range = self.serializer.encode_to_range(keys::SECRETS_INBOX, secret_name.as_str())?;
 
         self
             .inner
@@ -942,7 +885,7 @@ impl_crypto_store! {
         &self,
         secret_name: &SecretName,
     ) -> Result<()> {
-        let range = self.encode_to_range(keys::SECRETS_INBOX, secret_name.as_str())?;
+        let range = self.serializer.encode_to_range(keys::SECRETS_INBOX, secret_name.as_str())?;
 
         self
             .inner
@@ -957,7 +900,7 @@ impl_crypto_store! {
         &self,
         key_info: &SecretInfo,
     ) -> Result<Option<GossipRequest>> {
-        let key = self.encode_key(keys::GOSSIP_REQUESTS, key_info.as_key());
+        let key = self.serializer.encode_key(keys::GOSSIP_REQUESTS, key_info.as_key());
 
         let val = self
             .inner
@@ -997,7 +940,7 @@ impl_crypto_store! {
     }
 
     async fn delete_outgoing_secret_requests(&self, request_id: &TransactionId) -> Result<()> {
-        let jskey = self.encode_key(keys::GOSSIP_REQUESTS, request_id);
+        let jskey = self.serializer.encode_key(keys::GOSSIP_REQUESTS, request_id);
         let tx = self.inner.transaction_on_one_with_mode(keys::GOSSIP_REQUESTS, IdbTransactionMode::Readwrite)?;
         tx.object_store(keys::GOSSIP_REQUESTS)?.delete_owned(jskey)?;
         tx.await.into_result().map_err(|e| e.into())
@@ -1033,7 +976,7 @@ impl_crypto_store! {
         room_id: &RoomId,
         session_id: &str,
     ) -> Result<Option<RoomKeyWithheldEvent>> {
-        let key = self.encode_key(keys::DIRECT_WITHHELD_INFO, (session_id, room_id));
+        let key = self.serializer.encode_key(keys::DIRECT_WITHHELD_INFO, (session_id, room_id));
         if let Some(pickle) = self
             .inner
             .transaction_on_one_with_mode(
@@ -1052,7 +995,7 @@ impl_crypto_store! {
     }
 
     async fn get_room_settings(&self, room_id: &RoomId) -> Result<Option<RoomSettings>> {
-        let key = self.encode_key(keys::ROOM_SETTINGS, room_id);
+        let key = self.serializer.encode_key(keys::ROOM_SETTINGS, room_id);
         Ok(self
             .inner
             .transaction_on_one_with_mode(keys::ROOM_SETTINGS, IdbTransactionMode::Readonly)?

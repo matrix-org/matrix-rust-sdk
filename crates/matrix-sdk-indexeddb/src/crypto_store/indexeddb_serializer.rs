@@ -19,8 +19,9 @@ use matrix_sdk_crypto::CryptoStoreError;
 use matrix_sdk_store_encryption::StoreCipher;
 use serde::{de::DeserializeOwned, Serialize};
 use wasm_bindgen::JsValue;
+use web_sys::IdbKeyRange;
 
-use crate::IndexeddbCryptoStoreError;
+use crate::{safe_encode::SafeEncode, IndexeddbCryptoStoreError};
 
 type Result<A, E = IndexeddbCryptoStoreError> = std::result::Result<A, E>;
 
@@ -33,6 +34,60 @@ pub struct IndexeddbSerializer {
 impl IndexeddbSerializer {
     pub fn new(store_cipher: Option<Arc<StoreCipher>>) -> Self {
         Self { store_cipher }
+    }
+
+    /// Hash the given key securely for the given tablename, using the store
+    /// cipher.
+    ///
+    /// First calls [`SafeEncode::as_encoded_string`]
+    /// on the `key` to encode it into a formatted string.
+    ///
+    /// Then, if a cipher is configured, hashes the formatted key and returns
+    /// the hash encoded as unpadded base64.
+    ///
+    /// If no cipher is configured, just returns the formatted key.
+    ///
+    /// This is faster than [`serialize_value`] and reliably gives the same
+    /// output for the same input, making it suitable for index keys.
+    pub fn encode_key<T>(&self, table_name: &str, key: T) -> JsValue
+    where
+        T: SafeEncode,
+    {
+        self.encode_key_as_string(table_name, key).into()
+    }
+
+    /// Hash the given key securely for the given tablename, using the store
+    /// cipher.
+    ///
+    /// The same as [`encode_key`], but stops short of converting the resulting
+    /// base64 string into a JsValue
+    pub fn encode_key_as_string<T>(&self, table_name: &str, key: T) -> String
+    where
+        T: SafeEncode,
+    {
+        match &self.store_cipher {
+            Some(cipher) => key.as_secure_string(table_name, cipher),
+            None => key.as_encoded_string(),
+        }
+    }
+
+    pub fn encode_to_range<T>(
+        &self,
+        table_name: &str,
+        key: T,
+    ) -> Result<IdbKeyRange, IndexeddbCryptoStoreError>
+    where
+        T: SafeEncode,
+    {
+        match &self.store_cipher {
+            Some(cipher) => key.encode_to_range_secure(table_name, cipher),
+            None => key.encode_to_range(),
+        }
+        .map_err(|e| IndexeddbCryptoStoreError::DomException {
+            code: 0,
+            name: "IdbKeyRangeMakeError".to_owned(),
+            message: e,
+        })
     }
 
     /// Encode the value for storage as a value in indexeddb.
