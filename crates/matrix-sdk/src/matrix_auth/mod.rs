@@ -537,15 +537,15 @@ impl MatrixAuth {
     /// # };
     /// ```
     #[instrument(skip_all)]
-    pub async fn register(
-        &self,
-        request: register::v3::Request,
-    ) -> HttpResult<register::v3::Response> {
+    pub async fn register(&self, request: register::v3::Request) -> Result<register::v3::Response> {
         let homeserver = self.client.homeserver();
         info!("Registering to {homeserver}");
-        self.client.send(request, None).await
+        let response = self.client.send(request, None).await?;
+        if let Ok(session) = MatrixSession::try_from(&response) {
+            self.set_session(session).await.expect("Registration sets token");
+        }
+        Ok(response)
     }
-
     /// Log out the current user.
     pub async fn logout(&self) -> HttpResult<logout::v3::Response> {
         let request = logout::v3::Request::new();
@@ -884,6 +884,24 @@ impl From<&login::v3::Response> for MatrixSession {
                 refresh_token: refresh_token.clone(),
             },
         }
+    }
+}
+
+impl TryFrom<&register::v3::Response> for MatrixSession {
+    type Error = ();
+    fn try_from(response: &register::v3::Response) -> Result<Self, ()> {
+        let register::v3::Response { user_id, access_token, device_id, refresh_token, .. } =
+            response;
+        let Some(device_id) = device_id else { return Err(()) };
+        let Some(access_token) = access_token else { return Err(()) };
+
+        Ok(Self {
+            meta: SessionMeta { user_id: user_id.clone(), device_id: device_id.clone() },
+            tokens: MatrixSessionTokens {
+                access_token: access_token.clone(),
+                refresh_token: refresh_token.clone(),
+            },
+        })
     }
 }
 
