@@ -41,7 +41,7 @@ where
     M: Module,
 {
     store: Arc<RwLock<Store<M::Environment>>>,
-    exports: NativeExports<M>,
+    pub exports: NativeExports<M>,
 }
 
 pub struct EnvironmentGuard<'a, M>(RwLockReadGuard<'a, Store<M::Environment>>)

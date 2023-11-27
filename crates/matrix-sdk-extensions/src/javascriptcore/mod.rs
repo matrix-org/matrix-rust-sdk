@@ -4,6 +4,7 @@ mod web_api;
 use std::{
     error::Error,
     fmt, fs,
+    marker::PhantomData,
     ops::Deref,
     path::Path,
     result::Result as StdResult,
@@ -46,13 +47,22 @@ pub trait ModuleExt<Environment> {
     ) -> Result<()>;
 }
 
+pub struct JSExports<M>
+where
+    M: Module,
+{
+    context: Arc<JSContext>,
+    exports: JSObject,
+    phantom: PhantomData<M>,
+}
+
 pub struct JSInstance<M>
 where
     M: Module,
 {
-    context: JSContext,
-    exports: JSObject,
+    context: Arc<JSContext>,
     environment: Arc<Mutex<M::Environment>>,
+    pub exports: JSExports<M>,
 }
 
 pub struct EnvironmentGuard<'a, M>(MutexGuard<'a, M::Environment>)
@@ -115,10 +125,6 @@ where
 
         let environment = Arc::new(Mutex::new(M::Environment::default()));
 
-        // let compile_function =
-        //     JSValue::new_function(&context, "compile_core",
-        // Some(web_api::compile_wasm));
-
         let imports = {
             let imports = JSValue::new_from_json(&context, r#"{}"#).unwrap();
             let imports_as_object = imports.as_object()?;
@@ -127,10 +133,6 @@ where
 
             imports
         };
-
-        // let instantiate_function =
-        //     JSValue::new_function(&context, "instantiate_core",
-        // Some(web_api::instantiate_wasm));
 
         // Run the script.
         {
@@ -150,12 +152,14 @@ where
 
         assert!(instantiate.is_object(), "`instantiate` does not exist");
 
-        let exports = instantiate
-            .as_object()?
-            .call_as_function(None, &[/* compile_function, */ imports /* instantiate_function */])?
-            .as_object()?;
+        let exports = instantiate.as_object()?.call_as_function(None, &[imports])?.as_object()?;
+        let context = Arc::new(context);
 
-        Ok(Self { context, exports, environment })
+        Ok(Self {
+            context: context.clone(),
+            environment,
+            exports: JSExports { context, exports, phantom: Default::default() },
+        })
     }
 }
 
@@ -185,10 +189,35 @@ mod tests {
             }
         }
 
-        let instance = TimelineInstance::new("guests/timeline/js/timeline.js").unwrap();
-        let greet = instance.exports.get_property("greet").as_object().unwrap();
-        let result =
-            greet.call_as_function(None, &[JSValue::new_string(&instance.context, "Gordon")]);
+        pub trait TimelineExports {
+            fn greet(&mut self, arg0: &str) -> crate::Result<()>;
+        }
+
+        impl TimelineExports for JSExports<TimelineModule> {
+            fn greet(&mut self, arg0: &str) -> crate::Result<()> {
+                /*
+                let mut store = self.store.write().unwrap();
+                let store: &mut Store<TimelineEnvironment> = &mut store;
+
+                self.bindings.call_greet(store, arg0)
+                */
+
+                let greet = self.exports.get_property("greet").as_object().unwrap();
+
+                greet
+                    .call_as_function(
+                        None,
+                        &[JSValue::new_string(self.context.as_ref(), arg0.to_owned())],
+                    )
+                    .unwrap();
+
+                Ok(())
+            }
+        }
+
+        let mut instance = TimelineInstance::new("guests/timeline/js/timeline.js").unwrap();
+
+        instance.exports.greet("Gordon").unwrap();
 
         let env = instance.environment();
         assert_eq!(env.output, "Hello, Gordon!\n");
