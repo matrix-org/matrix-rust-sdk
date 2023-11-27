@@ -70,16 +70,15 @@ impl RoomExt for Room {
 
     async fn poll_history(&self) -> Timeline {
         self.timeline_builder()
-            .event_filter(|e| match e {
-                AnySyncTimelineEvent::MessageLike(m) => {
-                    matches!(
-                        m,
+            .event_filter(|e| {
+                matches!(
+                    e,
+                    AnySyncTimelineEvent::MessageLike(
                         AnySyncMessageLikeEvent::UnstablePollStart(_)
                             | AnySyncMessageLikeEvent::UnstablePollResponse(_)
                             | AnySyncMessageLikeEvent::UnstablePollEnd(_)
                     )
-                }
-                _ => false,
+                )
             })
             .build()
             .await
