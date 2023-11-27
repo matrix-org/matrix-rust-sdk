@@ -534,6 +534,7 @@ impl Timeline {
     /// * `config` - An attachment configuration object containing details about
     ///   the attachment
     /// like a thumbnail, its size, duration etc.
+    #[instrument(skip_all)]
     pub fn send_attachment(
         &self,
         url: String,
