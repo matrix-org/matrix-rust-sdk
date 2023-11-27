@@ -38,13 +38,16 @@ use ruma::{
     events::secret::request::SecretName, DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId,
     RoomId, TransactionId, UserId,
 };
-use serde::{de::DeserializeOwned, Serialize};
 use tokio::sync::Mutex;
 use wasm_bindgen::JsValue;
 use web_sys::IdbKeyRange;
 
-use crate::{crypto_store::migrations::open_and_upgrade_db, safe_encode::SafeEncode};
+use crate::{
+    crypto_store::{indexeddb_serializer::IndexeddbSerializer, migrations::open_and_upgrade_db},
+    safe_encode::SafeEncode,
+};
 
+mod indexeddb_serializer;
 mod migrations;
 
 mod keys {
@@ -98,6 +101,7 @@ pub struct IndexeddbCryptoStore {
     name: String,
     pub(crate) inner: IdbDatabase,
 
+    serializer: IndexeddbSerializer,
     store_cipher: Option<Arc<StoreCipher>>,
 
     session_cache: SessionStore,
@@ -163,6 +167,7 @@ impl IndexeddbCryptoStore {
     ) -> Result<Self> {
         let name = format!("{prefix:0}::matrix-sdk-crypto");
 
+        let serializer = IndexeddbSerializer::new(store_cipher.clone());
         let db = open_and_upgrade_db(&name).await?;
         let session_cache = SessionStore::new();
 
@@ -170,6 +175,7 @@ impl IndexeddbCryptoStore {
             name,
             session_cache,
             inner: db,
+            serializer,
             store_cipher,
             static_account: RwLock::new(None),
             save_changes_lock: Default::default(),
@@ -300,69 +306,6 @@ impl IndexeddbCryptoStore {
         IndexeddbCryptoStore::open_with_store_cipher(name, None).await
     }
 
-    /// Encode the value for storage as a value in indexeddb.
-    ///
-    /// First, serialise the given value as JSON.
-    ///
-    /// Then, if a store cipher is enabled, encrypt the JSON string using the
-    /// configured store cipher, giving a byte array. Then, wrap the byte
-    /// array as a `JsValue`.
-    ///
-    /// If no cipher is enabled, deserialises the JSON string again giving a JS
-    /// object.
-    fn serialize_value(&self, value: &impl Serialize) -> Result<JsValue, CryptoStoreError> {
-        if let Some(cipher) = &self.store_cipher {
-            let value = cipher.encrypt_value(value).map_err(CryptoStoreError::backend)?;
-
-            Ok(JsValue::from_serde(&value)?)
-        } else {
-            Ok(JsValue::from_serde(&value)?)
-        }
-    }
-
-    /// Encode the value for storage as a value in indexeddb.
-    ///
-    /// This is the same algorithm as [`serialize_value`], but stops short of
-    /// encoding the resultant byte vector in a JsValue.
-    ///
-    /// Returns a byte vector which is either the JSON serialisation of the
-    /// value, or an encrypted version thereof.
-    fn serialize_value_as_bytes(
-        &self,
-        value: &impl Serialize,
-    ) -> Result<Vec<u8>, CryptoStoreError> {
-        match &self.store_cipher {
-            Some(cipher) => cipher.encrypt_value(value).map_err(CryptoStoreError::backend),
-            None => serde_json::to_vec(value).map_err(CryptoStoreError::backend),
-        }
-    }
-
-    /// Decode a value that was previously encoded with [`serialize_value`]
-    fn deserialize_value<T: DeserializeOwned>(
-        &self,
-        value: JsValue,
-    ) -> Result<T, CryptoStoreError> {
-        if let Some(cipher) = &self.store_cipher {
-            let value: Vec<u8> = value.into_serde()?;
-            cipher.decrypt_value(&value).map_err(CryptoStoreError::backend)
-        } else {
-            Ok(value.into_serde()?)
-        }
-    }
-
-    /// Decode a value that was previously encoded with
-    /// [`serialize_value_as_bytes`]
-    fn deserialize_value_from_bytes<T: DeserializeOwned>(
-        &self,
-        value: &[u8],
-    ) -> Result<T, CryptoStoreError> {
-        if let Some(cipher) = &self.store_cipher {
-            cipher.decrypt_value(value).map_err(CryptoStoreError::backend)
-        } else {
-            serde_json::from_slice(value).map_err(CryptoStoreError::backend)
-        }
-    }
-
     fn get_static_account(&self) -> Option<StaticAccountData> {
         self.static_account.read().unwrap().clone()
     }
@@ -375,7 +318,7 @@ impl IndexeddbCryptoStore {
             info: self.encode_key_as_string(keys::GOSSIP_REQUESTS, gossip_request.info.as_key()),
 
             // serialize and encrypt the data about the request
-            request: self.serialize_value_as_bytes(gossip_request)?,
+            request: self.serializer.serialize_value_as_bytes(gossip_request)?,
 
             unsent: !gossip_request.sent_out,
         };
@@ -388,7 +331,7 @@ impl IndexeddbCryptoStore {
     fn deserialize_gossip_request(&self, stored_request: JsValue) -> Result<GossipRequest> {
         let idb_object: GossipRequestIndexedDbObject =
             serde_wasm_bindgen::from_value(stored_request)?;
-        Ok(self.deserialize_value_from_bytes(&idb_object.request)?)
+        Ok(self.serializer.deserialize_value_from_bytes(&idb_object.request)?)
     }
 }
 
@@ -453,7 +396,7 @@ impl_crypto_store! {
 
         if let Some(a) = &account_pickle {
             tx.object_store(keys::CORE)?
-                .put_key_val(&JsValue::from_str(keys::ACCOUNT), &self.serialize_value(&a)?)?;
+                .put_key_val(&JsValue::from_str(keys::ACCOUNT), &self.serializer.serialize_value(&a)?)?;
         }
 
         tx.await.into_result()?;
@@ -515,27 +458,27 @@ impl_crypto_store! {
         if let Some(next_batch) = changes.next_batch_token {
             tx.object_store(keys::CORE)?.put_key_val(
                 &JsValue::from_str(keys::NEXT_BATCH_TOKEN),
-                &self.serialize_value(&next_batch)?
+                &self.serializer.serialize_value(&next_batch)?
             )?;
         }
 
         if let Some(i) = &private_identity_pickle {
             tx.object_store(keys::CORE)?.put_key_val(
                 &JsValue::from_str(keys::PRIVATE_IDENTITY),
-                &self.serialize_value(i)?,
+                &self.serializer.serialize_value(i)?,
             )?;
         }
 
         if let Some(a) = &decryption_key_pickle {
             tx.object_store(keys::BACKUP_KEYS)?.put_key_val(
                 &JsValue::from_str(keys::RECOVERY_KEY_V1),
-                &self.serialize_value(&a)?,
+                &self.serializer.serialize_value(&a)?,
             )?;
         }
 
         if let Some(a) = &backup_version {
             tx.object_store(keys::BACKUP_KEYS)?
-                .put_key_val(&JsValue::from_str(keys::BACKUP_KEY_V1), &self.serialize_value(&a)?)?;
+                .put_key_val(&JsValue::from_str(keys::BACKUP_KEY_V1), &self.serializer.serialize_value(&a)?)?;
         }
 
         if !changes.sessions.is_empty() {
@@ -548,7 +491,7 @@ impl_crypto_store! {
                 let pickle = session.pickle().await;
                 let key = self.encode_key(keys::SESSION, (&sender_key, session_id));
 
-                sessions.put_key_val(&key, &self.serialize_value(&pickle)?)?;
+                sessions.put_key_val(&key, &self.serializer.serialize_value(&pickle)?)?;
             }
         }
 
@@ -561,7 +504,7 @@ impl_crypto_store! {
                 let key = self.encode_key(keys::INBOUND_GROUP_SESSIONS, (room_id, session_id));
                 let pickle = session.pickle().await;
 
-                sessions.put_key_val(&key, &self.serialize_value(&pickle)?)?;
+                sessions.put_key_val(&key, &self.serializer.serialize_value(&pickle)?)?;
             }
         }
 
@@ -573,7 +516,7 @@ impl_crypto_store! {
                 let pickle = session.pickle().await;
                 sessions.put_key_val(
                     &self.encode_key(keys::OUTBOUND_GROUP_SESSIONS, room_id),
-                    &self.serialize_value(&pickle)?,
+                    &self.serializer.serialize_value(&pickle)?,
                 )?;
             }
         }
@@ -589,7 +532,7 @@ impl_crypto_store! {
             let device_store = tx.object_store(keys::DEVICES)?;
             for device in device_changes.new.iter().chain(&device_changes.changed) {
                 let key = self.encode_key(keys::DEVICES, (device.user_id(), device.device_id()));
-                let device = self.serialize_value(&device)?;
+                let device = self.serializer.serialize_value(&device)?;
 
                 device_store.put_key_val(&key, &device)?;
             }
@@ -609,7 +552,7 @@ impl_crypto_store! {
             for identity in identity_changes.changed.iter().chain(&identity_changes.new) {
                 identities.put_key_val(
                     &self.encode_key(keys::IDENTITIES, identity.user_id()),
-                    &self.serialize_value(&identity)?,
+                    &self.serializer.serialize_value(&identity)?,
                 )?;
             }
         }
@@ -644,7 +587,7 @@ impl_crypto_store! {
                 for (session_id, event) in data {
 
                     let key = self.encode_key(keys::DIRECT_WITHHELD_INFO, (session_id, &room_id));
-                    withhelds.put_key_val(&key, &self.serialize_value(&event)?)?;
+                    withhelds.put_key_val(&key, &self.serializer.serialize_value(&event)?)?;
                 }
             }
         }
@@ -654,7 +597,7 @@ impl_crypto_store! {
 
             for (room_id, settings) in &room_settings_changes {
                 let key = self.encode_key(keys::ROOM_SETTINGS, room_id);
-                let value = self.serialize_value(&settings)?;
+                let value = self.serializer.serialize_value(&settings)?;
                 settings_store.put_key_val(&key, &value)?;
             }
         }
@@ -664,7 +607,7 @@ impl_crypto_store! {
 
             for secret in changes.secrets {
                 let key = self.encode_key(keys::SECRETS_INBOX, (secret.secret_name.as_str(), secret.event.content.request_id.as_str()));
-                let value = self.serialize_value(&secret)?;
+                let value = self.serializer.serialize_value(&secret)?;
 
                 secrets_store.put_key_val(&key, &value)?;
             }
@@ -719,7 +662,7 @@ impl_crypto_store! {
                 OutboundGroupSession::from_pickle(
                     account_info.device_id,
                     account_info.identity_keys,
-                    self.deserialize_value(value)?,
+                    self.serializer.deserialize_value(value)?,
                 )
                 .map_err(CryptoStoreError::from)?,
             ))
@@ -751,7 +694,7 @@ impl_crypto_store! {
             .get(&JsValue::from_str(keys::ACCOUNT))?
             .await?
         {
-            let pickle = self.deserialize_value(pickle)?;
+            let pickle = self.serializer.deserialize_value(pickle)?;
 
             let account = Account::from_pickle(pickle).map_err(CryptoStoreError::from)?;
 
@@ -771,7 +714,7 @@ impl_crypto_store! {
             .get(&JsValue::from_str(keys::NEXT_BATCH_TOKEN))?
             .await?
         {
-            let token = self.deserialize_value(serialized)?;
+            let token = self.serializer.deserialize_value(serialized)?;
             Ok(Some(token))
         } else {
             Ok(None)
@@ -786,7 +729,7 @@ impl_crypto_store! {
             .get(&JsValue::from_str(keys::PRIVATE_IDENTITY))?
             .await?
         {
-            let pickle = self.deserialize_value(pickle)?;
+            let pickle = self.serializer.deserialize_value(pickle)?;
 
             Ok(Some(
                 PrivateCrossSigningIdentity::from_pickle(pickle)
@@ -810,7 +753,7 @@ impl_crypto_store! {
                 .get_all_with_key(&range)?
                 .await?
                 .iter()
-                .filter_map(|f| self.deserialize_value(f).ok().map(|p| {
+                .filter_map(|f| self.serializer.deserialize_value(f).ok().map(|p| {
                     Session::from_pickle(
                         account_info.user_id.clone(),
                         account_info.device_id.clone(),
@@ -842,7 +785,7 @@ impl_crypto_store! {
             .get(&key)?
             .await?
         {
-            let pickle = self.deserialize_value(pickle)?;
+            let pickle = self.serializer.deserialize_value(pickle)?;
             Ok(Some(InboundGroupSession::from_pickle(pickle).map_err(CryptoStoreError::from)?))
         } else {
             Ok(None)
@@ -860,7 +803,7 @@ impl_crypto_store! {
             .get_all()?
             .await?
             .iter()
-            .filter_map(|i| self.deserialize_value(i).ok())
+            .filter_map(|i| self.serializer.deserialize_value(i).ok())
             .filter_map(|p| InboundGroupSession::from_pickle(p).ok())
             .collect())
     }
@@ -932,7 +875,7 @@ impl_crypto_store! {
             .object_store(keys::DEVICES)?
             .get(&key)?
             .await?
-            .map(|i| self.deserialize_value(i))
+            .map(|i| self.serializer.deserialize_value(i))
             .transpose()?)
     }
 
@@ -949,7 +892,7 @@ impl_crypto_store! {
             .await?
             .iter()
             .filter_map(|d| {
-                let d: ReadOnlyDevice = self.deserialize_value(d).ok()?;
+                let d: ReadOnlyDevice = self.serializer.deserialize_value(d).ok()?;
                 Some((d.device_id().to_owned(), d))
             })
             .collect::<HashMap<_, _>>())
@@ -962,7 +905,7 @@ impl_crypto_store! {
             .object_store(keys::IDENTITIES)?
             .get(&self.encode_key(keys::IDENTITIES, user_id))?
             .await?
-            .map(|i| self.deserialize_value(i))
+            .map(|i| self.serializer.deserialize_value(i))
             .transpose()?)
     }
 
@@ -990,7 +933,7 @@ impl_crypto_store! {
             .await?
             .iter()
             .map(|d| {
-                let secret = self.deserialize_value(d)?;
+                let secret = self.serializer.deserialize_value(d)?;
                 Ok(secret)
             }).collect()
     }
@@ -1070,13 +1013,13 @@ impl_crypto_store! {
             let backup_version = store
                 .get(&JsValue::from_str(keys::BACKUP_KEY_V1))?
                 .await?
-                .map(|i| self.deserialize_value(i))
+                .map(|i| self.serializer.deserialize_value(i))
                 .transpose()?;
 
             let decryption_key = store
                 .get(&JsValue::from_str(keys::RECOVERY_KEY_V1))?
                 .await?
-                .map(|i| self.deserialize_value(i))
+                .map(|i| self.serializer.deserialize_value(i))
                 .transpose()?;
 
             BackupKeys { backup_version, decryption_key }
@@ -1101,7 +1044,7 @@ impl_crypto_store! {
             .get(&key)?
             .await?
         {
-            let info = self.deserialize_value(pickle)?;
+            let info = self.serializer.deserialize_value(pickle)?;
             Ok(Some(info))
         } else {
             Ok(None)
@@ -1116,7 +1059,7 @@ impl_crypto_store! {
             .object_store(keys::ROOM_SETTINGS)?
             .get(&key)?
             .await?
-            .map(|v| self.deserialize_value(v))
+            .map(|v| self.serializer.deserialize_value(v))
             .transpose()?)
     }
 
@@ -1127,7 +1070,7 @@ impl_crypto_store! {
             .object_store(keys::CORE)?
             .get(&JsValue::from_str(key))?
             .await?
-            .map(|v| self.deserialize_value(v))
+            .map(|v| self.serializer.deserialize_value(v))
             .transpose()?)
     }
 
@@ -1136,7 +1079,7 @@ impl_crypto_store! {
             .inner
             .transaction_on_one_with_mode(keys::CORE, IdbTransactionMode::Readwrite)?
             .object_store(keys::CORE)?
-            .put_key_val(&JsValue::from_str(key), &self.serialize_value(&value)?)?;
+            .put_key_val(&JsValue::from_str(key), &self.serializer.serialize_value(&value)?)?;
         Ok(())
     }
 
@@ -1175,16 +1118,16 @@ impl_crypto_store! {
         let prev = object_store.get(&key)?.await?;
         match prev {
             Some(prev) => {
-                let lease: Lease = self.deserialize_value(prev)?;
+                let lease: Lease = self.serializer.deserialize_value(prev)?;
                 if lease.holder == holder || lease.expiration_ts < now_ts {
-                    object_store.put_key_val(&key, &self.serialize_value(&Lease { holder: holder.to_owned(), expiration_ts })?)?;
+                    object_store.put_key_val(&key, &self.serializer.serialize_value(&Lease { holder: holder.to_owned(), expiration_ts })?)?;
                     Ok(true)
                 } else {
                     Ok(false)
                 }
             }
             None => {
-                object_store.put_key_val(&key, &self.serialize_value(&Lease { holder: holder.to_owned(), expiration_ts })?)?;
+                object_store.put_key_val(&key, &self.serializer.serialize_value(&Lease { holder: holder.to_owned(), expiration_ts })?)?;
                 Ok(true)
             }
         }
