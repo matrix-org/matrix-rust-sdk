@@ -104,8 +104,12 @@ impl IndexeddbSerializer {
         if let Some(cipher) = &self.store_cipher {
             let value = cipher.encrypt_value(value).map_err(CryptoStoreError::backend)?;
 
+            // Turn the Vec<u8> into a Javascript-side `Array<number>`.
+            // XXX Isn't there a way to do this that *doesn't* involve going via a JSON
+            // string?
             Ok(JsValue::from_serde(&value)?)
         } else {
+            // Turn the rust-side struct into a JS-side `Object`.
             Ok(JsValue::from_serde(&value)?)
         }
     }
@@ -133,7 +137,12 @@ impl IndexeddbSerializer {
         value: JsValue,
     ) -> Result<T, CryptoStoreError> {
         if let Some(cipher) = &self.store_cipher {
+            // `value` is a JS-side array containing the byte values. Turn it into a
+            // rust-side Vec<u8>.
+            // XXX: Isn't there a way to do this that *doesn't* involve going via a JSON
+            // string?
             let value: Vec<u8> = value.into_serde()?;
+
             cipher.decrypt_value(&value).map_err(CryptoStoreError::backend)
         } else {
             Ok(value.into_serde()?)

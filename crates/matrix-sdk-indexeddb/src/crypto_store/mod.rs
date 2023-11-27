@@ -252,7 +252,7 @@ impl IndexeddbCryptoStore {
     }
 
     /// Transform a [`GossipRequest`] into a `JsValue` holding a
-    /// [`GossipRequestIndexedDbObject`], ready for storing
+    /// [`GossipRequestIndexedDbObject`], ready for storing.
     fn serialize_gossip_request(&self, gossip_request: &GossipRequest) -> Result<JsValue> {
         let obj = GossipRequestIndexedDbObject {
             // hash the info as a key so that it can be used in index lookups.
@@ -270,7 +270,7 @@ impl IndexeddbCryptoStore {
     }
 
     /// Transform a JsValue holding a [`GossipRequestIndexedDbObject`] back into
-    /// a [`GossipRequest`]
+    /// a [`GossipRequest`].
     fn deserialize_gossip_request(&self, stored_request: JsValue) -> Result<GossipRequest> {
         let idb_object: GossipRequestIndexedDbObject =
             serde_wasm_bindgen::from_value(stored_request)?;
