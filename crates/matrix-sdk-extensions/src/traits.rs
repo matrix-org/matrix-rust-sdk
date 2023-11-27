@@ -1,9 +1,9 @@
-use std::{fmt::Debug, ops::Deref, path::Path};
+use std::{ops::Deref, path::Path};
 
 use crate::Result;
 
 pub trait Module {
-    type Environment: Default + Debug;
+    type Environment: Default;
     type Bindings;
 
     fn new_environment() -> Self::Environment;

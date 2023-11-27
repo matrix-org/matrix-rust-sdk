@@ -1,4 +1,8 @@
-use std::path::Path;
+use std::{
+    ops::Deref,
+    path::Path,
+    sync::{Arc, RwLock, RwLockReadGuard},
+};
 
 pub use matrix_sdk_extensions_macros::wasmtime_bindgen as bindgen;
 use wasmtime::{
@@ -24,19 +28,42 @@ pub trait ModuleExt<Environment, Bindings> {
     ) -> Result<Bindings>;
 }
 
+pub struct NativeExports<M>
+where
+    M: Module,
+{
+    store: Arc<RwLock<Store<M::Environment>>>,
+    bindings: M::Bindings,
+}
+
 pub struct NativeInstance<M>
 where
     M: Module,
 {
-    store: Store<M::Environment>,
-    exports: M::Bindings,
+    store: Arc<RwLock<Store<M::Environment>>>,
+    exports: NativeExports<M>,
+}
+
+pub struct EnvironmentGuard<'a, M>(RwLockReadGuard<'a, Store<M::Environment>>)
+where
+    M: Module;
+
+impl<'a, M> Deref for EnvironmentGuard<'a, M>
+where
+    M: Module,
+{
+    type Target = M::Environment;
+
+    fn deref(&self) -> &Self::Target {
+        self.0.deref().data()
+    }
 }
 
 impl<M> Instance<M> for NativeInstance<M>
 where
     M: Module + ModuleExt<M::Environment, M::Bindings>,
 {
-    type EnvironmentRef<'a> = &'a M::Environment where Self: 'a;
+    type EnvironmentRef<'a> = EnvironmentGuard<'a, M> where Self: 'a;
 
     fn new<P>(wasm_module: P) -> Result<Self>
     where
@@ -52,12 +79,13 @@ where
         M::link(&mut linker, |state: &mut M::Environment| state)?;
 
         let bindings = M::instantiate_component(&mut store, &component, &linker)?;
+        let store = Arc::new(RwLock::new(store));
 
-        Ok(Self { store, exports: bindings })
+        Ok(Self { store: store.clone(), exports: NativeExports { store, bindings } })
     }
 
     fn environment<'a>(&'a self) -> Self::EnvironmentRef<'a> {
-        self.store.data()
+        EnvironmentGuard(self.store.read().unwrap())
     }
 }
 
@@ -87,9 +115,22 @@ mod tests {
             }
         }
 
+        pub trait TimelineExports {
+            fn greet(&mut self, arg0: &str) -> crate::Result<()>;
+        }
+
+        impl TimelineExports for NativeExports<TimelineModule> {
+            fn greet(&mut self, arg0: &str) -> crate::Result<()> {
+                let mut store = self.store.write().unwrap();
+                let store: &mut Store<TimelineEnvironment> = &mut store;
+
+                self.bindings.call_greet(store, arg0)
+            }
+        }
+
         let mut instance = TimelineInstance::new("timeline.wasm").unwrap();
 
-        instance.exports.call_greet(&mut instance.store, "Gordon").unwrap();
+        instance.exports.greet("Gordon").unwrap();
 
         let env = instance.environment();
         assert_eq!(env.output, "Hello, Gordon!\n");
