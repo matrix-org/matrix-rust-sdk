@@ -175,6 +175,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         self.state.read().await.items.subscribe().filter_map(f)
     }
 
+    #[instrument(skip_all)]
     pub(super) async fn toggle_reaction_local(
         &self,
         annotation: &Annotation,
@@ -496,6 +497,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
     ///
     /// Checks and finalises any state that tracks ongoing requests and decides
     /// whether further requests are required to handle any new local echos.
+    #[instrument(skip_all)]
     pub(super) async fn resolve_reaction_response(
         &self,
         annotation: &Annotation,
