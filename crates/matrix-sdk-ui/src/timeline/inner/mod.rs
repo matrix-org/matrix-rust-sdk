@@ -376,7 +376,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
     }
 
     /// Handle the creation of a new local event.
-    #[instrument(skip_all)]
+    #[cfg(test)]
     pub(super) async fn handle_local_redaction(
         &self,
         txn_id: OwnedTransactionId,
