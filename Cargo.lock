@@ -3524,7 +3524,6 @@ dependencies = [
  "eyeball-im",
  "futures-core",
  "futures-util",
- "javascriptcore",
  "log-panics",
  "matrix-sdk",
  "matrix-sdk-ui",

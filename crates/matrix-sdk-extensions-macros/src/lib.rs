@@ -168,8 +168,15 @@ pub fn wasmtime_bindgen(input: proc_macro::TokenStream) -> proc_macro::TokenStre
 
     let private_mod = Ident::new(&format!("__private_{}", world.name), call_site);
 
+    let mut impl_private_host_traits = Vec::new();
+
     let host_trait = {
         let package = world.package.and_then(|package| resolve.packages.get(package));
+
+        let package_namespace =
+            package.map(|package| Ident::new(&package.name.namespace.to_snake_case(), call_site));
+        let package_name =
+            package.map(|package| Ident::new(&package.name.name.to_snake_case(), call_site));
 
         let mut imports = Vec::new();
 
@@ -178,19 +185,45 @@ pub fn wasmtime_bindgen(input: proc_macro::TokenStream) -> proc_macro::TokenStre
                 WorldItem::Interface(interface_id) => {
                     let interface = resolve.interfaces.get(*interface_id).unwrap();
 
-                    let mut functions = Vec::new();
+                    let interface_name = interface
+                        .name
+                        .as_ref()
+                        .map(|name| Ident::new(&name.to_snake_case(), call_site));
 
-                    for function in interface.functions.values() {
-                        let function_name = Ident::new(&function.name.to_snake_case(), call_site);
-                        let arguments = function.params.iter().map(|(name, ty)| {
-                            let name = Ident::new(&name.to_snake_case(), call_site);
-                            let ty = Ident::new(&to_rust_type(ty), call_site);
+                    let trait_path = {
+                        let mut trait_path = quote! { Host };
 
-                            quote! {
-                                #name: #ty
-                            }
-                        });
-                        let results = match &function.results {
+                        if let Some(interface_name) = &interface_name {
+                            trait_path = quote! { #interface_name :: #trait_path };
+                        }
+
+                        if let (Some(package_namespace), Some(package_name)) =
+                            (&package_namespace, &package_name)
+                        {
+                            trait_path =
+                                quote! { #package_namespace :: #package_name :: #trait_path };
+                        }
+
+                        trait_path
+                    };
+
+                    let mut trait_functions = Vec::new();
+                    let mut impl_private_host_trait_functions = Vec::new();
+
+                    for import in interface.functions.values() {
+                        let trait_function_name =
+                            Ident::new(&import.name.to_snake_case(), call_site);
+                        let (argument_names, argument_types) = import
+                            .params
+                            .iter()
+                            .map(|(name, ty)| {
+                                let name = Ident::new(&name.to_snake_case(), call_site);
+                                let ty = Ident::new(&to_rust_type(ty), call_site);
+
+                                (name, ty)
+                            })
+                            .unzip::<_, _, Vec<_>, Vec<_>>();
+                        let results = match &import.results {
                             Results::Named(results) => match results.len() {
                                 0 => "()".to_owned(),
                                 1 => to_rust_type(&results[0].1),
@@ -207,20 +240,24 @@ pub fn wasmtime_bindgen(input: proc_macro::TokenStream) -> proc_macro::TokenStre
                         .parse::<TokenStream>()
                         .unwrap();
 
-                        functions.push(quote! {
-                            fn #function_name( &mut self #( , #arguments )* ) -> matrix_sdk_extensions::Result< #results >;
+                        trait_functions.push(quote! {
+                            fn #trait_function_name( &mut self #( , #argument_names : #argument_types )* ) -> matrix_sdk_extensions::Result< #results >;
+                        });
+
+                        impl_private_host_trait_functions.push(quote! {
+                            fn #trait_function_name( &mut self #( , #argument_names : #argument_types )* ) -> matrix_sdk_extensions::Result< #results > {
+                                #trait_path :: #trait_function_name(self #( , #argument_names )* )
+                            }
                         });
                     }
 
                     let mut import = quote! {
                         pub trait Host {
-                            #( #functions )*
+                            #( #trait_functions )*
                         }
                     };
 
-                    if let Some(interface_name) = &interface.name {
-                        let interface_name = Ident::new(&interface_name.to_snake_case(), call_site);
-
+                    if let Some(interface_name) = interface_name {
                         import = quote! {
                             pub mod #interface_name {
                                 #use_matrix_sdk_extensions
@@ -231,6 +268,11 @@ pub fn wasmtime_bindgen(input: proc_macro::TokenStream) -> proc_macro::TokenStre
                     }
 
                     imports.push(import);
+                    impl_private_host_traits.push(quote! {
+                        impl #private_mod :: #trait_path for #environment_type {
+                            #( #impl_private_host_trait_functions )*
+                        }
+                    })
                 }
                 i => unimplemented!("{:?}", i),
             }
@@ -240,10 +282,7 @@ pub fn wasmtime_bindgen(input: proc_macro::TokenStream) -> proc_macro::TokenStre
             #( #imports )*
         };
 
-        if let Some(package) = package {
-            let package_namespace = Ident::new(&package.name.namespace.to_snake_case(), call_site);
-            let package_name = Ident::new(&package.name.name.to_snake_case(), call_site);
-
+        if let (Some(package_namespace), Some(package_name)) = (package_namespace, package_name) {
             output = quote! {
                 pub mod #package_namespace {
                     pub mod #package_name {
@@ -254,16 +293,6 @@ pub fn wasmtime_bindgen(input: proc_macro::TokenStream) -> proc_macro::TokenStre
         }
 
         output
-    };
-
-    let impl_private_host_trait = {
-        quote! {
-            impl #private_mod::matrix::ui_timeline::std::Host for #environment_type {
-                fn print(&mut self, msg: String) -> matrix_sdk_extensions::Result<()> {
-                    matrix::ui_timeline::std::Host::print(self, msg)
-                }
-            }
-        }
     };
 
     let impl_module = {
@@ -321,7 +350,7 @@ pub fn wasmtime_bindgen(input: proc_macro::TokenStream) -> proc_macro::TokenStre
 
         #host_trait
 
-        #impl_private_host_trait
+        #( #impl_private_host_traits )*
 
         #impl_module
 
@@ -366,7 +395,8 @@ pub fn javascriptcore_bindgen(input: proc_macro::TokenStream) -> proc_macro::Tok
                     let mut bindings = Vec::new();
 
                     for import in interface.functions.values() {
-                        let function_name = Ident::new(&import.name.to_snake_case(), call_site);
+                        let trait_function_name =
+                            Ident::new(&import.name.to_snake_case(), call_site);
                         let ((argument_names, argument_indexed_names), argument_types) = import
                             .params
                             .iter()
@@ -397,7 +427,7 @@ pub fn javascriptcore_bindgen(input: proc_macro::TokenStream) -> proc_macro::Tok
                         .unwrap();
 
                         trait_functions.push(quote! {
-                            fn #function_name( &mut self #( , #argument_names : #argument_types )* ) -> matrix_sdk_extensions::Result< #results >;
+                            fn #trait_function_name( &mut self #( , #argument_names : #argument_types )* ) -> matrix_sdk_extensions::Result< #results >;
                         });
 
                         bindings.push(quote! {
@@ -429,19 +459,19 @@ pub fn javascriptcore_bindgen(input: proc_macro::TokenStream) -> proc_macro::Tok
                                         .expect(concat!("Argument `", stringify!( #argument_indexed_names ), "` is missing"))
                                         .try_into_rust()?; )*
 
-                                    Host:: #function_name (env_mut #( , #argument_indexed_names )* ).unwrap();
+                                    Host:: #trait_function_name (env_mut #( , #argument_indexed_names )* ).unwrap();
 
                                     Ok(JSValue::new_undefined(context))
                                 }
 
-                                let function_name = stringify!( #function_name );
-                                let function = JSValue::new_function(&context, function_name, Some(js_function::<Environment>))
+                                let js_function_name = stringify!( #trait_function_name );
+                                let function = JSValue::new_function(&context, js_function_name, Some(js_function::<Environment>))
                                     .as_object()
                                     .unwrap();
 
                                 namespace
                                     .set_property(
-                                        function_name,
+                                        js_function_name,
                                         function
                                             .get_property("bind")
                                             .as_object()
@@ -496,7 +526,7 @@ pub fn javascriptcore_bindgen(input: proc_macro::TokenStream) -> proc_macro::Tok
                                 #import
                             }
                         });
-                        add_to_linkers.push(quote! { #interface_name::add_to_linker });
+                        add_to_linkers.push(quote! { #interface_name ::add_to_linker });
                     } else {
                         imports.push(import);
                         add_to_linkers.push(quote! { add_to_linker });
@@ -555,7 +585,6 @@ pub fn javascriptcore_bindgen(input: proc_macro::TokenStream) -> proc_macro::Tok
                     environment: &std::sync::Arc<std::sync::Mutex< #environment_type >>,
                 ) -> matrix_sdk_extensions::Result<()> {
                     #( #add_to_linkers ::< #environment_type >(context, imports, environment)?; )*
-                    // matrix::ui_timeline::std::add_to_linker::< #environment_type >(context, imports, environment)?;
 
                     Ok(())
                 }
