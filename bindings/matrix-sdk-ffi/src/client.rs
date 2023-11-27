@@ -39,8 +39,8 @@ use matrix_sdk::{
 use matrix_sdk_ui::notification_client::NotificationProcessSetup as MatrixNotificationProcessSetup;
 use mime::Mime;
 use ruma::{
-    api::client::{discovery::discover_homeserver::AuthenticationServerInfo, membership::ban_user},
-    events::room::power_levels::{self, RoomPowerLevelsEventContent},
+    api::client::discovery::discover_homeserver::AuthenticationServerInfo,
+    events::room::power_levels::RoomPowerLevelsEventContent,
     push::{HttpPusherData as RumaHttpPusherData, PushFormat as RumaPushFormat},
 };
 use serde::{Deserialize, Serialize};
@@ -52,7 +52,6 @@ use url::Url;
 use super::{room::Room, session_verification::SessionVerificationController, RUNTIME};
 use crate::{
     client,
-    event::TimelineEventType,
     notification::NotificationClientBuilder,
     notification_settings::NotificationSettings,
     sync_service::{SyncService, SyncServiceBuilder},
