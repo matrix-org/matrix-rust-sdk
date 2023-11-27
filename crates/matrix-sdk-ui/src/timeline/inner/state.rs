@@ -249,6 +249,7 @@ impl TimelineInnerState {
     }
 
     /// Handle the local redaction of an event.
+    #[instrument(skip_all)]
     pub(super) fn handle_local_redaction(
         &mut self,
         own_user_id: OwnedUserId,
