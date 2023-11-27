@@ -56,7 +56,7 @@ use ruma::{
 };
 use thiserror::Error;
 use tokio::sync::{mpsc::Sender, Mutex, Notify};
-use tracing::{error, info, instrument, warn};
+use tracing::{debug, error, info, instrument, warn};
 
 use self::futures::SendAttachment;
 
@@ -550,6 +550,7 @@ impl Timeline {
     ///
     /// * `txn_id` - The transaction ID of a local echo timeline item that has a
     ///   `send_state()` of `SendState::FailedToSend { .. }`
+    #[instrument(skip(self))]
     pub async fn retry_send(&self, txn_id: &TransactionId) -> Result<(), Error> {
         macro_rules! error_return {
             ($msg:literal) => {{
@@ -586,6 +587,7 @@ impl Timeline {
             ),
         };
 
+        debug!("Retrying failed local echo");
         let txn_id = txn_id.to_owned();
         if self.msg_sender.send(LocalMessage { content, txn_id }).await.is_err() {
             error!("Internal error: timeline message receiver is closed");
