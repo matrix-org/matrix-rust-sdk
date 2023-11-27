@@ -649,8 +649,6 @@ impl TimelineInnerStateTransaction<'_> {
     }
 
     fn clear(&mut self) {
-        trace!("Clearing timeline");
-
         // By first checking if there are any local echoes first, we do a bit
         // more work in case some are found, but it should be worth it because
         // there will often not be any, and only emitting a single
@@ -686,6 +684,8 @@ impl TimelineInnerStateTransaction<'_> {
         self.fully_read_event = None;
         self.event_should_update_fully_read_marker = false;
         self.back_pagination_tokens.clear();
+
+        debug!(remaining_items = self.items.len(), "Timeline cleared");
     }
 
     #[instrument(skip_all)]
