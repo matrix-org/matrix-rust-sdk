@@ -30,7 +30,6 @@ use ruma::{
     OwnedDeviceKeyId, UInt, UserId,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use tokio::sync::Mutex;
 use tracing::{instrument, trace, warn};
 use vodozemac::{olm::SessionConfig, Curve25519PublicKey, Ed25519PublicKey};
@@ -413,63 +412,12 @@ impl Device {
     /// # Arguments
     ///
     /// * `content` - The content of the event that should be encrypted.
-    #[instrument(
-        skip_all,
-        fields(
-            recipient = ?self.user_id(),
-            recipient_device = ?self.device_id(),
-            recipient_key = ?self.curve25519_key(),
-            event_type,
-            session,
-            message_id,
-        ))
-    ]
     pub(crate) async fn encrypt(
         &self,
         event_type: &str,
-        content: Value,
+        content: impl Serialize,
     ) -> OlmResult<(Session, Raw<ToDeviceEncryptedEventContent>)> {
-        #[cfg(feature = "message-ids")]
-        let message_id = {
-            #[cfg(not(target_arch = "wasm32"))]
-            let id = ulid::Ulid::new().to_string();
-            #[cfg(target_arch = "wasm32")]
-            let id = ruma::TransactionId::new().to_string();
-
-            tracing::Span::current().record("message_id", &id);
-            Some(id)
-        };
-
-        #[cfg(not(feature = "message-ids"))]
-        let message_id = None;
-
-        self.inner
-            .encrypt(self.verification_machine.store.inner(), event_type, content, message_id)
-            .await
-    }
-
-    pub(crate) async fn maybe_encrypt_room_key(
-        &self,
-        session: OutboundGroupSession,
-    ) -> OlmResult<MaybeEncryptedRoomKey> {
-        let content = session.as_content().await;
-        let message_index = session.message_index().await;
-        let event_type = content.event_type();
-        let content =
-            serde_json::to_value(content).expect("We can always serialize our own room key");
-
-        match self.encrypt(event_type, content).await {
-            Ok((session, encrypted)) => Ok(MaybeEncryptedRoomKey::Encrypted {
-                share_info: ShareInfo::new_shared(session.sender_key().to_owned(), message_index),
-                used_session: session,
-                message: encrypted.cast(),
-            }),
-
-            Err(OlmError::MissingSession | OlmError::EventError(EventError::MissingSenderKey)) => {
-                Ok(MaybeEncryptedRoomKey::Withheld { code: WithheldCode::NoOlm })
-            }
-            Err(e) => Err(e),
-        }
+        self.inner.encrypt(self.verification_machine.store.inner(), event_type, content).await
     }
 
     /// Encrypt the given inbound group session as a forwarded room key for this
@@ -487,7 +435,7 @@ impl Device {
             };
             let content: ForwardedRoomKeyContent = export.try_into()?;
 
-            (content.event_type(), serde_json::to_value(content)?)
+            (content.event_type(), content)
         };
 
         self.encrypt(event_type, content).await
@@ -772,25 +720,86 @@ impl ReadOnlyDevice {
         )
     }
 
+    /// Encrypt the given content for this device.
+    ///
+    /// # Arguments
+    ///
+    /// * `store` - The crypto store. Used to find an established Olm session
+    ///   for this device.
+    /// * `event_type` - The type of the event that should be encrypted.
+    /// * `content` - The content of the event that should be encrypted.
+    ///
+    /// # Returns
+    ///
+    /// On success, a tuple `(session, content)`, where `session` is the Olm
+    /// [`Session`] that was used to encrypt the content, and `content` is
+    /// the content for the `m.room.encrypted` to-device event.
+    ///
+    /// If an Olm session has not already been established with this device,
+    /// returns `Err(OlmError::MissingSession)`.
+    #[instrument(
+        skip_all,
+        fields(
+            recipient = ?self.user_id(),
+            recipient_device = ?self.device_id(),
+            recipient_key = ?self.curve25519_key(),
+            event_type,
+            session,
+            message_id,
+        ))
+    ]
     pub(crate) async fn encrypt(
         &self,
         store: &CryptoStoreWrapper,
         event_type: &str,
-        content: Value,
-        message_id: Option<String>,
+        content: impl Serialize,
     ) -> OlmResult<(Session, Raw<ToDeviceEncryptedEventContent>)> {
+        #[cfg(feature = "message-ids")]
+        let message_id = {
+            #[cfg(not(target_arch = "wasm32"))]
+            let id = ulid::Ulid::new().to_string();
+            #[cfg(target_arch = "wasm32")]
+            let id = ruma::TransactionId::new().to_string();
+
+            tracing::Span::current().record("message_id", &id);
+            Some(id)
+        };
+
+        #[cfg(not(feature = "message-ids"))]
+        let message_id = None;
+
         let session = self.get_most_recent_session(store).await?;
 
         if let Some(mut session) = session {
             let message = session.encrypt(self, event_type, content, message_id).await?;
-
             trace!("Successfully encrypted an event");
-
             Ok((session, message))
         } else {
-            warn!("Trying to encrypt an event for a device, but no Olm session is found.",);
-
+            trace!("Trying to encrypt an event for a device, but no Olm session is found.");
             Err(OlmError::MissingSession)
+        }
+    }
+
+    pub(crate) async fn maybe_encrypt_room_key(
+        &self,
+        store: &CryptoStoreWrapper,
+        session: OutboundGroupSession,
+    ) -> OlmResult<MaybeEncryptedRoomKey> {
+        let content = session.as_content().await;
+        let message_index = session.message_index().await;
+        let event_type = content.event_type();
+
+        match self.encrypt(store, event_type, content).await {
+            Ok((session, encrypted)) => Ok(MaybeEncryptedRoomKey::Encrypted {
+                share_info: ShareInfo::new_shared(session.sender_key().to_owned(), message_index),
+                used_session: session,
+                message: encrypted.cast(),
+            }),
+
+            Err(OlmError::MissingSession | OlmError::EventError(EventError::MissingSenderKey)) => {
+                Ok(MaybeEncryptedRoomKey::Withheld { code: WithheldCode::NoOlm })
+            }
+            Err(e) => Err(e),
         }
     }
 
@@ -875,14 +884,14 @@ impl ReadOnlyDevice {
 
     /// Create a `ReadOnlyDevice` from an `Account`
     ///
-    /// We will have our own device in the store once we receive a keys/query
+    /// We will have our own device in the store once we receive a `/keys/query`
     /// response, but this is useful to create it before we receive such a
     /// response.
     ///
     /// It also makes it easier to check that the server doesn't lie about our
     /// own device.
     ///
-    /// *Don't* use this after we received a keys/query response, other
+    /// *Don't* use this after we received a `/keys/query` response, other
     /// users/devices might add signatures to our own device, which can't be
     /// replicated locally.
     pub fn from_account(account: &Account) -> ReadOnlyDevice {

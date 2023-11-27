@@ -14,9 +14,9 @@
 
 use std::{fmt, sync::Arc};
 
-use ruma::{serde::Raw, JsOption, OwnedDeviceId, OwnedUserId, SecondsSinceUnixEpoch};
+use ruma::{serde::Raw, OwnedDeviceId, OwnedUserId, SecondsSinceUnixEpoch};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::json;
 use tokio::sync::Mutex;
 use tracing::{field::debug, instrument, trace, Span};
 use vodozemac::{
@@ -73,7 +73,7 @@ impl fmt::Debug for Session {
 impl Session {
     /// Decrypt the given Olm message.
     ///
-    /// Returns the decrypted plaintext or an `DecryptionError` if decryption
+    /// Returns the decrypted plaintext or a [`DecryptionError`] if decryption
     /// failed.
     ///
     /// # Arguments
@@ -99,12 +99,12 @@ impl Session {
         self.sender_key
     }
 
-    /// Get the `SessionConfig` that this session is using.
+    /// Get the [`SessionConfig`] that this session is using.
     pub async fn session_config(&self) -> SessionConfig {
         self.inner.lock().await.session_config()
     }
 
-    /// Get the `EventEncryptionAlgorithm` of t his `Session`.
+    /// Get the [`EventEncryptionAlgorithm`] of this [`Session`].
     pub async fn algorithm(&self) -> EventEncryptionAlgorithm {
         #[cfg(feature = "experimental-algorithms")]
         if self.session_config().await.version() == 2 {
@@ -150,7 +150,7 @@ impl Session {
         &mut self,
         recipient_device: &ReadOnlyDevice,
         event_type: &str,
-        content: Value,
+        content: impl Serialize,
         message_id: Option<String>,
     ) -> OlmResult<Raw<ToDeviceEncryptedEventContent>> {
         let plaintext = {
@@ -181,14 +181,14 @@ impl Session {
                 ciphertext,
                 recipient_key: self.sender_key,
                 sender_key: self.our_identity_keys.curve25519,
-                message_id: JsOption::from_implicit_option(message_id),
+                message_id,
             }
             .into(),
             #[cfg(feature = "experimental-algorithms")]
             EventEncryptionAlgorithm::OlmV2Curve25519AesSha2 => OlmV2Curve25519AesSha2Content {
                 ciphertext,
                 sender_key: self.our_identity_keys.curve25519,
-                message_id: JsOption::from_implicit_option(message_id),
+                message_id,
             }
             .into(),
             _ => unreachable!(),

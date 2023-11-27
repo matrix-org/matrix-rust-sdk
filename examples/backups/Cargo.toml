@@ -1,0 +1,20 @@
+[package]
+name = "example-backups"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "example-backups"
+test = false
+
+[dependencies]
+anyhow = "1"
+tokio = { version = "1.24.2", features = ["macros", "rt-multi-thread"] }
+clap = { version = "4.0.15", features = ["derive"] }
+futures-util = "0.3.24"
+tracing-subscriber = "0.3.16"
+url = "2.3.1"
+# when copy-pasting this, please use a git dependency or make sure that you
+# have copied the example as it was at the time of the release you use.
+matrix-sdk = { path = "../../crates/matrix-sdk" }

@@ -1,7 +1,7 @@
 use clap::{Args, Subcommand};
 use xshell::{cmd, pushd};
 
-use crate::{workspace, Result};
+use crate::{workspace, Result, NIGHTLY};
 
 #[derive(Args)]
 pub struct FixupArgs {
@@ -41,7 +41,7 @@ impl FixupArgs {
 }
 
 fn fix_style() -> Result<()> {
-    cmd!("rustup run nightly cargo fmt").run()?;
+    cmd!("rustup run {NIGHTLY} cargo fmt").run()?;
     Ok(())
 }
 
@@ -54,13 +54,13 @@ fn fix_typos() -> Result<()> {
 
 fn fix_clippy() -> Result<()> {
     cmd!(
-        "rustup run nightly cargo clippy --all-targets
+        "rustup run {NIGHTLY} cargo clippy --all-targets
         --fix --allow-dirty --allow-staged
         -- -D warnings "
     )
     .run()?;
     cmd!(
-        "rustup run nightly cargo clippy --workspace --all-targets
+        "rustup run {NIGHTLY} cargo clippy --workspace --all-targets
             --fix --allow-dirty --allow-staged
             --exclude matrix-sdk-crypto --exclude xtask
             --no-default-features --features native-tls,sso-login
@@ -68,7 +68,7 @@ fn fix_clippy() -> Result<()> {
     )
     .run()?;
     cmd!(
-        "rustup run nightly cargo clippy --all-targets -p matrix-sdk-crypto
+        "rustup run {NIGHTLY} cargo clippy --all-targets -p matrix-sdk-crypto
             --allow-dirty --allow-staged --fix
             --no-default-features -- -D warnings"
     )

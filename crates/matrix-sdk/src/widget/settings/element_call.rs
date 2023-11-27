@@ -46,8 +46,6 @@ struct ElementCallParams {
     analytics_id: Option<String>,
     font_scale: Option<f64>,
     font: Option<String>,
-    #[serde(rename = "enableE2EE")]
-    enable_e2ee: bool,
     #[serde(rename = "perParticipantE2EE")]
     per_participant_e2ee: bool,
     password: Option<String>,
@@ -55,17 +53,17 @@ struct ElementCallParams {
 
 /// Defines if a call is encrypted and which encryption system should be used.
 ///
-/// This controls the url parameters: `enableE2EE`, `perParticipantE2EE`,
-/// `password`.
+/// This controls the url parameters: `perParticipantE2EE`, `password`.
 #[derive(Debug, PartialEq)]
 pub enum EncryptionSystem {
-    /// Equivalent to the element call url parameter: `enableE2EE=false`
+    /// Equivalent to the element call url parameter: `perParticipantE2EE=false`
+    /// and no password.
     Unencrypted,
     /// Equivalent to the element call url parameters:
-    /// `enableE2EE=true&perParticipantE2EE=true`
+    /// `perParticipantE2EE=true`
     PerParticipantKeys,
     /// Equivalent to the element call url parameters:
-    /// `enableE2EE=true&password={secret}`
+    /// `password={secret}`
     SharedSecret {
         /// The secret/password which is used in the url.
         secret: String,
@@ -181,7 +179,6 @@ impl WidgetSettings {
             analytics_id: props.analytics_id,
             font_scale: props.font_scale,
             font: props.font,
-            enable_e2ee: { props.encryption != EncryptionSystem::Unencrypted },
             per_participant_e2ee: props.encryption == EncryptionSystem::PerParticipantKeys,
             password: match props.encryption {
                 EncryptionSystem::SharedSecret { secret } => Some(secret),
@@ -283,7 +280,6 @@ mod tests {
                 &appPrompt=true\
                 &hideHeader=true\
                 &preload=true\
-                &enableE2EE=true\
                 &perParticipantE2EE=true\
         ";
 
@@ -337,7 +333,6 @@ mod tests {
                 &displayName=hello\
                 &appPrompt=true\
                 &clientId=io.my_matrix.client\
-                &enableE2EE=true\
                 &perParticipantE2EE=true\
         ";
 
@@ -361,10 +356,7 @@ mod tests {
                 EncryptionSystem::PerParticipantKeys,
             )));
             let query_set = get_query_sets(&Url::parse(&url).unwrap()).unwrap().1;
-            let expected_elements = [
-                ("perParticipantE2EE".to_owned(), "true".to_owned()),
-                ("enableE2EE".to_owned(), "true".to_owned()),
-            ];
+            let expected_elements = [("perParticipantE2EE".to_owned(), "true".to_owned())];
             for e in expected_elements {
                 assert!(
                     query_set.contains(&e),
@@ -380,10 +372,10 @@ mod tests {
                 EncryptionSystem::Unencrypted,
             )));
             let query_set = get_query_sets(&Url::parse(&url).unwrap()).unwrap().1;
-            let expected_elements = ("enableE2EE".to_owned(), "false".to_owned());
+            let expected_elements = ("perParticipantE2EE".to_owned(), "false".to_owned());
             assert!(
                 query_set.contains(&expected_elements),
-                "The query elements: \n{:?}\nDid not contain: \n{:?}",
+                "The url query elements for an unencrypted call: \n{:?}\nDid not contain: \n{:?}",
                 query_set,
                 expected_elements
             );
@@ -394,10 +386,7 @@ mod tests {
                 EncryptionSystem::SharedSecret { secret: "this_surely_is_save".to_owned() },
             )));
             let query_set = get_query_sets(&Url::parse(&url).unwrap()).unwrap().1;
-            let expected_elements = [
-                ("password".to_owned(), "this_surely_is_save".to_owned()),
-                ("enableE2EE".to_owned(), "true".to_owned()),
-            ];
+            let expected_elements = [("password".to_owned(), "this_surely_is_save".to_owned())];
             for e in expected_elements {
                 assert!(
                     query_set.contains(&e),

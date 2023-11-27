@@ -565,12 +565,12 @@ impl OlmMachine {
         })
     }
 
-    /// Receive a successful keys upload response.
+    /// Receive a successful `/keys/upload` response.
     ///
     /// # Arguments
     ///
-    /// * `response` - The keys upload response of the request that the client
-    /// performed.
+    /// * `response` - The response of the `/keys/upload` request that the
+    ///   client performed.
     async fn receive_keys_upload_response(&self, response: &UploadKeysResponse) -> OlmResult<()> {
         self.inner
             .store
@@ -609,6 +609,7 @@ impl OlmMachine {
     /// this method between sync requests.
     ///
     /// [`mark_request_as_sent`]: #method.mark_request_as_sent
+    #[instrument(skip_all)]
     pub async fn get_missing_sessions(
         &self,
         users: impl Iterator<Item = &UserId>,
@@ -616,15 +617,15 @@ impl OlmMachine {
         self.inner.session_manager.get_missing_sessions(users).await
     }
 
-    /// Receive a successful keys query response.
+    /// Receive a successful `/keys/query` response.
     ///
     /// Returns a list of devices newly discovered devices and devices that
     /// changed.
     ///
     /// # Arguments
     ///
-    /// * `response` - The keys query response of the request that the client
-    /// performed.
+    /// * `response` - The response of the `/keys/query` request that the client
+    ///   performed.
     async fn receive_keys_query_response(
         &self,
         request_id: &TransactionId,
@@ -1134,18 +1135,12 @@ impl OlmMachine {
     /// This will decrypt and handle to-device events returning the decrypted
     /// versions of them.
     ///
-    /// To decrypt an event from the room timeline call [`decrypt_room_event`].
+    /// To decrypt an event from the room timeline, call [`decrypt_room_event`].
     ///
     /// # Arguments
     ///
-    /// * `to_device_events` - The to-device events of the current sync
-    /// response.
-    ///
-    /// * `changed_devices` - The list of devices that changed in this sync
-    /// response.
-    ///
-    /// * `one_time_keys_count` - The current one-time keys counts that the sync
-    /// response returned.
+    /// * `sync_changes` - an [`EncryptionSyncChanges`] value, constructed from
+    ///   a sync response.
     ///
     /// [`decrypt_room_event`]: #method.decrypt_room_event
     ///
@@ -1640,6 +1635,7 @@ impl OlmMachine {
     /// println!("{:?}", device);
     /// # });
     /// ```
+    #[instrument(skip(self))]
     pub async fn get_device(
         &self,
         user_id: &UserId,
@@ -1663,6 +1659,7 @@ impl OlmMachine {
     ///
     /// Returns a `UserIdentities` enum if one is found and the crypto store
     /// didn't throw an error.
+    #[instrument(skip(self))]
     pub async fn get_identity(
         &self,
         user_id: &UserId,
@@ -1698,6 +1695,7 @@ impl OlmMachine {
     /// }
     /// # });
     /// ```
+    #[instrument(skip(self))]
     pub async fn get_user_devices(
         &self,
         user_id: &UserId,
@@ -2043,9 +2041,10 @@ pub struct CrossSigningBootstrapRequests {
 pub struct EncryptionSyncChanges<'a> {
     /// The list of to-device events received in the sync.
     pub to_device_events: Vec<Raw<AnyToDeviceEvent>>,
-    /// The mapping of changed and left devices, per user.
+    /// The mapping of changed and left devices, per user, as returned in the
+    /// sync response.
     pub changed_devices: &'a DeviceLists,
-    /// The number of one time keys.
+    /// The number of one time keys, as returned in the sync response.
     pub one_time_keys_counts: &'a BTreeMap<DeviceKeyAlgorithm, UInt>,
     /// An optional list of fallback keys.
     pub unused_fallback_keys: Option<&'a [DeviceKeyAlgorithm]>,
@@ -2083,7 +2082,9 @@ pub(crate) mod tests {
     use ruma::{
         api::{
             client::{
-                keys::{get_keys, get_keys::v3::Response as KeyQueryResponse, upload_keys},
+                keys::{
+                    claim_keys, get_keys, get_keys::v3::Response as KeyQueryResponse, upload_keys,
+                },
                 sync::sync_events::DeviceLists,
                 to_device::send_event_to_device::v3::Response as ToDeviceResponse,
             },
@@ -2151,13 +2152,13 @@ pub(crate) mod tests {
     fn keys_upload_response() -> upload_keys::v3::Response {
         let data = response_from_file(&test_json::KEYS_UPLOAD);
         upload_keys::v3::Response::try_from_http_response(data)
-            .expect("Can't parse the keys upload response")
+            .expect("Can't parse the `/keys/upload` response")
     }
 
     fn keys_query_response() -> get_keys::v3::Response {
         let data = response_from_file(&test_json::KEYS_QUERY);
         get_keys::v3::Response::try_from_http_response(data)
-            .expect("Can't parse the keys upload response")
+            .expect("Can't parse the `/keys/upload` response")
     }
 
     pub fn to_device_requests_to_content(
@@ -2240,15 +2241,20 @@ pub(crate) mod tests {
         bob: &UserId,
         use_fallback_key: bool,
     ) -> (OlmMachine, OlmMachine) {
-        let (alice, bob, one_time_keys) = get_machine_pair(alice, bob, use_fallback_key).await;
+        let (alice, bob, mut one_time_keys) = get_machine_pair(alice, bob, use_fallback_key).await;
 
-        let one_time_key = one_time_keys.values().next().unwrap();
+        let (device_key_id, one_time_key) = one_time_keys.pop_first().unwrap();
 
         let one_time_keys = BTreeMap::from([(
-            (bob.user_id().to_owned(), bob.device_id().to_owned()),
-            one_time_key,
+            bob.user_id().to_owned(),
+            BTreeMap::from([(
+                bob.device_id().to_owned(),
+                BTreeMap::from([(device_key_id, one_time_key)]),
+            )]),
         )]);
-        alice.inner.session_manager.create_sessions(&one_time_keys).await.unwrap();
+
+        let response = claim_keys::v3::Response::new(one_time_keys);
+        alice.inner.session_manager.create_sessions(&response).await.unwrap();
 
         (alice, bob)
     }
@@ -2263,10 +2269,8 @@ pub(crate) mod tests {
         let bob_device =
             alice.get_device(bob.user_id(), bob.device_id(), None).await.unwrap().unwrap();
 
-        let (session, content) = bob_device
-            .encrypt("m.dummy", serde_json::to_value(ToDeviceDummyEventContent::new()).unwrap())
-            .await
-            .unwrap();
+        let (session, content) =
+            bob_device.encrypt("m.dummy", ToDeviceDummyEventContent::new()).await.unwrap();
         alice.store().save_sessions(&[session]).await.unwrap();
 
         let event =
@@ -2547,23 +2551,29 @@ pub(crate) mod tests {
         machine: &OlmMachine,
         user_id: &UserId,
         device_id: &DeviceId,
+        key_id: OwnedDeviceKeyId,
         one_time_key: Raw<OneTimeKey>,
     ) {
-        let one_time_keys =
-            BTreeMap::from([((user_id.to_owned(), device_id.to_owned()), &one_time_key)]);
-        machine.inner.session_manager.create_sessions(&one_time_keys).await.unwrap();
+        let one_time_keys = BTreeMap::from([(
+            user_id.to_owned(),
+            BTreeMap::from([(device_id.to_owned(), BTreeMap::from([(key_id, one_time_key)]))]),
+        )]);
+
+        let response = claim_keys::v3::Response::new(one_time_keys);
+        machine.inner.session_manager.create_sessions(&response).await.unwrap();
     }
 
     #[async_test]
     async fn test_session_creation() {
         let (alice_machine, bob_machine, mut one_time_keys) =
             get_machine_pair(alice_id(), user_id(), false).await;
-        let (_key_id, one_time_key) = one_time_keys.pop_first().unwrap();
+        let (key_id, one_time_key) = one_time_keys.pop_first().unwrap();
 
         create_session(
             &alice_machine,
             bob_machine.user_id(),
             bob_machine.device_id(),
+            key_id,
             one_time_key,
         )
         .await;
@@ -2584,7 +2594,7 @@ pub(crate) mod tests {
     async fn test_getting_most_recent_session() {
         let (alice_machine, bob_machine, mut one_time_keys) =
             get_machine_pair(alice_id(), user_id(), false).await;
-        let (_key_id, one_time_key) = one_time_keys.pop_first().unwrap();
+        let (key_id, one_time_key) = one_time_keys.pop_first().unwrap();
 
         let device = alice_machine
             .get_device(bob_machine.user_id(), bob_machine.device_id(), None)
@@ -2598,17 +2608,19 @@ pub(crate) mod tests {
             &alice_machine,
             bob_machine.user_id(),
             bob_machine.device_id(),
+            key_id,
             one_time_key.to_owned(),
         )
         .await;
 
         for _ in 0..10 {
-            let (_key_id, one_time_key) = one_time_keys.pop_first().unwrap();
+            let (key_id, one_time_key) = one_time_keys.pop_first().unwrap();
 
             create_session(
                 &alice_machine,
                 bob_machine.user_id(),
                 bob_machine.device_id(),
+                key_id,
                 one_time_key.to_owned(),
             )
             .await;
@@ -2661,7 +2673,7 @@ pub(crate) mod tests {
             alice.get_device(bob.user_id(), bob.device_id(), None).await.unwrap().unwrap();
 
         let (_, content) = bob_device
-            .encrypt("m.dummy", serde_json::to_value(ToDeviceDummyEventContent::new()).unwrap())
+            .encrypt("m.dummy", ToDeviceDummyEventContent::new())
             .await
             .expect("We should be able to encrypt a dummy event.");
 
@@ -3198,7 +3210,7 @@ pub(crate) mod tests {
         );
 
         let kq_response = KeyQueryResponse::try_from_http_response(response_from_file(&json))
-            .expect("Can't parse the keys upload response");
+            .expect("Can't parse the `/keys/upload` response");
 
         alice.receive_keys_query_response(&TransactionId::new(), &kq_response).await.unwrap();
         bob.receive_keys_query_response(&TransactionId::new(), &kq_response).await.unwrap();
@@ -3266,7 +3278,7 @@ pub(crate) mod tests {
         );
 
         let kq_response = KeyQueryResponse::try_from_http_response(response_from_file(&json))
-            .expect("Can't parse the keys upload response");
+            .expect("Can't parse the `/keys/upload` response");
 
         alice.receive_keys_query_response(&TransactionId::new(), &kq_response).await.unwrap();
         bob.receive_keys_query_response(&TransactionId::new(), &kq_response).await.unwrap();
@@ -3331,7 +3343,7 @@ pub(crate) mod tests {
         );
 
         let kq_response = KeyQueryResponse::try_from_http_response(response_from_file(&json))
-            .expect("Can't parse the keys upload response");
+            .expect("Can't parse the `/keys/upload` response");
 
         alice.receive_keys_query_response(&TransactionId::new(), &kq_response).await.unwrap();
         bob.receive_keys_query_response(&TransactionId::new(), &kq_response).await.unwrap();
@@ -3356,7 +3368,7 @@ pub(crate) mod tests {
 
         let data = response_from_file(&test_json::KEYS_QUERY_TWO_DEVICES_ONE_SIGNED);
         let response = get_keys::v3::Response::try_from_http_response(data)
-            .expect("Can't parse the keys upload response");
+            .expect("Can't parse the `/keys/upload` response");
 
         let (device_change, identity_change) =
             bob.receive_keys_query_response(&TransactionId::new(), &response).await.unwrap();
@@ -3654,7 +3666,7 @@ pub(crate) mod tests {
         // Alice sends a key
         let msgs = alice.inner.verification_machine.outgoing_messages();
         assert!(msgs.len() == 1);
-        let msg = msgs.first().unwrap();
+        let msg = &msgs[0];
         let event = outgoing_request_to_event(alice.user_id(), msg);
         alice.inner.verification_machine.mark_request_as_sent(&msg.request_id);
 
@@ -3667,7 +3679,7 @@ pub(crate) mod tests {
         // Now bob sends a key
         let msgs = bob.inner.verification_machine.outgoing_messages();
         assert!(msgs.len() == 1);
-        let msg = msgs.first().unwrap();
+        let msg = &msgs[0];
         let event = outgoing_request_to_event(bob.user_id(), msg);
         bob.inner.verification_machine.mark_request_as_sent(&msg.request_id);
 

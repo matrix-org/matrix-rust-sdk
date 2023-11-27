@@ -713,7 +713,7 @@ impl VerificationRequest {
             | InnerRequest::Done(_)
             | InnerRequest::Cancelled(_) => {
                 warn!(
-                    sender = sender.as_str(),
+                    ?sender,
                     device_id = content.from_device().as_str(),
                     "Received a key verification start event but we're not yet in the ready state"
                 );
@@ -757,7 +757,7 @@ impl VerificationRequest {
     pub(crate) fn receive_done(&self, sender: &UserId, content: &DoneContent<'_>) {
         if sender == self.other_user() {
             trace!(
-                other_user = self.other_user().as_str(),
+                other_user = ?self.other_user(),
                 flow_id = self.flow_id().as_str(),
                 "Marking a verification request as done"
             );
@@ -775,7 +775,7 @@ impl VerificationRequest {
         }
 
         trace!(
-            sender = sender.as_str(),
+            ?sender,
             code = content.cancel_code().as_str(),
             "Cancelling a verification request, other user has cancelled"
         );
@@ -1215,10 +1215,10 @@ async fn generate_qr_code<T: Clone>(
         .await?
     else {
         warn!(
-            user_id = request_state.other_user_id.as_str(),
-            device_id = state.other_device_id.as_str(),
+            user_id = ?request_state.other_user_id,
+            device_id = ?state.other_device_id,
             "Can't create a QR code, the device that accepted the \
-                    verification doesn't exist"
+             verification doesn't exist"
         );
         return Ok(None);
     };
@@ -1241,9 +1241,10 @@ async fn generate_qr_code<T: Clone>(
                             ))
                         } else {
                             warn!(
-                                user_id = request_state.other_user_id.as_str(),
-                                device_id = state.other_device_id.as_str(),
-                                "Can't create a QR code, the other device doesn't have a valid device key"
+                                user_id = ?request_state.other_user_id,
+                                device_id = ?state.other_device_id,
+                                "Can't create a QR code, the other device \
+                                 doesn't have a valid device key"
                             );
                             None
                         }
@@ -1259,10 +1260,10 @@ async fn generate_qr_code<T: Clone>(
                     }
                 } else {
                     warn!(
-                        user_id = request_state.other_user_id.as_str(),
-                        device_id = state.other_device_id.as_str(),
+                        user_id = ?request_state.other_user_id,
+                        device_id = ?state.other_device_id,
                         "Can't create a QR code, our cross signing identity \
-                             doesn't contain a valid master key"
+                         doesn't contain a valid master key"
                     );
                     None
                 }
@@ -1288,19 +1289,19 @@ async fn generate_qr_code<T: Clone>(
                         ))
                     } else {
                         warn!(
-                            user_id = request_state.other_user_id.as_str(),
-                            device_id = state.other_device_id.as_str(),
+                            user_id = ?request_state.other_user_id,
+                            device_id = ?state.other_device_id,
                             "Can't create a QR code, we don't trust our own \
-                                 master key"
+                             master key"
                         );
                         None
                     }
                 } else {
                     warn!(
-                        user_id = request_state.other_user_id.as_str(),
-                        device_id = state.other_device_id.as_str(),
+                        user_id = ?request_state.other_user_id,
+                        device_id = ?state.other_device_id,
                         "Can't create a QR code, the user's identity \
-                             doesn't have a valid master key"
+                         doesn't have a valid master key"
                     );
                     None
                 }
@@ -1308,10 +1309,10 @@ async fn generate_qr_code<T: Clone>(
         }
     } else {
         warn!(
-            user_id = request_state.other_user_id.as_str(),
-            device_id = state.other_device_id.as_str(),
+            user_id = ?request_state.other_user_id,
+            device_id = ?state.other_device_id,
             "Can't create a QR code, the user doesn't have a valid cross \
-                 signing identity."
+             signing identity."
         );
 
         None
@@ -1346,15 +1347,15 @@ async fn receive_start<T: Clone>(
     state: &Ready,
 ) -> Result<Option<RequestState<Transitioned>>, CryptoStoreError> {
     info!(
-        sender = sender.as_str(),
-        device = content.from_device().as_str(),
+        ?sender,
+        device = ?content.from_device(),
         "Received a new verification start event",
     );
 
     let Some(device) = request_state.store.get_device(sender, content.from_device()).await? else {
         warn!(
-            sender = sender.as_str(),
-            device = content.from_device().as_str(),
+            ?sender,
+            device = ?content.from_device(),
             "Received a key verification start event from an unknown device",
         );
 
@@ -1484,10 +1485,10 @@ async fn start_sas<T: Clone>(
         .await?
     else {
         warn!(
-            user_id = request_state.other_user_id.as_str(),
-            device_id = state.other_device_id.as_str(),
+            user_id = ?request_state.other_user_id,
+            device_id = ?state.other_device_id,
             "Can't start the SAS verification flow, the device that \
-                    accepted the verification doesn't exist"
+             accepted the verification doesn't exist"
         );
         return Ok(None);
     };

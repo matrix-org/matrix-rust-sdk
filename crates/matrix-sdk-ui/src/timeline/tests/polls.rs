@@ -37,10 +37,13 @@ async fn edited_poll_is_displayed() {
     let event = timeline.poll_event().await;
     let event_id = event.event_id().unwrap();
     timeline.send_poll_edit(&ALICE, event_id, fakes::poll_b()).await;
+    let poll_state = event.poll_state();
     let edited_poll_state = timeline.poll_state().await;
 
-    assert_poll_start_eq(&event.poll_state().start_event_content.poll_start, &fakes::poll_a());
+    assert_poll_start_eq(&poll_state.start_event_content.poll_start, &fakes::poll_a());
     assert_poll_start_eq(&edited_poll_state.start_event_content.poll_start, &fakes::poll_b());
+    assert!(!poll_state.has_been_edited);
+    assert!(edited_poll_state.has_been_edited);
 }
 
 #[async_test]
@@ -190,11 +193,11 @@ impl TestTimeline {
     }
 
     async fn poll_event(&self) -> EventTimelineItem {
-        self.event_items().await.first().unwrap().clone()
+        self.event_items().await[0].clone()
     }
 
     async fn poll_state(&self) -> PollState {
-        self.event_items().await.first().unwrap().clone().poll_state()
+        self.event_items().await[0].clone().poll_state()
     }
 
     async fn send_poll_start(&self, sender: &UserId, content: UnstablePollStartContentBlock) {

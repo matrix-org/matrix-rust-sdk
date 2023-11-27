@@ -602,7 +602,7 @@ mod tests {
         alice_machine.receive_any_event(&event).await.unwrap();
         assert!(!alice_machine.verifications.outgoing_requests().is_empty());
 
-        let request = alice_machine.verifications.outgoing_requests().get(0).cloned().unwrap();
+        let request = alice_machine.verifications.outgoing_requests().first().cloned().unwrap();
         let txn_id = request.request_id().to_owned();
         let content = OutgoingContent::try_from(request).unwrap();
         let content = KeyContent::try_from(&content).unwrap().into();

@@ -1,12 +1,10 @@
-use std::{collections::HashMap, fmt::Debug};
+use std::{collections::HashMap, fmt::Debug, pin::Pin};
 
 use base64::{engine::general_purpose::STANDARD, Engine};
 use futures_core::future::BoxFuture;
-use opentelemetry::{
-    sdk::{runtime::RuntimeChannel, trace::Tracer, util::tokio_interval_stream, Resource},
-    KeyValue,
-};
+use opentelemetry::KeyValue;
 use opentelemetry_otlp::{Protocol, WithExportConfig};
+use opentelemetry_sdk::{runtime::RuntimeChannel, trace::Tracer, Resource};
 use tokio::runtime::Handle;
 use tracing_core::Subscriber;
 use tracing_subscriber::{
@@ -20,17 +18,17 @@ use tracing_subscriber::{
 use crate::RUNTIME;
 
 #[derive(Clone, Debug)]
-struct TracingRuntime {
+struct TokioRuntime {
     runtime: Handle,
 }
 
-impl opentelemetry::runtime::Runtime for TracingRuntime {
+impl opentelemetry_sdk::runtime::Runtime for TokioRuntime {
     type Interval = tokio_stream::wrappers::IntervalStream;
-    type Delay = ::std::pin::Pin<Box<tokio::time::Sleep>>;
+    type Delay = Pin<Box<tokio::time::Sleep>>;
 
-    fn interval(&self, duration: std::time::Duration) -> Self::Interval {
+    fn interval(&self, period: std::time::Duration) -> Self::Interval {
         let _guard = self.runtime.enter();
-        tokio_interval_stream(duration)
+        tokio_stream::wrappers::IntervalStream::new(tokio::time::interval(period))
     }
 
     fn spawn(&self, future: BoxFuture<'static, ()>) {
@@ -44,11 +42,14 @@ impl opentelemetry::runtime::Runtime for TracingRuntime {
     }
 }
 
-impl<T: Debug + Send> RuntimeChannel<T> for TracingRuntime {
-    type Receiver = tokio_stream::wrappers::ReceiverStream<T>;
-    type Sender = tokio::sync::mpsc::Sender<T>;
+impl RuntimeChannel for TokioRuntime {
+    type Receiver<T: Debug + Send> = tokio_stream::wrappers::ReceiverStream<T>;
+    type Sender<T: Debug + Send> = tokio::sync::mpsc::Sender<T>;
 
-    fn batch_message_channel(&self, capacity: usize) -> (Self::Sender, Self::Receiver) {
+    fn batch_message_channel<T: Debug + Send>(
+        &self,
+        capacity: usize,
+    ) -> (Self::Sender<T>, Self::Receiver<T>) {
         let (sender, receiver) = tokio::sync::mpsc::channel(capacity);
         (sender, tokio_stream::wrappers::ReceiverStream::new(receiver))
     }
@@ -73,14 +74,14 @@ pub fn create_otlp_tracer(
         .with_endpoint(otlp_endpoint)
         .with_headers(headers);
 
-    let tracer_runtime = TracingRuntime { runtime: runtime.to_owned() };
+    let tracer_runtime = TokioRuntime { runtime: runtime.to_owned() };
 
     let _guard = runtime.enter();
     let tracer = opentelemetry_otlp::new_pipeline()
         .tracing()
         .with_exporter(exporter)
         .with_trace_config(
-            opentelemetry::sdk::trace::config()
+            opentelemetry_sdk::trace::config()
                 .with_resource(Resource::new(vec![KeyValue::new("service.name", client_name)])),
         )
         .install_batch(tracer_runtime)?;

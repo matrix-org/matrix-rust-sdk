@@ -514,8 +514,8 @@ impl Sas {
 
         if !mac_requests.is_empty() {
             trace!(
-                user_id = self.other_user_id().as_str(),
-                device_id = self.other_device_id().as_str(),
+                user_id = ?self.other_user_id(),
+                device_id = ?self.other_device_id(),
                 "Confirming SAS verification"
             )
         }

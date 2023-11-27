@@ -78,7 +78,7 @@ impl SlidingSyncRoom {
     pub fn avatar_url(&self) -> Option<OwnedMxcUri> {
         let inner = self.inner.inner.read().unwrap();
 
-        inner.avatar.clone()
+        inner.avatar.clone().into_option()
     }
 
     /// Is this a direct message?
@@ -167,7 +167,10 @@ impl SlidingSyncRoom {
                 inner.name = name;
             }
 
-            if avatar.is_some() {
+            // Note: in the server specification, the avatar is undefined when it hasn't
+            // changed, and it's set to null when it's been unset, so we
+            // distinguish the two here.
+            if !avatar.is_undefined() {
                 inner.avatar = avatar;
             }
 
@@ -321,7 +324,7 @@ mod tests {
     use matrix_sdk_test::async_test;
     use ruma::{
         api::client::sync::sync_events::v4, assign, events::room::message::RoomMessageEventContent,
-        mxc_uri, room_id, serde::Raw, uint, RoomId,
+        mxc_uri, room_id, serde::Raw, uint, JsOption, RoomId,
     };
     use serde_json::json;
     use wiremock::MockServer;
@@ -455,6 +458,14 @@ mod tests {
             _ = Some(mxc_uri!("mxc://homeserver/media").to_owned());
             receives nothing;
             _ = Some(mxc_uri!("mxc://homeserver/media").to_owned());
+        }
+
+        test_avatar_unset {
+            avatar_url() = None;
+            receives room_response!({ "avatar": null });
+            _ = None;
+            receives nothing;
+            _ = None;
         }
 
         test_room_is_dm {
@@ -906,7 +917,7 @@ mod tests {
                 v4::SlidingSyncRoom::default(),
                 {
                     name: Some("foobar".to_owned()),
-                    avatar: Some(mxc_uri!("mxc://homeserver/media").to_owned()),
+                    avatar: JsOption::Some(mxc_uri!("mxc://homeserver/media").to_owned()),
                 }
             ),
             timeline_queue: vector![TimelineEvent::new(
@@ -1040,5 +1051,22 @@ mod tests {
                 &format!("$x{max}:baz.org")
             );
         }
+    }
+
+    #[async_test]
+    async fn test_avatar_set_then_unset() {
+        let mut room = new_room(room_id!("!foo:bar.org"), room_response!({})).await;
+        assert_eq!(room.avatar_url(), None);
+
+        room.update(room_response!({ "avatar": "mxc://homeserver/media" }), vec![]);
+        assert_eq!(room.avatar_url().as_deref(), Some(mxc_uri!("mxc://homeserver/media")));
+
+        // avatar is undefined.
+        room.update(room_response!({}), vec![]);
+        assert_eq!(room.avatar_url().as_deref(), Some(mxc_uri!("mxc://homeserver/media")));
+
+        // avatar is null => reset it to None.
+        room.update(room_response!({ "avatar": null }), vec![]);
+        assert_eq!(room.avatar_url().as_deref(), None);
     }
 }

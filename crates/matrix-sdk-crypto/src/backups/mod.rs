@@ -501,20 +501,22 @@ impl BackupMachine {
 
                 trace!(
                     room_key_counts = ?counts,
-                    request_id = ?r.request_id, keys = ?r.sessions, "Marked room keys as backed up"
+                    request_id = ?r.request_id,
+                    keys = ?r.sessions,
+                    "Marked room keys as backed up"
                 );
 
                 *request = None;
             } else {
                 warn!(
-                    expected = r.request_id.to_string().as_str(),
-                    got = request_id.to_string().as_str(),
+                    expected = ?r.request_id,
+                    got = ?request_id,
                     "Tried to mark a pending backup as sent but the request id didn't match"
                 );
             }
         } else {
             warn!(
-                request_id = request_id.to_string().as_str(),
+                ?request_id,
                 "Tried to mark a pending backup as sent but there isn't a backup pending"
             );
         };

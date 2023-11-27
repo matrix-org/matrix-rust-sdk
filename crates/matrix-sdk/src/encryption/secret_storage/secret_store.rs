@@ -26,8 +26,9 @@ use serde_json::value::to_raw_value;
 use tracing::{
     error,
     field::{debug, display},
-    info, instrument, Span,
+    info, instrument, warn, Span,
 };
+use zeroize::Zeroize;
 
 use super::{DecryptionError, Result};
 use crate::Client;
@@ -292,6 +293,24 @@ impl SecretStore {
         Ok(())
     }
 
+    async fn maybe_enable_backups(&self) -> Result<()> {
+        if let Some(mut secret) = self.get_secret(SecretName::RecoveryKey).await? {
+            let ret = self.client.encryption().backups().maybe_enable_backups(&secret).await;
+
+            if let Err(e) = &ret {
+                warn!("Could not enable backups from secret storage: {e:?}");
+            }
+
+            secret.zeroize();
+
+            Ok(ret.map(|_| ())?)
+        } else {
+            info!("No backup recovery key found.");
+
+            Ok(())
+        }
+    }
+
     /// Retrieve and store well-known secrets locally
     ///
     /// This method retrieves and stores all well-known secrets from the account
@@ -303,6 +322,7 @@ impl SecretStore {
     /// - `m.cross_signing.master`: The master cross-signing key.
     /// - `m.cross_signing.self_signing`: The self-signing cross-signing key.
     /// - `m.cross_signing.user_signing`: The user-signing cross-signing key.
+    /// - `m.megolm_backup.v1`: The backup recovery key.
     ///
     /// If the `m.cross_signing.self_signing` key is successfully imported, it
     /// is used to sign our own [`Device`], marking it as verified. This step is
@@ -366,9 +386,6 @@ impl SecretStore {
         let (request_id, request) = olm_machine.query_keys_for_users([olm_machine.user_id()]);
         self.client.keys_query(&request_id, request.device_keys).await?;
 
-        // TODO: Import the backup key here as well if it exists and enable backups if
-        // the current backup version is trusted, or expose a different method for this?
-
         // Let's now try to import our private cross-signing keys.
         let status = olm_machine.import_cross_signing_keys(export).await?;
 
@@ -397,6 +414,8 @@ impl SecretStore {
             }
         }
 
+        self.maybe_enable_backups().await?;
+
         Ok(())
     }
 
@@ -408,7 +427,14 @@ impl SecretStore {
             self.put_cross_signing_keys(cross_signing_keys).await?;
         }
 
-        // TODO: export the backup key as well.
+        let backup_keys = olm_machine.backup_machine().get_backup_keys().await?;
+
+        if let Some(backup_recovery_key) = backup_keys.decryption_key {
+            let mut key = backup_recovery_key.to_base64();
+            self.put_secret(SecretName::RecoveryKey, &key).await?;
+
+            key.zeroize();
+        }
 
         Ok(())
     }

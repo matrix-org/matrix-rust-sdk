@@ -49,7 +49,7 @@ pub enum Error {
     Json(#[from] serde_json::Error),
     /// Error encrypting or decrypting a value {0}
     Encryption(#[from] EncryptionError),
-    /// Coulnd't generate enough randomness for a cryptographic operation: {0}
+    /// Couldn't generate enough randomness for a cryptographic operation: {0}
     Random(#[from] RandomError),
     /// Unsupported ciphertext version, expected {0}, got {1}
     Version(u8, u8),

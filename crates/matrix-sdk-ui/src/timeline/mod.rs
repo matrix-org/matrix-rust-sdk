@@ -35,7 +35,10 @@ use pin_project_lite::pin_project;
 use ruma::{
     api::client::receipt::create_receipt::v3::ReceiptType,
     events::{
-        poll::unstable_start::UnstablePollStartEventContent,
+        poll::unstable_start::{
+            ReplacementUnstablePollStartEventContent, UnstablePollStartContentBlock,
+            UnstablePollStartEventContent,
+        },
         reaction::ReactionEventContent,
         receipt::{Receipt, ReceiptThread},
         relation::Annotation,
@@ -417,6 +420,28 @@ impl Timeline {
         Ok(())
     }
 
+    pub async fn edit_poll(
+        &self,
+        fallback_text: impl Into<String>,
+        poll: UnstablePollStartContentBlock,
+        edit_item: &EventTimelineItem,
+    ) -> Result<(), UnsupportedEditItem> {
+        let Some(event_id) = edit_item.event_id() else {
+            return Err(UnsupportedEditItem::MISSING_EVENT_ID);
+        };
+        let TimelineItemContent::Poll(_) = edit_item.content() else {
+            return Err(UnsupportedEditItem::NOT_POLL_EVENT);
+        };
+
+        let replacement_poll = ReplacementUnstablePollStartEventContent::plain_text(
+            fallback_text,
+            poll,
+            event_id.into(),
+        );
+        self.send(UnstablePollStartEventContent::from(replacement_poll).into()).await;
+        Ok(())
+    }
+
     /// Toggle a reaction on an event
     ///
     /// Adds or redacts a reaction based on the state of the reaction at the
@@ -748,6 +773,7 @@ struct TimelineDropHandle {
     event_handler_handles: Vec<EventHandlerHandle>,
     room_update_join_handle: JoinHandle<()>,
     ignore_user_list_update_join_handle: JoinHandle<()>,
+    room_key_from_backups_join_handle: JoinHandle<()>,
 }
 
 impl Drop for TimelineDropHandle {
@@ -757,6 +783,7 @@ impl Drop for TimelineDropHandle {
         }
         self.room_update_join_handle.abort();
         self.ignore_user_list_update_join_handle.abort();
+        self.room_key_from_backups_join_handle.abort();
     }
 }
 

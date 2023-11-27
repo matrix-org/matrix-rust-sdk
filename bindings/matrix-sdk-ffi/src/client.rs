@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     mem::ManuallyDrop,
     sync::{Arc, RwLock},
 };
@@ -39,6 +40,7 @@ use matrix_sdk_ui::notification_client::NotificationProcessSetup as MatrixNotifi
 use mime::Mime;
 use ruma::{
     api::client::discovery::discover_homeserver::AuthenticationServerInfo,
+    events::room::power_levels::RoomPowerLevelsEventContent,
     push::{HttpPusherData as RumaHttpPusherData, PushFormat as RumaPushFormat},
 };
 use serde::{Deserialize, Serialize};
@@ -808,6 +810,86 @@ impl Client {
 }
 
 #[derive(uniffi::Record)]
+pub struct NotificationPowerLevels {
+    pub room: i32,
+}
+
+impl From<NotificationPowerLevels> for ruma::power_levels::NotificationPowerLevels {
+    fn from(value: NotificationPowerLevels) -> Self {
+        let mut notification_power_levels = Self::new();
+        notification_power_levels.room = value.room.into();
+        notification_power_levels
+    }
+}
+
+#[derive(uniffi::Record)]
+pub struct PowerLevels {
+    pub users_default: Option<i32>,
+    pub events_default: Option<i32>,
+    pub state_default: Option<i32>,
+    pub ban: Option<i32>,
+    pub kick: Option<i32>,
+    pub redact: Option<i32>,
+    pub invite: Option<i32>,
+    pub notifications: Option<NotificationPowerLevels>,
+    pub users: HashMap<String, i32>,
+    pub events: HashMap<String, i32>,
+}
+
+impl From<PowerLevels> for RoomPowerLevelsEventContent {
+    fn from(value: PowerLevels) -> Self {
+        let mut power_levels = RoomPowerLevelsEventContent::new();
+
+        if let Some(users_default) = value.users_default {
+            power_levels.users_default = users_default.into();
+        }
+        if let Some(state_default) = value.state_default {
+            power_levels.state_default = state_default.into();
+        }
+        if let Some(events_default) = value.events_default {
+            power_levels.events_default = events_default.into();
+        }
+        if let Some(ban) = value.ban {
+            power_levels.ban = ban.into();
+        }
+        if let Some(kick) = value.kick {
+            power_levels.kick = kick.into();
+        }
+        if let Some(redact) = value.redact {
+            power_levels.redact = redact.into();
+        }
+        if let Some(invite) = value.invite {
+            power_levels.invite = invite.into();
+        }
+        if let Some(notifications) = value.notifications {
+            power_levels.notifications = notifications.into()
+        }
+        power_levels.users = value
+            .users
+            .iter()
+            .filter_map(|(user_id, power_level)| match UserId::parse(user_id) {
+                Ok(id) => Some((id, (*power_level).into())),
+                Err(e) => {
+                    error!(user_id, "Skipping invalid user ID, error: {e}");
+                    None
+                }
+            })
+            .collect();
+
+        power_levels.events = value
+            .events
+            .iter()
+            .map(|(event_type, power_level)| {
+                let event_type: ruma::events::TimelineEventType = event_type.as_str().into();
+                (event_type, (*power_level).into())
+            })
+            .collect();
+
+        power_levels
+    }
+}
+
+#[derive(uniffi::Record)]
 pub struct CreateRoomParameters {
     pub name: Option<String>,
     #[uniffi(default = None)]
@@ -821,6 +903,8 @@ pub struct CreateRoomParameters {
     pub invite: Option<Vec<String>>,
     #[uniffi(default = None)]
     pub avatar: Option<String>,
+    #[uniffi(default = None)]
+    pub power_level_content_override: Option<PowerLevels>,
 }
 
 impl From<CreateRoomParameters> for create_room::v3::Request {
@@ -858,8 +942,18 @@ impl From<CreateRoomParameters> for create_room::v3::Request {
             content.url = Some(url.into());
             initial_state.push(InitialStateEvent::new(content).to_raw_any());
         }
-
         request.initial_state = initial_state;
+
+        if let Some(power_levels) = value.power_level_content_override {
+            match Raw::new(&power_levels.into()) {
+                Ok(power_levels) => {
+                    request.power_level_content_override = Some(power_levels);
+                }
+                Err(e) => {
+                    error!("Failed to serialize power levels, error: {e}");
+                }
+            }
+        }
 
         request
     }

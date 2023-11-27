@@ -541,8 +541,7 @@ impl BaseClient {
                 for (user_id, rooms) in e.content.iter() {
                     for room_id in rooms {
                         trace!(
-                            room_id = room_id.as_str(),
-                            target = user_id.as_str(),
+                            ?room_id, target = ?user_id,
                             "Marking room as direct room"
                         );
 

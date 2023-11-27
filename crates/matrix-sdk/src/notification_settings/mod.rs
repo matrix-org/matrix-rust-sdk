@@ -208,12 +208,15 @@ impl NotificationSettings {
     }
 
     /// Sets the push rule actions for a given underride push rule. It also
-    /// enables the push rule if it is disabled. [Underride rules](https://spec.matrix.org/v1.8/client-server-api/#push-rules) are the lowest priority push rules
+    /// enables the push rule if it is disabled. [Underride rules] are the
+    /// lowest priority push rules
     ///
     /// # Arguments
     ///
     /// * `rule_id` - the identifier of the push rule
     /// * `actions` - the actions to set for the push rule
+    ///
+    /// [Underride rules]: https://spec.matrix.org/v1.8/client-server-api/#push-rules
     pub async fn set_underride_push_rule_actions(
         &self,
         rule_id: PredefinedUnderrideRuleId,
@@ -417,6 +420,11 @@ impl NotificationSettings {
 // The http mocking library is not supported for wasm32
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    };
+
     use assert_matches::assert_matches;
     use matrix_sdk_test::{
         async_test,
@@ -429,7 +437,10 @@ mod tests {
         },
         OwnedRoomId, RoomId,
     };
-    use wiremock::{http::Method, matchers::method, Mock, MockServer, ResponseTemplate};
+    use wiremock::{
+        matchers::{method, path, path_regex},
+        Mock, MockServer, ResponseTemplate,
+    };
 
     use crate::{
         error::NotificationSettingsError,
@@ -653,7 +664,12 @@ mod tests {
 
         let settings = NotificationSettings::new(client, ruleset);
 
-        Mock::given(method("PUT")).respond_with(ResponseTemplate::new(200)).mount(&server).await;
+        Mock::given(method("PUT"))
+            .and(path("/_matrix/client/r0/pushrules/global/override/.m.rule.reaction/enabled"))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(1)
+            .mount(&server)
+            .await;
 
         settings
             .set_push_rule_enabled(
@@ -664,20 +680,13 @@ mod tests {
             .await
             .unwrap();
 
-        // Test the request sent
-        let requests = server.received_requests().await.unwrap();
-        assert_eq!(requests.len(), 1);
-        assert_eq!(requests[0].method, Method::Put);
-        assert_eq!(
-            requests[0].url.path(),
-            "/_matrix/client/r0/pushrules/global/override/.m.rule.reaction/enabled"
-        );
-
         // The ruleset must have been updated
         let rules = settings.rules.read().await;
         let rule =
             rules.ruleset.get(RuleKind::Override, PredefinedOverrideRuleId::Reaction).unwrap();
         assert!(rule.enabled());
+
+        server.verify().await
     }
 
     #[async_test]
@@ -748,8 +757,45 @@ mod tests {
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
 
-        Mock::given(method("PUT")).respond_with(ResponseTemplate::new(200)).mount(&server).await;
-        Mock::given(method("DELETE")).respond_with(ResponseTemplate::new(200)).mount(&server).await;
+        let put_was_called = Arc::new(AtomicBool::default());
+
+        Mock::given(method("PUT"))
+            .and(path_regex(r"_matrix/client/r0/pushrules/global/override/.*"))
+            .and({
+                let put_was_called = put_was_called.clone();
+                move |_: &wiremock::Request| {
+                    put_was_called.store(true, Ordering::SeqCst);
+
+                    true
+                }
+            })
+            .respond_with(ResponseTemplate::new(200))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("DELETE"))
+            .and(path_regex(r"_matrix/client/r0/pushrules/global/room/.*"))
+            .and(move |_: &wiremock::Request| {
+                // Make sure that the PUT is executed before the DELETE, so that the following
+                // sync results will give the following transitions:
+                // `AllMessages` -> `AllMessages` -> `Mute` by sending the
+                // DELETE before the PUT, we would have `AllMessages` ->
+                // `Default` -> `Mute`
+
+                let put_was_called = put_was_called.load(Ordering::SeqCst);
+                assert!(
+                    put_was_called,
+                    "The PUT /pushrules/global/override/ method should have been called before the \
+                     DELETE method"
+                );
+
+                true
+            })
+            .respond_with(ResponseTemplate::new(200))
+            .expect(1)
+            .mount(&server)
+            .await;
 
         let room_id = get_test_room_id();
 
@@ -765,14 +811,7 @@ mod tests {
             settings.get_user_defined_room_notification_mode(&room_id).await.unwrap()
         );
 
-        // Test that the PUT is executed before the DELETE, so that the following sync
-        // results will give the following transitions: `AllMessages` ->
-        // `AllMessages` -> `Mute` by sending the DELETE before the PUT, we
-        // would have `AllMessages` -> `Default` -> `Mute`
-        let requests = server.received_requests().await.unwrap();
-        assert_eq!(requests.len(), 2);
-        assert_eq!(requests[0].method, Method::Put);
-        assert_eq!(requests[1].method, Method::Delete);
+        server.verify().await
     }
 
     #[async_test]

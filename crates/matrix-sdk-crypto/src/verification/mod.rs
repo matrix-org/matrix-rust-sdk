@@ -640,7 +640,7 @@ impl IdentitiesBeingVerified {
                     i.iter().any(|verified| verified.user_id() == identity.user_id())
                 }) {
                     trace!(
-                        user_id = self.other_user_id().as_str(),
+                        user_id = ?self.other_user_id(),
                         "Marking the user identity of as verified."
                     );
 
@@ -654,7 +654,7 @@ impl IdentitiesBeingVerified {
                     (Some(identity), should_request_secrets)
                 } else {
                     info!(
-                        user_id = self.other_user_id().as_str(),
+                        user_id = ?self.other_user_id(),
                         "The interactive verification process didn't verify \
                          the user identity of the user that participated in \
                          the interactive verification",
@@ -664,7 +664,7 @@ impl IdentitiesBeingVerified {
                 }
             } else {
                 warn!(
-                    user_id = self.other_user_id().as_str(),
+                    user_id = ?self.other_user_id(),
                     "The master keys of the user have changed while an interactive \
                       verification was going on, not marking the identity as verified.",
                 );
@@ -673,7 +673,7 @@ impl IdentitiesBeingVerified {
             }
         } else {
             info!(
-                user_id = self.other_user_id().as_str(),
+                user_id = ?self.other_user_id(),
                 "The identity of the user was deleted while an interactive \
                  verification was going on.",
             );
@@ -690,8 +690,8 @@ impl IdentitiesBeingVerified {
         let Some(device) = device else {
             let device = &self.device_being_verified;
             info!(
-                user_id = device.user_id().as_str(),
-                device_id = device.device_id().as_str(),
+                user_id = ?device.user_id(),
+                device_id = ?device.device_id(),
                 "The device was deleted while an interactive verification was going on.",
             );
             return Ok(None);
@@ -699,8 +699,8 @@ impl IdentitiesBeingVerified {
 
         if device.keys() != self.device_being_verified.keys() {
             warn!(
-                user_id = device.user_id().as_str(),
-                device_id = device.device_id().as_str(),
+                user_id = ?device.user_id(),
+                device_id = ?device.device_id(),
                 "The device keys have changed while an interactive verification \
                  was going on, not marking the device as verified.",
             );
@@ -709,8 +709,8 @@ impl IdentitiesBeingVerified {
 
         if verified_devices.is_some_and(|v| v.contains(&device)) {
             trace!(
-                user_id = device.user_id().as_str(),
-                device_id = device.device_id().as_str(),
+                user_id = ?device.user_id(),
+                device_id = ?device.device_id(),
                 "Marking device as verified.",
             );
 
@@ -719,8 +719,8 @@ impl IdentitiesBeingVerified {
             Ok(Some(device))
         } else {
             info!(
-                user_id = device.user_id().as_str(),
-                device_id = device.device_id().as_str(),
+                user_id = ?device.user_id(),
+                device_id = ?device.device_id(),
                 "The interactive verification process didn't verify the device",
             );
 

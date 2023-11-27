@@ -294,8 +294,8 @@ impl GossipMachine {
             if device.user_id() == self.user_id() {
                 if device.is_verified() {
                     info!(
-                        user_id = device.user_id().as_str(),
-                        device_id = device.device_id().as_str(),
+                        user_id = ?device.user_id(),
+                        device_id = ?device.device_id(),
                         ?secret_name,
                         "Sharing a secret with a device",
                     );
@@ -304,9 +304,9 @@ impl GossipMachine {
                         Ok(s) => Ok(Some(s)),
                         Err(OlmError::MissingSession) => {
                             info!(
-                                user_id = device.user_id().as_str(),
-                                device_id = device.device_id().as_str(),
-                                secret_name = secret_name.as_ref(),
+                                user_id = ?device.user_id(),
+                                device_id = ?device.device_id(),
+                                ?secret_name,
                                 "Secret request is missing an Olm session, \
                                 putting the request in the wait queue",
                             );
@@ -318,8 +318,8 @@ impl GossipMachine {
                     }?
                 } else {
                     info!(
-                        user_id = device.user_id().as_str(),
-                        device_id = device.device_id().as_str(),
+                        user_id = ?device.user_id(),
+                        device_id = ?device.device_id(),
                         ?secret_name,
                         "Received a secret request that we won't serve, the device isn't trusted",
                     );
@@ -328,8 +328,8 @@ impl GossipMachine {
                 }
             } else {
                 info!(
-                    user_id = device.user_id().as_str(),
-                    device_id = device.device_id().as_str(),
+                    user_id = ?device.user_id(),
+                    device_id = ?device.device_id(),
                     ?secret_name,
                     "Received a secret request that we won't serve, the device doesn't belong to us",
                 );
@@ -338,8 +338,8 @@ impl GossipMachine {
             }
         } else {
             warn!(
-                user_id = event.sender.as_str(),
-                device_id = event.content.requesting_device_id.as_str(),
+                user_id = ?event.sender,
+                device_id = ?event.content.requesting_device_id,
                 ?secret_name,
                 "Received a secret request from an unknown device",
             );
@@ -516,7 +516,6 @@ impl GossipMachine {
         content: SecretSendContent,
     ) -> OlmResult<Session> {
         let event_type = content.event_type();
-        let content = serde_json::to_value(content)?;
         let (used_session, content) = device.encrypt(event_type, content).await?;
 
         let request = ToDeviceRequest::new(
@@ -619,7 +618,7 @@ impl GossipMachine {
         // at. For this, we need an outbound session because this
         // information is recorded there.
         } else if let Some(outbound) = outbound_session {
-            match outbound.is_shared_with(device) {
+            match outbound.is_shared_with(&device.inner) {
                 ShareState::Shared(message_index) => Ok(Some(message_index)),
                 ShareState::SharedButChangedSenderKey => Err(KeyForwardDecision::ChangedSenderKey),
                 ShareState::NotShared => Err(KeyForwardDecision::OutboundSessionNotShared),
@@ -789,9 +788,9 @@ impl GossipMachine {
 
         if let Some(mut info) = info {
             trace!(
-                recipient = info.request_recipient.as_str(),
+                recipient = ?info.request_recipient,
                 request_type = info.request_type(),
-                request_id = info.request_id.to_string().as_str(),
+                request_id = ?info.request_id,
                 "Marking outgoing secret request as sent"
             );
             info.sent_out = true;
@@ -808,9 +807,9 @@ impl GossipMachine {
     /// This will queue up a request cancellation.
     async fn mark_as_done(&self, key_info: &GossipRequest) -> Result<(), CryptoStoreError> {
         trace!(
-            recipient = key_info.request_recipient.as_str(),
+            recipient = ?key_info.request_recipient,
             request_type = key_info.request_type(),
-            request_id = key_info.request_id.to_string().as_str(),
+            request_id = ?key_info.request_id,
             "Successfully received a secret, removing the request"
         );
 
@@ -952,7 +951,7 @@ impl GossipMachine {
                     info!(
                         ?sender_key,
                         claimed_sender_key = ?session.sender_key(),
-                        room_id = session.room_id().as_str(),
+                        room_id = ?session.room_id(),
                         session_id = session.session_id(),
                         algorithm = ?session.algorithm(),
                         "Received a forwarded room key",
@@ -1385,7 +1384,7 @@ mod tests {
         let requests = machine.outgoing_to_device_requests().await.unwrap();
         assert_eq!(requests.len(), 1);
 
-        let request = requests.get(0).unwrap();
+        let request = &requests[0];
 
         machine.mark_outgoing_request_as_sent(&request.request_id).await.unwrap();
         assert!(machine.outgoing_to_device_requests().await.unwrap().is_empty());
@@ -1411,7 +1410,7 @@ mod tests {
         machine.create_outgoing_key_request(session.room_id(), &room_event).await.unwrap();
 
         let requests = machine.outgoing_to_device_requests().await.unwrap();
-        let request = requests.get(0).unwrap();
+        let request = &requests[0];
         let id = &request.request_id;
 
         machine.mark_outgoing_request_as_sent(id).await.unwrap();
@@ -1890,7 +1889,7 @@ mod tests {
             vec![SecretName::RecoveryKey],
         );
         let mut changes = Changes::default();
-        let request_id = key_requests.first().unwrap().request_id.to_owned();
+        let request_id = key_requests[0].request_id.to_owned();
         changes.key_requests = key_requests;
         bob_machine.store().save_changes(changes).await.unwrap();
         for request in bob_machine.outgoing_requests().await.unwrap() {
@@ -2001,7 +2000,7 @@ mod tests {
         // Bob only has a keys claim request, since we're lacking a session
         assert_eq!(bob_machine.outgoing_to_device_requests().await.unwrap().len(), 1);
         assert_matches!(
-            bob_machine.outgoing_to_device_requests().await.unwrap().first().unwrap().request(),
+            bob_machine.outgoing_to_device_requests().await.unwrap()[0].request(),
             OutgoingRequests::KeysClaim(_)
         );
         assert!(!bob_machine.inner.users_for_key_claim.read().unwrap().is_empty());

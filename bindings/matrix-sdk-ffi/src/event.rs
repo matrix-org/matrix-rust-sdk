@@ -5,7 +5,7 @@ use ruma::events::{
     RedactedStateEventContent, StaticStateEventContent, SyncMessageLikeEvent, SyncStateEvent,
 };
 
-use crate::{room_member::MembershipState, timeline::MessageType, ClientError};
+use crate::{room_member::MembershipState, ruma::MessageType, ClientError};
 
 #[derive(uniffi::Object)]
 pub struct TimelineEvent(pub(crate) AnySyncTimelineEvent);

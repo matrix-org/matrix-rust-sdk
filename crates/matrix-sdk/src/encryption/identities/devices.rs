@@ -401,14 +401,14 @@ impl Device {
     ///     if device.is_verified() {
     ///         println!(
     ///             "Device {} of user {} is verified",
-    ///             device.device_id().as_str(),
-    ///             device.user_id().as_str()
+    ///             device.device_id(),
+    ///             device.user_id(),
     ///         );
     ///     } else {
     ///         println!(
     ///             "Device {} of user {} is not verified",
-    ///             device.device_id().as_str(),
-    ///             device.user_id().as_str()
+    ///             device.device_id(),
+    ///             device.user_id(),
     ///         );
     ///     }
     /// }

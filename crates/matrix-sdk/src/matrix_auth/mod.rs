@@ -826,7 +826,10 @@ impl MatrixAuth {
 
     async fn set_session(&self, session: MatrixSession) -> Result<()> {
         self.set_session_tokens(session.tokens);
-        self.client.base_client().set_session_meta(session.meta).await?;
+        self.client.set_session_meta(session.meta).await?;
+
+        #[cfg(feature = "e2e-encryption")]
+        self.client.encryption().run_initialization_tasks().await?;
 
         Ok(())
     }

@@ -221,7 +221,7 @@ impl TimelineItemContent {
             TimelineItemContent::Message(_) => "a message",
             TimelineItemContent::RedactedMessage => "a redacted messages",
             TimelineItemContent::Sticker(_) => "a sticker",
-            TimelineItemContent::UnableToDecrypt(_) => "a poll",
+            TimelineItemContent::UnableToDecrypt(_) => "an encrypted message we couldn't decrypt",
             TimelineItemContent::MembershipChange(_) => "a membership change",
             TimelineItemContent::ProfileChange(_) => "a profile change",
             TimelineItemContent::OtherState(_) => "a state event",
