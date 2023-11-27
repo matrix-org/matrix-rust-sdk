@@ -883,7 +883,7 @@ impl From<PowerLevels> for RoomPowerLevelsEventContent {
             .events
             .iter()
             .map(|(event_type, power_level)| {
-                let event_type: ruma::events::TimelineEventType = event_type.clone().into();
+                let event_type: ruma::events::TimelineEventType = event_type.as_str().into();
                 (event_type, (*power_level).into())
             })
             .collect();
