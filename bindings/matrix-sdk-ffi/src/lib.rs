@@ -21,7 +21,6 @@ macro_rules! unwrap_or_clone_arc_into_variant {
 }
 
 mod authentication_service;
-mod calls;
 mod chunk_iterator;
 mod client;
 mod client_builder;

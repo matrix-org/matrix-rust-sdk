@@ -55,6 +55,7 @@ experimental-sliding-sync = [
     "reqwest/gzip",
     "dep:eyeball-im-util",
 ]
+experimental-rtc = []
 experimental-widgets = ["dep:language-tags", "dep:uuid"]
 
 docsrs = ["e2e-encryption", "sqlite", "sso-login", "qrcode", "image-proc"]

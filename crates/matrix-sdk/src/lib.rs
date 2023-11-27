@@ -53,6 +53,8 @@ pub mod futures {
 
     pub use super::client::futures::SendRequest;
 }
+#[cfg(feature = "experimental-rtc")]
+pub mod matrix_rtc;
 #[cfg(feature = "experimental-sliding-sync")]
 pub mod sliding_sync;
 pub mod sync;

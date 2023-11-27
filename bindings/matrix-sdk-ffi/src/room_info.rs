@@ -4,8 +4,8 @@ use matrix_sdk::RoomState;
 use ruma::OwnedMxcUri;
 
 use crate::{
-    calls::RoomCall, notification_settings::RoomNotificationMode, room::Membership,
-    room_member::RoomMember, timeline::EventTimelineItem,
+    notification_settings::RoomNotificationMode, room::Membership, room_member::RoomMember,
+    timeline::EventTimelineItem,
 };
 
 #[derive(uniffi::Record)]
@@ -29,7 +29,6 @@ pub struct RoomInfo {
     highlight_count: u64,
     notification_count: u64,
     user_defined_notification_mode: Option<RoomNotificationMode>,
-    active_room_call: Option<Arc<RoomCall>>,
 }
 
 impl RoomInfo {
@@ -68,7 +67,6 @@ impl RoomInfo {
                 .user_defined_notification_mode()
                 .await
                 .map(Into::into),
-            active_room_call: room.active_room_call().map(|inner| Arc::new(RoomCall { inner })),
         })
     }
 }

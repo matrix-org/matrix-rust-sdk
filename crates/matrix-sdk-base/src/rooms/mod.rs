@@ -1,13 +1,15 @@
 #![allow(clippy::assign_op_pattern)] // triggered by bitflags! usage
 
-mod calls;
+mod call;
 mod members;
 pub(crate) mod normal;
 
 use std::{collections::HashSet, fmt, hash::Hash};
 
 use bitflags::bitflags;
-pub use calls::{CallMemberIdentifier, CallMemberInfo, RoomCall};
+pub use call::{
+    CallMember, CallMemberDiff, CallMemberEventExt, CallMemberIdentifier, CallMemberInfo, RoomCall,
+};
 pub use members::RoomMember;
 pub use normal::{Room, RoomInfo, RoomState, RoomStateFilter};
 use ruma::{
@@ -35,7 +37,6 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 
-use self::calls::CallMembershipsHandler;
 use crate::MinimalStateEvent;
 
 /// The name of the room, either from the metadata or calculated
@@ -98,8 +99,8 @@ pub struct BaseRoomInfo {
     pub(crate) tombstone: Option<MinimalStateEvent<RoomTombstoneEventContent>>,
     /// The topic of this room.
     pub(crate) topic: Option<MinimalStateEvent<RoomTopicEventContent>>,
-    /// Stores the information about the current call memberships in a room.
-    pub(crate) call_memberships: CallMembershipsHandler,
+    /// Active room call.
+    pub(crate) call: Option<RoomCall>,
 }
 
 impl BaseRoomInfo {
@@ -170,9 +171,6 @@ impl BaseRoomInfo {
             }
             AnySyncStateEvent::RoomPowerLevels(p) => {
                 self.max_power_level = p.power_levels().max().into();
-            }
-            AnySyncStateEvent::CallMember(m) => {
-                self.call_memberships.handle_call_member_event(m);
             }
             _ => return false,
         }
@@ -289,7 +287,7 @@ impl Default for BaseRoomInfo {
             name: None,
             tombstone: None,
             topic: None,
-            call_memberships: Default::default(),
+            call: None,
         }
     }
 }

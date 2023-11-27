@@ -52,7 +52,6 @@ use uuid::Uuid;
 
 use super::RUNTIME;
 use crate::{
-    calls::RoomCall,
     chunk_iterator::ChunkIterator,
     client::ProgressWatcher,
     error::{ClientError, MediaInfoError, RoomError},
@@ -144,10 +143,6 @@ impl Room {
 
     pub fn membership(&self) -> Membership {
         self.inner.state().into()
-    }
-
-    pub fn active_room_call(&self) -> Option<Arc<RoomCall>> {
-        self.inner.active_room_call().map(|c| Arc::new(RoomCall { inner: c }))
     }
 
     pub fn inviter(&self) -> Option<Arc<RoomMember>> {

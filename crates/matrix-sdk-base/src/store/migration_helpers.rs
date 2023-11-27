@@ -189,7 +189,6 @@ impl BaseRoomInfoV1 {
             MinimalStateEvent::Redacted(ev) => MinimalStateEvent::Redacted(ev),
         });
 
-        let call_memberships = Default::default();
         Box::new(BaseRoomInfo {
             avatar,
             canonical_alias,
@@ -203,7 +202,7 @@ impl BaseRoomInfoV1 {
             name,
             tombstone,
             topic,
-            call_memberships,
+            call: None,
         })
     }
 }

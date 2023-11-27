@@ -55,7 +55,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, field::debug, info, instrument, trace, warn};
 
 use super::{
-    calls::RoomCall,
+    call::RoomCall,
     members::{MemberInfo, MemberRoomInfo},
     BaseRoomInfo, DisplayName, RoomCreateWithCreatorEventContent, RoomMember,
 };
@@ -1026,7 +1026,7 @@ impl RoomInfo {
 
     /// Returns an active (on-going) room call.
     pub fn active_room_call(&self) -> Option<RoomCall> {
-        self.base_info.call_memberships.room_call()
+        self.base_info.call.clone()
     }
 }
 
@@ -1117,25 +1117,15 @@ impl RoomStateFilter {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        ops::Sub,
-        str::FromStr,
-        sync::Arc,
-        time::{Duration, SystemTime},
-    };
+    use std::sync::Arc;
 
-    use assert_matches2::assert_let;
     use assign::assign;
     #[cfg(feature = "experimental-sliding-sync")]
     use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
-    use matrix_sdk_test::{async_test, ALICE, BOB, CAROL};
+    use matrix_sdk_test::async_test;
     use ruma::{
         api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
         events::{
-            call::member::{
-                Application, CallApplicationContent, CallMemberEventContent, Focus, LivekitFocus,
-                Membership, MembershipInit, OriginalSyncCallMemberEvent,
-            },
             room::{
                 canonical_alias::RoomCanonicalAliasEventContent,
                 member::{
@@ -1144,11 +1134,11 @@ mod tests {
                 },
                 name::RoomNameEventContent,
             },
-            AnySyncStateEvent, StateEventType, StateUnsigned, SyncStateEvent,
+            StateEventType,
         },
         room_alias_id, room_id,
         serde::Raw,
-        user_id, MilliSecondsSinceUnixEpoch, OwnedEventId, UserId,
+        user_id, UserId,
     };
     use serde_json::json;
 
@@ -1230,9 +1220,7 @@ mod tests {
                 "name": null,
                 "tombstone": null,
                 "topic": null,
-                "call_memberships": {
-                    "memberships": {},
-                },
+                "call": null,
             }
         });
 
@@ -1276,9 +1264,7 @@ mod tests {
                 "name": null,
                 "tombstone": null,
                 "topic": null,
-                "call_memberships": {
-                    "memberships": {},
-                },
+                "call": null,
             }
         });
 
@@ -1649,122 +1635,5 @@ mod tests {
         Box::new(LatestEvent::new(SyncTimelineEvent::new(
             Raw::from_json_string(json!({ "event_id": event_id }).to_string()).unwrap(),
         )))
-    }
-
-    fn timestamp(minutes_ago: u32) -> MilliSecondsSinceUnixEpoch {
-        MilliSecondsSinceUnixEpoch::from_system_time(
-            SystemTime::now().sub(Duration::from_secs((60 * minutes_ago).into())),
-        )
-        .expect("date out of range")
-    }
-
-    fn call_member_state_event(
-        memberships: Vec<Membership>,
-        ev_id: &str,
-        user_id: &UserId,
-    ) -> AnySyncStateEvent {
-        let content = CallMemberEventContent::new(memberships);
-
-        AnySyncStateEvent::CallMember(SyncStateEvent::Original(OriginalSyncCallMemberEvent {
-            content,
-            event_id: OwnedEventId::from_str(ev_id).unwrap(),
-            sender: user_id.to_owned(),
-            // we can simply use now here since this will be dropped when using a MinimalStateEvent
-            // in the roomInfo
-            origin_server_ts: timestamp(0),
-            state_key: user_id.to_owned(),
-            unsigned: StateUnsigned::new(),
-        }))
-    }
-
-    fn membership_for_my_call(
-        device_id: &str,
-        membership_id: &str,
-        minutes_ago: u32,
-    ) -> Membership {
-        let application = Application::Call(CallApplicationContent::new(
-            "my_call_id_1".to_owned(),
-            ruma::events::call::member::CallScope::Room,
-        ));
-        let foci_active = vec![Focus::Livekit(LivekitFocus::new(
-            "my_call_foci_alias".to_owned(),
-            "https://lk.org".to_owned(),
-        ))];
-
-        assign!(
-            Membership::from(MembershipInit {
-                application,
-                device_id: device_id.to_owned(),
-                expires: Duration::from_millis(3_600_000),
-                foci_active,
-                membership_id: membership_id.to_owned(),
-            }),
-            { created_ts: Some(timestamp(minutes_ago)) }
-        )
-    }
-
-    fn receive_state_events(room: &Room, events: Vec<&AnySyncStateEvent>) {
-        room.inner.update_if(|info| {
-            let mut res = false;
-            for ev in events {
-                res |= info.handle_state_event(ev);
-            }
-            res
-        });
-    }
-
-    fn create_call_with_member_events() -> Room {
-        let (_, room) = make_room(RoomState::Joined);
-
-        // `user_a`: empty memberships
-        let a_empty = call_member_state_event(Vec::new(), "$1234", &ALICE);
-
-        // `user_b`: one membership
-        // make b 10min old
-        let m_init_b = membership_for_my_call("0", "0", 1);
-        let b_one = call_member_state_event(vec![m_init_b], "$12345", &BOB);
-
-        // `user_c`: two memberships (two devices)
-        // c1 1min old
-        let m_init_c1 = membership_for_my_call("0", "0", 10);
-        // c2 20min old
-        let m_init_c2 = membership_for_my_call("1", "0", 20);
-        let c_two = call_member_state_event(vec![m_init_c1, m_init_c2], "$123456", &CAROL);
-
-        // Intentionally use a non time sorted receive order.
-        receive_state_events(&room, vec![&c_two, &a_empty, &b_one]);
-
-        room
-    }
-
-    #[test]
-    fn show_correct_active_call_state() {
-        let room = create_call_with_member_events();
-        assert_let!(Some(call) = room.active_room_call());
-        assert!(call.members.len() == 3);
-
-        // user_b (Bob) is 1min old, c1 (CAROL) 10min old, c2 (CAROL) 20min old
-        let (mut carols, mut bobs) = (0, 0);
-        for (id, _) in call.members.iter() {
-            if id.user_id == CAROL.to_owned() {
-                carols += 1;
-            } else if id.user_id == BOB.to_owned() {
-                bobs += 1;
-            }
-        }
-        assert!(carols == 2 && bobs == 1);
-    }
-
-    #[test]
-    fn active_call_is_false_when_everyone_left() {
-        let room = create_call_with_member_events();
-
-        let b_empty_membership = call_member_state_event(Vec::new(), "$1234_1", &BOB);
-        let c_empty_membership = call_member_state_event(Vec::new(), "$12345_1", &CAROL);
-
-        receive_state_events(&room, vec![&b_empty_membership, &c_empty_membership]);
-
-        // We have no active call anymore after emptying the memberships
-        assert!(room.active_room_call().is_none());
     }
 }
