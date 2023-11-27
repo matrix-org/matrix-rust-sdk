@@ -1,44 +1,28 @@
 use std::{convert::TryFrom, sync::Arc};
 
-use anyhow::{anyhow, Context, Result};
-use futures_util::{pin_mut, StreamExt};
+use anyhow::{Context, Result};
+use futures_util::StreamExt;
 use matrix_sdk::{
-    attachment::{
-        AttachmentConfig, AttachmentInfo, BaseAudioInfo, BaseFileInfo, BaseImageInfo,
-        BaseThumbnailInfo, BaseVideoInfo, Thumbnail,
-    },
     room::Room as SdkRoom,
     ruma::{
-        api::client::{receipt::create_receipt::v3::ReceiptType, room::report_content},
+        api::client::room::report_content,
         events::{
-            location::{AssetType as RumaAssetType, LocationContent, ZoomLevel},
-            notify::{ApplicationType, CallNotifyEventContent, NotifyType},
-            poll::unstable_start::{
-                UnstablePollAnswer, UnstablePollAnswers, UnstablePollStartContentBlock,
-            },
-            receipt::ReceiptThread,
-            relation::Annotation,
+            call::notify::CallNotifyEventContent,
             room::{
                 avatar::ImageInfo as RumaAvatarImageInfo,
-                message::{
-                    ForwardThread, LocationMessageEventContent, MessageType,
-                    RoomMessageEventContentWithoutRelation,
-                },
+                message::{MessageType, RoomMessageEventContentWithoutRelation},
             },
-            AnyMessageLikeEventContent,
         },
         EventId, UserId,
     },
     RoomMemberships, RoomState,
 };
-use matrix_sdk_ui::timeline::{BackPaginationStatus, RoomExt, Timeline};
+use matrix_sdk_ui::timeline::{RoomExt, Timeline};
 
 use mime::Mime;
 use ruma::{
-    api::client::room::report_content,
     assign,
-    events::room::{avatar::ImageInfo as RumaAvatarImageInfo, MediaSource},
-    EventId, UserId,
+    events::{call::notify, room::MediaSource},
 };
 use tokio::sync::RwLock;
 use tracing::error;
@@ -49,8 +33,8 @@ use crate::{
     error::{ClientError, MediaInfoError, RoomError},
     room_info::RoomInfo,
     room_member::{MessageLikeEventType, RoomMember, StateEventType},
-    ruma::ImageInfo,
-    timeline::{EventTimelineItem, Timeline},
+    ruma::{ImageInfo, Mentions},
+    timeline::EventTimelineItem,
     utils::u64_to_uint,
     TaskHandle,
 };
@@ -169,7 +153,7 @@ impl Room {
         let notify_type = if self.is_direct() { NotifyType::Ring } else { NotifyType::Notify };
         self.send_call_notify(
             "".to_owned(),
-            ApplicationType::Call,
+            notify::ApplicationType::Call,
             notify_type,
             ruma::events::Mentions::with_room_mention(),
         )
@@ -186,12 +170,12 @@ impl Room {
     pub fn send_call_notify(
         &self,
         call_id: String,
-        application: ApplicationType,
+        application: RtcApplicationType,
         notify_type: NotifyType,
-        mentions: ruma::events::Mentions,
+        mentions: Mentions,
     ) {
         let mut call_notify_event_content =
-            CallNotifyEventContent::new(call_id, application, notify_type, mentions);
+            CallNotifyEventContent::new(call_id, application.into(), notify_type.into(), mentions);
         let room_message_call_notify = RoomMessageEventContentWithoutRelation::new(
             MessageType::CallNotify(call_notify_event_content),
         );
@@ -590,5 +574,31 @@ impl TryFrom<ImageInfo> for RumaAvatarImageInfo {
             thumbnail_url: thumbnail_url,
             blurhash: value.blurhash,
         }))
+    }
+}
+
+#[derive(uniffi::Enum)]
+enum RtcApplicationType {
+    Call,
+}
+impl From<RtcApplicationType> for notify::ApplicationType {
+    fn from(value: RtcApplicationType) -> Self {
+        match value {
+            RtcApplicationType::Call => notify::ApplicationType::Call,
+        }
+    }
+}
+
+#[derive(uniffi::Enum)]
+enum NotifyType {
+    Ring,
+    Notify,
+}
+impl From<NotifyType> for notify::NotifyType {
+    fn from(value: NotifyType) -> Self {
+        match value {
+            NotifyType::Ring => notify::NotifyType::Ring,
+            NotifyType::Notify => notify::NotifyType::Notify,
+        }
     }
 }
