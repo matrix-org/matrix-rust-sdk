@@ -824,6 +824,8 @@ pub struct CreateRoomParameters {
     pub invite: Option<Vec<String>>,
     #[uniffi(default = None)]
     pub avatar: Option<String>,
+    #[uniffi(default = true)]
+    pub allow_call_to_everyone: bool,
 }
 
 impl From<CreateRoomParameters> for create_room::v3::Request {
@@ -861,7 +863,7 @@ impl From<CreateRoomParameters> for create_room::v3::Request {
             content.url = Some(url.into());
             initial_state.push(InitialStateEvent::new(content).to_raw_any());
         }
-        {
+        if value.allow_call_to_everyone {
             let mut power_levels = RoomPowerLevelsEventContent::new();
             power_levels.events = BTreeMap::from([(TimelineEventType::CallMember, int!(0))]);
             initial_state.push(InitialStateEvent::new(power_levels).to_raw_any());
