@@ -114,7 +114,7 @@ impl std::fmt::Debug for IndexeddbCryptoStore {
 #[derive(Debug, thiserror::Error)]
 pub enum IndexeddbCryptoStoreError {
     #[error(transparent)]
-    Json(#[from] serde_json::Error),
+    Serialization(#[from] serde_json::Error),
     #[error("DomException {name} ({code}): {message}")]
     DomException {
         /// DomException code
@@ -140,14 +140,14 @@ impl From<indexed_db_futures::web_sys::DomException> for IndexeddbCryptoStoreErr
 
 impl From<serde_wasm_bindgen::Error> for IndexeddbCryptoStoreError {
     fn from(e: serde_wasm_bindgen::Error) -> Self {
-        IndexeddbCryptoStoreError::Json(serde::de::Error::custom(e.to_string()))
+        IndexeddbCryptoStoreError::Serialization(serde::de::Error::custom(e.to_string()))
     }
 }
 
 impl From<IndexeddbCryptoStoreError> for CryptoStoreError {
     fn from(frm: IndexeddbCryptoStoreError) -> CryptoStoreError {
         match frm {
-            IndexeddbCryptoStoreError::Json(e) => CryptoStoreError::Serialization(e),
+            IndexeddbCryptoStoreError::Serialization(e) => CryptoStoreError::Serialization(e),
             IndexeddbCryptoStoreError::CryptoStoreError(e) => e,
             _ => CryptoStoreError::backend(frm),
         }
