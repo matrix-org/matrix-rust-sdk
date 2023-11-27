@@ -1,13 +1,11 @@
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::HashMap,
     mem::ManuallyDrop,
     sync::{Arc, RwLock},
 };
 
 use anyhow::{anyhow, Context as _};
 use matrix_sdk::{
-    crypto::types::events,
-    encryption::vodozemac::sas::InvalidCount,
     media::{MediaFileHandle as SdkMediaFileHandle, MediaFormat, MediaRequest, MediaThumbnailSize},
     oidc::{
         types::{
