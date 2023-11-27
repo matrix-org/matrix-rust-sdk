@@ -949,7 +949,9 @@ impl From<CreateRoomParameters> for create_room::v3::Request {
 
         if let Some(power_levels) = value.power_level_content_override {
             match Raw::new(&power_levels.into()) {
-                Ok(power_levels) => request.power_level_content_override = Some(power_levels),
+                Ok(power_levels) => {
+                    request.power_level_content_override = Some(power_levels);
+                }
                 Err(e) => {
                     error!("Failed to serialize power levels, error: {e}");
                 }
