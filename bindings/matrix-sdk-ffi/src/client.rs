@@ -816,6 +816,7 @@ impl Client {
 pub struct NotificationPowerLevels {
     pub room: i32,
 }
+
 impl From<NotificationPowerLevels> for ruma::power_levels::NotificationPowerLevels {
     fn from(value: NotificationPowerLevels) -> Self {
         let mut notification_power_levels = Self::new();
