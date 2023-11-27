@@ -483,6 +483,7 @@ pub(in crate::timeline) struct TimelineInnerStateTransaction<'a> {
 }
 
 impl TimelineInnerStateTransaction<'_> {
+    #[instrument(skip_all, fields(limited = timeline.limited))]
     async fn handle_sync_timeline<P: RoomDataProvider>(
         &mut self,
         mut timeline: Timeline,
@@ -490,7 +491,6 @@ impl TimelineInnerStateTransaction<'_> {
         settings: &TimelineInnerSettings,
     ) {
         if timeline.limited {
-            debug!("Got limited sync response, resetting timeline");
             self.clear();
         }
 
