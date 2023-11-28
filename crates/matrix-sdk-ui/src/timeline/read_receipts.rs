@@ -44,11 +44,11 @@ pub(super) struct ReadReceipts {
     /// Event ID => User ID => Read receipt of the user.
     pub events_read_receipts: HashMap<OwnedEventId, IndexMap<OwnedUserId, Receipt>>,
 
-    /// Map of all user read receipts.
+    /// In-memory cache of all latest read receipts by user.
     ///
     /// User ID => Receipt type => Read receipt of the user of the given
     /// type.
-    pub users_read_receipts: HashMap<OwnedUserId, HashMap<ReceiptType, (OwnedEventId, Receipt)>>,
+    users_read_receipts: HashMap<OwnedUserId, HashMap<ReceiptType, (OwnedEventId, Receipt)>>,
 }
 
 impl ReadReceipts {
@@ -56,6 +56,28 @@ impl ReadReceipts {
     pub(super) fn clear(&mut self) {
         self.events_read_receipts.clear();
         self.users_read_receipts.clear();
+    }
+
+    /// Read the latest read receipt of the given type for the given user, from the in-memory
+    /// cache.
+    fn get_latest(
+        &self,
+        user_id: &UserId,
+        receipt_type: &ReceiptType,
+    ) -> Option<&(OwnedEventId, Receipt)> {
+        self.users_read_receipts.get(user_id).and_then(|map| map.get(receipt_type))
+    }
+
+    /// Insert or update in the local cache the latest read receipt for the given user.
+    ///
+    /// XXX: (bnjbvr) Should this insert into the storage too?
+    pub fn upsert_latest(
+        &mut self,
+        user_id: OwnedUserId,
+        receipt_type: ReceiptType,
+        read_receipt: (OwnedEventId, Receipt),
+    ) {
+        self.users_read_receipts.entry(user_id).or_default().insert(receipt_type, read_receipt);
     }
 
     /// Update the timeline items with the given read receipt if it is more
@@ -75,11 +97,9 @@ impl ReadReceipts {
         timeline_items: &mut ObservableVectorTransaction<'_, Arc<TimelineItem>>,
     ) {
         // Get old receipt.
-        let old_receipt = self
-            .users_read_receipts
-            .get(new_receipt.user_id)
-            .and_then(|receipts| receipts.get(&new_receipt.receipt_type));
+        let old_receipt = self.get_latest(new_receipt.user_id, &new_receipt.receipt_type).cloned();
         if old_receipt
+            .as_ref()
             .is_some_and(|(old_receipt_event_id, _)| old_receipt_event_id == new_receipt.event_id)
         {
             // The receipt has not changed so there is nothing to do.
@@ -93,7 +113,7 @@ impl ReadReceipts {
         let mut new_receipt_pos = None;
         let mut new_item_event_id = None;
         for (pos, event) in all_events.iter().rev().enumerate() {
-            if old_event_id == Some(&event.event_id) {
+            if old_event_id.as_ref() == Some(&event.event_id) {
                 old_receipt_pos = Some(pos);
             }
             // The receipt should appear on the first event that is visible.
@@ -141,12 +161,12 @@ impl ReadReceipts {
         if !is_own_user_id {
             // Remove the old receipt from the old event.
             if let Some(old_event_id) = old_event_id {
-                if let Some(event_receipts) = self.events_read_receipts.get_mut(old_event_id) {
+                if let Some(event_receipts) = self.events_read_receipts.get_mut(&old_event_id) {
                     event_receipts.remove(new_receipt.user_id);
 
                     // Remove the entry if the map is empty.
                     if event_receipts.is_empty() {
-                        self.events_read_receipts.remove(old_event_id);
+                        self.events_read_receipts.remove(&old_event_id);
                     }
                 };
             }
@@ -159,7 +179,8 @@ impl ReadReceipts {
         }
 
         // Update the receipt of the user.
-        self.users_read_receipts.entry(new_receipt.user_id.to_owned()).or_default().insert(
+        self.upsert_latest(
+            new_receipt.user_id.to_owned(),
             new_receipt.receipt_type,
             (new_receipt.event_id.to_owned(), new_receipt.receipt.clone()),
         );
@@ -344,7 +365,7 @@ impl TimelineInnerStateTransaction<'_> {
 
     /// Load the read receipts from the store for the given event ID.
     ///
-    /// Populates the read receipts maps.
+    /// Populates the read receipts in-memory caches.
     pub(super) async fn load_read_receipts_for_event<P: RoomDataProvider>(
         &mut self,
         event_id: &EventId,
@@ -485,16 +506,9 @@ impl TimelineInnerState {
     ) -> Option<OwnedEventId> {
         // We only need to use the local map, since receipts for known events are
         // already loaded from the store.
-        let public_read_receipt = self
-            .read_receipts
-            .users_read_receipts
-            .get(user_id)
-            .and_then(|user_map| user_map.get(&ReceiptType::Read));
-        let private_read_receipt = self
-            .read_receipts
-            .users_read_receipts
-            .get(user_id)
-            .and_then(|user_map| user_map.get(&ReceiptType::ReadPrivate));
+        let public_read_receipt = self.read_receipts.get_latest(user_id, &ReceiptType::Read);
+        let private_read_receipt =
+            self.read_receipts.get_latest(user_id, &ReceiptType::ReadPrivate);
 
         // Let's assume that a private read receipt should be more recent than a public
         // read receipt, otherwise there's no point in the private read receipt,
@@ -528,15 +542,9 @@ impl TimelineInnerMetadata {
         receipt_type: ReceiptType,
         room_data_provider: &P,
     ) -> Option<(OwnedEventId, Receipt)> {
-        if let Some(receipt) = self
-            .read_receipts
-            .users_read_receipts
-            .get(user_id)
-            .and_then(|user_map| user_map.get(&receipt_type))
-            .cloned()
-        {
+        if let Some(receipt) = self.read_receipts.get_latest(user_id, &receipt_type) {
             // Since it is in the timeline, it should be the most recent.
-            return Some(receipt);
+            return Some(receipt.clone());
         }
 
         let unthreaded_read_receipt = room_data_provider
