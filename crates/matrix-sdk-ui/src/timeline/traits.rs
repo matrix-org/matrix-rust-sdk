@@ -92,7 +92,7 @@ pub(super) trait RoomDataProvider: Clone + Send + Sync + 'static {
     async fn profile_from_user_id(&self, user_id: &UserId) -> Option<Profile>;
     async fn profile_from_latest_event(&self, latest_event: &LatestEvent) -> Option<Profile>;
 
-    /// Loads a user receipt from the storage backend, if any.
+    /// Loads a user receipt from the storage backend.
     async fn load_user_receipt(
         &self,
         receipt_type: ReceiptType,
@@ -100,7 +100,9 @@ pub(super) trait RoomDataProvider: Clone + Send + Sync + 'static {
         user_id: &UserId,
     ) -> Option<(OwnedEventId, Receipt)>;
 
-    async fn read_receipts_for_event(&self, event_id: &EventId) -> IndexMap<OwnedUserId, Receipt>;
+    /// Loads read receipts for an event from the storage backend.
+    async fn load_event_receipts(&self, event_id: &EventId) -> IndexMap<OwnedUserId, Receipt>;
+
     async fn push_rules_and_context(&self) -> Option<(Ruleset, PushConditionRoomCtx)>;
 }
 
@@ -165,25 +167,28 @@ impl RoomDataProvider for Room {
         }
     }
 
-    async fn read_receipts_for_event(&self, event_id: &EventId) -> IndexMap<OwnedUserId, Receipt> {
-        let mut unthreaded_receipts =
-            match self.event_receipts(ReceiptType::Read, ReceiptThread::Unthreaded, event_id).await
-            {
-                Ok(receipts) => receipts.into_iter().collect(),
-                Err(e) => {
-                    error!(?event_id, "Failed to get unthreaded read receipts for event: {e}");
-                    IndexMap::new()
-                }
-            };
+    async fn load_event_receipts(&self, event_id: &EventId) -> IndexMap<OwnedUserId, Receipt> {
+        let mut unthreaded_receipts = match self
+            .load_event_receipts(ReceiptType::Read, ReceiptThread::Unthreaded, event_id)
+            .await
+        {
+            Ok(receipts) => receipts.into_iter().collect(),
+            Err(e) => {
+                error!(?event_id, "Failed to get unthreaded read receipts for event: {e}");
+                IndexMap::new()
+            }
+        };
 
-        let main_thread_receipts =
-            match self.event_receipts(ReceiptType::Read, ReceiptThread::Main, event_id).await {
-                Ok(receipts) => receipts,
-                Err(e) => {
-                    error!(?event_id, "Failed to get main thread read receipts for event: {e}");
-                    Vec::new()
-                }
-            };
+        let main_thread_receipts = match self
+            .load_event_receipts(ReceiptType::Read, ReceiptThread::Main, event_id)
+            .await
+        {
+            Ok(receipts) => receipts,
+            Err(e) => {
+                error!(?event_id, "Failed to get main thread read receipts for event: {e}");
+                Vec::new()
+            }
+        };
 
         unthreaded_receipts.extend(main_thread_receipts);
         unthreaded_receipts

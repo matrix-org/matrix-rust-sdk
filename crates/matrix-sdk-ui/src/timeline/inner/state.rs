@@ -538,12 +538,11 @@ impl TimelineInnerStateTransaction<'_> {
         room_data_provider: &P,
         settings: &TimelineInnerSettings,
     ) -> (Option<OwnedEventId>, HandleEventResult) {
-        let should_add_event = &*settings.event_filter;
         let raw = event.event;
         let (event_id, sender, timestamp, txn_id, event_kind, should_add) = match raw.deserialize()
         {
             Ok(event) => {
-                let should_add = should_add_event(&event);
+                let should_add = (settings.event_filter)(&event);
                 let room_version = room_data_provider.room_version();
                 (
                     event.event_id().to_owned(),
@@ -554,6 +553,7 @@ impl TimelineInnerStateTransaction<'_> {
                     should_add,
                 )
             }
+
             Err(e) => match raw.deserialize_as::<SyncTimelineEventWithoutContent>() {
                 Ok(event) if settings.add_failed_to_parse => (
                     event.event_id().to_owned(),
@@ -563,6 +563,7 @@ impl TimelineInnerStateTransaction<'_> {
                     TimelineEventKind::failed_to_parse(event, e),
                     true,
                 ),
+
                 Ok(event) => {
                     let event_type = event.event_type();
                     let event_id = event.event_id();
@@ -580,6 +581,7 @@ impl TimelineInnerStateTransaction<'_> {
 
                     return (Some(event_id.to_owned()), HandleEventResult::default());
                 }
+
                 Err(e) => {
                     let event_type: Option<String> = raw.get_field("type").ok().flatten();
                     let event_id: Option<String> = raw.get_field("event_id").ok().flatten();
@@ -627,7 +629,7 @@ impl TimelineInnerStateTransaction<'_> {
             is_own_event,
             encryption_info: event.encryption_info,
             read_receipts: if settings.track_read_receipts && should_add {
-                self.meta.read_receipts.read_receipts_for_event(
+                self.meta.read_receipts.compute_event_receipts(
                     &event_id,
                     &self.all_events,
                     matches!(position, TimelineItemPosition::End { .. }),
