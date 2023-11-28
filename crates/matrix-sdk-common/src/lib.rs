@@ -23,6 +23,7 @@ pub use ruma;
 pub mod debug;
 pub mod deserialized_responses;
 pub mod executor;
+pub mod failures_cache;
 pub mod ring_buffer;
 pub mod store_locks;
 pub mod timeout;

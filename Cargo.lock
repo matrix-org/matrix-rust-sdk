@@ -3104,6 +3104,7 @@ dependencies = [
  "instant",
  "js-sys",
  "matrix-sdk-test",
+ "proptest",
  "ruma",
  "serde",
  "serde_json",
