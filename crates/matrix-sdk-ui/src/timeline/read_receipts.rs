@@ -43,20 +43,20 @@ pub(super) struct ReadReceipts {
     /// Map of public read receipts on events.
     ///
     /// Event ID => User ID => Read receipt of the user.
-    events_read_receipts: HashMap<OwnedEventId, IndexMap<OwnedUserId, Receipt>>,
+    by_event: HashMap<OwnedEventId, IndexMap<OwnedUserId, Receipt>>,
 
     /// In-memory cache of all latest read receipts by user.
     ///
     /// User ID => Receipt type => Read receipt of the user of the given
     /// type.
-    users_read_receipts: HashMap<OwnedUserId, HashMap<ReceiptType, (OwnedEventId, Receipt)>>,
+    latest_by_user: HashMap<OwnedUserId, HashMap<ReceiptType, (OwnedEventId, Receipt)>>,
 }
 
 impl ReadReceipts {
     /// Empty the caches.
     pub(super) fn clear(&mut self) {
-        self.events_read_receipts.clear();
-        self.users_read_receipts.clear();
+        self.by_event.clear();
+        self.latest_by_user.clear();
     }
 
     /// Read the latest read receipt of the given type for the given user, from
@@ -66,7 +66,7 @@ impl ReadReceipts {
         user_id: &UserId,
         receipt_type: &ReceiptType,
     ) -> Option<&(OwnedEventId, Receipt)> {
-        self.users_read_receipts.get(user_id).and_then(|map| map.get(receipt_type))
+        self.latest_by_user.get(user_id).and_then(|map| map.get(receipt_type))
     }
 
     /// Insert or update in the local cache the latest read receipt for the
@@ -77,7 +77,7 @@ impl ReadReceipts {
         receipt_type: ReceiptType,
         read_receipt: (OwnedEventId, Receipt),
     ) {
-        self.users_read_receipts.entry(user_id).or_default().insert(receipt_type, read_receipt);
+        self.latest_by_user.entry(user_id).or_default().insert(receipt_type, read_receipt);
     }
 
     /// Update the timeline items with the given read receipt if it is more
@@ -196,7 +196,7 @@ impl ReadReceipts {
 
     /// Returns the cached receipts by user for a given `event_id`.
     fn get_event_receipts(&self, event_id: &EventId) -> Option<&IndexMap<OwnedUserId, Receipt>> {
-        self.events_read_receipts.get(event_id)
+        self.by_event.get(event_id)
     }
 
     /// Mark the given event as seen by the user with the given receipt.
@@ -206,16 +206,16 @@ impl ReadReceipts {
         user_id: OwnedUserId,
         receipt: Receipt,
     ) {
-        self.events_read_receipts.entry(event_id).or_default().insert(user_id, receipt);
+        self.by_event.entry(event_id).or_default().insert(user_id, receipt);
     }
 
     /// Unmark the given event as seen by the user.
     fn remove_event_receipt_for_user(&mut self, event_id: &EventId, user_id: &UserId) {
-        if let Some(map) = self.events_read_receipts.get_mut(event_id) {
+        if let Some(map) = self.by_event.get_mut(event_id) {
             map.remove(user_id);
             // Remove the entire map if this was the last entry.
             if map.is_empty() {
-                self.events_read_receipts.remove(event_id);
+                self.by_event.remove(event_id);
             }
         }
     }
