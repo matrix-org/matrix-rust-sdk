@@ -22,7 +22,7 @@ use crate::{
     error::{ClientError, MediaInfoError, RoomError},
     room_info::RoomInfo,
     room_member::{MessageLikeEventType, RoomMember, StateEventType},
-    ruma::ImageInfo,
+    ruma::{ImageInfo, Mentions},
     timeline::{EventTimelineItem, Timeline},
     utils::u64_to_uint,
     TaskHandle,
@@ -139,12 +139,11 @@ impl Room {
         if self.inner.has_active_room_call() {
             return;
         }
-        let notify_type = if self.is_direct() { NotifyType::Ring } else { NotifyType::Notify };
         self.send_call_notify(
             "".to_owned(),
-            notify::ApplicationType::Call,
-            notify_type,
-            ruma::events::Mentions::with_room_mention(),
+            RtcApplicationType::Call,
+            if self.is_direct() { NotifyType::Ring } else { NotifyType::Notify },
+            Mentions { room: true, user_ids: vec![] },
         )
     }
 
@@ -163,12 +162,14 @@ impl Room {
         notify_type: NotifyType,
         mentions: Mentions,
     ) {
-        let mut call_notify_event_content =
-            CallNotifyEventContent::new(call_id, application.into(), notify_type.into(), mentions);
-        let room_message_call_notify = RoomMessageEventContentWithoutRelation::new(
-            MessageType::CallNotify(call_notify_event_content),
+        let call_notify_event_content = notify::CallNotifyEventContent::new(
+            call_id,
+            application.into(),
+            notify_type.into(),
+            mentions.into(),
         );
-        self.send(Arc::new(room_message_call_notify))
+
+        self.inner.send(call_notify_event_content);
     }
 
     pub fn inviter(&self) -> Option<Arc<RoomMember>> {
@@ -567,7 +568,7 @@ impl TryFrom<ImageInfo> for RumaAvatarImageInfo {
 }
 
 #[derive(uniffi::Enum)]
-enum RtcApplicationType {
+pub enum RtcApplicationType {
     Call,
 }
 impl From<RtcApplicationType> for notify::ApplicationType {
@@ -579,7 +580,7 @@ impl From<RtcApplicationType> for notify::ApplicationType {
 }
 
 #[derive(uniffi::Enum)]
-enum NotifyType {
+pub enum NotifyType {
     Ring,
     Notify,
 }
