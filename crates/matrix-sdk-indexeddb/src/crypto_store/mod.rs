@@ -799,7 +799,7 @@ impl_crypto_store! {
         let all = store.count()?.await? as usize;
         let not_backed_up = store.index(keys::INBOUND_GROUP_SESSIONS_BACKUP_INDEX)?.count()?.await? as usize;
         tx.await.into_result()?;
-        Ok(RoomKeyCounts { total: all, backed_up: all-not_backed_up })
+        Ok(RoomKeyCounts { total: all, backed_up: all - not_backed_up })
     }
 
     async fn inbound_group_sessions_for_backup(
