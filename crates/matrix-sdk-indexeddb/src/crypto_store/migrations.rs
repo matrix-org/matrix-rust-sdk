@@ -59,13 +59,13 @@ pub async fn open_and_upgrade_db(
         let old_version = evt.old_version() as u32;
         let new_version = evt.new_version() as u32;
 
-        info!(old_version, new_version, "Upgrading IndexeddbCryptoStore, phase 2");
+        info!(old_version, new_version, "Continuing IndexeddbCryptoStore upgrade");
 
         if old_version < 7 {
             migrate_stores_to_v7(evt.db())?;
         }
 
-        info!(old_version, new_version, "IndexeddbCryptoStore upgrade phase 2 complete");
+        info!(old_version, new_version, "IndexeddbCryptoStore upgrade complete");
         Ok(())
     }));
 
@@ -231,14 +231,14 @@ async fn migrate_data_for_v6(serializer: &IndexeddbSerializer, db: &IdbDatabase)
     let new_store = txn.object_store(keys::INBOUND_GROUP_SESSIONS_V2)?;
 
     let row_count = old_store.count()?.await?;
-    info!(row_count, "Migrating inbound group session data");
+    info!(row_count, "Migrating inbound group session data from v1 to v2");
 
     if let Some(cursor) = old_store.open_cursor()?.await? {
         let mut idx = 0;
         loop {
             idx += 1;
             let key = cursor.key().ok_or(matrix_sdk_crypto::CryptoStoreError::Backend(
-                "inbound_group_sessions cursor has no key".into(),
+                "inbound_group_sessions v1 cursor has no key".into(),
             ))?;
             let value = cursor.value();
 
