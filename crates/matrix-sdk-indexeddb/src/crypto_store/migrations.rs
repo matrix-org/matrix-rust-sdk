@@ -112,6 +112,14 @@ async fn migrate_schema_up_to_v6(name: &str) -> Result<IdbDatabase, DomException
             migrate_stores_to_v6(evt.db())?;
         }
 
+        // NOTE! Further migrations must NOT be added here.
+        //
+        // At this point we need to start an asynchronous operation to migrate
+        // inbound_group_sessions to a new format. We then resume schema migrations
+        // afterwards.
+        //
+        // Further migrations can be added in `open_and_upgrade_db`.
+
         info!(old_version, new_version, "IndexeddbCryptoStore upgrade phase 1 complete");
         Ok(())
     }));
