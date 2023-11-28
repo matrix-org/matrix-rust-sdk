@@ -695,9 +695,9 @@ impl Room {
         self.store.get_user_room_receipt_event(self.room_id(), receipt_type, thread, user_id).await
     }
 
-    /// Get the receipts as a list of `OwnedUserId` and `Receipt` tuples for the
+    /// Load from storage the receipts as a list of `OwnedUserId` and `Receipt` tuples for the
     /// given `receipt_type`, `thread` and `event_id` in this room.
-    pub async fn event_receipts(
+    pub async fn load_event_receipts(
         &self,
         receipt_type: ReceiptType,
         thread: ReceiptThread,

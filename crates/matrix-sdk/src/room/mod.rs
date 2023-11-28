@@ -2198,7 +2198,7 @@ impl Room {
         self.inner.load_user_receipt(receipt_type, thread, user_id).await.map_err(Into::into)
     }
 
-    /// Get the receipts for an event in this room.
+    /// Load the receipts for an event in this room from storage.
     ///
     /// # Arguments
     ///
@@ -2210,13 +2210,13 @@ impl Room {
     ///
     /// Returns a list of IDs of users who have sent a receipt for the event and
     /// the corresponding receipts.
-    pub async fn event_receipts(
+    pub async fn load_event_receipts(
         &self,
         receipt_type: ReceiptType,
         thread: ReceiptThread,
         event_id: &EventId,
     ) -> Result<Vec<(OwnedUserId, Receipt)>> {
-        self.inner.event_receipts(receipt_type, thread, event_id).await.map_err(Into::into)
+        self.inner.load_event_receipts(receipt_type, thread, event_id).await.map_err(Into::into)
     }
 
     /// Get the push context for this room.

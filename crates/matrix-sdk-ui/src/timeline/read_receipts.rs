@@ -37,12 +37,13 @@ use super::{
     TimelineItem,
 };
 
+/// In-memory caches for read receipts.
 #[derive(Clone, Debug, Default)]
 pub(super) struct ReadReceipts {
     /// Map of public read receipts on events.
     ///
     /// Event ID => User ID => Read receipt of the user.
-    pub events_read_receipts: HashMap<OwnedEventId, IndexMap<OwnedUserId, Receipt>>,
+    events_read_receipts: HashMap<OwnedEventId, IndexMap<OwnedUserId, Receipt>>,
 
     /// In-memory cache of all latest read receipts by user.
     ///
@@ -52,7 +53,7 @@ pub(super) struct ReadReceipts {
 }
 
 impl ReadReceipts {
-    /// Remove all data.
+    /// Empty the caches.
     pub(super) fn clear(&mut self) {
         self.events_read_receipts.clear();
         self.users_read_receipts.clear();
@@ -69,8 +70,6 @@ impl ReadReceipts {
     }
 
     /// Insert or update in the local cache the latest read receipt for the given user.
-    ///
-    /// XXX: (bnjbvr) Should this insert into the storage too?
     pub fn upsert_latest(
         &mut self,
         user_id: OwnedUserId,
@@ -83,7 +82,7 @@ impl ReadReceipts {
     /// Update the timeline items with the given read receipt if it is more
     /// recent than the current one.
     ///
-    /// In the process,if applicable, this method updates the inner maps to use
+    /// In the process, if applicable, this method updates the inner maps to use
     /// the new receipt. If `is_own_user_id` is `false`, it also updates the
     /// receipts on the corresponding timeline items.
     ///
@@ -97,7 +96,7 @@ impl ReadReceipts {
         timeline_items: &mut ObservableVectorTransaction<'_, Arc<TimelineItem>>,
     ) {
         // Get old receipt.
-        let old_receipt = self.get_latest(new_receipt.user_id, &new_receipt.receipt_type).cloned();
+        let old_receipt = self.get_latest(new_receipt.user_id, &new_receipt.receipt_type);
         if old_receipt
             .as_ref()
             .is_some_and(|(old_receipt_event_id, _)| old_receipt_event_id == new_receipt.event_id)
@@ -113,7 +112,7 @@ impl ReadReceipts {
         let mut new_receipt_pos = None;
         let mut new_item_event_id = None;
         for (pos, event) in all_events.iter().rev().enumerate() {
-            if old_event_id.as_ref() == Some(&event.event_id) {
+            if old_event_id == Some(&event.event_id) {
                 old_receipt_pos = Some(pos);
             }
             // The receipt should appear on the first event that is visible.
@@ -160,22 +159,15 @@ impl ReadReceipts {
 
         if !is_own_user_id {
             // Remove the old receipt from the old event.
-            if let Some(old_event_id) = old_event_id {
-                if let Some(event_receipts) = self.events_read_receipts.get_mut(&old_event_id) {
-                    event_receipts.remove(new_receipt.user_id);
-
-                    // Remove the entry if the map is empty.
-                    if event_receipts.is_empty() {
-                        self.events_read_receipts.remove(&old_event_id);
-                    }
-                };
+            if let Some(old_event_id) = old_event_id.cloned() {
+                self.remove_event_receipt_for_user(&old_event_id, new_receipt.user_id);
             }
-
             // Add the new receipt to the new event.
-            self.events_read_receipts
-                .entry(new_receipt.event_id.to_owned())
-                .or_default()
-                .insert(new_receipt.user_id.to_owned(), new_receipt.receipt.clone());
+            self.add_event_receipt_for_user(
+                new_receipt.event_id.to_owned(),
+                new_receipt.user_id.to_owned(),
+                new_receipt.receipt.clone(),
+            );
         }
 
         // Update the receipt of the user.
@@ -201,34 +193,60 @@ impl ReadReceipts {
         );
     }
 
-    /// Get the user read receipts for the given event.
+    /// Returns the cached receipts by user for a given `event_id`.
+    fn get_event_receipts(&self, event_id: &EventId) -> Option<&IndexMap<OwnedUserId, Receipt>> {
+        self.events_read_receipts.get(event_id)
+    }
+
+    /// Mark the given event as seen by the user with the given receipt.
+    fn add_event_receipt_for_user(
+        &mut self,
+        event_id: OwnedEventId,
+        user_id: OwnedUserId,
+        receipt: Receipt,
+    ) {
+        self.events_read_receipts.entry(event_id).or_default().insert(user_id, receipt);
+    }
+
+    /// Unmark the given event as seen by the user.
+    fn remove_event_receipt_for_user(&mut self, event_id: &EventId, user_id: &UserId) {
+        if let Some(map) = self.events_read_receipts.get_mut(event_id) {
+            map.remove(user_id);
+            // Remove the entire map if this was the last entry.
+            if map.is_empty() {
+                self.events_read_receipts.remove(event_id);
+            }
+        }
+    }
+
+    /// Get the read receipts by user for the given event.
     ///
-    /// This loads all the receipts on the event and the receipts on the
-    /// following events that were discarded.
-    pub(super) fn read_receipts_for_event(
+    /// This includes all the receipts on the event as well as all the receipts on the
+    /// following events that are filtered out (not visible).
+    pub(super) fn compute_event_receipts(
         &self,
         event_id: &EventId,
         all_events: &VecDeque<EventMeta>,
         at_end: bool,
     ) -> IndexMap<OwnedUserId, Receipt> {
-        let mut all_receipts = self.events_read_receipts.get(event_id).cloned().unwrap_or_default();
+        let mut all_receipts = self.get_event_receipts(event_id).cloned().unwrap_or_default();
 
         if at_end {
             // No need to search for extra receipts, there are no events after.
             return all_receipts;
         }
 
-        // Iterate past the event.
-        let events_iter = all_events.iter().skip_while(|meta| meta.event_id != event_id).skip(1);
+        // Find the event.
+        let events_iter = all_events.iter().skip_while(|meta| meta.event_id != event_id);
 
-        // Add receipts on following events
+        // Get past the event
+        let events_iter = events_iter.skip(1);
+
+        // Include receipts from all the following non-visible events.
         for hidden_event_meta in events_iter.take_while(|meta| !meta.visible) {
-            let Some(event_receipts) = self.events_read_receipts.get(&hidden_event_meta.event_id)
-            else {
-                continue;
-            };
-
-            all_receipts.extend(event_receipts.iter().map(|(k, v)| (k.clone(), v.clone())));
+            if let Some(event_receipts) = self.get_event_receipts(&hidden_event_meta.event_id) {
+                all_receipts.extend(event_receipts.clone());
+            }
         }
 
         all_receipts
@@ -371,7 +389,7 @@ impl TimelineInnerStateTransaction<'_> {
         event_id: &EventId,
         room_data_provider: &P,
     ) {
-        let read_receipts = room_data_provider.read_receipts_for_event(event_id).await;
+        let read_receipts = room_data_provider.load_event_receipts(event_id).await;
 
         // Filter out receipts for our own user.
         let own_user_id = room_data_provider.own_user_id();
@@ -456,7 +474,7 @@ impl TimelineInnerStateTransaction<'_> {
             return;
         };
 
-        let read_receipts = self.read_receipts.read_receipts_for_event(
+        let read_receipts = self.read_receipts.compute_event_receipts(
             &remote_prev_event_item.event_id,
             &self.all_events,
             false,
