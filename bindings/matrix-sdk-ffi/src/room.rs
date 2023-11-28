@@ -129,8 +129,8 @@ impl Room {
 
     /// This will only send a call notify event if appropriate.
     ///
-    /// This function is supposed to be called whenever the user creates a room call.
-    /// It will consider send a notify event if:
+    /// This function is supposed to be called whenever the user creates a room
+    /// call. It will consider send a notify event if:
     ///  - there is not yet a running call.
     /// It will configure the notify type: ring or notify based on:
     ///  - is this a DM room -> ring
@@ -150,11 +150,14 @@ impl Room {
     /// Send a call notify event in the current room.
     ///
     /// This is only supposed to be used in **custom** situations where the user
-    /// explicitly chooses to send call.notify event to invite/notify someone explicitly in unusual conditions.
-    /// The default should be to use [`try_send_room_call_notify`] just before a new room call is created/joined.
+    /// explicitly chooses to send call.notify event to invite/notify someone
+    /// explicitly in unusual conditions. The default should be to use
+    /// [`try_send_room_call_notify`] just before a new room call is
+    /// created/joined.
     ///
-    /// One example could be that the UI allows to start a call with a subset of users of the room members first.
-    /// And then later on the user can invite more users to the call.
+    /// One example could be that the UI allows to start a call with a subset of
+    /// users of the room members first. And then later on the user can
+    /// invite more users to the call.
     pub fn send_call_notify(
         &self,
         call_id: String,
