@@ -297,14 +297,14 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
         let mut read_receipt = self
             .room_data_provider
-            .user_receipt(receipt_type.clone(), ReceiptThread::Unthreaded, &own_user_id)
+            .load_user_receipt(receipt_type.clone(), ReceiptThread::Unthreaded, &own_user_id)
             .await;
 
         // Fallback to the one in the main thread.
         if read_receipt.is_none() {
             read_receipt = self
                 .room_data_provider
-                .user_receipt(receipt_type.clone(), ReceiptThread::Main, &own_user_id)
+                .load_user_receipt(receipt_type.clone(), ReceiptThread::Main, &own_user_id)
                 .await;
         }
 

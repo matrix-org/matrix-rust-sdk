@@ -91,12 +91,15 @@ pub(super) trait RoomDataProvider: Clone + Send + Sync + 'static {
     fn room_version(&self) -> RoomVersionId;
     async fn profile_from_user_id(&self, user_id: &UserId) -> Option<Profile>;
     async fn profile_from_latest_event(&self, latest_event: &LatestEvent) -> Option<Profile>;
-    async fn user_receipt(
+
+    /// Loads a user receipt from the storage backend, if any.
+    async fn load_user_receipt(
         &self,
         receipt_type: ReceiptType,
         thread: ReceiptThread,
         user_id: &UserId,
     ) -> Option<(OwnedEventId, Receipt)>;
+
     async fn read_receipts_for_event(&self, event_id: &EventId) -> IndexMap<OwnedUserId, Receipt>;
     async fn push_rules_and_context(&self) -> Option<(Ruleset, PushConditionRoomCtx)>;
 }
@@ -142,13 +145,13 @@ impl RoomDataProvider for Room {
         })
     }
 
-    async fn user_receipt(
+    async fn load_user_receipt(
         &self,
         receipt_type: ReceiptType,
         thread: ReceiptThread,
         user_id: &UserId,
     ) -> Option<(OwnedEventId, Receipt)> {
-        match self.user_receipt(receipt_type.clone(), thread.clone(), user_id).await {
+        match self.load_user_receipt(receipt_type.clone(), thread.clone(), user_id).await {
             Ok(receipt) => receipt,
             Err(e) => {
                 error!(

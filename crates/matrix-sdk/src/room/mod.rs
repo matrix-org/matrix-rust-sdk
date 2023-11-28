@@ -2189,13 +2189,13 @@ impl Room {
     ///
     /// Returns the ID of the event on which the receipt applies and the
     /// receipt.
-    pub async fn user_receipt(
+    pub async fn load_user_receipt(
         &self,
         receipt_type: ReceiptType,
         thread: ReceiptThread,
         user_id: &UserId,
     ) -> Result<Option<(OwnedEventId, Receipt)>> {
-        self.inner.user_receipt(receipt_type, thread, user_id).await.map_err(Into::into)
+        self.inner.load_user_receipt(receipt_type, thread, user_id).await.map_err(Into::into)
     }
 
     /// Get the receipts for an event in this room.

@@ -43,6 +43,7 @@ pub(super) struct ReadReceipts {
     ///
     /// Event ID => User ID => Read receipt of the user.
     pub events_read_receipts: HashMap<OwnedEventId, IndexMap<OwnedUserId, Receipt>>,
+
     /// Map of all user read receipts.
     ///
     /// User ID => Receipt type => Read receipt of the user of the given
@@ -516,8 +517,11 @@ impl TimelineInnerState {
 }
 
 impl TimelineInnerMetadata {
-    /// Get the unthreaded receipt of the given type for the given user in the
+    /// Get the latest receipt of the given type for the given user in the
     /// timeline.
+    ///
+    /// This will attempt to read the latest user receipt for a user from the cache, or load it
+    /// from the storage if missing from the cache.
     pub(super) async fn user_receipt<P: RoomDataProvider>(
         &self,
         user_id: &UserId,
@@ -536,11 +540,11 @@ impl TimelineInnerMetadata {
         }
 
         let unthreaded_read_receipt = room_data_provider
-            .user_receipt(receipt_type.clone(), ReceiptThread::Unthreaded, user_id)
+            .load_user_receipt(receipt_type.clone(), ReceiptThread::Unthreaded, user_id)
             .await;
 
         let main_thread_read_receipt = room_data_provider
-            .user_receipt(receipt_type.clone(), ReceiptThread::Main, user_id)
+            .load_user_receipt(receipt_type.clone(), ReceiptThread::Main, user_id)
             .await;
 
         // Let's use the unthreaded read receipt as default, since it's the one we

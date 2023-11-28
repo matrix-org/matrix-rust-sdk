@@ -295,7 +295,7 @@ impl RoomDataProvider for TestRoomDataProvider {
         None
     }
 
-    async fn user_receipt(
+    async fn load_user_receipt(
         &self,
         receipt_type: ReceiptType,
         thread: ReceiptThread,
