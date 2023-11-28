@@ -260,7 +260,7 @@ impl IndexeddbCryptoStore {
         session: &InboundGroupSession,
     ) -> Result<JsValue> {
         let obj = InboundGroupSessionIndexedDbObject {
-            data: self.serializer.serialize_value_as_bytes(&session.pickle().await)?,
+            pickled_session: self.serializer.serialize_value_as_bytes(&session.pickle().await)?,
             needs_backup: !session.backed_up(),
         };
         Ok(serde_wasm_bindgen::to_value(&obj)?)
@@ -274,13 +274,14 @@ impl IndexeddbCryptoStore {
     ) -> Result<InboundGroupSession> {
         let idb_object: InboundGroupSessionIndexedDbObject =
             serde_wasm_bindgen::from_value(stored_value)?;
-        let pickled_session = self.serializer.deserialize_value_from_bytes(&idb_object.data)?;
+        let pickled_session =
+            self.serializer.deserialize_value_from_bytes(&idb_object.pickled_session)?;
         let session = InboundGroupSession::from_pickle(pickled_session)
             .map_err(|e| IndexeddbCryptoStoreError::CryptoStoreError(e.into()))?;
 
-        // Although a "backed up" flag is stored inside the `data`, it is not maintained
-        // when backups are reset. Overwrite the flag with the needs_backup value from
-        // the IDB object.
+        // Although a "backed up" flag is stored inside `idb_object.pickled_session`, it
+        // is not maintained when backups are reset. Overwrite the flag with the
+        // needs_backup value from the IDB object.
         if idb_object.needs_backup {
             session.reset_backup_state();
         } else {
@@ -1188,7 +1189,7 @@ struct InboundGroupSessionIndexedDbObject {
     /// (Possibly encrypted) serialisation of a
     /// [`matrix_sdk_crypto::olm::group_sessions::PickledInboundGroupSession`]
     /// structure.
-    data: Vec<u8>,
+    pickled_session: Vec<u8>,
 
     /// Whether the session data has yet to be backed up.
     ///

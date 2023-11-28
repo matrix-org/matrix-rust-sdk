@@ -259,7 +259,7 @@ async fn migrate_data_for_v6(serializer: &IndexeddbSerializer, db: &IdbDatabase)
 
             // This is much the same as `IndexeddbStore::serialize_inbound_group_session`.
             let new_data = serde_wasm_bindgen::to_value(&InboundGroupSessionIndexedDbObject {
-                data: serializer.serialize_value_as_bytes(&igs.pickle().await)?,
+                pickled_session: serializer.serialize_value_as_bytes(&igs.pickle().await)?,
                 needs_backup: !igs.backed_up(),
             })?;
 
