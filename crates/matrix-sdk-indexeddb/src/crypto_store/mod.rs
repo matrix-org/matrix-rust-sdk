@@ -54,7 +54,7 @@ mod keys {
 
     pub const SESSION: &str = "session";
 
-    pub const INBOUND_GROUP_SESSIONS: &str = "inbound_group_sessions2";
+    pub const INBOUND_GROUP_SESSIONS_V2: &str = "inbound_group_sessions2";
     pub const INBOUND_GROUP_SESSIONS_BACKUP_INDEX: &str = "backup";
 
     pub const OUTBOUND_GROUP_SESSIONS: &str = "outbound_group_sessions";
@@ -408,7 +408,7 @@ impl_crypto_store! {
                 keys::IDENTITIES,
             ),
 
-            (!changes.inbound_group_sessions.is_empty(), keys::INBOUND_GROUP_SESSIONS),
+            (!changes.inbound_group_sessions.is_empty(), keys::INBOUND_GROUP_SESSIONS_V2),
             (!changes.outbound_group_sessions.is_empty(), keys::OUTBOUND_GROUP_SESSIONS),
             (!changes.message_hashes.is_empty(), keys::OLM_HASHES),
             (!changes.withheld_session_info.is_empty(), keys::DIRECT_WITHHELD_INFO),
@@ -478,12 +478,12 @@ impl_crypto_store! {
         }
 
         if !changes.inbound_group_sessions.is_empty() {
-            let sessions = tx.object_store(keys::INBOUND_GROUP_SESSIONS)?;
+            let sessions = tx.object_store(keys::INBOUND_GROUP_SESSIONS_V2)?;
 
             for session in changes.inbound_group_sessions {
                 let room_id = session.room_id();
                 let session_id = session.session_id();
-                let key = self.serializer.encode_key(keys::INBOUND_GROUP_SESSIONS, (room_id, session_id));
+                let key = self.serializer.encode_key(keys::INBOUND_GROUP_SESSIONS_V2, (room_id, session_id));
                 let value = self.serialize_inbound_group_session(&session).await?;
                 sessions.put_key_val(&key, &value)?;
             }
@@ -755,14 +755,14 @@ impl_crypto_store! {
         room_id: &RoomId,
         session_id: &str,
     ) -> Result<Option<InboundGroupSession>> {
-        let key = self.serializer.encode_key(keys::INBOUND_GROUP_SESSIONS, (room_id, session_id));
+        let key = self.serializer.encode_key(keys::INBOUND_GROUP_SESSIONS_V2, (room_id, session_id));
         if let Some(value) = self
             .inner
             .transaction_on_one_with_mode(
-                keys::INBOUND_GROUP_SESSIONS,
+                keys::INBOUND_GROUP_SESSIONS_V2,
                 IdbTransactionMode::Readonly,
             )?
-            .object_store(keys::INBOUND_GROUP_SESSIONS)?
+            .object_store(keys::INBOUND_GROUP_SESSIONS_V2)?
             .get(&key)?
             .await?
         {
@@ -776,10 +776,10 @@ impl_crypto_store! {
         Ok(self
             .inner
             .transaction_on_one_with_mode(
-                keys::INBOUND_GROUP_SESSIONS,
+                keys::INBOUND_GROUP_SESSIONS_V2,
                 IdbTransactionMode::Readonly,
             )?
-            .object_store(keys::INBOUND_GROUP_SESSIONS)?
+            .object_store(keys::INBOUND_GROUP_SESSIONS_V2)?
             .get_all()?
             .await?
             .iter()
@@ -791,10 +791,10 @@ impl_crypto_store! {
         let tx = self
             .inner
             .transaction_on_one_with_mode(
-                keys::INBOUND_GROUP_SESSIONS,
+                keys::INBOUND_GROUP_SESSIONS_V2,
                 IdbTransactionMode::Readonly,
             )?;
-        let store = tx.object_store(keys::INBOUND_GROUP_SESSIONS)?;
+        let store = tx.object_store(keys::INBOUND_GROUP_SESSIONS_V2)?;
         let all = store.count()?.await? as usize;
         let not_backed_up = store.index(keys::INBOUND_GROUP_SESSIONS_BACKUP_INDEX)?.count()?.await? as usize;
         tx.await.into_result()?;
@@ -808,12 +808,12 @@ impl_crypto_store! {
         let tx = self
             .inner
             .transaction_on_one_with_mode(
-                keys::INBOUND_GROUP_SESSIONS,
+                keys::INBOUND_GROUP_SESSIONS_V2,
                 IdbTransactionMode::Readonly,
             )?;
 
 
-        let store = tx.object_store(keys::INBOUND_GROUP_SESSIONS)?;
+        let store = tx.object_store(keys::INBOUND_GROUP_SESSIONS_V2)?;
         let idx = store.index(keys::INBOUND_GROUP_SESSIONS_BACKUP_INDEX)?;
 
         // XXX ideally we would use `get_all_with_key_and_limit`, but that doesn't appear to be
@@ -839,11 +839,11 @@ impl_crypto_store! {
         let tx = self
             .inner
             .transaction_on_one_with_mode(
-                keys::INBOUND_GROUP_SESSIONS,
+                keys::INBOUND_GROUP_SESSIONS_V2,
                 IdbTransactionMode::Readwrite,
             )?;
 
-        if let Some(cursor) = tx.object_store(keys::INBOUND_GROUP_SESSIONS)?.open_cursor()?.await? {
+        if let Some(cursor) = tx.object_store(keys::INBOUND_GROUP_SESSIONS_V2)?.open_cursor()?.await? {
             loop {
                 let mut idb_object: InboundGroupSessionIndexedDbObject = serde_wasm_bindgen::from_value(cursor.value())?;
                 if !idb_object.needs_backup {

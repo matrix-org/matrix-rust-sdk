@@ -27,7 +27,7 @@ use crate::{
 mod old_keys {
     /// Old format of the inbound_group_sessions store which lacked indexes or a
     /// sensible structure
-    pub const INBOUND_GROUP_SESSIONS_OLD: &str = "inbound_group_sessions";
+    pub const INBOUND_GROUP_SESSIONS_V1: &str = "inbound_group_sessions";
 }
 
 /// Open the indexeddb with the given name, upgrading it to the latest version
@@ -123,7 +123,7 @@ fn migrate_stores_to_v1(db: &IdbDatabase) -> Result<(), DomException> {
     db.create_object_store(keys::CORE)?;
     db.create_object_store(keys::SESSION)?;
 
-    db.create_object_store(old_keys::INBOUND_GROUP_SESSIONS_OLD)?;
+    db.create_object_store(old_keys::INBOUND_GROUP_SESSIONS_V1)?;
     db.create_object_store(keys::OUTBOUND_GROUP_SESSIONS)?;
     db.create_object_store(keys::TRACKED_USERS)?;
     db.create_object_store(keys::OLM_HASHES)?;
@@ -141,8 +141,8 @@ fn migrate_stores_to_v2(db: &IdbDatabase) -> Result<(), DomException> {
     // tuple of `(room_id, session_id)`
     //
     // Let's just drop the whole object store.
-    db.delete_object_store(old_keys::INBOUND_GROUP_SESSIONS_OLD)?;
-    db.create_object_store(old_keys::INBOUND_GROUP_SESSIONS_OLD)?;
+    db.delete_object_store(old_keys::INBOUND_GROUP_SESSIONS_V1)?;
+    db.create_object_store(old_keys::INBOUND_GROUP_SESSIONS_V1)?;
 
     db.create_object_store(keys::ROOM_SETTINGS)?;
 
@@ -207,7 +207,7 @@ fn migrate_stores_to_v6(db: &IdbDatabase) -> Result<(), DomException> {
     // have done the upgrade to v6, in `migrate_data_for_v6`. Finally we drop the
     // old store in create_stores_for_v7.
 
-    let object_store = db.create_object_store(keys::INBOUND_GROUP_SESSIONS)?;
+    let object_store = db.create_object_store(keys::INBOUND_GROUP_SESSIONS_V2)?;
 
     let mut params = IdbIndexParameters::new();
     params.unique(false);
@@ -223,12 +223,12 @@ fn migrate_stores_to_v6(db: &IdbDatabase) -> Result<(), DomException> {
 async fn migrate_data_for_v6(serializer: &IndexeddbSerializer, db: &IdbDatabase) -> Result<()> {
     // The new store has been made for inbound group sessions; time to populate it.
     let txn = db.transaction_on_multi_with_mode(
-        &[old_keys::INBOUND_GROUP_SESSIONS_OLD, keys::INBOUND_GROUP_SESSIONS],
+        &[old_keys::INBOUND_GROUP_SESSIONS_V1, keys::INBOUND_GROUP_SESSIONS_V2],
         IdbTransactionMode::Readwrite,
     )?;
 
-    let old_store = txn.object_store(old_keys::INBOUND_GROUP_SESSIONS_OLD)?;
-    let new_store = txn.object_store(keys::INBOUND_GROUP_SESSIONS)?;
+    let old_store = txn.object_store(old_keys::INBOUND_GROUP_SESSIONS_V1)?;
+    let new_store = txn.object_store(keys::INBOUND_GROUP_SESSIONS_V2)?;
 
     let row_count = old_store.count()?.await?;
     info!(row_count, "Migrating inbound group session data");
@@ -270,7 +270,7 @@ async fn migrate_data_for_v6(serializer: &IndexeddbSerializer, db: &IdbDatabase)
 }
 
 fn migrate_stores_to_v7(db: &IdbDatabase) -> Result<(), DomException> {
-    db.delete_object_store(old_keys::INBOUND_GROUP_SESSIONS_OLD)
+    db.delete_object_store(old_keys::INBOUND_GROUP_SESSIONS_V1)
 }
 
 #[cfg(all(test, target_arch = "wasm32"))]
@@ -371,15 +371,15 @@ mod tests {
 
         let txn = db
             .transaction_on_one_with_mode(
-                old_keys::INBOUND_GROUP_SESSIONS_OLD,
+                old_keys::INBOUND_GROUP_SESSIONS_V1,
                 IdbTransactionMode::Readwrite,
             )
             .unwrap();
-        let sessions = txn.object_store(old_keys::INBOUND_GROUP_SESSIONS_OLD).unwrap();
+        let sessions = txn.object_store(old_keys::INBOUND_GROUP_SESSIONS_V1).unwrap();
         for session in vec![&session1, &session2] {
             let room_id = session.room_id();
             let session_id = session.session_id();
-            let key = serializer.encode_key(keys::INBOUND_GROUP_SESSIONS, (room_id, session_id));
+            let key = serializer.encode_key(keys::INBOUND_GROUP_SESSIONS_V2, (room_id, session_id));
             let pickle = session.pickle().await;
 
             sessions.put_key_val(&key, &serializer.serialize_value(&pickle).unwrap()).unwrap();
