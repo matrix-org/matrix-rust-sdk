@@ -71,8 +71,10 @@ pub struct EncryptedSessionData {
     pub ciphertext: String,
     /// First 8 bytes of MAC key, encoded in base64.
     pub mac: String,
-    /// MAC of the key, encoded in base64
-    pub signatures: Option<HashMap<String, HashMap<String, String>>>,
+    /// v2 MAC of the backup data
+    // FIXME: should we be passing the entire `unsigned` field?  Also, how do
+    // we handle other properties?
+    pub mac_v2: Option<String>,
 }
 
 impl BackupRecoveryKey {
@@ -202,50 +204,31 @@ impl BackupRecoveryKey {
     /// backup key.
     pub fn decrypt_session_data(
         &self,
-        user_id: String,
         session_data: EncryptedSessionData,
     ) -> Result<BackedUpRoomKey, PkDecryptionError> {
-        let session_data = match &session_data.signatures {
-            Some(signatures) => {
-                let signatures_map = BTreeMap::from_iter(
-                    signatures.iter().map(|(user, device_sigs)| {
-                        (OwnedUserId::try_from(user).unwrap(), BTreeMap::from_iter(device_sigs.iter().map(|(key_id, signature)| (OwnedDeviceKeyId::try_from(key_id).unwrap(), signature))))
-                    })
-                );
-                matrix_sdk_crypto::backup::keys::EncryptedSessionDataV2Init {
-                    ephemeral: Base64::new(
-                        vodozemac::base64_decode(session_data.ephemeral)
-                            .map_err(|e| DecryptionError::Decoding(MessageDecodeError::Base64(e)).into())?
-                    ),
-                    ciphertext: Base64::new(
-                        vodozemac::base64_decode(session_data.ciphertext)
-                            .map_err(|e| DecryptionError::Decoding(MessageDecodeError::Base64(e)).into())?
-                    ),
-                    mac: Some(Base64::new(
-                        vodozemac::base64_decode(session_data.mac)
-                            .map_err(|e| DecryptionError::Decoding(MessageDecodeError::Base64(e)).into())?)
-                    ),
-                    signatures: signatures_map,
-                }.into()
-            },
-            None => {
-                matrix_sdk_crypto::backup::keys::EncryptedSessionDataInit {
-                    ephemeral: Base64::new(
-                        vodozemac::base64_decode(session_data.ephemeral)
-                            .map_err(|e| DecryptionError::Decoding(MessageDecodeError::Base64(e)).into())?
-                    ),
-                    ciphertext: Base64::new(
-                        vodozemac::base64_decode(session_data.ciphertext)
-                            .map_err(|e| DecryptionError::Decoding(MessageDecodeError::Base64(e)).into())?
-                    ),
-                    mac: Base64::new(
-                        vodozemac::base64_decode(session_data.mac)
-                            .map_err(|e| DecryptionError::Decoding(MessageDecodeError::Base64(e)).into())?
-                    ),
-                }.into()
-            },
-        };
-        self.inner.decrypt_session_data(user_id!(user_id), session_data).map_err(|e| e.into())
+        let ruma_session_data = ruma_client_api::backup::EncryptedSessionDataInit {
+            ephemeral: Base64::new(
+                vodozemac::base64_decode(session_data.ephemeral)
+                    .map_err(|e| DecryptionError::Decoding(MessageDecodeError::Base64(e)).into())?
+            ),
+            ciphertext: Base64::new(
+                vodozemac::base64_decode(session_data.ciphertext)
+                    .map_err(|e| DecryptionError::Decoding(MessageDecodeError::Base64(e)).into())?
+            ),
+            mac: Base64::new(
+                vodozemac::base64_decode(session_data.mac)
+                    .map_err(|e| DecryptionError::Decoding(MessageDecodeError::Base64(e)).into())?
+            ),
+        }.into();
+        if let Some(mac_v2) = session_data.mac_v2 {
+            ruma_session_data.unsigned = ruma_client_api::backup::EncryptedSessionDataUnsignedInit {
+                backup_mac: Base64::new(
+                    vodozemac::base64_decode(mac_v2)
+                        .map_err(|e| DecryptionError::Decoding(MessageDecodeError::Base64(e)))?
+                )
+            }
+        }
+        self.inner.decrypt_session_data(ruma_session_data).map_err(|e| e.into())
     }
 }
 
@@ -317,10 +300,8 @@ mod tests {
                                fMh05PdGLnxeRpiEFWSMSsJNp+OWAA+5JsF41BoRGrxoXXT+VKqlUDONd+O296Psu8Q+\
                                d8/S618",
                 "mac": "GtMrurhDTwo",
-                "signatures": {
-                    "@alice:localhost": {
-                        "org.matrix.msc4048.hmac-sha-256:backup_mac_key": "Q3Z4X36MdXmBzo0TwnCKirEtWYGwJepfRRTft7cM6cU",
-                    }
+                "unsigned": {
+                    "org.matrix.msc4048.backup_mac": "Q3Z4X36MdXmBzo0TwnCKirEtWYGwJepfRRTft7cM6cU",
                 },
             }
         });
@@ -331,10 +312,11 @@ mod tests {
             ephemeral: key_backup_data.session_data.ephemeral.encode(),
             ciphertext: key_backup_data.session_data.ciphertext.encode(),
             mac: key_backup_data.session_data.mac.encode(),
+            mac_v2: key_backup_data.session_data.unsigned.unwrap().backup_mac.unwrap().encode(),
         };
 
         let _ = recovery_key
-            .decrypt_session_data(user_id!("@alice:localhost"), encrypted_session_data)
+            .decrypt_session_data(encrypted_session_data)
             .expect("The backed up key should be decrypted successfully");
     }
 }

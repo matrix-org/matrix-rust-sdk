@@ -21,10 +21,7 @@ use bs58;
 use hkdf::Hkdf;
 use hmac::digest::MacError;
 use sha2::Sha256;
-use ruma::{
-    DeviceKeyAlgorithm, DeviceKeyId, UserId,
-    api::client::backup::EncryptedSessionData,
-};
+use ruma::api::client::backup::EncryptedSessionData;
 use thiserror::Error;
 use vodozemac::Curve25519PublicKey;
 use zeroize::{Zeroize, Zeroizing};
@@ -32,7 +29,7 @@ use zeroize::{Zeroize, Zeroizing};
 use super::{
     backup::HmacSha256Key,
     compat::{Error as DecryptionError, Message, PkDecryption},
-    MegolmV1BackupKey, BackupV2Key,
+    MegolmV1BackupKey,
 };
 use crate::{
     olm::{BackedUpRoomKey, UnauthenticatedSource},
@@ -199,13 +196,6 @@ impl BackupDecryptionKey {
         MegolmV1BackupKey::new(pk.public_key(), Some(mac_key), None)
     }
 
-    /// Extract the megolm.v1 public key from this [`BackupDecryptionKey`].
-    pub fn megolm_v2_public_key(&self) -> BackupV2Key {
-        let pk = self.get_pk_decryption();
-        let mac_key = self.calculate_mac_key();
-        BackupV2Key::new(pk.public_key(), mac_key, None)
-    }
-
     /// Get the [`RoomKeyBackupInfo`] for this [`BackupDecryptionKey`].
     ///
     /// The [`RoomKeyBackupInfo`] can be uploaded to the homeserver to activate
@@ -242,29 +232,24 @@ impl BackupDecryptionKey {
     /// [`BackupDecryptionKey`].
     pub fn decrypt_session_data(
         &self,
-        user_id: &UserId,
         session_data: EncryptedSessionData,
     ) -> Result<BackedUpRoomKey, DecryptionError> {
-        let message = match (&session_data.mac, &session_data.signatures) {
-            (_, Some(_)) => {
-                // FIXME: how do we handle the signatures property existing,
-                // but without a MAC?
-                let mac_key = self.calculate_mac_key();
-                mac_key.verify(user_id, &DeviceKeyId::from_parts(DeviceKeyAlgorithm::HmacSha256, "backup_mac_key".into()), &session_data)
-                    .map_err(|_| DecryptionError::Mac(MacError))?;
-                Message {
-                    ciphertext: session_data.ciphertext.into_inner(),
-                    mac: None,
-                    ephemeral_key: Curve25519PublicKey::from_slice(session_data.ephemeral.as_bytes())?,
-                }
-            },
-            (Some(mac), _) => Message {
-                // FIXME: if we're in a V2 backup, this should be an error
+        let has_mac = session_data.unsigned.as_ref().and_then(|unsigned| unsigned.backup_mac.as_ref()).is_some();
+        let message = if has_mac {
+            let mac_key = self.calculate_mac_key();
+            mac_key.verify(&session_data)
+                .map_err(|_| DecryptionError::Mac(MacError))?;
+            Message {
                 ciphertext: session_data.ciphertext.into_inner(),
-                mac: Some(mac.clone().into_inner()),
+                mac: None,
                 ephemeral_key: Curve25519PublicKey::from_slice(session_data.ephemeral.as_bytes())?,
-            },
-            (None, None) => Err(DecryptionError::Mac(MacError))?
+            }
+        } else {
+            Message {
+                ciphertext: session_data.ciphertext.into_inner(),
+                mac: Some(session_data.mac.into_inner()),
+                ephemeral_key: Curve25519PublicKey::from_slice(session_data.ephemeral.as_bytes())?,
+            }
         };
 
         let pk = self.get_pk_decryption();
@@ -272,7 +257,7 @@ impl BackupDecryptionKey {
         let mut decrypted = pk.decrypt(&message)?;
         let result = serde_json::from_slice::<BackedUpRoomKey>(&decrypted)
             .map(|mut result| {
-                if session_data.signatures.is_none() {
+                if has_mac {
                     result.unauthenticated = Some(UnauthenticatedSource::LegacyV1);
                 }
                 result
@@ -301,10 +286,6 @@ impl BackupDecryptionKey {
 #[cfg(test)]
 mod tests {
     use matrix_sdk_test::async_test;
-    use ruma::{
-        DeviceKeyAlgorithm, DeviceKeyId,
-        user_id
-    };
     use ruma::api::client::backup::KeyBackupData;
     use serde_json::json;
 
@@ -410,7 +391,7 @@ mod tests {
         let key_backup_data: KeyBackupData = serde_json::from_value(data).unwrap();
         let ephemeral = key_backup_data.session_data.ephemeral.encode();
         let ciphertext = key_backup_data.session_data.ciphertext.encode();
-        let mac = key_backup_data.session_data.mac.as_ref().unwrap().encode();
+        let mac = key_backup_data.session_data.mac.encode();
 
         let decrypted = decryption_key
             .decrypt_v1(&ephemeral, &mac, &ciphertext)
@@ -420,7 +401,7 @@ mod tests {
             .expect("The decrypted payload should contain valid JSON");
 
         let _ = decryption_key
-            .decrypt_session_data(user_id!("@alice:localhost"), key_backup_data.session_data)
+            .decrypt_session_data(key_backup_data.session_data)
             .expect("The backed up key should be decrypted successfully");
     }
 
@@ -431,16 +412,12 @@ mod tests {
         let decryption_key = BackupDecryptionKey::new().unwrap();
         let encryption_key = decryption_key.megolm_v1_public_key();
 
-        let encrypted = encryption_key.encrypt(user_id!("@alice:localhost"), session).await;
+        let encrypted = encryption_key.encrypt(session).await;
 
-        assert!(encrypted.session_data.signatures.as_ref().is_some_and(|signatures| {
-            signatures.get(user_id!("@alice:localhost")).is_some_and(|device_sigs| {
-                device_sigs.get(&DeviceKeyId::from_parts(DeviceKeyAlgorithm::HmacSha256, "backup_mac_key".into())).is_some()
-            })
-        }));
+        assert!(encrypted.session_data.unsigned.as_ref().and_then(|unsigned| unsigned.backup_mac.as_ref()).is_some());
 
         let _ = decryption_key
-            .decrypt_session_data(user_id!("@alice:localhost"), encrypted.session_data)
+            .decrypt_session_data(encrypted.session_data)
             .expect("We should be able to decrypt a just encrypted room key");
     }
 
@@ -500,10 +477,8 @@ mod tests {
                                fMh05PdGLnxeRpiEFWSMSsJNp+OWAA+5JsF41BoRGrxoXXT+VKqlUDONd+O296Psu8Q+\
                                d8/S618",
                 "mac": "GtMrurhDTwo",
-                "signatures": {
-                    "@alice:localhost": {
-                        "org.matrix.msc4048.hmac-sha-256:backup_mac_key": "Q3Z4X36MdXmBzo0TwnCKirEtWYGwJepfRRTft7cM6Uc",
-                    }
+                "unsigned": {
+                    "org.matrix.msc4048.backup_mac": "Q3Z4X36MdXmBzo0TwnCKirEtWYGwJepfRRTft7cM6Uc",
                 },
             }
         });
@@ -511,7 +486,7 @@ mod tests {
         let key_backup_data: KeyBackupData = serde_json::from_value(data).unwrap();
 
         let _ = decryption_key
-            .decrypt_session_data(user_id!("@alice:localhost"), key_backup_data.session_data)
+            .decrypt_session_data(key_backup_data.session_data)
             .expect("The backed up key should be decrypted successfully");
 
         // bad data, created by swapping characters in the MAC
@@ -532,10 +507,8 @@ mod tests {
                                fMh05PdGLnxeRpiEFWSMSsJNp+OWAA+5JsF41BoRGrxoXXT+VKqlUDONd+O296Psu8Q+\
                                d8/S618",
                 "mac": "GtMrurhDTwo",
-                "signatures": {
-                    "@alice:localhost": {
-                        "org.matrix.msc4048.hmac-sha-256:backup_mac_key": "Q3Z4X36MdXmBzo0TwnCKirEtWYGwJepfRRTft7cM6cU",
-                    }
+                "unsigned": {
+                    "org.matrix.msc4048.backup_mac": "Q3Z4X36MdXmBzo0TwnCKirEtWYGwJepfRRTft7cM6cU",
                 },
             }
         });
@@ -543,7 +516,7 @@ mod tests {
         let key_backup_data: KeyBackupData = serde_json::from_value(data_bad).unwrap();
 
         let _ = decryption_key
-            .decrypt_session_data(user_id!("@alice:localhost"), key_backup_data.session_data)
+            .decrypt_session_data(key_backup_data.session_data)
             .and(Ok(())) // without this, expect_err will fail because BackedUpRoomKey doesn't implement Debug
             .expect_err("The backed up key should not be decrypted successfully");
     }

@@ -381,6 +381,11 @@ impl InboundGroupSession {
         }
     }
 
+    /// Where the key came from.
+    pub fn key_source(&self) -> &KeySource {
+        &self.key_source
+    }
+
     /// Check if the `InboundGroupSession` is better than the given other
     /// `InboundGroupSession`
     pub async fn compare(&self, other: &InboundGroupSession) -> SessionOrdering {
@@ -510,7 +515,8 @@ impl PartialEq for InboundGroupSession {
 ///
 /// Holds all the information that needs to be stored in a database to restore
 /// an InboundGroupSession.
-#[derive(Serialize, Deserialize)]
+#[derive(Deserialize, Serialize)]
+#[serde(try_from = "PickledInboundGroupSessionIn")]
 #[allow(missing_debug_implementations)]
 pub struct PickledInboundGroupSession {
     /// The pickle string holding the InboundGroupSession.
@@ -534,8 +540,53 @@ pub struct PickledInboundGroupSession {
     pub algorithm: EventEncryptionAlgorithm,
 }
 
+/// Deserialization helper for PickledInboundGroupSession
+///
+/// Allows migration from older versions of the pickle
+/// - if `imported` is set, convert to `key_source`
+#[derive(Deserialize, Serialize)]
+#[allow(missing_debug_implementations)]
+struct PickledInboundGroupSessionIn {
+    pub pickle: InboundGroupSessionPickle,
+    #[serde(deserialize_with = "deserialize_curve_key", serialize_with = "serialize_curve_key")]
+    pub sender_key: Curve25519PublicKey,
+    pub signing_key: SigningKeys<DeviceKeyAlgorithm>,
+    pub room_id: OwnedRoomId,
+    pub imported: Option<bool>,
+    pub key_source: Option<KeySource>,
+    #[serde(default)]
+    pub backed_up: bool,
+    pub history_visibility: Option<HistoryVisibility>,
+    #[serde(default = "default_algorithm")]
+    pub algorithm: EventEncryptionAlgorithm,
+}
+
 fn default_algorithm() -> EventEncryptionAlgorithm {
     EventEncryptionAlgorithm::MegolmV1AesSha2
+}
+
+impl TryFrom<PickledInboundGroupSessionIn> for PickledInboundGroupSession {
+    type Error = String;
+
+    fn try_from(val: PickledInboundGroupSessionIn) -> Result<Self, Self::Error> {
+        let key_source = match (val.imported, val.key_source) {
+            (Some(false), None) => Ok(KeySource::Direct),
+            (Some(true), None) => Ok(KeySource::OldStyleImport),
+            (None, Some(key_source)) => Ok(key_source),
+            (None, None) => Err("missing field: key_source"),
+            (Some(_), Some(_)) => Err("imported and key_source cannot both be provided")
+        }?;
+        Ok(Self {
+            pickle: val.pickle,
+            sender_key: val.sender_key,
+            signing_key: val.signing_key,
+            room_id: val.room_id,
+            key_source,
+            backed_up: val.backed_up,
+            history_visibility: val.history_visibility,
+            algorithm: val.algorithm,
+        })
+    }
 }
 
 impl TryFrom<&ExportedRoomKey> for InboundGroupSession {
@@ -687,6 +738,95 @@ mod tests {
         let unpickled = InboundGroupSession::from_pickle(deserialized).unwrap();
 
         assert_eq!(unpickled.session_id(), "XbmrPa1kMwmdtNYng1B2gsfoo8UtF+NklzsTZiaVKyY");
+    }
+
+    #[async_test]
+    async fn inbound_group_session_migration() {
+        let pickle = r#"
+        {
+            "pickle": {
+                "initial_ratchet": {
+                    "inner": [ 124, 251, 213, 204, 108, 247, 54, 7, 179, 162, 15, 107, 154, 215,
+                               220, 46, 123, 113, 120, 162, 225, 246, 237, 203, 125, 102, 190, 212,
+                               229, 195, 136, 185, 26, 31, 77, 140, 144, 181, 152, 177, 46, 105,
+                               202, 6, 53, 158, 157, 170, 31, 155, 130, 87, 214, 110, 143, 55, 68,
+                               138, 41, 35, 242, 230, 194, 15, 16, 145, 116, 94, 89, 35, 79, 145,
+                               245, 117, 204, 173, 166, 178, 49, 131, 143, 61, 61, 15, 211, 167, 17,
+                               2, 79, 110, 149, 200, 223, 23, 185, 200, 29, 64, 55, 39, 147, 167,
+                               205, 224, 159, 101, 218, 249, 203, 30, 175, 174, 48, 252, 40, 131,
+                               52, 135, 91, 57, 211, 96, 105, 58, 55, 68, 250, 24 ],
+                    "counter": 0
+                },
+                "signing_key": [ 93, 185, 171, 61, 173, 100, 51, 9, 157, 180, 214, 39, 131, 80, 118,
+                                 130, 199, 232, 163, 197, 45, 23, 227, 100, 151, 59, 19, 102, 38,
+                                 149, 43, 38 ],
+                "signing_key_verified": true,
+                "config": {
+                  "version": "V1"
+                }
+            },
+            "sender_key": "AmM1DvVJarsNNXVuX7OarzfT481N37GtDwvDVF0RcR8",
+            "signing_key": {
+                "ed25519": "wTRTdz4rn4EY+68cKPzpMdQ6RAlg7T8cbTmEjaXuUww"
+            },
+            "room_id": "!test:localhost",
+            "forwarding_chains": ["tb6kQKjk+SJl2KnfQ0lKVOZl6gDFMcsb9HcUP9k/4hc"],
+            "imported": true,
+            "backed_up": false,
+            "history_visibility": "shared",
+            "algorithm": "m.megolm.v1.aes-sha2"
+        }
+        "#;
+
+        let deserialized = serde_json::from_str(pickle).unwrap();
+
+        let unpickled = InboundGroupSession::from_pickle(deserialized).unwrap();
+
+        assert_eq!(unpickled.session_id(), "XbmrPa1kMwmdtNYng1B2gsfoo8UtF+NklzsTZiaVKyY");
+        assert!(unpickled.has_been_imported());
+
+        let pickle = r#"
+        {
+            "pickle": {
+                "initial_ratchet": {
+                    "inner": [ 124, 251, 213, 204, 108, 247, 54, 7, 179, 162, 15, 107, 154, 215,
+                               220, 46, 123, 113, 120, 162, 225, 246, 237, 203, 125, 102, 190, 212,
+                               229, 195, 136, 185, 26, 31, 77, 140, 144, 181, 152, 177, 46, 105,
+                               202, 6, 53, 158, 157, 170, 31, 155, 130, 87, 214, 110, 143, 55, 68,
+                               138, 41, 35, 242, 230, 194, 15, 16, 145, 116, 94, 89, 35, 79, 145,
+                               245, 117, 204, 173, 166, 178, 49, 131, 143, 61, 61, 15, 211, 167, 17,
+                               2, 79, 110, 149, 200, 223, 23, 185, 200, 29, 64, 55, 39, 147, 167,
+                               205, 224, 159, 101, 218, 249, 203, 30, 175, 174, 48, 252, 40, 131,
+                               52, 135, 91, 57, 211, 96, 105, 58, 55, 68, 250, 24 ],
+                    "counter": 0
+                },
+                "signing_key": [ 93, 185, 171, 61, 173, 100, 51, 9, 157, 180, 214, 39, 131, 80, 118,
+                                 130, 199, 232, 163, 197, 45, 23, 227, 100, 151, 59, 19, 102, 38,
+                                 149, 43, 38 ],
+                "signing_key_verified": true,
+                "config": {
+                  "version": "V1"
+                }
+            },
+            "sender_key": "AmM1DvVJarsNNXVuX7OarzfT481N37GtDwvDVF0RcR8",
+            "signing_key": {
+                "ed25519": "wTRTdz4rn4EY+68cKPzpMdQ6RAlg7T8cbTmEjaXuUww"
+            },
+            "room_id": "!test:localhost",
+            "forwarding_chains": ["tb6kQKjk+SJl2KnfQ0lKVOZl6gDFMcsb9HcUP9k/4hc"],
+            "imported": false,
+            "backed_up": false,
+            "history_visibility": "shared",
+            "algorithm": "m.megolm.v1.aes-sha2"
+        }
+        "#;
+
+        let deserialized = serde_json::from_str(pickle).unwrap();
+
+        let unpickled = InboundGroupSession::from_pickle(deserialized).unwrap();
+
+        assert_eq!(unpickled.session_id(), "XbmrPa1kMwmdtNYng1B2gsfoo8UtF+NklzsTZiaVKyY");
+        assert!(!unpickled.has_been_imported());
     }
 
     #[async_test]

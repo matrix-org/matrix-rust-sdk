@@ -47,7 +47,6 @@ pbkdf2 = { version = "0.12.2", default-features = false }
 rand = { workspace = true }
 rmp-serde = "1.1.1"
 ruma = { workspace = true, features = ["rand", "canonical-json", "unstable-msc3814"] }
-ruma-common = { workspace = true, features = ["unstable-msc4048"] }
 ruma-client-api = { workspace = true, features = ["unstable-msc4048"] }
 serde = { workspace = true, features = ["derive", "rc"] }
 serde_json = { workspace = true }
