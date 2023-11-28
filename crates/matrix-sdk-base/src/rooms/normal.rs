@@ -686,7 +686,7 @@ impl Room {
 
     /// Get the receipt as an `OwnedEventId` and `Receipt` tuple for the given
     /// `receipt_type`, `thread` and `user_id` in this room.
-    pub async fn user_receipt(
+    pub async fn load_user_receipt(
         &self,
         receipt_type: ReceiptType,
         thread: ReceiptThread,

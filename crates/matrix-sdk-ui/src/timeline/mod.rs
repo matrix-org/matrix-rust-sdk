@@ -658,7 +658,7 @@ impl Timeline {
 
     /// Get the latest read receipt for the given user.
     ///
-    /// Contrary to [`Room::user_receipt()`] that only keeps track of read
+    /// Contrary to [`Room::load_user_receipt()`] that only keeps track of read
     /// receipts received from the homeserver, this keeps also track of implicit
     /// read receipts in this timeline, i.e. when a room member sends an event.
     #[instrument(skip(self))]
