@@ -1,28 +1,17 @@
 use std::{convert::TryFrom, sync::Arc};
 
 use anyhow::{Context, Result};
-use futures_util::StreamExt;
-use matrix_sdk::{
-    room::Room as SdkRoom,
-    ruma::{
-        api::client::room::report_content,
-        events::{
-            call::notify::CallNotifyEventContent,
-            room::{
-                avatar::ImageInfo as RumaAvatarImageInfo,
-                message::{MessageType, RoomMessageEventContentWithoutRelation},
-            },
-        },
-        EventId, UserId,
-    },
-    RoomMemberships, RoomState,
-};
-use matrix_sdk_ui::timeline::{RoomExt, Timeline};
-
+use matrix_sdk::{room::Room as SdkRoom, RoomMemberships, RoomState};
+use matrix_sdk_ui::timeline::RoomExt;
 use mime::Mime;
 use ruma::{
+    api::client::room::report_content,
     assign,
-    events::{call::notify, room::MediaSource},
+    events::{
+        call::notify,
+        room::{avatar::ImageInfo as RumaAvatarImageInfo, MediaSource},
+    },
+    EventId, UserId,
 };
 use tokio::sync::RwLock;
 use tracing::error;
@@ -33,8 +22,8 @@ use crate::{
     error::{ClientError, MediaInfoError, RoomError},
     room_info::RoomInfo,
     room_member::{MessageLikeEventType, RoomMember, StateEventType},
-    ruma::{ImageInfo, Mentions},
-    timeline::EventTimelineItem,
+    ruma::ImageInfo,
+    timeline::{EventTimelineItem, Timeline},
     utils::u64_to_uint,
     TaskHandle,
 };
