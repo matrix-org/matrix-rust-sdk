@@ -25,13 +25,33 @@ use std::{
 
 use super::instant::Instant;
 
+const MAX_DELAY: u64 = 15 * 60;
+const MULTIPLIER: u64 = 15;
+
 /// A TTL cache where items get inactive instead of discarded.
 ///
 /// The items need to be explicitly removed from the cache. This allows us to
 /// implement exponential backoff based TTL.
 #[derive(Clone, Debug)]
 pub struct FailuresCache<T: Eq + Hash> {
-    inner: Arc<RwLock<HashMap<T, FailuresItem>>>,
+    inner: Arc<InnerCache<T>>,
+}
+
+#[derive(Debug)]
+struct InnerCache<T: Eq + Hash> {
+    max_delay: Duration,
+    backoff_multiplier: u64,
+    items: RwLock<HashMap<T, FailuresItem>>,
+}
+
+impl<T: Eq + Hash> Default for InnerCache<T> {
+    fn default() -> Self {
+        Self {
+            max_delay: Duration::from_secs(MAX_DELAY),
+            backoff_multiplier: MULTIPLIER,
+            items: Default::default(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -68,8 +88,16 @@ where
         Self { inner: Default::default() }
     }
 
-    const MAX_DELAY: u64 = 15 * 60;
-    const MULTIPLIER: u64 = 15;
+    pub fn with_settings(max_delay: Duration, multiplier: u8) -> Self {
+        Self {
+            inner: InnerCache {
+                max_delay,
+                backoff_multiplier: multiplier.into(),
+                items: Default::default(),
+            }
+            .into(),
+        }
+    }
 
     /// Is the given key non-expired and part of the cache.
     pub fn contains<Q>(&self, key: &Q) -> bool
@@ -77,7 +105,7 @@ where
         T: Borrow<Q>,
         Q: Hash + Eq + ?Sized,
     {
-        let lock = self.inner.read().unwrap();
+        let lock = self.inner.items.read().unwrap();
 
         let contains = if let Some(item) = lock.get(key) { !item.expired() } else { false };
 
@@ -99,20 +127,21 @@ where
         T: Borrow<Q>,
         Q: Hash + Eq + ?Sized,
     {
-        let lock = self.inner.read().unwrap();
+        let lock = self.inner.items.read().unwrap();
         lock.get(key).map(|i| i.failure_count)
     }
 
     /// This will calculate a duration that determines how long an item is
     /// considered to be valid while being in the cache.
     ///
-    /// The returned duration will follow this sequence, values are in minutes:
+    /// The returned duration will follow this sequence if the default
+    /// multiplier and `max_delay` values are used, values are in minutes:
     ///      [0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 15.0]
-    fn calculate_delay(failure_count: u8) -> Duration {
+    fn calculate_delay(&self, failure_count: u8) -> Duration {
         let exponential_backoff = 2u64.saturating_pow(failure_count.into());
-        let delay = exponential_backoff.saturating_mul(Self::MULTIPLIER).clamp(1, Self::MAX_DELAY);
+        let delay = exponential_backoff.saturating_mul(self.inner.backoff_multiplier);
 
-        Duration::from_secs(delay)
+        Duration::from_secs(delay).clamp(Duration::from_secs(1), self.inner.max_delay)
     }
 
     /// Add a single item to the cache.
@@ -126,7 +155,7 @@ where
     /// not, will have their TTL extended using an exponential backoff
     /// algorithm.
     pub fn extend(&self, iterator: impl IntoIterator<Item = T>) {
-        let mut lock = self.inner.write().unwrap();
+        let mut lock = self.inner.items.write().unwrap();
 
         let now = Instant::now();
 
@@ -137,7 +166,7 @@ where
                 0
             };
 
-            let delay = Self::calculate_delay(failure_count);
+            let delay = self.calculate_delay(failure_count);
 
             let item = FailuresItem { insertion_time: now, duration: delay, failure_count };
 
@@ -152,7 +181,7 @@ where
         T: Borrow<Q>,
         Q: Hash + Eq + 'a + ?Sized,
     {
-        let mut lock = self.inner.write().unwrap();
+        let mut lock = self.inner.items.write().unwrap();
 
         for item in iterator {
             lock.remove(item);
@@ -165,7 +194,7 @@ where
     /// for immediate retry.
     #[doc(hidden)]
     pub fn expire(&self, item: &T) {
-        let mut lock = self.inner.write().unwrap();
+        let mut lock = self.inner.items.write().unwrap();
         lock.get_mut(item).map(FailuresItem::expire);
     }
 }
@@ -192,29 +221,32 @@ mod tests {
         cache.extend([1u8].iter());
         assert!(cache.contains(&1));
 
-        cache.inner.write().unwrap().get_mut(&1).unwrap().duration = Duration::from_secs(0);
+        cache.inner.items.write().unwrap().get_mut(&1).unwrap().duration = Duration::from_secs(0);
         assert!(!cache.contains(&1));
 
         cache.remove([1u8].iter());
-        assert!(cache.inner.read().unwrap().get(&1).is_none())
+        assert!(cache.inner.items.read().unwrap().get(&1).is_none())
     }
 
     #[test]
     fn failures_cache_timeout() {
-        assert_eq!(FailuresCache::<u8>::calculate_delay(0).as_secs(), 15);
-        assert_eq!(FailuresCache::<u8>::calculate_delay(1).as_secs(), 30);
-        assert_eq!(FailuresCache::<u8>::calculate_delay(2).as_secs(), 60);
-        assert_eq!(FailuresCache::<u8>::calculate_delay(3).as_secs(), 120);
-        assert_eq!(FailuresCache::<u8>::calculate_delay(4).as_secs(), 240);
-        assert_eq!(FailuresCache::<u8>::calculate_delay(5).as_secs(), 480);
-        assert_eq!(FailuresCache::<u8>::calculate_delay(6).as_secs(), 900);
-        assert_eq!(FailuresCache::<u8>::calculate_delay(7).as_secs(), 900);
+        let cache: FailuresCache<u8> = FailuresCache::new();
+
+        assert_eq!(cache.calculate_delay(0).as_secs(), 15);
+        assert_eq!(cache.calculate_delay(1).as_secs(), 30);
+        assert_eq!(cache.calculate_delay(2).as_secs(), 60);
+        assert_eq!(cache.calculate_delay(3).as_secs(), 120);
+        assert_eq!(cache.calculate_delay(4).as_secs(), 240);
+        assert_eq!(cache.calculate_delay(5).as_secs(), 480);
+        assert_eq!(cache.calculate_delay(6).as_secs(), 900);
+        assert_eq!(cache.calculate_delay(7).as_secs(), 900);
     }
 
     proptest! {
         #[test]
         fn failures_cache_proptest_timeout(count in 0..10u8) {
-            let delay = FailuresCache::<u8>::calculate_delay(count).as_secs();
+            let cache: FailuresCache<u8> = FailuresCache::new();
+            let delay = cache.calculate_delay(count).as_secs();
 
             assert!(delay <= 900);
             assert!(delay >= 15);
