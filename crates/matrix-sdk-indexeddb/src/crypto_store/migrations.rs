@@ -207,7 +207,6 @@ fn migrate_stores_to_v6(db: &IdbDatabase) -> Result<(), DomException> {
     // have done the upgrade to v6, in `migrate_data_for_v6`. Finally we drop the
     // old store in create_stores_for_v7.
 
-    info!("Creating {}", keys::INBOUND_GROUP_SESSIONS);
     let object_store = db.create_object_store(keys::INBOUND_GROUP_SESSIONS)?;
 
     let mut params = IdbIndexParameters::new();
