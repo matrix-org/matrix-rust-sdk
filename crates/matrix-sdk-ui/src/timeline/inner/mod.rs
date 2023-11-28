@@ -292,7 +292,8 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         Ok(result)
     }
 
-    /// Populates our own latest read receipt in the in-memory by-user read receipt cache.
+    /// Populates our own latest read receipt in the in-memory by-user read
+    /// receipt cache.
     pub(super) async fn populate_initial_user_receipt(&mut self, receipt_type: ReceiptType) {
         let own_user_id = self.room_data_provider.own_user_id().to_owned();
 

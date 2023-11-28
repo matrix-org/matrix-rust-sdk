@@ -59,8 +59,8 @@ impl ReadReceipts {
         self.users_read_receipts.clear();
     }
 
-    /// Read the latest read receipt of the given type for the given user, from the in-memory
-    /// cache.
+    /// Read the latest read receipt of the given type for the given user, from
+    /// the in-memory cache.
     fn get_latest(
         &self,
         user_id: &UserId,
@@ -69,7 +69,8 @@ impl ReadReceipts {
         self.users_read_receipts.get(user_id).and_then(|map| map.get(receipt_type))
     }
 
-    /// Insert or update in the local cache the latest read receipt for the given user.
+    /// Insert or update in the local cache the latest read receipt for the
+    /// given user.
     pub fn upsert_latest(
         &mut self,
         user_id: OwnedUserId,
@@ -221,8 +222,8 @@ impl ReadReceipts {
 
     /// Get the read receipts by user for the given event.
     ///
-    /// This includes all the receipts on the event as well as all the receipts on the
-    /// following events that are filtered out (not visible).
+    /// This includes all the receipts on the event as well as all the receipts
+    /// on the following events that are filtered out (not visible).
     pub(super) fn compute_event_receipts(
         &self,
         event_id: &EventId,
@@ -552,8 +553,8 @@ impl TimelineInnerMetadata {
     /// Get the latest receipt of the given type for the given user in the
     /// timeline.
     ///
-    /// This will attempt to read the latest user receipt for a user from the cache, or load it
-    /// from the storage if missing from the cache.
+    /// This will attempt to read the latest user receipt for a user from the
+    /// cache, or load it from the storage if missing from the cache.
     pub(super) async fn user_receipt<P: RoomDataProvider>(
         &self,
         user_id: &UserId,
