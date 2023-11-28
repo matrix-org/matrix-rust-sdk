@@ -21,7 +21,7 @@ use std::{
 
 use futures_util::future::join_all;
 use itertools::Itertools;
-use matrix_sdk_common::executor::spawn;
+use matrix_sdk_common::{executor::spawn, failures_cache::FailuresCache};
 use ruma::{
     api::client::keys::get_keys::v3::Response as KeysQueryResponse, serde::Raw, OwnedDeviceId,
     OwnedServerName, OwnedTransactionId, OwnedUserId, ServerName, TransactionId, UserId,
@@ -41,7 +41,6 @@ use crate::{
         Result as StoreResult, Store, StoreCache, UserKeyQueryResult,
     },
     types::{CrossSigningKey, DeviceKeys, MasterPubkey, SelfSigningPubkey, UserSigningPubkey},
-    utilities::FailuresCache,
     CryptoStoreError, LocalTrust, SignatureError,
 };
 

@@ -19,6 +19,7 @@ use std::{
 };
 
 use itertools::Itertools;
+use matrix_sdk_common::failures_cache::FailuresCache;
 use ruma::{
     api::client::keys::claim_keys::v3::{
         Request as KeysClaimRequest, Response as KeysClaimResponse,
@@ -37,7 +38,6 @@ use crate::{
     requests::{OutgoingRequest, ToDeviceRequest},
     store::{Changes, Result as StoreResult, Store},
     types::{events::EventType, EventEncryptionAlgorithm},
-    utilities::FailuresCache,
     ReadOnlyDevice,
 };
 
