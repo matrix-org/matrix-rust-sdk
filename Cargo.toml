@@ -35,7 +35,7 @@ futures-executor = "0.3.21"
 futures-util = { version = "0.3.26", default-features = false, features = ["alloc"] }
 http = "0.2.6"
 itertools = "0.11.0"
-ruma = { git = "https://github.com/uhoreg/ruma", rev = "81aa5fc0ab5556ee9918d35298178c586c257100", features = ["client-api-c", "compat-upload-signatures", "compat-user-id"] }
+ruma = { git = "https://github.com/uhoreg/ruma", rev = "81aa5fc0ab5556ee9918d35298178c586c257100", features = ["client-api-c", "compat-upload-signatures", "compat-user-id", "compat-arbitrary-length-ids", "unstable-msc3401"] }
 ruma-common = { git = "https://github.com/uhoreg/ruma", rev = "81aa5fc0ab5556ee9918d35298178c586c257100" }
 ruma-client-api = { git = "https://github.com/uhoreg/ruma", rev = "81aa5fc0ab5556ee9918d35298178c586c257100" }
 once_cell = "1.16.0"
@@ -84,8 +84,3 @@ opt-level = 3
 [patch.crates-io]
 async-compat = { git = "https://github.com/jplatte/async-compat", rev = "16dc8597ec09a6102d58d4e7b67714a35dd0ecb8" }
 const_panic = { git = "https://github.com/jplatte/const_panic", rev = "9024a4cb3eac45c1d2d980f17aaee287b17be498" }
-
-#[patch.'https://github.com/uhoreg/ruma']
-#ruma = { path = "../ruma/crates/ruma" }
-#ruma-common = { path = "../ruma/crates/ruma-common" }
-#ruma-client-api = { path = "../ruma/crates/ruma-client-api" }
