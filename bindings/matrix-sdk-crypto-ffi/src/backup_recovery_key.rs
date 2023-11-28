@@ -2,10 +2,12 @@ use std::{collections::HashMap, iter, ops::DerefMut, sync::Arc};
 
 use hmac::Hmac;
 use matrix_sdk_crypto::{
-    backups::DecryptionError,
+    backups::{DecryptionError, MessageDecodeError},
+    olm::BackedUpRoomKey,
     store::{BackupDecryptionKey, CryptoStoreError as InnerStoreError},
 };
 use pbkdf2::pbkdf2;
+use ruma::serde::Base64;
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use sha2::Sha512;
 use thiserror::Error;
@@ -206,7 +208,7 @@ impl BackupRecoveryKey {
         &self,
         session_data: EncryptedSessionData,
     ) -> Result<BackedUpRoomKey, PkDecryptionError> {
-        let ruma_session_data = ruma_client_api::backup::EncryptedSessionDataInit {
+        let ruma_session_data = ruma::api::client::backup::EncryptedSessionDataInit {
             ephemeral: Base64::new(
                 vodozemac::base64_decode(session_data.ephemeral)
                     .map_err(|e| DecryptionError::Decoding(MessageDecodeError::Base64(e)).into())?
@@ -221,7 +223,7 @@ impl BackupRecoveryKey {
             ),
         }.into();
         if let Some(mac_v2) = session_data.mac_v2 {
-            ruma_session_data.unsigned = ruma_client_api::backup::EncryptedSessionDataUnsignedInit {
+            ruma_session_data.unsigned = ruma::api::client::backup::EncryptedSessionDataUnsignedInit {
                 backup_mac: Base64::new(
                     vodozemac::base64_decode(mac_v2)
                         .map_err(|e| DecryptionError::Decoding(MessageDecodeError::Base64(e)))?
@@ -237,7 +239,7 @@ mod tests {
     use ruma::api::client::backup::KeyBackupData;
     use serde_json::json;
 
-    use super::BackupRecoveryKey;
+    use super::{BackupRecoveryKey, EncryptedSessionData};
 
     #[test]
     fn test_decrypt_v1_key() {
