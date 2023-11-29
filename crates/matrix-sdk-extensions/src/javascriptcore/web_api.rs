@@ -1,5 +1,3 @@
-use std::{fs::File, io::Read};
-
 use javascriptcore::{constructor_callback, function_callback, JSException, JSTypedArrayType};
 
 #[constructor_callback]
@@ -125,52 +123,3 @@ pub(super) fn text_decoder(
 
     Ok(constructor.into())
 }
-
-/*
-#[function_callback]
-pub(super) fn compile_wasm(
-    ctx: &JSContext,
-    _function: Option<&JSObject>,
-    _this_object: Option<&JSObject>,
-    arguments: &[JSValue],
-) -> Result<JSValue, JSException> {
-    if arguments.len() != 1 {
-        return Err(JSValue::new_string(ctx, "`compile` expects one argument").into());
-    }
-
-    let wasm_path = arguments[0].as_string()?.to_string();
-
-    let mut wasm_file = File::open(format!("guests/timeline/js/{}", wasm_path)).unwrap();
-    let mut wasm_bytes = Vec::new();
-    wasm_file.read_to_end(&mut wasm_bytes).unwrap();
-
-    let global_object = ctx.global_object()?;
-    let webassembly = global_object.get_property("WebAssembly").as_object()?;
-    let webassembly_module = webassembly.get_property("Module").as_object()?;
-
-    let wasm_bytes_buffer =
-        unsafe { JSValue::new_typed_array_with_bytes(ctx, wasm_bytes.as_mut_slice()) }?;
-
-    let compiled_module = webassembly_module.call_as_constructor(&[wasm_bytes_buffer])?;
-
-    Ok(compiled_module)
-}
-
-#[function_callback]
-pub(super) fn instantiate_wasm(
-    ctx: &JSContext,
-    _function: Option<&JSObject>,
-    _this_object: Option<&JSObject>,
-    arguments: &[JSValue],
-) -> Result<JSValue, JSException> {
-    if arguments.len() > 2 {
-        return Err(JSValue::new_string(ctx, "`instantiate` expects at most 2 arguments").into());
-    }
-
-    let global_object = ctx.global_object()?;
-    let webassembly = global_object.get_property("WebAssembly").as_object()?;
-    let webassembly_instance = webassembly.get_property("Instance").as_object()?;
-
-    webassembly_instance.call_as_constructor(arguments)
-}
-*/

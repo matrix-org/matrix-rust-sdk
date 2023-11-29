@@ -32,8 +32,11 @@ pub struct NativeExports<M>
 where
     M: Module,
 {
-    store: Arc<RwLock<Store<M::Environment>>>,
-    bindings: M::Bindings,
+    #[doc(hidden)]
+    pub store: Arc<RwLock<Store<M::Environment>>>,
+
+    #[doc(hidden)]
+    pub bindings: M::Bindings,
 }
 
 pub struct NativeInstance<M>
@@ -115,24 +118,14 @@ mod tests {
             }
         }
 
-        pub trait TimelineExports {
-            fn greet(&mut self, arg0: &str) -> crate::Result<()>;
-        }
-
-        impl TimelineExports for NativeExports<TimelineModule> {
-            fn greet(&mut self, arg0: &str) -> crate::Result<()> {
-                let mut store = self.store.write().unwrap();
-                let store: &mut Store<TimelineEnvironment> = &mut store;
-
-                self.bindings.call_greet(store, arg0)
-            }
-        }
-
         let mut instance = TimelineInstance::new("timeline.wasm").unwrap();
+        let result = instance.exports.greet("Gordon");
 
-        instance.exports.greet("Gordon").unwrap();
+        assert!(result.is_ok());
 
-        let env = instance.environment();
-        assert_eq!(env.output, "Hello, Gordon!\n");
+        {
+            let env = instance.environment();
+            assert_eq!(env.output, "Hello, Gordon!\n");
+        }
     }
 }

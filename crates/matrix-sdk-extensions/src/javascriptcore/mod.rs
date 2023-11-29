@@ -51,8 +51,12 @@ pub struct JSExports<M>
 where
     M: Module,
 {
-    context: Arc<JSContext>,
-    exports: JSObject,
+    #[doc(hidden)]
+    pub context: Arc<JSContext>,
+
+    #[doc(hidden)]
+    pub exports: JSObject,
+
     phantom: PhantomData<M>,
 }
 
@@ -60,6 +64,7 @@ pub struct JSInstance<M>
 where
     M: Module,
 {
+    #[allow(unused)]
     context: Arc<JSContext>,
     environment: Arc<Mutex<M::Environment>>,
     pub exports: JSExports<M>,
@@ -189,38 +194,15 @@ mod tests {
             }
         }
 
-        pub trait TimelineExports {
-            fn greet(&mut self, arg0: &str) -> crate::Result<()>;
-        }
-
-        impl TimelineExports for JSExports<TimelineModule> {
-            fn greet(&mut self, arg0: &str) -> crate::Result<()> {
-                /*
-                let mut store = self.store.write().unwrap();
-                let store: &mut Store<TimelineEnvironment> = &mut store;
-
-                self.bindings.call_greet(store, arg0)
-                */
-
-                let greet = self.exports.get_property("greet").as_object().unwrap();
-
-                greet
-                    .call_as_function(
-                        None,
-                        &[JSValue::new_string(self.context.as_ref(), arg0.to_owned())],
-                    )
-                    .unwrap();
-
-                Ok(())
-            }
-        }
-
         let mut instance = TimelineInstance::new("guests/timeline/js/timeline.js").unwrap();
+        let result = instance.exports.greet("Gordon");
 
-        instance.exports.greet("Gordon").unwrap();
+        assert!(result.is_ok());
 
-        let env = instance.environment();
-        assert_eq!(env.output, "Hello, Gordon!\n");
+        {
+            let env = instance.environment();
+            assert_eq!(env.output, "Hello, Gordon!\n");
+        }
 
         Ok(())
     }
