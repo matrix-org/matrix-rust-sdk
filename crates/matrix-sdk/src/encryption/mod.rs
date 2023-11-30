@@ -105,6 +105,19 @@ pub struct EncryptionSettings {
     /// enabled on the server, as of 2023-10-20.
     pub auto_enable_cross_signing: bool,
 
+    /// Select a strategy to download room keys from the backup, by default room
+    /// keys won't be downloaded from the backup automatically.
+    ///
+    /// Take a look at the [`BackupDownloadStrategy`] enum for more options.
+    pub backup_download_strategy: BackupDownloadStrategy,
+
+    /// Automatically create a backup version if no backup exists.
+    pub auto_enable_backups: bool,
+}
+
+/// Settings for end-to-end encryption features.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum BackupDownloadStrategy {
     /// Automatically download all room keys from the backup when the backup
     /// recovery key has been received. The backup recovery key can be received
     /// in two ways:
@@ -115,10 +128,17 @@ pub struct EncryptionSettings {
     ///    [`SecretStore::import_secrets()`] method.
     ///
     /// [`SecretStore::import_secrets()`]: crate::encryption::secret_storage::SecretStore::import_secrets
-    pub auto_download_from_backup: bool,
+    OneShot,
 
-    /// Automatically create a backup version if no backup exists.
-    pub auto_enable_backups: bool,
+    /// Attempt to download a single room key if an event fails to be decrypted.
+    AfterDecryptionFailure,
+
+    /// Don't download any room keys automatically. The user can manually
+    /// download room keys using the [`Backups::download_room_key()`] methods.
+    ///
+    /// This is the default option.
+    #[default]
+    Manual,
 }
 
 impl Client {
