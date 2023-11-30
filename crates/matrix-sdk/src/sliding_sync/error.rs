@@ -49,7 +49,7 @@ pub enum Error {
     InvalidSlidingSyncIdentifier,
 
     /// A task failed to execute to completion.
-    #[error("A task failed to execute to completion; task description: {task_description}")]
+    #[error("A task failed to execute to completion; task description: {task_description}, error: {error}")]
     JoinError {
         /// Task description.
         task_description: String,
