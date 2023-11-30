@@ -293,15 +293,24 @@ impl SessionManager {
             );
         }
 
-        debug!(
+        if tracing::level_enabled!(tracing::Level::DEBUG) {
             // Reformat the map to skip the encryption algorithm, which isn't very useful.
-            missing_session_devices_by_user = ?missing_session_devices_by_user
-                .iter()
-                .map(|(user_id, devices)| (user_id, devices.keys().collect::<Vec<_>>()))
-                .format(", "),
-            ?timed_out_devices_by_user,
-            "Collected user/device pairs that are missing an Olm session"
-        );
+            //
+            // Note: we reify the debug string for `missing_session_devices_by_user` to work
+            // around a known footgun of `itertools` (it can be used only once).
+            let missing_session_devices_by_user = format!(
+                "{:?}",
+                missing_session_devices_by_user
+                    .iter()
+                    .map(|(user_id, devices)| (user_id, devices.keys().collect::<Vec<_>>()))
+                    .format(", ")
+            );
+            debug!(
+                missing_session_devices_by_user,
+                ?timed_out_devices_by_user,
+                "Collected user/device pairs that are missing an Olm session"
+            );
+        }
 
         if !failed_devices_by_user.is_empty() {
             warn!(
