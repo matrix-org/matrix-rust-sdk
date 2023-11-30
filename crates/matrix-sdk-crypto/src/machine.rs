@@ -1535,6 +1535,16 @@ impl OlmMachine {
         result
     }
 
+    /// Do we have the room key for the given room and with the given session id
+    /// in the store?
+    pub async fn is_room_key_available(
+        &self,
+        room_id: &RoomId,
+        session_id: &str,
+    ) -> Result<bool, CryptoStoreError> {
+        Ok(self.store().get_inbound_group_session(room_id, session_id).await?.is_some())
+    }
+
     /// Get encryption info for a decrypted timeline event.
     ///
     /// This recalculates the [`EncryptionInfo`] data that is returned by
