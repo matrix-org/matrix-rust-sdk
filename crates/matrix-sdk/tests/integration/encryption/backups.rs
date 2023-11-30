@@ -1029,3 +1029,151 @@ async fn enable_from_secret_storage_and_manual_download() {
 
     server.verify().await;
 }
+
+#[async_test]
+async fn enable_from_secret_storage_and_download_after_utd() {
+    const SECRET_STORE_KEY: &str = "mypassphrase";
+    const KEY_ID: &str = "yJWwBm2Ts8jHygTBslKpABFyykavhhfA";
+
+    let user_id = user_id!("@example2:morpheus.localhost");
+    let room_id = room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost");
+    let event_id = event_id!("$JbFHtZpEJiH8uaajZjPLz0QUZc1xtBR9rPGBOjF6WFM");
+
+    let session = MatrixSession {
+        meta: SessionMeta { user_id: user_id.into(), device_id: device_id!("DEVICEID").to_owned() },
+        tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
+    };
+    let (builder, server) = test_client_builder().await;
+    let encryption_settings = EncryptionSettings {
+        backup_download_strategy: BackupDownloadStrategy::AfterDecryptionFailure,
+        ..Default::default()
+    };
+    let client = builder
+        .request_config(RequestConfig::new().disable_retry())
+        .with_encryption_settings(encryption_settings)
+        .build()
+        .await
+        .unwrap();
+
+    client.restore_session(session).await.unwrap();
+
+    let sync = SyncResponseBuilder::new()
+        .add_joined_room(JoinedRoomBuilder::new(room_id))
+        .build_json_sync_response();
+    mock_sync(&server, sync, None).await;
+
+    client.sync_once(Default::default()).await.expect("We should be able to sync with the server");
+
+    mock_secret_store_with_backup_key(user_id, KEY_ID, &server).await;
+
+    let secret_storage = client.encryption().secret_storage();
+
+    let store = secret_storage
+        .open_secret_store(SECRET_STORE_KEY)
+        .await
+        .expect("We should be able to open our secret store");
+
+    Mock::given(method("GET"))
+        .and(path("_matrix/client/r0/room_keys/version"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "algorithm": "m.megolm_backup.v1.curve25519-aes-sha2",
+            "auth_data": {
+                "public_key": "hdx5rSn94rBuvJI5cwnhKAVmFyZgfJjk7vwEBD6mIHc",
+                "signatures": {}
+            },
+            "count": 1,
+            "etag": "1",
+            "version": "6"
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    store.import_secrets().await.unwrap();
+
+    Mock::given(method("GET"))
+        .and(path("_matrix/client/r0/rooms/!DovneieKSTkdHKpIXy:morpheus.localhost/event/$JbFHtZpEJiH8uaajZjPLz0QUZc1xtBR9rPGBOjF6WFM"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "content": {
+                "algorithm": "m.megolm.v1.aes-sha2",
+                "ciphertext": "AwgAEpABhetEzzZzyYrxtEVUtlJnZtJcURBlQUQJ9irVeklCTs06LwgTMQj61PMUS4Vy\
+                               YOX+PD67+hhU40/8olOww+Ud0m2afjMjC3wFX+4fFfSkoWPVHEmRVucfcdSF1RSB4EmK\
+                               PIP4eo1X6x8kCIMewBvxl2sI9j4VNvDvAN7M3zkLJfFLOFHbBviI4FN7hSFHFeM739Zg\
+                               iwxEs3hIkUXEiAfrobzaMEM/zY7SDrTdyffZndgJo7CZOVhoV6vuaOhmAy4X2t4UnbuV\
+                               JGJjKfV57NAhp8W+9oT7ugwO",
+                "device_id": "KIUVQQSDTM",
+                "sender_key": "LvryVyoCjdONdBCi2vvoSbI34yTOx7YrCFACUEKoXnc",
+                "session_id": "64H7XKokIx0ASkYDHZKlT5zd/Zccz/cQspPNdvnNULA"
+            },
+            "event_id": "$JbFHtZpEJiH8uaajZjPLz0QUZc1xtBR9rPGBOjF6WFM",
+            "origin_server_ts": 1698579035927u64,
+            "sender": "@example2:morpheus.localhost",
+            "type": "m.room.encrypted",
+            "unsigned": {
+                "age": 14393491
+            }
+        })))
+        .expect(2)
+        .mount(&server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/_matrix/client/r0/room_keys/keys/!DovneieKSTkdHKpIXy:morpheus.localhost/64H7XKokIx0ASkYDHZKlT5zd%2FZccz%2FcQspPNdvnNULA"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "first_message_index": 0,
+            "forwarded_count": 0,
+            "is_verified": true,
+            "session_data": {
+                "ciphertext": "UaxxJxPZN5jqhSoFw59s83KlK0k77KJRxowPUC3P2/bS+TIBXw2y\
+                               qMHCpv01s+8mE95XU6RZO2/elktHiW1/mzx/2vqb4pFuARtj3rxF\
+                               zCBO7cpVhmrSU6uKW9KH2HirZMZzyXLqr3v6xoOTe5roIF5scPR0\
+                               cWxPcS/4+BZz4xGhGCVuTPFjWDszY1/iz4JAVosAF7XZLGh7aVhF\
+                               +ciDDoaaqwkD2nnMUlGEl2uchWuZv7v2q9Pmmd+qzRCdLx5c+GK3\
+                               OyT8qCSxubOvuSruwTliBl++drlMnh4vRO8UKPTuMNvEN89YKiSC\
+                               MVzXVDCS6tnjligxUENYkyUqYCKdASLDFs1cCXJDED16oQGonkU8\
+                               Lf7ccGg6XboJCmJfobrmDc3s/9IymtKaxquA2Vw2pW8Otoy4x9PK\
+                               17xHLo2nT2nf3Amp6xaCYx+tblGkLIqw8H3YZZVPVuKAVpPdAhgC\
+                               +aJA9n8qow3BLcCJSdGRMSV9MquidGgbEA/DCd6Eq3jokshcXR4v\
+                               Ma5nT4CokeZ6OdAtMWgZSaGltyNNoc+b6hk6AqcYaoMslG58DC32\
+                               EVSiFFwtSpKx7I6+J+hlV813Vx6IK0DoqTcYyVm4kFMvKnIoyAKJ\
+                               yoCSik4NQpL7DcokDhs56UJ1LcDgQTnGLqhH2Q",
+                "ephemeral": "+KmnQw7ECkCD+s2Hc0hhntT8n9zTLJvFHgX7g3XKBjs",
+                "mac": "xdzih3IkRv4"
+            }
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let room_key_stream = client.encryption().backups().room_keys_for_room_stream(room_id);
+    pin_mut!(room_key_stream);
+
+    let room = client.get_room(room_id).expect("We should have access to the room after the sync");
+    let event = room.event(event_id).await.expect("We should be able to fetch our encrypted event");
+
+    assert_matches!(
+        event.encryption_info,
+        None,
+        "We should not be able to decrypt the event right away"
+    );
+
+    if let Some(Ok(room_keys)) = room_key_stream.next().await {
+        let (_, room_key_set) = room_keys.first_key_value().unwrap();
+        assert!(room_key_set.contains("64H7XKokIx0ASkYDHZKlT5zd/Zccz/cQspPNdvnNULA"));
+    } else {
+        panic!("Failed to get an update about room keys being imported from the backup")
+    }
+
+    let event = room.event(event_id).await.expect("We should be able to fetch our encrypted event");
+
+    assert_matches!(event.encryption_info, Some(..), "The event should now be decrypted");
+    let event: RoomMessageEvent =
+        event.event.deserialize_as().expect("We should be able to deserialize the event");
+    let event = event.as_original().unwrap();
+    assert_eq!(event.content.body(), "tt");
+
+    server.verify().await;
+}
