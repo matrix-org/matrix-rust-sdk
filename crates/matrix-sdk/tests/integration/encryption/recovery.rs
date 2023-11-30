@@ -20,6 +20,7 @@ use matrix_sdk::{
     encryption::{
         backups::BackupState,
         recovery::{EnableProgress, RecoveryState},
+        BackupDownloadStrategy,
     },
     matrix_auth::{MatrixSession, MatrixSessionTokens},
     Client,
@@ -51,7 +52,7 @@ async fn test_client(user_id: &UserId) -> (Client, wiremock::MockServer) {
         .request_config(RequestConfig::new().disable_retry())
         .with_encryption_settings(matrix_sdk::encryption::EncryptionSettings {
             auto_enable_cross_signing: true,
-            auto_download_from_backup: false,
+            backup_download_strategy: BackupDownloadStrategy::Manual,
             auto_enable_backups: true,
         })
         .build()

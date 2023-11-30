@@ -1006,10 +1006,25 @@ impl Room {
         &self,
         event: &Raw<OriginalSyncRoomEncryptedEvent>,
     ) -> Result<TimelineEvent> {
+        use ruma::events::room::encrypted::EncryptedEventScheme;
+
         let machine = self.client.olm_machine().await;
         if let Some(machine) = machine.as_ref() {
             let mut event =
-                machine.decrypt_room_event(event.cast_ref(), self.inner.room_id()).await?;
+                match machine.decrypt_room_event(event.cast_ref(), self.inner.room_id()).await {
+                    Ok(event) => event,
+                    Err(e) => {
+                        let event = event.deserialize()?;
+                        if let EncryptedEventScheme::MegolmV1AesSha2(c) = event.content.scheme {
+                            self.client
+                                .encryption()
+                                .backups()
+                                .maybe_download_room_key(self.room_id().to_owned(), c.session_id);
+                        }
+
+                        return Err(e.into());
+                    }
+                };
 
             event.push_actions = self.event_push_actions(&event.event).await?;
 

@@ -15,12 +15,12 @@
 use std::{fs::File, io::Write};
 
 use assert_matches::assert_matches;
-use futures_util::{pin_mut, StreamExt};
+use futures_util::{pin_mut, FutureExt, StreamExt};
 use matrix_sdk::{
     config::RequestConfig,
     encryption::{
         backups::{futures::SteadyStateError, BackupState, UploadState},
-        EncryptionSettings,
+        BackupDownloadStrategy, EncryptionSettings,
     },
     matrix_auth::{MatrixSession, MatrixSessionTokens},
     Client,
@@ -570,8 +570,10 @@ async fn enable_from_secret_storage() {
         tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
     };
     let (builder, server) = test_client_builder().await;
-    let encryption_settings =
-        EncryptionSettings { auto_download_from_backup: true, ..Default::default() };
+    let encryption_settings = EncryptionSettings {
+        backup_download_strategy: BackupDownloadStrategy::OneShot,
+        ..Default::default()
+    };
     let client = builder
         .request_config(RequestConfig::new().disable_retry())
         .with_encryption_settings(encryption_settings)
@@ -689,24 +691,19 @@ async fn enable_from_secret_storage() {
         .await;
 
     let room_key_stream = client.encryption().backups().room_keys_for_room_stream(room_id);
-
-    let task = spawn(async move {
-        pin_mut!(room_key_stream);
-
-        if let Some(Ok(room_keys)) = room_key_stream.next().await {
-            let (_, room_key_set) = room_keys.first_key_value().unwrap();
-            assert!(room_key_set.contains("64H7XKokIx0ASkYDHZKlT5zd/Zccz/cQspPNdvnNULA"));
-        } else {
-            panic!("Failed to get an update about room keys being imported from the backup")
-        }
-    });
+    pin_mut!(room_key_stream);
 
     store
         .import_secrets()
         .await
         .expect("We should be able to import our secrets from the secret store");
 
-    task.await.unwrap();
+    if let Some(Ok(room_keys)) = room_key_stream.next().now_or_never().flatten() {
+        let (_, room_key_set) = room_keys.first_key_value().unwrap();
+        assert!(room_key_set.contains("64H7XKokIx0ASkYDHZKlT5zd/Zccz/cQspPNdvnNULA"));
+    } else {
+        panic!("Failed to get an update about room keys being imported from the backup")
+    }
 
     let event = room.event(event_id).await.expect("We should be able to fetch our encrypted event");
 
@@ -740,8 +737,10 @@ async fn enable_from_secret_storage_no_existing_backup() {
         tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
     };
     let (builder, server) = test_client_builder().await;
-    let encryption_settings =
-        EncryptionSettings { auto_download_from_backup: true, ..Default::default() };
+    let encryption_settings = EncryptionSettings {
+        backup_download_strategy: BackupDownloadStrategy::OneShot,
+        ..Default::default()
+    };
     let client = builder
         .request_config(RequestConfig::new().disable_retry())
         .with_encryption_settings(encryption_settings)
@@ -791,8 +790,10 @@ async fn enable_from_secret_storage_mismatched_key() {
         tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
     };
     let (builder, server) = test_client_builder().await;
-    let encryption_settings =
-        EncryptionSettings { auto_download_from_backup: true, ..Default::default() };
+    let encryption_settings = EncryptionSettings {
+        backup_download_strategy: BackupDownloadStrategy::OneShot,
+        ..Default::default()
+    };
     let client = builder
         .request_config(RequestConfig::new().disable_retry())
         .with_encryption_settings(encryption_settings)
@@ -892,8 +893,10 @@ async fn enable_from_secret_storage_and_manual_download() {
         tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
     };
     let (builder, server) = test_client_builder().await;
-    let encryption_settings =
-        EncryptionSettings { auto_download_from_backup: true, ..Default::default() };
+    let encryption_settings = EncryptionSettings {
+        backup_download_strategy: BackupDownloadStrategy::Manual,
+        ..Default::default()
+    };
     let client = builder
         .request_config(RequestConfig::new().disable_retry())
         .with_encryption_settings(encryption_settings)
@@ -965,17 +968,7 @@ async fn enable_from_secret_storage_and_manual_download() {
         .await;
 
     let room_key_stream = client.encryption().backups().room_keys_for_room_stream(room_id);
-
-    let task = spawn(async move {
-        pin_mut!(room_key_stream);
-
-        if let Some(Ok(room_keys)) = room_key_stream.next().await {
-            let (_, room_key_set) = room_keys.first_key_value().unwrap();
-            assert!(room_key_set.contains("64H7XKokIx0ASkYDHZKlT5zd/Zccz/cQspPNdvnNULA"));
-        } else {
-            panic!("Failed to get an update about room keys being imported from the backup")
-        }
-    });
+    pin_mut!(room_key_stream);
 
     client
         .encryption()
@@ -984,20 +977,12 @@ async fn enable_from_secret_storage_and_manual_download() {
         .await
         .expect("We should be able to download room keys for a certain room");
 
-    task.await.unwrap();
-
-    let room_key_stream = client.encryption().backups().room_keys_for_room_stream(room_id);
-
-    let task = spawn(async move {
-        pin_mut!(room_key_stream);
-
-        if let Some(Ok(room_keys)) = room_key_stream.next().await {
-            let (_, room_key_set) = room_keys.first_key_value().unwrap();
-            assert!(room_key_set.contains("D5SdVi/nyxdkl97K6EZrpb5N6GcF3YzmvE9EegkVDns"));
-        } else {
-            panic!("Failed to get an update about room keys being imported from the backup")
-        }
-    });
+    if let Some(Ok(room_keys)) = room_key_stream.next().now_or_never().flatten() {
+        let (_, room_key_set) = room_keys.first_key_value().unwrap();
+        assert!(room_key_set.contains("64H7XKokIx0ASkYDHZKlT5zd/Zccz/cQspPNdvnNULA"));
+    } else {
+        panic!("Failed to get an update about room keys being imported from the backup")
+    }
 
     Mock::given(method("GET"))
         .and(path("/_matrix/client/r0/room_keys/keys/!DovneieKSTkdHKpIXy:morpheus.localhost/D5SdVi%2Fnyxdkl97K6EZrpb5N6GcF3YzmvE9EegkVDns"))
@@ -1025,6 +1010,9 @@ async fn enable_from_secret_storage_and_manual_download() {
         .mount(&server)
         .await;
 
+    let room_key_stream = client.encryption().backups().room_keys_for_room_stream(room_id);
+    pin_mut!(room_key_stream);
+
     client
         .encryption()
         .backups()
@@ -1032,7 +1020,12 @@ async fn enable_from_secret_storage_and_manual_download() {
         .await
         .expect("We should be able to download a single room key");
 
-    task.await.unwrap();
+    if let Some(Ok(room_keys)) = room_key_stream.next().now_or_never().flatten() {
+        let (_, room_key_set) = room_keys.first_key_value().unwrap();
+        assert!(room_key_set.contains("D5SdVi/nyxdkl97K6EZrpb5N6GcF3YzmvE9EegkVDns"));
+    } else {
+        panic!("Failed to get an update about room keys being imported from the backup")
+    }
 
     server.verify().await;
 }

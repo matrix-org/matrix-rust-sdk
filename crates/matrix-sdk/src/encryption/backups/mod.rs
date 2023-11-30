@@ -36,9 +36,12 @@ use ruma::{
         },
         error::ErrorKind,
     },
-    events::secret::{request::SecretName, send::ToDeviceSecretSendEvent},
+    events::{
+        room::encrypted::{EncryptedEventScheme, SyncRoomEncryptedEvent},
+        secret::{request::SecretName, send::ToDeviceSecretSendEvent},
+    },
     serde::Raw,
-    RoomId, TransactionId,
+    OwnedRoomId, RoomId, TransactionId,
 };
 use tokio_stream::wrappers::{errors::BroadcastStreamRecvError, BroadcastStream};
 use tracing::{error, info, instrument, trace, warn, Span};
@@ -49,7 +52,7 @@ pub(crate) mod types;
 pub use types::{BackupState, UploadState};
 
 use self::futures::WaitForSteadyState;
-use crate::{Client, Error};
+use crate::{encryption::BackupDownloadStrategy, Client, Error, Room};
 
 /// The backups manager for the [`Client`].
 #[derive(Debug, Clone)]
@@ -631,6 +634,11 @@ impl Backups {
         info!("Setting up secret listeners and trying to resume backups");
 
         self.client.add_event_handler(Self::secret_send_event_handler);
+        if self.client.inner.encryption_settings.backup_download_strategy
+            == BackupDownloadStrategy::AfterDecryptionFailure
+        {
+            self.client.add_event_handler(Self::utd_event_handler);
+        }
         self.maybe_resume_backups().await?;
 
         Ok(())
@@ -724,7 +732,9 @@ impl Backups {
                 // response and decrypt all the room keys found in the backup.
                 //
                 // This doesn't work for any sizeable account.
-                if self.client.inner.encryption_settings.auto_download_from_backup {
+                if self.client.inner.encryption_settings.backup_download_strategy
+                    == BackupDownloadStrategy::OneShot
+                {
                     self.set_state(BackupState::Downloading);
 
                     if let Err(e) =
@@ -845,6 +855,29 @@ impl Backups {
             }
         } else {
             error!("Tried to handle a `m.secret.send` event but no OlmMachine was initialized");
+        }
+    }
+
+    pub(crate) async fn utd_event_handler(
+        event: SyncRoomEncryptedEvent,
+        room: Room,
+        client: Client,
+    ) {
+        if let Some(event) = event.as_original() {
+            if let EncryptedEventScheme::MegolmV1AesSha2(c) = &event.content.scheme {
+                client
+                    .encryption()
+                    .backups()
+                    .maybe_download_room_key(room.room_id().to_owned(), c.session_id.to_owned());
+            }
+        }
+    }
+
+    pub(crate) fn maybe_download_room_key(&self, room_id: OwnedRoomId, session_id: String) {
+        let tasks = self.client.inner.tasks.lock().unwrap();
+
+        if let Some(task) = tasks.download_room_keys.as_ref() {
+            task.trigger_download((room_id, session_id))
         }
     }
 
