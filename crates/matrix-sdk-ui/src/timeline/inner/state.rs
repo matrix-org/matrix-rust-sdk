@@ -936,7 +936,8 @@ impl TimelineInnerMetadata {
 }
 
 /// Full metadata about an event.
-#[derive(Debug, Clone, Copy)]
+///
+/// Only used to group function parameters.
 pub(crate) struct FullEventMeta<'a> {
     /// The ID of the event.
     pub event_id: &'a EventId,
