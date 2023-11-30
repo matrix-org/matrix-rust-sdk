@@ -86,7 +86,7 @@ impl TimelineBuilder {
     /// - Not all event types have a representation as a `TimelineItem` so these
     ///   are not added no matter what the filter returns.
     /// - It is not possible to filter out `m.room.encrypted` events (otherwise
-    ///   they couldn't by decrypted when the appropriate room key arrives)
+    ///   they couldn't be decrypted when the appropriate room key arrives).
     pub fn event_filter<F>(mut self, filter: F) -> Self
     where
         F: Fn(&AnySyncTimelineEvent) -> bool + Send + Sync + 'static,
