@@ -10,7 +10,10 @@ use ruma::{
     push::{Action, PredefinedUnderrideRuleId, RuleKind, Ruleset, Tweak},
     RoomId,
 };
-use tokio::sync::RwLock;
+use tokio::sync::{
+    broadcast::{self, Receiver},
+    RwLock,
+};
 
 use self::{command::Command, rule_commands::RuleCommands, rules::Rules};
 
@@ -81,6 +84,7 @@ pub struct NotificationSettings {
     rules: Arc<RwLock<Rules>>,
     /// Event handler for push rules event
     push_rules_event_handler: EventHandlerHandle,
+    changes_sender: broadcast::Sender<()>,
 }
 
 impl Drop for NotificationSettings {
@@ -97,17 +101,27 @@ impl NotificationSettings {
     /// * `client` - A `Client` used to perform API calls
     /// * `ruleset` - A `Ruleset` containing account's owner push rules
     pub fn new(client: Client, ruleset: Ruleset) -> Self {
+        let changes_sender = broadcast::Sender::new(100);
         let rules = Arc::new(RwLock::new(Rules::new(ruleset)));
 
         // Listen for PushRulesEvent
         let push_rules_event_handler = client.add_event_handler({
+            let changes_sender = changes_sender.clone();
             let rules = Arc::clone(&rules);
             move |ev: PushRulesEvent| async move {
                 *rules.write().await = Rules::new(ev.content.global);
+                let _ = changes_sender.send(());
             }
         });
 
-        Self { client, rules, push_rules_event_handler }
+        Self { client, rules, push_rules_event_handler, changes_sender }
+    }
+
+    /// Subscribe to changes in the `NotificationSettings`.
+    ///
+    /// Changes can happen due to local changes or changes in another session.
+    pub fn subscribe_to_changes(&self) -> Receiver<()> {
+        self.changes_sender.subscribe()
     }
 
     /// Get the user defined notification mode for a room.
