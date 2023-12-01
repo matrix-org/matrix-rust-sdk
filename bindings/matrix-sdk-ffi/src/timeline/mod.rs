@@ -193,6 +193,17 @@ impl Timeline {
         })
     }
 
+    pub fn send_private_read_receipt(&self, event_id: String) -> Result<(), ClientError> {
+        let event_id = EventId::parse(event_id)?;
+
+        RUNTIME.block_on(async {
+            self.inner
+                .send_single_receipt(ReceiptType::ReadPrivate, ReceiptThread::Unthreaded, event_id)
+                .await?;
+            Ok(())
+        })
+    }
+
     pub fn send(self: Arc<Self>, msg: Arc<RoomMessageEventContentWithoutRelation>) {
         RUNTIME.spawn(async move {
             self.inner.send((*msg).to_owned().with_relation(None).into()).await;
