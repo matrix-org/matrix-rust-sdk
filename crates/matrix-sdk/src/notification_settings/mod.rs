@@ -147,22 +147,22 @@ impl NotificationSettings {
     pub async fn is_push_rule_enabled(
         &self,
         kind: RuleKind,
-        rule_id: &str,
+        rule_id: impl AsRef<str>,
     ) -> Result<bool, NotificationSettingsError> {
-        self.rules.read().await.is_enabled(kind, rule_id)
+        self.rules.read().await.is_enabled(kind, rule_id.as_ref())
     }
 
     /// Set whether a push rule is enabled.
     pub async fn set_push_rule_enabled(
         &self,
         kind: RuleKind,
-        rule_id: &str,
+        rule_id: impl AsRef<str>,
         enabled: bool,
     ) -> Result<(), NotificationSettingsError> {
         let rules = self.rules.read().await.clone();
 
         let mut rule_commands = RuleCommands::new(rules.ruleset);
-        rule_commands.set_rule_enabled(kind, rule_id, enabled)?;
+        rule_commands.set_rule_enabled(kind, rule_id.as_ref(), enabled)?;
 
         self.run_server_commands(&rule_commands).await?;
 
@@ -634,7 +634,7 @@ mod tests {
         let settings = NotificationSettings::new(client.clone(), ruleset);
 
         let enabled = settings
-            .is_push_rule_enabled(RuleKind::Override, PredefinedOverrideRuleId::Reaction.as_str())
+            .is_push_rule_enabled(RuleKind::Override, PredefinedOverrideRuleId::Reaction)
             .await
             .unwrap();
 
@@ -647,7 +647,7 @@ mod tests {
         let settings = NotificationSettings::new(client, ruleset);
 
         let enabled = settings
-            .is_push_rule_enabled(RuleKind::Override, PredefinedOverrideRuleId::Reaction.as_str())
+            .is_push_rule_enabled(RuleKind::Override, PredefinedOverrideRuleId::Reaction)
             .await
             .unwrap();
 
@@ -672,11 +672,7 @@ mod tests {
             .await;
 
         settings
-            .set_push_rule_enabled(
-                RuleKind::Override,
-                PredefinedOverrideRuleId::Reaction.as_str(),
-                true,
-            )
+            .set_push_rule_enabled(RuleKind::Override, PredefinedOverrideRuleId::Reaction, true)
             .await
             .unwrap();
 
@@ -709,7 +705,7 @@ mod tests {
             settings
                 .set_push_rule_enabled(
                     RuleKind::Override,
-                    PredefinedOverrideRuleId::IsUserMention.as_str(),
+                    PredefinedOverrideRuleId::IsUserMention,
                     true,
                 )
                 .await,

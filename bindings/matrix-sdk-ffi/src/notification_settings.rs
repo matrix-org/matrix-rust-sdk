@@ -267,10 +267,7 @@ impl NotificationSettings {
     pub async fn is_room_mention_enabled(&self) -> Result<bool, NotificationSettingsError> {
         let notification_settings = self.sdk_notification_settings.read().await;
         let enabled = notification_settings
-            .is_push_rule_enabled(
-                RuleKind::Override,
-                PredefinedOverrideRuleId::IsRoomMention.as_str(),
-            )
+            .is_push_rule_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsRoomMention)
             .await?;
         Ok(enabled)
     }
@@ -284,7 +281,7 @@ impl NotificationSettings {
         notification_settings
             .set_push_rule_enabled(
                 RuleKind::Override,
-                PredefinedOverrideRuleId::IsRoomMention.as_str(),
+                PredefinedOverrideRuleId::IsRoomMention,
                 enabled,
             )
             .await?;
@@ -295,10 +292,7 @@ impl NotificationSettings {
     pub async fn is_user_mention_enabled(&self) -> Result<bool, NotificationSettingsError> {
         let notification_settings = self.sdk_notification_settings.read().await;
         let enabled = notification_settings
-            .is_push_rule_enabled(
-                RuleKind::Override,
-                PredefinedOverrideRuleId::IsUserMention.as_str(),
-            )
+            .is_push_rule_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsUserMention)
             .await?;
         Ok(enabled)
     }
@@ -334,7 +328,7 @@ impl NotificationSettings {
         notification_settings
             .set_push_rule_enabled(
                 RuleKind::Override,
-                PredefinedOverrideRuleId::IsUserMention.as_str(),
+                PredefinedOverrideRuleId::IsUserMention,
                 enabled,
             )
             .await?;
@@ -345,7 +339,7 @@ impl NotificationSettings {
     pub async fn is_call_enabled(&self) -> Result<bool, NotificationSettingsError> {
         let notification_settings = self.sdk_notification_settings.read().await;
         let enabled = notification_settings
-            .is_push_rule_enabled(RuleKind::Underride, PredefinedUnderrideRuleId::Call.as_str())
+            .is_push_rule_enabled(RuleKind::Underride, PredefinedUnderrideRuleId::Call)
             .await?;
         Ok(enabled)
     }
@@ -354,11 +348,7 @@ impl NotificationSettings {
     pub async fn set_call_enabled(&self, enabled: bool) -> Result<(), NotificationSettingsError> {
         let notification_settings = self.sdk_notification_settings.read().await;
         notification_settings
-            .set_push_rule_enabled(
-                RuleKind::Underride,
-                PredefinedUnderrideRuleId::Call.as_str(),
-                enabled,
-            )
+            .set_push_rule_enabled(RuleKind::Underride, PredefinedUnderrideRuleId::Call, enabled)
             .await?;
         Ok(())
     }
