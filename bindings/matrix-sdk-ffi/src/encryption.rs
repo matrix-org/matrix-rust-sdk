@@ -67,8 +67,8 @@ pub enum RecoveryError {
     Client { source: crate::ClientError },
 
     /// Error in the secret storage subsystem.
-    #[error("Error in the secret-storage subsystem: {message}")]
-    SecretStorage { message: String },
+    #[error("Error in the secret-storage subsystem: {error_message}")]
+    SecretStorage { error_message: String },
 }
 
 impl From<matrix_sdk::encryption::recovery::RecoveryError> for RecoveryError {
@@ -77,7 +77,7 @@ impl From<matrix_sdk::encryption::recovery::RecoveryError> for RecoveryError {
             recovery::RecoveryError::BackupExistsOnServer => Self::BackupExistsOnServer,
             recovery::RecoveryError::Sdk(e) => Self::Client { source: ClientError::from(e) },
             recovery::RecoveryError::SecretStorage(e) => {
-                Self::SecretStorage { message: e.to_string() }
+                Self::SecretStorage { error_message: e.to_string() }
             }
         }
     }
