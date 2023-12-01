@@ -31,7 +31,10 @@ use ruma::{
             UnstablePollStartContentBlock,
         },
         relation::InReplyTo,
-        room::message::{MessageType, Relation, ReplacementMetadata, RoomMessageEventContent},
+        room::message::{
+            MessageType, Relation, ReplacementMetadata, RoomMessageEventContent,
+            TextMessageEventContent,
+        },
     },
     room_id, user_id,
 };
@@ -78,8 +81,11 @@ async fn edit() {
 
     assert_let!(Some(VectorDiff::PushBack { value: day_divider }) = timeline_stream.next().await);
     assert!(day_divider.is_day_divider());
+
     assert_let!(Some(VectorDiff::PushBack { value: first }) = timeline_stream.next().await);
-    assert_let!(TimelineItemContent::Message(msg) = first.as_event().unwrap().content());
+    let item = first.as_event().unwrap();
+    assert_eq!(item.read_receipts().len(), 1, "implicit read receipt");
+    assert_let!(TimelineItemContent::Message(msg) = item.content());
     assert_matches!(msg.msgtype(), MessageType::Text(_));
     assert_matches!(msg.in_reply_to(), None);
     assert!(!msg.is_edited());
@@ -110,17 +116,37 @@ async fn edit() {
     assert!(item.event_id().is_some());
     assert!(!item.is_own());
     assert!(item.original_json().is_some());
+    assert_eq!(item.read_receipts().len(), 1, "implicit read receipt");
 
     assert_let!(TimelineItemContent::Message(msg) = item.content());
-    assert_matches!(msg.msgtype(), MessageType::Text(_));
+    assert_let!(MessageType::Text(TextMessageEventContent { body, .. }) = msg.msgtype());
+    assert_eq!(body, "Test");
     assert_matches!(msg.in_reply_to(), None);
     assert!(!msg.is_edited());
 
-    // Implicit read receipt of Alice changed.
-    assert_matches!(timeline_stream.next().await, Some(VectorDiff::Set { index: 1, .. }));
+    // No more implicit read receipt in Alice's message, because they edited
+    // something after the second event.
+    assert_let!(Some(VectorDiff::Set { index: 1, value: item }) = timeline_stream.next().await);
+    let item = item.as_event().unwrap();
+    assert_let!(TimelineItemContent::Message(msg) = item.content());
+    assert_let!(MessageType::Text(text) = msg.msgtype());
+    assert_eq!(text.body, "hello");
+    assert_matches!(msg.in_reply_to(), None);
+    assert!(!msg.is_edited());
+    assert_eq!(item.read_receipts().len(), 0, "no more implicit read receipt");
 
+    // ... so Alice's read receipt moves to Bob's message.
+    assert_let!(Some(VectorDiff::Set { index: 2, value: second }) = timeline_stream.next().await);
+    let item = second.as_event().unwrap();
+    assert!(item.event_id().is_some());
+    assert!(!item.is_own());
+    assert!(item.original_json().is_some());
+    assert_eq!(item.read_receipts().len(), 2, "should carry alice and bob's read receipts");
+
+    // The text changes in Alice's message.
     assert_let!(Some(VectorDiff::Set { index: 1, value: edit }) = timeline_stream.next().await);
-    assert_let!(TimelineItemContent::Message(edited) = edit.as_event().unwrap().content());
+    let item = edit.as_event().unwrap();
+    assert_let!(TimelineItemContent::Message(edited) = item.content());
     assert_let!(MessageType::Text(text) = edited.msgtype());
     assert_eq!(text.body, "hi");
     assert_matches!(edited.in_reply_to(), None);
