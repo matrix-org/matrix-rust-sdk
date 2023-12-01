@@ -79,7 +79,10 @@ impl TimelineBuilder {
     ///   return `true` if the event should be added to the `Timeline`.
     ///
     /// If this is not overridden, the timeline uses the default filter that
-    /// allows every event.
+    /// only allows events that are materialized into a `Timeline` item. For
+    /// instance, reactions and edits don't get their own timeline item (as
+    /// they affect another existing one), so they're "filtered out" to
+    /// reflect that.
     ///
     /// Note that currently:
     ///

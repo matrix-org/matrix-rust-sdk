@@ -38,7 +38,7 @@ use stream_assert::{assert_next_matches, assert_pending};
 use crate::{logged_in_client, mock_sync};
 
 #[async_test]
-async fn batched() {
+async fn test_batched() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
@@ -87,7 +87,7 @@ async fn batched() {
 }
 
 #[async_test]
-async fn event_filter() {
+async fn test_event_filter() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
@@ -123,9 +123,11 @@ async fn event_filter() {
 
     assert_let!(Some(VectorDiff::PushBack { value: day_divider }) = timeline_stream.next().await);
     assert!(day_divider.is_day_divider());
+
     assert_let!(Some(VectorDiff::PushBack { value: first }) = timeline_stream.next().await);
     let first_event = first.as_event().unwrap();
     assert_eq!(first_event.event_id(), Some(first_event_id));
+    assert_eq!(first_event.read_receipts().len(), 1, "implicit read receipt");
     assert_let!(TimelineItemContent::Message(msg) = first_event.content());
     assert_matches!(msg.msgtype(), MessageType::Text(_));
     assert!(!msg.is_edited());
@@ -173,9 +175,12 @@ async fn event_filter() {
     assert_let!(Some(VectorDiff::PushBack { value: second }) = timeline_stream.next().await);
     let second_event = second.as_event().unwrap();
     assert_eq!(second_event.event_id(), Some(second_event_id));
+    assert_eq!(second_event.read_receipts().len(), 1, "implicit read receipt");
 
-    // The implicit read receipt of Alice is updated.
-    assert_matches!(timeline_stream.next().await, Some(VectorDiff::Set { index: 1, .. }));
+    // The implicit read receipt of Alice is moving from Alice's message...
+    assert_let!(Some(VectorDiff::Set { index: 1, value: first }) = timeline_stream.next().await);
+    assert_eq!(first.as_event().unwrap().read_receipts().len(), 0, "no more implicit read receipt");
+    // … to Alice's edit. But since this item isn't visible, it's lost in the weeds!
 
     // The edit is applied to the first event.
     assert_let!(Some(VectorDiff::Set { index: 1, value: first }) = timeline_stream.next().await);
@@ -188,7 +193,7 @@ async fn event_filter() {
 }
 
 #[async_test]
-async fn timeline_is_reset_when_a_user_is_ignored_or_unignored() {
+async fn test_timeline_is_reset_when_a_user_is_ignored_or_unignored() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));

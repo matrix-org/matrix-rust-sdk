@@ -38,11 +38,16 @@ use ruma::{
     api::client::receipt::create_receipt::v3::ReceiptType as SendReceiptType,
     events::{
         fully_read::FullyReadEvent,
+        poll::unstable_start::UnstablePollStartEventContent,
         reaction::ReactionEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
         relation::Annotation,
-        room::redaction::RoomRedactionEventContent,
-        AnyMessageLikeEventContent, AnySyncTimelineEvent,
+        room::{
+            message::{MessageType, Relation},
+            redaction::RoomRedactionEventContent,
+        },
+        AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
+        MessageLikeEventType,
     },
     EventId, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
 };
@@ -117,8 +122,80 @@ impl Default for TimelineInnerSettings {
     fn default() -> Self {
         Self {
             track_read_receipts: false,
-            event_filter: Arc::new(|_| true),
+            event_filter: Arc::new(default_event_filter),
             add_failed_to_parse: true,
+        }
+    }
+}
+
+/// The default event filter for [`TimelineInnerSettings::event_filter`].
+///
+/// It filters out events that are never visible by default.
+fn default_event_filter(event: &AnySyncTimelineEvent) -> bool {
+    match event {
+        AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomRedaction(ev)) => {
+            // TODO(bnjbvr) use the correct room version here.
+            if ev.redacts(&ruma::RoomVersionId::V1).is_some() {
+                // This is a redaction of an existing message, we'll only update the previous
+                // message and not render a new entry.
+                false
+            } else {
+                // This is a redacted entry, that we'll show only if the redacted entity wasn't
+                // a reaction.
+                ev.event_type() != MessageLikeEventType::Reaction
+            }
+        }
+
+        AnySyncTimelineEvent::MessageLike(msg) => {
+            match msg.original_content() {
+                None => {
+                    // This is a redacted entry, that we'll show only if the redacted entity wasn't
+                    // a reaction.
+                    msg.event_type() != MessageLikeEventType::Reaction
+                }
+
+                Some(original_content) => {
+                    match original_content {
+                        AnyMessageLikeEventContent::RoomMessage(content) => {
+                            if content
+                                .relates_to
+                                .as_ref()
+                                .is_some_and(|rel| matches!(rel, Relation::Replacement(_)))
+                            {
+                                // Edits aren't visible by default.
+                                return false;
+                            }
+
+                            matches!(
+                                content.msgtype,
+                                MessageType::Audio(_)
+                                    | MessageType::Emote(_)
+                                    | MessageType::File(_)
+                                    | MessageType::Image(_)
+                                    | MessageType::Location(_)
+                                    | MessageType::Notice(_)
+                                    | MessageType::ServerNotice(_)
+                                    | MessageType::Text(_)
+                                    | MessageType::Video(_)
+                                    | MessageType::VerificationRequest(_)
+                            )
+                        }
+
+                        AnyMessageLikeEventContent::Sticker(_)
+                        | AnyMessageLikeEventContent::UnstablePollStart(
+                            UnstablePollStartEventContent::New(_),
+                        )
+                        | AnyMessageLikeEventContent::RoomEncrypted(_) => true,
+
+                        _ => false,
+                    }
+                }
+            }
+        }
+
+        AnySyncTimelineEvent::State(_) => {
+            // All the state events may get displayed by default.
+            true
         }
     }
 }
