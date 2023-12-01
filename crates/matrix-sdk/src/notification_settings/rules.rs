@@ -1,9 +1,10 @@
 //! Ruleset utility struct
 
 use imbl::HashSet;
+use indexmap::IndexSet;
 use ruma::{
     push::{
-        AnyPushRuleRef, PredefinedContentRuleId, PredefinedOverrideRuleId,
+        AnyPushRuleRef, PatternedPushRule, PredefinedContentRuleId, PredefinedOverrideRuleId,
         PredefinedUnderrideRuleId, PushCondition, RuleKind, Ruleset,
     },
     RoomId,
@@ -214,6 +215,21 @@ impl Rules {
         self.ruleset.content.iter().any(|r| !r.default && r.enabled)
     }
 
+    /// The keywords which have enabled rules.
+    pub(crate) fn enabled_keywords(&self) -> IndexSet<String> {
+        self.ruleset
+            .content
+            .iter()
+            .filter(|r| !r.default && r.enabled)
+            .map(|r| r.pattern.clone())
+            .collect()
+    }
+
+    /// The rules for a keyword, if any.
+    pub(crate) fn keyword_rules(&self, keyword: &str) -> Vec<&PatternedPushRule> {
+        self.ruleset.content.iter().filter(|r| !r.default && r.pattern == keyword).collect()
+    }
+
     /// Get whether a rule is enabled.
     pub(crate) fn is_enabled(
         &self,
@@ -241,7 +257,9 @@ impl Rules {
                 Command::DeletePushRule { scope: _, kind, rule_id } => {
                     _ = self.ruleset.remove(kind, rule_id);
                 }
-                Command::SetRoomPushRule { .. } | Command::SetOverridePushRule { .. } => {
+                Command::SetRoomPushRule { .. }
+                | Command::SetOverridePushRule { .. }
+                | Command::SetKeywordPushRule { .. } => {
                     if let Ok(push_rule) = command.to_push_rule() {
                         _ = self.ruleset.insert(push_rule, None, None);
                     }
