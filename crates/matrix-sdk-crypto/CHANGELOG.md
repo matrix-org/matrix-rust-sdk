@@ -1,5 +1,13 @@
 # unreleased
 
+- Add new method `OlmMachine::toggle_room_key_requests` to disable outgoing
+  room key requests, without affecting key forwarding.
+
+  `OlmMachine::toggle_room_key_forwarding` now only controls automatic
+  key forwarding, without affecting whether outgoing requests are sent.
+
+  ([#2902](https://github.com/matrix-org/matrix-rust-sdk/pull/2902))
+
 - Improve performance of `share_room_key`.
   ([#2862](https://github.com/matrix-org/matrix-rust-sdk/pull/2862))
 
