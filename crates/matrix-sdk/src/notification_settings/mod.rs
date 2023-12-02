@@ -443,6 +443,7 @@ mod tests {
     use matrix_sdk_test::{
         async_test,
         notification_settings::{build_ruleset, get_server_default_ruleset},
+        test_json,
     };
     use ruma::{
         push::{
@@ -451,12 +452,16 @@ mod tests {
         },
         OwnedRoomId, RoomId,
     };
+    use serde_json::json;
+    use stream_assert::assert_next_eq;
+    use tokio_stream::wrappers::BroadcastStream;
     use wiremock::{
-        matchers::{method, path, path_regex},
+        matchers::{header, method, path, path_regex},
         Mock, MockServer, ResponseTemplate,
     };
 
     use crate::{
+        config::SyncSettings,
         error::NotificationSettingsError,
         notification_settings::{
             IsEncrypted, IsOneToOne, NotificationSettings, RoomNotificationMode,
@@ -482,6 +487,33 @@ mod tests {
         room_id: &RoomId,
     ) -> Vec<(RuleKind, String)> {
         settings.rules.read().await.get_custom_rules_for_room(room_id)
+    }
+
+    #[async_test]
+    async fn subscribe_to_changes() {
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
+        let settings = client.notification_settings().await;
+
+        Mock::given(method("GET"))
+            .and(path("/_matrix/client/r0/sync"))
+            .and(header("authorization", "Bearer 1234"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "next_batch": "1234",
+                "account_data": {
+                    "events": [*test_json::PUSH_RULES]
+                }
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let subscriber = settings.subscribe_to_changes();
+        let mut stream = BroadcastStream::new(subscriber);
+
+        client.sync_once(SyncSettings::default()).await.unwrap();
+
+        assert_next_eq!(stream, Ok(()));
     }
 
     #[async_test]
