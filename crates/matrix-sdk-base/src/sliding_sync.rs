@@ -20,12 +20,9 @@ use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::AnyToDeviceEvent;
 use ruma::{
-    api::client::{
-        push::get_notifications::v3::Notification,
-        sync::sync_events::{
-            v3::{self, InvitedRoom, RoomSummary},
-            v4,
-        },
+    api::client::sync::sync_events::{
+        v3::{self, InvitedRoom, RoomSummary},
+        v4,
     },
     events::{AnySyncStateEvent, AnySyncTimelineEvent},
     serde::Raw,
@@ -44,7 +41,7 @@ use crate::{
     read_receipts::{compute_notifications, PreviousEventsProvider},
     rooms::RoomState,
     store::{ambiguity_map::AmbiguityCache, StateChanges, Store},
-    sync::{JoinedRoom, LeftRoom, Rooms, SyncResponse},
+    sync::{JoinedRoom, LeftRoom, Notification, Rooms, SyncResponse},
     Room, RoomInfo,
 };
 
@@ -300,13 +297,8 @@ impl BaseClient {
 
         // Find or create the room in the store
         #[allow(unused_mut)] // Required for some feature flag combinations
-        let (mut room, mut room_info, invited_room) = self.process_sliding_sync_room_membership(
-            room_data,
-            &state_events,
-            store,
-            room_id,
-            changes,
-        );
+        let (mut room, mut room_info, invited_room) =
+            self.process_sliding_sync_room_membership(room_data, &state_events, store, room_id);
 
         room_info.mark_state_partially_synced();
 
@@ -323,6 +315,20 @@ impl BaseClient {
             Default::default()
         };
 
+        let push_rules = self.get_push_rules(changes).await?;
+
+        if let Some(invite_state) = &room_data.invite_state {
+            self.handle_invited_state(
+                &room,
+                invite_state,
+                &push_rules,
+                &mut room_info,
+                changes,
+                notifications,
+            )
+            .await?;
+        }
+
         let room_account_data = if let Some(events) = account_data.rooms.get(room_id) {
             self.handle_room_account_data(room_id, events, changes).await;
             Some(events.to_vec())
@@ -331,8 +337,6 @@ impl BaseClient {
         };
 
         process_room_properties(room_data, &mut room_info);
-
-        let push_rules = self.get_push_rules(changes).await?;
 
         let timeline = self
             .handle_timeline(
@@ -422,7 +426,6 @@ impl BaseClient {
         state_events: &[AnySyncStateEvent],
         store: &Store,
         room_id: &RoomId,
-        changes: &mut StateChanges,
     ) -> (Room, RoomInfo, Option<InvitedRoom>) {
         if let Some(invite_state) = &room_data.invite_state {
             let room = store.get_or_create_room(room_id, RoomState::Invited);
@@ -440,8 +443,6 @@ impl BaseClient {
             // meaning that we normally actually just receive {"type": "m.room.member"} with
             // no content at all.
             room_info.mark_as_invited();
-
-            self.handle_invited_state(invite_state.as_slice(), &mut room_info, changes);
 
             (
                 room,

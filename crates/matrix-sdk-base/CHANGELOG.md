@@ -30,6 +30,7 @@
   - `get_users_with_display_names`
 - Move `Session`, `SessionTokens` and associated methods to the `matrix-sdk` crate.
 - Add `Room::subscribe_info`
+- Replace the `Notification` type from Ruma in `SyncResponse` and `StateChanges` by a custom one
 
 # 0.5.1
 

@@ -1,3 +1,10 @@
+# unreleased
+
+Breaking changes:
+
+- Replace the `Notification` type from Ruma in `SyncResponse` and `Client::register_notification_handler`
+  by a custom one
+
 # 0.7.0
 
 Breaking changes:
