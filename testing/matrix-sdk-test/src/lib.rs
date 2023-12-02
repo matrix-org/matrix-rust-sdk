@@ -43,6 +43,30 @@ macro_rules! sync_timeline_event {
     }
 }
 
+/// Create a `Raw<AnySyncStateEvent>` from arbitrary JSON.
+///
+/// Forwards all arguments to [`serde_json::json`].
+#[macro_export]
+macro_rules! sync_state_event {
+    ($( $tt:tt )*) => {
+        ::ruma::serde::Raw::new(&::serde_json::json!( $($tt)* ))
+            .unwrap()
+            .cast::<::ruma::events::AnySyncStateEvent>()
+    }
+}
+
+/// Create a `Raw<AnyStrippedStateEvent>` from arbitrary JSON.
+///
+/// Forwards all arguments to [`serde_json::json`].
+#[macro_export]
+macro_rules! stripped_state_event {
+    ($( $tt:tt )*) => {
+        ::ruma::serde::Raw::new(&::serde_json::json!( $($tt)* ))
+            .unwrap()
+            .cast::<::ruma::events::AnyStrippedStateEvent>()
+    }
+}
+
 /// Initialize a tracing subscriber if the target architecture is not WASM.
 ///
 /// Uses a sensible default filter that can be overridden through the `RUST_LOG`
