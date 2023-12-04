@@ -353,6 +353,34 @@ impl NotificationSettings {
         Ok(())
     }
 
+    /// Get whether the `.m.rule.invite_for_me` push rule is enabled
+    pub async fn is_invite_for_me_enabled(&self) -> Result<bool, NotificationSettingsError> {
+        let notification_settings = self.sdk_notification_settings.read().await;
+        let enabled = notification_settings
+            .is_push_rule_enabled(
+                RuleKind::Override,
+                PredefinedOverrideRuleId::InviteForMe.as_str(),
+            )
+            .await?;
+        Ok(enabled)
+    }
+
+    /// Set whether the `.m.rule.invite_for_me` push rule is enabled
+    pub async fn set_invite_for_me_enabled(
+        &self,
+        enabled: bool,
+    ) -> Result<(), NotificationSettingsError> {
+        let notification_settings = self.sdk_notification_settings.read().await;
+        notification_settings
+            .set_push_rule_enabled(
+                RuleKind::Override,
+                PredefinedOverrideRuleId::InviteForMe.as_str(),
+                enabled,
+            )
+            .await?;
+        Ok(())
+    }
+
     /// Unmute a room.
     ///
     /// # Arguments
