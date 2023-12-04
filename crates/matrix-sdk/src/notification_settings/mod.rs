@@ -449,7 +449,7 @@ mod tests {
         OwnedRoomId, RoomId,
     };
     use serde_json::json;
-    use stream_assert::assert_next_eq;
+    use stream_assert::{assert_next_eq, assert_pending};
     use tokio_stream::wrappers::BroadcastStream;
     use wiremock::{
         matchers::{header, method, path, path_regex},
@@ -507,9 +507,12 @@ mod tests {
         let subscriber = settings.subscribe_to_changes();
         let mut stream = BroadcastStream::new(subscriber);
 
+        assert_pending!(stream);
+
         client.sync_once(SyncSettings::default()).await.unwrap();
 
         assert_next_eq!(stream, Ok(()));
+        assert_pending!(stream);
     }
 
     #[async_test]
