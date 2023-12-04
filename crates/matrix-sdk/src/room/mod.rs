@@ -2242,24 +2242,18 @@ impl Room {
             return Ok(None);
         };
 
-        let room_power_levels = if let Some(event) = self
+        let power_levels = self
             .get_state_event_static::<RoomPowerLevelsEventContent>()
             .await?
             .and_then(|e| e.deserialize().ok())
-        {
-            event.power_levels()
-        } else {
-            return Ok(None);
-        };
+            .map(|e| e.power_levels().into());
 
         Ok(Some(PushConditionRoomCtx {
             user_id: user_id.to_owned(),
             room_id: room_id.to_owned(),
             member_count: UInt::new(member_count).unwrap_or(UInt::MAX),
             user_display_name,
-            users_power_levels: room_power_levels.users,
-            default_power_level: room_power_levels.users_default,
-            notification_power_levels: room_power_levels.notifications,
+            power_levels,
         }))
     }
 

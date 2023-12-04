@@ -1200,22 +1200,19 @@ impl BaseClient {
             return Ok(None);
         };
 
-        let room_power_levels = if let Some(event) = changes
+        let power_levels = if let Some(event) = changes
             .state
             .get(room_id)
             .and_then(|types| types.get(&StateEventType::RoomPowerLevels)?.get(""))
             .and_then(|e| e.deserialize_as::<RoomPowerLevelsEvent>().ok())
         {
-            event.power_levels()
-        } else if let Some(event) = self
-            .store
-            .get_state_event_static::<RoomPowerLevelsEventContent>(room_id)
-            .await?
-            .and_then(|e| e.deserialize().ok())
-        {
-            event.power_levels()
+            Some(event.power_levels().into())
         } else {
-            return Ok(None);
+            self.store
+                .get_state_event_static::<RoomPowerLevelsEventContent>(room_id)
+                .await?
+                .and_then(|e| e.deserialize().ok())
+                .map(|event| event.power_levels().into())
         };
 
         Ok(Some(PushConditionRoomCtx {
@@ -1223,9 +1220,7 @@ impl BaseClient {
             room_id: room_id.to_owned(),
             member_count: UInt::new(member_count).unwrap_or(UInt::MAX),
             user_display_name,
-            users_power_levels: room_power_levels.users,
-            default_power_level: room_power_levels.users_default,
-            notification_power_levels: room_power_levels.notifications,
+            power_levels,
         }))
     }
 
@@ -1263,11 +1258,7 @@ impl BaseClient {
             .and_then(|types| types.get(&StateEventType::RoomPowerLevels)?.get(""))
             .and_then(|e| e.deserialize().ok())
         {
-            let room_power_levels = event.power_levels();
-
-            push_rules.users_power_levels = room_power_levels.users;
-            push_rules.default_power_level = room_power_levels.users_default;
-            push_rules.notification_power_levels = room_power_levels.notifications;
+            push_rules.power_levels = Some(event.power_levels().into());
         }
     }
 
