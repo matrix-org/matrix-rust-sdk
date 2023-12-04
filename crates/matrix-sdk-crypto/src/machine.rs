@@ -352,17 +352,17 @@ impl OlmMachine {
     /// have missed in the original share using `m.room_key_request`
     /// events.
     ///
-    /// See also [`OlmMachine::toggle_room_key_forwarding`] and
+    /// See also [`OlmMachine::set_room_key_forwarding_enabled`] and
     /// [`OlmMachine::are_room_key_requests_enabled`].
     #[cfg(feature = "automatic-room-key-forwarding")]
-    pub fn toggle_room_key_requests(&self, enable: bool) {
-        self.inner.key_request_machine.toggle_room_key_requests(enable)
+    pub fn set_room_key_requests_enabled(&self, enable: bool) {
+        self.inner.key_request_machine.set_room_key_requests_enabled(enable)
     }
 
     /// Query whether we should send outgoing `m.room_key_request`s on
     /// decryption failure.
     ///
-    /// See also [`OlmMachine::toggle_room_key_requests`].
+    /// See also [`OlmMachine::set_room_key_requests_enabled`].
     pub fn are_room_key_requests_enabled(&self) -> bool {
         self.inner.key_request_machine.are_room_key_requests_enabled()
     }
@@ -373,16 +373,16 @@ impl OlmMachine {
     /// incoming `m.room_key_request` messages from verified devices by
     /// forwarding the requested key (if we have it).
     ///
-    /// See also [`OlmMachine::toggle_room_key_requests`] and
+    /// See also [`OlmMachine::set_room_key_requests_enabled`] and
     /// [`OlmMachine::is_room_key_forwarding_enabled`].
     #[cfg(feature = "automatic-room-key-forwarding")]
-    pub fn toggle_room_key_forwarding(&self, enable: bool) {
-        self.inner.key_request_machine.toggle_room_key_forwarding(enable)
+    pub fn set_room_key_forwarding_enabled(&self, enable: bool) {
+        self.inner.key_request_machine.set_room_key_forwarding_enabled(enable)
     }
 
     /// Is room key forwarding enabled?
     ///
-    /// See also [`OlmMachine::toggle_room_key_forwarding`].
+    /// See also [`OlmMachine::set_room_key_forwarding_enabled`].
     pub fn is_room_key_forwarding_enabled(&self) -> bool {
         self.inner.key_request_machine.is_room_key_forwarding_enabled()
     }

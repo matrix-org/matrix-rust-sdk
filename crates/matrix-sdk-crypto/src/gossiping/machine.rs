@@ -117,7 +117,7 @@ impl GossipMachine {
     }
 
     #[cfg(feature = "automatic-room-key-forwarding")]
-    pub fn toggle_room_key_forwarding(&self, enabled: bool) {
+    pub fn set_room_key_forwarding_enabled(&self, enabled: bool) {
         self.inner.room_key_forwarding_enabled.store(enabled, Ordering::SeqCst)
     }
 
@@ -128,7 +128,7 @@ impl GossipMachine {
     /// Configure whether we should send outgoing `m.room_key_request`s on
     /// decryption failure.
     #[cfg(feature = "automatic-room-key-forwarding")]
-    pub fn toggle_room_key_requests(&self, enabled: bool) {
+    pub fn set_room_key_requests_enabled(&self, enabled: bool) {
         self.inner.room_key_requests_enabled.store(enabled, Ordering::SeqCst)
     }
 
@@ -1428,7 +1428,7 @@ mod tests {
 
         // Disable key requests
         assert!(machine.are_room_key_requests_enabled());
-        machine.toggle_room_key_requests(false);
+        machine.set_room_key_requests_enabled(false);
         assert!(!machine.are_room_key_requests_enabled());
 
         let (outbound, session) = account.create_group_session_pair_with_defaults(room_id()).await;
