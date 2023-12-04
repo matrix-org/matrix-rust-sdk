@@ -94,7 +94,7 @@ impl NotificationSettings {
     ///
     /// * `client` - A `Client` used to perform API calls
     /// * `ruleset` - A `Ruleset` containing account's owner push rules
-    pub fn new(client: Client, ruleset: Ruleset) -> Self {
+    pub(crate) fn new(client: Client, ruleset: Ruleset) -> Self {
         let changes_sender = broadcast::Sender::new(100);
         let rules = Arc::new(RwLock::new(Rules::new(ruleset)));
 
