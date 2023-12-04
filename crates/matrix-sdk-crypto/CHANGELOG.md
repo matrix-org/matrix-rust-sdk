@@ -1,5 +1,20 @@
 # unreleased
 
+- `OlmMachine::toggle_room_key_forwarding` is replaced by two separate methods:
+
+  * `OlmMachine::set_room_key_requests_enabled`, which controls whether
+    outgoing room key requests are enabled, and:
+
+  * `OlmMachine::set_room_key_forwarding_enabled`, which controls whether we
+    automatically reply to incoming room key requests.
+
+  `OlmMachine::is_room_key_forwarding_enabled` is updated to return the setting
+  of `OlmMachine::set_room_key_forwarding_enabled`, while
+  `OlmMachine::are_room_key_requests_enabled` is added to return the setting of
+  `OlmMachine::set_room_key_requests_enabled`.
+
+  ([#2902](https://github.com/matrix-org/matrix-rust-sdk/pull/2902))
+
 - Improve performance of `share_room_key`.
   ([#2862](https://github.com/matrix-org/matrix-rust-sdk/pull/2862))
 
