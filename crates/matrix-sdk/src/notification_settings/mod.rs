@@ -22,7 +22,7 @@ mod rule_commands;
 mod rules;
 
 use crate::{
-    config::RequestConfig, error::NotificationSettingsError, event_handler::EventHandlerHandle,
+    config::RequestConfig, error::NotificationSettingsError, event_handler::EventHandlerDropGuard,
     Client, Result,
 };
 
@@ -82,15 +82,9 @@ pub struct NotificationSettings {
     client: Client,
     /// Owner's account push rules. They will be updated on sync.
     rules: Arc<RwLock<Rules>>,
-    /// Event handler for push rules event
-    push_rules_event_handler: EventHandlerHandle,
+    /// Drop guard of event handler for push rules event.
+    _push_rules_event_handler_guard: Arc<EventHandlerDropGuard>,
     changes_sender: broadcast::Sender<()>,
-}
-
-impl Drop for NotificationSettings {
-    fn drop(&mut self) {
-        self.client.remove_event_handler(self.push_rules_event_handler.clone());
-    }
 }
 
 impl NotificationSettings {
@@ -105,7 +99,7 @@ impl NotificationSettings {
         let rules = Arc::new(RwLock::new(Rules::new(ruleset)));
 
         // Listen for PushRulesEvent
-        let push_rules_event_handler = client.add_event_handler({
+        let push_rules_event_handler_handle = client.add_event_handler({
             let changes_sender = changes_sender.clone();
             let rules = Arc::clone(&rules);
             move |ev: PushRulesEvent| async move {
@@ -113,8 +107,10 @@ impl NotificationSettings {
                 let _ = changes_sender.send(());
             }
         });
+        let _push_rules_event_handler_guard =
+            client.event_handler_drop_guard(push_rules_event_handler_handle).into();
 
-        Self { client, rules, push_rules_event_handler, changes_sender }
+        Self { client, rules, _push_rules_event_handler_guard, changes_sender }
     }
 
     /// Subscribe to changes in the `NotificationSettings`.
