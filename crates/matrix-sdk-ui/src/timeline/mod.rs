@@ -90,6 +90,7 @@ pub use self::{
         Message, OtherState, Profile, ReactionGroup, RepliedToEvent, RoomMembershipChange, Sticker,
         TimelineDetails, TimelineItemContent,
     },
+    inner::default_event_filter,
     item::{TimelineItem, TimelineItemKind},
     pagination::{BackPaginationStatus, PaginationOptions, PaginationOutcome},
     polls::PollResult,

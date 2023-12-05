@@ -87,6 +87,12 @@ impl TimelineBuilder {
     /// they affect another existing one), so they're "filtered out" to
     /// reflect that.
     ///
+    /// You can use the default event filter with
+    /// [`crate::timeline::default_event_filter`] so as to chain it with
+    /// your own event filter, if you want to avoid situations where a read
+    /// receipt would be attached to an event that doesn't get its own
+    /// timeline item.
+    ///
     /// Note that currently:
     ///
     /// - Not all event types have a representation as a `TimelineItem` so these
