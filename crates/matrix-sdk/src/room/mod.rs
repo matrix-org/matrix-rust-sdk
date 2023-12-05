@@ -262,30 +262,20 @@ impl Room {
         };
 
         #[cfg(feature = "e2e-encryption")]
-        {
-            let machine = self.client.olm_machine().await;
-            if let Some(machine) = machine.as_ref() {
-                for event in http_response.chunk {
-                    let decrypted_event = if let Ok(AnySyncTimelineEvent::MessageLike(
-                        AnySyncMessageLikeEvent::RoomEncrypted(SyncMessageLikeEvent::Original(_)),
-                    )) = event.deserialize_as::<AnySyncTimelineEvent>()
-                    {
-                        if let Ok(event) =
-                            machine.decrypt_room_event(event.cast_ref(), room_id).await
-                        {
-                            event
-                        } else {
-                            TimelineEvent::new(event)
-                        }
-                    } else {
-                        TimelineEvent::new(event)
-                    };
-
-                    response.chunk.push(decrypted_event);
+        for event in http_response.chunk {
+            let decrypted_event = if let Ok(AnySyncTimelineEvent::MessageLike(
+                AnySyncMessageLikeEvent::RoomEncrypted(SyncMessageLikeEvent::Original(_)),
+            )) = event.deserialize_as::<AnySyncTimelineEvent>()
+            {
+                if let Ok(event) = self.decrypt_event(event.cast_ref()).await {
+                    event
+                } else {
+                    TimelineEvent::new(event)
                 }
             } else {
-                response.chunk.extend(http_response.chunk.into_iter().map(TimelineEvent::new));
-            }
+                TimelineEvent::new(event)
+            };
+            response.chunk.push(decrypted_event);
         }
 
         if let Some(push_context) = self.push_context().await? {

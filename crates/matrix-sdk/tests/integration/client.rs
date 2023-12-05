@@ -586,7 +586,7 @@ async fn cross_signing_status() {
 
 #[cfg(feature = "e2e-encryption")]
 #[async_test]
-async fn encrypt_room_event() {
+async fn test_encrypt_room_event() {
     use std::sync::Arc;
 
     use ruma::events::room::encrypted::RoomEncryptedEventContent;
