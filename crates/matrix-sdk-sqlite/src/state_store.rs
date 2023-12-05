@@ -932,7 +932,6 @@ impl StateStore for SqliteStateStore {
                     redactions,
                     stripped_state,
                     ambiguity_maps,
-                    notifications: _,
                 } = changes;
 
                 if let Some(sync_token) = sync_token {
