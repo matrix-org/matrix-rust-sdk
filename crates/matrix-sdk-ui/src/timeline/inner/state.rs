@@ -542,8 +542,8 @@ impl TimelineInnerStateTransaction<'_> {
         let (event_id, sender, timestamp, txn_id, event_kind, should_add) = match raw.deserialize()
         {
             Ok(event) => {
-                let should_add = (settings.event_filter)(&event);
                 let room_version = room_data_provider.room_version();
+                let should_add = (settings.event_filter)(&event, &room_version);
                 (
                     event.event_id().to_owned(),
                     event.sender().to_owned(),

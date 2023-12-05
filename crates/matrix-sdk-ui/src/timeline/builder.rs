@@ -20,7 +20,10 @@ use imbl::Vector;
 use matrix_sdk::{
     deserialized_responses::SyncTimelineEvent, executor::spawn, sync::RoomUpdate, Room,
 };
-use ruma::events::{receipt::ReceiptType, AnySyncTimelineEvent};
+use ruma::{
+    events::{receipt::ReceiptType, AnySyncTimelineEvent},
+    RoomVersionId,
+};
 use tokio::sync::{broadcast, mpsc, Notify};
 use tracing::{info, info_span, trace, warn, Instrument, Span};
 
@@ -92,7 +95,7 @@ impl TimelineBuilder {
     ///   they couldn't be decrypted when the appropriate room key arrives).
     pub fn event_filter<F>(mut self, filter: F) -> Self
     where
-        F: Fn(&AnySyncTimelineEvent) -> bool + Send + Sync + 'static,
+        F: Fn(&AnySyncTimelineEvent, &RoomVersionId) -> bool + Send + Sync + 'static,
     {
         self.settings.event_filter = Arc::new(filter);
         self

@@ -49,7 +49,7 @@ use ruma::{
         AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
         MessageLikeEventType,
     },
-    EventId, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
+    EventId, OwnedEventId, OwnedTransactionId, RoomVersionId, TransactionId, UserId,
 };
 use tokio::sync::{RwLock, RwLockWriteGuard};
 use tracing::{debug, error, field::debug, info, instrument, trace, warn};
@@ -131,11 +131,10 @@ impl Default for TimelineInnerSettings {
 /// The default event filter for [`TimelineInnerSettings::event_filter`].
 ///
 /// It filters out events that are never visible by default.
-fn default_event_filter(event: &AnySyncTimelineEvent) -> bool {
+fn default_event_filter(event: &AnySyncTimelineEvent, room_version: &RoomVersionId) -> bool {
     match event {
         AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomRedaction(ev)) => {
-            // TODO(bnjbvr) use the correct room version here.
-            if ev.redacts(&ruma::RoomVersionId::V1).is_some() {
+            if ev.redacts(room_version).is_some() {
                 // This is a redaction of an existing message, we'll only update the previous
                 // message and not render a new entry.
                 false
@@ -200,7 +199,8 @@ fn default_event_filter(event: &AnySyncTimelineEvent) -> bool {
     }
 }
 
-pub(super) type TimelineEventFilterFn = dyn Fn(&AnySyncTimelineEvent) -> bool + Send + Sync;
+pub(super) type TimelineEventFilterFn =
+    dyn Fn(&AnySyncTimelineEvent, &RoomVersionId) -> bool + Send + Sync;
 
 impl<P: RoomDataProvider> TimelineInner<P> {
     pub(super) fn new(room_data_provider: P) -> Self {
