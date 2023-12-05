@@ -103,8 +103,12 @@ pub(super) enum ReactionState {
 
 #[derive(Clone)]
 pub(super) struct TimelineInnerSettings {
+    /// Should the read receipts and read markers be handled?
     pub(super) track_read_receipts: bool,
+    /// Event filter that controls what's rendered as a timeline item (and thus
+    /// what can carry read receipts).
     pub(super) event_filter: Arc<TimelineEventFilterFn>,
+    /// Are unparsable events added as timeline items of their own kind?
     pub(super) add_failed_to_parse: bool,
 }
 
@@ -128,10 +132,16 @@ impl Default for TimelineInnerSettings {
     }
 }
 
-/// The default event filter for [`TimelineInnerSettings::event_filter`].
+/// The default event filter for
+/// [`crate::timeline::TimelineBuilder::event_filter`].
 ///
-/// It filters out events that are never visible by default.
-fn default_event_filter(event: &AnySyncTimelineEvent, room_version: &RoomVersionId) -> bool {
+/// It filters out events that are not rendered by the timeline, including but
+/// not limited to: reactions, edits, redactions on existing messages.
+///
+/// If you have a custom filter, it may be best to chain yours with this one if
+/// you do not want to run into situations where a read receipt is not visible
+/// because it's living on an event that doesn't have a matching timeline item.
+pub fn default_event_filter(event: &AnySyncTimelineEvent, room_version: &RoomVersionId) -> bool {
     match event {
         AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomRedaction(ev)) => {
             if ev.redacts(room_version).is_some() {
