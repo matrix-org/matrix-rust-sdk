@@ -32,7 +32,7 @@ use ruma::{
         room::message::{MessageType, SyncRoomMessageEvent},
         AnySyncMessageLikeEvent, AnySyncTimelineEvent,
     },
-    room_id, user_id,
+    room_id, user_id, RoomVersionId,
 };
 use serde_json::json;
 use wiremock::{
@@ -42,7 +42,7 @@ use wiremock::{
 
 use crate::{logged_in_client, mock_sync};
 
-fn filter_notice(ev: &AnySyncTimelineEvent) -> bool {
+fn filter_notice(ev: &AnySyncTimelineEvent, _room_version: &RoomVersionId) -> bool {
     match ev {
         AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
             SyncRoomMessageEvent::Original(msg),

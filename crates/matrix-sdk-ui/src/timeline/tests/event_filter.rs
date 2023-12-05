@@ -104,7 +104,7 @@ async fn default_filter() {
 #[async_test]
 async fn filter_always_false() {
     let timeline = TestTimeline::new().with_settings(TimelineInnerSettings {
-        event_filter: Arc::new(|_| false),
+        event_filter: Arc::new(|_, _| false),
         ..Default::default()
     });
 
@@ -136,7 +136,7 @@ async fn filter_always_false() {
 async fn custom_filter() {
     // Filter out all state events.
     let timeline = TestTimeline::new().with_settings(TimelineInnerSettings {
-        event_filter: Arc::new(|ev| matches!(ev, AnySyncTimelineEvent::MessageLike(_))),
+        event_filter: Arc::new(|ev, _| matches!(ev, AnySyncTimelineEvent::MessageLike(_))),
         ..Default::default()
     });
     let mut stream = timeline.subscribe().await;
