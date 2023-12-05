@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::BTreeMap;
 #[cfg(feature = "e2e-encryption")]
 use std::ops::Deref;
 
@@ -20,13 +21,16 @@ use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::AnyToDeviceEvent;
 use ruma::{
-    api::client::sync::sync_events::{
-        v3::{self, InvitedRoom, RoomSummary},
-        v4,
+    api::client::{
+        push::get_notifications::v3::Notification,
+        sync::sync_events::{
+            v3::{self, InvitedRoom, RoomSummary},
+            v4,
+        },
     },
     events::{AnySyncStateEvent, AnySyncTimelineEvent},
     serde::Raw,
-    RoomId,
+    OwnedRoomId, RoomId,
 };
 use tracing::{instrument, trace, warn};
 
@@ -146,6 +150,7 @@ impl BaseClient {
         }
 
         let mut new_rooms = Rooms::default();
+        let mut notifications = Default::default();
 
         for (room_id, room_data) in rooms {
             let (room_to_store, joined_room, left_room, invited_room) = self
@@ -155,6 +160,7 @@ impl BaseClient {
                     account_data,
                     &store,
                     &mut changes,
+                    &mut notifications,
                     &mut ambiguity_cache,
                 )
                 .await?;
@@ -233,7 +239,7 @@ impl BaseClient {
         Ok(SyncResponse {
             rooms: new_rooms,
             ambiguity_changes: AmbiguityChanges { changes: ambiguity_cache.changes },
-            notifications: changes.notifications,
+            notifications,
             // FIXME not yet supported by sliding sync.
             presence: Default::default(),
             account_data: account_data.global.clone(),
@@ -249,6 +255,7 @@ impl BaseClient {
         account_data: &v4::AccountData,
         store: &Store,
         changes: &mut StateChanges,
+        notifications: &mut BTreeMap<OwnedRoomId, Vec<Notification>>,
         ambiguity_cache: &mut AmbiguityCache,
     ) -> Result<(RoomInfo, Option<JoinedRoom>, Option<LeftRoom>, Option<InvitedRoom>)> {
         let mut state_events = Self::deserialize_state_events(&room_data.required_state);
@@ -302,6 +309,7 @@ impl BaseClient {
                 &mut user_ids,
                 &mut room_info,
                 changes,
+                notifications,
                 ambiguity_cache,
             )
             .await?;
