@@ -16,12 +16,17 @@ use crate::error::ClientError;
 
 #[derive(uniffi::Object)]
 pub struct SessionVerificationEmoji {
+    code: i32,
     symbol: String,
     description: String,
 }
 
 #[uniffi::export]
 impl SessionVerificationEmoji {
+    pub fn code(&self) -> i32 {
+        self.code
+    }
+
     pub fn symbol(&self) -> String {
         self.symbol.clone()
     }
@@ -208,6 +213,7 @@ impl SessionVerificationController {
                                 .iter()
                                 .map(|e| {
                                     Arc::new(SessionVerificationEmoji {
+                                        code: e.code.to_owned(),
                                         symbol: e.symbol.to_owned(),
                                         description: e.description.to_owned(),
                                     })

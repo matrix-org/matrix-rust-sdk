@@ -75,6 +75,8 @@ pub(crate) struct VerificationStore {
 /// [spec]: https://spec.matrix.org/unstable/client-server-api/#sas-method-emoji
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
 pub struct Emoji {
+    /// The emoji code, for example: 0
+    pub code: &'static i32,
     /// The emoji symbol that represents a part of the short auth string, for
     /// example: 🐶
     pub symbol: &'static str,
