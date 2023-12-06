@@ -82,7 +82,7 @@ pub struct Emoji {
     pub description: &'static str,
 }
 
-/// Format the the list of emojis as a two line string.
+/// Format the list of emojis as a two line string.
 ///
 /// The first line will contain the emojis spread out so the second line can
 /// contain the descriptions centered bellow the emoji.
