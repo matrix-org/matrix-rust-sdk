@@ -213,7 +213,7 @@ impl SessionVerificationController {
                                 .iter()
                                 .map(|e| {
                                     Arc::new(SessionVerificationEmoji {
-                                        code: e.code.to_owned(),
+                                        code: e.code,
                                         symbol: e.symbol.to_owned(),
                                         description: e.description.to_owned(),
                                     })
