@@ -1704,7 +1704,8 @@ impl Room {
         self.send_state_event(RoomPowerLevelsEventContent::from(power_levels)).await
     }
 
-    async fn get_room_power_levels(&self) -> Result<RoomPowerLevels> {
+    /// Get the current power levels of this room.
+    pub async fn get_room_power_levels(&self) -> Result<RoomPowerLevels> {
         Ok(self
             .get_state_event_static::<RoomPowerLevelsEventContent>()
             .await?

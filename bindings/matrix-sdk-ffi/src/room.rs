@@ -7,8 +7,15 @@ use mime::Mime;
 use ruma::{
     api::client::room::report_content,
     assign,
-    events::room::{avatar::ImageInfo as RumaAvatarImageInfo, MediaSource},
-    EventId, UserId,
+    events::{
+        room::{
+            avatar::ImageInfo as RumaAvatarImageInfo,
+            power_levels::{RoomPowerLevels, RoomPowerLevelsEventContent},
+            MediaSource,
+        },
+        StateEventType as SdkStateEventType,
+    },
+    EventId, Int, UserId,
 };
 use tokio::sync::RwLock;
 use tracing::error;
@@ -494,6 +501,38 @@ impl Room {
     pub async fn typing_notice(&self, is_typing: bool) -> Result<(), ClientError> {
         Ok(self.inner.typing_notice(is_typing).await?)
     }
+
+    pub async fn power_level_settings(&self) -> Result<RoomPowerLevelSettings, ClientError> {
+        let power_levels = self.inner.get_room_power_levels().await?;
+        Ok(power_levels.into())
+    }
+
+    pub async fn update_power_level_settings(
+        &self,
+        updates: RoomPowerLevelSettings,
+    ) -> Result<(), ClientError> {
+        let mut power_levels = self.inner.get_room_power_levels().await?;
+        power_levels.apply(updates)?;
+        self.inner
+            .send_state_event(RoomPowerLevelsEventContent::from(power_levels))
+            .await
+            .map_err(|e| ClientError::Generic { msg: e.to_string() })?;
+        Ok(())
+    }
+
+    pub async fn update_power_level_for_user(
+        &self,
+        user_id: String,
+        power_level: i64,
+    ) -> Result<(), ClientError> {
+        let user_id = UserId::parse(&user_id)?;
+        let power_level = Int::new(power_level).context("Invalid power level")?;
+        self.inner
+            .update_power_levels(vec![(&user_id, power_level)])
+            .await
+            .map_err(|e| ClientError::Generic { msg: e.to_string() })?;
+        Ok(())
+    }
 }
 
 #[uniffi::export(callback_interface)]
@@ -547,5 +586,117 @@ impl TryFrom<ImageInfo> for RumaAvatarImageInfo {
             thumbnail_url: thumbnail_url,
             blurhash: value.blurhash,
         }))
+    }
+}
+
+#[derive(uniffi::Record)]
+/// The power level settings required for various operations within a room.
+/// When updating these settings, any levels that are `None` will remain
+/// unchanged.
+pub struct RoomPowerLevelSettings {
+    // Actions
+    /// The level required to ban a user.
+    pub ban: Option<i64>,
+    /// The level required to invite a user.
+    pub invite: Option<i64>,
+    /// The level required to kick a user.
+    pub kick: Option<i64>,
+    /// The level required to redact an event.
+    pub redact: Option<i64>,
+
+    // Events
+    /// The default level required to send message events.
+    pub events_default: Option<i64>,
+    /// The default level required to send state events.
+    pub state_default: Option<i64>,
+    /// The default power level for every user in the room.
+    pub users_default: Option<i64>,
+    /// The level required to change the room's name.
+    pub room_name: Option<i64>,
+    /// The level required to change the room's avatar.
+    pub room_avatar: Option<i64>,
+    /// The level required to change the room's topic.
+    pub room_topic: Option<i64>,
+}
+
+impl From<RoomPowerLevels> for RoomPowerLevelSettings {
+    fn from(value: RoomPowerLevels) -> Self {
+        Self {
+            ban: Some(value.ban.into()),
+            invite: Some(value.invite.into()),
+            kick: Some(value.kick.into()),
+            redact: Some(value.redact.into()),
+            events_default: Some(value.events_default.into()),
+            state_default: Some(value.state_default.into()),
+            users_default: Some(value.users_default.into()),
+            room_name: value.events.get(&SdkStateEventType::RoomName.into()).map(|v| (*v).into()),
+            room_avatar: value
+                .events
+                .get(&SdkStateEventType::RoomAvatar.into())
+                .map(|v| (*v).into()),
+            room_topic: value.events.get(&SdkStateEventType::RoomTopic.into()).map(|v| (*v).into()),
+        }
+    }
+}
+
+trait RoomPowerLevelsExt {
+    /// Applies the updated settings to the power levels. Any levels that are
+    /// `None` will remain unchanged.
+    fn apply(&mut self, settings: RoomPowerLevelSettings) -> Result<(), anyhow::Error>;
+    fn update_state_event(
+        &mut self,
+        event_type: SdkStateEventType,
+        new_level: i64,
+    ) -> Result<(), anyhow::Error>;
+}
+
+impl RoomPowerLevelsExt for RoomPowerLevels {
+    fn apply(&mut self, settings: RoomPowerLevelSettings) -> Result<(), anyhow::Error> {
+        if let Some(ban) = settings.ban {
+            self.ban = ban.try_into()?;
+        }
+        if let Some(invite) = settings.invite {
+            self.invite = invite.try_into()?;
+        }
+        if let Some(kick) = settings.kick {
+            self.kick = kick.try_into()?;
+        }
+        if let Some(redact) = settings.redact {
+            self.redact = redact.try_into()?;
+        }
+        if let Some(events_default) = settings.events_default {
+            self.events_default = events_default.try_into()?;
+        }
+        if let Some(state_default) = settings.state_default {
+            self.state_default = state_default.try_into()?;
+        }
+        if let Some(users_default) = settings.users_default {
+            self.users_default = users_default.try_into()?;
+        }
+        if let Some(room_name) = settings.room_name {
+            self.update_state_event(SdkStateEventType::RoomName, room_name)?;
+        }
+        if let Some(room_avatar) = settings.room_avatar {
+            self.update_state_event(SdkStateEventType::RoomAvatar, room_avatar)?;
+        }
+        if let Some(room_topic) = settings.room_topic {
+            self.update_state_event(SdkStateEventType::RoomTopic, room_topic)?;
+        }
+
+        Ok(())
+    }
+
+    fn update_state_event(
+        &mut self,
+        event_type: SdkStateEventType,
+        new_level: i64,
+    ) -> Result<(), anyhow::Error> {
+        let new_level = new_level.try_into()?;
+        if new_level == self.state_default {
+            self.events.remove(&event_type.into());
+        } else {
+            self.events.insert(event_type.into(), new_level);
+        }
+        Ok(())
     }
 }
