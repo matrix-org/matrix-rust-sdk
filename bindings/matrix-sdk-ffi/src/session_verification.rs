@@ -16,14 +16,14 @@ use crate::error::ClientError;
 
 #[derive(uniffi::Object)]
 pub struct SessionVerificationEmoji {
-    code: i32,
+    code: u32,
     symbol: String,
     description: String,
 }
 
 #[uniffi::export]
 impl SessionVerificationEmoji {
-    pub fn code(&self) -> i32 {
+    pub fn code(&self) -> u32 {
         self.code
     }
 
