@@ -2814,8 +2814,9 @@ dependencies = [
 
 [[package]]
 name = "mas-http"
-version = "0.6.1"
-source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=4a0eadccd5c5d74a09f8f454d81a226a01d024f4#4a0eadccd5c5d74a09f8f454d81a226a01d024f4"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "da6948721a2bc05e73f8029515e05b0c7deabb6fcec51ee7f033ecbfe60b7818"
 dependencies = [
  "bytes",
  "futures-util",
@@ -2838,8 +2839,9 @@ dependencies = [
 
 [[package]]
 name = "mas-iana"
-version = "0.6.1"
-source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=4a0eadccd5c5d74a09f8f454d81a226a01d024f4#4a0eadccd5c5d74a09f8f454d81a226a01d024f4"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1c48820df73240471efb9fe90f90461b0029e4f0b7915e2df23633523635dfa3"
 dependencies = [
  "schemars",
  "serde",
@@ -2847,8 +2849,9 @@ dependencies = [
 
 [[package]]
 name = "mas-jose"
-version = "0.6.1"
-source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=4a0eadccd5c5d74a09f8f454d81a226a01d024f4#4a0eadccd5c5d74a09f8f454d81a226a01d024f4"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b39a251dfb34fb81d7259e91b368ee3551013406149333484ae30bd7da8c2c74"
 dependencies = [
  "base64ct",
  "chrono",
@@ -2877,8 +2880,9 @@ dependencies = [
 
 [[package]]
 name = "mas-keystore"
-version = "0.6.1"
-source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=4a0eadccd5c5d74a09f8f454d81a226a01d024f4#4a0eadccd5c5d74a09f8f454d81a226a01d024f4"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a75c2a138f5805d21cf62c3947e23743349cb1303e8e3374aad14a5d571d7912"
 dependencies = [
  "aead",
  "base64ct",
@@ -2905,14 +2909,14 @@ dependencies = [
 
 [[package]]
 name = "mas-oidc-client"
-version = "0.6.1"
-source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=4a0eadccd5c5d74a09f8f454d81a226a01d024f4#4a0eadccd5c5d74a09f8f454d81a226a01d024f4"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3138f9b4240f515c740ec61e27b436f1fd5a24aabb66b51d93346c7d46e2e571"
 dependencies = [
  "base64ct",
  "bytes",
  "chrono",
  "form_urlencoded",
- "futures",
  "futures-util",
  "headers",
  "http",
@@ -2943,8 +2947,9 @@ dependencies = [
 
 [[package]]
 name = "mas-tower"
-version = "0.6.1"
-source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=4a0eadccd5c5d74a09f8f454d81a226a01d024f4#4a0eadccd5c5d74a09f8f454d81a226a01d024f4"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f6beeba7843e755539b582e6240293db1e6bd428e22bc1a6ef4220b1fd2fc53d"
 dependencies = [
  "http",
  "opentelemetry",
@@ -3671,8 +3676,9 @@ dependencies = [
 
 [[package]]
 name = "oauth2-types"
-version = "0.6.1"
-source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=4a0eadccd5c5d74a09f8f454d81a226a01d024f4#4a0eadccd5c5d74a09f8f454d81a226a01d024f4"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fd0c3fa3366856696f31b0686570dc4a511b499e648a03e433ad8b940ed2f122"
 dependencies = [
  "chrono",
  "data-encoding",
