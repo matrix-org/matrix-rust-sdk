@@ -33,7 +33,7 @@ use ruma::{
     OwnedRoomId, OwnedTransactionId, TransactionId,
 };
 use tokio::sync::RwLock;
-use tracing::{debug, info, instrument, trace, warn};
+use tracing::{debug, error, info, instrument, trace, warn};
 
 use crate::{
     olm::{BackedUpRoomKey, ExportedRoomKey, InboundGroupSession, SignedJsonObject},
@@ -144,6 +144,7 @@ impl SignatureState {
 
 impl BackupMachine {
     const BACKUP_BATCH_SIZE: usize = 100;
+    const MARK_AS_READ_BATCH_SIZE: usize = 100000;
 
     pub(crate) fn new(store: Store, backup_key: Option<MegolmV1BackupKey>) -> Self {
         Self {
@@ -482,7 +483,7 @@ impl BackupMachine {
             if r.request_id == request_id {
                 let sessions: Vec<_> = self
                     .store
-                    .get_inbound_group_sessions()
+                    .inbound_group_sessions_for_backup(Self::MARK_AS_READ_BATCH_SIZE)
                     .await?
                     .into_iter()
                     .filter(|s| r.session_was_part_of_the_backup(s))
@@ -493,6 +494,13 @@ impl BackupMachine {
                 }
 
                 trace!(request_id = ?r.request_id, keys = ?r.sessions, "Marking room keys as backed up");
+
+                if sessions.is_empty() {
+                    error!(
+                        "No inbound groups sessions were found to mark as backed up! Are there too many \
+                        new not-backed-up sessions? See https://github.com/matrix-org/matrix-rust-sdk/pull/2922"
+                    );
+                }
 
                 let changes = Changes { inbound_group_sessions: sessions, ..Default::default() };
                 self.store.save_changes(changes).await?;
