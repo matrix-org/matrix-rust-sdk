@@ -31,11 +31,17 @@ impl SessionVerificationEmoji {
     }
 }
 
+#[derive(uniffi::Enum)]
+pub enum SessionVerificationData {
+    Emojis { emojis: Vec<Arc<SessionVerificationEmoji>>, indices: Vec<u8> },
+    Decimals { values: Vec<u16> },
+}
+
 #[uniffi::export(callback_interface)]
 pub trait SessionVerificationControllerDelegate: Sync + Send {
     fn did_accept_verification_request(&self);
     fn did_start_sas_verification(&self);
-    fn did_receive_verification_data(&self, data: Vec<Arc<SessionVerificationEmoji>>);
+    fn did_receive_verification_data(&self, data: SessionVerificationData);
     fn did_fail(&self);
     fn did_cancel(&self);
     fn did_finish(&self);
@@ -199,25 +205,31 @@ impl SessionVerificationController {
 
         while let Some(state) = stream.next().await {
             match state {
-                SasState::KeysExchanged { emojis, decimals: _ } => {
-                    // TODO: If emojis is None, decimals should be used.
-                    if let Some(emojis) = emojis {
-                        if let Some(delegate) = &*delegate.read().unwrap() {
-                            let emojis = emojis
-                                .emojis
-                                .iter()
-                                .map(|e| {
-                                    Arc::new(SessionVerificationEmoji {
-                                        symbol: e.symbol.to_owned(),
-                                        description: e.description.to_owned(),
-                                    })
-                                })
-                                .collect::<Vec<_>>();
-
-                            delegate.did_receive_verification_data(emojis);
+                SasState::KeysExchanged { emojis, decimals } => {
+                    if let Some(delegate) = &*delegate.read().unwrap() {
+                        if let Some(emojis) = emojis {
+                            delegate.did_receive_verification_data(
+                                SessionVerificationData::Emojis {
+                                    emojis: emojis
+                                        .emojis
+                                        .into_iter()
+                                        .map(|emoji| {
+                                            Arc::new(SessionVerificationEmoji {
+                                                symbol: emoji.symbol.to_owned(),
+                                                description: emoji.description.to_owned(),
+                                            })
+                                        })
+                                        .collect(),
+                                    indices: emojis.indices.to_vec(),
+                                },
+                            );
+                        } else {
+                            delegate.did_receive_verification_data(
+                                SessionVerificationData::Decimals {
+                                    values: vec![decimals.0, decimals.1, decimals.2],
+                                },
+                            )
                         }
-                    } else if let Some(delegate) = &*delegate.read().unwrap() {
-                        delegate.did_fail()
                     }
                 }
                 SasState::Done { .. } => {
