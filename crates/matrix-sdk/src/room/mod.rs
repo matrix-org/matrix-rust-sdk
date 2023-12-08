@@ -79,6 +79,7 @@ use crate::{
     event_handler::{EventHandler, EventHandlerHandle, SyncEvent},
     media::{MediaFormat, MediaRequest},
     notification_settings::{IsEncrypted, IsOneToOne, RoomNotificationMode},
+    room::power_levels::{RoomPowerLevelSettings, RoomPowerLevelsExt},
     sync::RoomUpdate,
     utils::{IntoRawMessageLikeEventContent, IntoRawStateEventContent},
     BaseRoom, Client, Error, HttpError, HttpResult, Result, RoomState, TransmissionProgress,
@@ -87,6 +88,7 @@ use crate::{
 pub mod futures;
 mod member;
 mod messages;
+pub mod power_levels;
 
 pub use self::{
     member::RoomMember,
@@ -1704,8 +1706,32 @@ impl Room {
         self.send_state_event(RoomPowerLevelsEventContent::from(power_levels)).await
     }
 
+    /// Gets the current power level settings for this room.
+    ///
+    /// This can be used to present existing settings to a user. To update the
+    /// power levels it is recommended to create a new `RoomPowerLevelSettings`,
+    /// set the values you would like to change and then call
+    /// `update_power_level_settings` with the new settings.
+    pub async fn power_level_settings(&self) -> anyhow::Result<RoomPowerLevelSettings> {
+        Ok(self.get_room_power_levels().await?.into())
+    }
+
+    /// Update the power level settings of this room.
+    ///
+    /// Any values that are `None` in the given `RoomPowerLevelSettings` will
+    /// remain unchanged.
+    pub async fn update_power_level_settings(
+        &self,
+        updates: RoomPowerLevelSettings,
+    ) -> anyhow::Result<()> {
+        let mut power_levels = self.get_room_power_levels().await?;
+        power_levels.apply(updates)?;
+        self.send_state_event(RoomPowerLevelsEventContent::from(power_levels)).await?;
+        Ok(())
+    }
+
     /// Get the current power levels of this room.
-    pub async fn get_room_power_levels(&self) -> Result<RoomPowerLevels> {
+    async fn get_room_power_levels(&self) -> Result<RoomPowerLevels> {
         Ok(self
             .get_state_event_static::<RoomPowerLevelsEventContent>()
             .await?
