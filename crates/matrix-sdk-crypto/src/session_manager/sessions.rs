@@ -18,7 +18,6 @@ use std::{
     time::Duration,
 };
 
-use itertools::Itertools;
 use matrix_sdk_common::failures_cache::FailuresCache;
 use ruma::{
     api::client::keys::claim_keys::v3::{
@@ -295,18 +294,12 @@ impl SessionManager {
 
         if tracing::level_enabled!(tracing::Level::DEBUG) {
             // Reformat the map to skip the encryption algorithm, which isn't very useful.
-            //
-            // Note: we reify the debug string for `missing_session_devices_by_user` to work
-            // around a known footgun of `itertools` (it can be used only once).
-            let missing_session_devices_by_user = format!(
-                "{:?}",
-                missing_session_devices_by_user
-                    .iter()
-                    .map(|(user_id, devices)| (user_id, devices.keys().collect::<Vec<_>>()))
-                    .format(", ")
-            );
+            let missing_session_devices_by_user = missing_session_devices_by_user
+                .iter()
+                .map(|(user_id, devices)| (user_id, devices.keys().collect::<BTreeSet<_>>()))
+                .collect::<BTreeMap<_, _>>();
             debug!(
-                missing_session_devices_by_user,
+                ?missing_session_devices_by_user,
                 ?timed_out_devices_by_user,
                 "Collected user/device pairs that are missing an Olm session"
             );
