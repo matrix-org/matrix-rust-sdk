@@ -85,13 +85,8 @@ fn build_library() -> Result<()> {
         remove_file(module_map_file.as_path())?;
     }
 
-    // TODO: Find the modulemap in the ffi directory.
     rename(ffi_directory.join("matrix_sdk_ffiFFI.modulemap"), module_map_file)?;
-    // TODO: Move all swift files.
-    rename(
-        ffi_directory.join("matrix_sdk_ffi.swift"),
-        swift_directory.join("matrix_sdk_ffi.swift"),
-    )?;
+    move_swift_files(&ffi_directory, &swift_directory)?;
     Ok(())
 }
 
@@ -191,7 +186,7 @@ fn build_xcframework(
         headers_dir.join("module.modulemap"),
     )?;
 
-    rename(generated_dir.join("matrix_sdk_ffi.swift"), swift_dir.join("matrix_sdk_ffi.swift"))?;
+    move_swift_files(&generated_dir, &swift_dir)?;
 
     println!("-- Generating MatrixSDKFFI.xcframework framework");
     let xcframework_path = generated_dir.join("MatrixSDKFFI.xcframework");
@@ -240,5 +235,20 @@ fn build_xcframework(
 
     println!("-- All done and hunky dory. Enjoy!");
 
+    Ok(())
+}
+
+fn move_swift_files(source: &Utf8PathBuf, destination: &Utf8PathBuf) -> Result<()> {
+    source.read_dir_utf8()?.for_each(|entry| {
+        let Ok(entry) = entry else { return };
+
+        if entry.file_type().map(|t| t.is_file()).is_ok_and(|f| f) {
+            let path = entry.path();
+            if path.extension() == Some("swift") {
+                let file_name = path.file_name().expect("Failed to get file name");
+                rename(path, destination.join(file_name)).expect("Failed to move swift file");
+            }
+        }
+    });
     Ok(())
 }
