@@ -239,16 +239,16 @@ fn build_xcframework(
 }
 
 fn move_swift_files(source: &Utf8PathBuf, destination: &Utf8PathBuf) -> Result<()> {
-    source.read_dir_utf8()?.for_each(|entry| {
-        let Ok(entry) = entry else { return };
+    for entry in source.read_dir_utf8()? {
+        let entry = entry?;
 
-        if entry.file_type().map(|t| t.is_file()).is_ok_and(|f| f) {
+        if entry.file_type()?.is_file() {
             let path = entry.path();
             if path.extension() == Some("swift") {
                 let file_name = path.file_name().expect("Failed to get file name");
                 rename(path, destination.join(file_name)).expect("Failed to move swift file");
             }
         }
-    });
+    }
     Ok(())
 }
