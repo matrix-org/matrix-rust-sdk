@@ -1,7 +1,4 @@
-use std::{
-    env::consts::{DLL_PREFIX, DLL_SUFFIX},
-    fs::{copy, create_dir_all, remove_dir_all, remove_file, rename},
-};
+use std::fs::{copy, create_dir_all, remove_dir_all, remove_file, rename};
 
 use camino::{Utf8Path, Utf8PathBuf};
 use clap::{Args, Subcommand};
@@ -57,9 +54,7 @@ impl SwiftArgs {
     }
 }
 
-fn matrix_sdk_ffi_dll_name() -> String {
-    format!("{DLL_PREFIX}matrix_sdk_ffi{DLL_SUFFIX}")
-}
+const FFI_LIBRARY_NAME: &str = "libmatrix_sdk_ffi.a";
 
 fn build_library() -> Result<()> {
     println!("Running debug library build.");
@@ -73,12 +68,11 @@ fn build_library() -> Result<()> {
 
     cmd!("rustup run stable cargo build -p matrix-sdk-ffi").run()?;
 
-    let static_lib_filename = "libmatrix_sdk_ffi.a";
-    rename(lib_output_dir.join(static_lib_filename), ffi_directory.join(static_lib_filename))?;
+    rename(lib_output_dir.join(FFI_LIBRARY_NAME), ffi_directory.join(FFI_LIBRARY_NAME))?;
     let swift_directory = root_directory.join("bindings/apple/generated/swift");
     create_dir_all(swift_directory.as_path())?;
 
-    generate_uniffi(&lib_output_dir.join(matrix_sdk_ffi_dll_name()), &ffi_directory)?;
+    generate_uniffi(&ffi_directory.join(FFI_LIBRARY_NAME), &ffi_directory)?;
 
     let module_map_file = ffi_directory.join("module.modulemap");
     if module_map_file.exists() {
@@ -99,10 +93,7 @@ fn build_path_for_target(target: &str, profile: &str) -> Result<Utf8PathBuf> {
     // The builtin dev profile has its files stored under target/debug, all
     // other targets have matching directory names
     let profile_dir_name = if profile == "dev" { "debug" } else { profile };
-    Ok(workspace::target_path()?
-        .join(target)
-        .join(profile_dir_name)
-        .join(matrix_sdk_ffi_dll_name()))
+    Ok(workspace::target_path()?.join(target).join(profile_dir_name).join(FFI_LIBRARY_NAME))
 }
 
 fn build_xcframework(
