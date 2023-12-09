@@ -20,7 +20,7 @@ TBD
 
 ### Example
 
-This is a rough overview example how to use the FFI bindings. You need to implement the callbacks and combine that with the intial results to build your room list and timelines.
+This is a rough overview example how to use the FFI bindings. You need to implement the callbacks and combine that with the initial results to build your room list and timelines.
 
 ```
 class Matrix {
