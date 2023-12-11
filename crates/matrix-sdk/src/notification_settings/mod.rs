@@ -199,7 +199,7 @@ impl NotificationSettings {
     ) -> Result<(), NotificationSettingsError> {
         let rule_ids = vec![
             rules::get_predefined_underride_room_rule_id(is_encrypted, is_one_to_one.clone()),
-            is_one_to_one.into(),
+            rules::get_predefined_underride_poll_start_rule_id(is_one_to_one),
         ];
 
         let actions = match mode {
