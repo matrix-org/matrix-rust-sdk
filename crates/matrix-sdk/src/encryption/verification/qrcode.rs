@@ -12,9 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use futures_core::Stream;
 use matrix_sdk_base::crypto::{
     matrix_sdk_qrcode::{qrcode::QrCode, EncodingError},
-    CancelInfo, QrVerification as BaseQrVerification,
+    CancelInfo, QrVerification as BaseQrVerification, QrVerificationState, ReadOnlyDevice,
 };
 use ruma::UserId;
 
@@ -65,6 +66,11 @@ impl QrVerification {
         self.inner.other_user_id()
     }
 
+    /// Get the other user's device that we're verifying.
+    pub fn other_device(&self) -> &ReadOnlyDevice {
+        self.inner.other_device()
+    }
+
     /// Has the verification been cancelled.
     pub fn is_cancelled(&self) -> bool {
         self.inner.is_cancelled()
@@ -105,5 +111,111 @@ impl QrVerification {
         }
 
         Ok(())
+    }
+
+    /// Listen for changes in the QR code verification process.
+    ///
+    /// The changes are presented as a stream of [`QrVerificationState`] values.
+    ///
+    /// This method can be used to react to changes in the state of the
+    /// verification process, or rather the method can be used to handle
+    /// each step of the verification process.
+    ///
+    /// # Flowchart
+    ///
+    /// The flow of the verification process is pictured below. Please note
+    /// that the process can be cancelled at each step of the process.
+    /// Either side can cancel the process.
+    ///
+    /// ```text
+    ///                ┌───────┐
+    ///                │Started│
+    ///                └───┬───┘
+    ///                    │
+    ///                    │
+    ///             ┌──────⌄─────┐
+    ///             │Reciprocated│
+    ///             └──────┬─────┘
+    ///                    │
+    ///                ┌───⌄───┐
+    ///                │Scanned│
+    ///                └───┬───┘
+    ///                    │
+    ///          __________⌄_________
+    ///         ╱                    ╲       ┌─────────┐
+    ///        ╱   Was the QR Code    ╲______│Cancelled│
+    ///        ╲ successfully scanned ╱ no   └─────────┘
+    ///         ╲____________________╱
+    ///                    │yes
+    ///                    │
+    ///               ┌────⌄────┐
+    ///               │Confirmed│
+    ///               └────┬────┘
+    ///                    │
+    ///                ┌───⌄───┐
+    ///                │  Done │
+    ///                └───────┘
+    /// ```
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use futures_util::{Stream, StreamExt};
+    /// use matrix_sdk::encryption::verification::{
+    ///     QrVerification, QrVerificationState,
+    /// };
+    ///
+    /// # async {
+    /// # let qr: QrVerification = unimplemented!();
+    /// # let user_confirmed = false;
+    /// let mut stream = qr.changes();
+    ///
+    /// while let Some(state) = stream.next().await {
+    ///     match state {
+    ///         QrVerificationState::Scanned => {
+    ///             println!("Was the QR code successfully scanned?");
+    ///
+    ///             // Ask the user to confirm or cancel here.
+    ///             if user_confirmed {
+    ///                 qr.confirm().await?;
+    ///             } else {
+    ///                 qr.cancel().await?;
+    ///             }
+    ///         }
+    ///         QrVerificationState::Done { .. } => {
+    ///             let device = qr.other_device();
+    ///
+    ///             println!(
+    ///                 "Successfully verified device {} {} {:?}",
+    ///                 device.user_id(),
+    ///                 device.device_id(),
+    ///                 device.local_trust_state()
+    ///             );
+    ///
+    ///             break;
+    ///         }
+    ///         QrVerificationState::Cancelled(cancel_info) => {
+    ///             println!(
+    ///                 "The verification has been cancelled, reason: {}",
+    ///                 cancel_info.reason()
+    ///             );
+    ///             break;
+    ///         }
+    ///         QrVerificationState::Started
+    ///         | QrVerificationState::Reciprocated
+    ///         | QrVerificationState::Confirmed => (),
+    ///     }
+    /// }
+    /// # anyhow::Ok(()) };
+    /// ```
+    pub fn changes(&self) -> impl Stream<Item = QrVerificationState> {
+        self.inner.changes()
+    }
+
+    /// Get the current state the verification process is in.
+    ///
+    /// To listen to changes to the [`QrVerificationState`] use the
+    /// [`QrVerification::changes`] method.
+    pub fn state(&self) -> QrVerificationState {
+        self.inner.state()
     }
 }

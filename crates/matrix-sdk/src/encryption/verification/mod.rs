@@ -43,7 +43,7 @@ pub use matrix_sdk_base::crypto::{
 #[cfg(feature = "qrcode")]
 pub use matrix_sdk_base::crypto::{
     matrix_sdk_qrcode::{DecodingError, EncodingError, QrVerificationData},
-    ScanError,
+    QrVerificationState, ScanError,
 };
 #[cfg(feature = "qrcode")]
 pub use qrcode::QrVerification;
