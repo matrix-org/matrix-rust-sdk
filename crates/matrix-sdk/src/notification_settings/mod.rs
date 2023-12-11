@@ -15,6 +15,7 @@ use tokio::sync::{
     broadcast::{self, Receiver},
     RwLock,
 };
+use tracing::error;
 
 use self::{command::Command, rule_commands::RuleCommands, rules::Rules};
 
@@ -443,26 +444,26 @@ impl NotificationSettings {
                         kind.clone(),
                         rule_id.clone(),
                     );
-                    self.client
-                        .send(request, request_config)
-                        .await
-                        .map_err(|_| NotificationSettingsError::UnableToRemovePushRule)?;
+                    self.client.send(request, request_config).await.map_err(|error| {
+                        error!("Unable to delete push rule `{rule_id}`: {error}");
+                        NotificationSettingsError::UnableToRemovePushRule
+                    })?;
                 }
-                Command::SetRoomPushRule { scope, room_id: _, notify: _ } => {
+                Command::SetRoomPushRule { scope, room_id, notify: _ } => {
                     let push_rule = command.to_push_rule()?;
                     let request = set_pushrule::v3::Request::new(scope.clone(), push_rule);
-                    self.client
-                        .send(request, request_config)
-                        .await
-                        .map_err(|_| NotificationSettingsError::UnableToAddPushRule)?;
+                    self.client.send(request, request_config).await.map_err(|error| {
+                        error!("Unable to set push rule `{room_id}`: {error}");
+                        NotificationSettingsError::UnableToAddPushRule
+                    })?;
                 }
-                Command::SetOverridePushRule { scope, rule_id: _, room_id: _, notify: _ } => {
+                Command::SetOverridePushRule { scope, rule_id, room_id: _, notify: _ } => {
                     let push_rule = command.to_push_rule()?;
                     let request = set_pushrule::v3::Request::new(scope.clone(), push_rule);
-                    self.client
-                        .send(request, request_config)
-                        .await
-                        .map_err(|_| NotificationSettingsError::UnableToAddPushRule)?;
+                    self.client.send(request, request_config).await.map_err(|error| {
+                        error!("Unable to set push rule `{rule_id}`: {error}");
+                        NotificationSettingsError::UnableToAddPushRule
+                    })?;
                 }
                 Command::SetKeywordPushRule { scope, keyword: _ } => {
                     let push_rule = command.to_push_rule()?;
@@ -479,10 +480,10 @@ impl NotificationSettings {
                         rule_id.clone(),
                         *enabled,
                     );
-                    self.client
-                        .send(request, request_config)
-                        .await
-                        .map_err(|_| NotificationSettingsError::UnableToUpdatePushRule)?;
+                    self.client.send(request, request_config).await.map_err(|error| {
+                        error!("Unable to set push rule `{rule_id}` enabled: {error}");
+                        NotificationSettingsError::UnableToUpdatePushRule
+                    })?;
                 }
                 Command::SetPushRuleActions { scope, kind, rule_id, actions } => {
                     let request = set_pushrule_actions::v3::Request::new(
@@ -491,10 +492,10 @@ impl NotificationSettings {
                         rule_id.clone(),
                         actions.clone(),
                     );
-                    self.client
-                        .send(request, request_config)
-                        .await
-                        .map_err(|_| NotificationSettingsError::UnableToUpdatePushRule)?;
+                    self.client.send(request, request_config).await.map_err(|error| {
+                        error!("Unable to set push rule `{rule_id}` actions: {error}");
+                        NotificationSettingsError::UnableToUpdatePushRule
+                    })?;
                 }
             }
         }
