@@ -43,8 +43,8 @@ impl Rules {
         }
 
         // add any `Room` rules matching this `room_id`
-        if let Some(rule) = self.ruleset.room.iter().find(|x| x.rule_id == room_id) {
-            custom_rules.push((RuleKind::Room, rule.rule_id.to_string()));
+        if let Some(rule) = self.ruleset.get(RuleKind::Room, room_id) {
+            custom_rules.push((RuleKind::Room, rule.rule_id().to_owned()));
         }
 
         // add any `Underride` rules matching this `room_id`
@@ -84,9 +84,9 @@ impl Rules {
         }
 
         // Search for an enabled `Room` rule where `rule_id` is the `room_id`
-        if let Some(rule) = self.ruleset.room.iter().find(|x| x.enabled && x.rule_id == room_id) {
+        if let Some(rule) = self.ruleset.get(RuleKind::Room, room_id) {
             // if this rule contains a `Notify` action
-            if rule.actions.iter().any(|x| x.should_notify()) {
+            if rule.triggers_notification() {
                 return Some(RoomNotificationMode::AllMessages);
             }
             return Some(RoomNotificationMode::MentionsAndKeywordsOnly);
@@ -114,9 +114,11 @@ impl Rules {
 
         // If there is an `Underride` rule that should trigger a notification, the mode
         // is `AllMessages`
-        if self.ruleset.underride.iter().any(|r| {
-            r.enabled && r.rule_id == rule_id && r.actions.iter().any(|a| a.should_notify())
-        }) {
+        if self
+            .ruleset
+            .get(RuleKind::Underride, rule_id)
+            .is_some_and(|r| r.enabled() && r.triggers_notification())
+        {
             RoomNotificationMode::AllMessages
         } else {
             // Otherwise, the mode is `MentionsAndKeywordsOnly`
@@ -172,7 +174,7 @@ impl Rules {
         if let Some(rule) =
             self.ruleset.get(RuleKind::Override, PredefinedOverrideRuleId::ContainsDisplayName)
         {
-            if rule.enabled() && rule.actions().iter().any(|a| a.should_notify()) {
+            if rule.enabled() && rule.triggers_notification() {
                 return true;
             }
         }
@@ -181,7 +183,7 @@ impl Rules {
         if let Some(rule) =
             self.ruleset.get(RuleKind::Content, PredefinedContentRuleId::ContainsUserName)
         {
-            if rule.enabled() && rule.actions().iter().any(|a| a.should_notify()) {
+            if rule.enabled() && rule.triggers_notification() {
                 return true;
             }
         }
@@ -201,12 +203,9 @@ impl Rules {
 
         // Fallback to deprecated rule for compatibility
         #[allow(deprecated)]
-        let room_notif_rule_id = PredefinedOverrideRuleId::RoomNotif.as_str();
-        self.ruleset.override_.iter().any(|r| {
-            r.enabled
-                && r.rule_id == room_notif_rule_id
-                && r.actions.iter().any(|a| a.should_notify())
-        })
+        self.ruleset
+            .get(RuleKind::Override, PredefinedOverrideRuleId::RoomNotif)
+            .is_some_and(|r| r.enabled() && r.triggers_notification())
     }
 
     /// Get whether the given ruleset contains some enabled keywords rules.
