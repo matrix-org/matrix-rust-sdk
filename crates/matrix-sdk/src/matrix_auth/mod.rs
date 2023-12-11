@@ -38,7 +38,7 @@ use ruma::{
     serde::JsonObject,
 };
 use serde::{Deserialize, Serialize};
-use tracing::{debug, info, instrument};
+use tracing::{debug, error, info, instrument};
 
 use crate::{
     authentication::AuthData,
@@ -486,7 +486,9 @@ impl MatrixAuth {
                 if let Some(save_session_callback) =
                     self.client.inner.auth_ctx.save_session_callback.get()
                 {
-                    save_session_callback(self.client.clone());
+                    if let Err(err) = save_session_callback(self.client.clone()).await {
+                        error!("when saving session after refresh: {err}");
+                    }
                 }
 
                 _ = self
