@@ -15,7 +15,7 @@ use tokio::sync::{
     broadcast::{self, Receiver},
     RwLock,
 };
-use tracing::error;
+use tracing::{debug, error};
 
 use self::{command::Command, rule_commands::RuleCommands, rules::Rules};
 
@@ -198,11 +198,6 @@ impl NotificationSettings {
         is_one_to_one: IsOneToOne,
         mode: RoomNotificationMode,
     ) -> Result<(), NotificationSettingsError> {
-        let rule_ids = vec![
-            rules::get_predefined_underride_room_rule_id(is_encrypted, is_one_to_one),
-            rules::get_predefined_underride_poll_start_rule_id(is_one_to_one),
-        ];
-
         let actions = match mode {
             RoomNotificationMode::AllMessages => {
                 vec![Action::Notify, Action::SetTweak(Tweak::Sound("default".into()))]
@@ -212,8 +207,21 @@ impl NotificationSettings {
             }
         };
 
-        for rule_id in rule_ids {
-            self.set_underride_push_rule_actions(rule_id, actions.clone()).await?
+        let room_rule_id =
+            rules::get_predefined_underride_room_rule_id(is_encrypted, is_one_to_one);
+        self.set_underride_push_rule_actions(room_rule_id, actions.clone()).await?;
+
+        let poll_start_rule_id = rules::get_predefined_underride_poll_start_rule_id(is_one_to_one);
+        if let Err(error) =
+            self.set_underride_push_rule_actions(poll_start_rule_id, actions.clone()).await
+        {
+            // The poll start event rules are currently unstable so they might not be found
+            // on every homeserver. Let's ignore this error for the moment.
+            if let NotificationSettingsError::RuleNotFound(rule_id) = &error {
+                debug!("Unable to update poll start push rule: rule `{rule_id}` not found");
+            } else {
+                return Err(error);
+            }
         }
 
         Ok(())
@@ -1521,5 +1529,39 @@ mod tests {
         let settings = client.notification_settings().await;
 
         settings.remove_keyword("banana").await.unwrap();
+    }
+
+    #[async_test]
+    async fn test_set_default_room_notification_mode_missing_poll_start() {
+        let server = MockServer::start().await;
+        Mock::given(method("PUT")).respond_with(ResponseTemplate::new(200)).mount(&server).await;
+        let client = logged_in_client(Some(server.uri())).await;
+
+        // If the initial mode is `AllMessages`
+        let mut ruleset = get_server_default_ruleset();
+        ruleset.underride.remove(PredefinedUnderrideRuleId::PollStart.as_str());
+
+        let settings = NotificationSettings::new(client, ruleset);
+        assert_eq!(
+            settings.get_default_room_notification_mode(IsEncrypted::No, IsOneToOne::No).await,
+            RoomNotificationMode::AllMessages
+        );
+
+        // After setting the default mode to `MentionsAndKeywordsOnly`
+        settings
+            .set_default_room_notification_mode(
+                IsEncrypted::No,
+                IsOneToOne::No,
+                RoomNotificationMode::MentionsAndKeywordsOnly,
+            )
+            .await
+            .unwrap();
+
+        // the new mode returned by `get_default_room_notification_mode()` should
+        // reflect the change.
+        assert_matches!(
+            settings.get_default_room_notification_mode(IsEncrypted::No, IsOneToOne::No).await,
+            RoomNotificationMode::MentionsAndKeywordsOnly
+        );
     }
 }
