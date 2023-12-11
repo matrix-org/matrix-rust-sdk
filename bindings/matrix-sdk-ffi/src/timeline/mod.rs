@@ -987,7 +987,7 @@ pub enum ReceiptType {
     FullyRead,
 }
 
-impl From<ReceiptType> for api::client::receipt::create_receipt::v3::ReceiptType {
+impl From<ReceiptType> for ruma::api::client::receipt::create_receipt::v3::ReceiptType {
     fn from(value: ReceiptType) -> Self {
         match value {
             ReceiptType::Read => Self::Read,
