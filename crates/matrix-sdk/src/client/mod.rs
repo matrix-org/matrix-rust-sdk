@@ -56,6 +56,7 @@ use ruma::{
         MatrixVersion, OutgoingRequest,
     },
     assign,
+    events::{room::encryption::RoomEncryptionEventContent, InitialStateEvent},
     push::Ruleset,
     DeviceId, OwnedDeviceId, OwnedRoomId, OwnedServerName, RoomAliasId, RoomId, RoomOrAliasId,
     ServerName, UInt, UserId,
@@ -136,6 +137,15 @@ pub enum SessionChange {
     },
     /// The session's tokens have been refreshed.
     TokensRefreshed,
+}
+
+/// Whether a room should be encrypted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Encrypted {
+    /// The room should be encrypted.
+    Yes,
+    /// The room should not be encrypted.
+    No,
 }
 
 /// An async/await enabled Matrix client.
@@ -1188,13 +1198,26 @@ impl Client {
     /// Convenience shorthand for [`create_room`][Self::create_room] with the
     /// given user being invited, the room marked `is_direct` and both the
     /// creator and invitee getting the default maximum power level.
-    pub async fn create_dm(&self, user_id: &UserId) -> Result<Room> {
-        self.create_room(assign!(create_room::v3::Request::new(), {
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The ID of the user to create a DM for.
+    /// * `encrypted` - Whether the DM should be encrypted.
+    pub async fn create_dm(&self, user_id: &UserId, encrypted: Encrypted) -> Result<Room> {
+        let mut request = assign!(create_room::v3::Request::new(), {
             invite: vec![user_id.to_owned()],
             is_direct: true,
             preset: Some(create_room::v3::RoomPreset::TrustedPrivateChat),
-        }))
-        .await
+        });
+
+        if encrypted == Encrypted::Yes {
+            request.initial_state.push(
+                InitialStateEvent::new(RoomEncryptionEventContent::with_recommended_defaults())
+                    .to_raw_any(),
+            );
+        };
+
+        self.create_room(request).await
     }
 
     /// Search the homeserver's directory for public rooms with a filter.

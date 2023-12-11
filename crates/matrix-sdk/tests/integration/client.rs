@@ -6,6 +6,7 @@ use matrix_sdk::{
     config::SyncSettings,
     media::{MediaFormat, MediaRequest, MediaThumbnailSize},
     sync::RoomUpdate,
+    Encrypted,
 };
 use matrix_sdk_base::RoomState;
 use matrix_sdk_test::{async_test, test_json, DEFAULT_TEST_ROOM_ID};
@@ -23,13 +24,16 @@ use ruma::{
     events::{
         direct::DirectEventContent,
         room::{message::ImageMessageEventContent, ImageInfo, MediaSource},
+        AnyInitialStateEvent,
     },
-    mxc_uri, room_id, uint, user_id,
+    mxc_uri, room_id,
+    serde::Raw,
+    uint, user_id, OwnedUserId,
 };
-use serde_json::json;
+use serde_json::{json, Value as JsonValue};
 use wiremock::{
     matchers::{header, method, path, path_regex},
-    Mock, ResponseTemplate,
+    Mock, Request, ResponseTemplate,
 };
 
 use crate::{logged_in_client, mock_sync, no_retry_test_client};
@@ -720,4 +724,126 @@ async fn test_encrypt_room_event() {
         "Hello",
         "The now decrypted message should match to our plaintext payload"
     );
+}
+
+#[async_test]
+async fn create_dm_non_encrypted() {
+    let (client, server) = logged_in_client().await;
+    let user_id = user_id!("@invitee:localhost");
+
+    Mock::given(method("POST"))
+        .and(path("/_matrix/client/r0/createRoom"))
+        .and(|request: &Request| {
+            // The body is JSON.
+            let Ok(body) = request.body_json::<Raw<JsonValue>>() else {
+                return false;
+            };
+
+            // The body's `direct` field is set to `true`.
+            if !body.get_field::<bool>("is_direct").is_ok_and(|b| b == Some(true)) {
+                return false;
+            }
+
+            // The body's `preset` field is set to `trusted_private_chat`.
+            if !body
+                .get_field::<String>("preset")
+                .is_ok_and(|s| s.as_deref() == Some("trusted_private_chat"))
+            {
+                return false;
+            }
+
+            // The body's `invite` field is set to an array with the user ID.
+            if !body
+                .get_field::<Vec<OwnedUserId>>("invite")
+                .is_ok_and(|v| v.as_deref() == Some(&[user_id.to_owned()]))
+            {
+                return false;
+            }
+
+            // There is no initial state.
+            body.get_field::<Vec<Raw<AnyInitialStateEvent>>>("initial_state")
+                .is_ok_and(|v| v.is_none())
+        })
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+          "room_id": "!sefiuhWgwghwWgh:example.com"
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    client.create_dm(user_id, Encrypted::No).await.unwrap();
+}
+
+#[async_test]
+async fn create_dm_encrypted() {
+    let (client, server) = logged_in_client().await;
+    let user_id = user_id!("@invitee:localhost");
+
+    Mock::given(method("POST"))
+        .and(path("/_matrix/client/r0/createRoom"))
+        .and(|request: &Request| {
+            // The body is JSON.
+            let Ok(body) = request.body_json::<Raw<JsonValue>>() else {
+                return false;
+            };
+
+            // The body's `direct` field is set to `true`.
+            if !body.get_field::<bool>("is_direct").is_ok_and(|b| b == Some(true)) {
+                return false;
+            }
+
+            // The body's `preset` field is set to `trusted_private_chat`.
+            if !body
+                .get_field::<String>("preset")
+                .is_ok_and(|s| s.as_deref() == Some("trusted_private_chat"))
+            {
+                return false;
+            }
+
+            // The body's `invite` field is set to an array with the user ID.
+            if !body
+                .get_field::<Vec<OwnedUserId>>("invite")
+                .is_ok_and(|v| v.as_deref() == Some(&[user_id.to_owned()]))
+            {
+                return false;
+            }
+
+            // The body's `initial_state` field is set to an array with an
+            // `m.room.encryption` event.
+            body.get_field::<Vec<Raw<AnyInitialStateEvent>>>("initial_state").is_ok_and(|v| {
+                let Some(v) = v else {
+                    return false;
+                };
+
+                if v.len() != 1 {
+                    return false;
+                }
+
+                let initial_event = &v[0];
+
+                initial_event
+                    .get_field::<String>("type")
+                    .is_ok_and(|s| s.as_deref() == Some("m.room.encryption"))
+            })
+        })
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+          "room_id": "!sefiuhWgwghwWgh:example.com"
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    client.create_dm(user_id, Encrypted::Yes).await.unwrap();
+}
+
+#[async_test]
+async fn create_dm_error() {
+    let (client, _server) = logged_in_client().await;
+    let user_id = user_id!("@invitee:localhost");
+
+    // The endpoint is not mocked so we encounter a 404.
+    let error = client.create_dm(user_id, Encrypted::No).await.unwrap_err();
+    let client_api_error = error.as_client_api_error().unwrap();
+
+    assert_eq!(client_api_error.status_code, 404);
 }
