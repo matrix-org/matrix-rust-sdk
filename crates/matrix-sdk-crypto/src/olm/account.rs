@@ -980,7 +980,10 @@ impl Account {
     #[cfg(any(test, feature = "testing"))]
     #[allow(dead_code)]
     /// Testing only helper to create a session for the given Account
-    pub async fn create_session_for(&mut self, other: &mut Account) -> (Session, Session) {
+    pub async fn create_session_for_test_helper(
+        &mut self,
+        other: &mut Account,
+    ) -> (Session, Session) {
         use ruma::events::dummy::ToDeviceDummyEventContent;
 
         other.generate_one_time_keys_helper(1);
