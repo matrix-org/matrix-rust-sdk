@@ -854,7 +854,7 @@ mod tests {
             .store
             .with_transaction(|mut tr| async {
                 let manager_account = tr.account().await.unwrap();
-                let res = bob.create_session_for(manager_account).await;
+                let res = bob.create_session_for_test_helper(manager_account).await;
                 Ok((tr, res))
             })
             .await

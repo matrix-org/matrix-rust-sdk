@@ -1247,7 +1247,8 @@ mod tests {
                         .with_transaction(|mut btr| async {
                             let alice_account = atr.account().await?;
                             let bob_account = btr.account().await?;
-                            let sessions = alice_account.create_session_for(bob_account).await;
+                            let sessions =
+                                alice_account.create_session_for_test_helper(bob_account).await;
                             Ok((btr, sessions))
                         })
                         .await?;
@@ -1845,7 +1846,7 @@ mod tests {
             .with_transaction(|mut tr| async {
                 let alice_account = tr.account().await?;
                 let (alice_session, _) =
-                    alice_account.create_session_for(&mut second_account).await;
+                    alice_account.create_session_for_test_helper(&mut second_account).await;
                 Ok((tr, alice_session))
             })
             .await
@@ -2068,7 +2069,8 @@ mod tests {
                     .with_transaction(|mut btr| async {
                         let alice_account = atr.account().await?;
                         let bob_account = btr.account().await?;
-                        let sessions = alice_account.create_session_for(bob_account).await;
+                        let sessions =
+                            alice_account.create_session_for_test_helper(bob_account).await;
                         Ok((btr, sessions))
                     })
                     .await?;
