@@ -25,7 +25,6 @@ use matrix_sdk::attachment::{
 use matrix_sdk_ui::timeline::{BackPaginationStatus, EventItemOrigin, Profile, TimelineDetails};
 use mime::Mime;
 use ruma::{
-    api::client::receipt::create_receipt::v3::ReceiptType,
     events::{
         location::{AssetType as RumaAssetType, LocationContent, ZoomLevel},
         poll::{
@@ -182,12 +181,16 @@ impl Timeline {
         RUNTIME.block_on(async { Ok(self.inner.paginate_backwards(opts.into()).await?) })
     }
 
-    pub fn send_read_receipt(&self, event_id: String) -> Result<(), ClientError> {
+    pub fn send_read_receipt(
+        &self,
+        receipt_type: ReceiptType,
+        event_id: String,
+    ) -> Result<(), ClientError> {
         let event_id = EventId::parse(event_id)?;
 
         RUNTIME.block_on(async {
             self.inner
-                .send_single_receipt(ReceiptType::Read, ReceiptThread::Unthreaded, event_id)
+                .send_single_receipt(receipt_type.into(), ReceiptThread::Unthreaded, event_id)
                 .await?;
             Ok(())
         })
@@ -974,4 +977,22 @@ pub enum VirtualTimelineItem {
 
     /// The user's own read marker.
     ReadMarker,
+}
+
+/// A [`TimelineItem`](super::TimelineItem) that doesn't correspond to an event.
+#[derive(uniffi::Enum)]
+pub enum ReceiptType {
+    Read,
+    ReadPrivate,
+    FullyRead,
+}
+
+impl From<ReceiptType> for ruma::api::client::receipt::create_receipt::v3::ReceiptType {
+    fn from(value: ReceiptType) -> Self {
+        match value {
+            ReceiptType::Read => Self::Read,
+            ReceiptType::ReadPrivate => Self::Read,
+            ReceiptType::FullyRead => Self::FullyRead,
+        }
+    }
 }
