@@ -1211,7 +1211,20 @@ impl OlmMachine {
             account.update_key_counts(
                 sync_changes.one_time_keys_counts,
                 sync_changes.unused_fallback_keys,
-            )
+            );
+
+            // Flush the applicative transaction as soon as the keys have been generated. If
+            // we don't do it here, then it's possible that the
+            // `StoreTransaction` fails, but we've uploaded keys in the
+            // meanwhile, leading to wedged devices later (uploading the
+            // one-time keys would fail, and not being aware about uploaded keys would mean
+            // other devices may be using them and we wouldn't be able to set up
+            // Olm sessions with those devices). In the worst case, if we've
+            // saved the one-time keys but failed to upload them, then that may
+            // result in re-uploading them later, which the server is fine with,
+            // if it's the same set of keys.
+
+            transaction.flush().await?;
         }
 
         if let Err(e) = self

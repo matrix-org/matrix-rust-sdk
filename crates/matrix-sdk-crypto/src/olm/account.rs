@@ -473,6 +473,12 @@ impl Account {
         self.inner.max_number_of_one_time_keys()
     }
 
+    /// Generate new one-time keys if needed, and update the key counts
+    /// accordingly.
+    ///
+    /// Note: the `Account` *must* be persisted to disk after this has been
+    /// called, otherwise it's possible that one-time keys get uploaded and
+    /// the client forgets about those later.
     pub(crate) fn update_key_counts(
         &mut self,
         one_time_key_counts: &BTreeMap<DeviceKeyAlgorithm, UInt>,

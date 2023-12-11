@@ -449,7 +449,10 @@ impl StoreTransaction {
 
     /// Commits all dirty fields to the store, and maintains the cache so it
     /// reflects the current state of the database.
-    pub async fn commit(self) -> Result<()> {
+    ///
+    /// This keeps the transaction alive, and should be only used in contexts
+    /// where it's safe to not consume the transaction.
+    pub async fn flush(&mut self) -> Result<()> {
         if self.changes.is_empty() {
             return Ok(());
         }
@@ -457,7 +460,9 @@ impl StoreTransaction {
         // Save changes in the database.
         let account = self.changes.account.as_ref().map(|acc| acc.deep_clone());
 
-        self.store.save_pending_changes(self.changes).await?;
+        // Note: after this `self.changes` is empty, and will be refilled as usual on
+        // the next attempt to read data from it.
+        self.store.save_pending_changes(std::mem::take(&mut self.changes)).await?;
 
         // Make the cache coherent with the database.
         if let Some(account) = account {
@@ -465,6 +470,14 @@ impl StoreTransaction {
         }
 
         Ok(())
+    }
+
+    /// Commits all dirty fields to the store, and maintains the cache so it
+    /// reflects the current state of the database.
+    ///
+    /// Contrary to [`Self::flush`], this consumes the current transaction.
+    pub async fn commit(mut self) -> Result<()> {
+        self.flush().await
     }
 }
 
