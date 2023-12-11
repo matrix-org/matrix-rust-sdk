@@ -28,7 +28,7 @@ use crate::{
 };
 
 /// Enum representing the push notification modes for a room.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RoomNotificationMode {
     /// Receive notifications for all messages.
     AllMessages,
@@ -39,7 +39,7 @@ pub enum RoomNotificationMode {
 }
 
 /// Whether or not a room is encrypted
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum IsEncrypted {
     /// The room is encrypted
     Yes,
@@ -58,7 +58,7 @@ impl From<bool> for IsEncrypted {
 }
 
 /// Whether or not a room is a `one-to-one`
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum IsOneToOne {
     /// A room is a `one-to-one` room if it has exactly two members.
     Yes,
@@ -198,7 +198,7 @@ impl NotificationSettings {
         mode: RoomNotificationMode,
     ) -> Result<(), NotificationSettingsError> {
         let rule_ids = vec![
-            rules::get_predefined_underride_room_rule_id(is_encrypted, is_one_to_one.clone()),
+            rules::get_predefined_underride_room_rule_id(is_encrypted, is_one_to_one),
             rules::get_predefined_underride_poll_start_rule_id(is_one_to_one),
         ];
 
@@ -260,7 +260,7 @@ impl NotificationSettings {
         let rules = self.rules.read().await.clone();
 
         // Check that the current mode is not already the target mode.
-        if rules.get_user_defined_room_notification_mode(room_id) == Some(mode.clone()) {
+        if rules.get_user_defined_room_notification_mode(room_id) == Some(mode) {
             return Ok(());
         }
 
@@ -853,16 +853,16 @@ mod tests {
         let mode = settings.get_user_defined_room_notification_mode(&room_id).await;
         assert!(mode.is_none());
 
-        let new_modes = &[
+        let new_modes = [
             RoomNotificationMode::AllMessages,
             RoomNotificationMode::MentionsAndKeywordsOnly,
             RoomNotificationMode::Mute,
         ];
         for new_mode in new_modes {
-            settings.set_room_notification_mode(&room_id, new_mode.clone()).await.unwrap();
+            settings.set_room_notification_mode(&room_id, new_mode).await.unwrap();
 
             assert_eq!(
-                new_mode.clone(),
+                new_mode,
                 settings.get_user_defined_room_notification_mode(&room_id).await.unwrap()
             );
         }
