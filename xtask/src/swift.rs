@@ -1,7 +1,4 @@
-use std::{
-    env::consts::{DLL_PREFIX, DLL_SUFFIX},
-    fs::{copy, create_dir_all, remove_dir_all, remove_file, rename},
-};
+use std::fs::{copy, create_dir_all, remove_dir_all, remove_file, rename};
 
 use camino::{Utf8Path, Utf8PathBuf};
 use clap::{Args, Subcommand};
@@ -57,9 +54,7 @@ impl SwiftArgs {
     }
 }
 
-fn matrix_sdk_ffi_dll_name() -> String {
-    format!("{DLL_PREFIX}matrix_sdk_ffi{DLL_SUFFIX}")
-}
+const FFI_LIBRARY_NAME: &str = "libmatrix_sdk_ffi.a";
 
 fn build_library() -> Result<()> {
     println!("Running debug library build.");
@@ -73,25 +68,19 @@ fn build_library() -> Result<()> {
 
     cmd!("rustup run stable cargo build -p matrix-sdk-ffi").run()?;
 
-    let static_lib_filename = "libmatrix_sdk_ffi.a";
-    rename(lib_output_dir.join(static_lib_filename), ffi_directory.join(static_lib_filename))?;
+    rename(lib_output_dir.join(FFI_LIBRARY_NAME), ffi_directory.join(FFI_LIBRARY_NAME))?;
     let swift_directory = root_directory.join("bindings/apple/generated/swift");
     create_dir_all(swift_directory.as_path())?;
 
-    generate_uniffi(&lib_output_dir.join(matrix_sdk_ffi_dll_name()), &ffi_directory)?;
+    generate_uniffi(&ffi_directory.join(FFI_LIBRARY_NAME), &ffi_directory)?;
 
     let module_map_file = ffi_directory.join("module.modulemap");
     if module_map_file.exists() {
         remove_file(module_map_file.as_path())?;
     }
 
-    // TODO: Find the modulemap in the ffi directory.
     rename(ffi_directory.join("matrix_sdk_ffiFFI.modulemap"), module_map_file)?;
-    // TODO: Move all swift files.
-    rename(
-        ffi_directory.join("matrix_sdk_ffi.swift"),
-        swift_directory.join("matrix_sdk_ffi.swift"),
-    )?;
+    move_swift_files(&ffi_directory, &swift_directory)?;
     Ok(())
 }
 
@@ -104,10 +93,7 @@ fn build_path_for_target(target: &str, profile: &str) -> Result<Utf8PathBuf> {
     // The builtin dev profile has its files stored under target/debug, all
     // other targets have matching directory names
     let profile_dir_name = if profile == "dev" { "debug" } else { profile };
-    Ok(workspace::target_path()?
-        .join(target)
-        .join(profile_dir_name)
-        .join(matrix_sdk_ffi_dll_name()))
+    Ok(workspace::target_path()?.join(target).join(profile_dir_name).join(FFI_LIBRARY_NAME))
 }
 
 fn build_xcframework(
@@ -191,7 +177,7 @@ fn build_xcframework(
         headers_dir.join("module.modulemap"),
     )?;
 
-    rename(generated_dir.join("matrix_sdk_ffi.swift"), swift_dir.join("matrix_sdk_ffi.swift"))?;
+    move_swift_files(&generated_dir, &swift_dir)?;
 
     println!("-- Generating MatrixSDKFFI.xcframework framework");
     let xcframework_path = generated_dir.join("MatrixSDKFFI.xcframework");
@@ -240,5 +226,20 @@ fn build_xcframework(
 
     println!("-- All done and hunky dory. Enjoy!");
 
+    Ok(())
+}
+
+fn move_swift_files(source: &Utf8PathBuf, destination: &Utf8PathBuf) -> Result<()> {
+    for entry in source.read_dir_utf8()? {
+        let entry = entry?;
+
+        if entry.file_type()?.is_file() {
+            let path = entry.path();
+            if path.extension() == Some("swift") {
+                let file_name = path.file_name().expect("Failed to get file name");
+                rename(path, destination.join(file_name)).expect("Failed to move swift file");
+            }
+        }
+    }
     Ok(())
 }
