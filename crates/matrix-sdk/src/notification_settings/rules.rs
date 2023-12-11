@@ -275,7 +275,7 @@ impl Rules {
     }
 }
 
-/// Gets the `PredefinedUnderrideRuleId` corresponding to the given
+/// Gets the `PredefinedUnderrideRuleId` for rooms corresponding to the given
 /// criteria.
 ///
 /// # Arguments
@@ -294,12 +294,18 @@ pub(crate) fn get_predefined_underride_room_rule_id(
     }
 }
 
-impl From<IsOneToOne> for PredefinedUnderrideRuleId {
-    fn from(is_one_to_one: IsOneToOne) -> Self {
-        match is_one_to_one {
-            IsOneToOne::Yes => Self::PollStartOneToOne,
-            IsOneToOne::No => Self::PollStart,
-        }
+/// Gets the `PredefinedUnderrideRuleId` for poll start events corresponding to
+/// the given criteria.
+///
+/// # Arguments
+///
+/// * `is_one_to_one` - `Yes` if the room is a direct chat involving two people
+pub(crate) fn get_predefined_underride_poll_start_rule_id(
+    is_one_to_one: IsOneToOne,
+) -> PredefinedUnderrideRuleId {
+    match is_one_to_one {
+        IsOneToOne::Yes => PredefinedUnderrideRuleId::PollStartOneToOne,
+        IsOneToOne::No => PredefinedUnderrideRuleId::PollStart,
     }
 }
 
@@ -433,6 +439,18 @@ pub(crate) mod tests {
         assert_eq!(
             rules::get_predefined_underride_room_rule_id(IsEncrypted::Yes, IsOneToOne::Yes),
             PredefinedUnderrideRuleId::EncryptedRoomOneToOne
+        );
+    }
+
+    #[async_test]
+    async fn test_get_predefined_underride_poll_start_rule_id() {
+        assert_eq!(
+            rules::get_predefined_underride_poll_start_rule_id(IsOneToOne::No),
+            PredefinedUnderrideRuleId::PollStart
+        );
+        assert_eq!(
+            rules::get_predefined_underride_poll_start_rule_id(IsOneToOne::Yes),
+            PredefinedUnderrideRuleId::PollStartOneToOne
         );
     }
 
