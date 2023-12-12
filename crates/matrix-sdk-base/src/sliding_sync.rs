@@ -435,16 +435,20 @@ impl BaseClient {
         state_events: &[AnySyncStateEvent],
         room_info: &mut RoomInfo,
     ) {
-        for event in state_events {
+        let Some(meta) = self.session_meta() else {
+            return;
+        };
+
+        // Start from the last event; the first membership event we see in that order is
+        // the last in the regular order, so that's the only one we need to
+        // consider.
+        for event in state_events.iter().rev() {
             if let AnySyncStateEvent::RoomMember(member) = &event {
                 // If this event updates the current user's membership, record that in the
                 // room_info.
-                if let Some(meta) = self.session_meta() {
-                    if member.sender() == meta.user_id
-                        && member.state_key() == meta.user_id.as_str()
-                    {
-                        room_info.set_state(member.membership().into());
-                    }
+                if member.sender() == meta.user_id && member.state_key() == meta.user_id.as_str() {
+                    room_info.set_state(member.membership().into());
+                    break;
                 }
             }
         }
