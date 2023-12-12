@@ -22,6 +22,7 @@ use std::{
 
 use async_trait::async_trait;
 use deadpool_sqlite::{Object as SqliteConn, Pool as SqlitePool, Runtime};
+use itertools::Itertools;
 use matrix_sdk_crypto::{
     olm::{
         InboundGroupSession, OutboundGroupSession, PickledInboundGroupSession,
@@ -40,7 +41,7 @@ use ruma::{
     events::secret::request::SecretName, DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId,
     RoomId, TransactionId, UserId,
 };
-use rusqlite::OptionalExtension;
+use rusqlite::{limits::Limit, params_from_iter, OptionalExtension};
 use serde::{de::DeserializeOwned, Serialize};
 use tokio::{fs, sync::Mutex};
 use tracing::{debug, instrument, warn};
@@ -499,6 +500,32 @@ trait SqliteObjectCryptoStoreExt: SqliteObjectExt {
             .await?)
     }
 
+    async fn mark_inbound_group_sessions_as_backed_up(&self, session_ids: Vec<Key>) -> Result<()> {
+        let max_chunk_size = usize::try_from(self.limit(Limit::SQLITE_LIMIT_VARIABLE_NUMBER).await)
+            .expect("SQLITE_LIMIT_VARIABLE_NUMBER was not a usize!");
+
+        if session_ids.is_empty() {
+            // We are not expecting to be called with an empty list of sessions
+            warn!("No sessions to mark as backed up!");
+            return Ok(());
+        }
+
+        self.with_transaction(move |tx| {
+            for chunk in session_ids.chunks(max_chunk_size) {
+                // Safety: placeholders is not generated using any user input except the number of
+                // session IDs, so it is safe from injection.
+                let placeholders = generate_placeholders(chunk.len());
+                let query = format!(
+                    "UPDATE inbound_group_session SET backed_up = TRUE where session_id IN ({})",
+                    placeholders
+                );
+                tx.execute(&query, params_from_iter(chunk.into_iter()))?;
+            }
+            Ok(())
+        })
+        .await
+    }
+
     async fn reset_inbound_group_session_backup_state(&self) -> Result<()> {
         self.execute("UPDATE inbound_group_session SET backed_up = FALSE", ()).await?;
         Ok(())
@@ -936,6 +963,19 @@ impl CryptoStore for SqliteCryptoStore {
             .collect()
     }
 
+    async fn mark_inbound_group_sessions_as_backed_up(&self, session_ids: &[(&RoomId, &str)]) -> Result<()> {
+        Ok(self
+            .acquire()
+            .await?
+            .mark_inbound_group_sessions_as_backed_up(
+                session_ids
+                    .iter()
+                    .map(|(_, s)| self.encode_key("inbound_group_session", s))
+                    .collect(),
+            )
+            .await?)
+    }
+
     async fn reset_backup_state(&self) -> Result<()> {
         Ok(self.acquire().await?.reset_inbound_group_session_backup_state().await?)
     }
@@ -1229,6 +1269,31 @@ impl CryptoStore for SqliteCryptoStore {
         } else {
             Ok(None)
         }
+    }
+}
+
+fn generate_placeholders(number: usize) -> String {
+    if number == 0 {
+        panic!("Can't generate zero placeholders");
+    }
+    (std::iter::repeat("?").take(number)).join(", ")
+}
+
+#[cfg(test)]
+mod placeholder_tests {
+    use super::*;
+
+    #[test]
+    fn can_generate_placeholders() {
+        assert_eq!(generate_placeholders(1), "?");
+        assert_eq!(generate_placeholders(2), "?, ?");
+        assert_eq!(generate_placeholders(5), "?, ?, ?, ?, ?");
+    }
+
+    #[test]
+    #[should_panic(expected = "Can't generate zero placeholders")]
+    fn generating_zero_placeholders_panics() {
+        generate_placeholders(0);
     }
 }
 

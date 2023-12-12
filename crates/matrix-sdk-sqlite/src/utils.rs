@@ -85,6 +85,8 @@ pub(crate) trait SqliteObjectExt {
         T: Send + 'static,
         E: From<rusqlite::Error> + Send + 'static,
         F: FnOnce(&Transaction<'_>) -> Result<T, E> + Send + 'static;
+
+    async fn limit(&self, limit: rusqlite::limits::Limit) -> i32;
 }
 
 #[async_trait]
@@ -144,6 +146,10 @@ impl SqliteObjectExt for deadpool_sqlite::Object {
         })
         .await
         .unwrap()
+    }
+
+    async fn limit(&self, limit: rusqlite::limits::Limit) -> i32 {
+        self.interact(move |conn| conn.limit(limit)).await.expect("Failed to fetch limit")
     }
 }
 

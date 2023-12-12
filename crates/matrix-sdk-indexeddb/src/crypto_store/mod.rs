@@ -836,6 +836,28 @@ impl_crypto_store! {
         Ok(result)
     }
 
+    async fn mark_inbound_group_sessions_as_backed_up(&self, room_and_session_ids: &[(&RoomId, &str)]) -> Result<()> {
+        let tx = self
+            .inner
+            .transaction_on_one_with_mode(
+                keys::INBOUND_GROUP_SESSIONS_V2,
+                IdbTransactionMode::Readwrite,
+            )?;
+
+        let object_store = tx.object_store(keys::INBOUND_GROUP_SESSIONS_V2)?;
+
+        for (room_id, session_id) in room_and_session_ids {
+            let key = self.serializer.encode_key(keys::INBOUND_GROUP_SESSIONS_V2, (room_id, session_id));
+            if let Some(idb_object_js) = object_store.get(&key)?.await? {
+                let mut idb_object: InboundGroupSessionIndexedDbObject = serde_wasm_bindgen::from_value(idb_object_js)?;
+                idb_object.needs_backup = false;
+                object_store.put_key_val(&key, &serde_wasm_bindgen::to_value(&idb_object)?)?;
+            }
+        }
+
+        Ok(tx.await.into_result()?)
+    }
+
     async fn reset_backup_state(&self) -> Result<()> {
         let tx = self
             .inner

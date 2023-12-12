@@ -30,7 +30,7 @@ use std::{
 
 use ruma::{
     api::client::backup::RoomKeyBackup, serde::Raw, DeviceId, DeviceKeyAlgorithm, OwnedDeviceId,
-    OwnedRoomId, OwnedTransactionId, TransactionId,
+    OwnedRoomId, OwnedTransactionId, RoomId, TransactionId,
 };
 use tokio::sync::RwLock;
 use tracing::{debug, info, instrument, trace, warn};
@@ -64,18 +64,8 @@ pub struct BackupMachine {
 struct PendingBackup {
     request_id: OwnedTransactionId,
     request: KeysBackupRequest,
+    /// Room ID : Sender Key : [Session IDs]
     sessions: BTreeMap<OwnedRoomId, BTreeMap<String, BTreeSet<String>>>,
-}
-
-impl PendingBackup {
-    fn session_was_part_of_the_backup(&self, session: &InboundGroupSession) -> bool {
-        self.sessions
-            .get(session.room_id())
-            .and_then(|r| {
-                r.get(&session.sender_key().to_base64()).map(|s| s.contains(session.session_id()))
-            })
-            .unwrap_or(false)
-    }
 }
 
 impl From<PendingBackup> for OutgoingRequest {
@@ -477,25 +467,20 @@ impl BackupMachine {
         request_id: &TransactionId,
     ) -> Result<(), CryptoStoreError> {
         let mut request = self.pending_backup.write().await;
-
         if let Some(r) = &*request {
             if r.request_id == request_id {
-                let sessions: Vec<_> = self
-                    .store
-                    .get_inbound_group_sessions()
-                    .await?
-                    .into_iter()
-                    .filter(|s| r.session_was_part_of_the_backup(s))
+                let room_and_session_ids: Vec<(&RoomId, &str)> = r
+                    .sessions
+                    .iter()
+                    .flat_map(|(room_id, sender_key_to_session_ids)| {
+                        std::iter::repeat(room_id).zip(sender_key_to_session_ids.values().flatten())
+                    })
+                    .map(|(room_id, session_id)| (room_id.as_ref(), session_id.as_str()))
                     .collect();
-
-                for session in &sessions {
-                    session.mark_as_backed_up();
-                }
 
                 trace!(request_id = ?r.request_id, keys = ?r.sessions, "Marking room keys as backed up");
 
-                let changes = Changes { inbound_group_sessions: sessions, ..Default::default() };
-                self.store.save_changes(changes).await?;
+                self.store.mark_inbound_group_sessions_as_backed_up(&room_and_session_ids).await?;
 
                 let counts = self.store.inbound_group_session_counts().await?;
 
@@ -563,6 +548,10 @@ impl BackupMachine {
     }
 
     /// Backup all the non-backed up room keys we know about
+    /// returns a tuple: (
+    ///     map of Room ID : RoomKeyBackup,
+    ///     map of Room ID : map of Sender Key : set of Session IDs
+    /// )
     async fn backup_keys(
         sessions: Vec<InboundGroupSession>,
         backup_key: &MegolmV1BackupKey,
