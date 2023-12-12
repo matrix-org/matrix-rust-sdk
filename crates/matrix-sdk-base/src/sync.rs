@@ -140,7 +140,7 @@ impl JoinedRoom {
 }
 
 /// Counts of unread notifications for a room.
-#[derive(Copy, Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Copy, Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 pub struct UnreadNotificationsCount {
     /// The number of unread notifications for this room with the highlight flag
     /// set.

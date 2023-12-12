@@ -325,24 +325,28 @@ impl SlidingSync {
         // `sliding_sync_response` is vital, so it must be done somewhere; for now it
         // happens here.
 
-        let mut response_processor = SlidingSyncResponseProcessor::new(self.inner.client.clone());
+        let mut sync_response = {
+            let rooms = &*self.inner.rooms.read().await;
+            let mut response_processor =
+                SlidingSyncResponseProcessor::new(self.inner.client.clone(), rooms);
 
-        #[cfg(feature = "e2e-encryption")]
-        if self.is_e2ee_enabled() {
-            response_processor.handle_encryption(&sliding_sync_response.extensions).await?
-        }
+            #[cfg(feature = "e2e-encryption")]
+            if self.is_e2ee_enabled() {
+                response_processor.handle_encryption(&sliding_sync_response.extensions).await?
+            }
 
-        // Only handle the room's subsection of the response, if this sliding sync was
-        // configured to do so. That's because even when not requesting it,
-        // sometimes the current (2023-07-20) proxy will forward room events
-        // unrelated to the current connection's parameters.
-        //
-        // NOTE: SS proxy workaround.
-        if must_process_rooms_response {
-            response_processor.handle_room_response(&sliding_sync_response).await?;
-        }
+            // Only handle the room's subsection of the response, if this sliding sync was
+            // configured to do so. That's because even when not requesting it,
+            // sometimes the current (2023-07-20) proxy will forward room events
+            // unrelated to the current connection's parameters.
+            //
+            // NOTE: SS proxy workaround.
+            if must_process_rooms_response {
+                response_processor.handle_room_response(&sliding_sync_response).await?;
+            }
 
-        let mut sync_response = response_processor.process_and_take_response().await?;
+            response_processor.process_and_take_response().await?
+        };
 
         debug!(?sync_response, "Sliding Sync response has been handled by the client");
 
