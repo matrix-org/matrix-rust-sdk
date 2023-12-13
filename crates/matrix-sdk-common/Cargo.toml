@@ -16,7 +16,7 @@ default-target = "x86_64-unknown-linux-gnu"
 targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
 
 [features]
-js = ["instant/wasm-bindgen", "instant/inaccurate", "wasm-bindgen-futures"]
+js = ["instant/wasm-bindgen", "wasm-bindgen-futures"]
 
 [dependencies]
 async-trait = { workspace = true }
