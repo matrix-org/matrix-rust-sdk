@@ -343,7 +343,10 @@ impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
         &self,
         room_and_session_ids: &[(&RoomId, &str)],
     ) -> Result<()> {
-        self.0.mark_inbound_group_sessions_as_backed_up(room_and_session_ids).await.map_err(Into::into)
+        self.0
+            .mark_inbound_group_sessions_as_backed_up(room_and_session_ids)
+            .await
+            .map_err(Into::into)
     }
 
     async fn reset_backup_state(&self) -> Result<()> {

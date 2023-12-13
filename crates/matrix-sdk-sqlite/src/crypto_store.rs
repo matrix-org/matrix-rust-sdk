@@ -512,8 +512,8 @@ trait SqliteObjectCryptoStoreExt: SqliteObjectExt {
 
         self.with_transaction(move |tx| {
             for chunk in session_ids.chunks(max_chunk_size) {
-                // Safety: placeholders is not generated using any user input except the number of
-                // session IDs, so it is safe from injection.
+                // Safety: placeholders is not generated using any user input except the number
+                // of session IDs, so it is safe from injection.
                 let placeholders = generate_placeholders(chunk.len());
                 let query = format!(
                     "UPDATE inbound_group_session SET backed_up = TRUE where session_id IN ({})",
@@ -963,7 +963,10 @@ impl CryptoStore for SqliteCryptoStore {
             .collect()
     }
 
-    async fn mark_inbound_group_sessions_as_backed_up(&self, session_ids: &[(&RoomId, &str)]) -> Result<()> {
+    async fn mark_inbound_group_sessions_as_backed_up(
+        &self,
+        session_ids: &[(&RoomId, &str)],
+    ) -> Result<()> {
         Ok(self
             .acquire()
             .await?
