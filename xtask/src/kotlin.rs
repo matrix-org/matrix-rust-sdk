@@ -2,14 +2,13 @@ use std::fs::create_dir_all;
 
 use camino::{Utf8Path, Utf8PathBuf};
 use clap::{Args, Subcommand, ValueEnum};
-use uniffi_bindgen::bindings::TargetLanguage;
+use uniffi_bindgen::{bindings::TargetLanguage, library_mode::generate_bindings};
 use xshell::{cmd, pushd};
 
 use crate::{workspace, Result};
 
 struct PackageValues {
     name: &'static str,
-    udl_path: &'static str,
 }
 
 #[derive(ValueEnum, Clone)]
@@ -21,14 +20,8 @@ enum Package {
 impl Package {
     fn values(self) -> PackageValues {
         match self {
-            Package::CryptoSDK => PackageValues {
-                name: "matrix-sdk-crypto-ffi",
-                udl_path: "bindings/matrix-sdk-crypto-ffi/src/olm.udl",
-            },
-            Package::FullSDK => PackageValues {
-                name: "matrix-sdk-ffi",
-                udl_path: "bindings/matrix-sdk-ffi/src/api.udl",
-            },
+            Package::CryptoSDK => PackageValues { name: "matrix-sdk-crypto-ffi" },
+            Package::FullSDK => PackageValues { name: "matrix-sdk-ffi" },
         }
     }
 }
@@ -89,11 +82,8 @@ fn build_android_library(
     src_dir: Utf8PathBuf,
     package: Package,
 ) -> Result<()> {
-    let root_dir = workspace::root_path()?;
-
     let package_values = package.values();
     let package_name = package_values.name;
-    let udl_path = root_dir.join(package_values.udl_path);
 
     let jni_libs_dir = src_dir.join("jniLibs");
     let jni_libs_dir_str = jni_libs_dir.as_str();
@@ -121,26 +111,21 @@ fn build_android_library(
     };
 
     println!("-- Generate uniffi files");
-    generate_uniffi_bindings(&udl_path, &uniffi_lib_path, &kotlin_generated_dir)?;
+    generate_uniffi_bindings(&uniffi_lib_path, &kotlin_generated_dir)?;
 
     println!("-- All done and hunky dory. Enjoy!");
     Ok(())
 }
 
-fn generate_uniffi_bindings(
-    udl_path: &Utf8Path,
-    library_path: &Utf8Path,
-    ffi_generated_dir: &Utf8Path,
-) -> Result<()> {
+fn generate_uniffi_bindings(library_path: &Utf8Path, ffi_generated_dir: &Utf8Path) -> Result<()> {
     println!("-- library_path = {library_path}");
 
-    uniffi_bindgen::generate_bindings(
-        udl_path,
+    generate_bindings(
+        library_path,
         None,
-        vec![TargetLanguage::Kotlin],
-        Some(ffi_generated_dir),
-        Some(library_path),
+        &[TargetLanguage::Kotlin],
         None,
+        ffi_generated_dir,
         false,
     )?;
     Ok(())
