@@ -519,7 +519,7 @@ trait SqliteObjectCryptoStoreExt: SqliteObjectExt {
                     "UPDATE inbound_group_session SET backed_up = TRUE where session_id IN ({})",
                     placeholders
                 );
-                tx.execute(&query, params_from_iter(chunk.into_iter()))?;
+                tx.execute(&query, params_from_iter(chunk.iter()))?;
             }
             Ok(())
         })
