@@ -143,7 +143,14 @@ impl Room {
         }
     }
 
-    pub async fn timeline(&self) -> Result<Arc<Timeline>, ClientError> {
+    /// Forces the current outbound group session to be discarded such
+    /// that another one will be created next time an event is sent.
+    pub async fn discard_room_key(&self) -> Result<(), ClientError> {
+        self.inner.discard_room_key().await?;
+        Ok(())
+    }
+
+    pub async fn timeline(&self) -> Arc<Timeline> {
         let mut write_guard = self.timeline.write().await;
         if let Some(timeline) = &*write_guard {
             Ok(timeline.clone())

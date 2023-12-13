@@ -16,6 +16,11 @@ Additions:
 - Add the `ClientBuilder::add_root_certificates()` method which re-exposes the
   `reqwest::ClientBuilder::add_root_certificate()` functionality.
 
+Additions:
+
+- Add new method `discard_room_key` on `Room` that allows to discard the current
+  outbound session for that room. Can be used by clients as a dev tool like the `/discardsession` command.
+
 # 0.7.0
 
 Breaking changes:
@@ -76,6 +81,8 @@ Additions:
 - Add `Client::subscribe_to_room_updates` and `room::Common::subscribe_to_updates`
 - Add `Client::rooms_filtered`
 - Add methods on `Client` that can handle several authentication APIs.
+- Add new method `force_discard_session` on `Room` that allows to discard the current
+  outbound session (room key) for that room. Can be used by clients for the `/discardsession` command.
 
 # 0.6.2
 

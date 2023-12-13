@@ -1107,6 +1107,19 @@ impl Room {
         }
     }
 
+    /// Forces the current outbound group session to be discarded such
+    /// that another one will be created next time an event is sent.
+    #[cfg(feature = "e2e-encryption")]
+    pub async fn discard_room_key(&self) -> Result<()> {
+        let machine = self.client.olm_machine().await;
+        if let Some(machine) = machine.as_ref() {
+            machine.invalidate_group_session(self.inner.room_id()).await?;
+            Ok(())
+        } else {
+            Err(Error::NoOlmMachine)
+        }
+    }
+
     /// Ban the user with `UserId` from this room.
     ///
     /// # Arguments
