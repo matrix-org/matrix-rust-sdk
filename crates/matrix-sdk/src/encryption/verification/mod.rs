@@ -48,6 +48,7 @@ pub use matrix_sdk_base::crypto::{
 #[cfg(feature = "qrcode")]
 pub use qrcode::QrVerification;
 pub use requests::{VerificationRequest, VerificationRequestState};
+use ruma::RoomId;
 pub use sas::SasVerification;
 
 /// An enum over the different verification types the SDK supports.
@@ -134,6 +135,15 @@ impl Verification {
             Verification::SasV1(s) => s.we_started(),
             #[cfg(feature = "qrcode")]
             Verification::QrV1(q) => q.we_started(),
+        }
+    }
+
+    /// Get the room ID, if the verification is happening inside a room.
+    pub fn room_id(&self) -> Option<&RoomId> {
+        match self {
+            Verification::SasV1(s) => s.room_id(),
+            #[cfg(feature = "qrcode")]
+            Verification::QrV1(q) => q.room_id(),
         }
     }
 }

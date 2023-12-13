@@ -17,7 +17,7 @@ use matrix_sdk_base::crypto::{
     matrix_sdk_qrcode::{qrcode::QrCode, EncodingError},
     CancelInfo, QrVerification as BaseQrVerification, QrVerificationState, ReadOnlyDevice,
 };
-use ruma::UserId;
+use ruma::{RoomId, UserId};
 
 use crate::{Client, Result};
 
@@ -217,5 +217,10 @@ impl QrVerification {
     /// [`QrVerification::changes`] method.
     pub fn state(&self) -> QrVerificationState {
         self.inner.state()
+    }
+
+    /// Get the room ID, if the verification is happening inside a room.
+    pub fn room_id(&self) -> Option<&RoomId> {
+        self.inner.room_id()
     }
 }
