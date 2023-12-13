@@ -792,15 +792,10 @@ impl Backups {
         let backup_keys = olm_machine.store().load_backup_keys().await?;
 
         if let Some(decryption_key) = backup_keys.decryption_key {
-            if let Some(version) = backup_keys.backup_version {
-                let backup_key = decryption_key.megolm_v1_public_key();
-
-                self.enable(olm_machine, backup_key, version).await?;
-
-                Ok(true)
-            } else {
-                Ok(false)
-            }
+            // we can't just use the stored version and enable for that version because
+            // the backup version might have been deleted or changed on the server.
+            // We need to check if the backup keys & version we have stored is still valid.
+            self.maybe_enable_backups(decryption_key.to_base64().as_str()).await
         } else {
             Ok(false)
         }
