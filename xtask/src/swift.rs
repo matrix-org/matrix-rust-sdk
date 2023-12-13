@@ -79,8 +79,8 @@ fn build_library() -> Result<()> {
         remove_file(module_map_file.as_path())?;
     }
 
-    rename(ffi_directory.join("matrix_sdk_ffiFFI.modulemap"), module_map_file)?;
-    move_swift_files(&ffi_directory, &swift_directory)?;
+    consolidate_modulemap_files(&ffi_directory, &ffi_directory)?;
+    move_files("swift", &ffi_directory, &swift_directory)?;
     Ok(())
 }
 
@@ -168,16 +168,10 @@ fn build_xcframework(
     println!("-- Generating uniffi files");
     generate_uniffi(&uniffi_lib_path, &generated_dir)?;
 
-    rename(generated_dir.join("matrix_sdk_ffiFFI.h"), headers_dir.join("matrix_sdk_ffiFFI.h"))?;
+    move_files("h", &generated_dir, &headers_dir)?;
+    consolidate_modulemap_files(&generated_dir, &headers_dir)?;
 
-    // Move and rename the module map to `module.modulemap` to match what
-    // the xcframework expects
-    rename(
-        generated_dir.join("matrix_sdk_ffiFFI.modulemap"),
-        headers_dir.join("module.modulemap"),
-    )?;
-
-    move_swift_files(&generated_dir, &swift_dir)?;
+    move_files("swift", &generated_dir, &swift_dir)?;
 
     println!("-- Generating MatrixSDKFFI.xcframework framework");
     let xcframework_path = generated_dir.join("MatrixSDKFFI.xcframework");
@@ -229,17 +223,42 @@ fn build_xcframework(
     Ok(())
 }
 
-fn move_swift_files(source: &Utf8PathBuf, destination: &Utf8PathBuf) -> Result<()> {
+/// Moves all files of the specified file extension from one directory into
+/// another.
+fn move_files(extension: &str, source: &Utf8PathBuf, destination: &Utf8PathBuf) -> Result<()> {
     for entry in source.read_dir_utf8()? {
         let entry = entry?;
 
         if entry.file_type()?.is_file() {
             let path = entry.path();
-            if path.extension() == Some("swift") {
+            if path.extension() == Some(extension) {
                 let file_name = path.file_name().expect("Failed to get file name");
                 rename(path, destination.join(file_name)).expect("Failed to move swift file");
             }
         }
     }
+    Ok(())
+}
+
+/// Consolidates the contents of each modulemap file found in the source
+/// directory into a single `module.modulemap` file in the destination
+/// directory.
+fn consolidate_modulemap_files(source: &Utf8PathBuf, destination: &Utf8PathBuf) -> Result<()> {
+    let mut modulemap = String::new();
+    for entry in source.read_dir_utf8()? {
+        let entry = entry?;
+
+        if entry.file_type()?.is_file() {
+            let path = entry.path();
+            if path.extension() == Some("modulemap") {
+                let contents = std::fs::read_to_string(path)?;
+                modulemap.push_str(&contents);
+                modulemap.push_str("\n\n");
+                remove_file(path)?;
+            }
+        }
+    }
+
+    std::fs::write(destination.join("module.modulemap"), modulemap)?;
     Ok(())
 }
