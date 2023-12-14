@@ -81,6 +81,7 @@ impl<T> RingBuffer<T> {
         self.inner.iter()
     }
 
+    /// Returns an iterator that drains its items.
     pub fn drain<R>(&mut self, range: R) -> Drain<'_, T>
     where
         R: RangeBounds<usize>,
