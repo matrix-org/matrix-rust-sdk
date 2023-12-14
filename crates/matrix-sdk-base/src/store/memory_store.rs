@@ -18,7 +18,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use matrix_sdk_common::instant::Instant;
+use matrix_sdk_common::{instant::Instant, ring_buffer::RingBuffer};
 use ruma::{
     canonical_json::{redact, RedactedBecause},
     events::{
@@ -36,8 +36,9 @@ use tracing::{debug, warn};
 
 use super::{Result, RoomInfo, StateChanges, StateStore, StoreError};
 use crate::{
-    deserialized_responses::RawAnySyncOrStrippedState, media::MediaRequest, MinimalRoomMemberEvent,
-    RoomMemberships, RoomState, StateStoreDataKey, StateStoreDataValue,
+    deserialized_responses::RawAnySyncOrStrippedState,
+    media::{MediaRequest, UniqueKey as _},
+    MinimalRoomMemberEvent, RoomMemberships, RoomState, StateStoreDataKey, StateStoreDataValue,
 };
 
 /// In-Memory, non-persistent implementation of the `StateStore`
@@ -77,13 +78,14 @@ pub struct MemoryStore {
             HashMap<(String, Option<String>), HashMap<OwnedEventId, HashMap<OwnedUserId, Receipt>>>,
         >,
     >,
+    media: StdRwLock<RingBuffer<(String, Vec<u8>)>>,
     custom: StdRwLock<HashMap<Vec<u8>, Vec<u8>>>,
 }
 
 impl MemoryStore {
     /// Create a new empty MemoryStore
     pub fn new() -> Self {
-        Default::default()
+        Self { media: StdRwLock::new(RingBuffer::new(20)), ..Default::default() }
     }
 
     fn get_user_room_receipt_event_impl(
@@ -700,17 +702,44 @@ impl StateStore for MemoryStore {
         Ok(self.custom.write().unwrap().remove(key))
     }
 
-    // The in-memory store doesn't cache media
-    async fn add_media_content(&self, _request: &MediaRequest, _data: Vec<u8>) -> Result<()> {
+    async fn add_media_content(&self, request: &MediaRequest, data: Vec<u8>) -> Result<()> {
+        self.media.write().unwrap().push((request.unique_key(), data));
+
         Ok(())
     }
-    async fn get_media_content(&self, _request: &MediaRequest) -> Result<Option<Vec<u8>>> {
+
+    async fn get_media_content(&self, request: &MediaRequest) -> Result<Option<Vec<u8>>> {
+        let media = self.media.read().unwrap();
+        let expected_key = request.unique_key();
+
+        for (media_key, media_content) in media.iter() {
+            if media_key == &expected_key {
+                return Ok(Some(media_content.to_owned()));
+            }
+        }
+
         Ok(None)
     }
-    async fn remove_media_content(&self, _request: &MediaRequest) -> Result<()> {
+
+    async fn remove_media_content(&self, request: &MediaRequest) -> Result<()> {
+        // Pop all media until the one represented by `request` is found.
+
+        let mut media = self.media.write().unwrap();
+        let expected_key = request.unique_key();
+        let Some(index) = media.iter().position(|(media_key, _)| media_key == &expected_key) else {
+            return Ok(());
+        };
+
+        let _pop = media.drain(0..=index);
+
         Ok(())
     }
+
     async fn remove_media_content_for_uri(&self, _uri: &MxcUri) -> Result<()> {
+        // Clear all medias without checking the `uri`.
+
+        self.media.write().unwrap().clear();
+
         Ok(())
     }
 
@@ -738,5 +767,5 @@ mod tests {
         Ok(MemoryStore::new())
     }
 
-    statestore_integration_tests!();
+    statestore_integration_tests!(with_media_tests);
 }
