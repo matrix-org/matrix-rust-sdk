@@ -2,7 +2,7 @@ use std::{
     io::{Result, Write},
     sync::{Arc, Mutex},
 };
-
+use tracing_core::Level;
 use tracing_subscriber::{fmt::MakeWriter, EnvFilter};
 
 /// Trait that can be used to forward Rust logs over FFI to a language-specific
@@ -69,8 +69,9 @@ impl MakeWriter<'_> for LoggerWrapper {
 /// Set the logger that should be used to forward Rust logs over FFI.
 #[uniffi::export]
 pub fn set_logger(logger: Box<dyn Logger>) {
-    let logger = LoggerWrapper { inner: Arc::new(Mutex::new(logger))
-                             level: tracing_core::Level::DEBUG,  };
+    let logger = LoggerWrapper { 
+        inner: Arc::new(Mutex::new(logger))
+        level: tracing_core::Level::DEBUG,  };
 
     let filter = EnvFilter::from_default_env()
         .add_directive(
