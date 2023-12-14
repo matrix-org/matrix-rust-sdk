@@ -78,7 +78,7 @@ pub struct MemoryStore {
             HashMap<(String, Option<String>), HashMap<OwnedEventId, HashMap<OwnedUserId, Receipt>>>,
         >,
     >,
-    media: StdRwLock<RingBuffer<(OwnedMxcUri, Vec<u8>)>>,
+    media: StdRwLock<RingBuffer<(OwnedMxcUri, String /* unique key */, Vec<u8>)>>,
     custom: StdRwLock<HashMap<Vec<u8>, Vec<u8>>>,
 }
 
@@ -703,16 +703,19 @@ impl StateStore for MemoryStore {
     }
 
     async fn add_media_content(&self, request: &MediaRequest, data: Vec<u8>) -> Result<()> {
-        self.media.write().unwrap().push((request.uri().to_owned(), data));
+        // Avoid duplication. Let's try to remove it first.
+        self.remove_media_content(request).await?;
+        // Now, let's add it.
+        self.media.write().unwrap().push((request.uri().to_owned(), request.unique_key(), data));
 
         Ok(())
     }
 
     async fn get_media_content(&self, request: &MediaRequest) -> Result<Option<Vec<u8>>> {
         let media = self.media.read().unwrap();
-        let expected_key = request.uri().to_owned();
+        let expected_key = request.unique_key();
 
-        for (media_key, media_content) in media.iter() {
+        for (_media_uri, media_key, media_content) in media.iter() {
             if media_key == &expected_key {
                 return Ok(Some(media_content.to_owned()));
             }
@@ -723,8 +726,11 @@ impl StateStore for MemoryStore {
 
     async fn remove_media_content(&self, request: &MediaRequest) -> Result<()> {
         let mut media = self.media.write().unwrap();
-        let expected_key = request.uri().to_owned();
-        let Some(index) = media.iter().position(|(media_key, _)| media_key == &expected_key) else {
+        let expected_key = request.unique_key();
+        let Some(index) = media
+            .iter()
+            .position(|(_media_uri, media_key, _media_content)| media_key == &expected_key)
+        else {
             return Ok(());
         };
 
@@ -739,8 +745,8 @@ impl StateStore for MemoryStore {
         let positions = media
             .iter()
             .enumerate()
-            .filter_map(|(position, (media_key, _))| {
-                (media_key == &expected_key).then_some(position)
+            .filter_map(|(position, (media_uri, _media_key, _media_content))| {
+                (media_uri == &expected_key).then_some(position)
             })
             .collect::<Vec<_>>();
 
