@@ -279,18 +279,68 @@ async fn left_rooms() {
 async fn get_media_content() {
     let (client, server) = logged_in_client().await;
 
+    let media = client.media();
+
     let request = MediaRequest {
         source: MediaSource::Plain(mxc_uri!("mxc://localhost/textfile").to_owned()),
         format: MediaFormat::File,
     };
 
-    Mock::given(method("GET"))
-        .and(path("/_matrix/media/r0/download/localhost/textfile"))
-        .respond_with(ResponseTemplate::new(200).set_body_string("Some very interesting text."))
-        .mount(&server)
-        .await;
+    // First time, without the cache.
+    {
+        let expected_content = "Hello, World!";
+        let _mock_guard = Mock::given(method("GET"))
+            .and(path("/_matrix/media/r0/download/localhost/textfile"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(expected_content))
+            .mount_as_scoped(&server)
+            .await;
 
-    client.media().get_media_content(&request, false).await.unwrap();
+        assert_eq!(
+            media.get_media_content(&request, false).await.unwrap(),
+            expected_content.as_bytes()
+        );
+    }
+
+    // Second time, without the cache, error from the HTTP server.
+    {
+        let _mock_guard = Mock::given(method("GET"))
+            .and(path("/_matrix/media/r0/download/localhost/textfile"))
+            .respond_with(ResponseTemplate::new(500))
+            .mount_as_scoped(&server)
+            .await;
+
+        assert!(media.get_media_content(&request, false).await.is_err());
+    }
+
+    let expected_content = "Hello, World (2)!";
+
+    // Third time, with the cache.
+    {
+        let _mock_guard = Mock::given(method("GET"))
+            .and(path("/_matrix/media/r0/download/localhost/textfile"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(expected_content))
+            .mount_as_scoped(&server)
+            .await;
+
+        assert_eq!(
+            media.get_media_content(&request, true).await.unwrap(),
+            expected_content.as_bytes()
+        );
+    }
+
+    // Third time, with the cache, the HTTP server isn't reached.
+    {
+        let _mock_guard = Mock::given(method("GET"))
+            .and(path("/_matrix/media/r0/download/localhost/textfile"))
+            .respond_with(ResponseTemplate::new(500))
+            .mount_as_scoped(&server)
+            .await;
+
+        assert_eq!(
+            client.media().get_media_content(&request, true).await.unwrap(),
+            expected_content.as_bytes()
+        );
+    }
 }
 
 #[async_test]
