@@ -12,9 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{borrow::Borrow, ops::Deref};
+use std::{borrow::Borrow, fmt, iter, ops::Deref};
 
 use async_trait::async_trait;
+use itertools::Itertools;
 use rusqlite::{limits::Limit, OptionalExtension, Params, Row, Statement, Transaction};
 
 use crate::{error::Result, OpenStoreError};
@@ -209,5 +210,30 @@ pub(crate) async fn load_db_version(conn: &deadpool_sqlite::Object) -> Result<u8
         }
     } else {
         Ok(0)
+    }
+}
+
+/// Repeat `?` n times, where n is defined by `count`. `?` are comma-separated.
+pub(crate) fn repeat_vars(count: usize) -> impl fmt::Display {
+    assert_ne!(count, 0, "Can't generate zero repeated vars");
+
+    iter::repeat("?").take(count).format(",")
+}
+
+#[cfg(test)]
+mod unit_tests {
+    use super::*;
+
+    #[test]
+    fn can_generate_repeated_vars() {
+        assert_eq!(repeat_vars(1).to_string(), "?");
+        assert_eq!(repeat_vars(2).to_string(), "?,?");
+        assert_eq!(repeat_vars(5).to_string(), "?,?,?,?,?");
+    }
+
+    #[test]
+    #[should_panic(expected = "Can't generate zero repeated vars")]
+    fn generating_zero_vars_panics() {
+        repeat_vars(0);
     }
 }

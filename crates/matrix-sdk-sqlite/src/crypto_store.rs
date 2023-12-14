@@ -22,7 +22,6 @@ use std::{
 
 use async_trait::async_trait;
 use deadpool_sqlite::{Object as SqliteConn, Pool as SqlitePool, Runtime};
-use itertools::Itertools;
 use matrix_sdk_crypto::{
     olm::{
         InboundGroupSession, OutboundGroupSession, PickledInboundGroupSession,
@@ -50,7 +49,8 @@ use crate::{
     error::{Error, Result},
     get_or_create_store_cipher,
     utils::{
-        load_db_version, Key, SqliteConnectionExt as _, SqliteObjectExt, SqliteObjectStoreExt as _,
+        load_db_version, repeat_vars, Key, SqliteConnectionExt as _, SqliteObjectExt,
+        SqliteObjectStoreExt as _,
     },
     OpenStoreError,
 };
@@ -514,7 +514,7 @@ trait SqliteObjectCryptoStoreExt: SqliteObjectExt {
             for chunk in session_ids.chunks(max_chunk_size) {
                 // Safety: placeholders is not generated using any user input except the number
                 // of session IDs, so it is safe from injection.
-                let placeholders = generate_placeholders(chunk.len());
+                let placeholders = repeat_vars(chunk.len());
                 let query = format!(
                     "UPDATE inbound_group_session SET backed_up = TRUE where session_id IN ({})",
                     placeholders
@@ -1272,31 +1272,6 @@ impl CryptoStore for SqliteCryptoStore {
         } else {
             Ok(None)
         }
-    }
-}
-
-fn generate_placeholders(number: usize) -> String {
-    if number == 0 {
-        panic!("Can't generate zero placeholders");
-    }
-    (std::iter::repeat("?").take(number)).join(", ")
-}
-
-#[cfg(test)]
-mod placeholder_tests {
-    use super::*;
-
-    #[test]
-    fn can_generate_placeholders() {
-        assert_eq!(generate_placeholders(1), "?");
-        assert_eq!(generate_placeholders(2), "?, ?");
-        assert_eq!(generate_placeholders(5), "?, ?, ?, ?, ?");
-    }
-
-    #[test]
-    #[should_panic(expected = "Can't generate zero placeholders")]
-    fn generating_zero_placeholders_panics() {
-        generate_placeholders(0);
     }
 }
 
