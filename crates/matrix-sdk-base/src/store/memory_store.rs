@@ -715,13 +715,9 @@ impl StateStore for MemoryStore {
         let media = self.media.read().unwrap();
         let expected_key = request.unique_key();
 
-        for (_media_uri, media_key, media_content) in media.iter() {
-            if media_key == &expected_key {
-                return Ok(Some(media_content.to_owned()));
-            }
-        }
-
-        Ok(None)
+        Ok(media.iter().find_map(|(_media_uri, media_key, media_content)| {
+            (media_key == &expected_key).then(|| media_content.to_owned())
+        }))
     }
 
     async fn remove_media_content(&self, request: &MediaRequest) -> Result<()> {
