@@ -15,9 +15,9 @@
 use std::{borrow::Borrow, ops::Deref};
 
 use async_trait::async_trait;
-use rusqlite::{OptionalExtension, Params, Row, Statement, Transaction};
+use rusqlite::{limits::Limit, OptionalExtension, Params, Row, Statement, Transaction};
 
-use crate::OpenStoreError;
+use crate::{error::Result, OpenStoreError};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum Key {
@@ -86,7 +86,7 @@ pub(crate) trait SqliteObjectExt {
         E: From<rusqlite::Error> + Send + 'static,
         F: FnOnce(&Transaction<'_>) -> Result<T, E> + Send + 'static;
 
-    async fn limit(&self, limit: rusqlite::limits::Limit) -> i32;
+    async fn limit(&self, limit: Limit) -> i32;
 }
 
 #[async_trait]
@@ -148,7 +148,7 @@ impl SqliteObjectExt for deadpool_sqlite::Object {
         .unwrap()
     }
 
-    async fn limit(&self, limit: rusqlite::limits::Limit) -> i32 {
+    async fn limit(&self, limit: Limit) -> i32 {
         self.interact(move |conn| conn.limit(limit)).await.expect("Failed to fetch limit")
     }
 }

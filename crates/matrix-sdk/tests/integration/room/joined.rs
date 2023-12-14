@@ -130,6 +130,29 @@ async fn ban_user() {
 }
 
 #[async_test]
+async fn unban_user() {
+    let (client, server) = logged_in_client().await;
+
+    Mock::given(method("POST"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/unban$"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EMPTY))
+        .mount(&server)
+        .await;
+
+    mock_sync(&server, &*test_json::SYNC, None).await;
+
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+    let _response = client.sync_once(sync_settings).await.unwrap();
+
+    let user = user_id!("@example:localhost");
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
+
+    room.unban_user(user, None).await.unwrap();
+}
+
+#[async_test]
 async fn kick_user() {
     let (client, server) = logged_in_client().await;
 

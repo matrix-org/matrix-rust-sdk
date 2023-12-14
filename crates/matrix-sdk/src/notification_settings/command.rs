@@ -3,8 +3,8 @@ use std::fmt::Debug;
 use ruma::{
     api::client::push::RuleScope,
     push::{
-        Action, NewConditionalPushRule, NewPushRule, NewSimplePushRule, PushCondition, RuleKind,
-        Tweak,
+        Action, NewConditionalPushRule, NewPatternedPushRule, NewPushRule, NewSimplePushRule,
+        PushCondition, RuleKind, Tweak,
     },
     OwnedRoomId,
 };
@@ -18,6 +18,8 @@ pub(crate) enum Command {
     SetRoomPushRule { scope: RuleScope, room_id: OwnedRoomId, notify: bool },
     /// Set a new `Override` push rule matching a `RoomId`
     SetOverridePushRule { scope: RuleScope, rule_id: String, room_id: OwnedRoomId, notify: bool },
+    /// Set a new push rule for a keyword.
+    SetKeywordPushRule { scope: RuleScope, keyword: String },
     /// Set whether a push rule is enabled
     SetPushRuleEnabled { scope: RuleScope, kind: RuleKind, rule_id: String, enabled: bool },
     /// Delete a push rule
@@ -55,6 +57,16 @@ impl Command {
                     get_notify_actions(*notify),
                 );
                 Ok(NewPushRule::Override(new_rule))
+            }
+
+            Self::SetKeywordPushRule { scope: _, keyword } => {
+                // `Content` push rule matching this keyword
+                let new_rule = NewPatternedPushRule::new(
+                    keyword.clone(),
+                    keyword.clone(),
+                    get_notify_actions(true),
+                );
+                Ok(NewPushRule::Content(new_rule))
             }
 
             Self::SetPushRuleEnabled { .. }

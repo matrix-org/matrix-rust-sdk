@@ -1,5 +1,4 @@
 use std::{
-    future::ready,
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -178,8 +177,11 @@ async fn test_refresh_token() {
         .set_session_callbacks(Box::new(|_| panic!("reload session never called")), {
             let num_save_session_callback_calls = num_save_session_callback_calls.clone();
             Box::new(move |_client| {
-                *num_save_session_callback_calls.lock().unwrap() += 1;
-                Box::pin(ready(Ok(())))
+                let num_save_session_callback_calls = num_save_session_callback_calls.clone();
+                Box::pin(async move {
+                    *num_save_session_callback_calls.lock().unwrap() += 1;
+                    Ok(())
+                })
             })
         })
         .unwrap();

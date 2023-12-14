@@ -12,7 +12,7 @@ use ruma::{
         },
         sticker::StickerEventContent,
     },
-    UInt,
+    MxcUri, UInt,
 };
 
 const UNIQUE_SEPARATOR: &str = "_";
@@ -83,11 +83,22 @@ pub struct MediaRequest {
     pub format: MediaFormat,
 }
 
+impl MediaRequest {
+    /// Get the [`MxcUri`] from `Self`.
+    pub fn uri(&self) -> &MxcUri {
+        match &self.source {
+            MediaSource::Plain(url) => url.as_ref(),
+            MediaSource::Encrypted(file) => file.url.as_ref(),
+        }
+    }
+}
+
 impl UniqueKey for MediaRequest {
     fn unique_key(&self) -> String {
         format!("{}{UNIQUE_SEPARATOR}{}", self.source.unique_key(), self.format.unique_key())
     }
 }
+
 /// Trait for media event content.
 pub trait MediaEventContent {
     /// Get the source of the file for `Self`.
@@ -164,5 +175,49 @@ impl MediaEventContent for LocationMessageEventContent {
 
     fn thumbnail_source(&self) -> Option<MediaSource> {
         self.info.as_ref()?.thumbnail_source.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ruma::mxc_uri;
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn test_media_request_url() {
+        let mxc_uri = mxc_uri!("mxc://homeserver/media");
+
+        let plain = MediaRequest {
+            source: MediaSource::Plain(mxc_uri.to_owned()),
+            format: MediaFormat::File,
+        };
+
+        assert_eq!(plain.uri(), mxc_uri);
+
+        let file = MediaRequest {
+            source: MediaSource::Encrypted(Box::new(
+                serde_json::from_value(json!({
+                    "url": mxc_uri,
+                    "key": {
+                        "kty": "oct",
+                        "key_ops": ["encrypt", "decrypt"],
+                        "alg": "A256CTR",
+                        "k": "b50ACIv6LMn9AfMCFD1POJI_UAFWIclxAN1kWrEO2X8",
+                        "ext": true,
+                    },
+                    "iv": "AK1wyzigZtQAAAABAAAAKK",
+                    "hashes": {
+                        "sha256": "foobar",
+                    },
+                    "v": "v2",
+                }))
+                .unwrap(),
+            )),
+            format: MediaFormat::File,
+        };
+
+        assert_eq!(file.uri(), mxc_uri);
     }
 }

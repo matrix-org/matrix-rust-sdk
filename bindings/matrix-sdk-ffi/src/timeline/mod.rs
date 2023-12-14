@@ -25,7 +25,6 @@ use matrix_sdk::attachment::{
 use matrix_sdk_ui::timeline::{BackPaginationStatus, EventItemOrigin, Profile, TimelineDetails};
 use mime::Mime;
 use ruma::{
-    api::client::receipt::create_receipt::v3::ReceiptType,
     events::{
         location::{AssetType as RumaAssetType, LocationContent, ZoomLevel},
         poll::{
@@ -182,12 +181,16 @@ impl Timeline {
         RUNTIME.block_on(async { Ok(self.inner.paginate_backwards(opts.into()).await?) })
     }
 
-    pub fn send_read_receipt(&self, event_id: String) -> Result<(), ClientError> {
+    pub fn send_read_receipt(
+        &self,
+        receipt_type: ReceiptType,
+        event_id: String,
+    ) -> Result<(), ClientError> {
         let event_id = EventId::parse(event_id)?;
 
         RUNTIME.block_on(async {
             self.inner
-                .send_single_receipt(ReceiptType::Read, ReceiptThread::Unthreaded, event_id)
+                .send_single_receipt(receipt_type.into(), ReceiptThread::Unthreaded, event_id)
                 .await?;
             Ok(())
         })
@@ -202,7 +205,7 @@ impl Timeline {
     pub fn send_image(
         self: Arc<Self>,
         url: String,
-        thumbnail_url: String,
+        thumbnail_url: Option<String>,
         image_info: ImageInfo,
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
     ) -> Arc<SendAttachmentJoinHandle> {
@@ -217,13 +220,13 @@ impl Timeline {
 
             let attachment_info = AttachmentInfo::Image(base_image_info);
 
-            let attachment_config = match image_info.thumbnail_info {
-                Some(thumbnail_image_info) => {
+            let attachment_config = match (thumbnail_url, image_info.thumbnail_info) {
+                (Some(thumbnail_url), Some(thumbnail_image_info)) => {
                     let thumbnail =
                         self.build_thumbnail_info(thumbnail_url, thumbnail_image_info)?;
                     AttachmentConfig::with_thumbnail(thumbnail).info(attachment_info)
                 }
-                None => AttachmentConfig::new().info(attachment_info),
+                _ => AttachmentConfig::new().info(attachment_info),
             };
 
             self.send_attachment(url, mime_type, attachment_config, progress_watcher).await
@@ -233,7 +236,7 @@ impl Timeline {
     pub fn send_video(
         self: Arc<Self>,
         url: String,
-        thumbnail_url: String,
+        thumbnail_url: Option<String>,
         video_info: VideoInfo,
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
     ) -> Arc<SendAttachmentJoinHandle> {
@@ -248,13 +251,13 @@ impl Timeline {
 
             let attachment_info = AttachmentInfo::Video(base_video_info);
 
-            let attachment_config = match video_info.thumbnail_info {
-                Some(thumbnail_image_info) => {
+            let attachment_config = match (thumbnail_url, video_info.thumbnail_info) {
+                (Some(thumbnail_url), Some(thumbnail_image_info)) => {
                     let thumbnail =
                         self.build_thumbnail_info(thumbnail_url, thumbnail_image_info)?;
                     AttachmentConfig::with_thumbnail(thumbnail).info(attachment_info)
                 }
-                None => AttachmentConfig::new().info(attachment_info),
+                _ => AttachmentConfig::new().info(attachment_info),
             };
 
             self.send_attachment(url, mime_type, attachment_config, progress_watcher).await
@@ -974,4 +977,22 @@ pub enum VirtualTimelineItem {
 
     /// The user's own read marker.
     ReadMarker,
+}
+
+/// A [`TimelineItem`](super::TimelineItem) that doesn't correspond to an event.
+#[derive(uniffi::Enum)]
+pub enum ReceiptType {
+    Read,
+    ReadPrivate,
+    FullyRead,
+}
+
+impl From<ReceiptType> for ruma::api::client::receipt::create_receipt::v3::ReceiptType {
+    fn from(value: ReceiptType) -> Self {
+        match value {
+            ReceiptType::Read => Self::Read,
+            ReceiptType::ReadPrivate => Self::Read,
+            ReceiptType::FullyRead => Self::FullyRead,
+        }
+    }
 }

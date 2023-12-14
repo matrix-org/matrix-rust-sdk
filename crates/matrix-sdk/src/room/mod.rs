@@ -29,7 +29,7 @@ use ruma::{
         membership::{
             ban_user, forget_room, get_member_events,
             invite_user::{self, v3::InvitationRecipient},
-            join_room_by_id, kick_user, leave_room, Invite3pid,
+            join_room_by_id, kick_user, leave_room, unban_user, Invite3pid,
         },
         message::send_message_event,
         read_marker::set_read_marker,
@@ -1035,6 +1035,23 @@ impl Room {
     pub async fn ban_user(&self, user_id: &UserId, reason: Option<&str>) -> Result<()> {
         let request = assign!(
             ban_user::v3::Request::new(self.room_id().to_owned(), user_id.to_owned()),
+            { reason: reason.map(ToOwned::to_owned) }
+        );
+        self.client.send(request, None).await?;
+        Ok(())
+    }
+
+    /// Unban the user with `UserId` from this room.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The user to unban with `UserId`.
+    ///
+    /// * `reason` - The reason for unbanning this user.
+    #[instrument(skip_all)]
+    pub async fn unban_user(&self, user_id: &UserId, reason: Option<&str>) -> Result<()> {
+        let request = assign!(
+            unban_user::v3::Request::new(self.room_id().to_owned(), user_id.to_owned()),
             { reason: reason.map(ToOwned::to_owned) }
         );
         self.client.send(request, None).await?;

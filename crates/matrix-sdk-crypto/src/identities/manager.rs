@@ -546,7 +546,7 @@ impl IdentityManager {
         }
     }
 
-    /// Try to deserialize the the master key and self-signing key of an
+    /// Try to deserialize the master key and self-signing key of an
     /// identity from a `/keys/query` response.
     ///
     /// Each user identity *must* at least contain a master and self-signing
