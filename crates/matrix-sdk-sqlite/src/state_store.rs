@@ -1656,9 +1656,27 @@ struct ReceiptData {
 
 /// Repeat `?` n times, where n is defined by `count`. `?` are comma-separated.
 fn repeat_vars(count: usize) -> impl fmt::Display {
-    assert_ne!(count, 0);
+    assert_ne!(count, 0, "Can't generate zero repeated vars");
 
     iter::repeat("?").take(count).format(",")
+}
+
+#[cfg(test)]
+mod unit_tests {
+    use super::*;
+
+    #[test]
+    fn can_generate_repeated_vars() {
+        assert_eq!(repeat_vars(1).to_string(), "?");
+        assert_eq!(repeat_vars(2).to_string(), "?,?");
+        assert_eq!(repeat_vars(5).to_string(), "?,?,?,?,?");
+    }
+
+    #[test]
+    #[should_panic(expected = "Can't generate zero repeated vars")]
+    fn generating_zero_vars_panics() {
+        repeat_vars(0);
+    }
 }
 
 #[cfg(test)]

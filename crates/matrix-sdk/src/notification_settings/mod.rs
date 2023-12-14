@@ -15,6 +15,7 @@ use tokio::sync::{
     broadcast::{self, Receiver},
     RwLock,
 };
+use tracing::{debug, error};
 
 use self::{command::Command, rule_commands::RuleCommands, rules::Rules};
 
@@ -28,7 +29,7 @@ use crate::{
 };
 
 /// Enum representing the push notification modes for a room.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RoomNotificationMode {
     /// Receive notifications for all messages.
     AllMessages,
@@ -39,7 +40,7 @@ pub enum RoomNotificationMode {
 }
 
 /// Whether or not a room is encrypted
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum IsEncrypted {
     /// The room is encrypted
     Yes,
@@ -58,7 +59,7 @@ impl From<bool> for IsEncrypted {
 }
 
 /// Whether or not a room is a `one-to-one`
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum IsOneToOne {
     /// A room is a `one-to-one` room if it has exactly two members.
     Yes,
@@ -197,11 +198,6 @@ impl NotificationSettings {
         is_one_to_one: IsOneToOne,
         mode: RoomNotificationMode,
     ) -> Result<(), NotificationSettingsError> {
-        let rule_ids = vec![
-            rules::get_predefined_underride_room_rule_id(is_encrypted, is_one_to_one.clone()),
-            is_one_to_one.into(),
-        ];
-
         let actions = match mode {
             RoomNotificationMode::AllMessages => {
                 vec![Action::Notify, Action::SetTweak(Tweak::Sound("default".into()))]
@@ -211,8 +207,21 @@ impl NotificationSettings {
             }
         };
 
-        for rule_id in rule_ids {
-            self.set_underride_push_rule_actions(rule_id, actions.clone()).await?
+        let room_rule_id =
+            rules::get_predefined_underride_room_rule_id(is_encrypted, is_one_to_one);
+        self.set_underride_push_rule_actions(room_rule_id, actions.clone()).await?;
+
+        let poll_start_rule_id = rules::get_predefined_underride_poll_start_rule_id(is_one_to_one);
+        if let Err(error) =
+            self.set_underride_push_rule_actions(poll_start_rule_id, actions.clone()).await
+        {
+            // The poll start event rules are currently unstable so they might not be found
+            // on every homeserver. Let's ignore this error for the moment.
+            if let NotificationSettingsError::RuleNotFound(rule_id) = &error {
+                debug!("Unable to update poll start push rule: rule `{rule_id}` not found");
+            } else {
+                return Err(error);
+            }
         }
 
         Ok(())
@@ -260,7 +269,7 @@ impl NotificationSettings {
         let rules = self.rules.read().await.clone();
 
         // Check that the current mode is not already the target mode.
-        if rules.get_user_defined_room_notification_mode(room_id) == Some(mode.clone()) {
+        if rules.get_user_defined_room_notification_mode(room_id) == Some(mode) {
             return Ok(());
         }
 
@@ -443,26 +452,26 @@ impl NotificationSettings {
                         kind.clone(),
                         rule_id.clone(),
                     );
-                    self.client
-                        .send(request, request_config)
-                        .await
-                        .map_err(|_| NotificationSettingsError::UnableToRemovePushRule)?;
+                    self.client.send(request, request_config).await.map_err(|error| {
+                        error!("Unable to delete {kind} push rule `{rule_id}`: {error}");
+                        NotificationSettingsError::UnableToRemovePushRule
+                    })?;
                 }
-                Command::SetRoomPushRule { scope, room_id: _, notify: _ } => {
+                Command::SetRoomPushRule { scope, room_id, notify: _ } => {
                     let push_rule = command.to_push_rule()?;
                     let request = set_pushrule::v3::Request::new(scope.clone(), push_rule);
-                    self.client
-                        .send(request, request_config)
-                        .await
-                        .map_err(|_| NotificationSettingsError::UnableToAddPushRule)?;
+                    self.client.send(request, request_config).await.map_err(|error| {
+                        error!("Unable to set room push rule `{room_id}`: {error}");
+                        NotificationSettingsError::UnableToAddPushRule
+                    })?;
                 }
-                Command::SetOverridePushRule { scope, rule_id: _, room_id: _, notify: _ } => {
+                Command::SetOverridePushRule { scope, rule_id, room_id: _, notify: _ } => {
                     let push_rule = command.to_push_rule()?;
                     let request = set_pushrule::v3::Request::new(scope.clone(), push_rule);
-                    self.client
-                        .send(request, request_config)
-                        .await
-                        .map_err(|_| NotificationSettingsError::UnableToAddPushRule)?;
+                    self.client.send(request, request_config).await.map_err(|error| {
+                        error!("Unable to set override push rule `{rule_id}`: {error}");
+                        NotificationSettingsError::UnableToAddPushRule
+                    })?;
                 }
                 Command::SetKeywordPushRule { scope, keyword: _ } => {
                     let push_rule = command.to_push_rule()?;
@@ -479,10 +488,10 @@ impl NotificationSettings {
                         rule_id.clone(),
                         *enabled,
                     );
-                    self.client
-                        .send(request, request_config)
-                        .await
-                        .map_err(|_| NotificationSettingsError::UnableToUpdatePushRule)?;
+                    self.client.send(request, request_config).await.map_err(|error| {
+                        error!("Unable to set {kind} push rule `{rule_id}` enabled: {error}");
+                        NotificationSettingsError::UnableToUpdatePushRule
+                    })?;
                 }
                 Command::SetPushRuleActions { scope, kind, rule_id, actions } => {
                     let request = set_pushrule_actions::v3::Request::new(
@@ -491,10 +500,10 @@ impl NotificationSettings {
                         rule_id.clone(),
                         actions.clone(),
                     );
-                    self.client
-                        .send(request, request_config)
-                        .await
-                        .map_err(|_| NotificationSettingsError::UnableToUpdatePushRule)?;
+                    self.client.send(request, request_config).await.map_err(|error| {
+                        error!("Unable to set {kind} push rule `{rule_id}` actions: {error}");
+                        NotificationSettingsError::UnableToUpdatePushRule
+                    })?;
                 }
             }
         }
@@ -853,16 +862,16 @@ mod tests {
         let mode = settings.get_user_defined_room_notification_mode(&room_id).await;
         assert!(mode.is_none());
 
-        let new_modes = &[
+        let new_modes = [
             RoomNotificationMode::AllMessages,
             RoomNotificationMode::MentionsAndKeywordsOnly,
             RoomNotificationMode::Mute,
         ];
         for new_mode in new_modes {
-            settings.set_room_notification_mode(&room_id, new_mode.clone()).await.unwrap();
+            settings.set_room_notification_mode(&room_id, new_mode).await.unwrap();
 
             assert_eq!(
-                new_mode.clone(),
+                new_mode,
                 settings.get_user_defined_room_notification_mode(&room_id).await.unwrap()
             );
         }
@@ -1520,5 +1529,39 @@ mod tests {
         let settings = client.notification_settings().await;
 
         settings.remove_keyword("banana").await.unwrap();
+    }
+
+    #[async_test]
+    async fn test_set_default_room_notification_mode_missing_poll_start() {
+        let server = MockServer::start().await;
+        Mock::given(method("PUT")).respond_with(ResponseTemplate::new(200)).mount(&server).await;
+        let client = logged_in_client(Some(server.uri())).await;
+
+        // If the initial mode is `AllMessages`
+        let mut ruleset = get_server_default_ruleset();
+        ruleset.underride.remove(PredefinedUnderrideRuleId::PollStart.as_str());
+
+        let settings = NotificationSettings::new(client, ruleset);
+        assert_eq!(
+            settings.get_default_room_notification_mode(IsEncrypted::No, IsOneToOne::No).await,
+            RoomNotificationMode::AllMessages
+        );
+
+        // After setting the default mode to `MentionsAndKeywordsOnly`
+        settings
+            .set_default_room_notification_mode(
+                IsEncrypted::No,
+                IsOneToOne::No,
+                RoomNotificationMode::MentionsAndKeywordsOnly,
+            )
+            .await
+            .unwrap();
+
+        // the new mode returned by `get_default_room_notification_mode()` should
+        // reflect the change.
+        assert_matches!(
+            settings.get_default_room_notification_mode(IsEncrypted::No, IsOneToOne::No).await,
+            RoomNotificationMode::MentionsAndKeywordsOnly
+        );
     }
 }
