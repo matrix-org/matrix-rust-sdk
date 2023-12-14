@@ -180,10 +180,7 @@ impl MediaEventContent for LocationMessageEventContent {
 
 #[cfg(test)]
 mod tests {
-    use ruma::{
-        events::room::{EncryptedFile, JsonWebKey},
-        mxc_uri,
-    };
+    use ruma::mxc_uri;
     use serde_json::json;
 
     use super::*;
