@@ -395,7 +395,7 @@ impl NotificationSettings {
     ///
     /// # Arguments
     ///
-    /// * `keyword` - The keyword to match.
+    /// * `keyword` - The keyword to unmatch.
     pub async fn remove_keyword(&self, keyword: &str) -> Result<(), NotificationSettingsError> {
         let rules = self.rules.read().await.clone();
 
