@@ -501,29 +501,26 @@ trait SqliteObjectCryptoStoreExt: SqliteObjectExt {
     }
 
     async fn mark_inbound_group_sessions_as_backed_up(&self, session_ids: Vec<Key>) -> Result<()> {
-        let max_chunk_size = usize::try_from(self.limit(Limit::SQLITE_LIMIT_VARIABLE_NUMBER).await)
-            .expect("SQLITE_LIMIT_VARIABLE_NUMBER was not a usize!");
-
         if session_ids.is_empty() {
             // We are not expecting to be called with an empty list of sessions
             warn!("No sessions to mark as backed up!");
             return Ok(());
         }
 
-        self.with_transaction(move |tx| {
-            for chunk in session_ids.chunks(max_chunk_size) {
+        let session_ids_len = session_ids.len();
+
+        self.chunk_large_query_over(session_ids, None, move |session_ids| {
+            async move {
                 // Safety: placeholders is not generated using any user input except the number
                 // of session IDs, so it is safe from injection.
-                let placeholders = repeat_vars(chunk.len());
-                let query = format!(
-                    "UPDATE inbound_group_session SET backed_up = TRUE where session_id IN ({})",
-                    placeholders
-                );
-                tx.execute(&query, params_from_iter(chunk.iter()))?;
+                let sql_params = repeat_vars(session_ids_len);
+                let query = format!("UPDATE inbound_group_session SET backed_up = TRUE where session_id IN ({sql_params})");
+                self.prepare(query, move |mut stmt| stmt.execute(params_from_iter(session_ids.iter()))).await?;
+                Ok(Vec::<&str>::new())
             }
-            Ok(())
-        })
-        .await
+        }).await?;
+
+        Ok(())
     }
 
     async fn reset_inbound_group_session_backup_state(&self) -> Result<()> {
