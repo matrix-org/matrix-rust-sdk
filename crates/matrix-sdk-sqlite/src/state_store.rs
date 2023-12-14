@@ -611,7 +611,7 @@ trait SqliteObjectStateStoreExt: SqliteObjectExt {
     async fn get_kv_blobs(&self, keys: Vec<Key>) -> Result<Vec<Vec<u8>>> {
         let keys_length = keys.len();
 
-        chunk_large_query_over(keys, Some(keys_length), |keys| {
+        self.chunk_large_query_over(keys, Some(keys_length), |keys| {
             let sql_params = repeat_vars(keys.len());
             let sql = format!("SELECT value FROM kv_blob WHERE key IN ({sql_params})");
 
@@ -639,7 +639,7 @@ trait SqliteObjectStateStoreExt: SqliteObjectExt {
                 })
                 .await?)
         } else {
-            chunk_large_query_over(states, None, |states| {
+            self.chunk_large_query_over(states, None, |states| {
                 let sql_params = repeat_vars(states.len());
                 let sql = format!("SELECT data FROM room_info WHERE state IN ({sql_params})");
 
@@ -659,7 +659,7 @@ trait SqliteObjectStateStoreExt: SqliteObjectExt {
         event_type: Key,
         state_keys: Vec<Key>,
     ) -> Result<Vec<(bool, Vec<u8>)>> {
-        chunk_large_query_over(state_keys, None, move |state_keys: Vec<Key>| {
+        self.chunk_large_query_over(state_keys, None, move |state_keys: Vec<Key>| {
             let sql_params = repeat_vars(state_keys.len());
             let sql = format!(
                 "SELECT stripped, data FROM state_event
@@ -702,7 +702,7 @@ trait SqliteObjectStateStoreExt: SqliteObjectExt {
     ) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
         let user_ids_length = user_ids.len();
 
-        chunk_large_query_over(user_ids, Some(user_ids_length), move |user_ids| {
+        self.chunk_large_query_over(user_ids, Some(user_ids_length), move |user_ids| {
             let sql_params = repeat_vars(user_ids.len());
             let sql = format!(
                 "SELECT user_id, data FROM profile WHERE room_id = ? AND user_id IN ({sql_params})"
@@ -724,7 +724,7 @@ trait SqliteObjectStateStoreExt: SqliteObjectExt {
             })
             .await?
         } else {
-            chunk_large_query_over(memberships, None, move |memberships| {
+            self.chunk_large_query_over(memberships, None, move |memberships| {
                 let sql_params = repeat_vars(memberships.len());
                 let sql = format!(
                     "SELECT data FROM member WHERE room_id = ? AND membership IN ({sql_params})"
@@ -776,7 +776,7 @@ trait SqliteObjectStateStoreExt: SqliteObjectExt {
     ) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
         let names_length = names.len();
 
-        chunk_large_query_over(names, Some(names_length), move |names| {
+        self.chunk_large_query_over(names, Some(names_length), move |names| {
             let sql_params = repeat_vars(names.len());
             let sql = format!(
                 "SELECT name, data FROM display_name WHERE room_id = ? AND name IN ({sql_params})"
@@ -857,6 +857,55 @@ trait SqliteObjectStateStoreExt: SqliteObjectExt {
     async fn remove_uri_medias(&self, uri: Key) -> Result<()> {
         self.execute("DELETE FROM media WHERE uri = ?", (uri,)).await?;
         Ok(())
+    }
+
+    /// Chunk a large query over some keys.
+    ///
+    /// Imagine there is a _dynamic_ query that runs potentially large number of
+    /// parameters, so much that the maximum number of parameters can be hit.
+    /// Then, this helper is for you. It will execute the query on chunks of
+    /// parameters.
+    async fn chunk_large_query_over<Query, Fut, Res>(
+        &self,
+        mut keys_to_chunk: Vec<Key>,
+        result_capacity: Option<usize>,
+        do_query: Query,
+    ) -> Result<Vec<Res>>
+    where
+        Query: Fn(Vec<Key>) -> Fut + Send + Sync,
+        Fut: Future<Output = Result<Vec<Res>, rusqlite::Error>> + Send,
+        Res: Send,
+    {
+        // Divide by 2 to allow space for more static parameters (not part of
+        // `keys_to_chunk`).
+        let maximum_chunk_size = self.limit(Limit::SQLITE_LIMIT_VARIABLE_NUMBER).await / 2;
+        let maximum_chunk_size: usize = maximum_chunk_size
+            .try_into()
+            .map_err(|_| Error::SqliteMaximumVariableNumber(maximum_chunk_size))?;
+
+        if keys_to_chunk.len() < maximum_chunk_size {
+            // Chunking isn't necessary.
+            let chunk = keys_to_chunk;
+
+            Ok(do_query(chunk).await?)
+        } else {
+            // Chunking _is_ necessary.
+
+            // Define the accumulator.
+            let capacity = result_capacity.unwrap_or_default();
+            let mut all_results = Vec::with_capacity(capacity);
+
+            while !keys_to_chunk.is_empty() {
+                // Chunk and run the query.
+                let tail = keys_to_chunk.split_off(min(keys_to_chunk.len(), maximum_chunk_size));
+                let chunk = keys_to_chunk;
+                keys_to_chunk = tail;
+
+                all_results.extend(do_query(chunk).await?);
+            }
+
+            Ok(all_results)
+        }
     }
 }
 
@@ -1603,52 +1652,6 @@ struct ReceiptData {
     receipt: Receipt,
     event_id: OwnedEventId,
     user_id: OwnedUserId,
-}
-
-/// Chunk a large query over some keys.
-///
-/// Imagine there is a _dynamic_ query that runs potentially large number of
-/// parameters, so much that the maximum number of parameters can be hit. Then,
-/// this helper is for you. It will execute the query on chunks of parameters.
-async fn chunk_large_query_over<Query, Fut, Res>(
-    mut keys_to_chunk: Vec<Key>,
-    result_capacity: Option<usize>,
-    do_query: Query,
-) -> Result<Vec<Res>>
-where
-    Query: Fn(Vec<Key>) -> Fut,
-    Fut: Future<Output = Result<Vec<Res>, rusqlite::Error>>,
-{
-    // `Limit` has a `repr(i32)`, it's safe to cast it to `i32`. Then divide by 2 to
-    // let space for more static parameters (not part of `keys_to_chunk`).
-    let maximum_chunk_size = Limit::SQLITE_LIMIT_VARIABLE_NUMBER as i32 / 2;
-    let maximum_chunk_size: usize = maximum_chunk_size
-        .try_into()
-        .map_err(|_| Error::SqliteMaximumVariableNumber(maximum_chunk_size))?;
-
-    if keys_to_chunk.len() < maximum_chunk_size {
-        // Chunking isn't necessary.
-        let chunk = keys_to_chunk;
-
-        Ok(do_query(chunk).await?)
-    } else {
-        // Chunking _is_ necessary.
-
-        // Define the accumulator.
-        let capacity = result_capacity.unwrap_or_default();
-        let mut all_results = Vec::with_capacity(capacity);
-
-        while !keys_to_chunk.is_empty() {
-            // Chunk and run the query.
-            let tail = keys_to_chunk.split_off(min(keys_to_chunk.len(), maximum_chunk_size));
-            let chunk = keys_to_chunk;
-            keys_to_chunk = tail;
-
-            all_results.extend(do_query(chunk).await?);
-        }
-
-        Ok(all_results)
-    }
 }
 
 /// Repeat `?` n times, where n is defined by `count`. `?` are comma-separated.
