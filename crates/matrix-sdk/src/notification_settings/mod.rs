@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use indexmap::IndexSet;
 use ruma::{
     api::client::push::{
         delete_pushrule, set_pushrule, set_pushrule_actions, set_pushrule_enabled,
@@ -362,6 +363,72 @@ impl NotificationSettings {
         }
     }
 
+    /// Get the keywords which have enabled rules.
+    pub async fn enabled_keywords(&self) -> IndexSet<String> {
+        self.rules.read().await.enabled_keywords()
+    }
+
+    /// Add or enable a rule for the given keyword.
+    ///
+    /// # Arguments
+    ///
+    /// * `keyword` - The keyword to match.
+    pub async fn add_keyword(&self, keyword: String) -> Result<(), NotificationSettingsError> {
+        let rules = self.rules.read().await.clone();
+
+        let mut rule_commands = RuleCommands::new(rules.clone().ruleset);
+
+        let existing_rules = rules.keyword_rules(&keyword);
+
+        if existing_rules.is_empty() {
+            // Create a rule.
+            rule_commands.insert_keyword_rule(keyword)?;
+        } else {
+            if existing_rules.iter().any(|r| r.enabled) {
+                // Nothing to do.
+                return Ok(());
+            }
+
+            // Enable one of the rules.
+            rule_commands.set_rule_enabled(RuleKind::Content, &existing_rules[0].rule_id, true)?;
+        }
+
+        self.run_server_commands(&rule_commands).await?;
+
+        let rules = &mut *self.rules.write().await;
+        rules.apply(rule_commands);
+
+        Ok(())
+    }
+
+    /// Remove the rules for the given keyword.
+    ///
+    /// # Arguments
+    ///
+    /// * `keyword` - The keyword to unmatch.
+    pub async fn remove_keyword(&self, keyword: &str) -> Result<(), NotificationSettingsError> {
+        let rules = self.rules.read().await.clone();
+
+        let mut rule_commands = RuleCommands::new(rules.clone().ruleset);
+
+        let existing_rules = rules.keyword_rules(keyword);
+
+        if existing_rules.is_empty() {
+            return Ok(());
+        }
+
+        for rule in existing_rules {
+            rule_commands.delete_rule(RuleKind::Content, rule.rule_id.clone())?;
+        }
+
+        self.run_server_commands(&rule_commands).await?;
+
+        let rules = &mut *self.rules.write().await;
+        rules.apply(rule_commands);
+
+        Ok(())
+    }
+
     /// Convert commands into requests to the server, and run them.
     async fn run_server_commands(
         &self,
@@ -390,6 +457,14 @@ impl NotificationSettings {
                         .map_err(|_| NotificationSettingsError::UnableToAddPushRule)?;
                 }
                 Command::SetOverridePushRule { scope, rule_id: _, room_id: _, notify: _ } => {
+                    let push_rule = command.to_push_rule()?;
+                    let request = set_pushrule::v3::Request::new(scope.clone(), push_rule);
+                    self.client
+                        .send(request, request_config)
+                        .await
+                        .map_err(|_| NotificationSettingsError::UnableToAddPushRule)?;
+                }
+                Command::SetKeywordPushRule { scope, keyword: _ } => {
                     let push_rule = command.to_push_rule()?;
                     let request = set_pushrule::v3::Request::new(scope.clone(), push_rule);
                     self.client
@@ -1189,5 +1264,261 @@ mod tests {
             settings.get_default_room_notification_mode(IsEncrypted::No, IsOneToOne::Yes).await,
             RoomNotificationMode::AllMessages
         );
+    }
+
+    #[async_test]
+    async fn list_keywords() {
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
+
+        // Initial state: No keywords
+        let ruleset = get_server_default_ruleset();
+        let settings = NotificationSettings::new(client.clone(), ruleset);
+
+        let keywords = settings.enabled_keywords().await;
+
+        assert!(keywords.is_empty());
+
+        // Initial state: 3 rules, 2 keywords
+        let mut ruleset = get_server_default_ruleset();
+        ruleset
+            .insert(
+                NewPushRule::Content(NewPatternedPushRule::new(
+                    "a".to_owned(),
+                    "a".to_owned(),
+                    vec![],
+                )),
+                None,
+                None,
+            )
+            .unwrap();
+        // Test deduplication.
+        ruleset
+            .insert(
+                NewPushRule::Content(NewPatternedPushRule::new(
+                    "a_bis".to_owned(),
+                    "a".to_owned(),
+                    vec![],
+                )),
+                None,
+                None,
+            )
+            .unwrap();
+        ruleset
+            .insert(
+                NewPushRule::Content(NewPatternedPushRule::new(
+                    "b".to_owned(),
+                    "b".to_owned(),
+                    vec![],
+                )),
+                None,
+                None,
+            )
+            .unwrap();
+
+        let settings = NotificationSettings::new(client, ruleset);
+
+        let keywords = settings.enabled_keywords().await;
+        assert_eq!(keywords.len(), 2);
+        assert!(keywords.get("a").is_some());
+        assert!(keywords.get("b").is_some())
+    }
+
+    #[async_test]
+    async fn add_keyword_missing() {
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
+        let settings = client.notification_settings().await;
+
+        Mock::given(method("PUT"))
+            .and(path("/_matrix/client/r0/pushrules/global/content/banana"))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        settings.add_keyword("banana".to_owned()).await.unwrap();
+
+        // The ruleset must have been updated.
+        let keywords = settings.enabled_keywords().await;
+        assert_eq!(keywords.len(), 1);
+        assert!(keywords.get("banana").is_some());
+
+        // Rule exists.
+        let rule_enabled =
+            settings.is_push_rule_enabled(RuleKind::Content, "banana").await.unwrap();
+        assert!(rule_enabled)
+    }
+
+    #[async_test]
+    async fn add_keyword_disabled() {
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
+
+        let mut ruleset = get_server_default_ruleset();
+        ruleset
+            .insert(
+                NewPushRule::Content(NewPatternedPushRule::new(
+                    "banana_two".to_owned(),
+                    "banana".to_owned(),
+                    vec![],
+                )),
+                None,
+                None,
+            )
+            .unwrap();
+        ruleset.set_enabled(RuleKind::Content, "banana_two", false).unwrap();
+        ruleset
+            .insert(
+                NewPushRule::Content(NewPatternedPushRule::new(
+                    "banana_one".to_owned(),
+                    "banana".to_owned(),
+                    vec![],
+                )),
+                None,
+                None,
+            )
+            .unwrap();
+        ruleset.set_enabled(RuleKind::Content, "banana_one", false).unwrap();
+
+        let settings = NotificationSettings::new(client, ruleset);
+        Mock::given(method("PUT"))
+            .and(path("/_matrix/client/r0/pushrules/global/content/banana_one/enabled"))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        settings.add_keyword("banana".to_owned()).await.unwrap();
+
+        // The ruleset must have been updated.
+        let keywords = settings.enabled_keywords().await;
+
+        assert_eq!(keywords.len(), 1);
+        assert!(keywords.get("banana").is_some());
+
+        // The first rule was enabled.
+        let first_rule_enabled =
+            settings.is_push_rule_enabled(RuleKind::Content, "banana_one").await.unwrap();
+        assert!(first_rule_enabled);
+        let second_rule_enabled =
+            settings.is_push_rule_enabled(RuleKind::Content, "banana_two").await.unwrap();
+        assert!(!second_rule_enabled);
+    }
+
+    #[async_test]
+    async fn add_keyword_noop() {
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
+
+        let mut ruleset = get_server_default_ruleset();
+        ruleset
+            .insert(
+                NewPushRule::Content(NewPatternedPushRule::new(
+                    "banana_two".to_owned(),
+                    "banana".to_owned(),
+                    vec![],
+                )),
+                None,
+                None,
+            )
+            .unwrap();
+        ruleset
+            .insert(
+                NewPushRule::Content(NewPatternedPushRule::new(
+                    "banana_one".to_owned(),
+                    "banana".to_owned(),
+                    vec![],
+                )),
+                None,
+                None,
+            )
+            .unwrap();
+        ruleset.set_enabled(RuleKind::Content, "banana_one", false).unwrap();
+
+        let settings = NotificationSettings::new(client, ruleset);
+        settings.add_keyword("banana".to_owned()).await.unwrap();
+
+        // Nothing changed.
+        let keywords = settings.enabled_keywords().await;
+
+        assert_eq!(keywords.len(), 1);
+        assert!(keywords.get("banana").is_some());
+
+        let first_rule_enabled =
+            settings.is_push_rule_enabled(RuleKind::Content, "banana_one").await.unwrap();
+        assert!(!first_rule_enabled);
+        let second_rule_enabled =
+            settings.is_push_rule_enabled(RuleKind::Content, "banana_two").await.unwrap();
+        assert!(second_rule_enabled);
+    }
+
+    #[async_test]
+    async fn remove_keyword_all() {
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
+
+        let mut ruleset = get_server_default_ruleset();
+        ruleset
+            .insert(
+                NewPushRule::Content(NewPatternedPushRule::new(
+                    "banana_two".to_owned(),
+                    "banana".to_owned(),
+                    vec![],
+                )),
+                None,
+                None,
+            )
+            .unwrap();
+        ruleset
+            .insert(
+                NewPushRule::Content(NewPatternedPushRule::new(
+                    "banana_one".to_owned(),
+                    "banana".to_owned(),
+                    vec![],
+                )),
+                None,
+                None,
+            )
+            .unwrap();
+        ruleset.set_enabled(RuleKind::Content, "banana_one", false).unwrap();
+
+        let settings = NotificationSettings::new(client, ruleset);
+
+        Mock::given(method("DELETE"))
+            .and(path("/_matrix/client/r0/pushrules/global/content/banana_one"))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("DELETE"))
+            .and(path("/_matrix/client/r0/pushrules/global/content/banana_two"))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        settings.remove_keyword("banana").await.unwrap();
+
+        // The ruleset must have been updated.
+        let keywords = settings.enabled_keywords().await;
+        assert!(keywords.is_empty());
+
+        // Rules we removed.
+        let first_rule_error =
+            settings.is_push_rule_enabled(RuleKind::Content, "banana_one").await.unwrap_err();
+        assert_matches!(first_rule_error, NotificationSettingsError::RuleNotFound(_));
+        let second_rule_error =
+            settings.is_push_rule_enabled(RuleKind::Content, "banana_two").await.unwrap_err();
+        assert_matches!(second_rule_error, NotificationSettingsError::RuleNotFound(_));
+    }
+
+    #[async_test]
+    async fn remove_keyword_noop() {
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
+        let settings = client.notification_settings().await;
+
+        settings.remove_keyword("banana").await.unwrap();
     }
 }
