@@ -1,10 +1,7 @@
 use std::{
     borrow::Cow,
-    cmp::min,
     collections::{BTreeMap, BTreeSet},
-    fmt,
-    future::Future,
-    iter,
+    fmt, iter,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -35,7 +32,7 @@ use ruma::{
     serde::Raw,
     CanonicalJsonObject, EventId, OwnedEventId, OwnedUserId, RoomId, RoomVersionId, UserId,
 };
-use rusqlite::{limits::Limit, OptionalExtension, Transaction};
+use rusqlite::{OptionalExtension, Transaction};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio::fs;
 use tracing::{debug, warn};
@@ -857,55 +854,6 @@ trait SqliteObjectStateStoreExt: SqliteObjectExt {
     async fn remove_uri_medias(&self, uri: Key) -> Result<()> {
         self.execute("DELETE FROM media WHERE uri = ?", (uri,)).await?;
         Ok(())
-    }
-
-    /// Chunk a large query over some keys.
-    ///
-    /// Imagine there is a _dynamic_ query that runs potentially large number of
-    /// parameters, so much that the maximum number of parameters can be hit.
-    /// Then, this helper is for you. It will execute the query on chunks of
-    /// parameters.
-    async fn chunk_large_query_over<Query, Fut, Res>(
-        &self,
-        mut keys_to_chunk: Vec<Key>,
-        result_capacity: Option<usize>,
-        do_query: Query,
-    ) -> Result<Vec<Res>>
-    where
-        Query: Fn(Vec<Key>) -> Fut + Send + Sync,
-        Fut: Future<Output = Result<Vec<Res>, rusqlite::Error>> + Send,
-        Res: Send,
-    {
-        // Divide by 2 to allow space for more static parameters (not part of
-        // `keys_to_chunk`).
-        let maximum_chunk_size = self.limit(Limit::SQLITE_LIMIT_VARIABLE_NUMBER).await / 2;
-        let maximum_chunk_size: usize = maximum_chunk_size
-            .try_into()
-            .map_err(|_| Error::SqliteMaximumVariableNumber(maximum_chunk_size))?;
-
-        if keys_to_chunk.len() < maximum_chunk_size {
-            // Chunking isn't necessary.
-            let chunk = keys_to_chunk;
-
-            Ok(do_query(chunk).await?)
-        } else {
-            // Chunking _is_ necessary.
-
-            // Define the accumulator.
-            let capacity = result_capacity.unwrap_or_default();
-            let mut all_results = Vec::with_capacity(capacity);
-
-            while !keys_to_chunk.is_empty() {
-                // Chunk and run the query.
-                let tail = keys_to_chunk.split_off(min(keys_to_chunk.len(), maximum_chunk_size));
-                let chunk = keys_to_chunk;
-                keys_to_chunk = tail;
-
-                all_results.extend(do_query(chunk).await?);
-            }
-
-            Ok(all_results)
-        }
     }
 }
 
