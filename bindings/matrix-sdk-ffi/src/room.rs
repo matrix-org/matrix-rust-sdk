@@ -130,21 +130,19 @@ impl Room {
     /// This will only send a call notify event if appropriate.
     ///
     /// This function is supposed to be called whenever the user creates a room
-    /// call. It will consider send a notify event if:
+    /// call. It will send a notify event if:
     ///  - there is not yet a running call.
     /// It will configure the notify type: ring or notify based on:
     ///  - is this a DM room -> ring
     ///  - is this a group with more then one other member -> notify
-    pub fn try_send_room_call_notify(&self) {
-        if self.inner.has_active_room_call() {
-            return;
+    pub async fn check_and_send_room_call_notify(&self) {
+        match self.inner.check_and_send_room_call_notify().await {
+            None => tracing::info!("Did not send call notify event, there is already a call."),
+            Some(res) => match res {
+                Ok(_) => tracing::info!("Sent call notify event."),
+                Err(e) => tracing::info!("Failed to send call notify event: {}", e),
+            },
         }
-        self.send_call_notify(
-            "".to_owned(),
-            RtcApplicationType::Call,
-            if self.is_direct() { NotifyType::Ring } else { NotifyType::Notify },
-            Mentions { room: true, user_ids: vec![] },
-        )
     }
 
     /// Send a call notify event in the current room.
@@ -152,27 +150,27 @@ impl Room {
     /// This is only supposed to be used in **custom** situations where the user
     /// explicitly chooses to send call.notify event to invite/notify someone
     /// explicitly in unusual conditions. The default should be to use
-    /// [`try_send_room_call_notify`] just before a new room call is
+    /// [`check_and_send_room_call_notify`] just before a new room call is
     /// created/joined.
     ///
     /// One example could be that the UI allows to start a call with a subset of
     /// users of the room members first. And then later on the user can
     /// invite more users to the call.
-    pub fn send_call_notify(
+    pub async fn send_call_notify(
         &self,
         call_id: String,
         application: RtcApplicationType,
         notify_type: NotifyType,
         mentions: Mentions,
     ) {
-        let call_notify_event_content = notify::CallNotifyEventContent::new(
-            call_id,
-            application.into(),
-            notify_type.into(),
-            mentions.into(),
-        );
-
-        self.inner.send(call_notify_event_content);
+        match self
+            .inner
+            .send_call_notify(call_id, application.into(), notify_type.into(), mentions.into())
+            .await
+        {
+            Ok(_) => tracing::info!("Sent call notify event."),
+            Err(e) => tracing::info!("Failed to send call notify event: {}", e),
+        };
     }
 
     pub fn inviter(&self) -> Option<Arc<RoomMember>> {

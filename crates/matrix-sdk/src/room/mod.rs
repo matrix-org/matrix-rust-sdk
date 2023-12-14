@@ -42,6 +42,7 @@ use ruma::{
     },
     assign,
     events::{
+        call::notify::{ApplicationType, CallNotifyEventContent, NotifyType},
         direct::DirectEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
         room::{
@@ -57,7 +58,7 @@ use ruma::{
         },
         space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
         tag::{TagInfo, TagName},
-        AnyRoomAccountDataEvent, AnyStateEvent, EmptyStateKey, MessageLikeEventContent,
+        AnyRoomAccountDataEvent, AnyStateEvent, EmptyStateKey, Mentions, MessageLikeEventContent,
         MessageLikeEventType, RedactContent, RedactedStateEventContent, RoomAccountDataEvent,
         RoomAccountDataEventContent, RoomAccountDataEventType, StateEventContent, StateEventType,
         StaticEventContent, StaticStateEventContent, SyncStateEvent,
@@ -1576,6 +1577,61 @@ impl Room {
         config: AttachmentConfig,
     ) -> SendAttachment<'a> {
         SendAttachment::new(self, body, content_type, data, config)
+    }
+
+    /// This will only send a call notify event if appropriate.
+    ///
+    /// This function is supposed to be called whenever the user creates a room
+    /// call. It will send a notify event if:
+    ///  - there is not yet a running call.
+    /// It will configure the notify type: ring or notify based on:
+    ///  - is this a DM room -> ring
+    ///  - is this a group with more then one other member -> notify
+    ///
+    /// Returns `None` if the checks did not pass and no notify event was sent.
+    /// Otherwise returns the a `send` result.
+    pub async fn check_and_send_room_call_notify(
+        &self,
+    ) -> Option<Result<send_message_event::v3::Response, Error>> {
+        if self.has_active_room_call() {
+            return None;
+        }
+        Some(
+            self.send_call_notify(
+                "".to_owned(),
+                ApplicationType::Call,
+                if self.is_direct().await.unwrap_or(false) {
+                    NotifyType::Ring
+                } else {
+                    NotifyType::Notify
+                },
+                Mentions::with_room_mention(),
+            )
+            .await,
+        )
+    }
+
+    /// Send a call notify event in the current room.
+    ///
+    /// This is only supposed to be used in **custom** situations where the user
+    /// explicitly chooses to send call.notify event to invite/notify someone
+    /// explicitly in unusual conditions. The default should be to use
+    /// [`check_and_send_room_call_notify`] just before a new room call is
+    /// created/joined.
+    ///
+    /// One example could be that the UI allows to start a call with a subset of
+    /// users of the room members first. And then later on the user can
+    /// invite more users to the call.
+    pub async fn send_call_notify(
+        &self,
+        call_id: String,
+        application: ApplicationType,
+        notify_type: NotifyType,
+        mentions: Mentions,
+    ) -> Result<send_message_event::v3::Response> {
+        let call_notify_event_content =
+            CallNotifyEventContent::new(call_id, application, notify_type, mentions);
+        self.send(call_notify_event_content).await
     }
 
     /// Prepare and send an attachment to this room.
