@@ -29,8 +29,8 @@ use ruma::{
         AnySyncStateEvent, GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
     },
     serde::Raw,
-    CanonicalJsonObject, EventId, MxcUri, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId,
-    RoomVersionId, UserId,
+    CanonicalJsonObject, EventId, MxcUri, OwnedEventId, OwnedMxcUri, OwnedRoomId, OwnedUserId,
+    RoomId, RoomVersionId, UserId,
 };
 use tracing::{debug, warn};
 
@@ -78,7 +78,7 @@ pub struct MemoryStore {
             HashMap<(String, Option<String>), HashMap<OwnedEventId, HashMap<OwnedUserId, Receipt>>>,
         >,
     >,
-    media: StdRwLock<RingBuffer<(String, Vec<u8>)>>,
+    media: StdRwLock<RingBuffer<(OwnedMxcUri, Vec<u8>)>>,
     custom: StdRwLock<HashMap<Vec<u8>, Vec<u8>>>,
 }
 
@@ -703,14 +703,14 @@ impl StateStore for MemoryStore {
     }
 
     async fn add_media_content(&self, request: &MediaRequest, data: Vec<u8>) -> Result<()> {
-        self.media.write().unwrap().push((request.unique_key(), data));
+        self.media.write().unwrap().push((request.uri().to_owned(), data));
 
         Ok(())
     }
 
     async fn get_media_content(&self, request: &MediaRequest) -> Result<Option<Vec<u8>>> {
         let media = self.media.read().unwrap();
-        let expected_key = request.unique_key();
+        let expected_key = request.uri().to_owned();
 
         for (media_key, media_content) in media.iter() {
             if media_key == &expected_key {
@@ -722,23 +722,32 @@ impl StateStore for MemoryStore {
     }
 
     async fn remove_media_content(&self, request: &MediaRequest) -> Result<()> {
-        // Pop all media until the one represented by `request` is found.
-
         let mut media = self.media.write().unwrap();
-        let expected_key = request.unique_key();
+        let expected_key = request.uri().to_owned();
         let Some(index) = media.iter().position(|(media_key, _)| media_key == &expected_key) else {
             return Ok(());
         };
 
-        let _pop = media.drain(0..=index);
+        media.remove(index);
 
         Ok(())
     }
 
-    async fn remove_media_content_for_uri(&self, _uri: &MxcUri) -> Result<()> {
-        // Clear all medias without checking the `uri`.
+    async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()> {
+        let mut media = self.media.write().unwrap();
+        let expected_key = uri.to_owned();
+        let positions = media
+            .iter()
+            .enumerate()
+            .filter_map(|(position, (media_key, _))| {
+                (media_key == &expected_key).then_some(position)
+            })
+            .collect::<Vec<_>>();
 
-        self.media.write().unwrap().clear();
+        // Iterate in reverse-order so that positions stay valid after first removals.
+        for position in positions.into_iter().rev() {
+            media.remove(position);
+        }
 
         Ok(())
     }
