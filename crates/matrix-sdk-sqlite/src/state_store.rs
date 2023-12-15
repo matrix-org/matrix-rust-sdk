@@ -1,17 +1,13 @@
 use std::{
     borrow::Cow,
-    cmp::min,
     collections::{BTreeMap, BTreeSet},
-    fmt,
-    future::Future,
-    iter,
+    fmt, iter,
     path::{Path, PathBuf},
     sync::Arc,
 };
 
 use async_trait::async_trait;
 use deadpool_sqlite::{Object as SqliteConn, Pool as SqlitePool, Runtime};
-use itertools::Itertools;
 use matrix_sdk_base::{
     deserialized_responses::{RawAnySyncOrStrippedState, SyncOrStrippedState},
     media::{MediaRequest, UniqueKey},
@@ -35,7 +31,7 @@ use ruma::{
     serde::Raw,
     CanonicalJsonObject, EventId, OwnedEventId, OwnedUserId, RoomId, RoomVersionId, UserId,
 };
-use rusqlite::{limits::Limit, OptionalExtension, Transaction};
+use rusqlite::{OptionalExtension, Transaction};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio::fs;
 use tracing::{debug, warn};
@@ -43,7 +39,7 @@ use tracing::{debug, warn};
 use crate::{
     error::{Error, Result},
     get_or_create_store_cipher,
-    utils::{load_db_version, Key, SqliteObjectExt},
+    utils::{load_db_version, repeat_vars, Key, SqliteObjectExt},
     OpenStoreError, SqliteObjectStoreExt,
 };
 
@@ -858,55 +854,6 @@ trait SqliteObjectStateStoreExt: SqliteObjectExt {
         self.execute("DELETE FROM media WHERE uri = ?", (uri,)).await?;
         Ok(())
     }
-
-    /// Chunk a large query over some keys.
-    ///
-    /// Imagine there is a _dynamic_ query that runs potentially large number of
-    /// parameters, so much that the maximum number of parameters can be hit.
-    /// Then, this helper is for you. It will execute the query on chunks of
-    /// parameters.
-    async fn chunk_large_query_over<Query, Fut, Res>(
-        &self,
-        mut keys_to_chunk: Vec<Key>,
-        result_capacity: Option<usize>,
-        do_query: Query,
-    ) -> Result<Vec<Res>>
-    where
-        Query: Fn(Vec<Key>) -> Fut + Send + Sync,
-        Fut: Future<Output = Result<Vec<Res>, rusqlite::Error>> + Send,
-        Res: Send,
-    {
-        // Divide by 2 to allow space for more static parameters (not part of
-        // `keys_to_chunk`).
-        let maximum_chunk_size = self.limit(Limit::SQLITE_LIMIT_VARIABLE_NUMBER).await / 2;
-        let maximum_chunk_size: usize = maximum_chunk_size
-            .try_into()
-            .map_err(|_| Error::SqliteMaximumVariableNumber(maximum_chunk_size))?;
-
-        if keys_to_chunk.len() < maximum_chunk_size {
-            // Chunking isn't necessary.
-            let chunk = keys_to_chunk;
-
-            Ok(do_query(chunk).await?)
-        } else {
-            // Chunking _is_ necessary.
-
-            // Define the accumulator.
-            let capacity = result_capacity.unwrap_or_default();
-            let mut all_results = Vec::with_capacity(capacity);
-
-            while !keys_to_chunk.is_empty() {
-                // Chunk and run the query.
-                let tail = keys_to_chunk.split_off(min(keys_to_chunk.len(), maximum_chunk_size));
-                let chunk = keys_to_chunk;
-                keys_to_chunk = tail;
-
-                all_results.extend(do_query(chunk).await?);
-            }
-
-            Ok(all_results)
-        }
-    }
 }
 
 #[async_trait]
@@ -1652,31 +1599,6 @@ struct ReceiptData {
     receipt: Receipt,
     event_id: OwnedEventId,
     user_id: OwnedUserId,
-}
-
-/// Repeat `?` n times, where n is defined by `count`. `?` are comma-separated.
-fn repeat_vars(count: usize) -> impl fmt::Display {
-    assert_ne!(count, 0, "Can't generate zero repeated vars");
-
-    iter::repeat("?").take(count).format(",")
-}
-
-#[cfg(test)]
-mod unit_tests {
-    use super::*;
-
-    #[test]
-    fn can_generate_repeated_vars() {
-        assert_eq!(repeat_vars(1).to_string(), "?");
-        assert_eq!(repeat_vars(2).to_string(), "?,?");
-        assert_eq!(repeat_vars(5).to_string(), "?,?,?,?,?");
-    }
-
-    #[test]
-    #[should_panic(expected = "Can't generate zero repeated vars")]
-    fn generating_zero_vars_panics() {
-        repeat_vars(0);
-    }
 }
 
 #[cfg(test)]

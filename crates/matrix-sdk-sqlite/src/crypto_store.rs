@@ -40,7 +40,7 @@ use ruma::{
     events::secret::request::SecretName, DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId,
     RoomId, TransactionId, UserId,
 };
-use rusqlite::OptionalExtension;
+use rusqlite::{params_from_iter, OptionalExtension};
 use serde::{de::DeserializeOwned, Serialize};
 use tokio::{fs, sync::Mutex};
 use tracing::{debug, instrument, warn};
@@ -49,7 +49,8 @@ use crate::{
     error::{Error, Result},
     get_or_create_store_cipher,
     utils::{
-        load_db_version, Key, SqliteConnectionExt as _, SqliteObjectExt, SqliteObjectStoreExt as _,
+        load_db_version, repeat_vars, Key, SqliteConnectionExt as _, SqliteObjectExt,
+        SqliteObjectStoreExt as _,
     },
     OpenStoreError,
 };
@@ -499,6 +500,29 @@ trait SqliteObjectCryptoStoreExt: SqliteObjectExt {
             .await?)
     }
 
+    async fn mark_inbound_group_sessions_as_backed_up(&self, session_ids: Vec<Key>) -> Result<()> {
+        if session_ids.is_empty() {
+            // We are not expecting to be called with an empty list of sessions
+            warn!("No sessions to mark as backed up!");
+            return Ok(());
+        }
+
+        let session_ids_len = session_ids.len();
+
+        self.chunk_large_query_over(session_ids, None, move |session_ids| {
+            async move {
+                // Safety: placeholders is not generated using any user input except the number
+                // of session IDs, so it is safe from injection.
+                let sql_params = repeat_vars(session_ids_len);
+                let query = format!("UPDATE inbound_group_session SET backed_up = TRUE where session_id IN ({sql_params})");
+                self.prepare(query, move |mut stmt| stmt.execute(params_from_iter(session_ids.iter()))).await?;
+                Ok(Vec::<&str>::new())
+            }
+        }).await?;
+
+        Ok(())
+    }
+
     async fn reset_inbound_group_session_backup_state(&self) -> Result<()> {
         self.execute("UPDATE inbound_group_session SET backed_up = FALSE", ()).await?;
         Ok(())
@@ -934,6 +958,22 @@ impl CryptoStore for SqliteCryptoStore {
                 Ok(InboundGroupSession::from_pickle(pickle)?)
             })
             .collect()
+    }
+
+    async fn mark_inbound_group_sessions_as_backed_up(
+        &self,
+        session_ids: &[(&RoomId, &str)],
+    ) -> Result<()> {
+        Ok(self
+            .acquire()
+            .await?
+            .mark_inbound_group_sessions_as_backed_up(
+                session_ids
+                    .iter()
+                    .map(|(_, s)| self.encode_key("inbound_group_session", s))
+                    .collect(),
+            )
+            .await?)
     }
 
     async fn reset_backup_state(&self) -> Result<()> {
