@@ -483,8 +483,12 @@ impl BaseClient {
 }
 
 /// Find the most recent decrypted event and cache it in the supplied RoomInfo.
+///
 /// If any encrypted events are found after that one, store them in the RoomInfo
 /// too so we can use them when we get the relevant keys.
+///
+/// It is the responsibility of the caller to update the `RoomInfo` instance
+/// stored in the `Room`.
 #[cfg(feature = "e2e-encryption")]
 async fn cache_latest_events(
     room: &Room,
@@ -557,10 +561,8 @@ async fn cache_latest_events(
                         sender_name_is_ambiguous,
                     ));
 
-                    // Store it in the return RoomInfo, and in the Room, to make sure they are
-                    // consistent
+                    // Store it in the return RoomInfo (it will be saved for us in the room later).
                     room_info.latest_event = Some(latest_event.clone());
-                    room.set_latest_event(Some(latest_event));
                     // We don't need any of the older encrypted events because we have a new
                     // decrypted one.
                     room.latest_encrypted_events.write().unwrap().clear();
@@ -1172,9 +1174,11 @@ mod tests {
 
         // The latest message is stored
         assert_eq!(
-            ev_id(room_info.latest_event.map(|latest_event| latest_event.event().clone())),
+            ev_id(room_info.latest_event.as_ref().map(|latest_event| latest_event.event().clone())),
             rawev_id(event2.clone())
         );
+
+        room.update_summary(room_info);
         assert_eq!(
             ev_id(room.latest_event().map(|latest_event| latest_event.event().clone())),
             rawev_id(event2)
@@ -1196,6 +1200,7 @@ mod tests {
         let room = make_room();
         let mut room_info = room.clone_info();
         cache_latest_events(&room, &mut room_info, events, None, None).await;
+        room.update_summary(room_info);
 
         // The latest message is stored
         assert_eq!(
@@ -1222,6 +1227,7 @@ mod tests {
         let room = make_room();
         let mut room_info = room.clone_info();
         cache_latest_events(&room, &mut room_info, events, None, None).await;
+        room.update_summary(room_info);
 
         // The latest message is stored, ignoring the receipt
         assert_eq!(
@@ -1274,6 +1280,7 @@ mod tests {
         let room = make_room();
         let mut room_info = room.clone_info();
         cache_latest_events(&room, &mut room_info, events, None, None).await;
+        room.update_summary(room_info);
 
         // The latest message is stored, ignoring encrypted and receipts
         assert_eq!(
@@ -1314,6 +1321,8 @@ mod tests {
             None,
         )
         .await;
+        room.update_summary(room_info);
+
         // Sanity: room_info has 10 encrypted events inside it
         assert_eq!(room.latest_encrypted_events.read().unwrap().len(), 10);
 
@@ -1321,6 +1330,7 @@ mod tests {
         let eventa = make_encrypted_event("$a");
         let mut room_info = room.clone_info();
         cache_latest_events(&room, &mut room_info, &[eventa], None, None).await;
+        room.update_summary(room_info);
 
         // The oldest event is gone
         assert!(!rawevs_ids(&room.latest_encrypted_events).contains(&"$0".to_owned()));
@@ -1342,11 +1352,13 @@ mod tests {
             None,
         )
         .await;
+        room.update_summary(room_info.clone());
 
-        // When I ask to cache an unecnrypted event, and some more encrypted events
+        // When I ask to cache an unencrypted event, and some more encrypted events
         let eventa = make_event("m.room.message", "$a");
         let eventb = make_encrypted_event("$b");
         cache_latest_events(&room, &mut room_info, &[eventa, eventb], None, None).await;
+        room.update_summary(room_info);
 
         // The only encrypted events stored are the ones after the decrypted one
         assert_eq!(rawevs_ids(&room.latest_encrypted_events), &["$b"]);
@@ -1359,6 +1371,7 @@ mod tests {
         let room = make_room();
         let mut room_info = room.clone_info();
         cache_latest_events(&room, &mut room_info, events, None, None).await;
+        room.update_summary(room_info);
         room.latest_event().map(|latest_event| latest_event.event().clone())
     }
 
