@@ -1590,7 +1590,7 @@ impl Room {
     ///
     /// Returns `None` if the checks did not pass and no notify event was sent.
     /// Otherwise returns the a `send` result.
-    pub async fn check_and_send_room_call_notify(
+    pub async fn checked_send_room_call_notify(
         &self,
     ) -> Option<Result<send_message_event::v3::Response, Error>> {
         if self.has_active_room_call() {
@@ -1616,7 +1616,7 @@ impl Room {
     /// This is only supposed to be used in **custom** situations where the user
     /// explicitly chooses to send call.notify event to invite/notify someone
     /// explicitly in unusual conditions. The default should be to use
-    /// [`check_and_send_room_call_notify`] just before a new room call is
+    /// [`checked_send_room_call_notify()`] just before a new room call is
     /// created/joined.
     ///
     /// One example could be that the UI allows to start a call with a subset of

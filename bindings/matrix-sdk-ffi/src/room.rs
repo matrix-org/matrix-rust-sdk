@@ -135,8 +135,8 @@ impl Room {
     /// It will configure the notify type: ring or notify based on:
     ///  - is this a DM room -> ring
     ///  - is this a group with more then one other member -> notify
-    pub async fn check_and_send_room_call_notify(&self) {
-        match self.inner.check_and_send_room_call_notify().await {
+    pub async fn checked_send_room_call_notify(&self) {
+        match self.inner.checked_send_room_call_notify().await {
             None => tracing::info!("Did not send call notify event, there is already a call."),
             Some(res) => match res {
                 Ok(_) => tracing::info!("Sent call notify event."),
@@ -150,7 +150,7 @@ impl Room {
     /// This is only supposed to be used in **custom** situations where the user
     /// explicitly chooses to send call.notify event to invite/notify someone
     /// explicitly in unusual conditions. The default should be to use
-    /// [`check_and_send_room_call_notify`] just before a new room call is
+    /// [`checked_send_room_call_notify()`] just before a new room call is
     /// created/joined.
     ///
     /// One example could be that the UI allows to start a call with a subset of
