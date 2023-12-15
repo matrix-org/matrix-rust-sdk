@@ -53,6 +53,7 @@ pub use sas::SasVerification;
 
 /// An enum over the different verification types the SDK supports.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub enum Verification {
     /// The `m.sas.v1` verification variant.
     SasV1(SasVerification),
