@@ -14,6 +14,7 @@
 
 use std::{fs::File, io::Write};
 
+use anyhow::Result;
 use assert_matches::assert_matches;
 use futures_util::{pin_mut, FutureExt, StreamExt};
 use matrix_sdk::{
@@ -27,12 +28,17 @@ use matrix_sdk::{
 };
 use matrix_sdk_base::SessionMeta;
 use matrix_sdk_test::{async_test, JoinedRoomBuilder, SyncResponseBuilder};
-use ruma::{device_id, event_id, events::room::message::RoomMessageEvent, room_id, user_id};
+use ruma::{
+    api::client::room::create_room::v3::Request as CreateRoomRequest,
+    assign, device_id, event_id,
+    events::room::message::{RoomMessageEvent, RoomMessageEventContent},
+    room_id, user_id, TransactionId,
+};
 use serde_json::json;
 use tempfile::tempdir;
 use tokio::spawn;
 use wiremock::{
-    matchers::{header, method, path},
+    matchers::{header, method, path, path_regex},
     Mock, ResponseTemplate,
 };
 
@@ -66,6 +72,20 @@ async fn mount_once(
         .and(header("authorization", "Bearer 1234"))
         .respond_with(response)
         .expect(1)
+        .mount(server)
+        .await;
+}
+
+async fn just_mount(
+    server: &wiremock::MockServer,
+    method_argument: &str,
+    path_argument: &str,
+    response: ResponseTemplate,
+) {
+    Mock::given(method(method_argument))
+        .and(path(path_argument))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(response)
         .mount(server)
         .await;
 }
@@ -476,6 +496,188 @@ async fn steady_state_waiting() {
     task.await.unwrap();
 
     server.verify().await;
+}
+
+/// Test that new room keys are uploaded to backup when they are known/imported.
+/// Current implementation of the backup module will try to trigger a backup
+/// upload at the end of a sync.
+/// For simplicity we are testing here that the upload is triggered when a new
+/// outbound room key is created. But it would work for a key received via a to
+/// device event as well.
+#[async_test]
+async fn incremental_upload_of_keys() -> Result<()> {
+    let user_id = user_id!("@example:morpheus.localhost");
+
+    let session = MatrixSession {
+        meta: SessionMeta { user_id: user_id.into(), device_id: device_id!("DEVICEID").to_owned() },
+        tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
+    };
+    let (client, server) = no_retry_test_client().await;
+    client.restore_session(session).await.unwrap();
+
+    let backups = client.encryption().backups();
+
+    // This is the call we want to check. The newly created outbound session should
+    // be uploaded to backup.
+    mount_once(
+        &server,
+        "PUT",
+        "_matrix/client/unstable/room_keys/keys",
+        ResponseTemplate::new(200).set_body_json(json!({
+            "count": 1,
+            "etag": "abcdefg",
+        }
+        )),
+    )
+    .await;
+
+    just_mount(
+        &server,
+        "POST",
+        "_matrix/client/unstable/room_keys/version",
+        ResponseTemplate::new(200).set_body_json(json!({ "version": "1"})),
+    )
+    .await;
+
+    backups.create().await.expect("We should be able to create a new backup");
+
+    just_mount(
+        &server,
+        "POST",
+        "_matrix/client/r0/createRoom",
+        ResponseTemplate::new(200).set_body_json(json!({ "room_id": "!sefiuhWgwghwWgh:localhost"})),
+    )
+    .await;
+
+    let state = json!(
+        {
+                "algorithm": "m.megolm.v1.aes-sha2",
+                "rotation_period_ms": 604800000,
+                "rotation_period_msgs": 100
+        }
+    );
+    just_mount(
+        &server,
+        "GET",
+        "_matrix/client/r0/rooms/!sefiuhWgwghwWgh:localhost/state/m.room.encryption/",
+        ResponseTemplate::new(200).set_body_json(state),
+    )
+    .await;
+
+    just_mount(
+        &server,
+        "GET",
+        "_matrix/client/r0/user/@example:morpheus.localhost/account_data/m.secret_storage.default_key",
+        ResponseTemplate::new(404).set_body_json(json!({
+            "errcode": "M_NOT_FOUND",
+            "error": "Account data not found."
+        })),
+    )
+    .await;
+
+    Mock::given(method("POST"))
+        .and(path("/_matrix/client/r0/keys/upload"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "one_time_key_counts": {
+                "curve25519": 50,
+                "signed_curve25519": 50
+            }
+        })))
+        .mount(&server)
+        .await;
+
+    let invite = vec![];
+    let request = assign!(CreateRoomRequest::new(), {
+        invite,
+        is_direct: true,
+    });
+
+    let alice_room = client.create_room(request).await?;
+
+    alice_room.enable_encryption().await?;
+
+    assert!(alice_room.is_encrypted().await?, "room should be encrypted");
+
+    let members = json!({
+        "chunk": [
+        {
+            "content": {
+                "avatar_url": null,
+                "displayname": "example",
+                "membership": "join"
+            },
+            "event_id": "$151800140517rfvjc:localhost",
+            "membership": "join",
+            "origin_server_ts": 151800140,
+            "room_id": "!sefiuhWgwghwWgh:localhost",
+            "sender": "@example:morpheus.localhost",
+            "state_key": "@example:morpheus.localhost",
+            "type": "m.room.member",
+            "unsigned": {
+                "age": 2970366,
+            }
+        }
+        ]
+    });
+
+    just_mount(
+        &server,
+        "GET",
+        "_matrix/client/r0/rooms/!sefiuhWgwghwWgh:localhost/members",
+        ResponseTemplate::new(200).set_body_json(members),
+    )
+    .await;
+
+    Mock::given(method("PUT"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!(
+        {
+            "event_id": "$foo:localhost"
+        })))
+        .mount(&server)
+        .await;
+
+    // we can just return an empty response here, we just encrypt to ourself
+    Mock::given(method("POST"))
+        .and(path("/_matrix/client/r0/keys/query"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "device_keys": {
+                "@alice:example.org": {}
+            }
+        })))
+        .mount(&server)
+        .await;
+
+    // Send a message to create an outbound session that should be uploaded to
+    // backup
+    let content = RoomMessageEventContent::text_plain("Hello world");
+    let txn_id = TransactionId::new();
+    let _ = alice_room.send(content).with_transaction_id(&txn_id).await?;
+
+    Mock::given(method("GET"))
+        .and(path("/_matrix/client/r0/sync"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!(
+        {
+            "next_batch": "sfooBar",
+            "device_one_time_keys_count": {
+                "signed_curve25519": 50
+            },
+            "org.matrix.msc2732.device_unused_fallback_key_types": [
+                "signed_curve25519"
+            ],
+            "device_unused_fallback_key_types": [
+                "signed_curve25519"
+            ]
+        })))
+        .mount(&server)
+        .await;
+
+    client.sync_once(Default::default()).await?;
+
+    server.verify().await;
+    Ok(())
 }
 
 #[async_test]
