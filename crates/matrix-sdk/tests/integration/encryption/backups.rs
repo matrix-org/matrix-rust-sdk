@@ -500,7 +500,7 @@ async fn steady_state_waiting() {
 
 async fn setup_create_room_and_send_message_mocks(server: &wiremock::MockServer) {
     just_mount(
-        &server,
+        server,
         "POST",
         "_matrix/client/unstable/room_keys/version",
         ResponseTemplate::new(200).set_body_json(json!({ "version": "1"})),
@@ -508,7 +508,7 @@ async fn setup_create_room_and_send_message_mocks(server: &wiremock::MockServer)
     .await;
 
     just_mount(
-        &server,
+        server,
         "POST",
         "_matrix/client/r0/createRoom",
         ResponseTemplate::new(200).set_body_json(json!({ "room_id": "!sefiuhWgwghwWgh:localhost"})),
@@ -523,7 +523,7 @@ async fn setup_create_room_and_send_message_mocks(server: &wiremock::MockServer)
         }
     );
     just_mount(
-        &server,
+        server,
         "GET",
         "_matrix/client/r0/rooms/!sefiuhWgwghwWgh:localhost/state/m.room.encryption/",
         ResponseTemplate::new(200).set_body_json(state),
@@ -531,7 +531,7 @@ async fn setup_create_room_and_send_message_mocks(server: &wiremock::MockServer)
     .await;
 
     just_mount(
-        &server,
+        server,
         "GET",
         "_matrix/client/r0/user/@example:morpheus.localhost/account_data/m.secret_storage.default_key",
         ResponseTemplate::new(404).set_body_json(json!({
@@ -542,7 +542,7 @@ async fn setup_create_room_and_send_message_mocks(server: &wiremock::MockServer)
     .await;
 
     just_mount(
-        &server,
+        server,
         "POST",
         "/_matrix/client/r0/keys/upload",
         ResponseTemplate::new(404).set_body_json(json!({
@@ -577,7 +577,7 @@ async fn setup_create_room_and_send_message_mocks(server: &wiremock::MockServer)
     });
 
     just_mount(
-        &server,
+        server,
         "GET",
         "_matrix/client/r0/rooms/!sefiuhWgwghwWgh:localhost/members",
         ResponseTemplate::new(200).set_body_json(members),
@@ -591,12 +591,12 @@ async fn setup_create_room_and_send_message_mocks(server: &wiremock::MockServer)
         {
             "event_id": "$foo:localhost"
         })))
-        .mount(&server)
+        .mount(server)
         .await;
 
     // we can just return an empty response here, we just encrypt to ourself
     just_mount(
-        &server,
+        server,
         "POST",
         "/_matrix/client/r0/keys/query",
         ResponseTemplate::new(200).set_body_json(json!({
