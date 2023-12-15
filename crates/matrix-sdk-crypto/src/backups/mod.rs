@@ -64,7 +64,6 @@ pub struct BackupMachine {
 struct PendingBackup {
     request_id: OwnedTransactionId,
     request: KeysBackupRequest,
-    /// Room ID : Sender Key : [Session IDs]
     sessions: BTreeMap<OwnedRoomId, BTreeMap<String, BTreeSet<String>>>,
 }
 
@@ -548,10 +547,6 @@ impl BackupMachine {
     }
 
     /// Backup all the non-backed up room keys we know about
-    /// returns a tuple: (
-    ///     map of Room ID : RoomKeyBackup,
-    ///     map of Room ID : map of Sender Key : set of Session IDs
-    /// )
     async fn backup_keys(
         sessions: Vec<InboundGroupSession>,
         backup_key: &MegolmV1BackupKey,
