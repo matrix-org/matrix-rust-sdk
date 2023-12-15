@@ -8,7 +8,6 @@ use std::{
 
 use async_trait::async_trait;
 use deadpool_sqlite::{Object as SqliteConn, Pool as SqlitePool, Runtime};
-use itertools::Itertools;
 use matrix_sdk_base::{
     deserialized_responses::{RawAnySyncOrStrippedState, SyncOrStrippedState},
     media::{MediaRequest, UniqueKey},
@@ -40,7 +39,7 @@ use tracing::{debug, warn};
 use crate::{
     error::{Error, Result},
     get_or_create_store_cipher,
-    utils::{load_db_version, Key, SqliteObjectExt},
+    utils::{load_db_version, repeat_vars, Key, SqliteObjectExt},
     OpenStoreError, SqliteObjectStoreExt,
 };
 
@@ -1600,31 +1599,6 @@ struct ReceiptData {
     receipt: Receipt,
     event_id: OwnedEventId,
     user_id: OwnedUserId,
-}
-
-/// Repeat `?` n times, where n is defined by `count`. `?` are comma-separated.
-fn repeat_vars(count: usize) -> impl fmt::Display {
-    assert_ne!(count, 0, "Can't generate zero repeated vars");
-
-    iter::repeat("?").take(count).format(",")
-}
-
-#[cfg(test)]
-mod unit_tests {
-    use super::*;
-
-    #[test]
-    fn can_generate_repeated_vars() {
-        assert_eq!(repeat_vars(1).to_string(), "?");
-        assert_eq!(repeat_vars(2).to_string(), "?,?");
-        assert_eq!(repeat_vars(5).to_string(), "?,?,?,?,?");
-    }
-
-    #[test]
-    #[should_panic(expected = "Can't generate zero repeated vars")]
-    fn generating_zero_vars_panics() {
-        repeat_vars(0);
-    }
 }
 
 #[cfg(test)]
