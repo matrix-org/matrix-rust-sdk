@@ -14,7 +14,7 @@
 
 use futures_util::{Stream, StreamExt};
 use matrix_sdk_base::crypto::{CancelInfo, VerificationRequest as BaseVerificationRequest};
-use ruma::{events::key::verification::VerificationMethod, OwnedDeviceId};
+use ruma::{events::key::verification::VerificationMethod, OwnedDeviceId, RoomId};
 
 #[cfg(feature = "qrcode")]
 use super::{QrVerification, QrVerificationData};
@@ -257,5 +257,10 @@ impl VerificationRequest {
     /// [`VerificationRequest::changes`] method.
     pub fn state(&self) -> VerificationRequestState {
         Self::convert_state(self.client.to_owned(), self.inner.state())
+    }
+
+    /// Get the room ID, if the verification is happening inside a room.
+    pub fn room_id(&self) -> Option<&RoomId> {
+        self.inner.room_id()
     }
 }
