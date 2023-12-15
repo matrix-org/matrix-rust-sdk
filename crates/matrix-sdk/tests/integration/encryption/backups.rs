@@ -517,9 +517,9 @@ async fn setup_create_room_and_send_message_mocks(server: &wiremock::MockServer)
 
     let state = json!(
         {
-                "algorithm": "m.megolm.v1.aes-sha2",
-                "rotation_period_ms": 604800000,
-                "rotation_period_msgs": 100
+            "algorithm": "m.megolm.v1.aes-sha2",
+            "rotation_period_ms": 604800000,
+            "rotation_period_msgs": 100
         }
     );
     just_mount(
@@ -556,23 +556,23 @@ async fn setup_create_room_and_send_message_mocks(server: &wiremock::MockServer)
 
     let members = json!({
         "chunk": [
-        {
-            "content": {
-                "avatar_url": null,
-                "displayname": "example",
-                "membership": "join"
-            },
-            "event_id": "$151800140517rfvjc:localhost",
-            "membership": "join",
-            "origin_server_ts": 151800140,
-            "room_id": "!sefiuhWgwghwWgh:localhost",
-            "sender": "@example:morpheus.localhost",
-            "state_key": "@example:morpheus.localhost",
-            "type": "m.room.member",
-            "unsigned": {
-                "age": 2970366,
+            {
+                "content": {
+                    "avatar_url": null,
+                    "displayname": "example",
+                    "membership": "join"
+                },
+                "event_id": "$151800140517rfvjc:localhost",
+                "membership": "join",
+                "origin_server_ts": 151800140,
+                "room_id": "!sefiuhWgwghwWgh:localhost",
+                "sender": "@example:morpheus.localhost",
+                "state_key": "@example:morpheus.localhost",
+                "type": "m.room.member",
+                "unsigned": {
+                    "age": 2970366,
+                }
             }
-        }
         ]
     });
 
@@ -669,15 +669,15 @@ async fn incremental_upload_of_keys() -> Result<()> {
         "/_matrix/client/r0/sync",
         ResponseTemplate::new(200).set_body_json(json!({
             "next_batch": "sfooBar",
-        "device_one_time_keys_count": {
-            "signed_curve25519": 50
-        },
-        "org.matrix.msc2732.device_unused_fallback_key_types": [
-            "signed_curve25519"
-        ],
-        "device_unused_fallback_key_types": [
-            "signed_curve25519"
-        ]
+            "device_one_time_keys_count": {
+                "signed_curve25519": 50
+            },
+            "org.matrix.msc2732.device_unused_fallback_key_types": [
+                "signed_curve25519"
+            ],
+            "device_unused_fallback_key_types": [
+                "signed_curve25519"
+            ]
         })),
     )
     .await;
