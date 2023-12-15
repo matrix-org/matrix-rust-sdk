@@ -62,6 +62,7 @@ use self::{
     backups::Backups,
     futures::PrepareEncryptedFile,
     identities::{DeviceUpdates, IdentityUpdates},
+    recovery::Recovery,
     secret_storage::SecretStorage,
 };
 use crate::{
@@ -78,6 +79,7 @@ use crate::{
 pub mod backups;
 pub mod futures;
 pub mod identities;
+pub mod recovery;
 pub mod secret_storage;
 pub mod verification;
 
@@ -103,6 +105,19 @@ pub struct EncryptionSettings {
     /// enabled on the server, as of 2023-10-20.
     pub auto_enable_cross_signing: bool,
 
+    /// Select a strategy to download room keys from the backup, by default room
+    /// keys won't be downloaded from the backup automatically.
+    ///
+    /// Take a look at the [`BackupDownloadStrategy`] enum for more options.
+    pub backup_download_strategy: BackupDownloadStrategy,
+
+    /// Automatically create a backup version if no backup exists.
+    pub auto_enable_backups: bool,
+}
+
+/// Settings for end-to-end encryption features.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum BackupDownloadStrategy {
     /// Automatically download all room keys from the backup when the backup
     /// recovery key has been received. The backup recovery key can be received
     /// in two ways:
@@ -113,7 +128,17 @@ pub struct EncryptionSettings {
     ///    [`SecretStore::import_secrets()`] method.
     ///
     /// [`SecretStore::import_secrets()`]: crate::encryption::secret_storage::SecretStore::import_secrets
-    pub auto_download_from_backup: bool,
+    OneShot,
+
+    /// Attempt to download a single room key if an event fails to be decrypted.
+    AfterDecryptionFailure,
+
+    /// Don't download any room keys automatically. The user can manually
+    /// download room keys using the [`Backups::download_room_key()`] methods.
+    ///
+    /// This is the default option.
+    #[default]
+    Manual,
 }
 
 impl Client {
@@ -152,6 +177,7 @@ impl Client {
 
         let response = self.send(request, None).await?;
         self.mark_request_as_sent(request_id, &response).await?;
+        self.encryption().recovery().update_state_after_keys_query(&response).await;
 
         Ok(response)
     }
@@ -1086,6 +1112,11 @@ impl Encryption {
         Backups { client: self.client.to_owned() }
     }
 
+    /// Get the recovery manager of the client.
+    pub fn recovery(&self) -> Recovery {
+        Recovery { client: self.client.to_owned() }
+    }
+
     /// Enables the crypto-store cross-process lock.
     ///
     /// This may be required if there are multiple processes that may do writes
@@ -1211,6 +1242,9 @@ impl Encryption {
         tasks.setup_e2ee = Some(spawn(async move {
             if let Err(e) = this.backups().setup_and_resume().await {
                 error!("Couldn't setup and resume backups {e:?}");
+            }
+            if let Err(e) = this.recovery().setup().await {
+                error!("Couldn't setup and resume recovery {e:?}");
             }
         }));
 

@@ -153,7 +153,7 @@ async fn secret_store_missing_key_info() {
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "key": key_id
         })))
-        .expect(1)
+        .expect(1..)
         .named("default_key account data GET")
         .mount(&server)
         .await;
@@ -203,7 +203,7 @@ async fn secret_store_not_setup() {
             "errcode": "M_NOT_FOUND",
             "error": "Account data not found"
         })))
-        .expect(1)
+        .expect(1..)
         .named("default_key account data GET")
         .mount(&server)
         .await;
@@ -589,7 +589,7 @@ async fn is_secret_storage_enabled() {
                 "errcode": "M_NOT_FOUND",
                 "error": "Account data not found"
             })))
-            .expect(1)
+            .expect(1..)
             .named("default_key account data GET")
             .mount_as_scoped(&server)
             .await;

@@ -85,8 +85,10 @@ use crate::{
 };
 #[cfg(feature = "e2e-encryption")]
 use crate::{
-    encryption::backups::types::BackupClientState,
-    encryption::{Encryption, EncryptionSettings},
+    encryption::{
+        backups::types::BackupClientState, recovery::RecoveryState, BackupDownloadStrategy,
+        Encryption, EncryptionSettings,
+    },
     store_locks::CrossProcessStoreLock,
 };
 
@@ -97,7 +99,7 @@ mod tasks;
 
 pub use self::builder::{ClientBuildError, ClientBuilder};
 #[cfg(feature = "e2e-encryption")]
-use self::tasks::{BackupUploadingTask, ClientTasks};
+use self::tasks::{BackupDownloadTask, BackupUploadingTask, ClientTasks};
 
 #[cfg(not(target_arch = "wasm32"))]
 type NotificationHandlerFut = Pin<Box<dyn Future<Output = ()> + Send>>;
@@ -251,6 +253,8 @@ pub(crate) struct ClientInner {
     pub(crate) encryption_settings: EncryptionSettings,
     #[cfg(feature = "e2e-encryption")]
     pub(crate) backup_state: BackupClientState,
+    #[cfg(feature = "e2e-encryption")]
+    pub(crate) recovery_state: SharedObservable<RecoveryState>,
 }
 
 impl ClientInner {
@@ -291,6 +295,8 @@ impl ClientInner {
             encryption_settings,
             #[cfg(feature = "e2e-encryption")]
             backup_state: Default::default(),
+            #[cfg(feature = "e2e-encryption")]
+            recovery_state: Default::default(),
         };
 
         #[allow(clippy::let_and_return)]
@@ -300,8 +306,15 @@ impl ClientInner {
         {
             let weak_client = Arc::downgrade(&client);
 
-            client.tasks.lock().unwrap().upload_room_keys =
-                Some(BackupUploadingTask::new(weak_client));
+            let mut tasks = client.tasks.lock().unwrap();
+
+            tasks.upload_room_keys = Some(BackupUploadingTask::new(weak_client.clone()));
+
+            if encryption_settings.backup_download_strategy
+                == BackupDownloadStrategy::AfterDecryptionFailure
+            {
+                tasks.download_room_keys = Some(BackupDownloadTask::new(weak_client));
+            }
         }
 
         client

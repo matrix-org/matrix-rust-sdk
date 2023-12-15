@@ -41,7 +41,6 @@ mod traits;
 use matrix_sdk_crypto::store::{DynCryptoStore, IntoCryptoStore};
 pub use matrix_sdk_store_encryption::Error as StoreEncryptionError;
 use ruma::{
-    api::client::push::get_notifications::v3::Notification,
     events::{
         presence::PresenceEvent,
         receipt::ReceiptEventContent,
@@ -291,8 +290,6 @@ pub struct StateChanges {
     /// A map from room id to a map of a display name and a set of user ids that
     /// share that display name in the given room.
     pub ambiguity_maps: BTreeMap<OwnedRoomId, BTreeMap<String, BTreeSet<OwnedUserId>>>,
-    /// A map of `RoomId` to a vector of `Notification`s
-    pub notifications: BTreeMap<OwnedRoomId, Vec<Notification>>,
 }
 
 impl StateChanges {
@@ -377,12 +374,6 @@ impl StateChanges {
             .entry(room_id.to_owned())
             .or_default()
             .insert(redacted_event_id.to_owned(), redaction);
-    }
-
-    /// Update the `StateChanges` struct with the given room with a new
-    /// `Notification`.
-    pub fn add_notification(&mut self, room_id: &RoomId, notification: Notification) {
-        self.notifications.entry(room_id.to_owned()).or_default().push(notification);
     }
 
     /// Update the `StateChanges` struct with the given room with a new

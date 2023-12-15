@@ -34,8 +34,10 @@ Breaking changes:
     are still allowed, but so are other types like `Box<serde_json::value::RawValue>`
 - All "named futures" (structs implementing `IntoFuture`) are now exported from modules named
   `futures` instead of directly in the respective parent module
+- `Verification` is non-exhaustive, to make the `qrcode` cargo feature additive
 - Add `send_call_notify` and `checked_send_room_call_notify` methods. This allows 
   to implement sending ring events on call start.
+
 Bug fixes:
 
 - `Client::rooms` now returns all rooms, even invited, as advertised.

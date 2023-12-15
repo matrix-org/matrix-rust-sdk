@@ -29,7 +29,7 @@ use ruma::{
         membership::{
             ban_user, forget_room, get_member_events,
             invite_user::{self, v3::InvitationRecipient},
-            join_room_by_id, kick_user, leave_room, Invite3pid,
+            join_room_by_id, kick_user, leave_room, unban_user, Invite3pid,
         },
         message::send_message_event,
         read_marker::set_read_marker,
@@ -263,30 +263,20 @@ impl Room {
         };
 
         #[cfg(feature = "e2e-encryption")]
-        {
-            let machine = self.client.olm_machine().await;
-            if let Some(machine) = machine.as_ref() {
-                for event in http_response.chunk {
-                    let decrypted_event = if let Ok(AnySyncTimelineEvent::MessageLike(
-                        AnySyncMessageLikeEvent::RoomEncrypted(SyncMessageLikeEvent::Original(_)),
-                    )) = event.deserialize_as::<AnySyncTimelineEvent>()
-                    {
-                        if let Ok(event) =
-                            machine.decrypt_room_event(event.cast_ref(), room_id).await
-                        {
-                            event
-                        } else {
-                            TimelineEvent::new(event)
-                        }
-                    } else {
-                        TimelineEvent::new(event)
-                    };
-
-                    response.chunk.push(decrypted_event);
+        for event in http_response.chunk {
+            let decrypted_event = if let Ok(AnySyncTimelineEvent::MessageLike(
+                AnySyncMessageLikeEvent::RoomEncrypted(SyncMessageLikeEvent::Original(_)),
+            )) = event.deserialize_as::<AnySyncTimelineEvent>()
+            {
+                if let Ok(event) = self.decrypt_event(event.cast_ref()).await {
+                    event
+                } else {
+                    TimelineEvent::new(event)
                 }
             } else {
-                response.chunk.extend(http_response.chunk.into_iter().map(TimelineEvent::new));
-            }
+                TimelineEvent::new(event)
+            };
+            response.chunk.push(decrypted_event);
         }
 
         if let Some(push_context) = self.push_context().await? {
@@ -1007,10 +997,25 @@ impl Room {
         &self,
         event: &Raw<OriginalSyncRoomEncryptedEvent>,
     ) -> Result<TimelineEvent> {
+        use ruma::events::room::encrypted::EncryptedEventScheme;
+
         let machine = self.client.olm_machine().await;
         if let Some(machine) = machine.as_ref() {
             let mut event =
-                machine.decrypt_room_event(event.cast_ref(), self.inner.room_id()).await?;
+                match machine.decrypt_room_event(event.cast_ref(), self.inner.room_id()).await {
+                    Ok(event) => event,
+                    Err(e) => {
+                        let event = event.deserialize()?;
+                        if let EncryptedEventScheme::MegolmV1AesSha2(c) = event.content.scheme {
+                            self.client
+                                .encryption()
+                                .backups()
+                                .maybe_download_room_key(self.room_id().to_owned(), c.session_id);
+                        }
+
+                        return Err(e.into());
+                    }
+                };
 
             event.push_actions = self.event_push_actions(&event.event).await?;
 
@@ -1031,6 +1036,23 @@ impl Room {
     pub async fn ban_user(&self, user_id: &UserId, reason: Option<&str>) -> Result<()> {
         let request = assign!(
             ban_user::v3::Request::new(self.room_id().to_owned(), user_id.to_owned()),
+            { reason: reason.map(ToOwned::to_owned) }
+        );
+        self.client.send(request, None).await?;
+        Ok(())
+    }
+
+    /// Unban the user with `UserId` from this room.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The user to unban with `UserId`.
+    ///
+    /// * `reason` - The reason for unbanning this user.
+    #[instrument(skip_all)]
+    pub async fn unban_user(&self, user_id: &UserId, reason: Option<&str>) -> Result<()> {
+        let request = assign!(
+            unban_user::v3::Request::new(self.room_id().to_owned(), user_id.to_owned()),
             { reason: reason.map(ToOwned::to_owned) }
         );
         self.client.send(request, None).await?;
@@ -2230,16 +2252,16 @@ impl Room {
     ///
     /// Returns the ID of the event on which the receipt applies and the
     /// receipt.
-    pub async fn user_receipt(
+    pub async fn load_user_receipt(
         &self,
         receipt_type: ReceiptType,
         thread: ReceiptThread,
         user_id: &UserId,
     ) -> Result<Option<(OwnedEventId, Receipt)>> {
-        self.inner.user_receipt(receipt_type, thread, user_id).await.map_err(Into::into)
+        self.inner.load_user_receipt(receipt_type, thread, user_id).await.map_err(Into::into)
     }
 
-    /// Get the receipts for an event in this room.
+    /// Load the receipts for an event in this room from storage.
     ///
     /// # Arguments
     ///
@@ -2251,13 +2273,13 @@ impl Room {
     ///
     /// Returns a list of IDs of users who have sent a receipt for the event and
     /// the corresponding receipts.
-    pub async fn event_receipts(
+    pub async fn load_event_receipts(
         &self,
         receipt_type: ReceiptType,
         thread: ReceiptThread,
         event_id: &EventId,
     ) -> Result<Vec<(OwnedUserId, Receipt)>> {
-        self.inner.event_receipts(receipt_type, thread, event_id).await.map_err(Into::into)
+        self.inner.load_event_receipts(receipt_type, thread, event_id).await.map_err(Into::into)
     }
 
     /// Get the push context for this room.

@@ -46,7 +46,7 @@ use ruma::{
     },
     push::{Action, PushConditionRoomCtx, Ruleset},
     serde::Raw,
-    MilliSecondsSinceUnixEpoch, OwnedUserId, RoomId, RoomVersionId, UInt, UserId,
+    MilliSecondsSinceUnixEpoch, OwnedRoomId, OwnedUserId, RoomId, RoomVersionId, UInt, UserId,
 };
 use tokio::sync::RwLock;
 #[cfg(feature = "e2e-encryption")]
@@ -283,6 +283,7 @@ impl BaseClient {
         user_ids: &mut BTreeSet<OwnedUserId>,
         room_info: &mut RoomInfo,
         changes: &mut StateChanges,
+        notifications: &mut BTreeMap<OwnedRoomId, Vec<Notification>>,
         ambiguity_cache: &mut AmbiguityCache,
     ) -> Result<Timeline> {
         let mut timeline = Timeline::new(limited, prev_batch);
@@ -397,8 +398,7 @@ impl BaseClient {
                         let actions = push_rules.get_actions(&event.event, context);
 
                         if actions.iter().any(Action::should_notify) {
-                            changes.add_notification(
-                                room.room_id(),
+                            notifications.entry(room.room_id().to_owned()).or_default().push(
                                 Notification::new(
                                     actions.to_owned(),
                                     event.event.clone(),
@@ -741,6 +741,7 @@ impl BaseClient {
         let push_rules = self.get_push_rules(&changes).await?;
 
         let mut new_rooms = Rooms::default();
+        let mut notifications = Default::default();
 
         for (room_id, new_info) in response.rooms.join {
             let room = self.store.get_or_create_room(&room_id, RoomState::Joined);
@@ -796,6 +797,7 @@ impl BaseClient {
                     &mut user_ids,
                     &mut room_info,
                     &mut changes,
+                    &mut notifications,
                     &mut ambiguity_cache,
                 )
                 .await?;
@@ -866,6 +868,7 @@ impl BaseClient {
                     &mut user_ids,
                     &mut room_info,
                     &mut changes,
+                    &mut notifications,
                     &mut ambiguity_cache,
                 )
                 .await?;
@@ -925,7 +928,7 @@ impl BaseClient {
             account_data: response.account_data.events,
             to_device,
             ambiguity_changes: AmbiguityChanges { changes: ambiguity_cache.changes },
-            notifications: changes.notifications,
+            notifications,
         };
 
         Ok(response)

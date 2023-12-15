@@ -38,13 +38,18 @@ use ruma::{
     api::client::receipt::create_receipt::v3::ReceiptType as SendReceiptType,
     events::{
         fully_read::FullyReadEvent,
+        poll::unstable_start::UnstablePollStartEventContent,
         reaction::ReactionEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
         relation::Annotation,
-        room::redaction::RoomRedactionEventContent,
-        AnyMessageLikeEventContent, AnySyncTimelineEvent,
+        room::{
+            message::{MessageType, Relation},
+            redaction::RoomRedactionEventContent,
+        },
+        AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
+        MessageLikeEventType,
     },
-    EventId, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
+    EventId, OwnedEventId, OwnedTransactionId, RoomVersionId, TransactionId, UserId,
 };
 use tokio::sync::{RwLock, RwLockWriteGuard};
 use tracing::{debug, error, field::debug, info, instrument, trace, warn};
@@ -98,8 +103,12 @@ pub(super) enum ReactionState {
 
 #[derive(Clone)]
 pub(super) struct TimelineInnerSettings {
+    /// Should the read receipts and read markers be handled?
     pub(super) track_read_receipts: bool,
+    /// Event filter that controls what's rendered as a timeline item (and thus
+    /// what can carry read receipts).
     pub(super) event_filter: Arc<TimelineEventFilterFn>,
+    /// Are unparsable events added as timeline items of their own kind?
     pub(super) add_failed_to_parse: bool,
 }
 
@@ -117,13 +126,91 @@ impl Default for TimelineInnerSettings {
     fn default() -> Self {
         Self {
             track_read_receipts: false,
-            event_filter: Arc::new(|_| true),
+            event_filter: Arc::new(default_event_filter),
             add_failed_to_parse: true,
         }
     }
 }
 
-pub(super) type TimelineEventFilterFn = dyn Fn(&AnySyncTimelineEvent) -> bool + Send + Sync;
+/// The default event filter for
+/// [`crate::timeline::TimelineBuilder::event_filter`].
+///
+/// It filters out events that are not rendered by the timeline, including but
+/// not limited to: reactions, edits, redactions on existing messages.
+///
+/// If you have a custom filter, it may be best to chain yours with this one if
+/// you do not want to run into situations where a read receipt is not visible
+/// because it's living on an event that doesn't have a matching timeline item.
+pub fn default_event_filter(event: &AnySyncTimelineEvent, room_version: &RoomVersionId) -> bool {
+    match event {
+        AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomRedaction(ev)) => {
+            if ev.redacts(room_version).is_some() {
+                // This is a redaction of an existing message, we'll only update the previous
+                // message and not render a new entry.
+                false
+            } else {
+                // This is a redacted entry, that we'll show only if the redacted entity wasn't
+                // a reaction.
+                ev.event_type() != MessageLikeEventType::Reaction
+            }
+        }
+
+        AnySyncTimelineEvent::MessageLike(msg) => {
+            match msg.original_content() {
+                None => {
+                    // This is a redacted entry, that we'll show only if the redacted entity wasn't
+                    // a reaction.
+                    msg.event_type() != MessageLikeEventType::Reaction
+                }
+
+                Some(original_content) => {
+                    match original_content {
+                        AnyMessageLikeEventContent::RoomMessage(content) => {
+                            if content
+                                .relates_to
+                                .as_ref()
+                                .is_some_and(|rel| matches!(rel, Relation::Replacement(_)))
+                            {
+                                // Edits aren't visible by default.
+                                return false;
+                            }
+
+                            matches!(
+                                content.msgtype,
+                                MessageType::Audio(_)
+                                    | MessageType::Emote(_)
+                                    | MessageType::File(_)
+                                    | MessageType::Image(_)
+                                    | MessageType::Location(_)
+                                    | MessageType::Notice(_)
+                                    | MessageType::ServerNotice(_)
+                                    | MessageType::Text(_)
+                                    | MessageType::Video(_)
+                                    | MessageType::VerificationRequest(_)
+                            )
+                        }
+
+                        AnyMessageLikeEventContent::Sticker(_)
+                        | AnyMessageLikeEventContent::UnstablePollStart(
+                            UnstablePollStartEventContent::New(_),
+                        )
+                        | AnyMessageLikeEventContent::RoomEncrypted(_) => true,
+
+                        _ => false,
+                    }
+                }
+            }
+        }
+
+        AnySyncTimelineEvent::State(_) => {
+            // All the state events may get displayed by default.
+            true
+        }
+    }
+}
+
+pub(super) type TimelineEventFilterFn =
+    dyn Fn(&AnySyncTimelineEvent, &RoomVersionId) -> bool + Send + Sync;
 
 impl<P: RoomDataProvider> TimelineInner<P> {
     pub(super) fn new(room_data_provider: P) -> Self {
@@ -175,6 +262,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         self.state.read().await.items.subscribe().filter_map(f)
     }
 
+    #[instrument(skip_all)]
     pub(super) async fn toggle_reaction_local(
         &self,
         annotation: &Annotation,
@@ -291,34 +379,31 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         Ok(result)
     }
 
+    /// Populates our own latest read receipt in the in-memory by-user read
+    /// receipt cache.
     pub(super) async fn populate_initial_user_receipt(&mut self, receipt_type: ReceiptType) {
         let own_user_id = self.room_data_provider.own_user_id().to_owned();
 
         let mut read_receipt = self
             .room_data_provider
-            .user_receipt(receipt_type.clone(), ReceiptThread::Unthreaded, &own_user_id)
+            .load_user_receipt(receipt_type.clone(), ReceiptThread::Unthreaded, &own_user_id)
             .await;
 
         // Fallback to the one in the main thread.
         if read_receipt.is_none() {
             read_receipt = self
                 .room_data_provider
-                .user_receipt(receipt_type.clone(), ReceiptThread::Main, &own_user_id)
+                .load_user_receipt(receipt_type.clone(), ReceiptThread::Main, &own_user_id)
                 .await;
         }
 
-        let Some(read_receipt) = read_receipt else {
-            return;
-        };
-
-        self.state
-            .write()
-            .await
-            .read_receipts
-            .users_read_receipts
-            .entry(own_user_id)
-            .or_default()
-            .insert(receipt_type, read_receipt);
+        if let Some(read_receipt) = read_receipt {
+            self.state.write().await.read_receipts.upsert_latest(
+                own_user_id,
+                receipt_type,
+                read_receipt,
+            );
+        }
     }
 
     pub(super) async fn add_initial_events(
@@ -376,7 +461,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
     }
 
     /// Handle the creation of a new local event.
-    #[instrument(skip_all)]
+    #[cfg(test)]
     pub(super) async fn handle_local_redaction(
         &self,
         txn_id: OwnedTransactionId,
@@ -496,6 +581,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
     ///
     /// Checks and finalises any state that tracks ongoing requests and decides
     /// whether further requests are required to handle any new local echos.
+    #[instrument(skip_all)]
     pub(super) async fn resolve_reaction_response(
         &self,
         annotation: &Annotation,
@@ -578,8 +664,10 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             rfind_event_item(&state.items, |it| it.transaction_id() == Some(txn_id))
         {
             state.items.remove(idx);
+            debug!("Discarded local echo");
             true
         } else {
+            debug!("Can't find local echo to discard");
             false
         }
     }

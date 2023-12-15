@@ -473,6 +473,24 @@ impl Room {
         Ok(self.inner.can_user_ban(&user_id).await?)
     }
 
+    pub async fn ban_user(
+        &self,
+        user_id: String,
+        reason: Option<String>,
+    ) -> Result<(), ClientError> {
+        let user_id = UserId::parse(&user_id)?;
+        Ok(self.inner.ban_user(&user_id, reason.as_deref()).await?)
+    }
+
+    pub async fn unban_user(
+        &self,
+        user_id: String,
+        reason: Option<String>,
+    ) -> Result<(), ClientError> {
+        let user_id = UserId::parse(&user_id)?;
+        Ok(self.inner.unban_user(&user_id, reason.as_deref()).await?)
+    }
+
     pub async fn can_user_invite(&self, user_id: String) -> Result<bool, ClientError> {
         let user_id = UserId::parse(&user_id)?;
         Ok(self.inner.can_user_invite(&user_id).await?)
@@ -481,6 +499,15 @@ impl Room {
     pub async fn can_user_kick(&self, user_id: String) -> Result<bool, ClientError> {
         let user_id = UserId::parse(&user_id)?;
         Ok(self.inner.can_user_kick(&user_id).await?)
+    }
+
+    pub async fn kick_user(
+        &self,
+        user_id: String,
+        reason: Option<String>,
+    ) -> Result<(), ClientError> {
+        let user_id = UserId::parse(&user_id)?;
+        Ok(self.inner.kick_user(&user_id, reason.as_deref()).await?)
     }
 
     pub async fn can_user_send_state(
@@ -511,6 +538,10 @@ impl Room {
 
     pub fn own_user_id(&self) -> String {
         self.inner.own_user_id().to_string()
+    }
+
+    pub async fn typing_notice(&self, is_typing: bool) -> Result<(), ClientError> {
+        Ok(self.inner.typing_notice(is_typing).await?)
     }
 }
 

@@ -20,7 +20,10 @@ use imbl::Vector;
 use matrix_sdk::{
     deserialized_responses::SyncTimelineEvent, executor::spawn, sync::RoomUpdate, Room,
 };
-use ruma::events::{receipt::ReceiptType, AnySyncTimelineEvent};
+use ruma::{
+    events::{receipt::ReceiptType, AnySyncTimelineEvent},
+    RoomVersionId,
+};
 use tokio::sync::{broadcast, mpsc, Notify};
 use tracing::{info, info_span, trace, warn, Instrument, Span};
 
@@ -79,17 +82,26 @@ impl TimelineBuilder {
     ///   return `true` if the event should be added to the `Timeline`.
     ///
     /// If this is not overridden, the timeline uses the default filter that
-    /// allows every event.
+    /// only allows events that are materialized into a `Timeline` item. For
+    /// instance, reactions and edits don't get their own timeline item (as
+    /// they affect another existing one), so they're "filtered out" to
+    /// reflect that.
+    ///
+    /// You can use the default event filter with
+    /// [`crate::timeline::default_event_filter`] so as to chain it with
+    /// your own event filter, if you want to avoid situations where a read
+    /// receipt would be attached to an event that doesn't get its own
+    /// timeline item.
     ///
     /// Note that currently:
     ///
     /// - Not all event types have a representation as a `TimelineItem` so these
     ///   are not added no matter what the filter returns.
     /// - It is not possible to filter out `m.room.encrypted` events (otherwise
-    ///   they couldn't by decrypted when the appropriate room key arrives)
+    ///   they couldn't be decrypted when the appropriate room key arrives).
     pub fn event_filter<F>(mut self, filter: F) -> Self
     where
-        F: Fn(&AnySyncTimelineEvent) -> bool + Send + Sync + 'static,
+        F: Fn(&AnySyncTimelineEvent, &RoomVersionId) -> bool + Send + Sync + 'static,
     {
         self.settings.event_filter = Arc::new(filter);
         self
@@ -180,11 +192,16 @@ impl TimelineBuilder {
         let mut ignore_user_list_stream = client.subscribe_to_ignore_user_list_changes();
         let ignore_user_list_update_join_handle = spawn({
             let inner = inner.clone();
+
+            let span = info_span!(parent: Span::none(), "ignore_user_list_update_handler", room_id = ?room.room_id());
+            span.follows_from(Span::current());
+
             async move {
                 while ignore_user_list_stream.next().await.is_some() {
                     inner.clear().await;
                 }
             }
+            .instrument(span)
         });
 
         // Not using room.add_event_handler here because RoomKey events are

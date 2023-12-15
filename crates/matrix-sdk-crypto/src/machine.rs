@@ -346,17 +346,43 @@ impl OlmMachine {
         Ok(self.inner.identity_manager.key_query_manager.synced(&cache).await?.tracked_users())
     }
 
+    /// Enable or disable room key requests.
+    ///
+    /// Room key requests allow the device to request room keys that it might
+    /// have missed in the original share using `m.room_key_request`
+    /// events.
+    ///
+    /// See also [`OlmMachine::set_room_key_forwarding_enabled`] and
+    /// [`OlmMachine::are_room_key_requests_enabled`].
+    #[cfg(feature = "automatic-room-key-forwarding")]
+    pub fn set_room_key_requests_enabled(&self, enable: bool) {
+        self.inner.key_request_machine.set_room_key_requests_enabled(enable)
+    }
+
+    /// Query whether we should send outgoing `m.room_key_request`s on
+    /// decryption failure.
+    ///
+    /// See also [`OlmMachine::set_room_key_requests_enabled`].
+    pub fn are_room_key_requests_enabled(&self) -> bool {
+        self.inner.key_request_machine.are_room_key_requests_enabled()
+    }
+
     /// Enable or disable room key forwarding.
     ///
-    /// Room key forwarding allows the device to request room keys that it might
-    /// have missend in the original share using `m.room_key_request`
-    /// events.
+    /// If room key forwarding is enabled, we will automatically reply to
+    /// incoming `m.room_key_request` messages from verified devices by
+    /// forwarding the requested key (if we have it).
+    ///
+    /// See also [`OlmMachine::set_room_key_requests_enabled`] and
+    /// [`OlmMachine::is_room_key_forwarding_enabled`].
     #[cfg(feature = "automatic-room-key-forwarding")]
-    pub fn toggle_room_key_forwarding(&self, enable: bool) {
-        self.inner.key_request_machine.toggle_room_key_forwarding(enable)
+    pub fn set_room_key_forwarding_enabled(&self, enable: bool) {
+        self.inner.key_request_machine.set_room_key_forwarding_enabled(enable)
     }
 
     /// Is room key forwarding enabled?
+    ///
+    /// See also [`OlmMachine::set_room_key_forwarding_enabled`].
     pub fn is_room_key_forwarding_enabled(&self) -> bool {
         self.inner.key_request_machine.is_room_key_forwarding_enabled()
     }
@@ -1533,6 +1559,16 @@ impl OlmMachine {
         }
 
         result
+    }
+
+    /// Do we have the room key for the given room and with the given session id
+    /// in the store?
+    pub async fn is_room_key_available(
+        &self,
+        room_id: &RoomId,
+        session_id: &str,
+    ) -> Result<bool, CryptoStoreError> {
+        Ok(self.store().get_inbound_group_session(room_id, session_id).await?.is_some())
     }
 
     /// Get encryption info for a decrypted timeline event.

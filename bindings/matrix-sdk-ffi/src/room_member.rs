@@ -140,6 +140,7 @@ impl RoomMember {
 
 #[derive(Clone, uniffi::Enum)]
 pub enum StateEventType {
+    CallMember,
     PolicyRuleRoom,
     PolicyRuleServer,
     PolicyRuleUser,
@@ -166,6 +167,7 @@ pub enum StateEventType {
 impl From<StateEventType> for ruma::events::StateEventType {
     fn from(val: StateEventType) -> Self {
         match val {
+            StateEventType::CallMember => Self::CallMember,
             StateEventType::PolicyRuleRoom => Self::PolicyRuleRoom,
             StateEventType::PolicyRuleServer => Self::PolicyRuleServer,
             StateEventType::PolicyRuleUser => Self::PolicyRuleUser,

@@ -6,6 +6,8 @@ use thiserror::Error;
 #[cfg(feature = "e2e-encryption")]
 mod crypto_store;
 mod safe_encode;
+#[cfg(feature = "e2e-encryption")]
+mod serialize_bool_for_indexeddb;
 mod state_store;
 
 #[cfg(feature = "e2e-encryption")]

@@ -18,7 +18,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use matrix_sdk_common::instant::Instant;
+use matrix_sdk_common::{instant::Instant, ring_buffer::RingBuffer};
 use ruma::{
     canonical_json::{redact, RedactedBecause},
     events::{
@@ -29,15 +29,16 @@ use ruma::{
         AnySyncStateEvent, GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
     },
     serde::Raw,
-    CanonicalJsonObject, EventId, MxcUri, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId,
-    RoomVersionId, UserId,
+    CanonicalJsonObject, EventId, MxcUri, OwnedEventId, OwnedMxcUri, OwnedRoomId, OwnedUserId,
+    RoomId, RoomVersionId, UserId,
 };
 use tracing::{debug, warn};
 
 use super::{Result, RoomInfo, StateChanges, StateStore, StoreError};
 use crate::{
-    deserialized_responses::RawAnySyncOrStrippedState, media::MediaRequest, MinimalRoomMemberEvent,
-    RoomMemberships, RoomState, StateStoreDataKey, StateStoreDataValue,
+    deserialized_responses::RawAnySyncOrStrippedState,
+    media::{MediaRequest, UniqueKey as _},
+    MinimalRoomMemberEvent, RoomMemberships, RoomState, StateStoreDataKey, StateStoreDataValue,
 };
 
 /// In-Memory, non-persistent implementation of the `StateStore`
@@ -77,13 +78,14 @@ pub struct MemoryStore {
             HashMap<(String, Option<String>), HashMap<OwnedEventId, HashMap<OwnedUserId, Receipt>>>,
         >,
     >,
+    media: StdRwLock<RingBuffer<(OwnedMxcUri, String /* unique key */, Vec<u8>)>>,
     custom: StdRwLock<HashMap<Vec<u8>, Vec<u8>>>,
 }
 
 impl MemoryStore {
     /// Create a new empty MemoryStore
     pub fn new() -> Self {
-        Default::default()
+        Self { media: StdRwLock::new(RingBuffer::new(20)), ..Default::default() }
     }
 
     fn get_user_room_receipt_event_impl(
@@ -700,17 +702,55 @@ impl StateStore for MemoryStore {
         Ok(self.custom.write().unwrap().remove(key))
     }
 
-    // The in-memory store doesn't cache media
-    async fn add_media_content(&self, _request: &MediaRequest, _data: Vec<u8>) -> Result<()> {
+    async fn add_media_content(&self, request: &MediaRequest, data: Vec<u8>) -> Result<()> {
+        // Avoid duplication. Let's try to remove it first.
+        self.remove_media_content(request).await?;
+        // Now, let's add it.
+        self.media.write().unwrap().push((request.uri().to_owned(), request.unique_key(), data));
+
         Ok(())
     }
-    async fn get_media_content(&self, _request: &MediaRequest) -> Result<Option<Vec<u8>>> {
-        Ok(None)
+
+    async fn get_media_content(&self, request: &MediaRequest) -> Result<Option<Vec<u8>>> {
+        let media = self.media.read().unwrap();
+        let expected_key = request.unique_key();
+
+        Ok(media.iter().find_map(|(_media_uri, media_key, media_content)| {
+            (media_key == &expected_key).then(|| media_content.to_owned())
+        }))
     }
-    async fn remove_media_content(&self, _request: &MediaRequest) -> Result<()> {
+
+    async fn remove_media_content(&self, request: &MediaRequest) -> Result<()> {
+        let mut media = self.media.write().unwrap();
+        let expected_key = request.unique_key();
+        let Some(index) = media
+            .iter()
+            .position(|(_media_uri, media_key, _media_content)| media_key == &expected_key)
+        else {
+            return Ok(());
+        };
+
+        media.remove(index);
+
         Ok(())
     }
-    async fn remove_media_content_for_uri(&self, _uri: &MxcUri) -> Result<()> {
+
+    async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()> {
+        let mut media = self.media.write().unwrap();
+        let expected_key = uri.to_owned();
+        let positions = media
+            .iter()
+            .enumerate()
+            .filter_map(|(position, (media_uri, _media_key, _media_content))| {
+                (media_uri == &expected_key).then_some(position)
+            })
+            .collect::<Vec<_>>();
+
+        // Iterate in reverse-order so that positions stay valid after first removals.
+        for position in positions.into_iter().rev() {
+            media.remove(position);
+        }
+
         Ok(())
     }
 
@@ -738,5 +778,5 @@ mod tests {
         Ok(MemoryStore::new())
     }
 
-    statestore_integration_tests!();
+    statestore_integration_tests!(with_media_tests);
 }

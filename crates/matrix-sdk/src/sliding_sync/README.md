@@ -388,7 +388,7 @@ _Note_: This is not yet exposed via the API. See [#1475](https://github.com/matr
 Sliding Sync is modeled for faster and more efficient user-facing client
 applications, but offers significant speed ups even for bot cases through
 its filtering mechanism. The sort-order and specific subsets, however, are
-usually not of interest for bots. For that use case the the
+usually not of interest for bots. For that use case the
 [`v4::SyncRequestList`][] offers the
 [`slow_get_all_rooms`](`v4::SyncRequestList::slow_get_all_rooms`) flag.
 

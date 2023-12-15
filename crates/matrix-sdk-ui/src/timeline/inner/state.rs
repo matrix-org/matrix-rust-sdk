@@ -249,6 +249,7 @@ impl TimelineInnerState {
     }
 
     /// Handle the local redaction of an event.
+    #[instrument(skip_all)]
     pub(super) fn handle_local_redaction(
         &mut self,
         own_user_id: OwnedUserId,
@@ -482,6 +483,7 @@ pub(in crate::timeline) struct TimelineInnerStateTransaction<'a> {
 }
 
 impl TimelineInnerStateTransaction<'_> {
+    #[instrument(skip_all, fields(limited = timeline.limited))]
     async fn handle_sync_timeline<P: RoomDataProvider>(
         &mut self,
         mut timeline: Timeline,
@@ -489,7 +491,6 @@ impl TimelineInnerStateTransaction<'_> {
         settings: &TimelineInnerSettings,
     ) {
         if timeline.limited {
-            debug!("Got limited sync response, resetting timeline");
             self.clear();
         }
 
@@ -537,13 +538,12 @@ impl TimelineInnerStateTransaction<'_> {
         room_data_provider: &P,
         settings: &TimelineInnerSettings,
     ) -> (Option<OwnedEventId>, HandleEventResult) {
-        let should_add_event = &*settings.event_filter;
         let raw = event.event;
         let (event_id, sender, timestamp, txn_id, event_kind, should_add) = match raw.deserialize()
         {
             Ok(event) => {
-                let should_add = should_add_event(&event);
                 let room_version = room_data_provider.room_version();
+                let should_add = (settings.event_filter)(&event, &room_version);
                 (
                     event.event_id().to_owned(),
                     event.sender().to_owned(),
@@ -553,6 +553,7 @@ impl TimelineInnerStateTransaction<'_> {
                     should_add,
                 )
             }
+
             Err(e) => match raw.deserialize_as::<SyncTimelineEventWithoutContent>() {
                 Ok(event) if settings.add_failed_to_parse => (
                     event.event_id().to_owned(),
@@ -562,6 +563,7 @@ impl TimelineInnerStateTransaction<'_> {
                     TimelineEventKind::failed_to_parse(event, e),
                     true,
                 ),
+
                 Ok(event) => {
                     let event_type = event.event_type();
                     let event_id = event.event_id();
@@ -579,6 +581,7 @@ impl TimelineInnerStateTransaction<'_> {
 
                     return (Some(event_id.to_owned()), HandleEventResult::default());
                 }
+
                 Err(e) => {
                     let event_type: Option<String> = raw.get_field("type").ok().flatten();
                     let event_id: Option<String> = raw.get_field("event_id").ok().flatten();
@@ -626,7 +629,7 @@ impl TimelineInnerStateTransaction<'_> {
             is_own_event,
             encryption_info: event.encryption_info,
             read_receipts: if settings.track_read_receipts && should_add {
-                self.meta.read_receipts.read_receipts_for_event(
+                self.meta.read_receipts.compute_event_receipts(
                     &event_id,
                     &self.all_events,
                     matches!(position, TimelineItemPosition::End { .. }),
@@ -649,8 +652,6 @@ impl TimelineInnerStateTransaction<'_> {
     }
 
     fn clear(&mut self) {
-        trace!("Clearing timeline");
-
         // By first checking if there are any local echoes first, we do a bit
         // more work in case some are found, but it should be worth it because
         // there will often not be any, and only emitting a single
@@ -686,6 +687,8 @@ impl TimelineInnerStateTransaction<'_> {
         self.fully_read_event = None;
         self.event_should_update_fully_read_marker = false;
         self.back_pagination_tokens.clear();
+
+        debug!(remaining_items = self.items.len(), "Timeline cleared");
     }
 
     #[instrument(skip_all)]
@@ -933,7 +936,8 @@ impl TimelineInnerMetadata {
 }
 
 /// Full metadata about an event.
-#[derive(Debug, Clone, Copy)]
+///
+/// Only used to group function parameters.
 pub(crate) struct FullEventMeta<'a> {
     /// The ID of the event.
     pub event_id: &'a EventId,

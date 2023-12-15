@@ -56,7 +56,7 @@ use ruma::{
 };
 use thiserror::Error;
 use tokio::sync::{mpsc::Sender, Mutex, Notify};
-use tracing::{error, info, instrument, warn};
+use tracing::{debug, error, info, instrument, warn};
 
 use self::futures::SendAttachment;
 
@@ -90,6 +90,7 @@ pub use self::{
         Message, OtherState, Profile, ReactionGroup, RepliedToEvent, RoomMembershipChange, Sticker,
         TimelineDetails, TimelineItemContent,
     },
+    inner::default_event_filter,
     item::{TimelineItem, TimelineItemKind},
     pagination::{BackPaginationStatus, PaginationOptions, PaginationOutcome},
     polls::PollResult,
@@ -534,6 +535,7 @@ impl Timeline {
     /// * `config` - An attachment configuration object containing details about
     ///   the attachment
     /// like a thumbnail, its size, duration etc.
+    #[instrument(skip_all)]
     pub fn send_attachment(
         &self,
         url: String,
@@ -549,6 +551,7 @@ impl Timeline {
     ///
     /// * `txn_id` - The transaction ID of a local echo timeline item that has a
     ///   `send_state()` of `SendState::FailedToSend { .. }`
+    #[instrument(skip(self))]
     pub async fn retry_send(&self, txn_id: &TransactionId) -> Result<(), Error> {
         macro_rules! error_return {
             ($msg:literal) => {{
@@ -585,6 +588,7 @@ impl Timeline {
             ),
         };
 
+        debug!("Retrying failed local echo");
         let txn_id = txn_id.to_owned();
         if self.msg_sender.send(LocalMessage { content, txn_id }).await.is_err() {
             error!("Internal error: timeline message receiver is closed");
@@ -604,6 +608,7 @@ impl Timeline {
     ///   state of `SendState::NotYetSent` might be supported in the future as
     ///   well, but there can be no guarantee for that actually stopping the
     ///   event from reaching the server.
+    #[instrument(skip(self))]
     pub async fn cancel_send(&self, txn_id: &TransactionId) -> bool {
         self.inner.discard_local_echo(txn_id).await
     }
@@ -654,7 +659,7 @@ impl Timeline {
 
     /// Get the latest read receipt for the given user.
     ///
-    /// Contrary to [`Room::user_receipt()`] that only keeps track of read
+    /// Contrary to [`Room::load_user_receipt()`] that only keeps track of read
     /// receipts received from the homeserver, this keeps also track of implicit
     /// read receipts in this timeline, i.e. when a room member sends an event.
     #[instrument(skip(self))]

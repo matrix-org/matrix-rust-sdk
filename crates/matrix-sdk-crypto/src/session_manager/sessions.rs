@@ -18,7 +18,7 @@ use std::{
     time::Duration,
 };
 
-use itertools::Itertools;
+use matrix_sdk_common::failures_cache::FailuresCache;
 use ruma::{
     api::client::keys::claim_keys::v3::{
         Request as KeysClaimRequest, Response as KeysClaimResponse,
@@ -37,7 +37,6 @@ use crate::{
     requests::{OutgoingRequest, ToDeviceRequest},
     store::{Changes, Result as StoreResult, Store},
     types::{events::EventType, EventEncryptionAlgorithm},
-    utilities::FailuresCache,
     ReadOnlyDevice,
 };
 
@@ -293,15 +292,18 @@ impl SessionManager {
             );
         }
 
-        debug!(
+        if tracing::level_enabled!(tracing::Level::DEBUG) {
             // Reformat the map to skip the encryption algorithm, which isn't very useful.
-            missing_session_devices_by_user = ?missing_session_devices_by_user
+            let missing_session_devices_by_user = missing_session_devices_by_user
                 .iter()
-                .map(|(user_id, devices)| (user_id, devices.keys().collect::<Vec<_>>()))
-                .format(", "),
-            ?timed_out_devices_by_user,
-            "Collected user/device pairs that are missing an Olm session"
-        );
+                .map(|(user_id, devices)| (user_id, devices.keys().collect::<BTreeSet<_>>()))
+                .collect::<BTreeMap<_, _>>();
+            debug!(
+                ?missing_session_devices_by_user,
+                ?timed_out_devices_by_user,
+                "Collected user/device pairs that are missing an Olm session"
+            );
+        }
 
         if !failed_devices_by_user.is_empty() {
             warn!(
