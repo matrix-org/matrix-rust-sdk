@@ -60,11 +60,14 @@ pub struct BackupMachine {
     pending_backup: Arc<RwLock<Option<PendingBackup>>>,
 }
 
+type SenderKey = String;
+type SessionId = String;
+
 #[derive(Debug, Clone)]
 struct PendingBackup {
     request_id: OwnedTransactionId,
     request: KeysBackupRequest,
-    sessions: BTreeMap<OwnedRoomId, BTreeMap<String, BTreeSet<String>>>,
+    sessions: BTreeMap<OwnedRoomId, BTreeMap<SenderKey, BTreeSet<SessionId>>>,
 }
 
 impl From<PendingBackup> for OutgoingRequest {
@@ -552,10 +555,10 @@ impl BackupMachine {
         backup_key: &MegolmV1BackupKey,
     ) -> (
         BTreeMap<OwnedRoomId, RoomKeyBackup>,
-        BTreeMap<OwnedRoomId, BTreeMap<String, BTreeSet<String>>>,
+        BTreeMap<OwnedRoomId, BTreeMap<SenderKey, BTreeSet<SessionId>>>,
     ) {
         let mut backup: BTreeMap<OwnedRoomId, RoomKeyBackup> = BTreeMap::new();
-        let mut session_record: BTreeMap<OwnedRoomId, BTreeMap<String, BTreeSet<String>>> =
+        let mut session_record: BTreeMap<OwnedRoomId, BTreeMap<SenderKey, BTreeSet<SessionId>>> =
             BTreeMap::new();
 
         for session in sessions {
