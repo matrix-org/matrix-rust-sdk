@@ -1616,7 +1616,7 @@ impl Room {
     /// This is only supposed to be used in **custom** situations where the user
     /// explicitly chooses to send call.notify event to invite/notify someone
     /// explicitly in unusual conditions. The default should be to use
-    /// [`checked_send_room_call_notify()`] just before a new room call is
+    /// `checked_send_room_call_notify` just before a new room call is
     /// created/joined.
     ///
     /// One example could be that the UI allows to start a call with a subset of
