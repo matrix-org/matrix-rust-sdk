@@ -746,8 +746,8 @@ async fn incremental_upload_of_keys_sliding_sync() -> Result<()> {
     let txn_id = TransactionId::new();
     let _ = alice_room.send(content).with_transaction_id(&txn_id).await?;
 
-    // Set up sliding sync for Peter.
-    let sliding_peter = client
+    // Set up sliding sync.
+    let sliding = client
         .sliding_sync("main")?
         .with_all_extensions()
         .poll_timeout(std::time::Duration::from_secs(3))
@@ -759,7 +759,7 @@ async fn incremental_upload_of_keys_sliding_sync() -> Result<()> {
         .build()
         .await?;
 
-    let s = sliding_peter.clone();
+    let s = sliding.clone();
     tokio::task::spawn(async move {
         let stream = s.sync();
         pin_mut!(stream);
