@@ -743,7 +743,7 @@ async fn incremental_upload_of_keys_sliding_sync() -> Result<()> {
         .await?;
 
     let s = sliding.clone();
-    tokio::task::spawn(async move {
+    spawn(async move {
         let stream = s.sync();
         pin_mut!(stream);
         while let Some(up) = stream.next().await {
