@@ -509,6 +509,9 @@ impl MatrixAuth {
 
     /// Register a user to the server.
     ///
+    /// If registration was successful and a session token was returned by the
+    /// server, the client session is set (the client is logged in).
+    ///
     /// # Arguments
     ///
     /// * `registration` - The easiest way to create this request is using the
@@ -543,8 +546,8 @@ impl MatrixAuth {
         let homeserver = self.client.homeserver();
         info!("Registering to {homeserver}");
         let response = self.client.send(request, None).await?;
-        if let Ok(session) = MatrixSession::try_from(&response) {
-            self.set_session(session).await.expect("Registration sets token");
+        if let Some(session) = MatrixSession::from_register_response(&response) {
+            let _ = self.set_session(session).await;
         }
         Ok(response)
     }
@@ -892,15 +895,14 @@ impl From<&login::v3::Response> for MatrixSession {
     }
 }
 
-impl TryFrom<&register::v3::Response> for MatrixSession {
-    type Error = ();
-    fn try_from(response: &register::v3::Response) -> Result<Self, ()> {
+impl MatrixSession {
+    fn from_register_response(response: &register::v3::Response) -> Option<Self> {
         let register::v3::Response { user_id, access_token, device_id, refresh_token, .. } =
             response;
-        let Some(device_id) = device_id else { return Err(()) };
-        let Some(access_token) = access_token else { return Err(()) };
+        let Some(device_id) = device_id else { return None };
+        let Some(access_token) = access_token else { return None };
 
-        Ok(Self {
+        Some(Self {
             meta: SessionMeta { user_id: user_id.clone(), device_id: device_id.clone() },
             tokens: MatrixSessionTokens {
                 access_token: access_token.clone(),
