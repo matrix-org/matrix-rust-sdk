@@ -1,5 +1,6 @@
-use crate::helpers::TestClientBuilder;
 use anyhow::Result;
+
+use crate::helpers::TestClientBuilder;
 
 #[tokio::test(flavor = "multi_thread")]
 async fn register_login_is_one_device() -> Result<()> {
