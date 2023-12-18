@@ -14,6 +14,7 @@
 
 use std::{fs::File, io::Write};
 
+use anyhow::Result;
 use assert_matches::assert_matches;
 use futures_util::{pin_mut, FutureExt, StreamExt};
 use matrix_sdk::{
@@ -27,12 +28,17 @@ use matrix_sdk::{
 };
 use matrix_sdk_base::SessionMeta;
 use matrix_sdk_test::{async_test, JoinedRoomBuilder, SyncResponseBuilder};
-use ruma::{device_id, event_id, events::room::message::RoomMessageEvent, room_id, user_id};
+use ruma::{
+    api::client::room::create_room::v3::Request as CreateRoomRequest,
+    assign, device_id, event_id,
+    events::room::message::{RoomMessageEvent, RoomMessageEventContent},
+    room_id, user_id, TransactionId,
+};
 use serde_json::json;
 use tempfile::tempdir;
 use tokio::spawn;
 use wiremock::{
-    matchers::{header, method, path},
+    matchers::{header, method, path, path_regex},
     Mock, ResponseTemplate,
 };
 
@@ -476,6 +482,302 @@ async fn steady_state_waiting() {
     task.await.unwrap();
 
     server.verify().await;
+}
+
+async fn setup_create_room_and_send_message_mocks(server: &wiremock::MockServer) {
+    Mock::given(method("POST"))
+        .and(path("_matrix/client/unstable/room_keys/version"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "version": "1"})))
+        .mount(server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("_matrix/client/r0/createRoom"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({ "room_id": "!sefiuhWgwghwWgh:localhost"})),
+        )
+        .mount(server)
+        .await;
+
+    let state = json!(
+        {
+            "algorithm": "m.megolm.v1.aes-sha2",
+            "rotation_period_ms": 604800000,
+            "rotation_period_msgs": 100
+        }
+    );
+
+    Mock::given(method("GET"))
+        .and(path("_matrix/client/r0/rooms/!sefiuhWgwghwWgh:localhost/state/m.room.encryption/"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(state))
+        .mount(server)
+        .await;
+
+    Mock::given(method("GET"))
+    .and(path("_matrix/client/r0/user/@example:morpheus.localhost/account_data/m.secret_storage.default_key"))
+    .and(header("authorization", "Bearer 1234"))
+    .respond_with(
+        ResponseTemplate::new(404).set_body_json(json!({
+            "errcode": "M_NOT_FOUND",
+            "error": "Account data not found."
+        }))
+    )
+    .mount(server)
+    .await;
+
+    Mock::given(method("POST"))
+        .and(path("/_matrix/client/r0/keys/upload"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(404).set_body_json(json!({
+            "one_time_key_counts": {
+                "curve25519": 50,
+                "signed_curve25519": 50
+            }
+        })))
+        .mount(server)
+        .await;
+
+    let members = json!({
+        "chunk": [
+            {
+                "content": {
+                    "avatar_url": null,
+                    "displayname": "example",
+                    "membership": "join"
+                },
+                "event_id": "$151800140517rfvjc:localhost",
+                "membership": "join",
+                "origin_server_ts": 151800140,
+                "room_id": "!sefiuhWgwghwWgh:localhost",
+                "sender": "@example:morpheus.localhost",
+                "state_key": "@example:morpheus.localhost",
+                "type": "m.room.member",
+                "unsigned": {
+                    "age": 2970366,
+                }
+            }
+        ]
+    });
+
+    Mock::given(method("GET"))
+        .and(path("_matrix/client/r0/rooms/!sefiuhWgwghwWgh:localhost/members"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(members))
+        .mount(server)
+        .await;
+
+    Mock::given(method("PUT"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!(
+        {
+            "event_id": "$foo:localhost"
+        })))
+        .mount(server)
+        .await;
+
+    // we can just return an empty response here, we just encrypt to ourself
+    Mock::given(method("POST"))
+        .and(path("/_matrix/client/r0/keys/query"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "device_keys": {
+                "@alice:example.org": {}
+            }
+        })))
+        .mount(server)
+        .await;
+}
+
+/// Test that new room keys are uploaded to backup when they are known/imported.
+/// Current implementation of the backup module will try to trigger a backup
+/// upload at the end of a sync.
+/// For simplicity we are testing here that the upload is triggered when a new
+/// outbound room key is created. But it would work for a key received via a to
+/// device event as well.
+#[async_test]
+async fn incremental_upload_of_keys() -> Result<()> {
+    let user_id = user_id!("@example:morpheus.localhost");
+
+    let session = MatrixSession {
+        meta: SessionMeta { user_id: user_id.into(), device_id: device_id!("DEVICEID").to_owned() },
+        tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
+    };
+    let (client, server) = no_retry_test_client().await;
+    client.restore_session(session).await.unwrap();
+
+    let backups = client.encryption().backups();
+
+    // This is the call we want to check. The newly created outbound session should
+    // be uploaded to backup.
+    mount_once(
+        &server,
+        "PUT",
+        "_matrix/client/unstable/room_keys/keys",
+        ResponseTemplate::new(200).set_body_json(json!({
+            "count": 1,
+            "etag": "abcdefg",
+        }
+        )),
+    )
+    .await;
+
+    setup_create_room_and_send_message_mocks(&server).await;
+
+    backups.create().await.expect("We should be able to create a new backup");
+
+    let alice_room = client
+        .create_room(assign!(CreateRoomRequest::new(), {
+            invite: vec![],
+            is_direct: true,
+        }))
+        .await?;
+
+    alice_room.enable_encryption().await?;
+
+    assert!(alice_room.is_encrypted().await?, "room should be encrypted");
+
+    // Send a message to create an outbound session that should be uploaded to
+    // backup
+    let content = RoomMessageEventContent::text_plain("Hello world");
+    let txn_id = TransactionId::new();
+    let _ = alice_room.send(content).with_transaction_id(&txn_id).await?;
+
+    Mock::given(method("GET"))
+        .and(path("/_matrix/client/r0/sync"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "next_batch": "sfooBar",
+            "device_one_time_keys_count": {
+                "signed_curve25519": 50
+            },
+            "org.matrix.msc2732.device_unused_fallback_key_types": [
+                "signed_curve25519"
+            ],
+            "device_unused_fallback_key_types": [
+                "signed_curve25519"
+            ]
+        })))
+        .mount(&server)
+        .await;
+
+    client.sync_once(Default::default()).await?;
+
+    server.verify().await;
+    Ok(())
+}
+
+#[async_test]
+#[cfg(feature = "experimental-sliding-sync")]
+async fn incremental_upload_of_keys_sliding_sync() -> Result<()> {
+    let user_id = user_id!("@example:morpheus.localhost");
+
+    let session = MatrixSession {
+        meta: SessionMeta { user_id: user_id.into(), device_id: device_id!("DEVICEID").to_owned() },
+        tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
+    };
+    let server = wiremock::MockServer::start().await;
+    let builder = Client::builder()
+        .homeserver_url(server.uri())
+        .sliding_sync_proxy(server.uri())
+        .server_versions([ruma::api::MatrixVersion::V1_0]);
+
+    let client =
+        builder.request_config(RequestConfig::new().disable_retry()).build().await.unwrap();
+
+    client.restore_session(session).await.unwrap();
+
+    let backups = client.encryption().backups();
+
+    // This is the call we want to check. The newly created outbound session should
+    // be uploaded to backup.
+    mount_once(
+        &server,
+        "PUT",
+        "_matrix/client/unstable/room_keys/keys",
+        ResponseTemplate::new(200).set_body_json(json!({
+            "count": 1,
+            "etag": "abcdefg",
+        }
+        )),
+    )
+    .await;
+
+    setup_create_room_and_send_message_mocks(&server).await;
+
+    backups.create().await.expect("We should be able to create a new backup");
+
+    let invite = vec![];
+    let request = assign!(CreateRoomRequest::new(), {
+        invite,
+        is_direct: true,
+    });
+
+    let alice_room = client.create_room(request).await?;
+
+    alice_room.enable_encryption().await?;
+
+    assert!(alice_room.is_encrypted().await?, "room should be encrypted");
+
+    // Send a message to create an outbound session that should be uploaded to
+    // backup
+    let content = RoomMessageEventContent::text_plain("Hello world");
+    let txn_id = TransactionId::new();
+    let _ = alice_room.send(content).with_transaction_id(&txn_id).await?;
+
+    // Set up sliding sync.
+    let sliding = client
+        .sliding_sync("main")?
+        .with_all_extensions()
+        .poll_timeout(std::time::Duration::from_secs(3))
+        .network_timeout(std::time::Duration::from_secs(3))
+        .add_list(
+            matrix_sdk::SlidingSyncList::builder("all")
+                .sync_mode(matrix_sdk::SlidingSyncMode::new_selective().add_range(0..=20)),
+        )
+        .build()
+        .await?;
+
+    let s = sliding.clone();
+    tokio::task::spawn(async move {
+        let stream = s.sync();
+        pin_mut!(stream);
+        while let Some(up) = stream.next().await {
+            tracing::warn!("received update: {up:?}");
+        }
+    });
+
+    Mock::given(method("POST"))
+        .and(path("_matrix/client/unstable/org.matrix.msc3575/sync"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "pos": "5",
+            "extensions": {
+                "e2ee": {
+                    "device_one_time_keys_count": {
+                        "signed_curve25519": 50
+                    },
+                    "org.matrix.msc2732.device_unused_fallback_key_types": [
+                        "signed_curve25519"
+                    ],
+                    "device_unused_fallback_key_types": [
+                        "signed_curve25519"
+                    ]
+                }
+            }
+        })))
+        .mount(&server)
+        .await;
+
+    // let the slinding sync loop run for a bit
+    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+
+    server.verify().await;
+    Ok(())
 }
 
 #[async_test]
