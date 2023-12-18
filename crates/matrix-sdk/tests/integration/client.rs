@@ -6,7 +6,6 @@ use matrix_sdk::{
     config::SyncSettings,
     media::{MediaFormat, MediaRequest, MediaThumbnailSize},
     sync::RoomUpdate,
-    Encrypted,
 };
 use matrix_sdk_base::RoomState;
 use matrix_sdk_test::{async_test, test_json, DEFAULT_TEST_ROOM_ID};
@@ -726,6 +725,7 @@ async fn test_encrypt_room_event() {
     );
 }
 
+#[cfg(not(feature = "e2e-encryption"))]
 #[async_test]
 async fn create_dm_non_encrypted() {
     let (client, server) = logged_in_client().await;
@@ -774,6 +774,7 @@ async fn create_dm_non_encrypted() {
     client.create_dm(user_id, Encrypted::No).await.unwrap();
 }
 
+#[cfg(feature = "e2e-encryption")]
 #[async_test]
 async fn create_dm_encrypted() {
     let (client, server) = logged_in_client().await;
@@ -833,7 +834,7 @@ async fn create_dm_encrypted() {
         .mount(&server)
         .await;
 
-    client.create_dm(user_id, Encrypted::Yes).await.unwrap();
+    client.create_dm(user_id).await.unwrap();
 }
 
 #[async_test]
@@ -842,7 +843,7 @@ async fn create_dm_error() {
     let user_id = user_id!("@invitee:localhost");
 
     // The endpoint is not mocked so we encounter a 404.
-    let error = client.create_dm(user_id, Encrypted::No).await.unwrap_err();
+    let error = client.create_dm(user_id).await.unwrap_err();
     let client_api_error = error.as_client_api_error().unwrap();
 
     assert_eq!(client_api_error.status_code, 404);

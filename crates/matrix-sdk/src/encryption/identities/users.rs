@@ -30,7 +30,7 @@ use ruma::{
 };
 
 use super::{ManualVerifyError, RequestVerificationError};
-use crate::{encryption::verification::VerificationRequest, Client, Encrypted};
+use crate::{encryption::verification::VerificationRequest, Client};
 
 /// Updates about [`UserIdentity`]s which got received over the `/keys/query`
 /// endpoint.
@@ -507,7 +507,7 @@ impl OtherUserIdentity {
             }
             room.clone()
         } else {
-            self.client.create_dm(self.inner.user_id(), Encrypted::Yes).await?
+            self.client.create_dm(self.inner.user_id()).await?
         };
 
         let response = room

@@ -139,15 +139,6 @@ pub enum SessionChange {
     TokensRefreshed,
 }
 
-/// Whether a room should be encrypted.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Encrypted {
-    /// The room should be encrypted.
-    Yes,
-    /// The room should not be encrypted.
-    No,
-}
-
 /// An async/await enabled Matrix client.
 ///
 /// All of the state is held in an `Arc` so the `Client` can be cloned freely.
@@ -1199,23 +1190,27 @@ impl Client {
     /// given user being invited, the room marked `is_direct` and both the
     /// creator and invitee getting the default maximum power level.
     ///
+    /// If the `e2e-encryption` feature is enabled, the room will also be
+    /// encrypted.
+    ///
     /// # Arguments
     ///
     /// * `user_id` - The ID of the user to create a DM for.
-    /// * `encrypted` - Whether the DM should be encrypted.
-    pub async fn create_dm(&self, user_id: &UserId, encrypted: Encrypted) -> Result<Room> {
-        let mut request = assign!(create_room::v3::Request::new(), {
+    pub async fn create_dm(&self, user_id: &UserId) -> Result<Room> {
+        #[cfg(feature = "e2e-encryption")]
+        let initial_state =
+            vec![InitialStateEvent::new(RoomEncryptionEventContent::with_recommended_defaults())
+                .to_raw_any()];
+
+        #[cfg(not(feature = "e2e-encryption"))]
+        let initial_state = vec![];
+
+        let request = assign!(create_room::v3::Request::new(), {
             invite: vec![user_id.to_owned()],
             is_direct: true,
             preset: Some(create_room::v3::RoomPreset::TrustedPrivateChat),
+            initial_state,
         });
-
-        if encrypted == Encrypted::Yes {
-            request.initial_state.push(
-                InitialStateEvent::new(RoomEncryptionEventContent::with_recommended_defaults())
-                    .to_raw_any(),
-            );
-        };
 
         self.create_room(request).await
     }
