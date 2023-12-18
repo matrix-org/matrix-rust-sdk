@@ -489,7 +489,7 @@ async fn setup_create_room_and_send_message_mocks(server: &wiremock::MockServer)
         .and(path("_matrix/client/unstable/room_keys/version"))
         .and(header("authorization", "Bearer 1234"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "version": "1"})))
-        .mount(&server)
+        .mount(server)
         .await;
 
     Mock::given(method("POST"))
@@ -499,7 +499,7 @@ async fn setup_create_room_and_send_message_mocks(server: &wiremock::MockServer)
             ResponseTemplate::new(200)
                 .set_body_json(json!({ "room_id": "!sefiuhWgwghwWgh:localhost"})),
         )
-        .mount(&server)
+        .mount(server)
         .await;
 
     let state = json!(
@@ -514,7 +514,7 @@ async fn setup_create_room_and_send_message_mocks(server: &wiremock::MockServer)
         .and(path("_matrix/client/r0/rooms/!sefiuhWgwghwWgh:localhost/state/m.room.encryption/"))
         .and(header("authorization", "Bearer 1234"))
         .respond_with(ResponseTemplate::new(200).set_body_json(state))
-        .mount(&server)
+        .mount(server)
         .await;
 
     Mock::given(method("GET"))
@@ -526,7 +526,7 @@ async fn setup_create_room_and_send_message_mocks(server: &wiremock::MockServer)
             "error": "Account data not found."
         }))
     )
-    .mount(&server)
+    .mount(server)
     .await;
 
     Mock::given(method("POST"))
@@ -538,7 +538,7 @@ async fn setup_create_room_and_send_message_mocks(server: &wiremock::MockServer)
                 "signed_curve25519": 50
             }
         })))
-        .mount(&server)
+        .mount(server)
         .await;
 
     let members = json!({
@@ -567,7 +567,7 @@ async fn setup_create_room_and_send_message_mocks(server: &wiremock::MockServer)
         .and(path("_matrix/client/r0/rooms/!sefiuhWgwghwWgh:localhost/members"))
         .and(header("authorization", "Bearer 1234"))
         .respond_with(ResponseTemplate::new(200).set_body_json(members))
-        .mount(&server)
+        .mount(server)
         .await;
 
     Mock::given(method("PUT"))
@@ -589,7 +589,7 @@ async fn setup_create_room_and_send_message_mocks(server: &wiremock::MockServer)
                 "@alice:example.org": {}
             }
         })))
-        .mount(&server)
+        .mount(server)
         .await;
 }
 
