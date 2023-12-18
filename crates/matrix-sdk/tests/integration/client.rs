@@ -771,7 +771,7 @@ async fn create_dm_non_encrypted() {
         .mount(&server)
         .await;
 
-    client.create_dm(user_id, Encrypted::No).await.unwrap();
+    client.create_dm(user_id).await.unwrap();
 }
 
 #[cfg(feature = "e2e-encryption")]
