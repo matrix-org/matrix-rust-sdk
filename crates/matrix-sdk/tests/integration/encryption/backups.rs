@@ -76,20 +76,6 @@ async fn mount_once(
         .await;
 }
 
-async fn just_mount(
-    server: &wiremock::MockServer,
-    method_argument: &str,
-    path_argument: &str,
-    response: ResponseTemplate,
-) {
-    Mock::given(method(method_argument))
-        .and(path(path_argument))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(response)
-        .mount(server)
-        .await;
-}
-
 #[async_test]
 async fn create() {
     let user_id = user_id!("@example:morpheus.localhost");
@@ -499,21 +485,22 @@ async fn steady_state_waiting() {
 }
 
 async fn setup_create_room_and_send_message_mocks(server: &wiremock::MockServer) {
-    just_mount(
-        server,
-        "POST",
-        "_matrix/client/unstable/room_keys/version",
-        ResponseTemplate::new(200).set_body_json(json!({ "version": "1"})),
-    )
-    .await;
+    Mock::given(method("POST"))
+        .and(path("_matrix/client/unstable/room_keys/version"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "version": "1"})))
+        .mount(&server)
+        .await;
 
-    just_mount(
-        server,
-        "POST",
-        "_matrix/client/r0/createRoom",
-        ResponseTemplate::new(200).set_body_json(json!({ "room_id": "!sefiuhWgwghwWgh:localhost"})),
-    )
-    .await;
+    Mock::given(method("POST"))
+        .and(path("_matrix/client/r0/createRoom"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({ "room_id": "!sefiuhWgwghwWgh:localhost"})),
+        )
+        .mount(&server)
+        .await;
 
     let state = json!(
         {
@@ -522,37 +509,37 @@ async fn setup_create_room_and_send_message_mocks(server: &wiremock::MockServer)
             "rotation_period_msgs": 100
         }
     );
-    just_mount(
-        server,
-        "GET",
-        "_matrix/client/r0/rooms/!sefiuhWgwghwWgh:localhost/state/m.room.encryption/",
-        ResponseTemplate::new(200).set_body_json(state),
-    )
-    .await;
 
-    just_mount(
-        server,
-        "GET",
-        "_matrix/client/r0/user/@example:morpheus.localhost/account_data/m.secret_storage.default_key",
+    Mock::given(method("GET"))
+        .and(path("_matrix/client/r0/rooms/!sefiuhWgwghwWgh:localhost/state/m.room.encryption/"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(state))
+        .mount(&server)
+        .await;
+
+    Mock::given(method("GET"))
+    .and(path("_matrix/client/r0/user/@example:morpheus.localhost/account_data/m.secret_storage.default_key"))
+    .and(header("authorization", "Bearer 1234"))
+    .respond_with(
         ResponseTemplate::new(404).set_body_json(json!({
             "errcode": "M_NOT_FOUND",
             "error": "Account data not found."
-        })),
+        }))
     )
+    .mount(&server)
     .await;
 
-    just_mount(
-        server,
-        "POST",
-        "/_matrix/client/r0/keys/upload",
-        ResponseTemplate::new(404).set_body_json(json!({
+    Mock::given(method("POST"))
+        .and(path("/_matrix/client/r0/keys/upload"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(404).set_body_json(json!({
             "one_time_key_counts": {
                 "curve25519": 50,
                 "signed_curve25519": 50
             }
-        })),
-    )
-    .await;
+        })))
+        .mount(&server)
+        .await;
 
     let members = json!({
         "chunk": [
@@ -576,13 +563,12 @@ async fn setup_create_room_and_send_message_mocks(server: &wiremock::MockServer)
         ]
     });
 
-    just_mount(
-        server,
-        "GET",
-        "_matrix/client/r0/rooms/!sefiuhWgwghwWgh:localhost/members",
-        ResponseTemplate::new(200).set_body_json(members),
-    )
-    .await;
+    Mock::given(method("GET"))
+        .and(path("_matrix/client/r0/rooms/!sefiuhWgwghwWgh:localhost/members"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(members))
+        .mount(&server)
+        .await;
 
     Mock::given(method("PUT"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
@@ -595,17 +581,16 @@ async fn setup_create_room_and_send_message_mocks(server: &wiremock::MockServer)
         .await;
 
     // we can just return an empty response here, we just encrypt to ourself
-    just_mount(
-        server,
-        "POST",
-        "/_matrix/client/r0/keys/query",
-        ResponseTemplate::new(200).set_body_json(json!({
+    Mock::given(method("POST"))
+        .and(path("/_matrix/client/r0/keys/query"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "device_keys": {
                 "@alice:example.org": {}
             }
-        })),
-    )
-    .await;
+        })))
+        .mount(&server)
+        .await;
 }
 
 /// Test that new room keys are uploaded to backup when they are known/imported.
@@ -663,11 +648,10 @@ async fn incremental_upload_of_keys() -> Result<()> {
     let txn_id = TransactionId::new();
     let _ = alice_room.send(content).with_transaction_id(&txn_id).await?;
 
-    just_mount(
-        &server,
-        "GET",
-        "/_matrix/client/r0/sync",
-        ResponseTemplate::new(200).set_body_json(json!({
+    Mock::given(method("GET"))
+        .and(path("/_matrix/client/r0/sync"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "next_batch": "sfooBar",
             "device_one_time_keys_count": {
                 "signed_curve25519": 50
@@ -678,9 +662,9 @@ async fn incremental_upload_of_keys() -> Result<()> {
             "device_unused_fallback_key_types": [
                 "signed_curve25519"
             ]
-        })),
-    )
-    .await;
+        })))
+        .mount(&server)
+        .await;
 
     client.sync_once(Default::default()).await?;
 
@@ -768,11 +752,10 @@ async fn incremental_upload_of_keys_sliding_sync() -> Result<()> {
         }
     });
 
-    just_mount(
-        &server,
-        "POST",
-        "_matrix/client/unstable/org.matrix.msc3575/sync",
-        ResponseTemplate::new(200).set_body_json(json!({
+    Mock::given(method("POST"))
+        .and(path("_matrix/client/unstable/org.matrix.msc3575/sync"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "pos": "5",
             "extensions": {
                 "e2ee": {
@@ -787,9 +770,9 @@ async fn incremental_upload_of_keys_sliding_sync() -> Result<()> {
                     ]
                 }
             }
-        })),
-    )
-    .await;
+        })))
+        .mount(&server)
+        .await;
 
     // let the slinding sync loop run for a bit
     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
