@@ -717,23 +717,38 @@ impl Room {
 pub struct RoomInfo {
     /// The unique room id of the room.
     pub(crate) room_id: OwnedRoomId,
+
     /// The state of the room.
     pub(crate) room_state: RoomState,
+
     /// The unread notifications counts.
     pub(crate) notification_counts: UnreadNotificationsCount,
+
     /// The summary of this room.
     pub(crate) summary: RoomSummary,
+
     /// Flag remembering if the room members are synced.
     pub(crate) members_synced: bool,
+
     /// The prev batch of this room we received during the last sync.
     pub(crate) last_prev_batch: Option<String>,
+
     /// How much we know about this room.
     pub(crate) sync_info: SyncInfo,
+
     /// Whether or not the encryption info was been synced.
     pub(crate) encryption_state_synced: bool,
+
     /// The last event send by sliding sync
     #[cfg(feature = "experimental-sliding-sync")]
     pub(crate) latest_event: Option<Box<LatestEvent>>,
+
+    /// The id of the event the last unthreaded (or main-threaded, for better
+    /// compatibility with clients that have thread support) read receipt is
+    /// attached to.
+    #[serde(default)]
+    pub(crate) latest_read_receipt_event_id: Option<OwnedEventId>,
+
     /// Base room info which holds some basic event contents important for the
     /// room state.
     pub(crate) base_info: Box<BaseRoomInfo>,
@@ -770,6 +785,7 @@ impl RoomInfo {
             encryption_state_synced: false,
             #[cfg(feature = "experimental-sliding-sync")]
             latest_event: None,
+            latest_read_receipt_event_id: None,
             base_info: Box::new(BaseRoomInfo::new()),
         }
     }
@@ -1251,6 +1267,7 @@ mod tests {
                 Raw::from_json_string(json!({"sender": "@u:i.uk"}).to_string()).unwrap().into(),
             ))),
             base_info: Box::new(BaseRoomInfo::new()),
+            latest_read_receipt_event_id: None,
         };
 
         let info_json = json!({
