@@ -630,13 +630,12 @@ async fn incremental_upload_of_keys() -> Result<()> {
 
     backups.create().await.expect("We should be able to create a new backup");
 
-    let invite = vec![];
-    let request = assign!(CreateRoomRequest::new(), {
-        invite,
-        is_direct: true,
-    });
-
-    let alice_room = client.create_room(request).await?;
+    let alice_room = client
+        .create_room(assign!(CreateRoomRequest::new(), {
+            invite: vec![],
+            is_direct: true,
+        }))
+        .await?;
 
     alice_room.enable_encryption().await?;
 
