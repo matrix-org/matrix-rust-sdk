@@ -31,6 +31,8 @@ use matrix_sdk_base::{
     SyncOutsideWasm,
 };
 use matrix_sdk_common::instant::Instant;
+#[cfg(feature = "e2e-encryption")]
+use ruma::events::{room::encryption::RoomEncryptionEventContent, InitialStateEvent};
 use ruma::{
     api::{
         client::{
@@ -56,7 +58,6 @@ use ruma::{
         MatrixVersion, OutgoingRequest,
     },
     assign,
-    events::{room::encryption::RoomEncryptionEventContent, InitialStateEvent},
     push::Ruleset,
     DeviceId, OwnedDeviceId, OwnedRoomId, OwnedServerName, RoomAliasId, RoomId, RoomOrAliasId,
     ServerName, UInt, UserId,
