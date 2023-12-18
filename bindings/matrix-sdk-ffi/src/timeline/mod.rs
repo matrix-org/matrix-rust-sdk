@@ -205,7 +205,7 @@ impl Timeline {
     pub fn send_image(
         self: Arc<Self>,
         url: String,
-        thumbnail_url: String,
+        thumbnail_url: Option<String>,
         image_info: ImageInfo,
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
     ) -> Arc<SendAttachmentJoinHandle> {
@@ -220,13 +220,13 @@ impl Timeline {
 
             let attachment_info = AttachmentInfo::Image(base_image_info);
 
-            let attachment_config = match image_info.thumbnail_info {
-                Some(thumbnail_image_info) => {
+            let attachment_config = match (thumbnail_url, image_info.thumbnail_info) {
+                (Some(thumbnail_url), Some(thumbnail_image_info)) => {
                     let thumbnail =
                         self.build_thumbnail_info(thumbnail_url, thumbnail_image_info)?;
                     AttachmentConfig::with_thumbnail(thumbnail).info(attachment_info)
                 }
-                None => AttachmentConfig::new().info(attachment_info),
+                _ => AttachmentConfig::new().info(attachment_info),
             };
 
             self.send_attachment(url, mime_type, attachment_config, progress_watcher).await
@@ -236,7 +236,7 @@ impl Timeline {
     pub fn send_video(
         self: Arc<Self>,
         url: String,
-        thumbnail_url: String,
+        thumbnail_url: Option<String>,
         video_info: VideoInfo,
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
     ) -> Arc<SendAttachmentJoinHandle> {
@@ -251,13 +251,13 @@ impl Timeline {
 
             let attachment_info = AttachmentInfo::Video(base_video_info);
 
-            let attachment_config = match video_info.thumbnail_info {
-                Some(thumbnail_image_info) => {
+            let attachment_config = match (thumbnail_url, video_info.thumbnail_info) {
+                (Some(thumbnail_url), Some(thumbnail_image_info)) => {
                     let thumbnail =
                         self.build_thumbnail_info(thumbnail_url, thumbnail_image_info)?;
                     AttachmentConfig::with_thumbnail(thumbnail).info(attachment_info)
                 }
-                None => AttachmentConfig::new().info(attachment_info),
+                _ => AttachmentConfig::new().info(attachment_info),
             };
 
             self.send_attachment(url, mime_type, attachment_config, progress_watcher).await

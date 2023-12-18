@@ -55,6 +55,19 @@ impl RuleCommands {
         Ok(())
     }
 
+    /// Insert a new rule for a keyword.
+    pub(crate) fn insert_keyword_rule(
+        &mut self,
+        keyword: String,
+    ) -> Result<(), NotificationSettingsError> {
+        let command = Command::SetKeywordPushRule { scope: RuleScope::Global, keyword };
+
+        self.rules.insert(command.to_push_rule()?, None, None)?;
+        self.commands.push(command);
+
+        Ok(())
+    }
+
     /// Delete a rule
     pub(crate) fn delete_rule(
         &mut self,

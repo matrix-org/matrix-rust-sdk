@@ -196,6 +196,11 @@ impl QrVerification {
         self.identities.other_device_id()
     }
 
+    /// Get the device of the other user.
+    pub fn other_device(&self) -> &ReadOnlyDevice {
+        self.identities.other_device()
+    }
+
     /// Did we initiate the verification request
     pub fn we_started(&self) -> bool {
         self.we_started

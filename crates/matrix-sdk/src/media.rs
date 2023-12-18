@@ -264,12 +264,12 @@ impl Media {
         request: &MediaRequest,
         use_cache: bool,
     ) -> Result<Vec<u8>> {
-        let content =
-            if use_cache { self.client.store().get_media_content(request).await? } else { None };
-
-        if let Some(content) = content {
-            return Ok(content);
-        }
+        // Read from the cache.
+        if use_cache {
+            if let Some(content) = self.client.store().get_media_content(request).await? {
+                return Ok(content);
+            }
+        };
 
         let content: Vec<u8> = match &request.source {
             MediaSource::Encrypted(file) => {

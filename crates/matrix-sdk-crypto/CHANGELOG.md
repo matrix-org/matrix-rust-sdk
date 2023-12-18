@@ -1,5 +1,8 @@
 # unreleased
 
+- Add method to mark a list of inbound group sessions as backed up:
+  `CryptoStore::mark_inbound_group_sessions_as_backed_up`
+
 - `OlmMachine::toggle_room_key_forwarding` is replaced by two separate methods:
 
   * `OlmMachine::set_room_key_requests_enabled`, which controls whether

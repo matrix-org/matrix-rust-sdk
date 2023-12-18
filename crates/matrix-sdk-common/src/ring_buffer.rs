@@ -75,12 +75,19 @@ impl<T> RingBuffer<T> {
         self.inner.pop_front()
     }
 
+    /// Removes and returns one specific element at `index` if it exists,
+    /// otherwise it returns `None`.
+    pub fn remove(&mut self, index: usize) -> Option<T> {
+        self.inner.remove(index)
+    }
+
     /// Returns an iterator that provides elements in front-to-back order, i.e.
     /// the same order you would get if you repeatedly called pop().
     pub fn iter(&self) -> Iter<'_, T> {
         self.inner.iter()
     }
 
+    /// Returns an iterator that drains its items.
     pub fn drain<R>(&mut self, range: R) -> Drain<'_, T>
     where
         R: RangeBounds<usize>,
@@ -155,7 +162,7 @@ mod tests {
     }
 
     #[test]
-    pub fn test_push_and_pop_and_length() {
+    pub fn test_push_and_pop_and_remove_and_length() {
         let mut ring_buffer = RingBuffer::new(3);
 
         ring_buffer.push(1);
@@ -167,23 +174,48 @@ mod tests {
         ring_buffer.push(3);
         assert_eq!(ring_buffer.len(), 3);
 
-        ring_buffer.pop();
+        assert_eq!(ring_buffer.pop(), Some(1));
         assert_eq!(ring_buffer.len(), 2);
         assert_eq!(ring_buffer.get(0), Some(&2));
         assert_eq!(ring_buffer.get(1), Some(&3));
         assert_eq!(ring_buffer.get(2), None);
 
-        ring_buffer.pop();
+        assert_eq!(ring_buffer.pop(), Some(2));
         assert_eq!(ring_buffer.len(), 1);
         assert_eq!(ring_buffer.get(0), Some(&3));
         assert_eq!(ring_buffer.get(1), None);
         assert_eq!(ring_buffer.get(2), None);
 
-        ring_buffer.pop();
+        assert_eq!(ring_buffer.pop(), Some(3));
         assert_eq!(ring_buffer.len(), 0);
         assert_eq!(ring_buffer.get(0), None);
         assert_eq!(ring_buffer.get(1), None);
         assert_eq!(ring_buffer.get(2), None);
+
+        assert_eq!(ring_buffer.pop(), None);
+
+        ring_buffer.push(1);
+        ring_buffer.push(2);
+        ring_buffer.push(3);
+        assert_eq!(ring_buffer.len(), 3);
+        assert_eq!(ring_buffer.get(0), Some(&1));
+        assert_eq!(ring_buffer.get(1), Some(&2));
+        assert_eq!(ring_buffer.get(2), Some(&3));
+
+        assert_eq!(ring_buffer.remove(1), Some(2));
+        assert_eq!(ring_buffer.len(), 2);
+        assert_eq!(ring_buffer.get(0), Some(&1));
+        assert_eq!(ring_buffer.get(1), Some(&3));
+        assert_eq!(ring_buffer.get(2), None);
+
+        assert_eq!(ring_buffer.remove(0), Some(1));
+        assert_eq!(ring_buffer.len(), 1);
+        assert_eq!(ring_buffer.get(0), Some(&3));
+        assert_eq!(ring_buffer.get(1), None);
+        assert_eq!(ring_buffer.get(2), None);
+
+        assert_eq!(ring_buffer.remove(1), None);
+        assert_eq!(ring_buffer.remove(10), None);
     }
 
     #[test]

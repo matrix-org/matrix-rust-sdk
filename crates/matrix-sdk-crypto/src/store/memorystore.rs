@@ -265,6 +265,20 @@ impl CryptoStore for MemoryStore {
             .collect())
     }
 
+    async fn mark_inbound_group_sessions_as_backed_up(
+        &self,
+        room_and_session_ids: &[(&RoomId, &str)],
+    ) -> Result<()> {
+        for (room_id, session_id) in room_and_session_ids {
+            let session = self.inbound_group_sessions.get(room_id, session_id);
+            if let Some(session) = session {
+                session.mark_as_backed_up();
+                self.inbound_group_sessions.add(session);
+            }
+        }
+        Ok(())
+    }
+
     async fn reset_backup_state(&self) -> Result<()> {
         for session in self.get_inbound_group_sessions().await? {
             session.reset_backup_state();

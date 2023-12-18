@@ -16,7 +16,7 @@ use futures_core::Stream;
 use matrix_sdk_base::crypto::{
     AcceptSettings, CancelInfo, Emoji, ReadOnlyDevice, Sas as BaseSas, SasState,
 };
-use ruma::{events::key::verification::cancel::CancelCode, UserId};
+use ruma::{events::key::verification::cancel::CancelCode, RoomId, UserId};
 
 use crate::{error::Result, Client};
 
@@ -322,5 +322,10 @@ impl SasVerification {
     /// [`SasVerification::changes`] method.
     pub fn state(&self) -> SasState {
         self.inner.state()
+    }
+
+    /// Get the room ID, if the verification is happening inside a room.
+    pub fn room_id(&self) -> Option<&RoomId> {
+        self.inner.room_id()
     }
 }
