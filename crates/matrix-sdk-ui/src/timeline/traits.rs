@@ -18,13 +18,16 @@ use matrix_sdk::Room;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk::{deserialized_responses::TimelineEvent, Result};
 use matrix_sdk_base::latest_event::LatestEvent;
+#[cfg(feature = "e2e-encryption")]
+use ruma::{events::AnySyncTimelineEvent, serde::Raw};
 use ruma::{
-    events::receipt::{Receipt, ReceiptThread, ReceiptType},
+    events::{
+        receipt::{Receipt, ReceiptThread, ReceiptType},
+        AnySyncMessageLikeEvent,
+    },
     push::{PushConditionRoomCtx, Ruleset},
     EventId, OwnedEventId, OwnedUserId, RoomVersionId, UserId,
 };
-#[cfg(feature = "e2e-encryption")]
-use ruma::{events::AnySyncTimelineEvent, serde::Raw};
 use tracing::{debug, error, warn};
 
 use super::{Profile, TimelineBuilder};
@@ -50,6 +53,9 @@ pub trait RoomExt {
     /// This allows to customize settings of the [`Timeline`] before
     /// constructing it.
     fn timeline_builder(&self) -> TimelineBuilder;
+
+    /// Get a [`Timeline`] for this room, filtered to only include poll events.
+    async fn poll_history(&self) -> Timeline;
 }
 
 #[async_trait]
@@ -61,6 +67,22 @@ impl RoomExt for Room {
     fn timeline_builder(&self) -> TimelineBuilder {
         Timeline::builder(self).track_read_marker_and_receipts()
     }
+
+    async fn poll_history(&self) -> Timeline {
+        self.timeline_builder()
+            .event_filter(|e, _| {
+                matches!(
+                    e,
+                    AnySyncTimelineEvent::MessageLike(
+                        AnySyncMessageLikeEvent::UnstablePollStart(_)
+                            | AnySyncMessageLikeEvent::UnstablePollResponse(_)
+                            | AnySyncMessageLikeEvent::UnstablePollEnd(_)
+                    )
+                )
+            })
+            .build()
+            .await
+    }
 }
 
 #[async_trait]
@@ -69,13 +91,18 @@ pub(super) trait RoomDataProvider: Clone + Send + Sync + 'static {
     fn room_version(&self) -> RoomVersionId;
     async fn profile_from_user_id(&self, user_id: &UserId) -> Option<Profile>;
     async fn profile_from_latest_event(&self, latest_event: &LatestEvent) -> Option<Profile>;
-    async fn user_receipt(
+
+    /// Loads a user receipt from the storage backend.
+    async fn load_user_receipt(
         &self,
         receipt_type: ReceiptType,
         thread: ReceiptThread,
         user_id: &UserId,
     ) -> Option<(OwnedEventId, Receipt)>;
-    async fn read_receipts_for_event(&self, event_id: &EventId) -> IndexMap<OwnedUserId, Receipt>;
+
+    /// Loads read receipts for an event from the storage backend.
+    async fn load_event_receipts(&self, event_id: &EventId) -> IndexMap<OwnedUserId, Receipt>;
+
     async fn push_rules_and_context(&self) -> Option<(Ruleset, PushConditionRoomCtx)>;
 }
 
@@ -120,13 +147,13 @@ impl RoomDataProvider for Room {
         })
     }
 
-    async fn user_receipt(
+    async fn load_user_receipt(
         &self,
         receipt_type: ReceiptType,
         thread: ReceiptThread,
         user_id: &UserId,
     ) -> Option<(OwnedEventId, Receipt)> {
-        match self.user_receipt(receipt_type.clone(), thread.clone(), user_id).await {
+        match self.load_user_receipt(receipt_type.clone(), thread.clone(), user_id).await {
             Ok(receipt) => receipt,
             Err(e) => {
                 error!(
@@ -140,25 +167,28 @@ impl RoomDataProvider for Room {
         }
     }
 
-    async fn read_receipts_for_event(&self, event_id: &EventId) -> IndexMap<OwnedUserId, Receipt> {
-        let mut unthreaded_receipts =
-            match self.event_receipts(ReceiptType::Read, ReceiptThread::Unthreaded, event_id).await
-            {
-                Ok(receipts) => receipts.into_iter().collect(),
-                Err(e) => {
-                    error!(?event_id, "Failed to get unthreaded read receipts for event: {e}");
-                    IndexMap::new()
-                }
-            };
+    async fn load_event_receipts(&self, event_id: &EventId) -> IndexMap<OwnedUserId, Receipt> {
+        let mut unthreaded_receipts = match self
+            .load_event_receipts(ReceiptType::Read, ReceiptThread::Unthreaded, event_id)
+            .await
+        {
+            Ok(receipts) => receipts.into_iter().collect(),
+            Err(e) => {
+                error!(?event_id, "Failed to get unthreaded read receipts for event: {e}");
+                IndexMap::new()
+            }
+        };
 
-        let main_thread_receipts =
-            match self.event_receipts(ReceiptType::Read, ReceiptThread::Main, event_id).await {
-                Ok(receipts) => receipts,
-                Err(e) => {
-                    error!(?event_id, "Failed to get main thread read receipts for event: {e}");
-                    Vec::new()
-                }
-            };
+        let main_thread_receipts = match self
+            .load_event_receipts(ReceiptType::Read, ReceiptThread::Main, event_id)
+            .await
+        {
+            Ok(receipts) => receipts,
+            Err(e) => {
+                error!(?event_id, "Failed to get main thread read receipts for event: {e}");
+                Vec::new()
+            }
+        };
 
         unthreaded_receipts.extend(main_thread_receipts);
         unthreaded_receipts

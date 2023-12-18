@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::BTreeMap;
 #[cfg(feature = "e2e-encryption")]
 use std::ops::Deref;
 
@@ -20,13 +21,16 @@ use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::AnyToDeviceEvent;
 use ruma::{
-    api::client::sync::sync_events::{
-        v3::{self, InvitedRoom, RoomSummary},
-        v4::{self, AccountData},
+    api::client::{
+        push::get_notifications::v3::Notification,
+        sync::sync_events::{
+            v3::{self, InvitedRoom, RoomSummary},
+            v4,
+        },
     },
     events::{AnySyncStateEvent, AnySyncTimelineEvent},
     serde::Raw,
-    RoomId,
+    OwnedRoomId, RoomId,
 };
 use tracing::{instrument, trace, warn};
 
@@ -135,28 +139,29 @@ impl BaseClient {
             return Ok(SyncResponse::default());
         };
 
-        let v4::Extensions { account_data, receipts, .. } = extensions;
-
         let mut changes = StateChanges::default();
 
         let store = self.store.clone();
         let mut ambiguity_cache = AmbiguityCache::new(store.inner.clone());
 
+        let account_data = &extensions.account_data;
         if !account_data.is_empty() {
             self.handle_account_data(&account_data.global, &mut changes).await;
         }
 
         let mut new_rooms = Rooms::default();
+        let mut notifications = Default::default();
 
         for (room_id, room_data) in rooms {
             let (room_to_store, joined_room, left_room, invited_room) = self
                 .process_sliding_sync_room(
                     room_id,
                     room_data,
+                    account_data,
                     &store,
                     &mut changes,
+                    &mut notifications,
                     &mut ambiguity_cache,
-                    account_data,
                 )
                 .await?;
 
@@ -175,8 +180,8 @@ impl BaseClient {
             }
         }
 
-        // Process receipts now we have rooms
-        for (room_id, raw) in &receipts.rooms {
+        // Process receipts now we have rooms.
+        for (room_id, raw) in &extensions.receipts.rooms {
             match raw.deserialize() {
                 Ok(event) => {
                     changes.add_receipts(room_id, event.content);
@@ -190,6 +195,20 @@ impl BaseClient {
                     );
                 }
             }
+
+            // Also include the receipts in the room update, so the timeline is aware of
+            // those. We assume that those happen only in joined rooms.
+            let room_update =
+                new_rooms.join.entry(room_id.clone()).or_insert_with(JoinedRoom::default);
+            room_update.ephemeral.push(raw.clone().cast());
+        }
+
+        for (room_id, raw) in &extensions.typing.rooms {
+            // Include the typing notifications in the room update, so the timeline is aware
+            // of those. We assume that those happen only in joined rooms.
+            let room_update =
+                new_rooms.join.entry(room_id.clone()).or_insert_with(JoinedRoom::default);
+            room_update.ephemeral.push(raw.clone().cast());
         }
 
         // TODO remove this, we're processing account data events here again
@@ -220,7 +239,7 @@ impl BaseClient {
         Ok(SyncResponse {
             rooms: new_rooms,
             ambiguity_changes: AmbiguityChanges { changes: ambiguity_cache.changes },
-            notifications: changes.notifications,
+            notifications,
             // FIXME not yet supported by sliding sync.
             presence: Default::default(),
             account_data: account_data.global.clone(),
@@ -228,14 +247,16 @@ impl BaseClient {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn process_sliding_sync_room(
         &self,
         room_id: &RoomId,
         room_data: &v4::SlidingSyncRoom,
+        account_data: &v4::AccountData,
         store: &Store,
         changes: &mut StateChanges,
+        notifications: &mut BTreeMap<OwnedRoomId, Vec<Notification>>,
         ambiguity_cache: &mut AmbiguityCache,
-        account_data: &AccountData,
     ) -> Result<(RoomInfo, Option<JoinedRoom>, Option<LeftRoom>, Option<InvitedRoom>)> {
         let mut state_events = Self::deserialize_state_events(&room_data.required_state);
         state_events.extend(Self::deserialize_state_events_from_timeline(&room_data.timeline));
@@ -288,6 +309,7 @@ impl BaseClient {
                 &mut user_ids,
                 &mut room_info,
                 changes,
+                notifications,
                 ambiguity_cache,
             )
             .await?;
@@ -325,7 +347,8 @@ impl BaseClient {
                     timeline,
                     raw_state_events,
                     room_account_data.unwrap_or_default(),
-                    Vec::new(),
+                    Vec::new(), /* ephemeral events are handled later in
+                                 * `Self::process_sliding_sync`. */
                     notification_count,
                 )),
                 None,

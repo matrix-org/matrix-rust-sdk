@@ -12,14 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::{collections::BTreeSet, sync::Arc};
 
 use eyeball::SharedObservable;
+use futures_util::{pin_mut, StreamExt};
 use imbl::Vector;
 use matrix_sdk::{
     deserialized_responses::SyncTimelineEvent, executor::spawn, sync::RoomUpdate, Room,
 };
-use ruma::events::{receipt::ReceiptType, AnySyncTimelineEvent};
+use ruma::{
+    events::{receipt::ReceiptType, AnySyncTimelineEvent},
+    RoomVersionId,
+};
 use tokio::sync::{broadcast, mpsc, Notify};
 use tracing::{info, info_span, trace, warn, Instrument, Span};
 
@@ -78,17 +82,26 @@ impl TimelineBuilder {
     ///   return `true` if the event should be added to the `Timeline`.
     ///
     /// If this is not overridden, the timeline uses the default filter that
-    /// allows every event.
+    /// only allows events that are materialized into a `Timeline` item. For
+    /// instance, reactions and edits don't get their own timeline item (as
+    /// they affect another existing one), so they're "filtered out" to
+    /// reflect that.
+    ///
+    /// You can use the default event filter with
+    /// [`crate::timeline::default_event_filter`] so as to chain it with
+    /// your own event filter, if you want to avoid situations where a read
+    /// receipt would be attached to an event that doesn't get its own
+    /// timeline item.
     ///
     /// Note that currently:
     ///
     /// - Not all event types have a representation as a `TimelineItem` so these
     ///   are not added no matter what the filter returns.
     /// - It is not possible to filter out `m.room.encrypted` events (otherwise
-    ///   they couldn't by decrypted when the appropriate room key arrives)
+    ///   they couldn't be decrypted when the appropriate room key arrives).
     pub fn event_filter<F>(mut self, filter: F) -> Self
     where
-        F: Fn(&AnySyncTimelineEvent) -> bool + Send + Sync + 'static,
+        F: Fn(&AnySyncTimelineEvent, &RoomVersionId) -> bool + Send + Sync + 'static,
     {
         self.settings.event_filter = Arc::new(filter);
         self
@@ -179,11 +192,16 @@ impl TimelineBuilder {
         let mut ignore_user_list_stream = client.subscribe_to_ignore_user_list_changes();
         let ignore_user_list_update_join_handle = spawn({
             let inner = inner.clone();
+
+            let span = info_span!(parent: Span::none(), "ignore_user_list_update_handler", room_id = ?room.room_id());
+            span.follows_from(Span::current());
+
             async move {
                 while ignore_user_list_stream.next().await.is_some() {
                     inner.clear().await;
                 }
             }
+            .instrument(span)
         });
 
         // Not using room.add_event_handler here because RoomKey events are
@@ -205,6 +223,35 @@ impl TimelineBuilder {
             forwarded_room_key_handle,
         ];
 
+        let room_key_from_backups_join_handle = {
+            let inner = inner.clone();
+            let room_id = inner.room().room_id();
+
+            let stream = client.encryption().backups().room_keys_for_room_stream(room_id);
+
+            spawn(async move {
+                pin_mut!(stream);
+
+                while let Some(update) = stream.next().await {
+                    let room = inner.room();
+
+                    match update {
+                        Ok(info) => {
+                            let mut session_ids = BTreeSet::new();
+
+                            for set in info.into_values() {
+                                session_ids.extend(set);
+                            }
+
+                            inner.retry_event_decryption(room, Some(session_ids)).await;
+                        }
+                        // We lagged, so retry every event.
+                        Err(_) => inner.retry_event_decryption(room, None).await,
+                    }
+                }
+            })
+        };
+
         let (msg_sender, msg_receiver) = mpsc::channel(1);
         info!("Starting message-sending loop");
         spawn(send_queued_messages(inner.clone(), room.clone(), msg_receiver));
@@ -220,6 +267,7 @@ impl TimelineBuilder {
                 event_handler_handles: handles,
                 room_update_join_handle,
                 ignore_user_list_update_join_handle,
+                room_key_from_backups_join_handle,
             }),
         };
 

@@ -21,7 +21,7 @@ use std::{
 
 use futures_util::future::join_all;
 use itertools::Itertools;
-use matrix_sdk_common::executor::spawn;
+use matrix_sdk_common::{executor::spawn, failures_cache::FailuresCache};
 use ruma::{
     api::client::keys::get_keys::v3::Response as KeysQueryResponse, serde::Raw, OwnedDeviceId,
     OwnedServerName, OwnedTransactionId, OwnedUserId, ServerName, TransactionId, UserId,
@@ -41,7 +41,6 @@ use crate::{
         Result as StoreResult, Store, StoreCache, UserKeyQueryResult,
     },
     types::{CrossSigningKey, DeviceKeys, MasterPubkey, SelfSigningPubkey, UserSigningPubkey},
-    utilities::FailuresCache,
     CryptoStoreError, LocalTrust, SignatureError,
 };
 
@@ -106,7 +105,7 @@ impl IdentityManager {
         &self.store.static_account().user_id
     }
 
-    /// Receive a successful keys query response.
+    /// Receive a successful `/keys/query` response.
     ///
     /// Returns a list of devices newly discovered devices and devices that
     /// changed.
@@ -115,7 +114,7 @@ impl IdentityManager {
     ///
     /// * `request_id` - The request_id returned by `users_for_key_query` or
     ///   `build_key_query_for_users`
-    /// * `response` - The keys query response of the request that the client
+    /// * `response` - The response of the `/keys/query` request that the client
     /// performed.
     pub async fn receive_keys_query_response(
         &self,
@@ -126,7 +125,7 @@ impl IdentityManager {
             ?request_id,
             users = ?response.device_keys.keys().collect::<BTreeSet<_>>(),
             failures = ?response.failures,
-            "Handling a keys query response"
+            "Handling a `/keys/query` response"
         );
 
         // Parse the strings into server names and filter out our own server. We should
@@ -214,7 +213,7 @@ impl IdentityManager {
             ?deleted_devices,
             ?new_identities,
             ?changed_identities,
-            "Finished handling of the keys/query response"
+            "Finished handling of the `/keys/query` response"
         );
 
         Ok((devices, identities))
@@ -547,7 +546,7 @@ impl IdentityManager {
         }
     }
 
-    /// Try to deserialize the the master key and self-signing key of an
+    /// Try to deserialize the master key and self-signing key of an
     /// identity from a `/keys/query` response.
     ///
     /// Each user identity *must* at least contain a master and self-signing
@@ -953,12 +952,7 @@ impl IdentityManager {
         }
 
         if !users_with_no_devices_on_unfailed_servers.is_empty() {
-            info!(
-                ?users_with_no_devices_on_unfailed_servers,
-                "Waiting for `/keys/query` to complete for users who have no devices"
-            );
-
-            // For each user with no devices, fire off a task to wait for a keys/query
+            // For each user with no devices, fire off a task to wait for a `/keys/query`
             // result if one is pending.
             //
             // We don't actually update the `devices_by_user` map here since that could
@@ -973,10 +967,19 @@ impl IdentityManager {
             .await;
 
             // Once all the tasks have completed, process the results.
+            let mut updated_users = Vec::new();
             for result in results {
                 if let Some((user_id, updated_devices)) = result? {
                     devices_by_user.insert(user_id.to_owned(), updated_devices);
+                    updated_users.push(user_id);
                 }
+            }
+
+            if !updated_users.is_empty() {
+                info!(
+                    ?updated_users,
+                    "Waited for `/keys/query` to complete for users who have no devices"
+                );
             }
         }
 
@@ -988,6 +991,8 @@ impl IdentityManager {
     /// Waits for any pending `/keys/query` for the given user. If one was
     /// pending, reloads the device list and returns `Some(user_id,
     /// device_list)`. If no request was pending, returns `None`.
+    #[allow(clippy::type_complexity)]
+    #[instrument(skip(self))]
     async fn get_updated_keys_for_user<'a>(
         &self,
         timeout_duration: Duration,
@@ -1115,7 +1120,7 @@ pub(crate) mod testing {
             "user_signing_keys": {}
         }));
         KeyQueryResponse::try_from_http_response(data)
-            .expect("Can't parse the keys upload response")
+            .expect("Can't parse the `/keys/upload` response")
     }
 
     // An updated version of `other_key_query` featuring an additional signature on
@@ -1181,7 +1186,7 @@ pub(crate) mod testing {
             "user_signing_keys": {}
         }));
         KeyQueryResponse::try_from_http_response(data)
-            .expect("Can't parse the keys upload response")
+            .expect("Can't parse the `/keys/upload` response")
     }
 
     /// Mocked response to a /keys/query request.
@@ -1283,7 +1288,7 @@ pub(crate) mod testing {
           }
         }));
         KeyQueryResponse::try_from_http_response(data)
-            .expect("Can't parse the keys upload response")
+            .expect("Can't parse the `/keys/upload` response")
     }
 
     pub fn own_key_query() -> KeyQueryResponse {
@@ -1314,7 +1319,7 @@ pub(crate) mod testing {
         );
 
         KeyQueryResponse::try_from_http_response(response_from_file(&json))
-            .expect("Can't parse the keys upload response")
+            .expect("Can't parse the `/keys/upload` response")
     }
 }
 
@@ -1483,7 +1488,7 @@ pub(crate) mod tests {
         });
 
         let response = KeysQueryResponse::try_from_http_response(response_from_file(&response))
-            .expect("Can't parse the keys query response");
+            .expect("Can't parse the `/keys/query` response");
 
         manager.receive_keys_query_response(&TransactionId::new(), &response).await.unwrap();
 
@@ -1533,7 +1538,7 @@ pub(crate) mod tests {
         });
 
         let response = KeysQueryResponse::try_from_http_response(response_from_file(&response))
-            .expect("Can't parse the keys query response");
+            .expect("Can't parse the `/keys/query` response");
 
         let (_, private_identity) = manager.handle_cross_signing_keys(&response).await.unwrap();
 
@@ -1717,7 +1722,7 @@ pub(crate) mod tests {
         let (new_request_id, _) =
             manager.as_ref().unwrap().build_key_query_for_users(vec![user_id()]);
 
-        // A second `keys/query` response with the same result shouldn't fire a change
+        // A second `/keys/query` response with the same result shouldn't fire a change
         // notification: the identity should be unchanged.
         manager
             .as_ref()

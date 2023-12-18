@@ -295,7 +295,7 @@ impl RoomDataProvider for TestRoomDataProvider {
         None
     }
 
-    async fn user_receipt(
+    async fn load_user_receipt(
         &self,
         receipt_type: ReceiptType,
         thread: ReceiptThread,
@@ -308,7 +308,7 @@ impl RoomDataProvider for TestRoomDataProvider {
             .cloned()
     }
 
-    async fn read_receipts_for_event(&self, event_id: &EventId) -> IndexMap<OwnedUserId, Receipt> {
+    async fn load_event_receipts(&self, event_id: &EventId) -> IndexMap<OwnedUserId, Receipt> {
         if event_id == event_id!("$event_with_bob_receipt") {
             [(BOB.to_owned(), Receipt::new(MilliSecondsSinceUnixEpoch(uint!(10))))].into()
         } else {

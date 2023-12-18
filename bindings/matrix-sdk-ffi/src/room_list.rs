@@ -13,14 +13,17 @@ use matrix_sdk::{
     RoomListEntry as MatrixRoomListEntry,
 };
 use matrix_sdk_ui::room_list_service::filters::{
-    new_filter_all, new_filter_fuzzy_match_room_name, new_filter_none,
+    new_filter_all, new_filter_all_non_left, new_filter_fuzzy_match_room_name, new_filter_none,
     new_filter_normalized_match_room_name,
 };
 use tokio::sync::RwLock;
 
 use crate::{
-    error::ClientError, room::Room, room_info::RoomInfo, timeline::EventTimelineItem, TaskHandle,
-    RUNTIME,
+    error::ClientError,
+    room::Room,
+    room_info::RoomInfo,
+    timeline::{EventTimelineItem, Timeline},
+    TaskHandle, RUNTIME,
 };
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
@@ -376,6 +379,7 @@ impl RoomListDynamicEntriesController {
 
         match kind {
             Kind::All => self.inner.set_filter(new_filter_all()),
+            Kind::AllNonLeft => self.inner.set_filter(new_filter_all_non_left(&self.client)),
             Kind::None => self.inner.set_filter(new_filter_none()),
             Kind::NormalizedMatchRoomName { pattern } => {
                 self.inner.set_filter(new_filter_normalized_match_room_name(&self.client, &pattern))
@@ -398,6 +402,7 @@ impl RoomListDynamicEntriesController {
 #[derive(uniffi::Enum)]
 pub enum RoomListEntriesDynamicFilterKind {
     All,
+    AllNonLeft,
     None,
     NormalizedMatchRoomName { pattern: String },
     FuzzyMatchRoomName { pattern: String },
@@ -443,7 +448,7 @@ impl RoomListItem {
     async fn full_room(&self) -> Arc<Room> {
         Arc::new(Room::with_timeline(
             self.inner.inner_room().clone(),
-            Arc::new(RwLock::new(Some(self.inner.timeline().await))),
+            Arc::new(RwLock::new(Some(Timeline::from_arc(self.inner.timeline().await)))),
         ))
     }
 

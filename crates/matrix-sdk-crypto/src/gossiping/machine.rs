@@ -73,7 +73,13 @@ pub(crate) struct GossipMachineInner {
     incoming_key_requests: StdRwLock<BTreeMap<RequestInfo, RequestEvent>>,
     wait_queue: WaitQueue,
     users_for_key_claim: Arc<StdRwLock<BTreeMap<OwnedUserId, BTreeSet<OwnedDeviceId>>>>,
+
+    /// Whether we should respond to incoming `m.room_key_request` messages.
     room_key_forwarding_enabled: AtomicBool,
+
+    /// Whether we should send out `m.room_key_request` messages.
+    room_key_requests_enabled: AtomicBool,
+
     identity_manager: IdentityManager,
 }
 
@@ -87,6 +93,9 @@ impl GossipMachine {
         let room_key_forwarding_enabled =
             AtomicBool::new(cfg!(feature = "automatic-room-key-forwarding"));
 
+        let room_key_requests_enabled =
+            AtomicBool::new(cfg!(feature = "automatic-room-key-forwarding"));
+
         Self {
             inner: Arc::new(GossipMachineInner {
                 store,
@@ -97,6 +106,7 @@ impl GossipMachine {
                 wait_queue: WaitQueue::new(),
                 users_for_key_claim,
                 room_key_forwarding_enabled,
+                room_key_requests_enabled,
                 identity_manager,
             }),
         }
@@ -107,12 +117,25 @@ impl GossipMachine {
     }
 
     #[cfg(feature = "automatic-room-key-forwarding")]
-    pub fn toggle_room_key_forwarding(&self, enabled: bool) {
+    pub fn set_room_key_forwarding_enabled(&self, enabled: bool) {
         self.inner.room_key_forwarding_enabled.store(enabled, Ordering::SeqCst)
     }
 
     pub fn is_room_key_forwarding_enabled(&self) -> bool {
         self.inner.room_key_forwarding_enabled.load(Ordering::SeqCst)
+    }
+
+    /// Configure whether we should send outgoing `m.room_key_request`s on
+    /// decryption failure.
+    #[cfg(feature = "automatic-room-key-forwarding")]
+    pub fn set_room_key_requests_enabled(&self, enabled: bool) {
+        self.inner.room_key_requests_enabled.store(enabled, Ordering::SeqCst)
+    }
+
+    /// Query whether we should send outgoing `m.room_key_request`s on
+    /// decryption failure.
+    pub fn are_room_key_requests_enabled(&self) -> bool {
+        self.inner.room_key_requests_enabled.load(Ordering::SeqCst)
     }
 
     /// Load stored outgoing requests that were not yet sent out.
@@ -618,7 +641,7 @@ impl GossipMachine {
         // at. For this, we need an outbound session because this
         // information is recorded there.
         } else if let Some(outbound) = outbound_session {
-            match outbound.is_shared_with(device) {
+            match outbound.is_shared_with(&device.inner) {
                 ShareState::Shared(message_index) => Ok(Some(message_index)),
                 ShareState::SharedButChangedSenderKey => Err(KeyForwardDecision::ChangedSenderKey),
                 ShareState::NotShared => Err(KeyForwardDecision::OutboundSessionNotShared),
@@ -641,7 +664,7 @@ impl GossipMachine {
     /// the key we wish to request.
     #[cfg(feature = "automatic-room-key-forwarding")]
     async fn should_request_key(&self, key_info: &SecretInfo) -> Result<bool, CryptoStoreError> {
-        if self.inner.room_key_forwarding_enabled.load(Ordering::SeqCst) {
+        if self.inner.room_key_requests_enabled.load(Ordering::SeqCst) {
             let request = self.inner.store.get_secret_request_by_info(key_info).await?;
 
             // Don't send out duplicate requests, users can re-request them if they
@@ -1384,9 +1407,38 @@ mod tests {
         let requests = machine.outgoing_to_device_requests().await.unwrap();
         assert_eq!(requests.len(), 1);
 
-        let request = requests.get(0).unwrap();
+        let request = &requests[0];
 
         machine.mark_outgoing_request_as_sent(&request.request_id).await.unwrap();
+        assert!(machine.outgoing_to_device_requests().await.unwrap().is_empty());
+    }
+
+    /// We should *not* request keys if that has been disabled
+    #[async_test]
+    #[cfg(feature = "automatic-room-key-forwarding")]
+    async fn create_key_request_requests_disabled() {
+        let machine = get_machine_test_helper().await;
+        let account = account();
+        let second_account = alice_2_account();
+        let alice_device = ReadOnlyDevice::from_account(&second_account);
+
+        // We need a trusted device, otherwise we won't request keys
+        alice_device.set_trust_state(LocalTrust::Verified);
+        machine.inner.store.save_devices(&[alice_device]).await.unwrap();
+
+        // Disable key requests
+        assert!(machine.are_room_key_requests_enabled());
+        machine.set_room_key_requests_enabled(false);
+        assert!(!machine.are_room_key_requests_enabled());
+
+        let (outbound, session) = account.create_group_session_pair_with_defaults(room_id()).await;
+        let content = outbound.encrypt("m.dummy", &message_like_event_content!({})).await;
+        let event = wrap_encrypted_content(machine.user_id(), content);
+
+        // The outgoing to-device requests should be empty before and after
+        // `create_outgoing_key_request`.
+        assert!(machine.outgoing_to_device_requests().await.unwrap().is_empty());
+        machine.create_outgoing_key_request(session.room_id(), &event).await.unwrap();
         assert!(machine.outgoing_to_device_requests().await.unwrap().is_empty());
     }
 
@@ -1410,7 +1462,7 @@ mod tests {
         machine.create_outgoing_key_request(session.room_id(), &room_event).await.unwrap();
 
         let requests = machine.outgoing_to_device_requests().await.unwrap();
-        let request = requests.get(0).unwrap();
+        let request = &requests[0];
         let id = &request.request_id;
 
         machine.mark_outgoing_request_as_sent(id).await.unwrap();
@@ -1889,7 +1941,7 @@ mod tests {
             vec![SecretName::RecoveryKey],
         );
         let mut changes = Changes::default();
-        let request_id = key_requests.first().unwrap().request_id.to_owned();
+        let request_id = key_requests[0].request_id.to_owned();
         changes.key_requests = key_requests;
         bob_machine.store().save_changes(changes).await.unwrap();
         for request in bob_machine.outgoing_requests().await.unwrap() {
@@ -2000,7 +2052,7 @@ mod tests {
         // Bob only has a keys claim request, since we're lacking a session
         assert_eq!(bob_machine.outgoing_to_device_requests().await.unwrap().len(), 1);
         assert_matches!(
-            bob_machine.outgoing_to_device_requests().await.unwrap().first().unwrap().request(),
+            bob_machine.outgoing_to_device_requests().await.unwrap()[0].request(),
             OutgoingRequests::KeysClaim(_)
         );
         assert!(!bob_machine.inner.users_for_key_claim.read().unwrap().is_empty());

@@ -55,6 +55,10 @@ impl SlidingSyncResponseProcessor {
 
         self.to_device_events =
             self.client.base_client().process_sliding_sync_e2ee(extensions).await?;
+
+        // Some new keys might have been received, so trigger a backup if needed.
+        self.client.encryption().backups().maybe_trigger_backup();
+
         Ok(())
     }
 

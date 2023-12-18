@@ -686,7 +686,7 @@ impl Room {
 
     /// Get the receipt as an `OwnedEventId` and `Receipt` tuple for the given
     /// `receipt_type`, `thread` and `user_id` in this room.
-    pub async fn user_receipt(
+    pub async fn load_user_receipt(
         &self,
         receipt_type: ReceiptType,
         thread: ReceiptThread,
@@ -695,9 +695,10 @@ impl Room {
         self.store.get_user_room_receipt_event(self.room_id(), receipt_type, thread, user_id).await
     }
 
-    /// Get the receipts as a list of `OwnedUserId` and `Receipt` tuples for the
-    /// given `receipt_type`, `thread` and `event_id` in this room.
-    pub async fn event_receipts(
+    /// Load from storage the receipts as a list of `OwnedUserId` and `Receipt`
+    /// tuples for the given `receipt_type`, `thread` and `event_id` in this
+    /// room.
+    pub async fn load_event_receipts(
         &self,
         receipt_type: ReceiptType,
         thread: ReceiptThread,
@@ -1662,8 +1663,8 @@ mod tests {
         // Then the encrypted events list is shortened to only newer events
         let enc_evs = room.latest_encrypted_events();
         assert_eq!(enc_evs.len(), 2);
-        assert_eq!(enc_evs.get(0).unwrap().get_field::<&str>("event_id").unwrap().unwrap(), "$2");
-        assert_eq!(enc_evs.get(1).unwrap().get_field::<&str>("event_id").unwrap().unwrap(), "$3");
+        assert_eq!(enc_evs[0].get_field::<&str>("event_id").unwrap().unwrap(), "$2");
+        assert_eq!(enc_evs[1].get_field::<&str>("event_id").unwrap().unwrap(), "$3");
 
         // And the event is stored
         assert_eq!(room.latest_event().unwrap().event_id(), new_event.event_id());

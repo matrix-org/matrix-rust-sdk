@@ -64,14 +64,14 @@ anyhow = { workspace = true, optional = true }
 anymap2 = "0.13.0"
 aquamarine = "0.3.2"
 as_variant = { workspace = true }
-async-channel = "1.9.0"
+async-channel = "2.1.0"
 async-stream = { workspace = true }
 async-trait = { workspace = true }
 bytes = "1.1.0"
 bytesize = "1.1"
 cfg-vis = "0.3.0"
 chrono = { version = "0.4.23", optional = true }
-event-listener = "3.0.0"
+event-listener = "4.0.0"
 eyeball = { workspace = true }
 eyeball-im = { workspace = true }
 eyeball-im-util = { workspace = true, optional = true }
@@ -83,6 +83,7 @@ hyper = { version = "0.14.20", features = ["http1", "http2", "server"], optional
 imbl = { version = "2.0.0", features = ["serde"] }
 indexmap = "2.0.2"
 language-tags = { version = "0.3.2", optional = true }
+mas-oidc-client = { version = "0.7.0", optional = true }
 matrix-sdk-base = { version = "0.6.0", path = "../matrix-sdk-base", default_features = false }
 matrix-sdk-common = { version = "0.6.0", path = "../matrix-sdk-common" }
 matrix-sdk-indexeddb = { version = "0.2.0", path = "../matrix-sdk-indexeddb", default-features = false, optional = true }
@@ -97,6 +98,7 @@ serde_json = { workspace = true }
 sha2 = { workspace = true, optional = true }
 tempfile = "3.3.0"
 thiserror = { workspace = true }
+tokio-stream = { workspace = true, features = ["sync"] }
 tower = { version = "0.4.13", features = ["make"], optional = true }
 tracing = { workspace = true, features = ["attributes"] }
 url = "2.2.2"
@@ -122,11 +124,6 @@ features = [
     "dds",
     "farbfeld",
 ]
-optional = true
-
-[dependencies.mas-oidc-client]
-git = "https://github.com/matrix-org/matrix-authentication-service"
-rev = "357481b52e6dc092178a16b8a7d86df036aac608"
 optional = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -162,3 +159,7 @@ wasm-bindgen-test = "0.3.33"
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 wiremock = "0.5.13"
+
+[[test]]
+name = "integration"
+required-features = ["testing"]

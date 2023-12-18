@@ -265,6 +265,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         let should_add = match &self.ctx.flow {
             Flow::Local { txn_id, .. } => {
                 span.record("txn_id", debug(txn_id));
+                debug!("Handling local event");
 
                 true
             }
@@ -272,16 +273,14 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             Flow::Remote { event_id, txn_id, position, should_add, .. } => {
                 span.record("event_id", debug(event_id));
                 span.record("position", debug(position));
-
                 if let Some(txn_id) = txn_id {
                     span.record("txn_id", debug(txn_id));
                 }
+                trace!("Handling remote event");
 
                 *should_add
             }
         };
-
-        trace!("Handling event");
 
         match event_kind {
             TimelineEventKind::Message { content, relations } => match content {

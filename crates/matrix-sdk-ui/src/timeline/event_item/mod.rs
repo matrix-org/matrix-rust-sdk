@@ -296,6 +296,9 @@ impl EventTimelineItem {
                 self.is_own()
                     && matches!(message.msgtype(), MessageType::Text(_) | MessageType::Emote(_))
             }
+            TimelineItemContent::Poll(poll) => {
+                self.is_own() && poll.response_data.is_empty() && poll.end_event_timestamp.is_none()
+            }
             _ => false,
         }
     }

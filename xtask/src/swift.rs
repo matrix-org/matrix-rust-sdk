@@ -2,7 +2,7 @@ use std::fs::{copy, create_dir_all, remove_dir_all, remove_file, rename};
 
 use camino::{Utf8Path, Utf8PathBuf};
 use clap::{Args, Subcommand};
-use uniffi_bindgen::bindings::TargetLanguage;
+use uniffi_bindgen::{bindings::TargetLanguage, library_mode::generate_bindings};
 use xshell::{cmd, pushd};
 
 use crate::{workspace, Result};
@@ -54,69 +54,46 @@ impl SwiftArgs {
     }
 }
 
+const FFI_LIBRARY_NAME: &str = "libmatrix_sdk_ffi.a";
+
 fn build_library() -> Result<()> {
     println!("Running debug library build.");
-
-    let release_type = "debug";
-    let static_lib_filename = "libmatrix_sdk_ffi.a";
 
     let root_directory = workspace::root_path()?;
     let target_directory = workspace::target_path()?;
     let ffi_directory = root_directory.join("bindings/apple/generated/matrix_sdk_ffi");
-    let library_file = ffi_directory.join(static_lib_filename);
+    let lib_output_dir = target_directory.join("debug");
 
     create_dir_all(ffi_directory.as_path())?;
 
     cmd!("rustup run stable cargo build -p matrix-sdk-ffi").run()?;
 
-    rename(
-        target_directory.join(release_type).join(static_lib_filename),
-        ffi_directory.join(static_lib_filename),
-    )?;
+    rename(lib_output_dir.join(FFI_LIBRARY_NAME), ffi_directory.join(FFI_LIBRARY_NAME))?;
     let swift_directory = root_directory.join("bindings/apple/generated/swift");
     create_dir_all(swift_directory.as_path())?;
 
-    generate_uniffi(&library_file, &ffi_directory)?;
+    generate_uniffi(&ffi_directory.join(FFI_LIBRARY_NAME), &ffi_directory)?;
 
     let module_map_file = ffi_directory.join("module.modulemap");
     if module_map_file.exists() {
         remove_file(module_map_file.as_path())?;
     }
 
-    // TODO: Find the modulemap in the ffi directory.
-    rename(ffi_directory.join("matrix_sdk_ffiFFI.modulemap"), module_map_file)?;
-    // TODO: Move all swift files.
-    rename(
-        ffi_directory.join("matrix_sdk_ffi.swift"),
-        swift_directory.join("matrix_sdk_ffi.swift"),
-    )?;
+    consolidate_modulemap_files(&ffi_directory, &ffi_directory)?;
+    move_files("swift", &ffi_directory, &swift_directory)?;
     Ok(())
 }
 
-fn generate_uniffi(library_file: &Utf8Path, ffi_directory: &Utf8Path) -> Result<()> {
-    let root_directory = workspace::root_path()?;
-    let udl_file = root_directory.join("bindings/matrix-sdk-ffi/src/api.udl");
-
-    uniffi_bindgen::generate_bindings(
-        udl_file.as_path(),
-        None,
-        vec![TargetLanguage::Swift],
-        Some(ffi_directory),
-        Some(library_file),
-        None,
-        false,
-    )?;
+fn generate_uniffi(library_path: &Utf8Path, ffi_directory: &Utf8Path) -> Result<()> {
+    generate_bindings(library_path, None, &[TargetLanguage::Swift], None, ffi_directory, false)?;
     Ok(())
 }
 
-fn build_for_target(target: &str, profile: &str) -> Result<Utf8PathBuf> {
-    cmd!("rustup run stable cargo build -p matrix-sdk-ffi --target {target} --profile {profile}")
-        .run()?;
-
+fn build_path_for_target(target: &str, profile: &str) -> Result<Utf8PathBuf> {
     // The builtin dev profile has its files stored under target/debug, all
     // other targets have matching directory names
     let profile_dir_name = if profile == "dev" { "debug" } else { profile };
-    Ok(workspace::target_path()?.join(target).join(profile_dir_name).join("libmatrix_sdk_ffi.a"))
+    Ok(workspace::target_path()?.join(target).join(profile_dir_name).join(FFI_LIBRARY_NAME))
 }
 
 fn build_xcframework(
@@ -137,24 +114,36 @@ fn build_xcframework(
     create_dir_all(headers_dir.clone())?;
     create_dir_all(swift_dir.clone())?;
 
-    let (libs, uniff_lib_path) = if let Some(target) = only_target {
+    let (libs, uniffi_lib_path) = if let Some(target) = only_target {
         println!("-- Building for {target} 1/1");
-        let build_path = build_for_target(target.as_str(), profile)?;
+
+        cmd!(
+            "rustup run stable cargo build -p matrix-sdk-ffi --target {target} --profile {profile}"
+        )
+        .run()?;
+
+        let build_path = build_path_for_target(target.as_str(), profile)?;
 
         (vec![build_path.clone()], build_path)
     } else {
-        println!("-- Building for iOS [1/5]");
-        let ios_path = build_for_target("aarch64-apple-ios", profile)?;
+        println!("-- Building for 5 targets");
 
-        println!("-- Building for macOS (Apple Silicon) [2/5]");
-        let darwin_arm_path = build_for_target("aarch64-apple-darwin", profile)?;
-        println!("-- Building for macOS (Intel) [3/5]");
-        let darwin_x86_path = build_for_target("x86_64-apple-darwin", profile)?;
+        cmd!(
+            "rustup run stable cargo build -p matrix-sdk-ffi
+            --target aarch64-apple-ios
+            --target aarch64-apple-darwin
+            --target x86_64-apple-darwin
+            --target aarch64-apple-ios-sim
+            --target x86_64-apple-ios
+            --profile {profile}"
+        )
+        .run()?;
 
-        println!("-- Building for iOS Simulator (Apple Silicon) [4/5]");
-        let ios_sim_arm_path = build_for_target("aarch64-apple-ios-sim", profile)?;
-        println!("-- Building for iOS Simulator (Intel) [5/5]");
-        let ios_sim_x86_path = build_for_target("x86_64-apple-ios", profile)?;
+        let ios_path = build_path_for_target("aarch64-apple-ios", profile)?;
+        let darwin_arm_path = build_path_for_target("aarch64-apple-darwin", profile)?;
+        let darwin_x86_path = build_path_for_target("x86_64-apple-darwin", profile)?;
+        let ios_sim_arm_path = build_path_for_target("aarch64-apple-ios-sim", profile)?;
+        let ios_sim_x86_path = build_path_for_target("x86_64-apple-ios", profile)?;
 
         println!("-- Running Lipo for macOS [1/2]");
         // # macOS
@@ -177,18 +166,12 @@ fn build_xcframework(
     };
 
     println!("-- Generating uniffi files");
-    generate_uniffi(&uniff_lib_path, &generated_dir)?;
+    generate_uniffi(&uniffi_lib_path, &generated_dir)?;
 
-    rename(generated_dir.join("matrix_sdk_ffiFFI.h"), headers_dir.join("matrix_sdk_ffiFFI.h"))?;
+    move_files("h", &generated_dir, &headers_dir)?;
+    consolidate_modulemap_files(&generated_dir, &headers_dir)?;
 
-    // Move and rename the module map to `module.modulemap` to match what
-    // the xcframework expects
-    rename(
-        generated_dir.join("matrix_sdk_ffiFFI.modulemap"),
-        headers_dir.join("module.modulemap"),
-    )?;
-
-    rename(generated_dir.join("matrix_sdk_ffi.swift"), swift_dir.join("matrix_sdk_ffi.swift"))?;
+    move_files("swift", &generated_dir, &swift_dir)?;
 
     println!("-- Generating MatrixSDKFFI.xcframework framework");
     let xcframework_path = generated_dir.join("MatrixSDKFFI.xcframework");
@@ -237,5 +220,45 @@ fn build_xcframework(
 
     println!("-- All done and hunky dory. Enjoy!");
 
+    Ok(())
+}
+
+/// Moves all files of the specified file extension from one directory into
+/// another.
+fn move_files(extension: &str, source: &Utf8PathBuf, destination: &Utf8PathBuf) -> Result<()> {
+    for entry in source.read_dir_utf8()? {
+        let entry = entry?;
+
+        if entry.file_type()?.is_file() {
+            let path = entry.path();
+            if path.extension() == Some(extension) {
+                let file_name = path.file_name().expect("Failed to get file name");
+                rename(path, destination.join(file_name)).expect("Failed to move swift file");
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Consolidates the contents of each modulemap file found in the source
+/// directory into a single `module.modulemap` file in the destination
+/// directory.
+fn consolidate_modulemap_files(source: &Utf8PathBuf, destination: &Utf8PathBuf) -> Result<()> {
+    let mut modulemap = String::new();
+    for entry in source.read_dir_utf8()? {
+        let entry = entry?;
+
+        if entry.file_type()?.is_file() {
+            let path = entry.path();
+            if path.extension() == Some("modulemap") {
+                let contents = std::fs::read_to_string(path)?;
+                modulemap.push_str(&contents);
+                modulemap.push_str("\n\n");
+                remove_file(path)?;
+            }
+        }
+    }
+
+    std::fs::write(destination.join("module.modulemap"), modulemap)?;
     Ok(())
 }

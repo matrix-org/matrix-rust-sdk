@@ -87,17 +87,35 @@ async fn reaction() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
+    // The day divider.
     assert_let!(Some(VectorDiff::PushBack { value: day_divider }) = timeline_stream.next().await);
     assert!(day_divider.is_day_divider());
-    assert_let!(Some(VectorDiff::PushBack { value: message }) = timeline_stream.next().await);
-    assert_matches!(message.as_event().unwrap().content(), TimelineItemContent::Message(_));
 
+    // The new message starts with their author's read receipt.
+    assert_let!(Some(VectorDiff::PushBack { value: message }) = timeline_stream.next().await);
+    let event_item = message.as_event().unwrap();
+    assert_matches!(event_item.content(), TimelineItemContent::Message(_));
+    assert_eq!(event_item.read_receipts().len(), 1);
+
+    // The new message is getting the reaction, which implies an implicit read
+    // receipt that's obtained first.
     assert_let!(
         Some(VectorDiff::Set { index: 1, value: updated_message }) = timeline_stream.next().await
     );
     let event_item = updated_message.as_event().unwrap();
     assert_let!(TimelineItemContent::Message(msg) = event_item.content());
     assert!(!msg.is_edited());
+    assert_eq!(event_item.read_receipts().len(), 2);
+    assert_eq!(event_item.reactions().len(), 0);
+
+    // Then the reaction is taken into account.
+    assert_let!(
+        Some(VectorDiff::Set { index: 1, value: updated_message }) = timeline_stream.next().await
+    );
+    let event_item = updated_message.as_event().unwrap();
+    assert_let!(TimelineItemContent::Message(msg) = event_item.content());
+    assert!(!msg.is_edited());
+    assert_eq!(event_item.read_receipts().len(), 2);
     assert_eq!(event_item.reactions().len(), 1);
     let group = &event_item.reactions()["👍"];
     assert_eq!(group.len(), 1);

@@ -346,17 +346,43 @@ impl OlmMachine {
         Ok(self.inner.identity_manager.key_query_manager.synced(&cache).await?.tracked_users())
     }
 
+    /// Enable or disable room key requests.
+    ///
+    /// Room key requests allow the device to request room keys that it might
+    /// have missed in the original share using `m.room_key_request`
+    /// events.
+    ///
+    /// See also [`OlmMachine::set_room_key_forwarding_enabled`] and
+    /// [`OlmMachine::are_room_key_requests_enabled`].
+    #[cfg(feature = "automatic-room-key-forwarding")]
+    pub fn set_room_key_requests_enabled(&self, enable: bool) {
+        self.inner.key_request_machine.set_room_key_requests_enabled(enable)
+    }
+
+    /// Query whether we should send outgoing `m.room_key_request`s on
+    /// decryption failure.
+    ///
+    /// See also [`OlmMachine::set_room_key_requests_enabled`].
+    pub fn are_room_key_requests_enabled(&self) -> bool {
+        self.inner.key_request_machine.are_room_key_requests_enabled()
+    }
+
     /// Enable or disable room key forwarding.
     ///
-    /// Room key forwarding allows the device to request room keys that it might
-    /// have missend in the original share using `m.room_key_request`
-    /// events.
+    /// If room key forwarding is enabled, we will automatically reply to
+    /// incoming `m.room_key_request` messages from verified devices by
+    /// forwarding the requested key (if we have it).
+    ///
+    /// See also [`OlmMachine::set_room_key_requests_enabled`] and
+    /// [`OlmMachine::is_room_key_forwarding_enabled`].
     #[cfg(feature = "automatic-room-key-forwarding")]
-    pub fn toggle_room_key_forwarding(&self, enable: bool) {
-        self.inner.key_request_machine.toggle_room_key_forwarding(enable)
+    pub fn set_room_key_forwarding_enabled(&self, enable: bool) {
+        self.inner.key_request_machine.set_room_key_forwarding_enabled(enable)
     }
 
     /// Is room key forwarding enabled?
+    ///
+    /// See also [`OlmMachine::set_room_key_forwarding_enabled`].
     pub fn is_room_key_forwarding_enabled(&self) -> bool {
         self.inner.key_request_machine.is_room_key_forwarding_enabled()
     }
@@ -565,12 +591,12 @@ impl OlmMachine {
         })
     }
 
-    /// Receive a successful keys upload response.
+    /// Receive a successful `/keys/upload` response.
     ///
     /// # Arguments
     ///
-    /// * `response` - The keys upload response of the request that the client
-    /// performed.
+    /// * `response` - The response of the `/keys/upload` request that the
+    ///   client performed.
     async fn receive_keys_upload_response(&self, response: &UploadKeysResponse) -> OlmResult<()> {
         self.inner
             .store
@@ -609,6 +635,7 @@ impl OlmMachine {
     /// this method between sync requests.
     ///
     /// [`mark_request_as_sent`]: #method.mark_request_as_sent
+    #[instrument(skip_all)]
     pub async fn get_missing_sessions(
         &self,
         users: impl Iterator<Item = &UserId>,
@@ -616,15 +643,15 @@ impl OlmMachine {
         self.inner.session_manager.get_missing_sessions(users).await
     }
 
-    /// Receive a successful keys query response.
+    /// Receive a successful `/keys/query` response.
     ///
     /// Returns a list of devices newly discovered devices and devices that
     /// changed.
     ///
     /// # Arguments
     ///
-    /// * `response` - The keys query response of the request that the client
-    /// performed.
+    /// * `response` - The response of the `/keys/query` request that the client
+    ///   performed.
     async fn receive_keys_query_response(
         &self,
         request_id: &TransactionId,
@@ -1534,6 +1561,16 @@ impl OlmMachine {
         result
     }
 
+    /// Do we have the room key for the given room and with the given session id
+    /// in the store?
+    pub async fn is_room_key_available(
+        &self,
+        room_id: &RoomId,
+        session_id: &str,
+    ) -> Result<bool, CryptoStoreError> {
+        Ok(self.store().get_inbound_group_session(room_id, session_id).await?.is_some())
+    }
+
     /// Get encryption info for a decrypted timeline event.
     ///
     /// This recalculates the [`EncryptionInfo`] data that is returned by
@@ -1634,6 +1671,7 @@ impl OlmMachine {
     /// println!("{:?}", device);
     /// # });
     /// ```
+    #[instrument(skip(self))]
     pub async fn get_device(
         &self,
         user_id: &UserId,
@@ -1657,6 +1695,7 @@ impl OlmMachine {
     ///
     /// Returns a `UserIdentities` enum if one is found and the crypto store
     /// didn't throw an error.
+    #[instrument(skip(self))]
     pub async fn get_identity(
         &self,
         user_id: &UserId,
@@ -1692,6 +1731,7 @@ impl OlmMachine {
     /// }
     /// # });
     /// ```
+    #[instrument(skip(self))]
     pub async fn get_user_devices(
         &self,
         user_id: &UserId,
@@ -2078,7 +2118,9 @@ pub(crate) mod tests {
     use ruma::{
         api::{
             client::{
-                keys::{get_keys, get_keys::v3::Response as KeyQueryResponse, upload_keys},
+                keys::{
+                    claim_keys, get_keys, get_keys::v3::Response as KeyQueryResponse, upload_keys,
+                },
                 sync::sync_events::DeviceLists,
                 to_device::send_event_to_device::v3::Response as ToDeviceResponse,
             },
@@ -2146,13 +2188,13 @@ pub(crate) mod tests {
     fn keys_upload_response() -> upload_keys::v3::Response {
         let data = response_from_file(&test_json::KEYS_UPLOAD);
         upload_keys::v3::Response::try_from_http_response(data)
-            .expect("Can't parse the keys upload response")
+            .expect("Can't parse the `/keys/upload` response")
     }
 
     fn keys_query_response() -> get_keys::v3::Response {
         let data = response_from_file(&test_json::KEYS_QUERY);
         get_keys::v3::Response::try_from_http_response(data)
-            .expect("Can't parse the keys upload response")
+            .expect("Can't parse the `/keys/upload` response")
     }
 
     pub fn to_device_requests_to_content(
@@ -2235,15 +2277,20 @@ pub(crate) mod tests {
         bob: &UserId,
         use_fallback_key: bool,
     ) -> (OlmMachine, OlmMachine) {
-        let (alice, bob, one_time_keys) = get_machine_pair(alice, bob, use_fallback_key).await;
+        let (alice, bob, mut one_time_keys) = get_machine_pair(alice, bob, use_fallback_key).await;
 
-        let one_time_key = one_time_keys.values().next().unwrap();
+        let (device_key_id, one_time_key) = one_time_keys.pop_first().unwrap();
 
         let one_time_keys = BTreeMap::from([(
-            (bob.user_id().to_owned(), bob.device_id().to_owned()),
-            one_time_key,
+            bob.user_id().to_owned(),
+            BTreeMap::from([(
+                bob.device_id().to_owned(),
+                BTreeMap::from([(device_key_id, one_time_key)]),
+            )]),
         )]);
-        alice.inner.session_manager.create_sessions(&one_time_keys).await.unwrap();
+
+        let response = claim_keys::v3::Response::new(one_time_keys);
+        alice.inner.session_manager.create_sessions(&response).await.unwrap();
 
         (alice, bob)
     }
@@ -2540,23 +2587,29 @@ pub(crate) mod tests {
         machine: &OlmMachine,
         user_id: &UserId,
         device_id: &DeviceId,
+        key_id: OwnedDeviceKeyId,
         one_time_key: Raw<OneTimeKey>,
     ) {
-        let one_time_keys =
-            BTreeMap::from([((user_id.to_owned(), device_id.to_owned()), &one_time_key)]);
-        machine.inner.session_manager.create_sessions(&one_time_keys).await.unwrap();
+        let one_time_keys = BTreeMap::from([(
+            user_id.to_owned(),
+            BTreeMap::from([(device_id.to_owned(), BTreeMap::from([(key_id, one_time_key)]))]),
+        )]);
+
+        let response = claim_keys::v3::Response::new(one_time_keys);
+        machine.inner.session_manager.create_sessions(&response).await.unwrap();
     }
 
     #[async_test]
     async fn test_session_creation() {
         let (alice_machine, bob_machine, mut one_time_keys) =
             get_machine_pair(alice_id(), user_id(), false).await;
-        let (_key_id, one_time_key) = one_time_keys.pop_first().unwrap();
+        let (key_id, one_time_key) = one_time_keys.pop_first().unwrap();
 
         create_session(
             &alice_machine,
             bob_machine.user_id(),
             bob_machine.device_id(),
+            key_id,
             one_time_key,
         )
         .await;
@@ -2577,7 +2630,7 @@ pub(crate) mod tests {
     async fn test_getting_most_recent_session() {
         let (alice_machine, bob_machine, mut one_time_keys) =
             get_machine_pair(alice_id(), user_id(), false).await;
-        let (_key_id, one_time_key) = one_time_keys.pop_first().unwrap();
+        let (key_id, one_time_key) = one_time_keys.pop_first().unwrap();
 
         let device = alice_machine
             .get_device(bob_machine.user_id(), bob_machine.device_id(), None)
@@ -2591,17 +2644,19 @@ pub(crate) mod tests {
             &alice_machine,
             bob_machine.user_id(),
             bob_machine.device_id(),
+            key_id,
             one_time_key.to_owned(),
         )
         .await;
 
         for _ in 0..10 {
-            let (_key_id, one_time_key) = one_time_keys.pop_first().unwrap();
+            let (key_id, one_time_key) = one_time_keys.pop_first().unwrap();
 
             create_session(
                 &alice_machine,
                 bob_machine.user_id(),
                 bob_machine.device_id(),
+                key_id,
                 one_time_key.to_owned(),
             )
             .await;
@@ -3191,7 +3246,7 @@ pub(crate) mod tests {
         );
 
         let kq_response = KeyQueryResponse::try_from_http_response(response_from_file(&json))
-            .expect("Can't parse the keys upload response");
+            .expect("Can't parse the `/keys/upload` response");
 
         alice.receive_keys_query_response(&TransactionId::new(), &kq_response).await.unwrap();
         bob.receive_keys_query_response(&TransactionId::new(), &kq_response).await.unwrap();
@@ -3259,7 +3314,7 @@ pub(crate) mod tests {
         );
 
         let kq_response = KeyQueryResponse::try_from_http_response(response_from_file(&json))
-            .expect("Can't parse the keys upload response");
+            .expect("Can't parse the `/keys/upload` response");
 
         alice.receive_keys_query_response(&TransactionId::new(), &kq_response).await.unwrap();
         bob.receive_keys_query_response(&TransactionId::new(), &kq_response).await.unwrap();
@@ -3324,7 +3379,7 @@ pub(crate) mod tests {
         );
 
         let kq_response = KeyQueryResponse::try_from_http_response(response_from_file(&json))
-            .expect("Can't parse the keys upload response");
+            .expect("Can't parse the `/keys/upload` response");
 
         alice.receive_keys_query_response(&TransactionId::new(), &kq_response).await.unwrap();
         bob.receive_keys_query_response(&TransactionId::new(), &kq_response).await.unwrap();
@@ -3349,7 +3404,7 @@ pub(crate) mod tests {
 
         let data = response_from_file(&test_json::KEYS_QUERY_TWO_DEVICES_ONE_SIGNED);
         let response = get_keys::v3::Response::try_from_http_response(data)
-            .expect("Can't parse the keys upload response");
+            .expect("Can't parse the `/keys/upload` response");
 
         let (device_change, identity_change) =
             bob.receive_keys_query_response(&TransactionId::new(), &response).await.unwrap();
@@ -3647,7 +3702,7 @@ pub(crate) mod tests {
         // Alice sends a key
         let msgs = alice.inner.verification_machine.outgoing_messages();
         assert!(msgs.len() == 1);
-        let msg = msgs.first().unwrap();
+        let msg = &msgs[0];
         let event = outgoing_request_to_event(alice.user_id(), msg);
         alice.inner.verification_machine.mark_request_as_sent(&msg.request_id);
 
@@ -3660,7 +3715,7 @@ pub(crate) mod tests {
         // Now bob sends a key
         let msgs = bob.inner.verification_machine.outgoing_messages();
         assert!(msgs.len() == 1);
-        let msg = msgs.first().unwrap();
+        let msg = &msgs[0];
         let event = outgoing_request_to_event(bob.user_id(), msg);
         bob.inner.verification_machine.mark_request_as_sent(&msg.request_id);
 

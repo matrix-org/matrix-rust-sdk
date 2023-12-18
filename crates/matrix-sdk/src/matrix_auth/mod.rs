@@ -38,7 +38,7 @@ use ruma::{
     serde::JsonObject,
 };
 use serde::{Deserialize, Serialize};
-use tracing::{debug, info, instrument};
+use tracing::{debug, error, info, instrument};
 
 use crate::{
     authentication::AuthData,
@@ -486,7 +486,9 @@ impl MatrixAuth {
                 if let Some(save_session_callback) =
                     self.client.inner.auth_ctx.save_session_callback.get()
                 {
-                    save_session_callback(self.client.clone());
+                    if let Err(err) = save_session_callback(self.client.clone()).await {
+                        error!("when saving session after refresh: {err}");
+                    }
                 }
 
                 _ = self
@@ -826,7 +828,10 @@ impl MatrixAuth {
 
     async fn set_session(&self, session: MatrixSession) -> Result<()> {
         self.set_session_tokens(session.tokens);
-        self.client.base_client().set_session_meta(session.meta).await?;
+        self.client.set_session_meta(session.meta).await?;
+
+        #[cfg(feature = "e2e-encryption")]
+        self.client.encryption().run_initialization_tasks().await?;
 
         Ok(())
     }

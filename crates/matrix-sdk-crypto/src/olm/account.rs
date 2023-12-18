@@ -74,6 +74,11 @@ use crate::{
     OlmError, SignatureError,
 };
 
+#[derive(Debug)]
+enum PrekeyBundle {
+    Olm3DH { key: SignedKey },
+}
+
 #[derive(Debug, Clone)]
 pub(crate) enum SessionType {
     New(Session),
@@ -835,6 +840,43 @@ impl Account {
         }
     }
 
+    #[instrument(
+        skip_all,
+        fields(
+            user_id = ?device.user_id(),
+            device_id = ?device.device_id(),
+            algorithms = ?device.algorithms()
+        )
+    )]
+    fn find_pre_key_bundle(
+        device: &ReadOnlyDevice,
+        key_map: &BTreeMap<OwnedDeviceKeyId, Raw<ruma::encryption::OneTimeKey>>,
+    ) -> Result<PrekeyBundle, SessionCreationError> {
+        let mut keys = key_map.iter();
+
+        let first_key = keys.next().ok_or_else(|| {
+            SessionCreationError::OneTimeKeyMissing(
+                device.user_id().to_owned(),
+                device.device_id().into(),
+            )
+        })?;
+
+        let first_key_id = first_key.0.to_owned();
+        let first_key = OneTimeKey::deserialize(first_key_id.algorithm(), first_key.1)?;
+
+        let result = match first_key {
+            OneTimeKey::SignedKey(key) => Ok(PrekeyBundle::Olm3DH { key }),
+            _ => Err(SessionCreationError::OneTimeKeyUnknown(
+                device.user_id().to_owned(),
+                device.device_id().into(),
+            )),
+        };
+
+        trace!(?result, "Finished searching for a valid pre-key bundle");
+
+        result
+    }
+
     /// Create a new session with another account given a one-time key and a
     /// device.
     ///
@@ -850,45 +892,39 @@ impl Account {
     pub fn create_outbound_session(
         &self,
         device: &ReadOnlyDevice,
-        one_time_key: &Raw<ruma::encryption::OneTimeKey>,
+        key_map: &BTreeMap<OwnedDeviceKeyId, Raw<ruma::encryption::OneTimeKey>>,
     ) -> Result<Session, SessionCreationError> {
-        let one_time_key: SignedKey = match one_time_key.deserialize_as() {
-            Ok(OneTimeKey::SignedKey(k)) => k,
-            Ok(OneTimeKey::Key(_)) => {
-                return Err(SessionCreationError::OneTimeKeyNotSigned(
-                    device.user_id().to_owned(),
-                    device.device_id().into(),
-                ));
+        let pre_key_bundle = Self::find_pre_key_bundle(device, key_map)?;
+
+        match pre_key_bundle {
+            PrekeyBundle::Olm3DH { key } => {
+                device.verify_one_time_key(&key).map_err(|error| {
+                    SessionCreationError::InvalidSignature {
+                        signing_key: device.ed25519_key(),
+                        one_time_key: key.clone(),
+                        error,
+                    }
+                })?;
+
+                let identity_key = device.curve25519_key().ok_or_else(|| {
+                    SessionCreationError::DeviceMissingCurveKey(
+                        device.user_id().to_owned(),
+                        device.device_id().into(),
+                    )
+                })?;
+
+                let is_fallback = key.fallback();
+                let one_time_key = key.key();
+                let config = device.olm_session_config();
+
+                Ok(self.create_outbound_session_helper(
+                    config,
+                    identity_key,
+                    one_time_key,
+                    is_fallback,
+                ))
             }
-            Ok(_) => {
-                return Err(SessionCreationError::OneTimeKeyUnknown(
-                    device.user_id().to_owned(),
-                    device.device_id().into(),
-                ));
-            }
-            Err(e) => return Err(SessionCreationError::InvalidJson(e)),
-        };
-
-        device.verify_one_time_key(&one_time_key).map_err(|error| {
-            SessionCreationError::InvalidSignature {
-                signing_key: device.ed25519_key(),
-                one_time_key: one_time_key.clone(),
-                error,
-            }
-        })?;
-
-        let identity_key = device.curve25519_key().ok_or_else(|| {
-            SessionCreationError::DeviceMissingCurveKey(
-                device.user_id().to_owned(),
-                device.device_id().into(),
-            )
-        })?;
-
-        let is_fallback = one_time_key.fallback();
-        let one_time_key = one_time_key.key();
-        let config = device.olm_session_config();
-
-        Ok(self.create_outbound_session_helper(config, identity_key, one_time_key, is_fallback))
+        }
     }
 
     /// Create a new session with another account given a pre-key Olm message.
@@ -949,11 +985,9 @@ impl Account {
 
         other.generate_one_time_keys_helper(1);
         let one_time_map = other.signed_one_time_keys();
-        let one_time = one_time_map.values().next().unwrap();
-
         let device = ReadOnlyDevice::from_account(other);
 
-        let mut our_session = self.create_outbound_session(&device, one_time).unwrap();
+        let mut our_session = self.create_outbound_session(&device, &one_time_map).unwrap();
 
         other.mark_keys_as_published();
 

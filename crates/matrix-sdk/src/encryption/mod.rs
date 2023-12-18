@@ -32,6 +32,7 @@ use futures_util::{
 use matrix_sdk_base::crypto::{
     CrossSigningBootstrapRequests, OlmMachine, OutgoingRequest, RoomMessageRequest, ToDeviceRequest,
 };
+use matrix_sdk_common::executor::spawn;
 use ruma::{
     api::client::{
         backup::add_backup_keys::v3::Response as KeysBackupResponse,
@@ -55,11 +56,14 @@ use ruma::{
     DeviceId, OwnedDeviceId, OwnedUserId, TransactionId, UserId,
 };
 use tokio::sync::RwLockReadGuard;
-use tracing::{debug, instrument, trace, warn};
+use tracing::{debug, error, instrument, trace, warn};
 
 use self::{
+    backups::Backups,
     futures::PrepareEncryptedFile,
     identities::{DeviceUpdates, IdentityUpdates},
+    recovery::Recovery,
+    secret_storage::SecretStorage,
 };
 use crate::{
     attachment::{AttachmentInfo, Thumbnail},
@@ -72,8 +76,10 @@ use crate::{
     Client, Error, Result, Room, TransmissionProgress,
 };
 
+pub mod backups;
 pub mod futures;
 pub mod identities;
+pub mod recovery;
 pub mod secret_storage;
 pub mod verification;
 
@@ -87,7 +93,6 @@ pub use matrix_sdk_base::crypto::{
     SessionCreationError, SignatureError, VERSION,
 };
 
-use self::secret_storage::SecretStorage;
 pub use crate::error::RoomKeyImportError;
 
 /// Settings for end-to-end encryption features.
@@ -99,6 +104,41 @@ pub struct EncryptionSettings {
     /// This requires to login with a username and password, or that MSC3967 is
     /// enabled on the server, as of 2023-10-20.
     pub auto_enable_cross_signing: bool,
+
+    /// Select a strategy to download room keys from the backup, by default room
+    /// keys won't be downloaded from the backup automatically.
+    ///
+    /// Take a look at the [`BackupDownloadStrategy`] enum for more options.
+    pub backup_download_strategy: BackupDownloadStrategy,
+
+    /// Automatically create a backup version if no backup exists.
+    pub auto_enable_backups: bool,
+}
+
+/// Settings for end-to-end encryption features.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum BackupDownloadStrategy {
+    /// Automatically download all room keys from the backup when the backup
+    /// recovery key has been received. The backup recovery key can be received
+    /// in two ways:
+    ///
+    /// 1. Received as a `m.secret.send` to-device event, after a successful
+    ///    interactive verification.
+    /// 2. Imported from secret storage (4S) using the
+    ///    [`SecretStore::import_secrets()`] method.
+    ///
+    /// [`SecretStore::import_secrets()`]: crate::encryption::secret_storage::SecretStore::import_secrets
+    OneShot,
+
+    /// Attempt to download a single room key if an event fails to be decrypted.
+    AfterDecryptionFailure,
+
+    /// Don't download any room keys automatically. The user can manually
+    /// download room keys using the [`Backups::download_room_key()`] methods.
+    ///
+    /// This is the default option.
+    #[default]
+    Manual,
 }
 
 impl Client {
@@ -137,6 +177,7 @@ impl Client {
 
         let response = self.send(request, None).await?;
         self.mark_request_as_sent(request_id, &response).await?;
+        self.encryption().recovery().update_state_after_keys_query(&response).await;
 
         Ok(response)
     }
@@ -1054,12 +1095,26 @@ impl Encryption {
         let task = tokio::task::spawn_blocking(decrypt);
         let import = task.await.expect("Task join error")?;
 
-        Ok(olm.store().import_exported_room_keys(import, |_, _| {}).await?)
+        let ret = olm.store().import_exported_room_keys(import, |_, _| {}).await?;
+
+        self.backups().maybe_trigger_backup();
+
+        Ok(ret)
     }
 
     /// Get the secret storage manager of the client.
     pub fn secret_storage(&self) -> SecretStorage {
         SecretStorage { client: self.client.to_owned() }
+    }
+
+    /// Get the backups manager of the client.
+    pub fn backups(&self) -> Backups {
+        Backups { client: self.client.to_owned() }
+    }
+
+    /// Get the recovery manager of the client.
+    pub fn recovery(&self) -> Recovery {
+        Recovery { client: self.client.to_owned() }
     }
 
     /// Enables the crypto-store cross-process lock.
@@ -1174,6 +1229,37 @@ impl Encryption {
         let olm_machine = self.client.olm_machine().await;
         let olm_machine = olm_machine.as_ref().ok_or(Error::AuthenticationRequired)?;
         Ok(olm_machine.uploaded_key_count().await?)
+    }
+
+    /// Enables event listeners for the E2EE support.
+    ///
+    /// For now enables only listeners for backups. Should be called once we
+    /// created a [`OlmMachine`], i.e. after logging in.
+    pub(crate) async fn run_initialization_tasks(&self) -> Result<()> {
+        let mut tasks = self.client.inner.tasks.lock().unwrap();
+
+        let this = self.clone();
+        tasks.setup_e2ee = Some(spawn(async move {
+            if let Err(e) = this.backups().setup_and_resume().await {
+                error!("Couldn't setup and resume backups {e:?}");
+            }
+            if let Err(e) = this.recovery().setup().await {
+                error!("Couldn't setup and resume recovery {e:?}");
+            }
+        }));
+
+        Ok(())
+    }
+
+    /// Waits for end-to-end encryption initialization tasks to finish.
+    pub async fn wait_for_e2ee_initialization_tasks(&self) {
+        let task = self.client.inner.tasks.lock().unwrap().setup_e2ee.take();
+
+        if let Some(task) = task {
+            if let Err(err) = task.await {
+                warn!("error when initializing backups: {err}");
+            }
+        }
     }
 }
 

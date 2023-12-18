@@ -567,7 +567,7 @@ impl OlmMachine {
     ///
     /// *Note*: Only users that aren't already tracked will be considered for an
     /// update. It's safe to call this with already tracked users, it won't
-    /// result in excessive keys query requests.
+    /// result in excessive `/keys/query` requests.
     ///
     /// # Arguments
     ///

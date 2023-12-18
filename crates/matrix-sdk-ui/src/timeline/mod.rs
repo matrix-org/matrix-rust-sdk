@@ -35,7 +35,10 @@ use pin_project_lite::pin_project;
 use ruma::{
     api::client::receipt::create_receipt::v3::ReceiptType,
     events::{
-        poll::unstable_start::UnstablePollStartEventContent,
+        poll::unstable_start::{
+            ReplacementUnstablePollStartEventContent, UnstablePollStartContentBlock,
+            UnstablePollStartEventContent,
+        },
         reaction::ReactionEventContent,
         receipt::{Receipt, ReceiptThread},
         relation::Annotation,
@@ -53,7 +56,7 @@ use ruma::{
 };
 use thiserror::Error;
 use tokio::sync::{mpsc::Sender, Mutex, Notify};
-use tracing::{error, info, instrument, warn};
+use tracing::{debug, error, info, instrument, warn};
 
 use self::futures::SendAttachment;
 
@@ -87,6 +90,7 @@ pub use self::{
         Message, OtherState, Profile, ReactionGroup, RepliedToEvent, RoomMembershipChange, Sticker,
         TimelineDetails, TimelineItemContent,
     },
+    inner::default_event_filter,
     item::{TimelineItem, TimelineItemKind},
     pagination::{BackPaginationStatus, PaginationOptions, PaginationOutcome},
     polls::PollResult,
@@ -417,6 +421,28 @@ impl Timeline {
         Ok(())
     }
 
+    pub async fn edit_poll(
+        &self,
+        fallback_text: impl Into<String>,
+        poll: UnstablePollStartContentBlock,
+        edit_item: &EventTimelineItem,
+    ) -> Result<(), UnsupportedEditItem> {
+        let Some(event_id) = edit_item.event_id() else {
+            return Err(UnsupportedEditItem::MISSING_EVENT_ID);
+        };
+        let TimelineItemContent::Poll(_) = edit_item.content() else {
+            return Err(UnsupportedEditItem::NOT_POLL_EVENT);
+        };
+
+        let replacement_poll = ReplacementUnstablePollStartEventContent::plain_text(
+            fallback_text,
+            poll,
+            event_id.into(),
+        );
+        self.send(UnstablePollStartEventContent::from(replacement_poll).into()).await;
+        Ok(())
+    }
+
     /// Toggle a reaction on an event
     ///
     /// Adds or redacts a reaction based on the state of the reaction at the
@@ -509,6 +535,7 @@ impl Timeline {
     /// * `config` - An attachment configuration object containing details about
     ///   the attachment
     /// like a thumbnail, its size, duration etc.
+    #[instrument(skip_all)]
     pub fn send_attachment(
         &self,
         url: String,
@@ -524,6 +551,7 @@ impl Timeline {
     ///
     /// * `txn_id` - The transaction ID of a local echo timeline item that has a
     ///   `send_state()` of `SendState::FailedToSend { .. }`
+    #[instrument(skip(self))]
     pub async fn retry_send(&self, txn_id: &TransactionId) -> Result<(), Error> {
         macro_rules! error_return {
             ($msg:literal) => {{
@@ -560,6 +588,7 @@ impl Timeline {
             ),
         };
 
+        debug!("Retrying failed local echo");
         let txn_id = txn_id.to_owned();
         if self.msg_sender.send(LocalMessage { content, txn_id }).await.is_err() {
             error!("Internal error: timeline message receiver is closed");
@@ -579,6 +608,7 @@ impl Timeline {
     ///   state of `SendState::NotYetSent` might be supported in the future as
     ///   well, but there can be no guarantee for that actually stopping the
     ///   event from reaching the server.
+    #[instrument(skip(self))]
     pub async fn cancel_send(&self, txn_id: &TransactionId) -> bool {
         self.inner.discard_local_echo(txn_id).await
     }
@@ -629,7 +659,7 @@ impl Timeline {
 
     /// Get the latest read receipt for the given user.
     ///
-    /// Contrary to [`Room::user_receipt()`] that only keeps track of read
+    /// Contrary to [`Room::load_user_receipt()`] that only keeps track of read
     /// receipts received from the homeserver, this keeps also track of implicit
     /// read receipts in this timeline, i.e. when a room member sends an event.
     #[instrument(skip(self))]
@@ -748,6 +778,7 @@ struct TimelineDropHandle {
     event_handler_handles: Vec<EventHandlerHandle>,
     room_update_join_handle: JoinHandle<()>,
     ignore_user_list_update_join_handle: JoinHandle<()>,
+    room_key_from_backups_join_handle: JoinHandle<()>,
 }
 
 impl Drop for TimelineDropHandle {
@@ -757,6 +788,7 @@ impl Drop for TimelineDropHandle {
         }
         self.room_update_join_handle.abort();
         self.ignore_user_list_update_join_handle.abort();
+        self.room_key_from_backups_join_handle.abort();
     }
 }
 

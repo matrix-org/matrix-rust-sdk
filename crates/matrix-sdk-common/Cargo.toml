@@ -16,7 +16,7 @@ default-target = "x86_64-unknown-linux-gnu"
 targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
 
 [features]
-js = ["instant/wasm-bindgen", "instant/inaccurate", "wasm-bindgen-futures"]
+js = ["instant/wasm-bindgen", "wasm-bindgen-futures"]
 
 [dependencies]
 async-trait = { workspace = true }
@@ -39,6 +39,7 @@ wasm-bindgen = "0.2.84"
 
 [dev-dependencies]
 assert_matches = { workspace = true }
+proptest = { version = "1.4.0", default-features = false, features = ["std"] }
 matrix-sdk-test = { path = "../../testing/matrix-sdk-test/", version= "0.6.0"}
 wasm-bindgen-test = "0.3.33"
 
