@@ -271,6 +271,13 @@ struct SlidingSyncRoomInner {
 
     /// A queue of received events, used to build a
     /// [`Timeline`][crate::Timeline].
+    ///
+    /// Given a room, its size is theoretically unbounded: we'll accumulate
+    /// events in this list, until we reach a limited sync, in which case
+    /// we'll clear it.
+    ///
+    /// When persisting the room, this queue is truncated to keep only the last
+    /// N events.
     timeline_queue: RwLock<Vector<SyncTimelineEvent>>,
 }
 
