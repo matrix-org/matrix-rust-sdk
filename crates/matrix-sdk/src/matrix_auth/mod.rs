@@ -24,6 +24,8 @@ use eyeball::SharedObservable;
 use futures_core::Stream;
 use futures_util::StreamExt;
 use matrix_sdk_base::SessionMeta;
+#[cfg(feature = "e2e-encryption")]
+use ruma::api::client::uiaa::{AuthData as RumaUiaaAuthData, Password as RumaUiaaPassword};
 use ruma::{
     api::{
         client::{
@@ -545,9 +547,19 @@ impl MatrixAuth {
     pub async fn register(&self, request: register::v3::Request) -> Result<register::v3::Response> {
         let homeserver = self.client.homeserver();
         info!("Registering to {homeserver}");
+        #[cfg(feature = "e2e-encryption")]
+        let auth_data = match (&request.username, &request.password) {
+            (Some(u), Some(p)) => Some(RumaUiaaAuthData::Password(RumaUiaaPassword::new(
+                UserIdentifier::UserIdOrLocalpart(u.clone()),
+                p.clone(),
+            ))),
+            _ => None,
+        };
         let response = self.client.send(request, None).await?;
         if let Some(session) = MatrixSession::from_register_response(&response) {
             let _ = self.set_session(session).await;
+            #[cfg(feature = "e2e-encryption")]
+            self.post_login_cross_signing(auth_data).await;
         }
         Ok(response)
     }
@@ -837,6 +849,17 @@ impl MatrixAuth {
         self.client.encryption().run_initialization_tasks().await?;
 
         Ok(())
+    }
+
+    #[cfg(feature = "e2e-encryption")]
+    async fn post_login_cross_signing(&self, auth_data: Option<RumaUiaaAuthData>) {
+        if self.client.encryption().settings().auto_enable_cross_signing {
+            if let Err(err) =
+                self.client.encryption().bootstrap_cross_signing_if_needed(auth_data).await
+            {
+                tracing::warn!("cross-signing bootstrapping failed: {err}");
+            }
+        }
     }
 }
 
