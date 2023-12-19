@@ -1,3 +1,4 @@
+use eyeball_im::Vector;
 use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
 use ruma::{
     events::{
@@ -19,13 +20,12 @@ use crate::{error::Result, store::StateChanges, RoomInfo};
 pub trait PreviousEventsProvider: Send + Sync {
     /// Returns the list of known timeline events, in sync order, for the given
     /// room.
-    // TODO: return a reference or some kind of iterator
-    fn for_room(&self, room_id: &RoomId) -> Vec<SyncTimelineEvent>;
+    fn for_room(&self, room_id: &RoomId) -> Vector<SyncTimelineEvent>;
 }
 
 impl PreviousEventsProvider for () {
-    fn for_room(&self, _: &RoomId) -> Vec<SyncTimelineEvent> {
-        Vec::new()
+    fn for_room(&self, _: &RoomId) -> Vector<SyncTimelineEvent> {
+        Vector::new()
     }
 }
 

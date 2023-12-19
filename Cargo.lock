@@ -3080,6 +3080,7 @@ dependencies = [
  "async-trait",
  "bitflags 2.4.1",
  "eyeball",
+ "eyeball-im",
  "futures-executor",
  "futures-util",
  "http",
