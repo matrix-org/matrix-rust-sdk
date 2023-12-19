@@ -10,7 +10,7 @@ use ruma::{
     serde::Raw,
     EventId, OwnedEventId, RoomId, UserId,
 };
-use tracing::{field::display, instrument, trace};
+use tracing::{instrument, trace};
 
 use super::BaseClient;
 use crate::{error::Result, store::StateChanges, RoomInfo};
@@ -29,7 +29,7 @@ impl PreviousEventsProvider for () {
     }
 }
 
-#[instrument(skip_all, fields(room_id))]
+#[instrument(skip_all, fields(room_id = %room_info.room_id))]
 pub(crate) async fn compute_notifications(
     client: &BaseClient,
     changes: &StateChanges,
@@ -37,16 +37,8 @@ pub(crate) async fn compute_notifications(
     new_events: &[SyncTimelineEvent],
     room_info: &mut RoomInfo,
 ) -> Result<()> {
-    // Only apply the algorithm to encrypted rooms, since unencrypted rooms' unread
-    // notification counts ought to be properly computed by the server.
-    if !room_info.is_encrypted() {
-        return Ok(());
-    }
-
-    tracing::Span::current().record("room_id", display(&room_info.room_id));
-
     let user_id = &client.session_meta().unwrap().user_id;
-    let prev_latest_receipt_event_id = room_info.latest_read_receipt_event_id.clone();
+    let prev_latest_receipt_event_id = room_info.read_receipts.latest_read_receipt_event_id.clone();
 
     if let Some(receipt_event) = changes.receipts.get(room_info.room_id()) {
         trace!("Got a new receipt event!");
@@ -76,7 +68,7 @@ pub(crate) async fn compute_notifications(
             // about.
 
             // First, save the event id as the latest one that has a read receipt.
-            room_info.latest_read_receipt_event_id = Some(receipt_event_id.clone());
+            room_info.read_receipts.latest_read_receipt_event_id = Some(receipt_event_id.clone());
 
             // Try to find if the read receipts refers to an event from the current sync, to
             // avoid searching the cached timeline events.
@@ -124,15 +116,26 @@ pub(crate) async fn compute_notifications(
     // for the next receipt.
     trace!("All other ways failed, including all new events for the receipts count.");
     for event in new_events {
-        if event.push_actions.iter().any(ruma::push::Action::is_highlight) {
-            room_info.notification_counts.highlight_count += 1;
-        }
-        if marks_as_unread(&event.event, user_id) {
-            room_info.notification_counts.notification_count += 1;
-        }
+        count_unread_and_mentions(event, user_id, room_info);
     }
 
     Ok(())
+}
+
+#[inline(always)]
+fn count_unread_and_mentions(
+    event: &SyncTimelineEvent,
+    user_id: &UserId,
+    room_info: &mut RoomInfo,
+) {
+    for action in &event.push_actions {
+        if action.should_notify() && marks_as_unread(&event.event, user_id) {
+            room_info.read_receipts.num_unread += 1;
+        }
+        if action.is_highlight() {
+            room_info.read_receipts.num_mentions += 1;
+        }
+    }
 }
 
 /// Try to find the event to which the receipt attaches to, and if found, will
@@ -148,20 +151,14 @@ fn find_and_count_events<'a>(
     let mut counting_receipts = false;
     for event in events {
         if counting_receipts {
-            for action in &event.push_actions {
-                if action.is_highlight() {
-                    room_info.notification_counts.highlight_count += 1;
-                }
-                if action.should_notify() && marks_as_unread(&event.event, user_id) {
-                    room_info.notification_counts.notification_count += 1;
-                }
-            }
+            count_unread_and_mentions(event, user_id, room_info);
         } else if let Ok(Some(event_id)) = event.event.get_field::<OwnedEventId>("event_id") {
             if event_id == receipt_event_id {
                 // Bingo! Switch over to the counting state, after resetting the
                 // previous counts.
                 trace!("Found the event the receipt was referring to! Starting to count.");
-                room_info.notification_counts = Default::default();
+                room_info.read_receipts.num_unread = 0;
+                room_info.read_receipts.num_mentions = 0;
                 counting_receipts = true;
             }
         }

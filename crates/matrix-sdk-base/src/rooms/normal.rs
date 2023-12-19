@@ -187,6 +187,23 @@ impl Room {
         self.inner.read().notification_counts
     }
 
+    /// Get the number of unread messages (computed client-side).
+    ///
+    /// This might be more precise than [`Self::unread_notification_counts`] for
+    /// encrypted rooms.
+    pub fn num_unread_messages(&self) -> u64 {
+        self.inner.read().read_receipts.num_unread
+    }
+
+    /// Get the number of unread mentions (computed client-side), that is,
+    /// messages causing a highlight in a room.
+    ///
+    /// This might be more precise than [`Self::unread_notification_counts`] for
+    /// encrypted rooms.
+    pub fn num_unread_mentions(&self) -> u64 {
+        self.inner.read().read_receipts.num_mentions
+    }
+
     /// Check if the room has its members fully synced.
     ///
     /// Members might be missing if lazy member loading was enabled for the
@@ -710,6 +727,22 @@ impl Room {
     }
 }
 
+/// Information about read receipts collected during processing of that room.
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct RoomReadReceipts {
+    /// Does the room have unread messages?
+    pub(crate) num_unread: u64,
+
+    /// Does the room have messages causing highlights for the users? (aka
+    /// mentions)
+    pub(crate) num_mentions: u64,
+
+    /// The id of the event the last unthreaded (or main-threaded, for better
+    /// compatibility with clients that have thread support) read receipt is
+    /// attached to.
+    pub(crate) latest_read_receipt_event_id: Option<OwnedEventId>,
+}
+
 /// The underlying pure data structure for joined and left rooms.
 ///
 /// Holds all the info needed to persist a room into the state store.
@@ -721,7 +754,10 @@ pub struct RoomInfo {
     /// The state of the room.
     pub(crate) room_state: RoomState,
 
-    /// The unread notifications counts.
+    /// The unread notifications counts, as returned by the server.
+    ///
+    /// These might be incorrect for encrypted rooms, since the server doesn't
+    /// have access to the content of the encrypted events.
     pub(crate) notification_counts: UnreadNotificationsCount,
 
     /// The summary of this room.
@@ -743,11 +779,9 @@ pub struct RoomInfo {
     #[cfg(feature = "experimental-sliding-sync")]
     pub(crate) latest_event: Option<Box<LatestEvent>>,
 
-    /// The id of the event the last unthreaded (or main-threaded, for better
-    /// compatibility with clients that have thread support) read receipt is
-    /// attached to.
+    /// Information about read receipts for this room.
     #[serde(default)]
-    pub(crate) latest_read_receipt_event_id: Option<OwnedEventId>,
+    pub(crate) read_receipts: RoomReadReceipts,
 
     /// Base room info which holds some basic event contents important for the
     /// room state.
@@ -785,7 +819,7 @@ impl RoomInfo {
             encryption_state_synced: false,
             #[cfg(feature = "experimental-sliding-sync")]
             latest_event: None,
-            latest_read_receipt_event_id: None,
+            read_receipts: Default::default(),
             base_info: Box::new(BaseRoomInfo::new()),
         }
     }
@@ -1267,7 +1301,7 @@ mod tests {
                 Raw::from_json_string(json!({"sender": "@u:i.uk"}).to_string()).unwrap().into(),
             ))),
             base_info: Box::new(BaseRoomInfo::new()),
-            latest_read_receipt_event_id: None,
+            read_receipts: Default::default(),
         };
 
         let info_json = json!({
@@ -1307,6 +1341,11 @@ mod tests {
                 "name": null,
                 "tombstone": null,
                 "topic": null,
+            },
+            "read_receipts": {
+                "num_unread": 0,
+                "num_mentions": 0,
+                "latest_read_receipt_event_id": null,
             }
         });
 

@@ -118,7 +118,7 @@ impl RoomInfoV1 {
             encryption_state_synced,
             #[cfg(feature = "experimental-sliding-sync")]
             latest_event: latest_event.map(|ev| Box::new(LatestEvent::new(ev))),
-            latest_read_receipt_event_id: None,
+            read_receipts: Default::default(),
             base_info: base_info.migrate(create),
         }
     }
