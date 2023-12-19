@@ -560,7 +560,8 @@ mod tests {
     }
 
     #[async_test]
-    async fn latest_message_event_can_be_wrapped_as_a_timeline_item_with_sender_from_the_storage() {
+    async fn test_latest_message_event_can_be_wrapped_as_a_timeline_item_with_sender_from_the_storage(
+    ) {
         // Given a sync event that is suitable to be used as a latest_event, and a room
         // with a member event for the sender
 
@@ -574,7 +575,7 @@ mod tests {
 
         // And the room is stored in the client so it can be extracted when needed
         let response = response_with_room(room_id, room).await;
-        client.process_sliding_sync(&response).await.unwrap();
+        client.process_sliding_sync_test_helper(&response).await.unwrap();
 
         // When we construct a timeline event from it
         let timeline_item =
@@ -595,7 +596,8 @@ mod tests {
     }
 
     #[async_test]
-    async fn latest_message_event_can_be_wrapped_as_a_timeline_item_with_sender_from_the_cache() {
+    async fn test_latest_message_event_can_be_wrapped_as_a_timeline_item_with_sender_from_the_cache(
+    ) {
         // Given a sync event that is suitable to be used as a latest_event, a room, and
         // a member event for the sender (which isn't part of the room yet).
 
@@ -617,7 +619,7 @@ mod tests {
 
         // And the room is stored in the client so it can be extracted when needed
         let response = response_with_room(room_id, room).await;
-        client.process_sliding_sync(&response).await.unwrap();
+        client.process_sliding_sync_test_helper(&response).await.unwrap();
 
         // When we construct a timeline event from it
         let timeline_item = EventTimelineItem::from_latest_event(
