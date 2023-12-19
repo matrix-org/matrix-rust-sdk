@@ -339,7 +339,7 @@ mod tests {
         let ed_key = Ed25519SecretKey::new().public_key();
 
         // a backed-up session
-        let session1 = InboundGroupSession::new(
+        let backed_up_session = InboundGroupSession::new(
             curve_key,
             ed_key,
             room_id,
@@ -355,10 +355,10 @@ mod tests {
             None,
         )
         .unwrap();
-        session1.mark_as_backed_up();
+        backed_up_session.mark_as_backed_up();
 
         // an un-backed-up session
-        let session2 = InboundGroupSession::new(
+        let not_backed_up_session = InboundGroupSession::new(
             curve_key,
             ed_key,
             room_id,
@@ -384,7 +384,7 @@ mod tests {
             )
             .unwrap();
         let sessions = txn.object_store(old_keys::INBOUND_GROUP_SESSIONS_V1).unwrap();
-        for session in vec![&session1, &session2] {
+        for session in vec![&backed_up_session, &not_backed_up_session] {
             let room_id = session.room_id();
             let session_id = session.session_id();
             // XXX: there is a bug in the migration to v7: it copies the keys directly from the
@@ -405,14 +405,20 @@ mod tests {
         let store =
             IndexeddbCryptoStore::open_with_store_cipher(&db_prefix, store_cipher).await.unwrap();
 
-        let s =
-            store.get_inbound_group_session(room_id, session1.session_id()).await.unwrap().unwrap();
-        assert_eq!(s.session_id(), session1.session_id());
+        let s = store
+            .get_inbound_group_session(room_id, backed_up_session.session_id())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(s.session_id(), backed_up_session.session_id());
         assert_eq!(s.backed_up(), true);
 
-        let s =
-            store.get_inbound_group_session(room_id, session2.session_id()).await.unwrap().unwrap();
-        assert_eq!(s.session_id(), session2.session_id());
+        let s = store
+            .get_inbound_group_session(room_id, not_backed_up_session.session_id())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(s.session_id(), not_backed_up_session.session_id());
         assert_eq!(s.backed_up(), false);
     }
 
