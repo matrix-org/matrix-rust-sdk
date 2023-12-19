@@ -87,13 +87,13 @@ mod tests {
     }
 
     #[async_test]
-    async fn latest_message_event_is_wrapped_as_a_timeline_item() {
+    async fn test_latest_message_event_is_wrapped_as_a_timeline_item() {
         // Given a room exists, and an event came in through a sync
         let room_id = room_id!("!r:x.uk");
         let user_id = user_id!("@s:o.uk");
         let client = logged_in_client(None).await;
         let event = message_event(room_id, user_id, "**My msg**", "<b>My msg</b>", 122343);
-        process_event_via_sync(room_id, event, &client).await;
+        process_event_via_sync_test_helper(room_id, event, &client).await;
 
         // When we ask for the latest event in the room
         let room = SlidingSyncRoom::new(
@@ -118,11 +118,15 @@ mod tests {
         }
     }
 
-    async fn process_event_via_sync(room_id: &RoomId, event: SyncTimelineEvent, client: &Client) {
+    async fn process_event_via_sync_test_helper(
+        room_id: &RoomId,
+        event: SyncTimelineEvent,
+        client: &Client,
+    ) {
         let mut room = v4::SlidingSyncRoom::new();
         room.timeline.push(event.event);
         let response = response_with_room(room_id, room).await;
-        client.process_sliding_sync(&response).await.unwrap();
+        client.process_sliding_sync_test_helper(&response).await.unwrap();
     }
 
     fn message_event(

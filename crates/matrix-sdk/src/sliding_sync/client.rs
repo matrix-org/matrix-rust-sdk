@@ -22,7 +22,10 @@ impl Client {
     /// If you need to handle encryption too, use the internal
     /// `SlidingSyncResponseProcessor` instead.
     #[instrument(skip(self, response))]
-    pub async fn process_sliding_sync(&self, response: &v4::Response) -> Result<SyncResponse> {
+    pub async fn process_sliding_sync_test_helper(
+        &self,
+        response: &v4::Response,
+    ) -> Result<SyncResponse> {
         let response = self.base_client().process_sliding_sync(response, &()).await?;
 
         debug!("done processing on base_client");
