@@ -21,6 +21,7 @@ anyhow = { workspace = true }
 futures-util = "0.3.28"
 hmac = "0.12.1"
 http = { workspace = true }
+matrix-sdk-libolm-migration = { version = "0.1.0", path = "../../crates/matrix-sdk-libolm-migration", features = ["uniffi"]}
 pbkdf2 = "0.12.2"
 rand = { workspace = true }
 ruma = { workspace = true }

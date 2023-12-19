@@ -1,0 +1,15 @@
+[package]
+name = "matrix-sdk-libolm-migration"
+version = "0.1.0"
+edition = "2021"
+rust-version.workspace = true
+
+[features]
+uniffi = ["dep:uniffi"]
+
+[dependencies]
+anyhow = { workspace = true }
+serde = { workspace = true }
+uniffi = { workspace = true, optional = true }
+matrix-sdk-crypto = { version = "0.6.0", path = "../matrix-sdk-crypto" }
+thiserror = { workspace = true }

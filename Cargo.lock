@@ -3182,6 +3182,7 @@ dependencies = [
  "js_int",
  "matrix-sdk-common",
  "matrix-sdk-crypto",
+ "matrix-sdk-libolm-migration",
  "matrix-sdk-sqlite",
  "pbkdf2",
  "rand 0.8.5",
@@ -3291,6 +3292,17 @@ dependencies = [
  "tempfile",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "matrix-sdk-libolm-migration"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "matrix-sdk-crypto",
+ "serde",
+ "thiserror",
+ "uniffi",
 ]
 
 [[package]]
