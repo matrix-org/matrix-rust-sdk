@@ -304,9 +304,8 @@ async fn test_room_notification_count() -> Result<()> {
     let mut info_updates = alice_room.subscribe_info();
 
     // At first, nothing has happened, so we shouldn't have any notifications.
-    let count = alice_room.unread_notification_counts();
-    assert_eq!(count.highlight_count, 0);
-    assert_eq!(count.notification_count, 0);
+    assert_eq!(alice_room.num_unread_messages(), 0);
+    assert_eq!(alice_room.num_unread_mentions(), 0);
 
     assert_pending!(info_updates);
 
@@ -315,9 +314,8 @@ async fn test_room_notification_count() -> Result<()> {
 
     assert!(info_updates.next().await.is_some());
 
-    let count = alice_room.unread_notification_counts();
-    assert_eq!(count.highlight_count, 0);
-    assert_eq!(count.notification_count, 0);
+    assert_eq!(alice_room.num_unread_messages(), 0);
+    assert_eq!(alice_room.num_unread_mentions(), 0);
     assert!(alice_room.latest_event().is_none());
 
     assert_pending!(info_updates);
@@ -329,10 +327,8 @@ async fn test_room_notification_count() -> Result<()> {
 
     assert!(info_updates.next().await.is_some());
 
-    let count = alice_room.unread_notification_counts();
-    assert_eq!(count.highlight_count, 0);
-    assert_eq!(count.notification_count, 1);
-    let mut prev_count = count;
+    assert_eq!(alice_room.num_unread_messages(), 1);
+    assert_eq!(alice_room.num_unread_mentions(), 0);
 
     assert_pending!(info_updates);
 
@@ -348,17 +344,16 @@ async fn test_room_notification_count() -> Result<()> {
     loop {
         assert!(info_updates.next().await.is_some());
 
-        let count = alice_room.unread_notification_counts();
-        if count == prev_count {
-            // Sometimes we get notified for changes to unrelated, other fields of
-            // `info_updates`.
+        // FIXME we receive multiple spurious room info updates.
+        if alice_room.num_unread_messages() == 1 && alice_room.num_unread_mentions() == 0 {
             tracing::warn!("ignoring");
             continue;
         }
 
-        assert_eq!(count.highlight_count, 1); // one new highlight
-        assert_eq!(count.notification_count, 2); // the highlight counts as a new notification
-        prev_count = count;
+        // The highlight also counts as a notification.
+        assert_eq!(alice_room.num_unread_messages(), 2);
+        // One new highlight.
+        assert_eq!(alice_room.num_unread_mentions(), 1);
         break;
     }
 
@@ -374,16 +369,15 @@ async fn test_room_notification_count() -> Result<()> {
     loop {
         assert!(info_updates.next().await.is_some());
 
-        let count = alice_room.unread_notification_counts();
-        if count == prev_count {
+        if alice_room.num_unread_messages() == 2 && alice_room.num_unread_mentions() == 1 {
             // Sometimes we get notified for changes to unrelated, other fields of
             // `info_updates`.
             tracing::warn!("ignoring");
             continue;
         }
 
-        assert_eq!(count.highlight_count, 0, "{count:?}");
-        assert_eq!(count.notification_count, 0, "{count:?}");
+        assert_eq!(alice_room.num_unread_messages(), 0);
+        assert_eq!(alice_room.num_unread_mentions(), 0);
         break;
     }
 
@@ -395,16 +389,14 @@ async fn test_room_notification_count() -> Result<()> {
     // Local echo for our own message.
     assert!(info_updates.next().await.is_some());
 
-    let count = alice_room.unread_notification_counts();
-    assert_eq!(count.highlight_count, 0, "{count:?}");
-    assert_eq!(count.notification_count, 0, "{count:?}");
+    assert_eq!(alice_room.num_unread_messages(), 0);
+    assert_eq!(alice_room.num_unread_mentions(), 0);
 
     // Remote echo for our own message.
     assert!(info_updates.next().await.is_some());
 
-    let count = alice_room.unread_notification_counts();
-    assert_eq!(count.highlight_count, 0, "{count:?}");
-    assert_eq!(count.notification_count, 0, "{count:?}");
+    assert_eq!(alice_room.num_unread_messages(), 0);
+    assert_eq!(alice_room.num_unread_mentions(), 0);
 
     assert_pending!(info_updates);
 

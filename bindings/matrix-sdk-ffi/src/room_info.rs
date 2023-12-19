@@ -31,6 +31,8 @@ pub struct RoomInfo {
     user_defined_notification_mode: Option<RoomNotificationMode>,
     has_room_call: bool,
     active_room_call_participants: Vec<String>,
+    num_unread_messages: u64,
+    num_unread_mentions: u64,
 }
 
 impl RoomInfo {
@@ -75,6 +77,8 @@ impl RoomInfo {
                 .iter()
                 .map(|u| u.to_string())
                 .collect(),
+            num_unread_messages: room.num_unread_messages(),
+            num_unread_mentions: room.num_unread_mentions(),
         })
     }
 }
