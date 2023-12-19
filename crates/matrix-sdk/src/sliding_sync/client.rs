@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use imbl::Vector;
 use matrix_sdk_base::{sync::SyncResponse, PreviousEventsProvider};
 use ruma::{api::client::sync::sync_events::v4, events::AnyToDeviceEvent, serde::Raw, OwnedRoomId};
 use tracing::{debug, instrument};
@@ -41,11 +42,8 @@ impl<'a> PreviousEventsProvider for SlidingSyncPreviousEventsProvider<'a> {
     fn for_room(
         &self,
         room_id: &ruma::RoomId,
-    ) -> Vec<matrix_sdk_common::deserialized_responses::SyncTimelineEvent> {
-        self.0
-            .get(room_id)
-            .map(|room| room.timeline_queue().into_iter().collect())
-            .unwrap_or_default()
+    ) -> Vector<matrix_sdk_common::deserialized_responses::SyncTimelineEvent> {
+        self.0.get(room_id).map(|room| room.timeline_queue()).unwrap_or_default()
     }
 }
 
