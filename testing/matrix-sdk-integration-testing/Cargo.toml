@@ -18,6 +18,7 @@ matrix-sdk-ui = { path = "../../crates/matrix-sdk-ui" }
 matrix-sdk-test = { path = "../matrix-sdk-test" }
 once_cell = { workspace = true }
 rand = { workspace = true }
+stream_assert = "0.1.1"
 tempfile = "3.3.0"
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }
 tracing = { workspace = true }
