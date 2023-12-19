@@ -48,9 +48,11 @@ pub async fn open_and_upgrade_db(
     // If we have yet to complete the migration to V7, migrate the schema to V6
     // (if necessary), and then migrate any remaining data.
     if old_version <= 6 {
+        info!(old_version, "IndexeddbCryptoStore upgrade schema & data -> v6 starting");
         let db = migrate_schema_up_to_v6(name).await?;
         migrate_data_for_v6(serializer, &db).await?;
         db.close();
+        info!(old_version, "IndexeddbCryptoStore upgrade schema & data -> v6 finished");
     }
 
     // Now we can safely complete the migration to V7 which will drop the old store.
@@ -60,13 +62,13 @@ pub async fn open_and_upgrade_db(
             let old_version = evt.old_version() as u32;
             let new_version = evt.new_version() as u32;
 
-            info!(old_version, new_version, "IndexeddbCryptoStore upgrade -> 7 starting");
+            info!(old_version, new_version, "IndexeddbCryptoStore upgrade schema -> v7 starting");
 
             if old_version < 7 {
                 migrate_stores_to_v7(evt.db())?;
             }
 
-            info!(old_version, new_version, "IndexeddbCryptoStore upgrade -> 7 complete");
+            info!(old_version, new_version, "IndexeddbCryptoStore upgrade schema -> v7 complete");
             Ok(())
         }));
         db_req.await?;
@@ -75,20 +77,22 @@ pub async fn open_and_upgrade_db(
     // And finally migrate to v8, keeping the same schema but fixing the keys in
     // inbound_group_sessions2
     if old_version < 8 {
+        info!(old_version, "IndexeddbCryptoStore upgrade data -> v8 starting");
         let db = IdbDatabase::open(name)?.await?;
         migrate_data_for_v8(serializer, &db).await?;
         db.close();
+        info!(old_version, "IndexeddbCryptoStore upgrade data -> v8 finished");
 
         let mut db_req2: OpenDbRequest = IdbDatabase::open_u32(name, 8)?;
         db_req2.set_on_upgrade_needed(Some(|evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
             let old_version = evt.old_version() as u32;
             let new_version = evt.new_version() as u32;
 
-            info!(old_version, new_version, "IndexeddbCryptoStore upgrade -> 8 starting");
+            info!(old_version, new_version, "IndexeddbCryptoStore upgrade schema -> v8 starting");
 
             // No actual schema migration to do here - just the data part we have already done.
 
-            info!(old_version, new_version, "IndexeddbCryptoStore upgrade -> 8 complete");
+            info!(old_version, new_version, "IndexeddbCryptoStore upgrade schema -> v8 complete");
             Ok(())
         }));
         db_req2.await?;
