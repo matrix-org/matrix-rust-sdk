@@ -195,6 +195,14 @@ impl Room {
         self.inner.read().read_receipts.num_unread
     }
 
+    /// Get the number of unread notifications (computed client-side).
+    ///
+    /// This might be more precise than [`Self::unread_notification_counts`] for
+    /// encrypted rooms.
+    pub fn num_unread_notifications(&self) -> u64 {
+        self.inner.read().read_receipts.num_notifications
+    }
+
     /// Get the number of unread mentions (computed client-side), that is,
     /// messages causing a highlight in a room.
     ///
@@ -732,6 +740,9 @@ impl Room {
 pub struct RoomReadReceipts {
     /// Does the room have unread messages?
     pub(crate) num_unread: u64,
+
+    /// Does the room have unread events that should notify?
+    pub(crate) num_notifications: u64,
 
     /// Does the room have messages causing highlights for the users? (aka
     /// mentions)
@@ -1345,6 +1356,7 @@ mod tests {
             "read_receipts": {
                 "num_unread": 0,
                 "num_mentions": 0,
+                "num_notifications": 0,
                 "latest_read_receipt_event_id": null,
             }
         });

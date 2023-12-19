@@ -31,7 +31,14 @@ pub struct RoomInfo {
     user_defined_notification_mode: Option<RoomNotificationMode>,
     has_room_call: bool,
     active_room_call_participants: Vec<String>,
+    /// "Interesting" messages received in that room, independently of the
+    /// notification settings.
     num_unread_messages: u64,
+    /// Events that will notify the user, according to their
+    /// notification settings.
+    num_unread_notifications: u64,
+    /// Events causing mentions/highlights for the user, according to their
+    /// notification settings.
     num_unread_mentions: u64,
 }
 
@@ -78,6 +85,7 @@ impl RoomInfo {
                 .map(|u| u.to_string())
                 .collect(),
             num_unread_messages: room.num_unread_messages(),
+            num_unread_notifications: room.num_unread_notifications(),
             num_unread_mentions: room.num_unread_mentions(),
         })
     }
