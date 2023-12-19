@@ -100,7 +100,7 @@ pub(crate) async fn compute_notifications(
         // There's no new read-receipt here. We assume the cached events have been
         // properly processed, and we only need to process the new events based
         // on the previous receipt.
-        trace!("Couldn't find the event attached to the latest receipt; looking if the past latest known receipt refers to a new event...");
+        trace!("No new receipts, or couldn't find attached event; looking if the past latest known receipt refers to a new event...");
         if find_and_count_events(&receipt_event_id, user_id, new_events.iter(), room_info) {
             // We found the event to which the previous receipt attached to, so our work is
             // done here.
@@ -114,7 +114,7 @@ pub(crate) async fn compute_notifications(
     //
     // In that case, accumulate all events as part of the current batch, and wait
     // for the next receipt.
-    trace!("All other ways failed, including all new events for the receipts count.");
+    trace!("Default path: including all new events for the receipts count.");
     for event in new_events {
         count_unread_and_mentions(event, user_id, room_info);
     }
@@ -128,9 +128,12 @@ fn count_unread_and_mentions(
     user_id: &UserId,
     room_info: &mut RoomInfo,
 ) {
+    if marks_as_unread(&event.event, user_id) {
+        room_info.read_receipts.num_unread += 1;
+    }
     for action in &event.push_actions {
-        if action.should_notify() && marks_as_unread(&event.event, user_id) {
-            room_info.read_receipts.num_unread += 1;
+        if action.should_notify() {
+            room_info.read_receipts.num_notifications += 1;
         }
         if action.is_highlight() {
             room_info.read_receipts.num_mentions += 1;
@@ -158,6 +161,7 @@ fn find_and_count_events<'a>(
                 // previous counts.
                 trace!("Found the event the receipt was referring to! Starting to count.");
                 room_info.read_receipts.num_unread = 0;
+                room_info.read_receipts.num_notifications = 0;
                 room_info.read_receipts.num_mentions = 0;
                 counting_receipts = true;
             }

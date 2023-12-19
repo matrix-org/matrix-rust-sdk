@@ -9,7 +9,9 @@ use matrix_sdk::{
         api::client::{
             receipt::create_receipt::v3::ReceiptType,
             room::create_room::v3::Request as CreateRoomRequest,
-            sync::sync_events::v4::{E2EEConfig, ReceiptsConfig, ToDeviceConfig},
+            sync::sync_events::v4::{
+                AccountDataConfig, E2EEConfig, ReceiptsConfig, ToDeviceConfig,
+            },
         },
         assign,
         events::{
@@ -237,6 +239,9 @@ async fn test_room_notification_count() -> Result<()> {
         let sync = alice
             .sliding_sync("main")?
             .with_receipt_extension(assign!(ReceiptsConfig::default(), { enabled: Some(true) }))
+            .with_account_data_extension(
+                assign!(AccountDataConfig::default(), { enabled: Some(true) }),
+            )
             .add_list(
                 SlidingSyncList::builder("all")
                     .sync_mode(SlidingSyncMode::new_selective().add_range(0..=20)),
@@ -306,6 +311,7 @@ async fn test_room_notification_count() -> Result<()> {
     // At first, nothing has happened, so we shouldn't have any notifications.
     assert_eq!(alice_room.num_unread_messages(), 0);
     assert_eq!(alice_room.num_unread_mentions(), 0);
+    assert_eq!(alice_room.num_unread_notifications(), 0);
 
     assert_pending!(info_updates);
 
@@ -316,6 +322,7 @@ async fn test_room_notification_count() -> Result<()> {
 
     assert_eq!(alice_room.num_unread_messages(), 0);
     assert_eq!(alice_room.num_unread_mentions(), 0);
+    assert_eq!(alice_room.num_unread_notifications(), 0);
     assert!(alice_room.latest_event().is_none());
 
     assert_pending!(info_updates);
@@ -328,12 +335,12 @@ async fn test_room_notification_count() -> Result<()> {
     assert!(info_updates.next().await.is_some());
 
     assert_eq!(alice_room.num_unread_messages(), 1);
+    assert_eq!(alice_room.num_unread_notifications(), 1);
     assert_eq!(alice_room.num_unread_mentions(), 0);
 
     assert_pending!(info_updates);
 
     // Bob sends a mention message.
-    let bob_room = bob.get_room(&room_id).expect("bob knows about alice's room");
     bob_room
         .send(
             RoomMessageEventContent::text_plain("Hello my dear friend Alice!")
@@ -352,6 +359,7 @@ async fn test_room_notification_count() -> Result<()> {
 
         // The highlight also counts as a notification.
         assert_eq!(alice_room.num_unread_messages(), 2);
+        assert_eq!(alice_room.num_unread_notifications(), 2);
         // One new highlight.
         assert_eq!(alice_room.num_unread_mentions(), 1);
         break;
@@ -377,6 +385,7 @@ async fn test_room_notification_count() -> Result<()> {
         }
 
         assert_eq!(alice_room.num_unread_messages(), 0);
+        assert_eq!(alice_room.num_unread_notifications(), 0);
         assert_eq!(alice_room.num_unread_mentions(), 0);
         break;
     }
@@ -390,13 +399,69 @@ async fn test_room_notification_count() -> Result<()> {
     assert!(info_updates.next().await.is_some());
 
     assert_eq!(alice_room.num_unread_messages(), 0);
+    assert_eq!(alice_room.num_unread_notifications(), 0);
     assert_eq!(alice_room.num_unread_mentions(), 0);
 
     // Remote echo for our own message.
     assert!(info_updates.next().await.is_some());
 
     assert_eq!(alice_room.num_unread_messages(), 0);
+    assert_eq!(alice_room.num_unread_notifications(), 0);
     assert_eq!(alice_room.num_unread_mentions(), 0);
+
+    assert_pending!(info_updates);
+
+    // Now Alice is only interesting in mentions of their name.
+    let settings = alice.notification_settings().await;
+
+    tracing::warn!("Updating room notification mode to mentions and keywords only...");
+    settings
+        .set_room_notification_mode(
+            alice_room.room_id(),
+            matrix_sdk::notification_settings::RoomNotificationMode::MentionsAndKeywordsOnly,
+        )
+        .await?;
+    tracing::warn!("Done!");
+
+    // Wait for remote echo.
+    let _ = settings.subscribe_to_changes().recv().await;
+
+    bob_room.send(RoomMessageEventContent::text_plain("I said hello!")).await?;
+
+    assert!(info_updates.next().await.is_some());
+
+    // The message doesn't contain a mention, so it doesn't notify Alice. But it
+    // exists.
+    assert_eq!(alice_room.num_unread_messages(), 1);
+    assert_eq!(alice_room.num_unread_notifications(), 0);
+    // One new highlight.
+    assert_eq!(alice_room.num_unread_mentions(), 0);
+
+    assert_pending!(info_updates);
+
+    // Bob sends a mention message.
+    bob_room
+        .send(
+            RoomMessageEventContent::text_plain("Why, hello there Alice!")
+                .set_mentions(Mentions::with_user_ids([alice.user_id().unwrap().to_owned()])),
+        )
+        .await?;
+
+    loop {
+        assert!(info_updates.next().await.is_some());
+
+        // FIXME we receive multiple spurious room info updates.
+        if alice_room.num_unread_messages() == 1 && alice_room.num_unread_mentions() == 0 {
+            tracing::warn!("ignoring");
+            continue;
+        }
+
+        // The highlight also counts as a notification.
+        assert_eq!(alice_room.num_unread_messages(), 2);
+        assert_eq!(alice_room.num_unread_notifications(), 1);
+        assert_eq!(alice_room.num_unread_mentions(), 1);
+        break;
+    }
 
     assert_pending!(info_updates);
 
