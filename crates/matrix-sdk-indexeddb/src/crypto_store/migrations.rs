@@ -295,7 +295,7 @@ mod tests {
     };
     use matrix_sdk_store_encryption::StoreCipher;
     use matrix_sdk_test::async_test;
-    use ruma::room_id;
+    use ruma::{room_id, RoomId};
     use tracing_subscriber::util::SubscriberInitExt;
 
     use crate::{crypto_store::migrations::*, IndexeddbCryptoStore};
@@ -318,7 +318,7 @@ mod tests {
     }
 
     /// Helper function for `test_v7_migration_{un,}encrypted`: test migrating
-    /// `inbound_group_session` data from store v5 to store v7.
+    /// `inbound_group_sessions` data from store v5 to store v7.
     async fn test_v7_migration_with_cipher(
         db_prefix: &str,
         store_cipher: Option<Arc<StoreCipher>>,
@@ -329,16 +329,42 @@ mod tests {
         // delete the db in case it was used in a previous run
         let _ = IdbDatabase::delete_by_name(&db_name);
 
-        // Schema V7 migrated the inbound group sessions to a new format.
-        // To test, first create a database and populate it with the *old* style of
-        // entry.
-        let db = create_v5_db(&db_name).await.unwrap();
-
+        // Given a DB with data in it as it was at v5
         let room_id = room_id!("!test:localhost");
+        let (backed_up_session, not_backed_up_session) = create_sessions(&room_id);
+        populate_v5_db(
+            &db_name,
+            store_cipher.clone(),
+            &[&backed_up_session, &not_backed_up_session],
+        )
+        .await;
+
+        // When I open a store based on that DB, triggering an upgrade
+        let store =
+            IndexeddbCryptoStore::open_with_store_cipher(&db_prefix, store_cipher).await.unwrap();
+
+        // Then I can find the sessions using their keys and their info is correct
+        let s = store
+            .get_inbound_group_session(room_id, backed_up_session.session_id())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(s.session_id(), backed_up_session.session_id());
+        assert_eq!(s.backed_up(), true);
+
+        let s = store
+            .get_inbound_group_session(room_id, not_backed_up_session.session_id())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(s.session_id(), not_backed_up_session.session_id());
+        assert_eq!(s.backed_up(), false);
+    }
+
+    fn create_sessions(room_id: &RoomId) -> (InboundGroupSession, InboundGroupSession) {
         let curve_key = Curve25519PublicKey::from(&Curve25519SecretKey::new());
         let ed_key = Ed25519SecretKey::new().public_key();
 
-        // a backed-up session
         let backed_up_session = InboundGroupSession::new(
             curve_key,
             ed_key,
@@ -357,7 +383,6 @@ mod tests {
         .unwrap();
         backed_up_session.mark_as_backed_up();
 
-        // an un-backed-up session
         let not_backed_up_session = InboundGroupSession::new(
             curve_key,
             ed_key,
@@ -375,7 +400,20 @@ mod tests {
         )
         .unwrap();
 
-        let serializer = IndexeddbSerializer::new(store_cipher.clone());
+        (backed_up_session, not_backed_up_session)
+    }
+
+    async fn populate_v5_db(
+        db_name: &str,
+        store_cipher: Option<Arc<StoreCipher>>,
+        session_entries: &[&InboundGroupSession],
+    ) {
+        // Schema V7 migrated the inbound group sessions to a new format.
+        // To test, first create a database and populate it with the *old* style of
+        // entry.
+        let db = create_v5_db(&db_name).await.unwrap();
+
+        let serializer = IndexeddbSerializer::new(store_cipher);
 
         let txn = db
             .transaction_on_one_with_mode(
@@ -384,7 +422,7 @@ mod tests {
             )
             .unwrap();
         let sessions = txn.object_store(old_keys::INBOUND_GROUP_SESSIONS_V1).unwrap();
-        for session in vec![&backed_up_session, &not_backed_up_session] {
+        for session in session_entries {
             let room_id = session.room_id();
             let session_id = session.session_id();
             // XXX: there is a bug in the migration to v7: it copies the keys directly from the
@@ -401,25 +439,6 @@ mod tests {
         // now close our DB, reopen it properly, and check that we can still read our
         // data.
         db.close();
-
-        let store =
-            IndexeddbCryptoStore::open_with_store_cipher(&db_prefix, store_cipher).await.unwrap();
-
-        let s = store
-            .get_inbound_group_session(room_id, backed_up_session.session_id())
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(s.session_id(), backed_up_session.session_id());
-        assert_eq!(s.backed_up(), true);
-
-        let s = store
-            .get_inbound_group_session(room_id, not_backed_up_session.session_id())
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(s.session_id(), not_backed_up_session.session_id());
-        assert_eq!(s.backed_up(), false);
     }
 
     async fn create_v5_db(name: &str) -> std::result::Result<IdbDatabase, DomException> {
