@@ -302,14 +302,14 @@ mod tests {
 
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-    /// Test migrating `inbound_group_session` data from store v5 to store v7,
+    /// Test migrating `inbound_group_sessions` data from store v5 to store v7,
     /// on a store with encryption disabled.
     #[async_test]
     async fn test_v7_migration_unencrypted() {
         test_v7_migration_with_cipher("test_v7_migration_unencrypted", None).await
     }
 
-    /// Test migrating `inbound_group_session` data from store v5 to store v7,
+    /// Test migrating `inbound_group_sessions` data from store v5 to store v7,
     /// on a store with encryption enabled.
     #[async_test]
     async fn test_v7_migration_encrypted() {
