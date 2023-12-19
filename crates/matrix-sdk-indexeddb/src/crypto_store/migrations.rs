@@ -57,49 +57,44 @@ pub async fn open_and_upgrade_db(
 
     // Now we can safely complete the migration to V7 which will drop the old store.
     if old_version < 7 {
-        let mut db_req: OpenDbRequest = IdbDatabase::open_u32(name, 7)?;
-        db_req.set_on_upgrade_needed(Some(|evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
-            let old_version = evt.old_version() as u32;
-            let new_version = evt.new_version() as u32;
-
-            info!(old_version, new_version, "IndexeddbCryptoStore upgrade schema -> v7 starting");
-
-            if old_version < 7 {
-                migrate_stores_to_v7(evt.db())?;
-            }
-
-            info!(old_version, new_version, "IndexeddbCryptoStore upgrade schema -> v7 complete");
-            Ok(())
-        }));
-        db_req.await?;
+        migrate_schema_for_v7(name).await?;
     }
 
     // And finally migrate to v8, keeping the same schema but fixing the keys in
     // inbound_group_sessions2
     if old_version < 8 {
-        info!(old_version, "IndexeddbCryptoStore upgrade data -> v8 starting");
-        let db = IdbDatabase::open(name)?.await?;
-        migrate_data_for_v8(serializer, &db).await?;
-        db.close();
-        info!(old_version, "IndexeddbCryptoStore upgrade data -> v8 finished");
-
-        let mut db_req2: OpenDbRequest = IdbDatabase::open_u32(name, 8)?;
-        db_req2.set_on_upgrade_needed(Some(|evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
-            let old_version = evt.old_version() as u32;
-            let new_version = evt.new_version() as u32;
-
-            info!(old_version, new_version, "IndexeddbCryptoStore upgrade schema -> v8 starting");
-
-            // No actual schema migration to do here - just the data part we have already done.
-
-            info!(old_version, new_version, "IndexeddbCryptoStore upgrade schema -> v8 complete");
-            Ok(())
-        }));
-        db_req2.await?;
+        migrate_data_for_v8(name, serializer).await?;
+        migrate_schema_for_v8(name).await?;
     }
 
     // We know we've upgraded to v8 now, so we can open the DB at that version and return it
     Ok(IdbDatabase::open_u32(name, 8)?.await?)
+}
+
+async fn migrate_schema_for_v8(name: &str) -> Result<(), DomException> {
+    info!("IndexeddbCryptoStore upgrade schema -> v8 starting");
+    IdbDatabase::open_u32(name, 8)?.await?;
+    // No actual schema change required for this migration
+    info!("IndexeddbCryptoStore upgrade schema -> v8 complete");
+    Ok(())
+}
+
+async fn migrate_schema_for_v7(name: &str) -> Result<(), DomException> {
+    let mut db_req: OpenDbRequest = IdbDatabase::open_u32(name, 7)?;
+    db_req.set_on_upgrade_needed(Some(|evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
+        let old_version = evt.old_version() as u32;
+        let new_version = evt.old_version() as u32;
+
+        if old_version < 7 {
+            info!(old_version, new_version, "IndexeddbCryptoStore upgrade schema -> v7 starting");
+            migrate_stores_to_v7(evt.db())?;
+            info!(old_version, new_version, "IndexeddbCryptoStore upgrade schema -> v7 complete");
+        }
+
+        Ok(())
+    }));
+    db_req.await?;
+    Ok(())
 }
 
 async fn migrate_schema_up_to_v6(name: &str) -> Result<IdbDatabase, DomException> {
@@ -311,11 +306,14 @@ fn migrate_stores_to_v7(db: &IdbDatabase) -> Result<(), DomException> {
     db.delete_object_store(old_keys::INBOUND_GROUP_SESSIONS_V1)
 }
 
-async fn migrate_data_for_v8(serializer: &IndexeddbSerializer, db: &IdbDatabase) -> Result<()> {
+async fn migrate_data_for_v8(name: &str, serializer: &IndexeddbSerializer) -> Result<()> {
     // In migrate_data_for_v6, we incorrectly copied the keys in inbound_group_sessions verbatim into
     // inbound_group_sessions2. What we should have done is re-encrypt them using the new table
     // name, so we fix them up here.
 
+    info!("IndexeddbCryptoStore upgrade data -> v8 starting");
+
+    let db = IdbDatabase::open(name)?.await?;
     let txn = db.transaction_on_one_with_mode(
         keys::INBOUND_GROUP_SESSIONS_V2,
         IdbTransactionMode::Readwrite,
@@ -395,7 +393,11 @@ async fn migrate_data_for_v8(serializer: &IndexeddbSerializer, db: &IdbDatabase)
         }
     }
 
-    Ok(txn.await.into_result()?)
+    txn.await.into_result()?;
+    db.close();
+    info!("IndexeddbCryptoStore upgrade data -> v8 finished");
+
+    Ok(())
 }
 
 #[cfg(all(test, target_arch = "wasm32"))]
