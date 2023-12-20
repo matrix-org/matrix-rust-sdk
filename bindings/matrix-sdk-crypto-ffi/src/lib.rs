@@ -7,6 +7,7 @@
 #![allow(unused_qualifications)]
 
 mod backup_recovery_key;
+mod dehydrated_devices;
 mod device;
 mod error;
 mod logger;
@@ -15,8 +16,9 @@ mod responses;
 mod users;
 mod verification;
 
-use std::{borrow::Borrow, collections::HashMap, str::FromStr, sync::Arc, time::Duration};
+use std::{collections::HashMap, str::FromStr, sync::Arc, time::Duration};
 
+use anyhow::Context;
 pub use backup_recovery_key::{
     BackupRecoveryKey, DecodeError, MegolmV1BackupKey, PassphraseInfo, PkDecryptionError,
 };
@@ -31,7 +33,7 @@ use matrix_sdk_common::deserialized_responses::ShieldState as RustShieldState;
 use matrix_sdk_crypto::{
     backups::SignatureState,
     olm::{IdentityKeys, InboundGroupSession, Session},
-    store::{Changes, CryptoStore, RoomSettings as RustRoomSettings},
+    store::{Changes, CryptoStore, PendingChanges, RoomSettings as RustRoomSettings},
     types::{EventEncryptionAlgorithm as RustEventEncryptionAlgorithm, SigningKey},
     EncryptionSettings as RustEncryptionSettings, LocalTrust,
 };
@@ -41,8 +43,9 @@ pub use responses::{
     Request, RequestType, SignatureUploadRequest, UploadSigningKeysRequest,
 };
 use ruma::{
-    events::room::history_visibility::HistoryVisibility as RustHistoryVisibility, DeviceId,
-    DeviceKeyAlgorithm, OwnedDeviceId, OwnedUserId, RoomId, SecondsSinceUnixEpoch, UserId,
+    events::room::history_visibility::HistoryVisibility as RustHistoryVisibility,
+    DeviceKeyAlgorithm, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId, RoomId,
+    SecondsSinceUnixEpoch, UserId,
 };
 use serde::{Deserialize, Serialize};
 use tokio::runtime::Runtime;
@@ -55,7 +58,7 @@ pub use verification::{
 use vodozemac::{Curve25519PublicKey, Ed25519PublicKey};
 
 /// Struct collecting data that is important to migrate to the rust-sdk
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, uniffi::Record)]
 pub struct MigrationData {
     /// The pickled version of the Olm Account
     account: PickledAccount,
@@ -78,6 +81,7 @@ pub struct MigrationData {
 }
 
 /// Struct collecting data that is important to migrate sessions to the rust-sdk
+#[derive(uniffi::Record)]
 pub struct SessionMigrationData {
     /// The user id that the data belongs to.
     user_id: String,
@@ -99,7 +103,7 @@ pub struct SessionMigrationData {
 ///
 /// Holds all the information that needs to be stored in a database to restore
 /// an account.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, uniffi::Record)]
 pub struct PickledAccount {
     /// The user id of the account owner.
     pub user_id: String,
@@ -117,7 +121,7 @@ pub struct PickledAccount {
 ///
 /// Holds all the information that needs to be stored in a database to restore
 /// a Session.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, uniffi::Record)]
 pub struct PickledSession {
     /// The pickle string holding the Olm Session.
     pub pickle: String,
@@ -135,7 +139,7 @@ pub struct PickledSession {
 ///
 /// Holds all the information that needs to be stored in a database to restore
 /// an InboundGroupSession.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, uniffi::Record)]
 pub struct PickledInboundGroupSession {
     /// The pickle string holding the InboundGroupSession.
     pub pickle: String,
@@ -156,7 +160,7 @@ pub struct PickledInboundGroupSession {
 }
 
 /// Error type for the migration process.
-#[derive(thiserror::Error, Debug)]
+#[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum MigrationError {
     /// Generic catch all error variant.
     #[error("error migrating database: {error_message}")]
@@ -187,15 +191,16 @@ impl From<anyhow::Error> for MigrationError {
 ///
 /// * `progress_listener` - A callback that can be used to introspect the
 /// progress of the migration.
+#[uniffi::export]
 pub fn migrate(
     data: MigrationData,
-    path: &str,
+    path: String,
     passphrase: Option<String>,
     progress_listener: Box<dyn ProgressListener>,
-) -> anyhow::Result<()> {
-    let runtime = Runtime::new()?;
+) -> Result<(), MigrationError> {
+    let runtime = Runtime::new().context("initializing tokio runtime")?;
     runtime.block_on(async move {
-        migrate_data(data, path, passphrase, progress_listener).await?;
+        migrate_data(data, &path, passphrase, progress_listener).await?;
         Ok(())
     })
 }
@@ -206,7 +211,7 @@ async fn migrate_data(
     passphrase: Option<String>,
     progress_listener: Box<dyn ProgressListener>,
 ) -> anyhow::Result<()> {
-    use matrix_sdk_crypto::{olm::PrivateCrossSigningIdentity, store::RecoveryKey};
+    use matrix_sdk_crypto::{olm::PrivateCrossSigningIdentity, store::BackupDecryptionKey};
     use vodozemac::olm::Account;
     use zeroize::Zeroize;
 
@@ -229,26 +234,21 @@ async fn migrate_data(
     processed_steps += 1;
     listener(processed_steps, total_steps);
 
-    let user_id: Arc<UserId> = {
-        let user_id: OwnedUserId = parse_user_id(&data.account.user_id)?;
-        let user_id: &UserId = user_id.borrow();
-
-        user_id.into()
-    };
-    let device_id: Box<DeviceId> = data.account.device_id.into();
-    let device_id: Arc<DeviceId> = device_id.into();
+    let user_id = parse_user_id(&data.account.user_id)?;
+    let device_id: OwnedDeviceId = data.account.device_id.into();
 
     let account = Account::from_libolm_pickle(&data.account.pickle, &data.pickle_key)?;
     let pickle = account.pickle();
     let identity_keys = Arc::new(account.identity_keys());
     let pickled_account = matrix_sdk_crypto::olm::PickledAccount {
         user_id: parse_user_id(&data.account.user_id)?,
-        device_id: device_id.as_ref().to_owned(),
+        device_id: device_id.clone(),
         pickle,
         shared: data.account.shared,
         uploaded_signed_key_count: data.account.uploaded_signed_key_count as u64,
+        creation_local_time: MilliSecondsSinceUnixEpoch(UInt::default()),
     };
-    let account = matrix_sdk_crypto::olm::ReadOnlyAccount::from_pickle(pickled_account)?;
+    let account = matrix_sdk_crypto::olm::Account::from_pickle(pickled_account)?;
 
     processed_steps += 1;
     listener(processed_steps, total_steps);
@@ -265,8 +265,10 @@ async fn migrate_data(
         data.inbound_group_sessions,
     )?;
 
-    let recovery_key =
-        data.backup_recovery_key.map(|k| RecoveryKey::from_base58(k.as_str())).transpose()?;
+    let backup_decryption_key = data
+        .backup_recovery_key
+        .map(|k| BackupDecryptionKey::from_base58(k.as_str()))
+        .transpose()?;
 
     let cross_signing = PrivateCrossSigningIdentity::empty((*user_id).into());
     cross_signing
@@ -287,8 +289,8 @@ async fn migrate_data(
     let tracked_users: Vec<_> = data
         .tracked_users
         .into_iter()
-        .map(|u| Ok(((parse_user_id(&u)?), true)))
-        .collect::<anyhow::Result<_>>()?;
+        .filter_map(|s| parse_user_id(&s).ok().map(|u| (u, true)))
+        .collect();
 
     let tracked_users: Vec<_> = tracked_users.iter().map(|(u, d)| (&**u, *d)).collect();
     store.save_tracked_users(tracked_users.as_slice()).await?;
@@ -302,12 +304,13 @@ async fn migrate_data(
         room_settings.insert(room_id, settings.into());
     }
 
+    store.save_pending_changes(PendingChanges { account: Some(account) }).await?;
+
     let changes = Changes {
-        account: Some(account),
         private_identity: Some(cross_signing),
         sessions,
         inbound_group_sessions,
-        recovery_key,
+        backup_decryption_key,
         backup_version: data.backup_version,
         room_settings,
         ..Default::default()
@@ -349,14 +352,16 @@ async fn save_changes(
 ///
 /// * `progress_listener` - A callback that can be used to introspect the
 /// progress of the migration.
+#[uniffi::export]
 pub fn migrate_sessions(
     data: SessionMigrationData,
-    path: &str,
+    path: String,
     passphrase: Option<String>,
     progress_listener: Box<dyn ProgressListener>,
-) -> anyhow::Result<()> {
-    let runtime = Runtime::new()?;
-    runtime.block_on(migrate_session_data(data, path, passphrase, progress_listener))
+) -> Result<(), MigrationError> {
+    let runtime = Runtime::new().context("initializing tokio runtime")?;
+    runtime.block_on(migrate_session_data(data, &path, passphrase, progress_listener))?;
+    Ok(())
 }
 
 async fn migrate_session_data(
@@ -374,7 +379,7 @@ async fn migrate_session_data(
     let total_steps = 1 + data.sessions.len() + data.inbound_group_sessions.len();
     let processed_steps = 0;
 
-    let user_id = UserId::parse(data.user_id)?.into();
+    let user_id = UserId::parse(data.user_id)?;
     let device_id: OwnedDeviceId = data.device_id.into();
 
     let identity_keys = IdentityKeys {
@@ -389,7 +394,7 @@ async fn migrate_session_data(
         &listener,
         &data.pickle_key,
         user_id,
-        device_id.into(),
+        device_id,
         identity_keys,
         data.sessions,
         data.inbound_group_sessions,
@@ -405,8 +410,8 @@ fn collect_sessions(
     total_steps: usize,
     listener: &dyn Fn(usize, usize),
     pickle_key: &[u8],
-    user_id: Arc<UserId>,
-    device_id: Arc<DeviceId>,
+    user_id: OwnedUserId,
+    device_id: OwnedDeviceId,
     identity_keys: Arc<IdentityKeys>,
     session_pickles: Vec<PickledSession>,
     group_session_pickles: Vec<PickledInboundGroupSession>,
@@ -455,7 +460,7 @@ fn collect_sessions(
                 .signing_key
                 .into_iter()
                 .map(|(k, v)| {
-                    let algorithm = DeviceKeyAlgorithm::try_from(k)?;
+                    let algorithm = DeviceKeyAlgorithm::from(k);
                     let key = SigningKey::from_parts(&algorithm, v)?;
 
                     Ok((algorithm, key))
@@ -495,29 +500,33 @@ fn collect_sessions(
 /// * `passphrase` - The passphrase that should be used to encrypt the data at
 /// rest in the Sqlite store. **Warning**, if no passphrase is given, the store
 /// and all its data will remain unencrypted.
+#[uniffi::export]
 pub fn migrate_room_settings(
     room_settings: HashMap<String, RoomSettings>,
-    path: &str,
+    path: String,
     passphrase: Option<String>,
-) -> anyhow::Result<()> {
-    let runtime = Runtime::new()?;
+) -> Result<(), MigrationError> {
+    let runtime = Runtime::new().context("initializing tokio runtime")?;
     runtime.block_on(async move {
-        let store = SqliteCryptoStore::open(path, passphrase.as_deref()).await?;
+        let store = SqliteCryptoStore::open(path, passphrase.as_deref())
+            .await
+            .context("opening sqlite crypto store")?;
 
         let mut rust_settings = HashMap::new();
         for (room_id, settings) in room_settings {
-            let room_id = RoomId::parse(room_id)?;
+            let room_id = RoomId::parse(room_id).context("parsing room ID")?;
             rust_settings.insert(room_id, settings.into());
         }
 
         let changes = Changes { room_settings: rust_settings, ..Default::default() };
-        store.save_changes(changes).await?;
+        store.save_changes(changes).await.context("saving changes")?;
 
         Ok(())
     })
 }
 
 /// Callback that will be passed over the FFI to report progress
+#[uniffi::export(callback_interface)]
 pub trait ProgressListener {
     /// The callback that should be called on the Rust side
     ///
@@ -536,7 +545,7 @@ impl<T: Fn(i32, i32)> ProgressListener for T {
 }
 
 /// An encryption algorithm to be used to encrypt messages sent to a room.
-#[derive(Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, uniffi::Enum)]
 pub enum EventEncryptionAlgorithm {
     /// Olm version 1 using Curve25519, AES-256, and SHA-256.
     OlmV1Curve25519AesSha2,
@@ -568,6 +577,7 @@ impl TryFrom<RustEventEncryptionAlgorithm> for EventEncryptionAlgorithm {
 }
 
 /// Who can see a room's history.
+#[derive(uniffi::Enum)]
 pub enum HistoryVisibility {
     /// Previous events are accessible to newly joined members from the point
     /// they were invited onwards.
@@ -713,7 +723,7 @@ pub struct CrossSigningStatus {
 
 /// A struct containing private cross signing keys that can be backed up or
 /// uploaded to the secret store.
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, uniffi::Record)]
 pub struct CrossSigningKeyExport {
     /// The seed of the master key encoded as unpadded base64.
     pub master_key: Option<String>,
@@ -760,7 +770,7 @@ impl TryFrom<matrix_sdk_crypto::store::BackupKeys> for BackupKeys {
     fn try_from(keys: matrix_sdk_crypto::store::BackupKeys) -> Result<Self, Self::Error> {
         Ok(Self {
             recovery_key: BackupRecoveryKey {
-                inner: keys.recovery_key.ok_or(())?,
+                inner: keys.decryption_key.ok_or(())?,
                 passphrase_info: None,
             }
             .into(),
@@ -806,7 +816,7 @@ impl From<matrix_sdk_crypto::CrossSigningStatus> for CrossSigningStatus {
 }
 
 /// Room encryption settings which are modified by state events or user options
-#[derive(Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Debug, PartialEq, Deserialize, Serialize, uniffi::Record)]
 pub struct RoomSettings {
     /// The encryption algorithm that should be used in the room.
     pub algorithm: EventEncryptionAlgorithm,
@@ -838,6 +848,30 @@ fn parse_user_id(user_id: &str) -> Result<OwnedUserId, CryptoStoreError> {
 }
 
 #[uniffi::export]
+fn version_info() -> VersionInfo {
+    VersionInfo {
+        version: matrix_sdk_crypto::VERSION.to_owned(),
+        vodozemac_version: matrix_sdk_crypto::vodozemac::VERSION.to_owned(),
+        git_description: env!("VERGEN_GIT_DESCRIBE").to_owned(),
+        git_sha: env!("VERGEN_GIT_SHA").to_owned(),
+    }
+}
+
+/// Build-time information about important crates that are used.
+#[derive(uniffi::Record)]
+pub struct VersionInfo {
+    /// The version of the matrix-sdk-crypto crate.
+    pub version: String,
+    /// The version of the vodozemac crate.
+    pub vodozemac_version: String,
+    /// The Git commit hash of the crate's source tree at build time.
+    pub git_sha: String,
+    /// The build-time output of the `git describe` command of the source tree
+    /// of crate.
+    pub git_description: String,
+}
+
+#[uniffi::export]
 fn version() -> String {
     matrix_sdk_crypto::VERSION.to_owned()
 }
@@ -849,24 +883,8 @@ fn vodozemac_version() -> String {
 
 uniffi::include_scaffolding!("olm");
 
-mod uniffi_types {
-    pub use crate::{
-        backup_recovery_key::{
-            BackupRecoveryKey, DecodeError, MegolmV1BackupKey, PassphraseInfo, PkDecryptionError,
-        },
-        error::{CryptoStoreError, DecryptionError, SecretImportError},
-        machine::{KeyRequestPair, OlmMachine},
-        responses::{BootstrapCrossSigningResult, DeviceLists, Request},
-        verification::{
-            RequestVerificationResult, StartSasResult, Verification, VerificationRequest,
-        },
-        BackupKeys, CrossSigningKeyExport, CrossSigningStatus, DecryptedEvent, EncryptionSettings,
-        EventEncryptionAlgorithm, RoomKeyCounts, RoomSettings, ShieldColor, ShieldState,
-    };
-}
-
 #[cfg(test)]
-mod test {
+mod tests {
     use anyhow::Result;
     use serde_json::{json, Value};
     use tempfile::tempdir;
@@ -954,7 +972,8 @@ mod test {
                "@ganfra146:matrix.org",
                "@this-is-me:matrix.org",
                "@Amandine:matrix.org",
-               "@ganfra:matrix.org"
+               "@ganfra:matrix.org",
+               "NotAUser%ID"
             ],
             "room_settings": {
                 "!AZkqtjvtwPAuyNOXEt:matrix.org": {
@@ -971,12 +990,20 @@ mod test {
         let migration_data: MigrationData = serde_json::from_value(data)?;
 
         let dir = tempdir()?;
-        let path =
-            dir.path().to_str().expect("Creating a string from the tempdir path should not fail");
+        let path = dir
+            .path()
+            .to_str()
+            .expect("Creating a string from the tempdir path should not fail")
+            .to_owned();
 
-        migrate(migration_data, path, None, Box::new(|_, _| {}))?;
+        migrate(migration_data, path.clone(), None, Box::new(|_, _| {}))?;
 
-        let machine = OlmMachine::new("@ganfra146:matrix.org", "DEWRCMENGS", path, None)?;
+        let machine = OlmMachine::new(
+            "@ganfra146:matrix.org".to_owned(),
+            "DEWRCMENGS".to_owned(),
+            path,
+            None,
+        )?;
 
         assert_eq!(
             machine.identity_keys()["ed25519"],
@@ -1014,6 +1041,11 @@ mod test {
 
         let settings3 = machine.get_room_settings("!XYZ:matrix.org".into())?;
         assert!(settings3.is_none());
+
+        assert!(machine.is_user_tracked("@ganfra146:matrix.org".into()).unwrap());
+        assert!(machine.is_user_tracked("@Amandine:matrix.org".into()).unwrap());
+        assert!(machine.is_user_tracked("@this-is-me:matrix.org".into()).unwrap());
+        assert!(machine.is_user_tracked("@ganfra:matrix.org".into()).unwrap());
 
         Ok(())
     }

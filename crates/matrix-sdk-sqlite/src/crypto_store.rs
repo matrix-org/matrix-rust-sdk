@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::{
+    borrow::Cow,
     collections::HashMap,
     fmt,
     path::{Path, PathBuf},
@@ -21,36 +22,38 @@ use std::{
 
 use async_trait::async_trait;
 use deadpool_sqlite::{Object as SqliteConn, Pool as SqlitePool, Runtime};
-use matrix_sdk_common::locks::Mutex;
 use matrix_sdk_crypto::{
     olm::{
-        IdentityKeys, InboundGroupSession, OutboundGroupSession, PickledInboundGroupSession,
-        PrivateCrossSigningIdentity, Session,
+        InboundGroupSession, OutboundGroupSession, PickledInboundGroupSession,
+        PrivateCrossSigningIdentity, Session, StaticAccountData,
     },
-    store::{caches::SessionStore, BackupKeys, Changes, CryptoStore, RoomKeyCounts, RoomSettings},
-    GossipRequest, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
+    store::{
+        caches::SessionStore, BackupKeys, Changes, CryptoStore, PendingChanges, RoomKeyCounts,
+        RoomSettings,
+    },
+    types::events::room_key_withheld::RoomKeyWithheldEvent,
+    Account, GossipRequest, GossippedSecret, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
     TrackedUser,
 };
 use matrix_sdk_store_encryption::StoreCipher;
-use ruma::{DeviceId, OwnedDeviceId, RoomId, TransactionId, UserId};
-use rusqlite::OptionalExtension;
+use ruma::{
+    events::secret::request::SecretName, DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId,
+    RoomId, TransactionId, UserId,
+};
+use rusqlite::{params_from_iter, OptionalExtension};
 use serde::{de::DeserializeOwned, Serialize};
-use tokio::fs;
-use tracing::{debug, error, instrument, warn};
+use tokio::{fs, sync::Mutex};
+use tracing::{debug, instrument, warn};
 
 use crate::{
     error::{Error, Result},
     get_or_create_store_cipher,
-    utils::{Key, SqliteConnectionExt as _, SqliteObjectExt, SqliteObjectStoreExt as _},
+    utils::{
+        load_db_version, repeat_vars, Key, SqliteConnectionExt as _, SqliteObjectExt,
+        SqliteObjectStoreExt as _,
+    },
     OpenStoreError,
 };
-
-#[derive(Clone, Debug)]
-pub struct AccountInfo {
-    user_id: Arc<UserId>,
-    device_id: Arc<DeviceId>,
-    identity_keys: Arc<IdentityKeys>,
-}
 
 /// A sqlite based cryptostore.
 #[derive(Clone)]
@@ -60,8 +63,9 @@ pub struct SqliteCryptoStore {
     pool: SqlitePool,
 
     // DB values cached in memory
-    account_info: Arc<RwLock<Option<AccountInfo>>>,
+    static_account: Arc<RwLock<Option<StaticAccountData>>>,
     session_cache: SessionStore,
+    save_changes_lock: Arc<Mutex<()>>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -97,7 +101,8 @@ impl SqliteCryptoStore {
         passphrase: Option<&str>,
     ) -> Result<Self, OpenStoreError> {
         let conn = pool.get().await?;
-        run_migrations(&conn).await.map_err(OpenStoreError::Migration)?;
+        let version = load_db_version(&conn).await?;
+        run_migrations(&conn, version).await?;
         let store_cipher = match passphrase {
             Some(p) => Some(Arc::new(get_or_create_store_cipher(p, &conn).await?)),
             None => None,
@@ -107,31 +112,49 @@ impl SqliteCryptoStore {
             store_cipher,
             path: None,
             pool,
-            account_info: Arc::new(RwLock::new(None)),
+            static_account: Arc::new(RwLock::new(None)),
             session_cache: SessionStore::new(),
+            save_changes_lock: Default::default(),
         })
+    }
+
+    fn encode_value(&self, value: Vec<u8>) -> Result<Vec<u8>> {
+        if let Some(key) = &self.store_cipher {
+            let encrypted = key.encrypt_value_data(value)?;
+            Ok(rmp_serde::to_vec_named(&encrypted)?)
+        } else {
+            Ok(value)
+        }
+    }
+
+    fn decode_value<'a>(&self, value: &'a [u8]) -> Result<Cow<'a, [u8]>> {
+        if let Some(key) = &self.store_cipher {
+            let encrypted = rmp_serde::from_slice(value)?;
+            let decrypted = key.decrypt_value_data(encrypted)?;
+            Ok(Cow::Owned(decrypted))
+        } else {
+            Ok(Cow::Borrowed(value))
+        }
+    }
+
+    fn serialize_json(&self, value: &impl Serialize) -> Result<Vec<u8>> {
+        let serialized = serde_json::to_vec(value)?;
+        self.encode_value(serialized)
+    }
+
+    fn deserialize_json<T: DeserializeOwned>(&self, data: &[u8]) -> Result<T> {
+        let decoded = self.decode_value(data)?;
+        Ok(serde_json::from_slice(&decoded)?)
     }
 
     fn serialize_value(&self, value: &impl Serialize) -> Result<Vec<u8>> {
         let serialized = rmp_serde::to_vec_named(value)?;
-
-        if let Some(key) = &self.store_cipher {
-            let encrypted = key.encrypt_value_data(serialized)?;
-            Ok(rmp_serde::to_vec_named(&encrypted)?)
-        } else {
-            Ok(serialized)
-        }
+        self.encode_value(serialized)
     }
 
     fn deserialize_value<T: DeserializeOwned>(&self, value: &[u8]) -> Result<T> {
-        if let Some(key) = &self.store_cipher {
-            let encrypted = rmp_serde::from_slice(value)?;
-            let decrypted = key.decrypt_value_data(encrypted)?;
-
-            Ok(rmp_serde::from_slice(&decrypted)?)
-        } else {
-            Ok(rmp_serde::from_slice(value)?)
-        }
+        let decoded = self.decode_value(value)?;
+        Ok(rmp_serde::from_slice(&decoded)?)
     }
 
     fn deserialize_pickled_inbound_group_session(
@@ -163,8 +186,8 @@ impl SqliteCryptoStore {
         }
     }
 
-    fn get_account_info(&self) -> Option<AccountInfo> {
-        self.account_info.read().unwrap().clone()
+    fn get_static_account(&self) -> Option<StaticAccountData> {
+        self.static_account.read().unwrap().clone()
     }
 
     async fn acquire(&self) -> Result<deadpool_sqlite::Object> {
@@ -172,58 +195,77 @@ impl SqliteCryptoStore {
     }
 }
 
-const DATABASE_VERSION: u8 = 3;
+const DATABASE_VERSION: u8 = 8;
 
-async fn run_migrations(conn: &SqliteConn) -> rusqlite::Result<()> {
-    let kv_exists = conn
-        .query_row(
-            "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'kv'",
-            (),
-            |row| row.get::<_, u32>(0),
-        )
-        .await?
-        > 0;
-
-    let version = if kv_exists {
-        match conn.get_kv("version").await?.as_deref() {
-            Some([v]) => *v,
-            Some(_) => {
-                error!("version database field has multiple bytes");
-                return Ok(());
-            }
-            None => {
-                error!("version database field is missing");
-                return Ok(());
-            }
-        }
-    } else {
-        0
-    };
-
+/// Run migrations for the given version of the database.
+async fn run_migrations(conn: &SqliteConn, version: u8) -> Result<()> {
     if version == 0 {
         debug!("Creating database");
     } else if version < DATABASE_VERSION {
         debug!(version, new_version = DATABASE_VERSION, "Upgrading database");
+    } else {
+        return Ok(());
     }
 
     if version < 1 {
         // First turn on WAL mode, this can't be done in the transaction, it fails with
         // the error message: "cannot change into wal mode from within a transaction".
         conn.execute_batch("PRAGMA journal_mode = wal;").await?;
-        conn.with_transaction(|txn| txn.execute_batch(include_str!("../migrations/001_init.sql")))
-            .await?;
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!("../migrations/crypto_store/001_init.sql"))
+        })
+        .await?;
     }
 
     if version < 2 {
         conn.with_transaction(|txn| {
-            txn.execute_batch(include_str!("../migrations/002_reset_olm_hash.sql"))
+            txn.execute_batch(include_str!("../migrations/crypto_store/002_reset_olm_hash.sql"))
         })
         .await?;
     }
 
     if version < 3 {
         conn.with_transaction(|txn| {
-            txn.execute_batch(include_str!("../migrations/003_room_settings.sql"))
+            txn.execute_batch(include_str!("../migrations/crypto_store/003_room_settings.sql"))
+        })
+        .await?;
+    }
+
+    if version < 4 {
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!(
+                "../migrations/crypto_store/004_drop_outbound_group_sessions.sql"
+            ))
+        })
+        .await?;
+    }
+
+    if version < 5 {
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!("../migrations/crypto_store/005_withheld_code.sql"))
+        })
+        .await?;
+    }
+
+    if version < 6 {
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!(
+                "../migrations/crypto_store/006_drop_outbound_group_sessions.sql"
+            ))
+        })
+        .await?;
+    }
+
+    if version < 7 {
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!("../migrations/crypto_store/007_lock_leases.sql"))
+        })
+        .await?;
+    }
+
+    if version < 8 {
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!("../migrations/crypto_store/008_secret_inbox.sql"))
         })
         .await?;
     }
@@ -265,7 +307,16 @@ trait SqliteConnectionExt {
         data: &[u8],
     ) -> rusqlite::Result<()>;
 
+    fn set_direct_withheld(
+        &self,
+        session_id: &[u8],
+        room_id: &[u8],
+        data: &[u8],
+    ) -> rusqlite::Result<()>;
+
     fn set_room_settings(&self, room_id: &[u8], data: &[u8]) -> rusqlite::Result<()>;
+
+    fn set_secret(&self, request_id: &[u8], data: &[u8]) -> rusqlite::Result<()>;
 }
 
 impl SqliteConnectionExt for rusqlite::Connection {
@@ -358,6 +409,21 @@ impl SqliteConnectionExt for rusqlite::Connection {
         Ok(())
     }
 
+    fn set_direct_withheld(
+        &self,
+        session_id: &[u8],
+        room_id: &[u8],
+        data: &[u8],
+    ) -> rusqlite::Result<()> {
+        self.execute(
+            "INSERT INTO direct_withheld_info (session_id, room_id, data)
+            VALUES (?1, ?2, ?3)
+            ON CONFLICT (session_id) DO UPDATE SET room_id = ?2, data = ?3",
+            (session_id, room_id, data),
+        )?;
+        Ok(())
+    }
+
     fn set_room_settings(&self, room_id: &[u8], data: &[u8]) -> rusqlite::Result<()> {
         self.execute(
             "INSERT INTO room_settings (room_id, data)
@@ -365,6 +431,16 @@ impl SqliteConnectionExt for rusqlite::Connection {
             ON CONFLICT (room_id) DO UPDATE SET data = ?2",
             (room_id, data),
         )?;
+        Ok(())
+    }
+
+    fn set_secret(&self, secret_name: &[u8], data: &[u8]) -> rusqlite::Result<()> {
+        self.execute(
+            "INSERT INTO secrets (secret_name, data)
+            VALUES (?1, ?2)",
+            (secret_name, data),
+        )?;
+
         Ok(())
     }
 }
@@ -422,6 +498,29 @@ trait SqliteObjectCryptoStoreExt: SqliteObjectExt {
                 move |mut stmt| stmt.query((limit,))?.mapped(|row| row.get(0)).collect(),
             )
             .await?)
+    }
+
+    async fn mark_inbound_group_sessions_as_backed_up(&self, session_ids: Vec<Key>) -> Result<()> {
+        if session_ids.is_empty() {
+            // We are not expecting to be called with an empty list of sessions
+            warn!("No sessions to mark as backed up!");
+            return Ok(());
+        }
+
+        let session_ids_len = session_ids.len();
+
+        self.chunk_large_query_over(session_ids, None, move |session_ids| {
+            async move {
+                // Safety: placeholders is not generated using any user input except the number
+                // of session IDs, so it is safe from injection.
+                let sql_params = repeat_vars(session_ids_len);
+                let query = format!("UPDATE inbound_group_session SET backed_up = TRUE where session_id IN ({sql_params})");
+                self.prepare(query, move |mut stmt| stmt.execute(params_from_iter(session_ids.iter()))).await?;
+                Ok(Vec::<&str>::new())
+            }
+        }).await?;
+
+        Ok(())
     }
 
     async fn reset_inbound_group_session_backup_state(&self) -> Result<()> {
@@ -535,6 +634,34 @@ trait SqliteObjectCryptoStoreExt: SqliteObjectExt {
         Ok(())
     }
 
+    async fn get_secrets_from_inbox(&self, secret_name: Key) -> Result<Vec<Vec<u8>>> {
+        Ok(self
+            .prepare("SELECT data FROM secrets WHERE secret_name = ?", |mut stmt| {
+                stmt.query((secret_name,))?.mapped(|row| row.get(0)).collect()
+            })
+            .await?)
+    }
+
+    async fn delete_secrets_from_inbox(&self, secret_name: Key) -> Result<()> {
+        self.execute("DELETE FROM secrets WHERE secret_name = ?", (secret_name,)).await?;
+        Ok(())
+    }
+
+    async fn get_direct_withheld_info(
+        &self,
+        session_id: Key,
+        room_id: Key,
+    ) -> Result<Option<Vec<u8>>> {
+        Ok(self
+            .query_row(
+                "SELECT data FROM direct_withheld_info WHERE session_id = ?1 AND room_id = ?2",
+                (session_id, room_id),
+                |row| row.get(0),
+            )
+            .await
+            .optional()?)
+    }
+
     async fn get_room_settings(&self, room_id: Key) -> Result<Option<Vec<u8>>> {
         Ok(self
             .query_row("SELECT data FROM room_settings WHERE room_id = ?", (room_id,), |row| {
@@ -552,39 +679,19 @@ impl SqliteObjectCryptoStoreExt for deadpool_sqlite::Object {}
 impl CryptoStore for SqliteCryptoStore {
     type Error = Error;
 
-    async fn load_account(&self) -> Result<Option<ReadOnlyAccount>> {
+    async fn load_account(&self) -> Result<Option<Account>> {
         let conn = self.acquire().await?;
         if let Some(pickle) = conn.get_kv("account").await? {
             let pickle = self.deserialize_value(&pickle)?;
 
-            let account = ReadOnlyAccount::from_pickle(pickle).map_err(|_| Error::Unpickle)?;
+            let account = Account::from_pickle(pickle).map_err(|_| Error::Unpickle)?;
 
-            let account_info = AccountInfo {
-                user_id: account.user_id.clone(),
-                device_id: account.device_id.clone(),
-                identity_keys: account.identity_keys.clone(),
-            };
-
-            *self.account_info.write().unwrap() = Some(account_info);
+            *self.static_account.write().unwrap() = Some(account.static_data().clone());
 
             Ok(Some(account))
         } else {
             Ok(None)
         }
-    }
-
-    async fn save_account(&self, account: ReadOnlyAccount) -> Result<()> {
-        let account_info = AccountInfo {
-            user_id: account.user_id.clone(),
-            device_id: account.device_id.clone(),
-            identity_keys: account.identity_keys.clone(),
-        };
-        *self.account_info.write().unwrap() = Some(account_info);
-
-        let pickled_account = account.pickle().await;
-        let serialized_account = self.serialize_value(&pickled_account)?;
-        self.acquire().await?.set_kv("account", serialized_account).await?;
-        Ok(())
     }
 
     async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>> {
@@ -601,19 +708,42 @@ impl CryptoStore for SqliteCryptoStore {
         }
     }
 
-    async fn save_changes(&self, changes: Changes) -> Result<()> {
-        let pickled_account = if let Some(account) = changes.account {
-            let account_info = AccountInfo {
-                user_id: account.user_id.clone(),
-                device_id: account.device_id.clone(),
-                identity_keys: account.identity_keys.clone(),
-            };
+    async fn save_pending_changes(&self, changes: PendingChanges) -> Result<()> {
+        // Serialize calls to `save_pending_changes`; there are multiple await points
+        // below, and we're pickling data as we go, so we don't want to
+        // invalidate data we've previously read and overwrite it in the store.
+        // TODO: #2000 should make this lock go away, or change its shape.
+        let _guard = self.save_changes_lock.lock().await;
 
-            *self.account_info.write().unwrap() = Some(account_info);
-            Some(account.pickle().await)
+        let pickled_account = if let Some(account) = changes.account {
+            *self.static_account.write().unwrap() = Some(account.static_data().clone());
+            Some(account.pickle())
         } else {
             None
         };
+
+        let this = self.clone();
+        self.acquire()
+            .await?
+            .with_transaction(move |txn| {
+                if let Some(pickled_account) = pickled_account {
+                    let serialized_account = this.serialize_value(&pickled_account)?;
+                    txn.set_kv("account", &serialized_account)?;
+                }
+
+                Ok::<_, Error>(())
+            })
+            .await?;
+
+        Ok(())
+    }
+
+    async fn save_changes(&self, changes: Changes) -> Result<()> {
+        // Serialize calls to `save_changes`; there are multiple await points below, and
+        // we're pickling data as we go, so we don't want to invalidate data
+        // we've previously read and overwrite it in the store.
+        // TODO: #2000 should make this lock go away, or change its shape.
+        let _guard = self.save_changes_lock.lock().await;
 
         let pickled_private_identity =
             if let Some(i) = changes.private_identity { Some(i.pickle().await) } else { None };
@@ -647,20 +777,20 @@ impl CryptoStore for SqliteCryptoStore {
         self.acquire()
             .await?
             .with_transaction(move |txn| {
-                if let Some(pickled_account) = pickled_account {
-                    let serialized_account = this.serialize_value(&pickled_account)?;
-                    txn.set_kv("account", &serialized_account)?;
-                }
-
                 if let Some(pickled_private_identity) = &pickled_private_identity {
                     let serialized_private_identity =
                         this.serialize_value(pickled_private_identity)?;
                     txn.set_kv("identity", &serialized_private_identity)?;
                 }
 
-                if let Some(recovery_key) = &changes.recovery_key {
-                    let serialized_recovery_key = this.serialize_value(recovery_key)?;
-                    txn.set_kv("recovery_key_v1", &serialized_recovery_key)?;
+                if let Some(token) = &changes.next_batch_token {
+                    let serialized_token = this.serialize_value(token)?;
+                    txn.set_kv("next_batch_token", &serialized_token)?;
+                }
+
+                if let Some(decryption_key) = &changes.backup_decryption_key {
+                    let serialized_decryption_key = this.serialize_value(decryption_key)?;
+                    txn.set_kv("recovery_key_v1", &serialized_decryption_key)?;
                 }
 
                 if let Some(backup_version) = &changes.backup_version {
@@ -703,7 +833,7 @@ impl CryptoStore for SqliteCryptoStore {
                 }
 
                 for (room_id, pickle) in &outbound_session_changes {
-                    let serialized_session = this.serialize_value(&pickle)?;
+                    let serialized_session = this.serialize_json(&pickle)?;
                     txn.set_outbound_group_session(room_id, &serialized_session)?;
                 }
 
@@ -718,10 +848,25 @@ impl CryptoStore for SqliteCryptoStore {
                     txn.set_key_request(&request_id, request.sent_out, &serialized_request)?;
                 }
 
+                for (room_id, data) in changes.withheld_session_info {
+                    for (session_id, event) in data {
+                        let session_id = this.encode_key("direct_withheld_info", session_id);
+                        let room_id = this.encode_key("direct_withheld_info", &room_id);
+                        let serialized_info = this.serialize_json(&event)?;
+                        txn.set_direct_withheld(&session_id, &room_id, &serialized_info)?;
+                    }
+                }
+
                 for (room_id, settings) in changes.room_settings {
                     let room_id = this.encode_key("room_settings", room_id.as_bytes());
                     let value = this.serialize_value(&settings)?;
                     txn.set_room_settings(&room_id, &value)?;
+                }
+
+                for secret in changes.secrets {
+                    let secret_name = this.encode_key("secrets", secret.secret_name.to_string());
+                    let value = this.serialize_json(&secret)?;
+                    txn.set_secret(&secret_name, &value)?;
                 }
 
                 Ok::<_, Error>(())
@@ -732,7 +877,7 @@ impl CryptoStore for SqliteCryptoStore {
     }
 
     async fn get_sessions(&self, sender_key: &str) -> Result<Option<Arc<Mutex<Vec<Session>>>>> {
-        let account_info = self.get_account_info().ok_or(Error::AccountUnset)?;
+        let account_info = self.get_static_account().ok_or(Error::AccountUnset)?;
 
         if self.session_cache.get(sender_key).is_none() {
             let sessions = self
@@ -815,6 +960,22 @@ impl CryptoStore for SqliteCryptoStore {
             .collect()
     }
 
+    async fn mark_inbound_group_sessions_as_backed_up(
+        &self,
+        session_ids: &[(&RoomId, &str)],
+    ) -> Result<()> {
+        Ok(self
+            .acquire()
+            .await?
+            .mark_inbound_group_sessions_as_backed_up(
+                session_ids
+                    .iter()
+                    .map(|(_, s)| self.encode_key("inbound_group_session", s))
+                    .collect(),
+            )
+            .await?)
+    }
+
     async fn reset_backup_state(&self) -> Result<()> {
         Ok(self.acquire().await?.reset_inbound_group_session_backup_state().await?)
     }
@@ -828,13 +989,13 @@ impl CryptoStore for SqliteCryptoStore {
             .map(|value| self.deserialize_value(&value))
             .transpose()?;
 
-        let recovery_key = conn
+        let decryption_key = conn
             .get_kv("recovery_key_v1")
             .await?
             .map(|value| self.deserialize_value(&value))
             .transpose()?;
 
-        Ok(BackupKeys { backup_version, recovery_key })
+        Ok(BackupKeys { backup_version, decryption_key })
     }
 
     async fn get_outbound_group_session(
@@ -846,9 +1007,9 @@ impl CryptoStore for SqliteCryptoStore {
             return Ok(None);
         };
 
-        let account_info = self.get_account_info().ok_or(Error::AccountUnset)?;
+        let account_info = self.get_static_account().ok_or(Error::AccountUnset)?;
 
-        let pickle = self.deserialize_value(&value)?;
+        let pickle = self.deserialize_json(&value)?;
         let session = OutboundGroupSession::from_pickle(
             account_info.device_id,
             account_info.identity_keys,
@@ -981,6 +1142,45 @@ impl CryptoStore for SqliteCryptoStore {
         Ok(self.acquire().await?.delete_key_request(request_id).await?)
     }
 
+    async fn get_secrets_from_inbox(
+        &self,
+        secret_name: &SecretName,
+    ) -> Result<Vec<GossippedSecret>> {
+        let secret_name = self.encode_key("secrets", secret_name.to_string());
+
+        self.acquire()
+            .await?
+            .get_secrets_from_inbox(secret_name)
+            .await?
+            .into_iter()
+            .map(|value| self.deserialize_json(value.as_ref()))
+            .collect()
+    }
+
+    async fn delete_secrets_from_inbox(&self, secret_name: &SecretName) -> Result<()> {
+        let secret_name = self.encode_key("secrets", secret_name.to_string());
+        self.acquire().await?.delete_secrets_from_inbox(secret_name).await
+    }
+
+    async fn get_withheld_info(
+        &self,
+        room_id: &RoomId,
+        session_id: &str,
+    ) -> Result<Option<RoomKeyWithheldEvent>> {
+        let room_id = self.encode_key("direct_withheld_info", room_id);
+        let session_id = self.encode_key("direct_withheld_info", session_id);
+
+        self.acquire()
+            .await?
+            .get_direct_withheld_info(session_id, room_id)
+            .await?
+            .map(|value| {
+                let info = self.deserialize_json::<RoomKeyWithheldEvent>(&value)?;
+                Ok(info)
+            })
+            .transpose()
+    }
+
     async fn get_room_settings(&self, room_id: &RoomId) -> Result<Option<RoomSettings>> {
         let room_id = self.encode_key("room_settings", room_id.as_bytes());
         let Some(value) = self.acquire().await?.get_room_settings(room_id).await? else {
@@ -1017,11 +1217,64 @@ impl CryptoStore for SqliteCryptoStore {
         self.acquire().await?.set_kv(key, serialized).await?;
         Ok(())
     }
+
+    async fn remove_custom_value(&self, key: &str) -> Result<()> {
+        let key = key.to_owned();
+        self.acquire()
+            .await?
+            .interact(move |conn| conn.execute("DELETE FROM kv WHERE key = ?1", (&key,)))
+            .await
+            .unwrap()?;
+        Ok(())
+    }
+
+    async fn try_take_leased_lock(
+        &self,
+        lease_duration_ms: u32,
+        key: &str,
+        holder: &str,
+    ) -> Result<bool> {
+        let key = key.to_owned();
+        let holder = holder.to_owned();
+
+        let now_ts: u64 = MilliSecondsSinceUnixEpoch::now().get().into();
+        let expiration_ts = now_ts + lease_duration_ms as u64;
+
+        let num_touched = self
+            .acquire()
+            .await?
+            .with_transaction(move |txn| {
+                txn.execute(
+                    "INSERT INTO lease_locks (key, holder, expiration_ts)
+                    VALUES (?1, ?2, ?3)
+                    ON CONFLICT (key)
+                    DO
+                        UPDATE SET holder = ?2, expiration_ts = ?3
+                        WHERE holder = ?2
+                        OR expiration_ts < ?4
+                ",
+                    (key, holder, expiration_ts, now_ts),
+                )
+            })
+            .await?;
+
+        Ok(num_touched == 1)
+    }
+
+    async fn next_batch_token(&self) -> Result<Option<String>, Self::Error> {
+        let conn = self.acquire().await?;
+        if let Some(token) = conn.get_kv("next_batch_token").await? {
+            let maybe_token: Option<String> = self.deserialize_value(&token)?;
+            Ok(maybe_token)
+        } else {
+            Ok(None)
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use matrix_sdk_crypto::cryptostore_integration_tests;
+    use matrix_sdk_crypto::{cryptostore_integration_tests, cryptostore_integration_tests_time};
     use once_cell::sync::Lazy;
     use tempfile::{tempdir, TempDir};
 
@@ -1038,11 +1291,12 @@ mod tests {
     }
 
     cryptostore_integration_tests!();
+    cryptostore_integration_tests_time!();
 }
 
 #[cfg(test)]
 mod encrypted_tests {
-    use matrix_sdk_crypto::cryptostore_integration_tests;
+    use matrix_sdk_crypto::{cryptostore_integration_tests, cryptostore_integration_tests_time};
     use once_cell::sync::Lazy;
     use tempfile::{tempdir, TempDir};
 
@@ -1060,4 +1314,5 @@ mod encrypted_tests {
     }
 
     cryptostore_integration_tests!();
+    cryptostore_integration_tests_time!();
 }

@@ -15,16 +15,22 @@
 use std::{collections::HashMap, fmt, sync::Arc};
 
 use async_trait::async_trait;
-use matrix_sdk_common::{locks::Mutex, AsyncTraitDeps};
-use ruma::{DeviceId, OwnedDeviceId, RoomId, TransactionId, UserId};
+use matrix_sdk_common::AsyncTraitDeps;
+use ruma::{
+    events::secret::request::SecretName, DeviceId, OwnedDeviceId, RoomId, TransactionId, UserId,
+};
+use tokio::sync::Mutex;
 
-use super::{BackupKeys, Changes, CryptoStoreError, Result, RoomKeyCounts, RoomSettings};
+use super::{
+    BackupKeys, Changes, CryptoStoreError, PendingChanges, Result, RoomKeyCounts, RoomSettings,
+};
 use crate::{
     olm::{
         InboundGroupSession, OlmMessageHash, OutboundGroupSession, PrivateCrossSigningIdentity,
         Session,
     },
-    GossipRequest, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
+    types::events::room_key_withheld::RoomKeyWithheldEvent,
+    Account, GossipRequest, GossippedSecret, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
     TrackedUser,
 };
 
@@ -37,14 +43,7 @@ pub trait CryptoStore: AsyncTraitDeps {
     type Error: fmt::Debug + Into<CryptoStoreError>;
 
     /// Load an account that was previously stored.
-    async fn load_account(&self) -> Result<Option<ReadOnlyAccount>, Self::Error>;
-
-    /// Save the given account in the store.
-    ///
-    /// # Arguments
-    ///
-    /// * `account` - The account that should be stored.
-    async fn save_account(&self, account: ReadOnlyAccount) -> Result<(), Self::Error>;
+    async fn load_account(&self) -> Result<Option<Account>, Self::Error>;
 
     /// Try to load a private cross signing identity, if one is stored.
     async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>, Self::Error>;
@@ -55,6 +54,16 @@ pub trait CryptoStore: AsyncTraitDeps {
     ///
     /// * `changes` - The set of changes that should be stored.
     async fn save_changes(&self, changes: Changes) -> Result<(), Self::Error>;
+
+    /// Save the set of changes to the store.
+    ///
+    /// This is an updated version of `save_changes` that will replace it as
+    /// #2624 makes progress.
+    ///
+    /// # Arguments
+    ///
+    /// * `changes` - The set of changes that should be stored.
+    async fn save_pending_changes(&self, changes: PendingChanges) -> Result<(), Self::Error>;
 
     /// Get all the sessions that belong to the given sender key.
     ///
@@ -80,6 +89,17 @@ pub trait CryptoStore: AsyncTraitDeps {
         session_id: &str,
     ) -> Result<Option<InboundGroupSession>, Self::Error>;
 
+    /// Get withheld info for this key.
+    /// Allows to know if the session was not sent on purpose.
+    /// This only returns withheld info sent by the owner of the group session,
+    /// not the one you can get from a response to a key request from
+    /// another of your device.
+    async fn get_withheld_info(
+        &self,
+        room_id: &RoomId,
+        session_id: &str,
+    ) -> Result<Option<RoomKeyWithheldEvent>, Self::Error>;
+
     /// Get all the inbound group sessions we have stored.
     async fn get_inbound_group_sessions(&self) -> Result<Vec<InboundGroupSession>, Self::Error>;
 
@@ -92,6 +112,13 @@ pub trait CryptoStore: AsyncTraitDeps {
         &self,
         limit: usize,
     ) -> Result<Vec<InboundGroupSession>, Self::Error>;
+
+    /// Mark the inbound group sessions with the supplied room and session IDs
+    /// as backed up
+    async fn mark_inbound_group_sessions_as_backed_up(
+        &self,
+        room_and_session_ids: &[(&RoomId, &str)],
+    ) -> Result<(), Self::Error>;
 
     /// Reset the backup state of all the stored inbound group sessions.
     async fn reset_backup_state(&self) -> Result<(), Self::Error>;
@@ -187,6 +214,17 @@ pub trait CryptoStore: AsyncTraitDeps {
         request_id: &TransactionId,
     ) -> Result<(), Self::Error>;
 
+    /// Get all the secrets with the given [`SecretName`] we have currently
+    /// stored.
+    async fn get_secrets_from_inbox(
+        &self,
+        secret_name: &SecretName,
+    ) -> Result<Vec<GossippedSecret>, Self::Error>;
+
+    /// Delete all the secrets with the given [`SecretName`] we have currently
+    /// stored.
+    async fn delete_secrets_from_inbox(&self, secret_name: &SecretName) -> Result<(), Self::Error>;
+
     /// Get the room settings, such as the encryption algorithm or whether to
     /// encrypt only for trusted devices.
     ///
@@ -213,11 +251,40 @@ pub trait CryptoStore: AsyncTraitDeps {
     ///
     /// * `value` - The value to insert
     async fn set_custom_value(&self, key: &str, value: Vec<u8>) -> Result<(), Self::Error>;
+
+    /// Remove arbitrary data into the store
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The key to insert data into
+    async fn remove_custom_value(&self, key: &str) -> Result<(), Self::Error>;
+
+    /// Try to take a leased lock.
+    ///
+    /// This attempts to take a lock for the given lease duration.
+    ///
+    /// - If we already had the lease, this will extend the lease.
+    /// - If we didn't, but the previous lease has expired, we will acquire the
+    ///   lock.
+    /// - If there was no previous lease, we will acquire the lock.
+    /// - Otherwise, we don't get the lock.
+    ///
+    /// Returns whether taking the lock succeeded.
+    async fn try_take_leased_lock(
+        &self,
+        lease_duration_ms: u32,
+        key: &str,
+        holder: &str,
+    ) -> Result<bool, Self::Error>;
+
+    /// Load the next-batch token for a to-device query, if any.
+    async fn next_batch_token(&self) -> Result<Option<String>, Self::Error>;
 }
 
 #[repr(transparent)]
 struct EraseCryptoStoreError<T>(T);
 
+#[cfg(not(tarpaulin_include))]
 impl<T: fmt::Debug> fmt::Debug for EraseCryptoStoreError<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
@@ -229,12 +296,8 @@ impl<T: fmt::Debug> fmt::Debug for EraseCryptoStoreError<T> {
 impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
     type Error = CryptoStoreError;
 
-    async fn load_account(&self) -> Result<Option<ReadOnlyAccount>> {
+    async fn load_account(&self) -> Result<Option<Account>> {
         self.0.load_account().await.map_err(Into::into)
-    }
-
-    async fn save_account(&self, account: ReadOnlyAccount) -> Result<()> {
-        self.0.save_account(account).await.map_err(Into::into)
     }
 
     async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>> {
@@ -243,6 +306,10 @@ impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
 
     async fn save_changes(&self, changes: Changes) -> Result<()> {
         self.0.save_changes(changes).await.map_err(Into::into)
+    }
+
+    async fn save_pending_changes(&self, changes: PendingChanges) -> Result<()> {
+        self.0.save_pending_changes(changes).await.map_err(Into::into)
     }
 
     async fn get_sessions(&self, sender_key: &str) -> Result<Option<Arc<Mutex<Vec<Session>>>>> {
@@ -270,6 +337,16 @@ impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
         limit: usize,
     ) -> Result<Vec<InboundGroupSession>> {
         self.0.inbound_group_sessions_for_backup(limit).await.map_err(Into::into)
+    }
+
+    async fn mark_inbound_group_sessions_as_backed_up(
+        &self,
+        room_and_session_ids: &[(&RoomId, &str)],
+    ) -> Result<()> {
+        self.0
+            .mark_inbound_group_sessions_as_backed_up(room_and_session_ids)
+            .await
+            .map_err(Into::into)
     }
 
     async fn reset_backup_state(&self) -> Result<()> {
@@ -340,6 +417,25 @@ impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
         self.0.delete_outgoing_secret_requests(request_id).await.map_err(Into::into)
     }
 
+    async fn get_secrets_from_inbox(
+        &self,
+        secret_name: &SecretName,
+    ) -> Result<Vec<GossippedSecret>> {
+        self.0.get_secrets_from_inbox(secret_name).await.map_err(Into::into)
+    }
+
+    async fn delete_secrets_from_inbox(&self, secret_name: &SecretName) -> Result<()> {
+        self.0.delete_secrets_from_inbox(secret_name).await.map_err(Into::into)
+    }
+
+    async fn get_withheld_info(
+        &self,
+        room_id: &RoomId,
+        session_id: &str,
+    ) -> Result<Option<RoomKeyWithheldEvent>, Self::Error> {
+        self.0.get_withheld_info(room_id, session_id).await.map_err(Into::into)
+    }
+
     async fn get_room_settings(&self, room_id: &RoomId) -> Result<Option<RoomSettings>> {
         self.0.get_room_settings(room_id).await.map_err(Into::into)
     }
@@ -350,6 +446,23 @@ impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
 
     async fn set_custom_value(&self, key: &str, value: Vec<u8>) -> Result<(), Self::Error> {
         self.0.set_custom_value(key, value).await.map_err(Into::into)
+    }
+
+    async fn remove_custom_value(&self, key: &str) -> Result<(), Self::Error> {
+        self.0.remove_custom_value(key).await.map_err(Into::into)
+    }
+
+    async fn try_take_leased_lock(
+        &self,
+        lease_duration_ms: u32,
+        key: &str,
+        holder: &str,
+    ) -> Result<bool, Self::Error> {
+        self.0.try_take_leased_lock(lease_duration_ms, key, holder).await.map_err(Into::into)
+    }
+
+    async fn next_batch_token(&self) -> Result<Option<String>, Self::Error> {
+        self.0.next_batch_token().await.map_err(Into::into)
     }
 }
 

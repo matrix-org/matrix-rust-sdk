@@ -17,6 +17,7 @@ use std::{
     convert::{TryFrom, TryInto},
 };
 
+use as_variant::as_variant;
 use ruma::{
     events::{
         key::verification::{
@@ -72,10 +73,9 @@ impl AnyEvent<'_> {
     pub fn timestamp(&self) -> Option<MilliSecondsSinceUnixEpoch> {
         match self {
             AnyEvent::Room(e) => Some(e.origin_server_ts()),
-            AnyEvent::ToDevice(e) => match e {
-                ToDeviceEvents::KeyVerificationRequest(e) => Some(e.content.timestamp),
-                _ => None,
-            },
+            AnyEvent::ToDevice(e) => {
+                as_variant!(e, ToDeviceEvents::KeyVerificationRequest(e) => e.content.timestamp)
+            }
         }
     }
 
@@ -87,11 +87,8 @@ impl AnyEvent<'_> {
         match self {
             AnyEvent::Room(e) => match e {
                 AnyMessageLikeEvent::RoomMessage(MessageLikeEvent::Original(m)) => {
-                    if let MessageType::VerificationRequest(v) = &m.content.msgtype {
-                        Some(RequestContent::from(v).into())
-                    } else {
-                        None
-                    }
+                    as_variant!(&m.content.msgtype, MessageType::VerificationRequest)
+                        .map(|v| RequestContent::from(v).into())
                 }
                 AnyMessageLikeEvent::KeyVerificationReady(MessageLikeEvent::Original(e)) => {
                     Some(ReadyContent::from(&e.content).into())

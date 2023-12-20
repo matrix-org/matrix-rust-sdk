@@ -1,8 +1,18 @@
-use std::time::Duration;
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use assert_matches::assert_matches;
-use futures::{channel::mpsc, StreamExt};
-use matrix_sdk::{config::RequestConfig, executor::spawn, HttpError, RefreshTokenError, Session};
+use assert_matches2::assert_let;
+use futures_util::StreamExt;
+use matrix_sdk::{
+    config::RequestConfig,
+    executor::spawn,
+    matrix_auth::{MatrixSession, MatrixSessionTokens},
+    HttpError, RefreshTokenError, SessionChange,
+};
+use matrix_sdk_base::SessionMeta;
 use matrix_sdk_test::{async_test, test_json};
 use ruma::{
     api::{
@@ -12,6 +22,7 @@ use ruma::{
     assign, device_id, user_id,
 };
 use serde_json::json;
+use tokio::sync::{broadcast::error::TryRecvError, mpsc};
 use wiremock::{
     matchers::{body_partial_json, header, method, path},
     Mock, ResponseTemplate,
@@ -19,8 +30,21 @@ use wiremock::{
 
 use crate::{logged_in_client, no_retry_test_client, test_client_builder};
 
+fn session() -> MatrixSession {
+    MatrixSession {
+        meta: SessionMeta {
+            user_id: user_id!("@example:localhost").to_owned(),
+            device_id: device_id!("DEVICEID").to_owned(),
+        },
+        tokens: MatrixSessionTokens {
+            access_token: "1234".to_owned(),
+            refresh_token: Some("abcd".to_owned()),
+        },
+    }
+}
+
 #[async_test]
-async fn login_username_refresh_token() {
+async fn test_login_username_refresh_token() {
     let (client, server) = no_retry_test_client().await;
 
     Mock::given(method("POST"))
@@ -34,8 +58,13 @@ async fn login_username_refresh_token() {
         .mount(&server)
         .await;
 
-    let res =
-        client.login_username("example", "wordpass").request_refresh_token().send().await.unwrap();
+    let res = client
+        .matrix_auth()
+        .login_username("example", "wordpass")
+        .request_refresh_token()
+        .send()
+        .await
+        .unwrap();
 
     let logged_in = client.logged_in();
     assert!(logged_in, "Client should be logged in");
@@ -63,6 +92,7 @@ async fn login_sso_refresh_token() {
         "idp-name".to_owned(),
     );
     let res = client
+        .matrix_auth()
         .login_sso(|sso_url| async move {
             let sso_url = url::Url::parse(&sso_url).unwrap();
 
@@ -110,7 +140,7 @@ async fn register_refresh_token() {
         refresh_token: true,
     });
 
-    let res = client.register(req).await.unwrap();
+    let res = client.matrix_auth().register(req).await.unwrap();
 
     res.refresh_token.unwrap();
 }
@@ -128,11 +158,11 @@ async fn no_refresh_token() {
         .await;
 
     let res = client.refresh_access_token().await;
-    assert_matches!(res, Err(HttpError::RefreshToken(RefreshTokenError::RefreshTokenRequired)));
+    assert_matches!(res, Err(RefreshTokenError::RefreshTokenRequired));
 }
 
 #[async_test]
-async fn refresh_token() {
+async fn test_refresh_token() {
     let (builder, server) = test_client_builder().await;
     let client = builder
         .request_config(RequestConfig::new().disable_retry())
@@ -140,16 +170,31 @@ async fn refresh_token() {
         .build()
         .await
         .unwrap();
+    let auth = client.matrix_auth();
 
-    let session = Session {
-        access_token: "1234".to_owned(),
-        refresh_token: Some("abcd".to_owned()),
-        user_id: user_id!("@example:localhost").to_owned(),
-        device_id: device_id!("DEVICEID").to_owned(),
-    };
-    client.restore_session(session).await.unwrap();
+    let num_save_session_callback_calls = Arc::new(Mutex::new(0));
+    client
+        .set_session_callbacks(Box::new(|_| panic!("reload session never called")), {
+            let num_save_session_callback_calls = num_save_session_callback_calls.clone();
+            Box::new(move |_client| {
+                let num_save_session_callback_calls = num_save_session_callback_calls.clone();
+                Box::pin(async move {
+                    *num_save_session_callback_calls.lock().unwrap() += 1;
+                    Ok(())
+                })
+            })
+        })
+        .unwrap();
 
-    let tokens = client.session_tokens().unwrap();
+    let mut session_changes = client.subscribe_to_session_changes();
+
+    let session = session();
+    auth.restore_session(session).await.unwrap();
+
+    assert_eq!(*num_save_session_callback_calls.lock().unwrap(), 0);
+    assert_eq!(session_changes.try_recv(), Err(TryRecvError::Empty));
+
+    let tokens = auth.session_tokens().unwrap();
     assert_eq!(tokens.access_token, "1234");
     assert_eq!(tokens.refresh_token.as_deref(), Some("abcd"));
 
@@ -164,10 +209,12 @@ async fn refresh_token() {
         .mount(&server)
         .await;
 
-    client.refresh_access_token().await.unwrap().unwrap();
-    let tokens = client.session_tokens().unwrap();
+    auth.refresh_access_token().await.unwrap();
+    let tokens = auth.session_tokens().unwrap();
     assert_eq!(tokens.access_token, "5678");
     assert_eq!(tokens.refresh_token.as_deref(), Some("abcd"));
+    assert_eq!(*num_save_session_callback_calls.lock().unwrap(), 1);
+    assert_eq!(session_changes.try_recv(), Ok(SessionChange::TokensRefreshed));
 
     // Refresh token changes.
     Mock::given(method("POST"))
@@ -181,10 +228,14 @@ async fn refresh_token() {
         .mount(&server)
         .await;
 
-    client.refresh_access_token().await.unwrap().unwrap();
-    let tokens = client.session_tokens().unwrap();
+    auth.refresh_access_token().await.unwrap();
+    let tokens = auth.session_tokens().unwrap();
     assert_eq!(tokens.access_token, "9012");
     assert_eq!(tokens.refresh_token.as_deref(), Some("wxyz"));
+    assert_eq!(*num_save_session_callback_calls.lock().unwrap(), 2);
+    assert_eq!(session_changes.try_recv(), Ok(SessionChange::TokensRefreshed));
+
+    assert_eq!(session_changes.try_recv(), Err(TryRecvError::Empty));
 }
 
 #[async_test]
@@ -196,14 +247,10 @@ async fn refresh_token_not_handled() {
         .build()
         .await
         .unwrap();
+    let auth = client.matrix_auth();
 
-    let session = Session {
-        access_token: "1234".to_owned(),
-        refresh_token: Some("abcd".to_owned()),
-        user_id: user_id!("@example:localhost").to_owned(),
-        device_id: device_id!("DEVICEID").to_owned(),
-    };
-    client.restore_session(session).await.unwrap();
+    let session = session();
+    auth.restore_session(session).await.unwrap();
 
     Mock::given(method("POST"))
         .and(path("/_matrix/client/v3/refresh"))
@@ -235,23 +282,19 @@ async fn refresh_token_handled_success() {
         .build()
         .await
         .unwrap();
+    let auth = client.matrix_auth();
 
-    let session = Session {
-        access_token: "1234".to_owned(),
-        refresh_token: Some("abcd".to_owned()),
-        user_id: user_id!("@example:localhost").to_owned(),
-        device_id: device_id!("DEVICEID").to_owned(),
-    };
-    client.restore_session(session).await.unwrap();
+    let session = session();
+    auth.restore_session(session).await.unwrap();
 
-    let mut tokens_stream = client.session_tokens_stream();
+    let mut tokens_stream = auth.session_tokens_stream().unwrap();
     let tokens_join_handle = spawn(async move {
-        let tokens = tokens_stream.next().await.flatten().unwrap();
+        let tokens = tokens_stream.next().await.unwrap();
         assert_eq!(tokens.access_token, "5678");
         assert_eq!(tokens.refresh_token.as_deref(), Some("abcd"));
     });
 
-    let mut tokens_changed_stream = client.session_tokens_changed_stream();
+    let mut tokens_changed_stream = auth.session_tokens_changed_stream().unwrap();
     let changed_join_handle = spawn(async move {
         tokens_changed_stream.next().await.unwrap();
     });
@@ -299,14 +342,10 @@ async fn refresh_token_handled_failure() {
         .build()
         .await
         .unwrap();
+    let auth = client.matrix_auth();
 
-    let session = Session {
-        access_token: "1234".to_owned(),
-        refresh_token: Some("abcd".to_owned()),
-        user_id: user_id!("@example:localhost").to_owned(),
-        device_id: device_id!("DEVICEID").to_owned(),
-    };
-    client.restore_session(session).await.unwrap();
+    let session = session();
+    auth.restore_session(session).await.unwrap();
 
     Mock::given(method("POST"))
         .and(path("/_matrix/client/v3/refresh"))
@@ -338,8 +377,9 @@ async fn refresh_token_handled_failure() {
         .mount(&server)
         .await;
 
-    let res = client.whoami().await.unwrap_err();
-    assert_matches!(res.client_api_error_kind(), Some(ErrorKind::UnknownToken { .. }))
+    let res = client.whoami().await;
+    assert_let!(Err(HttpError::RefreshToken(RefreshTokenError::MatrixAuth(http_err))) = res);
+    assert_matches!(http_err.client_api_error_kind(), Some(ErrorKind::UnknownToken { .. }))
 }
 
 #[async_test]
@@ -352,14 +392,10 @@ async fn refresh_token_handled_multi_success() {
         .build()
         .await
         .unwrap();
+    let auth = client.matrix_auth();
 
-    let session = Session {
-        access_token: "1234".to_owned(),
-        refresh_token: Some("abcd".to_owned()),
-        user_id: user_id!("@example:localhost").to_owned(),
-        device_id: device_id!("DEVICEID").to_owned(),
-    };
-    client.restore_session(session).await.unwrap();
+    let session = session();
+    auth.restore_session(session).await.unwrap();
 
     Mock::given(method("POST"))
         .and(path("/_matrix/client/v3/refresh"))
@@ -393,15 +429,15 @@ async fn refresh_token_handled_multi_success() {
         .mount(&server)
         .await;
 
-    let (mut sender, mut receiver) = mpsc::channel::<()>(3);
+    let (sender, mut receiver) = mpsc::channel::<()>(3);
     let client_clone = client.clone();
-    let mut sender_clone = sender.clone();
+    let sender_clone = sender.clone();
     spawn(async move {
         client_clone.whoami().await.unwrap();
         sender_clone.try_send(()).unwrap();
     });
     let client_clone = client.clone();
-    let mut sender_clone = sender.clone();
+    let sender_clone = sender.clone();
     spawn(async move {
         client_clone.whoami().await.unwrap();
         sender_clone.try_send(()).unwrap();
@@ -413,7 +449,7 @@ async fn refresh_token_handled_multi_success() {
 
     let mut i = 0;
     while i < 3 {
-        if receiver.next().await.is_some() {
+        if receiver.recv().await.is_some() {
             i += 1;
         }
     }
@@ -429,14 +465,10 @@ async fn refresh_token_handled_multi_failure() {
         .build()
         .await
         .unwrap();
+    let auth = client.matrix_auth();
 
-    let session = Session {
-        access_token: "1234".to_owned(),
-        refresh_token: Some("abcd".to_owned()),
-        user_id: user_id!("@example:localhost").to_owned(),
-        device_id: device_id!("DEVICEID").to_owned(),
-    };
-    client.restore_session(session).await.unwrap();
+    let session = session();
+    auth.restore_session(session).await.unwrap();
 
     Mock::given(method("POST"))
         .and(path("/_matrix/client/v3/refresh"))
@@ -470,15 +502,15 @@ async fn refresh_token_handled_multi_failure() {
         .mount(&server)
         .await;
 
-    let (mut sender, mut receiver) = futures::channel::mpsc::channel::<()>(3);
+    let (sender, mut receiver) = mpsc::channel::<()>(3);
     let client_clone = client.clone();
-    let mut sender_clone = sender.clone();
+    let sender_clone = sender.clone();
     spawn(async move {
         client_clone.whoami().await.unwrap_err();
         sender_clone.try_send(()).unwrap();
     });
     let client_clone = client.clone();
-    let mut sender_clone = sender.clone();
+    let sender_clone = sender.clone();
     spawn(async move {
         client_clone.whoami().await.unwrap_err();
         sender_clone.try_send(()).unwrap();
@@ -490,7 +522,7 @@ async fn refresh_token_handled_multi_failure() {
 
     let mut i = 0;
     while i < 3 {
-        if receiver.next().await.is_some() {
+        if receiver.recv().await.is_some() {
             i += 1;
         }
     }
@@ -506,14 +538,10 @@ async fn refresh_token_handled_other_error() {
         .build()
         .await
         .unwrap();
+    let auth = client.matrix_auth();
 
-    let session = Session {
-        access_token: "1234".to_owned(),
-        refresh_token: Some("abcd".to_owned()),
-        user_id: user_id!("@example:localhost").to_owned(),
-        device_id: device_id!("DEVICEID").to_owned(),
-    };
-    client.restore_session(session).await.unwrap();
+    let session = session();
+    auth.restore_session(session).await.unwrap();
 
     Mock::given(method("POST"))
         .and(path("/_matrix/client/v3/refresh"))

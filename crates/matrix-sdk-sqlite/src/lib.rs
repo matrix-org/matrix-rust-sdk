@@ -11,19 +11,29 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#![cfg_attr(not(feature = "crypto-store"), allow(dead_code, unused_imports))]
+#![cfg_attr(
+    not(any(feature = "state-store", feature = "crypto-store")),
+    allow(dead_code, unused_imports)
+)]
+
+use std::path::Path;
 
 use deadpool_sqlite::Object as SqliteConn;
+use matrix_sdk_base::store::StoreConfig;
 use matrix_sdk_store_encryption::StoreCipher;
 
 #[cfg(feature = "crypto-store")]
 mod crypto_store;
 mod error;
+#[cfg(feature = "state-store")]
+mod state_store;
 mod utils;
 
 #[cfg(feature = "crypto-store")]
 pub use self::crypto_store::SqliteCryptoStore;
 pub use self::error::OpenStoreError;
+#[cfg(feature = "state-store")]
+pub use self::state_store::SqliteStateStore;
 use self::utils::SqliteObjectStoreExt;
 
 async fn get_or_create_store_cipher(
@@ -48,11 +58,27 @@ async fn get_or_create_store_cipher(
 }
 
 #[cfg(test)]
-#[ctor::ctor]
-fn init_logging() {
-    use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-    tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::from_default_env())
-        .with(tracing_subscriber::fmt::layer().with_test_writer())
-        .init();
+matrix_sdk_test::init_tracing_for_tests!();
+
+/// Create a [`StoreConfig`] with an opened [`SqliteStateStore`] in the given
+/// directory and using the given passphrase. If the `crypto-store` feature is
+/// enabled, a [`SqliteCryptoStore`] with the same parameters is also opened.
+#[cfg(feature = "state-store")]
+pub async fn make_store_config(
+    path: &Path,
+    passphrase: Option<&str>,
+) -> Result<StoreConfig, OpenStoreError> {
+    let state_store = SqliteStateStore::open(path, passphrase).await?;
+    let config = StoreConfig::new().state_store(state_store);
+
+    #[cfg(feature = "crypto-store")]
+    {
+        let crypto_store = SqliteCryptoStore::open(path, passphrase).await?;
+        Ok(config.crypto_store(crypto_store))
+    }
+
+    #[cfg(not(feature = "crypto-store"))]
+    {
+        Ok(config)
+    }
 }

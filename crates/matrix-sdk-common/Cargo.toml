@@ -16,24 +16,32 @@ default-target = "x86_64-unknown-linux-gnu"
 targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
 
 [features]
-js = ["instant/wasm-bindgen", "instant/inaccurate", "wasm-bindgen-futures"]
+js = ["instant/wasm-bindgen", "wasm-bindgen-futures"]
 
 [dependencies]
-futures-core = "0.3.21"
+async-trait = { workspace = true }
+futures-core = { workspace = true }
 instant = "0.1.12"
 ruma = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true, features = ["rt", "time"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-async-lock = "2.5.0"
 futures-util = { workspace = true, features = ["channel"] }
 wasm-bindgen-futures = { version = "0.4.33", optional = true }
-gloo-timers = { version = "0.2.6", features = ["futures"] }
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-tokio = { version = "1.24.2", default-features = false, features = ["rt", "sync", "time"] }
+gloo-timers = { version = "0.3.0", features = ["futures"] }
+web-sys = {version = "0.3.60", features = ["console"] }
+tracing-subscriber = { version = "0.3.14", default-features = false, features = ["fmt", "ansi"] }
+wasm-bindgen = "0.2.84"
 
 [dev-dependencies]
+assert_matches = { workspace = true }
+proptest = { version = "1.4.0", default-features = false, features = ["std"] }
 matrix-sdk-test = { path = "../../testing/matrix-sdk-test/", version= "0.6.0"}
 wasm-bindgen-test = "0.3.33"
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+js-sys = "0.3.64"

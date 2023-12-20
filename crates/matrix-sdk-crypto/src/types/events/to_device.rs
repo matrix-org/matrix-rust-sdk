@@ -41,6 +41,7 @@ use super::{
     room::encrypted::EncryptedToDeviceEvent,
     room_key::RoomKeyEvent,
     room_key_request::RoomKeyRequestEvent,
+    room_key_withheld::RoomKeyWithheldEvent,
     secret_send::SecretSendEvent,
     EventType,
 };
@@ -83,6 +84,8 @@ pub enum ToDeviceEvents {
     SecretSend(SecretSendEvent),
     /// The `m.secret.request` to-device event.
     SecretRequest(ToDeviceSecretRequestEvent),
+    /// The `m.room_key.withheld`  to-device event.
+    RoomKeyWithheld(RoomKeyWithheldEvent),
 }
 
 impl ToDeviceEvents {
@@ -108,6 +111,7 @@ impl ToDeviceEvents {
 
             ToDeviceEvents::SecretSend(e) => &e.sender,
             ToDeviceEvents::SecretRequest(e) => &e.sender,
+            ToDeviceEvents::RoomKeyWithheld(e) => &e.sender,
         }
     }
 
@@ -133,6 +137,10 @@ impl ToDeviceEvents {
 
             ToDeviceEvents::SecretSend(_) => ToDeviceEventType::SecretSend,
             ToDeviceEvents::SecretRequest(e) => e.content.event_type(),
+            // Todo add withheld type to ruma
+            ToDeviceEvents::RoomKeyWithheld(e) => {
+                ToDeviceEventType::from(e.content.event_type().to_owned())
+            }
         }
     }
 
@@ -179,6 +187,7 @@ impl ToDeviceEvents {
             | ToDeviceEvents::KeyVerificationRequest(_)
             | ToDeviceEvents::RoomEncrypted(_)
             | ToDeviceEvents::RoomKeyRequest(_)
+            | ToDeviceEvents::RoomKeyWithheld(_)
             | ToDeviceEvents::SecretRequest(_) => Raw::from_json(to_raw_value(&self)?),
             ToDeviceEvents::RoomKey(e) => {
                 let event_type = e.content.event_type();
@@ -210,9 +219,10 @@ impl ToDeviceEvents {
             }
             ToDeviceEvents::SecretSend(mut e) => {
                 if let Some(SecretName::RecoveryKey) = e.content.secret_name {
-                    // We don't zeroize the recovery key since it requires
-                    // additional requests and possibly user-interaction to be
-                    // verified. We let the user deal with this.
+                    // We don't zeroize the backup decryption key since it
+                    // requires additional requests and possibly
+                    // user-interaction to be verified. We let the user deal
+                    // with this.
                 } else {
                     e.content.secret.zeroize();
                 }
@@ -354,6 +364,7 @@ impl<'de> Deserialize<'de> for ToDeviceEvents {
             "m.room_key" => ToDeviceEvents::RoomKey(from_str(json)?),
             "m.forwarded_room_key" => ToDeviceEvents::ForwardedRoomKey(from_str(json)?),
             "m.room_key_request" => ToDeviceEvents::RoomKeyRequest(from_str(json)?),
+            "m.room_key.withheld" => ToDeviceEvents::RoomKeyWithheld(from_str(json)?),
 
             "m.secret.send" => ToDeviceEvents::SecretSend(from_str(json)?),
             "m.secret.request" => ToDeviceEvents::SecretRequest(from_str(json)?),
@@ -388,12 +399,13 @@ impl Serialize for ToDeviceEvents {
 
             ToDeviceEvents::SecretSend(e) => e.serialize(serializer),
             ToDeviceEvents::SecretRequest(e) => e.serialize(serializer),
+            ToDeviceEvents::RoomKeyWithheld(e) => e.serialize(serializer),
         }
     }
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use assert_matches::assert_matches;
     use serde_json::{json, Value};
 
@@ -450,19 +462,19 @@ mod test {
         json!({
             "sender": "@alice:example.org",
             "content": {
-            "algorithm": "m.megolm.v1.aes-sha2",
-            "forwarding_curve25519_key_chain": [
-                "hPQNcabIABgGnx3/ACv/jmMmiQHoeFfuLB17tzWp6Hw"
-            ],
-            "room_id": "!Cuyf34gef24t:localhost",
-            "sender_claimed_ed25519_key": "aj40p+aw64yPIdsxoog8jhPu9i7l7NcFRecuOQblE3Y",
-            "sender_key": "RF3s+E7RkTQTGF2d8Deol0FkQvgII2aJDf3/Jp5mxVU",
-            "session_id": "X3lUlvLELLYxeTx4yOVu6UDpasGEVO0Jbu+QFnm0cKQ",
-            "session_key": "AQAAAAq2JpkMceK5f6JrZPJWwzQTn59zliuIv0F7apVLXDcZCCT\
-                            3LqBjD21sULYEO5YTKdpMVhi9i6ZSZhdvZvp//tzRpDT7wpWVWI\
-                            00Y3EPEjmpm/HfZ4MMAKpk+tzJVuuvfAcHBZgpnxBGzYOc/DAqa\
-                            pK7Tk3t3QJ1UMSD94HfAqlb1JF5QBPwoh0fOvD8pJdanB8zxz05\
-                            tKFdR73/vo2Q/zE3"
+                "algorithm": "m.megolm.v1.aes-sha2",
+                "forwarding_curve25519_key_chain": [
+                    "hPQNcabIABgGnx3/ACv/jmMmiQHoeFfuLB17tzWp6Hw"
+                ],
+                "room_id": "!Cuyf34gef24t:localhost",
+                "sender_claimed_ed25519_key": "aj40p+aw64yPIdsxoog8jhPu9i7l7NcFRecuOQblE3Y",
+                "sender_key": "RF3s+E7RkTQTGF2d8Deol0FkQvgII2aJDf3/Jp5mxVU",
+                "session_id": "X3lUlvLELLYxeTx4yOVu6UDpasGEVO0Jbu+QFnm0cKQ",
+                "session_key": "AQAAAAq2JpkMceK5f6JrZPJWwzQTn59zliuIv0F7apVLXDcZCCT\
+                                3LqBjD21sULYEO5YTKdpMVhi9i6ZSZhdvZvp//tzRpDT7wpWVWI\
+                                00Y3EPEjmpm/HfZ4MMAKpk+tzJVuuvfAcHBZgpnxBGzYOc/DAqa\
+                                pK7Tk3t3QJ1UMSD94HfAqlb1JF5QBPwoh0fOvD8pJdanB8zxz05\
+                                tKFdR73/vo2Q/zE3"
             },
             "type": "m.forwarded_room_key"
         })
@@ -503,7 +515,7 @@ mod test {
 
         assert_serialization_roundtrip!(
             // `m.room_key
-            crate::types::events::room_key::test::json => RoomKey,
+            crate::types::events::room_key::tests::json => RoomKey,
 
             // `m.forwarded_room_key`
             forwarded_room_key_event => ForwardedRoomKey,
@@ -512,7 +524,7 @@ mod test {
             room_key_request_event => RoomKeyRequest,
 
             // `m.secret.send`
-            crate::types::events::secret_send::test::json => SecretSend,
+            crate::types::events::secret_send::tests::json => SecretSend,
 
             // `m.secret.request`
             secret_request_event => SecretRequest,
@@ -527,7 +539,7 @@ mod test {
             dummy_event => Dummy,
 
             // `m.room.encrypted`
-            crate::types::events::room::encrypted::test::to_device_json => RoomEncrypted,
+            crate::types::events::room::encrypted::tests::to_device_json => RoomEncrypted,
         );
 
         Ok(())
@@ -553,7 +565,7 @@ mod test {
 
         assert_serialization_roundtrip!(
             // `m.room_key
-            crate::types::events::room_key::test::json => RoomKey,
+            crate::types::events::room_key::tests::json => RoomKey,
 
             // `m.forwarded_room_key`
             forwarded_room_key_event => ForwardedRoomKey,
@@ -562,7 +574,7 @@ mod test {
             room_key_request_event => RoomKeyRequest,
 
             // `m.secret.send`
-            crate::types::events::secret_send::test::json => SecretSend,
+            crate::types::events::secret_send::tests::json => SecretSend,
 
             // `m.secret.request`
             secret_request_event => SecretRequest,
@@ -574,7 +586,7 @@ mod test {
             dummy_event => Dummy,
 
             // `m.room.encrypted`
-            crate::types::events::room::encrypted::test::to_device_json => RoomEncrypted,
+            crate::types::events::room::encrypted::tests::to_device_json => RoomEncrypted,
         );
 
         Ok(())

@@ -5,12 +5,12 @@ use std::{
 
 use matrix_sdk::{
     config::SyncSettings,
-    room::Room,
+    matrix_auth::MatrixSession,
     ruma::{
         api::client::filter::FilterDefinition,
         events::room::message::{MessageType, OriginalSyncRoomMessageEvent},
     },
-    Client, Error, LoopCtrl, Session,
+    Client, Error, LoopCtrl, Room, RoomState,
 };
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use serde::{Deserialize, Serialize};
@@ -36,7 +36,7 @@ struct FullSession {
     client_session: ClientSession,
 
     /// The Matrix user session.
-    user_session: Session,
+    user_session: MatrixSession,
 
     /// The latest sync token.
     ///
@@ -92,11 +92,11 @@ async fn restore_session(session_file: &Path) -> anyhow::Result<(Client, Option<
     // Build the client with the previous settings from the session.
     let client = Client::builder()
         .homeserver_url(client_session.homeserver)
-        .sled_store(client_session.db_path, Some(&client_session.passphrase))
+        .sqlite_store(client_session.db_path, Some(&client_session.passphrase))
         .build()
         .await?;
 
-    println!("Restoring session for {}…", user_session.user_id);
+    println!("Restoring session for {}…", user_session.meta.user_id);
 
     // Restore the Matrix user session.
     client.restore_session(user_session).await?;
@@ -109,6 +109,7 @@ async fn login(data_dir: &Path, session_file: &Path) -> anyhow::Result<Client> {
     println!("No previous session found, logging in…");
 
     let (client, client_session) = build_client(data_dir).await?;
+    let matrix_auth = client.matrix_auth();
 
     loop {
         print!("\nUsername: ");
@@ -123,7 +124,7 @@ async fn login(data_dir: &Path, session_file: &Path) -> anyhow::Result<Client> {
         io::stdin().read_line(&mut password).expect("Unable to read user input");
         password = password.trim().to_owned();
 
-        match client
+        match matrix_auth
             .login_username(&username, &password)
             .initial_device_display_name("persist-session client")
             .await
@@ -143,7 +144,7 @@ async fn login(data_dir: &Path, session_file: &Path) -> anyhow::Result<Client> {
     // This is not very secure, for simplicity. If the system provides a way of
     // storing secrets securely, it should be used instead.
     // Note that we could also build the user session from the login response.
-    let user_session = client.session().expect("A logged-in client should have a session");
+    let user_session = matrix_auth.session().expect("A logged-in client should have a session");
     let serialized_session =
         serde_json::to_string(&FullSession { client_session, user_session, sync_token: None })?;
     fs::write(session_file, serialized_session).await?;
@@ -165,7 +166,7 @@ async fn build_client(data_dir: &Path) -> anyhow::Result<(Client, ClientSession)
 
     // Generating a subfolder for the database is not mandatory, but it is useful if
     // you allow several clients to run at the same time. Each one must have a
-    // separate database, which is a different folder with the sled store.
+    // separate database, which is a different folder with the SQLite store.
     let db_subfolder: String =
         (&mut rng).sample_iter(Alphanumeric).take(7).map(char::from).collect();
     let db_path = data_dir.join(db_subfolder);
@@ -186,10 +187,10 @@ async fn build_client(data_dir: &Path) -> anyhow::Result<(Client, ClientSession)
 
         match Client::builder()
             .homeserver_url(&homeserver)
-            // We use the sled store, which is enabled by default. This is the crucial part to
+            // We use the SQLite store, which is enabled by default. This is the crucial part to
             // persist the encryption setup.
-            // Note that other store backends are available and you an even implement your own.
-            .sled_store(&db_path, Some(&passphrase))
+            // Note that other store backends are available and you can even implement your own.
+            .sqlite_store(&db_path, Some(&passphrase))
             .build()
             .await
         {
@@ -291,7 +292,9 @@ async fn persist_sync_token(session_file: &Path, sync_token: String) -> anyhow::
 /// Handle room messages.
 async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
     // We only want to log text messages in joined rooms.
-    let Room::Joined(room) = room else { return };
+    if room.state() != RoomState::Joined {
+        return;
+    }
     let MessageType::Text(text_content) = &event.content.msgtype else { return };
 
     let room_name = match room.display_name().await {

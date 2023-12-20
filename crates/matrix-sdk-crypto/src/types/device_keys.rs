@@ -84,7 +84,7 @@ impl DeviceKeys {
 
     /// Serialize the device keys key into a Raw version.
     pub fn to_raw<T>(&self) -> Raw<T> {
-        Raw::from_json(to_raw_value(&self).expect("Coulnd't serialize device keys"))
+        Raw::from_json(to_raw_value(&self).expect("Couldn't serialize device keys"))
     }
 
     /// Get the key of the given key algorithm belonging to this device.

@@ -1,136 +1,113 @@
 use std::{
     collections::BTreeMap,
     fmt::Debug,
-    sync::{Mutex, RwLock as StdRwLock},
+    sync::{Arc, RwLock as StdRwLock},
+    time::Duration,
 };
 
-use eyeball::unique::Observable;
+use matrix_sdk_common::{ring_buffer::RingBuffer, timer};
 use ruma::{
     api::client::sync::sync_events::v4::{
         self, AccountDataConfig, E2EEConfig, ExtensionsConfig, ReceiptsConfig, ToDeviceConfig,
         TypingConfig,
     },
-    assign, OwnedRoomId,
+    OwnedRoomId,
 };
-use tracing::trace;
+use tokio::sync::{broadcast::channel, Mutex as AsyncMutex, RwLock as AsyncRwLock};
 use url::Url;
 
 use super::{
-    Error, FrozenSlidingSync, FrozenSlidingSyncList, SlidingSync, SlidingSyncInner,
-    SlidingSyncList, SlidingSyncListBuilder, SlidingSyncPositionMarkers, SlidingSyncRoom,
+    cache::{format_storage_key_prefix, restore_sliding_sync_state},
+    sticky_parameters::SlidingSyncStickyManager,
+    Error, SlidingSync, SlidingSyncInner, SlidingSyncListBuilder, SlidingSyncPositionMarkers,
+    SlidingSyncRoom,
 };
-use crate::{Client, Result};
+use crate::{sliding_sync::SlidingSyncStickyParameters, Client, Result};
 
 /// Configuration for a Sliding Sync instance.
 ///
 /// Get a new builder with methods like [`crate::Client::sliding_sync`], or
 /// [`crate::SlidingSync::builder`].
-#[derive(Clone, Debug)]
+#[derive(Debug, Clone)]
 pub struct SlidingSyncBuilder {
-    storage_key: Option<String>,
-    homeserver: Option<Url>,
-    client: Option<Client>,
-    lists: BTreeMap<String, SlidingSyncList>,
+    id: String,
+    storage_key: String,
+    sliding_sync_proxy: Option<Url>,
+    client: Client,
+    lists: Vec<SlidingSyncListBuilder>,
     extensions: Option<ExtensionsConfig>,
     subscriptions: BTreeMap<OwnedRoomId, v4::RoomSubscription>,
+    rooms: BTreeMap<OwnedRoomId, SlidingSyncRoom>,
+    poll_timeout: Duration,
+    network_timeout: Duration,
+    #[cfg(feature = "e2e-encryption")]
+    share_pos: bool,
 }
 
 impl SlidingSyncBuilder {
-    pub(super) fn new() -> Self {
-        Self {
-            storage_key: None,
-            homeserver: None,
-            client: None,
-            lists: BTreeMap::new(),
-            extensions: None,
-            subscriptions: BTreeMap::new(),
+    pub(super) fn new(id: String, client: Client) -> Result<Self, Error> {
+        if id.len() > 16 {
+            Err(Error::InvalidSlidingSyncIdentifier)
+        } else {
+            let storage_key = format_storage_key_prefix(
+                &id,
+                client.user_id().ok_or(super::Error::UnauthenticatedUser)?,
+            );
+            Ok(Self {
+                id,
+                storage_key,
+                sliding_sync_proxy: None,
+                client,
+                lists: Vec::new(),
+                extensions: None,
+                subscriptions: BTreeMap::new(),
+                rooms: BTreeMap::new(),
+                poll_timeout: Duration::from_secs(30),
+                network_timeout: Duration::from_secs(30),
+                #[cfg(feature = "e2e-encryption")]
+                share_pos: false,
+            })
         }
     }
 
-    /// Set the storage key to keep this cache at and load it from.
-    pub fn storage_key(mut self, value: Option<String>) -> Self {
-        self.storage_key = value;
-        self
-    }
-
-    /// Set the homeserver for sliding sync only.
-    pub fn homeserver(mut self, value: Url) -> Self {
-        self.homeserver = Some(value);
-        self
-    }
-
-    /// Set the client this sliding sync will be using.
-    pub fn client(mut self, value: Client) -> Self {
-        self.client = Some(value);
-        self
-    }
-
-    pub(super) fn subscriptions(
-        mut self,
-        value: BTreeMap<OwnedRoomId, v4::RoomSubscription>,
-    ) -> Self {
-        self.subscriptions = value;
-        self
-    }
-
-    /// Convenience function to add a full-sync list to the builder
-    pub fn add_fullsync_list(self) -> Self {
-        self.add_list(
-            SlidingSyncListBuilder::default_with_fullsync()
-                .build()
-                .expect("Building default full sync list doesn't fail"),
-        )
-    }
-
-    /// The cold cache key to read from and store the frozen state at
-    pub fn cold_cache<T: ToString>(mut self, name: T) -> Self {
-        self.storage_key = Some(name.to_string());
-        self
-    }
-
-    /// Do not use the cold cache
-    pub fn no_cold_cache(mut self) -> Self {
-        self.storage_key = None;
-        self
-    }
-
-    /// Reset the lists to `None`
-    pub fn no_lists(mut self) -> Self {
-        self.lists.clear();
+    /// Set the sliding sync proxy URL.
+    ///
+    /// Note you might not need that in general, since the client uses the
+    /// `.well-known` endpoint to automatically find the sliding sync proxy
+    /// URL. This method should only be called if the proxy is at a
+    /// different URL than the one publicized in the `.well-known` endpoint.
+    pub fn sliding_sync_proxy(mut self, value: Url) -> Self {
+        self.sliding_sync_proxy = Some(value);
         self
     }
 
     /// Add the given list to the lists.
     ///
-    /// Replace any list with the name.
-    pub fn add_list(mut self, list: SlidingSyncList) -> Self {
-        self.lists.insert(list.name().to_owned(), list);
-
+    /// Replace any list with the same name.
+    pub fn add_list(mut self, list_builder: SlidingSyncListBuilder) -> Self {
+        self.lists.push(list_builder);
         self
     }
 
-    /// Activate e2ee, to-device-message and account data extensions if not yet
-    /// configured.
+    /// Enroll the list in caching, reloads it from the cache if possible, and
+    /// adds it to the list of lists.
     ///
-    /// Will leave any extension configuration found untouched, so the order
-    /// does not matter.
-    pub fn with_common_extensions(mut self) -> Self {
-        {
-            let mut cfg = self.extensions.get_or_insert_with(Default::default);
-            if cfg.to_device.is_none() {
-                cfg.to_device = Some(assign!(ToDeviceConfig::default(), { enabled: Some(true) }));
-            }
+    /// This will raise an error if there was a I/O error reading from the
+    /// cache.
+    ///
+    /// Replace any list with the same name.
+    pub async fn add_cached_list(mut self, mut list: SlidingSyncListBuilder) -> Result<Self> {
+        let _timer = timer!(format!("restoring (loading+processing) list {}", list.name));
 
-            if cfg.e2ee.is_none() {
-                cfg.e2ee = Some(assign!(E2EEConfig::default(), { enabled: Some(true) }));
-            }
+        let reloaded_rooms = list.set_cached_and_reload(&self.client, &self.storage_key).await?;
 
-            if cfg.account_data.is_none() {
-                cfg.account_data =
-                    Some(assign!(AccountDataConfig::default(), { enabled: Some(true) }));
-            }
+        for (key, frozen) in reloaded_rooms {
+            self.rooms
+                .entry(key)
+                .or_insert_with(|| SlidingSyncRoom::from_frozen(frozen, self.client.clone()));
         }
-        self
+
+        Ok(self.add_list(list))
     }
 
     /// Activate e2ee, to-device-message, account data, typing and receipt
@@ -140,26 +117,25 @@ impl SlidingSyncBuilder {
     /// does not matter.
     pub fn with_all_extensions(mut self) -> Self {
         {
-            let mut cfg = self.extensions.get_or_insert_with(Default::default);
-            if cfg.to_device.is_none() {
-                cfg.to_device = Some(assign!(ToDeviceConfig::default(), { enabled: Some(true) }));
+            let cfg = self.extensions.get_or_insert_with(Default::default);
+            if cfg.to_device.enabled.is_none() {
+                cfg.to_device.enabled = Some(true);
             }
 
-            if cfg.e2ee.is_none() {
-                cfg.e2ee = Some(assign!(E2EEConfig::default(), { enabled: Some(true) }));
+            if cfg.e2ee.enabled.is_none() {
+                cfg.e2ee.enabled = Some(true);
             }
 
-            if cfg.account_data.is_none() {
-                cfg.account_data =
-                    Some(assign!(AccountDataConfig::default(), { enabled: Some(true) }));
+            if cfg.account_data.enabled.is_none() {
+                cfg.account_data.enabled = Some(true);
             }
 
-            if cfg.receipts.is_none() {
-                cfg.receipts = Some(assign!(ReceiptsConfig::default(), { enabled: Some(true) }));
+            if cfg.receipts.enabled.is_none() {
+                cfg.receipts.enabled = Some(true);
             }
 
-            if cfg.typing.is_none() {
-                cfg.typing = Some(assign!(TypingConfig::default(), { enabled: Some(true) }));
+            if cfg.typing.enabled.is_none() {
+                cfg.typing.enabled = Some(true);
             }
         }
         self
@@ -167,61 +143,100 @@ impl SlidingSyncBuilder {
 
     /// Set the E2EE extension configuration.
     pub fn with_e2ee_extension(mut self, e2ee: E2EEConfig) -> Self {
-        self.extensions.get_or_insert_with(Default::default).e2ee = Some(e2ee);
+        self.extensions.get_or_insert_with(Default::default).e2ee = e2ee;
         self
     }
 
     /// Unset the E2EE extension configuration.
     pub fn without_e2ee_extension(mut self) -> Self {
-        self.extensions.get_or_insert_with(Default::default).e2ee = None;
+        self.extensions.get_or_insert_with(Default::default).e2ee = E2EEConfig::default();
         self
     }
 
     /// Set the ToDevice extension configuration.
     pub fn with_to_device_extension(mut self, to_device: ToDeviceConfig) -> Self {
-        self.extensions.get_or_insert_with(Default::default).to_device = Some(to_device);
+        self.extensions.get_or_insert_with(Default::default).to_device = to_device;
         self
     }
 
     /// Unset the ToDevice extension configuration.
     pub fn without_to_device_extension(mut self) -> Self {
-        self.extensions.get_or_insert_with(Default::default).to_device = None;
+        self.extensions.get_or_insert_with(Default::default).to_device = ToDeviceConfig::default();
         self
     }
 
     /// Set the account data extension configuration.
     pub fn with_account_data_extension(mut self, account_data: AccountDataConfig) -> Self {
-        self.extensions.get_or_insert_with(Default::default).account_data = Some(account_data);
+        self.extensions.get_or_insert_with(Default::default).account_data = account_data;
         self
     }
 
     /// Unset the account data extension configuration.
     pub fn without_account_data_extension(mut self) -> Self {
-        self.extensions.get_or_insert_with(Default::default).account_data = None;
+        self.extensions.get_or_insert_with(Default::default).account_data =
+            AccountDataConfig::default();
         self
     }
 
     /// Set the Typing extension configuration.
     pub fn with_typing_extension(mut self, typing: TypingConfig) -> Self {
-        self.extensions.get_or_insert_with(Default::default).typing = Some(typing);
+        self.extensions.get_or_insert_with(Default::default).typing = typing;
         self
     }
 
     /// Unset the Typing extension configuration.
     pub fn without_typing_extension(mut self) -> Self {
-        self.extensions.get_or_insert_with(Default::default).typing = None;
+        self.extensions.get_or_insert_with(Default::default).typing = TypingConfig::default();
         self
     }
 
     /// Set the Receipt extension configuration.
     pub fn with_receipt_extension(mut self, receipt: ReceiptsConfig) -> Self {
-        self.extensions.get_or_insert_with(Default::default).receipts = Some(receipt);
+        self.extensions.get_or_insert_with(Default::default).receipts = receipt;
         self
     }
 
     /// Unset the Receipt extension configuration.
     pub fn without_receipt_extension(mut self) -> Self {
-        self.extensions.get_or_insert_with(Default::default).receipts = None;
+        self.extensions.get_or_insert_with(Default::default).receipts = ReceiptsConfig::default();
+        self
+    }
+
+    /// Sets a custom timeout duration for the sliding sync polling endpoint.
+    ///
+    /// This is the maximum time to wait before the sliding sync server returns
+    /// the long-polling request. If no events (or other data) become
+    /// available before this time elapses, the server will a return a
+    /// response with empty fields.
+    ///
+    /// There's an additional network timeout on top of that that can be
+    /// configured with [`Self::network_timeout`].
+    pub fn poll_timeout(mut self, timeout: Duration) -> Self {
+        self.poll_timeout = timeout;
+        self
+    }
+
+    /// Sets a custom network timeout for the sliding sync polling.
+    ///
+    /// This is not the polling timeout that can be configured with
+    /// [`Self::poll_timeout`], but an additional timeout that will be
+    /// added to the former.
+    pub fn network_timeout(mut self, timeout: Duration) -> Self {
+        self.network_timeout = timeout;
+        self
+    }
+
+    /// Should the sliding sync instance share its sync position through
+    /// storage?
+    ///
+    /// In general, sliding sync instances will cache the sync position (`pos`
+    /// field in the request) in internal memory. It can be useful, in
+    /// multi-process scenarios, to save it into some shared storage so that one
+    /// sliding sync instance running across two different processes can
+    /// continue with the same sync position it had before being stopped.
+    #[cfg(feature = "e2e-encryption")]
+    pub fn share_pos(mut self) -> Self {
+        self.share_pos = true;
         self
     }
 
@@ -229,86 +244,72 @@ impl SlidingSyncBuilder {
     ///
     /// If `self.storage_key` is `Some(_)`, load the cached data from cold
     /// storage.
-    pub async fn build(mut self) -> Result<SlidingSync> {
-        let client = self.client.ok_or(Error::BuildMissingField("client"))?;
+    pub async fn build(self) -> Result<SlidingSync> {
+        let client = self.client;
 
-        let mut delta_token = None;
-        let mut rooms_found: BTreeMap<OwnedRoomId, SlidingSyncRoom> = BTreeMap::new();
+        let (internal_channel_sender, _internal_channel_receiver) = channel(8);
 
-        if let Some(storage_key) = &self.storage_key {
-            trace!(storage_key, "trying to load from cold");
+        let mut lists = BTreeMap::new();
 
-            for (name, list) in &mut self.lists {
-                if let Some(frozen_list) = client
-                    .store()
-                    .get_custom_value(format!("{storage_key}::{name}").as_bytes())
-                    .await?
-                    .map(|v| serde_json::from_slice::<FrozenSlidingSyncList>(&v))
-                    .transpose()?
-                {
-                    trace!(name, "frozen for list found");
+        for list_builder in self.lists {
+            let list = list_builder.build(internal_channel_sender.clone());
 
-                    let FrozenSlidingSyncList { maximum_number_of_rooms, rooms_list, rooms } =
-                        frozen_list;
-                    list.set_from_cold(maximum_number_of_rooms, rooms_list);
+            lists.insert(list.name().to_owned(), list);
+        }
 
-                    for (key, frozen_room) in rooms.into_iter() {
-                        rooms_found.entry(key).or_insert_with(|| {
-                            SlidingSyncRoom::from_frozen(frozen_room, client.clone())
-                        });
-                    }
-                } else {
-                    trace!(name, "no frozen state for list found");
-                }
-            }
+        // Reload existing state from the cache.
+        let restored_fields =
+            restore_sliding_sync_state(&client, &self.storage_key, &lists).await?;
 
-            if let Some(FrozenSlidingSync { to_device_since, delta_token: frozen_delta_token }) =
-                client
-                    .store()
-                    .get_custom_value(storage_key.as_bytes())
-                    .await?
-                    .map(|v| serde_json::from_slice::<FrozenSlidingSync>(&v))
-                    .transpose()?
-            {
-                trace!("frozen for generic found");
+        let (delta_token, pos) = if let Some(fields) = restored_fields {
+            #[cfg(feature = "e2e-encryption")]
+            let pos = if self.share_pos { fields.pos } else { None };
+            #[cfg(not(feature = "e2e-encryption"))]
+            let pos = None;
 
-                if let Some(since) = to_device_since {
-                    if let Some(to_device_ext) =
-                        self.extensions.get_or_insert_with(Default::default).to_device.as_mut()
-                    {
-                        to_device_ext.since = Some(since);
-                    }
-                }
-
-                delta_token = frozen_delta_token;
-            }
-
-            trace!("sync unfrozen done");
+            (fields.delta_token, pos)
+        } else {
+            (None, None)
         };
 
-        trace!(len = rooms_found.len(), "rooms unfrozen");
+        #[cfg(feature = "e2e-encryption")]
+        let share_pos = self.share_pos;
+        #[cfg(not(feature = "e2e-encryption"))]
+        let share_pos = false;
 
-        let rooms = StdRwLock::new(rooms_found);
-        let lists = StdRwLock::new(self.lists);
+        let rooms = AsyncRwLock::new(self.rooms);
+        let lists = AsyncRwLock::new(lists);
+
+        // Use the configured sliding sync proxy, or if not set, try to use the one
+        // auto-discovered by the client, if any.
+        let sliding_sync_proxy = self.sliding_sync_proxy.or_else(|| client.sliding_sync_proxy());
 
         Ok(SlidingSync::new(SlidingSyncInner {
-            homeserver: self.homeserver,
+            id: self.id,
+            sliding_sync_proxy,
+
             client,
             storage_key: self.storage_key,
+            share_pos,
 
             lists,
             rooms,
 
-            extensions: Mutex::new(self.extensions),
-            reset_counter: Default::default(),
+            position: Arc::new(AsyncMutex::new(SlidingSyncPositionMarkers { pos, delta_token })),
+            past_positions: StdRwLock::new(RingBuffer::new(20)),
 
-            position: StdRwLock::new(SlidingSyncPositionMarkers {
-                pos: Observable::new(None),
-                delta_token: Observable::new(delta_token),
-            }),
+            sticky: StdRwLock::new(SlidingSyncStickyManager::new(
+                SlidingSyncStickyParameters::new(
+                    self.subscriptions,
+                    self.extensions.unwrap_or_default(),
+                ),
+            )),
+            room_unsubscriptions: Default::default(),
 
-            subscriptions: StdRwLock::new(self.subscriptions),
-            unsubscribe: Default::default(),
+            internal_channel: internal_channel_sender,
+
+            poll_timeout: self.poll_timeout,
+            network_timeout: self.network_timeout,
         }))
     }
 }

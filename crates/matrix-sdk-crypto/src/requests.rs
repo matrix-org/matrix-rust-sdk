@@ -16,6 +16,8 @@
 
 use std::{collections::BTreeMap, iter, sync::Arc, time::Duration};
 
+#[cfg(test)]
+use as_variant::as_variant;
 use ruma::{
     api::client::{
         backup::{add_backup_keys::v3::Response as KeysBackupResponse, RoomKeyBackup},
@@ -74,8 +76,10 @@ impl ToDeviceRequest {
     /// * `recipient_device` - The device that should receive this to-device
     /// event, or all devices.
     ///
+    /// * `event_type` - The type of the event content that is getting sent out.
+    ///
     /// * `content` - The content of the to-device event.
-    pub(crate) fn new(
+    pub fn new(
         recipient: &UserId,
         recipient_device: impl Into<DeviceIdOrAllDevices>,
         event_type: &str,
@@ -91,11 +95,11 @@ impl ToDeviceRequest {
     pub(crate) fn for_recipients(
         recipient: &UserId,
         recipient_devices: Vec<OwnedDeviceId>,
-        content: AnyToDeviceEventContent,
+        content: &AnyToDeviceEventContent,
         txn_id: OwnedTransactionId,
     ) -> Self {
         let event_type = content.event_type();
-        let raw_content = Raw::new(&content).expect("Failed to serialize to-device event");
+        let raw_content = Raw::new(content).expect("Failed to serialize to-device event");
 
         if recipient_devices.is_empty() {
             Self::new(
@@ -132,11 +136,11 @@ impl ToDeviceRequest {
     pub(crate) fn with_id(
         recipient: &UserId,
         recipient_device: impl Into<DeviceIdOrAllDevices>,
-        content: AnyToDeviceEventContent,
+        content: &AnyToDeviceEventContent,
         txn_id: OwnedTransactionId,
     ) -> Self {
         let event_type = content.event_type();
-        let raw_content = Raw::new(&content).expect("Failed to serialize to-device event");
+        let raw_content = Raw::new(content).expect("Failed to serialize to-device event");
 
         let user_messages = iter::once((recipient_device.into(), raw_content)).collect();
         let messages = iter::once((recipient.to_owned(), user_messages)).collect();
@@ -182,29 +186,22 @@ pub struct KeysQueryRequest {
     /// The keys to be downloaded. An empty list indicates all devices for
     /// the corresponding user.
     pub device_keys: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>>,
-
-    /// If the client is fetching keys as a result of a device update
-    /// received in a sync request, this should be the 'since' token of that
-    /// sync request, or any later sync token. This allows the server to
-    /// ensure its response contains the keys advertised by the notification
-    /// in that sync.
-    pub token: Option<String>,
 }
 
 impl KeysQueryRequest {
     pub(crate) fn new(users: impl Iterator<Item = OwnedUserId>) -> Self {
         let device_keys = users.map(|u| (u, Vec::new())).collect();
 
-        Self { timeout: None, device_keys, token: None }
+        Self { timeout: None, device_keys }
     }
 }
 
 /// Enum over the different outgoing requests we can have.
 #[derive(Debug)]
 pub enum OutgoingRequests {
-    /// The keys upload request, uploading device and one-time keys.
+    /// The `/keys/upload` request, uploading device and one-time keys.
     KeysUpload(KeysUploadRequest),
-    /// The keys query request, fetching the device and cross singing keys of
+    /// The `/keys/query` request, fetching the device and cross signing keys of
     /// other users.
     KeysQuery(KeysQueryRequest),
     /// The request to claim one-time keys for a user/device pair from the
@@ -228,22 +225,19 @@ pub enum OutgoingRequests {
 #[cfg(test)]
 impl OutgoingRequests {
     pub fn to_device(&self) -> Option<&ToDeviceRequest> {
-        match self {
-            OutgoingRequests::ToDeviceRequest(r) => Some(r),
-            _ => None,
-        }
+        as_variant!(self, Self::ToDeviceRequest)
     }
 }
 
 impl From<KeysQueryRequest> for OutgoingRequests {
     fn from(request: KeysQueryRequest) -> Self {
-        OutgoingRequests::KeysQuery(request)
+        Self::KeysQuery(request)
     }
 }
 
 impl From<KeysBackupRequest> for OutgoingRequests {
     fn from(r: KeysBackupRequest) -> Self {
-        OutgoingRequests::KeysBackup(r)
+        Self::KeysBackup(r)
     }
 }
 
@@ -255,25 +249,25 @@ impl From<KeysClaimRequest> for OutgoingRequests {
 
 impl From<KeysUploadRequest> for OutgoingRequests {
     fn from(request: KeysUploadRequest) -> Self {
-        OutgoingRequests::KeysUpload(request)
+        Self::KeysUpload(request)
     }
 }
 
 impl From<ToDeviceRequest> for OutgoingRequests {
     fn from(request: ToDeviceRequest) -> Self {
-        OutgoingRequests::ToDeviceRequest(request)
+        Self::ToDeviceRequest(request)
     }
 }
 
 impl From<RoomMessageRequest> for OutgoingRequests {
     fn from(request: RoomMessageRequest) -> Self {
-        OutgoingRequests::RoomMessage(request)
+        Self::RoomMessage(request)
     }
 }
 
 impl From<SignatureUploadRequest> for OutgoingRequests {
     fn from(request: SignatureUploadRequest) -> Self {
-        OutgoingRequests::SignatureUpload(request)
+        Self::SignatureUpload(request)
     }
 }
 
@@ -289,21 +283,27 @@ impl From<SignatureUploadRequest> for OutgoingRequest {
     }
 }
 
+impl From<KeysUploadRequest> for OutgoingRequest {
+    fn from(r: KeysUploadRequest) -> Self {
+        Self { request_id: TransactionId::new(), request: Arc::new(r.into()) }
+    }
+}
+
 /// Enum over all the incoming responses we need to receive.
 #[derive(Debug)]
 pub enum IncomingResponse<'a> {
-    /// The keys upload response, notifying us about the amount of uploaded
+    /// The `/keys/upload` response, notifying us about the amount of uploaded
     /// one-time keys.
     KeysUpload(&'a KeysUploadResponse),
-    /// The keys query response, giving us the device and cross singing keys of
-    /// other users.
+    /// The `/keys/query` response, giving us the device and cross signing keys
+    /// of other users.
     KeysQuery(&'a KeysQueryResponse),
     /// The to-device response, an empty response.
     ToDevice(&'a ToDeviceResponse),
     /// The key claiming requests, giving us new one-time keys of other users so
     /// new Olm sessions can be created.
     KeysClaim(&'a KeysClaimResponse),
-    /// The cross signing keys upload response, marking our private cross
+    /// The cross signing `/keys/upload` response, marking our private cross
     /// signing identity as shared.
     SigningKeysUpload(&'a SigningKeysUploadResponse),
     /// The cross signing signature upload response.

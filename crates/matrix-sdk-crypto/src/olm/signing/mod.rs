@@ -19,7 +19,6 @@ use std::sync::{
     Arc,
 };
 
-use matrix_sdk_common::locks::Mutex;
 use pk_signing::{MasterSigning, PickledSignings, SelfSigning, Signing, SigningError, UserSigning};
 use ruma::{
     api::client::keys::upload_signatures::v3::{Request as SignatureUploadRequest, SignedKeys},
@@ -28,15 +27,16 @@ use ruma::{
     DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceId, OwnedDeviceKeyId, OwnedUserId, UserId,
 };
 use serde::{Deserialize, Serialize};
+use tokio::sync::Mutex;
 use vodozemac::Ed25519Signature;
 
+use super::StaticAccountData;
 use crate::{
     error::SignatureError,
     requests::UploadSigningKeysRequest,
     store::SecretImportError,
     types::{DeviceKeys, MasterPubkey, SelfSigningPubkey, UserSigningPubkey},
-    OwnUserIdentity, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyOwnUserIdentity,
-    ReadOnlyUserIdentity,
+    Account, OwnUserIdentity, ReadOnlyDevice, ReadOnlyOwnUserIdentity, ReadOnlyUserIdentity,
 };
 
 /// Private cross signing identity.
@@ -50,30 +50,34 @@ use crate::{
 /// It can be used to sign devices or other identities.
 #[derive(Clone, Debug)]
 pub struct PrivateCrossSigningIdentity {
-    user_id: Arc<UserId>,
+    user_id: OwnedUserId,
     shared: Arc<AtomicBool>,
     pub(crate) master_key: Arc<Mutex<Option<MasterSigning>>>,
     pub(crate) user_signing_key: Arc<Mutex<Option<UserSigning>>>,
     pub(crate) self_signing_key: Arc<Mutex<Option<SelfSigning>>>,
 }
 
-/// A struct containing information if any of our cross signing keys were
-/// cleared because the public keys differ from the keys that are uploaded to
-/// the server.
+/// A struct containing information on whether any of our cross-signing keys
+/// differ from the public keys that exist on the server.
 #[derive(Debug, Clone)]
-pub struct ClearResult {
-    /// Was the master key cleared.
-    master_cleared: bool,
-    /// Was the self-signing key cleared.
-    self_signing_cleared: bool,
-    /// Was the user-signing key cleared.
-    user_signing_cleared: bool,
+pub struct DiffResult {
+    /// Does the master key differ?
+    master_differs: bool,
+    /// Does the self-signing key differ?
+    self_signing_differs: bool,
+    /// Does the user-signing key differ?
+    user_signing_differs: bool,
 }
 
-impl ClearResult {
-    /// Did we clear any of the private cross signing keys.
-    pub fn any_cleared(&self) -> bool {
-        self.master_cleared || self.self_signing_cleared || self.user_signing_cleared
+impl DiffResult {
+    /// Do any of the cross-signing keys differ?
+    pub fn any_differ(&self) -> bool {
+        self.master_differs || self.self_signing_differs || self.user_signing_differs
+    }
+
+    /// Do none of the cross-signing keys differ?
+    pub fn none_differ(&self) -> bool {
+        !self.master_differs && !self.self_signing_differs && !self.user_signing_differs
     }
 }
 
@@ -103,6 +107,13 @@ pub struct CrossSigningStatus {
     /// Do we have the user signing key, this one is necessary to sign other
     /// users.
     pub has_user_signing: bool,
+}
+
+impl CrossSigningStatus {
+    /// Do we have all the cross signing keys locally stored.
+    pub fn is_complete(&self) -> bool {
+        self.has_master && self.has_user_signing && self.has_self_signing
+    }
 }
 
 impl PrivateCrossSigningIdentity {
@@ -309,51 +320,44 @@ impl PrivateCrossSigningIdentity {
     pub(crate) async fn clear_if_differs(
         &self,
         public_identity: &ReadOnlyOwnUserIdentity,
-    ) -> ClearResult {
+    ) -> DiffResult {
         let result = self.get_public_identity_diff(public_identity).await;
 
-        if result.master_cleared {
+        if result.master_differs {
             *self.master_key.lock().await = None;
         }
 
-        if result.user_signing_cleared {
+        if result.user_signing_differs {
             *self.user_signing_key.lock().await = None;
         }
 
-        if result.self_signing_cleared {
+        if result.self_signing_differs {
             *self.self_signing_key.lock().await = None;
         }
 
         result
     }
 
-    async fn get_public_identity_diff(
+    pub(crate) async fn get_public_identity_diff(
         &self,
         public_identity: &ReadOnlyOwnUserIdentity,
-    ) -> ClearResult {
+    ) -> DiffResult {
         let master_differs = self
             .master_public_key()
             .await
-            .map(|master| &master != public_identity.master_key())
-            .unwrap_or(false);
+            .is_some_and(|master| &master != public_identity.master_key());
 
         let user_signing_differs = self
             .user_signing_public_key()
             .await
-            .map(|subkey| &subkey != public_identity.user_signing_key())
-            .unwrap_or(false);
+            .is_some_and(|subkey| &subkey != public_identity.user_signing_key());
 
         let self_signing_differs = self
             .self_signing_public_key()
             .await
-            .map(|subkey| &subkey != public_identity.self_signing_key())
-            .unwrap_or(false);
+            .is_some_and(|subkey| &subkey != public_identity.self_signing_key());
 
-        ClearResult {
-            master_cleared: master_differs,
-            user_signing_cleared: user_signing_differs,
-            self_signing_cleared: self_signing_differs,
-        }
+        DiffResult { master_differs, user_signing_differs, self_signing_differs }
     }
 
     /// Get the names of the secrets we are missing.
@@ -463,7 +467,7 @@ impl PrivateCrossSigningIdentity {
     /// Sign an Olm account with this private identity.
     pub(crate) async fn sign_account(
         &self,
-        account: &ReadOnlyAccount,
+        account: &StaticAccountData,
     ) -> Result<SignatureUploadRequest, SignatureError> {
         let mut device_keys = account.unsigned_device_keys();
         self.sign_device_keys(&mut device_keys).await
@@ -509,23 +513,22 @@ impl PrivateCrossSigningIdentity {
     /// account will sign the master key and the self signing key will sign the
     /// account.
     pub(crate) async fn with_account(
-        account: &ReadOnlyAccount,
+        account: &Account,
     ) -> (Self, UploadSigningKeysRequest, SignatureUploadRequest) {
         let mut master = MasterSigning::new(account.user_id().into());
         let mut public_key = master.public_key.as_ref().to_owned();
 
         account
             .sign_cross_signing_key(&mut public_key)
-            .await
             .expect("Can't sign our freshly created master key with our account");
 
         master.public_key = public_key
             .try_into()
             .expect("We can always convert our own CrossSignigKey into a MasterPubkey");
 
-        let identity = Self::new_helper(account.user_id(), master).await;
+        let identity = Self::new_helper(account.user_id(), master);
         let signature_request = identity
-            .sign_account(account)
+            .sign_account(account.static_data())
             .await
             .expect("Can't sign own device with new cross signing keys");
 
@@ -534,7 +537,7 @@ impl PrivateCrossSigningIdentity {
         (identity, request, signature_request)
     }
 
-    async fn new_helper(user_id: &UserId, master: MasterSigning) -> Self {
+    fn new_helper(user_id: &UserId, master: MasterSigning) -> Self {
         let user = Signing::new();
         let mut public_key = user.cross_signing_key(user_id.to_owned(), KeyUsage::UserSigning);
         master.sign_subkey(&mut public_key);
@@ -571,17 +574,17 @@ impl PrivateCrossSigningIdentity {
     /// created it.
     #[cfg(any(test, feature = "testing"))]
     #[allow(dead_code)]
-    pub async fn new(user_id: OwnedUserId) -> Self {
+    pub fn new(user_id: OwnedUserId) -> Self {
         let master = MasterSigning::new(user_id.to_owned());
-        Self::new_helper(&user_id, master).await
+        Self::new_helper(&user_id, master)
     }
 
     #[cfg(any(test, feature = "testing"))]
     #[allow(dead_code)]
     /// Testing helper to reset this CrossSigning with a fresh one using the
     /// local identity
-    pub async fn reset(&mut self) {
-        let new = Self::new(self.user_id().to_owned()).await;
+    pub fn reset(&mut self) {
+        let new = Self::new(self.user_id().to_owned());
         *self = new
     }
 
@@ -617,11 +620,7 @@ impl PrivateCrossSigningIdentity {
 
         let keys = PickledSignings { master_key, user_signing_key, self_signing_key };
 
-        PickledCrossSigningIdentity {
-            user_id: self.user_id.as_ref().to_owned(),
-            shared: self.shared(),
-            keys,
-        }
+        PickledCrossSigningIdentity { user_id: self.user_id.clone(), shared: self.shared(), keys }
     }
 
     /// Restore the private cross signing identity from a pickle.
@@ -670,7 +669,7 @@ mod tests {
     use super::{PrivateCrossSigningIdentity, Signing};
     use crate::{
         identities::{ReadOnlyDevice, ReadOnlyUserIdentity},
-        olm::{ReadOnlyAccount, SignedJsonObject, VerifyJson},
+        olm::{Account, SignedJsonObject, VerifyJson},
         types::Signatures,
     };
 
@@ -679,7 +678,7 @@ mod tests {
     }
 
     #[test]
-    fn signature_verification() {
+    fn test_signature_verification() {
         let signing = Signing::new();
         let user_id = user_id();
         let key_id = DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, "DEVICEID".into());
@@ -703,7 +702,7 @@ mod tests {
     }
 
     #[test]
-    fn pickling_signing() {
+    fn test_pickling_signing() {
         let signing = Signing::new();
         let pickled = signing.pickle();
 
@@ -713,8 +712,8 @@ mod tests {
     }
 
     #[async_test]
-    async fn private_identity_creation() {
-        let identity = PrivateCrossSigningIdentity::new(user_id().to_owned()).await;
+    async fn test_private_identity_creation() {
+        let identity = PrivateCrossSigningIdentity::new(user_id().to_owned());
 
         let master_key = identity.master_key.lock().await;
         let master_key = master_key.as_ref().unwrap();
@@ -731,8 +730,8 @@ mod tests {
     }
 
     #[async_test]
-    async fn identity_pickling() {
-        let identity = PrivateCrossSigningIdentity::new(user_id().to_owned()).await;
+    async fn test_identity_pickling() {
+        let identity = PrivateCrossSigningIdentity::new(user_id().to_owned());
 
         let pickled = identity.pickle().await;
 
@@ -751,8 +750,8 @@ mod tests {
     }
 
     #[async_test]
-    async fn private_identity_signed_by_account() {
-        let account = ReadOnlyAccount::new(user_id(), device_id!("DEVICEID"));
+    async fn test_private_identity_signed_by_account() {
+        let account = Account::with_device_id(user_id(), device_id!("DEVICEID"));
         let (identity, _, _) = PrivateCrossSigningIdentity::with_account(&account).await;
         let master = identity.master_key.lock().await;
         let master = master.as_ref().unwrap();
@@ -774,11 +773,11 @@ mod tests {
     }
 
     #[async_test]
-    async fn sign_device() {
-        let account = ReadOnlyAccount::new(user_id(), device_id!("DEVICEID"));
+    async fn test_sign_device() {
+        let account = Account::with_device_id(user_id(), device_id!("DEVICEID"));
         let (identity, _, _) = PrivateCrossSigningIdentity::with_account(&account).await;
 
-        let mut device = ReadOnlyDevice::from_account(&account).await;
+        let mut device = ReadOnlyDevice::from_account(&account);
         let self_signing = identity.self_signing_key.lock().await;
         let self_signing = self_signing.as_ref().unwrap();
 
@@ -791,11 +790,12 @@ mod tests {
     }
 
     #[async_test]
-    async fn sign_user_identity() {
-        let account = ReadOnlyAccount::new(user_id(), device_id!("DEVICEID"));
+    async fn test_sign_user_identity() {
+        let account = Account::with_device_id(user_id(), device_id!("DEVICEID"));
         let (identity, _, _) = PrivateCrossSigningIdentity::with_account(&account).await;
 
-        let bob_account = ReadOnlyAccount::new(user_id!("@bob:localhost"), device_id!("DEVICEID"));
+        let bob_account =
+            Account::with_device_id(user_id!("@bob:localhost"), device_id!("DEVICEID"));
         let (bob_private, _, _) = PrivateCrossSigningIdentity::with_account(&bob_account).await;
         let mut bob_public = ReadOnlyUserIdentity::from_private(&bob_private).await;
 

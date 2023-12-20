@@ -28,24 +28,24 @@ use std::{
     sync::Arc,
 };
 
-use matrix_sdk_common::locks::RwLock;
 use ruma::{
     api::client::backup::RoomKeyBackup, serde::Raw, DeviceId, DeviceKeyAlgorithm, OwnedDeviceId,
-    OwnedRoomId, OwnedTransactionId, TransactionId,
+    OwnedRoomId, OwnedTransactionId, RoomId, TransactionId,
 };
+use tokio::sync::RwLock;
 use tracing::{debug, info, instrument, trace, warn};
 
 use crate::{
-    olm::{Account, InboundGroupSession, SignedJsonObject},
-    store::{BackupKeys, Changes, RecoveryKey, RoomKeyCounts, Store},
+    olm::{BackedUpRoomKey, ExportedRoomKey, InboundGroupSession, SignedJsonObject},
+    store::{BackupDecryptionKey, BackupKeys, Changes, RoomKeyCounts, Store},
     types::{MegolmV1AuthData, RoomKeyBackupInfo, Signatures},
-    CryptoStoreError, Device, KeysBackupRequest, OutgoingRequest,
+    CryptoStoreError, Device, KeysBackupRequest, OutgoingRequest, RoomKeyImportResult,
+    SignatureError,
 };
 
 mod keys;
 
-pub use keys::{DecodeError, MegolmV1BackupKey};
-pub use olm_rs::errors::OlmPkDecryptionError;
+pub use keys::{DecodeError, DecryptionError, MegolmV1BackupKey};
 
 /// A state machine that handles backing up room keys.
 ///
@@ -55,28 +55,19 @@ pub use olm_rs::errors::OlmPkDecryptionError;
 /// using the [`BackupMachine::backup`] method.
 #[derive(Debug, Clone)]
 pub struct BackupMachine {
-    account: Account,
     store: Store,
     backup_key: Arc<RwLock<Option<MegolmV1BackupKey>>>,
     pending_backup: Arc<RwLock<Option<PendingBackup>>>,
 }
 
+type SenderKey = String;
+type SessionId = String;
+
 #[derive(Debug, Clone)]
 struct PendingBackup {
     request_id: OwnedTransactionId,
     request: KeysBackupRequest,
-    sessions: BTreeMap<OwnedRoomId, BTreeMap<String, BTreeSet<String>>>,
-}
-
-impl PendingBackup {
-    fn session_was_part_of_the_backup(&self, session: &InboundGroupSession) -> bool {
-        self.sessions
-            .get(session.room_id())
-            .and_then(|r| {
-                r.get(&session.sender_key().to_base64()).map(|s| s.contains(session.session_id()))
-            })
-            .unwrap_or(false)
-    }
+    sessions: BTreeMap<OwnedRoomId, BTreeMap<SenderKey, BTreeSet<SessionId>>>,
 }
 
 impl From<PendingBackup> for OutgoingRequest {
@@ -146,13 +137,8 @@ impl SignatureState {
 impl BackupMachine {
     const BACKUP_BATCH_SIZE: usize = 100;
 
-    pub(crate) fn new(
-        account: Account,
-        store: Store,
-        backup_key: Option<MegolmV1BackupKey>,
-    ) -> Self {
+    pub(crate) fn new(store: Store, backup_key: Option<MegolmV1BackupKey>) -> Self {
         Self {
-            account,
             store,
             backup_key: RwLock::new(backup_key).into(),
             pending_backup: RwLock::new(None).into(),
@@ -161,7 +147,7 @@ impl BackupMachine {
 
     /// Are we able to back up room keys to the server?
     pub async fn enabled(&self) -> bool {
-        self.backup_key.read().await.as_ref().map(|b| b.backup_version().is_some()).unwrap_or(false)
+        self.backup_key.read().await.as_ref().is_some_and(|b| b.backup_version().is_some())
     }
 
     /// Check if our own device has signed the given signed JSON payload.
@@ -170,7 +156,7 @@ impl BackupMachine {
         signatures: &Signatures,
         auth_data: &str,
     ) -> SignatureState {
-        match self.account.has_signed_raw(signatures, auth_data) {
+        match self.store.static_account().has_signed_raw(signatures, auth_data) {
             Ok(_) => SignatureState::ValidAndTrusted,
             Err(e) => match e {
                 crate::SignatureError::NoSignatureFound => SignatureState::Missing,
@@ -186,7 +172,7 @@ impl BackupMachine {
         signatures: &Signatures,
         auth_data: &str,
     ) -> Result<SignatureState, CryptoStoreError> {
-        let user_id = self.account.user_id();
+        let user_id = &self.store.static_account().user_id;
         let identity = self.store.get_identity(user_id).await?;
 
         let ret = if let Some(identity) = identity.and_then(|i| i.own()) {
@@ -239,12 +225,12 @@ impl BackupMachine {
     ) -> Result<BTreeMap<OwnedDeviceId, SignatureState>, CryptoStoreError> {
         let mut result = BTreeMap::new();
 
-        if let Some(user_signatures) = signatures.get(self.account.user_id()) {
+        if let Some(user_signatures) = signatures.get(&self.store.static_account().user_id) {
             for device_key_id in user_signatures.keys() {
                 if device_key_id.algorithm() == DeviceKeyAlgorithm::Ed25519 {
                     // No need to check our own device here, we're doing that using
                     // the check_own_device_signature().
-                    if device_key_id.device_id() == self.account.device_id() {
+                    if device_key_id.device_id() == self.store.static_account().device_id {
                         continue;
                     }
 
@@ -295,8 +281,6 @@ impl BackupMachine {
         auth_data: MegolmV1AuthData,
         compute_all_signatures: bool,
     ) -> Result<SignatureVerification, CryptoStoreError> {
-        trace!(?auth_data, "Verifying backup auth data");
-
         let serialized_auth_data = match auth_data.to_canonical_json() {
             Ok(s) => s,
             Err(e) => {
@@ -334,7 +318,7 @@ impl BackupMachine {
     ///
     /// # Arguments
     ///
-    /// * `backup_version`: The backup version that should be verified. Should
+    /// * `backup_info`: The backup info that should be verified. Should
     /// be fetched from the server using the [`/room_keys/version`] endpoint.
     ///
     /// * `compute_all_signatures`: *Useful for debugging only*. If this
@@ -355,6 +339,46 @@ impl BackupMachine {
             self.verify_auth_data_v1(data, compute_all_signatures).await
         } else {
             Ok(Default::default())
+        }
+    }
+
+    /// Sign a [`RoomKeyBackupInfo`] using the device's identity key and, if
+    /// available, the cross-signing master key.
+    ///
+    /// # Arguments
+    ///
+    /// * `backup_info`: The backup version that should be verified. Should
+    /// be created from the [`BackupDecryptionKey`] using the
+    /// [`BackupDecryptionKey::to_backup_info()`] method.
+    pub async fn sign_backup(
+        &self,
+        backup_info: &mut RoomKeyBackupInfo,
+    ) -> Result<(), SignatureError> {
+        if let RoomKeyBackupInfo::MegolmBackupV1Curve25519AesSha2(data) = backup_info {
+            let canonical_json = data.to_canonical_json()?;
+
+            let private_identity = self.store.private_identity();
+            let identity = private_identity.lock().await;
+
+            if let Some(key_id) = identity.master_key_id().await {
+                if let Ok(signature) = identity.sign(&canonical_json).await {
+                    data.signatures.add_signature(
+                        self.store.user_id().to_owned(),
+                        key_id,
+                        signature,
+                    );
+                }
+            }
+
+            let cache = self.store.cache().await?;
+            let account = cache.account().await?;
+            let key_id = account.signing_key_id();
+            let signature = account.sign(&canonical_json);
+            data.signatures.add_signature(self.store.user_id().to_owned(), key_id, signature);
+
+            Ok(())
+        } else {
+            Err(SignatureError::UnsupportedAlgorithm)
         }
     }
 
@@ -400,16 +424,17 @@ impl BackupMachine {
         Ok(())
     }
 
-    /// Store the recovery key in the crypto store.
+    /// Store the backup decryption key in the crypto store.
     ///
     /// This is useful if the client wants to support gossiping of the backup
     /// key.
-    pub async fn save_recovery_key(
+    pub async fn save_decryption_key(
         &self,
-        recovery_key: Option<RecoveryKey>,
+        backup_decryption_key: Option<BackupDecryptionKey>,
         version: Option<String>,
     ) -> Result<(), CryptoStoreError> {
-        let changes = Changes { recovery_key, backup_version: version, ..Default::default() };
+        let changes =
+            Changes { backup_decryption_key, backup_version: version, ..Default::default() };
         self.store.save_changes(changes).await
     }
 
@@ -420,20 +445,22 @@ impl BackupMachine {
 
     /// Encrypt a batch of room keys and return a request that needs to be sent
     /// out to backup the room keys.
-    pub async fn backup(&self) -> Result<Option<OutgoingRequest>, CryptoStoreError> {
+    pub async fn backup(
+        &self,
+    ) -> Result<Option<(OwnedTransactionId, KeysBackupRequest)>, CryptoStoreError> {
         let mut request = self.pending_backup.write().await;
 
         if let Some(request) = &*request {
             trace!("Backing up, returning an existing request");
 
-            Ok(Some(request.clone().into()))
+            Ok(Some((request.request_id.clone(), request.request.clone())))
         } else {
             trace!("Backing up, creating a new request");
 
             let new_request = self.backup_helper().await?;
             *request = new_request.clone();
 
-            Ok(new_request.map(|r| r.into()))
+            Ok(new_request.map(|r| (r.request_id, r.request)))
         }
     }
 
@@ -442,44 +469,41 @@ impl BackupMachine {
         request_id: &TransactionId,
     ) -> Result<(), CryptoStoreError> {
         let mut request = self.pending_backup.write().await;
-
         if let Some(r) = &*request {
             if r.request_id == request_id {
-                let sessions: Vec<_> = self
-                    .store
-                    .get_inbound_group_sessions()
-                    .await?
-                    .into_iter()
-                    .filter(|s| r.session_was_part_of_the_backup(s))
+                let room_and_session_ids: Vec<(&RoomId, &str)> = r
+                    .sessions
+                    .iter()
+                    .flat_map(|(room_id, sender_key_to_session_ids)| {
+                        std::iter::repeat(room_id).zip(sender_key_to_session_ids.values().flatten())
+                    })
+                    .map(|(room_id, session_id)| (room_id.as_ref(), session_id.as_str()))
                     .collect();
-
-                for session in &sessions {
-                    session.mark_as_backed_up();
-                }
 
                 trace!(request_id = ?r.request_id, keys = ?r.sessions, "Marking room keys as backed up");
 
-                let changes = Changes { inbound_group_sessions: sessions, ..Default::default() };
-                self.store.save_changes(changes).await?;
+                self.store.mark_inbound_group_sessions_as_backed_up(&room_and_session_ids).await?;
 
                 let counts = self.store.inbound_group_session_counts().await?;
 
                 trace!(
                     room_key_counts = ?counts,
-                    request_id = ?r.request_id, keys = ?r.sessions, "Marked room keys as backed up"
+                    request_id = ?r.request_id,
+                    keys = ?r.sessions,
+                    "Marked room keys as backed up"
                 );
 
                 *request = None;
             } else {
                 warn!(
-                    expected = r.request_id.to_string().as_str(),
-                    got = request_id.to_string().as_str(),
+                    expected = ?r.request_id,
+                    got = ?request_id,
                     "Tried to mark a pending backup as sent but the request id didn't match"
                 );
             }
         } else {
             warn!(
-                request_id = request_id.to_string().as_str(),
+                ?request_id,
                 "Tried to mark a pending backup as sent but there isn't a backup pending"
             );
         };
@@ -531,10 +555,10 @@ impl BackupMachine {
         backup_key: &MegolmV1BackupKey,
     ) -> (
         BTreeMap<OwnedRoomId, RoomKeyBackup>,
-        BTreeMap<OwnedRoomId, BTreeMap<String, BTreeSet<String>>>,
+        BTreeMap<OwnedRoomId, BTreeMap<SenderKey, BTreeSet<SessionId>>>,
     ) {
         let mut backup: BTreeMap<OwnedRoomId, RoomKeyBackup> = BTreeMap::new();
-        let mut session_record: BTreeMap<OwnedRoomId, BTreeMap<String, BTreeSet<String>>> =
+        let mut session_record: BTreeMap<OwnedRoomId, BTreeMap<SenderKey, BTreeSet<SessionId>>> =
             BTreeMap::new();
 
         for session in sessions {
@@ -561,15 +585,69 @@ impl BackupMachine {
 
         (backup, session_record)
     }
+
+    /// Import the given room keys into our store.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_keys` - A list of previously exported keys that should be
+    /// imported into our store. If we already have a better version of a key
+    /// the key will *not* be imported.
+    ///
+    /// Returns a [`RoomKeyImportResult`] containing information about room keys
+    /// which were imported.
+    pub async fn import_backed_up_room_keys(
+        &self,
+        room_keys: BTreeMap<OwnedRoomId, BTreeMap<String, BackedUpRoomKey>>,
+        progress_listener: impl Fn(usize, usize),
+    ) -> Result<RoomKeyImportResult, CryptoStoreError> {
+        let mut decrypted_room_keys = vec![];
+
+        for (room_id, room_keys) in room_keys {
+            for (session_id, room_key) in room_keys {
+                let room_key = ExportedRoomKey::from_backed_up_room_key(
+                    room_id.to_owned(),
+                    session_id,
+                    room_key,
+                );
+
+                decrypted_room_keys.push(room_key);
+            }
+        }
+
+        self.store.import_room_keys(decrypted_room_keys, true, progress_listener).await
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
+    use assert_matches2::assert_let;
     use matrix_sdk_test::async_test;
     use ruma::{device_id, room_id, user_id, CanonicalJsonValue, DeviceId, RoomId, UserId};
     use serde_json::json;
 
-    use crate::{store::RecoveryKey, types::RoomKeyBackupInfo, OlmError, OlmMachine};
+    use crate::{
+        olm::BackedUpRoomKey, store::BackupDecryptionKey, types::RoomKeyBackupInfo, OlmError,
+        OlmMachine,
+    };
+
+    fn room_key() -> BackedUpRoomKey {
+        let json = json!({
+            "algorithm": "m.megolm.v1.aes-sha2",
+            "sender_key": "DeHIg4gwhClxzFYcmNntPNF9YtsdZbmMy8+3kzCMXHA",
+            "session_key": "AQAAAABvWMNZjKFtebYIePKieQguozuoLgzeY6wKcyJjLJcJtQgy1dPqTBD12U+XrYLrRHn\
+                            lKmxoozlhFqJl456+9hlHCL+yq+6ScFuBHtJepnY1l2bdLb4T0JMDkNsNErkiLiLnD6yp3J\
+                            DSjIhkdHxmup/huygrmroq6/L5TaThEoqvW4DPIuO14btKudsS34FF82pwjKS4p6Mlch+0e\
+                            fHAblQV",
+            "sender_claimed_keys":{},
+            "forwarding_curve25519_key_chain":[]
+        });
+
+        serde_json::from_value(json)
+            .expect("We should be able to deserialize our backed up room key")
+    }
 
     fn alice_id() -> &'static UserId {
         user_id!("@alice:example.org")
@@ -594,28 +672,28 @@ mod tests {
         assert_eq!(counts.total, 0, "Initially no keys exist");
         assert_eq!(counts.backed_up, 0, "Initially no backed up keys exist");
 
-        machine.create_outbound_group_session_with_defaults(room_id()).await?;
-        machine.create_outbound_group_session_with_defaults(room_id2()).await?;
+        machine.create_outbound_group_session_with_defaults_test_helper(room_id()).await?;
+        machine.create_outbound_group_session_with_defaults_test_helper(room_id2()).await?;
 
         let counts = backup_machine.store.inbound_group_session_counts().await?;
         assert_eq!(counts.total, 2, "Two room keys need to exist in the store");
         assert_eq!(counts.backed_up, 0, "No room keys have been backed up yet");
 
-        let recovery_key = RecoveryKey::new().expect("Can't create new recovery key");
-        let backup_key = recovery_key.megolm_v1_public_key();
+        let decryption_key = BackupDecryptionKey::new().expect("Can't create new recovery key");
+        let backup_key = decryption_key.megolm_v1_public_key();
         backup_key.set_version("1".to_owned());
 
         backup_machine.enable_backup_v1(backup_key).await?;
 
-        let request =
+        let (request_id, _) =
             backup_machine.backup().await?.expect("Created a backup request successfully");
         assert_eq!(
-            Some(&*request.request_id),
-            backup_machine.backup().await?.as_ref().map(|r| &*r.request_id),
+            Some(&request_id),
+            backup_machine.backup().await?.as_ref().map(|(request_id, _)| request_id),
             "Calling backup again without uploading creates the same backup request"
         );
 
-        backup_machine.mark_request_as_sent(&request.request_id).await?;
+        backup_machine.mark_request_as_sent(&request_id).await?;
 
         let counts = backup_machine.store.inbound_group_session_counts().await?;
         assert_eq!(counts.total, 2);
@@ -646,7 +724,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn verify_auth_data() -> Result<(), OlmError> {
+    async fn test_verify_auth_data() -> Result<(), OlmError> {
         let machine = OlmMachine::new(alice_id(), alice_device_id()).await;
         let backup_machine = machine.backup_machine();
 
@@ -674,7 +752,7 @@ mod tests {
         assert!(!state.user_identity_signature.trusted());
         assert!(!state.other_signatures.values().any(|s| s.trusted()));
 
-        let signatures = machine.sign(&serialized).await;
+        let signatures = machine.sign(&serialized).await?;
 
         let backup_version = json!({
             "algorithm": "m.megolm_backup.v1.curve25519-aes-sha2",
@@ -700,7 +778,7 @@ mod tests {
             .await
             .expect("Bootstrapping a new identity always works");
 
-        let signatures = machine.sign(&serialized).await;
+        let signatures = machine.sign(&serialized).await?;
 
         let backup_version = json!({
             "algorithm": "m.megolm_backup.v1.curve25519-aes-sha2",
@@ -722,5 +800,57 @@ mod tests {
         assert!(!state.other_signatures.values().any(|s| s.trusted()));
 
         Ok(())
+    }
+
+    #[async_test]
+    async fn import_backed_up_room_keys() {
+        let machine = OlmMachine::new(alice_id(), alice_device_id()).await;
+        let backup_machine = machine.backup_machine();
+
+        let room_id = room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost");
+        let session_id = "gM8i47Xhu0q52xLfgUXzanCMpLinoyVyH7R58cBuVBU";
+        let room_key = room_key();
+
+        let room_keys: BTreeMap<_, BTreeMap<_, _>> = BTreeMap::from([(
+            room_id.to_owned(),
+            BTreeMap::from([(session_id.to_owned(), room_key)]),
+        )]);
+
+        let session = machine.store().get_inbound_group_session(room_id, session_id).await.unwrap();
+
+        assert!(session.is_none(), "Initially we should not have the session in the store");
+
+        backup_machine
+            .import_backed_up_room_keys(room_keys, |_, _| {})
+            .await
+            .expect("We should be able to import a room key");
+
+        let session = machine.store().get_inbound_group_session(room_id, session_id).await.unwrap();
+
+        assert_let!(Some(session) = session);
+        assert!(
+            session.backed_up(),
+            "If a session was imported from a backup, it should be considered to be backed up"
+        );
+        assert!(session.has_been_imported());
+    }
+
+    #[async_test]
+    async fn sign_backup_info() {
+        let machine = OlmMachine::new(alice_id(), alice_device_id()).await;
+        let backup_machine = machine.backup_machine();
+
+        let decryption_key = BackupDecryptionKey::new().unwrap();
+        let mut backup_info = decryption_key.to_backup_info();
+
+        let result = backup_machine.verify_backup(backup_info.to_owned(), false).await.unwrap();
+
+        assert!(!result.trusted());
+
+        backup_machine.sign_backup(&mut backup_info).await.unwrap();
+
+        let result = backup_machine.verify_backup(backup_info, false).await.unwrap();
+
+        assert!(result.trusted());
     }
 }

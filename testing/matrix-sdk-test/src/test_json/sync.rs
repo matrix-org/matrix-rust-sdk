@@ -1,12 +1,9 @@
 //! Complete sync responses.
 
 use once_cell::sync::Lazy;
-use ruma::{room_id, RoomId};
 use serde_json::{json, Value as JsonValue};
 
-/// The default room ID where sync events are added.
-pub static DEFAULT_SYNC_ROOM_ID: Lazy<&RoomId> =
-    Lazy::new(|| room_id!("!SVkFJHzfwvuaIEawgC:localhost"));
+use crate::DEFAULT_TEST_ROOM_ID;
 
 pub static SYNC: Lazy<JsonValue> = Lazy::new(|| {
     json!({
@@ -33,7 +30,7 @@ pub static SYNC: Lazy<JsonValue> = Lazy::new(|| {
         "rooms": {
             "invite": {},
             "join": {
-                "!SVkFJHzfwvuaIEawgC:localhost": {
+                *DEFAULT_TEST_ROOM_ID: {
                     "summary": {},
                     "account_data": {
                         "events": [
@@ -58,7 +55,7 @@ pub static SYNC: Lazy<JsonValue> = Lazy::new(|| {
                                         }
                                     }
                                 },
-                                "room_id": "!SVkFJHzfwvuaIEawgC:localhost",
+                                "room_id": *DEFAULT_TEST_ROOM_ID,
                                 "type": "m.receipt"
                             },
                         ]
@@ -282,7 +279,7 @@ pub static DEFAULT_SYNC_SUMMARY: Lazy<JsonValue> = Lazy::new(|| {
         "rooms": {
             "invite": {},
             "join": {
-                "!SVkFJHzfwvuaIEawgC:localhost": {
+                *DEFAULT_TEST_ROOM_ID: {
                     "summary": {
                         "m.heroes": [
                           "@example2:localhost"
@@ -540,7 +537,7 @@ pub static MORE_SYNC: Lazy<JsonValue> = Lazy::new(|| {
         "rooms": {
             "invite": {},
             "join": {
-                "!SVkFJHzfwvuaIEawgC:localhost": {
+                *DEFAULT_TEST_ROOM_ID: {
                     "summary": {},
                     "account_data": {
                         "events": []
@@ -705,7 +702,7 @@ pub static MORE_SYNC_2: Lazy<JsonValue> = Lazy::new(|| {
         "next_batch": "s526_47314_0_7_1_1_1_11444_3",
         "rooms": {
             "join": {
-                "!SVkFJHzfwvuaIEawgC:localhost": {
+                *DEFAULT_TEST_ROOM_ID: {
                     "timeline": {
                         "events": [
                             {
@@ -909,7 +906,7 @@ pub static LEAVE_SYNC: Lazy<JsonValue> = Lazy::new(|| {
             "invite": {},
             "join": {},
             "leave": {
-                "!SVkFJHzfwvuaIEawgC:localhost": {
+                *DEFAULT_TEST_ROOM_ID: {
                     "summary": {},
                     "account_data": {
                         "events": []
@@ -1185,7 +1182,7 @@ pub static LEAVE_SYNC_EVENT: Lazy<JsonValue> = Lazy::new(|| {
             "join": {},
             "invite": {},
             "leave": {
-                "!SVkFJHzfwvuaIEawgC:localhost": {
+                *DEFAULT_TEST_ROOM_ID: {
                     "timeline": {
                         "events": [
                             {
@@ -1246,7 +1243,7 @@ pub static VOIP_SYNC: Lazy<JsonValue> = Lazy::new(|| {
         "rooms": {
             "invite": {},
             "join": {
-                "!SVkFJHzfwvuaIEawgC:localhost": {
+                *DEFAULT_TEST_ROOM_ID: {
                     "summary": {},
                     "account_data": {
                         "events": []

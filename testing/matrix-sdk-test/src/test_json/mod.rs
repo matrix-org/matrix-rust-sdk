@@ -7,9 +7,10 @@
 use once_cell::sync::Lazy;
 use serde_json::{json, Value as JsonValue};
 
+use crate::DEFAULT_TEST_ROOM_ID;
+
 pub mod api_responses;
 pub mod members;
-pub mod messages;
 pub mod search_users;
 pub mod sync;
 pub mod sync_events;
@@ -21,16 +22,15 @@ pub use api_responses::{
     UNKNOWN_TOKEN_SOFT_LOGOUT, VERSIONS, WELL_KNOWN, WHOAMI,
 };
 pub use members::MEMBERS;
-pub use messages::{ROOM_MESSAGES, ROOM_MESSAGES_BATCH_1, ROOM_MESSAGES_BATCH_2};
 pub use sync::{
-    DEFAULT_SYNC_ROOM_ID, DEFAULT_SYNC_SUMMARY, INVITE_SYNC, LEAVE_SYNC, LEAVE_SYNC_EVENT,
-    MORE_SYNC, MORE_SYNC_2, SYNC, VOIP_SYNC,
+    DEFAULT_SYNC_SUMMARY, INVITE_SYNC, LEAVE_SYNC, LEAVE_SYNC_EVENT, MORE_SYNC, MORE_SYNC_2, SYNC,
+    VOIP_SYNC,
 };
 pub use sync_events::{
-    ALIAS, ALIASES, ENCRYPTION, MEMBER, MEMBER_INVITE, MEMBER_NAME_CHANGE, MEMBER_STRIPPED,
-    MESSAGE_EDIT, MESSAGE_TEXT, NAME, NAME_STRIPPED, POWER_LEVELS, PRESENCE, PUSH_RULES, REACTION,
-    READ_RECEIPT, READ_RECEIPT_OTHER, REDACTED, REDACTED_INVALID, REDACTED_STATE, REDACTION, TAG,
-    TOPIC, TOPIC_REDACTION, TYPING,
+    ALIAS, ALIASES, DIRECT, ENCRYPTION, MEMBER, MEMBER_ADDITIONAL, MEMBER_BAN, MEMBER_INVITE,
+    MEMBER_LEAVE, MEMBER_NAME_CHANGE, MEMBER_STRIPPED, NAME, NAME_STRIPPED, POWER_LEVELS, PRESENCE,
+    PUSH_RULES, READ_RECEIPT, READ_RECEIPT_OTHER, REDACTED_INVALID, REDACTED_STATE, TAG, TOPIC,
+    TOPIC_REDACTION, TYPING,
 };
 
 /// An empty response.
@@ -46,6 +46,6 @@ pub static EVENT_ID: Lazy<JsonValue> = Lazy::new(|| {
 /// A response with only a room ID.
 pub static ROOM_ID: Lazy<JsonValue> = Lazy::new(|| {
     json!({
-        "room_id": "!testroom:example.org"
+        "room_id": *DEFAULT_TEST_ROOM_ID
     })
 });

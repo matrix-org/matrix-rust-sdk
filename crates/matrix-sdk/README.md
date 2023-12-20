@@ -35,7 +35,7 @@ async fn main() -> anyhow::Result<()> {
     let client = Client::builder().server_name(alice.server_name()).build().await?;
 
     // First we need to log in.
-    client.login_username(alice, "password").send().await?;
+    client.matrix_auth().login_username(alice, "password").send().await?;
 
     client.add_event_handler(|ev: SyncRoomMessageEvent| async move {
         println!("Received a message {:?}", ev);
@@ -65,7 +65,8 @@ The following crate feature flags are available:
 | `js`                |   No    | Enables JavaScript API usage for things like the current system time on WASM (does nothing on other targets)               |
 | `markdown`          |   No    | Support for sending Markdown-formatted messages                                                                            |
 | `qrcode`            |   Yes   | QR code verification support                                                                                               |
-| `sled`              |   Yes   | Persistent storage of state and E2EE data (optionally, if feature `e2e-encryption` is enabled), via Sled                   |
+| `sqlite`            |   Yes   | Persistent storage of state and E2EE data (optionally, if feature `e2e-encryption` is enabled), via SQLite available on system  |
+| `bundled-sqlite`    |   No  | Persistent storage of state and E2EE data (optionally, if feature `e2e-encryption` is enabled), via SQLite compiled and bundled with the binary  |
 | `indexeddb`         |   No    | Persistent storage of state and E2EE data (optionally, if feature `e2e-encryption` is enabled) for browsers, via IndexedDB |
 | `socks`             |   No    | SOCKS support in the default HTTP client, [`reqwest`]                                                                      |
 | `sso-login`         |   No    | Support for SSO login with a local HTTP server                                                                             |

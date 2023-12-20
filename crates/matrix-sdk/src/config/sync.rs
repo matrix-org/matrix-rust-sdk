@@ -14,6 +14,7 @@
 
 use std::{fmt, time::Duration};
 
+use matrix_sdk_common::debug::DebugStructExt;
 use ruma::{api::client::sync::sync_events, presence::PresenceState};
 
 const DEFAULT_SYNC_TIMEOUT: Duration = Duration::from_secs(30);
@@ -21,7 +22,8 @@ const DEFAULT_SYNC_TIMEOUT: Duration = Duration::from_secs(30);
 /// Settings for a sync call.
 #[derive(Clone)]
 pub struct SyncSettings {
-    pub(crate) filter: Option<sync_events::v3::Filter>,
+    // Filter is pretty big at 1000 bytes, box it to reduce stack size
+    pub(crate) filter: Option<Box<sync_events::v3::Filter>>,
     pub(crate) timeout: Option<Duration>,
     pub(crate) token: Option<String>,
     pub(crate) full_state: bool,
@@ -37,20 +39,13 @@ impl Default for SyncSettings {
 #[cfg(not(tarpaulin_include))]
 impl fmt::Debug for SyncSettings {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut s = f.debug_struct("SyncSettings");
-
-        macro_rules! opt_field {
-            ($field:ident) => {
-                if let Some(value) = &self.$field {
-                    s.field(stringify!($field), value);
-                }
-            };
-        }
-
-        opt_field!(filter);
-        opt_field!(timeout);
-
-        s.field("full_state", &self.full_state).finish()
+        let Self { filter, timeout, token: _, full_state, set_presence } = self;
+        f.debug_struct("SyncSettings")
+            .maybe_field("filter", filter)
+            .maybe_field("timeout", timeout)
+            .field("full_state", full_state)
+            .field("set_presence", set_presence)
+            .finish()
     }
 }
 
@@ -99,7 +94,7 @@ impl SyncSettings {
     ///   call.
     #[must_use]
     pub fn filter(mut self, filter: sync_events::v3::Filter) -> Self {
-        self.filter = Some(filter);
+        self.filter = Some(Box::new(filter));
         self
     }
 

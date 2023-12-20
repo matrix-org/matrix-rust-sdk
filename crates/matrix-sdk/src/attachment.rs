@@ -87,6 +87,13 @@ pub enum AttachmentInfo {
     Audio(BaseAudioInfo),
     /// The metadata of a file.
     File(BaseFileInfo),
+    /// The metadata of a voice message
+    Voice {
+        /// The audio info
+        audio_info: BaseAudioInfo,
+        /// The waveform of the voice message
+        waveform: Option<Vec<u16>>,
+    },
 }
 
 impl From<AttachmentInfo> for ImageInfo {
@@ -124,6 +131,10 @@ impl From<AttachmentInfo> for AudioInfo {
             AttachmentInfo::Audio(info) => assign!(AudioInfo::new(), {
                 duration: info.duration,
                 size: info.size,
+            }),
+            AttachmentInfo::Voice { audio_info, .. } => assign!(AudioInfo::new(), {
+                duration: audio_info.duration,
+                size: audio_info.size,
             }),
             _ => AudioInfo::new(),
         }
@@ -301,8 +312,8 @@ impl Default for AttachmentConfig {
 /// use mime;
 /// # use matrix_sdk::{Client, ruma::room_id };
 /// # use url::Url;
-/// # use futures::executor::block_on;
-/// # block_on(async {
+/// #
+/// # async {
 /// # let homeserver = Url::parse("http://localhost:8080")?;
 /// # let mut client = Client::new(homeserver).await?;
 /// # let room_id = room_id!("!test:localhost");
@@ -318,7 +329,7 @@ impl Default for AttachmentConfig {
 ///     info: Some(thumbnail_info),
 /// });
 ///
-/// if let Some(room) = client.get_joined_room(&room_id) {
+/// if let Some(room) = client.get_room(&room_id) {
 ///     room.send_attachment(
 ///         "My favorite cat",
 ///         &mime::IMAGE_JPEG,
@@ -327,7 +338,7 @@ impl Default for AttachmentConfig {
 ///     )
 ///     .await?;
 /// }
-/// # anyhow::Ok(()) });
+/// # anyhow::Ok(()) };
 /// ```
 #[cfg(feature = "image-proc")]
 pub fn generate_image_thumbnail<R: BufRead + Seek>(

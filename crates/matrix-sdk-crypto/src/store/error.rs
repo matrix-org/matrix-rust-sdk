@@ -78,6 +78,10 @@ pub enum CryptoStoreError {
     /// A problem with the underlying database backend
     #[error(transparent)]
     Backend(Box<dyn std::error::Error + Send + Sync>),
+
+    /// An error due to an invalid generation in a cross-process locking scheme.
+    #[error("invalid lock generation: {0}")]
+    InvalidLockGeneration(String),
 }
 
 impl CryptoStoreError {

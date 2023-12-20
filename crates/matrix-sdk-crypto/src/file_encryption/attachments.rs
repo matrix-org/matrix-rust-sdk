@@ -21,7 +21,6 @@ use aes::{
     cipher::{generic_array::GenericArray, KeyIvInit, StreamCipher},
     Aes256,
 };
-use base64::DecodeError;
 use rand::{thread_rng, RngCore};
 use ruma::{
     events::room::{EncryptedFile, JsonWebKey, JsonWebKeyInit},
@@ -47,6 +46,7 @@ pub struct AttachmentDecryptor<'a, R: Read> {
     aes: Aes256Ctr,
 }
 
+#[cfg(not(tarpaulin_include))]
 impl<'a, R: 'a + Read + std::fmt::Debug> std::fmt::Debug for AttachmentDecryptor<'a, R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AttachmentDecryptor")
@@ -83,7 +83,7 @@ pub enum DecryptorError {
     /// Some data in the encrypted attachment coldn't be decoded, this may be a
     /// hash, the secret key, or the initialization vector.
     #[error(transparent)]
-    Decode(#[from] DecodeError),
+    Decode(#[from] vodozemac::Base64DecodeError),
     /// A hash is missing from the encryption info.
     #[error("The encryption info is missing a hash")]
     MissingHash,
@@ -166,6 +166,7 @@ pub struct AttachmentEncryptor<'a, R: Read + ?Sized> {
     sha: Sha256,
 }
 
+#[cfg(not(tarpaulin_include))]
 impl<'a, R: 'a + Read + std::fmt::Debug + ?Sized> std::fmt::Debug for AttachmentEncryptor<'a, R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AttachmentEncryptor")

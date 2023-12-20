@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::{
+    collections::HashMap,
     ops::Deref,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -20,12 +21,13 @@ use std::{
     },
 };
 
+use as_variant::as_variant;
 use ruma::{
     api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
     events::{
         key::verification::VerificationMethod, room::message::KeyVerificationRequestEventContent,
     },
-    EventId, OwnedDeviceId, RoomId, UserId,
+    DeviceId, EventId, OwnedDeviceId, OwnedUserId, RoomId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use tracing::error;
@@ -33,7 +35,7 @@ use tracing::error;
 use super::{atomic_bool_deserializer, atomic_bool_serializer};
 use crate::{
     error::SignatureError,
-    store::{Changes, IdentityChanges},
+    store::{Changes, IdentityChanges, Store},
     types::{MasterPubkey, SelfSigningPubkey, UserSigningPubkey},
     verification::VerificationMachine,
     CryptoStoreError, OutgoingVerificationRequest, ReadOnlyDevice, VerificationRequest,
@@ -52,18 +54,36 @@ impl UserIdentities {
     /// Destructure the enum into an `OwnUserIdentity` if it's of the correct
     /// type.
     pub fn own(self) -> Option<OwnUserIdentity> {
-        match self {
-            Self::Own(i) => Some(i),
-            _ => None,
-        }
+        as_variant!(self, Self::Own)
     }
 
     /// Destructure the enum into an `UserIdentity` if it's of the correct
     /// type.
     pub fn other(self) -> Option<UserIdentity> {
+        as_variant!(self, Self::Other)
+    }
+
+    /// Get the ID of the user this identity belongs to.
+    pub fn user_id(&self) -> &UserId {
         match self {
-            Self::Other(i) => Some(i),
-            _ => None,
+            UserIdentities::Own(u) => u.user_id(),
+            UserIdentities::Other(u) => u.user_id(),
+        }
+    }
+
+    pub(crate) fn new(
+        store: Store,
+        identity: ReadOnlyUserIdentities,
+        verification_machine: VerificationMachine,
+        own_identity: Option<ReadOnlyOwnUserIdentity>,
+    ) -> Self {
+        match identity {
+            ReadOnlyUserIdentities::Own(i) => {
+                Self::Own(OwnUserIdentity { inner: i, verification_machine, store })
+            }
+            ReadOnlyUserIdentities::Other(i) => {
+                Self::Other(UserIdentity { inner: i, own_identity, verification_machine })
+            }
         }
     }
 }
@@ -92,6 +112,7 @@ impl From<UserIdentity> for UserIdentities {
 pub struct OwnUserIdentity {
     pub(crate) inner: ReadOnlyOwnUserIdentity,
     pub(crate) verification_machine: VerificationMachine,
+    store: Store,
 }
 
 impl Deref for OwnUserIdentity {
@@ -113,7 +134,11 @@ impl OwnUserIdentity {
         self.mark_as_verified();
 
         let changes = Changes {
-            identities: IdentityChanges { changed: vec![self.inner.clone().into()], new: vec![] },
+            identities: IdentityChanges {
+                changed: vec![self.inner.clone().into()],
+                new: vec![],
+                unchanged: vec![],
+            },
             ..Default::default()
         };
 
@@ -121,7 +146,9 @@ impl OwnUserIdentity {
             error!(error = ?e, "Couldn't store our own user identity after marking it as verified");
         }
 
-        self.verification_machine.store.account.sign_master_key(self.master_key.clone()).await
+        let cache = self.store.cache().await?;
+        let account = cache.account().await?;
+        account.sign_master_key(self.master_key.clone())
     }
 
     /// Send a verification request to our other devices.
@@ -144,11 +171,11 @@ impl OwnUserIdentity {
         self.request_verification_helper(Some(methods)).await
     }
 
-    /// Does our user identity trust our own device, i.e. have we signed  our
+    /// Does our user identity trust our own device, i.e. have we signed our
     /// own device keys with our self-signing key.
     pub async fn trusts_our_own_device(&self) -> Result<bool, CryptoStoreError> {
         Ok(if let Some(signatures) = self.verification_machine.store.device_signatures().await? {
-            let mut device_keys = self.verification_machine.store.account.device_keys().await;
+            let mut device_keys = self.store.cache().await?.account().await?.device_keys();
             device_keys.signatures = signatures;
 
             self.inner.self_signing_key().verify_device_keys(&device_keys).is_ok()
@@ -161,14 +188,10 @@ impl OwnUserIdentity {
         &self,
         methods: Option<Vec<VerificationMethod>>,
     ) -> Result<(VerificationRequest, OutgoingVerificationRequest), CryptoStoreError> {
-        let devices: Vec<OwnedDeviceId> = self
-            .verification_machine
-            .store
-            .get_user_devices(self.user_id())
-            .await?
-            .into_keys()
-            .filter(|d| &**d != self.verification_machine.own_device_id())
-            .collect();
+        let all_devices = self.verification_machine.store.get_user_devices(self.user_id()).await?;
+        let devices = self
+            .inner
+            .filter_devices_to_request(all_devices, self.verification_machine.own_device_id());
 
         Ok(self
             .verification_machine
@@ -203,10 +226,7 @@ impl Deref for UserIdentity {
 impl UserIdentity {
     /// Is this user identity verified.
     pub fn is_verified(&self) -> bool {
-        self.own_identity
-            .as_ref()
-            .map(|o| o.is_identity_signed(&self.inner).is_ok())
-            .unwrap_or(false)
+        self.own_identity.as_ref().is_some_and(|o| o.is_identity_signed(&self.inner).is_ok())
     }
 
     /// Manually verify this user.
@@ -327,32 +347,17 @@ impl ReadOnlyUserIdentities {
     /// Destructure the enum into an `ReadOnlyOwnUserIdentity` if it's of the
     /// correct type.
     pub fn own(&self) -> Option<&ReadOnlyOwnUserIdentity> {
-        match self {
-            ReadOnlyUserIdentities::Own(i) => Some(i),
-            _ => None,
-        }
+        as_variant!(self, Self::Own)
     }
 
     pub(crate) fn into_own(self) -> Option<ReadOnlyOwnUserIdentity> {
-        match self {
-            ReadOnlyUserIdentities::Own(i) => Some(i),
-            _ => None,
-        }
+        as_variant!(self, Self::Own)
     }
 
     /// Destructure the enum into an `UserIdentity` if it's of the correct
     /// type.
     pub fn other(&self) -> Option<&ReadOnlyUserIdentity> {
-        match self {
-            ReadOnlyUserIdentities::Other(i) => Some(i),
-            _ => None,
-        }
-    }
-}
-
-impl PartialEq for ReadOnlyUserIdentities {
-    fn eq(&self, other: &ReadOnlyUserIdentities) -> bool {
-        self.user_id() == other.user_id()
+        as_variant!(self, Self::Other)
     }
 }
 
@@ -363,9 +368,30 @@ impl PartialEq for ReadOnlyUserIdentities {
 /// signatures can be checked with this identity.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ReadOnlyUserIdentity {
-    user_id: Arc<UserId>,
+    user_id: OwnedUserId,
     pub(crate) master_key: MasterPubkey,
     self_signing_key: SelfSigningPubkey,
+}
+
+impl PartialEq for ReadOnlyUserIdentity {
+    /// The `PartialEq` implementation compares several attributes, including
+    /// the user ID, key material, usage, and, notably, the signatures of
+    /// the master key.
+    ///
+    /// This approach contrasts with the `PartialEq` implementation of the
+    /// [`MasterPubkey`], and [`SelfSigningPubkey`] types,
+    /// where the signatures are disregarded. This distinction arises from our
+    /// treatment of identity as the combined representation of cross-signing
+    /// keys and the associated verification state.
+    ///
+    /// The verification state of an identity depends on the signatures of the
+    /// master key, requiring their inclusion in our `PartialEq` implementation.
+    fn eq(&self, other: &Self) -> bool {
+        self.user_id == other.user_id
+            && self.master_key == other.master_key
+            && self.self_signing_key == other.self_signing_key
+            && self.master_key.signatures() == other.master_key.signatures()
+    }
 }
 
 impl ReadOnlyUserIdentity {
@@ -421,17 +447,20 @@ impl ReadOnlyUserIdentity {
     /// * `self_signing_key` - The new self signing key of user identity.
     ///
     /// Returns a `SignatureError` if we failed to update the identity.
+    /// Otherwise, returns `true` if there was a change to the identity and
+    /// `false` if the identity is unchanged.
     pub(crate) fn update(
         &mut self,
         master_key: MasterPubkey,
         self_signing_key: SelfSigningPubkey,
-    ) -> Result<(), SignatureError> {
+    ) -> Result<bool, SignatureError> {
         master_key.verify_subkey(&self_signing_key)?;
 
-        self.master_key = master_key;
-        self.self_signing_key = self_signing_key;
+        let new = Self::new(master_key, self_signing_key)?;
+        let changed = new != *self;
 
-        Ok(())
+        *self = new;
+        Ok(changed)
     }
 
     /// Check if the given device has been signed by this identity.
@@ -464,7 +493,7 @@ impl ReadOnlyUserIdentity {
 /// the identity.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReadOnlyOwnUserIdentity {
-    user_id: Arc<UserId>,
+    user_id: OwnedUserId,
     master_key: MasterPubkey,
     self_signing_key: SelfSigningPubkey,
     user_signing_key: UserSigningPubkey,
@@ -473,6 +502,29 @@ pub struct ReadOnlyOwnUserIdentity {
         deserialize_with = "atomic_bool_deserializer"
     )]
     verified: Arc<AtomicBool>,
+}
+
+impl PartialEq for ReadOnlyOwnUserIdentity {
+    /// The `PartialEq` implementation compares several attributes, including
+    /// the user ID, key material, usage, and, notably, the signatures of
+    /// the master key.
+    ///
+    /// This approach contrasts with the `PartialEq` implementation of the
+    /// [`MasterPubkey`], [`SelfSigningPubkey`] and [`UserSigningPubkey`] types,
+    /// where the signatures are disregarded. This distinction arises from our
+    /// treatment of identity as the combined representation of cross-signing
+    /// keys and the associated verification state.
+    ///
+    /// The verification state of an identity depends on the signatures of the
+    /// master key, requiring their inclusion in our `PartialEq` implementation.
+    fn eq(&self, other: &Self) -> bool {
+        self.user_id == other.user_id
+            && self.master_key == other.master_key
+            && self.self_signing_key == other.self_signing_key
+            && self.user_signing_key == other.user_signing_key
+            && self.is_verified() == other.is_verified()
+            && self.master_key.signatures() == other.master_key.signatures()
+    }
 }
 
 impl ReadOnlyOwnUserIdentity {
@@ -584,6 +636,11 @@ impl ReadOnlyOwnUserIdentity {
         self.verified.store(true, Ordering::SeqCst)
     }
 
+    #[cfg(test)]
+    pub fn mark_as_unverified(&self) {
+        self.verified.store(false, Ordering::SeqCst)
+    }
+
     /// Check if our identity is verified.
     pub fn is_verified(&self) -> bool {
         self.verified.load(Ordering::SeqCst)
@@ -602,14 +659,18 @@ impl ReadOnlyOwnUserIdentity {
     /// * `user_signing_key` - The new user signing key of user identity.
     ///
     /// Returns a `SignatureError` if we failed to update the identity.
+    /// Otherwise, returns `true` if there was a change to the identity and
+    /// `false` if the identity is unchanged.
     pub(crate) fn update(
         &mut self,
         master_key: MasterPubkey,
         self_signing_key: SelfSigningPubkey,
         user_signing_key: UserSigningPubkey,
-    ) -> Result<(), SignatureError> {
+    ) -> Result<bool, SignatureError> {
         master_key.verify_subkey(&self_signing_key)?;
         master_key.verify_subkey(&user_signing_key)?;
+
+        let old = self.clone();
 
         self.self_signing_key = self_signing_key;
         self.user_signing_key = user_signing_key;
@@ -620,7 +681,21 @@ impl ReadOnlyOwnUserIdentity {
 
         self.master_key = master_key;
 
-        Ok(())
+        Ok(old != *self)
+    }
+
+    fn filter_devices_to_request(
+        &self,
+        devices: HashMap<OwnedDeviceId, ReadOnlyDevice>,
+        own_device_id: &DeviceId,
+    ) -> Vec<OwnedDeviceId> {
+        devices
+            .into_iter()
+            .filter_map(|(device_id, device)| {
+                (device_id != own_device_id && self.is_device_signed(&device).is_ok())
+                    .then_some(device_id)
+            })
+            .collect()
     }
 }
 
@@ -678,7 +753,7 @@ pub(crate) mod testing {
     /// Generate default other "own" identity for tests
     #[cfg(test)]
     pub async fn get_other_own_identity() -> ReadOnlyOwnUserIdentity {
-        let private_identity = PrivateCrossSigningIdentity::new(other_user_id().into()).await;
+        let private_identity = PrivateCrossSigningIdentity::new(other_user_id().into());
         ReadOnlyOwnUserIdentity::from_private(&private_identity).await
     }
 
@@ -699,13 +774,13 @@ pub(crate) mod testing {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use std::sync::Arc;
+    use std::{collections::HashMap, sync::Arc};
 
     use assert_matches::assert_matches;
-    use matrix_sdk_common::locks::Mutex;
     use matrix_sdk_test::async_test;
-    use ruma::user_id;
+    use ruma::{device_id, user_id};
     use serde_json::{json, Value};
+    use tokio::sync::Mutex;
 
     use super::{
         testing::{device, get_other_identity, get_own_identity},
@@ -713,9 +788,9 @@ pub(crate) mod tests {
     };
     use crate::{
         identities::{manager::testing::own_key_query, Device},
-        olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
-        store::{IntoCryptoStore, MemoryStore},
-        types::{CrossSigningKey, MasterPubkey, SelfSigningPubkey, UserSigningPubkey},
+        olm::{Account, PrivateCrossSigningIdentity},
+        store::{CryptoStoreWrapper, MemoryStore},
+        types::{CrossSigningKey, MasterPubkey, SelfSigningPubkey, Signatures, UserSigningPubkey},
         verification::VerificationMachine,
     };
 
@@ -740,6 +815,39 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn own_identity_partial_equality() {
+        let user_id = user_id!("@example:localhost");
+        let response = own_key_query();
+
+        let master_key: CrossSigningKey =
+            response.master_keys.get(user_id).unwrap().deserialize_as().unwrap();
+        let user_signing: CrossSigningKey =
+            response.user_signing_keys.get(user_id).unwrap().deserialize_as().unwrap();
+        let self_signing: CrossSigningKey =
+            response.self_signing_keys.get(user_id).unwrap().deserialize_as().unwrap();
+
+        let identity = ReadOnlyOwnUserIdentity::new(
+            master_key.clone().try_into().unwrap(),
+            self_signing.clone().try_into().unwrap(),
+            user_signing.clone().try_into().unwrap(),
+        )
+        .unwrap();
+
+        let mut master_key_updated_signature = master_key.clone();
+        master_key_updated_signature.signatures = Signatures::new();
+
+        let updated_identity = ReadOnlyOwnUserIdentity::new(
+            master_key_updated_signature.try_into().unwrap(),
+            self_signing.try_into().unwrap(),
+            user_signing.try_into().unwrap(),
+        )
+        .unwrap();
+
+        assert_ne!(identity, updated_identity);
+        assert_eq!(identity.master_key(), updated_identity.master_key());
+    }
+
+    #[test]
     fn other_identity_create() {
         get_other_identity();
     }
@@ -756,9 +864,9 @@ pub(crate) mod tests {
         let private_identity =
             Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(second.user_id())));
         let verification_machine = VerificationMachine::new(
-            ReadOnlyAccount::new(second.user_id(), second.device_id()),
+            Account::with_device_id(second.user_id(), second.device_id()).static_data,
             private_identity,
-            MemoryStore::new().into_crypto_store(),
+            Arc::new(CryptoStoreWrapper::new(second.user_id(), MemoryStore::new())),
         );
 
         let first = Device {
@@ -791,15 +899,15 @@ pub(crate) mod tests {
         let response = own_key_query();
         let (_, device) = device(&response);
 
-        let account = ReadOnlyAccount::new(device.user_id(), device.device_id());
+        let account = Account::with_device_id(device.user_id(), device.device_id());
         let (identity, _, _) = PrivateCrossSigningIdentity::with_account(&account).await;
 
         let id = Arc::new(Mutex::new(identity.clone()));
 
         let verification_machine = VerificationMachine::new(
-            ReadOnlyAccount::new(device.user_id(), device.device_id()),
+            Account::with_device_id(device.user_id(), device.device_id()).static_data,
             id.clone(),
-            MemoryStore::new().into_crypto_store(),
+            Arc::new(CryptoStoreWrapper::new(device.user_id(), MemoryStore::new())),
         );
 
         let public_identity = identity.to_public_identity().await.unwrap();
@@ -873,6 +981,29 @@ pub(crate) mod tests {
         assert_matches!(
             serde_json::from_value::<UserSigningPubkey>(user_signing_key_json.clone()),
             Err(_)
+        );
+    }
+
+    #[test]
+    fn filter_devices_to_request() {
+        let response = own_key_query();
+        let identity = get_own_identity();
+        let (first, second) = device(&response);
+
+        let second_device_id = second.device_id().to_owned();
+        let unknown_device_id = device_id!("UNKNOWN");
+
+        let devices = HashMap::from([
+            (first.device_id().to_owned(), first),
+            (second.device_id().to_owned(), second),
+        ]);
+
+        // Own device and devices not verified are filtered out.
+        assert_eq!(identity.filter_devices_to_request(devices.clone(), &second_device_id).len(), 0);
+        // Signed devices that are not our own are kept.
+        assert_eq!(
+            identity.filter_devices_to_request(devices, unknown_device_id),
+            [second_device_id]
         );
     }
 }

@@ -16,7 +16,7 @@ use matrix_sdk_crypto::{
     },
     decrypt_room_key_export, encrypt_room_key_export,
     olm::ExportedRoomKey,
-    store::{Changes, RecoveryKey},
+    store::{BackupDecryptionKey, Changes},
     LocalTrust, OlmMachine as InnerMachine, UserIdentities,
 };
 use ruma::{
@@ -48,6 +48,7 @@ use tokio::runtime::Runtime;
 use zeroize::Zeroize;
 
 use crate::{
+    dehydrated_devices::DehydratedDevices,
     error::{CryptoStoreError, DecryptionError, SecretImportError, SignatureError},
     parse_user_id,
     responses::{response_from_string, OwnedResponse},
@@ -58,7 +59,53 @@ use crate::{
     Sas, SignatureUploadRequest, StartSasResult, UserIdentity, Verification, VerificationRequest,
 };
 
+/// The return value for the [`OlmMachine::receive_sync_changes()`] method.
+///
+/// Will contain various information about the `/sync` changes the
+/// [`OlmMachine`] processed.
+#[derive(uniffi::Record)]
+pub struct SyncChangesResult {
+    /// The, now possibly decrypted, to-device events the [`OlmMachine`]
+    /// received, decrypted, and processed.
+    to_device_events: Vec<String>,
+
+    /// Information about the room keys that were extracted out of the to-device
+    /// events.
+    room_key_infos: Vec<RoomKeyInfo>,
+}
+
+/// Information on a room key that has been received or imported.
+#[derive(uniffi::Record)]
+pub struct RoomKeyInfo {
+    /// The [messaging algorithm] that this key is used for. Will be one of the
+    /// `m.megolm.*` algorithms.
+    ///
+    /// [messaging algorithm]: https://spec.matrix.org/v1.6/client-server-api/#messaging-algorithms
+    pub algorithm: String,
+
+    /// The room where the key is used.
+    pub room_id: String,
+
+    /// The Curve25519 key of the device which initiated the session originally.
+    pub sender_key: String,
+
+    /// The ID of the session that the key is for.
+    pub session_id: String,
+}
+
+impl From<matrix_sdk_crypto::store::RoomKeyInfo> for RoomKeyInfo {
+    fn from(value: matrix_sdk_crypto::store::RoomKeyInfo) -> Self {
+        Self {
+            algorithm: value.algorithm.to_string(),
+            room_id: value.room_id.to_string(),
+            sender_key: value.sender_key.to_base64(),
+            session_id: value.session_id,
+        }
+    }
+}
+
 /// A high level state machine that handles E2EE for Matrix.
+#[derive(uniffi::Object)]
 pub struct OlmMachine {
     pub(crate) inner: ManuallyDrop<InnerMachine>,
     pub(crate) runtime: Runtime,
@@ -66,19 +113,21 @@ pub struct OlmMachine {
 
 impl Drop for OlmMachine {
     fn drop(&mut self) {
-        // SAFETY: self.inner is never used again, which is the only requirement
-        //         for ManuallyDrop::take to be used safely.
-        let inner = unsafe { ManuallyDrop::take(&mut self.inner) };
-        let _guard = self.runtime.enter();
         // Dropping the inner OlmMachine must happen within a tokio context
         // because deadpool drops sqlite connections in the DB pool on tokio's
         // blocking threadpool to avoid blocking async worker threads.
-        drop(inner);
+        let _guard = self.runtime.enter();
+        // SAFETY: self.inner is never used again, which is the only requirement
+        //         for ManuallyDrop::drop to be used safely.
+        unsafe {
+            ManuallyDrop::drop(&mut self.inner);
+        }
     }
 }
 
 /// A pair of outgoing room key requests, both of those are sendToDevice
 /// requests.
+#[derive(uniffi::Record)]
 pub struct KeyRequestPair {
     /// The optional cancellation, this is None if no previous key request was
     /// sent out for this key, thus it doesn't need to be cancelled.
@@ -88,7 +137,7 @@ pub struct KeyRequestPair {
 }
 
 /// The result of a signature verification of a signed JSON object.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
 pub struct SignatureVerification {
     /// The result of the signature verification using the public key of our own
     /// device.
@@ -129,6 +178,41 @@ impl From<RustSignatureCheckResult> for SignatureVerification {
 
 #[uniffi::export]
 impl OlmMachine {
+    /// Create a new `OlmMachine`
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The unique ID of the user that owns this machine.
+    ///
+    /// * `device_id` - The unique ID of the device that owns this machine.
+    ///
+    /// * `path` - The path where the state of the machine should be persisted.
+    ///
+    /// * `passphrase` - The passphrase that should be used to encrypt the data
+    ///   at rest in the crypto store. **Warning**, if no passphrase is given,
+    ///   the store and all its data will remain unencrypted.
+    #[uniffi::constructor]
+    pub fn new(
+        user_id: String,
+        device_id: String,
+        path: String,
+        mut passphrase: Option<String>,
+    ) -> Result<Arc<Self>, CryptoStoreError> {
+        let user_id = parse_user_id(&user_id)?;
+        let device_id = device_id.as_str().into();
+        let runtime = Runtime::new().expect("Couldn't create a tokio runtime");
+
+        let store = runtime
+            .block_on(matrix_sdk_sqlite::SqliteCryptoStore::open(path, passphrase.as_deref()))?;
+
+        passphrase.zeroize();
+
+        let inner =
+            runtime.block_on(InnerMachine::with_store(&user_id, device_id, Arc::new(store)))?;
+
+        Ok(Arc::new(OlmMachine { inner: ManuallyDrop::new(inner), runtime }))
+    }
+
     /// Get the user ID of the owner of this `OlmMachine`.
     pub fn user_id(&self) -> String {
         self.inner.user_id().to_string()
@@ -155,47 +239,6 @@ impl OlmMachine {
     pub fn cross_signing_status(&self) -> CrossSigningStatus {
         self.runtime.block_on(self.inner.cross_signing_status()).into()
     }
-}
-
-impl OlmMachine {
-    /// Create a new `OlmMachine`
-    ///
-    /// # Arguments
-    ///
-    /// * `user_id` - The unique ID of the user that owns this machine.
-    ///
-    /// * `device_id` - The unique ID of the device that owns this machine.
-    ///
-    /// * `path` - The path where the state of the machine should be persisted.
-    ///
-    /// * `passphrase` - The passphrase that should be used to encrypt the data
-    ///   at rest in the Sled store. **Warning**, if no passphrase is given, the
-    ///   store and all its data will remain unencrypted.
-    pub fn new(
-        user_id: &str,
-        device_id: &str,
-        path: &str,
-        mut passphrase: Option<String>,
-    ) -> Result<Self, CryptoStoreError> {
-        let user_id = parse_user_id(user_id)?;
-        let device_id = device_id.into();
-        let runtime = Runtime::new().expect("Couldn't create a tokio runtime");
-
-        let store = runtime
-            .block_on(matrix_sdk_sqlite::SqliteCryptoStore::open(path, passphrase.as_deref()))?;
-
-        passphrase.zeroize();
-
-        let inner =
-            runtime.block_on(InnerMachine::with_store(&user_id, device_id, Arc::new(store)))?;
-
-        Ok(OlmMachine { inner: ManuallyDrop::new(inner), runtime })
-    }
-
-    /// Get the display name of our own device.
-    pub fn display_name(&self) -> Result<Option<String>, CryptoStoreError> {
-        Ok(self.runtime.block_on(self.inner.display_name())?)
-    }
 
     /// Get a cross signing user identity for the given user ID.
     ///
@@ -211,10 +254,10 @@ impl OlmMachine {
     /// received.
     pub fn get_identity(
         &self,
-        user_id: &str,
+        user_id: String,
         timeout: u32,
     ) -> Result<Option<UserIdentity>, CryptoStoreError> {
-        let user_id = parse_user_id(user_id)?;
+        let user_id = parse_user_id(&user_id)?;
 
         let timeout = if timeout == 0 { None } else { Some(Duration::from_secs(timeout.into())) };
 
@@ -230,8 +273,8 @@ impl OlmMachine {
     }
 
     /// Check if a user identity is considered to be verified by us.
-    pub fn is_identity_verified(&self, user_id: &str) -> Result<bool, CryptoStoreError> {
-        let user_id = parse_user_id(user_id)?;
+    pub fn is_identity_verified(&self, user_id: String) -> Result<bool, CryptoStoreError> {
+        let user_id = parse_user_id(&user_id)?;
 
         Ok(
             if let Some(identity) =
@@ -258,7 +301,10 @@ impl OlmMachine {
     ///
     /// Returns a request that needs to be sent out for the user identity to be
     /// marked as verified.
-    pub fn verify_identity(&self, user_id: &str) -> Result<SignatureUploadRequest, SignatureError> {
+    pub fn verify_identity(
+        &self,
+        user_id: String,
+    ) -> Result<SignatureUploadRequest, SignatureError> {
         let user_id = UserId::parse(user_id)?;
 
         let user_identity = self.runtime.block_on(self.inner.get_identity(&user_id, None))?;
@@ -290,17 +336,17 @@ impl OlmMachine {
     /// received.
     pub fn get_device(
         &self,
-        user_id: &str,
-        device_id: &str,
+        user_id: String,
+        device_id: String,
         timeout: u32,
     ) -> Result<Option<Device>, CryptoStoreError> {
-        let user_id = parse_user_id(user_id)?;
+        let user_id = parse_user_id(&user_id)?;
 
         let timeout = if timeout == 0 { None } else { Some(Duration::from_secs(timeout.into())) };
 
         Ok(self
             .runtime
-            .block_on(self.inner.get_device(&user_id, device_id.into(), timeout))?
+            .block_on(self.inner.get_device(&user_id, device_id.as_str().into(), timeout))?
             .map(|d| d.into()))
     }
 
@@ -319,17 +365,20 @@ impl OlmMachine {
     /// as verified.
     pub fn verify_device(
         &self,
-        user_id: &str,
-        device_id: &str,
+        user_id: String,
+        device_id: String,
     ) -> Result<SignatureUploadRequest, SignatureError> {
         let user_id = UserId::parse(user_id)?;
-        let device =
-            self.runtime.block_on(self.inner.get_device(&user_id, device_id.into(), None))?;
+        let device = self.runtime.block_on(self.inner.get_device(
+            &user_id,
+            device_id.as_str().into(),
+            None,
+        ))?;
 
         if let Some(device) = device {
             Ok(self.runtime.block_on(device.verify())?.into())
         } else {
-            Err(SignatureError::UnknownDevice(user_id, device_id.to_owned()))
+            Err(SignatureError::UnknownDevice(user_id, device_id))
         }
     }
 
@@ -337,14 +386,17 @@ impl OlmMachine {
     /// or uploading any signatures if verified
     pub fn set_local_trust(
         &self,
-        user_id: &str,
-        device_id: &str,
+        user_id: String,
+        device_id: String,
         trust_state: LocalTrust,
     ) -> Result<(), CryptoStoreError> {
-        let user_id = parse_user_id(user_id)?;
+        let user_id = parse_user_id(&user_id)?;
 
-        let device =
-            self.runtime.block_on(self.inner.get_device(&user_id, device_id.into(), None))?;
+        let device = self.runtime.block_on(self.inner.get_device(
+            &user_id,
+            device_id.as_str().into(),
+            None,
+        ))?;
 
         if let Some(device) = device {
             self.runtime.block_on(device.set_local_trust(trust_state))?;
@@ -367,10 +419,10 @@ impl OlmMachine {
     /// received.
     pub fn get_user_devices(
         &self,
-        user_id: &str,
+        user_id: String,
         timeout: u32,
     ) -> Result<Vec<Device>, CryptoStoreError> {
-        let user_id = parse_user_id(user_id)?;
+        let user_id = parse_user_id(&user_id)?;
 
         let timeout = if timeout == 0 { None } else { Some(Duration::from_secs(timeout.into())) };
         Ok(self
@@ -386,7 +438,7 @@ impl OlmMachine {
     ///
     /// After the request was sent out and a successful response was received
     /// the response body should be passed back to the state machine using the
-    /// [mark_request_as_sent()](#method.mark_request_as_sent) method.
+    /// [mark_request_as_sent()](Self::mark_request_as_sent) method.
     ///
     /// **Note**: This method call should be locked per call.
     pub fn outgoing_requests(&self) -> Result<Vec<Request>, CryptoStoreError> {
@@ -410,13 +462,13 @@ impl OlmMachine {
     /// * `response_body` - The body of the response that was received.
     pub fn mark_request_as_sent(
         &self,
-        request_id: &str,
+        request_id: String,
         request_type: RequestType,
-        response_body: &str,
+        response_body: String,
     ) -> Result<(), CryptoStoreError> {
         let id: OwnedTransactionId = request_id.into();
 
-        let response = response_from_string(response_body);
+        let response = response_from_string(&response_body);
 
         let response: OwnedResponse = match request_type {
             RequestType::KeysUpload => {
@@ -447,10 +499,7 @@ impl OlmMachine {
 
         Ok(())
     }
-}
 
-#[uniffi::export]
-impl OlmMachine {
     /// Let the state machine know about E2EE related sync changes that we
     /// received from the server.
     ///
@@ -472,7 +521,8 @@ impl OlmMachine {
         device_changes: DeviceLists,
         key_counts: HashMap<String, i32>,
         unused_fallback_keys: Option<Vec<String>>,
-    ) -> Result<String, CryptoStoreError> {
+        next_batch_token: String,
+    ) -> Result<SyncChangesResult, CryptoStoreError> {
         let to_device: ToDevice = serde_json::from_str(&events)?;
         let device_changes: RumaDeviceLists = device_changes.into();
         let key_counts: BTreeMap<DeviceKeyAlgorithm, UInt> = key_counts
@@ -490,14 +540,21 @@ impl OlmMachine {
         let unused_fallback_keys: Option<Vec<DeviceKeyAlgorithm>> =
             unused_fallback_keys.map(|u| u.into_iter().map(DeviceKeyAlgorithm::from).collect());
 
-        let events = self.runtime.block_on(self.inner.receive_sync_changes(
-            to_device.events,
-            &device_changes,
-            &key_counts,
-            unused_fallback_keys.as_deref(),
-        ))?;
+        let (to_device_events, room_key_infos) = self.runtime.block_on(
+            self.inner.receive_sync_changes(matrix_sdk_crypto::EncryptionSyncChanges {
+                to_device_events: to_device.events,
+                changed_devices: &device_changes,
+                one_time_keys_counts: &key_counts,
+                unused_fallback_keys: unused_fallback_keys.as_deref(),
+                next_batch_token: Some(next_batch_token),
+            }),
+        )?;
 
-        Ok(serde_json::to_string(&events)?)
+        let to_device_events =
+            to_device_events.into_iter().map(|event| event.json().get().to_owned()).collect();
+        let room_key_infos = room_key_infos.into_iter().map(|info| info.into()).collect();
+
+        Ok(SyncChangesResult { to_device_events, room_key_infos })
     }
 
     /// Add the given list of users to be tracked, triggering a key query
@@ -510,7 +567,7 @@ impl OlmMachine {
     ///
     /// *Note*: Only users that aren't already tracked will be considered for an
     /// update. It's safe to call this with already tracked users, it won't
-    /// result in excessive keys query requests.
+    /// result in excessive `/keys/query` requests.
     ///
     /// # Arguments
     ///
@@ -538,10 +595,10 @@ impl OlmMachine {
     ///
     /// After the request was sent out and a successful response was received
     /// the response body should be passed back to the state machine using the
-    /// [mark_request_as_sent()](#method.mark_request_as_sent) method.
+    /// [mark_request_as_sent()](Self::mark_request_as_sent) method.
     ///
     /// This method should be called every time before a call to
-    /// [`share_room_key()`](#method.share_room_key) is made.
+    /// [`share_room_key()`](Self::share_room_key) is made.
     ///
     /// # Arguments
     ///
@@ -564,9 +621,9 @@ impl OlmMachine {
     /// whether to encrypt only for trusted devices.
     ///
     /// These settings can be modified via
-    /// [set_room_algorithm()](#method.set_room_algorithm) and
-    /// [set_room_only_allow_trusted_devices()](#method.
-    /// set_room_only_allow_trusted_devices) methods.
+    /// [set_room_algorithm()](Self::set_room_algorithm) and
+    /// [set_room_only_allow_trusted_devices()](Self::set_room_only_allow_trusted_devices)
+    /// methods.
     pub fn get_room_settings(
         &self,
         room_id: String,
@@ -607,8 +664,8 @@ impl OlmMachine {
     /// devices, or whether they should be excluded from the conversation.
     ///
     /// Note that per-room setting may be overridden by a global
-    /// [set_only_allow_trusted_devices()](#method.
-    /// set_only_allow_trusted_devices) method.
+    /// [set_only_allow_trusted_devices()](Self::set_only_allow_trusted_devices)
+    /// method.
     pub fn set_room_only_allow_trusted_devices(
         &self,
         room_id: String,
@@ -659,10 +716,10 @@ impl OlmMachine {
     ///
     /// After the request was sent out and a successful response was received
     /// the response body should be passed back to the state machine using the
-    /// [mark_request_as_sent()](#method.mark_request_as_sent) method.
+    /// [mark_request_as_sent()](Self::mark_request_as_sent) method.
     ///
     /// This method should be called every time before a call to
-    /// [`encrypt()`](#method.encrypt) with the given `room_id` is made.
+    /// [`encrypt()`](Self::encrypt) with the given `room_id` is made.
     ///
     /// # Arguments
     ///
@@ -704,12 +761,12 @@ impl OlmMachine {
     ///
     /// 1. Get the one-time key claim request to establish 1:1 Olm sessions for
     ///    the room members of the room we wish to participate in. This is done
-    ///    using the [`get_missing_sessions()`](#method.get_missing_sessions)
+    ///    using the [`get_missing_sessions()`](Self::get_missing_sessions)
     ///    method. This method call should be locked per call.
     ///
     /// 2. Share a room key with all the room members using the
-    ///    [`share_room_key()`](#method.share_room_key). This method
-    ///    call should be locked per room.
+    ///    [`share_room_key()`](Self::share_room_key). This method call should
+    ///    be locked per room.
     ///
     /// 3. Encrypt the event using this method.
     ///
@@ -733,11 +790,11 @@ impl OlmMachine {
         content: String,
     ) -> Result<String, CryptoStoreError> {
         let room_id = RoomId::parse(room_id)?;
-        let content: Value = serde_json::from_str(&content)?;
+        let content = serde_json::from_str(&content)?;
 
         let encrypted_content = self
             .runtime
-            .block_on(self.inner.encrypt_room_event_raw(&room_id, content, &event_type))
+            .block_on(self.inner.encrypt_room_event_raw(&room_id, &event_type, &content))
             .expect("Encrypting an event produced an error");
 
         Ok(serde_json::to_string(&encrypted_content)?)
@@ -867,37 +924,6 @@ impl OlmMachine {
 
         Ok(encrypted)
     }
-}
-
-impl OlmMachine {
-    fn import_room_keys_helper(
-        &self,
-        keys: Vec<ExportedRoomKey>,
-        from_backup: bool,
-        progress_listener: Box<dyn ProgressListener>,
-    ) -> Result<KeysImportResult, KeyImportError> {
-        let listener = |progress: usize, total: usize| {
-            progress_listener.on_progress(progress as i32, total as i32)
-        };
-
-        let result =
-            self.runtime.block_on(self.inner.import_room_keys(keys, from_backup, listener))?;
-
-        Ok(KeysImportResult {
-            imported: result.imported_count as i64,
-            total: result.total_count as i64,
-            keys: result
-                .keys
-                .into_iter()
-                .map(|(r, m)| {
-                    (
-                        r.to_string(),
-                        m.into_iter().map(|(s, k)| (s, k.into_iter().collect())).collect(),
-                    )
-                })
-                .collect(),
-        })
-    }
 
     /// Import room keys from the given serialized key export.
     ///
@@ -911,12 +937,12 @@ impl OlmMachine {
     /// progress of the key import.
     pub fn import_room_keys(
         &self,
-        keys: &str,
-        passphrase: &str,
+        keys: String,
+        passphrase: String,
         progress_listener: Box<dyn ProgressListener>,
     ) -> Result<KeysImportResult, KeyImportError> {
         let keys = Cursor::new(keys);
-        let keys = decrypt_room_key_export(keys, passphrase)?;
+        let keys = decrypt_room_key_export(keys, &passphrase)?;
         self.import_room_keys_helper(keys, false, progress_listener)
     }
 
@@ -935,19 +961,16 @@ impl OlmMachine {
     /// progress of the key import.
     pub fn import_decrypted_room_keys(
         &self,
-        keys: &str,
+        keys: String,
         progress_listener: Box<dyn ProgressListener>,
     ) -> Result<KeysImportResult, KeyImportError> {
-        let keys: Vec<Value> = serde_json::from_str(keys)?;
+        let keys: Vec<Value> = serde_json::from_str(&keys)?;
 
         let keys = keys.into_iter().map(serde_json::from_value).filter_map(|k| k.ok()).collect();
 
         self.import_room_keys_helper(keys, true, progress_listener)
     }
-}
 
-#[uniffi::export]
-impl OlmMachine {
     /// Discard the currently active room key for the given room if there is
     /// one.
     pub fn discard_room_key(&self, room_id: String) -> Result<(), CryptoStoreError> {
@@ -1080,7 +1103,7 @@ impl OlmMachine {
     /// * `methods` - The list of verification methods we advertised as
     /// supported in the `m.key.verification.request` event.
     ///
-    /// [verification_request_content()]: #method.verification_request_content
+    /// [verification_request_content()]: Self::verification_request_content
     pub fn request_verification(
         &self,
         user_id: String,
@@ -1216,7 +1239,7 @@ impl OlmMachine {
     ///
     /// * `device_id` - The ID of device we would like to verify.
     ///
-    /// [request_verification_with_device()]: #method.request_verification_with_device
+    /// [request_verification_with_device()]: Self::request_verification_with_device
     pub fn start_sas_with_device(
         &self,
         user_id: String,
@@ -1254,8 +1277,10 @@ impl OlmMachine {
     ///
     /// This method returns `None` if we don't have any private cross signing
     /// keys.
-    pub fn export_cross_signing_keys(&self) -> Option<CrossSigningKeyExport> {
-        self.runtime.block_on(self.inner.export_cross_signing_keys()).map(|e| e.into())
+    pub fn export_cross_signing_keys(
+        &self,
+    ) -> Result<Option<CrossSigningKeyExport>, CryptoStoreError> {
+        Ok(self.runtime.block_on(self.inner.export_cross_signing_keys())?.map(|e| e.into()))
     }
 
     /// Import our private cross signing keys.
@@ -1269,6 +1294,16 @@ impl OlmMachine {
         self.runtime.block_on(self.inner.import_cross_signing_keys(export.into()))?;
 
         Ok(())
+    }
+
+    /// Request missing local secrets from our devices (cross signing private
+    /// keys, megolm backup). This will ask the sdk to create outgoing
+    /// request to get the missing secrets.
+    ///
+    /// The requests will be processed as soon as `outgoing_requests()` is
+    /// called to process them.
+    pub fn query_missing_secrets_from_other_sessions(&self) -> Result<bool, CryptoStoreError> {
+        Ok(self.runtime.block_on(self.inner.query_missing_secrets_from_other_sessions())?)
     }
 
     /// Activate the given backup key to be used with the given backup version.
@@ -1335,12 +1370,12 @@ impl OlmMachine {
             // We need to clone here due to FFI limitations but RecoveryKey does
             // not want to expose clone since it's private key material.
             let mut encoded = k.to_base64();
-            let key = RecoveryKey::from_base64(&encoded)
+            let key = BackupDecryptionKey::from_base64(&encoded)
                 .expect("Encoding and decoding from base64 should always work");
             encoded.zeroize();
             key
         });
-        Ok(self.runtime.block_on(self.inner.backup_machine().save_recovery_key(key, version))?)
+        Ok(self.runtime.block_on(self.inner.backup_machine().save_decryption_key(key, version))?)
     }
 
     /// Get the backup keys we have saved in our crypto store.
@@ -1352,14 +1387,16 @@ impl OlmMachine {
             .ok()
             .map(Arc::new))
     }
-}
 
-impl OlmMachine {
     /// Sign the given message using our device key and if available cross
     /// signing master key.
-    pub fn sign(&self, message: &str) -> HashMap<String, HashMap<String, String>> {
-        self.runtime
-            .block_on(self.inner.sign(message))
+    pub fn sign(
+        &self,
+        message: String,
+    ) -> Result<HashMap<String, HashMap<String, String>>, CryptoStoreError> {
+        Ok(self
+            .runtime
+            .block_on(self.inner.sign(&message))?
             .into_iter()
             .map(|(k, v)| {
                 (
@@ -1377,7 +1414,7 @@ impl OlmMachine {
                         .collect(),
                 )
             })
-            .collect()
+            .collect())
     }
 
     /// Check if the given backup has been verified by us or by another of our
@@ -1397,13 +1434,54 @@ impl OlmMachine {
     /// ```
     pub fn verify_backup(
         &self,
-        backup_info: &str,
+        backup_info: String,
     ) -> Result<SignatureVerification, CryptoStoreError> {
-        let backup_info = serde_json::from_str(backup_info)?;
+        let backup_info = serde_json::from_str(&backup_info)?;
 
         Ok(self
             .runtime
             .block_on(self.inner.backup_machine().verify_backup(backup_info, false))?
             .into())
+    }
+
+    /// Manage dehydrated devices.
+    pub fn dehydrated_devices(&self) -> Arc<DehydratedDevices> {
+        DehydratedDevices {
+            inner: ManuallyDrop::new(self.inner.dehydrated_devices()),
+            runtime: self.runtime.handle().to_owned(),
+        }
+        .into()
+    }
+}
+
+impl OlmMachine {
+    fn import_room_keys_helper(
+        &self,
+        keys: Vec<ExportedRoomKey>,
+        from_backup: bool,
+        progress_listener: Box<dyn ProgressListener>,
+    ) -> Result<KeysImportResult, KeyImportError> {
+        let listener = |progress: usize, total: usize| {
+            progress_listener.on_progress(progress as i32, total as i32)
+        };
+
+        #[allow(deprecated)]
+        let result =
+            self.runtime.block_on(self.inner.import_room_keys(keys, from_backup, listener))?;
+
+        Ok(KeysImportResult {
+            imported: result.imported_count as i64,
+            total: result.total_count as i64,
+            keys: result
+                .keys
+                .into_iter()
+                .map(|(r, m)| {
+                    (
+                        r.to_string(),
+                        m.into_iter().map(|(s, k)| (s, k.into_iter().collect())).collect(),
+                    )
+                })
+                .collect(),
+        })
     }
 }

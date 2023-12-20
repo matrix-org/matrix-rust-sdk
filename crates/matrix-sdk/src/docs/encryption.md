@@ -188,7 +188,7 @@ have been uploaded and tied to a device ID.
 
 ### Using an access token
 
-1. Log in with the password using [`Client::login_username()`].
+1. Log in with the password using [`MatrixAuth::login_username()`].
 2. Store the access token, preferably somewhere secure.
 3. Use [`Client::restore_session()`] the next time the client starts.
 
@@ -199,13 +199,13 @@ the device ID.
 
 ### Using a password.
 
-1. Log in using [`Client::login_username()`].
+1. Log in using [`MatrixAuth::login_username()`].
 2. Store the `device_id` that was returned in the login response from the
    server.
-3. Use [`Client::login_username()`] the next time the client starts, make sure
-   to set `device_id` to the stored `device_id` from the previous step. This
-   will replace the access token from the previous login call, but won't create
-   a new device.
+3. Use [`MatrixAuth::login_username()`] the next time the client starts, make
+   sure to set `device_id` to the stored `device_id` from the previous step.
+   This will replace the access token from the previous login call, but won't
+   create a new device.
 
 **Note** that the default store supports only a single device, logging in
 with a different device ID (either `None` or a device ID of another client)
@@ -216,7 +216,7 @@ is **not** supported using the default store.
 | Failure | Cause | Fix |
 | ------------------- | ----- | ----------- |
 | No messages get encrypted nor decrypted | The `e2e-encryption` feature is disabled | [Enable the feature in your `Cargo.toml` file] |
-| Messages that were decryptable aren't after a restart | Storage isn't setup to be persistent | Ensure you've activated the persistent storage backend feature, e.g. `sled` |
+| Messages that were decryptable aren't after a restart | Storage isn't setup to be persistent | Ensure you've activated the persistent storage backend feature, e.g. `sqlite` |
 | Messages are encrypted but can't be decrypted | The access token that the client is using is tied to another device | Clear storage to create a new device, read the [Restoring a Client] section |
 | Messages don't get encrypted but get decrypted | The `m.room.encryption` event is missing | Make sure encryption is [enabled] for the room and the event isn't [filtered] out, otherwise it might be a deserialization bug |
 
@@ -224,7 +224,7 @@ is **not** supported using the default store.
 [Megolm]: https://gitlab.matrix.org/matrix-org/olm/blob/master/docs/megolm.md
 [`UserIdentity`]: #struct.verification.UserIdentity
 [filtered]: crate::config::SyncSettings::filter
-[enabled]: crate::room::Joined::enable_encryption
+[enabled]: crate::Room::enable_encryption
 [Restoring a Client]: #restoring-a-client
 [spec]: https://spec.matrix.org/unstable/client-server-api/#relationship-between-access-tokens-and-devices
 [device keys]: https://spec.matrix.org/unstable/client-server-api/#device-keys
@@ -233,3 +233,4 @@ is **not** supported using the default store.
 [`StoreConfig`]: crate::config::StoreConfig
 [`ClientBuilder`]: crate::ClientBuilder
 [`ClientBuilder::store_config`]: crate::ClientBuilder::store_config
+[`MatrixAuth::login_username()`]: crate::matrix_auth::MatrixAuth::login_username

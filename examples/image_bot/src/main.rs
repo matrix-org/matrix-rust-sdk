@@ -4,14 +4,15 @@ use matrix_sdk::{
     self,
     attachment::AttachmentConfig,
     config::SyncSettings,
-    room::Room,
     ruma::events::room::message::{MessageType, OriginalSyncRoomMessageEvent},
-    Client,
+    Client, Room, RoomState,
 };
 use url::Url;
 
 async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room, image: Vec<u8>) {
-    let Room::Joined(room) = room else { return };
+    if room.state() != RoomState::Joined {
+        return;
+    }
     let MessageType::Text(text_content) = event.content.msgtype else { return };
 
     if text_content.body.contains("!image") {
@@ -33,11 +34,15 @@ async fn login_and_sync(
     let homeserver_url = Url::parse(&homeserver_url).expect("Couldn't parse the homeserver URL");
     let client = Client::new(homeserver_url).await.unwrap();
 
-    client.login_username(&username, &password).initial_device_display_name("command bot").await?;
+    client
+        .matrix_auth()
+        .login_username(&username, &password)
+        .initial_device_display_name("command bot")
+        .await?;
 
     let response = client.sync_once(SyncSettings::default()).await.unwrap();
 
-    client.add_event_handler(move |ev, room| on_room_message(ev, room, image.clone()));
+    client.add_event_handler(move |ev, room| on_room_message(ev, room, image));
 
     let settings = SyncSettings::default().token(response.next_batch);
     client.sync(settings).await?;

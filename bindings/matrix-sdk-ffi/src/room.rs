@@ -1,30 +1,29 @@
-use std::{
-    convert::TryFrom,
-    sync::{Arc, RwLock},
-};
+use std::{convert::TryFrom, sync::Arc};
 
-use anyhow::{bail, Context, Result};
-use futures_util::StreamExt;
-use matrix_sdk::{
-    room::{timeline::Timeline, Receipts, Room as SdkRoom},
-    ruma::{
-        api::client::{receipt::create_receipt::v3::ReceiptType, room::report_content},
-        events::{
-            reaction::ReactionEventContent,
-            receipt::ReceiptThread,
-            relation::{Annotation, Replacement},
-            room::message::{
-                ForwardThread, MessageType, Relation, RoomMessageEvent, RoomMessageEventContent,
-            },
-        },
-        EventId, UserId,
-    },
-};
+use anyhow::{Context, Result};
+use matrix_sdk::{room::Room as SdkRoom, RoomMemberships, RoomState};
+use matrix_sdk_ui::timeline::RoomExt;
 use mime::Mime;
+use ruma::{
+    api::client::room::report_content,
+    assign,
+    events::room::{avatar::ImageInfo as RumaAvatarImageInfo, MediaSource},
+    EventId, UserId,
+};
+use tokio::sync::RwLock;
 use tracing::error;
 
 use super::RUNTIME;
-use crate::{RoomMember, TimelineDiff, TimelineItem, TimelineListener};
+use crate::{
+    chunk_iterator::ChunkIterator,
+    error::{ClientError, MediaInfoError, RoomError},
+    room_info::RoomInfo,
+    room_member::{MessageLikeEventType, RoomMember, StateEventType},
+    ruma::ImageInfo,
+    timeline::{EventTimelineItem, Timeline},
+    utils::u64_to_uint,
+    TaskHandle,
+};
 
 #[derive(uniffi::Enum)]
 pub enum Membership {
@@ -33,341 +32,222 @@ pub enum Membership {
     Left,
 }
 
+impl From<RoomState> for Membership {
+    fn from(value: RoomState) -> Self {
+        match value {
+            RoomState::Invited => Membership::Invited,
+            RoomState::Joined => Membership::Joined,
+            RoomState::Left => Membership::Left,
+        }
+    }
+}
+
 pub(crate) type TimelineLock = Arc<RwLock<Option<Arc<Timeline>>>>;
 
+#[derive(uniffi::Object)]
 pub struct Room {
-    room: SdkRoom,
+    pub(super) inner: SdkRoom,
     timeline: TimelineLock,
 }
 
-#[uniffi::export]
 impl Room {
-    pub fn id(&self) -> String {
-        self.room.room_id().to_string()
+    pub(crate) fn new(inner: SdkRoom) -> Self {
+        Room { inner, timeline: Default::default() }
     }
 
-    pub fn name(&self) -> Option<String> {
-        self.room.name()
-    }
-
-    pub fn topic(&self) -> Option<String> {
-        self.room.topic()
-    }
-
-    pub fn avatar_url(&self) -> Option<String> {
-        self.room.avatar_url().map(|m| m.to_string())
-    }
-
-    pub fn is_direct(&self) -> bool {
-        self.room.is_direct()
-    }
-
-    pub fn is_public(&self) -> bool {
-        self.room.is_public()
-    }
-
-    pub fn is_space(&self) -> bool {
-        self.room.is_space()
-    }
-
-    pub fn is_tombstoned(&self) -> bool {
-        self.room.is_tombstoned()
-    }
-
-    pub fn canonical_alias(&self) -> Option<String> {
-        self.room.canonical_alias().map(|a| a.to_string())
-    }
-
-    pub fn alternative_aliases(&self) -> Vec<String> {
-        self.room.alt_aliases().iter().map(|a| a.to_string()).collect()
-    }
-
-    pub fn membership(&self) -> Membership {
-        match &self.room {
-            SdkRoom::Invited(_) => Membership::Invited,
-            SdkRoom::Joined(_) => Membership::Joined,
-            SdkRoom::Left(_) => Membership::Left,
-        }
-    }
-
-    /// Removes the timeline.
-    ///
-    /// Timeline items cached in memory as well as timeline listeners are
-    /// dropped.
-    pub fn remove_timeline(&self) {
-        *self.timeline.write().unwrap() = None;
-    }
-
-    pub fn retry_decryption(&self, session_ids: Vec<String>) {
-        let timeline = match &*self.timeline.read().unwrap() {
-            Some(t) => Arc::clone(t),
-            None => {
-                error!("Timeline not set up, can't retry decryption");
-                return;
-            }
-        };
-
-        RUNTIME.spawn(async move {
-            timeline.retry_decryption(&session_ids).await;
-        });
-    }
-
-    pub fn fetch_members(&self) {
-        let timeline = match &*self.timeline.read().unwrap() {
-            Some(t) => Arc::clone(t),
-            None => {
-                error!("Timeline not set up, can't fetch members");
-                return;
-            }
-        };
-
-        RUNTIME.spawn(async move {
-            timeline.fetch_members().await;
-        });
+    pub(crate) fn with_timeline(inner: SdkRoom, timeline: TimelineLock) -> Self {
+        Room { inner, timeline }
     }
 }
 
+#[uniffi::export(async_runtime = "tokio")]
 impl Room {
-    pub fn new(room: SdkRoom) -> Self {
-        Room { room, timeline: Default::default() }
-    }
-    pub fn with_timeline(room: SdkRoom, timeline: TimelineLock) -> Self {
-        Room { room, timeline }
+    pub fn id(&self) -> String {
+        self.inner.room_id().to_string()
     }
 
-    pub fn display_name(&self) -> Result<String> {
-        let r = self.room.clone();
+    pub fn name(&self) -> Option<String> {
+        self.inner.name()
+    }
+
+    pub fn topic(&self) -> Option<String> {
+        self.inner.topic()
+    }
+
+    pub fn avatar_url(&self) -> Option<String> {
+        self.inner.avatar_url().map(|m| m.to_string())
+    }
+
+    pub fn is_direct(&self) -> bool {
+        RUNTIME.block_on(async move { self.inner.is_direct().await.unwrap_or(false) })
+    }
+
+    pub fn is_public(&self) -> bool {
+        self.inner.is_public()
+    }
+
+    pub fn is_space(&self) -> bool {
+        self.inner.is_space()
+    }
+
+    pub fn is_tombstoned(&self) -> bool {
+        self.inner.is_tombstoned()
+    }
+
+    pub fn canonical_alias(&self) -> Option<String> {
+        self.inner.canonical_alias().map(|a| a.to_string())
+    }
+
+    pub fn alternative_aliases(&self) -> Vec<String> {
+        self.inner.alt_aliases().iter().map(|a| a.to_string()).collect()
+    }
+
+    pub fn membership(&self) -> Membership {
+        self.inner.state().into()
+    }
+
+    /// Is there a non expired membership with application "m.call" and scope
+    /// "m.room" in this room.
+    pub fn has_active_room_call(&self) -> bool {
+        self.inner.has_active_room_call()
+    }
+
+    /// Returns a Vec of userId's that participate in the room call.
+    ///
+    /// matrix_rtc memberships with application "m.call" and scope "m.room" are
+    /// considered. A user can occur twice if they join with two devices.
+    /// convert to a set depending if the different users are required or the
+    /// amount of sessions.
+    ///
+    /// The vector is ordered by oldest membership user to newest.
+    pub fn active_room_call_participants(&self) -> Vec<String> {
+        self.inner.active_room_call_participants().iter().map(|u| u.to_string()).collect()
+    }
+
+    pub fn inviter(&self) -> Option<Arc<RoomMember>> {
+        if self.inner.state() == RoomState::Invited {
+            RUNTIME.block_on(async move {
+                self.inner
+                    .invite_details()
+                    .await
+                    .ok()
+                    .and_then(|a| a.inviter)
+                    .map(|m| Arc::new(RoomMember::new(m)))
+            })
+        } else {
+            None
+        }
+    }
+
+    pub async fn timeline(&self) -> Arc<Timeline> {
+        let mut write_guard = self.timeline.write().await;
+        if let Some(timeline) = &*write_guard {
+            timeline.clone()
+        } else {
+            let timeline = Timeline::new(self.inner.timeline().await);
+            *write_guard = Some(timeline.clone());
+            timeline
+        }
+    }
+
+    pub async fn poll_history(&self) -> Arc<Timeline> {
+        Timeline::new(self.inner.poll_history().await)
+    }
+
+    pub fn display_name(&self) -> Result<String, ClientError> {
+        let r = self.inner.clone();
         RUNTIME.block_on(async move { Ok(r.display_name().await?.to_string()) })
     }
 
-    pub fn is_encrypted(&self) -> Result<bool> {
-        let room = self.room.clone();
+    pub fn is_encrypted(&self) -> Result<bool, ClientError> {
+        let room = self.inner.clone();
         RUNTIME.block_on(async move {
             let is_encrypted = room.is_encrypted().await?;
             Ok(is_encrypted)
         })
     }
 
-    pub fn members(&self) -> Result<Vec<Arc<RoomMember>>> {
-        let room = self.room.clone();
-        RUNTIME.block_on(async move {
-            let members = room
-                .members()
-                .await?
-                .iter()
-                .map(|m| Arc::new(RoomMember::new(m.clone())))
-                .collect();
-            Ok(members)
-        })
+    pub async fn members(&self) -> Result<Arc<RoomMembersIterator>, ClientError> {
+        Ok(Arc::new(RoomMembersIterator::new(self.inner.members(RoomMemberships::empty()).await?)))
     }
 
-    pub fn member_avatar_url(&self, user_id: String) -> Result<Option<String>> {
-        let room = self.room.clone();
-        let user_id = user_id;
+    pub async fn member(&self, user_id: String) -> Result<Arc<RoomMember>, ClientError> {
+        let user_id = UserId::parse(&*user_id).context("Invalid user id.")?;
+        let member = self.inner.get_member(&user_id).await?.context("No user found")?;
+        Ok(Arc::new(RoomMember::new(member)))
+    }
+
+    pub fn member_avatar_url(&self, user_id: String) -> Result<Option<String>, ClientError> {
+        let room = self.inner.clone();
         RUNTIME.block_on(async move {
-            let user_id = <&UserId>::try_from(&*user_id).context("Invalid user id.")?;
-            let member = room.get_member(user_id).await?.context("No user found")?;
+            let user_id = UserId::parse(&*user_id).context("Invalid user id.")?;
+            let member = room.get_member(&user_id).await?.context("No user found")?;
             let avatar_url_string = member.avatar_url().map(|m| m.to_string());
             Ok(avatar_url_string)
         })
     }
 
-    pub fn member_display_name(&self, user_id: String) -> Result<Option<String>> {
-        let room = self.room.clone();
-        let user_id = user_id;
+    pub fn member_display_name(&self, user_id: String) -> Result<Option<String>, ClientError> {
+        let room = self.inner.clone();
         RUNTIME.block_on(async move {
-            let user_id = <&UserId>::try_from(&*user_id).context("Invalid user id.")?;
-            let member = room.get_member(user_id).await?.context("No user found")?;
+            let user_id = UserId::parse(&*user_id).context("Invalid user id.")?;
+            let member = room.get_member(&user_id).await?.context("No user found")?;
             let avatar_url_string = member.display_name().map(|m| m.to_owned());
             Ok(avatar_url_string)
         })
     }
 
-    pub fn add_timeline_listener(
-        &self,
-        listener: Box<dyn TimelineListener>,
-    ) -> Vec<Arc<TimelineItem>> {
-        let timeline = self
-            .timeline
-            .write()
-            .unwrap()
-            .get_or_insert_with(|| {
-                let room = self.room.clone();
-                #[allow(unknown_lints, clippy::redundant_async_block)] // false positive
-                let timeline = RUNTIME.block_on(room.timeline());
-                Arc::new(timeline)
-            })
-            .clone();
+    pub async fn room_info(&self) -> Result<RoomInfo, ClientError> {
+        let avatar_url = self.inner.avatar_url();
 
-        RUNTIME.block_on(async move {
-            let (timeline_items, timeline_stream) = timeline.subscribe().await;
+        // Look for a local event in the `Timeline`.
+        //
+        // First off, let's see if a `Timeline` exists…
+        if let Some(timeline) = self.timeline.read().await.clone() {
+            // If it contains a `latest_event`…
+            if let Some(timeline_last_event) = timeline.inner.latest_event().await {
+                // If it's a local echo…
+                if timeline_last_event.is_local_echo() {
+                    return Ok(RoomInfo::new(
+                        &self.inner,
+                        avatar_url,
+                        Some(Arc::new(EventTimelineItem(timeline_last_event))),
+                    )
+                    .await?);
+                }
+            }
+        }
 
-            let listener: Arc<dyn TimelineListener> = listener.into();
-            RUNTIME.spawn(timeline_stream.for_each(move |diff| {
-                let listener = listener.clone();
-                let fut = RUNTIME
-                    .spawn_blocking(move || listener.on_update(Arc::new(TimelineDiff::new(diff))));
+        // Otherwise, fallback to the classical path.
+        let latest_event = match self.inner.latest_event() {
+            Some(latest_event) => matrix_sdk_ui::timeline::EventTimelineItem::from_latest_event(
+                self.inner.client(),
+                self.inner.room_id(),
+                latest_event,
+            )
+            .await
+            .map(EventTimelineItem)
+            .map(Arc::new),
+            None => None,
+        };
+        Ok(RoomInfo::new(&self.inner, avatar_url, latest_event).await?)
+    }
 
-                async move {
-                    if let Err(e) = fut.await {
-                        error!("Timeline listener error: {e}");
+    pub fn subscribe_to_room_info_updates(
+        self: Arc<Self>,
+        listener: Box<dyn RoomInfoListener>,
+    ) -> Arc<TaskHandle> {
+        let mut subscriber = self.inner.subscribe_info();
+        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
+            while subscriber.next().await.is_some() {
+                match self.room_info().await {
+                    Ok(room_info) => listener.call(room_info),
+                    Err(e) => {
+                        error!("Failed to compute new RoomInfo: {e}");
                     }
                 }
-            }));
-
-            timeline_items.into_iter().map(TimelineItem::from_arc).collect()
-        })
-    }
-
-    pub fn paginate_backwards(&self, opts: PaginationOptions) -> Result<()> {
-        if let Some(timeline) = &*self.timeline.read().unwrap() {
-            RUNTIME.block_on(async move { Ok(timeline.paginate_backwards(opts.into()).await?) })
-        } else {
-            bail!("No timeline listeners registered, can't paginate");
-        }
-    }
-
-    pub fn send_read_receipt(&self, event_id: String) -> Result<()> {
-        let room = match &self.room {
-            SdkRoom::Joined(j) => j.clone(),
-            _ => bail!("Can't send read receipts to room that isn't in joined state"),
-        };
-
-        let event_id = EventId::parse(event_id)?;
-
-        RUNTIME.block_on(async move {
-            room.send_single_receipt(ReceiptType::Read, ReceiptThread::Unthreaded, event_id)
-                .await?;
-            Ok(())
-        })
-    }
-
-    pub fn send_read_marker(
-        &self,
-        fully_read_event_id: String,
-        read_receipt_event_id: Option<String>,
-    ) -> Result<()> {
-        let room = match &self.room {
-            SdkRoom::Joined(j) => j.clone(),
-            _ => bail!("Can't send read markers to room that isn't in joined state"),
-        };
-
-        let fully_read =
-            EventId::parse(fully_read_event_id).context("parsing fully read event ID")?;
-        let read_receipt = read_receipt_event_id
-            .map(EventId::parse)
-            .transpose()
-            .context("parsing read receipt event ID")?;
-        let receipts =
-            Receipts::new().fully_read_marker(fully_read).public_read_receipt(read_receipt);
-
-        RUNTIME.block_on(async move {
-            room.send_multiple_receipts(receipts).await?;
-            Ok(())
-        })
-    }
-
-    pub fn send(&self, msg: Arc<RoomMessageEventContent>, txn_id: Option<String>) {
-        let timeline = match &*self.timeline.read().unwrap() {
-            Some(t) => Arc::clone(t),
-            None => {
-                error!("Timeline not set up, can't send message");
-                return;
             }
-        };
-
-        RUNTIME.spawn(async move {
-            timeline.send((*msg).to_owned().into(), txn_id.as_deref().map(Into::into)).await;
-        });
-    }
-
-    pub fn send_reply(
-        &self,
-        msg: String,
-        in_reply_to_event_id: String,
-        txn_id: Option<String>,
-    ) -> Result<()> {
-        let room = match &self.room {
-            SdkRoom::Joined(j) => j.clone(),
-            _ => bail!("Can't send to a room that isn't in joined state"),
-        };
-
-        let timeline = match &*self.timeline.read().unwrap() {
-            Some(t) => Arc::clone(t),
-            None => bail!("Timeline not set up, can't send message"),
-        };
-
-        let event_id: &EventId =
-            in_reply_to_event_id.as_str().try_into().context("Failed to create EventId.")?;
-
-        let reply_content = RUNTIME.block_on(async move {
-            let timeline_event = room.event(event_id).await.context("Couldn't find event.")?;
-
-            let event_content = timeline_event
-                .event
-                .deserialize_as::<RoomMessageEvent>()
-                .context("Couldn't deserialize event")?;
-
-            let original_message =
-                event_content.as_original().context("Couldn't retrieve original message.")?;
-
-            anyhow::Ok(
-                RoomMessageEventContent::text_markdown(msg)
-                    .make_reply_to(original_message, ForwardThread::Yes),
-            )
-        })?;
-
-        RUNTIME.spawn(async move {
-            timeline.send(reply_content.into(), txn_id.as_deref().map(Into::into)).await;
-        });
-        Ok(())
-    }
-
-    pub fn edit(
-        &self,
-        new_msg: String,
-        original_event_id: String,
-        txn_id: Option<String>,
-    ) -> Result<()> {
-        let room = match &self.room {
-            SdkRoom::Joined(j) => j.clone(),
-            _ => bail!("Can't send to a room that isn't in joined state"),
-        };
-
-        let timeline = match &*self.timeline.read().unwrap() {
-            Some(t) => Arc::clone(t),
-            None => bail!("Timeline not set up, can't send message"),
-        };
-
-        let event_id: &EventId =
-            original_event_id.as_str().try_into().context("Failed to create EventId.")?;
-
-        let edited_content = RUNTIME.block_on(async move {
-            let timeline_event = room.event(event_id).await.context("Couldn't find event.")?;
-
-            let event_content = timeline_event
-                .event
-                .deserialize_as::<RoomMessageEvent>()
-                .context("Couldn't deserialise event")?;
-
-            if self.own_user_id() != event_content.sender() {
-                bail!("Can't edit an event not sent by own user")
-            }
-
-            let replacement = Replacement::new(
-                event_id.to_owned(),
-                MessageType::text_markdown(new_msg.to_owned()),
-            );
-
-            let mut edited_content = RoomMessageEventContent::text_markdown(new_msg);
-            edited_content.relates_to = Some(Relation::Replacement(replacement));
-            Ok(edited_content)
-        })?;
-
-        RUNTIME.spawn(async move {
-            timeline.send(edited_content.into(), txn_id.as_deref().map(Into::into)).await;
-        });
-        Ok(())
+        })))
     }
 
     /// Redacts an event from the room.
@@ -377,38 +257,25 @@ impl Room {
     /// * `event_id` - The ID of the event to redact
     ///
     /// * `reason` - The reason for the event being redacted (optional).
-    ///
-    /// * `txn_id` - A unique ID that can be attached to this event as
     /// its transaction ID (optional). If not given one is created.
-    pub fn redact(
-        &self,
-        event_id: String,
-        reason: Option<String>,
-        txn_id: Option<String>,
-    ) -> Result<()> {
-        let room = match &self.room {
-            SdkRoom::Joined(j) => j.clone(),
-            _ => bail!("Can't redact in a room that isn't in joined state"),
-        };
-
+    pub fn redact(&self, event_id: String, reason: Option<String>) -> Result<(), ClientError> {
         RUNTIME.block_on(async move {
             let event_id = EventId::parse(event_id)?;
-            room.redact(&event_id, reason.as_deref(), txn_id.map(Into::into)).await?;
+            self.inner.redact(&event_id, reason.as_deref(), None).await?;
             Ok(())
         })
     }
 
-    pub fn send_reaction(&self, event_id: String, key: String) -> Result<()> {
-        let room = match &self.room {
-            SdkRoom::Joined(j) => j.clone(),
-            _ => bail!("Can't send reaction in a room that isn't in joined state"),
-        };
+    pub fn active_members_count(&self) -> u64 {
+        self.inner.active_members_count()
+    }
 
-        RUNTIME.block_on(async move {
-            let event_id = EventId::parse(event_id)?;
-            room.send(ReactionEventContent::new(Annotation::new(event_id, key)), None).await?;
-            Ok(())
-        })
+    pub fn invited_members_count(&self) -> u64 {
+        self.inner.invited_members_count()
+    }
+
+    pub fn joined_members_count(&self) -> u64 {
+        self.inner.joined_members_count()
     }
 
     /// Reports an event from the room.
@@ -426,15 +293,15 @@ impl Room {
         event_id: String,
         score: Option<i32>,
         reason: Option<String>,
-    ) -> Result<()> {
+    ) -> Result<(), ClientError> {
         let int_score = score.map(|value| value.into());
         RUNTIME.block_on(async move {
             let event_id = EventId::parse(event_id)?;
-            self.room
+            self.inner
                 .client()
                 .send(
                     report_content::v3::Request::new(
-                        self.room_id().into(),
+                        self.inner.room_id().into(),
                         event_id,
                         int_score,
                         reason,
@@ -446,45 +313,51 @@ impl Room {
         })
     }
 
-    /// Leaves the joined room.
+    /// Ignores a user.
     ///
-    /// Will throw an error if used on an room that isn't in a joined state
-    pub fn leave(&self) -> Result<()> {
-        let room = match &self.room {
-            SdkRoom::Joined(j) => j.clone(),
-            _ => bail!("Can't leave a room that isn't in joined state"),
-        };
-
+    /// # Arguments
+    ///
+    /// * `event_id` - The ID of the user to ignore.
+    pub fn ignore_user(&self, user_id: String) -> Result<(), ClientError> {
         RUNTIME.block_on(async move {
-            room.leave().await?;
+            let user_id = UserId::parse(user_id)?;
+            self.inner.client().account().ignore_user(&user_id).await?;
             Ok(())
         })
     }
 
-    /// Rejects invitation for the invited room.
+    /// Leave this room.
     ///
-    /// Will throw an error if used on an room that isn't in an invited state
-    pub fn reject_invitation(&self) -> Result<()> {
-        let room = match &self.room {
-            SdkRoom::Invited(i) => i.clone(),
-            _ => bail!("Can't reject an invite for a room that isn't in invited state"),
-        };
+    /// Only invited and joined rooms can be left.
+    pub fn leave(&self) -> Result<(), ClientError> {
+        RUNTIME.block_on(async {
+            self.inner.leave().await?;
+            Ok(())
+        })
+    }
 
+    /// Join this room.
+    ///
+    /// Only invited and left rooms can be joined via this method.
+    pub fn join(&self) -> Result<(), ClientError> {
+        RUNTIME.block_on(async {
+            self.inner.join().await?;
+            Ok(())
+        })
+    }
+
+    /// Sets a new name to the room.
+    pub fn set_name(&self, name: String) -> Result<(), ClientError> {
         RUNTIME.block_on(async move {
-            room.reject_invitation().await?;
+            self.inner.set_name(name).await?;
             Ok(())
         })
     }
 
     /// Sets a new topic in the room.
-    pub fn set_topic(&self, topic: String) -> Result<()> {
-        let room = match &self.room {
-            SdkRoom::Joined(j) => j.clone(),
-            _ => bail!("Can't set a topic in a room that isn't in joined state"),
-        };
-
+    pub fn set_topic(&self, topic: String) -> Result<(), ClientError> {
         RUNTIME.block_on(async move {
-            room.set_room_topic(&topic).await?;
+            self.inner.set_room_topic(&topic).await?;
             Ok(())
         })
     }
@@ -501,55 +374,178 @@ impl Room {
     ///   image/jpeg
     /// * `data` - The raw data that will be uploaded to the homeserver's
     ///   content repository
-    pub fn upload_avatar(&self, mime_type: String, data: Vec<u8>) -> Result<()> {
-        let room = match &self.room {
-            SdkRoom::Joined(j) => j.clone(),
-            _ => bail!("Can't set a avatar in a room that isn't in joined state"),
-        };
-
+    /// * `media_info` - The media info used as avatar image info.
+    pub fn upload_avatar(
+        &self,
+        mime_type: String,
+        data: Vec<u8>,
+        media_info: Option<ImageInfo>,
+    ) -> Result<(), ClientError> {
         RUNTIME.block_on(async move {
             let mime: Mime = mime_type.parse()?;
-            // TODO: We could add an FFI ImageInfo struct in the future
-            room.upload_avatar(&mime, data, None).await?;
+            self.inner
+                .upload_avatar(
+                    &mime,
+                    data,
+                    media_info
+                        .map(TryInto::try_into)
+                        .transpose()
+                        .map_err(|_| RoomError::InvalidMediaInfo)?,
+                )
+                .await?;
             Ok(())
         })
     }
 
     /// Removes the current room avatar
-    pub fn remove_avatar(&self) -> Result<()> {
-        let room = match &self.room {
-            SdkRoom::Joined(j) => j.clone(),
-            _ => bail!("Can't remove a avatar in a room that isn't in joined state"),
-        };
-
+    pub fn remove_avatar(&self) -> Result<(), ClientError> {
         RUNTIME.block_on(async move {
-            room.remove_avatar().await?;
+            self.inner.remove_avatar().await?;
             Ok(())
         })
     }
-}
 
-impl std::ops::Deref for Room {
-    type Target = SdkRoom;
+    pub fn invite_user_by_id(&self, user_id: String) -> Result<(), ClientError> {
+        RUNTIME.block_on(async move {
+            let user = <&UserId>::try_from(user_id.as_str())
+                .context("Could not create user from string")?;
+            self.inner.invite_user_by_id(user).await?;
+            Ok(())
+        })
+    }
 
-    fn deref(&self) -> &SdkRoom {
-        &self.room
+    pub async fn can_user_redact(&self, user_id: String) -> Result<bool, ClientError> {
+        let user_id = UserId::parse(&user_id)?;
+        Ok(self.inner.can_user_redact(&user_id).await?)
+    }
+
+    pub async fn can_user_ban(&self, user_id: String) -> Result<bool, ClientError> {
+        let user_id = UserId::parse(&user_id)?;
+        Ok(self.inner.can_user_ban(&user_id).await?)
+    }
+
+    pub async fn ban_user(
+        &self,
+        user_id: String,
+        reason: Option<String>,
+    ) -> Result<(), ClientError> {
+        let user_id = UserId::parse(&user_id)?;
+        Ok(self.inner.ban_user(&user_id, reason.as_deref()).await?)
+    }
+
+    pub async fn unban_user(
+        &self,
+        user_id: String,
+        reason: Option<String>,
+    ) -> Result<(), ClientError> {
+        let user_id = UserId::parse(&user_id)?;
+        Ok(self.inner.unban_user(&user_id, reason.as_deref()).await?)
+    }
+
+    pub async fn can_user_invite(&self, user_id: String) -> Result<bool, ClientError> {
+        let user_id = UserId::parse(&user_id)?;
+        Ok(self.inner.can_user_invite(&user_id).await?)
+    }
+
+    pub async fn can_user_kick(&self, user_id: String) -> Result<bool, ClientError> {
+        let user_id = UserId::parse(&user_id)?;
+        Ok(self.inner.can_user_kick(&user_id).await?)
+    }
+
+    pub async fn kick_user(
+        &self,
+        user_id: String,
+        reason: Option<String>,
+    ) -> Result<(), ClientError> {
+        let user_id = UserId::parse(&user_id)?;
+        Ok(self.inner.kick_user(&user_id, reason.as_deref()).await?)
+    }
+
+    pub async fn can_user_send_state(
+        &self,
+        user_id: String,
+        state_event: StateEventType,
+    ) -> Result<bool, ClientError> {
+        let user_id = UserId::parse(&user_id)?;
+        Ok(self.inner.can_user_send_state(&user_id, state_event.into()).await?)
+    }
+
+    pub async fn can_user_send_message(
+        &self,
+        user_id: String,
+        message: MessageLikeEventType,
+    ) -> Result<bool, ClientError> {
+        let user_id = UserId::parse(&user_id)?;
+        Ok(self.inner.can_user_send_message(&user_id, message.into()).await?)
+    }
+
+    pub async fn can_user_trigger_room_notification(
+        &self,
+        user_id: String,
+    ) -> Result<bool, ClientError> {
+        let user_id = UserId::parse(&user_id)?;
+        Ok(self.inner.can_user_trigger_room_notification(&user_id).await?)
+    }
+
+    pub fn own_user_id(&self) -> String {
+        self.inner.own_user_id().to_string()
+    }
+
+    pub async fn typing_notice(&self, is_typing: bool) -> Result<(), ClientError> {
+        Ok(self.inner.typing_notice(is_typing).await?)
     }
 }
 
-pub enum PaginationOptions {
-    SingleRequest { event_limit: u16 },
-    UntilNumItems { event_limit: u16, items: u16 },
+#[uniffi::export(callback_interface)]
+pub trait RoomInfoListener: Sync + Send {
+    fn call(&self, room_info: RoomInfo);
 }
 
-impl From<PaginationOptions> for matrix_sdk::room::timeline::PaginationOptions<'static> {
-    fn from(value: PaginationOptions) -> Self {
-        use matrix_sdk::room::timeline::PaginationOptions as Opts;
-        match value {
-            PaginationOptions::SingleRequest { event_limit } => Opts::single_request(event_limit),
-            PaginationOptions::UntilNumItems { event_limit, items } => {
-                Opts::until_num_items(event_limit, items)
+#[derive(uniffi::Object)]
+pub struct RoomMembersIterator {
+    chunk_iterator: ChunkIterator<matrix_sdk::room::RoomMember>,
+}
+
+impl RoomMembersIterator {
+    fn new(members: Vec<matrix_sdk::room::RoomMember>) -> Self {
+        Self { chunk_iterator: ChunkIterator::new(members) }
+    }
+}
+
+#[uniffi::export]
+impl RoomMembersIterator {
+    fn len(&self) -> u32 {
+        self.chunk_iterator.len()
+    }
+
+    fn next_chunk(&self, chunk_size: u32) -> Option<Vec<Arc<RoomMember>>> {
+        self.chunk_iterator
+            .next(chunk_size)
+            .map(|members| members.into_iter().map(RoomMember::new).map(Arc::new).collect())
+    }
+}
+
+impl TryFrom<ImageInfo> for RumaAvatarImageInfo {
+    type Error = MediaInfoError;
+
+    fn try_from(value: ImageInfo) -> Result<Self, MediaInfoError> {
+        let thumbnail_url = if let Some(media_source) = value.thumbnail_source {
+            match media_source.as_ref() {
+                MediaSource::Plain(mxc_uri) => Some(mxc_uri.clone()),
+                MediaSource::Encrypted(_) => return Err(MediaInfoError::InvalidField),
             }
-        }
+        } else {
+            None
+        };
+
+        Ok(assign!(RumaAvatarImageInfo::new(), {
+            height: value.height.map(u64_to_uint),
+            width: value.width.map(u64_to_uint),
+            mimetype: value.mimetype,
+            size: value.size.map(u64_to_uint),
+            thumbnail_info: value.thumbnail_info.map(Into::into).map(Box::new),
+            thumbnail_url: thumbnail_url,
+            blurhash: value.blurhash,
+        }))
     }
 }

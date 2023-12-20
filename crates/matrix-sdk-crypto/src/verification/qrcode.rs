@@ -14,7 +14,8 @@
 
 use std::sync::Arc;
 
-use eyeball::shared::{Observable as SharedObservable, ObservableWriteGuard};
+use as_variant::as_variant;
+use eyeball::{ObservableWriteGuard, SharedObservable};
 use futures_core::Stream;
 use futures_util::StreamExt;
 use matrix_sdk_qrcode::{
@@ -95,13 +96,26 @@ pub enum ScanError {
 #[derive(Debug, Clone)]
 pub enum QrVerificationState {
     /// The QR verification has been started.
+    ///
+    /// We have received the other device's details (from the
+    /// `m.key.verification.request` or `m.key.verification.ready`) and
+    /// established the shared secret, so can
+    /// display the QR code.
+    ///
+    /// Note that despite the name of this state, we have not yet sent or
+    /// received an `m.key.verification.start` message.
     Started,
     /// The QR verification has been scanned by the other side.
     Scanned,
-    /// The scanning of the QR code has been confirmed by us.
+    /// We have confirmed the other side's scan of the QR code.
     Confirmed,
     /// We have successfully scanned the QR code and are able to send a
     /// reciprocation event.
+    ///
+    /// Call `QrVerification::reciprocate` to build the reciprocation message.
+    ///
+    /// Note that, despite the name of this state, we have not necessarily
+    /// yet sent the `m.reciprocate.v1` message.
     Reciprocated,
     /// The verification process has been successfully concluded.
     Done {
@@ -141,6 +155,7 @@ pub struct QrVerification {
     we_started: bool,
 }
 
+#[cfg(not(tarpaulin_include))]
 impl std::fmt::Debug for QrVerification {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("QrVerification")
@@ -181,6 +196,11 @@ impl QrVerification {
         self.identities.other_device_id()
     }
 
+    /// Get the device of the other user.
+    pub fn other_device(&self) -> &ReadOnlyDevice {
+        self.identities.other_device()
+    }
+
     /// Did we initiate the verification request
     pub fn we_started(&self) -> bool {
         self.we_started
@@ -189,11 +209,9 @@ impl QrVerification {
     /// Get info about the cancellation if the verification flow has been
     /// cancelled.
     pub fn cancel_info(&self) -> Option<CancelInfo> {
-        if let InnerState::Cancelled(c) = &*self.state.read() {
-            Some(c.state.clone().into())
-        } else {
-            None
-        }
+        as_variant!(&*self.state.read(), InnerState::Cancelled(c) => {
+            c.state.clone().into()
+        })
     }
 
     /// Has the verification flow completed.
@@ -206,7 +224,7 @@ impl QrVerification {
         matches!(*self.state.read(), InnerState::Cancelled(_))
     }
 
-    /// Is this a verification that is veryfying one of our own devices
+    /// Is this a verification that is verifying one of our own devices
     pub fn is_self_verification(&self) -> bool {
         self.identities.is_self_verification()
     }
@@ -336,7 +354,7 @@ impl QrVerification {
             OutgoingContent::ToDevice(c) => ToDeviceRequest::with_id(
                 self.identities.other_user_id(),
                 self.identities.other_device_id().to_owned(),
-                c,
+                &c,
                 TransactionId::new(),
             )
             .into(),
@@ -465,7 +483,7 @@ impl QrVerification {
             };
 
             trace!(
-                sender = sender.as_str(),
+                ?sender,
                 code = content.cancel_code().as_str(),
                 "Cancelling a QR verification, other user has cancelled"
             );
@@ -515,7 +533,7 @@ impl QrVerification {
 
         let inner: QrVerificationData = SelfVerificationNoMasterKey::new(
             flow_id.as_str().to_owned(),
-            store.account.identity_keys().ed25519,
+            store.account.identity_keys.ed25519,
             own_master_key,
             secret,
         )
@@ -568,9 +586,10 @@ impl QrVerification {
 
         let identities = store.get_identities(other_device).await?;
 
-        let own_identity = identities.own_identity.as_ref().ok_or_else(|| {
-            ScanError::MissingCrossSigningIdentity(store.account.user_id().to_owned())
-        })?;
+        let own_identity = identities
+            .own_identity
+            .as_ref()
+            .ok_or_else(|| ScanError::MissingCrossSigningIdentity(store.account.user_id.clone()))?;
 
         let other_identity = identities
             .identity_being_verified
@@ -599,9 +618,9 @@ impl QrVerification {
             }
             QrVerificationData::SelfVerification(_) => {
                 check_master_key(qr_code.first_key(), other_identity)?;
-                if qr_code.second_key() != store.account.identity_keys().ed25519 {
+                if qr_code.second_key() != store.account.identity_keys.ed25519 {
                     return Err(ScanError::KeyMismatch {
-                        expected: store.account.identity_keys().ed25519.to_base64(),
+                        expected: store.account.identity_keys.ed25519.to_base64(),
                         found: qr_code.second_key().to_base64(),
                     });
                 }
@@ -623,7 +642,7 @@ impl QrVerification {
         };
 
         let secret = qr_code.secret().to_owned();
-        let own_device_id = store.account.device_id().to_owned();
+        let own_device_id = store.account.device_id.clone();
 
         Ok(Self {
             flow_id,
@@ -676,11 +695,35 @@ impl QrVerification {
 
 #[derive(Debug, Clone)]
 enum InnerState {
+    /// We have received the other device's details (from the
+    /// `m.key.verification.request` or `m.key.verification.ready`) and
+    /// established the shared secret, so can
+    /// display the QR code.
     Created(QrState<Created>),
+
+    /// The other side has scanned our QR code and sent an
+    /// `m.key.verification.start` message with `method: m.reciprocate.v1` with
+    /// matching shared secret.
     Scanned(QrState<Scanned>),
+
+    /// Our user has confirmed that the other device scanned successfully. We
+    /// have sent an `m.key.verification.done`.
     Confirmed(QrState<Confirmed>),
+
+    /// We have scanned the other side's QR code and are able to send a
+    /// `m.key.verification.start` message with `method: m.reciprocate.v1`.
+    ///
+    /// Call `QrVerification::reciprocate` to build the start message.
+    ///
+    /// Note that, despite the name of this state, we have not necessarily
+    /// yet sent the `m.reciprocate.v1` message.
     Reciprocated(QrState<Reciprocated>),
+
+    /// Verification complete: we have received an `m.key.verification.done`
+    /// from the other side.
     Done(QrState<Done>),
+
+    /// Verification cancelled or failed.
     Cancelled(QrState<Cancelled>),
 }
 
@@ -847,14 +890,14 @@ mod tests {
     use std::sync::Arc;
 
     use assert_matches::assert_matches;
-    use matrix_sdk_common::locks::Mutex;
     use matrix_sdk_qrcode::QrVerificationData;
     use matrix_sdk_test::async_test;
     use ruma::{device_id, event_id, room_id, user_id, DeviceId, UserId};
+    use tokio::sync::Mutex;
 
     use crate::{
-        olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
-        store::{Changes, DynCryptoStore, IntoCryptoStore, MemoryStore},
+        olm::{Account, PrivateCrossSigningIdentity},
+        store::{Changes, CryptoStoreWrapper, MemoryStore},
         verification::{
             event_enums::{DoneContent, OutgoingContent, StartContent},
             FlowId, VerificationStore,
@@ -866,8 +909,8 @@ mod tests {
         user_id!("@example:localhost")
     }
 
-    fn memory_store() -> Arc<DynCryptoStore> {
-        MemoryStore::new().into_crypto_store()
+    fn memory_store(user_id: &UserId) -> Arc<CryptoStoreWrapper> {
+        Arc::new(CryptoStoreWrapper::new(user_id, MemoryStore::new()))
     }
 
     fn device_id() -> &'static DeviceId {
@@ -876,23 +919,23 @@ mod tests {
 
     #[async_test]
     async fn test_verification_creation() {
-        let store = memory_store();
-        let account = ReadOnlyAccount::new(user_id(), device_id());
+        let account = Account::with_device_id(user_id(), device_id());
+        let store = memory_store(account.user_id());
 
-        let private_identity = PrivateCrossSigningIdentity::new(user_id().to_owned()).await;
+        let private_identity = PrivateCrossSigningIdentity::new(user_id().to_owned());
         let master_key = private_identity.master_public_key().await.unwrap();
         let master_key = master_key.get_first_key().unwrap().to_owned();
 
         let store = VerificationStore {
-            account: account.clone(),
+            account: account.static_data.clone(),
             inner: store,
             private_identity: Mutex::new(private_identity).into(),
         };
 
         let flow_id = FlowId::ToDevice("test_transaction".into());
 
-        let device_key = account.identity_keys.ed25519;
-        let alice_device = ReadOnlyDevice::from_account(&account).await;
+        let device_key = account.static_data.identity_keys.ed25519;
+        let alice_device = ReadOnlyDevice::from_account(&account);
 
         let identities = store.get_identities(alice_device).await.unwrap();
 
@@ -922,8 +965,7 @@ mod tests {
         assert_eq!(verification.inner.first_key(), master_key);
         assert_eq!(verification.inner.second_key(), device_key);
 
-        let bob_identity =
-            PrivateCrossSigningIdentity::new(user_id!("@bob:example").to_owned()).await;
+        let bob_identity = PrivateCrossSigningIdentity::new(user_id!("@bob:example").to_owned());
         let bob_master_key = bob_identity.master_public_key().await.unwrap();
         let bob_master_key = bob_master_key.get_first_key().unwrap().to_owned();
 
@@ -941,28 +983,28 @@ mod tests {
     #[async_test]
     async fn test_reciprocate_receival() {
         let test = |flow_id: FlowId| async move {
-            let alice_account = ReadOnlyAccount::new(user_id(), device_id());
-            let store = memory_store();
+            let alice_account = Account::with_device_id(user_id(), device_id());
+            let store = memory_store(alice_account.user_id());
 
-            let private_identity = PrivateCrossSigningIdentity::new(user_id().to_owned()).await;
+            let private_identity = PrivateCrossSigningIdentity::new(user_id().to_owned());
 
             let store = VerificationStore {
-                account: alice_account.clone(),
+                account: alice_account.static_data.clone(),
                 inner: store,
                 private_identity: Mutex::new(private_identity).into(),
             };
 
             let bob_account =
-                ReadOnlyAccount::new(alice_account.user_id(), device_id!("BOBDEVICE"));
+                Account::with_device_id(alice_account.user_id(), device_id!("BOBDEVICE"));
 
-            let private_identity = PrivateCrossSigningIdentity::new(user_id().to_owned()).await;
+            let private_identity = PrivateCrossSigningIdentity::new(user_id().to_owned());
             let identity = private_identity.to_public_identity().await.unwrap();
 
             let master_key = private_identity.master_public_key().await.unwrap();
             let master_key = master_key.get_first_key().unwrap().to_owned();
 
-            let alice_device = ReadOnlyDevice::from_account(&alice_account).await;
-            let bob_device = ReadOnlyDevice::from_account(&bob_account).await;
+            let alice_device = ReadOnlyDevice::from_account(&alice_account);
+            let bob_device = ReadOnlyDevice::from_account(&bob_account);
 
             let mut changes = Changes::default();
             changes.identities.new.push(identity.clone().into());
@@ -981,11 +1023,11 @@ mod tests {
             );
             assert_matches!(alice_verification.state(), QrVerificationState::Started);
 
-            let bob_store = memory_store();
+            let bob_store = memory_store(bob_account.user_id());
 
-            let private_identity = PrivateCrossSigningIdentity::new(user_id().to_owned()).await;
+            let private_identity = PrivateCrossSigningIdentity::new(user_id().to_owned());
             let bob_store = VerificationStore {
-                account: bob_account.clone(),
+                account: bob_account.static_data.clone(),
                 inner: bob_store,
                 private_identity: Mutex::new(private_identity).into(),
             };

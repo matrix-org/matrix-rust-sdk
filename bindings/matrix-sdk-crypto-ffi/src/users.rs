@@ -4,6 +4,7 @@ use crate::CryptoStoreError;
 
 /// Enum representing cross signing identities of our own user or some other
 /// user.
+#[derive(uniffi::Enum)]
 pub enum UserIdentity {
     /// Our own user identity.
     Own {

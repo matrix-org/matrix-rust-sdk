@@ -1,7 +1,7 @@
 Pod::Spec.new do |s|
 
     s.name                  = "MatrixSDKCrypto"
-    s.version               = "0.1.5"
+    s.version               = "0.0.1" # Version is only incremented manually and locally before pushing to CocoaPods
     s.summary               = "Uniffi based bindings for the Rust SDK crypto crate."
     s.homepage              = "https://github.com/matrix-org/matrix-rust-sdk"
     s.license               = { :type => "Apache License, Version 2.0", :file => "LICENSE" }

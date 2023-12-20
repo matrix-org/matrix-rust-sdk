@@ -21,7 +21,6 @@ use std::{
     },
 };
 
-use matrix_sdk_common::locks::Mutex;
 use ruma::{
     events::{room::history_visibility::HistoryVisibility, AnyTimelineEvent},
     serde::Raw,
@@ -29,6 +28,7 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use tokio::sync::Mutex;
 use vodozemac::{
     megolm::{
         DecryptedMessage, DecryptionError, InboundGroupSession as InnerSession,
@@ -111,7 +111,7 @@ pub struct InboundGroupSession {
     inner: Arc<Mutex<InnerSession>>,
 
     /// A copy of [`InnerSession::session_id`] to avoid having to acquire a lock
-    /// to get to the sesison ID.
+    /// to get to the session ID.
     session_id: Arc<str>,
 
     /// A copy of [`InnerSession::first_known_index`] to avoid having to acquire
@@ -124,7 +124,7 @@ pub struct InboundGroupSession {
     pub(crate) creator_info: SessionCreatorInfo,
 
     /// The Room this GroupSession belongs to
-    pub room_id: Arc<RoomId>,
+    pub room_id: OwnedRoomId,
 
     /// A flag recording whether the `InboundGroupSession` was received directly
     /// as a `m.room_key` event or indirectly via a forward or file import.
@@ -398,7 +398,6 @@ impl InboundGroupSession {
 
     /// Export the inbound group session into a format that can be uploaded to
     /// the server as a backup.
-    #[cfg(feature = "backups_v1")]
     pub async fn to_backup(&self) -> BackedUpRoomKey {
         self.export().await.into()
     }
@@ -531,7 +530,7 @@ impl TryFrom<&ExportedRoomKey> for InboundGroupSession {
             },
             history_visibility: None.into(),
             first_known_index,
-            room_id: key.room_id.to_owned().into(),
+            room_id: key.room_id.to_owned(),
             imported: true,
             algorithm: key.algorithm.to_owned().into(),
             backed_up: AtomicBool::from(false).into(),
@@ -558,7 +557,7 @@ impl From<&ForwardedMegolmV1AesSha2Content> for InboundGroupSession {
             },
             history_visibility: None.into(),
             first_known_index,
-            room_id: value.room_id.to_owned().into(),
+            room_id: value.room_id.to_owned(),
             imported: true,
             algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2.into(),
             backed_up: AtomicBool::from(false).into(),
@@ -581,7 +580,7 @@ impl From<&ForwardedMegolmV2AesSha2Content> for InboundGroupSession {
             },
             history_visibility: None.into(),
             first_known_index,
-            room_id: value.room_id.to_owned().into(),
+            room_id: value.room_id.to_owned(),
             imported: true,
             algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2.into(),
             backed_up: AtomicBool::from(false).into(),
@@ -605,12 +604,12 @@ impl TryFrom<&DecryptedForwardedRoomKeyEvent> for InboundGroupSession {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use matrix_sdk_test::async_test;
     use ruma::{device_id, room_id, user_id, DeviceId, UserId};
     use vodozemac::{megolm::SessionOrdering, Curve25519PublicKey};
 
-    use crate::{olm::InboundGroupSession, ReadOnlyAccount};
+    use crate::{olm::InboundGroupSession, Account};
 
     fn alice_id() -> &'static UserId {
         user_id!("@alice:example.org")
@@ -667,7 +666,7 @@ mod test {
 
     #[async_test]
     async fn session_comparison() {
-        let alice = ReadOnlyAccount::new(alice_id(), alice_device_id());
+        let alice = Account::with_device_id(alice_id(), alice_device_id());
         let room_id = room_id!("!test:localhost");
 
         let (_, inbound) = alice.create_group_session_pair_with_defaults(room_id).await;

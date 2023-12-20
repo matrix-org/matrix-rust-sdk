@@ -5,6 +5,8 @@ README mainly describes how to build and integrate the bindings into a Kotlin
 based Android project, but the Android specific bits can be skipped if you are
 targeting an x86 Linux project.
 
+To build and distribute bindings for iOS projects, see a [dedicated page](../apple/README.md)
+
 ## Prerequisites
 
 ### Rust

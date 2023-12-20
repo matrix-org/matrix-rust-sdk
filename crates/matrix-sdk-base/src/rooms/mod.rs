@@ -1,25 +1,39 @@
+#![allow(clippy::assign_op_pattern)] // triggered by bitflags! usage
+
 mod members;
-mod normal;
+pub(crate) mod normal;
 
-use std::{collections::HashSet, fmt};
+use std::{
+    collections::{BTreeMap, HashSet},
+    fmt,
+    hash::Hash,
+};
 
+use bitflags::bitflags;
 pub use members::RoomMember;
-pub use normal::{Room, RoomInfo, RoomState};
+pub use normal::{Room, RoomInfo, RoomState, RoomStateFilter};
 use ruma::{
     assign,
     events::{
+        call::member::CallMemberEventContent,
+        macros::EventContent,
         room::{
-            avatar::RoomAvatarEventContent, canonical_alias::RoomCanonicalAliasEventContent,
-            create::RoomCreateEventContent, encryption::RoomEncryptionEventContent,
+            avatar::RoomAvatarEventContent,
+            canonical_alias::RoomCanonicalAliasEventContent,
+            create::{PreviousRoom, RoomCreateEventContent},
+            encryption::RoomEncryptionEventContent,
             guest_access::RoomGuestAccessEventContent,
             history_visibility::RoomHistoryVisibilityEventContent,
-            join_rules::RoomJoinRulesEventContent, name::RoomNameEventContent,
-            redaction::OriginalSyncRoomRedactionEvent, tombstone::RoomTombstoneEventContent,
+            join_rules::RoomJoinRulesEventContent,
+            member::MembershipState,
+            name::RoomNameEventContent,
+            tombstone::RoomTombstoneEventContent,
             topic::RoomTopicEventContent,
         },
-        AnyStrippedStateEvent, AnySyncStateEvent, RedactContent, RedactedStateEventContent,
-        StaticStateEventContent, SyncStateEvent,
+        AnyStrippedStateEvent, AnySyncStateEvent, EmptyStateKey, RedactContent,
+        RedactedStateEventContent, StaticStateEventContent, SyncStateEvent,
     },
+    room::RoomType,
     EventId, OwnedUserId, RoomVersionId,
 };
 use serde::{Deserialize, Serialize};
@@ -62,30 +76,34 @@ impl fmt::Display for DisplayName {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BaseRoomInfo {
     /// The avatar URL of this room.
-    avatar: Option<MinimalStateEvent<RoomAvatarEventContent>>,
+    pub(crate) avatar: Option<MinimalStateEvent<RoomAvatarEventContent>>,
     /// The canonical alias of this room.
-    canonical_alias: Option<MinimalStateEvent<RoomCanonicalAliasEventContent>>,
+    pub(crate) canonical_alias: Option<MinimalStateEvent<RoomCanonicalAliasEventContent>>,
     /// The `m.room.create` event content of this room.
-    create: Option<MinimalStateEvent<RoomCreateEventContent>>,
+    pub(crate) create: Option<MinimalStateEvent<RoomCreateWithCreatorEventContent>>,
     /// A list of user ids this room is considered as direct message, if this
     /// room is a DM.
     pub(crate) dm_targets: HashSet<OwnedUserId>,
     /// The `m.room.encryption` event content that enabled E2EE in this room.
     pub(crate) encryption: Option<RoomEncryptionEventContent>,
     /// The guest access policy of this room.
-    guest_access: Option<MinimalStateEvent<RoomGuestAccessEventContent>>,
+    pub(crate) guest_access: Option<MinimalStateEvent<RoomGuestAccessEventContent>>,
     /// The history visibility policy of this room.
-    history_visibility: Option<MinimalStateEvent<RoomHistoryVisibilityEventContent>>,
+    pub(crate) history_visibility: Option<MinimalStateEvent<RoomHistoryVisibilityEventContent>>,
     /// The join rule policy of this room.
-    join_rules: Option<MinimalStateEvent<RoomJoinRulesEventContent>>,
+    pub(crate) join_rules: Option<MinimalStateEvent<RoomJoinRulesEventContent>>,
     /// The maximal power level that can be found in this room.
     pub(crate) max_power_level: i64,
     /// The `m.room.name` of this room.
-    name: Option<MinimalStateEvent<RoomNameEventContent>>,
+    pub(crate) name: Option<MinimalStateEvent<RoomNameEventContent>>,
     /// The `m.room.tombstone` event content of this room.
-    tombstone: Option<MinimalStateEvent<RoomTombstoneEventContent>>,
+    pub(crate) tombstone: Option<MinimalStateEvent<RoomTombstoneEventContent>>,
     /// The topic of this room.
-    topic: Option<MinimalStateEvent<RoomTopicEventContent>>,
+    pub(crate) topic: Option<MinimalStateEvent<RoomTopicEventContent>>,
+    /// All Minimal state events that containing one or more running matrixRTC
+    /// memberships.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub(crate) rtc_member: BTreeMap<OwnedUserId, MinimalStateEvent<CallMemberEventContent>>,
 }
 
 impl BaseRoomInfo {
@@ -105,6 +123,17 @@ impl BaseRoomInfo {
             invited_member_count,
             heroes.iter().take(3).map(|mem| mem.name()).collect::<Vec<&str>>(),
         )
+    }
+
+    /// Get the room version of this room.
+    ///
+    /// For room versions earlier than room version 11, if the event is
+    /// redacted, this will return the default of [`RoomVersionId::V1`].
+    pub fn room_version(&self) -> Option<&RoomVersionId> {
+        match self.create.as_ref()? {
+            MinimalStateEvent::Original(ev) => Some(&ev.content.room_version),
+            MinimalStateEvent::Redacted(ev) => Some(&ev.content.room_version),
+        }
     }
 
     /// Handle a state event for this room and update our info accordingly.
@@ -145,6 +174,25 @@ impl BaseRoomInfo {
             }
             AnySyncStateEvent::RoomPowerLevels(p) => {
                 self.max_power_level = p.power_levels().max().into();
+            }
+            AnySyncStateEvent::CallMember(m) => {
+                let Some(o_ev) = m.as_original() else {
+                    return false;
+                };
+
+                // we modify the event so that `origin_sever_ts` gets copied into
+                // `content.created_ts`
+                let mut o_ev = o_ev.clone();
+                o_ev.content.set_created_ts_if_none(o_ev.origin_server_ts);
+
+                // add the new event.
+                self.rtc_member
+                    .insert(m.state_key().clone(), SyncStateEvent::Original(o_ev).into());
+
+                // Remove all events that don't contain any memberships anymore.
+                self.rtc_member.retain(|_, ev| {
+                    ev.as_original().is_some_and(|o| !o.content.active_memberships(None).is_empty())
+                });
             }
             _ => return false,
         }
@@ -200,38 +248,41 @@ impl BaseRoomInfo {
             AnyStrippedStateEvent::RoomPowerLevels(p) => {
                 self.max_power_level = p.power_levels().max().into();
             }
+            AnyStrippedStateEvent::CallMember(_) => {
+                // Ignore stripped call state events. Rooms that are not in Joined or Left state
+                // wont have call information.
+                return false;
+            }
             _ => return false,
         }
 
         true
     }
 
-    pub fn handle_redaction(&mut self, event: &OriginalSyncRoomRedactionEvent) {
-        let room_version = self
-            .create
-            .as_ref()
-            .and_then(|ev| Some(ev.as_original()?.content.room_version.to_owned()))
-            .unwrap_or(RoomVersionId::V1);
+    fn handle_redaction(&mut self, redacts: &EventId) {
+        let room_version = self.room_version().unwrap_or(&RoomVersionId::V1).to_owned();
 
         // FIXME: Use let chains once available to get rid of unwrap()s
-        if self.avatar.has_event_id(&event.redacts) {
+        if self.avatar.has_event_id(redacts) {
             self.avatar.as_mut().unwrap().redact(&room_version);
-        } else if self.canonical_alias.has_event_id(&event.redacts) {
+        } else if self.canonical_alias.has_event_id(redacts) {
             self.canonical_alias.as_mut().unwrap().redact(&room_version);
-        } else if self.create.has_event_id(&event.redacts) {
+        } else if self.create.has_event_id(redacts) {
             self.create.as_mut().unwrap().redact(&room_version);
-        } else if self.guest_access.has_event_id(&event.redacts) {
+        } else if self.guest_access.has_event_id(redacts) {
             self.guest_access.as_mut().unwrap().redact(&room_version);
-        } else if self.history_visibility.has_event_id(&event.redacts) {
+        } else if self.history_visibility.has_event_id(redacts) {
             self.history_visibility.as_mut().unwrap().redact(&room_version);
-        } else if self.join_rules.has_event_id(&event.redacts) {
+        } else if self.join_rules.has_event_id(redacts) {
             self.join_rules.as_mut().unwrap().redact(&room_version);
-        } else if self.name.has_event_id(&event.redacts) {
+        } else if self.name.has_event_id(redacts) {
             self.name.as_mut().unwrap().redact(&room_version);
-        } else if self.tombstone.has_event_id(&event.redacts) {
+        } else if self.tombstone.has_event_id(redacts) {
             self.tombstone.as_mut().unwrap().redact(&room_version);
-        } else if self.topic.has_event_id(&event.redacts) {
+        } else if self.topic.has_event_id(redacts) {
             self.topic.as_mut().unwrap().redact(&room_version);
+        } else {
+            self.rtc_member.retain(|_, member_event| member_event.event_id() != Some(redacts));
         }
     }
 }
@@ -246,7 +297,7 @@ where
     C::Redacted: RedactedStateEventContent,
 {
     fn has_event_id(&self, ev_id: &EventId) -> bool {
-        self.as_ref().and_then(|ev| ev.event_id()).map_or(false, |id| id == ev_id)
+        self.as_ref().is_some_and(|ev| ev.event_id() == Some(ev_id))
     }
 }
 
@@ -265,6 +316,7 @@ impl Default for BaseRoomInfo {
             name: None,
             tombstone: None,
             topic: None,
+            rtc_member: BTreeMap::new(),
         }
     }
 }
@@ -307,11 +359,170 @@ fn calculate_room_name(
     }
 }
 
+/// The content of an `m.room.create` event, with a required `creator` field.
+///
+/// Starting with room version 11, the `creator` field should be removed and the
+/// `sender` field of the event should be used instead. This is reflected on
+/// [`RoomCreateEventContent`].
+///
+/// This type was created as an alternative for ease of use. When it is used in
+/// the SDK, it is constructed by copying the `sender` of the original event as
+/// the `creator`.
+#[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
+#[ruma_event(type = "m.room.create", kind = State, state_key_type = EmptyStateKey, custom_redacted)]
+pub struct RoomCreateWithCreatorEventContent {
+    /// The `user_id` of the room creator.
+    ///
+    /// This is set by the homeserver.
+    ///
+    /// While this should be optional since room version 11, we copy the sender
+    /// of the event so we can still access it.
+    pub creator: OwnedUserId,
+
+    /// Whether or not this room's data should be transferred to other
+    /// homeservers.
+    #[serde(
+        rename = "m.federate",
+        default = "ruma::serde::default_true",
+        skip_serializing_if = "ruma::serde::is_true"
+    )]
+    pub federate: bool,
+
+    /// The version of the room.
+    ///
+    /// Defaults to `RoomVersionId::V1`.
+    #[serde(default = "default_create_room_version_id")]
+    pub room_version: RoomVersionId,
+
+    /// A reference to the room this room replaces, if the previous room was
+    /// upgraded.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub predecessor: Option<PreviousRoom>,
+
+    /// The room type.
+    ///
+    /// This is currently only used for spaces.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "type")]
+    pub room_type: Option<RoomType>,
+}
+
+impl RoomCreateWithCreatorEventContent {
+    /// Constructs a `RoomCreateWithCreatorEventContent` with the given original
+    /// content and sender.
+    pub fn from_event_content(content: RoomCreateEventContent, sender: OwnedUserId) -> Self {
+        let RoomCreateEventContent { federate, room_version, predecessor, room_type, .. } = content;
+        Self { creator: sender, federate, room_version, predecessor, room_type }
+    }
+
+    fn into_event_content(self) -> (RoomCreateEventContent, OwnedUserId) {
+        let Self { creator, federate, room_version, predecessor, room_type } = self;
+
+        #[allow(deprecated)]
+        let content = assign!(RoomCreateEventContent::new_v11(), {
+            creator: Some(creator.clone()),
+            federate,
+            room_version,
+            predecessor,
+            room_type,
+        });
+
+        (content, creator)
+    }
+}
+
+/// Redacted form of [`RoomCreateWithCreatorEventContent`].
+pub type RedactedRoomCreateWithCreatorEventContent = RoomCreateWithCreatorEventContent;
+
+impl RedactedStateEventContent for RedactedRoomCreateWithCreatorEventContent {
+    type StateKey = EmptyStateKey;
+}
+
+impl RedactContent for RoomCreateWithCreatorEventContent {
+    type Redacted = RedactedRoomCreateWithCreatorEventContent;
+
+    fn redact(self, version: &RoomVersionId) -> Self::Redacted {
+        let (content, sender) = self.into_event_content();
+        // Use Ruma's redaction algorithm.
+        let content = content.redact(version);
+        Self::from_event_content(content, sender)
+    }
+}
+
+fn default_create_room_version_id() -> RoomVersionId {
+    RoomVersionId::V1
+}
+
+bitflags! {
+    /// Room membership filter as a bitset.
+    ///
+    /// Note that [`RoomMemberships::empty()`] doesn't filter the results and
+    /// [`RoomMemberships::all()`] filters out unknown memberships.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+    pub struct RoomMemberships: u16 {
+        /// The member joined the room.
+        const JOIN    = 0b00000001;
+        /// The member was invited to the room.
+        const INVITE  = 0b00000010;
+        /// The member requested to join the room.
+        const KNOCK   = 0b00000100;
+        /// The member left the room.
+        const LEAVE   = 0b00001000;
+        /// The member was banned.
+        const BAN     = 0b00010000;
+
+        /// The member is active in the room (i.e. joined or invited).
+        const ACTIVE = Self::JOIN.bits() | Self::INVITE.bits();
+    }
+}
+
+impl RoomMemberships {
+    /// Whether the given membership matches this `RoomMemberships`.
+    pub fn matches(&self, membership: &MembershipState) -> bool {
+        if self.is_empty() {
+            return true;
+        }
+
+        let membership = match membership {
+            MembershipState::Ban => Self::BAN,
+            MembershipState::Invite => Self::INVITE,
+            MembershipState::Join => Self::JOIN,
+            MembershipState::Knock => Self::KNOCK,
+            MembershipState::Leave => Self::LEAVE,
+            _ => return false,
+        };
+
+        self.contains(membership)
+    }
+
+    /// Get this `RoomMemberships` as a list of matching [`MembershipState`]s.
+    pub fn as_vec(&self) -> Vec<MembershipState> {
+        let mut memberships = Vec::new();
+
+        if self.contains(Self::JOIN) {
+            memberships.push(MembershipState::Join);
+        }
+        if self.contains(Self::INVITE) {
+            memberships.push(MembershipState::Invite);
+        }
+        if self.contains(Self::KNOCK) {
+            memberships.push(MembershipState::Knock);
+        }
+        if self.contains(Self::LEAVE) {
+            memberships.push(MembershipState::Leave);
+        }
+        if self.contains(Self::BAN) {
+            memberships.push(MembershipState::Ban);
+        }
+
+        memberships
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::*;
-    #[test]
+    use super::{calculate_room_name, DisplayName};
 
+    #[test]
     fn test_calculate_room_name() {
         let mut actual = calculate_room_name(2, 0, vec!["a"]);
         assert_eq!(DisplayName::Calculated("a".to_owned()), actual);

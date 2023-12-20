@@ -16,7 +16,7 @@ use futures_core::Stream;
 use matrix_sdk_base::crypto::{
     AcceptSettings, CancelInfo, Emoji, ReadOnlyDevice, Sas as BaseSas, SasState,
 };
-use ruma::{events::key::verification::cancel::CancelCode, UserId};
+use ruma::{events::key::verification::cancel::CancelCode, RoomId, UserId};
 
 use crate::{error::Result, Client};
 
@@ -43,7 +43,6 @@ impl SasVerification {
     ///
     /// ```no_run
     /// # use matrix_sdk::Client;
-    /// # use futures::executor::block_on;
     /// # use url::Url;
     /// # use ruma::user_id;
     /// use matrix_sdk::{
@@ -53,7 +52,7 @@ impl SasVerification {
     ///
     /// # let flow_id = "someID";
     /// # let user_id = user_id!("@alice:example");
-    /// # block_on(async {
+    /// # async {
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
     /// let sas = client
@@ -69,7 +68,7 @@ impl SasVerification {
     ///
     ///     sas.accept_with_settings(only_decimal).await?;
     /// }
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     pub async fn accept_with_settings(&self, settings: AcceptSettings) -> Result<()> {
         if let Some(request) = self.inner.accept_with_settings(settings) {
@@ -118,7 +117,6 @@ impl SasVerification {
     ///
     /// ```no_run
     /// # use matrix_sdk::Client;
-    /// # use futures::executor::block_on;
     /// # use url::Url;
     /// # use ruma::user_id;
     /// use matrix_sdk::{
@@ -128,7 +126,7 @@ impl SasVerification {
     ///
     /// # let flow_id = "someID";
     /// # let user_id = user_id!("@alice:example");
-    /// # block_on(async {
+    /// # async {
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
     /// let sas_verification = client
@@ -152,7 +150,7 @@ impl SasVerification {
     ///
     ///     println!("Do the emojis match?\n{emoji_string}\n{description}");
     /// }
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     pub fn emoji(&self) -> Option<[Emoji; 7]> {
         self.inner.emoji()
@@ -205,7 +203,7 @@ impl SasVerification {
         self.inner.started_from_request()
     }
 
-    /// Is this a verification that is veryfying one of our own devices.
+    /// Is this a verification that is verifying one of our own devices.
     pub fn is_self_verification(&self) -> bool {
         self.inner.is_self_verification()
     }
@@ -263,16 +261,15 @@ impl SasVerification {
     ///                │  Done │
     ///                └───────┘
     /// ```
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
-    /// use futures::stream::{Stream, StreamExt};
+    /// use futures_util::{Stream, StreamExt};
     /// use matrix_sdk::encryption::verification::{SasState, SasVerification};
     ///
-    /// # futures::executor::block_on(async {
+    /// # async {
     /// # let sas: SasVerification = unimplemented!();
     /// # let user_confirmed = false;
-    ///
     /// let mut stream = sas.changes();
     ///
     /// while let Some(state) = stream.next().await {
@@ -313,7 +310,7 @@ impl SasVerification {
     ///         | SasState::Confirmed => (),
     ///     }
     /// }
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     pub fn changes(&self) -> impl Stream<Item = SasState> {
         self.inner.changes()
@@ -325,5 +322,10 @@ impl SasVerification {
     /// [`SasVerification::changes`] method.
     pub fn state(&self) -> SasState {
         self.inner.state()
+    }
+
+    /// Get the room ID, if the verification is happening inside a room.
+    pub fn room_id(&self) -> Option<&RoomId> {
+        self.inner.room_id()
     }
 }

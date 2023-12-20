@@ -4,7 +4,7 @@ use ruma::{
         room::{
             avatar::{RoomAvatarEventContent, StrippedRoomAvatarEvent},
             canonical_alias::{RoomCanonicalAliasEventContent, StrippedRoomCanonicalAliasEvent},
-            create::{RoomCreateEventContent, StrippedRoomCreateEvent},
+            create::{StrippedRoomCreateEvent, SyncRoomCreateEvent},
             guest_access::{
                 RedactedRoomGuestAccessEventContent, RoomGuestAccessEventContent,
                 StrippedRoomGuestAccessEvent,
@@ -14,7 +14,7 @@ use ruma::{
             },
             join_rules::{RoomJoinRulesEventContent, StrippedRoomJoinRulesEvent},
             member::{MembershipState, RoomMemberEventContent},
-            name::{RoomNameEventContent, StrippedRoomNameEvent},
+            name::{RedactedRoomNameEventContent, RoomNameEventContent, StrippedRoomNameEvent},
             tombstone::{
                 RedactedRoomTombstoneEventContent, RoomTombstoneEventContent,
                 StrippedRoomTombstoneEvent,
@@ -27,6 +27,8 @@ use ruma::{
     EventId, OwnedEventId, RoomVersionId,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+
+use crate::rooms::RoomCreateWithCreatorEventContent;
 
 // #[serde(bound)] instead of DeserializeOwned in type where clause does not
 // work, it can only be a single bound that replaces the default and if a helper
@@ -181,6 +183,27 @@ where
     }
 }
 
+impl From<&SyncRoomCreateEvent> for MinimalStateEvent<RoomCreateWithCreatorEventContent> {
+    fn from(ev: &SyncRoomCreateEvent) -> Self {
+        match ev {
+            SyncStateEvent::Original(ev) => Self::Original(OriginalMinimalStateEvent {
+                content: RoomCreateWithCreatorEventContent::from_event_content(
+                    ev.content.clone(),
+                    ev.sender.clone(),
+                ),
+                event_id: Some(ev.event_id.clone()),
+            }),
+            SyncStateEvent::Redacted(ev) => Self::Redacted(RedactedMinimalStateEvent {
+                content: RoomCreateWithCreatorEventContent::from_event_content(
+                    ev.content.clone(),
+                    ev.sender.clone(),
+                ),
+                event_id: Some(ev.event_id.clone()),
+            }),
+        }
+    }
+}
+
 impl From<&StrippedRoomAvatarEvent> for MinimalStateEvent<RoomAvatarEventContent> {
     fn from(event: &StrippedRoomAvatarEvent) -> Self {
         let content = assign!(RoomAvatarEventContent::new(), {
@@ -195,19 +218,28 @@ impl From<&StrippedRoomAvatarEvent> for MinimalStateEvent<RoomAvatarEventContent
 
 impl From<&StrippedRoomNameEvent> for MinimalStateEvent<RoomNameEventContent> {
     fn from(event: &StrippedRoomNameEvent) -> Self {
-        let content = RoomNameEventContent::new(event.content.name.clone());
-        Self::Original(OriginalMinimalStateEvent { content, event_id: None })
+        match event.content.name.clone() {
+            Some(name) => {
+                let content = RoomNameEventContent::new(name);
+                Self::Original(OriginalMinimalStateEvent { content, event_id: None })
+            }
+            None => {
+                let content = RedactedRoomNameEventContent::new();
+                Self::Redacted(RedactedMinimalStateEvent { content, event_id: None })
+            }
+        }
     }
 }
 
-impl From<&StrippedRoomCreateEvent> for MinimalStateEvent<RoomCreateEventContent> {
+impl From<&StrippedRoomCreateEvent> for MinimalStateEvent<RoomCreateWithCreatorEventContent> {
     fn from(event: &StrippedRoomCreateEvent) -> Self {
-        let content = assign!(RoomCreateEventContent::new(event.content.creator.clone()), {
+        let content = RoomCreateWithCreatorEventContent {
+            creator: event.sender.clone(),
             federate: event.content.federate,
             room_version: event.content.room_version.clone(),
             predecessor: event.content.predecessor.clone(),
             room_type: event.content.room_type.clone(),
-        });
+        };
         Self::Original(OriginalMinimalStateEvent { content, event_id: None })
     }
 }

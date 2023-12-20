@@ -8,12 +8,11 @@ use anyhow::anyhow;
 use matrix_sdk::{
     self,
     config::SyncSettings,
-    room::Room,
     ruma::{
         api::client::session::get_login_types::v3::{IdentityProvider, LoginType},
         events::room::message::{MessageType, OriginalSyncRoomMessageEvent},
     },
-    Client,
+    Client, Room, RoomState,
 };
 use url::Url;
 
@@ -30,12 +29,9 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
 
     let Some(homeserver_url) = env::args().nth(1) else {
-                eprintln!(
-                    "Usage: {} <homeserver_url>",
-                    env::args().next().unwrap()
-                );
-                exit(1)
-        };
+        eprintln!("Usage: {} <homeserver_url>", env::args().next().unwrap());
+        exit(1)
+    };
 
     login_and_sync(homeserver_url).await?;
 
@@ -49,7 +45,7 @@ async fn login_and_sync(homeserver_url: String) -> anyhow::Result<()> {
 
     // First, let's figure out what login types are supported by the homeserver.
     let mut choices = Vec::new();
-    let login_types = client.get_login_types().await?.flows;
+    let login_types = client.matrix_auth().get_login_types().await?.flows;
 
     for login_type in login_types {
         match login_type {
@@ -63,7 +59,7 @@ async fn login_and_sync(homeserver_url: String) -> anyhow::Result<()> {
                     choices.extend(sso.identity_providers.into_iter().map(LoginChoice::SsoIdp))
                 }
             }
-            // This is used for SSO, so it's not a separate choice. 
+            // This is used for SSO, so it's not a separate choice.
             LoginType::Token(_) |
             // This is only for application services, ignore it here.
             LoginType::ApplicationService(_) => {},
@@ -168,6 +164,7 @@ async fn login_with_password(client: &Client) -> anyhow::Result<()> {
         password = password.trim().to_owned();
 
         match client
+            .matrix_auth()
             .login_username(&username, &password)
             .initial_device_display_name(INITIAL_DEVICE_DISPLAY_NAME)
             .await
@@ -190,7 +187,7 @@ async fn login_with_password(client: &Client) -> anyhow::Result<()> {
 async fn login_with_sso(client: &Client, idp: Option<&IdentityProvider>) -> anyhow::Result<()> {
     println!("Logging in with SSO…");
 
-    let mut login_builder = client.login_sso(|url| async move {
+    let mut login_builder = client.matrix_auth().login_sso(|url| async move {
         // Usually we would want to use a library to open the URL in the browser, but
         // let's keep it simple.
         println!("\nOpen this URL in your browser: {url}\n");
@@ -212,9 +209,9 @@ async fn login_with_sso(client: &Client, idp: Option<&IdentityProvider>) -> anyh
 /// Handle room messages by logging them.
 async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
     // We only want to listen to joined rooms.
-    let Room::Joined(room) = room else {
+    if room.state() != RoomState::Joined {
         return;
-    };
+    }
 
     // We only want to log text messages.
     let MessageType::Text(msgtype) = &event.content.msgtype else {

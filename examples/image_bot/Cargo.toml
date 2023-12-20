@@ -14,7 +14,6 @@ mime = "0.3.16"
 tokio = { version = "1.24.2", features = ["macros", "rt-multi-thread"] }
 tracing-subscriber = "0.3.15"
 url = "2.2.2"
-
-[dependencies.matrix-sdk]
-path = "../../crates/matrix-sdk"
-version = "0.6.0"
+# when copy-pasting this, please use a git dependency or make sure that you
+# have copied the example as it was at the time of the release you use.
+matrix-sdk = { path = "../../crates/matrix-sdk" }

@@ -12,20 +12,27 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 use ruma::{
     events::{
         presence::PresenceEvent,
         room::{
             member::MembershipState,
-            power_levels::{PowerLevelAction, SyncRoomPowerLevelsEvent},
+            power_levels::{PowerLevelAction, RoomPowerLevels, RoomPowerLevelsEventContent},
         },
+        MessageLikeEventType, StateEventType,
     },
-    MxcUri, UserId,
+    MxcUri, OwnedUserId, UserId,
 };
 
-use crate::{deserialized_responses::MemberEvent, MinimalRoomMemberEvent};
+use crate::{
+    deserialized_responses::{MemberEvent, SyncOrStrippedState},
+    MinimalRoomMemberEvent,
+};
 
 /// A member of a room.
 #[derive(Clone, Debug)]
@@ -37,7 +44,7 @@ pub struct RoomMember {
     pub(crate) profile: Arc<Option<MinimalRoomMemberEvent>>,
     #[allow(dead_code)]
     pub(crate) presence: Arc<Option<PresenceEvent>>,
-    pub(crate) power_levels: Arc<Option<SyncRoomPowerLevelsEvent>>,
+    pub(crate) power_levels: Arc<Option<SyncOrStrippedState<RoomPowerLevelsEventContent>>>,
     pub(crate) max_power_level: i64,
     pub(crate) is_room_creator: bool,
     pub(crate) display_name_ambiguous: bool,
@@ -45,6 +52,33 @@ pub struct RoomMember {
 }
 
 impl RoomMember {
+    pub(crate) fn from_parts(member_info: MemberInfo, room_info: &MemberRoomInfo<'_>) -> Self {
+        let MemberInfo { event, profile, presence } = member_info;
+        let MemberRoomInfo {
+            power_levels,
+            max_power_level,
+            room_creator,
+            users_display_names,
+            ignored_users,
+        } = room_info;
+
+        let is_room_creator = room_creator.as_deref() == Some(event.user_id());
+        let display_name_ambiguous =
+            users_display_names.get(event.display_name()).is_some_and(|s| s.len() > 1);
+        let is_ignored = ignored_users.as_ref().is_some_and(|s| s.contains(event.user_id()));
+
+        Self {
+            event: event.into(),
+            profile: profile.into(),
+            presence: presence.into(),
+            power_levels: power_levels.clone(),
+            max_power_level: *max_power_level,
+            is_room_creator,
+            display_name_ambiguous,
+            is_ignored,
+        }
+    }
+
     /// Get the unique user id of this member.
     pub fn user_id(&self) -> &UserId {
         self.event.user_id()
@@ -105,13 +139,68 @@ impl RoomMember {
             .unwrap_or_else(|| if self.is_room_creator { 100 } else { 0 })
     }
 
-    /// Whether the given user can do the given action based on the power
+    /// Whether this user can ban other users based on the power levels.
+    ///
+    /// Same as `member.can_do(PowerLevelAction::Ban)`.
+    pub fn can_ban(&self) -> bool {
+        self.can_do_impl(|pls| pls.user_can_ban(self.user_id()))
+    }
+
+    /// Whether this user can invite other users based on the power levels.
+    ///
+    /// Same as `member.can_do(PowerLevelAction::Invite)`.
+    pub fn can_invite(&self) -> bool {
+        self.can_do_impl(|pls| pls.user_can_invite(self.user_id()))
+    }
+
+    /// Whether this user can kick other users based on the power levels.
+    ///
+    /// Same as `member.can_do(PowerLevelAction::Kick)`.
+    pub fn can_kick(&self) -> bool {
+        self.can_do_impl(|pls| pls.user_can_kick(self.user_id()))
+    }
+
+    /// Whether this user can redact events based on the power levels.
+    ///
+    /// Same as `member.can_do(PowerLevelAction::Redact)`.
+    pub fn can_redact(&self) -> bool {
+        self.can_do_impl(|pls| pls.user_can_redact(self.user_id()))
+    }
+
+    /// Whether this user can send message events based on the power levels.
+    ///
+    /// Same as `member.can_do(PowerLevelAction::SendMessage(msg_type))`.
+    pub fn can_send_message(&self, msg_type: MessageLikeEventType) -> bool {
+        self.can_do_impl(|pls| pls.user_can_send_message(self.user_id(), msg_type))
+    }
+
+    /// Whether this user can send state events based on the power levels.
+    ///
+    /// Same as `member.can_do(PowerLevelAction::SendState(state_type))`.
+    pub fn can_send_state(&self, state_type: StateEventType) -> bool {
+        self.can_do_impl(|pls| pls.user_can_send_state(self.user_id(), state_type))
+    }
+
+    /// Whether this user can notify everybody in the room by writing `@room` in
+    /// a message.
+    ///
+    /// Same as `member.
+    /// can_do(PowerLevelAction::TriggerNotification(NotificationPowerLevelType::Room))`.
+    pub fn can_trigger_room_notification(&self) -> bool {
+        self.can_do_impl(|pls| pls.user_can_trigger_room_notification(self.user_id()))
+    }
+
+    /// Whether this user can do the given action based on the power
     /// levels.
     pub fn can_do(&self, action: PowerLevelAction) -> bool {
-        (*self.power_levels)
-            .as_ref()
-            .map(|e| e.power_levels().user_can_do(self.user_id(), action))
-            .unwrap_or_else(|| self.is_room_creator)
+        self.can_do_impl(|pls| pls.user_can_do(self.user_id(), action))
+    }
+
+    fn can_do_impl(&self, f: impl FnOnce(RoomPowerLevels) -> bool) -> bool {
+        match &*self.power_levels {
+            Some(event) => f(event.power_levels()),
+            None => self.is_room_creator,
+        }
     }
 
     /// Is the name that the member uses ambiguous in the room.
@@ -131,4 +220,20 @@ impl RoomMember {
     pub fn is_ignored(&self) -> bool {
         self.is_ignored
     }
+}
+
+// Information about a room member.
+pub(crate) struct MemberInfo {
+    pub event: MemberEvent,
+    pub(crate) profile: Option<MinimalRoomMemberEvent>,
+    pub(crate) presence: Option<PresenceEvent>,
+}
+
+// Information about a the room a member is in.
+pub(crate) struct MemberRoomInfo<'a> {
+    pub(crate) power_levels: Arc<Option<SyncOrStrippedState<RoomPowerLevelsEventContent>>>,
+    pub(crate) max_power_level: i64,
+    pub(crate) room_creator: Option<OwnedUserId>,
+    pub(crate) users_display_names: BTreeMap<&'a str, BTreeSet<OwnedUserId>>,
+    pub(crate) ignored_users: Option<BTreeSet<OwnedUserId>>,
 }

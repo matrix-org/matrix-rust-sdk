@@ -4,8 +4,9 @@ use std::collections::HashMap;
 
 use http::Response;
 use matrix_sdk_crypto::{
-    IncomingResponse, OutgoingRequest, OutgoingVerificationRequest as SdkVerificationRequest,
-    RoomMessageRequest, ToDeviceRequest, UploadSigningKeysRequest as RustUploadSigningKeysRequest,
+    CrossSigningBootstrapRequests, IncomingResponse, KeysBackupRequest, OutgoingRequest,
+    OutgoingVerificationRequest as SdkVerificationRequest, RoomMessageRequest, ToDeviceRequest,
+    UploadSigningKeysRequest as RustUploadSigningKeysRequest,
 };
 use ruma::{
     api::client::{
@@ -28,6 +29,7 @@ use ruma::{
 };
 use serde_json::json;
 
+#[derive(uniffi::Record)]
 pub struct SignatureUploadRequest {
     pub body: String,
 }
@@ -41,6 +43,7 @@ impl From<RustSignatureUploadRequest> for SignatureUploadRequest {
     }
 }
 
+#[derive(uniffi::Record)]
 pub struct UploadSigningKeysRequest {
     pub master_key: String,
     pub self_signing_key: String,
@@ -66,22 +69,30 @@ impl From<RustUploadSigningKeysRequest> for UploadSigningKeysRequest {
     }
 }
 
+#[derive(uniffi::Record)]
 pub struct BootstrapCrossSigningResult {
+    /// Optional request to upload some device keys alongside.
+    ///
+    /// Must be sent first if present, and marked with `mark_request_as_sent`.
+    pub upload_keys_request: Option<Request>,
+    /// Request to upload the signing keys. Must be sent second.
     pub upload_signing_keys_request: UploadSigningKeysRequest,
-    pub signature_request: SignatureUploadRequest,
+    /// Request to upload the keys signatures, including for the signing keys
+    /// and optionally for the device keys. Must be sent last.
+    pub upload_signature_request: SignatureUploadRequest,
 }
 
-impl From<(RustUploadSigningKeysRequest, RustSignatureUploadRequest)>
-    for BootstrapCrossSigningResult
-{
-    fn from(requests: (RustUploadSigningKeysRequest, RustSignatureUploadRequest)) -> Self {
+impl From<CrossSigningBootstrapRequests> for BootstrapCrossSigningResult {
+    fn from(requests: CrossSigningBootstrapRequests) -> Self {
         Self {
-            upload_signing_keys_request: requests.0.into(),
-            signature_request: requests.1.into(),
+            upload_signing_keys_request: requests.upload_signing_keys_req.into(),
+            upload_keys_request: requests.upload_keys_req.map(Request::from),
+            upload_signature_request: requests.upload_signatures_req.into(),
         }
     }
 }
 
+#[derive(uniffi::Enum)]
 pub enum OutgoingVerificationRequest {
     ToDevice { request_id: String, event_type: String, body: String },
     InRoom { request_id: String, room_id: String, event_type: String, content: String },
@@ -112,7 +123,7 @@ impl From<ToDeviceRequest> for OutgoingVerificationRequest {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, uniffi::Enum)]
 pub enum Request {
     ToDevice { request_id: String, event_type: String, body: String },
     KeysUpload { request_id: String, body: String },
@@ -138,7 +149,7 @@ impl From<OutgoingRequest> for Request {
                 Request::KeysUpload {
                     request_id: r.request_id().to_string(),
                     body: serde_json::to_string(&body)
-                        .expect("Can't serialize keys upload request"),
+                        .expect("Can't serialize `/keys/upload` request"),
                 }
             }
             KeysQuery(k) => {
@@ -153,12 +164,7 @@ impl From<OutgoingRequest> for Request {
             },
             RoomMessage(r) => Request::from(r),
             KeysClaim(c) => (r.request_id().to_owned(), c.clone()).into(),
-            KeysBackup(b) => Request::KeysBackup {
-                request_id: r.request_id().to_string(),
-                version: b.version.to_owned(),
-                rooms: serde_json::to_string(&b.rooms)
-                    .expect("Can't serialize keys backup request"),
-            },
+            KeysBackup(b) => (r.request_id().to_owned(), b.clone()).into(),
         }
     }
 }
@@ -193,6 +199,19 @@ impl From<(OwnedTransactionId, KeysClaimRequest)> for Request {
     }
 }
 
+impl From<(OwnedTransactionId, KeysBackupRequest)> for Request {
+    fn from(request_tuple: (OwnedTransactionId, KeysBackupRequest)) -> Self {
+        let (request_id, request) = request_tuple;
+
+        Request::KeysBackup {
+            request_id: request_id.to_string(),
+            version: request.version.to_owned(),
+            rooms: serde_json::to_string(&request.rooms)
+                .expect("Can't serialize keys backup request"),
+        }
+    }
+}
+
 impl From<&ToDeviceRequest> for Request {
     fn from(r: &ToDeviceRequest) -> Self {
         Request::ToDevice {
@@ -221,6 +240,7 @@ pub(crate) fn response_from_string(body: &str) -> Response<Vec<u8>> {
         .expect("Can't create HTTP response")
 }
 
+#[derive(uniffi::Enum)]
 pub enum RequestType {
     KeysQuery,
     KeysClaim,
@@ -254,6 +274,7 @@ impl From<DeviceLists> for RumaDeviceLists {
     }
 }
 
+#[derive(uniffi::Record)]
 pub struct KeysImportResult {
     /// The number of room keys that were imported.
     pub imported: i64,

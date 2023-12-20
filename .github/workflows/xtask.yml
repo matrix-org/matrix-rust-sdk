@@ -62,7 +62,7 @@ jobs:
           key: |
             ${{ steps.cachekey.outputs[format('cachekey-{0}', matrix.cachekey-id)] }}
 
-      - name: Install rust stable toolchain
+      - name: Install Rust stable toolchain
         if: steps.xtask-cache.outputs.cache-hit != 'true'
         uses: dtolnay/rust-toolchain@stable
 

@@ -25,11 +25,18 @@ use super::{EventType, ToDeviceEvent};
 pub type DummyEvent = ToDeviceEvent<DummyEventContent>;
 
 /// The content of an `m.dummy` event.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct DummyEventContent {
     /// Any other, custom and non-specced fields of the content.
     #[serde(flatten)]
     other: BTreeMap<String, Value>,
+}
+
+impl DummyEventContent {
+    /// Create a new `m.dummy` event content.
+    pub fn new() -> Self {
+        Default::default()
+    }
 }
 
 impl EventType for DummyEventContent {
@@ -37,7 +44,7 @@ impl EventType for DummyEventContent {
 }
 
 #[cfg(test)]
-pub(super) mod test {
+pub(super) mod tests {
     use serde_json::{json, Value};
 
     use super::DummyEvent;

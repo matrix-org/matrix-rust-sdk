@@ -18,13 +18,19 @@ use std::{
 };
 
 use ruma::{
-    events::room::member::{MembershipState, SyncRoomMemberEvent},
+    events::{
+        room::member::{MembershipState, SyncRoomMemberEvent},
+        StateEventType,
+    },
     OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, UserId,
 };
 use tracing::trace;
 
 use super::{DynStateStore, Result, StateChanges};
-use crate::deserialized_responses::{AmbiguityChange, RawMemberEvent};
+use crate::{
+    deserialized_responses::{AmbiguityChange, RawMemberEvent},
+    store::StateStoreExt,
+};
 
 #[derive(Debug)]
 pub(crate) struct AmbiguityCache {
@@ -88,12 +94,7 @@ impl AmbiguityCache {
         // incorrect AmbiguityChange overwriting the correct one. In other
         // words, this method is not idempotent so we make it by ignoring
         // duplicate events.
-        if self
-            .changes
-            .get(room_id)
-            .map(|c| c.contains_key(member_event.event_id()))
-            .unwrap_or(false)
-        {
+        if self.changes.get(room_id).is_some_and(|c| c.contains_key(member_event.event_id())) {
             return Ok(());
         }
 
@@ -112,7 +113,7 @@ impl AmbiguityCache {
             old_map.as_mut().and_then(|o| o.remove(member_event.state_key()));
         let ambiguated_member =
             new_map.as_mut().and_then(|n| n.add(member_event.state_key().clone()));
-        let ambiguous = new_map.as_ref().map(|n| n.is_ambiguous()).unwrap_or(false);
+        let ambiguous = new_map.as_ref().is_some_and(|n| n.is_ambiguous());
 
         self.update(room_id, old_map, new_map);
 
@@ -158,10 +159,13 @@ impl AmbiguityCache {
     ) -> Result<(Option<AmbiguityMap>, Option<AmbiguityMap>)> {
         use MembershipState::*;
 
-        let old_event = if let Some(m) =
-            changes.members.get(room_id).and_then(|m| m.get(member_event.state_key()))
+        let old_event = if let Some(m) = changes
+            .state
+            .get(room_id)
+            .and_then(|events| events.get(&StateEventType::RoomMember))
+            .and_then(|m| m.get(member_event.state_key().as_str()))
         {
-            Some(RawMemberEvent::Sync(m.clone()))
+            Some(RawMemberEvent::Sync(m.clone().cast()))
         } else {
             self.store.get_member_event(room_id, member_event.state_key()).await?
         };

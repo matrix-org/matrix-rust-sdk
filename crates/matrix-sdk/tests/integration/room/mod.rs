@@ -1,4 +1,5 @@
 mod common;
 mod joined;
 mod left;
-mod timeline;
+mod notification_mode;
+mod spaces;

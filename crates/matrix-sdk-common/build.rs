@@ -1,7 +1,7 @@
 use std::{env, process};
 
 fn main() {
-    let is_wasm = env::var_os("CARGO_CFG_TARGET_ARCH").map_or(false, |arch| arch == "wasm32");
+    let is_wasm = env::var_os("CARGO_CFG_TARGET_ARCH").is_some_and(|arch| arch == "wasm32");
     if is_wasm && env::var_os("CARGO_FEATURE_JS").is_none() {
         eprintln!(
             "\n\

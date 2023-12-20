@@ -2,31 +2,29 @@ use std::{env, process::exit};
 
 use matrix_sdk::{
     config::SyncSettings,
-    room::Room,
     ruma::events::room::message::{
         MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent,
     },
-    Client,
+    Client, Room, RoomState,
 };
 
 async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
-    if let Room::Joined(room) = room {
-        let MessageType::Text(text_content) = event.content.msgtype else {
-            return;
-        };
+    if room.state() != RoomState::Joined {
+        return;
+    }
+    let MessageType::Text(text_content) = event.content.msgtype else {
+        return;
+    };
 
-        if text_content.body.contains("!party") {
-            let content = RoomMessageEventContent::text_plain("🎉🎊🥳 let's PARTY!! 🥳🎊🎉");
+    if text_content.body.contains("!party") {
+        let content = RoomMessageEventContent::text_plain("🎉🎊🥳 let's PARTY!! 🥳🎊🎉");
 
-            println!("sending");
+        println!("sending");
 
-            // send our message to the room we found the "!party" command in
-            // the last parameter is an optional transaction id which we don't
-            // care about.
-            room.send(content, None).await.unwrap();
+        // send our message to the room we found the "!party" command in
+        room.send(content).await.unwrap();
 
-            println!("message sent");
-        }
+        println!("message sent");
     }
 }
 
@@ -39,7 +37,11 @@ async fn login_and_sync(
     // able to restore the session with a working encryption setup.
     // See the `persist_session` example.
     let client = Client::builder().homeserver_url(homeserver_url).build().await.unwrap();
-    client.login_username(&username, &password).initial_device_display_name("command bot").await?;
+    client
+        .matrix_auth()
+        .login_username(&username, &password)
+        .initial_device_display_name("command bot")
+        .await?;
 
     println!("logged in as {username}");
 

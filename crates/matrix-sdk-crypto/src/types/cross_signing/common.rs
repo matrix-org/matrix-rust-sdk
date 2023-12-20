@@ -21,6 +21,7 @@
 
 use std::collections::BTreeMap;
 
+use as_variant::as_variant;
 use ruma::{
     encryption::KeyUsage, serde::Raw, DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceKeyId,
     OwnedUserId, UserId,
@@ -70,7 +71,7 @@ impl CrossSigningKey {
 
     /// Serialize the cross signing key into a Raw version.
     pub fn to_raw<T>(&self) -> Raw<T> {
-        Raw::from_json(to_raw_value(&self).expect("Coulnd't serialize cross signing keys"))
+        Raw::from_json(to_raw_value(&self).expect("Couldn't serialize cross signing keys"))
     }
 
     /// Get the Ed25519 cross-signing key (and its ID).
@@ -110,11 +111,7 @@ impl SigningKey {
     /// Get the Ed25519 key, if the cross-signing key is actually an Ed25519
     /// key.
     pub fn ed25519(&self) -> Option<Ed25519PublicKey> {
-        if let SigningKey::Ed25519(k) = self {
-            Some(*k)
-        } else {
-            None
-        }
+        as_variant!(self, SigningKey::Ed25519).copied()
     }
 
     /// Try to create a `SigningKey` from an `DeviceKeyAlgorithm` and a string

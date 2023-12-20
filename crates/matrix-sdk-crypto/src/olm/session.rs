@@ -14,10 +14,11 @@
 
 use std::{fmt, sync::Arc};
 
-use matrix_sdk_common::locks::Mutex;
-use ruma::{serde::Raw, DeviceId, SecondsSinceUnixEpoch, UserId};
+use ruma::{serde::Raw, OwnedDeviceId, OwnedUserId, SecondsSinceUnixEpoch};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::json;
+use tokio::sync::Mutex;
+use tracing::{field::debug, instrument, trace, Span};
 use vodozemac::{
     olm::{DecryptionError, OlmMessage, Session as InnerSession, SessionConfig, SessionPickle},
     Curve25519PublicKey,
@@ -40,9 +41,9 @@ use crate::{
 #[derive(Clone)]
 pub struct Session {
     /// The `UserId` associated with this session
-    pub user_id: Arc<UserId>,
+    pub user_id: OwnedUserId,
     /// The specific `DeviceId` associated with this session
-    pub device_id: Arc<DeviceId>,
+    pub device_id: OwnedDeviceId,
     /// The `IdentityKeys` associated with this session
     pub our_identity_keys: Arc<IdentityKeys>,
     /// The OlmSession
@@ -72,16 +73,24 @@ impl fmt::Debug for Session {
 impl Session {
     /// Decrypt the given Olm message.
     ///
-    /// Returns the decrypted plaintext or an `DecrypitonError` if decryption
+    /// Returns the decrypted plaintext or a [`DecryptionError`] if decryption
     /// failed.
     ///
     /// # Arguments
     ///
     /// * `message` - The Olm message that should be decrypted.
+    #[instrument(skip_all, fields(session))]
     pub async fn decrypt(&mut self, message: &OlmMessage) -> Result<String, DecryptionError> {
-        let plaintext = self.inner.lock().await.decrypt(message)?;
+        let mut inner = self.inner.lock().await;
+        let plaintext = inner.decrypt(message)?;
+
+        Span::current().record("session", debug(inner));
+        trace!("Decrypted a Olm message");
+
         let plaintext = String::from_utf8_lossy(&plaintext).to_string();
+
         self.last_use_time = SecondsSinceUnixEpoch::now();
+
         Ok(plaintext)
     }
 
@@ -90,12 +99,12 @@ impl Session {
         self.sender_key
     }
 
-    /// Get the `SessionConfig` that this session is using.
+    /// Get the [`SessionConfig`] that this session is using.
     pub async fn session_config(&self) -> SessionConfig {
         self.inner.lock().await.session_config()
     }
 
-    /// Get the `EventEncryptionAlgorithm` of t his `Session`.
+    /// Get the [`EventEncryptionAlgorithm`] of this [`Session`].
     pub async fn algorithm(&self) -> EventEncryptionAlgorithm {
         #[cfg(feature = "experimental-algorithms")]
         if self.session_config().await.version() == 2 {
@@ -116,7 +125,11 @@ impl Session {
     ///
     /// * `plaintext` - The plaintext that should be encrypted.
     pub(crate) async fn encrypt_helper(&mut self, plaintext: &str) -> OlmMessage {
-        let message = self.inner.lock().await.encrypt(plaintext);
+        let mut session = self.inner.lock().await;
+
+        Span::current().record("session", debug(&session));
+        let message = session.encrypt(plaintext);
+
         self.last_use_time = SecondsSinceUnixEpoch::now();
         message
     }
@@ -137,26 +150,30 @@ impl Session {
         &mut self,
         recipient_device: &ReadOnlyDevice,
         event_type: &str,
-        content: Value,
+        content: impl Serialize,
+        message_id: Option<String>,
     ) -> OlmResult<Raw<ToDeviceEncryptedEventContent>> {
-        let recipient_signing_key =
-            recipient_device.ed25519_key().ok_or(EventError::MissingSigningKey)?;
+        let plaintext = {
+            let recipient_signing_key =
+                recipient_device.ed25519_key().ok_or(EventError::MissingSigningKey)?;
 
-        let payload = json!({
-            "sender": self.user_id.as_str(),
-            "sender_device": self.device_id.as_ref(),
-            "keys": {
-                "ed25519": self.our_identity_keys.ed25519.to_base64(),
-            },
-            "recipient": recipient_device.user_id(),
-            "recipient_keys": {
-                "ed25519": recipient_signing_key.to_base64(),
-            },
-            "type": event_type,
-            "content": content,
-        });
+            let payload = json!({
+                "sender": &self.user_id,
+                "sender_device": &self.device_id,
+                "keys": {
+                    "ed25519": self.our_identity_keys.ed25519.to_base64(),
+                },
+                "recipient": recipient_device.user_id(),
+                "recipient_keys": {
+                    "ed25519": recipient_signing_key.to_base64(),
+                },
+                "type": event_type,
+                "content": content,
+            });
 
-        let plaintext = serde_json::to_string(&payload)?;
+            serde_json::to_string(&payload)?
+        };
+
         let ciphertext = self.encrypt_helper(&plaintext).await;
 
         let content = match self.algorithm().await {
@@ -164,18 +181,20 @@ impl Session {
                 ciphertext,
                 recipient_key: self.sender_key,
                 sender_key: self.our_identity_keys.curve25519,
+                message_id,
             }
             .into(),
             #[cfg(feature = "experimental-algorithms")]
             EventEncryptionAlgorithm::OlmV2Curve25519AesSha2 => OlmV2Curve25519AesSha2Content {
                 ciphertext,
                 sender_key: self.our_identity_keys.curve25519,
+                message_id,
             }
             .into(),
             _ => unreachable!(),
         };
 
-        let content = Raw::new(&content).expect("A encrypted can always be serialized");
+        let content = Raw::new(&content)?;
 
         Ok(content)
     }
@@ -221,8 +240,8 @@ impl Session {
     /// * `pickle_mode` - The mode that was used to pickle the session, either
     /// an unencrypted mode or an encrypted using passphrase.
     pub fn from_pickle(
-        user_id: Arc<UserId>,
-        device_id: Arc<DeviceId>,
+        user_id: OwnedUserId,
+        device_id: OwnedDeviceId,
         our_identity_keys: Arc<IdentityKeys>,
         pickle: PickledSession,
     ) -> Self {

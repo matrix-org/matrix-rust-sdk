@@ -124,6 +124,9 @@ pub struct OlmV1Curve25519AesSha2Content {
 
     /// The Curve25519 key of the sender.
     pub sender_key: Curve25519PublicKey,
+
+    /// The unique ID of this content.
+    pub message_id: Option<String>,
 }
 
 /// The event content for events encrypted with the m.olm.v2.curve25519-aes-sha2
@@ -137,6 +140,10 @@ pub struct OlmV2Curve25519AesSha2Content {
     /// The Curve25519 key of the sender.
     #[serde(deserialize_with = "deserialize_curve_key", serialize_with = "serialize_curve_key")]
     pub sender_key: Curve25519PublicKey,
+
+    /// The unique ID of this content.
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "org.matrix.msgid")]
+    pub message_id: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -144,6 +151,8 @@ struct OlmHelper {
     #[serde(deserialize_with = "deserialize_curve_key", serialize_with = "serialize_curve_key")]
     sender_key: Curve25519PublicKey,
     ciphertext: BTreeMap<String, OlmMessage>,
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "org.matrix.msgid")]
+    message_id: Option<String>,
 }
 
 impl Serialize for OlmV1Curve25519AesSha2Content {
@@ -154,7 +163,12 @@ impl Serialize for OlmV1Curve25519AesSha2Content {
         let ciphertext =
             BTreeMap::from([(self.recipient_key.to_base64(), self.ciphertext.clone())]);
 
-        OlmHelper { sender_key: self.sender_key, ciphertext }.serialize(serializer)
+        OlmHelper {
+            sender_key: self.sender_key,
+            ciphertext,
+            message_id: self.message_id.to_owned(),
+        }
+        .serialize(serializer)
     }
 }
 
@@ -171,7 +185,12 @@ impl TryFrom<OlmHelper> for OlmV1Curve25519AesSha2Content {
         let recipient_key =
             Curve25519PublicKey::from_base64(&recipient_key).map_err(serde::de::Error::custom)?;
 
-        Ok(Self { ciphertext, recipient_key, sender_key: value.sender_key })
+        Ok(Self {
+            ciphertext,
+            recipient_key,
+            sender_key: value.sender_key,
+            message_id: value.message_id,
+        })
     }
 }
 
@@ -186,7 +205,7 @@ pub struct RoomEncryptedEventContent {
     #[serde(rename = "m.relates_to", skip_serializing_if = "Option::is_none")]
     pub relates_to: Option<Value>,
 
-    /// The other data of the encryped content.
+    /// The other data of the encrypted content.
     #[serde(flatten)]
     pub(crate) other: BTreeMap<String, Value>,
 }
@@ -299,7 +318,7 @@ pub struct MegolmV2AesSha2Content {
 pub struct UnknownEncryptedContent {
     /// The algorithm that was used to encrypt the given event content.
     pub algorithm: EventEncryptionAlgorithm,
-    /// The other data of the unknown encryped content.
+    /// The other data of the unknown encrypted content.
     #[serde(flatten)]
     other: BTreeMap<String, Value>,
 }
@@ -391,8 +410,9 @@ scheme_serialization!(
 );
 
 #[cfg(test)]
-pub(crate) mod test {
+pub(crate) mod tests {
     use assert_matches::assert_matches;
+    use assert_matches2::assert_let;
     use serde_json::{json, Value};
     use vodozemac::Curve25519PublicKey;
 
@@ -411,10 +431,10 @@ pub(crate) mod test {
                 "device_id": "DEWRCMENGS",
                 "session_id": "ZFD6+OmV7fVCsJ7Gap8UnORH8EnmiAkes8FAvQuCw/I",
                 "sender_key": "WJ6Ce7U67a6jqkHYHd8o0+5H4bqdi9hInZdk0+swuXs",
-                "ciphertext": "AwgAEiBQs2LgBD2CcB+RLH2bsgp9VadFUJhBXOtCmcJuttBD\
-                               OeDNjL21d9z0AcVSfQFAh9huh4or7sWuNrHcvu9/sMbweTgc\
-                               0UtdA5xFLheubHouXy4aewze+ShndWAaTbjWJMLsPSQDUMQH\
-                               BA",
+                "ciphertext":
+                    "AwgAEiBQs2LgBD2CcB+RLH2bsgp9VadFUJhBXOtCmcJuttBDOeDNjL21d9\
+                     z0AcVSfQFAh9huh4or7sWuNrHcvu9/sMbweTgc0UtdA5xFLheubHouXy4a\
+                     ewze+ShndWAaTbjWJMLsPSQDUMQHBA",
                 "m.relates_to": {
                     "rel_type": "m.reference",
                     "event_id": "$WUreEJERkFzO8i2dk6CmTex01cP1dZ4GWKhKCwkWHrQ"
@@ -431,11 +451,12 @@ pub(crate) mod test {
             "algorithm": "m.olm.v1.curve25519-aes-sha2",
             "ciphertext": {
                 "Nn0L2hkcCMFKqynTjyGsJbth7QrVmX3lbrksMkrGOAw": {
-                    "body": "Awogv7Iysf062hV1gZNfG/SdO5TdLYtkRI12em6LxralPxoSIC\
-                             C/Avnha6NfkaMWSC+5h+khS0wHiUzA2bPmAvVo/iYhGiAfDNh4\
-                             F0eqPvOc4Hw9wMgd+frzedZgmhUNfKT0UzHQZSJPAwogF8fTdT\
-                             cPt1ppJ/KAEivFZ4dIyAlRUjzhlqzYsw9C1HoQACIgb9MK/a9T\
-                             RLtwol9gfy7OeKdpmSe39YhP+5OchhKvX6eO3/aED3X1oA",
+                    "body":
+                        "Awogv7Iysf062hV1gZNfG/SdO5TdLYtkRI12em6LxralPxoSICC/Av\
+                         nha6NfkaMWSC+5h+khS0wHiUzA2bPmAvVo/iYhGiAfDNh4F0eqPvOc\
+                         4Hw9wMgd+frzedZgmhUNfKT0UzHQZSJPAwogF8fTdTcPt1ppJ/KAEi\
+                         vFZ4dIyAlRUjzhlqzYsw9C1HoQACIgb9MK/a9TRLtwol9gfy7OeKdp\
+                         mSe39YhP+5OchhKvX6eO3/aED3X1oA",
                     "type": 0
                 }
             },
@@ -479,7 +500,10 @@ pub(crate) mod test {
         let json = to_device_json();
         let event: EncryptedToDeviceEvent = serde_json::from_value(json.clone())?;
 
-        assert_matches!(event.content, ToDeviceEncryptedEventContent::OlmV1Curve25519AesSha2(_));
+        assert_let!(
+            ToDeviceEncryptedEventContent::OlmV1Curve25519AesSha2(content) = &event.content
+        );
+        assert!(content.message_id.is_none());
 
         let serialized = serde_json::to_value(event)?;
         assert_eq!(json, serialized);

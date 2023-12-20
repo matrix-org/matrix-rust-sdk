@@ -23,12 +23,6 @@
 //!    way, meaning the white-space and field order won't be preserved but the
 //!    data will.
 
-mod backup;
-mod cross_signing;
-mod device_keys;
-pub mod events;
-mod one_time_keys;
-
 use std::{
     borrow::Borrow,
     collections::{
@@ -37,15 +31,20 @@ use std::{
     },
 };
 
-pub use backup::*;
-pub use cross_signing::*;
-pub use device_keys::*;
-pub use one_time_keys::*;
+use as_variant::as_variant;
 use ruma::{
     serde::StringEnum, DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceKeyId, OwnedUserId, UserId,
 };
 use serde::{Deserialize, Serialize, Serializer};
 use vodozemac::{Curve25519PublicKey, Ed25519PublicKey, Ed25519Signature, KeyError};
+
+mod backup;
+mod cross_signing;
+mod device_keys;
+pub mod events;
+mod one_time_keys;
+
+pub use self::{backup::*, cross_signing::*, device_keys::*, one_time_keys::*};
 
 /// Represents a potentially decoded signature (but *not* a validated one).
 ///
@@ -79,11 +78,7 @@ pub struct InvalidSignature {
 impl Signature {
     /// Get the Ed25519 signature, if this is one.
     pub fn ed25519(&self) -> Option<Ed25519Signature> {
-        if let Self::Ed25519(signature) = &self {
-            Some(*signature)
-        } else {
-            None
-        }
+        as_variant!(self, Self::Ed25519).copied()
     }
 
     /// Convert the signature to a base64 encoded string.
@@ -121,7 +116,7 @@ impl Signatures {
         key_id: OwnedDeviceKeyId,
         signature: Ed25519Signature,
     ) -> Option<Result<Signature, InvalidSignature>> {
-        self.0.entry(signer).or_insert_with(Default::default).insert(key_id, Ok(signature.into()))
+        self.0.entry(signer).or_default().insert(key_id, Ok(signature.into()))
     }
 
     /// Try to find an Ed25519 signature from the given signer with the given
@@ -328,6 +323,7 @@ impl Algorithm for DeviceKeyAlgorithm {
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PrivOwnedStr(Box<str>);
 
+#[cfg(not(tarpaulin_include))]
 impl std::fmt::Debug for PrivOwnedStr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(f)

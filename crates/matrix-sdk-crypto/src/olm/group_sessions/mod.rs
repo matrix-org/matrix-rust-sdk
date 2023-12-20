@@ -21,7 +21,7 @@ mod outbound;
 pub use inbound::{InboundGroupSession, PickledInboundGroupSession};
 pub(crate) use outbound::ShareState;
 pub use outbound::{
-    EncryptionSettings, GroupSession, OutboundGroupSession, PickledOutboundGroupSession, ShareInfo,
+    EncryptionSettings, OutboundGroupSession, PickledOutboundGroupSession, ShareInfo,
 };
 use thiserror::Error;
 pub use vodozemac::megolm::{ExportedSessionKey, SessionKey};
@@ -95,6 +95,24 @@ pub struct ExportedRoomKey {
         serialize_with = "serialize_curve_key_vec"
     )]
     pub forwarding_curve25519_key_chain: Vec<Curve25519PublicKey>,
+}
+
+impl ExportedRoomKey {
+    pub(crate) fn from_backed_up_room_key(
+        room_id: OwnedRoomId,
+        session_id: String,
+        room_key: BackedUpRoomKey,
+    ) -> Self {
+        Self {
+            algorithm: room_key.algorithm,
+            room_id,
+            sender_key: room_key.sender_key,
+            session_id,
+            session_key: room_key.session_key,
+            sender_claimed_keys: room_key.sender_claimed_keys,
+            forwarding_curve25519_key_chain: room_key.forwarding_curve25519_key_chain,
+        }
+    }
 }
 
 /// A backed up version of an `InboundGroupSession`

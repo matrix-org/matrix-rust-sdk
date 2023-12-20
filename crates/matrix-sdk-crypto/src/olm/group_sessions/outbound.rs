@@ -18,21 +18,22 @@ use std::{
     fmt,
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
-        Arc,
+        Arc, RwLock as StdRwLock,
     },
     time::Duration,
 };
 
-use dashmap::DashMap;
-use matrix_sdk_common::locks::RwLock;
 use ruma::{
-    events::room::{encryption::RoomEncryptionEventContent, history_visibility::HistoryVisibility},
+    events::{
+        room::{encryption::RoomEncryptionEventContent, history_visibility::HistoryVisibility},
+        AnyMessageLikeEventContent,
+    },
     serde::Raw,
-    DeviceId, OwnedDeviceId, OwnedTransactionId, OwnedUserId, RoomId, SecondsSinceUnixEpoch,
-    TransactionId, UserId,
+    DeviceId, OwnedDeviceId, OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId,
+    SecondsSinceUnixEpoch, TransactionId, UserId,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use tokio::sync::RwLock;
 use tracing::{debug, error, info};
 use vodozemac::{megolm::SessionConfig, Curve25519PublicKey};
 pub use vodozemac::{
@@ -51,10 +52,11 @@ use crate::{
                 MegolmV1AesSha2Content, RoomEncryptedEventContent, RoomEventEncryptionScheme,
             },
             room_key::{MegolmV1AesSha2Content as MegolmV1AesSha2RoomKeyContent, RoomKeyContent},
+            room_key_withheld::{RoomKeyWithheldContent, WithheldCode},
         },
         EventEncryptionAlgorithm,
     },
-    Device, ToDeviceRequest,
+    ReadOnlyDevice, ToDeviceRequest,
 };
 
 const ROTATION_PERIOD: Duration = Duration::from_millis(604800000);
@@ -130,17 +132,20 @@ impl EncryptionSettings {
 #[derive(Clone)]
 pub struct OutboundGroupSession {
     inner: Arc<RwLock<GroupSession>>,
-    device_id: Arc<DeviceId>,
+    device_id: OwnedDeviceId,
     account_identity_keys: Arc<IdentityKeys>,
     session_id: Arc<str>,
-    room_id: Arc<RoomId>,
+    room_id: OwnedRoomId,
     pub(crate) creation_time: SecondsSinceUnixEpoch,
     message_count: Arc<AtomicU64>,
     shared: Arc<AtomicBool>,
     invalidated: Arc<AtomicBool>,
     settings: Arc<EncryptionSettings>,
-    pub(crate) shared_with_set: Arc<DashMap<OwnedUserId, DashMap<OwnedDeviceId, ShareInfo>>>,
-    to_share_with_set: Arc<DashMap<OwnedTransactionId, (Arc<ToDeviceRequest>, ShareInfoSet)>>,
+    pub(crate) shared_with_set:
+        Arc<StdRwLock<BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, ShareInfo>>>>,
+    #[allow(clippy::type_complexity)]
+    to_share_with_set:
+        Arc<StdRwLock<BTreeMap<OwnedTransactionId, (Arc<ToDeviceRequest>, ShareInfoSet)>>>,
 }
 
 /// A a map of userid/device it to a `ShareInfo`.
@@ -151,7 +156,27 @@ pub type ShareInfoSet = BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, ShareInfo>
 
 /// Struct holding info about the share state of a outbound group session.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ShareInfo {
+pub enum ShareInfo {
+    /// When the key has been shared
+    Shared(SharedWith),
+    /// When the session has been withheld
+    Withheld(WithheldCode),
+}
+
+impl ShareInfo {
+    /// Helper to create a SharedWith info
+    pub fn new_shared(sender_key: Curve25519PublicKey, message_index: u32) -> Self {
+        ShareInfo::Shared(SharedWith { sender_key, message_index })
+    }
+
+    /// Helper to create a Withheld info
+    pub fn new_withheld(code: WithheldCode) -> Self {
+        ShareInfo::Withheld(code)
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SharedWith {
     /// The sender key of the device that was used to encrypt the room key.
     pub sender_key: Curve25519PublicKey,
     /// The message index that the device received.
@@ -186,7 +211,7 @@ impl OutboundGroupSession {
     /// * `settings` - Settings determining the algorithm and rotation period of
     /// the outbound group session.
     pub fn new(
-        device_id: Arc<DeviceId>,
+        device_id: OwnedDeviceId,
         identity_keys: Arc<IdentityKeys>,
         room_id: &RoomId,
         settings: EncryptionSettings,
@@ -207,18 +232,40 @@ impl OutboundGroupSession {
             shared: Arc::new(AtomicBool::new(false)),
             invalidated: Arc::new(AtomicBool::new(false)),
             settings: Arc::new(settings),
-            shared_with_set: Arc::new(DashMap::new()),
-            to_share_with_set: Arc::new(DashMap::new()),
+            shared_with_set: Default::default(),
+            to_share_with_set: Default::default(),
         })
     }
 
-    pub(crate) fn add_request(
+    /// Add a to-device request that is sending the session key (or room key)
+    /// belonging to this [`OutboundGroupSession`] to other members of the
+    /// group.
+    ///
+    /// The request will get persisted with the session which allows seamless
+    /// session reuse across application restarts.
+    ///
+    /// **Warning** this method is only exposed to be used in integration tests
+    /// of crypto-store implementations. **Do not use this outside of tests**.
+    pub fn add_request(
         &self,
         request_id: OwnedTransactionId,
         request: Arc<ToDeviceRequest>,
         share_infos: ShareInfoSet,
     ) {
-        self.to_share_with_set.insert(request_id, (request, share_infos));
+        self.to_share_with_set.write().unwrap().insert(request_id, (request, share_infos));
+    }
+
+    /// Create a new `m.room_key.withheld` event content with the given code for
+    /// this outbound group session.
+    pub fn withheld_code(&self, code: WithheldCode) -> RoomKeyWithheldContent {
+        RoomKeyWithheldContent::new(
+            self.settings().algorithm.to_owned(),
+            code,
+            self.room_id().to_owned(),
+            self.session_id().to_owned(),
+            self.sender_key().to_owned(),
+            (*self.device_id).to_owned(),
+        )
     }
 
     /// This should be called if an the user wishes to rotate this session.
@@ -235,41 +282,60 @@ impl OutboundGroupSession {
     ///
     /// This removes the request from the queue and marks the set of
     /// users/devices that received the session.
-    pub fn mark_request_as_sent(&self, request_id: &TransactionId) {
-        if let Some((_, (_, r))) = self.to_share_with_set.remove(request_id) {
-            let recipients: BTreeMap<&UserId, BTreeSet<&DeviceId>> =
-                r.iter().map(|(u, d)| (&**u, d.keys().map(|d| d.as_ref()).collect())).collect();
+    pub fn mark_request_as_sent(
+        &self,
+        request_id: &TransactionId,
+    ) -> BTreeMap<OwnedUserId, BTreeSet<OwnedDeviceId>> {
+        let mut no_olm_devices = BTreeMap::new();
+
+        let removed = self.to_share_with_set.write().unwrap().remove(request_id);
+        if let Some((to_device, request)) = removed {
+            let recipients: BTreeMap<&UserId, BTreeSet<&DeviceId>> = request
+                .iter()
+                .map(|(u, d)| (u.as_ref(), d.keys().map(|d| d.as_ref()).collect()))
+                .collect();
 
             info!(
                 ?request_id,
                 ?recipients,
-                "Marking to-device request carrying a room key as sent"
+                ?to_device.event_type,
+                "Marking to-device request carrying a room key or a withheld as sent"
             );
 
-            for (user_id, info) in r {
-                self.shared_with_set.entry(user_id).or_default().extend(info)
+            for (user_id, info) in request {
+                let no_olms: BTreeSet<OwnedDeviceId> = info
+                    .iter()
+                    .filter(|(_, info)| matches!(info, ShareInfo::Withheld(WithheldCode::NoOlm)))
+                    .map(|(d, _)| d.to_owned())
+                    .collect();
+                no_olm_devices.insert(user_id.to_owned(), no_olms);
+
+                self.shared_with_set.write().unwrap().entry(user_id).or_default().extend(info);
             }
 
-            if self.to_share_with_set.is_empty() {
+            if self.to_share_with_set.read().unwrap().is_empty() {
                 debug!(
                     session_id = self.session_id(),
-                    room_id = self.room_id.as_str(),
-                    "All m.room_key to-device requests were sent out, marking \
-                        session as shared.",
+                    room_id = ?self.room_id,
+                    "All m.room_key and withheld to-device requests were sent out, marking \
+                     session as shared.",
                 );
+
                 self.mark_as_shared();
             }
         } else {
             let request_ids: Vec<String> =
-                self.to_share_with_set.iter().map(|e| e.key().to_string()).collect();
+                self.to_share_with_set.read().unwrap().keys().map(|k| k.to_string()).collect();
 
             error!(
                 all_request_ids = ?request_ids,
-                request_id = request_id.to_string().as_str(),
+                request_id = ?request_id,
                 "Marking to-device request carrying a room key as sent but no \
-                    request found with the given id"
+                 request found with the given id"
             );
         }
+
+        no_olm_devices
     }
 
     /// Encrypt the given plaintext using this session.
@@ -292,30 +358,37 @@ impl OutboundGroupSession {
     ///
     /// # Arguments
     ///
-    /// * `content` - The plaintext content of the message that should be
-    /// encrypted in raw json [`Value`] form.
-    ///
     /// * `event_type` - The plaintext type of the event, the outer type of the
     /// event will become `m.room.encrypted`.
+    ///
+    /// * `content` - The plaintext content of the message that should be
+    /// encrypted in raw JSON form.
     ///
     /// # Panics
     ///
     /// Panics if the content can't be serialized.
     pub async fn encrypt(
         &self,
-        content: Value,
         event_type: &str,
+        content: &Raw<AnyMessageLikeEventContent>,
     ) -> Raw<RoomEncryptedEventContent> {
-        let json_content = json!({
-            "content": content,
-            "room_id": &*self.room_id,
-            "type": event_type,
-        });
+        #[derive(Serialize)]
+        struct Payload<'a> {
+            #[serde(rename = "type")]
+            event_type: &'a str,
+            content: &'a Raw<AnyMessageLikeEventContent>,
+            room_id: &'a RoomId,
+        }
 
-        let plaintext = json_content.to_string();
-        let relates_to = content.get("m.relates_to").cloned();
+        let payload = Payload { event_type, content, room_id: &self.room_id };
+        let payload_json =
+            serde_json::to_string(&payload).expect("payload serialization never fails");
 
-        let ciphertext = self.encrypt_helper(plaintext).await;
+        let relates_to = content
+            .get_field::<serde_json::Value>("m.relates_to")
+            .expect("serde_json::Value deserialization with valid JSON input never fails");
+
+        let ciphertext = self.encrypt_helper(payload_json).await;
         let scheme: RoomEventEncryptionScheme = match self.settings.algorithm {
             EventEncryptionAlgorithm::MegolmV1AesSha2 => MegolmV1AesSha2Content {
                 ciphertext,
@@ -393,6 +466,11 @@ impl OutboundGroupSession {
         session.session_key()
     }
 
+    /// Gets the Sender Key
+    pub fn sender_key(&self) -> Curve25519PublicKey {
+        self.account_identity_keys.as_ref().curve25519.to_owned()
+    }
+
     /// Get the room id of the room this session belongs to.
     pub fn room_id(&self) -> &RoomId {
         &self.room_id
@@ -426,17 +504,21 @@ impl OutboundGroupSession {
     }
 
     /// Has or will the session be shared with the given user/device pair.
-    pub(crate) fn is_shared_with(&self, device: &Device) -> ShareState {
+    pub(crate) fn is_shared_with(&self, device: &ReadOnlyDevice) -> ShareState {
         // Check if we shared the session.
-        let shared_state = self.shared_with_set.get(device.user_id()).and_then(|d| {
-            d.get(device.device_id()).map(|s| {
-                if Some(s.sender_key) == device.curve25519_key() {
-                    ShareState::Shared(s.message_index)
-                } else {
-                    ShareState::SharedButChangedSenderKey
-                }
-            })
-        });
+        let shared_state =
+            self.shared_with_set.read().unwrap().get(device.user_id()).and_then(|d| {
+                d.get(device.device_id()).map(|s| match s {
+                    ShareInfo::Shared(s) => {
+                        if device.curve25519_key() == Some(s.sender_key) {
+                            ShareState::Shared(s.message_index)
+                        } else {
+                            ShareState::SharedButChangedSenderKey
+                        }
+                    }
+                    ShareInfo::Withheld(_) => ShareState::NotShared,
+                })
+            });
 
         if let Some(state) = shared_state {
             state
@@ -446,22 +528,48 @@ impl OutboundGroupSession {
 
             // Find the first request that contains the given user id and
             // device ID.
-            let shared = self.to_share_with_set.iter().find_map(|item| {
-                let share_info = &item.value().1;
-
-                share_info.get(device.user_id()).and_then(|d| {
-                    d.get(device.device_id()).map(|info| {
-                        if Some(info.sender_key) == device.curve25519_key() {
-                            ShareState::Shared(info.message_index)
-                        } else {
-                            ShareState::SharedButChangedSenderKey
+            let shared =
+                self.to_share_with_set.read().unwrap().values().find_map(|(_, share_info)| {
+                    let d = share_info.get(device.user_id())?;
+                    let info = d.get(device.device_id())?;
+                    Some(match info {
+                        ShareInfo::Shared(info) => {
+                            if device.curve25519_key() == Some(info.sender_key) {
+                                ShareState::Shared(info.message_index)
+                            } else {
+                                ShareState::SharedButChangedSenderKey
+                            }
                         }
+                        ShareInfo::Withheld(_) => ShareState::NotShared,
                     })
-                })
-            });
+                });
 
             shared.unwrap_or(ShareState::NotShared)
         }
+    }
+
+    pub(crate) fn is_withheld_to(&self, device: &ReadOnlyDevice, code: &WithheldCode) -> bool {
+        self.shared_with_set
+            .read()
+            .unwrap()
+            .get(device.user_id())
+            .and_then(|d| {
+                let info = d.get(device.device_id())?;
+                Some(matches!(info, ShareInfo::Withheld(c) if c == code))
+            })
+            .unwrap_or_else(|| {
+                // If we haven't yet withheld, check if we're going to withheld
+                // the session.
+
+                // Find the first request that contains the given user id and
+                // device ID.
+                self.to_share_with_set.read().unwrap().values().any(|(_, share_info)| {
+                    share_info
+                        .get(device.user_id())
+                        .and_then(|d| d.get(device.device_id()))
+                        .is_some_and(|info| matches!(info, ShareInfo::Withheld(c) if c == code))
+                })
+            })
     }
 
     /// Mark the session as shared with the given user/device pair, starting
@@ -475,9 +583,11 @@ impl OutboundGroupSession {
         index: u32,
     ) {
         self.shared_with_set
+            .write()
+            .unwrap()
             .entry(user_id.to_owned())
             .or_default()
-            .insert(device_id.to_owned(), ShareInfo { sender_key, message_index: index });
+            .insert(device_id.to_owned(), ShareInfo::new_shared(sender_key, index));
     }
 
     /// Mark the session as shared with the given user/device pair, starting
@@ -489,21 +599,24 @@ impl OutboundGroupSession {
         device_id: &DeviceId,
         sender_key: Curve25519PublicKey,
     ) {
-        self.shared_with_set.entry(user_id.to_owned()).or_default().insert(
-            device_id.to_owned(),
-            ShareInfo { sender_key, message_index: self.message_index().await },
-        );
+        let share_info = ShareInfo::new_shared(sender_key, self.message_index().await);
+        self.shared_with_set
+            .write()
+            .unwrap()
+            .entry(user_id.to_owned())
+            .or_default()
+            .insert(device_id.to_owned(), share_info);
     }
 
     /// Get the list of requests that need to be sent out for this session to be
     /// marked as shared.
     pub(crate) fn pending_requests(&self) -> Vec<Arc<ToDeviceRequest>> {
-        self.to_share_with_set.iter().map(|i| i.value().0.clone()).collect()
+        self.to_share_with_set.read().unwrap().values().map(|(req, _)| req.clone()).collect()
     }
 
     /// Get the list of request ids this session is waiting for to be sent out.
     pub(crate) fn pending_request_ids(&self) -> Vec<OwnedTransactionId> {
-        self.to_share_with_set.iter().map(|e| e.key().clone()).collect()
+        self.to_share_with_set.read().unwrap().keys().cloned().collect()
     }
 
     /// Restore a Session from a previously pickled string.
@@ -524,7 +637,7 @@ impl OutboundGroupSession {
     /// * `pickle_mode` - The mode that was used to pickle the session, either
     /// an unencrypted mode or an encrypted using passphrase.
     pub fn from_pickle(
-        device_id: Arc<DeviceId>,
+        device_id: OwnedDeviceId,
         identity_keys: Arc<IdentityKeys>,
         pickle: PickledOutboundGroupSession,
     ) -> Result<Self, PickleError> {
@@ -542,14 +655,8 @@ impl OutboundGroupSession {
             shared: AtomicBool::from(pickle.shared).into(),
             invalidated: AtomicBool::from(pickle.invalidated).into(),
             settings: pickle.settings,
-            shared_with_set: Arc::new(
-                pickle
-                    .shared_with_set
-                    .into_iter()
-                    .map(|(k, v)| (k, v.into_iter().collect()))
-                    .collect(),
-            ),
-            to_share_with_set: Arc::new(pickle.requests.into_iter().collect()),
+            shared_with_set: Arc::new(StdRwLock::new(pickle.shared_with_set)),
+            to_share_with_set: Arc::new(StdRwLock::new(pickle.requests)),
         })
     }
 
@@ -572,21 +679,8 @@ impl OutboundGroupSession {
             message_count: self.message_count.load(Ordering::SeqCst),
             shared: self.shared(),
             invalidated: self.invalidated(),
-            shared_with_set: self
-                .shared_with_set
-                .iter()
-                .map(|u| {
-                    (
-                        u.key().clone(),
-                        u.value().iter().map(|d| (d.key().clone(), d.value().clone())).collect(),
-                    )
-                })
-                .collect(),
-            requests: self
-                .to_share_with_set
-                .iter()
-                .map(|r| (r.key().clone(), r.value().clone()))
-                .collect(),
+            shared_with_set: self.shared_with_set.read().unwrap().clone(),
+            requests: self.to_share_with_set.read().unwrap().clone(),
         }
     }
 }
@@ -624,7 +718,7 @@ pub struct PickledOutboundGroupSession {
     /// The settings this session adheres to.
     pub settings: Arc<EncryptionSettings>,
     /// The room id this session is used for.
-    pub room_id: Arc<RoomId>,
+    pub room_id: OwnedRoomId,
     /// The timestamp when this session was created.
     pub creation_time: SecondsSinceUnixEpoch,
     /// The number of messages this session has already encrypted.
@@ -641,9 +735,8 @@ pub struct PickledOutboundGroupSession {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::{sync::atomic::Ordering, time::Duration};
 
-    use atomic::Ordering;
     use matrix_sdk_test::async_test;
     use ruma::{
         device_id,
@@ -655,10 +748,10 @@ mod tests {
     };
 
     use super::{EncryptionSettings, ROTATION_MESSAGES, ROTATION_PERIOD};
-    use crate::{MegolmError, ReadOnlyAccount};
+    use crate::{Account, MegolmError};
 
     #[test]
-    fn encryption_settings_conversion() {
+    fn test_encryption_settings_conversion() {
         let mut content =
             RoomEncryptionEventContent::new(EventEncryptionAlgorithm::MegolmV1AesSha2);
         let settings = EncryptionSettings::new(content.clone(), HistoryVisibility::Joined, false);
@@ -677,12 +770,14 @@ mod tests {
 
     #[async_test]
     #[cfg(any(target_os = "linux", target_os = "macos", target_arch = "wasm32"))]
-    async fn expiration() -> Result<(), MegolmError> {
-        use ruma::SecondsSinceUnixEpoch;
+    async fn test_expiration() -> Result<(), MegolmError> {
+        use ruma::{serde::Raw, SecondsSinceUnixEpoch};
 
         let settings = EncryptionSettings { rotation_period_msgs: 1, ..Default::default() };
 
-        let account = ReadOnlyAccount::new(user_id!("@alice:example.org"), device_id!("DEVICEID"));
+        let account =
+            Account::with_device_id(user_id!("@alice:example.org"), device_id!("DEVICEID"))
+                .static_data;
         let (session, _) = account
             .create_group_session_pair(room_id!("!test_room:example.org"), settings)
             .await
@@ -691,8 +786,8 @@ mod tests {
         assert!(!session.expired());
         let _ = session
             .encrypt(
-                serde_json::to_value(RoomMessageEventContent::text_plain("Test message"))?,
                 "m.room.message",
+                &Raw::new(&RoomMessageEventContent::text_plain("Test message"))?.cast(),
             )
             .await;
         assert!(session.expired());
@@ -724,8 +819,8 @@ mod tests {
 
         let _ = session
             .encrypt(
-                serde_json::to_value(RoomMessageEventContent::text_plain("Test message"))?,
                 "m.room.message",
+                &Raw::new(&RoomMessageEventContent::text_plain("Test message"))?.cast(),
             )
             .await;
         assert!(session.expired());

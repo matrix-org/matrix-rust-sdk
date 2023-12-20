@@ -31,7 +31,7 @@ pub type SecretSendEvent = ToDeviceEvent<SecretSendContent>;
 /// Sent by a client to share a secret with another device, in response to an
 /// `m.secret.request` event. It must be encrypted as an `m.room.encrypted`
 /// event, then sent as a to-device event.
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct SecretSendContent {
     /// The ID of the request that this a response to.
     pub request_id: OwnedTransactionId,
@@ -66,11 +66,11 @@ impl Drop for SecretSendContent {
     }
 }
 
+#[cfg(not(tarpaulin_include))]
 impl std::fmt::Debug for SecretSendContent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SecretSendContent")
             .field("request_id", &self.request_id)
-            .field("secret_name", &self.secret_name)
             .finish_non_exhaustive()
     }
 }
@@ -80,7 +80,7 @@ impl EventType for SecretSendContent {
 }
 
 #[cfg(test)]
-pub(crate) mod test {
+pub(crate) mod tests {
     use serde_json::{json, Value};
 
     use super::SecretSendEvent;

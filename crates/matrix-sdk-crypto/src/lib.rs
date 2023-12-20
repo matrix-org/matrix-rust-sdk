@@ -16,8 +16,9 @@
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 #![warn(missing_docs, missing_debug_implementations)]
 
-#[cfg(feature = "backups_v1")]
 pub mod backups;
+mod ciphers;
+pub mod dehydrated_devices;
 mod error;
 mod file_encryption;
 mod gossiping;
@@ -25,6 +26,7 @@ mod identities;
 mod machine;
 pub mod olm;
 pub mod requests;
+pub mod secret_storage;
 mod session_manager;
 pub mod store;
 pub mod types;
@@ -73,15 +75,15 @@ pub use file_encryption::{
     decrypt_room_key_export, encrypt_room_key_export, AttachmentDecryptor, AttachmentEncryptor,
     DecryptorError, KeyExportError, MediaEncryptionInfo,
 };
-pub use gossiping::GossipRequest;
+pub use gossiping::{GossipRequest, GossippedSecret};
 pub use identities::{
     Device, LocalTrust, OwnUserIdentity, ReadOnlyDevice, ReadOnlyOwnUserIdentity,
     ReadOnlyUserIdentities, ReadOnlyUserIdentity, UserDevices, UserIdentities, UserIdentity,
 };
-pub use machine::OlmMachine;
+pub use machine::{CrossSigningBootstrapRequests, EncryptionSyncChanges, OlmMachine};
 #[cfg(feature = "qrcode")]
 pub use matrix_sdk_qrcode;
-pub use olm::{CrossSigningStatus, EncryptionSettings, ReadOnlyAccount};
+pub use olm::{Account, CrossSigningStatus, EncryptionSettings, Session};
 pub use requests::{
     IncomingResponse, KeysBackupRequest, KeysQueryRequest, OutgoingRequest, OutgoingRequests,
     OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest, UploadSigningKeysRequest,
@@ -95,28 +97,11 @@ pub use verification::{
 };
 #[cfg(feature = "qrcode")]
 pub use verification::{QrVerification, QrVerificationState, ScanError};
-
-/// Re-exported Error types from the [vodozemac](https://crates.io/crates/vodozemac) crate.
-pub mod vodozemac {
-    pub use vodozemac::{
-        megolm::{DecryptionError as MegolmDecryptionError, SessionKeyDecodeError},
-        olm::{
-            DecryptionError as OlmDecryptionError, SessionCreationError as OlmSessionCreationError,
-        },
-        DecodeError, KeyError, PickleError, SignatureError, VERSION,
-    };
-}
+#[doc(no_inline)]
+pub use vodozemac;
 
 /// The version of the matrix-sdk-cypto crate being used
 pub static VERSION: &str = env!("CARGO_PKG_VERSION");
 
-// Enable tracing for tests in this crate
-#[cfg(all(test, not(target_arch = "wasm32")))]
-#[ctor::ctor]
-fn init_logging() {
-    use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-    tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::from_default_env())
-        .with(tracing_subscriber::fmt::layer().with_test_writer())
-        .init();
-}
+#[cfg(test)]
+matrix_sdk_test::init_tracing_for_tests!();

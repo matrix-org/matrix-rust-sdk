@@ -1,7 +1,8 @@
 use anyhow::Result;
 use clap::Parser;
-use futures::StreamExt;
+use futures_util::StreamExt;
 use matrix_sdk::{self, config::SyncSettings, ruma::OwnedRoomId, Client};
+use matrix_sdk_ui::timeline::RoomExt;
 use url::Url;
 
 #[derive(Parser, Debug)]
@@ -44,6 +45,7 @@ async fn login(cli: Cli) -> Result<Client> {
     let client = builder.build().await?;
 
     client
+        .matrix_auth()
         .login_username(&cli.user_name, &cli.password)
         .initial_device_display_name("rust-sdk")
         .await?;

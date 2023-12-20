@@ -19,6 +19,9 @@ TARGET_CRATE=matrix-sdk-crypto-ffi
 
 # Build static libs for all the different architectures
 
+# Required by olm-sys crate
+export IOS_SDK_PATH=`xcrun --show-sdk-path --sdk iphoneos`
+
 # iOS
 echo -e "Building for iOS [1/5]"
 cargo build -p ${TARGET_CRATE} ${REL_FLAG} --target "aarch64-apple-ios"

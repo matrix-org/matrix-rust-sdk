@@ -21,18 +21,25 @@ e2e-encryption = ["dep:matrix-sdk-crypto"]
 js = ["matrix-sdk-common/js", "matrix-sdk-crypto?/js", "ruma/js", "matrix-sdk-store-encryption/js"]
 qrcode = ["matrix-sdk-crypto?/qrcode"]
 automatic-room-key-forwarding = ["matrix-sdk-crypto?/automatic-room-key-forwarding"]
+message-ids = ["matrix-sdk-crypto?/message-ids"]
 experimental-sliding-sync = ["ruma/unstable-msc3575"]
 
 # helpers for testing features build upon this
-testing = ["dep:http", "dep:matrix-sdk-test", "dep:assert_matches"]
+testing = [
+    "dep:assert_matches",
+    "dep:assert_matches2",
+    "dep:http",
+    "dep:matrix-sdk-test",
+    "matrix-sdk-crypto?/testing",
+]
 
 [dependencies]
-assert_matches = { version = "1.5.0", optional = true }
-async-stream = { workspace = true }
+as_variant = { workspace = true }
+assert_matches = { workspace = true, optional = true }
+assert_matches2 = { workspace = true, optional = true }
 async-trait = { workspace = true }
-dashmap = { workspace = true }
+bitflags = "2.1.0"
 eyeball = { workspace = true }
-futures-core = "0.3.21"
 futures-util = { workspace = true }
 http = { workspace = true, optional = true }
 matrix-sdk-common = { version = "0.6.0", path = "../matrix-sdk-common" }
@@ -40,24 +47,23 @@ matrix-sdk-crypto = { version = "0.6.0", path = "../matrix-sdk-crypto", optional
 matrix-sdk-store-encryption = { version = "0.2.0", path = "../matrix-sdk-store-encryption" }
 matrix-sdk-test = { version = "0.6.0", path = "../../testing/matrix-sdk-test", optional = true }
 once_cell = { workspace = true }
-ruma = { workspace = true, features = ["canonical-json"] }
+ruma = { workspace = true, features = ["canonical-json", "unstable-msc3381"] }
 serde = { workspace = true, features = ["rc"] }
 serde_json = { workspace = true }
+tokio = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
-zeroize = { workspace = true, features = ["zeroize_derive"] }
 
 [dev-dependencies]
-assert_matches = "1.5.0"
+assert_matches = { workspace = true }
+assert_matches2 = { workspace = true }
 assign = "1.1.1"
-ctor = { workspace = true }
-futures = { version = "0.3.21", default-features = false, features = ["executor"] }
+futures-executor = { workspace = true }
 http = { workspace = true }
 matrix-sdk-test = { version = "0.6.0", path = "../../testing/matrix-sdk-test" }
-tracing-subscriber = { version = "0.3.11", features = ["env-filter"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
-tokio = { version = "1.24.2", default-features = false, features = ["rt-multi-thread", "macros"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test = "0.3.33"

@@ -1,18 +1,21 @@
-use std::collections::BTreeMap;
+use std::{
+    collections::BTreeMap,
+    env::consts::{DLL_PREFIX, DLL_SUFFIX},
+};
 
 use clap::{Args, Subcommand};
 use xshell::{cmd, pushd};
 
-use crate::{build_docs, workspace, DenyWarnings, Result};
+use crate::{build_docs, workspace, DenyWarnings, Result, NIGHTLY};
+
+const WASM_TIMEOUT_ENV_KEY: &str = "WASM_BINDGEN_TEST_TIMEOUT";
+const WASM_TIMEOUT_VALUE: &str = "120";
 
 #[derive(Args)]
 pub struct CiArgs {
     #[clap(subcommand)]
     cmd: Option<CiCommand>,
 }
-
-const WASM_TIMEOUT_ENV_KEY: &str = "WASM_BINDGEN_TEST_TIMEOUT";
-const WASM_TIMEOUT_VALUE: &str = "120";
 
 #[derive(Subcommand)]
 enum CiCommand {
@@ -34,16 +37,13 @@ enum CiCommand {
         cmd: Option<FeatureSet>,
     },
 
-    /// Run tests for the appservice crate
-    TestAppservice,
-
-    /// Run checks for the wasm target
+    /// Run clippy checks for the wasm target
     Wasm {
         #[clap(subcommand)]
         cmd: Option<WasmFeatureSet>,
     },
 
-    /// Run wasm-pack tests
+    /// Run tests with `wasm-pack test`
     WasmPack {
         #[clap(subcommand)]
         cmd: Option<WasmFeatureSet>,
@@ -62,9 +62,9 @@ enum CiCommand {
 #[derive(Subcommand, PartialEq, Eq, PartialOrd, Ord)]
 enum FeatureSet {
     NoEncryption,
-    NoSled,
-    NoEncryptionAndSled,
-    SledCryptostore,
+    NoSqlite,
+    NoEncryptionAndSqlite,
+    SqliteCryptostore,
     RustlsTls,
     Markdown,
     Socks,
@@ -74,17 +74,25 @@ enum FeatureSet {
 #[derive(Subcommand, PartialEq, Eq, PartialOrd, Ord)]
 #[allow(clippy::enum_variant_names)]
 enum WasmFeatureSet {
+    /// Check `matrix-sdk-qrcode` crate
     MatrixSdkQrcode,
-    MatrixSdkNoDefault,
+    /// Check `matrix-sdk-base` crate
     MatrixSdkBase,
+    /// Check `matrix-sdk-common` crate
     MatrixSdkCommon,
-    MatrixSdkCryptoJs,
+    /// Check `matrix-sdk` crate with no default features
+    MatrixSdkNoDefault,
+    /// Check `matrix-sdk` crate with `indexeddb` feature (but not
+    /// `e2e-encryption`)
     MatrixSdkIndexeddbStoresNoCrypto,
+    /// Check `matrix-sdk` crate with `indexeddb` and `e2e-encryption` features
     MatrixSdkIndexeddbStores,
+    /// Check `matrix-sdk-indexeddb` crate without `e2e-encryption` feature
     IndexeddbNoCrypto,
+    /// Check `matrix-sdk-indexeddb` crate with `e2e-encryption` feature
     IndexeddbWithCrypto,
+    /// Equivalent to `IndexeddbNoCrypto` followed by `IndexeddbWithCrypto`
     Indexeddb,
-    MatrixSdkCommandBot,
 }
 
 impl CiArgs {
@@ -98,7 +106,6 @@ impl CiArgs {
                 CiCommand::Clippy => check_clippy(),
                 CiCommand::Docs => check_docs(),
                 CiCommand::TestFeatures { cmd } => run_feature_tests(cmd),
-                CiCommand::TestAppservice => run_appservice_tests(),
                 CiCommand::Wasm { cmd } => run_wasm_checks(cmd),
                 CiCommand::WasmPack { cmd } => run_wasm_pack_tests(cmd),
                 CiCommand::TestCrypto => run_crypto_tests(),
@@ -111,7 +118,6 @@ impl CiArgs {
                 check_typos()?;
                 check_docs()?;
                 run_feature_tests(None)?;
-                run_appservice_tests()?;
                 run_wasm_checks(None)?;
                 run_crypto_tests()?;
                 check_examples()?;
@@ -127,22 +133,22 @@ fn check_bindings() -> Result<()> {
     cmd!(
         "
         rustup run stable cargo run -p uniffi-bindgen -- generate
+            --library
             --language kotlin
             --language swift
-            --lib-file target/debug/libmatrix_sdk_ffi.a
             --out-dir target/generated-bindings
-            bindings/matrix-sdk-ffi/src/api.udl
+            target/debug/{DLL_PREFIX}matrix_sdk_ffi{DLL_SUFFIX}
         "
     )
     .run()?;
     cmd!(
         "
         rustup run stable cargo run -p uniffi-bindgen -- generate
+            --library
             --language kotlin
             --language swift
-            --lib-file target/debug/libmatrix_sdk_crypto_ffi.a
             --out-dir target/generated-bindings
-            bindings/matrix-sdk-crypto-ffi/src/olm.udl
+            target/debug/{DLL_PREFIX}matrix_sdk_crypto_ffi{DLL_SUFFIX}
         "
     )
     .run()?;
@@ -156,7 +162,7 @@ fn check_examples() -> Result<()> {
 }
 
 fn check_style() -> Result<()> {
-    cmd!("rustup run nightly cargo fmt -- --check").run()?;
+    cmd!("rustup run {NIGHTLY} cargo fmt -- --check").run()?;
     Ok(())
 }
 
@@ -168,17 +174,18 @@ fn check_typos() -> Result<()> {
 }
 
 fn check_clippy() -> Result<()> {
-    cmd!("rustup run nightly cargo clippy --all-targets -- -D warnings").run()?;
+    cmd!("rustup run {NIGHTLY} cargo clippy --all-targets --features testing -- -D warnings")
+        .run()?;
     cmd!(
-        "rustup run nightly cargo clippy --workspace --all-targets
+        "rustup run {NIGHTLY} cargo clippy --workspace --all-targets
             --exclude matrix-sdk-crypto --exclude xtask
             --no-default-features
-            --features native-tls,experimental-sliding-sync,sso-login,experimental-timeline
+            --features native-tls,experimental-sliding-sync,sso-login,testing
             -- -D warnings"
     )
     .run()?;
     cmd!(
-        "rustup run nightly cargo clippy --all-targets -p matrix-sdk-crypto
+        "rustup run {NIGHTLY} cargo clippy --all-targets -p matrix-sdk-crypto
             --no-default-features -- -D warnings"
     )
     .run()?;
@@ -193,18 +200,21 @@ fn run_feature_tests(cmd: Option<FeatureSet>) -> Result<()> {
     let args = BTreeMap::from([
         (
             FeatureSet::NoEncryption,
-            "--no-default-features --features sled,native-tls,experimental-sliding-sync",
+            "--no-default-features --features sqlite,native-tls,experimental-sliding-sync,testing",
         ),
-        (FeatureSet::NoSled, "--no-default-features --features e2e-encryption,native-tls"),
-        (FeatureSet::NoEncryptionAndSled, "--no-default-features --features native-tls"),
         (
-            FeatureSet::SledCryptostore,
-            "--no-default-features --features e2e-encryption,sled,native-tls",
+            FeatureSet::NoSqlite,
+            "--no-default-features --features e2e-encryption,native-tls,testing",
         ),
-        (FeatureSet::RustlsTls, "--no-default-features --features rustls-tls"),
-        (FeatureSet::Markdown, "--features markdown"),
-        (FeatureSet::Socks, "--features socks"),
-        (FeatureSet::SsoLogin, "--features sso-login"),
+        (FeatureSet::NoEncryptionAndSqlite, "--no-default-features --features native-tls,testing"),
+        (
+            FeatureSet::SqliteCryptostore,
+            "--no-default-features --features e2e-encryption,sqlite,native-tls,testing",
+        ),
+        (FeatureSet::RustlsTls, "--no-default-features --features rustls-tls,testing"),
+        (FeatureSet::Markdown, "--features markdown,testing"),
+        (FeatureSet::Socks, "--features socks,testing"),
+        (FeatureSet::SsoLogin, "--features sso-login,testing"),
     ]);
 
     let run = |arg_set: &str| {
@@ -231,37 +241,28 @@ fn run_feature_tests(cmd: Option<FeatureSet>) -> Result<()> {
 }
 
 fn run_crypto_tests() -> Result<()> {
-    cmd!(
-        "rustup run stable cargo clippy -p matrix-sdk-crypto --features=backups_v1 -- -D warnings"
-    )
-    .run()?;
-    cmd!("rustup run stable cargo nextest run -p matrix-sdk-crypto --no-default-features").run()?;
-    cmd!("rustup run stable cargo nextest run -p matrix-sdk-crypto --features=backups_v1").run()?;
-    cmd!("rustup run stable cargo test --doc -p matrix-sdk-crypto --features=backups_v1").run()?;
+    cmd!("rustup run stable cargo clippy -p matrix-sdk-crypto -- -D warnings").run()?;
+    cmd!("rustup run stable cargo nextest run -p matrix-sdk-crypto --no-default-features --features testing").run()?;
+    cmd!("rustup run stable cargo nextest run -p matrix-sdk-crypto --features=testing").run()?;
+    cmd!("rustup run stable cargo test --doc -p matrix-sdk-crypto --features=testing").run()?;
     cmd!(
         "rustup run stable cargo clippy -p matrix-sdk-crypto --features=experimental-algorithms -- -D warnings"
     )
     .run()?;
     cmd!(
-        "rustup run stable cargo nextest run -p matrix-sdk-crypto --features=experimental-algorithms"
+        "rustup run stable cargo nextest run -p matrix-sdk-crypto --features=experimental-algorithms,testing"
     ).run()?;
     cmd!(
-        "rustup run stable cargo test --doc -p matrix-sdk-crypto --features=experimental-algorithms"
+        "rustup run stable cargo test --doc -p matrix-sdk-crypto --features=experimental-algorithms,testing"
     )
     .run()?;
 
     cmd!("rustup run stable cargo nextest run -p matrix-sdk-crypto-ffi").run()?;
 
-    cmd!("rustup run stable cargo nextest run -p matrix-sdk-sqlite --features crypto-store")
-        .run()?;
-
-    Ok(())
-}
-
-fn run_appservice_tests() -> Result<()> {
-    cmd!("rustup run stable cargo clippy -p matrix-sdk-appservice -- -D warnings").run()?;
-    cmd!("rustup run stable cargo nextest run -p matrix-sdk-appservice").run()?;
-    cmd!("rustup run stable cargo test --doc -p matrix-sdk-appservice").run()?;
+    cmd!(
+        "rustup run stable cargo nextest run -p matrix-sdk-sqlite --features crypto-store,testing"
+    )
+    .run()?;
 
     Ok(())
 }
@@ -274,14 +275,13 @@ fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
     }
 
     let args = BTreeMap::from([
-        (WasmFeatureSet::MatrixSdkQrcode, "-p matrix-sdk-qrcode"),
+        (WasmFeatureSet::MatrixSdkQrcode, "-p matrix-sdk-qrcode --features js"),
         (
             WasmFeatureSet::MatrixSdkNoDefault,
             "-p matrix-sdk --no-default-features --features js,rustls-tls",
         ),
         (WasmFeatureSet::MatrixSdkBase, "-p matrix-sdk-base --features js"),
         (WasmFeatureSet::MatrixSdkCommon, "-p matrix-sdk-common --features js"),
-        (WasmFeatureSet::MatrixSdkCryptoJs, "-p matrix-sdk-crypto-js"),
         (
             WasmFeatureSet::MatrixSdkIndexeddbStoresNoCrypto,
             "-p matrix-sdk --no-default-features --features js,indexeddb,rustls-tls",
@@ -305,30 +305,14 @@ fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
             .run()
     };
 
-    let test_command_bot = || {
-        let _p = pushd("examples/wasm_command_bot");
-
-        cmd!("rustup run stable cargo clippy --target wasm32-unknown-unknown")
-            .args(["--", "-D", "warnings", "-A", "clippy::unused-unit"])
-            .env(WASM_TIMEOUT_ENV_KEY, WASM_TIMEOUT_VALUE)
-            .run()
-    };
-
     match cmd {
-        Some(cmd) => match cmd {
-            WasmFeatureSet::MatrixSdkCommandBot => {
-                test_command_bot()?;
-            }
-            _ => {
-                run(args[&cmd])?;
-            }
-        },
+        Some(cmd) => {
+            run(args[&cmd])?;
+        }
         None => {
             for &arg_set in args.values() {
                 run(arg_set)?;
             }
-
-            test_command_bot()?;
         }
     }
 
@@ -342,34 +326,36 @@ fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>) -> Result<()> {
         return Ok(());
     }
     let args = BTreeMap::from([
-        (WasmFeatureSet::MatrixSdkQrcode, ("matrix-sdk-qrcode", "")),
+        (WasmFeatureSet::MatrixSdkQrcode, ("crates/matrix-sdk-qrcode", "--features js")),
         (
             WasmFeatureSet::MatrixSdkNoDefault,
-            ("matrix-sdk", "--no-default-features --features js,rustls-tls --lib"),
+            ("crates/matrix-sdk", "--no-default-features --features js,rustls-tls --lib"),
         ),
-        (WasmFeatureSet::MatrixSdkBase, ("matrix-sdk-base", "--features js")),
-        (WasmFeatureSet::MatrixSdkCommon, ("matrix-sdk-common", "--features js")),
-        (WasmFeatureSet::MatrixSdkCryptoJs, ("matrix-sdk-crypto-js", "")),
+        (WasmFeatureSet::MatrixSdkBase, ("crates/matrix-sdk-base", "--features js")),
+        (WasmFeatureSet::MatrixSdkCommon, ("crates/matrix-sdk-common", "--features js")),
         (
             WasmFeatureSet::MatrixSdkIndexeddbStoresNoCrypto,
-            ("matrix-sdk", "--no-default-features --features js,indexeddb,rustls-tls --lib"),
+            ("crates/matrix-sdk", "--no-default-features --features js,indexeddb,rustls-tls --lib"),
         ),
         (
             WasmFeatureSet::MatrixSdkIndexeddbStores,
             (
-                "matrix-sdk",
-                "--no-default-features --features js,indexeddb,e2e-encryption,rustls-tls --lib",
+                "crates/matrix-sdk",
+                "--no-default-features --features js,indexeddb,e2e-encryption,rustls-tls,testing --lib",
             ),
         ),
-        (WasmFeatureSet::IndexeddbNoCrypto, ("matrix-sdk-indexeddb", "--no-default-features")),
+        (
+            WasmFeatureSet::IndexeddbNoCrypto,
+            ("crates/matrix-sdk-indexeddb", "--no-default-features"),
+        ),
         (
             WasmFeatureSet::IndexeddbWithCrypto,
-            ("matrix-sdk-indexeddb", "--no-default-features --features e2e-encryption"),
+            ("crates/matrix-sdk-indexeddb", "--no-default-features --features e2e-encryption"),
         ),
     ]);
 
     let run = |(folder, arg_set): (&str, &str)| {
-        let _p = pushd(format!("crates/{folder}"));
+        let _pwd = pushd(folder)?;
         cmd!("pwd").env(WASM_TIMEOUT_ENV_KEY, WASM_TIMEOUT_VALUE).run()?; // print dir so we know what might have failed
         cmd!("wasm-pack test --node -- ")
             .args(arg_set.split_whitespace())
@@ -381,29 +367,14 @@ fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>) -> Result<()> {
             .run()
     };
 
-    let test_command_bot = || {
-        let _p = pushd("examples/wasm_command_bot");
-        cmd!("wasm-pack test --node").env(WASM_TIMEOUT_ENV_KEY, WASM_TIMEOUT_VALUE).run()?;
-        cmd!("wasm-pack test --firefox --headless")
-            .env(WASM_TIMEOUT_ENV_KEY, WASM_TIMEOUT_VALUE)
-            .run()
-    };
-
     match cmd {
-        Some(cmd) => match cmd {
-            WasmFeatureSet::MatrixSdkCommandBot => {
-                test_command_bot()?;
-            }
-            _ => {
-                run(args[&cmd])?;
-            }
-        },
+        Some(cmd) => {
+            run(args[&cmd])?;
+        }
         None => {
             for &arg_set in args.values() {
                 run(arg_set)?;
             }
-
-            test_command_bot()?;
         }
     }
 

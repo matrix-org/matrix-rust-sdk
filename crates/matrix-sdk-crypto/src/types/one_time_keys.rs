@@ -20,8 +20,8 @@
 
 use std::collections::BTreeMap;
 
-use ruma::serde::Raw;
-use serde::{Deserialize, Serialize};
+use ruma::{serde::Raw, DeviceKeyAlgorithm};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{value::to_raw_value, Value};
 use vodozemac::Curve25519PublicKey;
 
@@ -48,7 +48,7 @@ pub struct SignedKey {
 fn double_option<'de, T, D>(de: D) -> Result<Option<Option<T>>, D::Error>
 where
     T: Deserialize<'de>,
-    D: serde::Deserializer<'de>,
+    D: Deserializer<'de>,
 {
     Deserialize::deserialize(de).map(Some)
 }
@@ -93,34 +93,62 @@ impl SignedKey {
     /// Serialize the one-time key into a Raw version.
     pub fn into_raw<T>(self) -> Raw<T> {
         let key = OneTimeKey::SignedKey(self);
-        Raw::from_json(to_raw_value(&key).expect("Coulnd't serialize one-time key"))
+        Raw::from_json(to_raw_value(&key).expect("Couldn't serialize one-time key"))
     }
 }
 
 /// A one-time public key for "pre-key" messages.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(untagged)]
 pub enum OneTimeKey {
     /// A signed Curve25519 one-time key.
     SignedKey(SignedKey),
 
     /// An unsigned Curve25519 one-time key.
-    #[serde(deserialize_with = "deserialize_curve_key", serialize_with = "serialize_curve_key")]
+    #[serde(serialize_with = "serialize_curve_key")]
     Key(Curve25519PublicKey),
+}
 
-    /// An unknown one-time key type.
-    Unknown(Value),
+impl OneTimeKey {
+    /// Deserialize the [`OneTimeKey`] from a [`DeviceKeyAlgorithm`] and a Raw
+    /// JSON value.
+    pub fn deserialize(
+        algorithm: DeviceKeyAlgorithm,
+        key: &Raw<ruma::encryption::OneTimeKey>,
+    ) -> Result<Self, serde_json::Error> {
+        match algorithm {
+            DeviceKeyAlgorithm::Curve25519 => {
+                let key: String = key.deserialize_as()?;
+                Ok(OneTimeKey::Key(
+                    Curve25519PublicKey::from_base64(&key).map_err(serde::de::Error::custom)?,
+                ))
+            }
+            DeviceKeyAlgorithm::SignedCurve25519 => {
+                let key: SignedKey = key.deserialize_as()?;
+                Ok(OneTimeKey::SignedKey(key))
+            }
+            _ => Err(serde::de::Error::custom(format!("Unsupported key algorithm {algorithm}"))),
+        }
+    }
+}
+
+impl OneTimeKey {
+    /// Is the key considered to be a fallback key.
+    pub fn fallback(&self) -> bool {
+        match self {
+            OneTimeKey::SignedKey(s) => s.fallback(),
+            OneTimeKey::Key(_) => false,
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use assert_matches::assert_matches;
     use ruma::{device_id, user_id, DeviceKeyAlgorithm, DeviceKeyId};
     use serde_json::json;
     use vodozemac::{Curve25519PublicKey, Ed25519Signature};
 
-    use super::OneTimeKey;
-    use crate::types::Signature;
+    use crate::types::{Signature, SignedKey};
 
     #[test]
     fn serialization() {
@@ -148,20 +176,23 @@ mod tests {
 
         let custom_signature = Signature::Other("UnknownSignature".to_owned());
 
-        let key: OneTimeKey =
+        let key: SignedKey =
             serde_json::from_value(json.clone()).expect("Can't deserialize a valid one-time key");
 
-        assert_matches!(
-            key,
-            OneTimeKey::SignedKey(ref k) if k.key == curve_key
-            && k
-                .signatures()
-                .get_signature(user_id, &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, device_id))
-                == Some(signature)
-            && k
-                .signatures()
-                .get(user_id).unwrap().get(&DeviceKeyId::from_parts("other".into(), device_id))
-                == Some(&Ok(custom_signature))
+        assert_eq!(key.key(), curve_key);
+        assert_eq!(
+            key.signatures().get_signature(
+                user_id,
+                &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, device_id)
+            ),
+            Some(signature)
+        );
+        assert_eq!(
+            key.signatures()
+                .get(user_id)
+                .unwrap()
+                .get(&DeviceKeyId::from_parts("other".into(), device_id)),
+            Some(&Ok(custom_signature))
         );
 
         let serialized = serde_json::to_value(key).expect("Can't reserialize a signed key");

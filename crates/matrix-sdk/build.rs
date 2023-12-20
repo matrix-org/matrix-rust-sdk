@@ -30,7 +30,7 @@ fn main() {
         "only one of the features 'native-tls' or 'rustls-tls' can be enabled",
     );
 
-    let is_wasm = env::var_os("CARGO_CFG_TARGET_ARCH").map_or(false, |arch| arch == "wasm32");
+    let is_wasm = env::var_os("CARGO_CFG_TARGET_ARCH").is_some_and(|arch| arch == "wasm32");
     if is_wasm {
         ensure(
             !env_is_set("CARGO_FEATURE_SSO_LOGIN"),

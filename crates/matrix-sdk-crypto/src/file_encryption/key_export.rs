@@ -14,30 +14,18 @@
 
 use std::io::{Cursor, Read, Seek, SeekFrom};
 
-use aes::{
-    cipher::{generic_array::GenericArray, KeyIvInit, StreamCipher},
-    Aes256,
-};
 use byteorder::{BigEndian, ReadBytesExt};
-use hmac::{Hmac, Mac};
-use pbkdf2::pbkdf2;
 use rand::{thread_rng, RngCore};
 use serde_json::Error as SerdeError;
-use sha2::{Sha256, Sha512};
 use thiserror::Error;
+use vodozemac::{base64_decode, base64_encode};
 use zeroize::Zeroize;
 
 use crate::{
+    ciphers::{AesHmacSha2Key, IV_SIZE, MAC_SIZE, SALT_SIZE},
     olm::ExportedRoomKey,
-    utilities::{decode, encode, DecodeError},
 };
 
-type Aes256Ctr = ctr::Ctr128BE<Aes256>;
-
-const SALT_SIZE: usize = 16;
-const IV_SIZE: usize = 16;
-const MAC_SIZE: usize = 32;
-const KEY_SIZE: usize = 32;
 const VERSION: u8 = 1;
 
 const HEADER: &str = "-----BEGIN MEGOLM SESSION DATA-----";
@@ -63,7 +51,7 @@ pub enum KeyExportError {
     Json(#[from] SerdeError),
     /// The key export string isn't valid base64.
     #[error(transparent)]
-    Decode(#[from] DecodeError),
+    Decode(#[from] vodozemac::Base64DecodeError),
     /// The key export doesn't all the required fields.
     #[error(transparent)]
     Io(#[from] std::io::Error),
@@ -76,18 +64,18 @@ pub enum KeyExportError {
 /// * `passphrase` - The passphrase that was used to encrypt the exported keys.
 ///
 /// # Examples
+///
 /// ```no_run
 /// # use std::io::Cursor;
 /// # use matrix_sdk_crypto::{OlmMachine, decrypt_room_key_export};
 /// # use ruma::{device_id, user_id};
-/// # use futures::executor::block_on;
 /// # let alice = user_id!("@alice:example.org");
-/// # block_on(async {
+/// # async {
 /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
 /// # let export = Cursor::new("".to_owned());
 /// let exported_keys = decrypt_room_key_export(export, "1234").unwrap();
 /// machine.import_room_keys(exported_keys, false, |_, _| {}).await.unwrap();
-/// # });
+/// # };
 /// ```
 pub fn decrypt_room_key_export(
     mut input: impl Read,
@@ -134,17 +122,17 @@ pub fn decrypt_room_key_export(
 /// encrypt the exported keys securely.
 ///
 /// # Examples
+///
 /// ```no_run
 /// # use matrix_sdk_crypto::{OlmMachine, encrypt_room_key_export};
 /// # use ruma::{device_id, user_id, room_id};
-/// # use futures::executor::block_on;
 /// # let alice = user_id!("@alice:example.org");
-/// # block_on(async {
+/// # async {
 /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
 /// let room_id = room_id!("!test:localhost");
 /// let exported_keys = machine.export_room_keys(|s| s.room_id() == room_id).await.unwrap();
 /// let encrypted_export = encrypt_room_key_export(&exported_keys, "1234", 1);
-/// # });
+/// # };
 /// ```
 pub fn encrypt_room_key_export(
     keys: &[ExportedRoomKey],
@@ -152,65 +140,45 @@ pub fn encrypt_room_key_export(
     rounds: u32,
 ) -> Result<String, SerdeError> {
     let mut plaintext = serde_json::to_string(keys)?.into_bytes();
-    let ciphertext = encrypt_helper(&mut plaintext, passphrase, rounds);
+    let ciphertext = encrypt_helper(&plaintext, passphrase, rounds);
 
     plaintext.zeroize();
 
     Ok([HEADER.to_owned(), ciphertext, FOOTER.to_owned()].join("\n"))
 }
 
-fn encrypt_helper(plaintext: &mut [u8], passphrase: &str, rounds: u32) -> String {
+fn encrypt_helper(plaintext: &[u8], passphrase: &str, rounds: u32) -> String {
     let mut salt = [0u8; SALT_SIZE];
-    let mut iv = [0u8; IV_SIZE];
-    let mut derived_keys = [0u8; KEY_SIZE * 2];
-
     let mut rng = thread_rng();
 
     rng.fill_bytes(&mut salt);
-    rng.fill_bytes(&mut iv);
 
-    let mut iv = u128::from_be_bytes(iv);
-    iv &= !(1 << 63);
-    let iv = iv.to_be_bytes();
+    let key = AesHmacSha2Key::from_passphrase(passphrase, rounds, &salt);
+    let (ciphertext, initialization_vector) = key.encrypt(plaintext.to_owned());
 
-    pbkdf2::<Hmac<Sha512>>(passphrase.as_bytes(), &salt, rounds, &mut derived_keys);
-    let (key, hmac_key) = derived_keys.split_at(KEY_SIZE);
+    let mut payload = [
+        VERSION.to_be_bytes().as_slice(),
+        &salt,
+        &initialization_vector,
+        rounds.to_be_bytes().as_slice(),
+        &ciphertext,
+    ]
+    .concat();
 
-    // This is fine because the key is guaranteed to be 32 bytes, derive 64
-    // bytes and split at the middle.
-    let key_array = GenericArray::from_slice(key);
+    let mac = key.create_mac_tag(&payload);
+    payload.extend(mac.as_bytes());
 
-    let mut aes = Aes256Ctr::new(key_array, &iv.into());
-    aes.apply_keystream(plaintext);
-
-    let mut payload: Vec<u8> = vec![];
-
-    payload.extend(VERSION.to_be_bytes());
-    payload.extend(salt);
-    payload.extend(iv);
-    payload.extend(rounds.to_be_bytes());
-    payload.extend_from_slice(plaintext);
-
-    let mut hmac = Hmac::<Sha256>::new_from_slice(hmac_key).expect("Can't create HMAC object");
-    hmac.update(&payload);
-    let mac = hmac.finalize();
-
-    payload.extend(mac.into_bytes());
-
-    derived_keys.zeroize();
-
-    encode(payload)
+    base64_encode(payload)
 }
 
 fn decrypt_helper(ciphertext: &str, passphrase: &str) -> Result<String, KeyExportError> {
-    let decoded = decode(ciphertext)?;
+    let decoded = base64_decode(ciphertext)?;
 
     let mut decoded = Cursor::new(decoded);
 
     let mut salt = [0u8; SALT_SIZE];
     let mut iv = [0u8; IV_SIZE];
     let mut mac = [0u8; MAC_SIZE];
-    let mut derived_keys = [0u8; KEY_SIZE * 2];
 
     let version = decoded.read_u8()?;
     decoded.read_exact(&mut salt)?;
@@ -230,25 +198,12 @@ fn decrypt_helper(ciphertext: &str, passphrase: &str) -> Result<String, KeyExpor
         return Err(KeyExportError::UnsupportedVersion);
     }
 
-    pbkdf2::<Hmac<Sha512>>(passphrase.as_bytes(), &salt, rounds, &mut derived_keys);
-    let (key, hmac_key) = derived_keys.split_at(KEY_SIZE);
-
-    let mut hmac = Hmac::<Sha256>::new_from_slice(hmac_key).expect("Can't create an HMAC object");
-    hmac.update(&decoded[0..ciphertext_end]);
-    hmac.verify_slice(&mac).map_err(|_| KeyExportError::InvalidMac)?;
-
-    // This is fine because the key is guaranteed to be 32 bytes, derive 64
-    // bytes and split at the middle.
-    let key_array = GenericArray::from_slice(key);
+    let key = AesHmacSha2Key::from_passphrase(passphrase, rounds, &salt);
+    key.verify_mac(&decoded[0..ciphertext_end], &mac).map_err(|_| KeyExportError::InvalidMac)?;
 
     let ciphertext = &mut decoded[ciphertext_start..ciphertext_end];
-    let mut aes = Aes256Ctr::new(key_array, &iv.into());
-    aes.apply_keystream(ciphertext);
-
-    let ret = String::from_utf8(ciphertext.to_owned());
-
-    derived_keys.zeroize();
-    ciphertext.zeroize();
+    let plaintext = key.decrypt(ciphertext.to_owned(), &iv);
+    let ret = String::from_utf8(plaintext);
 
     Ok(ret?)
 }
@@ -262,9 +217,9 @@ mod proptests {
     proptest! {
         #[test]
         fn proptest_encrypt_cycle(plaintext in prop::string::string_regex(".*").unwrap()) {
-            let mut plaintext_bytes = plaintext.clone().into_bytes();
+            let plaintext_bytes = plaintext.clone().into_bytes();
 
-            let ciphertext = encrypt_helper(&mut plaintext_bytes, "test", 1);
+            let ciphertext = encrypt_helper(&plaintext_bytes, "test", 1);
             let decrypted = decrypt_helper(&ciphertext, "test").unwrap();
 
             prop_assert!(plaintext == decrypted);
@@ -281,12 +236,15 @@ mod tests {
 
     use indoc::indoc;
     use matrix_sdk_test::async_test;
-    use ruma::room_id;
+    use ruma::{room_id, user_id};
 
     use super::{
-        decode, decrypt_helper, decrypt_room_key_export, encrypt_helper, encrypt_room_key_export,
+        base64_decode, decrypt_helper, decrypt_room_key_export, encrypt_helper,
+        encrypt_room_key_export,
     };
-    use crate::{error::OlmResult, machine::tests::get_prepared_machine, RoomKeyImportResult};
+    use crate::{
+        error::OlmResult, machine::tests::get_prepared_machine_test_helper, RoomKeyImportResult,
+    };
 
     const PASSPHRASE: &str = "1234";
 
@@ -314,15 +272,15 @@ mod tests {
     #[test]
     fn test_decode() {
         let export = export_without_headers();
-        decode(export).unwrap();
+        base64_decode(export).unwrap();
     }
 
     #[test]
     fn test_encrypt_decrypt() {
         let data = "It's a secret to everybody";
-        let mut bytes = data.to_owned().into_bytes();
+        let bytes = data.to_owned().into_bytes();
 
-        let encrypted = encrypt_helper(&mut bytes, PASSPHRASE, 10);
+        let encrypted = encrypt_helper(&bytes, PASSPHRASE, 10);
         let decrypted = decrypt_helper(&encrypted, PASSPHRASE).unwrap();
 
         assert_eq!(data, decrypted);
@@ -330,10 +288,11 @@ mod tests {
 
     #[async_test]
     async fn test_session_encrypt() {
-        let (machine, _) = get_prepared_machine().await;
+        let user_id = user_id!("@alice:localhost");
+        let (machine, _) = get_prepared_machine_test_helper(user_id, false).await;
         let room_id = room_id!("!test:localhost");
 
-        machine.create_outbound_group_session_with_defaults(room_id).await.unwrap();
+        machine.create_outbound_group_session_with_defaults_test_helper(room_id).await.unwrap();
         let export = machine.export_room_keys(|s| s.room_id() == room_id).await.unwrap();
 
         assert!(!export.is_empty());
@@ -346,16 +305,18 @@ mod tests {
         }
 
         assert_eq!(
-            machine.import_room_keys(decrypted, false, |_, _| {}).await.unwrap(),
+            machine.store().import_exported_room_keys(decrypted, |_, _| {}).await.unwrap(),
             RoomKeyImportResult::new(0, 1, BTreeMap::new())
         );
     }
 
     #[async_test]
     async fn test_importing_better_session() -> OlmResult<()> {
-        let (machine, _) = get_prepared_machine().await;
+        let user_id = user_id!("@alice:localhost");
+
+        let (machine, _) = get_prepared_machine_test_helper(user_id, false).await;
         let room_id = room_id!("!test:localhost");
-        let session = machine.create_inbound_session(room_id).await?;
+        let session = machine.create_inbound_session_test_helper(room_id).await?;
 
         let export = vec![session.export_at_index(10).await];
 
@@ -371,19 +332,22 @@ mod tests {
             )]),
         );
 
-        assert_eq!(machine.import_room_keys(export, false, |_, _| {}).await?, keys);
+        assert_eq!(machine.store().import_exported_room_keys(export, |_, _| {}).await?, keys);
 
         let export = vec![session.export_at_index(10).await];
         assert_eq!(
-            machine.import_room_keys(export, false, |_, _| {}).await?,
+            machine.store().import_exported_room_keys(export, |_, _| {}).await?,
             RoomKeyImportResult::new(0, 1, BTreeMap::new())
         );
 
         let better_export = vec![session.export().await];
 
-        assert_eq!(machine.import_room_keys(better_export, false, |_, _| {}).await?, keys);
+        assert_eq!(
+            machine.store().import_exported_room_keys(better_export, |_, _| {}).await?,
+            keys
+        );
 
-        let another_session = machine.create_inbound_session(room_id).await?;
+        let another_session = machine.create_inbound_session_test_helper(room_id).await?;
         let export = vec![another_session.export_at_index(10).await];
 
         let keys = RoomKeyImportResult::new(
@@ -398,7 +362,7 @@ mod tests {
             )]),
         );
 
-        assert_eq!(machine.import_room_keys(export, false, |_, _| {}).await?, keys);
+        assert_eq!(machine.store().import_exported_room_keys(export, |_, _| {}).await?, keys);
 
         Ok(())
     }

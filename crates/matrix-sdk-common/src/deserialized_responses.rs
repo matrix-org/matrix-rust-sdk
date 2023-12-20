@@ -1,3 +1,17 @@
+// Copyright 2023 The Matrix.org Foundation C.I.C.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 use std::{collections::BTreeMap, fmt};
 
 use ruma::{
@@ -7,6 +21,8 @@ use ruma::{
     DeviceKeyAlgorithm, OwnedDeviceId, OwnedEventId, OwnedUserId,
 };
 use serde::{Deserialize, Serialize};
+
+use crate::debug::{DebugRawEvent, DebugStructExt};
 
 const AUTHENTICITY_NOT_GUARANTEED: &str =
     "The authenticity of this encrypted message can't be guaranteed on this device.";
@@ -241,11 +257,13 @@ impl SyncTimelineEvent {
 impl fmt::Debug for SyncTimelineEvent {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let SyncTimelineEvent { event, encryption_info, push_actions } = self;
-        f.debug_struct("SyncTimelineEvent")
-            .field("event", &DebugRawEvent(event))
-            .field("encryption_info", encryption_info)
-            .field("push_actions", push_actions)
-            .finish()
+        let mut s = f.debug_struct("SyncTimelineEvent");
+        s.field("event", &DebugRawEvent(event));
+        s.maybe_field("encryption_info", encryption_info);
+        if !push_actions.is_empty() {
+            s.field("push_actions", push_actions);
+        }
+        s.finish()
     }
 }
 
@@ -264,7 +282,7 @@ impl From<TimelineEvent> for SyncTimelineEvent {
         Self {
             event: o.event.cast(),
             encryption_info: o.encryption_info,
-            push_actions: o.push_actions,
+            push_actions: o.push_actions.unwrap_or_default(),
         }
     }
 }
@@ -276,8 +294,9 @@ pub struct TimelineEvent {
     /// The encryption info about the event. Will be `None` if the event was not
     /// encrypted.
     pub encryption_info: Option<EncryptionInfo>,
-    /// The push actions associated with this event.
-    pub push_actions: Vec<Action>,
+    /// The push actions associated with this event, if we had sufficient
+    /// context to compute them.
+    pub push_actions: Option<Vec<Action>>,
 }
 
 impl TimelineEvent {
@@ -286,7 +305,7 @@ impl TimelineEvent {
     /// This is a convenience constructor for when you don't need to set
     /// `encryption_info` or `push_action`, for example inside a test.
     pub fn new(event: Raw<AnyTimelineEvent>) -> Self {
-        Self { event, encryption_info: None, push_actions: vec![] }
+        Self { event, encryption_info: None, push_actions: None }
     }
 }
 
@@ -294,35 +313,15 @@ impl TimelineEvent {
 impl fmt::Debug for TimelineEvent {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let TimelineEvent { event, encryption_info, push_actions } = self;
-        f.debug_struct("TimelineEvent")
-            .field("event", &DebugRawEvent(event))
-            .field("encryption_info", encryption_info)
-            .field("push_actions", push_actions)
-            .finish()
-    }
-}
-
-struct DebugRawEvent<'a, T>(&'a Raw<T>);
-
-#[cfg(not(tarpaulin_include))]
-impl<T> fmt::Debug for DebugRawEvent<'_, T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("RawEvent")
-            .field("event_id", &DebugEventId(self.0.get_field("event_id")))
-            .finish_non_exhaustive()
-    }
-}
-
-struct DebugEventId(serde_json::Result<Option<OwnedEventId>>);
-
-#[cfg(not(tarpaulin_include))]
-impl fmt::Debug for DebugEventId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match &self.0 {
-            Ok(Some(id)) => id.fmt(f),
-            Ok(None) => f.write_str("Missing"),
-            Err(e) => f.debug_tuple("Invalid").field(&e).finish(),
+        let mut s = f.debug_struct("TimelineEvent");
+        s.field("event", &DebugRawEvent(event));
+        s.maybe_field("encryption_info", encryption_info);
+        if let Some(push_actions) = &push_actions {
+            if !push_actions.is_empty() {
+                s.field("push_actions", push_actions);
+            }
         }
+        s.finish()
     }
 }
 

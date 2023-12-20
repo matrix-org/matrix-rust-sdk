@@ -15,33 +15,25 @@
 
 use std::{fmt, sync::Arc};
 
-#[cfg(target_arch = "wasm32")]
-use async_once_cell::OnceCell;
-use matrix_sdk_base::{
-    locks::{Mutex, RwLock},
-    store::StoreConfig,
-    BaseClient,
-};
+use matrix_sdk_base::{store::StoreConfig, BaseClient};
 use ruma::{
     api::{client::discovery::discover_homeserver, error::FromHttpResponseError, MatrixVersion},
     OwnedServerName, ServerName,
 };
 use thiserror::Error;
-use tokio::sync::broadcast;
-#[cfg(not(target_arch = "wasm32"))]
-use tokio::sync::OnceCell;
-use tracing::{
-    debug,
-    field::{self, debug},
-    instrument, span, Level, Span,
-};
+use tokio::sync::{broadcast, Mutex, OnceCell};
+use tracing::{debug, field::debug, instrument, Span};
 use url::Url;
 
 use super::{Client, ClientInner};
+#[cfg(feature = "e2e-encryption")]
+use crate::encryption::EncryptionSettings;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::http_client::HttpSettings;
+#[cfg(feature = "experimental-oidc")]
+use crate::oidc::OidcCtx;
 use crate::{
-    config::RequestConfig,
-    error::RumaApiError,
-    http_client::{HttpClient, HttpSend, HttpSettings},
+    authentication::AuthCtx, config::RequestConfig, error::RumaApiError, http_client::HttpClient,
     HttpError,
 };
 
@@ -50,7 +42,7 @@ use crate::{
 /// When setting the `StateStore` it is up to the user to open/connect
 /// the storage backend before client creation.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```
 /// use matrix_sdk::Client;
@@ -80,43 +72,41 @@ use crate::{
 ///     .user_agent("MyApp/v3.0");
 ///
 /// let client_builder =
-///     Client::builder().http_client(Arc::new(reqwest_builder.build()?));
+///     Client::builder().http_client(reqwest_builder.build()?);
 /// # anyhow::Ok(())
 /// ```
 #[must_use]
 #[derive(Clone, Debug)]
 pub struct ClientBuilder {
     homeserver_cfg: Option<HomeserverConfig>,
+    #[cfg(feature = "experimental-sliding-sync")]
+    sliding_sync_proxy: Option<String>,
     http_cfg: Option<HttpConfig>,
     store_config: BuilderStoreConfig,
     request_config: RequestConfig,
     respect_login_well_known: bool,
-    appservice_mode: bool,
     server_versions: Option<Box<[MatrixVersion]>>,
     handle_refresh_tokens: bool,
-    root_span: Span,
+    base_client: Option<BaseClient>,
+    #[cfg(feature = "e2e-encryption")]
+    encryption_settings: EncryptionSettings,
 }
 
 impl ClientBuilder {
     pub(crate) fn new() -> Self {
-        let root_span = span!(
-            Level::INFO,
-            "matrix-sdk",
-            user_id = field::Empty,
-            device_id = field::Empty,
-            ed25519_key = field::Empty
-        );
-
         Self {
             homeserver_cfg: None,
+            #[cfg(feature = "experimental-sliding-sync")]
+            sliding_sync_proxy: None,
             http_cfg: None,
             store_config: BuilderStoreConfig::Custom(StoreConfig::default()),
             request_config: Default::default(),
             respect_login_well_known: true,
-            appservice_mode: false,
             server_versions: None,
             handle_refresh_tokens: false,
-            root_span,
+            base_client: None,
+            #[cfg(feature = "e2e-encryption")]
+            encryption_settings: Default::default(),
         }
     }
 
@@ -130,29 +120,63 @@ impl ClientBuilder {
         self
     }
 
+    /// Set the sliding-sync proxy URL to use.
+    ///
+    /// This is used only if the homeserver URL was defined with
+    /// [`Self::homeserver_url`]. If the homeserver address was defined with
+    /// [`Self::server_name`], then auto-discovery via the `.well-known`
+    /// endpoint will be performed.
+    #[cfg(feature = "experimental-sliding-sync")]
+    pub fn sliding_sync_proxy(mut self, url: impl AsRef<str>) -> Self {
+        self.sliding_sync_proxy = Some(url.as_ref().to_owned());
+        self
+    }
+
     /// Set the server name to discover the homeserver from.
+    ///
+    /// We assume we can connect in HTTPS to that server. If that's not the
+    /// case, prefer using [`Self::insecure_server_name_no_tls`].
     ///
     /// This method is mutually exclusive with
     /// [`homeserver_url()`][Self::homeserver_url], if you set both whatever was
     /// set last will be used.
     pub fn server_name(mut self, server_name: &ServerName) -> Self {
-        self.homeserver_cfg = Some(HomeserverConfig::ServerName(server_name.to_owned()));
+        self.homeserver_cfg = Some(HomeserverConfig::ServerName {
+            server: server_name.to_owned(),
+            // Assume HTTPS if not specified.
+            protocol: UrlScheme::Https,
+        });
         self
     }
 
-    /// Set up the store configuration for a sled store.
+    /// Set the server name to discover the homeserver from, assuming an HTTP
+    /// (not secured) scheme. This also relaxes OIDC discovery checks to allow
+    /// HTTP schemes.
+    ///
+    /// This method is mutually exclusive with
+    /// [`homeserver_url()`][Self::homeserver_url], if you set both whatever was
+    /// set last will be used.
+    pub fn insecure_server_name_no_tls(mut self, server_name: &ServerName) -> Self {
+        self.homeserver_cfg = Some(HomeserverConfig::ServerName {
+            server: server_name.to_owned(),
+            protocol: UrlScheme::Http,
+        });
+        self
+    }
+
+    /// Set up the store configuration for a SQLite store.
     ///
     /// This is the same as
-    /// <code>.[store_config](Self::store_config)([matrix_sdk_sled]::[make_store_config](matrix_sdk_sled::make_store_config)(path, passphrase)?)</code>.
+    /// <code>.[store_config](Self::store_config)([matrix_sdk_sqlite]::[make_store_config](matrix_sdk_sqlite::make_store_config)(path, passphrase)?)</code>.
     /// except it delegates the actual store config creation to when
     /// `.build().await` is called.
-    #[cfg(feature = "sled")]
-    pub fn sled_store(
+    #[cfg(feature = "sqlite")]
+    pub fn sqlite_store(
         mut self,
         path: impl AsRef<std::path::Path>,
         passphrase: Option<&str>,
     ) -> Self {
-        self.store_config = BuilderStoreConfig::Sled {
+        self.store_config = BuilderStoreConfig::Sqlite {
             path: path.as_ref().to_owned(),
             passphrase: passphrase.map(ToOwned::to_owned),
         };
@@ -183,7 +207,7 @@ impl ClientBuilder {
     ///
     /// * `store_config` - The configuration of the store.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```
     /// # use matrix_sdk_base::store::MemoryStore;
@@ -219,16 +243,12 @@ impl ClientBuilder {
     ///
     /// * `proxy` - The HTTP URL of the proxy.
     ///
-    /// # Example
+    /// # Examples
     ///
-    /// ```
-    /// # futures::executor::block_on(async {
+    /// ```no_run
     /// use matrix_sdk::Client;
     ///
     /// let client_config = Client::builder().proxy("http://localhost:8080");
-    ///
-    /// # anyhow::Ok(())
-    /// # });
     /// ```
     #[cfg(not(target_arch = "wasm32"))]
     pub fn proxy(mut self, proxy: impl AsRef<str>) -> Self {
@@ -250,43 +270,14 @@ impl ClientBuilder {
         self
     }
 
-    /// Specify an HTTP client to handle sending requests and receiving
-    /// responses.
+    /// Specify a [`reqwest::Client`] instance to handle sending requests and
+    /// receiving responses.
     ///
-    /// Any type that implements the `HttpSend` trait can be used to send /
-    /// receive `http` types.
-    ///
-    /// This method is mutually exclusive with
-    /// [`user_agent()`][Self::user_agent],
-    pub fn http_client(mut self, client: Arc<dyn HttpSend>) -> Self {
+    /// This method is mutually exclusive with [`proxy()`][Self::proxy],
+    /// [`disable_ssl_verification`][Self::disable_ssl_verification] and
+    /// [`user_agent()`][Self::user_agent].
+    pub fn http_client(mut self, client: reqwest::Client) -> Self {
         self.http_cfg = Some(HttpConfig::Custom(client));
-        self
-    }
-
-    /// Puts the client into application service mode
-    ///
-    /// This is low-level functionality. For an high-level API check the
-    /// `matrix_sdk_appservice` crate.
-    #[doc(hidden)]
-    #[cfg(feature = "appservice")]
-    pub fn appservice_mode(mut self) -> Self {
-        self.appservice_mode = true;
-        self
-    }
-
-    /// All outgoing http requests will have a GET query key-value appended with
-    /// `user_id` being the key and the `user_id` from the `Session` being
-    /// the value. This is called [identity assertion] in the
-    /// Matrix Application Service Spec.
-    ///
-    /// Requests that don't require authentication might not do identity
-    /// assertion.
-    ///
-    /// [identity assertion]: https://spec.matrix.org/unstable/application-service-api/#identity-assertion
-    #[doc(hidden)]
-    #[cfg(feature = "appservice")]
-    pub fn assert_identity(mut self) -> Self {
-        self.request_config.assert_identity = true;
         self
     }
 
@@ -319,14 +310,29 @@ impl ClientBuilder {
     ///   is encountered, it means that the user needs to be logged in again.
     ///
     /// * The access token and refresh token need to be watched for changes,
-    ///   using [`Client::session_tokens_stream()`] for example, to be able to
-    ///   [restore the session] later.
+    ///   using the authentication API's `session_tokens_stream()` for example,
+    ///   to be able to [restore the session] later.
     ///
     /// [refreshing access tokens]: https://spec.matrix.org/v1.3/client-server-api/#refreshing-access-tokens
     /// [`UnknownToken`]: ruma::api::client::error::ErrorKind::UnknownToken
     /// [restore the session]: Client::restore_session
     pub fn handle_refresh_tokens(mut self) -> Self {
         self.handle_refresh_tokens = true;
+        self
+    }
+
+    /// Public for test only
+    #[doc(hidden)]
+    pub fn base_client(mut self, base_client: BaseClient) -> Self {
+        self.base_client = Some(base_client);
+        self
+    }
+
+    /// Enables specific encryption settings that will persist throughout the
+    /// entire lifetime of the `Client`.
+    #[cfg(feature = "e2e-encryption")]
+    pub fn with_encryption_settings(mut self, settings: EncryptionSettings) -> Self {
+        self.encryption_settings = settings;
         self
     }
 
@@ -342,59 +348,82 @@ impl ClientBuilder {
     ///   server discovery request is made which can fail; if you didn't set
     ///   [`server_versions(false)`][Self::server_versions], that amounts to
     ///   another request that can fail
-    #[instrument(skip_all, parent = &self.root_span, target = "matrix_sdk::client", fields(homeserver))]
+    #[instrument(skip_all, target = "matrix_sdk::client", fields(homeserver))]
     pub async fn build(self) -> Result<Client, ClientBuildError> {
         debug!("Starting to build the Client");
 
         let homeserver_cfg = self.homeserver_cfg.ok_or(ClientBuildError::MissingHomeserver)?;
         Span::current().record("homeserver", debug(&homeserver_cfg));
 
+        #[cfg_attr(target_arch = "wasm32", allow(clippy::infallible_destructuring_match))]
         let inner_http_client = match self.http_cfg.unwrap_or_default() {
-            #[allow(unused_mut)]
+            #[cfg(not(target_arch = "wasm32"))]
             HttpConfig::Settings(mut settings) => {
-                #[cfg(not(target_arch = "wasm32"))]
-                {
-                    settings.timeout = self.request_config.timeout;
-                }
-
-                Arc::new(settings.make_client()?)
+                settings.timeout = self.request_config.timeout;
+                settings.make_client()?
             }
             HttpConfig::Custom(c) => c,
         };
 
-        #[allow(clippy::infallible_destructuring_match)]
-        let store_config = match self.store_config {
-            #[cfg(feature = "sled")]
-            BuilderStoreConfig::Sled { path, passphrase } => {
-                matrix_sdk_sled::make_store_config(&path, passphrase.as_deref()).await?
-            }
-            #[cfg(feature = "indexeddb")]
-            BuilderStoreConfig::IndexedDb { name, passphrase } => {
-                matrix_sdk_indexeddb::make_store_config(&name, passphrase.as_deref()).await?
-            }
-            BuilderStoreConfig::Custom(config) => config,
+        let base_client = if let Some(base_client) = self.base_client {
+            base_client
+        } else {
+            #[allow(clippy::infallible_destructuring_match)]
+            let store_config = match self.store_config {
+                #[cfg(feature = "sqlite")]
+                BuilderStoreConfig::Sqlite { path, passphrase } => {
+                    matrix_sdk_sqlite::make_store_config(&path, passphrase.as_deref()).await?
+                }
+                #[cfg(feature = "indexeddb")]
+                BuilderStoreConfig::IndexedDb { name, passphrase } => {
+                    matrix_sdk_indexeddb::make_store_config(&name, passphrase.as_deref()).await?
+                }
+                BuilderStoreConfig::Custom(config) => config,
+            };
+            BaseClient::with_store_config(store_config)
         };
 
-        let base_client = BaseClient::with_store_config(store_config);
         let http_client = HttpClient::new(inner_http_client.clone(), self.request_config);
 
-        let mut authentication_issuer = None;
+        #[cfg(feature = "experimental-oidc")]
+        let mut authentication_server_info = None;
+        #[cfg(feature = "experimental-oidc")]
+        let allow_insecure_oidc;
+
         #[cfg(feature = "experimental-sliding-sync")]
         let mut sliding_sync_proxy: Option<Url> = None;
+
         let homeserver = match homeserver_cfg {
-            HomeserverConfig::Url(url) => url,
-            HomeserverConfig::ServerName(server_name) => {
+            HomeserverConfig::Url(url) => {
+                #[cfg(feature = "experimental-sliding-sync")]
+                {
+                    sliding_sync_proxy =
+                        self.sliding_sync_proxy.as_ref().map(|url| Url::parse(url)).transpose()?;
+                }
+
+                #[cfg(feature = "experimental-oidc")]
+                {
+                    allow_insecure_oidc = url.starts_with("http://");
+                }
+
+                url
+            }
+            HomeserverConfig::ServerName { server: server_name, protocol } => {
                 debug!("Trying to discover the homeserver");
 
-                let homeserver = homeserver_from_name(&server_name);
+                let homeserver = match protocol {
+                    UrlScheme::Http => format!("http://{server_name}"),
+                    UrlScheme::Https => format!("https://{server_name}"),
+                };
+
                 let well_known = http_client
                     .send(
                         discover_homeserver::Request::new(),
                         Some(RequestConfig::short_retry()),
                         homeserver,
                         None,
-                        None,
                         &[MatrixVersion::V1_0],
+                        Default::default(),
                     )
                     .await
                     .map_err(|e| match e {
@@ -402,12 +431,17 @@ impl ClientBuilder {
                         err => ClientBuildError::Http(err),
                     })?;
 
-                authentication_issuer = well_known.authentication.map(|auth| auth.issuer);
+                #[cfg(feature = "experimental-oidc")]
+                {
+                    authentication_server_info = well_known.authentication;
+                    allow_insecure_oidc = matches!(protocol, UrlScheme::Http);
+                }
 
                 #[cfg(feature = "experimental-sliding-sync")]
                 if let Some(proxy) = well_known.sliding_sync_proxy.map(|p| p.url) {
                     sliding_sync_proxy = Url::parse(&proxy).ok();
                 }
+
                 debug!(
                     homeserver_url = well_known.homeserver.base_url,
                     "Discovered the homeserver"
@@ -417,38 +451,31 @@ impl ClientBuilder {
             }
         };
 
-        let homeserver = RwLock::new(Url::parse(&homeserver)?);
-        let authentication_issuer = authentication_issuer.map(RwLock::new);
-        #[cfg(feature = "experimental-sliding-sync")]
-        let sliding_sync_proxy = sliding_sync_proxy.map(RwLock::new);
+        let homeserver = Url::parse(&homeserver)?;
 
-        let (unknown_token_error_sender, _) = broadcast::channel(1);
+        let auth_ctx = Arc::new(AuthCtx {
+            handle_refresh_tokens: self.handle_refresh_tokens,
+            refresh_token_lock: Mutex::new(Ok(())),
+            session_change_sender: broadcast::Sender::new(1),
+            auth_data: OnceCell::default(),
+            reload_session_callback: OnceCell::default(),
+            save_session_callback: OnceCell::default(),
+            #[cfg(feature = "experimental-oidc")]
+            oidc: OidcCtx::new(authentication_server_info, allow_insecure_oidc),
+        });
 
-        let inner = Arc::new(ClientInner {
+        let inner = ClientInner::new(
+            auth_ctx,
             homeserver,
-            authentication_issuer,
             #[cfg(feature = "experimental-sliding-sync")]
             sliding_sync_proxy,
             http_client,
             base_client,
-            server_versions: OnceCell::new_with(self.server_versions),
+            self.server_versions,
+            self.respect_login_well_known,
             #[cfg(feature = "e2e-encryption")]
-            group_session_locks: Default::default(),
-            #[cfg(feature = "e2e-encryption")]
-            key_claim_lock: Default::default(),
-            members_request_locks: Default::default(),
-            encryption_state_request_locks: Default::default(),
-            typing_notice_times: Default::default(),
-            event_handlers: Default::default(),
-            notification_handlers: Default::default(),
-            appservice_mode: self.appservice_mode,
-            respect_login_well_known: self.respect_login_well_known,
-            sync_beat: event_listener::Event::new(),
-            handle_refresh_tokens: self.handle_refresh_tokens,
-            refresh_token_lock: Mutex::new(Ok(())),
-            unknown_token_error_sender,
-            root_span: self.root_span,
-        });
+            self.encryption_settings,
+        );
 
         debug!("Done building the Client");
 
@@ -456,26 +483,25 @@ impl ClientBuilder {
     }
 }
 
-fn homeserver_from_name(server_name: &ServerName) -> String {
-    #[cfg(not(test))]
-    return format!("https://{server_name}");
-
-    // Wiremock only knows how to test http endpoints:
-    // https://github.com/LukeMathWalker/wiremock-rs/issues/58
-    #[cfg(test)]
-    return format!("http://{server_name}");
+#[derive(Clone, Copy, Debug)]
+enum UrlScheme {
+    Http,
+    Https,
 }
 
 #[derive(Clone, Debug)]
 enum HomeserverConfig {
+    /// A precise URL, including the protocol.
     Url(String),
-    ServerName(OwnedServerName),
+    /// A host/port pair representing a server URL.
+    ServerName { server: OwnedServerName, protocol: UrlScheme },
 }
 
 #[derive(Clone, Debug)]
 enum HttpConfig {
+    #[cfg(not(target_arch = "wasm32"))]
     Settings(HttpSettings),
-    Custom(Arc<dyn HttpSend>),
+    Custom(reqwest::Client),
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -496,14 +522,18 @@ impl HttpConfig {
 
 impl Default for HttpConfig {
     fn default() -> Self {
-        Self::Settings(HttpSettings::default())
+        #[cfg(not(target_arch = "wasm32"))]
+        return Self::Settings(HttpSettings::default());
+
+        #[cfg(target_arch = "wasm32")]
+        return Self::Custom(reqwest::Client::new());
     }
 }
 
 #[derive(Clone)]
 enum BuilderStoreConfig {
-    #[cfg(feature = "sled")]
-    Sled {
+    #[cfg(feature = "sqlite")]
+    Sqlite {
         path: std::path::PathBuf,
         passphrase: Option<String>,
     },
@@ -520,9 +550,9 @@ impl fmt::Debug for BuilderStoreConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         #[allow(clippy::infallible_destructuring_match)]
         match self {
-            #[cfg(feature = "sled")]
-            Self::Sled { path, .. } => {
-                f.debug_struct("Sled").field("path", path).finish_non_exhaustive()
+            #[cfg(feature = "sqlite")]
+            Self::Sqlite { path, .. } => {
+                f.debug_struct("Sqlite").field("path", path).finish_non_exhaustive()
             }
             #[cfg(feature = "indexeddb")]
             Self::IndexedDb { name, .. } => {
@@ -557,10 +587,10 @@ pub enum ClientBuildError {
     #[error(transparent)]
     IndexeddbStore(#[from] matrix_sdk_indexeddb::OpenStoreError),
 
-    /// Error opening the sled store.
-    #[cfg(feature = "sled")]
+    /// Error opening the sqlite store.
+    #[cfg(feature = "sqlite")]
     #[error(transparent)]
-    SledStore(#[from] matrix_sdk_sled::OpenStoreError),
+    SqliteStore(#[from] matrix_sdk_sqlite::OpenStoreError),
 }
 
 impl ClientBuildError {

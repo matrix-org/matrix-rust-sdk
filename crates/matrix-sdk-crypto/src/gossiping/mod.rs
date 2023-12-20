@@ -14,9 +14,11 @@
 
 mod machine;
 
-use std::sync::Arc;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::{Arc, RwLock as StdRwLock},
+};
 
-use dashmap::{DashMap, DashSet};
 pub(crate) use machine::GossipMachine;
 use ruma::{
     events::{
@@ -35,11 +37,29 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     requests::{OutgoingRequest, ToDeviceRequest},
-    types::events::room_key_request::{
-        RoomKeyRequestContent, RoomKeyRequestEvent, SupportedKeyInfo,
+    types::events::{
+        olm_v1::DecryptedSecretSendEvent,
+        room_key_request::{RoomKeyRequestContent, RoomKeyRequestEvent, SupportedKeyInfo},
     },
     Device,
 };
+
+/// Struct containing a `m.secret.send` event and its acompanying info.
+///
+/// This struct is created only iff the following three things are true:
+///
+/// 1. We requested the secret.
+/// 2. The secret was received over an encrypted channel.
+/// 3. The secret it was received from one ouf our own verified devices.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GossippedSecret {
+    /// The name of the secret.
+    pub secret_name: SecretName,
+    /// The [`GossipRequest`] that has requested the secret.
+    pub gossip_request: GossipRequest,
+    /// The `m.secret.send` event containing the actual secret.
+    pub event: DecryptedSecretSendEvent,
+}
 
 /// An error describing why a key share request won't be honored.
 #[cfg(feature = "automatic-room-key-forwarding")]
@@ -89,12 +109,9 @@ impl SecretInfo {
     /// comparison.
     pub fn as_key(&self) -> String {
         match &self {
-            SecretInfo::KeyRequest(info) => format!(
-                "keyRequest:{}:{}:{}",
-                info.room_id().as_str(),
-                info.session_id(),
-                &info.algorithm(),
-            ),
+            SecretInfo::KeyRequest(info) => {
+                format!("keyRequest:{}:{}:{}", info.room_id(), info.session_id(), info.algorithm())
+            }
             SecretInfo::SecretRequest(sname) => format!("secretName:{sname}"),
         }
     }
@@ -164,7 +181,7 @@ impl GossipRequest {
                 ToDeviceRequest::with_id(
                     &self.request_recipient,
                     DeviceIdOrAllDevices::AllDevices,
-                    content,
+                    &content,
                     self.request_id.clone(),
                 )
             }
@@ -195,7 +212,7 @@ impl GossipRequest {
         let request = ToDeviceRequest::with_id(
             &self.request_recipient,
             DeviceIdOrAllDevices::AllDevices,
-            content,
+            &content,
             TransactionId::new(),
         );
 
@@ -267,7 +284,7 @@ impl RequestEvent {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 struct RequestInfo {
     sender: OwnedUserId,
     requesting_device_id: OwnedDeviceId,
@@ -286,50 +303,55 @@ impl RequestInfo {
 
 /// A queue where we store room key requests that we want to serve but the
 /// device that requested the key doesn't share an Olm session with us.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug, Default)]
 struct WaitQueue {
-    requests_waiting_for_session: Arc<DashMap<RequestInfo, RequestEvent>>,
-    #[allow(clippy::type_complexity)]
-    requests_ids_waiting: Arc<DashMap<(OwnedUserId, OwnedDeviceId), DashSet<OwnedTransactionId>>>,
+    inner: Arc<StdRwLock<WaitQueueInner>>,
+}
+
+#[derive(Debug, Default)]
+struct WaitQueueInner {
+    requests_waiting_for_session: BTreeMap<RequestInfo, RequestEvent>,
+    requests_ids_waiting: BTreeMap<(OwnedUserId, OwnedDeviceId), BTreeSet<OwnedTransactionId>>,
 }
 
 impl WaitQueue {
     fn new() -> Self {
-        Self {
-            requests_waiting_for_session: Arc::new(DashMap::new()),
-            requests_ids_waiting: Arc::new(DashMap::new()),
-        }
+        Self::default()
     }
 
     #[cfg(all(test, feature = "automatic-room-key-forwarding"))]
     fn is_empty(&self) -> bool {
-        self.requests_ids_waiting.is_empty() && self.requests_waiting_for_session.is_empty()
+        let read_guard = self.inner.read().unwrap();
+        read_guard.requests_ids_waiting.is_empty()
+            && read_guard.requests_waiting_for_session.is_empty()
     }
 
     fn insert(&self, device: &Device, event: RequestEvent) {
         let request_id = event.request_id().to_owned();
-
-        let key = RequestInfo::new(
+        let requests_waiting_key = RequestInfo::new(
             device.user_id().to_owned(),
             device.device_id().into(),
             request_id.clone(),
         );
-        self.requests_waiting_for_session.insert(key, event);
+        let ids_waiting_key = (device.user_id().to_owned(), device.device_id().into());
 
-        let key = (device.user_id().to_owned(), device.device_id().into());
-        self.requests_ids_waiting.entry(key).or_default().insert(request_id);
+        let mut write_guard = self.inner.write().unwrap();
+        write_guard.requests_waiting_for_session.insert(requests_waiting_key, event);
+        write_guard.requests_ids_waiting.entry(ids_waiting_key).or_default().insert(request_id);
     }
 
     fn remove(&self, user_id: &UserId, device_id: &DeviceId) -> Vec<(RequestInfo, RequestEvent)> {
-        self.requests_ids_waiting
+        let mut write_guard = self.inner.write().unwrap();
+        write_guard
+            .requests_ids_waiting
             .remove(&(user_id.to_owned(), device_id.into()))
-            .map(|(_, request_ids)| {
+            .map(|request_ids| {
                 request_ids
                     .iter()
                     .filter_map(|id| {
                         let key =
                             RequestInfo::new(user_id.to_owned(), device_id.into(), id.to_owned());
-                        self.requests_waiting_for_session.remove(&key)
+                        write_guard.requests_waiting_for_session.remove_entry(&key)
                     })
                     .collect()
             })

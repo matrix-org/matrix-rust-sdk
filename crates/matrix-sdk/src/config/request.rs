@@ -17,6 +17,8 @@ use std::{
     time::Duration,
 };
 
+use matrix_sdk_common::debug::DebugStructExt;
+
 use crate::http_client::DEFAULT_REQUEST_TIMEOUT;
 
 /// Configuration for requests the `Client` makes.
@@ -26,7 +28,7 @@ use crate::http_client::DEFAULT_REQUEST_TIMEOUT;
 ///
 /// By default requests are retried indefinitely and use no timeout.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```
 /// use matrix_sdk::config::RequestConfig;
@@ -43,18 +45,23 @@ pub struct RequestConfig {
     pub(crate) retry_limit: Option<u64>,
     pub(crate) retry_timeout: Option<Duration>,
     pub(crate) force_auth: bool,
-    pub(crate) assert_identity: bool,
 }
 
 #[cfg(not(tarpaulin_include))]
 impl Debug for RequestConfig {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut res = fmt.debug_struct("RequestConfig");
+        let Self { timeout, retry_limit, retry_timeout, force_auth } = self;
 
-        res.field("timeout", &self.timeout)
-            .field("retry_limit", &self.retry_limit)
-            .field("retry_timeout", &self.retry_timeout)
-            .finish()
+        let mut res = fmt.debug_struct("RequestConfig");
+        res.field("timeout", timeout)
+            .maybe_field("retry_limit", retry_limit)
+            .maybe_field("retry_timeout", retry_timeout);
+
+        if *force_auth {
+            res.field("force_auth", &true);
+        }
+
+        res.finish()
     }
 }
 
@@ -65,7 +72,6 @@ impl Default for RequestConfig {
             retry_limit: Default::default(),
             retry_timeout: Default::default(),
             force_auth: false,
-            assert_identity: false,
         }
     }
 }

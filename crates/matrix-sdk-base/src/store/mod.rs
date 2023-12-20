@@ -27,10 +27,9 @@ use std::{
     pin::Pin,
     result::Result as StdResult,
     str::Utf8Error,
-    sync::Arc,
+    sync::{Arc, RwLock as StdRwLock},
 };
 
-use eyeball::{shared::Observable as SharedObservable, Subscriber};
 use once_cell::sync::OnceCell;
 
 #[cfg(any(test, feature = "testing"))]
@@ -38,37 +37,33 @@ use once_cell::sync::OnceCell;
 pub mod integration_tests;
 mod traits;
 
-use dashmap::DashMap;
-use matrix_sdk_common::locks::RwLock;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::store::{DynCryptoStore, IntoCryptoStore};
 pub use matrix_sdk_store_encryption::Error as StoreEncryptionError;
 use ruma::{
-    api::client::push::get_notifications::v3::Notification,
     events::{
         presence::PresenceEvent,
         receipt::ReceiptEventContent,
-        room::{
-            member::{StrippedRoomMemberEvent, SyncRoomMemberEvent},
-            redaction::OriginalSyncRoomRedactionEvent,
-        },
+        room::{member::StrippedRoomMemberEvent, redaction::SyncRoomRedactionEvent},
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
         AnySyncStateEvent, GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
     },
     serde::Raw,
     EventId, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, UserId,
 };
+use tokio::sync::RwLock;
 
 /// BoxStream of owned Types
 pub type BoxStream<T> = Pin<Box<dyn futures_util::Stream<Item = T> + Send>>;
 
 use crate::{
     rooms::{RoomInfo, RoomState},
-    MinimalRoomMemberEvent, Room, Session, SessionMeta, SessionTokens,
+    MinimalRoomMemberEvent, Room, RoomStateFilter, SessionMeta,
 };
 
 pub(crate) mod ambiguity_map;
 mod memory_store;
+pub mod migration_helpers;
 
 #[cfg(any(test, feature = "testing"))]
 pub use self::integration_tests::StateStoreIntegrationTests;
@@ -145,11 +140,9 @@ pub type Result<T, E = StoreError> = std::result::Result<T, E>;
 pub(crate) struct Store {
     pub(super) inner: Arc<DynStateStore>,
     session_meta: Arc<OnceCell<SessionMeta>>,
-    pub(super) session_tokens: SharedObservable<Option<SessionTokens>>,
     /// The current sync token that should be used for the next sync call.
     pub(super) sync_token: Arc<RwLock<Option<String>>>,
-    rooms: Arc<DashMap<OwnedRoomId, Room>>,
-    stripped_rooms: Arc<DashMap<OwnedRoomId, Room>>,
+    rooms: Arc<StdRwLock<BTreeMap<OwnedRoomId, Room>>>,
     /// A lock to synchronize access to the store, such that data by the sync is
     /// never overwritten. The sync processing is supposed to use write access,
     /// such that only it is currently accessing the store overall. Other things
@@ -164,10 +157,8 @@ impl Store {
         Self {
             inner,
             session_meta: Default::default(),
-            session_tokens: Default::default(),
             sync_token: Default::default(),
             rooms: Default::default(),
-            stripped_rooms: Default::default(),
             sync_lock: Default::default(),
         }
     }
@@ -186,12 +177,7 @@ impl Store {
     pub async fn set_session_meta(&self, session_meta: SessionMeta) -> Result<()> {
         for info in self.inner.get_room_infos().await? {
             let room = Room::restore(&session_meta.user_id, self.inner.clone(), info);
-            self.rooms.insert(room.room_id().to_owned(), room);
-        }
-
-        for info in self.inner.get_stripped_room_infos().await? {
-            let room = Room::restore(&session_meta.user_id, self.inner.clone(), info);
-            self.stripped_rooms.insert(room.room_id().to_owned(), room);
+            self.rooms.write().unwrap().insert(room.room_id().to_owned(), room);
         }
 
         let token =
@@ -208,81 +194,36 @@ impl Store {
         self.session_meta.get()
     }
 
-    /// The [`SessionTokens`] containing our access token and optional refresh
-    /// token.
-    pub fn session_tokens(&self) -> Subscriber<Option<SessionTokens>> {
-        self.session_tokens.subscribe()
-    }
-
-    /// Set the current [`SessionTokens`].
-    pub fn set_session_tokens(&self, tokens: SessionTokens) {
-        self.session_tokens.set(Some(tokens));
-    }
-
-    /// The current [`Session`] containing our user id, device ID, access
-    /// token and optional refresh token.
-    pub fn session(&self) -> Option<Session> {
-        let meta = self.session_meta.get()?;
-        let tokens = self.session_tokens().get()?;
-        Some(Session::from_parts(meta.to_owned(), tokens))
-    }
-
     /// Get all the rooms this store knows about.
     pub fn get_rooms(&self) -> Vec<Room> {
-        self.rooms.iter().filter_map(|r| self.get_room(r.key())).collect()
+        self.rooms.read().unwrap().keys().filter_map(|id| self.get_room(id)).collect()
+    }
+
+    /// Get all the rooms this store knows about, filtered by state.
+    pub fn get_rooms_filtered(&self, filter: RoomStateFilter) -> Vec<Room> {
+        self.rooms
+            .read()
+            .unwrap()
+            .iter()
+            .filter(|(_, r)| filter.matches(r.state()))
+            .filter_map(|(id, _)| self.get_room(id))
+            .collect()
     }
 
     /// Get the room with the given room id.
     pub fn get_room(&self, room_id: &RoomId) -> Option<Room> {
-        self.rooms
-            .get(room_id)
-            .and_then(|r| match r.state() {
-                RoomState::Joined => Some(r.clone()),
-                RoomState::Left => Some(r.clone()),
-                RoomState::Invited => self.get_stripped_room(room_id),
-            })
-            .or_else(|| self.get_stripped_room(room_id))
-    }
-
-    /// Get all the rooms this store knows about.
-    pub fn get_stripped_rooms(&self) -> Vec<Room> {
-        self.stripped_rooms.iter().filter_map(|r| self.get_stripped_room(r.key())).collect()
-    }
-
-    /// Get the stripped room with the given room id.
-    pub fn get_stripped_room(&self, room_id: &RoomId) -> Option<Room> {
-        self.stripped_rooms.get(room_id).map(|r| r.clone())
-    }
-
-    /// Lookup the stripped Room for the given RoomId, or create one, if it
-    /// didn't exist yet in the store
-    pub async fn get_or_create_stripped_room(&self, room_id: &RoomId) -> Room {
-        let user_id =
-            &self.session_meta.get().expect("Creating room while not being logged in").user_id;
-
-        // Remove the respective room from non-stripped rooms.
-        self.rooms.remove(room_id);
-
-        self.stripped_rooms
-            .entry(room_id.to_owned())
-            .or_insert_with(|| Room::new(user_id, self.inner.clone(), room_id, RoomState::Invited))
-            .clone()
+        self.rooms.read().unwrap().get(room_id).cloned()
     }
 
     /// Lookup the Room for the given RoomId, or create one, if it didn't exist
     /// yet in the store
-    pub async fn get_or_create_room(&self, room_id: &RoomId, room_type: RoomState) -> Room {
-        if room_type == RoomState::Invited {
-            return self.get_or_create_stripped_room(room_id).await;
-        }
-
+    pub fn get_or_create_room(&self, room_id: &RoomId, room_type: RoomState) -> Room {
         let user_id =
             &self.session_meta.get().expect("Creating room while not being logged in").user_id;
 
-        // Remove the respective room from stripped rooms.
-        self.stripped_rooms.remove(room_id);
-
         self.rooms
+            .write()
+            .unwrap()
             .entry(room_id.to_owned())
             .or_insert_with(|| Room::new(user_id, self.inner.clone(), room_id, room_type))
             .clone()
@@ -297,7 +238,6 @@ impl fmt::Debug for Store {
             .field("session_meta", &self.session_meta)
             .field("sync_token", &self.sync_token)
             .field("rooms", &self.rooms)
-            .field("stripped_rooms", &self.stripped_rooms)
             .finish_non_exhaustive()
     }
 }
@@ -311,20 +251,15 @@ impl Deref for Store {
 }
 
 /// Store state changes and pass them to the StateStore.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct StateChanges {
     /// The sync token that relates to this update.
     pub sync_token: Option<String>,
-    /// A user session, containing an access token and information about the
-    /// associated user account.
-    pub session: Option<Session>,
     /// A mapping of event type string to `AnyBasicEvent`.
     pub account_data: BTreeMap<GlobalAccountDataEventType, Raw<AnyGlobalAccountDataEvent>>,
     /// A mapping of `UserId` to `PresenceEvent`.
     pub presence: BTreeMap<OwnedUserId, Raw<PresenceEvent>>,
 
-    /// A mapping of `RoomId` to a map of users and their `SyncRoomMemberEvent`.
-    pub members: BTreeMap<OwnedRoomId, BTreeMap<OwnedUserId, Raw<SyncRoomMemberEvent>>>,
     /// A mapping of `RoomId` to a map of users and their
     /// `MinimalRoomMemberEvent`.
     pub profiles: BTreeMap<OwnedRoomId, BTreeMap<OwnedUserId, MinimalRoomMemberEvent>>,
@@ -343,8 +278,7 @@ pub struct StateChanges {
 
     /// A map of `RoomId` to maps of `OwnedEventId` to be redacted by
     /// `SyncRoomRedactionEvent`.
-    pub redactions:
-        BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, Raw<OriginalSyncRoomRedactionEvent>>>,
+    pub redactions: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, Raw<SyncRoomRedactionEvent>>>,
 
     /// A mapping of `RoomId` to a map of event type to a map of state key to
     /// `AnyStrippedStateEvent`.
@@ -352,19 +286,10 @@ pub struct StateChanges {
         OwnedRoomId,
         BTreeMap<StateEventType, BTreeMap<String, Raw<AnyStrippedStateEvent>>>,
     >,
-    /// A mapping of `RoomId` to a map of users and their
-    /// `StrippedRoomMemberEvent`.
-    pub stripped_members:
-        BTreeMap<OwnedRoomId, BTreeMap<OwnedUserId, Raw<StrippedRoomMemberEvent>>>,
-    /// A map of `RoomId` to `RoomInfo` for stripped rooms (e.g. for invites or
-    /// while knocking)
-    pub stripped_room_infos: BTreeMap<OwnedRoomId, RoomInfo>,
 
     /// A map from room id to a map of a display name and a set of user ids that
     /// share that display name in the given room.
     pub ambiguity_maps: BTreeMap<OwnedRoomId, BTreeMap<String, BTreeSet<OwnedUserId>>>,
-    /// A map of `RoomId` to a vector of `Notification`s
-    pub notifications: BTreeMap<OwnedRoomId, Vec<Notification>>,
 }
 
 impl StateChanges {
@@ -380,12 +305,7 @@ impl StateChanges {
 
     /// Update the `StateChanges` struct with the given `RoomInfo`.
     pub fn add_room(&mut self, room: RoomInfo) {
-        self.room_infos.insert(room.room_id.as_ref().to_owned(), room);
-    }
-
-    /// Update the `StateChanges` struct with the given `RoomInfo`.
-    pub fn add_stripped_room(&mut self, room: RoomInfo) {
-        self.stripped_room_infos.insert(room.room_id.as_ref().to_owned(), room);
+        self.room_infos.insert(room.room_id.clone(), room);
     }
 
     /// Update the `StateChanges` struct with the given `AnyBasicEvent`.
@@ -419,10 +339,12 @@ impl StateChanges {
         user_id: &UserId,
         event: Raw<StrippedRoomMemberEvent>,
     ) {
-        self.stripped_members
+        self.stripped_state
             .entry(room_id.to_owned())
             .or_default()
-            .insert(user_id.to_owned(), event);
+            .entry(StateEventType::RoomMember)
+            .or_default()
+            .insert(user_id.into(), event.cast());
     }
 
     /// Update the `StateChanges` struct with the given room with a new
@@ -446,18 +368,12 @@ impl StateChanges {
         &mut self,
         room_id: &RoomId,
         redacted_event_id: &EventId,
-        redaction: Raw<OriginalSyncRoomRedactionEvent>,
+        redaction: Raw<SyncRoomRedactionEvent>,
     ) {
         self.redactions
             .entry(room_id.to_owned())
             .or_default()
             .insert(redacted_event_id.to_owned(), redaction);
-    }
-
-    /// Update the `StateChanges` struct with the given room with a new
-    /// `Notification`.
-    pub fn add_notification(&mut self, room_id: &RoomId, notification: Notification) {
-        self.notifications.entry(room_id.to_owned()).or_default().push(notification);
     }
 
     /// Update the `StateChanges` struct with the given room with a new
@@ -470,7 +386,7 @@ impl StateChanges {
 /// Configuration for the state store and, when `encryption` is enabled, for the
 /// crypto store.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```
 /// # use matrix_sdk_base::store::StoreConfig;

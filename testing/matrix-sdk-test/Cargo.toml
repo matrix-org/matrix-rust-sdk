@@ -15,19 +15,19 @@ version = "0.6.0"
 test = false
 doctest = false
 
-[features]
-appservice = []
-
 [dependencies]
 http = { workspace = true }
 matrix-sdk-test-macros = { version = "0.3.0", path = "../matrix-sdk-test-macros" }
 once_cell = { workspace = true }
-ruma = { workspace = true }
+ruma = { workspace = true, features = ["rand"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-tokio = { version = "1.24.2", default-features = false, features = ["rt", "macros"] }
+ctor = "0.2.0"
+tokio = { workspace = true, features = ["rt", "macros"] }
+tracing-subscriber = { version = "0.3.11", features = ["env-filter"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.2.6", default-features = false, features = ["js"] }
 wasm-bindgen-test = "0.3.33"

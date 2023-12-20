@@ -36,6 +36,14 @@ pub struct MegolmV1AuthData {
     extra: BTreeMap<String, Value>,
 }
 
+impl MegolmV1AuthData {
+    // Create a new [`MegolmV1AuthData`] from a public Curve25519 key and a
+    // [`Signatures`] map.
+    pub(crate) fn new(public_key: Curve25519PublicKey, signatures: Signatures) -> Self {
+        Self { public_key, signatures, extra: Default::default() }
+    }
+}
+
 /// Information pertaining to a room key backup. Can be used to upload a new
 /// backup version as defined in the [spec].
 ///
@@ -99,7 +107,7 @@ impl Serialize for RoomKeyBackupInfo {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use assert_matches::assert_matches;
     use serde_json::json;
 

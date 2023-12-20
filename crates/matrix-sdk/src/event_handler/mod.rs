@@ -56,7 +56,7 @@ use serde_json::value::RawValue as RawJsonValue;
 use tracing::{debug, error, field::debug, instrument, warn};
 
 use self::maps::EventHandlerMaps;
-use crate::{room, Client};
+use crate::{Client, Room};
 
 mod context;
 mod maps;
@@ -197,7 +197,7 @@ pub struct EventHandlerHandle {
 ///
 /// ¹ the only thing stopping such types from existing in stable Rust is that
 /// all manual implementations of the `Fn` traits require a Nightly feature
-pub trait EventHandler<Ev, Ctx>: SendOutsideWasm + SyncOutsideWasm + 'static {
+pub trait EventHandler<Ev, Ctx>: Clone + SendOutsideWasm + SyncOutsideWasm + 'static {
     /// The future returned by `handle_event`.
     #[doc(hidden)]
     type Future: EventHandlerFuture;
@@ -209,7 +209,7 @@ pub trait EventHandler<Ev, Ctx>: SendOutsideWasm + SyncOutsideWasm + 'static {
     ///
     /// Returns `None` if one of the context extractors failed.
     #[doc(hidden)]
-    fn handle_event(&self, ev: Ev, data: EventHandlerData<'_>) -> Option<Self::Future>;
+    fn handle_event(self, ev: Ev, data: EventHandlerData<'_>) -> Option<Self::Future>;
 }
 
 #[doc(hidden)]
@@ -231,7 +231,7 @@ where
 #[derive(Debug)]
 pub struct EventHandlerData<'a> {
     client: Client,
-    room: Option<room::Room>,
+    room: Option<Room>,
     raw: &'a RawJsonValue,
     encryption_info: Option<&'a EncryptionInfo>,
     push_actions: &'a [Action],
@@ -291,8 +291,8 @@ impl Client {
         H: EventHandler<Ev, Ctx>,
     {
         let handler_fn: Box<EventHandlerFn> = Box::new(move |data| {
-            let maybe_fut =
-                serde_json::from_str(data.raw.get()).map(|ev| handler.handle_event(ev, data));
+            let maybe_fut = serde_json::from_str(data.raw.get())
+                .map(|ev| handler.clone().handle_event(ev, data));
 
             Box::pin(async move {
                 match maybe_fut {
@@ -328,7 +328,7 @@ impl Client {
     pub(crate) async fn handle_sync_events<T>(
         &self,
         kind: HandlerKind,
-        room: &Option<room::Room>,
+        room: Option<&Room>,
         events: &[Raw<T>],
     ) -> serde_json::Result<()> {
         #[derive(Deserialize)]
@@ -347,7 +347,7 @@ impl Client {
 
     pub(crate) async fn handle_sync_state_events(
         &self,
-        room: &Option<room::Room>,
+        room: Option<&Room>,
         state_events: &[Raw<AnySyncStateEvent>],
     ) -> serde_json::Result<()> {
         #[derive(Deserialize)]
@@ -375,7 +375,7 @@ impl Client {
 
     pub(crate) async fn handle_sync_timeline_events(
         &self,
-        room: &Option<room::Room>,
+        room: Option<&Room>,
         timeline_events: &[SyncTimelineEvent],
     ) -> serde_json::Result<()> {
         #[derive(Deserialize)]
@@ -438,17 +438,17 @@ impl Client {
         Ok(())
     }
 
-    #[instrument(level = "debug", skip_all, fields(?event_kind, ?event_type, room_id))]
+    #[instrument(skip_all, fields(?event_kind, ?event_type, room_id))]
     async fn call_event_handlers(
         &self,
-        room: &Option<room::Room>,
+        room: Option<&Room>,
         raw: &RawJsonValue,
         event_kind: HandlerKind,
         event_type: &str,
         encryption_info: Option<&EncryptionInfo>,
         push_actions: &[Action],
     ) {
-        let room_id = room.as_ref().map(|r| r.room_id());
+        let room_id = room.map(|r| r.room_id());
         if let Some(room_id) = room_id {
             tracing::Span::current().record("room_id", debug(room_id));
         }
@@ -464,7 +464,7 @@ impl Client {
             .map(|(handle, handler_fn)| {
                 let data = EventHandlerData {
                     client: self.clone(),
-                    room: room.clone(),
+                    room: room.cloned(),
                     raw,
                     encryption_info,
                     push_actions,
@@ -512,13 +512,13 @@ macro_rules! impl_event_handler {
         impl<Ev, Fun, Fut, $($ty),*> EventHandler<Ev, ($($ty,)*)> for Fun
         where
             Ev: SyncEvent,
-            Fun: Fn(Ev, $($ty),*) -> Fut + SendOutsideWasm + SyncOutsideWasm + 'static,
+            Fun: FnOnce(Ev, $($ty),*) -> Fut + Clone + SendOutsideWasm + SyncOutsideWasm + 'static,
             Fut: EventHandlerFuture,
             $($ty: EventHandlerContext),*
         {
             type Future = Fut;
 
-            fn handle_event(&self, ev: Ev, _d: EventHandlerData<'_>) -> Option<Self::Future> {
+            fn handle_event(self, ev: Ev, _d: EventHandlerData<'_>) -> Option<Self::Future> {
                 Some((self)(ev, $($ty::from_data(&_d)?),*))
             }
         }
@@ -538,7 +538,7 @@ impl_event_handler!(A, B, C, D, E, F, G, H);
 #[cfg(test)]
 mod tests {
     use matrix_sdk_test::{
-        async_test, test_json::DEFAULT_SYNC_ROOM_ID, InvitedRoomBuilder, JoinedRoomBuilder,
+        async_test, InvitedRoomBuilder, JoinedRoomBuilder, DEFAULT_TEST_ROOM_ID,
     };
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -551,8 +551,10 @@ mod tests {
     };
 
     use matrix_sdk_test::{
-        EphemeralTestEvent, EventBuilder, StateTestEvent, StrippedStateTestEvent, TimelineTestEvent,
+        sync_timeline_event, EphemeralTestEvent, StateTestEvent, StrippedStateTestEvent,
+        SyncResponseBuilder,
     };
+    use once_cell::sync::Lazy;
     use ruma::{
         events::{
             room::{
@@ -561,7 +563,7 @@ mod tests {
                 power_levels::OriginalSyncRoomPowerLevelsEvent,
             },
             typing::SyncTypingEvent,
-            AnySyncStateEvent,
+            AnySyncStateEvent, AnySyncTimelineEvent,
         },
         room_id,
         serde::Raw,
@@ -570,10 +572,34 @@ mod tests {
 
     use crate::{
         event_handler::Ctx,
-        room::Room,
         test_utils::{logged_in_client, no_retry_test_client},
-        Client,
+        Client, Room,
     };
+
+    static MEMBER_EVENT: Lazy<Raw<AnySyncTimelineEvent>> = Lazy::new(|| {
+        sync_timeline_event!({
+            "content": {
+                "avatar_url": null,
+                "displayname": "example",
+                "membership": "join"
+            },
+            "event_id": "$151800140517rfvjc:localhost",
+            "membership": "join",
+            "origin_server_ts": 151800140,
+            "sender": "@example:localhost",
+            "state_key": "@example:localhost",
+            "type": "m.room.member",
+            "prev_content": {
+                "avatar_url": null,
+                "displayname": "example",
+                "membership": "invite"
+            },
+            "unsigned": {
+                "age": 297036,
+                "replaces_state": "$151800111315tsynI:localhost"
+            }
+        })
+    });
 
     #[async_test]
     async fn add_event_handler() -> crate::Result<()> {
@@ -586,37 +612,33 @@ mod tests {
 
         client.add_event_handler({
             let member_count = member_count.clone();
-            move |_ev: OriginalSyncRoomMemberEvent, _room: Room| {
+            move |_ev: OriginalSyncRoomMemberEvent, _room: Room| async move {
                 member_count.fetch_add(1, SeqCst);
-                future::ready(())
             }
         });
         client.add_event_handler({
             let typing_count = typing_count.clone();
-            move |_ev: SyncTypingEvent| {
+            move |_ev: SyncTypingEvent| async move {
                 typing_count.fetch_add(1, SeqCst);
-                future::ready(())
             }
         });
         client.add_event_handler({
             let power_levels_count = power_levels_count.clone();
-            move |_ev: OriginalSyncRoomPowerLevelsEvent, _client: Client, _room: Room| {
+            move |_ev: OriginalSyncRoomPowerLevelsEvent, _client: Client, _room: Room| async move {
                 power_levels_count.fetch_add(1, SeqCst);
-                future::ready(())
             }
         });
         client.add_event_handler({
             let invited_member_count = invited_member_count.clone();
-            move |_ev: StrippedRoomMemberEvent| {
+            move |_ev: StrippedRoomMemberEvent| async move {
                 invited_member_count.fetch_add(1, SeqCst);
-                future::ready(())
             }
         });
 
-        let response = EventBuilder::default()
+        let response = SyncResponseBuilder::default()
             .add_joined_room(
                 JoinedRoomBuilder::default()
-                    .add_timeline_event(TimelineTestEvent::Member)
+                    .add_timeline_event(MEMBER_EVENT.clone())
                     .add_ephemeral_event(EphemeralTestEvent::Typing)
                     .add_state_event(StateTestEvent::PowerLevels),
             )
@@ -709,16 +731,16 @@ mod tests {
             unreachable!("No room event in room B")
         });
 
-        let response = EventBuilder::default()
+        let response = SyncResponseBuilder::default()
             .add_joined_room(
                 JoinedRoomBuilder::new(room_id_a)
-                    .add_timeline_event(TimelineTestEvent::Member)
+                    .add_timeline_event(MEMBER_EVENT.clone())
                     .add_state_event(StateTestEvent::PowerLevels)
                     .add_state_event(StateTestEvent::RoomName),
             )
             .add_joined_room(
                 JoinedRoomBuilder::new(room_id_b)
-                    .add_timeline_event(TimelineTestEvent::Member)
+                    .add_timeline_event(MEMBER_EVENT.clone())
                     .add_state_event(StateTestEvent::PowerLevels),
             )
             .build_sync_response();
@@ -738,9 +760,8 @@ mod tests {
 
         client.add_event_handler({
             let member_count = member_count.clone();
-            move |_ev: OriginalSyncRoomMemberEvent| {
+            move |_ev: OriginalSyncRoomMemberEvent| async move {
                 member_count.fetch_add(1, SeqCst);
-                future::ready(())
             }
         });
 
@@ -749,7 +770,7 @@ mod tests {
         });
         let handle_b = client.add_room_event_handler(
             #[allow(unknown_lints, clippy::explicit_auto_deref)] // lint is buggy
-            *DEFAULT_SYNC_ROOM_ID,
+            *DEFAULT_TEST_ROOM_ID,
             move |_ev: OriginalSyncRoomMemberEvent| async {
                 panic!("handler should have been removed");
             },
@@ -757,16 +778,13 @@ mod tests {
 
         client.add_event_handler({
             let member_count = member_count.clone();
-            move |_ev: OriginalSyncRoomMemberEvent| {
+            move |_ev: OriginalSyncRoomMemberEvent| async move {
                 member_count.fetch_add(1, SeqCst);
-                future::ready(())
             }
         });
 
-        let response = EventBuilder::default()
-            .add_joined_room(
-                JoinedRoomBuilder::default().add_timeline_event(TimelineTestEvent::Member),
-            )
+        let response = SyncResponseBuilder::default()
+            .add_joined_room(JoinedRoomBuilder::default().add_timeline_event(MEMBER_EVENT.clone()))
             .build_sync_response();
 
         client.remove_event_handler(handle_a);
@@ -822,10 +840,8 @@ mod tests {
             },
         );
 
-        let response = EventBuilder::default()
-            .add_joined_room(
-                JoinedRoomBuilder::default().add_timeline_event(TimelineTestEvent::Member),
-            )
+        let response = SyncResponseBuilder::default()
+            .add_joined_room(JoinedRoomBuilder::default().add_timeline_event(MEMBER_EVENT.clone()))
             .build_sync_response();
         client.process_sync(response).await?;
 
@@ -844,10 +860,8 @@ mod tests {
             },
         );
 
-        let response = EventBuilder::default()
-            .add_joined_room(
-                JoinedRoomBuilder::default().add_timeline_event(TimelineTestEvent::Member),
-            )
+        let response = SyncResponseBuilder::default()
+            .add_joined_room(JoinedRoomBuilder::default().add_timeline_event(MEMBER_EVENT.clone()))
             .build_sync_response();
         client.process_sync(response).await?;
 

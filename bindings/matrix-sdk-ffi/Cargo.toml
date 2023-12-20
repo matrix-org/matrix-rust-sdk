@@ -12,56 +12,64 @@ repository = "https://github.com/matrix-org/matrix-rust-sdk"
 [lib]
 crate-type = ["cdylib", "staticlib"]
 
+[features]
+default = ["bundled-sqlite"]
+bundled-sqlite = ["matrix-sdk/bundled-sqlite"]
+
 [build-dependencies]
 uniffi = { workspace = true, features = ["build"] }
+vergen = { version = "8.1.3", features = ["build", "git", "gitcl"] }
 
 [dependencies]
 anyhow = { workspace = true }
+as_variant = { workspace = true }
+async-compat = "0.2.1"
 base64 = "0.21"
-eyeball = { workspace = true }
 eyeball-im = { workspace = true }
 extension-trait = "1.0.1"
-futures-core = "0.3.17"
-futures-util = { version = "0.3.17", default-features = false }
+futures-core = { workspace = true }
+futures-util = { workspace = true }
+matrix-sdk-ui = { path = "../../crates/matrix-sdk-ui", default-features = false, features = ["e2e-encryption"] }
 mime = "0.3.16"
-# FIXME: we currently can't feature flag anything in the api.udl, therefore we must enforce experimental-sliding-sync being exposed here..
-# see https://github.com/matrix-org/matrix-rust-sdk/issues/1014
 once_cell = { workspace = true }
-opentelemetry = { version = "0.18.0", features = ["rt-tokio"] }
-opentelemetry-otlp = { version = "0.11.0", features = ["tokio", "reqwest-client", "http-proto"] }
-ruma = { workspace = true, features = ["unstable-sanitize", "unstable-unspecified"] }
+opentelemetry = "0.21.0"
+opentelemetry_sdk = { version = "0.21.0", features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.14.0", features = ["tokio", "reqwest-client", "http-proto"] }
+ruma = { workspace = true, features = ["html", "unstable-unspecified", "unstable-msc3488", "compat-unset-avatar", "unstable-msc3245-v1-compat"] }
 sanitize-filename-reader-friendly = "2.2.1"
+serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
-tracing-opentelemetry = { version = "0.18.0" }
+tracing-core = { workspace = true }
+tracing-opentelemetry = "0.22.0"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = { version = "0.2.2" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
-tokio-stream = "0.1.8"
-uniffi = { workspace = true }
+tokio-stream = { workspace = true, features = ["time"] }
+uniffi = { workspace = true, features = ["tokio"] }
 url = "2.2.2"
 zeroize = { workspace = true }
+uuid = { version = "1.4.1", features = ["v4"] }
+language-tags = "0.3.2"
 
 [target.'cfg(target_os = "android")'.dependencies]
-log-panics = { version = "2", features = ["with-backtrace"]}
-tracing-android = "0.2.0"
-
-[target.'cfg(not(target_os = "android"))'.dependencies]
-tracing = { workspace = true }
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+log-panics = { version = "2", features = ["with-backtrace"] }
+paranoid-android = "0.2.1"
 
 [target.'cfg(target_os = "android")'.dependencies.matrix-sdk]
 path = "../../crates/matrix-sdk"
 default-features = false
 features = [
     "anyhow",
-    "experimental-sliding-sync",
-    "experimental-timeline",
     "e2e-encryption",
-    "markdown", 
-    "sled",
+    "experimental-oidc",
+    "experimental-sliding-sync",
+    "experimental-widgets",
+    "markdown",
+    "rustls-tls", # note: differ from block below
     "socks",
-    "rustls-tls",
+    "sqlite",
 ]
 
 [target.'cfg(not(target_os = "android"))'.dependencies.matrix-sdk]
@@ -69,11 +77,12 @@ path = "../../crates/matrix-sdk"
 default-features = false
 features = [
     "anyhow",
-    "experimental-sliding-sync",
-    "experimental-timeline",
     "e2e-encryption",
+    "experimental-oidc",
+    "experimental-sliding-sync",
+    "experimental-widgets",
     "markdown",
-    "native-tls",
-    "sled",
+    "native-tls", # note: differ from block above
     "socks",
+    "sqlite",
 ]

@@ -20,113 +20,45 @@ macro_rules! unwrap_or_clone_arc_into_variant {
     };
 }
 
-mod platform;
-
-pub mod authentication_service;
-pub mod client;
-pub mod client_builder;
+mod authentication_service;
+mod chunk_iterator;
+mod client;
+mod client_builder;
+mod encryption;
+mod error;
+mod event;
 mod helpers;
-pub mod notification_service;
-pub mod room;
-pub mod room_member;
-pub mod session_verification;
-pub mod sliding_sync;
-pub mod timeline;
+mod notification;
+mod notification_settings;
+mod platform;
+mod room;
+mod room_info;
+mod room_list;
+mod room_member;
+mod ruma;
+mod session_verification;
+mod sync_service;
+mod task_handle;
+mod timeline;
+mod tracing;
+mod utils;
+mod widget;
 
-use client::Client;
-use client_builder::ClientBuilder;
-use matrix_sdk::{encryption::CryptoStoreError, HttpError, IdParseError};
-use once_cell::sync::Lazy;
-use tokio::runtime::Runtime;
-
-pub static RUNTIME: Lazy<Runtime> =
-    Lazy::new(|| Runtime::new().expect("Can't start Tokio runtime"));
-
-pub use matrix_sdk::{
-    room::timeline::PaginationOutcome,
-    ruma::{api::client::account::register, UserId},
+use async_compat::TOKIO1 as RUNTIME;
+use matrix_sdk::ruma::events::room::{
+    message::RoomMessageEventContentWithoutRelation, MediaSource,
 };
+use matrix_sdk_ui::timeline::{BackPaginationStatus, EventItemOrigin};
 
-pub use self::{
-    authentication_service::*, client::*, notification_service::*, room::*, room_member::*,
-    session_verification::*, sliding_sync::*, timeline::*,
+use self::{
+    error::ClientError,
+    ruma::{MediaSourceExt, Mentions, RoomMessageEventContentWithoutRelationExt},
+    task_handle::TaskHandle,
 };
-
-#[derive(thiserror::Error, Debug)]
-pub enum ClientError {
-    #[error("client error: {msg}")]
-    Generic { msg: String },
-}
-
-impl From<anyhow::Error> for ClientError {
-    fn from(e: anyhow::Error) -> ClientError {
-        ClientError::Generic { msg: e.to_string() }
-    }
-}
-
-impl From<matrix_sdk::Error> for ClientError {
-    fn from(e: matrix_sdk::Error) -> Self {
-        anyhow::Error::from(e).into()
-    }
-}
-
-impl From<CryptoStoreError> for ClientError {
-    fn from(e: CryptoStoreError) -> Self {
-        anyhow::Error::from(e).into()
-    }
-}
-
-impl From<HttpError> for ClientError {
-    fn from(e: HttpError) -> Self {
-        anyhow::Error::from(e).into()
-    }
-}
-
-impl From<IdParseError> for ClientError {
-    fn from(e: IdParseError) -> Self {
-        anyhow::Error::from(e).into()
-    }
-}
-
-impl From<serde_json::Error> for ClientError {
-    fn from(e: serde_json::Error) -> Self {
-        anyhow::Error::from(e).into()
-    }
-}
-
-pub use platform::*;
 
 uniffi::include_scaffolding!("api");
 
-mod uniffi_types {
-    pub use matrix_sdk::ruma::events::room::{message::RoomMessageEventContent, MediaSource};
-
-    pub use crate::{
-        authentication_service::{
-            AuthenticationError, AuthenticationService, HomeserverLoginDetails,
-        },
-        client::{
-            Client, CreateRoomParameters, HttpPusherData, PushFormat, PusherIdentifiers,
-            PusherKind, SearchUsersResults, Session, UserProfile,
-        },
-        client_builder::ClientBuilder,
-        room::{Membership, Room},
-        room_member::{MembershipState, RoomMember},
-        session_verification::{SessionVerificationController, SessionVerificationEmoji},
-        sliding_sync::{
-            RequiredState, RoomListEntry, SlidingSync, SlidingSyncBuilder, SlidingSyncList,
-            SlidingSyncListBuilder, SlidingSyncRequestListFilters, SlidingSyncRoom, TaskHandle,
-            UnreadNotificationsCount,
-        },
-        timeline::{
-            AudioInfo, AudioMessageContent, EmoteMessageContent, EncryptedMessage, EventSendState,
-            EventTimelineItem, FileInfo, FileMessageContent, FormattedBody, ImageInfo,
-            ImageMessageContent, InsertData, MembershipChange, Message, MessageFormat, MessageType,
-            NoticeMessageContent, OtherState, ProfileTimelineDetails, Reaction, SetData,
-            TextMessageContent, ThumbnailInfo, TimelineChange, TimelineDiff, TimelineItem,
-            TimelineItemContent, TimelineItemContentKind, VideoInfo, VideoMessageContent,
-            VirtualTimelineItem,
-        },
-        ClientError,
-    };
+#[uniffi::export]
+fn sdk_git_sha() -> String {
+    env!("VERGEN_GIT_SHA").to_owned()
 }

@@ -18,62 +18,73 @@
 
 pub use async_trait::async_trait;
 pub use bytes;
+#[cfg(feature = "e2e-encryption")]
+pub use matrix_sdk_base::crypto;
 pub use matrix_sdk_base::{
-    deserialized_responses, DisplayName, Room as BaseRoom, RoomInfo, RoomMember as BaseRoomMember,
-    RoomState, Session, StateChanges, StoreError,
+    deserialized_responses,
+    store::{DynStateStore, MemoryStore, StateStoreExt},
+    DisplayName, Room as BaseRoom, RoomCreateWithCreatorEventContent, RoomInfo,
+    RoomMember as BaseRoomMember, RoomMemberships, RoomState, SessionMeta, StateChanges,
+    StateStore, StoreError,
 };
 pub use matrix_sdk_common::*;
 pub use reqwest;
-#[doc(no_inline)]
-pub use ruma;
 
 mod account;
 pub mod attachment;
+mod authentication;
 mod client;
 pub mod config;
+mod deduplicating_handler;
+#[cfg(feature = "e2e-encryption")]
+pub mod encryption;
 mod error;
 pub mod event_handler;
 mod http_client;
+pub mod matrix_auth;
 pub mod media;
+pub mod notification_settings;
+#[cfg(feature = "experimental-oidc")]
+pub mod oidc;
 pub mod room;
-pub mod sync;
+pub mod utils;
+pub mod futures {
+    //! Named futures returned from methods on types in [the crate root][crate].
 
+    pub use super::client::futures::SendRequest;
+}
 #[cfg(feature = "experimental-sliding-sync")]
 pub mod sliding_sync;
-
-#[cfg(feature = "e2e-encryption")]
-pub mod encryption;
-#[cfg(feature = "experimental-timeline")]
-mod events;
+pub mod sync;
+#[cfg(feature = "experimental-widgets")]
+pub mod widget;
 
 pub use account::Account;
-#[cfg(feature = "sso-login")]
-pub use client::SsoLoginBuilder;
-pub use client::{Client, ClientBuildError, ClientBuilder, LoginBuilder, LoopCtrl, UnknownToken};
+pub use authentication::{AuthApi, AuthSession, SessionTokens};
+pub use client::{Client, ClientBuildError, ClientBuilder, LoopCtrl, SessionChange};
 #[cfg(feature = "image-proc")]
 pub use error::ImageError;
-pub use error::{Error, HttpError, HttpResult, RefreshTokenError, Result, RumaApiError};
-pub use http_client::HttpSend;
+pub use error::{
+    Error, HttpError, HttpResult, NotificationSettingsError, RefreshTokenError, Result,
+    RumaApiError,
+};
+pub use http_client::TransmissionProgress;
+#[cfg(all(feature = "e2e-encryption", feature = "sqlite"))]
+pub use matrix_sdk_sqlite::SqliteCryptoStore;
 pub use media::Media;
+pub use room::Room;
 pub use ruma::{IdParseError, OwnedServerName, ServerName};
 #[cfg(feature = "experimental-sliding-sync")]
 pub use sliding_sync::{
     RoomListEntry, SlidingSync, SlidingSyncBuilder, SlidingSyncList, SlidingSyncListBuilder,
-    SlidingSyncMode, SlidingSyncRoom, SlidingSyncState, UpdateSummary,
+    SlidingSyncListLoadingState, SlidingSyncMode, SlidingSyncRoom, UpdateSummary,
 };
 
 #[cfg(any(test, feature = "testing"))]
 pub mod test_utils;
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
-#[ctor::ctor]
-fn init_logging() {
-    use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-    tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::from_default_env())
-        .with(tracing_subscriber::fmt::layer().with_test_writer())
-        .init();
-}
+#[cfg(test)]
+matrix_sdk_test::init_tracing_for_tests!();
 
 /// Creates a server name from a user supplied string. The string is first
 /// sanitized by removing whitespace, the http(s) scheme and any trailing

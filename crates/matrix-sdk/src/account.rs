@@ -26,7 +26,8 @@ use ruma::{
             add_3pid, change_password, deactivate, delete_3pid, get_3pids,
             request_3pid_management_token_via_email, request_3pid_management_token_via_msisdn,
         },
-        config::set_global_account_data,
+        config::{get_global_account_data, set_global_account_data},
+        error::ErrorKind,
         profile::{
             get_avatar_url, get_display_name, get_profile, set_avatar_url, set_display_name,
         },
@@ -66,21 +67,21 @@ impl Account {
 
     /// Get the display name of the account.
     ///
-    /// # Example
+    /// # Examples
+    ///
     /// ```no_run
-    /// # use futures::executor::block_on;
     /// # use matrix_sdk::Client;
     /// # use url::Url;
-    /// # block_on(async {
+    /// # async {
     /// # let homeserver = Url::parse("http://example.com")?;
     /// let user = "example";
     /// let client = Client::new(homeserver).await?;
-    /// client.login_username(user, "password").send().await?;
+    /// client.matrix_auth().login_username(user, "password").send().await?;
     ///
     /// if let Some(name) = client.account().get_display_name().await? {
     ///     println!("Logged in as user '{user}' with display name '{name}'");
     /// }
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     pub async fn get_display_name(&self) -> Result<Option<String>> {
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
@@ -92,19 +93,19 @@ impl Account {
 
     /// Set the display name of the account.
     ///
-    /// # Example
+    /// # Examples
+    ///
     /// ```no_run
-    /// # use futures::executor::block_on;
     /// # use matrix_sdk::Client;
     /// # use url::Url;
-    /// # block_on(async {
+    /// # async {
     /// # let homeserver = Url::parse("http://example.com")?;
     /// let user = "example";
     /// let client = Client::new(homeserver).await?;
-    /// client.login_username(user, "password").send().await?;
+    /// client.matrix_auth().login_username(user, "password").send().await?;
     ///
     /// client.account().set_display_name(Some("Alice")).await?;
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     pub async fn set_display_name(&self, name: Option<&str>) -> Result<()> {
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
@@ -116,21 +117,21 @@ impl Account {
 
     /// Get the MXC URI of the account's avatar, if set.
     ///
-    /// # Example
+    /// # Examples
+    ///
     /// ```no_run
-    /// # use futures::executor::block_on;
     /// # use matrix_sdk::Client;
     /// # use url::Url;
-    /// # block_on(async {
+    /// # async {
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let user = "example";
     /// let client = Client::new(homeserver).await?;
-    /// client.login_username(user, "password").send().await?;
+    /// client.matrix_auth().login_username(user, "password").send().await?;
     ///
     /// if let Some(url) = client.account().get_avatar_url().await? {
     ///     println!("Your avatar's mxc url is {url}");
     /// }
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     pub async fn get_avatar_url(&self) -> Result<Option<OwnedMxcUri>> {
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
@@ -187,24 +188,24 @@ impl Account {
     ///
     /// * `format` - The desired format of the avatar.
     ///
-    /// # Example
+    /// # Examples
+    ///
     /// ```no_run
-    /// # use futures::executor::block_on;
     /// # use matrix_sdk::Client;
     /// # use matrix_sdk::ruma::room_id;
     /// # use matrix_sdk::media::MediaFormat;
     /// # use url::Url;
-    /// # block_on(async {
+    /// # async {
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let user = "example";
     /// let client = Client::new(homeserver).await?;
-    /// client.login_username(user, "password").send().await?;
+    /// client.matrix_auth().login_username(user, "password").send().await?;
     ///
     /// if let Some(avatar) = client.account().get_avatar(MediaFormat::File).await?
     /// {
     ///     std::fs::write("avatar.png", avatar);
     /// }
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     pub async fn get_avatar(&self, format: MediaFormat) -> Result<Option<Vec<u8>>> {
         if let Some(url) = self.get_avatar_url().await? {
@@ -226,19 +227,19 @@ impl Account {
     ///
     /// Returns the MXC URI of the uploaded avatar.
     ///
-    /// # Example
+    /// # Examples
+    ///
     /// ```no_run
     /// # use std::fs;
-    /// # use futures::executor::block_on;
     /// # use matrix_sdk::Client;
     /// # use url::Url;
-    /// # block_on(async {
+    /// # async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let client = Client::new(homeserver).await?;
     /// let image = fs::read("/home/example/selfie.jpg")?;
     ///
     /// client.account().upload_avatar(&mime::IMAGE_JPEG, image).await?;
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     ///
     /// [`Media::upload()`]: crate::Media::upload
@@ -252,12 +253,12 @@ impl Account {
     ///
     /// Allows to get both the display name and avatar URL in a single call.
     ///
-    /// # Example
+    /// # Examples
+    ///
     /// ```no_run
-    /// # use futures::executor::block_on;
     /// # use matrix_sdk::Client;
     /// # use url::Url;
-    /// # block_on(async {
+    /// # async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let client = Client::new(homeserver).await?;
     /// let profile = client.account().get_profile().await?;
@@ -265,7 +266,7 @@ impl Account {
     ///     "You are '{:?}' with avatar '{:?}'",
     ///     profile.displayname, profile.avatar_url
     /// );
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     pub async fn get_profile(&self) -> Result<get_profile::v3::Response> {
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
@@ -292,7 +293,8 @@ impl Account {
     /// password is considered insecure by the homeserver, with details about
     /// the strength requirements in the error's message.
     ///
-    /// # Example
+    /// # Examples
+    ///
     /// ```no_run
     /// # use matrix_sdk::Client;
     /// # use matrix_sdk::ruma::{
@@ -302,16 +304,15 @@ impl Account {
     /// #     },
     /// #     assign,
     /// # };
-    /// # use futures::executor::block_on;
     /// # use url::Url;
-    /// # block_on(async {
+    /// # async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let client = Client::new(homeserver).await?;
     /// client.account().change_password(
     ///     "myverysecretpassword",
     ///     Some(AuthData::Dummy(Dummy::new())),
     /// ).await?;
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     /// [uiaa]: https://spec.matrix.org/v1.2/client-server-api/#user-interactive-authentication-api
     /// [`UiaaResponse`]: ruma::api::client::uiaa::UiaaResponse
@@ -340,7 +341,8 @@ impl Account {
     /// information for the interactive auth and the same request needs to be
     /// made but this time with some `auth_data` provided.
     ///
-    /// # Example
+    /// # Examples
+    ///
     /// ```no_run
     /// # use matrix_sdk::Client;
     /// # use matrix_sdk::ruma::{
@@ -350,17 +352,15 @@ impl Account {
     /// #     },
     /// #     assign,
     /// # };
-    /// # use futures::executor::block_on;
     /// # use url::Url;
-    /// # block_on(async {
+    /// # async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let client = Client::new(homeserver).await?;
     /// # let account = client.account();
     /// let response = account.deactivate(None, None).await;
     ///
     /// // Proceed with UIAA.
-    ///
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     /// [3pid]: https://spec.matrix.org/v1.2/appendices/#3pid-types
     /// [uiaa]: https://spec.matrix.org/v1.2/client-server-api/#user-interactive-authentication-api
@@ -383,12 +383,12 @@ impl Account {
     /// These 3PIDs may be used by the homeserver to authenticate the user
     /// during sensitive operations.
     ///
-    /// # Example
+    /// # Examples
+    ///
     /// ```no_run
-    /// # use futures::executor::block_on;
     /// # use matrix_sdk::Client;
     /// # use url::Url;
-    /// # block_on(async {
+    /// # async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let client = Client::new(homeserver).await?;
     /// let threepids = client.account().get_3pids().await?.threepids;
@@ -399,7 +399,7 @@ impl Account {
     ///         threepid.address, threepid.medium
     ///     );
     /// }
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     /// [3pid]: https://spec.matrix.org/v1.2/appendices/#3pid-types
     pub async fn get_3pids(&self) -> Result<get_3pids::v3::Response> {
@@ -438,13 +438,13 @@ impl Account {
     /// email address is already registered for this account or another, or an
     /// [`ErrorKind::ThreepidDenied`] error if it is denied.
     ///
-    /// # Example
+    /// # Examples
+    ///
     /// ```no_run
-    /// # use futures::executor::block_on;
     /// # use matrix_sdk::Client;
     /// # use matrix_sdk::ruma::{ClientSecret, uint};
     /// # use url::Url;
-    /// # block_on(async {
+    /// # async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let client = Client::new(homeserver).await?;
     /// # let account = client.account();
@@ -460,8 +460,7 @@ impl Account {
     ///     account.add_3pid(&secret, &token_response.sid, None).await;
     ///
     /// // Proceed with UIAA.
-    ///
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     /// [3pid]: https://spec.matrix.org/v1.2/appendices/#3pid-types
     /// [`ErrorKind::ThreepidInUse`]: ruma::api::client::error::ErrorKind::ThreepidInUse
@@ -514,13 +513,13 @@ impl Account {
     /// phone number is already registered for this account or another, or an
     /// [`ErrorKind::ThreepidDenied`] error if it is denied.
     ///
-    /// # Example
+    /// # Examples
+    ///
     /// ```no_run
-    /// # use futures::executor::block_on;
     /// # use matrix_sdk::Client;
     /// # use matrix_sdk::ruma::{ClientSecret, uint};
     /// # use url::Url;
-    /// # block_on(async {
+    /// # async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let client = Client::new(homeserver).await?;
     /// # let account = client.account();
@@ -536,8 +535,7 @@ impl Account {
     ///     account.add_3pid(&secret, &token_response.sid, None).await;
     ///
     /// // Proceed with UIAA.
-    ///
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     /// [3pid]: https://spec.matrix.org/v1.2/appendices/#3pid-types
     /// [`ErrorKind::ThreepidInUse`]: ruma::api::client::error::ErrorKind::ThreepidInUse
@@ -593,6 +591,7 @@ impl Account {
         sid: &SessionId,
         auth_data: Option<AuthData>,
     ) -> Result<add_3pid::v3::Response> {
+        #[rustfmt::skip] // rustfmt wants to merge the next two lines
         let request =
             assign!(add_3pid::v3::Request::new(client_secret.to_owned(), sid.to_owned()), {
                 auth: auth_data
@@ -622,29 +621,28 @@ impl Account {
     /// from the identity server. This can also mean that the 3PID was not bound
     /// to an identity server in the first place.
     ///
-    /// # Example
+    /// # Examples
+    ///
     /// ```no_run
-    /// # use futures::executor::block_on;
     /// # use matrix_sdk::Client;
     /// # use matrix_sdk::ruma::thirdparty::Medium;
     /// # use matrix_sdk::ruma::api::client::account::ThirdPartyIdRemovalStatus;
     /// # use url::Url;
-    /// # block_on(async {
+    /// # async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let client = Client::new(homeserver).await?;
     /// # let account = client.account();
     /// match account
-    ///         .delete_3pid("paul@matrix.org", Medium::Email, None)
-    ///         .await?
-    ///         .id_server_unbind_result
-    ///     {
-    ///         ThirdPartyIdRemovalStatus::Success => {
-    ///             println!("3PID unbound from the Identity Server");
-    ///         }
-    ///         _ => println!("Could not unbind 3PID from the Identity Server"),
+    ///     .delete_3pid("paul@matrix.org", Medium::Email, None)
+    ///     .await?
+    ///     .id_server_unbind_result
+    /// {
+    ///     ThirdPartyIdRemovalStatus::Success => {
+    ///         println!("3PID unbound from the Identity Server");
     ///     }
-    ///
-    /// # anyhow::Ok(()) });
+    ///     _ => println!("Could not unbind 3PID from the Identity Server"),
+    /// }
+    /// # anyhow::Ok(()) };
     /// ```
     /// [3pid]: https://spec.matrix.org/v1.2/appendices/#3pid-types
     /// [`ThirdPartyIdRemovalStatus::Success`]: ruma::api::client::account::ThirdPartyIdRemovalStatus::Success
@@ -663,7 +661,7 @@ impl Account {
 
     /// Get the content of an account data event of statically-known type.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// # use matrix_sdk::Client;
@@ -697,9 +695,57 @@ impl Account {
         get_raw_content(self.client.store().get_account_data_event(event_type).await?)
     }
 
+    /// Fetch a global account data event from the server.
+    ///
+    /// The content from the response will not be persisted in the store.
+    ///
+    /// Examples
+    ///
+    /// ```no_run
+    /// # use matrix_sdk::Client;
+    /// # async {
+    /// # let client = Client::new("http://localhost:8080".parse()?).await?;
+    /// # let account = client.account();
+    /// use matrix_sdk::ruma::events::{ignored_user_list::IgnoredUserListEventContent, GlobalAccountDataEventType};
+    ///
+    /// if let Some(raw_content) = account.fetch_account_data(GlobalAccountDataEventType::IgnoredUserList).await? {
+    ///     let content = raw_content.deserialize_as::<IgnoredUserListEventContent>()?;
+    ///
+    ///     println!("Ignored users:");
+    ///
+    ///     for user_id in content.ignored_users.keys() {
+    ///         println!("- {user_id}");
+    ///     }
+    /// }
+    /// # anyhow::Ok(()) };
+    pub async fn fetch_account_data(
+        &self,
+        event_type: GlobalAccountDataEventType,
+    ) -> Result<Option<Raw<AnyGlobalAccountDataEventContent>>> {
+        let own_user =
+            self.client.user_id().ok_or_else(|| Error::from(HttpError::AuthenticationRequired))?;
+
+        let request = get_global_account_data::v3::Request::new(own_user.to_owned(), event_type);
+
+        match self.client.send(request, None).await {
+            Ok(r) => Ok(Some(r.account_data)),
+            Err(e) => {
+                if let Some(kind) = e.client_api_error_kind() {
+                    if kind == &ErrorKind::NotFound {
+                        Ok(None)
+                    } else {
+                        Err(e.into())
+                    }
+                } else {
+                    Err(e.into())
+                }
+            }
+        }
+    }
+
     /// Set the given account data event.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// # use matrix_sdk::Client;
@@ -763,28 +809,45 @@ impl Account {
     ///
     /// * `room_id` - The room id of the DM room.
     /// * `user_ids` - The user ids of the invitees for the DM room.
-    pub(crate) async fn mark_as_dm(
-        &self,
-        room_id: &RoomId,
-        user_ids: &[OwnedUserId],
-    ) -> Result<()> {
+    pub async fn mark_as_dm(&self, room_id: &RoomId, user_ids: &[OwnedUserId]) -> Result<()> {
         use ruma::events::direct::DirectEventContent;
+
+        // This function does a read/update/store of an account data event stored on the
+        // homeserver. We first fetch the existing account data event, the event
+        // contains a map which gets updated by this method, finally we upload the
+        // modified event.
+        //
+        // To prevent multiple calls to this method trying to update the map of DMs same
+        // time, and thus trampling on each other we introduce a lock which acts
+        // as a semaphore.
+        let _guard = self.client.locks().mark_as_dm_lock.lock().await;
 
         // Now we need to mark the room as a DM for ourselves, we fetch the
         // existing `m.direct` event and append the room to the list of DMs we
         // have with this user.
-        let mut content = self
-            .account_data::<DirectEventContent>()
-            .await?
-            .map(|c| c.deserialize())
-            .transpose()?
+
+        // TODO: Uncomment this once we can rely on `/sync`. Because of the
+        // `unwrap_or_default()` we're using, this may lead to us resetting the
+        // `m.direct` account data event and unmarking the user's DMs.
+        // let mut content = self
+        //     .account_data::<DirectEventContent>()
+        //     .await?
+        //     .map(|c| c.deserialize())
+        //     .transpose()?
+        //     .unwrap_or_default();
+
+        // We are fetching the content from the server because we currently can't rely
+        // on `/sync` giving us the correct data in a timely manner.
+        let raw_content = self.fetch_account_data(GlobalAccountDataEventType::Direct).await?;
+        let mut content = raw_content
+            .and_then(|content| content.deserialize_as::<DirectEventContent>().ok())
             .unwrap_or_default();
 
         for user_id in user_ids {
             content.entry(user_id.to_owned()).or_default().push(room_id.to_owned());
         }
 
-        // TODO We should probably save the fact that we need to send this out
+        // TODO: We should probably save the fact that we need to send this out
         // because otherwise we might end up in a state where we have a DM that
         // isn't marked as one.
         self.set_account_data(content).await?;
@@ -832,7 +895,7 @@ impl Account {
     /// with the server-default push rules is returned.
     ///
     /// Panics if called when the client is not logged in.
-    pub(crate) async fn push_rules(&self) -> Result<Ruleset> {
+    pub async fn push_rules(&self) -> Result<Ruleset> {
         Ok(self
             .account_data::<PushRulesEventContent>()
             .await?

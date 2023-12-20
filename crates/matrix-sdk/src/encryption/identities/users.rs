@@ -12,25 +12,60 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::collections::BTreeMap;
 
 use matrix_sdk_base::{
     crypto::{
         types::MasterPubkey, OwnUserIdentity as InnerOwnUserIdentity,
-        UserIdentity as InnerUserIdentity,
+        UserIdentities as InnerUserIdentities, UserIdentity as InnerUserIdentity,
     },
-    locks::RwLock,
+    RoomMemberships,
 };
 use ruma::{
     events::{
         key::verification::VerificationMethod,
         room::message::{MessageType, RoomMessageEventContent},
     },
-    UserId,
+    OwnedUserId, UserId,
 };
 
 use super::{ManualVerifyError, RequestVerificationError};
-use crate::{encryption::verification::VerificationRequest, room::Joined, Client};
+use crate::{encryption::verification::VerificationRequest, Client};
+
+/// Updates about [`UserIdentity`]s which got received over the `/keys/query`
+/// endpoint.
+#[derive(Clone, Debug, Default)]
+pub struct IdentityUpdates {
+    /// The list of newly discovered user identities .
+    ///
+    /// A identity being in this list does not necessarily mean that the
+    /// identity was just created, it just means that it's the first time
+    /// we're seeing this identity.
+    pub new: BTreeMap<OwnedUserId, UserIdentity>,
+    /// The list of changed identities.
+    pub changed: BTreeMap<OwnedUserId, UserIdentity>,
+}
+
+impl IdentityUpdates {
+    pub(crate) fn new(
+        client: Client,
+        updates: matrix_sdk_base::crypto::store::IdentityUpdates,
+    ) -> Self {
+        let new = updates
+            .new
+            .into_iter()
+            .map(|(user_id, identity)| (user_id, UserIdentity::new(client.to_owned(), identity)))
+            .collect();
+
+        let changed = updates
+            .changed
+            .into_iter()
+            .map(|(user_id, identity)| (user_id, UserIdentity::new(client.to_owned(), identity)))
+            .collect();
+
+        Self { new, changed }
+    }
+}
 
 /// A struct representing a E2EE capable identity of a user.
 ///
@@ -71,18 +106,21 @@ pub struct UserIdentity {
 }
 
 impl UserIdentity {
+    fn new(client: Client, identity: InnerUserIdentities) -> Self {
+        match identity {
+            InnerUserIdentities::Own(i) => Self::new_own(client, i),
+            InnerUserIdentities::Other(i) => Self::new_other(client, i),
+        }
+    }
+
     pub(crate) fn new_own(client: Client, identity: InnerOwnUserIdentity) -> Self {
         let identity = OwnUserIdentity { inner: identity, client };
 
         Self { inner: identity.into() }
     }
 
-    pub(crate) fn new(client: Client, identity: InnerUserIdentity, room: Option<Joined>) -> Self {
-        let identity = OtherUserIdentity {
-            inner: identity,
-            client,
-            direct_message_room: RwLock::new(room).into(),
-        };
+    pub(crate) fn new_other(client: Client, identity: InnerUserIdentity) -> Self {
+        let identity = OtherUserIdentity { inner: identity, client };
 
         Self { inner: identity.into() }
     }
@@ -96,15 +134,15 @@ impl UserIdentity {
     /// # use url::Url;
     /// # let alice = user_id!("@alice:example.org");
     /// # let homeserver = Url::parse("http://example.com").unwrap();
-    /// # futures::executor::block_on(async {
+    /// # async {
     /// # let client = Client::new(homeserver).await.unwrap();
     /// let user = client.encryption().get_user_identity(alice).await?;
     ///
     /// if let Some(user) = user {
-    ///     println!("This user identity belongs to {}", user.user_id().as_str());
+    ///     println!("This user identity belongs to {}", user.user_id());
     /// }
     ///
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     pub fn user_id(&self) -> &UserId {
         match &self.inner {
@@ -119,7 +157,7 @@ impl UserIdentity {
     /// verification flow.
     ///
     /// This will send out a `m.key.verification.request` event. Who such an
-    /// event will be sent to depends on if we're veryfing our own identity or
+    /// event will be sent to depends on if we're verifying our own identity or
     /// someone else's:
     ///
     /// * Our own identity - All our E2EE capable devices will receive the event
@@ -147,7 +185,7 @@ impl UserIdentity {
     /// # use url::Url;
     /// # let alice = user_id!("@alice:example.org");
     /// # let homeserver = Url::parse("http://example.com").unwrap();
-    /// # futures::executor::block_on(async {
+    /// # async {
     /// # let client = Client::new(homeserver).await.unwrap();
     /// let user = client.encryption().get_user_identity(alice).await?;
     ///
@@ -155,7 +193,7 @@ impl UserIdentity {
     ///     let verification = user.request_verification().await?;
     /// }
     ///
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     ///
     /// [`request_verification_with_methods()`]:
@@ -202,10 +240,9 @@ impl UserIdentity {
     /// #    }
     /// # };
     /// # use url::Url;
-    /// # use futures::executor::block_on;
     /// # let alice = user_id!("@alice:example.org");
     /// # let homeserver = Url::parse("http://example.com").unwrap();
-    /// # block_on(async {
+    /// # async {
     /// # let client = Client::new(homeserver).await.unwrap();
     /// let user = client.encryption().get_user_identity(alice).await?;
     ///
@@ -217,7 +254,7 @@ impl UserIdentity {
     ///     let verification =
     ///         user.request_verification_with_methods(methods).await?;
     /// }
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     ///
     /// [`request_verification()`]: #method.request_verification
@@ -281,17 +318,16 @@ impl UserIdentity {
     /// #    }
     /// # };
     /// # use url::Url;
-    /// # use futures::executor::block_on;
     /// # let alice = user_id!("@alice:example.org");
     /// # let homeserver = Url::parse("http://example.com").unwrap();
-    /// # block_on(async {
+    /// # async {
     /// # let client = Client::new(homeserver).await.unwrap();
     /// let user = client.encryption().get_user_identity(alice).await?;
     ///
     /// if let Some(user) = user {
     ///     user.verify().await?;
     /// }
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     /// [`Encryption::cross_signing_status()`]: crate::encryption::Encryption::cross_signing_status
     pub async fn verify(&self) -> Result<(), ManualVerifyError> {
@@ -324,21 +360,20 @@ impl UserIdentity {
     /// #    }
     /// # };
     /// # use url::Url;
-    /// # use futures::executor::block_on;
     /// # let alice = user_id!("@alice:example.org");
     /// # let homeserver = Url::parse("http://example.com").unwrap();
-    /// # block_on(async {
+    /// # async {
     /// # let client = Client::new(homeserver).await.unwrap();
     /// let user = client.encryption().get_user_identity(alice).await?;
     ///
     /// if let Some(user) = user {
     ///     if user.is_verified() {
-    ///         println!("User {} is verified", user.user_id().as_str());
+    ///         println!("User {} is verified", user.user_id());
     ///     } else {
-    ///         println!("User {} is not verified", user.user_id().as_str());
+    ///         println!("User {} is not verified", user.user_id());
     ///     }
     /// }
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     pub fn is_verified(&self) -> bool {
         match &self.inner {
@@ -363,10 +398,9 @@ impl UserIdentity {
     /// #    }
     /// # };
     /// # use url::Url;
-    /// # use futures::executor::block_on;
     /// # let alice = user_id!("@alice:example.org");
     /// # let homeserver = Url::parse("http://example.com").unwrap();
-    /// # block_on(async {
+    /// # async {
     /// # let client = Client::new(homeserver).await.unwrap();
     /// let user = client.encryption().get_user_identity(alice).await?;
     ///
@@ -380,17 +414,14 @@ impl UserIdentity {
     ///     {
     ///         println!(
     ///             "Master keys match for user {}, marking the user as verified",
-    ///             user.user_id().as_str(),
+    ///             user.user_id(),
     ///         );
     ///         user.verify().await?;
     ///     } else {
-    ///         println!(
-    ///             "Master keys don't match for user {}",
-    ///             user.user_id().as_str()
-    ///         );
+    ///         println!("Master keys don't match for user {}", user.user_id());
     ///     }
     /// }
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     pub fn master_key(&self) -> &MasterPubkey {
         match &self.inner {
@@ -428,7 +459,6 @@ struct OwnUserIdentity {
 struct OtherUserIdentity {
     pub(crate) inner: InnerUserIdentity,
     pub(crate) client: Client,
-    pub(crate) direct_message_room: Arc<RwLock<Option<Joined>>>,
 }
 
 impl OwnUserIdentity {
@@ -465,10 +495,10 @@ impl OtherUserIdentity {
     ) -> Result<VerificationRequest, RequestVerificationError> {
         let content = self.inner.verification_request_content(methods.clone()).await;
 
-        let room = if let Some(room) = self.direct_message_room.read().await.as_ref() {
+        let room = if let Some(room) = self.client.get_dm_room(self.inner.user_id()) {
             // Make sure that the user, to be verified, is still in the room
             if !room
-                .active_members()
+                .members(RoomMemberships::ACTIVE)
                 .await?
                 .iter()
                 .any(|member| member.user_id() == self.inner.user_id())
@@ -481,7 +511,7 @@ impl OtherUserIdentity {
         };
 
         let response = room
-            .send(RoomMessageEventContent::new(MessageType::VerificationRequest(content)), None)
+            .send(RoomMessageEventContent::new(MessageType::VerificationRequest(content)))
             .await?;
 
         let verification =

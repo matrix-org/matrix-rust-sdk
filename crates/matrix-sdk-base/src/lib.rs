@@ -18,18 +18,18 @@
 #![warn(missing_docs, missing_debug_implementations)]
 
 pub use matrix_sdk_common::*;
+use ruma::{OwnedDeviceId, OwnedUserId};
+use serde::{Deserialize, Serialize};
 
-pub use crate::{
-    error::{Error, Result},
-    session::{Session, SessionMeta, SessionTokens},
-};
+pub use crate::error::{Error, Result};
 
 mod client;
+pub mod debug;
 pub mod deserialized_responses;
 mod error;
+pub mod latest_event;
 pub mod media;
 mod rooms;
-mod session;
 #[cfg(feature = "experimental-sliding-sync")]
 mod sliding_sync;
 pub mod store;
@@ -42,18 +42,23 @@ pub use http;
 #[cfg(feature = "e2e-encryption")]
 pub use matrix_sdk_crypto as crypto;
 pub use once_cell;
-pub use rooms::{DisplayName, Room, RoomInfo, RoomMember, RoomState};
+pub use rooms::{
+    DisplayName, Room, RoomCreateWithCreatorEventContent, RoomInfo, RoomMember, RoomMemberships,
+    RoomState, RoomStateFilter,
+};
 pub use store::{StateChanges, StateStore, StateStoreDataKey, StateStoreDataValue, StoreError};
 pub use utils::{
     MinimalRoomMemberEvent, MinimalStateEvent, OriginalMinimalStateEvent, RedactedMinimalStateEvent,
 };
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
-#[ctor::ctor]
-fn init_logging() {
-    use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-    tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::from_default_env())
-        .with(tracing_subscriber::fmt::layer().with_test_writer())
-        .init();
+#[cfg(test)]
+matrix_sdk_test::init_tracing_for_tests!();
+
+/// The Matrix user session info.
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+pub struct SessionMeta {
+    /// The ID of the session's user.
+    pub user_id: OwnedUserId,
+    /// The ID of the client device.
+    pub device_id: OwnedDeviceId,
 }

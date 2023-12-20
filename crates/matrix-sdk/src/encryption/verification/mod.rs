@@ -21,7 +21,7 @@
 //! request can then be accepted, or it needs to be accepted by the other side
 //! of the verification flow.
 //!
-//! Once both sides have agreed to pereform the verification, and the
+//! Once both sides have agreed to perform the verification, and the
 //! [VerificationRequest::is_ready()] method returns true, the verification can
 //! transition into one of the supported verification flows:
 //!
@@ -35,6 +35,7 @@ mod qrcode;
 mod requests;
 mod sas;
 
+use as_variant::as_variant;
 pub use matrix_sdk_base::crypto::{
     format_emojis, AcceptSettings, AcceptedProtocols, CancelInfo, Emoji, EmojiShortAuthString,
     SasState,
@@ -42,15 +43,17 @@ pub use matrix_sdk_base::crypto::{
 #[cfg(feature = "qrcode")]
 pub use matrix_sdk_base::crypto::{
     matrix_sdk_qrcode::{DecodingError, EncodingError, QrVerificationData},
-    ScanError,
+    QrVerificationState, ScanError,
 };
 #[cfg(feature = "qrcode")]
 pub use qrcode::QrVerification;
-pub use requests::VerificationRequest;
+pub use requests::{VerificationRequest, VerificationRequestState};
+use ruma::RoomId;
 pub use sas::SasVerification;
 
 /// An enum over the different verification types the SDK supports.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub enum Verification {
     /// The `m.sas.v1` verification variant.
     SasV1(SasVerification),
@@ -62,22 +65,13 @@ pub enum Verification {
 impl Verification {
     /// Try to deconstruct this verification enum into a SAS verification.
     pub fn sas(self) -> Option<SasVerification> {
-        #[allow(irrefutable_let_patterns)]
-        if let Verification::SasV1(sas) = self {
-            Some(sas)
-        } else {
-            None
-        }
+        as_variant!(self, Verification::SasV1)
     }
 
-    #[cfg(feature = "qrcode")]
     /// Try to deconstruct this verification enum into a QR code verification.
+    #[cfg(feature = "qrcode")]
     pub fn qr(self) -> Option<QrVerification> {
-        if let Verification::QrV1(qr) = self {
-            Some(qr)
-        } else {
-            None
-        }
+        as_variant!(self, Verification::QrV1)
     }
 
     /// Has this verification finished.
@@ -127,7 +121,7 @@ impl Verification {
         }
     }
 
-    /// Is this a verification that is veryfying one of our own devices.
+    /// Is this a verification that is verifying one of our own devices.
     pub fn is_self_verification(&self) -> bool {
         match self {
             Verification::SasV1(v) => v.is_self_verification(),
@@ -142,6 +136,15 @@ impl Verification {
             Verification::SasV1(s) => s.we_started(),
             #[cfg(feature = "qrcode")]
             Verification::QrV1(q) => q.we_started(),
+        }
+    }
+
+    /// Get the room ID, if the verification is happening inside a room.
+    pub fn room_id(&self) -> Option<&RoomId> {
+        match self {
+            Verification::SasV1(s) => s.room_id(),
+            #[cfg(feature = "qrcode")]
+            Verification::QrV1(q) => q.room_id(),
         }
     }
 }

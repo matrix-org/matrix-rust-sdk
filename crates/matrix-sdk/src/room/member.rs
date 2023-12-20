@@ -37,27 +37,27 @@ impl RoomMember {
     ///
     /// * `format` - The desired format of the avatar.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
-    /// # use futures::executor::block_on;
-    /// # use matrix_sdk::{
-    /// #     media::MediaFormat, room::RoomMember, ruma::room_id, Client,
-    /// # };
+    /// use matrix_sdk::{
+    ///     media::MediaFormat, room::RoomMember, ruma::room_id, Client,
+    ///     RoomMemberships,
+    /// };
     /// # use url::Url;
     /// # let homeserver = Url::parse("http://example.com").unwrap();
-    /// # block_on(async {
+    /// # async {
     /// # let user = "example";
     /// let client = Client::new(homeserver).await.unwrap();
-    /// client.login_username(user, "password").send().await.unwrap();
+    /// client.matrix_auth().login_username(user, "password").send().await.unwrap();
     /// let room_id = room_id!("!roomid:example.com");
-    /// let room = client.get_joined_room(&room_id).unwrap();
-    /// let members = room.members().await.unwrap();
+    /// let room = client.get_room(&room_id).unwrap();
+    /// let members = room.members(RoomMemberships::empty()).await.unwrap();
     /// let member = members.first().unwrap();
     /// if let Some(avatar) = member.avatar(MediaFormat::File).await.unwrap() {
     ///     std::fs::write("avatar.png", avatar);
     /// }
-    /// # })
+    /// # };
     /// ```
     pub async fn avatar(&self, format: MediaFormat) -> Result<Option<Vec<u8>>> {
         let Some(url) = self.avatar_url() else { return Ok(None) };
