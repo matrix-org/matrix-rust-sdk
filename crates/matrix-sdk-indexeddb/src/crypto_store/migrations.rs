@@ -238,7 +238,7 @@ fn migrate_stores_to_v6(db: &IdbDatabase) -> Result<(), DomException> {
     // But copying the data needs to happen outside the database upgrade process
     // (because it needs async calls). So, here we create a new store for
     // inbound group sessions. We don't populate it yet; that happens once we
-    // have done the upgrade to v6, in `prepare_data_for_v6`. Finally we drop the
+    // have done the upgrade to v6, in `prepare_data_for_v7`. Finally we drop the
     // old store in create_stores_for_v7.
 
     let object_store = db.create_object_store(keys::INBOUND_GROUP_SESSIONS_V2)?;
@@ -310,7 +310,7 @@ fn migrate_stores_to_v7(db: &IdbDatabase) -> Result<(), DomException> {
 async fn prepare_data_for_v8(name: &str, serializer: &IndexeddbSerializer) -> Result<()> {
     // In prepare_data_for_v6, we incorrectly copied the keys in
     // inbound_group_sessions verbatim into inbound_group_sessions2. What we
-    // should have done is re-encrypt them using the new table name, so we fix
+    // should have done is re-hash them using the new table name, so we fix
     // them up here.
 
     info!("IndexeddbCryptoStore upgrade data -> v8 starting");
