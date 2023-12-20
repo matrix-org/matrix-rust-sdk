@@ -175,14 +175,14 @@ where
     processed_steps += 1;
     progress_callback(processed_steps, total_steps);
 
-    let user_id = parse_user_id(&data.account.user_id)?;
+    let user_id = UserId::parse(&data.account.user_id)?;
     let device_id: OwnedDeviceId = data.account.device_id.into();
 
     let account = Account::from_libolm_pickle(&data.account.pickle, &data.pickle_key)?;
     let pickle = account.pickle();
     let identity_keys = Arc::new(account.identity_keys());
     let pickled_account = matrix_sdk_crypto::olm::PickledAccount {
-        user_id: parse_user_id(&data.account.user_id)?,
+        user_id: user_id.clone(),
         device_id: device_id.clone(),
         pickle,
         shared: data.account.shared,
@@ -230,7 +230,7 @@ where
     let tracked_users: Vec<_> = data
         .tracked_users
         .into_iter()
-        .filter_map(|s| parse_user_id(&s).ok().map(|u| (u, true)))
+        .filter_map(|s| UserId::parse(&s).ok().map(|u| (u, true)))
         .collect();
 
     let tracked_users: Vec<_> = tracked_users.iter().map(|(u, d)| (&**u, *d)).collect();
