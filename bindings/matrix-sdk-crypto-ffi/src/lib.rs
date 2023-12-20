@@ -130,8 +130,9 @@ pub fn migrate(
     progress_listener: Box<dyn ProgressListener>,
 ) -> Result<(), MigrationError> {
     let runtime = Runtime::new().context("initializing tokio runtime")?;
+    let listener = |progress, total| progress_listener.on_progress(progress as i32, total as i32);
     runtime.block_on(async move {
-        migrate_data(data.into(), &path, passphrase, progress_listener).await?;
+        migrate_data(data.into(), &path, passphrase, &listener).await?;
         Ok(())
     })
 }
@@ -140,7 +141,7 @@ async fn migrate_data(
     mut data: matrix_sdk_libolm_migration::MigrationData,
     path: &str,
     passphrase: Option<String>,
-    progress_listener: Box<dyn ProgressListener>,
+    progress_callback: &dyn Fn(usize, usize),
 ) -> anyhow::Result<()> {
     use matrix_sdk_crypto::{olm::PrivateCrossSigningIdentity, store::BackupDecryptionKey};
     use vodozemac::olm::Account;
@@ -156,14 +157,11 @@ async fn migrate_data(
     // 5. the final save operation
     let total_steps = 5 + data.sessions.len() + data.inbound_group_sessions.len();
     let mut processed_steps = 0;
-    let listener = |progress: usize, total: usize| {
-        progress_listener.on_progress(progress as i32, total as i32)
-    };
 
     let store = SqliteCryptoStore::open(path, passphrase.as_deref()).await?;
 
     processed_steps += 1;
-    listener(processed_steps, total_steps);
+    progress_callback(processed_steps, total_steps);
 
     let user_id = parse_user_id(&data.account.user_id)?;
     let device_id: OwnedDeviceId = data.account.device_id.into();
@@ -182,12 +180,12 @@ async fn migrate_data(
     let account = matrix_sdk_crypto::olm::Account::from_pickle(pickled_account)?;
 
     processed_steps += 1;
-    listener(processed_steps, total_steps);
+    progress_callback(processed_steps, total_steps);
 
     let (sessions, inbound_group_sessions) = collect_sessions(
         processed_steps,
         total_steps,
-        &listener,
+        &progress_callback,
         &data.pickle_key,
         user_id.clone(),
         device_id,
@@ -215,7 +213,7 @@ async fn migrate_data(
     data.cross_signing.user_signing_key.zeroize();
 
     processed_steps += 1;
-    listener(processed_steps, total_steps);
+    progress_callback(processed_steps, total_steps);
 
     let tracked_users: Vec<_> = data
         .tracked_users
@@ -227,7 +225,7 @@ async fn migrate_data(
     store.save_tracked_users(tracked_users.as_slice()).await?;
 
     processed_steps += 1;
-    listener(processed_steps, total_steps);
+    progress_callback(processed_steps, total_steps);
 
     let mut room_settings = HashMap::new();
     for (room_id, settings) in data.room_settings {
@@ -246,7 +244,7 @@ async fn migrate_data(
         ..Default::default()
     };
 
-    save_changes(processed_steps, total_steps, &listener, changes, &store).await
+    save_changes(processed_steps, total_steps, &progress_callback, changes, &store).await
 }
 
 async fn save_changes(
@@ -290,7 +288,8 @@ pub fn migrate_sessions(
     progress_listener: Box<dyn ProgressListener>,
 ) -> Result<(), MigrationError> {
     let runtime = Runtime::new().context("initializing tokio runtime")?;
-    runtime.block_on(migrate_session_data(data, &path, passphrase, progress_listener))?;
+    let listener = |progress, total| progress_listener.on_progress(progress as i32, total as i32);
+    runtime.block_on(migrate_session_data(data, &path, passphrase, &listener))?;
     Ok(())
 }
 
@@ -298,13 +297,9 @@ async fn migrate_session_data(
     data: SessionMigrationData,
     path: &str,
     passphrase: Option<String>,
-    progress_listener: Box<dyn ProgressListener>,
+    progress_callback: &dyn Fn(usize, usize),
 ) -> anyhow::Result<()> {
     let store = SqliteCryptoStore::open(path, passphrase.as_deref()).await?;
-
-    let listener = |progress: usize, total: usize| {
-        progress_listener.on_progress(progress as i32, total as i32)
-    };
 
     let total_steps = 1 + data.sessions.len() + data.inbound_group_sessions.len();
     let processed_steps = 0;
@@ -321,7 +316,7 @@ async fn migrate_session_data(
     let (sessions, inbound_group_sessions) = collect_sessions(
         processed_steps,
         total_steps,
-        &listener,
+        &progress_callback,
         &data.pickle_key,
         user_id,
         device_id,
@@ -331,7 +326,7 @@ async fn migrate_session_data(
     )?;
 
     let changes = Changes { sessions, inbound_group_sessions, ..Default::default() };
-    save_changes(processed_steps, total_steps, &listener, changes, &store).await
+    save_changes(processed_steps, total_steps, &progress_callback, changes, &store).await
 }
 
 #[allow(clippy::too_many_arguments)]
