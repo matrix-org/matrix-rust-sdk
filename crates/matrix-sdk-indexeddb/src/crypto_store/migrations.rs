@@ -65,7 +65,8 @@ pub async fn open_and_upgrade_db(
         migrate_schema_for_v8(name).await?;
     }
 
-    // We know we've upgraded to v8 now, so we can open the DB at that version and return it
+    // We know we've upgraded to v8 now, so we can open the DB at that version and
+    // return it
     Ok(IdbDatabase::open_u32(name, 8)?.await?)
 }
 
@@ -145,9 +146,9 @@ async fn migrate_schema_for_v7(name: &str) -> Result<(), DomException> {
 async fn migrate_schema_for_v8(name: &str) -> Result<(), DomException> {
     info!("IndexeddbCryptoStore upgrade schema -> v8 starting");
     IdbDatabase::open_u32(name, 8)?.await?;
-    // No actual schema change required for this migration. We do this here because the call to
-    // open_u32 updates the version number, indicating that we have completed the data migration in
-    // migrate_data_for_v8.
+    // No actual schema change required for this migration. We do this here because
+    // the call to open_u32 updates the version number, indicating that we have
+    // completed the data migration in migrate_data_for_v8.
     info!("IndexeddbCryptoStore upgrade schema -> v8 complete");
     Ok(())
 }
@@ -307,9 +308,10 @@ fn migrate_stores_to_v7(db: &IdbDatabase) -> Result<(), DomException> {
 }
 
 async fn migrate_data_for_v8(name: &str, serializer: &IndexeddbSerializer) -> Result<()> {
-    // In migrate_data_for_v6, we incorrectly copied the keys in inbound_group_sessions verbatim into
-    // inbound_group_sessions2. What we should have done is re-encrypt them using the new table
-    // name, so we fix them up here.
+    // In migrate_data_for_v6, we incorrectly copied the keys in
+    // inbound_group_sessions verbatim into inbound_group_sessions2. What we
+    // should have done is re-encrypt them using the new table name, so we fix
+    // them up here.
 
     info!("IndexeddbCryptoStore upgrade data -> v8 starting");
 
@@ -350,7 +352,8 @@ async fn migrate_data_for_v8(name: &str, serializer: &IndexeddbSerializer) -> Re
             }
 
             // Work out what the key should be.
-            // (This is much the same as in `IndexeddbCryptoStore::get_inbound_group_session`)
+            // (This is much the same as in
+            // `IndexeddbCryptoStore::get_inbound_group_session`)
             let new_key = serializer.encode_key(
                 keys::INBOUND_GROUP_SESSIONS_V2,
                 (&session.room_id, session.session_id()),
