@@ -1180,10 +1180,6 @@ impl Encryption {
                 drop(olm_machine_guard);
                 // Recreate the OlmMachine.
                 self.client.base_client().regenerate_olm().await?;
-                // we need to trigger that so it gets back the cached key if known
-                // otherwise the new olm machine `BackupMachine#backup_key` will be out of sync
-                // and say backup is disabled.
-                self.client.encryption().backups().setup_and_resume().await?;
             }
         }
         Ok(())

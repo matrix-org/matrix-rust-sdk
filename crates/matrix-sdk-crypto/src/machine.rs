@@ -56,7 +56,7 @@ use vodozemac::{
 };
 
 use crate::{
-    backups::BackupMachine,
+    backups::{BackupMachine, MegolmV1BackupKey},
     dehydrated_devices::{DehydratedDevices, DehydrationError},
     error::{EventError, MegolmError, MegolmResult, OlmError, OlmResult},
     gossiping::GossipMachine,
@@ -69,9 +69,9 @@ use crate::{
     requests::{IncomingResponse, OutgoingRequest, UploadSigningKeysRequest},
     session_manager::{GroupSessionManager, SessionManager},
     store::{
-        Changes, CryptoStoreWrapper, DeviceChanges, IdentityChanges, IntoCryptoStore, MemoryStore,
-        PendingChanges, Result as StoreResult, RoomKeyInfo, SecretImportError, Store, StoreCache,
-        StoreTransaction,
+        Changes, CryptoStoreWrapper, DeviceChanges, IdentityChanges, IntoCryptoStore,
+        MemoryStore, PendingChanges, Result as StoreResult, RoomKeyInfo, SecretImportError, Store,
+        StoreCache, StoreTransaction,
     },
     types::{
         events::{
@@ -173,7 +173,13 @@ impl OlmMachine {
         let store = Arc::new(CryptoStoreWrapper::new(self.user_id(), MemoryStore::new()));
         store.save_pending_changes(PendingChanges { account: Some(account) }).await?;
 
-        Ok(Self::new_helper(device_id, store, static_account, self.store().private_identity()))
+        Ok(Self::new_helper(
+            device_id,
+            store,
+            static_account,
+            self.store().private_identity(),
+            None,
+        ))
     }
 
     fn new_helper(
@@ -181,6 +187,7 @@ impl OlmMachine {
         store: Arc<CryptoStoreWrapper>,
         account: StaticAccountData,
         user_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
+        maybe_backup_up_keys: Option<MegolmV1BackupKey>,
     ) -> Self {
         let verification_machine =
             VerificationMachine::new(account.clone(), user_identity.clone(), store.clone());
@@ -201,7 +208,7 @@ impl OlmMachine {
         let session_manager =
             SessionManager::new(users_for_key_claim, key_request_machine.clone(), store.clone());
 
-        let backup_machine = BackupMachine::new(store.clone(), None);
+        let backup_machine = BackupMachine::new(store.clone(), maybe_backup_up_keys);
 
         let inner = Arc::new(OlmMachineInner {
             user_id: store.user_id().to_owned(),
@@ -306,9 +313,24 @@ impl OlmMachine {
             }
         };
 
+        let saved_keys = store.load_backup_keys().await?;
+        let maybe_backup_keys =
+            saved_keys.decryption_key.map(|k| {
+                if let Some(version) = saved_keys.backup_version {
+                    MegolmV1BackupKey::from_base64(&k.to_base64())
+                        .ok().map(|k| {
+                            k.set_version(version);
+                            k
+                        })
+                } else {
+                    None
+                }
+            }).flatten();
+
+        // warn!("Loading the backup key from the store failed {:?}", backup_keys);
         let identity = Arc::new(Mutex::new(identity));
         let store = Arc::new(CryptoStoreWrapper::new(user_id, store));
-        Ok(OlmMachine::new_helper(device_id, store, static_account, identity))
+        Ok(OlmMachine::new_helper(device_id, store, static_account, identity, maybe_backup_keys))
     }
 
     /// Get the crypto store associated with this `OlmMachine` instance.
