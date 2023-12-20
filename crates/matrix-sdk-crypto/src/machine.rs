@@ -69,9 +69,9 @@ use crate::{
     requests::{IncomingResponse, OutgoingRequest, UploadSigningKeysRequest},
     session_manager::{GroupSessionManager, SessionManager},
     store::{
-        Changes, CryptoStoreWrapper, DeviceChanges, IdentityChanges, IntoCryptoStore,
-        MemoryStore, PendingChanges, Result as StoreResult, RoomKeyInfo, SecretImportError, Store,
-        StoreCache, StoreTransaction,
+        Changes, CryptoStoreWrapper, DeviceChanges, IdentityChanges, IntoCryptoStore, MemoryStore,
+        PendingChanges, Result as StoreResult, RoomKeyInfo, SecretImportError, Store, StoreCache,
+        StoreTransaction,
     },
     types::{
         events::{
@@ -314,18 +314,16 @@ impl OlmMachine {
         };
 
         let saved_keys = store.load_backup_keys().await?;
-        let maybe_backup_keys =
-            saved_keys.decryption_key.map(|k| {
-                if let Some(version) = saved_keys.backup_version {
-                    MegolmV1BackupKey::from_base64(&k.to_base64())
-                        .ok().map(|k| {
-                            k.set_version(version);
-                            k
-                        })
-                } else {
-                    None
-                }
-            }).flatten();
+        let maybe_backup_keys = saved_keys.decryption_key.and_then(|k| {
+            if let Some(version) = saved_keys.backup_version {
+                MegolmV1BackupKey::from_base64(&k.to_base64()).ok().map(|k| {
+                    k.set_version(version);
+                    k
+                })
+            } else {
+                None
+            }
+        });
 
         // warn!("Loading the backup key from the store failed {:?}", backup_keys);
         let identity = Arc::new(Mutex::new(identity));
