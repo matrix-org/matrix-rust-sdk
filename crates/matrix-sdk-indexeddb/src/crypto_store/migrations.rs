@@ -69,34 +69,6 @@ pub async fn open_and_upgrade_db(
     Ok(IdbDatabase::open_u32(name, 8)?.await?)
 }
 
-async fn migrate_schema_for_v8(name: &str) -> Result<(), DomException> {
-    info!("IndexeddbCryptoStore upgrade schema -> v8 starting");
-    IdbDatabase::open_u32(name, 8)?.await?;
-    // No actual schema change required for this migration. We do this here because the call to
-    // open_u32 updates the version number, indicating that we have completed the data migration in
-    // migrate_data_for_v8.
-    info!("IndexeddbCryptoStore upgrade schema -> v8 complete");
-    Ok(())
-}
-
-async fn migrate_schema_for_v7(name: &str) -> Result<(), DomException> {
-    let mut db_req: OpenDbRequest = IdbDatabase::open_u32(name, 7)?;
-    db_req.set_on_upgrade_needed(Some(|evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
-        let old_version = evt.old_version() as u32;
-        let new_version = evt.old_version() as u32;
-
-        if old_version < 7 {
-            info!(old_version, new_version, "IndexeddbCryptoStore upgrade schema -> v7 starting");
-            migrate_stores_to_v7(evt.db())?;
-            info!(old_version, new_version, "IndexeddbCryptoStore upgrade schema -> v7 complete");
-        }
-
-        Ok(())
-    }));
-    db_req.await?;
-    Ok(())
-}
-
 async fn migrate_schema_up_to_v6(name: &str) -> Result<IdbDatabase, DomException> {
     let mut db_req: OpenDbRequest = IdbDatabase::open_u32(name, 6)?;
 
@@ -150,6 +122,34 @@ async fn migrate_schema_up_to_v6(name: &str) -> Result<IdbDatabase, DomException
     }));
 
     db_req.await
+}
+
+async fn migrate_schema_for_v7(name: &str) -> Result<(), DomException> {
+    let mut db_req: OpenDbRequest = IdbDatabase::open_u32(name, 7)?;
+    db_req.set_on_upgrade_needed(Some(|evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
+        let old_version = evt.old_version() as u32;
+        let new_version = evt.old_version() as u32;
+
+        if old_version < 7 {
+            info!(old_version, new_version, "IndexeddbCryptoStore upgrade schema -> v7 starting");
+            migrate_stores_to_v7(evt.db())?;
+            info!(old_version, new_version, "IndexeddbCryptoStore upgrade schema -> v7 complete");
+        }
+
+        Ok(())
+    }));
+    db_req.await?;
+    Ok(())
+}
+
+async fn migrate_schema_for_v8(name: &str) -> Result<(), DomException> {
+    info!("IndexeddbCryptoStore upgrade schema -> v8 starting");
+    IdbDatabase::open_u32(name, 8)?.await?;
+    // No actual schema change required for this migration. We do this here because the call to
+    // open_u32 updates the version number, indicating that we have completed the data migration in
+    // migrate_data_for_v8.
+    info!("IndexeddbCryptoStore upgrade schema -> v8 complete");
+    Ok(())
 }
 
 fn migrate_stores_to_v1(db: &IdbDatabase) -> Result<(), DomException> {
