@@ -30,7 +30,6 @@ use ruma::events::AnySyncTimelineEvent;
 use ruma::{
     api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
     events::{
-        call::member::Membership,
         ignored_user_list::IgnoredUserListEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
         room::{
@@ -56,6 +55,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, field::debug, info, instrument, trace, warn};
 
 use super::{
+    calls::RoomCall,
     members::{MemberInfo, MemberRoomInfo},
     BaseRoomInfo, DisplayName, RoomCreateWithCreatorEventContent, RoomMember,
 };
@@ -368,24 +368,6 @@ impl Room {
     /// Get the topic of the room.
     pub fn topic(&self) -> Option<String> {
         self.inner.read().topic().map(ToOwned::to_owned)
-    }
-
-    /// Is there a non expired membership with application "m.call" and scope
-    /// "m.room" in this room
-    pub fn has_active_room_call(&self) -> bool {
-        self.inner.read().has_active_room_call()
-    }
-
-    /// Returns a Vec of userId's that participate in the room call.
-    ///
-    /// matrix_rtc memberships with application "m.call" and scope "m.room" are
-    /// considered. A user can occur twice if they join with two devices.
-    /// convert to a set depending if the different users are required or the
-    /// amount of sessions.
-    ///
-    /// The vector is ordered by oldest membership user to newest.
-    pub fn active_room_call_participants(&self) -> Vec<OwnedUserId> {
-        self.inner.read().active_room_call_participants()
     }
 
     /// Return the cached display name of the room if it was provided via sync,
@@ -707,6 +689,12 @@ impl Room {
         self.store
             .get_event_room_receipt_events(self.room_id(), receipt_type, thread, event_id)
             .await
+    }
+
+    /// Returns an active (on-going) room call (also known as matrix RTC
+    /// session).
+    pub fn active_room_call(&self) -> Option<RoomCall> {
+        self.inner.read().active_room_call()
     }
 }
 
@@ -1037,57 +1025,9 @@ impl RoomInfo {
         Some(&self.base_info.topic.as_ref()?.as_original()?.content.topic)
     }
 
-    /// Get a list of all the valid (non expired) matrixRTC memberships and
-    /// associated UserId's in this room.
-    ///
-    /// The vector is ordered by oldest membership to newest.
-    fn active_matrix_rtc_memberships(&self) -> Vec<(OwnedUserId, &Membership)> {
-        let mut v = self
-            .base_info
-            .rtc_member
-            .iter()
-            .filter_map(|(user_id, ev)| {
-                ev.as_original().map(|ev| {
-                    ev.content
-                        .active_memberships(None)
-                        .into_iter()
-                        .map(move |m| (user_id.clone(), m))
-                })
-            })
-            .flatten()
-            .collect::<Vec<_>>();
-        v.sort_by_key(|(_, m)| m.created_ts);
-        v
-    }
-
-    /// Similar to
-    /// [`matrix_rtc_memberships`](Self::active_matrix_rtc_memberships) but only
-    /// returns Memberships with application "m.call" and scope "m.room".
-    ///
-    /// The vector is ordered by oldest membership user to newest.
-    fn active_room_call_memberships(&self) -> Vec<(OwnedUserId, &Membership)> {
-        self.active_matrix_rtc_memberships()
-            .into_iter()
-            .filter(|(_user_id, m)| m.is_room_call())
-            .collect()
-    }
-
-    /// Is there a non expired membership with application "m.call" and scope
-    /// "m.room" in this room.
-    pub fn has_active_room_call(&self) -> bool {
-        !self.active_room_call_memberships().is_empty()
-    }
-
-    /// Returns a Vec of userId's that participate in the room call.
-    ///
-    /// matrix_rtc memberships with application "m.call" and scope "m.room" are
-    /// considered. A user can occur twice if they join with two devices.
-    /// convert to a set depending if the different users are required or the
-    /// amount of sessions.
-    ///
-    /// The vector is ordered by oldest membership user to newest.
-    pub fn active_room_call_participants(&self) -> Vec<OwnedUserId> {
-        self.active_room_call_memberships().iter().map(|(user_id, _)| user_id.clone()).collect()
+    /// Returns an active (on-going) room call.
+    pub fn active_room_call(&self) -> Option<RoomCall> {
+        self.base_info.call_memberships.room_call()
     }
 }
 
@@ -1185,6 +1125,7 @@ mod tests {
         time::{Duration, SystemTime},
     };
 
+    use assert_matches2::assert_let;
     use assign::assign;
     #[cfg(feature = "experimental-sliding-sync")]
     use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
@@ -1208,7 +1149,7 @@ mod tests {
         },
         room_alias_id, room_id,
         serde::Raw,
-        user_id, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId, UserId,
+        user_id, MilliSecondsSinceUnixEpoch, OwnedEventId, UserId,
     };
     use serde_json::json;
 
@@ -1290,6 +1231,9 @@ mod tests {
                 "name": null,
                 "tombstone": null,
                 "topic": null,
+                "call_memberships": {
+                    "memberships": {},
+                },
             }
         });
 
@@ -1333,6 +1277,9 @@ mod tests {
                 "name": null,
                 "tombstone": null,
                 "topic": null,
+                "call_memberships": {
+                    "memberships": {},
+                },
             }
         });
 
@@ -1767,23 +1714,23 @@ mod tests {
         });
     }
 
-    /// `user_a`: empty memberships
-    /// `user_b`: one membership
-    /// `user_c`: two memberships (two devices)
-    fn create_call_with_member_events_for_user(a: &UserId, b: &UserId, c: &UserId) -> Room {
+    fn create_call_with_member_events() -> Room {
         let (_, room) = make_room(RoomState::Joined);
 
-        let a_empty = call_member_state_event(Vec::new(), "$1234", a);
+        // `user_a`: empty memberships
+        let a_empty = call_member_state_event(Vec::new(), "$1234", &ALICE);
 
+        // `user_b`: one membership
         // make b 10min old
         let m_init_b = membership_for_my_call("0", "0", 1);
-        let b_one = call_member_state_event(vec![m_init_b], "$12345", b);
+        let b_one = call_member_state_event(vec![m_init_b], "$12345", &BOB);
 
+        // `user_c`: two memberships (two devices)
         // c1 1min old
         let m_init_c1 = membership_for_my_call("0", "0", 10);
         // c2 20min old
         let m_init_c2 = membership_for_my_call("1", "0", 20);
-        let c_two = call_member_state_event(vec![m_init_c1, m_init_c2], "$123456", c);
+        let c_two = call_member_state_event(vec![m_init_c1, m_init_c2], "$123456", &CAROL);
 
         // Intentionally use a non time sorted receive order.
         receive_state_events(&room, vec![&c_two, &a_empty, &b_one]);
@@ -1793,21 +1740,25 @@ mod tests {
 
     #[test]
     fn show_correct_active_call_state() {
-        let room = create_call_with_member_events_for_user(&ALICE, &BOB, &CAROL);
+        let room = create_call_with_member_events();
+        assert_let!(Some(call) = room.active_room_call());
+        assert!(call.members.len() == 3);
 
-        // This check also tests the ordering.
-        // We want older events to be in the front.
         // user_b (Bob) is 1min old, c1 (CAROL) 10min old, c2 (CAROL) 20min old
-        assert_eq!(
-            vec![CAROL.to_owned(), CAROL.to_owned(), BOB.to_owned()],
-            room.active_room_call_participants()
-        );
-        assert!(room.has_active_room_call());
+        let (mut carols, mut bobs) = (0, 0);
+        for (id, _) in call.members.iter() {
+            if id.user_id == CAROL.to_owned() {
+                carols += 1;
+            } else if id.user_id == BOB.to_owned() {
+                bobs += 1;
+            }
+        }
+        assert!(carols == 2 && bobs == 1);
     }
 
     #[test]
     fn active_call_is_false_when_everyone_left() {
-        let room = create_call_with_member_events_for_user(&ALICE, &BOB, &CAROL);
+        let room = create_call_with_member_events();
 
         let b_empty_membership = call_member_state_event(Vec::new(), "$1234_1", &BOB);
         let c_empty_membership = call_member_state_event(Vec::new(), "$12345_1", &CAROL);
@@ -1815,7 +1766,6 @@ mod tests {
         receive_state_events(&room, vec![&b_empty_membership, &c_empty_membership]);
 
         // We have no active call anymore after emptying the memberships
-        assert_eq!(Vec::<OwnedUserId>::new(), room.active_room_call_participants());
-        assert!(!room.has_active_room_call());
+        assert!(room.active_room_call().is_none());
     }
 }
