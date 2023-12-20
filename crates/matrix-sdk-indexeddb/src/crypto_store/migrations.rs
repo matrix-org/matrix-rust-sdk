@@ -50,7 +50,7 @@ pub async fn open_and_upgrade_db(
     if old_version < 7 {
         info!(old_version, "IndexeddbCryptoStore upgrade schema & data -> v6 starting");
         let db = migrate_schema_up_to_v6(name).await?;
-        migrate_data_for_v6(serializer, &db).await?;
+        prepare_data_for_v7(serializer, &db).await?;
         db.close();
         info!(old_version, "IndexeddbCryptoStore upgrade schema & data -> v6 finished");
 
@@ -61,7 +61,7 @@ pub async fn open_and_upgrade_db(
     // And finally migrate to v8, keeping the same schema but fixing the keys in
     // inbound_group_sessions2
     if old_version < 8 {
-        migrate_data_for_v8(name, serializer).await?;
+        prepare_data_for_v8(name, serializer).await?;
         migrate_schema_for_v8(name).await?;
     }
 
@@ -148,7 +148,7 @@ async fn migrate_schema_for_v8(name: &str) -> Result<(), DomException> {
     IdbDatabase::open_u32(name, 8)?.await?.close();
     // No actual schema change required for this migration. We do this here because
     // the call to open_u32 updates the version number, indicating that we have
-    // completed the data migration in migrate_data_for_v8.
+    // completed the data migration in prepare_data_for_v8.
     info!("IndexeddbCryptoStore upgrade schema -> v8 complete");
     Ok(())
 }
@@ -238,7 +238,7 @@ fn migrate_stores_to_v6(db: &IdbDatabase) -> Result<(), DomException> {
     // But copying the data needs to happen outside the database upgrade process
     // (because it needs async calls). So, here we create a new store for
     // inbound group sessions. We don't populate it yet; that happens once we
-    // have done the upgrade to v6, in `migrate_data_for_v6`. Finally we drop the
+    // have done the upgrade to v6, in `prepare_data_for_v6`. Finally we drop the
     // old store in create_stores_for_v7.
 
     let object_store = db.create_object_store(keys::INBOUND_GROUP_SESSIONS_V2)?;
@@ -254,7 +254,7 @@ fn migrate_stores_to_v6(db: &IdbDatabase) -> Result<(), DomException> {
     Ok(())
 }
 
-async fn migrate_data_for_v6(serializer: &IndexeddbSerializer, db: &IdbDatabase) -> Result<()> {
+async fn prepare_data_for_v7(serializer: &IndexeddbSerializer, db: &IdbDatabase) -> Result<()> {
     // The new store has been made for inbound group sessions; time to populate it.
     let txn = db.transaction_on_multi_with_mode(
         &[old_keys::INBOUND_GROUP_SESSIONS_V1, keys::INBOUND_GROUP_SESSIONS_V2],
@@ -307,8 +307,8 @@ fn migrate_stores_to_v7(db: &IdbDatabase) -> Result<(), DomException> {
     db.delete_object_store(old_keys::INBOUND_GROUP_SESSIONS_V1)
 }
 
-async fn migrate_data_for_v8(name: &str, serializer: &IndexeddbSerializer) -> Result<()> {
-    // In migrate_data_for_v6, we incorrectly copied the keys in
+async fn prepare_data_for_v8(name: &str, serializer: &IndexeddbSerializer) -> Result<()> {
+    // In prepare_data_for_v6, we incorrectly copied the keys in
     // inbound_group_sessions verbatim into inbound_group_sessions2. What we
     // should have done is re-encrypt them using the new table name, so we fix
     // them up here.
