@@ -16,7 +16,7 @@ mod responses;
 mod users;
 mod verification;
 
-use std::{collections::HashMap, str::FromStr, sync::Arc, time::Duration};
+use std::{collections::HashMap, error::Error, str::FromStr, sync::Arc, time::Duration};
 
 use anyhow::Context;
 pub use backup_recovery_key::{
@@ -132,17 +132,21 @@ pub fn migrate(
     let runtime = Runtime::new().context("initializing tokio runtime")?;
     let listener = |progress, total| progress_listener.on_progress(progress as i32, total as i32);
     runtime.block_on(async move {
-        migrate_data(data.into(), &path, passphrase, &listener).await?;
-        Ok(())
-    })
+        let store = SqliteCryptoStore::open(path, passphrase.as_deref()).await?;
+        migrate_data(data.into(), &store, &listener).await
+    })?;
+    Ok(())
 }
 
-async fn migrate_data(
+async fn migrate_data<StoreType, StoreErrorType>(
     mut data: matrix_sdk_libolm_migration::MigrationData,
-    path: &str,
-    passphrase: Option<String>,
+    store: &StoreType,
     progress_callback: &dyn Fn(usize, usize),
-) -> anyhow::Result<()> {
+) -> anyhow::Result<()>
+where
+    StoreType: CryptoStore<Error = StoreErrorType>,
+    StoreErrorType: Error + Send + Sync + 'static,
+{
     use matrix_sdk_crypto::{olm::PrivateCrossSigningIdentity, store::BackupDecryptionKey};
     use vodozemac::olm::Account;
     use zeroize::Zeroize;
@@ -157,8 +161,6 @@ async fn migrate_data(
     // 5. the final save operation
     let total_steps = 5 + data.sessions.len() + data.inbound_group_sessions.len();
     let mut processed_steps = 0;
-
-    let store = SqliteCryptoStore::open(path, passphrase.as_deref()).await?;
 
     processed_steps += 1;
     progress_callback(processed_steps, total_steps);
@@ -244,16 +246,20 @@ async fn migrate_data(
         ..Default::default()
     };
 
-    save_changes(processed_steps, total_steps, &progress_callback, changes, &store).await
+    save_changes(processed_steps, total_steps, &progress_callback, changes, store).await
 }
 
-async fn save_changes(
+async fn save_changes<StoreType, StoreErrorType>(
     mut processed_steps: usize,
     total_steps: usize,
     listener: &dyn Fn(usize, usize),
     changes: Changes,
-    store: &SqliteCryptoStore,
-) -> anyhow::Result<()> {
+    store: &StoreType,
+) -> anyhow::Result<()>
+where
+    StoreType: CryptoStore<Error = StoreErrorType>,
+    StoreErrorType: Error + Send + Sync + 'static,
+{
     store.save_changes(changes).await?;
 
     processed_steps += 1;
@@ -289,18 +295,22 @@ pub fn migrate_sessions(
 ) -> Result<(), MigrationError> {
     let runtime = Runtime::new().context("initializing tokio runtime")?;
     let listener = |progress, total| progress_listener.on_progress(progress as i32, total as i32);
-    runtime.block_on(migrate_session_data(data, &path, passphrase, &listener))?;
+    runtime.block_on(async {
+        let store = SqliteCryptoStore::open(path, passphrase.as_deref()).await?;
+        migrate_session_data(data, &store, &listener).await
+    })?;
     Ok(())
 }
 
-async fn migrate_session_data(
+async fn migrate_session_data<StoreType, StoreErrorType>(
     data: SessionMigrationData,
-    path: &str,
-    passphrase: Option<String>,
+    store: &StoreType,
     progress_callback: &dyn Fn(usize, usize),
-) -> anyhow::Result<()> {
-    let store = SqliteCryptoStore::open(path, passphrase.as_deref()).await?;
-
+) -> anyhow::Result<()>
+where
+    StoreType: CryptoStore<Error = StoreErrorType>,
+    StoreErrorType: Error + Send + Sync + 'static,
+{
     let total_steps = 1 + data.sessions.len() + data.inbound_group_sessions.len();
     let processed_steps = 0;
 
@@ -326,7 +336,7 @@ async fn migrate_session_data(
     )?;
 
     let changes = Changes { sessions, inbound_group_sessions, ..Default::default() };
-    save_changes(processed_steps, total_steps, &progress_callback, changes, &store).await
+    save_changes(processed_steps, total_steps, &progress_callback, changes, store).await
 }
 
 #[allow(clippy::too_many_arguments)]
