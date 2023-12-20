@@ -47,16 +47,14 @@ pub async fn open_and_upgrade_db(
 
     // If we have yet to complete the migration to V7, migrate the schema to V6
     // (if necessary), and then migrate any remaining data.
-    if old_version <= 6 {
+    if old_version < 7 {
         info!(old_version, "IndexeddbCryptoStore upgrade schema & data -> v6 starting");
         let db = migrate_schema_up_to_v6(name).await?;
         migrate_data_for_v6(serializer, &db).await?;
         db.close();
         info!(old_version, "IndexeddbCryptoStore upgrade schema & data -> v6 finished");
-    }
 
-    // Now we can safely complete the migration to V7 which will drop the old store.
-    if old_version < 7 {
+        // Now we can safely complete the migration to V7 which will drop the old store.
         migrate_schema_for_v7(name).await?;
     }
 
