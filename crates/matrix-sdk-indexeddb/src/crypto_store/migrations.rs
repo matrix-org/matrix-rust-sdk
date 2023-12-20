@@ -370,16 +370,7 @@ async fn migrate_data_for_v8(name: &str, serializer: &IndexeddbSerializer) -> Re
 
                 // If we didn't find an existing entry, we must create one with the correct key
                 if new_value.is_none() {
-                    // This is much the same as `IndexeddbStore::serialize_inbound_group_session`.
-                    let new_data =
-                        serde_wasm_bindgen::to_value(&InboundGroupSessionIndexedDbObject {
-                            pickled_session: serializer
-                                .serialize_value_as_bytes(&session.pickle().await)?,
-                            needs_backup: !session.backed_up(),
-                        })?;
-
-                    store.add_key_val(&new_key, &new_data)?;
-
+                    store.add_key_val(&new_key, &serde_wasm_bindgen::to_value(&idb_object)?)?;
                     updated += 1;
                 } else {
                     deleted += 1;
