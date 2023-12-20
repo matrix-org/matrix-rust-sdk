@@ -138,6 +138,16 @@ pub fn migrate(
     Ok(())
 }
 
+/// Migrate a libolm-based setup to a vodozemac-based setup stored in a Rust
+/// crypto store.
+///
+/// # Arguments
+///
+/// * `data` - The data that should be migrated over to the Rust store.
+/// * `store` - Where to store the migrated data.
+/// * `progress_callback` - A callback function: will be called with the
+///   arguments `(processed_steps, total_steps)` after each step of the
+///   migration.
 async fn migrate_data<StoreType, StoreErrorType>(
     mut data: matrix_sdk_libolm_migration::MigrationData,
     store: &StoreType,
@@ -302,6 +312,19 @@ pub fn migrate_sessions(
     Ok(())
 }
 
+/// Migrate sessions and group sessions of a libolm-based setup to a
+/// vodozemac-based setup stored in a Rust crypto store.
+///
+/// This method allows you to migrate a subset of the data. It should only be
+/// used after the [`migrate_data`] method has been already used.
+///
+/// # Arguments
+///
+/// * `data` - The data that should be migrated over to the Rust store.
+/// * `store` - Where to store the migrated data.
+/// * `progress_callback` - A callback function: will be called with the
+///   arguments `(processed_steps, total_steps)` after each step of the
+///   migration.
 async fn migrate_session_data<StoreType, StoreErrorType>(
     data: SessionMigrationData,
     store: &StoreType,
