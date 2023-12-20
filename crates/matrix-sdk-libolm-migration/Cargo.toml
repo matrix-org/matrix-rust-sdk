@@ -13,3 +13,6 @@ serde = { workspace = true }
 uniffi = { workspace = true, optional = true }
 matrix-sdk-crypto = { version = "0.6.0", path = "../matrix-sdk-crypto" }
 thiserror = { workspace = true }
+vodozemac = { workspace = true }
+zeroize = { workspace = true }
+ruma = { workspace = true }

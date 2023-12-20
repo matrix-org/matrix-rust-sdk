@@ -3300,9 +3300,12 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "matrix-sdk-crypto",
+ "ruma",
  "serde",
  "thiserror",
  "uniffi",
+ "vodozemac",
+ "zeroize",
 ]
 
 [[package]]
