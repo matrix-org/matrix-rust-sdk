@@ -139,13 +139,13 @@ async fn migrate_schema_for_v7(name: &str) -> Result<(), DomException> {
 
         Ok(())
     }));
-    db_req.await?;
+    db_req.await?.close();
     Ok(())
 }
 
 async fn migrate_schema_for_v8(name: &str) -> Result<(), DomException> {
     info!("IndexeddbCryptoStore upgrade schema -> v8 starting");
-    IdbDatabase::open_u32(name, 8)?.await?;
+    IdbDatabase::open_u32(name, 8)?.await?.close();
     // No actual schema change required for this migration. We do this here because
     // the call to open_u32 updates the version number, indicating that we have
     // completed the data migration in migrate_data_for_v8.
