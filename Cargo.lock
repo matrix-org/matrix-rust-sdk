@@ -3082,6 +3082,7 @@ dependencies = [
  "ruma",
  "serde",
  "serde_json",
+ "stream_assert",
  "thiserror",
  "tokio",
  "tracing",

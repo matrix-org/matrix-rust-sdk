@@ -62,6 +62,7 @@ assign = "1.1.1"
 futures-executor = { workspace = true }
 http = { workspace = true }
 matrix-sdk-test = { version = "0.6.0", path = "../../testing/matrix-sdk-test" }
+stream_assert = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

@@ -607,8 +607,7 @@ impl BaseClient {
         // event. If we found one, set it as the latest and delete any older
         // encrypted events
         if let Some((found, found_index)) = self.decrypt_latest_suitable_event(room).await {
-            room.on_latest_event_decrypted(found, found_index);
-            changes.room_infos.insert(room.room_id().to_owned(), room.clone_info());
+            room.on_latest_event_decrypted(found, found_index, changes);
         }
     }
 
