@@ -31,9 +31,7 @@ pub mod latest_event;
 pub mod media;
 mod rooms;
 
-#[cfg(feature = "experimental-sliding-sync")]
 mod read_receipts;
-#[cfg(feature = "experimental-sliding-sync")]
 pub use read_receipts::PreviousEventsProvider;
 #[cfg(feature = "experimental-sliding-sync")]
 mod sliding_sync;

@@ -63,6 +63,7 @@ use super::{
 use crate::latest_event::LatestEvent;
 use crate::{
     deserialized_responses::MemberEvent,
+    read_receipts::RoomReadReceipts,
     store::{DynStateStore, Result as StoreResult, StateStoreExt},
     sync::UnreadNotificationsCount,
     MinimalStateEvent, OriginalMinimalStateEvent, RoomMemberships,
@@ -733,25 +734,6 @@ impl Room {
             .get_event_room_receipt_events(self.room_id(), receipt_type, thread, event_id)
             .await
     }
-}
-
-/// Information about read receipts collected during processing of that room.
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
-pub struct RoomReadReceipts {
-    /// Does the room have unread messages?
-    pub(crate) num_unread: u64,
-
-    /// Does the room have unread events that should notify?
-    pub(crate) num_notifications: u64,
-
-    /// Does the room have messages causing highlights for the users? (aka
-    /// mentions)
-    pub(crate) num_mentions: u64,
-
-    /// The id of the event the last unthreaded (or main-threaded, for better
-    /// compatibility with clients that have thread support) read receipt is
-    /// attached to.
-    pub(crate) latest_read_receipt_event_id: Option<OwnedEventId>,
 }
 
 /// The underlying pure data structure for joined and left rooms.
