@@ -224,6 +224,8 @@ impl BaseClient {
 
         // Rooms in `new_rooms.join` either have a timeline update, or a new read
         // receipt. Update the read receipt accordingly.
+        let user_id = &self.session_meta().expect("logged in user").user_id;
+
         for (room_id, joined_room_update) in &mut new_rooms.join {
             if let Some(mut room_info) = changes
                 .room_infos
@@ -233,11 +235,12 @@ impl BaseClient {
             {
                 // TODO only add the room if there was an update
                 compute_notifications(
-                    self,
-                    &changes,
+                    user_id,
+                    room_id,
+                    changes.receipts.get(room_id),
                     previous_events_provider,
                     &joined_room_update.timeline.events,
-                    &mut room_info,
+                    &mut room_info.read_receipts,
                 )?;
 
                 changes.add_room(room_info);
