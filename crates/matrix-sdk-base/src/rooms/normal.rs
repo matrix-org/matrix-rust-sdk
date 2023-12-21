@@ -432,12 +432,6 @@ impl Room {
         self.inner.read().latest_event.as_deref().cloned()
     }
 
-    /// Update the last event in the room
-    #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
-    pub(crate) fn set_latest_event(&self, latest_event: Option<Box<LatestEvent>>) {
-        self.inner.update(|info| info.latest_event = latest_event);
-    }
-
     /// Return the most recent few encrypted events. When the keys come through
     /// to decrypt these, the most recent relevant one will replace
     /// latest_event. (We can't tell which one is relevant until
@@ -454,6 +448,9 @@ impl Room {
     ///
     /// Panics if index is not a valid index in the latest_encrypted_events
     /// list.
+    ///
+    /// It is the responsibility of the caller to apply the changes into the
+    /// state store after calling this function.
     #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
     pub(crate) fn on_latest_event_decrypted(
         &self,
@@ -461,10 +458,13 @@ impl Room {
         index: usize,
         changes: &mut crate::StateChanges,
     ) {
-        self.set_latest_event(Some(latest_event));
         self.latest_encrypted_events.write().unwrap().drain(0..=index);
 
-        changes.room_infos.insert(self.room_id().to_owned(), self.clone_info());
+        let room_info = changes
+            .room_infos
+            .entry(self.room_id().to_owned())
+            .or_insert_with(|| self.clone_info());
+        room_info.latest_event = Some(latest_event);
     }
 
     /// Get the list of users ids that are considered to be joined members of
@@ -1741,6 +1741,7 @@ mod tests {
         let event = make_latest_event("$A");
         let mut changes = StateChanges::default();
         room.on_latest_event_decrypted(event.clone(), 0, &mut changes);
+        room.update_summary(changes.room_infos.get(room.room_id()).cloned().unwrap());
 
         // Then is it stored
         assert_eq!(room.latest_event().unwrap().event_id(), event.event_id());
@@ -1762,6 +1763,7 @@ mod tests {
         let new_event_index = 1;
         let mut changes = StateChanges::default();
         room.on_latest_event_decrypted(new_event.clone(), new_event_index, &mut changes);
+        room.update_summary(changes.room_infos.get(room.room_id()).cloned().unwrap());
 
         // Then the encrypted events list is shortened to only newer events
         let enc_evs = room.latest_encrypted_events();
@@ -1788,6 +1790,7 @@ mod tests {
         let new_event_index = 3;
         let mut changes = StateChanges::default();
         room.on_latest_event_decrypted(new_event, new_event_index, &mut changes);
+        room.update_summary(changes.room_infos.get(room.room_id()).cloned().unwrap());
 
         // Then the encrypted events list ie empty
         let enc_evs = room.latest_encrypted_events();
