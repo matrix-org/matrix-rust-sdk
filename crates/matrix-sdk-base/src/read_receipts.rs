@@ -101,6 +101,13 @@ impl RoomReadReceipts {
             }
         }
     }
+
+    #[inline(always)]
+    fn reset(&mut self) {
+        self.num_unread = 0;
+        self.num_notifications = 0;
+        self.num_mentions = 0;
+    }
 }
 
 /// Provider for timeline events prior to the current sync.
@@ -230,9 +237,7 @@ fn find_and_count_events<'a>(
                 // Bingo! Switch over to the counting state, after resetting the
                 // previous counts.
                 trace!("Found the event the receipt was referring to! Starting to count.");
-                room_info.read_receipts.num_unread = 0;
-                room_info.read_receipts.num_notifications = 0;
-                room_info.read_receipts.num_mentions = 0;
+                room_info.read_receipts.reset();
                 counting_receipts = true;
             }
         }
