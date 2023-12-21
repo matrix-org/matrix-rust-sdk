@@ -39,6 +39,7 @@ use ruma::{
     RoomId, TransactionId, UserId,
 };
 use tokio::sync::Mutex;
+use tracing::warn;
 use wasm_bindgen::JsValue;
 
 use crate::crypto_store::{
@@ -852,6 +853,8 @@ impl_crypto_store! {
                 let mut idb_object: InboundGroupSessionIndexedDbObject = serde_wasm_bindgen::from_value(idb_object_js)?;
                 idb_object.needs_backup = false;
                 object_store.put_key_val(&key, &serde_wasm_bindgen::to_value(&idb_object)?)?;
+            } else {
+                warn!("Could not find inbound group session to mark it as backed up. key={:?}", key);
             }
         }
 

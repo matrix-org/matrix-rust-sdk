@@ -47,29 +47,27 @@ pub async fn open_and_upgrade_db(
 
     // If we have yet to complete the migration to V7, migrate the schema to V6
     // (if necessary), and then migrate any remaining data.
-    if old_version <= 6 {
+    if old_version < 7 {
+        info!(old_version, "IndexeddbCryptoStore upgrade schema & data -> v6 starting");
         let db = migrate_schema_up_to_v6(name).await?;
-        migrate_data_for_v6(serializer, &db).await?;
+        prepare_data_for_v7(serializer, &db).await?;
         db.close();
+        info!(old_version, "IndexeddbCryptoStore upgrade schema & data -> v6 finished");
+
+        // Now we can safely complete the migration to V7 which will drop the old store.
+        migrate_schema_for_v7(name).await?;
     }
 
-    // Now we can safely complete the migration to V7 which will drop the old store.
-    let mut db_req: OpenDbRequest = IdbDatabase::open_u32(name, 7)?;
-    db_req.set_on_upgrade_needed(Some(|evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
-        let old_version = evt.old_version() as u32;
-        let new_version = evt.new_version() as u32;
+    // And finally migrate to v8, keeping the same schema but fixing the keys in
+    // inbound_group_sessions2
+    if old_version < 8 {
+        prepare_data_for_v8(name, serializer).await?;
+        migrate_schema_for_v8(name).await?;
+    }
 
-        info!(old_version, new_version, "Continuing IndexeddbCryptoStore upgrade");
-
-        if old_version < 7 {
-            migrate_stores_to_v7(evt.db())?;
-        }
-
-        info!(old_version, new_version, "IndexeddbCryptoStore upgrade complete");
-        Ok(())
-    }));
-
-    Ok(db_req.await?)
+    // We know we've upgraded to v8 now, so we can open the DB at that version and
+    // return it
+    Ok(IdbDatabase::open_u32(name, 8)?.await?)
 }
 
 async fn migrate_schema_up_to_v6(name: &str) -> Result<IdbDatabase, DomException> {
@@ -125,6 +123,34 @@ async fn migrate_schema_up_to_v6(name: &str) -> Result<IdbDatabase, DomException
     }));
 
     db_req.await
+}
+
+async fn migrate_schema_for_v7(name: &str) -> Result<(), DomException> {
+    let mut db_req: OpenDbRequest = IdbDatabase::open_u32(name, 7)?;
+    db_req.set_on_upgrade_needed(Some(|evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
+        let old_version = evt.old_version() as u32;
+        let new_version = evt.old_version() as u32;
+
+        if old_version < 7 {
+            info!(old_version, new_version, "IndexeddbCryptoStore upgrade schema -> v7 starting");
+            migrate_stores_to_v7(evt.db())?;
+            info!(old_version, new_version, "IndexeddbCryptoStore upgrade schema -> v7 complete");
+        }
+
+        Ok(())
+    }));
+    db_req.await?.close();
+    Ok(())
+}
+
+async fn migrate_schema_for_v8(name: &str) -> Result<(), DomException> {
+    info!("IndexeddbCryptoStore upgrade schema -> v8 starting");
+    IdbDatabase::open_u32(name, 8)?.await?.close();
+    // No actual schema change required for this migration. We do this here because
+    // the call to open_u32 updates the version number, indicating that we have
+    // completed the data migration in prepare_data_for_v8.
+    info!("IndexeddbCryptoStore upgrade schema -> v8 complete");
+    Ok(())
 }
 
 fn migrate_stores_to_v1(db: &IdbDatabase) -> Result<(), DomException> {
@@ -212,7 +238,7 @@ fn migrate_stores_to_v6(db: &IdbDatabase) -> Result<(), DomException> {
     // But copying the data needs to happen outside the database upgrade process
     // (because it needs async calls). So, here we create a new store for
     // inbound group sessions. We don't populate it yet; that happens once we
-    // have done the upgrade to v6, in `migrate_data_for_v6`. Finally we drop the
+    // have done the upgrade to v6, in `prepare_data_for_v7`. Finally we drop the
     // old store in create_stores_for_v7.
 
     let object_store = db.create_object_store(keys::INBOUND_GROUP_SESSIONS_V2)?;
@@ -228,7 +254,7 @@ fn migrate_stores_to_v6(db: &IdbDatabase) -> Result<(), DomException> {
     Ok(())
 }
 
-async fn migrate_data_for_v6(serializer: &IndexeddbSerializer, db: &IdbDatabase) -> Result<()> {
+async fn prepare_data_for_v7(serializer: &IndexeddbSerializer, db: &IdbDatabase) -> Result<()> {
     // The new store has been made for inbound group sessions; time to populate it.
     let txn = db.transaction_on_multi_with_mode(
         &[old_keys::INBOUND_GROUP_SESSIONS_V1, keys::INBOUND_GROUP_SESSIONS_V2],
@@ -281,6 +307,93 @@ fn migrate_stores_to_v7(db: &IdbDatabase) -> Result<(), DomException> {
     db.delete_object_store(old_keys::INBOUND_GROUP_SESSIONS_V1)
 }
 
+async fn prepare_data_for_v8(name: &str, serializer: &IndexeddbSerializer) -> Result<()> {
+    // In prepare_data_for_v6, we incorrectly copied the keys in
+    // inbound_group_sessions verbatim into inbound_group_sessions2. What we
+    // should have done is re-hash them using the new table name, so we fix
+    // them up here.
+
+    info!("IndexeddbCryptoStore upgrade data -> v8 starting");
+
+    let db = IdbDatabase::open(name)?.await?;
+    let txn = db.transaction_on_one_with_mode(
+        keys::INBOUND_GROUP_SESSIONS_V2,
+        IdbTransactionMode::Readwrite,
+    )?;
+
+    let store = txn.object_store(keys::INBOUND_GROUP_SESSIONS_V2)?;
+
+    let row_count = store.count()?.await?;
+    info!(row_count, "Fixing inbound group session data keys");
+
+    // Iterate through all rows
+    if let Some(cursor) = store.open_cursor()?.await? {
+        let mut idx = 0;
+        let mut updated = 0;
+        let mut deleted = 0;
+        loop {
+            idx += 1;
+
+            // Get the old key and session
+
+            let old_key = cursor.key().ok_or(matrix_sdk_crypto::CryptoStoreError::Backend(
+                "inbound_group_sessions2 cursor has no key".into(),
+            ))?;
+
+            let idb_object: InboundGroupSessionIndexedDbObject =
+                serde_wasm_bindgen::from_value(cursor.value())?;
+            let pickled_session =
+                serializer.deserialize_value_from_bytes(&idb_object.pickled_session)?;
+            let session = InboundGroupSession::from_pickle(pickled_session)
+                .map_err(|e| IndexeddbCryptoStoreError::CryptoStoreError(e.into()))?;
+
+            if idx % 100 == 0 {
+                debug!("Migrating session {idx} of {row_count}");
+            }
+
+            // Work out what the key should be.
+            // (This is much the same as in
+            // `IndexeddbCryptoStore::get_inbound_group_session`)
+            let new_key = serializer.encode_key(
+                keys::INBOUND_GROUP_SESSIONS_V2,
+                (&session.room_id, session.session_id()),
+            );
+
+            if new_key != old_key {
+                // We have found an entry that is stored under the incorrect old key
+
+                // Delete the old entry under the wrong key
+                cursor.delete()?;
+
+                // Check for an existing entry with the new key
+                let new_value = store.get(&new_key)?.await?;
+
+                // If we found an existing entry, it is more up-to-date, so we don't need to do
+                // anything more.
+
+                // If we didn't find an existing entry, we must create one with the correct key
+                if new_value.is_none() {
+                    store.add_key_val(&new_key, &serde_wasm_bindgen::to_value(&idb_object)?)?;
+                    updated += 1;
+                } else {
+                    deleted += 1;
+                }
+            }
+
+            if !cursor.continue_cursor()?.await? {
+                debug!("Migrated {row_count} sessions: {updated} keys updated and {deleted} obsolete entries deleted.");
+                break;
+            }
+        }
+    }
+
+    txn.await.into_result()?;
+    db.close();
+    info!("IndexeddbCryptoStore upgrade data -> v8 finished");
+
+    Ok(())
+}
+
 #[cfg(all(test, target_arch = "wasm32"))]
 mod tests {
     use std::sync::Arc;
@@ -295,31 +408,31 @@ mod tests {
     };
     use matrix_sdk_store_encryption::StoreCipher;
     use matrix_sdk_test::async_test;
-    use ruma::room_id;
+    use ruma::{room_id, RoomId};
     use tracing_subscriber::util::SubscriberInitExt;
 
     use crate::{crypto_store::migrations::*, IndexeddbCryptoStore};
 
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-    /// Test migrating `inbound_group_session` data from store v5 to store v7,
+    /// Test migrating `inbound_group_sessions` data from store v5 to store v8,
     /// on a store with encryption disabled.
     #[async_test]
-    async fn test_v7_migration_unencrypted() {
-        test_v7_migration_with_cipher("test_v7_migration_unencrypted", None).await
+    async fn test_v8_migration_unencrypted() {
+        test_v8_migration_with_cipher("test_v8_migration_unencrypted", None).await
     }
 
-    /// Test migrating `inbound_group_session` data from store v5 to store v7,
+    /// Test migrating `inbound_group_sessions` data from store v5 to store v8,
     /// on a store with encryption enabled.
     #[async_test]
-    async fn test_v7_migration_encrypted() {
+    async fn test_v8_migration_encrypted() {
         let cipher = StoreCipher::new().unwrap();
-        test_v7_migration_with_cipher("test_v7_migration_encrypted", Some(Arc::new(cipher))).await;
+        test_v8_migration_with_cipher("test_v8_migration_encrypted", Some(Arc::new(cipher))).await;
     }
 
-    /// Helper function for `test_v7_migration_{un,}encrypted`: test migrating
-    /// `inbound_group_session` data from store v5 to store v7.
-    async fn test_v7_migration_with_cipher(
+    /// Helper function for `test_v8_migration_{un,}encrypted`: test migrating
+    /// `inbound_group_sessions` data from store v5 to store v8.
+    async fn test_v8_migration_with_cipher(
         db_prefix: &str,
         store_cipher: Option<Arc<StoreCipher>>,
     ) {
@@ -329,17 +442,43 @@ mod tests {
         // delete the db in case it was used in a previous run
         let _ = IdbDatabase::delete_by_name(&db_name);
 
-        // Schema V7 migrated the inbound group sessions to a new format.
-        // To test, first create a database and populate it with the *old* style of
-        // entry.
-        let db = create_v5_db(&db_name).await.unwrap();
-
+        // Given a DB with data in it as it was at v5
         let room_id = room_id!("!test:localhost");
+        let (backed_up_session, not_backed_up_session) = create_sessions(&room_id);
+        populate_v5_db(
+            &db_name,
+            store_cipher.clone(),
+            &[&backed_up_session, &not_backed_up_session],
+        )
+        .await;
+
+        // When I open a store based on that DB, triggering an upgrade
+        let store =
+            IndexeddbCryptoStore::open_with_store_cipher(&db_prefix, store_cipher).await.unwrap();
+
+        // Then I can find the sessions using their keys and their info is correct
+        let s = store
+            .get_inbound_group_session(room_id, backed_up_session.session_id())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(s.session_id(), backed_up_session.session_id());
+        assert!(s.backed_up());
+
+        let s = store
+            .get_inbound_group_session(room_id, not_backed_up_session.session_id())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(s.session_id(), not_backed_up_session.session_id());
+        assert!(!s.backed_up());
+    }
+
+    fn create_sessions(room_id: &RoomId) -> (InboundGroupSession, InboundGroupSession) {
         let curve_key = Curve25519PublicKey::from(&Curve25519SecretKey::new());
         let ed_key = Ed25519SecretKey::new().public_key();
 
-        // a backed-up session
-        let session1 = InboundGroupSession::new(
+        let backed_up_session = InboundGroupSession::new(
             curve_key,
             ed_key,
             room_id,
@@ -355,10 +494,9 @@ mod tests {
             None,
         )
         .unwrap();
-        session1.mark_as_backed_up();
+        backed_up_session.mark_as_backed_up();
 
-        // an un-backed-up session
-        let session2 = InboundGroupSession::new(
+        let not_backed_up_session = InboundGroupSession::new(
             curve_key,
             ed_key,
             room_id,
@@ -375,7 +513,20 @@ mod tests {
         )
         .unwrap();
 
-        let serializer = IndexeddbSerializer::new(store_cipher.clone());
+        (backed_up_session, not_backed_up_session)
+    }
+
+    async fn populate_v5_db(
+        db_name: &str,
+        store_cipher: Option<Arc<StoreCipher>>,
+        session_entries: &[&InboundGroupSession],
+    ) {
+        // Schema V7 migrated the inbound group sessions to a new format.
+        // To test, first create a database and populate it with the *old* style of
+        // entry.
+        let db = create_v5_db(&db_name).await.unwrap();
+
+        let serializer = IndexeddbSerializer::new(store_cipher);
 
         let txn = db
             .transaction_on_one_with_mode(
@@ -384,10 +535,11 @@ mod tests {
             )
             .unwrap();
         let sessions = txn.object_store(old_keys::INBOUND_GROUP_SESSIONS_V1).unwrap();
-        for session in vec![&session1, &session2] {
+        for session in session_entries {
             let room_id = session.room_id();
             let session_id = session.session_id();
-            let key = serializer.encode_key(keys::INBOUND_GROUP_SESSIONS_V2, (room_id, session_id));
+            let key =
+                serializer.encode_key(old_keys::INBOUND_GROUP_SESSIONS_V1, (room_id, session_id));
             let pickle = session.pickle().await;
 
             sessions.put_key_val(&key, &serializer.serialize_value(&pickle).unwrap()).unwrap();
@@ -397,19 +549,6 @@ mod tests {
         // now close our DB, reopen it properly, and check that we can still read our
         // data.
         db.close();
-
-        let store =
-            IndexeddbCryptoStore::open_with_store_cipher(&db_prefix, store_cipher).await.unwrap();
-
-        let s =
-            store.get_inbound_group_session(room_id, session1.session_id()).await.unwrap().unwrap();
-        assert_eq!(s.session_id(), session1.session_id());
-        assert_eq!(s.backed_up(), true);
-
-        let s =
-            store.get_inbound_group_session(room_id, session2.session_id()).await.unwrap().unwrap();
-        assert_eq!(s.session_id(), session2.session_id());
-        assert_eq!(s.backed_up(), false);
     }
 
     async fn create_v5_db(name: &str) -> std::result::Result<IdbDatabase, DomException> {
