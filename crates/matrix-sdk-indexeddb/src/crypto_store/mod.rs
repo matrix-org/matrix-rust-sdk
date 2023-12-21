@@ -164,13 +164,13 @@ enum DbOperation {
     PutKeyVal { key: JsValue, value: JsValue },
     Delete(JsValue),
 }
-/// A structs that represents all the oprations that need to be done to the
+/// A structs that represents all the operations that need to be done to the
 /// database when save_changes is called.
 /// The idea is to do all the serialization and encryption before the
 /// transaction, and then just do the actual Indexeddb operations in the
 /// transaction.
 struct IndexeddbChangesKeyValue {
-    /// A map of the object store names to the operations to perfom on that
+    /// A map of the object store names to the operations to perform on that
     /// store.
     store_to_key_values: HashMap<&'static str, Vec<DbOperation>>,
 }
