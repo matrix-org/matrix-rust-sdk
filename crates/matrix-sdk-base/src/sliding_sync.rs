@@ -100,7 +100,7 @@ impl BaseClient {
 
         trace!("ready to submit changes to store");
         self.store.save_changes(&changes).await?;
-        self.apply_changes(&changes).await;
+        self.apply_changes(&changes);
         trace!("applied changes");
 
         Ok(to_device)
@@ -268,7 +268,7 @@ impl BaseClient {
 
         trace!("ready to submit changes to store");
         store.save_changes(&changes).await?;
-        self.apply_changes(&changes).await;
+        self.apply_changes(&changes);
         trace!("applied changes");
 
         Ok(SyncResponse {

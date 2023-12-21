@@ -1719,7 +1719,7 @@ mod tests {
         stream_assert::assert_pending!(room_info_subscriber);
 
         // Then updating the room info will store the event,
-        client.apply_changes(&changes).await;
+        client.apply_changes(&changes);
         assert_eq!(room.latest_event().unwrap().event_id(), event.event_id());
 
         // And wake up the subscriber.
