@@ -31,6 +31,8 @@ use matrix_sdk_base::{
     SyncOutsideWasm,
 };
 use matrix_sdk_common::instant::Instant;
+#[cfg(feature = "e2e-encryption")]
+use ruma::events::{room::encryption::RoomEncryptionEventContent, InitialStateEvent};
 use ruma::{
     api::{
         client::{
@@ -1188,13 +1190,30 @@ impl Client {
     /// Convenience shorthand for [`create_room`][Self::create_room] with the
     /// given user being invited, the room marked `is_direct` and both the
     /// creator and invitee getting the default maximum power level.
+    ///
+    /// If the `e2e-encryption` feature is enabled, the room will also be
+    /// encrypted.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The ID of the user to create a DM for.
     pub async fn create_dm(&self, user_id: &UserId) -> Result<Room> {
-        self.create_room(assign!(create_room::v3::Request::new(), {
+        #[cfg(feature = "e2e-encryption")]
+        let initial_state =
+            vec![InitialStateEvent::new(RoomEncryptionEventContent::with_recommended_defaults())
+                .to_raw_any()];
+
+        #[cfg(not(feature = "e2e-encryption"))]
+        let initial_state = vec![];
+
+        let request = assign!(create_room::v3::Request::new(), {
             invite: vec![user_id.to_owned()],
             is_direct: true,
             preset: Some(create_room::v3::RoomPreset::TrustedPrivateChat),
-        }))
-        .await
+            initial_state,
+        });
+
+        self.create_room(request).await
     }
 
     /// Search the homeserver's directory for public rooms with a filter.
