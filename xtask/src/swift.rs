@@ -160,7 +160,7 @@ fn build_xcframework(
         let ios_sim_x86_path = build_for_target("x86_64-apple-ios", profile)?;
 
         println!("-- Running Lipo for macOS [1/2]");
-        // # macOS
+        // macOS
         let lipo_target_macos = generated_dir.join("libmatrix_sdk_ffi_macos.a");
         cmd!(
             "lipo -create {darwin_x86_path} {darwin_arm_path}
@@ -169,7 +169,7 @@ fn build_xcframework(
         .run()?;
 
         println!("-- Running Lipo for iOS Simulator [2/2]");
-        // # iOS Simulator
+        // iOS Simulator
         let lipo_target_sim = generated_dir.join("libmatrix_sdk_ffi_iossimulator.a");
         cmd!(
             "lipo -create {ios_sim_arm_path} {ios_sim_x86_path}
