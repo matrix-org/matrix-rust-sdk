@@ -1502,8 +1502,9 @@ mod tests {
         // But now its olm machine has been invalidated and thus regenerated!
         let olm_machine = client1.olm_machine().await.clone().expect("must have an olm machine");
 
-        let backup_key_new = olm_machine.backup_machine().get_backup_keys().await.unwrap();
         assert!(!initial_olm_machine.same_as(&olm_machine));
+
+        let backup_key_new = olm_machine.backup_machine().get_backup_keys().await.unwrap();
         assert!(backup_key_new.decryption_key.is_some());
         assert_eq!(
             backup_key_new.decryption_key.unwrap().megolm_v1_public_key().to_base64(),
