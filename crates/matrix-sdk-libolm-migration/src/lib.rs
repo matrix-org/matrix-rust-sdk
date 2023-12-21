@@ -121,7 +121,7 @@ where
     let tracked_users: Vec<_> = data
         .tracked_users
         .into_iter()
-        .filter_map(|s| UserId::parse(&s).ok().map(|u| (u, true)))
+        .filter_map(|s| UserId::parse(s).ok().map(|u| (u, true)))
         .collect();
 
     let tracked_users: Vec<_> = tracked_users.iter().map(|(u, d)| (&**u, *d)).collect();
