@@ -14,7 +14,33 @@
 
 use std::collections::HashMap;
 
+use matrix_sdk_crypto::{store::RoomSettings, CrossSigningKeyExport};
 use serde::{Deserialize, Serialize};
+
+/// Struct collecting data that is important to migrate to the rust-sdk
+// We can't `derive(uniffi::Record)` on this because `CrossSigningKeyExport` and
+// `RoomSettings` have their own wrapper types in the ffi bindings.
+#[derive(Deserialize, Serialize)]
+pub struct MigrationData {
+    /// The pickled version of the Olm Account
+    pub account: PickledAccount,
+    /// The list of pickleds Olm Sessions.
+    pub sessions: Vec<PickledSession>,
+    /// The list of Megolm inbound group sessions.
+    pub inbound_group_sessions: Vec<PickledInboundGroupSession>,
+    /// The Olm pickle key that was used to pickle all the Olm objects.
+    pub pickle_key: Vec<u8>,
+    /// The backup version that is currently active.
+    pub backup_version: Option<String>,
+    /// The backup recovery key, as a base58 encoded string.
+    pub backup_recovery_key: Option<String>,
+    /// The private cross signing keys.
+    pub cross_signing: CrossSigningKeyExport,
+    /// The list of users that the Rust SDK should track.
+    pub tracked_users: Vec<String>,
+    /// Map of room settings
+    pub room_settings: HashMap<String, RoomSettings>,
+}
 
 /// Struct collecting data that is important to migrate sessions to the rust-sdk
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]

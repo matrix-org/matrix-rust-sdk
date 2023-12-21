@@ -62,6 +62,9 @@ pub use verification::{
 use vodozemac::{Curve25519PublicKey, Ed25519PublicKey};
 
 /// Struct collecting data that is important to migrate to the rust-sdk
+///
+/// This is a replacement for [`matrix_sdk_libolm_migration::MigrationData`],
+/// which replaces some of the fields with UniFFI-specific types.
 #[derive(Deserialize, Serialize, uniffi::Record)]
 pub struct MigrationData {
     /// The pickled version of the Olm Account
@@ -82,6 +85,26 @@ pub struct MigrationData {
     tracked_users: Vec<String>,
     /// Map of room settings
     room_settings: HashMap<String, RoomSettings>,
+}
+
+impl From<MigrationData> for matrix_sdk_libolm_migration::MigrationData {
+    fn from(value: MigrationData) -> Self {
+        matrix_sdk_libolm_migration::MigrationData {
+            account: value.account,
+            sessions: value.sessions,
+            inbound_group_sessions: value.inbound_group_sessions,
+            pickle_key: value.pickle_key,
+            backup_version: value.backup_version,
+            backup_recovery_key: value.backup_recovery_key,
+            cross_signing: value.cross_signing.into(),
+            tracked_users: value.tracked_users,
+            room_settings: value
+                .room_settings
+                .into_iter()
+                .map(|(key, settings)| (key, settings.into()))
+                .collect(),
+        }
+    }
 }
 
 /// Migrate a libolm based setup to a vodozemac based setup stored in a SQLite
@@ -108,13 +131,13 @@ pub fn migrate(
 ) -> Result<(), MigrationError> {
     let runtime = Runtime::new().context("initializing tokio runtime")?;
     runtime.block_on(async move {
-        migrate_data(data, &path, passphrase, progress_listener).await?;
+        migrate_data(data.into(), &path, passphrase, progress_listener).await?;
         Ok(())
     })
 }
 
 async fn migrate_data(
-    mut data: MigrationData,
+    mut data: matrix_sdk_libolm_migration::MigrationData,
     path: &str,
     passphrase: Option<String>,
     progress_listener: Box<dyn ProgressListener>,
@@ -208,8 +231,7 @@ async fn migrate_data(
 
     let mut room_settings = HashMap::new();
     for (room_id, settings) in data.room_settings {
-        let room_id = RoomId::parse(room_id)?;
-        room_settings.insert(room_id, settings.into());
+        room_settings.insert(RoomId::parse(room_id)?, settings);
     }
 
     store.save_pending_changes(PendingChanges { account: Some(account) }).await?;

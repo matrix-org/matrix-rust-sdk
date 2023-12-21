@@ -776,7 +776,7 @@ pub struct BackupKeys {
 
 /// A struct containing private cross signing keys that can be backed up or
 /// uploaded to the secret store.
-#[derive(Default, Zeroize)]
+#[derive(Default, Zeroize, Deserialize, Serialize)]
 #[zeroize(drop)]
 pub struct CrossSigningKeyExport {
     /// The seed of the master key encoded as unpadded base64.
