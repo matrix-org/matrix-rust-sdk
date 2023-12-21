@@ -212,6 +212,7 @@ async fn test_room_avatar_group_conversation() -> Result<()> {
     Ok(())
 }
 
+#[ignore = "times out or fails assertions in code coverage builds (#2963)"]
 #[tokio::test]
 async fn test_room_notification_count() -> Result<()> {
     let bob =
@@ -360,7 +361,6 @@ async fn test_room_notification_count() -> Result<()> {
         // The highlight also counts as a notification.
         assert_eq!(alice_room.num_unread_messages(), 2);
         assert_eq!(alice_room.num_unread_notifications(), 2);
-        // One new highlight.
         assert_eq!(alice_room.num_unread_mentions(), 1);
         break;
     }
@@ -434,7 +434,6 @@ async fn test_room_notification_count() -> Result<()> {
     // exists.
     assert_eq!(alice_room.num_unread_messages(), 1);
     assert_eq!(alice_room.num_unread_notifications(), 0);
-    // One new highlight.
     assert_eq!(alice_room.num_unread_mentions(), 0);
 
     assert_pending!(info_updates);
