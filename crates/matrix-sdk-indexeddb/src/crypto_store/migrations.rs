@@ -463,7 +463,7 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(s.session_id(), backed_up_session.session_id());
-        assert_eq!(s.backed_up(), true);
+        assert!(s.backed_up());
 
         let s = store
             .get_inbound_group_session(room_id, not_backed_up_session.session_id())
@@ -471,7 +471,7 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(s.session_id(), not_backed_up_session.session_id());
-        assert_eq!(s.backed_up(), false);
+        assert!(!s.backed_up());
     }
 
     fn create_sessions(room_id: &RoomId) -> (InboundGroupSession, InboundGroupSession) {
