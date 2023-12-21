@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 /// Struct collecting data that is important to migrate to the rust-sdk
 // We can't `derive(uniffi::Record)` on this because `CrossSigningKeyExport` and
 // `RoomSettings` have their own wrapper types in the ffi bindings.
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Debug)]
 pub struct MigrationData {
     /// The pickled version of the Olm Account
     pub account: PickledAccount,

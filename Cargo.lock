@@ -3300,9 +3300,13 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "matrix-sdk-crypto",
+ "matrix-sdk-sqlite",
  "ruma",
  "serde",
+ "serde_json",
+ "tempfile",
  "thiserror",
+ "tokio",
  "uniffi",
  "vodozemac",
  "zeroize",

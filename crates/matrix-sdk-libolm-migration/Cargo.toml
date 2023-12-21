@@ -16,3 +16,10 @@ thiserror = { workspace = true }
 vodozemac = { workspace = true }
 zeroize = { workspace = true }
 ruma = { workspace = true }
+
+[dev-dependencies]
+matrix-sdk-sqlite = { path = "../matrix-sdk-sqlite", features = ["crypto-store"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tempfile = "3.8.1"
+tokio = { workspace = true, features = ["rt", "macros"] }
