@@ -113,10 +113,10 @@ impl BaseClient {
     /// * `response` - The response that we received after a successful sliding
     ///   sync.
     #[instrument(skip_all, level = "trace")]
-    pub async fn process_sliding_sync(
+    pub async fn process_sliding_sync<PEP: PreviousEventsProvider>(
         &self,
         response: &v4::Response,
-        previous_events_provider: &dyn PreviousEventsProvider,
+        previous_events_provider: &PEP,
     ) -> Result<SyncResponse> {
         let v4::Response {
             // FIXME not yet supported by sliding sync. see

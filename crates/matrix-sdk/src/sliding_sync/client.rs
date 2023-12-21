@@ -3,7 +3,6 @@ use std::collections::BTreeMap;
 use imbl::Vector;
 use matrix_sdk_base::{sync::SyncResponse, PreviousEventsProvider};
 use ruma::{api::client::sync::sync_events::v4, events::AnyToDeviceEvent, serde::Raw, OwnedRoomId};
-use tracing::{debug, instrument};
 
 use super::{SlidingSync, SlidingSyncBuilder};
 use crate::{Client, Result, SlidingSyncRoom};
@@ -22,14 +21,15 @@ impl Client {
     ///
     /// If you need to handle encryption too, use the internal
     /// `SlidingSyncResponseProcessor` instead.
-    #[instrument(skip(self, response))]
+    #[cfg(any(test, feature = "testing"))]
+    #[tracing::instrument(skip(self, response))]
     pub async fn process_sliding_sync_test_helper(
         &self,
         response: &v4::Response,
     ) -> Result<SyncResponse> {
         let response = self.base_client().process_sliding_sync(response, &()).await?;
 
-        debug!("done processing on base_client");
+        tracing::debug!("done processing on base_client");
         self.handle_sync_response(&response).await?;
 
         Ok(response)
