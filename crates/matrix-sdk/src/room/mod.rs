@@ -421,7 +421,7 @@ impl Room {
                 changes.add_room(room_info.clone());
 
                 self.client.store().save_changes(&changes).await?;
-                self.update_summary(room_info);
+                self.set_room_info(room_info);
 
                 Ok(())
             })

@@ -630,9 +630,10 @@ impl Room {
         self.inner.get()
     }
 
-    /// Update the summary with given RoomInfo
-    pub fn update_summary(&self, summary: RoomInfo) {
-        self.inner.set(summary);
+    /// Update the inner summary with the given RoomInfo, and notify
+    /// subscribers.
+    pub fn set_room_info(&self, room_info: RoomInfo) {
+        self.inner.set(room_info);
     }
 
     /// Get the `RoomMember` with the given `user_id`.
@@ -1741,7 +1742,7 @@ mod tests {
         let event = make_latest_event("$A");
         let mut changes = StateChanges::default();
         room.on_latest_event_decrypted(event.clone(), 0, &mut changes);
-        room.update_summary(changes.room_infos.get(room.room_id()).cloned().unwrap());
+        room.set_room_info(changes.room_infos.get(room.room_id()).cloned().unwrap());
 
         // Then is it stored
         assert_eq!(room.latest_event().unwrap().event_id(), event.event_id());
@@ -1763,7 +1764,7 @@ mod tests {
         let new_event_index = 1;
         let mut changes = StateChanges::default();
         room.on_latest_event_decrypted(new_event.clone(), new_event_index, &mut changes);
-        room.update_summary(changes.room_infos.get(room.room_id()).cloned().unwrap());
+        room.set_room_info(changes.room_infos.get(room.room_id()).cloned().unwrap());
 
         // Then the encrypted events list is shortened to only newer events
         let enc_evs = room.latest_encrypted_events();
@@ -1790,7 +1791,7 @@ mod tests {
         let new_event_index = 3;
         let mut changes = StateChanges::default();
         room.on_latest_event_decrypted(new_event, new_event_index, &mut changes);
-        room.update_summary(changes.room_infos.get(room.room_id()).cloned().unwrap());
+        room.set_room_info(changes.room_infos.get(room.room_id()).cloned().unwrap());
 
         // Then the encrypted events list ie empty
         let enc_evs = room.latest_encrypted_events();
