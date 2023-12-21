@@ -1452,6 +1452,21 @@ mod tests {
         let initial_olm_machine =
             client1.olm_machine().await.clone().expect("must have an olm machine");
 
+        // Also enable backup to check that new machine has the same backup keys.
+        let decryption_key = matrix_sdk_base::crypto::store::BackupDecryptionKey::new()
+            .expect("Can't create new recovery key");
+        let backup_key = decryption_key.megolm_v1_public_key();
+        backup_key.set_version("1".to_owned());
+        initial_olm_machine
+            .backup_machine()
+            .save_decryption_key(Some(decryption_key.to_owned()), Some("1".to_owned()))
+            .await
+            .expect("Should save");
+
+        initial_olm_machine.backup_machine().enable_backup_v1(backup_key.clone()).await.unwrap();
+
+        assert!(client1.encryption().backups().are_enabled().await);
+
         // The other client can't take the lock too.
         let acquired2 = client2.encryption().try_lock_store_once().await.unwrap();
         assert!(acquired2.is_none());
@@ -1486,7 +1501,16 @@ mod tests {
 
         // But now its olm machine has been invalidated and thus regenerated!
         let olm_machine = client1.olm_machine().await.clone().expect("must have an olm machine");
+
         assert!(!initial_olm_machine.same_as(&olm_machine));
+
+        let backup_key_new = olm_machine.backup_machine().get_backup_keys().await.unwrap();
+        assert!(backup_key_new.decryption_key.is_some());
+        assert_eq!(
+            backup_key_new.decryption_key.unwrap().megolm_v1_public_key().to_base64(),
+            backup_key.to_base64()
+        );
+        assert!(client1.encryption().backups().are_enabled().await);
     }
 
     #[cfg(feature = "sqlite")]
