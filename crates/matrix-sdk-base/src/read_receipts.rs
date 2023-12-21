@@ -79,7 +79,7 @@ impl PreviousEventsProvider for () {
 ///
 /// See this module's documentation for more information.
 #[instrument(skip_all, fields(room_id = %room_info.room_id))]
-pub(crate) async fn compute_notifications<PEP: PreviousEventsProvider>(
+pub(crate) fn compute_notifications<PEP: PreviousEventsProvider>(
     client: &BaseClient,
     changes: &StateChanges,
     previous_events_provider: &PEP,

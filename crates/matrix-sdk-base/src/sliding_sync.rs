@@ -238,8 +238,7 @@ impl BaseClient {
                     previous_events_provider,
                     &joined_room_update.timeline.events,
                     &mut room_info,
-                )
-                .await?;
+                )?;
 
                 changes.add_room(room_info);
             }
