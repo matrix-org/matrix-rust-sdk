@@ -37,6 +37,12 @@ enum SwiftCommand {
         /// components-folder
         #[clap(long)]
         components_path: Option<Utf8PathBuf>,
+
+        /// Build the targets one by one instead of passing all of them
+        /// to cargo in one go, which makes it hang on lesser devices like plain
+        /// Apple Silicon M1s
+        #[clap(long)]
+        sequentially: bool,
     },
 }
 
@@ -46,9 +52,15 @@ impl SwiftArgs {
 
         match self.cmd {
             SwiftCommand::BuildLibrary => build_library(),
-            SwiftCommand::BuildFramework { release, profile, components_path, only_target } => {
+            SwiftCommand::BuildFramework {
+                release,
+                profile,
+                components_path,
+                only_target,
+                sequentially,
+            } => {
                 let profile = profile.as_deref().unwrap_or(if release { "release" } else { "dev" });
-                build_xcframework(profile, only_target, components_path)
+                build_xcframework(profile, only_target, components_path, sequentially)
             }
         }
     }
@@ -96,10 +108,18 @@ fn build_path_for_target(target: &str, profile: &str) -> Result<Utf8PathBuf> {
     Ok(workspace::target_path()?.join(target).join(profile_dir_name).join(FFI_LIBRARY_NAME))
 }
 
+fn build_for_target(target: &str, profile: &str) -> Result<Utf8PathBuf> {
+    cmd!("rustup run stable cargo build -p matrix-sdk-ffi --target {target} --profile {profile}")
+        .run()?;
+
+    build_path_for_target(target, profile)
+}
+
 fn build_xcframework(
     profile: &str,
     only_target: Option<String>,
     components_path: Option<Utf8PathBuf>,
+    sequentially: bool,
 ) -> Result<()> {
     let root_dir = workspace::root_path()?;
     let apple_dir = root_dir.join("bindings/apple");
@@ -125,6 +145,39 @@ fn build_xcframework(
         let build_path = build_path_for_target(target.as_str(), profile)?;
 
         (vec![build_path.clone()], build_path)
+    } else if sequentially {
+        println!("-- Building for iOS [1/5]");
+        let ios_path = build_for_target("aarch64-apple-ios", profile)?;
+
+        println!("-- Building for macOS (Apple Silicon) [2/5]");
+        let darwin_arm_path = build_for_target("aarch64-apple-darwin", profile)?;
+        println!("-- Building for macOS (Intel) [3/5]");
+        let darwin_x86_path = build_for_target("x86_64-apple-darwin", profile)?;
+
+        println!("-- Building for iOS Simulator (Apple Silicon) [4/5]");
+        let ios_sim_arm_path = build_for_target("aarch64-apple-ios-sim", profile)?;
+        println!("-- Building for iOS Simulator (Intel) [5/5]");
+        let ios_sim_x86_path = build_for_target("x86_64-apple-ios", profile)?;
+
+        println!("-- Running Lipo for macOS [1/2]");
+        // macOS
+        let lipo_target_macos = generated_dir.join("libmatrix_sdk_ffi_macos.a");
+        cmd!(
+            "lipo -create {darwin_x86_path} {darwin_arm_path}
+            -output {lipo_target_macos}"
+        )
+        .run()?;
+
+        println!("-- Running Lipo for iOS Simulator [2/2]");
+        // iOS Simulator
+        let lipo_target_sim = generated_dir.join("libmatrix_sdk_ffi_iossimulator.a");
+        cmd!(
+            "lipo -create {ios_sim_arm_path} {ios_sim_x86_path}
+            -output {lipo_target_sim}"
+        )
+        .run()?;
+
+        (vec![lipo_target_macos, lipo_target_sim, ios_path], darwin_x86_path)
     } else {
         println!("-- Building for 5 targets");
 
