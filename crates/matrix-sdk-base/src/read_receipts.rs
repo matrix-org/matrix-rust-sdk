@@ -45,7 +45,7 @@ use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
 use ruma::{
     events::{
         poll::{start::PollStartEventContent, unstable_start::UnstablePollStartEventContent},
-        receipt::{ReceiptThread, ReceiptType},
+        receipt::{ReceiptEventContent, ReceiptThread, ReceiptType},
         room::message::Relation,
         AnySyncMessageLikeEvent, AnySyncTimelineEvent, OriginalSyncMessageLikeEvent,
         SyncMessageLikeEvent,
@@ -56,8 +56,7 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 use tracing::{instrument, trace};
 
-use super::BaseClient;
-use crate::{error::Result, store::StateChanges, RoomInfo};
+use crate::error::Result;
 
 /// Information about read receipts collected during processing of that room.
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
@@ -152,25 +151,25 @@ impl PreviousEventsProvider for () {
 }
 
 /// Given a set of events coming from sync, for a room, update the
-/// [`RoomInfo`]'s counts of unread messages, notifications and highlights' in
-/// place.
+/// [`RoomReadReceipts`]'s counts of unread messages, notifications and
+/// highlights' in place.
 ///
 /// A provider of previous events may be required to reconcile a read receipt
 /// that has been just received for an event that came in a previous sync.
 ///
 /// See this module's documentation for more information.
-#[instrument(skip_all, fields(room_id = %room_info.room_id))]
+#[instrument(skip_all, fields(room_id = %room_id, ?read_receipts))]
 pub(crate) fn compute_notifications<PEP: PreviousEventsProvider>(
-    client: &BaseClient,
-    changes: &StateChanges,
+    user_id: &UserId,
+    room_id: &RoomId,
+    receipt_event: Option<&ReceiptEventContent>,
     previous_events_provider: &PEP,
     new_events: &[SyncTimelineEvent],
-    room_info: &mut RoomInfo,
+    read_receipts: &mut RoomReadReceipts,
 ) -> Result<()> {
-    let user_id = &client.session_meta().unwrap().user_id;
-    let prev_latest_receipt_event_id = room_info.read_receipts.latest_read_receipt_event_id.clone();
+    let prev_latest_receipt_event_id = read_receipts.latest_read_receipt_event_id.clone();
 
-    if let Some(receipt_event) = changes.receipts.get(room_info.room_id()) {
+    if let Some(receipt_event) = receipt_event {
         trace!("Got a new receipt event!");
 
         // Find a private or public read receipt for the current user.
@@ -192,13 +191,12 @@ pub(crate) fn compute_notifications<PEP: PreviousEventsProvider>(
             // about.
 
             // First, save the event id as the latest one that has a read receipt.
-            room_info.read_receipts.latest_read_receipt_event_id = Some(receipt_event_id.clone());
+            read_receipts.latest_read_receipt_event_id = Some(receipt_event_id.clone());
 
             // Try to find if the read receipt refers to an event from the current sync, to
             // avoid searching the cached timeline events.
             trace!("We got a new event with a read receipt: {receipt_event_id}. Search in new events...");
-            if room_info.read_receipts.find_and_count_events(&receipt_event_id, user_id, new_events)
-            {
+            if read_receipts.find_and_count_events(&receipt_event_id, user_id, new_events) {
                 // It did, so our work here is done.
                 return Ok(());
             }
@@ -206,10 +204,10 @@ pub(crate) fn compute_notifications<PEP: PreviousEventsProvider>(
             // We didn't find the event attached to the receipt in the new batches of
             // events. It's possible it's referring to an event we've already
             // seen. In that case, try to find it.
-            let previous_events = previous_events_provider.for_room(&room_info.room_id);
+            let previous_events = previous_events_provider.for_room(room_id);
 
             trace!("Couldn't find the event attached to the receipt in the new events; looking in past events too now...");
-            if room_info.read_receipts.find_and_count_events(
+            if read_receipts.find_and_count_events(
                 &receipt_event_id,
                 user_id,
                 previous_events.iter().chain(new_events.iter()),
@@ -225,7 +223,7 @@ pub(crate) fn compute_notifications<PEP: PreviousEventsProvider>(
         // properly processed, and we only need to process the new events based
         // on the previous receipt.
         trace!("No new receipts, or couldn't find attached event; looking if the past latest known receipt refers to a new event...");
-        if room_info.read_receipts.find_and_count_events(&receipt_event_id, user_id, new_events) {
+        if read_receipts.find_and_count_events(&receipt_event_id, user_id, new_events) {
             // We found the event to which the previous receipt attached to, so our work is
             // done here.
             return Ok(());
@@ -240,7 +238,7 @@ pub(crate) fn compute_notifications<PEP: PreviousEventsProvider>(
     // for the next receipt.
     trace!("Default path: including all new events for the receipts count.");
     for event in new_events {
-        room_info.read_receipts.update_for_event(event, user_id);
+        read_receipts.update_for_event(event, user_id);
     }
 
     Ok(())
