@@ -1,3 +1,44 @@
+// Copyright 2023 The Matrix.org Foundation C.I.C.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+//! # Client-side read receipts computation
+//!
+//! While Matrix servers have the ability to provide basic information about the
+//! unread status of rooms, via [`matrix_sdk::ruma::UnreadNotificationCounts`],
+//! it's not reliable for encrypted rooms. Indeed, the server doesn't have
+//! access to the content of encrypted events, so it can only makes guesses when
+//! estimating unread and highlight counts.
+//!
+//! Instead, this module provides facilities to compute the number of unread
+//! messages, unread notifications and unread highlights in a room.
+//!
+//! Counting unread messages is performed by looking at the latest receipt of
+//! the current user, and inferring which events are following it, according to
+//! the sync ordering.
+//!
+//! For notifications and highlights to be precisely accounted for, we also need
+//! to pay attention to the user's notification settings. Fortunately, this is
+//! also something we need to for notifications, so we can reuse this code.
+//!
+//! Of course, not all events are created equal, and some are less interesting
+//! than others, and shouldn't cause a room to be marked unread. This module's
+//! `marks_as_unread` function shows the opiniated set of rules that will filter
+//! out uninterested events.
+//!
+//! The only public method in that module is [`compute_notifications`], which
+//! updates the `RoomInfo` in place according to the new counts.
+
 use eyeball_im::Vector;
 use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
 use ruma::{
@@ -29,11 +70,19 @@ impl PreviousEventsProvider for () {
     }
 }
 
+/// Given a set of events coming from sync, for a room, update the
+/// [`RoomInfo`]'s counts of unread messages, notifications and highlights' in
+/// place.
+///
+/// A provider of previous events may be required to reconcile a read receipt
+/// that has been just received for an event that came in a previous sync.
+///
+/// See this module's documentation for more information.
 #[instrument(skip_all, fields(room_id = %room_info.room_id))]
-pub(crate) async fn compute_notifications(
+pub(crate) async fn compute_notifications<PEP: PreviousEventsProvider>(
     client: &BaseClient,
     changes: &StateChanges,
-    previous_events_provider: &dyn PreviousEventsProvider,
+    previous_events_provider: &PEP,
     new_events: &[SyncTimelineEvent],
     room_info: &mut RoomInfo,
 ) -> Result<()> {
@@ -45,15 +94,9 @@ pub(crate) async fn compute_notifications(
 
         // Find a private or public read receipt for the current user.
         let mut receipt_event_id = None;
-        if let Some((event_id, receipt)) =
-            receipt_event.user_receipt(user_id, ReceiptType::ReadPrivate)
-        {
-            if receipt.thread == ReceiptThread::Unthreaded || receipt.thread == ReceiptThread::Main
-            {
-                receipt_event_id = Some(event_id.to_owned());
-            }
-        } else if let Some((event_id, receipt)) =
-            receipt_event.user_receipt(user_id, ReceiptType::Read)
+        if let Some((event_id, receipt)) = receipt_event
+            .user_receipt(user_id, ReceiptType::Read)
+            .or_else(|| receipt_event.user_receipt(user_id, ReceiptType::ReadPrivate))
         {
             if receipt.thread == ReceiptThread::Unthreaded || receipt.thread == ReceiptThread::Main
             {
@@ -70,10 +113,10 @@ pub(crate) async fn compute_notifications(
             // First, save the event id as the latest one that has a read receipt.
             room_info.read_receipts.latest_read_receipt_event_id = Some(receipt_event_id.clone());
 
-            // Try to find if the read receipts refers to an event from the current sync, to
+            // Try to find if the read receipt refers to an event from the current sync, to
             // avoid searching the cached timeline events.
             trace!("We got a new event with a read receipt: {receipt_event_id}. Search in new events...");
-            if find_and_count_events(&receipt_event_id, user_id, new_events.iter(), room_info) {
+            if find_and_count_events(&receipt_event_id, user_id, new_events, room_info) {
                 // It did, so our work here is done.
                 return Ok(());
             }
@@ -101,7 +144,7 @@ pub(crate) async fn compute_notifications(
         // properly processed, and we only need to process the new events based
         // on the previous receipt.
         trace!("No new receipts, or couldn't find attached event; looking if the past latest known receipt refers to a new event...");
-        if find_and_count_events(&receipt_event_id, user_id, new_events.iter(), room_info) {
+        if find_and_count_events(&receipt_event_id, user_id, new_events, room_info) {
             // We found the event to which the previous receipt attached to, so our work is
             // done here.
             return Ok(());
@@ -148,7 +191,7 @@ fn count_unread_and_mentions(
 fn find_and_count_events<'a>(
     receipt_event_id: &EventId,
     user_id: &UserId,
-    events: impl Iterator<Item = &'a SyncTimelineEvent>,
+    events: impl IntoIterator<Item = &'a SyncTimelineEvent>,
     room_info: &mut RoomInfo,
 ) -> bool {
     let mut counting_receipts = false;
