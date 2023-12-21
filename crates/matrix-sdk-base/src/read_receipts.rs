@@ -169,7 +169,12 @@ pub(crate) fn compute_notifications<PEP: PreviousEventsProvider>(
             // Try to find if the read receipt refers to an event from the current sync, to
             // avoid searching the cached timeline events.
             trace!("We got a new event with a read receipt: {receipt_event_id}. Search in new events...");
-            if find_and_count_events(&receipt_event_id, user_id, new_events, room_info) {
+            if find_and_count_events(
+                &receipt_event_id,
+                user_id,
+                new_events,
+                &mut room_info.read_receipts,
+            ) {
                 // It did, so our work here is done.
                 return Ok(());
             }
@@ -184,7 +189,7 @@ pub(crate) fn compute_notifications<PEP: PreviousEventsProvider>(
                 &receipt_event_id,
                 user_id,
                 previous_events.iter().chain(new_events.iter()),
-                room_info,
+                &mut room_info.read_receipts,
             ) {
                 // It did refer to an old event, so our work here is done.
                 return Ok(());
@@ -197,7 +202,12 @@ pub(crate) fn compute_notifications<PEP: PreviousEventsProvider>(
         // properly processed, and we only need to process the new events based
         // on the previous receipt.
         trace!("No new receipts, or couldn't find attached event; looking if the past latest known receipt refers to a new event...");
-        if find_and_count_events(&receipt_event_id, user_id, new_events, room_info) {
+        if find_and_count_events(
+            &receipt_event_id,
+            user_id,
+            new_events,
+            &mut room_info.read_receipts,
+        ) {
             // We found the event to which the previous receipt attached to, so our work is
             // done here.
             return Ok(());
@@ -226,18 +236,18 @@ fn find_and_count_events<'a>(
     receipt_event_id: &EventId,
     user_id: &UserId,
     events: impl IntoIterator<Item = &'a SyncTimelineEvent>,
-    room_info: &mut RoomInfo,
+    read_receipts: &mut RoomReadReceipts,
 ) -> bool {
     let mut counting_receipts = false;
     for event in events {
         if counting_receipts {
-            room_info.read_receipts.update_for_event(event, user_id);
+            read_receipts.update_for_event(event, user_id);
         } else if let Ok(Some(event_id)) = event.event.get_field::<OwnedEventId>("event_id") {
             if event_id == receipt_event_id {
                 // Bingo! Switch over to the counting state, after resetting the
                 // previous counts.
                 trace!("Found the event the receipt was referring to! Starting to count.");
-                room_info.read_receipts.reset();
+                read_receipts.reset();
                 counting_receipts = true;
             }
         }
@@ -342,9 +352,11 @@ mod tests {
 
     use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
     use matrix_sdk_test::sync_timeline_event;
-    use ruma::{event_id, push::Action, user_id, UserId};
+    use ruma::{event_id, push::Action, user_id, EventId, UserId};
 
     use crate::read_receipts::{marks_as_unread, RoomReadReceipts};
+
+    use super::find_and_count_events;
 
     #[test]
     fn test_room_message_marks_as_unread() {
@@ -540,5 +552,107 @@ mod tests {
         assert_eq!(receipts.num_unread, 1);
         assert_eq!(receipts.num_mentions, 0);
         assert_eq!(receipts.num_notifications, 1);
+    }
+
+    #[test]
+    fn test_find_and_count_events() {
+        let ev0 = event_id!("$0");
+        let user_id = user_id!("@alice:example.org");
+
+        // When provided with no events, we report not finding the event to which the
+        // receipt relates.
+        let mut receipts = RoomReadReceipts::default();
+        assert!(find_and_count_events(ev0, user_id, &[], &mut receipts).not());
+        assert_eq!(receipts.num_unread, 0);
+        assert_eq!(receipts.num_notifications, 0);
+        assert_eq!(receipts.num_mentions, 0);
+
+        // When provided with one event, that's not the receipt event, we don't count
+        // it.
+        fn make_event(event_id: &EventId) -> SyncTimelineEvent {
+            SyncTimelineEvent {
+                event: sync_timeline_event!({
+                    "sender": "@bob:example.org",
+                    "type": "m.room.message",
+                    "event_id": event_id,
+                    "origin_server_ts": 12344446,
+                    "content": { "body":"A", "msgtype": "m.text" },
+                }),
+                encryption_info: None,
+                push_actions: Vec::new(),
+            }
+        }
+
+        let mut receipts = RoomReadReceipts {
+            num_unread: 42,
+            num_notifications: 13,
+            num_mentions: 37,
+            latest_read_receipt_event_id: None,
+        };
+        assert!(find_and_count_events(ev0, user_id, &[make_event(event_id!("$1"))], &mut receipts)
+            .not());
+        assert_eq!(receipts.num_unread, 42);
+        assert_eq!(receipts.num_notifications, 13);
+        assert_eq!(receipts.num_mentions, 37);
+
+        // When provided with one event that's the receipt target, we find it, reset the
+        // count, and since there's nothing else, we stop there and end up with
+        // zero counts.
+        let mut receipts = RoomReadReceipts {
+            num_unread: 42,
+            num_notifications: 13,
+            num_mentions: 37,
+            latest_read_receipt_event_id: None,
+        };
+        assert!(find_and_count_events(ev0, user_id, &[make_event(ev0)], &mut receipts));
+        assert_eq!(receipts.num_unread, 0);
+        assert_eq!(receipts.num_notifications, 0);
+        assert_eq!(receipts.num_mentions, 0);
+
+        // When provided with multiple events and not the receipt event, we do not count
+        // anything..
+        let mut receipts = RoomReadReceipts {
+            num_unread: 42,
+            num_notifications: 13,
+            num_mentions: 37,
+            latest_read_receipt_event_id: None,
+        };
+        assert!(find_and_count_events(
+            ev0,
+            user_id,
+            &[
+                make_event(event_id!("$1")),
+                make_event(event_id!("$2")),
+                make_event(event_id!("$3"))
+            ],
+            &mut receipts
+        )
+        .not());
+        assert_eq!(receipts.num_unread, 42);
+        assert_eq!(receipts.num_notifications, 13);
+        assert_eq!(receipts.num_mentions, 37);
+
+        // When provided with multiple events including one that's the receipt event, we
+        // find it and count from it.
+        let mut receipts = RoomReadReceipts {
+            num_unread: 42,
+            num_notifications: 13,
+            num_mentions: 37,
+            latest_read_receipt_event_id: None,
+        };
+        assert!(find_and_count_events(
+            ev0,
+            user_id,
+            &[
+                make_event(event_id!("$1")),
+                make_event(ev0),
+                make_event(event_id!("$2")),
+                make_event(event_id!("$3"))
+            ],
+            &mut receipts
+        ));
+        assert_eq!(receipts.num_unread, 2);
+        assert_eq!(receipts.num_notifications, 0);
+        assert_eq!(receipts.num_mentions, 0);
     }
 }
