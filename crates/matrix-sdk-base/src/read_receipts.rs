@@ -78,6 +78,25 @@ pub(crate) struct RoomReadReceipts {
     latest_read_receipt_event_id: Option<OwnedEventId>,
 }
 
+impl RoomReadReceipts {
+    /// Update the [`RoomReadReceipts`] unread counts according to the new
+    /// event.
+    #[inline(always)]
+    fn update_for_event(&mut self, event: &SyncTimelineEvent, user_id: &UserId) {
+        if marks_as_unread(&event.event, user_id) {
+            self.num_unread += 1;
+        }
+        for action in &event.push_actions {
+            if action.should_notify() {
+                self.num_notifications += 1;
+            }
+            if action.is_highlight() {
+                self.num_mentions += 1;
+            }
+        }
+    }
+}
+
 /// Provider for timeline events prior to the current sync.
 pub trait PreviousEventsProvider: Send + Sync {
     /// Returns the list of known timeline events, in sync order, for the given
@@ -180,30 +199,10 @@ pub(crate) fn compute_notifications<PEP: PreviousEventsProvider>(
     // for the next receipt.
     trace!("Default path: including all new events for the receipts count.");
     for event in new_events {
-        count_unread_and_mentions(event, user_id, &mut room_info.read_receipts);
+        room_info.read_receipts.update_for_event(event, user_id);
     }
 
     Ok(())
-}
-
-/// Update the [`RoomReadReceipts`] unread counts according to the new event.
-#[inline(always)]
-fn count_unread_and_mentions(
-    event: &SyncTimelineEvent,
-    user_id: &UserId,
-    receipts: &mut RoomReadReceipts,
-) {
-    if marks_as_unread(&event.event, user_id) {
-        receipts.num_unread += 1;
-    }
-    for action in &event.push_actions {
-        if action.should_notify() {
-            receipts.num_notifications += 1;
-        }
-        if action.is_highlight() {
-            receipts.num_mentions += 1;
-        }
-    }
 }
 
 /// Try to find the event to which the receipt attaches to, and if found, will
@@ -219,7 +218,7 @@ fn find_and_count_events<'a>(
     let mut counting_receipts = false;
     for event in events {
         if counting_receipts {
-            count_unread_and_mentions(event, user_id, &mut room_info.read_receipts);
+            room_info.read_receipts.update_for_event(event, user_id);
         } else if let Ok(Some(event_id)) = event.event.get_field::<OwnedEventId>("event_id") {
             if event_id == receipt_event_id {
                 // Bingo! Switch over to the counting state, after resetting the
@@ -334,7 +333,7 @@ mod tests {
     use matrix_sdk_test::sync_timeline_event;
     use ruma::{event_id, push::Action, user_id, UserId};
 
-    use crate::read_receipts::{count_unread_and_mentions, marks_as_unread, RoomReadReceipts};
+    use crate::read_receipts::{marks_as_unread, RoomReadReceipts};
 
     #[test]
     fn test_room_message_marks_as_unread() {
@@ -481,7 +480,7 @@ mod tests {
         // An interesting event from oneself doesn't count as a new unread message.
         let event = make_event(user_id, Vec::new());
         let mut receipts = RoomReadReceipts::default();
-        count_unread_and_mentions(&event, user_id, &mut receipts);
+        receipts.update_for_event(&event, user_id);
         assert_eq!(receipts.num_unread, 0);
         assert_eq!(receipts.num_mentions, 0);
         assert_eq!(receipts.num_notifications, 0);
@@ -489,7 +488,7 @@ mod tests {
         // An interesting event from someone else does count as a new unread message.
         let event = make_event(user_id!("@bob:example.org"), Vec::new());
         let mut receipts = RoomReadReceipts::default();
-        count_unread_and_mentions(&event, user_id, &mut receipts);
+        receipts.update_for_event(&event, user_id);
         assert_eq!(receipts.num_unread, 1);
         assert_eq!(receipts.num_mentions, 0);
         assert_eq!(receipts.num_notifications, 0);
@@ -497,7 +496,7 @@ mod tests {
         // Push actions computed beforehand are respected.
         let event = make_event(user_id!("@bob:example.org"), vec![Action::Notify]);
         let mut receipts = RoomReadReceipts::default();
-        count_unread_and_mentions(&event, user_id, &mut receipts);
+        receipts.update_for_event(&event, user_id);
         assert_eq!(receipts.num_unread, 1);
         assert_eq!(receipts.num_mentions, 0);
         assert_eq!(receipts.num_notifications, 1);
@@ -507,7 +506,7 @@ mod tests {
             vec![Action::SetTweak(ruma::push::Tweak::Highlight(true))],
         );
         let mut receipts = RoomReadReceipts::default();
-        count_unread_and_mentions(&event, user_id, &mut receipts);
+        receipts.update_for_event(&event, user_id);
         assert_eq!(receipts.num_unread, 1);
         assert_eq!(receipts.num_mentions, 1);
         assert_eq!(receipts.num_notifications, 0);
@@ -517,7 +516,7 @@ mod tests {
             vec![Action::SetTweak(ruma::push::Tweak::Highlight(true)), Action::Notify],
         );
         let mut receipts = RoomReadReceipts::default();
-        count_unread_and_mentions(&event, user_id, &mut receipts);
+        receipts.update_for_event(&event, user_id);
         assert_eq!(receipts.num_unread, 1);
         assert_eq!(receipts.num_mentions, 1);
         assert_eq!(receipts.num_notifications, 1);
