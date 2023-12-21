@@ -1,7 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
 use anyhow::Result;
-use assert_matches2::assert_let;
 use futures_util::{pin_mut, StreamExt as _};
 use matrix_sdk::{
     config::SyncSettings,
@@ -212,9 +211,11 @@ async fn test_room_avatar_group_conversation() -> Result<()> {
     Ok(())
 }
 
-#[ignore = "times out or fails assertions in code coverage builds (#2963)"]
+#[cfg(not(tarpaulin))]
 #[tokio::test]
 async fn test_room_notification_count() -> Result<()> {
+    use tokio::time::timeout;
+
     let bob =
         TestClientBuilder::new("bob".to_owned()).randomize_username().use_sqlite().build().await?;
 
@@ -243,27 +244,12 @@ async fn test_room_notification_count() -> Result<()> {
             .with_account_data_extension(
                 assign!(AccountDataConfig::default(), { enabled: Some(true) }),
             )
+            .with_e2ee_extension(assign!(E2EEConfig::default(), { enabled: Some(true) }))
+            .with_to_device_extension(assign!(ToDeviceConfig::default(), { enabled: Some(true) }))
             .add_list(
                 SlidingSyncList::builder("all")
                     .sync_mode(SlidingSyncMode::new_selective().add_range(0..=20)),
             )
-            .build()
-            .await?;
-
-        async move {
-            let stream = sync.sync();
-            pin_mut!(stream);
-            while let Some(up) = stream.next().await {
-                warn!("received update: {up:?}");
-            }
-        }
-    });
-
-    tokio::task::spawn({
-        let sync = alice
-            .sliding_sync("e2ee")?
-            .with_e2ee_extension(assign!(E2EEConfig::default(), { enabled: Some(true) }))
-            .with_to_device_extension(assign!(ToDeviceConfig::default(), { enabled: Some(true) }))
             .build()
             .await?;
 
@@ -349,21 +335,12 @@ async fn test_room_notification_count() -> Result<()> {
         )
         .await?;
 
-    loop {
-        assert!(info_updates.next().await.is_some());
+    assert!(info_updates.next().await.is_some());
 
-        // FIXME we receive multiple spurious room info updates.
-        if alice_room.num_unread_messages() == 1 && alice_room.num_unread_mentions() == 0 {
-            tracing::warn!("ignoring");
-            continue;
-        }
-
-        // The highlight also counts as a notification.
-        assert_eq!(alice_room.num_unread_messages(), 2);
-        assert_eq!(alice_room.num_unread_notifications(), 2);
-        assert_eq!(alice_room.num_unread_mentions(), 1);
-        break;
-    }
+    // The highlight also counts as a notification.
+    assert_eq!(alice_room.num_unread_messages(), 2);
+    assert_eq!(alice_room.num_unread_notifications(), 2);
+    assert_eq!(alice_room.num_unread_mentions(), 1);
 
     assert_pending!(info_updates);
 
@@ -372,23 +349,14 @@ async fn test_room_notification_count() -> Result<()> {
     alice_room.send_single_receipt(ReceiptType::Read, ReceiptThread::Unthreaded, event_id).await?;
 
     // Remote echo of marking the room as read.
-    assert_let!(Some(_room_info) = info_updates.next().await);
+    assert!(info_updates.next().await.is_some());
 
-    loop {
-        assert!(info_updates.next().await.is_some());
+    // Sometimes, we get a spurious update quickly.
+    let _ = timeout(Duration::from_secs(2), info_updates.next()).await;
 
-        if alice_room.num_unread_messages() == 2 && alice_room.num_unread_mentions() == 1 {
-            // Sometimes we get notified for changes to unrelated, other fields of
-            // `info_updates`.
-            tracing::warn!("ignoring");
-            continue;
-        }
-
-        assert_eq!(alice_room.num_unread_messages(), 0);
-        assert_eq!(alice_room.num_unread_notifications(), 0);
-        assert_eq!(alice_room.num_unread_mentions(), 0);
-        break;
-    }
+    assert_eq!(alice_room.num_unread_messages(), 0);
+    assert_eq!(alice_room.num_unread_notifications(), 0);
+    assert_eq!(alice_room.num_unread_mentions(), 0);
 
     assert_pending!(info_updates);
 
@@ -446,21 +414,12 @@ async fn test_room_notification_count() -> Result<()> {
         )
         .await?;
 
-    loop {
-        assert!(info_updates.next().await.is_some());
+    assert!(info_updates.next().await.is_some());
 
-        // FIXME we receive multiple spurious room info updates.
-        if alice_room.num_unread_messages() == 1 && alice_room.num_unread_mentions() == 0 {
-            tracing::warn!("ignoring");
-            continue;
-        }
-
-        // The highlight also counts as a notification.
-        assert_eq!(alice_room.num_unread_messages(), 2);
-        assert_eq!(alice_room.num_unread_notifications(), 1);
-        assert_eq!(alice_room.num_unread_mentions(), 1);
-        break;
-    }
+    // The highlight also counts as a notification.
+    assert_eq!(alice_room.num_unread_messages(), 2);
+    assert_eq!(alice_room.num_unread_notifications(), 1);
+    assert_eq!(alice_room.num_unread_mentions(), 1);
 
     assert_pending!(info_updates);
 
