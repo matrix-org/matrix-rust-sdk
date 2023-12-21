@@ -916,7 +916,7 @@ impl BaseClient {
         let sync_lock = self.sync_lock().write().await;
         self.store.save_changes(&changes).await?;
         *self.store.sync_token.write().await = Some(response.next_batch.clone());
-        self.apply_changes(&changes).await;
+        self.apply_changes(&changes);
         drop(sync_lock);
 
         info!("Processed a sync response in {:?}", now.elapsed());
@@ -933,7 +933,7 @@ impl BaseClient {
         Ok(response)
     }
 
-    pub(crate) async fn apply_changes(&self, changes: &StateChanges) {
+    pub(crate) fn apply_changes(&self, changes: &StateChanges) {
         if changes.account_data.contains_key(&GlobalAccountDataEventType::IgnoredUserList) {
             self.ignore_user_list_changes.set(());
         }
@@ -1034,7 +1034,7 @@ impl BaseClient {
             changes.add_room(room_info);
 
             self.store.save_changes(&changes).await?;
-            self.apply_changes(&changes).await;
+            self.apply_changes(&changes);
         }
 
         Ok(MembersResponse {
