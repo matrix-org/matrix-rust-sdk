@@ -233,17 +233,16 @@ impl BaseClient {
                 .cloned()
                 .or_else(|| self.get_room(room_id).map(|r| r.clone_info()))
             {
-                // TODO only add the room if there was an update
-                compute_notifications(
+                if compute_notifications(
                     user_id,
                     room_id,
                     changes.receipts.get(room_id),
                     previous_events_provider,
                     &joined_room_update.timeline.events,
                     &mut room_info.read_receipts,
-                )?;
-
-                changes.add_room(room_info);
+                )? {
+                    changes.add_room(room_info);
+                }
             }
         }
 
