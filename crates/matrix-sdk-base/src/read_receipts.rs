@@ -86,12 +86,18 @@ impl RoomReadReceipts {
         if marks_as_unread(&event.event, user_id) {
             self.num_unread += 1;
         }
+
+        let mut has_notify = false;
+        let mut has_mention = false;
+
         for action in &event.push_actions {
-            if action.should_notify() {
+            if !has_notify && action.should_notify() {
                 self.num_notifications += 1;
+                has_notify = true;
             }
-            if action.is_highlight() {
+            if !has_mention && action.is_highlight() {
                 self.num_mentions += 1;
+                has_mention = true;
             }
         }
     }
@@ -519,6 +525,15 @@ mod tests {
         receipts.update_for_event(&event, user_id);
         assert_eq!(receipts.num_unread, 1);
         assert_eq!(receipts.num_mentions, 1);
+        assert_eq!(receipts.num_notifications, 1);
+
+        // Technically this `push_actions` set would be a bug somewhere else, but let's
+        // make sure to resist against it.
+        let event = make_event(user_id!("@bob:example.org"), vec![Action::Notify, Action::Notify]);
+        let mut receipts = RoomReadReceipts::default();
+        receipts.update_for_event(&event, user_id);
+        assert_eq!(receipts.num_unread, 1);
+        assert_eq!(receipts.num_mentions, 0);
         assert_eq!(receipts.num_notifications, 1);
     }
 }
