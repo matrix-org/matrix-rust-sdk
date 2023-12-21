@@ -181,7 +181,7 @@ impl IndexeddbChangesKeyValue {
     }
 
     fn get(&mut self, store: &'static str) -> &mut Vec<DbOperation> {
-        self.store_to_key_values.entry(store).or_insert_with(Vec::new)
+        self.store_to_key_values.entry(store).or_default()
     }
 
     /// Update the store with the stored operation
@@ -431,7 +431,7 @@ impl IndexeddbCryptoStore {
                 let key = self
                     .serializer
                     .encode_key(keys::INBOUND_GROUP_SESSIONS_V2, (room_id, session_id));
-                let value = self.serialize_inbound_group_session(&session).await?;
+                let value = self.serialize_inbound_group_session(session).await?;
                 sessions.push(DbOperation::PutKeyVal { key, value });
             }
         }
