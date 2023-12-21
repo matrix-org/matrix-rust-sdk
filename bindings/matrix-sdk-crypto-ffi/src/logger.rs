@@ -10,7 +10,11 @@ use tracing_subscriber::{fmt::MakeWriter, EnvFilter};
 #[uniffi::export(callback_interface)]
 pub trait Logger: Send {
     /// Called every time the Rust side wants to post a log line.
-    fn log(&self, log_line: String);
+    fn log_debug(&self, message: String, data: serde_json::Value);
+    fn log_info(&self, message: String, data: serde_json::Value);
+    fn log_warn(&self, message: String, data: serde_json::Value);
+    fn log_error(&self, message: String, data: serde_json::Value);
+    // ... additional methods for further log levels if needed
     // TODO add support for different log levels, do this by adding more methods
     // to the trait.
 }
