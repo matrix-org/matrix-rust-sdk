@@ -827,13 +827,19 @@ impl_crypto_store! {
 
         let mut result = Vec::new();
         for _ in 0..limit {
-            result.push(self.deserialize_inbound_group_session(cursor.value())?);
+            result.push(cursor.value());
             if !cursor.continue_cursor()?.await? {
                 break;
             }
         }
 
         tx.await.into_result()?;
+
+        // deserialize and decrypt after the transaction is complete
+        let result = result.into_iter()
+            .filter_map(|v| self.deserialize_inbound_group_session(v).ok())
+            .collect::<Vec<InboundGroupSession>>();
+
         Ok(result)
     }
 
