@@ -437,7 +437,6 @@ impl IndexeddbCryptoStore {
         }
 
         if !changes.outbound_group_sessions.is_empty() {
-            // let sessions = tx.object_store(keys::OUTBOUND_GROUP_SESSIONS)?;
             let sessions = indexeddb_changes.get(keys::OUTBOUND_GROUP_SESSIONS);
 
             for session in &changes.outbound_group_sessions {
@@ -475,7 +474,6 @@ impl IndexeddbCryptoStore {
                 let key = self
                     .serializer
                     .encode_key(keys::DEVICES, (device.user_id(), device.device_id()));
-                // device_store.delete(&key)?;
                 device_store.push(DbOperation::Delete(key));
             }
         }
@@ -523,7 +521,6 @@ impl IndexeddbCryptoStore {
                     let key = self
                         .serializer
                         .encode_key(keys::DIRECT_WITHHELD_INFO, (session_id, &room_id));
-                    // withhelds.put_key_val(&key, &self.serializer.serialize_value(&event)?)?;
                     withhelds.push(DbOperation::PutKeyVal {
                         key,
                         value: self.serializer.serialize_value(&event)?,
@@ -538,7 +535,6 @@ impl IndexeddbCryptoStore {
             for (room_id, settings) in room_settings_changes {
                 let key = self.serializer.encode_key(keys::ROOM_SETTINGS, room_id);
                 let value = self.serializer.serialize_value(&settings)?;
-                // settings_store.put_key_val(&key, &value)?;
                 settings_store.push(DbOperation::PutKeyVal { key, value });
             }
         }
@@ -553,7 +549,6 @@ impl IndexeddbCryptoStore {
                 );
                 let value = self.serializer.serialize_value(&secret)?;
 
-                // secrets_store.put_key_val(&key, &value)?;
                 secret_store.push(DbOperation::PutKeyVal { key, value });
             }
         }
