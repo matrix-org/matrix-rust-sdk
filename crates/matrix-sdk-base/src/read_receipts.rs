@@ -38,6 +38,7 @@
 //!
 //! The only public method in that module is [`compute_notifications`], which
 //! updates the `RoomInfo` in place according to the new counts.
+#![allow(dead_code)] // too many different build configurations, I give up
 
 use eyeball_im::Vector;
 use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
@@ -52,10 +53,30 @@ use ruma::{
     serde::Raw,
     EventId, OwnedEventId, RoomId, UserId,
 };
+use serde::{Deserialize, Serialize};
 use tracing::{instrument, trace};
 
 use super::BaseClient;
-use crate::{error::Result, rooms::normal::RoomReadReceipts, store::StateChanges, RoomInfo};
+use crate::{error::Result, store::StateChanges, RoomInfo};
+
+/// Information about read receipts collected during processing of that room.
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub(crate) struct RoomReadReceipts {
+    /// Does the room have unread messages?
+    pub num_unread: u64,
+
+    /// Does the room have unread events that should notify?
+    pub num_notifications: u64,
+
+    /// Does the room have messages causing highlights for the users? (aka
+    /// mentions)
+    pub num_mentions: u64,
+
+    /// The id of the event the last unthreaded (or main-threaded, for better
+    /// compatibility with clients that have thread support) read receipt is
+    /// attached to.
+    latest_read_receipt_event_id: Option<OwnedEventId>,
+}
 
 /// Provider for timeline events prior to the current sync.
 pub trait PreviousEventsProvider: Send + Sync {
@@ -313,10 +334,7 @@ mod tests {
     use matrix_sdk_test::sync_timeline_event;
     use ruma::{event_id, push::Action, user_id, UserId};
 
-    use crate::{
-        read_receipts::{count_unread_and_mentions, marks_as_unread},
-        rooms::normal::RoomReadReceipts,
-    };
+    use crate::read_receipts::{count_unread_and_mentions, marks_as_unread, RoomReadReceipts};
 
     #[test]
     fn test_room_message_marks_as_unread() {
