@@ -663,7 +663,7 @@ impl BaseClient {
             let mut changes = StateChanges::default();
             changes.add_room(room_info.clone());
             self.store.save_changes(&changes).await?; // Update the store
-            room.update_summary(room_info); // Update the cached room handle
+            room.set_room_info(room_info); // Update the cached room handle
         }
 
         Ok(room)
@@ -684,7 +684,7 @@ impl BaseClient {
             let mut changes = StateChanges::default();
             changes.add_room(room_info.clone());
             self.store.save_changes(&changes).await?; // Update the store
-            room.update_summary(room_info); // Update the cached room handle
+            room.set_room_info(room_info); // Update the cached room handle
         }
 
         Ok(())
@@ -940,7 +940,7 @@ impl BaseClient {
 
         for (room_id, room_info) in &changes.room_infos {
             if let Some(room) = self.store.get_room(room_id) {
-                room.update_summary(room_info.clone())
+                room.set_room_info(room_info.clone())
             }
         }
     }
