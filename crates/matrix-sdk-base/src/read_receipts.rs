@@ -188,7 +188,12 @@ pub(crate) fn compute_notifications<PEP: PreviousEventsProvider>(
         {
             if receipt.thread == ReceiptThread::Unthreaded || receipt.thread == ReceiptThread::Main
             {
-                receipt_event_id = Some(event_id.to_owned());
+                // The server can return the same receipt multiple times.
+                // Do not consider it if it's the same as the previous one, to avoid doing
+                // wasteful work.
+                if Some(event_id) != prev_latest_receipt_event_id.as_deref() {
+                    receipt_event_id = Some(event_id.to_owned());
+                }
             }
         }
 
@@ -350,13 +355,23 @@ fn marks_as_unread(event: &Raw<AnySyncTimelineEvent>, user_id: &UserId) -> bool 
 
 #[cfg(test)]
 mod tests {
-    use std::ops::Not as _;
+    use std::{collections::BTreeMap, ops::Not as _};
 
+    use eyeball_im::Vector;
     use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
     use matrix_sdk_test::sync_timeline_event;
-    use ruma::{event_id, push::Action, user_id, EventId, UserId};
+    use ruma::{
+        assign, event_id,
+        events::receipt::{Receipt, ReceiptEventContent, ReceiptThread, ReceiptType},
+        push::Action,
+        room_id, user_id, EventId, UserId,
+    };
 
-    use crate::read_receipts::{marks_as_unread, RoomReadReceipts};
+    use super::compute_notifications;
+    use crate::{
+        read_receipts::{marks_as_unread, RoomReadReceipts},
+        PreviousEventsProvider,
+    };
 
     #[test]
     fn test_room_message_marks_as_unread() {
@@ -654,5 +669,90 @@ mod tests {
         assert_eq!(receipts.num_unread, 2);
         assert_eq!(receipts.num_notifications, 0);
         assert_eq!(receipts.num_mentions, 0);
+    }
+
+    impl PreviousEventsProvider for Vector<SyncTimelineEvent> {
+        fn for_room(&self, _room_id: &ruma::RoomId) -> Vector<SyncTimelineEvent> {
+            self.clone()
+        }
+    }
+
+    #[test]
+    fn test_compute_notifications() {
+        let user_id = user_id!("@alice:example.org");
+        let other_user_id = user_id!("@bob:example.org");
+        let room_id = room_id!("!room:example.org");
+        let receipt_event_id = event_id!("$1");
+
+        let mut previous_events = Vector::new();
+
+        let ev1 = SyncTimelineEvent::new(sync_timeline_event!({
+            "sender": other_user_id,
+            "type": "m.room.message",
+            "event_id": receipt_event_id,
+            "origin_server_ts": 12344446,
+            "content": { "body":"A", "msgtype": "m.text" },
+        }));
+
+        let ev2 = SyncTimelineEvent::new(sync_timeline_event!({
+            "sender": other_user_id,
+            "type": "m.room.message",
+            "event_id": "$2",
+            "origin_server_ts": 12344446,
+            "content": { "body":"A", "msgtype": "m.text" },
+        }));
+
+        let map = BTreeMap::from([(
+            receipt_event_id.to_owned(),
+            BTreeMap::from([(
+                ReceiptType::Read,
+                BTreeMap::from([(
+                    user_id.to_owned(),
+                    assign!(Receipt::default(), {
+                        thread: ReceiptThread::Unthreaded
+                    }),
+                )]),
+            )]),
+        )]);
+        let receipt_event = ReceiptEventContent(map);
+
+        let mut read_receipts = Default::default();
+        compute_notifications(
+            user_id,
+            room_id,
+            Some(&receipt_event),
+            &previous_events,
+            &[ev1.clone(), ev2.clone()],
+            &mut read_receipts,
+        )
+        .unwrap();
+
+        // It did find the receipt event (ev1) and another one (ev2).
+        assert_eq!(read_receipts.num_unread, 1);
+
+        // Receive the same receipt event, with a new sync event.
+        previous_events.push_back(ev1);
+        previous_events.push_back(ev2);
+
+        let sync_event = SyncTimelineEvent::new(sync_timeline_event!({
+            "sender": other_user_id,
+            "type": "m.room.message",
+            "event_id": "$43",
+            "origin_server_ts": 12344446,
+            "content": { "body":"A", "msgtype": "m.text" },
+        }));
+
+        compute_notifications(
+            user_id,
+            room_id,
+            Some(&receipt_event),
+            &previous_events,
+            &[sync_event],
+            &mut read_receipts,
+        )
+        .unwrap();
+
+        // Only the new event should be added.
+        assert_eq!(read_receipts.num_unread, 2);
     }
 }
