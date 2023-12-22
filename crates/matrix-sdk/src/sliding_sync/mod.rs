@@ -363,7 +363,7 @@ impl SlidingSync {
             let updated_rooms = {
                 let mut rooms_map = self.inner.rooms.write().await;
 
-                let mut updated_rooms = Vec::with_capacity(sliding_sync_response.rooms.len());
+                let mut updated_rooms = Vec::with_capacity(sync_response.rooms.join.len());
 
                 for (room_id, mut room_data) in sliding_sync_response.rooms.into_iter() {
                     // `sync_response` contains the rooms with decrypted events if any, so look at
@@ -399,6 +399,15 @@ impl SlidingSync {
                     updated_rooms.push(room_id);
                 }
 
+                // There might be other rooms that were only mentioned in the sliding sync
+                // extensions part of the response, and thus would result in rooms present in
+                // the `sync_response.join`. Mark them as updated too.
+                //
+                // Since we've removed rooms that were in the room subsection from
+                // `sync_response.rooms.join`, the remaining ones aren't already present in
+                // `updated_rooms` and wouldn't cause any duplicates.
+                updated_rooms.extend(sync_response.rooms.join.keys().cloned());
+
                 updated_rooms
             };
 
@@ -412,18 +421,28 @@ impl SlidingSync {
                 let mut updated_lists = Vec::with_capacity(sliding_sync_response.lists.len());
                 let mut lists = self.inner.lists.write().await;
 
-                for (name, updates) in sliding_sync_response.lists {
-                    let Some(list) = lists.get_mut(&name) else {
+                // Iterate on known lists, not on lists in the response. Rooms may have been
+                // updated that were not involved in any list update.
+                for (name, list) in lists.iter_mut() {
+                    if let Some(updates) = sliding_sync_response.lists.get(name) {
+                        let maximum_number_of_rooms: u32 =
+                            updates.count.try_into().expect("failed to convert `count` to `u32`");
+
+                        if list.update(maximum_number_of_rooms, &updates.ops, &updated_rooms)? {
+                            updated_lists.push(name.clone());
+                        }
+                    } else {
+                        let maximum_number_of_rooms = list.maximum_number_of_rooms().unwrap_or(0);
+                        if list.update(maximum_number_of_rooms, &[], &updated_rooms)? {
+                            updated_lists.push(name.clone());
+                        }
+                    }
+                }
+
+                // Report about unknown lists.
+                for name in sliding_sync_response.lists.keys() {
+                    if !lists.contains_key(name) {
                         error!("Response for list `{name}` - unknown to us; skipping");
-
-                        continue;
-                    };
-
-                    let maximum_number_of_rooms: u32 =
-                        updates.count.try_into().expect("failed to convert `count` to `u32`");
-
-                    if list.update(maximum_number_of_rooms, &updates.ops, &updated_rooms)? {
-                        updated_lists.push(name.clone());
                     }
                 }
 

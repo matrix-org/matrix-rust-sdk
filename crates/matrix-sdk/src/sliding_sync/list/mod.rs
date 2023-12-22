@@ -444,8 +444,8 @@ impl SlidingSyncListInner {
                 // Invalidated rooms must be considered as empty rooms, so let's just filter by
                 // filled rooms.
                 if let RoomListEntry::Filled(room_id) = room_list_entry {
-                    // If room has received an update but that has not been handled by a
-                    // sync operation.
+                    // Some room has received an update but it wasn't caused by a
+                    // sync operation. Force an update for observers.
                     if rooms_that_have_received_an_update.contains(room_id) {
                         rooms_to_update.push((position, room_list_entry.clone()));
                     }
