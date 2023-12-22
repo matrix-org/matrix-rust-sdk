@@ -671,8 +671,8 @@ mod tests {
     use matrix_sdk_common::{deserialized_responses::SyncTimelineEvent, ring_buffer::RingBuffer};
     use matrix_sdk_test::async_test;
     use ruma::{
-        api::client::sync::sync_events::v4,
-        device_id, event_id,
+        api::client::sync::sync_events::{v4, UnreadNotificationsCount},
+        assign, device_id, event_id,
         events::{
             direct::DirectEventContent,
             room::{
@@ -692,6 +692,36 @@ mod tests {
 
     use super::cache_latest_events;
     use crate::{store::MemoryStore, BaseClient, Room, RoomState, SessionMeta};
+
+    #[async_test]
+    async fn test_notification_count_set() {
+        let client = logged_in_client().await;
+
+        let mut response = v4::Response::new("42".to_owned());
+        let room_id = room_id!("!room:example.org");
+        let count = assign!(UnreadNotificationsCount::default(), {
+            highlight_count: Some(uint!(13)),
+            notification_count: Some(uint!(37)),
+        });
+
+        response.rooms.insert(
+            room_id.to_owned(),
+            assign!(v4::SlidingSyncRoom::new(), {
+                unread_notifications: count.clone()
+            }),
+        );
+
+        let sync_response =
+            client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
+
+        // Check it's present in the response.
+        let room = sync_response.rooms.join.get(room_id).unwrap();
+        assert_eq!(room.unread_notifications, count.clone().into());
+
+        // Check it's been updated in the store.
+        let room = client.get_room(room_id).expect("found room");
+        assert_eq!(room.unread_notification_counts(), count.into());
+    }
 
     #[async_test]
     async fn can_process_empty_sliding_sync_response() {
