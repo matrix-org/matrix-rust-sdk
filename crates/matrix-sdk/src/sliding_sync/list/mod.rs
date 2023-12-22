@@ -260,6 +260,12 @@ impl SlidingSyncList {
     pub fn sync_mode(&self) -> SlidingSyncMode {
         self.inner.sync_mode.read().unwrap().clone()
     }
+
+    /// Sets some rooms in the filled state.
+    pub fn set_filled_rooms(&self, rooms: Vec<OwnedRoomId>) {
+        let mut room_list = self.inner.room_list.write().unwrap();
+        room_list.append(rooms.into_iter().map(RoomListEntry::Filled).collect());
+    }
 }
 
 #[derive(Debug)]
