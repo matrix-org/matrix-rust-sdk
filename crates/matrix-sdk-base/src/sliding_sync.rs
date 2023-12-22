@@ -372,6 +372,9 @@ impl BaseClient {
             }
         }
 
+        let notification_count = room_data.unread_notifications.clone().into();
+        room_info.update_notification_count(notification_count);
+
         match room_info.state() {
             RoomState::Joined => {
                 // Ephemeral events are added separately, because we might not
@@ -379,7 +382,6 @@ impl BaseClient {
                 // that room.
                 let ephemeral = Vec::new();
 
-                let notification_counts = room_info.notification_counts;
                 Ok((
                     room_info,
                     Some(JoinedRoom::new(
@@ -387,7 +389,7 @@ impl BaseClient {
                         raw_state_events,
                         room_account_data.unwrap_or_default(),
                         ephemeral,
-                        notification_counts,
+                        notification_count,
                     )),
                     None,
                     None,
