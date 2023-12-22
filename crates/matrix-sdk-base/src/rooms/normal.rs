@@ -1347,7 +1347,8 @@ mod tests {
                 "num_unread": 0,
                 "num_mentions": 0,
                 "num_notifications": 0,
-                "latest_read_receipt_event_id": null,
+                "latest_active": null,
+                "pending": []
             }
         });
 
