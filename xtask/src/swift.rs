@@ -2,7 +2,7 @@ use std::fs::{copy, create_dir_all, remove_dir_all, remove_file, rename};
 
 use camino::{Utf8Path, Utf8PathBuf};
 use clap::{Args, Subcommand};
-use uniffi_bindgen::{bindings::TargetLanguage, library_mode::generate_bindings};
+use uniffi_bindgen::{bindings::TargetLanguage, library_mode::generate_bindings, library_mode::generate_mocks};
 use xshell::{cmd, pushd};
 
 use crate::{workspace, Result};
@@ -33,6 +33,10 @@ enum SwiftCommand {
         #[clap(long)]
         only_target: Option<String>,
 
+        /// Build mocks
+        #[clap(long)]
+        build_mocks: Option<bool>,
+
         /// Move the generated xcframework and swift sources into the given
         /// components-folder
         #[clap(long)]
@@ -43,6 +47,19 @@ enum SwiftCommand {
         /// Apple Silicon M1s
         #[clap(long)]
         sequentially: bool,
+    },
+
+    /// Builds mock files for the SDK for Swift.
+    BuildMocks {
+        /// Library path to use for generating mocks
+        #[clap(long)]
+        library_path: Utf8PathBuf,
+
+        /// Move the generated file source into the given
+        /// output-folder
+        /// Apple Silicon M1s
+        #[clap(long)]
+        output_directory: Option<Utf8PathBuf>,
     },
 }
 
@@ -57,11 +74,13 @@ impl SwiftArgs {
                 profile,
                 components_path,
                 only_target,
+                build_mocks,
                 sequentially,
             } => {
                 let profile = profile.as_deref().unwrap_or(if release { "release" } else { "dev" });
-                build_xcframework(profile, only_target, components_path, sequentially)
+                build_xcframework(profile, only_target, build_mocks.unwrap_or_else(|| false), components_path, sequentially)
             }
+            SwiftCommand::BuildMocks { library_path, output_directory } => build_mocks(&library_path, output_directory),
         }
     }
 }
@@ -85,6 +104,7 @@ fn build_library() -> Result<()> {
     create_dir_all(swift_directory.as_path())?;
 
     generate_uniffi(&ffi_directory.join(FFI_LIBRARY_NAME), &ffi_directory)?;
+    generate_uniffi_mocks(&ffi_directory.join(FFI_LIBRARY_NAME), &ffi_directory)?;
 
     let module_map_file = ffi_directory.join("module.modulemap");
     if module_map_file.exists() {
@@ -118,6 +138,7 @@ fn build_for_target(target: &str, profile: &str) -> Result<Utf8PathBuf> {
 fn build_xcframework(
     profile: &str,
     only_target: Option<String>,
+    build_mocks: bool,
     components_path: Option<Utf8PathBuf>,
     sequentially: bool,
 ) -> Result<()> {
@@ -221,6 +242,11 @@ fn build_xcframework(
     println!("-- Generating uniffi files");
     generate_uniffi(&uniffi_lib_path, &generated_dir)?;
 
+    if build_mocks {
+        println!("-- Generating uniffi mock files");
+        generate_uniffi_mocks(&uniffi_lib_path, &generated_dir)?;
+    }
+
     move_files("h", &generated_dir, &headers_dir)?;
     consolidate_modulemap_files(&generated_dir, &headers_dir)?;
 
@@ -313,5 +339,22 @@ fn consolidate_modulemap_files(source: &Utf8PathBuf, destination: &Utf8PathBuf) 
     }
 
     std::fs::write(destination.join("module.modulemap"), modulemap)?;
+    Ok(())
+}
+
+fn build_mocks(
+    library_path: &Utf8Path,
+    output_directory: Option<Utf8PathBuf>
+) -> Result<()> {
+    let output_directory = output_directory.unwrap_or_else(|| library_path.parent().unwrap().into());
+
+    generate_uniffi_mocks(library_path, &output_directory)?;
+
+    println!("Mocks file generated in {output_directory}");
+    Ok(())
+}
+
+fn generate_uniffi_mocks(library_path: &Utf8Path, ffi_directory: &Utf8Path) -> Result<()> {
+    generate_mocks(library_path, None, &[TargetLanguage::Swift], None, ffi_directory, false)?;
     Ok(())
 }
