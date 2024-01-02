@@ -20,11 +20,11 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 byteorder = { workspace = true }
-qrcode = { version = "0.12.0", default-features = false }
+qrcode = { version = "0.13.0", default-features = false }
 ruma-common = { workspace = true }
 thiserror = { workspace = true }
 vodozemac = { workspace = true }
 
 [dev-dependencies]
-image = "0.23.0"
-qrcode = { version = "0.12.0", default-features = false, features = ["image"] }
+image = "0.24.7"
+qrcode = { version = "0.13.0", default-features = false, features = ["image"] }
