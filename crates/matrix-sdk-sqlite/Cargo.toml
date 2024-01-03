@@ -22,9 +22,9 @@ state-store = []
 async-trait = { workspace = true }
 deadpool-sqlite = "0.7.0"
 itertools = { workspace = true }
-matrix-sdk-base = { version = "0.6.0", path = "../matrix-sdk-base" }
-matrix-sdk-crypto = { version = "0.6.0", path = "../matrix-sdk-crypto", optional = true }
-matrix-sdk-store-encryption = { version = "0.2.0", path = "../matrix-sdk-store-encryption" }
+matrix-sdk-base = { workspace = true }
+matrix-sdk-crypto = { workspace = true, optional = true }
+matrix-sdk-store-encryption = { workspace = true }
 rmp-serde = "1.1.1"
 ruma = { workspace = true }
 rusqlite = { version = "0.30.0", features = ["limits"] }
@@ -38,8 +38,8 @@ vodozemac = { workspace = true }
 [dev-dependencies]
 assert_matches = { workspace = true }
 glob = "0.3.0"
-matrix-sdk-base = { path = "../matrix-sdk-base", features = ["testing"] }
-matrix-sdk-crypto = { path = "../matrix-sdk-crypto", features = ["testing"] }
+matrix-sdk-base = { workspace = true, features = ["testing"] }
+matrix-sdk-crypto = { workspace = true, features = ["testing"] }
 matrix-sdk-test = { path = "../../testing/matrix-sdk-test" }
 once_cell = { workspace = true }
 tempfile = "3.3.0"

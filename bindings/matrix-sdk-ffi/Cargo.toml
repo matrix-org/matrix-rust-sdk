@@ -29,7 +29,7 @@ eyeball-im = { workspace = true }
 extension-trait = "1.0.1"
 futures-core = { workspace = true }
 futures-util = { workspace = true }
-matrix-sdk-ui = { path = "../../crates/matrix-sdk-ui", default-features = false, features = ["e2e-encryption"] }
+matrix-sdk-ui = { workspace = true, features = ["e2e-encryption"] }
 mime = "0.3.16"
 once_cell = { workspace = true }
 opentelemetry = "0.21.0"
@@ -58,8 +58,7 @@ log-panics = { version = "2", features = ["with-backtrace"] }
 paranoid-android = "0.2.1"
 
 [target.'cfg(target_os = "android")'.dependencies.matrix-sdk]
-path = "../../crates/matrix-sdk"
-default-features = false
+workspace = true
 features = [
     "anyhow",
     "e2e-encryption",
@@ -73,8 +72,7 @@ features = [
 ]
 
 [target.'cfg(not(target_os = "android"))'.dependencies.matrix-sdk]
-path = "../../crates/matrix-sdk"
-default-features = false
+workspace = true
 features = [
     "anyhow",
     "e2e-encryption",

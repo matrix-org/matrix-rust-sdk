@@ -25,9 +25,9 @@ base64 = { workspace = true }
 gloo-utils = { version = "0.2.0", features = ["serde"] }
 indexed_db_futures = "0.4.1"
 js-sys = { version = "0.3.58" }
-matrix-sdk-base = { version = "0.6.0", path = "../matrix-sdk-base", features = ["js"] }
-matrix-sdk-crypto = { version = "0.6.0", path = "../matrix-sdk-crypto", features = ["js"], optional = true }
-matrix-sdk-store-encryption = { version = "0.2.0", path = "../matrix-sdk-store-encryption" }
+matrix-sdk-base = { workspace = true, features = ["js"] }
+matrix-sdk-crypto = { workspace = true, features = ["js"], optional = true }
+matrix-sdk-store-encryption = { workspace = true }
 ruma = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -45,9 +45,9 @@ getrandom = { version = "0.2.6", features = ["js"] }
 [dev-dependencies]
 assert_matches = { workspace = true }
 assert_matches2 = { workspace = true }
-matrix-sdk-base = { path = "../matrix-sdk-base", features = ["testing"] }
-matrix-sdk-common = { path = "../matrix-sdk-common", features = ["js"] }
-matrix-sdk-crypto = { path = "../matrix-sdk-crypto", features = ["js", "testing"] }
+matrix-sdk-base = { workspace = true, features = ["testing"] }
+matrix-sdk-common = { workspace = true, features = ["js"] }
+matrix-sdk-crypto = { workspace = true, features = ["js", "testing"] }
 matrix-sdk-test = { path = "../../testing/matrix-sdk-test" }
 tracing-subscriber = { version = "0.3.18", default-features = false, features = ["registry", "tracing-log"] }
 uuid = "1.3.0"
