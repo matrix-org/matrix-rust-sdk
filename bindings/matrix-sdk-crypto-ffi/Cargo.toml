@@ -21,6 +21,7 @@ anyhow = { workspace = true }
 futures-util = "0.3.28"
 hmac = "0.12.1"
 http = { workspace = true }
+matrix-sdk-common = { workspace = true }
 pbkdf2 = "0.12.2"
 rand = { workspace = true }
 ruma = { workspace = true }
@@ -38,20 +39,13 @@ zeroize = { workspace = true, features = ["zeroize_derive"] }
 version = "0.2.2"
 features = ["lax_deserialize"]
 
-[dependencies.matrix-sdk-common]
-path = "../../crates/matrix-sdk-common"
-version = "0.6.0"
-
 [dependencies.matrix-sdk-crypto]
-path = "../../crates/matrix-sdk-crypto"
-version = "0.6.0"
+workspace = true
 default_features = false
 features = ["qrcode", "automatic-room-key-forwarding"]
 
 [dependencies.matrix-sdk-sqlite]
-path = "../../crates/matrix-sdk-sqlite"
-version = "0.1.0"
-default_features = false
+workspace = true
 features = ["crypto-store"]
 
 [dependencies.tokio]

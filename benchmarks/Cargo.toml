@@ -9,11 +9,11 @@ publish = false
 
 [dependencies]
 criterion = { version = "0.5.1", features = ["async", "async_tokio", "html_reports"] }
-matrix-sdk-base = { path = "../crates/matrix-sdk-base" }
-matrix-sdk-crypto = { path = "../crates/matrix-sdk-crypto", version = "0.6.0" }
-matrix-sdk-sqlite = { path = "../crates/matrix-sdk-sqlite", version = "0.1.0", default-features = false, features = ["crypto-store"] }
+matrix-sdk-base = { workspace = true }
+matrix-sdk-crypto = { workspace = true }
+matrix-sdk-sqlite = { workspace = true, features = ["crypto-store"] }
 matrix-sdk-test = { path = "../testing/matrix-sdk-test", version = "0.6.0" }
-matrix-sdk = { path = "../crates/matrix-sdk" }
+matrix-sdk = { workspace = true }
 ruma = { workspace = true }
 serde_json = { workspace = true }
 tempfile = "3.3.0"

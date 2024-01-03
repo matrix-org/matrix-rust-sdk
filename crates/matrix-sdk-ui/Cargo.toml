@@ -31,8 +31,8 @@ fuzzy-matcher = "0.3.7"
 imbl = { version = "2.0.0", features = ["serde"] }
 indexmap = "2.0.0"
 itertools = { workspace = true }
-matrix-sdk = { version = "0.6.2", path = "../matrix-sdk", default-features = false, features = ["experimental-oidc", "experimental-sliding-sync"] }
-matrix-sdk-base = { version = "0.6.1", path = "../matrix-sdk-base" }
+matrix-sdk = { workspace = true, features = ["experimental-oidc", "experimental-sliding-sync"] }
+matrix-sdk-base = { workspace = true }
 mime = "0.3.16"
 once_cell = { workspace = true }
 pin-project-lite = "0.2.9"
@@ -51,7 +51,7 @@ assert-json-diff = { workspace = true }
 assert_matches = { workspace = true }
 assert_matches2 = { workspace = true }
 eyeball-im-util = { workspace = true }
-matrix-sdk = { version = "0.6.2", path = "../matrix-sdk", default-features = false, features = ["testing"] }
+matrix-sdk = { workspace = true, features = ["testing"] }
 matrix-sdk-test = { version = "0.6.0", path = "../../testing/matrix-sdk-test" }
 stream_assert = { workspace = true }
 tempfile = "3.3.0"

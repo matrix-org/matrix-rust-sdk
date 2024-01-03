@@ -54,6 +54,16 @@ uniffi_bindgen = { git = "https://github.com/mozilla/uniffi-rs", rev = "0a03b713
 vodozemac = "0.5.0"
 zeroize = "1.6.0"
 
+matrix-sdk = { path = "crates/matrix-sdk", version = "0.6.2", default-features = false }
+matrix-sdk-base = { path = "crates/matrix-sdk-base", version = "0.6.1" }
+matrix-sdk-common = { path = "crates/matrix-sdk-common", version = "0.6.0" }
+matrix-sdk-crypto = { path = "crates/matrix-sdk-crypto", version = "0.6.0" }
+matrix-sdk-indexeddb = { path = "crates/matrix-sdk-indexeddb", version = "0.2.0", default-features = false }
+matrix-sdk-qrcode = { path = "crates/matrix-sdk-qrcode", version = "0.4.0" }
+matrix-sdk-sqlite = { path = "crates/matrix-sdk-sqlite", version = "0.1.0", default-features = false }
+matrix-sdk-store-encryption = { path = "crates/matrix-sdk-store-encryption", version = "0.2.0" }
+matrix-sdk-ui = { path = "crates/matrix-sdk-ui", version = "0.6.0", default-features = false }
+
 # Default release profile, select with `--release`
 [profile.release]
 lto = true
