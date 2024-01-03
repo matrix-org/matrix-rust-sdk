@@ -15,7 +15,7 @@ use ruma::{
     api::client::{membership::Invite3pidInit, receipt::create_receipt::v3::ReceiptType},
     assign, event_id,
     events::{receipt::ReceiptThread, room::message::RoomMessageEventContent},
-    mxc_uri, thirdparty, uint, user_id, TransactionId,
+    int, mxc_uri, owned_event_id, thirdparty, uint, user_id, TransactionId,
 };
 use serde_json::json;
 use wiremock::{
@@ -608,4 +608,37 @@ async fn set_name() {
         .await;
 
     room.set_name(name.to_owned()).await.unwrap();
+}
+
+#[async_test]
+async fn report_content() {
+    let (client, server) = logged_in_client().await;
+
+    let reason = "I am offended";
+    let score = int!(-80);
+
+    Mock::given(method("POST"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/report/\$offensive_event"))
+        .and(body_json(json!({
+            "reason": reason,
+            "score": score,
+        })))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EMPTY))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    mock_sync(&server, &*test_json::SYNC, None).await;
+
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+    let _response = client.sync_once(sync_settings).await.unwrap();
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
+
+    let event_id = owned_event_id!("$offensive_event");
+    let reason = "I am offended".to_owned();
+    let score = int!(-80);
+
+    room.report_content(event_id, Some(score), Some(reason.to_owned())).await.unwrap();
 }

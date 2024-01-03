@@ -35,7 +35,7 @@ use ruma::{
         read_marker::set_read_marker,
         receipt::create_receipt,
         redact::redact_event,
-        room::get_room_event,
+        room::{get_room_event, report_content},
         state::{get_state_events_for_key, send_state_event},
         tag::{create_tag, delete_tag},
         typing::create_typing_event::{self, v3::Typing},
@@ -2359,6 +2359,39 @@ impl Room {
 
         // Get the user-defined mode if available
         notification_settings.get_user_defined_room_notification_mode(self.room_id()).await
+    }
+
+    /// Report an event as inappropriate to the homeserver's administrator.
+    ///
+    /// # Arguments
+    ///
+    /// * `event_id` - The ID of the event to report.
+    /// * `score` - The score to rate this content, where `-100` is most
+    ///   offensive and `0` is inoffensive.
+    /// * `reason` - The reason the content is being reported.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the room is not joined or if an error occurs with
+    /// the request.
+    pub async fn report_content(
+        &self,
+        event_id: OwnedEventId,
+        score: Option<Int>,
+        reason: Option<String>,
+    ) -> Result<report_content::v3::Response> {
+        let state = self.state();
+        if state != RoomState::Joined {
+            return Err(Error::WrongRoomState(WrongRoomState::new("Joined", state)));
+        }
+
+        let request = report_content::v3::Request::new(
+            self.inner.room_id().to_owned(),
+            event_id,
+            score,
+            reason,
+        );
+        Ok(self.client.send(request, None).await?)
     }
 }
 
