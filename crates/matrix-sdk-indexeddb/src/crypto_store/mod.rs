@@ -837,7 +837,13 @@ impl_crypto_store! {
 
         // deserialize and decrypt after the transaction is complete
         let result = result.into_iter()
-            .filter_map(|v| self.deserialize_inbound_group_session(v).ok())
+            .filter_map(|v| match self.deserialize_inbound_group_session(v) {
+                Ok(session) => Some(session),
+                Err(e) => {
+                    warn!("Failed to deserialize inbound group session: {:?}", e);
+                    None
+                }
+            })
             .collect::<Vec<InboundGroupSession>>();
 
         Ok(result)
