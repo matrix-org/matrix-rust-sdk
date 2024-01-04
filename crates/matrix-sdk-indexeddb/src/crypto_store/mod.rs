@@ -39,7 +39,7 @@ use ruma::{
     RoomId, TransactionId, UserId,
 };
 use tokio::sync::Mutex;
-use tracing::warn;
+use tracing::{debug, warn};
 use wasm_bindgen::JsValue;
 
 use crate::crypto_store::{
@@ -167,6 +167,7 @@ impl IndexeddbCryptoStore {
         let name = format!("{prefix:0}::matrix-sdk-crypto");
 
         let serializer = IndexeddbSerializer::new(store_cipher);
+        debug!("IndexedDbCryptoStore: opening main store {name}");
         let db = open_and_upgrade_db(&name, &serializer).await?;
         let session_cache = SessionStore::new();
 
@@ -189,6 +190,7 @@ impl IndexeddbCryptoStore {
     pub async fn open_with_passphrase(prefix: &str, passphrase: &str) -> Result<Self> {
         let name = format!("{prefix:0}::matrix-sdk-crypto-meta");
 
+        debug!("IndexedDbCryptoStore: Opening meta-store {name}");
         let mut db_req: OpenDbRequest = IdbDatabase::open_u32(&name, 1)?;
         db_req.set_on_upgrade_needed(Some(|evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
             let old_version = evt.old_version() as u32;
@@ -214,9 +216,13 @@ impl IndexeddbCryptoStore {
             .transpose()?;
 
         let store_cipher = match store_cipher {
-            Some(cipher) => StoreCipher::import(passphrase, &cipher)
-                .map_err(|_| CryptoStoreError::UnpicklingError)?,
+            Some(cipher) => {
+                debug!("IndexedDbCryptoStore: decrypting store cipher");
+                StoreCipher::import(passphrase, &cipher)
+                    .map_err(|_| CryptoStoreError::UnpicklingError)?
+            }
             None => {
+                debug!("IndexedDbCryptoStore: encrypting new store cipher");
                 let cipher = StoreCipher::new().map_err(CryptoStoreError::backend)?;
                 #[cfg(not(test))]
                 let export = cipher.export(passphrase);
