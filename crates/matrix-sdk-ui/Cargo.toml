@@ -6,6 +6,9 @@ repository = "https://github.com/matrix-org/matrix-rust-sdk"
 license = "Apache-2.0"
 rust-version = { workspace = true }
 
+[lib]
+crate-type = ["cdylib", "staticlib"]
+
 [features]
 default = ["e2e-encryption", "native-tls"]
 
@@ -31,11 +34,14 @@ fuzzy-matcher = "0.3.7"
 imbl = { version = "2.0.0", features = ["serde"] }
 indexmap = "2.0.0"
 itertools = { workspace = true }
-matrix-sdk = { version = "0.6.2", path = "../matrix-sdk", default-features = false, features = ["experimental-oidc", "experimental-sliding-sync"] }
+#matrix-sdk = { version = "0.6.2", path = "../matrix-sdk", default-features = false, features = ["experimental-oidc", "experimental-sliding-sync"] }
+matrix-sdk = { version = "0.6.2", path = "../matrix-sdk", default-features = false, features = ["experimental-sliding-sync"] }
 matrix-sdk-base = { version = "0.6.1", path = "../matrix-sdk-base" }
+matrix-sdk-common = { path = "../matrix-sdk-common" }
 mime = "0.3.16"
 once_cell = { workspace = true }
 pin-project-lite = "0.2.9"
+getrandom = { version = "0.2", features = ["js"] }
 ruma = { workspace = true, features = ["html", "unstable-msc3381"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -55,4 +61,6 @@ matrix-sdk = { version = "0.6.2", path = "../matrix-sdk", default-features = fal
 matrix-sdk-test = { version = "0.6.0", path = "../../testing/matrix-sdk-test" }
 stream_assert = { workspace = true }
 tempfile = "3.3.0"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 wiremock = "0.5.13"

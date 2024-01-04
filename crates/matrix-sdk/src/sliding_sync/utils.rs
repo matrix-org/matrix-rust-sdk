@@ -6,24 +6,25 @@ use std::{
     task::{Context, Poll},
 };
 
-use tokio::task::{JoinError, JoinHandle};
+//use tokio::task::{JoinError, JoinHandle};
+use crate::executor::{JoinError, JoinHandle};
 
 /// Private type to ensure a task is aborted on drop.
-pub(crate) struct AbortOnDrop<T>(JoinHandle<T>);
+pub(crate) struct AbortOnDrop<T: 'static>(JoinHandle<T>);
 
-impl<T> AbortOnDrop<T> {
+impl<T: 'static> AbortOnDrop<T> {
     fn new(join_handle: JoinHandle<T>) -> Self {
         Self(join_handle)
     }
 }
 
-impl<T> Drop for AbortOnDrop<T> {
+impl<T: 'static> Drop for AbortOnDrop<T> {
     fn drop(&mut self) {
         self.0.abort();
     }
 }
 
-impl<T> Future for AbortOnDrop<T> {
+impl<T: 'static> Future for AbortOnDrop<T> {
     type Output = Result<T, JoinError>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {

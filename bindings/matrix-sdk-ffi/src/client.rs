@@ -6,16 +6,16 @@ use std::{
 
 use anyhow::{anyhow, Context as _};
 use matrix_sdk::{
-    media::{MediaFileHandle as SdkMediaFileHandle, MediaFormat, MediaRequest, MediaThumbnailSize},
-    oidc::{
-        types::{
-            client_credentials::ClientCredentials,
-            registration::{
-                ClientMetadata, ClientMetadataVerificationError, VerifiedClientMetadata,
-            },
-        },
-        OidcAccountManagementAction, OidcSession,
-    },
+    // media::{MediaFileHandle as SdkMediaFileHandle, MediaFormat, MediaRequest, MediaThumbnailSize},
+    // oidc::{
+    //     types::{
+    //         client_credentials::ClientCredentials,
+    //         registration::{
+    //             ClientMetadata, ClientMetadataVerificationError, VerifiedClientMetadata,
+    //         },
+    //     },
+    //     OidcAccountManagementAction, OidcSession,
+    // },
     ruma::{
         api::client::{
             account::whoami,
@@ -1161,6 +1161,8 @@ impl TryFrom<Session> for AuthSession {
     }
 }
 
+/*
+
 /// Represents a client registration against an OpenID Connect authentication
 /// issuer.
 #[derive(Serialize)]
@@ -1215,12 +1217,14 @@ impl From<AccountManagementAction> for OidcAccountManagementAction {
         }
     }
 }
+*/
 
 #[uniffi::export]
 fn gen_transaction_id() -> String {
     TransactionId::new().to_string()
 }
 
+/*
 /// A file handle that takes ownership of a media file on disk. When the handle
 /// is dropped, the file will be removed from the disk.
 #[derive(uniffi::Object)]
@@ -1267,3 +1271,4 @@ impl MediaFileHandle {
         )
     }
 }
+*/

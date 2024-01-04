@@ -16,7 +16,8 @@ features = ["docsrs"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
-default = ["e2e-encryption", "automatic-room-key-forwarding", "sqlite", "native-tls"]
+default = ["e2e-encryption", "automatic-room-key-forwarding", "indexeddb", "native-tls"]
+# default = ["e2e-encryption", "automatic-room-key-forwarding", "sqlite", "native-tls"]
 testing = ["matrix-sdk-sqlite?/testing", "matrix-sdk-indexeddb?/testing", "matrix-sdk-base/testing"]
 
 e2e-encryption = [
@@ -133,7 +134,7 @@ optional = true
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 gloo-timers = { version = "0.3.0", features = ["futures"] }
 reqwest = { version = "0.11.10", default_features = false }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["macros"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 backoff = { version = "0.4.0", features = ["tokio"] }

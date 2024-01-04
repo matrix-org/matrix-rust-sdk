@@ -59,7 +59,7 @@ impl<'a> IntoFuture for SendAttachment<'a> {
             timeline
                 .room()
                 .send_attachment(body, &mime_type, data, config)
-                .with_send_progress_observable(send_progress)
+                //.with_send_progress_observable(send_progress) // FIXME: WASM
                 .await
                 .map_err(|_| Error::FailedSendingAttachment)?;
 

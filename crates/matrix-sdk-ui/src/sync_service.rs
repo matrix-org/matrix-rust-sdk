@@ -35,7 +35,9 @@ use tokio::{
         mpsc::{Receiver, Sender},
         Mutex as AsyncMutex, OwnedMutexGuard,
     },
-    task::{spawn, JoinHandle},
+};
+use matrix_sdk::{
+    executor::{spawn, JoinHandle},
 };
 use tracing::{error, info, instrument, trace, warn, Instrument, Level};
 

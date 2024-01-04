@@ -54,3 +54,10 @@ impl<T: 'static> Future for JoinHandle<T> {
         Pin::new(&mut self.handle).poll(cx).map(Ok)
     }
 }
+
+#[cfg(target_arch = "wasm32")]
+impl<T: 'static> JoinHandle<T> {
+    pub fn abort(&self) {
+        // TODO
+    }
+}

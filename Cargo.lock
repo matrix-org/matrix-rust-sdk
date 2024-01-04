@@ -294,18 +294,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "async-compat"
-version = "0.2.2"
-source = "git+https://github.com/jplatte/async-compat?rev=16dc8597ec09a6102d58d4e7b67714a35dd0ecb8#16dc8597ec09a6102d58d4e7b67714a35dd0ecb8"
-dependencies = [
- "futures-core",
- "futures-io",
- "once_cell",
- "pin-project-lite",
- "tokio",
-]
-
-[[package]]
 name = "async-compression"
 version = "0.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3200,7 +3188,6 @@ version = "0.2.0"
 dependencies = [
  "anyhow",
  "as_variant",
- "async-compat",
  "base64 0.21.5",
  "extension-trait",
  "eyeball-im",
@@ -3392,11 +3379,13 @@ dependencies = [
  "futures-core",
  "futures-util",
  "fuzzy-matcher",
+ "getrandom 0.2.11",
  "imbl",
  "indexmap 2.1.0",
  "itertools 0.12.0",
  "matrix-sdk",
  "matrix-sdk-base",
+ "matrix-sdk-common",
  "matrix-sdk-test",
  "mime",
  "once_cell",
@@ -6205,7 +6194,6 @@ version = "0.25.1"
 source = "git+https://github.com/mozilla/uniffi-rs?rev=0a03b713306d6ce3de033157fc2ce92a238c2e24#0a03b713306d6ce3de033157fc2ce92a238c2e24"
 dependencies = [
  "anyhow",
- "async-compat",
  "bytes",
  "camino",
  "log",
@@ -6705,9 +6693,9 @@ dependencies = [
 
 [[package]]
 name = "wiremock"
-version = "0.5.21"
+version = "0.5.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "079aee011e8a8e625d16df9e785de30a6b77f80a6126092d76a57375f96448da"
+checksum = "13a3a53eaf34f390dd30d7b1b078287dd05df2aa2e21a589ccb80f5c7253c2e9"
 dependencies = [
  "assert-json-diff",
  "async-trait",
@@ -6815,3 +6803,8 @@ dependencies = [
  "quote",
  "syn 2.0.39",
 ]
+
+[[patch.unused]]
+name = "async-compat"
+version = "0.2.2"
+source = "git+https://github.com/jplatte/async-compat?rev=16dc8597ec09a6102d58d4e7b67714a35dd0ecb8#16dc8597ec09a6102d58d4e7b67714a35dd0ecb8"

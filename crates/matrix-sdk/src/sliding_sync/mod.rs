@@ -44,9 +44,12 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 use tokio::{
-    select, spawn,
+    select,
     sync::{broadcast::Sender, Mutex as AsyncMutex, OwnedMutexGuard, RwLock as AsyncRwLock},
 };
+
+use crate::executor::spawn;
+
 use tracing::{debug, error, info, instrument, trace, warn, Instrument, Span};
 use url::Url;
 
@@ -608,6 +611,7 @@ impl SlidingSync {
                 })
                 // Ensure that the task is not running in detached mode. It is aborted when it's
                 // dropped.
+                // FIXME: this is broken on WASM
                 .abort_on_drop();
 
                 // Wait on the sliding sync request success or failure early.
@@ -617,10 +621,13 @@ impl SlidingSync {
                 // `e2ee_uploads`. It did run concurrently, so it should not be blocking for too
                 // long. Otherwise —if `request` has failed— `e2ee_uploads` has
                 // been dropped, so aborted.
-                e2ee_uploads.await.map_err(|error| Error::JoinError {
-                    task_description: "e2ee_uploads".to_owned(),
-                    error,
-                })?;
+
+                let _ = e2ee_uploads.await;
+                // FIXME - our spawns don't return errors from WASM yet
+                // e2ee_uploads.await.map_err(|error| JoinError {
+                //     task_description: "e2ee_uploads".to_owned(),
+                //     error,
+                // })?;
 
                 response
             } else {

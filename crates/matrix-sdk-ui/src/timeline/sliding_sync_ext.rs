@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use async_trait::async_trait;
 use matrix_sdk::SlidingSyncRoom;
 use tracing::{error, instrument};
 
 use super::{EventTimelineItem, Timeline, TimelineBuilder};
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 pub trait SlidingSyncRoomExt {
     /// Get a `Timeline` for this room.
     async fn timeline(&self) -> Option<Timeline>;
@@ -30,7 +30,8 @@ pub trait SlidingSyncRoomExt {
     async fn latest_timeline_item(&self) -> Option<EventTimelineItem>;
 }
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl SlidingSyncRoomExt for SlidingSyncRoom {
     async fn timeline(&self) -> Option<Timeline> {
         Some(sliding_sync_timeline_builder(self)?.track_read_marker_and_receipts().build().await)
