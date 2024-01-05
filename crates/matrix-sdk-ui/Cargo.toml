@@ -55,7 +55,7 @@ assert_matches = { workspace = true }
 assert_matches2 = { workspace = true }
 eyeball-im-util = { workspace = true }
 matrix-sdk = { workspace = true, features = ["testing"] }
-matrix-sdk-test = { version = "0.6.0", path = "../../testing/matrix-sdk-test" }
+matrix-sdk-test = { workspace = true }
 stream_assert = { workspace = true }
 tempfile = "3.3.0"
 wiremock = "0.5.13"

@@ -40,7 +40,7 @@ wasm-bindgen = "0.2.84"
 [dev-dependencies]
 assert_matches = { workspace = true }
 proptest = { version = "1.4.0", default-features = false, features = ["std"] }
-matrix-sdk-test = { path = "../../testing/matrix-sdk-test/", version= "0.6.0" }
+matrix-sdk-test = { workspace = true }
 wasm-bindgen-test = "0.3.33"
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]

@@ -15,7 +15,7 @@ futures-core = { workspace = true }
 futures-util = { workspace = true }
 matrix-sdk = { workspace = true, default-features = true, features = ["testing", "qrcode"] }
 matrix-sdk-ui = { workspace = true, default-features = true }
-matrix-sdk-test = { path = "../matrix-sdk-test" }
+matrix-sdk-test = { workspace = true }
 once_cell = { workspace = true }
 rand = { workspace = true }
 stream_assert = "0.1.1"

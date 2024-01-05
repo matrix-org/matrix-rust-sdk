@@ -147,7 +147,7 @@ assert_matches2 = { workspace = true }
 dirs = "5.0.1"
 futures-executor = { workspace = true }
 matrix-sdk-base = { workspace = true, features = ["testing"] }
-matrix-sdk-test = { version = "0.6.0", path = "../../testing/matrix-sdk-test" }
+matrix-sdk-test = { workspace = true }
 once_cell = { workspace = true }
 serde_urlencoded = "0.7.1"
 stream_assert = { workspace = true }

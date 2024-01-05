@@ -72,7 +72,7 @@ assert_matches2 = { workspace = true }
 futures-executor = { workspace = true }
 http = { workspace = true }
 indoc = "2.0.1"
-matrix-sdk-test = { version = "0.6.0", path = "../../testing/matrix-sdk-test" }
+matrix-sdk-test = { workspace = true }
 olm-rs = { version = "2.2.0", features = ["serde"] }
 proptest = { version = "1.0.0", default-features = false, features = ["std"] }
 # required for async_test macro

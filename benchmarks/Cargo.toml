@@ -12,7 +12,7 @@ criterion = { version = "0.5.1", features = ["async", "async_tokio", "html_repor
 matrix-sdk-base = { workspace = true }
 matrix-sdk-crypto = { workspace = true }
 matrix-sdk-sqlite = { workspace = true, features = ["crypto-store"] }
-matrix-sdk-test = { path = "../testing/matrix-sdk-test", version = "0.6.0" }
+matrix-sdk-test = { workspace = true }
 matrix-sdk = { workspace = true }
 ruma = { workspace = true }
 serde_json = { workspace = true }
