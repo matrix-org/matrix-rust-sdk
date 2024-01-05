@@ -925,17 +925,10 @@ impl MatrixSession {
     fn from_register_response(response: &register::v3::Response) -> Option<Self> {
         let register::v3::Response { user_id, access_token, device_id, refresh_token, .. } =
             response;
-        let Some(device_id) = device_id else {
-            return None;
-        };
-        let Some(access_token) = access_token else {
-            return None;
-        };
-
         Some(Self {
-            meta: SessionMeta { user_id: user_id.clone(), device_id: device_id.clone() },
+            meta: SessionMeta { user_id: user_id.clone(), device_id: device_id.clone()? },
             tokens: MatrixSessionTokens {
-                access_token: access_token.clone(),
+                access_token: access_token.clone()?,
                 refresh_token: refresh_token.clone(),
             },
         })
