@@ -2506,7 +2506,7 @@ impl ReportedContentScore {
     /// Try to create a `ReportedContentScore` from the provided `i8`.
     ///
     /// Returns `None` if it is smaller than [`ReportedContentScore::MIN`] or
-    /// larger than [`ReportedContentScore::MIN`] .
+    /// larger than [`ReportedContentScore::MAX`] .
     ///
     /// This is the same as the `TryFrom<i8>` implementation for
     /// `ReportedContentScore`, except that it returns an `Option` instead
