@@ -7,7 +7,7 @@ use matrix_sdk::{
         Thumbnail,
     },
     config::SyncSettings,
-    room::Receipts,
+    room::{Receipts, ReportedContentScore},
 };
 use matrix_sdk_base::RoomState;
 use matrix_sdk_test::{async_test, test_json, DEFAULT_TEST_ROOM_ID};
@@ -638,7 +638,7 @@ async fn report_content() {
 
     let event_id = owned_event_id!("$offensive_event");
     let reason = "I am offended".to_owned();
-    let score = int!(-80);
+    let score = ReportedContentScore::new(-80).unwrap();
 
     room.report_content(event_id, Some(score), Some(reason.to_owned())).await.unwrap();
 }
