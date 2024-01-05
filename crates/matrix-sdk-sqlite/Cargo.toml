@@ -40,7 +40,7 @@ assert_matches = { workspace = true }
 glob = "0.3.0"
 matrix-sdk-base = { workspace = true, features = ["testing"] }
 matrix-sdk-crypto = { workspace = true, features = ["testing"] }
-matrix-sdk-test = { path = "../../testing/matrix-sdk-test" }
+matrix-sdk-test = { workspace = true }
 once_cell = { workspace = true }
 tempfile = "3.3.0"
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

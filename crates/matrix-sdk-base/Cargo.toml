@@ -46,7 +46,7 @@ http = { workspace = true, optional = true }
 matrix-sdk-common = { workspace = true }
 matrix-sdk-crypto = { workspace = true, optional = true }
 matrix-sdk-store-encryption = { workspace = true }
-matrix-sdk-test = { version = "0.6.0", path = "../../testing/matrix-sdk-test", optional = true }
+matrix-sdk-test = { workspace = true, optional = true }
 once_cell = { workspace = true }
 ruma = { workspace = true, features = ["canonical-json", "unstable-msc3381"] }
 serde = { workspace = true, features = ["rc"] }
@@ -61,7 +61,7 @@ assert_matches2 = { workspace = true }
 assign = "1.1.1"
 futures-executor = { workspace = true }
 http = { workspace = true }
-matrix-sdk-test = { version = "0.6.0", path = "../../testing/matrix-sdk-test" }
+matrix-sdk-test = { workspace = true }
 stream_assert = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
