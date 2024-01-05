@@ -199,7 +199,7 @@ impl LoginBuilder {
                 _ => None,
             };
 
-            self.auth.post_login_cross_signing(auth_data).await;
+            client.post_login_cross_signing(auth_data).await;
         }
 
         Ok(response)

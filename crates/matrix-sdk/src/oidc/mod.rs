@@ -922,14 +922,8 @@ impl Oidc {
 
         // Bootstrap cross signing, if needs be.
         // TODO: (#2763) put this into a background task.
-        if self.client.encryption().settings().auto_enable_cross_signing {
-            // According to MSC3967, OIDC doesn't require User-Interactive Authentication to
-            // call this API. Let's find out!
-            if let Err(err) = self.client.encryption().bootstrap_cross_signing_if_needed(None).await
-            {
-                warn!("cross-signing bootstrapping failed: {err}");
-            }
-        }
+        #[cfg(feature = "e2e-encryption")]
+        self.client.post_login_cross_signing(None).await;
 
         if let Some(cross_process_manager) = self.ctx().cross_process_token_refresh_manager.get() {
             if let Some(tokens) = self.session_tokens() {

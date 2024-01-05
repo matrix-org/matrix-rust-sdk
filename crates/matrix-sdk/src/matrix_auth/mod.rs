@@ -559,7 +559,7 @@ impl MatrixAuth {
         if let Some(session) = MatrixSession::from_register_response(&response) {
             let _ = self.set_session(session).await;
             #[cfg(feature = "e2e-encryption")]
-            self.post_login_cross_signing(auth_data).await;
+            self.client.post_login_cross_signing(auth_data).await;
         }
         Ok(response)
     }
@@ -850,13 +850,15 @@ impl MatrixAuth {
 
         Ok(())
     }
+}
 
+// Internal client helpers
+impl Client {
     #[cfg(feature = "e2e-encryption")]
     async fn post_login_cross_signing(&self, auth_data: Option<RumaUiaaAuthData>) {
-        if self.client.encryption().settings().auto_enable_cross_signing {
-            if let Err(err) =
-                self.client.encryption().bootstrap_cross_signing_if_needed(auth_data).await
-            {
+        let encryption = self.encryption();
+        if encryption.settings().auto_enable_cross_signing {
+            if let Err(err) = encryption.bootstrap_cross_signing_if_needed(auth_data).await {
                 tracing::warn!("cross-signing bootstrapping failed: {err}");
             }
         }
