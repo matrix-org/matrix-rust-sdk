@@ -1,6 +1,6 @@
 [package]
 name = "matrix-sdk-indexeddb"
-version = "0.2.0"
+version = "0.7.0"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 description = "Web's IndexedDB Storage backend for matrix-sdk"
 license = "Apache-2.0"
