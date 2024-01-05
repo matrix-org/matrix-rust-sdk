@@ -1,6 +1,4 @@
-# Changelog
-
-## unreleased
+# 0.7.0
 
 - Rename `RoomType` to `RoomState`
 - Add `RoomInfo::state` accessor
@@ -33,9 +31,9 @@
 - Move `Session`, `SessionTokens` and associated methods to the `matrix-sdk` crate.
 - Add `Room::subscribe_info`
 
-## 0.5.1
+# 0.5.1
 
-### Bug Fixes
+## Bug Fixes
 - #664: Fix regression with push rules being applied to the own user_id only instead of all but the own user_id
 
-## 0.5.0
+# 0.5.0
