@@ -1,5 +1,6 @@
 [package]
 name = "matrix-sdk-ui"
+description = "GUI-centric utilities on top of matrix-rust-sdk (experimental)."
 version = "0.7.0"
 edition = "2021"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
