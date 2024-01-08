@@ -991,7 +991,7 @@ impl From<ReceiptType> for ruma::api::client::receipt::create_receipt::v3::Recei
     fn from(value: ReceiptType) -> Self {
         match value {
             ReceiptType::Read => Self::Read,
-            ReceiptType::ReadPrivate => Self::Read,
+            ReceiptType::ReadPrivate => Self::ReadPrivate,
             ReceiptType::FullyRead => Self::FullyRead,
         }
     }
