@@ -24,6 +24,8 @@ use eyeball::SharedObservable;
 use futures_core::Stream;
 use futures_util::StreamExt;
 use matrix_sdk_base::SessionMeta;
+#[cfg(feature = "e2e-encryption")]
+use ruma::api::client::uiaa::{AuthData as RumaUiaaAuthData, Password as RumaUiaaPassword};
 use ruma::{
     api::{
         client::{
@@ -509,6 +511,9 @@ impl MatrixAuth {
 
     /// Register a user to the server.
     ///
+    /// If registration was successful and a session token was returned by the
+    /// server, the client session is set (the client is logged in).
+    ///
     /// # Arguments
     ///
     /// * `registration` - The easiest way to create this request is using the
@@ -539,15 +544,25 @@ impl MatrixAuth {
     /// # };
     /// ```
     #[instrument(skip_all)]
-    pub async fn register(
-        &self,
-        request: register::v3::Request,
-    ) -> HttpResult<register::v3::Response> {
+    pub async fn register(&self, request: register::v3::Request) -> Result<register::v3::Response> {
         let homeserver = self.client.homeserver();
         info!("Registering to {homeserver}");
-        self.client.send(request, None).await
+        #[cfg(feature = "e2e-encryption")]
+        let auth_data = match (&request.username, &request.password) {
+            (Some(u), Some(p)) => Some(RumaUiaaAuthData::Password(RumaUiaaPassword::new(
+                UserIdentifier::UserIdOrLocalpart(u.clone()),
+                p.clone(),
+            ))),
+            _ => None,
+        };
+        let response = self.client.send(request, None).await?;
+        if let Some(session) = MatrixSession::from_register_response(&response) {
+            let _ = self.set_session(session).await;
+            #[cfg(feature = "e2e-encryption")]
+            self.client.post_login_cross_signing(auth_data).await;
+        }
+        Ok(response)
     }
-
     /// Log out the current user.
     pub async fn logout(&self) -> HttpResult<logout::v3::Response> {
         let request = logout::v3::Request::new();
@@ -837,6 +852,19 @@ impl MatrixAuth {
     }
 }
 
+// Internal client helpers
+impl Client {
+    #[cfg(feature = "e2e-encryption")]
+    pub(crate) async fn post_login_cross_signing(&self, auth_data: Option<RumaUiaaAuthData>) {
+        let encryption = self.encryption();
+        if encryption.settings().auto_enable_cross_signing {
+            if let Err(err) = encryption.bootstrap_cross_signing_if_needed(auth_data).await {
+                tracing::warn!("cross-signing bootstrapping failed: {err}");
+            }
+        }
+    }
+}
+
 /// A user session using the native Matrix authentication API.
 ///
 /// # Examples
@@ -889,6 +917,21 @@ impl From<&login::v3::Response> for MatrixSession {
                 refresh_token: refresh_token.clone(),
             },
         }
+    }
+}
+
+impl MatrixSession {
+    #[allow(clippy::question_mark)] // clippy falsely complains about the let-unpacking
+    fn from_register_response(response: &register::v3::Response) -> Option<Self> {
+        let register::v3::Response { user_id, access_token, device_id, refresh_token, .. } =
+            response;
+        Some(Self {
+            meta: SessionMeta { user_id: user_id.clone(), device_id: device_id.clone()? },
+            tokens: MatrixSessionTokens {
+                access_token: access_token.clone()?,
+                refresh_token: refresh_token.clone(),
+            },
+        })
     }
 }
 

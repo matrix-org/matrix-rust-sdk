@@ -188,7 +188,7 @@ impl LoginBuilder {
         // This may block login for a while, but the user asked for it!
         // TODO: (#2763) put this into a background task.
         #[cfg(feature = "e2e-encryption")]
-        if self.auth.client.encryption().settings().auto_enable_cross_signing {
+        {
             use ruma::api::client::uiaa::{AuthData, Password};
 
             let auth_data = match login_info {
@@ -199,11 +199,7 @@ impl LoginBuilder {
                 _ => None,
             };
 
-            if let Err(err) =
-                self.auth.client.encryption().bootstrap_cross_signing_if_needed(auth_data).await
-            {
-                tracing::warn!("cross-signing bootstrapping failed: {err}");
-            }
+            client.post_login_cross_signing(auth_data).await;
         }
 
         Ok(response)
