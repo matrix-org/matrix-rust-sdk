@@ -41,7 +41,7 @@ features = ["lax_deserialize"]
 
 [dependencies.matrix-sdk-crypto]
 workspace = true
-features = ["qrcode", "automatic-room-key-forwarding"]
+features = ["qrcode", "automatic-room-key-forwarding", "uniffi"]
 
 [dependencies.matrix-sdk-sqlite]
 workspace = true
@@ -53,7 +53,6 @@ default_features = false
 features = ["rt-multi-thread"]
 
 [build-dependencies]
-uniffi = { workspace = true, features = ["build"] }
 vergen = { version = "8.2.5", features = ["build", "git", "gitcl"] }
 
 [dev-dependencies]

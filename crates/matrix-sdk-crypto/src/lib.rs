@@ -107,3 +107,6 @@ pub static VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[cfg(test)]
 matrix_sdk_test::init_tracing_for_tests!();
+
+#[cfg(feature = "uniffi")]
+uniffi::setup_scaffolding!();

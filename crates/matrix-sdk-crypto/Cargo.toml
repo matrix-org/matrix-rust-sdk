@@ -21,6 +21,7 @@ js = ["ruma/js", "vodozemac/js", "matrix-sdk-common/js"]
 qrcode = ["dep:matrix-sdk-qrcode"]
 message-ids = ["dep:ulid"]
 experimental-algorithms = []
+uniffi = ["dep:uniffi"]
 
 # Testing helpers for implementations based upon this
 testing = ["dep:http"]
@@ -56,6 +57,7 @@ tokio = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true, features = ["attributes"] }
 ulid = { version = "1.0.0", optional = true }
+uniffi = { workspace = true, optional = true }
 vodozemac = { workspace = true }
 zeroize = { workspace = true, features = ["zeroize_derive"] }
 
