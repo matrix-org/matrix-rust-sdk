@@ -855,7 +855,7 @@ impl MatrixAuth {
 // Internal client helpers
 impl Client {
     #[cfg(feature = "e2e-encryption")]
-    async fn post_login_cross_signing(&self, auth_data: Option<RumaUiaaAuthData>) {
+    pub(crate) async fn post_login_cross_signing(&self, auth_data: Option<RumaUiaaAuthData>) {
         let encryption = self.encryption();
         if encryption.settings().auto_enable_cross_signing {
             if let Err(err) = encryption.bootstrap_cross_signing_if_needed(auth_data).await {
