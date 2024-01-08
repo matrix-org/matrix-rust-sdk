@@ -108,6 +108,7 @@ impl SignatureVerification {
 
 /// The result of a signature check.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum SignatureState {
     /// The signature is missing.
     #[default]
