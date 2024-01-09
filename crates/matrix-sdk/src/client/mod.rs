@@ -1306,29 +1306,7 @@ impl Client {
             request,
             config,
             send_progress: Default::default(),
-            sliding_sync_proxy_url: None,
-        }
-    }
-
-    #[cfg(feature = "experimental-sliding-sync")]
-    // FIXME: remove this as soon as Sliding-Sync isn't needing an external server
-    // anymore
-    pub(crate) fn send_with_homeserver<Request>(
-        &self,
-        request: Request,
-        config: Option<RequestConfig>,
-        sliding_sync_proxy: Option<String>,
-    ) -> SendRequest<Request>
-    where
-        Request: OutgoingRequest + Clone + Debug,
-        HttpError: From<FromHttpResponseError<Request::EndpointError>>,
-    {
-        SendRequest {
-            client: self.clone(),
-            request,
-            config,
-            send_progress: Default::default(),
-            sliding_sync_proxy_url: sliding_sync_proxy,
+            homeserver_override: None,
         }
     }
 
@@ -1336,14 +1314,14 @@ impl Client {
         &self,
         request: Request,
         config: Option<RequestConfig>,
-        homeserver: Option<String>,
+        homeserver_override: Option<String>,
         send_progress: SharedObservable<TransmissionProgress>,
     ) -> HttpResult<Request::IncomingResponse>
     where
         Request: OutgoingRequest + Debug,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
     {
-        let homeserver = match homeserver {
+        let homeserver = match homeserver_override {
             Some(hs) => hs,
             None => self.homeserver().to_string(),
         };

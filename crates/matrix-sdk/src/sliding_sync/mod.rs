@@ -573,11 +573,10 @@ impl SlidingSync {
         debug!("Sending request");
 
         // Prepare the request.
-        let request = self.inner.client.send_with_homeserver(
-            request,
-            Some(request_config),
-            self.inner.sliding_sync_proxy.as_ref().map(ToString::to_string),
-        );
+        let request =
+            self.inner.client.send(request, Some(request_config)).with_homeserver_override(
+                self.inner.sliding_sync_proxy.as_ref().map(ToString::to_string),
+            );
 
         // Send the request and get a response with end-to-end encryption support.
         //
