@@ -729,9 +729,9 @@ impl Account {
         self.inner.sign_json(json)
     }
 
-    /// Generate, sign and prepare one-time keys to be uploaded.
+    /// Sign and prepare one-time keys to be uploaded.
     ///
-    /// If no one-time keys need to be uploaded returns an empty BTreeMap.
+    /// If no one-time keys need to be uploaded, returns an empty `BTreeMap`.
     pub fn signed_one_time_keys(
         &self,
     ) -> BTreeMap<OwnedDeviceKeyId, Raw<ruma::encryption::OneTimeKey>> {
