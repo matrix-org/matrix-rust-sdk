@@ -1257,11 +1257,11 @@ mod unit_tests {
 
     #[test]
     fn doesnt_need_backup_is_serialized_with_missing_field_in_json() {
-        let session_needs_backup =
+        let session_backed_up =
             InboundGroupSessionIndexedDbObject { pickled_session: Vec::new(), needs_backup: false };
 
         assert!(
-            !serde_json::to_string(&session_needs_backup).unwrap().contains("needs_backup"),
+            !serde_json::to_string(&session_backed_up).unwrap().contains("needs_backup"),
             "The needs_backup field should be missing!"
         );
     }
@@ -1294,10 +1294,10 @@ mod wasm_unit_tests {
 
     #[async_test]
     fn doesnt_need_backup_is_serialized_with_missing_field_in_js() {
-        let session_needs_backup =
+        let session_backed_up =
             InboundGroupSessionIndexedDbObject { pickled_session: Vec::new(), needs_backup: false };
 
-        let js_value = serde_wasm_bindgen::to_value(&session_needs_backup).unwrap();
+        let js_value = serde_wasm_bindgen::to_value(&session_backed_up).unwrap();
 
         assert!(!js_sys::Reflect::has(&js_value, &"needs_backup".into()).unwrap());
     }
