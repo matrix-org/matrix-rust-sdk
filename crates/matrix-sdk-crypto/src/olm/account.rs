@@ -493,7 +493,7 @@ impl Account {
             }
 
             self.update_uploaded_key_count(count);
-            self.generate_one_time_keys();
+            self.generate_one_time_keys_if_needed();
         }
 
         if let Some(unused) = unused_fallback_keys {
@@ -513,7 +513,7 @@ impl Account {
     /// Generally `Some` means that keys should be uploaded, while `None` means
     /// that keys should not be uploaded.
     #[instrument(skip_all)]
-    pub fn generate_one_time_keys(&mut self) -> Option<u64> {
+    pub fn generate_one_time_keys_if_needed(&mut self) -> Option<u64> {
         // Only generate one-time keys if there aren't any, otherwise the caller
         // might have failed to upload them the last time this method was
         // called.
@@ -1430,13 +1430,13 @@ mod tests {
 
         account.mark_keys_as_published();
         account.update_uploaded_key_count(50);
-        account.generate_one_time_keys();
+        account.generate_one_time_keys_if_needed();
 
         let (_, third_one_time_keys, _) = account.keys_for_upload();
         assert!(third_one_time_keys.is_empty());
 
         account.update_uploaded_key_count(0);
-        account.generate_one_time_keys();
+        account.generate_one_time_keys_if_needed();
 
         let (_, fourth_one_time_keys, _) = account.keys_for_upload();
         assert!(!fourth_one_time_keys.is_empty());

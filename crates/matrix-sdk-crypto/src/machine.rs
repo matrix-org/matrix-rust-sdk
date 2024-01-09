@@ -2244,7 +2244,7 @@ pub(crate) mod tests {
                 let account = tr.account().await.unwrap();
                 account.generate_fallback_key_helper();
                 account.update_uploaded_key_count(0);
-                account.generate_one_time_keys();
+                account.generate_one_time_keys_if_needed();
                 let request = machine
                     .keys_for_upload(account)
                     .await
@@ -2370,7 +2370,7 @@ pub(crate) mod tests {
             .store()
             .with_transaction(|mut tr| async {
                 let account = tr.account().await.unwrap();
-                assert!(account.generate_one_time_keys().is_some());
+                assert!(account.generate_one_time_keys_if_needed().is_some());
                 Ok((tr, ()))
             })
             .await
@@ -2384,7 +2384,7 @@ pub(crate) mod tests {
             .store()
             .with_transaction(|mut tr| async {
                 let account = tr.account().await.unwrap();
-                assert!(account.generate_one_time_keys().is_some());
+                assert!(account.generate_one_time_keys_if_needed().is_some());
                 Ok((tr, ()))
             })
             .await
@@ -2398,7 +2398,7 @@ pub(crate) mod tests {
             .store()
             .with_transaction(|mut tr| async {
                 let account = tr.account().await.unwrap();
-                assert!(account.generate_one_time_keys().is_none());
+                assert!(account.generate_one_time_keys_if_needed().is_none());
 
                 Ok((tr, ()))
             })
@@ -2466,7 +2466,7 @@ pub(crate) mod tests {
     fn test_one_time_key_signing() {
         let mut account = Account::with_device_id(user_id(), alice_device_id());
         account.update_uploaded_key_count(49);
-        account.generate_one_time_keys();
+        account.generate_one_time_keys_if_needed();
 
         let mut one_time_keys = account.signed_one_time_keys();
         let ed25519_key = account.identity_keys().ed25519;
