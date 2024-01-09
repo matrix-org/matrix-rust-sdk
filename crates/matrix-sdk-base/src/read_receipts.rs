@@ -736,6 +736,20 @@ mod tests {
         }
     }
 
+    fn sync_timeline_message(
+        sender: &UserId,
+        event_id: impl serde::Serialize,
+        body: impl serde::Serialize,
+    ) -> SyncTimelineEvent {
+        SyncTimelineEvent::new(sync_timeline_event!({
+            "sender": sender,
+            "type": "m.room.message",
+            "event_id": event_id,
+            "origin_server_ts": 42,
+            "content": { "body": body, "msgtype": "m.text" },
+        }))
+    }
+
     #[test]
     fn test_compute_notifications() {
         let user_id = user_id!("@alice:example.org");
@@ -745,21 +759,8 @@ mod tests {
 
         let mut previous_events = Vector::new();
 
-        let ev1 = SyncTimelineEvent::new(sync_timeline_event!({
-            "sender": other_user_id,
-            "type": "m.room.message",
-            "event_id": receipt_event_id,
-            "origin_server_ts": 12344446,
-            "content": { "body":"A", "msgtype": "m.text" },
-        }));
-
-        let ev2 = SyncTimelineEvent::new(sync_timeline_event!({
-            "sender": other_user_id,
-            "type": "m.room.message",
-            "event_id": "$2",
-            "origin_server_ts": 12344446,
-            "content": { "body":"A", "msgtype": "m.text" },
-        }));
+        let ev1 = sync_timeline_message(other_user_id, receipt_event_id, "A");
+        let ev2 = sync_timeline_message(other_user_id, "$2", "A");
 
         let map = BTreeMap::from([(
             receipt_event_id.to_owned(),
@@ -793,20 +794,13 @@ mod tests {
         previous_events.push_back(ev1);
         previous_events.push_back(ev2);
 
-        let sync_event = SyncTimelineEvent::new(sync_timeline_event!({
-            "sender": other_user_id,
-            "type": "m.room.message",
-            "event_id": "$43",
-            "origin_server_ts": 12344446,
-            "content": { "body":"A", "msgtype": "m.text" },
-        }));
-
+        let new_event = sync_timeline_message(other_user_id, "$3", "A");
         compute_notifications(
             user_id,
             room_id,
             Some(&receipt_event),
             &previous_events,
-            &[sync_event],
+            &[new_event],
             &mut read_receipts,
         )
         .unwrap();
