@@ -1238,6 +1238,71 @@ struct InboundGroupSessionIndexedDbObject {
     needs_backup: bool,
 }
 
+#[cfg(test)]
+mod unit_tests {
+    use super::InboundGroupSessionIndexedDbObject;
+
+    #[test]
+    fn needs_backup_is_serialized_as_a_u8_in_json() {
+        let session_needs_backup =
+            InboundGroupSessionIndexedDbObject { pickled_session: Vec::new(), needs_backup: true };
+
+        // Testing the exact JSON here is theoretically flaky in the face of serialization changes
+        // in serde_json but it seems unlikely, and it's simple enough to fix if we need to.
+        assert_eq!(
+            serde_json::to_string(&session_needs_backup).unwrap(),
+            r#"{"pickled_session":[],"needs_backup":1}"#
+        );
+    }
+
+    #[test]
+    fn doesnt_need_backup_is_serialized_with_missing_field_in_json() {
+        let session_needs_backup =
+            InboundGroupSessionIndexedDbObject { pickled_session: Vec::new(), needs_backup: false };
+
+        assert!(
+            !serde_json::to_string(&session_needs_backup).unwrap().contains("needs_backup"),
+            "The needs_backup field should be missing!"
+        );
+    }
+}
+
+#[cfg(all(test, target_arch = "wasm32"))]
+mod wasm_unit_tests {
+    use matrix_sdk_test::async_test;
+    use wasm_bindgen::JsValue;
+
+    use super::InboundGroupSessionIndexedDbObject;
+
+    fn assert_field_equals(js_value: &JsValue, field: &str, expected: u32) {
+        assert_eq!(
+            js_sys::Reflect::get(&js_value, &field.into()).unwrap(),
+            JsValue::from_f64(expected.into())
+        );
+    }
+
+    #[async_test]
+    fn needs_backup_is_serialized_as_a_u8_in_js() {
+        let session_needs_backup =
+            InboundGroupSessionIndexedDbObject { pickled_session: Vec::new(), needs_backup: true };
+
+        let js_value = serde_wasm_bindgen::to_value(&session_needs_backup).unwrap();
+
+        assert!(js_value.is_object());
+        assert_field_equals(&js_value, "needs_backup", 1);
+    }
+
+    #[async_test]
+    fn doesnt_need_backup_is_serialized_with_missing_field_in_js() {
+        let session_needs_backup =
+            InboundGroupSessionIndexedDbObject { pickled_session: Vec::new(), needs_backup: false };
+
+        let js_value = serde_wasm_bindgen::to_value(&session_needs_backup).unwrap();
+
+        assert!(!js_sys::Reflect::has(&js_value, &"needs_backup".into()).unwrap());
+    }
+}
+
 #[cfg(all(test, target_arch = "wasm32"))]
 mod tests {
     use matrix_sdk_crypto::cryptostore_integration_tests;
