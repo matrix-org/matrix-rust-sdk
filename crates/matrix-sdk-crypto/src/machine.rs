@@ -1101,7 +1101,7 @@ impl OlmMachine {
         transaction: &mut StoreTransaction,
         changes: &mut Changes,
         mut raw_event: Raw<AnyToDeviceEvent>,
-    ) -> OlmResult<Raw<AnyToDeviceEvent>> {
+    ) -> Raw<AnyToDeviceEvent> {
         Self::record_message_id(&raw_event);
 
         let event: ToDeviceEvents = match raw_event.deserialize_as() {
@@ -1110,7 +1110,7 @@ impl OlmMachine {
                 // Skip invalid events.
                 warn!("Received an invalid to-device event: {e}");
 
-                return Ok(raw_event);
+                return raw_event;
             }
         };
 
@@ -1135,7 +1135,7 @@ impl OlmMachine {
                             }
                         }
 
-                        return Ok(raw_event);
+                        return raw_event;
                     }
                 };
 
@@ -1172,7 +1172,7 @@ impl OlmMachine {
             e => self.handle_to_device_event(changes, &e).await,
         }
 
-        Ok(raw_event)
+        raw_event
     }
 
     /// Handle a to-device and one-time key counts from a sync response.
@@ -1247,8 +1247,7 @@ impl OlmMachine {
 
         for raw_event in sync_changes.to_device_events {
             let raw_event =
-                Box::pin(self.receive_to_device_event(transaction, &mut changes, raw_event))
-                    .await?;
+                Box::pin(self.receive_to_device_event(transaction, &mut changes, raw_event)).await;
             events.push(raw_event);
         }
 
