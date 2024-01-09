@@ -1247,8 +1247,9 @@ mod unit_tests {
         let session_needs_backup =
             InboundGroupSessionIndexedDbObject { pickled_session: Vec::new(), needs_backup: true };
 
-        // Testing the exact JSON here is theoretically flaky in the face of serialization changes
-        // in serde_json but it seems unlikely, and it's simple enough to fix if we need to.
+        // Testing the exact JSON here is theoretically flaky in the face of
+        // serialization changes in serde_json but it seems unlikely, and it's
+        // simple enough to fix if we need to.
         assert_eq!(
             serde_json::to_string(&session_needs_backup).unwrap(),
             r#"{"pickled_session":[],"needs_backup":1}"#
