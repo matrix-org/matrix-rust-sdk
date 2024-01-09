@@ -313,7 +313,7 @@ impl GossipMachine {
         let device =
             self.inner.store.get_device(&event.sender, &event.content.requesting_device_id).await?;
 
-        Ok(if let Some(device) = device {
+        if let Some(device) = device {
             if device.user_id() == self.user_id() {
                 if device.is_verified() {
                     info!(
@@ -338,7 +338,7 @@ impl GossipMachine {
                             Ok(None)
                         }
                         Err(e) => Err(e),
-                    }?
+                    }
                 } else {
                     info!(
                         user_id = ?device.user_id(),
@@ -347,7 +347,7 @@ impl GossipMachine {
                         "Received a secret request that we won't serve, the device isn't trusted",
                     );
 
-                    None
+                    Ok(None)
                 }
             } else {
                 info!(
@@ -357,7 +357,7 @@ impl GossipMachine {
                     "Received a secret request that we won't serve, the device doesn't belong to us",
                 );
 
-                None
+                Ok(None)
             }
         } else {
             warn!(
@@ -374,8 +374,8 @@ impl GossipMachine {
                 .mark_user_as_changed(&event.sender)
                 .await?;
 
-            None
-        })
+            Ok(None)
+        }
     }
 
     /// Try to encrypt the given `InboundGroupSession` for the given `Device` as
