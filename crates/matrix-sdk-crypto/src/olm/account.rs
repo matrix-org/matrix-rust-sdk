@@ -517,30 +517,30 @@ impl Account {
         // Only generate one-time keys if there aren't any, otherwise the caller
         // might have failed to upload them the last time this method was
         // called.
-        if self.one_time_keys().is_empty() {
-            let count = self.uploaded_key_count();
-            let max_keys = self.max_one_time_keys();
-
-            if count >= max_keys as u64 {
-                return None;
-            }
-
-            let key_count = (max_keys as u64) - count;
-            let key_count: usize = key_count.try_into().unwrap_or(max_keys);
-
-            let result = self.generate_one_time_keys_helper(key_count);
-
-            debug!(
-                count = key_count,
-                discarded_keys = ?result.removed,
-                created_keys = ?result.created,
-                "Generated new one-time keys"
-            );
-
-            Some(key_count as u64)
-        } else {
-            Some(0)
+        if !self.one_time_keys().is_empty() {
+            return Some(0);
         }
+
+        let count = self.uploaded_key_count();
+        let max_keys = self.max_one_time_keys();
+
+        if count >= max_keys as u64 {
+            return None;
+        }
+
+        let key_count = (max_keys as u64) - count;
+        let key_count: usize = key_count.try_into().unwrap_or(max_keys);
+
+        let result = self.generate_one_time_keys_helper(key_count);
+
+        debug!(
+            count = key_count,
+            discarded_keys = ?result.removed,
+            created_keys = ?result.created,
+            "Generated new one-time keys"
+        );
+
+        Some(key_count as u64)
     }
 
     pub(crate) fn generate_fallback_key_helper(&mut self) {
