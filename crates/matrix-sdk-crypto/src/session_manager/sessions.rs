@@ -718,7 +718,7 @@ mod tests {
 
         assert!(request.one_time_keys.contains_key(bob.user_id()));
 
-        bob.generate_one_time_keys_helper(1);
+        bob.generate_one_time_keys(1);
         let one_time = bob.signed_one_time_keys();
         assert!(!one_time.is_empty());
         bob.mark_keys_as_published();
@@ -882,7 +882,7 @@ mod tests {
 
         assert!(request.one_time_keys.contains_key(bob.user_id()));
 
-        bob.generate_one_time_keys_helper(1);
+        bob.generate_one_time_keys(1);
         let one_time = bob.signed_one_time_keys();
         assert!(!one_time.is_empty());
         bob.mark_keys_as_published();
@@ -1009,7 +1009,7 @@ mod tests {
         // Since alice is timed out, we won't claim keys for her.
         assert!(manager.get_missing_sessions(iter::once(alice)).await.unwrap().is_none());
 
-        alice_account.generate_one_time_keys_helper(1);
+        alice_account.generate_one_time_keys(1);
         let one_time = alice_account.signed_one_time_keys();
         assert!(!one_time.is_empty());
 

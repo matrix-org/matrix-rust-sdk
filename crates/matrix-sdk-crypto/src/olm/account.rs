@@ -464,7 +464,7 @@ impl Account {
     }
 
     /// Generate count number of one-time keys.
-    pub fn generate_one_time_keys_helper(&mut self, count: usize) -> OneTimeKeyGenerationResult {
+    pub fn generate_one_time_keys(&mut self, count: usize) -> OneTimeKeyGenerationResult {
         self.inner.generate_one_time_keys(count)
     }
 
@@ -531,7 +531,7 @@ impl Account {
         let key_count = (max_keys as u64) - count;
         let key_count: usize = key_count.try_into().unwrap_or(max_keys);
 
-        let result = self.generate_one_time_keys_helper(key_count);
+        let result = self.generate_one_time_keys(key_count);
 
         debug!(
             count = key_count,
@@ -986,7 +986,7 @@ impl Account {
     ) -> (Session, Session) {
         use ruma::events::dummy::ToDeviceDummyEventContent;
 
-        other.generate_one_time_keys_helper(1);
+        other.generate_one_time_keys(1);
         let one_time_map = other.signed_one_time_keys();
         let device = ReadOnlyDevice::from_account(other);
 
