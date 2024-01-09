@@ -47,7 +47,7 @@ use crate::{
 #[allow(missing_debug_implementations)]
 pub struct SendRequest<R> {
     pub(crate) client: Client,
-    pub(crate) sliding_sync_proxy_url: Option<String>,
+    pub(crate) homeserver_override: Option<String>,
     pub(crate) request: R,
     pub(crate) config: Option<RequestConfig>,
     pub(crate) send_progress: SharedObservable<TransmissionProgress>,
@@ -69,6 +69,16 @@ impl<R> SendRequest<R> {
         self
     }
 
+    /// Replace this request's target (homeserver) with a custom one.
+    ///
+    /// This is useful at the moment because the current sliding sync
+    /// implementation uses a proxy server.
+    #[cfg(feature = "experimental-sliding-sync")]
+    pub fn with_homeserver_override(mut self, homeserver_override: Option<String>) -> Self {
+        self.homeserver_override = homeserver_override;
+        self
+    }
+
     /// Get a subscriber to observe the progress of sending the request
     /// body.
     #[cfg(not(target_arch = "wasm32"))]
@@ -87,13 +97,13 @@ where
     boxed_into_future!();
 
     fn into_future(self) -> Self::IntoFuture {
-        let Self { client, request, config, send_progress, sliding_sync_proxy_url } = self;
+        let Self { client, request, config, send_progress, homeserver_override } = self;
 
         Box::pin(async move {
             let res = Box::pin(client.send_inner(
                 request.clone(),
                 config,
-                sliding_sync_proxy_url.clone(),
+                homeserver_override.clone(),
                 send_progress.clone(),
             ))
             .await;
@@ -161,7 +171,7 @@ where
                     return Box::pin(client.send_inner(
                         request,
                         config,
-                        sliding_sync_proxy_url,
+                        homeserver_override,
                         send_progress,
                     ))
                     .await;
