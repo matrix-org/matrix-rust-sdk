@@ -29,6 +29,7 @@ use std::{
     sync::{Arc, RwLock as StdRwLock},
 };
 
+use eyeball_im::ObservableVector;
 use once_cell::sync::OnceCell;
 
 #[cfg(any(test, feature = "testing"))]
@@ -139,10 +140,61 @@ pub(crate) struct Store {
     /// The current sync token that should be used for the next sync call.
     pub(super) sync_token: Arc<RwLock<Option<String>>>,
     /// All rooms the store knows about.
-    rooms: Arc<StdRwLock<BTreeMap<OwnedRoomId, Room>>>,
+    rooms: Arc<StdRwLock<Rooms>>,
     /// A lock to synchronize access to the store, such that data by the sync is
     /// never overwritten.
     sync_lock: Arc<Mutex<()>>,
+}
+
+#[derive(Default, Debug)]
+struct Rooms {
+    mapping: BTreeMap<OwnedRoomId, usize>,
+    rooms: ObservableVector<Room>,
+}
+
+impl Rooms {
+    fn insert(&mut self, room_id: OwnedRoomId, room: Room) -> usize {
+        match self.mapping.get(&room_id) {
+            Some(position) => {
+                self.rooms.set(*position, room);
+
+                *position
+            }
+            None => {
+                let position = self.rooms.len();
+
+                self.rooms.push_back(room);
+                self.mapping.insert(room_id, position);
+
+                position
+            }
+        }
+    }
+
+    fn get(&self, room_id: &RoomId) -> Option<&Room> {
+        self.mapping.get(room_id).and_then(|position| self.rooms.get(*position))
+    }
+
+    fn get_or_create<F>(&mut self, room_id: &RoomId, default: F) -> &Room
+    where
+        F: FnOnce() -> Room,
+    {
+        let position = match self.mapping.get(room_id) {
+            Some(position) => *position,
+            None => {
+                let room = default();
+                self.insert(room.room_id().to_owned(), room)
+            }
+        };
+
+        self.rooms
+            .get(position)
+            .expect("Room should be present or has just been inserted, but it's missing")
+    }
+
+    fn iter(&self) -> impl Iterator<Item = &Room> {
+        self.rooms.iter()
+    }
 }
 
 impl Store {
@@ -173,15 +225,22 @@ impl Store {
         session_meta: SessionMeta,
         roominfo_update_sender: &broadcast::Sender<RoomInfoUpdate>,
     ) -> Result<()> {
-        for info in self.inner.get_room_infos().await? {
-            let room = Room::restore(
-                &session_meta.user_id,
-                self.inner.clone(),
-                info,
-                roominfo_update_sender.clone(),
-            );
+        {
+            let room_infos = self.inner.get_room_infos().await?;
 
-            self.rooms.write().unwrap().insert(room.room_id().to_owned(), room);
+            let mut rooms = self.rooms.write().unwrap();
+
+            for room_info in room_infos {
+                let new_room = Room::restore(
+                    &session_meta.user_id,
+                    self.inner.clone(),
+                    room_info,
+                    roominfo_update_sender.clone(),
+                );
+                let new_room_id = new_room.room_id().to_owned();
+
+                rooms.insert(new_room_id, new_room);
+            }
         }
 
         let token =
@@ -200,7 +259,7 @@ impl Store {
 
     /// Get all the rooms this store knows about.
     pub fn rooms(&self) -> Vec<Room> {
-        self.rooms.read().unwrap().values().cloned().collect()
+        self.rooms.read().unwrap().iter().cloned().collect()
     }
 
     /// Get all the rooms this store knows about, filtered by state.
@@ -209,8 +268,8 @@ impl Store {
             .read()
             .unwrap()
             .iter()
-            .filter(|(_, room)| filter.matches(room.state()))
-            .map(|(_, room)| room.clone())
+            .filter(|room| filter.matches(room.state()))
+            .cloned()
             .collect()
     }
 
@@ -219,8 +278,8 @@ impl Store {
         self.rooms.read().unwrap().get(room_id).cloned()
     }
 
-    /// Lookup the Room for the given RoomId, or create one, if it didn't exist
-    /// yet in the store.
+    /// Lookup the `Room` for the given `RoomId`, or create one, if it didn't
+    /// exist yet in the store
     pub fn get_or_create_room(
         &self,
         room_id: &RoomId,
@@ -233,8 +292,7 @@ impl Store {
         self.rooms
             .write()
             .unwrap()
-            .entry(room_id.to_owned())
-            .or_insert_with(|| {
+            .get_or_create(room_id, || {
                 Room::new(user_id, self.inner.clone(), room_id, room_type, roominfo_update_sender)
             })
             .clone()
