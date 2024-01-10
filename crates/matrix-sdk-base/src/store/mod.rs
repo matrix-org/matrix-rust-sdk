@@ -30,6 +30,7 @@ use std::{
     sync::{Arc, RwLock as StdRwLock},
 };
 
+use eyeball_im::ObservableVector;
 use once_cell::sync::OnceCell;
 
 #[cfg(any(test, feature = "testing"))]
@@ -143,13 +144,64 @@ pub(crate) struct Store {
     /// The current sync token that should be used for the next sync call.
     pub(super) sync_token: Arc<RwLock<Option<String>>>,
     /// All rooms the store knows about.
-    rooms: Arc<StdRwLock<BTreeMap<OwnedRoomId, Room>>>,
+    rooms: Arc<StdRwLock<Rooms>>,
     /// A lock to synchronize access to the store, such that data by the sync is
     /// never overwritten. The sync processing is supposed to use write access,
     /// such that only it is currently accessing the store overall. Other things
     /// might acquire read access, such that access to different rooms can be
     /// parallelized.
     sync_lock: Arc<RwLock<()>>,
+}
+
+#[derive(Default, Debug)]
+struct Rooms {
+    mapping: BTreeMap<OwnedRoomId, usize>,
+    rooms: ObservableVector<Room>,
+}
+
+impl Rooms {
+    fn insert(&mut self, room_id: OwnedRoomId, room: Room) -> usize {
+        match self.mapping.get(&room_id) {
+            Some(position) => {
+                self.rooms.set(*position, room);
+
+                *position
+            }
+            None => {
+                let position = self.rooms.len();
+
+                self.rooms.push_back(room);
+                self.mapping.insert(room_id, position);
+
+                position
+            }
+        }
+    }
+
+    fn get(&self, room_id: &RoomId) -> Option<&Room> {
+        self.mapping.get(room_id).and_then(|position| self.rooms.get(*position))
+    }
+
+    fn get_or_create<F>(&mut self, room_id: &RoomId, default: F) -> &Room
+    where
+        F: FnOnce() -> Room,
+    {
+        let position = match self.mapping.get(room_id) {
+            Some(position) => *position,
+            None => {
+                let room = default();
+                self.insert(room.room_id().to_owned(), room)
+            }
+        };
+
+        self.rooms
+            .get(position)
+            .expect("Room should be present or has just been inserted, but it's missing")
+    }
+
+    fn iter(&self) -> impl Iterator<Item = &Room> {
+        self.rooms.iter()
+    }
 }
 
 impl Store {
@@ -176,9 +228,17 @@ impl Store {
     ///
     /// This method panics if it is called twice.
     pub async fn set_session_meta(&self, session_meta: SessionMeta) -> Result<()> {
-        for info in self.inner.get_room_infos().await? {
-            let room = Room::restore(&session_meta.user_id, self.inner.clone(), info);
-            self.rooms.write().unwrap().insert(room.room_id().to_owned(), room);
+        {
+            let room_infos = self.inner.get_room_infos().await?;
+
+            let mut rooms = self.rooms.write().unwrap();
+
+            for room_info in room_infos {
+                let new_room = Room::restore(&session_meta.user_id, self.inner.clone(), room_info);
+                let new_room_id = new_room.room_id().to_owned();
+
+                rooms.insert(new_room_id, new_room);
+            }
         }
 
         let token =
@@ -197,7 +257,7 @@ impl Store {
 
     /// Get all the rooms this store knows about.
     pub fn get_rooms(&self) -> Vec<Room> {
-        self.rooms.read().unwrap().values().cloned().collect()
+        self.rooms.read().unwrap().iter().cloned().collect()
     }
 
     /// Get all the rooms this store knows about, filtered by state.
@@ -206,8 +266,8 @@ impl Store {
             .read()
             .unwrap()
             .iter()
-            .filter(|(_, r)| filter.matches(r.state()))
-            .filter_map(|(id, _)| self.get_room(id))
+            .filter_map(|room| filter.matches(room.state()).then_some(room))
+            .cloned()
             .collect()
     }
 
@@ -216,8 +276,8 @@ impl Store {
         self.rooms.read().unwrap().get(room_id).cloned()
     }
 
-    /// Lookup the Room for the given RoomId, or create one, if it didn't exist
-    /// yet in the store
+    /// Lookup the `Room` for the given `RoomId`, or create one, if it didn't
+    /// exist yet in the store
     pub fn get_or_create_room(&self, room_id: &RoomId, room_type: RoomState) -> Room {
         let user_id =
             &self.session_meta.get().expect("Creating room while not being logged in").user_id;
@@ -225,8 +285,7 @@ impl Store {
         self.rooms
             .write()
             .unwrap()
-            .entry(room_id.to_owned())
-            .or_insert_with(|| Room::new(user_id, self.inner.clone(), room_id, room_type))
+            .get_or_create(room_id, || Room::new(user_id, self.inner.clone(), room_id, room_type))
             .clone()
     }
 }
