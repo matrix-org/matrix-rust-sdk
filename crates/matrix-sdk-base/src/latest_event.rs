@@ -1,7 +1,7 @@
 //! Utilities for working with events to decide whether they are suitable for
 //! use as a [crate::Room::latest_event].
 
-#![cfg(feature = "experimental-sliding-sync")]
+#![cfg(any(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
 
 use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
 #[cfg(feature = "e2e-encryption")]
