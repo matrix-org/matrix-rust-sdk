@@ -422,6 +422,7 @@ mod tests {
     use ruma::{
         event_id,
         events::receipt::{ReceiptThread, ReceiptType},
+        owned_event_id,
         push::Action,
         room_id, user_id, EventId, UserId,
     };
@@ -801,5 +802,89 @@ mod tests {
 
         // Only the new event should be added.
         assert_eq!(read_receipts.num_unread, 2);
+    }
+
+    /// Test that when multiple receipts come in a single event, we can still find the latest one
+    /// according to the sync order.
+    #[test]
+    fn test_compute_notifications_multiple_receipts_in_one_event() {
+        let user_id = user_id!("@alice:example.org");
+        let other_user_id = user_id!("@bob:example.org");
+        let room_id = room_id!("!room:example.org");
+
+        let ev1 = sync_timeline_message(other_user_id, "$1", "boom");
+        let ev2 = sync_timeline_message(other_user_id, "$2", "boom");
+        let ev3 = sync_timeline_message(other_user_id, "$3", "boom");
+        let ev4 = sync_timeline_message(other_user_id, "$4", "boom");
+        let ev5 = sync_timeline_message(other_user_id, "$5", "i want you in my room");
+
+        let all_events: Vector<_> =
+            vec![ev1.clone(), ev2.clone(), ev3.clone(), ev4.clone(), ev5.clone()].into();
+
+        let head_events: Vector<_> = vec![ev1, ev2].into();
+        let tail_events = &[ev3, ev4, ev5];
+
+        for receipt_type_1 in &[ReceiptType::Read, ReceiptType::ReadPrivate] {
+            for receipt_thread_1 in &[ReceiptThread::Unthreaded, ReceiptThread::Main] {
+                for receipt_type_2 in &[ReceiptType::Read, ReceiptType::ReadPrivate] {
+                    for receipt_thread_2 in &[ReceiptThread::Unthreaded, ReceiptThread::Main] {
+                        let receipt_event = EventBuilder::new().make_receipt_event_content([
+                            (
+                                owned_event_id!("$2"),
+                                receipt_type_1.clone(),
+                                user_id.to_owned(),
+                                receipt_thread_1.clone(),
+                            ),
+                            (
+                                owned_event_id!("$3"),
+                                receipt_type_2.clone(),
+                                user_id.to_owned(),
+                                receipt_thread_2.clone(),
+                            ),
+                            (
+                                owned_event_id!("$1"),
+                                receipt_type_1.clone(),
+                                user_id.to_owned(),
+                                receipt_thread_2.clone(),
+                            ),
+                        ]);
+
+                        // Receipt-only sync, no new events, all receipts refered to events that are known.
+                        let mut read_receipts = RoomReadReceipts::default();
+                        assert!(compute_notifications(
+                            user_id,
+                            room_id,
+                            Some(&receipt_event),
+                            &all_events,
+                            &[],
+                            &mut read_receipts,
+                        )
+                        .unwrap());
+
+                        // $4 and $5 are unread.
+                        assert_eq!(read_receipts.num_unread, 2);
+                        assert_eq!(read_receipts.num_mentions, 0);
+                        assert_eq!(read_receipts.num_notifications, 0);
+
+                        // Receipt-only sync, mix of old and new events, all receipts refered to events that are known.
+                        let mut read_receipts = RoomReadReceipts::default();
+                        assert!(compute_notifications(
+                            user_id,
+                            room_id,
+                            Some(&receipt_event),
+                            &head_events,
+                            tail_events,
+                            &mut read_receipts,
+                        )
+                        .unwrap());
+
+                        // $4 and $5 are unread.
+                        assert_eq!(read_receipts.num_unread, 2);
+                        assert_eq!(read_receipts.num_mentions, 0);
+                        assert_eq!(read_receipts.num_notifications, 0);
+                    }
+                }
+            }
+        }
     }
 }
