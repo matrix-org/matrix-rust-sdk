@@ -87,14 +87,11 @@ enum WasmFeatureSet {
     MatrixSdkIndexeddbStoresNoCrypto,
     /// Check `matrix-sdk` crate with `indexeddb` and `e2e-encryption` features
     MatrixSdkIndexeddbStores,
-    /// Check `matrix-sdk-indexeddb` crate with all features
-    IndexeddbAllFeatures,
+    /// Check `matrix-sdk-indexeddb` crate without `e2e-encryption` feature
+    IndexeddbNoCrypto,
     /// Check `matrix-sdk-indexeddb` crate with `e2e-encryption` feature
-    IndexeddbCrypto,
-    /// Check `matrix-sdk-indexeddb` crate with `state-store` feature
-    IndexeddbState,
-    /// Equivalent to `indexeddb-all-features`, `indexeddb-crypto` and
-    /// `indexeddb-state`
+    IndexeddbWithCrypto,
+    /// Equivalent to `IndexeddbNoCrypto` followed by `IndexeddbWithCrypto`
     Indexeddb,
 }
 
@@ -272,9 +269,8 @@ fn run_crypto_tests() -> Result<()> {
 
 fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
     if let Some(WasmFeatureSet::Indexeddb) = cmd {
-        run_wasm_checks(Some(WasmFeatureSet::IndexeddbAllFeatures))?;
-        run_wasm_checks(Some(WasmFeatureSet::IndexeddbCrypto))?;
-        run_wasm_checks(Some(WasmFeatureSet::IndexeddbState))?;
+        run_wasm_checks(Some(WasmFeatureSet::IndexeddbNoCrypto))?;
+        run_wasm_checks(Some(WasmFeatureSet::IndexeddbWithCrypto))?;
         return Ok(());
     }
 
@@ -294,14 +290,10 @@ fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
             WasmFeatureSet::MatrixSdkIndexeddbStores,
             "-p matrix-sdk --no-default-features --features js,indexeddb,e2e-encryption,rustls-tls",
         ),
-        (WasmFeatureSet::IndexeddbAllFeatures, "-p matrix-sdk-indexeddb"),
+        (WasmFeatureSet::IndexeddbNoCrypto, "-p matrix-sdk-indexeddb --no-default-features "),
         (
-            WasmFeatureSet::IndexeddbCrypto,
+            WasmFeatureSet::IndexeddbWithCrypto,
             "-p matrix-sdk-indexeddb --no-default-features --features e2e-encryption",
-        ),
-        (
-            WasmFeatureSet::IndexeddbState,
-            "-p matrix-sdk-indexeddb --no-default-features --features state-store",
         ),
     ]);
 
@@ -329,9 +321,8 @@ fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
 
 fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>) -> Result<()> {
     if let Some(WasmFeatureSet::Indexeddb) = cmd {
-        run_wasm_pack_tests(Some(WasmFeatureSet::IndexeddbAllFeatures))?;
-        run_wasm_pack_tests(Some(WasmFeatureSet::IndexeddbCrypto))?;
-        run_wasm_pack_tests(Some(WasmFeatureSet::IndexeddbState))?;
+        run_wasm_pack_tests(Some(WasmFeatureSet::IndexeddbNoCrypto))?;
+        run_wasm_pack_tests(Some(WasmFeatureSet::IndexeddbWithCrypto))?;
         return Ok(());
     }
     let args = BTreeMap::from([
@@ -354,16 +345,12 @@ fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>) -> Result<()> {
             ),
         ),
         (
-            WasmFeatureSet::IndexeddbAllFeatures,
-            ("crates/matrix-sdk-indexeddb", ""),
+            WasmFeatureSet::IndexeddbNoCrypto,
+            ("crates/matrix-sdk-indexeddb", "--no-default-features"),
         ),
         (
-            WasmFeatureSet::IndexeddbCrypto,
+            WasmFeatureSet::IndexeddbWithCrypto,
             ("crates/matrix-sdk-indexeddb", "--no-default-features --features e2e-encryption"),
-        ),
-        (
-            WasmFeatureSet::IndexeddbState,
-            ("crates/matrix-sdk-indexeddb", "--no-default-features --features state-store"),
         ),
     ]);
 
