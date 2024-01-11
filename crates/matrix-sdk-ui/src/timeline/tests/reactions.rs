@@ -51,7 +51,7 @@ async fn add_reaction_failed() {
     timeline
         .handle_reaction_response(&reaction, &ReactionToggleResult::AddFailure { txn_id })
         .await
-        .unwrap();
+        .unwrap_err();
     assert_reactions_are_removed(&mut stream, &msg_id, msg_pos).await;
 
     assert_no_more_updates(&mut stream).await;
@@ -135,7 +135,7 @@ async fn redact_reaction_failure() {
             &ReactionToggleResult::RedactFailure { event_id: event_id.clone() },
         )
         .await
-        .unwrap();
+        .unwrap_err();
     assert_reaction_is_updated(&mut stream, &msg_id, msg_pos, Some(&event_id), None).await;
 
     assert_no_more_updates(&mut stream).await;
@@ -229,7 +229,7 @@ async fn reactions_store_timestamp() {
             &ReactionToggleResult::RedactFailure { event_id: msg_id.clone() },
         )
         .await
-        .unwrap();
+        .unwrap_err();
 
     // Restores an event with a valid timestamp.
     let event = assert_event_is_updated(&mut stream, &msg_id, msg_pos).await;

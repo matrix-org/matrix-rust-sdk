@@ -622,6 +622,13 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             }
         };
 
+        if matches!(
+            result,
+            ReactionToggleResult::AddFailure { .. } | ReactionToggleResult::RedactFailure { .. }
+        ) {
+            return Err(super::Error::FailedToToggleReaction);
+        }
+
         Ok(follow_up_action)
     }
 
