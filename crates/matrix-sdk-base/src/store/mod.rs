@@ -31,7 +31,8 @@ use std::{
     sync::{Arc, RwLock as StdRwLock},
 };
 
-use eyeball_im::ObservableVector;
+use eyeball_im::{ObservableVector, Vector, VectorDiff};
+use futures_util::Stream;
 use once_cell::sync::OnceCell;
 
 #[cfg(any(test, feature = "testing"))]
@@ -369,10 +370,18 @@ where
     fn iter(&self) -> impl Iterator<Item = &V> {
         self.values.iter()
     }
+
+    /// Get a [`Stream`] of it.
+    fn stream(&self) -> (Vector<V>, impl Stream<Item = Vec<VectorDiff<V>>>) {
+        self.values.subscribe().into_values_and_batched_stream()
+    }
 }
 
 #[cfg(test)]
 mod tests_observable_map {
+    use eyeball_im::VectorDiff;
+    use stream_assert::{assert_closed, assert_next_eq, assert_pending};
+
     use super::ObservableMap;
 
     #[test]
@@ -436,6 +445,38 @@ mod tests_observable_map {
             map.iter().map(|c| c.to_ascii_uppercase()).collect::<Vec<_>>(),
             &['E', 'F', 'G']
         );
+    }
+
+    #[test]
+    fn test_stream() {
+        let mut map = ObservableMap::<char, char>::new();
+
+        // insert one item
+        assert_eq!(map.insert('b', 'f'), 0);
+
+        let (initial_values, mut stream) = map.stream();
+        assert_eq!(initial_values.iter().cloned().collect::<Vec<_>>(), &['f']);
+
+        assert_pending!(stream);
+
+        // insert two items
+        assert_eq!(map.insert('c', 'g'), 1);
+        assert_eq!(map.insert('a', 'e'), 2);
+        assert_next_eq!(
+            stream,
+            vec![VectorDiff::PushBack { value: 'g' }, VectorDiff::PushBack { value: 'e' }]
+        );
+
+        assert_pending!(stream);
+
+        // update one item
+        assert_eq!(map.insert('b', 'F'), 0);
+        assert_next_eq!(stream, vec![VectorDiff::Set { index: 0, value: 'F' }]);
+
+        assert_pending!(stream);
+
+        drop(map);
+        assert_closed!(stream);
     }
 }
 
