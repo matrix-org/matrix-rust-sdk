@@ -414,14 +414,14 @@ fn marks_as_unread(event: &Raw<AnySyncTimelineEvent>, user_id: &UserId) -> bool 
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, ops::Not as _};
+    use std::ops::Not as _;
 
     use eyeball_im::Vector;
     use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
-    use matrix_sdk_test::sync_timeline_event;
+    use matrix_sdk_test::{sync_timeline_event, EventBuilder};
     use ruma::{
-        assign, event_id,
-        events::receipt::{Receipt, ReceiptEventContent, ReceiptThread, ReceiptType},
+        event_id,
+        events::receipt::{ReceiptThread, ReceiptType},
         push::Action,
         room_id, user_id, EventId, UserId,
     };
@@ -750,8 +750,9 @@ mod tests {
         }))
     }
 
+    /// Smoke test for `compute_notifications`.
     #[test]
-    fn test_compute_notifications() {
+    fn test_basic_compute_notifications() {
         let user_id = user_id!("@alice:example.org");
         let other_user_id = user_id!("@bob:example.org");
         let room_id = room_id!("!room:example.org");
@@ -762,19 +763,12 @@ mod tests {
         let ev1 = sync_timeline_message(other_user_id, receipt_event_id, "A");
         let ev2 = sync_timeline_message(other_user_id, "$2", "A");
 
-        let map = BTreeMap::from([(
+        let receipt_event = EventBuilder::new().make_receipt_event_content([(
             receipt_event_id.to_owned(),
-            BTreeMap::from([(
-                ReceiptType::Read,
-                BTreeMap::from([(
-                    user_id.to_owned(),
-                    assign!(Receipt::default(), {
-                        thread: ReceiptThread::Unthreaded
-                    }),
-                )]),
-            )]),
+            ReceiptType::Read,
+            user_id.to_owned(),
+            ReceiptThread::Unthreaded,
         )]);
-        let receipt_event = ReceiptEventContent(map);
 
         let mut read_receipts = Default::default();
         compute_notifications(
@@ -787,7 +781,7 @@ mod tests {
         )
         .unwrap();
 
-        // It did find the receipt event (ev1) and another one (ev2).
+        // It did find the receipt event (ev1).
         assert_eq!(read_receipts.num_unread, 1);
 
         // Receive the same receipt event, with a new sync event.
