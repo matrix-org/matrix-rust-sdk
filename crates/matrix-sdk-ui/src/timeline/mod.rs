@@ -483,6 +483,7 @@ impl Timeline {
     async fn redact_reaction(&self, event_id: &EventId) -> ReactionToggleResult {
         let room = self.room();
         if room.state() != RoomState::Joined {
+            warn!("Cannot redact a reaction in a room that is not joined");
             return ReactionToggleResult::RedactFailure { event_id: event_id.to_owned() };
         }
 
@@ -493,7 +494,10 @@ impl Timeline {
 
         match response {
             Ok(_) => ReactionToggleResult::RedactSuccess,
-            Err(_) => ReactionToggleResult::RedactFailure { event_id: event_id.to_owned() },
+            Err(error) => {
+                error!("Failed to redact reaction: {error}");
+                ReactionToggleResult::RedactFailure { event_id: event_id.to_owned() }
+            }
         }
     }
 
@@ -505,6 +509,7 @@ impl Timeline {
     ) -> ReactionToggleResult {
         let room = self.room();
         if room.state() != RoomState::Joined {
+            warn!("Cannot send a reaction in a room that is not joined");
             return ReactionToggleResult::AddFailure { txn_id };
         }
 
@@ -516,7 +521,10 @@ impl Timeline {
             Ok(response) => {
                 ReactionToggleResult::AddSuccess { event_id: response.event_id, txn_id }
             }
-            Err(_) => ReactionToggleResult::AddFailure { txn_id },
+            Err(error) => {
+                error!("Failed to send reaction: {error}");
+                ReactionToggleResult::AddFailure { txn_id }
+            }
         }
     }
 

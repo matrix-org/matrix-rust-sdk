@@ -273,8 +273,10 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
         let related_event = {
             let items = state.items.clone();
-            let (_, item) = rfind_event_by_id(&items, &annotation.event_id)
-                .ok_or(super::Error::FailedToToggleReaction)?;
+            let Some((_, item)) = rfind_event_by_id(&items, &annotation.event_id) else {
+                warn!("Timeline item not found, can't update reaction ID");
+                return Err(super::Error::FailedToToggleReaction);
+            };
             item.to_owned()
         };
 
