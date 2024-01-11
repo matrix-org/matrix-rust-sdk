@@ -29,6 +29,43 @@ integration tests that need a running synapse instance. These tests reside in
 [README](./testing/matrix-sdk-integration-testing/README.md) to easily set up a
 synapse for testing purposes.
 
+## Commit messages and PR title guidelines
+
+Ideally, a PR should have a *proper title*, with *atomic logical commits*, and each commit
+should have a *good commit message*.
+
+An *atomic logical commit* is one that is ideally small, can be compiled in isolation, and pass
+tests. This is useful to make the review process easier (help your reviewer), but also when running
+bisections, helping identifying which commit introduced a regression.
+
+A *good commit message* should be composed of:
+
+- a hint to which area/feature is related by the commit
+- a short description that would give sufficient context for a reviewer to guess what the commit is
+  about.
+
+Examples of commit messages that aren't so useful:
+
+- “add new method“
+- “enhance performance“
+- “fix receipts“
+
+Examples of good commit messages:
+
+- “ffi: add new method `frobnicate_the_foos`”
+- “indexeddb: break up the request inside `get_inbound_group_sessions`”
+- “read_receipts: store receipts locally, fixing #12345”
+
+A *proper PR title* would be a one-liner summary of the changes in the PR, following the
+same guidelines of a good commit message.
+
+(An additional bad example of a bad PR title would be `mynickname/branch name`, that is, just the
+branch name.)
+
+Having good commit messages and PR titles help easing the reviews too, scanning the `git log` of
+the project, and writing the [*This week in
+Matrix*](https://matrix.org/category/this-week-in-matrix/) updates for the SDK.
+
 ## Sign off
 
 In order to have a concrete record that your contribution is intentional
