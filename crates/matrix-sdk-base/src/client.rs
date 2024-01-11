@@ -1364,7 +1364,7 @@ mod tests {
     use serde_json::json;
 
     use super::BaseClient;
-    use crate::{store::StateStoreExt, DisplayName, Room, RoomState, SessionMeta, StateChanges};
+    use crate::{store::StateStoreExt, DisplayName, Room, RoomState, SessionMeta};
 
     #[async_test]
     async fn invite_after_leaving() {
@@ -1501,6 +1501,8 @@ mod tests {
     #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
     #[async_test]
     async fn when_there_are_no_latest_encrypted_events_decrypting_them_does_nothing() {
+        use crate::StateChange;
+
         // Given a room
         let user_id = user_id!("@u:u.to");
         let room_id = room_id!("!r:u.to");
