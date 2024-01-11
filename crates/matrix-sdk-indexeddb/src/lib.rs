@@ -1,6 +1,5 @@
 #![cfg_attr(not(target_arch = "wasm32"), allow(unused))]
 
-#[cfg(feature = "state-store")]
 use matrix_sdk_base::store::{StoreConfig, StoreError};
 use thiserror::Error;
 
@@ -9,12 +8,10 @@ mod crypto_store;
 mod safe_encode;
 #[cfg(feature = "e2e-encryption")]
 mod serialize_bool_for_indexeddb;
-#[cfg(feature = "state-store")]
 mod state_store;
 
 #[cfg(feature = "e2e-encryption")]
 pub use crypto_store::{IndexeddbCryptoStore, IndexeddbCryptoStoreError};
-#[cfg(feature = "state-store")]
 pub use state_store::{
     IndexeddbStateStore, IndexeddbStateStoreBuilder, IndexeddbStateStoreError,
     MigrationConflictStrategy,
@@ -22,7 +19,7 @@ pub use state_store::{
 
 /// Create a [`IndexeddbStateStore`] and a [`IndexeddbCryptoStore`] that use the
 /// same name and passphrase.
-#[cfg(all(feature = "e2e-encryption", feature = "state-store"))]
+#[cfg(feature = "e2e-encryption")]
 async fn open_stores_with_name(
     name: &str,
     passphrase: Option<&str>,
@@ -43,7 +40,6 @@ async fn open_stores_with_name(
 /// Create a [`StoreConfig`] with an opened indexeddb [`IndexeddbStateStore`]
 /// that uses the given name and passphrase. If `encryption` is enabled, a
 /// [`IndexeddbCryptoStore`] with the same parameters is also opened.
-#[cfg(feature = "state-store")]
 pub async fn make_store_config(
     name: &str,
     passphrase: Option<&str>,
@@ -78,7 +74,6 @@ pub async fn make_store_config(
 #[derive(Error, Debug)]
 pub enum OpenStoreError {
     /// An error occurred with the state store implementation.
-    #[cfg(feature = "state-store")]
     #[error(transparent)]
     State(#[from] StoreError),
 

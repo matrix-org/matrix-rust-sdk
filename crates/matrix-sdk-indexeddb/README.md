@@ -17,5 +17,4 @@ matrix-sdk = { version = "0.5, default-features = false, features = ["indexeddb"
 
 The following crate feature flags are available:
 
-* `e2e-encryption`: (on by default) Enables the store for end-to-end encrypted data (`IndexeddbCryptoStore`).
-* `state-store`: (on by default) Enables the `StateStore` implementation (`IndexeddbStateStore`).
+* `e2e-encryption`: (on by default) Enables the store for end-to-end encrypted data.
