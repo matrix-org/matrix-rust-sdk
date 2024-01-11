@@ -177,6 +177,17 @@ impl PreviousEventsProvider for () {
     }
 }
 
+/// Create a mapping of `event_id` -> sync order for all events that have an `event_id`.
+fn create_sync_index<'a>(
+    events: impl Iterator<Item = &'a SyncTimelineEvent> + 'a,
+) -> BTreeMap<OwnedEventId, usize> {
+    BTreeMap::from_iter(
+        events
+            .enumerate()
+            .filter_map(|(pos, event)| event.event_id().map(|event_id| (event_id, pos))),
+    )
+}
+
 /// Given a set of events coming from sync, for a room, update the
 /// [`RoomReadReceipts`]'s counts of unread messages, notifications and
 /// highlights' in place.
@@ -201,10 +212,7 @@ pub(crate) fn compute_notifications<PEP: PreviousEventsProvider>(
     let mut all_events = previous_events_provider.for_room(room_id);
     all_events.extend(new_events.iter().cloned());
 
-    let event_id_to_pos =
-        BTreeMap::from_iter(all_events.iter().enumerate().filter_map(|(pos, event)| {
-            event.event_id().and_then(|event_id| Some((event_id, pos)))
-        }));
+    let event_id_to_pos = create_sync_index(all_events.iter());
 
     // We're looking for a receipt that has a position that is at least further (>)
     // than the one we knew about (if any).
@@ -427,7 +435,7 @@ mod tests {
         room_id, user_id, EventId, UserId,
     };
 
-    use super::compute_notifications;
+    use super::{compute_notifications, create_sync_index};
     use crate::{
         read_receipts::{marks_as_unread, RoomReadReceipts},
         PreviousEventsProvider,
@@ -886,5 +894,35 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_create_sync_index() {
+        let uid = user_id!("@bob:example.org");
+
+        let ev1 = sync_timeline_message(uid, "$1", "boom");
+        let ev2 = sync_timeline_message(uid, "$2", "boom");
+        let ev3 = sync_timeline_message(uid, "$3", "boom");
+        let ev4 = sync_timeline_message(uid, "$4", "boom");
+        let ev5 = sync_timeline_message(uid, "$5", "i want you in my room");
+
+        // An event with no id.
+        let ev6 = SyncTimelineEvent::new(sync_timeline_event!({
+            "sender": uid,
+            "type": "m.room.message",
+            "origin_server_ts": 42,
+            "content": { "body": "yolo", "msgtype": "m.text" },
+        }));
+
+        let index = create_sync_index([ev1, ev2, ev3, ev4, ev5, ev6].iter());
+
+        assert_eq!(*index.get(event_id!("$1")).unwrap(), 0);
+        assert_eq!(*index.get(event_id!("$2")).unwrap(), 1);
+        assert_eq!(*index.get(event_id!("$3")).unwrap(), 2);
+        assert_eq!(*index.get(event_id!("$4")).unwrap(), 3);
+        assert_eq!(*index.get(event_id!("$5")).unwrap(), 4);
+        assert_eq!(index.get(event_id!("$6")), None);
+
+        assert_eq!(index.len(), 5);
     }
 }
