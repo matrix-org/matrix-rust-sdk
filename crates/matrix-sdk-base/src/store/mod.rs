@@ -225,6 +225,11 @@ impl Store {
             .collect()
     }
 
+    /// Get a stream of all the rooms, in addition to the existing rooms.
+    pub fn rooms_stream(&self) -> (Vector<Room>, impl Stream<Item = Vec<VectorDiff<Room>>>) {
+        self.rooms.read().unwrap().stream()
+    }
+
     /// Get the room with the given room id.
     pub fn room(&self, room_id: &RoomId) -> Option<Room> {
         self.rooms.read().unwrap().get(room_id).cloned()
