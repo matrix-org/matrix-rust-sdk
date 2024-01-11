@@ -200,29 +200,35 @@ impl SlidingSyncList {
         self.inner.cache_policy
     }
 
-    /// Update the list based on the response from the server.
+    /// Update the list based on the server's response.
     ///
-    /// The `maximum_number_of_rooms` is the `lists.$this_list.count` value,
-    /// i.e. maximum number of available rooms as defined by the server. The
-    /// `list_sync_operations` is the `list.$this_list.ops` value
-    /// received from the server for this specific list. It consists of
-    /// operations to “move” rooms' positions. Finally,
-    /// the `rooms_that_have_received_an_update` is the `rooms` value received
-    /// from the server, which represents aggregated rooms that have received an
-    /// update. Maybe their position has changed, maybe they have received a new
-    /// event in their timeline. We need this information to update the
-    /// `room_list` even if the position of the room hasn't be modified: it
-    /// helps the user to know that a room has received an update.
+    /// # Parameters
+    ///
+    /// - `maximum_number_of_rooms`: the `lists.$this_list.count` value, i.e.
+    ///   maximum number of available rooms in this list, as defined by the
+    ///   server.
+    /// - `list_sync_operations` is the `list.$this_list.ops` value received
+    ///   from the server for this specific list. It consists of operations to
+    ///   “move” rooms' positions.
+    /// - `rooms_that_have_received_an_update` is the `rooms` value received
+    ///   from the server, which represents aggregated rooms that have received
+    ///   an update. Maybe their position has changed, maybe they have received
+    ///   a new event in their timeline, maybe their `RoomInfo` has been
+    ///   updated. We need this information to update the `room_list` even if
+    ///   the position of the room hasn't be modified: it helps the user to know
+    ///   that a room has received an update.
     #[instrument(skip(self, list_sync_operations), fields(name = self.name(), list_sync_operations_count = list_sync_operations.len()))]
     pub(super) fn update(
         &mut self,
-        maximum_number_of_rooms: u32,
+        maximum_number_of_rooms: Option<u32>,
         list_sync_operations: &[v4::SyncOp],
         rooms_that_have_received_an_update: &[OwnedRoomId],
     ) -> Result<bool, Error> {
         // Make sure to update the generator state first; ordering matters because
         // `update_room_list` observes the latest ranges in the response.
-        self.inner.update_request_generator_state(maximum_number_of_rooms)?;
+        if let Some(maximum_number_of_rooms) = maximum_number_of_rooms {
+            self.inner.update_request_generator_state(maximum_number_of_rooms)?;
+        }
 
         let new_changes = self.inner.update_room_list(
             maximum_number_of_rooms,
@@ -259,6 +265,12 @@ impl SlidingSyncList {
     /// Get the sync-mode.
     pub fn sync_mode(&self) -> SlidingSyncMode {
         self.inner.sync_mode.read().unwrap().clone()
+    }
+
+    /// Sets some rooms in the filled state.
+    pub fn set_filled_rooms(&self, rooms: Vec<OwnedRoomId>) {
+        let mut room_list = self.inner.room_list.write().unwrap();
+        room_list.append(rooms.into_iter().map(RoomListEntry::Filled).collect());
     }
 }
 
@@ -383,34 +395,41 @@ impl SlidingSyncListInner {
     /// helps the user to know that a room has received an update.
     fn update_room_list(
         &self,
-        maximum_number_of_rooms: u32,
+        maximum_number_of_rooms: Option<u32>,
         list_sync_operations: &[v4::SyncOp],
         rooms_that_have_received_an_update: &[OwnedRoomId],
     ) -> Result<bool, Error> {
         let mut new_changes = false;
 
-        // Adjust room list entries.
-        {
-            let number_of_missing_rooms = (maximum_number_of_rooms as usize)
-                .saturating_sub(self.room_list.read().unwrap().len());
+        if let Some(maximum_number_of_rooms) = maximum_number_of_rooms {
+            // Adjust room list entries.
+            {
+                let number_of_missing_rooms = (maximum_number_of_rooms as usize)
+                    .saturating_sub(self.room_list.read().unwrap().len());
 
-            if number_of_missing_rooms > 0 {
-                self.room_list.write().unwrap().append(
-                    iter::repeat(RoomListEntry::Empty).take(number_of_missing_rooms).collect(),
-                );
+                if number_of_missing_rooms > 0 {
+                    self.room_list.write().unwrap().append(
+                        iter::repeat(RoomListEntry::Empty).take(number_of_missing_rooms).collect(),
+                    );
 
-                new_changes = true;
+                    new_changes = true;
+                }
             }
-        }
 
-        // Update the `maximum_number_of_rooms` if it has changed.
-        {
-            let mut maximum_number_of_rooms_lock = self.maximum_number_of_rooms.write().unwrap();
+            // Update the `maximum_number_of_rooms` if it has changed.
+            {
+                let mut maximum_number_of_rooms_lock =
+                    self.maximum_number_of_rooms.write().unwrap();
 
-            if Observable::get(&maximum_number_of_rooms_lock) != &Some(maximum_number_of_rooms) {
-                Observable::set(&mut maximum_number_of_rooms_lock, Some(maximum_number_of_rooms));
+                if Observable::get(&maximum_number_of_rooms_lock) != &Some(maximum_number_of_rooms)
+                {
+                    Observable::set(
+                        &mut maximum_number_of_rooms_lock,
+                        Some(maximum_number_of_rooms),
+                    );
 
-                new_changes = true;
+                    new_changes = true;
+                }
             }
         }
 
@@ -444,8 +463,8 @@ impl SlidingSyncListInner {
                 // Invalidated rooms must be considered as empty rooms, so let's just filter by
                 // filled rooms.
                 if let RoomListEntry::Filled(room_id) = room_list_entry {
-                    // If room has received an update but that has not been handled by a
-                    // sync operation.
+                    // Some room has received an update but it wasn't caused by a
+                    // sync operation. Force an update for observers.
                     if rooms_that_have_received_an_update.contains(room_id) {
                         rooms_to_update.push((position, room_list_entry.clone()));
                     }
@@ -992,7 +1011,7 @@ mod tests {
         }))
         .unwrap();
 
-        list.update(6, &[sync0], &[]).unwrap();
+        list.update(Some(6), &[sync0], &[]).unwrap();
 
         assert_eq!(list.get_room_id(0), Some(room0.to_owned()));
         assert_eq!(list.get_room_id(1), Some(room1.to_owned()));
@@ -1029,7 +1048,7 @@ mod tests {
                     );
 
                     // Fake a response.
-                    let _ = $list.update($maximum_number_of_rooms, &[], &[]);
+                    let _ = $list.update(Some($maximum_number_of_rooms), &[], &[]);
 
                     assert_eq!(
                         $list.inner.request_generator.read().unwrap().is_fully_loaded(),
@@ -1485,7 +1504,7 @@ mod tests {
             }))
             .unwrap();
 
-            let new_changes = list.update(5, &[sync], &[]).unwrap();
+            let new_changes = list.update(Some(5), &[sync], &[]).unwrap();
 
             assert!(new_changes);
 
@@ -1530,7 +1549,7 @@ mod tests {
 
         let new_changes = list
             .update(
-                5,
+                Some(5),
                 &[sync],
                 // Let's imagine `room2` has received an update, but its position doesn't
                 // change.

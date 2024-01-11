@@ -363,7 +363,7 @@ impl SlidingSync {
             let updated_rooms = {
                 let mut rooms_map = self.inner.rooms.write().await;
 
-                let mut updated_rooms = Vec::with_capacity(sliding_sync_response.rooms.len());
+                let mut updated_rooms = Vec::with_capacity(sync_response.rooms.join.len());
 
                 for (room_id, mut room_data) in sliding_sync_response.rooms.into_iter() {
                     // `sync_response` contains the rooms with decrypted events if any, so look at
@@ -399,6 +399,15 @@ impl SlidingSync {
                     updated_rooms.push(room_id);
                 }
 
+                // There might be other rooms that were only mentioned in the sliding sync
+                // extensions part of the response, and thus would result in rooms present in
+                // the `sync_response.join`. Mark them as updated too.
+                //
+                // Since we've removed rooms that were in the room subsection from
+                // `sync_response.rooms.join`, the remaining ones aren't already present in
+                // `updated_rooms` and wouldn't cause any duplicates.
+                updated_rooms.extend(sync_response.rooms.join.keys().cloned());
+
                 updated_rooms
             };
 
@@ -412,18 +421,29 @@ impl SlidingSync {
                 let mut updated_lists = Vec::with_capacity(sliding_sync_response.lists.len());
                 let mut lists = self.inner.lists.write().await;
 
-                for (name, updates) in sliding_sync_response.lists {
-                    let Some(list) = lists.get_mut(&name) else {
-                        error!("Response for list `{name}` - unknown to us; skipping");
+                // Iterate on known lists, not on lists in the response. Rooms may have been
+                // updated that were not involved in any list update.
+                for (name, list) in lists.iter_mut() {
+                    if let Some(updates) = sliding_sync_response.lists.get(name) {
+                        let maximum_number_of_rooms: u32 =
+                            updates.count.try_into().expect("failed to convert `count` to `u32`");
 
-                        continue;
-                    };
-
-                    let maximum_number_of_rooms: u32 =
-                        updates.count.try_into().expect("failed to convert `count` to `u32`");
-
-                    if list.update(maximum_number_of_rooms, &updates.ops, &updated_rooms)? {
+                        if list.update(
+                            Some(maximum_number_of_rooms),
+                            &updates.ops,
+                            &updated_rooms,
+                        )? {
+                            updated_lists.push(name.clone());
+                        }
+                    } else if list.update(None, &[], &updated_rooms)? {
                         updated_lists.push(name.clone());
+                    }
+                }
+
+                // Report about unknown lists.
+                for name in sliding_sync_response.lists.keys() {
+                    if !lists.contains_key(name) {
+                        error!("Response for list `{name}` - unknown to us; skipping");
                     }
                 }
 
@@ -1034,13 +1054,15 @@ mod tests {
     };
 
     use assert_matches::assert_matches;
-    use futures_util::{future::join_all, pin_mut, StreamExt};
+    use assert_matches2::assert_let;
+    use eyeball_im::VectorDiff;
+    use futures_util::{future::join_all, pin_mut, FutureExt as _, StreamExt};
     use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
     use matrix_sdk_test::async_test;
     use ruma::{
         api::client::{
             error::ErrorKind,
-            sync::sync_events::v4::{self, ExtensionsConfig, ToDeviceConfig},
+            sync::sync_events::v4::{self, ExtensionsConfig, ReceiptsConfig, ToDeviceConfig},
         },
         assign, owned_room_id, room_id,
         serde::Raw,
@@ -1048,6 +1070,7 @@ mod tests {
     };
     use serde::Deserialize;
     use serde_json::json;
+    use stream_assert::assert_pending;
     use url::Url;
     use wiremock::{http::Method, Match, Mock, MockServer, Request, ResponseTemplate};
 
@@ -1059,6 +1082,7 @@ mod tests {
     };
     use crate::{
         sliding_sync::cache::restore_sliding_sync_state, test_utils::logged_in_client, Result,
+        RoomListEntry,
     };
 
     #[derive(Copy, Clone)]
@@ -2081,6 +2105,85 @@ mod tests {
         assert!(!remote_rooms.get(no_remote_events).unwrap().limited);
         assert!(!remote_rooms.get(no_local_events).unwrap().limited);
         assert!(remote_rooms.get(already_limited).unwrap().limited);
+    }
+
+    #[async_test]
+    async fn test_process_read_receipts() -> Result<()> {
+        let room = owned_room_id!("!pony:example.org");
+
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
+
+        let sliding_sync = client
+            .sliding_sync("test")?
+            .with_receipt_extension(assign!(ReceiptsConfig::default(), { enabled: Some(true) }))
+            .add_list(
+                SlidingSyncList::builder("all")
+                    .sync_mode(SlidingSyncMode::new_selective().add_range(0..=100)),
+            )
+            .build()
+            .await?;
+
+        let list =
+            sliding_sync.on_list("all", |list| ready(list.clone())).await.expect("found list all");
+
+        {
+            // Pretend the list knows that one room that will receive the read receipt.
+            list.set_maximum_number_of_rooms(Some(1));
+            list.set_filled_rooms(vec![room.clone()]);
+        }
+
+        let (_, list_stream) = list.room_list_stream();
+
+        pin_mut!(list_stream);
+
+        assert_pending!(list_stream);
+
+        let server_response = assign!(v4::Response::new("1".to_owned()), {
+            extensions: assign!(v4::Extensions::default(), {
+                receipts: assign!(v4::Receipts::default(), {
+                    rooms: BTreeMap::from([
+                        (
+                            room.clone(),
+                            Raw::from_json_string(
+                                json!({
+                                    "room_id": room,
+                                    "type": "m.receipt",
+                                    "content": {
+                                        "$event:bar.org": {
+                                            "m.read": {
+                                                client.user_id().unwrap(): {
+                                                    "ts": 1436451550,
+                                                }
+                                            }
+                                        }
+                                    }
+                                })
+                                .to_string(),
+                            ).unwrap()
+                        )
+                    ])
+                })
+            })
+        });
+
+        let summary = {
+            let mut pos_guard = sliding_sync.inner.position.clone().lock_owned().await;
+            sliding_sync.handle_response(server_response.clone(), &mut pos_guard).await?
+        };
+
+        assert!(summary.rooms.contains(&room));
+        assert!(summary.lists.contains(&String::from("all")));
+
+        // The room has had an update in the room list stream too.
+        assert_let!(Some(Some(updates)) = list_stream.next().now_or_never());
+        assert_eq!(updates.len(), 1);
+        assert_let!(
+            VectorDiff::Set { index: 0, value: RoomListEntry::Filled(updated_room) } = &updates[0]
+        );
+        assert_eq!(*updated_room, room);
+
+        Ok(())
     }
 
     #[async_test]
