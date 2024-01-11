@@ -196,7 +196,7 @@ impl SlidingSyncRoom {
         {
             let mut timeline_queue = self.inner.timeline_queue.write().unwrap();
 
-            // There is timeline updates.
+            // There are timeline updates.
             if !timeline_updates.is_empty() {
                 if let SlidingSyncRoomState::Preloaded = *state {
                     // If the room has been read from the cache, we overwrite the timeline queue
@@ -216,7 +216,7 @@ impl SlidingSyncRoom {
                     timeline_queue.extend(timeline_updates);
                 }
             } else if limited {
-                // The timeline updates are empty. But `limited` is set to true. It's a way to
+                // No timeline updates, but `limited` is set to true. It's a way to
                 // alert that we are stale. In this case, we should just clear the
                 // existing timeline.
 
