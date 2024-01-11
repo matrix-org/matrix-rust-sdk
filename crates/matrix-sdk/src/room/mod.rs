@@ -1982,11 +1982,19 @@ impl Room {
     }
 
     /// Returns true if the user with the given user_id is able to redact
-    /// messages in the room.
+    /// their own messages in the room.
     ///
     /// The call may fail if there is an error in getting the power levels.
-    pub async fn can_user_redact(&self, user_id: &UserId) -> Result<bool> {
-        Ok(self.get_room_power_levels().await?.user_can_redact(user_id))
+    pub async fn can_user_redact_own(&self, user_id: &UserId) -> Result<bool> {
+        Ok(self.get_room_power_levels().await?.user_can_redact_own_event(user_id))
+    }
+
+    /// Returns true if the user with the given user_id is able to redact
+    /// messages of other users in the room.
+    ///
+    /// The call may fail if there is an error in getting the power levels.
+    pub async fn can_user_redact_other(&self, user_id: &UserId) -> Result<bool> {
+        Ok(self.get_room_power_levels().await?.user_can_redact_event_of_other(user_id))
     }
 
     /// Returns true if the user with the given user_id is able to ban in the
