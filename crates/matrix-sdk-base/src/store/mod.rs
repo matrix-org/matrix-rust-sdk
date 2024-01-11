@@ -32,7 +32,8 @@ use std::{
     sync::{Arc, RwLock as StdRwLock},
 };
 
-use eyeball_im::ObservableVector;
+use eyeball_im::{ObservableVector, Vector, VectorDiff};
+use futures_util::Stream;
 use once_cell::sync::OnceCell;
 
 #[cfg(any(test, feature = "testing"))]
@@ -359,6 +360,11 @@ where
     /// Return an iterator over the existing values.
     fn iter(&self) -> impl Iterator<Item = &V> {
         self.values.iter()
+    }
+
+    /// Get a [`Stream`] of it.
+    fn stream(&self) -> (Vector<V>, impl Stream<Item = Vec<VectorDiff<V>>>) {
+        self.values.subscribe().into_values_and_batched_stream()
     }
 }
 
