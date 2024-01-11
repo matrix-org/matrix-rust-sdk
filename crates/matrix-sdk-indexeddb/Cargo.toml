@@ -14,8 +14,9 @@ default-target = "wasm32-unknown-unknown"
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
-default = ["e2e-encryption"]
-e2e-encryption = ["matrix-sdk-base/e2e-encryption", "dep:matrix-sdk-crypto"]
+default = ["e2e-encryption", "state-store"]
+state-store = ["dep:matrix-sdk-base"]
+e2e-encryption = ["matrix-sdk-base?/e2e-encryption", "dep:matrix-sdk-crypto"]
 testing = ["matrix-sdk-crypto?/testing"]
 
 [dependencies]
@@ -25,7 +26,7 @@ base64 = { workspace = true }
 gloo-utils = { version = "0.2.0", features = ["serde"] }
 indexed_db_futures = "0.4.1"
 js-sys = { version = "0.3.58" }
-matrix-sdk-base = { workspace = true, features = ["js"] }
+matrix-sdk-base = { workspace = true, features = ["js"], optional = true }
 matrix-sdk-crypto = { workspace = true, features = ["js"], optional = true }
 matrix-sdk-store-encryption = { workspace = true }
 ruma = { workspace = true }

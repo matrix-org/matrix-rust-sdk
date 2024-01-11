@@ -210,11 +210,8 @@ jobs:
           - name: '[m]-common'
             cmd: matrix-sdk-common
 
-          - name: '[m]-indexeddb, no crypto'
-            cmd: indexeddb-no-crypto
-
-          - name: '[m]-indexeddb, with crypto'
-            cmd: indexeddb-with-crypto
+          - name: '[m]-indexeddb'
+            cmd: indexeddb
 
           - name: '[m], no-default, wasm-flags'
             cmd: matrix-sdk-no-default
