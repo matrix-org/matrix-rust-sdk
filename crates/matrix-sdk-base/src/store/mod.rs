@@ -21,8 +21,10 @@
 //! store.
 
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    borrow::Borrow,
+    collections::{BTreeMap, BTreeSet, HashMap},
     fmt,
+    hash::Hash,
     ops::Deref,
     result::Result as StdResult,
     str::Utf8Error,
@@ -140,61 +142,10 @@ pub(crate) struct Store {
     /// The current sync token that should be used for the next sync call.
     pub(super) sync_token: Arc<RwLock<Option<String>>>,
     /// All rooms the store knows about.
-    rooms: Arc<StdRwLock<Rooms>>,
+    rooms: Arc<StdRwLock<ObservableMap<OwnedRoomId, Room>>>,
     /// A lock to synchronize access to the store, such that data by the sync is
     /// never overwritten.
     sync_lock: Arc<Mutex<()>>,
-}
-
-#[derive(Default, Debug)]
-struct Rooms {
-    mapping: BTreeMap<OwnedRoomId, usize>,
-    rooms: ObservableVector<Room>,
-}
-
-impl Rooms {
-    fn insert(&mut self, room_id: OwnedRoomId, room: Room) -> usize {
-        match self.mapping.get(&room_id) {
-            Some(position) => {
-                self.rooms.set(*position, room);
-
-                *position
-            }
-            None => {
-                let position = self.rooms.len();
-
-                self.rooms.push_back(room);
-                self.mapping.insert(room_id, position);
-
-                position
-            }
-        }
-    }
-
-    fn get(&self, room_id: &RoomId) -> Option<&Room> {
-        self.mapping.get(room_id).and_then(|position| self.rooms.get(*position))
-    }
-
-    fn get_or_create<F>(&mut self, room_id: &RoomId, default: F) -> &Room
-    where
-        F: FnOnce() -> Room,
-    {
-        let position = match self.mapping.get(room_id) {
-            Some(position) => *position,
-            None => {
-                let room = default();
-                self.insert(room.room_id().to_owned(), room)
-            }
-        };
-
-        self.rooms
-            .get(position)
-            .expect("Room should be present or has just been inserted, but it's missing")
-    }
-
-    fn iter(&self) -> impl Iterator<Item = &Room> {
-        self.rooms.iter()
-    }
 }
 
 impl Store {
@@ -204,7 +155,7 @@ impl Store {
             inner,
             session_meta: Default::default(),
             sync_token: Default::default(),
-            rooms: Default::default(),
+            rooms: Arc::new(StdRwLock::new(ObservableMap::new())),
             sync_lock: Default::default(),
         }
     }
@@ -316,6 +267,175 @@ impl Deref for Store {
 
     fn deref(&self) -> &Self::Target {
         self.inner.deref()
+    }
+}
+
+/// An observable map.
+///
+/// This is an “observable map” naive implementation. Just like regular hashmap,
+/// we have a redirection from a key to a position, and from a position to
+/// a value. The (key, position) tuples are stored in an [`HashMap`]. The
+/// (position, value) tuples are stored in an [`ObservableVector`]. The (key,
+/// position) tuple is only provided for fast _reading_ implementations, like
+/// `Self::get` and `Self::get_or_create`. The (position, value) tuples are
+/// observable, this is what interests us the most here.
+///
+/// Why not implementing a new `ObservableMap` type in `eyeball-im` instead of
+/// this custom implementation? Because we want to continue providing
+/// `VectorDiff` when observing the changes, so that the rest of the API in the
+/// Matrix Rust SDK aren't broken. Indeed, an `ObservableMap` must produce
+/// `MapDiff`, which would be quite different.
+/// Plus, we would like to re-use all our existing code, test, stream adapters
+/// and so on.
+///
+/// This is a trade-off. And this implementation is simple enough for the
+/// moment, and basically does the job.
+#[derive(Debug)]
+struct ObservableMap<K, V>
+where
+    V: Clone + Send + Sync + 'static,
+{
+    /// The (key, position) tuples.
+    mapping: HashMap<K, usize>,
+
+    /// The values where the indices are the `position` part of `Self::mapping`.
+    values: ObservableVector<V>,
+}
+
+impl<K, V> ObservableMap<K, V>
+where
+    K: Hash + Eq,
+    V: Clone + Send + Sync + 'static,
+{
+    /// Create a new `Self`.
+    fn new() -> Self {
+        Self { mapping: HashMap::new(), values: ObservableVector::new() }
+    }
+
+    /// Insert a new `V` in the collection.
+    ///
+    /// The position of the inserted value is returned.
+    ///
+    /// If the `V` value already exists, it will be updated to the new one.
+    fn insert(&mut self, key: K, value: V) -> usize {
+        match self.mapping.get(&key) {
+            Some(position) => {
+                self.values.set(*position, value);
+
+                *position
+            }
+            None => {
+                let position = self.values.len();
+
+                self.values.push_back(value);
+                self.mapping.insert(key, position);
+
+                position
+            }
+        }
+    }
+
+    /// Reading one `V` value based on their ID, if it exists.
+    fn get<L>(&self, key: &L) -> Option<&V>
+    where
+        K: Borrow<L>,
+        L: Hash + Eq + ?Sized,
+    {
+        self.mapping.get(key).and_then(|position| self.values.get(*position))
+    }
+
+    /// Reading one `V` value based on their ID, or create a new one (by using
+    /// `default`).
+    fn get_or_create<L, F>(&mut self, key: &L, default: F) -> &V
+    where
+        K: Borrow<L>,
+        L: Hash + Eq + ?Sized + ToOwned<Owned = K>,
+        F: FnOnce() -> V,
+    {
+        let position = match self.mapping.get(key) {
+            Some(position) => *position,
+            None => {
+                let value = default();
+                self.insert(key.to_owned(), value)
+            }
+        };
+
+        self.values
+            .get(position)
+            .expect("Value should be present or has just been inserted, but it's missing")
+    }
+
+    /// Return an iterator over the existing values.
+    fn iter(&self) -> impl Iterator<Item = &V> {
+        self.values.iter()
+    }
+}
+
+#[cfg(test)]
+mod tests_observable_map {
+    use super::ObservableMap;
+
+    #[test]
+    fn test_insert_and_get() {
+        let mut map = ObservableMap::<char, char>::new();
+
+        assert!(map.get(&'a').is_none());
+        assert!(map.get(&'b').is_none());
+        assert!(map.get(&'c').is_none());
+
+        // new items
+        assert_eq!(map.insert('a', 'e'), 0);
+        assert_eq!(map.insert('b', 'f'), 1);
+
+        assert_eq!(map.get(&'a'), Some(&'e'));
+        assert_eq!(map.get(&'b'), Some(&'f'));
+        assert!(map.get(&'c').is_none());
+
+        // one new item
+        assert_eq!(map.insert('c', 'g'), 2);
+
+        assert_eq!(map.get(&'a'), Some(&'e'));
+        assert_eq!(map.get(&'b'), Some(&'f'));
+        assert_eq!(map.get(&'c'), Some(&'g'));
+
+        // update one item
+        assert_eq!(map.insert('b', 'F'), 1);
+
+        assert_eq!(map.get(&'a'), Some(&'e'));
+        assert_eq!(map.get(&'b'), Some(&'F'));
+        assert_eq!(map.get(&'c'), Some(&'g'));
+    }
+
+    #[test]
+    fn test_get_or_create() {
+        let mut map = ObservableMap::<char, char>::new();
+
+        // insert one item
+        assert_eq!(map.insert('b', 'f'), 0);
+
+        // get or create many items
+        assert_eq!(map.get_or_create(&'a', || 'E'), &'E');
+        assert_eq!(map.get_or_create(&'b', || 'F'), &'f'); // this one already exists
+        assert_eq!(map.get_or_create(&'c', || 'G'), &'G');
+
+        assert_eq!(map.get(&'a'), Some(&'E'));
+        assert_eq!(map.get(&'b'), Some(&'f'));
+        assert_eq!(map.get(&'c'), Some(&'G'));
+    }
+
+    #[test]
+    fn test_iter() {
+        let mut map = ObservableMap::<char, char>::new();
+
+        // new items
+        assert_eq!(map.insert('a', 'e'), 0);
+        assert_eq!(map.insert('b', 'f'), 1);
+        assert_eq!(map.insert('c', 'g'), 2);
+
+        assert_eq!(
+            map.iter().map(|c| c.to_ascii_uppercase()).collect::<Vec<_>>(),
+            &['E', 'F', 'G']
+        );
     }
 }
 
