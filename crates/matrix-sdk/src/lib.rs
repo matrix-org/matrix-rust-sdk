@@ -71,6 +71,8 @@ pub use error::{
 pub use http_client::TransmissionProgress;
 #[cfg(all(feature = "e2e-encryption", feature = "sqlite"))]
 pub use matrix_sdk_sqlite::SqliteCryptoStore;
+#[cfg(feature = "sqlite")]
+pub use matrix_sdk_sqlite::SqliteStateStore;
 pub use media::Media;
 pub use room::Room;
 pub use ruma::{IdParseError, OwnedServerName, ServerName};
