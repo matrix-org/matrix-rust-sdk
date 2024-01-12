@@ -603,6 +603,8 @@ pub struct NotificationItem {
     pub sender_display_name: Option<String>,
     /// Avatar URL of the sender.
     pub sender_avatar_url: Option<String>,
+    /// Is the sender's name ambiguous?
+    pub is_sender_name_ambiguous: bool,
 
     /// Room display name.
     pub room_display_name: String,
@@ -653,13 +655,15 @@ impl NotificationItem {
             _ => room.get_member_no_sync(event.sender()).await?,
         };
 
-        let (mut sender_display_name, mut sender_avatar_url) = match &sender {
-            Some(sender) => (
-                sender.display_name().map(|s| s.to_owned()),
-                sender.avatar_url().map(|s| s.to_string()),
-            ),
-            None => (None, None),
-        };
+        let (mut sender_display_name, mut sender_avatar_url, is_sender_name_ambiguous) =
+            match &sender {
+                Some(sender) => (
+                    sender.display_name().map(|s| s.to_owned()),
+                    sender.avatar_url().map(|s| s.to_string()),
+                    sender.name_ambiguous(),
+                ),
+                None => (None, None, false),
+            };
 
         if sender_display_name.is_none() || sender_avatar_url.is_none() {
             let sender_id = event.sender();
@@ -692,6 +696,7 @@ impl NotificationItem {
             event,
             sender_display_name,
             sender_avatar_url,
+            is_sender_name_ambiguous,
             room_display_name: room.display_name().await?.to_string(),
             room_avatar_url: room.avatar_url().map(|s| s.to_string()),
             room_canonical_alias: room.canonical_alias().map(|c| c.to_string()),

@@ -21,6 +21,7 @@ pub enum NotificationEvent {
 pub struct NotificationSenderInfo {
     pub display_name: Option<String>,
     pub avatar_url: Option<String>,
+    pub is_name_ambiguous: bool,
 }
 
 #[derive(uniffi::Record)]
@@ -63,6 +64,7 @@ impl NotificationItem {
             sender_info: NotificationSenderInfo {
                 display_name: item.sender_display_name,
                 avatar_url: item.sender_avatar_url,
+                is_name_ambiguous: item.is_sender_name_ambiguous,
             },
             room_info: NotificationRoomInfo {
                 display_name: item.room_display_name,
