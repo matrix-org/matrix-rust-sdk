@@ -1101,7 +1101,7 @@ impl OlmMachine {
         transaction: &mut StoreTransaction,
         changes: &mut Changes,
         mut raw_event: Raw<AnyToDeviceEvent>,
-    ) -> OlmResult<Raw<AnyToDeviceEvent>> {
+    ) -> Raw<AnyToDeviceEvent> {
         Self::record_message_id(&raw_event);
 
         let event: ToDeviceEvents = match raw_event.deserialize_as() {
@@ -1110,7 +1110,7 @@ impl OlmMachine {
                 // Skip invalid events.
                 warn!("Received an invalid to-device event: {e}");
 
-                return Ok(raw_event);
+                return raw_event;
             }
         };
 
@@ -1135,7 +1135,7 @@ impl OlmMachine {
                             }
                         }
 
-                        return Ok(raw_event);
+                        return raw_event;
                     }
                 };
 
@@ -1172,7 +1172,7 @@ impl OlmMachine {
             e => self.handle_to_device_event(changes, &e).await,
         }
 
-        Ok(raw_event)
+        raw_event
     }
 
     /// Handle a to-device and one-time key counts from a sync response.
@@ -1247,8 +1247,7 @@ impl OlmMachine {
 
         for raw_event in sync_changes.to_device_events {
             let raw_event =
-                Box::pin(self.receive_to_device_event(transaction, &mut changes, raw_event))
-                    .await?;
+                Box::pin(self.receive_to_device_event(transaction, &mut changes, raw_event)).await;
             events.push(raw_event);
         }
 
@@ -2245,7 +2244,7 @@ pub(crate) mod tests {
                 let account = tr.account().await.unwrap();
                 account.generate_fallback_key_helper();
                 account.update_uploaded_key_count(0);
-                account.generate_one_time_keys();
+                account.generate_one_time_keys_if_needed();
                 let request = machine
                     .keys_for_upload(account)
                     .await
@@ -2371,7 +2370,7 @@ pub(crate) mod tests {
             .store()
             .with_transaction(|mut tr| async {
                 let account = tr.account().await.unwrap();
-                assert!(account.generate_one_time_keys().is_some());
+                assert!(account.generate_one_time_keys_if_needed().is_some());
                 Ok((tr, ()))
             })
             .await
@@ -2385,7 +2384,7 @@ pub(crate) mod tests {
             .store()
             .with_transaction(|mut tr| async {
                 let account = tr.account().await.unwrap();
-                assert!(account.generate_one_time_keys().is_some());
+                assert!(account.generate_one_time_keys_if_needed().is_some());
                 Ok((tr, ()))
             })
             .await
@@ -2399,7 +2398,7 @@ pub(crate) mod tests {
             .store()
             .with_transaction(|mut tr| async {
                 let account = tr.account().await.unwrap();
-                assert!(account.generate_one_time_keys().is_none());
+                assert!(account.generate_one_time_keys_if_needed().is_none());
 
                 Ok((tr, ()))
             })
@@ -2467,7 +2466,7 @@ pub(crate) mod tests {
     fn test_one_time_key_signing() {
         let mut account = Account::with_device_id(user_id(), alice_device_id());
         account.update_uploaded_key_count(49);
-        account.generate_one_time_keys();
+        account.generate_one_time_keys_if_needed();
 
         let mut one_time_keys = account.signed_one_time_keys();
         let ed25519_key = account.identity_keys().ed25519;

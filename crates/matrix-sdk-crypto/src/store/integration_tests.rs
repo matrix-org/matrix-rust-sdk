@@ -79,7 +79,7 @@ macro_rules! cryptostore_integration_tests {
                 let alice = Account::with_device_id(alice_id(), alice_device_id());
                 let mut bob = Account::with_device_id(bob_id(), bob_device_id());
 
-                bob.generate_one_time_keys_helper(1);
+                bob.generate_one_time_keys(1);
                 let one_time_key = *bob.one_time_keys().values().next().unwrap();
                 let sender_key = bob.identity_keys().curve25519;
                 let session = alice

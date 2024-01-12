@@ -525,7 +525,7 @@ async fn marking_room_as_dm() {
         .mount(&server)
         .await;
 
-    let put_direct_content_matcher = |request: &wiremock::Request| {
+    let put_direct_content_matcher = |request: &Request| {
         let content: DirectEventContent = request.body_json().expect(
             "The body of the PUT /account_data request should be a valid DirectEventContent",
         );
@@ -693,7 +693,7 @@ async fn test_encrypt_room_event() {
 
     let event_content_matcher = {
         let event_content = event_content.to_owned();
-        move |request: &wiremock::Request| {
+        move |request: &Request| {
             let mut path_segments =
                 request.url.path_segments().expect("The URL should be able to be a base");
 
