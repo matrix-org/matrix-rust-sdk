@@ -85,7 +85,7 @@ pub(crate) mod tests {
         let alice = Account::with_device_id(alice_id(), alice_device_id());
         let mut bob = Account::with_device_id(bob_id(), bob_device_id());
 
-        bob.generate_one_time_keys_helper(1);
+        bob.generate_one_time_keys(1);
         let one_time_key = *bob.one_time_keys().values().next().unwrap();
         let sender_key = bob.identity_keys().curve25519;
         let session = alice.create_outbound_session_helper(
@@ -116,7 +116,7 @@ pub(crate) mod tests {
         assert!(!one_time_keys.is_empty());
         assert_ne!(account.max_one_time_keys(), 0);
 
-        account.generate_one_time_keys_helper(10);
+        account.generate_one_time_keys(10);
         let one_time_keys = account.one_time_keys();
 
         assert_ne!(one_time_keys.values().len(), 0);
@@ -133,7 +133,7 @@ pub(crate) mod tests {
         let mut alice = Account::with_device_id(alice_id(), alice_device_id());
         let bob = Account::with_device_id(bob_id(), bob_device_id());
         let alice_keys = alice.identity_keys();
-        alice.generate_one_time_keys_helper(1);
+        alice.generate_one_time_keys(1);
         let one_time_keys = alice.one_time_keys();
         alice.mark_keys_as_published();
 

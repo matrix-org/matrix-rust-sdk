@@ -464,7 +464,7 @@ impl Account {
     }
 
     /// Generate count number of one-time keys.
-    pub fn generate_one_time_keys_helper(&mut self, count: usize) -> OneTimeKeyGenerationResult {
+    pub fn generate_one_time_keys(&mut self, count: usize) -> OneTimeKeyGenerationResult {
         self.inner.generate_one_time_keys(count)
     }
 
@@ -493,7 +493,7 @@ impl Account {
             }
 
             self.update_uploaded_key_count(count);
-            self.generate_one_time_keys();
+            self.generate_one_time_keys_if_needed();
         }
 
         if let Some(unused) = unused_fallback_keys {
@@ -513,34 +513,34 @@ impl Account {
     /// Generally `Some` means that keys should be uploaded, while `None` means
     /// that keys should not be uploaded.
     #[instrument(skip_all)]
-    pub fn generate_one_time_keys(&mut self) -> Option<u64> {
+    pub fn generate_one_time_keys_if_needed(&mut self) -> Option<u64> {
         // Only generate one-time keys if there aren't any, otherwise the caller
         // might have failed to upload them the last time this method was
         // called.
-        if self.one_time_keys().is_empty() {
-            let count = self.uploaded_key_count();
-            let max_keys = self.max_one_time_keys();
-
-            if count >= max_keys as u64 {
-                return None;
-            }
-
-            let key_count = (max_keys as u64) - count;
-            let key_count: usize = key_count.try_into().unwrap_or(max_keys);
-
-            let result = self.generate_one_time_keys_helper(key_count);
-
-            debug!(
-                count = key_count,
-                discarded_keys = ?result.removed,
-                created_keys = ?result.created,
-                "Generated new one-time keys"
-            );
-
-            Some(key_count as u64)
-        } else {
-            Some(0)
+        if !self.one_time_keys().is_empty() {
+            return Some(0);
         }
+
+        let count = self.uploaded_key_count();
+        let max_keys = self.max_one_time_keys();
+
+        if count >= max_keys as u64 {
+            return None;
+        }
+
+        let key_count = (max_keys as u64) - count;
+        let key_count: usize = key_count.try_into().unwrap_or(max_keys);
+
+        let result = self.generate_one_time_keys(key_count);
+
+        debug!(
+            count = key_count,
+            discarded_keys = ?result.removed,
+            created_keys = ?result.created,
+            "Generated new one-time keys"
+        );
+
+        Some(key_count as u64)
     }
 
     pub(crate) fn generate_fallback_key_helper(&mut self) {
@@ -980,10 +980,13 @@ impl Account {
     #[cfg(any(test, feature = "testing"))]
     #[allow(dead_code)]
     /// Testing only helper to create a session for the given Account
-    pub async fn create_session_for(&mut self, other: &mut Account) -> (Session, Session) {
+    pub async fn create_session_for_test_helper(
+        &mut self,
+        other: &mut Account,
+    ) -> (Session, Session) {
         use ruma::events::dummy::ToDeviceDummyEventContent;
 
-        other.generate_one_time_keys_helper(1);
+        other.generate_one_time_keys(1);
         let one_time_map = other.signed_one_time_keys();
         let device = ReadOnlyDevice::from_account(other);
 
@@ -1427,13 +1430,13 @@ mod tests {
 
         account.mark_keys_as_published();
         account.update_uploaded_key_count(50);
-        account.generate_one_time_keys();
+        account.generate_one_time_keys_if_needed();
 
         let (_, third_one_time_keys, _) = account.keys_for_upload();
         assert!(third_one_time_keys.is_empty());
 
         account.update_uploaded_key_count(0);
-        account.generate_one_time_keys();
+        account.generate_one_time_keys_if_needed();
 
         let (_, fourth_one_time_keys, _) = account.keys_for_upload();
         assert!(!fourth_one_time_keys.is_empty());

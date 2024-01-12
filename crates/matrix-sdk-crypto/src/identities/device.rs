@@ -651,7 +651,7 @@ impl ReadOnlyDevice {
             }
         } else {
             warn!(
-                "Trying to find a Olm session of a device, but the device doesn't have a \
+                "Trying to find an Olm session of a device, but the device doesn't have a \
                 Curve25519 key",
             );
 
