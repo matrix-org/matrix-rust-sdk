@@ -34,7 +34,7 @@ synapse for testing purposes.
 Ideally, a PR should have a *proper title*, with *atomic logical commits*, and each commit
 should have a *good commit message*.
 
-An *atomic logical commit* is one that is ideally small, can be compiled in isolation, and pass
+An *atomic logical commit* is one that is ideally small, can be compiled in isolation, and passes
 tests. This is useful to make the review process easier (help your reviewer), but also when running
 bisections, helping identifying which commit introduced a regression.
 
@@ -52,9 +52,9 @@ Examples of commit messages that aren't so useful:
 
 Examples of good commit messages:
 
-- “ffi: add new method `frobnicate_the_foos`”
-- “indexeddb: break up the request inside `get_inbound_group_sessions`”
-- “read_receipts: store receipts locally, fixing #12345”
+- “ffi: Add new method `frobnicate_the_foos`”
+- “indexeddb: Break up the request inside `get_inbound_group_sessions`”
+- “read_receipts: Store receipts locally, fixing #12345”
 
 A *proper PR title* would be a one-liner summary of the changes in the PR, following the
 same guidelines of a good commit message.
@@ -62,7 +62,7 @@ same guidelines of a good commit message.
 (An additional bad example of a bad PR title would be `mynickname/branch name`, that is, just the
 branch name.)
 
-Having good commit messages and PR titles help easing the reviews too, scanning the `git log` of
+Having good commit messages and PR titles also helps with reviews, scanning the `git log` of
 the project, and writing the [*This week in
 Matrix*](https://matrix.org/category/this-week-in-matrix/) updates for the SDK.
 
