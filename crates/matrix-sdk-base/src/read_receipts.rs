@@ -68,6 +68,9 @@ struct LatestReadReceipt {
 }
 
 /// Public data about read receipts collected during processing of that room.
+///
+/// Remember that each time a field of `RoomReadReceipts` is updated in `compute_notifications`,
+/// this function must return true!
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub(crate) struct RoomReadReceipts {
     /// Does the room have unread messages?
@@ -81,8 +84,7 @@ pub(crate) struct RoomReadReceipts {
     pub num_mentions: u64,
 
     /// The latest read receipt (main-threaded or unthreaded) known for the
-    /// room. TODO: move this over to the `Room` struct, no need to memoize
-    /// it here
+    /// room.
     #[serde(default)]
     latest_active: Option<LatestReadReceipt>,
 
@@ -307,6 +309,8 @@ pub(crate) fn compute_notifications<PEP: PreviousEventsProvider>(
     let mut all_events = previous_events_provider.for_room(room_id);
     all_events.extend(new_events.iter().cloned());
 
+    let mut has_changes = false;
+
     let new_receipt = {
         let mut selector = ReceiptSelector::new(
             &all_events,
@@ -315,7 +319,11 @@ pub(crate) fn compute_notifications<PEP: PreviousEventsProvider>(
         selector.handle_pending_receipts(&mut read_receipts.pending);
         if let Some(receipt_event) = receipt_event {
             trace!("Got a new receipt event!");
-            read_receipts.pending.extend(selector.handle_new_receipt(user_id, receipt_event));
+            let new_pending = selector.handle_new_receipt(user_id, receipt_event);
+            if !new_pending.is_empty() {
+                has_changes = true;
+                read_receipts.pending.extend(new_pending);
+            }
         }
         selector.finish()
     };
@@ -334,16 +342,15 @@ pub(crate) fn compute_notifications<PEP: PreviousEventsProvider>(
 
         // The event for the receipt is in `all_events`, so we'll find it and can count
         // safely from here.
-        return Ok(read_receipts.find_and_account_events(&event_id, user_id, &all_events));
+        if read_receipts.find_and_account_events(&event_id, user_id, &all_events) {
+            has_changes = true;
+        }
+
+        return Ok(has_changes);
     }
 
-    // If we haven't returned at this point, it means:
-    // - we didn't have an active read receipt, *or* we had one and it hasn't been
-    //   replaced,
-    // - all pending receipts refered to events we still don't know about,
-    // - there was no new receipt event, *or* all receipts mentioned in that event
-    //   were older than
-    // the active one.
+    // If we haven't returned at this point, it means we don't have any new "active" read receipt.
+    // So either there was a previous one further in the past, or none.
     //
     // In that case, accumulate all events as part of the current batch, and wait
     // for the next receipt.
@@ -352,14 +359,13 @@ pub(crate) fn compute_notifications<PEP: PreviousEventsProvider>(
         "Default path: no new active read receipt, so including all {} new events.",
         new_events.len()
     );
-    let mut new_receipt = false;
     for event in new_events {
         if read_receipts.account_event(event, user_id) {
-            new_receipt = true;
+            has_changes = true;
         }
     }
 
-    Ok(new_receipt)
+    Ok(has_changes)
 }
 
 /// Is the event worth marking a room as unread?
@@ -927,6 +933,43 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// Updating the pending list will cause a change in the `RoomReadReceipts` fields, thus the
+    /// function must return true.
+    #[test]
+    fn test_compute_notifications_updated_after_field_tracking() {
+        let user_id = owned_user_id!("@alice:example.org");
+        let room_id = room_id!("!room:example.org");
+
+        let events = make_test_events(user_id!("@bob:example.org"));
+
+        let receipt_event = EventBuilder::new().make_receipt_event_content([(
+            owned_event_id!("$6"),
+            ReceiptType::Read,
+            user_id.clone(),
+            ReceiptThread::Unthreaded,
+        )]);
+
+        // Receipt-only sync, no new events, all receipts refered to events that are known.
+        let mut read_receipts = RoomReadReceipts::default();
+        assert_eq!(read_receipts.pending.len(), 0);
+
+        assert!(compute_notifications(
+            &user_id,
+            room_id,
+            Some(&receipt_event),
+            &events,
+            &[], // no new events
+            &mut read_receipts,
+        )
+        .unwrap());
+
+        // All new events are unread.
+        assert_eq!(read_receipts.num_unread, 0);
+
+        assert_eq!(read_receipts.pending.len(), 1);
+        assert!(read_receipts.pending.contains(event_id!("$6")));
     }
 
     #[test]
