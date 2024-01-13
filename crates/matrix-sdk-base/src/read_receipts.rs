@@ -306,18 +306,34 @@ impl ReceiptSelector {
 ///
 /// Returns a boolean indicating if a field changed value in the read receipts.
 #[instrument(skip_all, fields(room_id = %room_id, ?read_receipts))]
-pub(crate) fn compute_notifications<PEP: PreviousEventsProvider>(
+pub(crate) fn compute_notifications(
     user_id: &UserId,
     room_id: &RoomId,
     receipt_event: Option<&ReceiptEventContent>,
-    previous_events_provider: &PEP,
+    previous_events: Vector<SyncTimelineEvent>,
     new_events: &[SyncTimelineEvent],
     read_receipts: &mut RoomReadReceipts,
 ) -> Result<bool> {
-    // Index all the events (from event_id to their position in the sync stream).
-    // TODO: partially cache this index, invalidate upon gappy sync
-    let mut all_events = previous_events_provider.for_room(room_id);
-    all_events.extend(new_events.iter().cloned());
+    debug!(?read_receipts, "Starting.");
+
+    let previous_events_ids =
+        BTreeSet::from_iter(previous_events.iter().filter_map(|ev| ev.event_id()));
+
+    let all_events = if new_events
+        .iter()
+        .any(|ev| ev.event_id().map_or(false, |event_id| previous_events_ids.contains(&event_id)))
+    {
+        // The previous and new events sets can intersect, for instance if we restored
+        // previous events from the disk cache, or a timeline was limited. This
+        // means the old events will be cleared, because we don't reconcile
+        // timelines in sliding sync (yet). As a result, forget
+        // about the previous events.
+        Vector::from_iter(new_events.iter().cloned())
+    } else {
+        let mut all_events = previous_events;
+        all_events.extend(new_events.iter().cloned());
+        all_events
+    };
 
     let mut has_changes = false;
 
@@ -352,7 +368,7 @@ pub(crate) fn compute_notifications<PEP: PreviousEventsProvider>(
 
         // The event for the receipt is in `all_events`, so we'll find it and can count
         // safely from here.
-        if read_receipts.find_and_account_events(&event_id, user_id, &all_events) {
+        if read_receipts.find_and_account_events(&event_id, user_id, all_events.iter()) {
             has_changes = true;
         }
 
@@ -486,10 +502,7 @@ mod tests {
     };
 
     use super::compute_notifications;
-    use crate::{
-        read_receipts::{marks_as_unread, ReceiptSelector, RoomReadReceipts},
-        PreviousEventsProvider,
-    };
+    use crate::read_receipts::{marks_as_unread, ReceiptSelector, RoomReadReceipts};
 
     #[test]
     fn test_room_message_marks_as_unread() {
@@ -787,12 +800,7 @@ mod tests {
         assert_eq!(receipts.num_unread, 2);
         assert_eq!(receipts.num_notifications, 0);
         assert_eq!(receipts.num_mentions, 0);
-    }
 
-    impl PreviousEventsProvider for Vector<SyncTimelineEvent> {
-        fn for_room(&self, _room_id: &ruma::RoomId) -> Vector<SyncTimelineEvent> {
-            self.clone()
-        }
         // Even if duplicates are present in the new events list, the count is correct.
         let mut receipts = RoomReadReceipts {
             num_unread: 42,
@@ -855,7 +863,7 @@ mod tests {
             user_id,
             room_id,
             Some(&receipt_event),
-            &previous_events,
+            previous_events.clone(),
             &[ev1.clone(), ev2.clone()],
             &mut read_receipts,
         )
@@ -873,7 +881,7 @@ mod tests {
             user_id,
             room_id,
             Some(&receipt_event),
-            &previous_events,
+            previous_events,
             &[new_event],
             &mut read_receipts,
         )
@@ -935,7 +943,7 @@ mod tests {
                             user_id,
                             room_id,
                             Some(&receipt_event),
-                            &all_events,
+                            all_events.clone(),
                             &[],
                             &mut read_receipts,
                         )
@@ -953,7 +961,7 @@ mod tests {
                             user_id,
                             room_id,
                             Some(&receipt_event),
-                            &head_events,
+                            head_events.clone(),
                             &tail_events,
                             &mut read_receipts,
                         )
@@ -994,7 +1002,7 @@ mod tests {
             &user_id,
             room_id,
             Some(&receipt_event),
-            &events,
+            events,
             &[], // no new events
             &mut read_receipts,
         )
@@ -1005,6 +1013,43 @@ mod tests {
 
         assert_eq!(read_receipts.pending.len(), 1);
         assert!(read_receipts.pending.contains(event_id!("$6")));
+    }
+
+    #[test]
+    fn test_compute_notifications_limited_sync() {
+        let user_id = owned_user_id!("@alice:example.org");
+        let room_id = room_id!("!room:example.org");
+
+        let events = make_test_events(user_id!("@bob:example.org"));
+
+        let receipt_event = EventBuilder::new().make_receipt_event_content([(
+            owned_event_id!("$1"),
+            ReceiptType::Read,
+            user_id.clone(),
+            ReceiptThread::Unthreaded,
+        )]);
+
+        // Sync with a read receipt *and* a single event that was already known: in that
+        // case, only consider the new events in isolation, and compute the
+        // correct count.
+        let mut read_receipts = RoomReadReceipts::default();
+        assert_eq!(read_receipts.pending.len(), 0);
+
+        let ev0 = events[0].clone();
+
+        assert!(compute_notifications(
+            &user_id,
+            room_id,
+            Some(&receipt_event),
+            events,
+            &[ev0], // duplicate event!
+            &mut read_receipts,
+        )
+        .unwrap());
+
+        // All events are unread, and there's no pending receipt.
+        assert_eq!(read_receipts.num_unread, 0);
+        assert!(read_receipts.pending.is_empty());
     }
 
     #[test]
