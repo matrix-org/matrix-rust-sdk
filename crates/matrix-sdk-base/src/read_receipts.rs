@@ -149,16 +149,23 @@ impl RoomReadReceipts {
         let mut counting_receipts = false;
 
         for event in events {
-            if counting_receipts {
-                self.account_event(event, user_id);
-            } else if let Some(event_id) = event.event_id() {
+            // The sliding sync proxy sometimes sends the same event multiple times, so it
+            // can be at the beginning and end of a batch, for instance. In that
+            // case, just reset every time we see the event matching the
+            // receipt. NOTE: SS proxy workaround.
+            if let Some(event_id) = event.event_id() {
                 if event_id == receipt_event_id {
                     // Bingo! Switch over to the counting state, after resetting the
                     // previous counts.
                     trace!("Found the event the receipt was referring to! Starting to count.");
                     self.reset();
                     counting_receipts = true;
+                    continue;
                 }
+            }
+
+            if counting_receipts {
+                self.account_event(event, user_id);
             }
         }
 
@@ -681,7 +688,7 @@ mod tests {
     }
 
     #[test]
-    fn test_find_and_count_events() {
+    fn test_find_and_account_events() {
         let ev0 = event_id!("$0");
         let user_id = user_id!("@alice:example.org");
 
@@ -786,6 +793,27 @@ mod tests {
         fn for_room(&self, _room_id: &ruma::RoomId) -> Vector<SyncTimelineEvent> {
             self.clone()
         }
+        // Even if duplicates are present in the new events list, the count is correct.
+        let mut receipts = RoomReadReceipts {
+            num_unread: 42,
+            num_notifications: 13,
+            num_mentions: 37,
+            ..Default::default()
+        };
+        assert!(receipts.find_and_account_events(
+            ev0,
+            user_id,
+            &[
+                make_event(ev0),
+                make_event(event_id!("$1")),
+                make_event(ev0),
+                make_event(event_id!("$2")),
+                make_event(event_id!("$3"))
+            ],
+        ));
+        assert_eq!(receipts.num_unread, 2);
+        assert_eq!(receipts.num_notifications, 0);
+        assert_eq!(receipts.num_mentions, 0);
     }
 
     fn sync_timeline_message(
