@@ -4696,6 +4696,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "rrrepl"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "futures-util",
+ "matrix-sdk",
+ "matrix-sdk-ui",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-appender",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
 name = "rsa"
 version = "0.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
