@@ -698,18 +698,21 @@ impl Timeline {
     /// This uses [`Room::send_single_receipt`] internally, but checks
     /// first if the receipt points to an event in this timeline that is more
     /// recent than the current ones, to avoid unnecessary requests.
+    ///
+    /// Returns a boolean indicating if it sent the request or not.
     #[instrument(skip(self))]
     pub async fn send_single_receipt(
         &self,
         receipt_type: ReceiptType,
         thread: ReceiptThread,
         event_id: OwnedEventId,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         if !self.inner.should_send_receipt(&receipt_type, &thread, &event_id).await {
-            return Ok(());
+            return Ok(false);
         }
 
-        self.room().send_single_receipt(receipt_type, thread, event_id).await
+        self.room().send_single_receipt(receipt_type, thread, event_id).await?;
+        Ok(true)
     }
 
     /// Send the given receipts.

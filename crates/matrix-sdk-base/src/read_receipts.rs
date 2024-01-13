@@ -152,7 +152,7 @@ struct LatestReadReceipt {
 /// Remember that each time a field of `RoomReadReceipts` is updated in
 /// `compute_notifications`, this function must return true!
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub(crate) struct RoomReadReceipts {
+pub struct RoomReadReceipts {
     /// Does the room have unread messages?
     pub num_unread: u64,
 

@@ -6,11 +6,12 @@ members = [
     "crates/*",
     "testing/*",
     "examples/*",
+    "labs/*",
     "uniffi-bindgen",
     "xtask",
 ]
 # xtask, testing and the bindings should only be built when invoked explicitly.
-default-members = ["benchmarks", "crates/*"]
+default-members = ["benchmarks", "crates/*", "labs/*"]
 resolver = "2"
 
 [workspace.package]

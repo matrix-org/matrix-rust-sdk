@@ -13,7 +13,8 @@ Rust SDK can evolve, feel free to propose an experiment.
 
 ## Current experiments
 
-TBD
+- rrrepl: a *R*ead *R*eceipts REPL, to help with client-side computation of read-receipts. Useful
+  for debugging.
 
 
 ## Archived experiments

@@ -198,6 +198,11 @@ impl Room {
         self.inner.read().read_receipts.num_unread
     }
 
+    /// Get the detailed information about read receipts for the room.
+    pub fn read_receipts(&self) -> RoomReadReceipts {
+        self.inner.read().read_receipts.clone()
+    }
+
     /// Get the number of unread notifications (computed client-side).
     ///
     /// This might be more precise than [`Self::unread_notification_counts`] for
