@@ -229,9 +229,10 @@ impl ReceiptSelector {
         // We now have a position for an event that had a read receipt, but wasn't found
         // before. Consider if it is the most recent now.
         if let Some(best_pos) = self.best_pos.as_mut() {
-            // Note: by using a strict comparison here, we protect against the
-            // server sending a receipt on the same event multiple times.
-            if event_pos > *best_pos {
+            // Note: by using a lax comparison here, we properly handle the case where we
+            // received events that we have already seen with a persisted read
+            // receipt.
+            if event_pos >= *best_pos {
                 *best_pos = event_pos;
                 self.best_receipt = Some(event_id.to_owned());
             }
@@ -1107,6 +1108,15 @@ mod tests {
             selector.try_select_better(event_id!("$1"), 0);
             let best_receipt = selector.finish();
             assert!(best_receipt.is_none());
+        }
+
+        {
+            // The initial active receipt is returned, when it's part of the scanned
+            // elements.
+            let mut selector = ReceiptSelector::new(&events, Some(event_id!("$1")));
+            selector.try_select_better(event_id!("$1"), 0);
+            let best_receipt = selector.finish();
+            assert_eq!(best_receipt.unwrap().event_id, event_id!("$1"));
         }
 
         {
