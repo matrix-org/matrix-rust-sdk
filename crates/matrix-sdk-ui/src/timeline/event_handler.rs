@@ -883,6 +883,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                         // Item was previously received from the server. This
                         // should be very rare normally, but with the sliding-
                         // sync proxy, it is actually very common.
+                        // NOTE: SS proxy workaround.
                         trace!(?item, old_item = ?*old_item, "Received duplicate event");
 
                         if old_item.content.is_redacted() && !item.content.is_redacted() {
