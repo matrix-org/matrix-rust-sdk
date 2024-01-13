@@ -237,7 +237,7 @@ impl BaseClient {
                     user_id,
                     room_id,
                     changes.receipts.get(room_id),
-                    previous_events_provider,
+                    previous_events_provider.for_room(room_id),
                     &joined_room_update.timeline.events,
                     &mut room_info.read_receipts,
                 )? {
