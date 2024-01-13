@@ -56,7 +56,7 @@ use ruma::{
     EventId, OwnedEventId, RoomId, UserId,
 };
 use serde::{Deserialize, Serialize};
-use tracing::{instrument, trace};
+use tracing::{debug, instrument, trace};
 
 use crate::error::Result;
 
@@ -140,6 +140,7 @@ impl RoomReadReceipts {
 
     /// Try to find the event to which the receipt attaches to, and if found,
     /// will update the notification count in the room.
+    #[instrument(skip_all)]
     fn find_and_account_events<'a>(
         &mut self,
         receipt_event_id: &EventId,
@@ -225,6 +226,7 @@ impl ReceiptSelector {
     }
 
     /// Consider the current event and its position as a better read receipt.
+    #[instrument(skip(self), fields(prev_pos = ?self.best_pos, prev_receipt = ?self.best_receipt))]
     fn try_select_better(&mut self, event_id: &EventId, event_pos: usize) {
         // We now have a position for an event that had a read receipt, but wasn't found
         // before. Consider if it is the most recent now.
@@ -235,18 +237,21 @@ impl ReceiptSelector {
             if event_pos >= *best_pos {
                 *best_pos = event_pos;
                 self.best_receipt = Some(event_id.to_owned());
+                trace!("saving better");
             }
         } else {
             // We didn't have a previous receipt, this is the first one we
             // store: remember it.
             self.best_pos = Some(event_pos);
             self.best_receipt = Some(event_id.to_owned());
+            trace!("saving for the first time");
         }
     }
 
     /// Try to match pending receipts against new events.
     fn handle_pending_receipts(&mut self, pending: &mut BTreeSet<OwnedEventId>) {
         // Try to match stashes receipts against the new events.
+        trace!("handle_pending_receipts");
         pending.retain(|event_id| {
             if let Some(event_pos) = self.event_id_to_pos.get(event_id) {
                 // Maybe select this read receipt as it might be better than the ones we had.
@@ -271,6 +276,7 @@ impl ReceiptSelector {
         user_id: &UserId,
         receipt_event: &ReceiptEventContent,
     ) -> Vec<OwnedEventId> {
+        trace!("handle_new_receipt");
         let mut pending = Vec::new();
         // Now consider new receipts.
         for (event_id, receipts) in &receipt_event.0 {
@@ -306,7 +312,7 @@ impl ReceiptSelector {
 /// See this module's documentation for more information.
 ///
 /// Returns a boolean indicating if a field changed value in the read receipts.
-#[instrument(skip_all, fields(room_id = %room_id, ?read_receipts))]
+#[instrument(skip_all, fields(room_id = %room_id))]
 pub(crate) fn compute_notifications(
     user_id: &UserId,
     room_id: &RoomId,
@@ -345,7 +351,6 @@ pub(crate) fn compute_notifications(
         );
         selector.handle_pending_receipts(&mut read_receipts.pending);
         if let Some(receipt_event) = receipt_event {
-            trace!("Got a new receipt event!");
             let new_pending = selector.handle_new_receipt(user_id, receipt_event);
             if !new_pending.is_empty() {
                 has_changes = true;
@@ -373,6 +378,7 @@ pub(crate) fn compute_notifications(
             has_changes = true;
         }
 
+        trace!(?read_receipts, "after finding a better receipt");
         return Ok(has_changes);
     }
 
@@ -383,16 +389,13 @@ pub(crate) fn compute_notifications(
     // In that case, accumulate all events as part of the current batch, and wait
     // for the next receipt.
 
-    trace!(
-        "Default path: no new active read receipt, so including all {} new events.",
-        new_events.len()
-    );
     for event in new_events {
         if read_receipts.account_event(event, user_id) {
             has_changes = true;
         }
     }
 
+    trace!(?read_receipts, "no better receipt, {} new events", new_events.len());
     Ok(has_changes)
 }
 
@@ -401,7 +404,7 @@ fn marks_as_unread(event: &Raw<AnySyncTimelineEvent>, user_id: &UserId) -> bool 
     let event = match event.deserialize() {
         Ok(event) => event,
         Err(err) => {
-            tracing::debug!(
+            debug!(
                 "couldn't deserialize event {:?}: {err}",
                 event.get_field::<String>("event_id").ok().flatten()
             );
@@ -477,7 +480,7 @@ fn marks_as_unread(event: &Raw<AnySyncTimelineEvent>, user_id: &UserId) -> bool 
 
                 _ => {
                     // What I don't know about, I don't care about.
-                    tracing::debug!("unhandled timeline event type: {}", event.event_type());
+                    debug!("unhandled timeline event type: {}", event.event_type());
                     false
                 }
             }
