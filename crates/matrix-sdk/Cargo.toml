@@ -62,7 +62,7 @@ docsrs = ["e2e-encryption", "sqlite", "indexeddb", "sso-login", "qrcode", "image
 [dependencies]
 anyhow = { workspace = true, optional = true }
 anymap2 = "0.13.0"
-aquamarine = "0.4.0"
+aquamarine = "0.5.0"
 as_variant = { workspace = true }
 async-channel = "2.1.0"
 async-stream = { workspace = true }
