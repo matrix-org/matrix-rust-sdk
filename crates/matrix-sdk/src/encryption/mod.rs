@@ -731,14 +731,7 @@ impl Encryption {
         let Some(olm) = olm.as_ref() else { return Ok(None) };
         let identity = olm.get_identity(user_id, None).await?;
 
-        Ok(identity.map(|i| match i {
-            matrix_sdk_base::crypto::UserIdentities::Own(i) => {
-                UserIdentity::new_own(self.client.clone(), i)
-            }
-            matrix_sdk_base::crypto::UserIdentities::Other(i) => {
-                UserIdentity::new_other(self.client.clone(), i)
-            }
-        }))
+        Ok(identity.map(|i| UserIdentity::new(self.client.clone(), i)))
     }
 
     /// Returns a stream of device updates, allowing users to listen for
