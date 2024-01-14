@@ -15,10 +15,7 @@
 use std::collections::BTreeMap;
 
 use matrix_sdk_base::{
-    crypto::{
-        types::MasterPubkey, OwnUserIdentity as CryptoOwnUserIdentity,
-        UserIdentities as CryptoUserIdentities, UserIdentity as CryptoUserIdentity,
-    },
+    crypto::{types::MasterPubkey, UserIdentities as CryptoUserIdentities},
     RoomMemberships,
 };
 use ruma::{
@@ -106,20 +103,8 @@ pub struct UserIdentity {
 }
 
 impl UserIdentity {
-    fn new(client: Client, identity: CryptoUserIdentities) -> Self {
-        match identity {
-            CryptoUserIdentities::Own(i) => Self::new_own(client, i),
-            CryptoUserIdentities::Other(i) => Self::new_other(client, i),
-        }
-    }
-
-    pub(crate) fn new_own(client: Client, identity: CryptoOwnUserIdentity) -> Self {
-        let inner = UserIdentities { client, identity: identity.into() };
-        Self { inner }
-    }
-
-    pub(crate) fn new_other(client: Client, identity: CryptoUserIdentity) -> Self {
-        let inner = UserIdentities { client, identity: identity.into() };
+    pub(crate) fn new(client: Client, identity: CryptoUserIdentities) -> Self {
+        let inner = UserIdentities { client, identity };
         Self { inner }
     }
 
