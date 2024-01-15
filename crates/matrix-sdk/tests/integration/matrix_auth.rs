@@ -452,6 +452,8 @@ async fn test_login_with_cross_signing_bootstrapping() {
         assert!(client.logged_in(), "Client should be logged in");
         assert!(auth.logged_in(), "Client should be logged in with the MatrixAuth API");
 
+        client.encryption().wait_for_e2ee_initialization_tasks().await;
+
         let me = client.user_id().expect("we are now logged in");
         let own_identity =
             client.encryption().get_user_identity(me).await.expect("succeeds").expect("is present");
@@ -502,6 +504,8 @@ async fn test_login_with_cross_signing_bootstrapping() {
 
         assert!(client.logged_in(), "Client should be logged in");
         assert!(auth.logged_in(), "Client should be logged in with the MatrixAuth API");
+
+        client.encryption().wait_for_e2ee_initialization_tasks().await;
 
         let me = client.user_id().expect("we are now logged in");
         let own_identity =
@@ -578,6 +582,8 @@ async fn test_login_doesnt_fail_if_cross_signing_bootstrapping_failed() {
     assert!(auth.logged_in(), "Client should be logged in with the MatrixAuth API");
 
     let me = client.user_id().expect("we are now logged in");
+
+    client.encryption().wait_for_e2ee_initialization_tasks().await;
 
     let own_identity = client.encryption().get_user_identity(me).await.expect("succeeds");
     let identity = own_identity.expect("created local default identity");
