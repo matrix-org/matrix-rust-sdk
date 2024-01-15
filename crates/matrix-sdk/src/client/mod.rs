@@ -212,6 +212,10 @@ pub(crate) struct ClientLocks {
     /// outside the `OlmMachine`.
     #[cfg(feature = "e2e-encryption")]
     pub(crate) crypto_store_generation: Arc<Mutex<Option<u64>>>,
+
+    /// Ensure that only one service is syncing at a time. Otherwise, they will
+    /// override each other's updates because they batch changes.
+    pub(crate) sync_service_lock: Mutex<()>,
 }
 
 pub(crate) struct ClientInner {
@@ -241,6 +245,9 @@ pub(crate) struct ClientInner {
     /// Notification handlers. See `register_notification_handler`.
     notification_handlers: RwLock<Vec<NotificationHandlerFn>>,
     pub(crate) room_update_channels: StdMutex<BTreeMap<OwnedRoomId, broadcast::Sender<RoomUpdate>>>,
+    /// An update is sent every time the info of a room changes. This is used to
+    /// trigger updates for the ui.
+    roominfo_update_recv: broadcast::Receiver<OwnedRoomId>,
     /// Whether the client should update its homeserver URL with the discovery
     /// information present in the login response.
     respect_login_well_known: bool,
@@ -276,6 +283,9 @@ impl ClientInner {
         respect_login_well_known: bool,
         #[cfg(feature = "e2e-encryption")] encryption_settings: EncryptionSettings,
     ) -> Arc<Self> {
+        let (roominfo_update_sender, roominfo_update_recv) = broadcast::channel(100);
+        base_client.set_roominfo_update_sender(roominfo_update_sender.clone());
+
         let client = Self {
             homeserver: StdRwLock::new(homeserver),
             auth_ctx,
@@ -291,6 +301,7 @@ impl ClientInner {
             event_handlers: Default::default(),
             notification_handlers: Default::default(),
             room_update_channels: Default::default(),
+            roominfo_update_recv,
             respect_login_well_known,
             sync_beat: event_listener::Event::new(),
             #[cfg(feature = "e2e-encryption")]
@@ -842,6 +853,10 @@ impl Client {
             }
             btree_map::Entry::Occupied(entry) => entry.get().subscribe(),
         }
+    }
+
+    pub fn roominfo_update_recv(&self) -> broadcast::Receiver<OwnedRoomId> {
+        self.inner.roominfo_update_recv.resubscribe()
     }
 
     pub(crate) async fn notification_handlers(

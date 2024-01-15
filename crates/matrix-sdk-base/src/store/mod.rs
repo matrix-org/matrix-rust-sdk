@@ -58,7 +58,7 @@ pub type BoxStream<T> = Pin<Box<dyn futures_util::Stream<Item = T> + Send>>;
 
 use crate::{
     rooms::{RoomInfo, RoomState},
-    MinimalRoomMemberEvent, Room, RoomStateFilter, SessionMeta,
+    BaseClient, MinimalRoomMemberEvent, Room, RoomStateFilter, SessionMeta,
 };
 
 pub(crate) mod ambiguity_map;
@@ -171,9 +171,18 @@ impl Store {
     /// inner `StateStore`.
     ///
     /// This method panics if it is called twice.
-    pub async fn set_session_meta(&self, session_meta: SessionMeta) -> Result<()> {
+    pub async fn set_session_meta(
+        &self,
+        session_meta: SessionMeta,
+        client: &BaseClient,
+    ) -> Result<()> {
         for info in self.inner.get_room_infos().await? {
-            let room = Room::restore(&session_meta.user_id, self.inner.clone(), info);
+            let room = Room::restore(
+                &session_meta.user_id,
+                self.inner.clone(),
+                info,
+                client.roominfo_update_sender.read().unwrap().clone(),
+            );
             self.rooms.write().unwrap().insert(room.room_id().to_owned(), room);
         }
 
@@ -214,7 +223,12 @@ impl Store {
 
     /// Lookup the Room for the given RoomId, or create one, if it didn't exist
     /// yet in the store
-    pub fn get_or_create_room(&self, room_id: &RoomId, room_type: RoomState) -> Room {
+    pub fn get_or_create_room(
+        &self,
+        room_id: &RoomId,
+        room_type: RoomState,
+        client: &BaseClient,
+    ) -> Room {
         let user_id =
             &self.session_meta.get().expect("Creating room while not being logged in").user_id;
 
@@ -222,7 +236,15 @@ impl Store {
             .write()
             .unwrap()
             .entry(room_id.to_owned())
-            .or_insert_with(|| Room::new(user_id, self.inner.clone(), room_id, room_type))
+            .or_insert_with(|| {
+                Room::new(
+                    user_id,
+                    self.inner.clone(),
+                    room_id,
+                    room_type,
+                    client.roominfo_update_sender.read().unwrap().clone(),
+                )
+            })
             .clone()
     }
 }
