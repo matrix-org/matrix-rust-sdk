@@ -1599,7 +1599,8 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
 
     let all_rooms = room_list.all_rooms().await?;
 
-    let (dynamic_entries_stream, dynamic_entries) = all_rooms.entries_with_dynamic_adapters(5);
+    let (dynamic_entries_stream, dynamic_entries) =
+        all_rooms.entries_with_dynamic_adapters(5, client.clone());
     pin_mut!(dynamic_entries_stream);
 
     sync_then_assert_request_and_fake_response! {

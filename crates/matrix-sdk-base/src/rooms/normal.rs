@@ -54,6 +54,7 @@ use ruma::{
     RoomId, RoomVersionId, UserId,
 };
 use serde::{Deserialize, Serialize};
+use tokio::sync::broadcast;
 use tracing::{debug, field::debug, info, instrument, trace, warn};
 
 use super::{
@@ -77,6 +78,7 @@ pub struct Room {
     room_id: OwnedRoomId,
     own_user_id: OwnedUserId,
     inner: SharedObservable<RoomInfo>,
+    roominfo_update_sender: Option<broadcast::Sender<OwnedRoomId>>,
     store: Arc<DynStateStore>,
 
     /// The most recent few encrypted events. When the keys come through to
@@ -144,15 +146,17 @@ impl Room {
         store: Arc<DynStateStore>,
         room_id: &RoomId,
         room_state: RoomState,
+        roominfo_update_sender: Option<broadcast::Sender<OwnedRoomId>>,
     ) -> Self {
         let room_info = RoomInfo::new(room_id, room_state);
-        Self::restore(own_user_id, store, room_info)
+        Self::restore(own_user_id, store, room_info, roominfo_update_sender)
     }
 
     pub(crate) fn restore(
         own_user_id: &UserId,
         store: Arc<DynStateStore>,
         room_info: RoomInfo,
+        roominfo_update_sender: Option<broadcast::Sender<OwnedRoomId>>,
     ) -> Self {
         Self {
             own_user_id: own_user_id.into(),
@@ -163,6 +167,7 @@ impl Room {
             latest_encrypted_events: Arc::new(SyncRwLock::new(RingBuffer::new(
                 Self::MAX_ENCRYPTED_EVENTS,
             ))),
+            roominfo_update_sender,
         }
     }
 
@@ -644,10 +649,14 @@ impl Room {
         self.inner.get()
     }
 
-    /// Update the inner summary with the given RoomInfo, and notify
-    /// subscribers.
+    /// Update the summary with given RoomInfo. This also triggers an update for
+    /// the roominfo_update_recv.
     pub fn set_room_info(&self, room_info: RoomInfo) {
         self.inner.set(room_info);
+        if let Some(sender) = &self.roominfo_update_sender {
+            // Ignore error if receiver is down
+            let _ = sender.send(self.room_id.clone());
+        }
     }
 
     /// Get the `RoomMember` with the given `user_id`.
@@ -1615,7 +1624,7 @@ mod tests {
         let user_id = user_id!("@me:example.org");
         let room_id = room_id!("!test:localhost");
 
-        (store.clone(), Room::new(user_id, store, room_id, room_type))
+        (store.clone(), Room::new(user_id, store, room_id, room_type, None))
     }
 
     fn make_stripped_member_event(user_id: &UserId, name: &str) -> Raw<StrippedRoomMemberEvent> {

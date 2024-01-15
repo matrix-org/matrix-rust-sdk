@@ -23,8 +23,9 @@ use eyeball_im_util::vector::VectorObserverExt;
 use futures_util::{pin_mut, stream, Stream, StreamExt as _};
 use matrix_sdk::{
     executor::{spawn, JoinHandle},
-    RoomListEntry, SlidingSync, SlidingSyncList,
+    Client, RoomListEntry, SlidingSync, SlidingSyncList,
 };
+use tokio::select;
 
 use super::{filters::Filter, Error, State};
 
@@ -123,6 +124,7 @@ impl RoomList {
     pub fn entries_with_dynamic_adapters(
         &self,
         page_size: usize,
+        client: Client,
     ) -> (impl Stream<Item = Vec<VectorDiff<RoomListEntry>>>, RoomListDynamicEntriesController)
     {
         let list = self.sliding_sync_list.clone();
@@ -142,8 +144,41 @@ impl RoomList {
         let stream = stream! {
             loop {
                 let filter_fn = filter_fn_cell.take().await;
-                let (values, stream) = list
-                    .room_list_stream()
+                let (raw_values, mut raw_stream) = list.room_list_stream();
+                let mut raw_current_values = raw_values.clone();
+                let client = client.clone();
+                let raw_stream_with_recv = stream! {
+                    loop {
+                        let mut roominfo_update_recv = client.roominfo_update_recv();
+                        select! {
+                            v = raw_stream.next() => {
+                                if let Some(v) = v {
+                                    for change in &v {
+                                        change.clone().apply(&mut raw_current_values);
+                                    }
+                                    yield v;
+                                } else {
+                                    break;
+                                }
+                            }
+                            room_id = roominfo_update_recv.recv() => {
+                                if let Ok(room_id) = room_id {
+                                    for (index, room) in raw_current_values.iter().enumerate() {
+                                        if let RoomListEntry::Filled(r) = room {
+                                            if r == &room_id {
+                                                let update = VectorDiff::Set { index, value: raw_current_values[index].clone() };
+                                                yield vec![update];
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                };
+
+                let (values, stream) = (raw_values, raw_stream_with_recv)
                     .filter(filter_fn)
                     .dynamic_limit_with_initial_value(page_size, limit_stream.clone());
 
