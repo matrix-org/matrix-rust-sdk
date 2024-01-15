@@ -24,14 +24,17 @@ use eyeball::SharedObservable;
 use futures_core::Stream;
 use futures_util::StreamExt;
 use matrix_sdk_base::SessionMeta;
-#[cfg(feature = "e2e-encryption")]
-use ruma::api::client::uiaa::{AuthData as RumaUiaaAuthData, Password as RumaUiaaPassword};
 use ruma::{
     api::{
         client::{
             account::register,
             session::{
-                get_login_types, login, logout, refresh_token, sso_login, sso_login_with_provider,
+                get_login_types,
+                login::{
+                    self,
+                    v3::{LoginInfo, Password},
+                },
+                logout, refresh_token, sso_login, sso_login_with_provider,
             },
             uiaa::UserIdentifier,
         },
@@ -547,19 +550,18 @@ impl MatrixAuth {
     pub async fn register(&self, request: register::v3::Request) -> Result<register::v3::Response> {
         let homeserver = self.client.homeserver();
         info!("Registering to {homeserver}");
-        #[cfg(feature = "e2e-encryption")]
-        let auth_data = match (&request.username, &request.password) {
-            (Some(u), Some(p)) => Some(RumaUiaaAuthData::Password(RumaUiaaPassword::new(
-                UserIdentifier::UserIdOrLocalpart(u.clone()),
+
+        let login_info = match (&request.username, &request.password) {
+            (Some(u), Some(p)) => Some(LoginInfo::Password(Password::new(
+                UserIdentifier::UserIdOrLocalpart(u.into()),
                 p.clone(),
             ))),
             _ => None,
         };
+
         let response = self.client.send(request, None).await?;
         if let Some(session) = MatrixSession::from_register_response(&response) {
-            let _ = self.set_session(session).await;
-            #[cfg(feature = "e2e-encryption")]
-            self.client.post_login_cross_signing(auth_data).await;
+            let _ = self.set_session(session, login_info).await;
         }
         Ok(response)
     }
@@ -819,7 +821,7 @@ impl MatrixAuth {
     #[instrument(skip_all)]
     pub async fn restore_session(&self, session: MatrixSession) -> Result<()> {
         debug!("Restoring Matrix auth session");
-        self.set_session(session).await?;
+        self.set_session(session, None).await?;
         debug!("Done restoring Matrix auth session");
         Ok(())
     }
@@ -833,35 +835,39 @@ impl MatrixAuth {
     pub(crate) async fn receive_login_response(
         &self,
         response: &login::v3::Response,
+        login_info: Option<LoginInfo>,
     ) -> Result<()> {
         self.client.maybe_update_login_well_known(response.well_known.as_ref());
 
-        self.set_session(response.into()).await?;
+        self.set_session(response.into(), login_info).await?;
 
         Ok(())
     }
 
-    async fn set_session(&self, session: MatrixSession) -> Result<()> {
+    async fn set_session(
+        &self,
+        session: MatrixSession,
+        login_info: Option<LoginInfo>,
+    ) -> Result<()> {
         self.set_session_tokens(session.tokens);
         self.client.set_session_meta(session.meta).await?;
 
         #[cfg(feature = "e2e-encryption")]
-        self.client.encryption().run_initialization_tasks().await?;
+        {
+            use ruma::api::client::uiaa::{AuthData, Password};
+
+            let auth_data = match login_info {
+                Some(login::v3::LoginInfo::Password(p)) => {
+                    Some(AuthData::Password(Password::new(p.identifier, p.password)))
+                }
+                // Other methods can't be immediately translated to an auth.
+                _ => None,
+            };
+
+            self.client.encryption().run_initialization_tasks(auth_data).await?;
+        }
 
         Ok(())
-    }
-}
-
-// Internal client helpers
-impl Client {
-    #[cfg(feature = "e2e-encryption")]
-    pub(crate) async fn post_login_cross_signing(&self, auth_data: Option<RumaUiaaAuthData>) {
-        let encryption = self.encryption();
-        if encryption.settings().auto_enable_cross_signing {
-            if let Err(err) = encryption.bootstrap_cross_signing_if_needed(auth_data).await {
-                tracing::warn!("cross-signing bootstrapping failed: {err}");
-            }
-        }
     }
 }
 
