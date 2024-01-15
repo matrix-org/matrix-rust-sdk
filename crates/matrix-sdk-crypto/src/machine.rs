@@ -1826,13 +1826,12 @@ impl OlmMachine {
     /// ```
     pub async fn export_room_keys(
         &self,
-        mut predicate: impl FnMut(&InboundGroupSession) -> bool,
+        predicate: impl FnMut(&InboundGroupSession) -> bool,
     ) -> StoreResult<Vec<ExportedRoomKey>> {
         let mut exported = Vec::new();
 
         let mut sessions = self.store().get_inbound_group_sessions().await?;
-
-        sessions.retain(|s| predicate(s));
+        sessions.retain(predicate);
 
         for session in sessions {
             let export = session.export().await;
