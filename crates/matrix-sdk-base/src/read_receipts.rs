@@ -43,7 +43,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use eyeball_im::Vector;
-use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
+use matrix_sdk_common::{deserialized_responses::SyncTimelineEvent, ring_buffer::RingBuffer};
 use ruma::{
     events::{
         poll::{start::PollStartEventContent, unstable_start::UnstablePollStartEventContent},
@@ -71,7 +71,7 @@ struct LatestReadReceipt {
 ///
 /// Remember that each time a field of `RoomReadReceipts` is updated in
 /// `compute_notifications`, this function must return true!
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct RoomReadReceipts {
     /// Does the room have unread messages?
     pub num_unread: u64,
@@ -96,8 +96,25 @@ pub(crate) struct RoomReadReceipts {
     ///
     /// Note: this contains event ids of the event *targets* of the receipts,
     /// not the event ids of the receipt events themselves.
-    #[serde(default)]
-    pending: BTreeSet<OwnedEventId>,
+    #[serde(default = "new_nonempty_ring_buffer")]
+    pending: RingBuffer<OwnedEventId>,
+}
+
+impl Default for RoomReadReceipts {
+    fn default() -> Self {
+        Self {
+            num_unread: Default::default(),
+            num_notifications: Default::default(),
+            num_mentions: Default::default(),
+            latest_active: Default::default(),
+            pending: new_nonempty_ring_buffer(),
+        }
+    }
+}
+
+fn new_nonempty_ring_buffer() -> RingBuffer<OwnedEventId> {
+    // 10 pending read receipts per room should be enough for everyone.
+    RingBuffer::new(10)
 }
 
 impl RoomReadReceipts {
@@ -249,7 +266,7 @@ impl ReceiptSelector {
     }
 
     /// Try to match pending receipts against new events.
-    fn handle_pending_receipts(&mut self, pending: &mut BTreeSet<OwnedEventId>) {
+    fn handle_pending_receipts(&mut self, pending: &mut RingBuffer<OwnedEventId>) {
         // Try to match stashes receipts against the new events.
         trace!("handle_pending_receipts");
         pending.retain(|event_id| {
@@ -492,10 +509,10 @@ fn marks_as_unread(event: &Raw<AnySyncTimelineEvent>, user_id: &UserId) -> bool 
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeSet, ops::Not as _};
+    use std::ops::Not as _;
 
     use eyeball_im::Vector;
-    use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
+    use matrix_sdk_common::{deserialized_responses::SyncTimelineEvent, ring_buffer::RingBuffer};
     use matrix_sdk_test::{sync_timeline_event, EventBuilder};
     use ruma::{
         event_id,
@@ -1016,7 +1033,7 @@ mod tests {
         assert_eq!(read_receipts.num_unread, 0);
 
         assert_eq!(read_receipts.pending.len(), 1);
-        assert!(read_receipts.pending.contains(event_id!("$6")));
+        assert!(read_receipts.pending.iter().any(|ev| ev == event_id!("$6")));
     }
 
     #[test]
@@ -1148,7 +1165,7 @@ mod tests {
             // No pending receipt => no better receipt.
             let mut selector = ReceiptSelector::new(&events, None);
 
-            let mut pending = BTreeSet::new();
+            let mut pending = RingBuffer::new(16);
             selector.handle_pending_receipts(&mut pending);
 
             assert!(pending.is_empty());
@@ -1162,7 +1179,7 @@ mod tests {
             // receipt.
             let mut selector = ReceiptSelector::new(&events, Some(event_id!("$1")));
 
-            let mut pending = BTreeSet::new();
+            let mut pending = RingBuffer::new(16);
             selector.handle_pending_receipts(&mut pending);
 
             assert!(pending.is_empty());
@@ -1175,7 +1192,8 @@ mod tests {
             // A pending receipt for an event that is still missing => no better receipt.
             let mut selector = ReceiptSelector::new(&events, None);
 
-            let mut pending = BTreeSet::from_iter([owned_event_id!("$3")]);
+            let mut pending = RingBuffer::new(16);
+            pending.extend([owned_event_id!("$3")]);
             selector.handle_pending_receipts(&mut pending);
 
             assert_eq!(pending.len(), 1);
@@ -1188,7 +1206,8 @@ mod tests {
             // Ditto but there was an active receipt => no better receipt.
             let mut selector = ReceiptSelector::new(&events, Some(event_id!("$1")));
 
-            let mut pending = BTreeSet::from_iter([owned_event_id!("$3")]);
+            let mut pending = RingBuffer::new(16);
+            pending.extend([owned_event_id!("$3")]);
             selector.handle_pending_receipts(&mut pending);
 
             assert_eq!(pending.len(), 1);
@@ -1201,7 +1220,8 @@ mod tests {
             // A pending receipt for an event that is present => better receipt.
             let mut selector = ReceiptSelector::new(&events, None);
 
-            let mut pending = BTreeSet::from_iter([owned_event_id!("$2")]);
+            let mut pending = RingBuffer::new(16);
+            pending.extend([owned_event_id!("$2")]);
             selector.handle_pending_receipts(&mut pending);
 
             // The receipt for $2 has been found.
@@ -1217,7 +1237,8 @@ mod tests {
             // selected => better receipt.
             let mut selector = ReceiptSelector::new(&events, Some(event_id!("$1")));
 
-            let mut pending = BTreeSet::from_iter([owned_event_id!("$2")]);
+            let mut pending = RingBuffer::new(16);
+            pending.extend([owned_event_id!("$2")]);
             selector.handle_pending_receipts(&mut pending);
 
             // The receipt for $2 has been found.
@@ -1232,7 +1253,8 @@ mod tests {
             // Same, but the previous receipt was better => no better receipt.
             let mut selector = ReceiptSelector::new(&events, Some(event_id!("$2")));
 
-            let mut pending = BTreeSet::from_iter([owned_event_id!("$1")]);
+            let mut pending = RingBuffer::new(16);
+            pending.extend([owned_event_id!("$1")]);
             selector.handle_pending_receipts(&mut pending);
 
             // The receipt for $1 has been found.
@@ -1246,12 +1268,13 @@ mod tests {
             // Mixed found and not found receipt => better receipt.
             let mut selector = ReceiptSelector::new(&events, None);
 
-            let mut pending = BTreeSet::from_iter([owned_event_id!("$1"), owned_event_id!("$3")]);
+            let mut pending = RingBuffer::new(16);
+            pending.extend([owned_event_id!("$1"), owned_event_id!("$3")]);
             selector.handle_pending_receipts(&mut pending);
 
             // The receipt for $1 has been found, but not that for $3.
             assert_eq!(pending.len(), 1);
-            assert!(pending.contains(event_id!("$3")));
+            assert!(pending.iter().any(|ev| ev == event_id!("$3")));
 
             let best_receipt = selector.finish();
             assert_eq!(best_receipt.unwrap().event_id, event_id!("$1"));
