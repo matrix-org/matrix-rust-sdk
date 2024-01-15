@@ -425,4 +425,21 @@ mod tests {
         assert_eq!(ring_buffer.len(), 1);
         assert_eq!(ring_buffer.get(0).copied().unwrap(), 2);
     }
+
+    #[test]
+    fn test_default_isnt_zero_capacity() {
+        let mut ring_buffer = RingBuffer::default();
+
+        // If a RingBuffer had a 0 capacity, then the underlying `VecDeque` will
+        // reallocate on the first call to `push()`, and the default capacity
+        // will be the final capacity of that `RingBuffer`. That capacity is an
+        // implementation detail of `VecDequeu`.
+        ring_buffer.push(1);
+        ring_buffer.push(2);
+        ring_buffer.push(3);
+        ring_buffer.push(4);
+        ring_buffer.push(5);
+
+        assert!(!ring_buffer.is_empty());
+    }
 }
