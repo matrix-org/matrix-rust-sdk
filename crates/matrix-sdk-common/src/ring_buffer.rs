@@ -105,6 +105,14 @@ impl<T> RingBuffer<T> {
     pub fn capacity(&self) -> usize {
         self.inner.capacity()
     }
+
+    /// Retains only the elements specified by the predicate.
+    pub fn retain<F>(&mut self, predicate: F)
+    where
+        F: FnMut(&T) -> bool,
+    {
+        self.inner.retain(predicate)
+    }
 }
 
 impl<U> Extend<U> for RingBuffer<U> {
@@ -404,5 +412,17 @@ mod tests {
 
         // Then only the last N items remain
         assert_eq!(ring_buffer.iter().map(String::as_str).collect::<Vec<_>>(), vec!["6", "7"]);
+    }
+
+    #[test]
+    fn test_retain() {
+        let mut ring_buffer = RingBuffer::new(2);
+        ring_buffer.push(1);
+        ring_buffer.push(2);
+
+        ring_buffer.retain(|v| v % 2 == 0);
+
+        assert_eq!(ring_buffer.len(), 1);
+        assert_eq!(ring_buffer.get(0).copied().unwrap(), 2);
     }
 }
