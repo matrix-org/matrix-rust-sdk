@@ -123,7 +123,7 @@ impl RoomReadReceipts {
     ///
     /// Returns whether a new event triggered a new unread/notification/mention.
     #[inline(always)]
-    fn account_event(&mut self, event: &SyncTimelineEvent, user_id: &UserId) -> bool {
+    fn process_events(&mut self, event: &SyncTimelineEvent, user_id: &UserId) -> bool {
         let mut has_unread = false;
 
         if marks_as_unread(&event.event, user_id) {
@@ -158,7 +158,7 @@ impl RoomReadReceipts {
     /// Try to find the event to which the receipt attaches to, and if found,
     /// will update the notification count in the room.
     #[instrument(skip_all)]
-    fn find_and_account_events<'a>(
+    fn find_and_process_events<'a>(
         &mut self,
         receipt_event_id: &EventId,
         user_id: &UserId,
@@ -183,7 +183,7 @@ impl RoomReadReceipts {
             }
 
             if counting_receipts {
-                self.account_event(event, user_id);
+                self.process_events(event, user_id);
             }
         }
 
@@ -226,6 +226,10 @@ impl ReceiptSelector {
         let best_pos =
             latest_active_receipt_event.and_then(|event_id| event_id_to_pos.get(event_id)).copied();
 
+        // Note: `best_receipt` isn't initialized to the latest active receipt, if set,
+        // so that `finish` will return only *new* better receipts, making it
+        // possible to take the fast path in `compute_notifications` where every
+        // event is considered new.
         Self { best_pos, best_receipt: None, event_id_to_pos }
     }
 
@@ -267,7 +271,7 @@ impl ReceiptSelector {
 
     /// Try to match pending receipts against new events.
     fn handle_pending_receipts(&mut self, pending: &mut RingBuffer<OwnedEventId>) {
-        // Try to match stashes receipts against the new events.
+        // Try to match stashed receipts against the new events.
         trace!("handle_pending_receipts");
         pending.retain(|event_id| {
             if let Some(event_pos) = self.event_id_to_pos.get(event_id) {
@@ -314,6 +318,8 @@ impl ReceiptSelector {
         pending
     }
 
+    /// Returns a *new* better read receipt. If it's not set, we can consider
+    /// that each new event is *after* the previous read receipt.
     fn finish(self) -> Option<LatestReadReceipt> {
         self.best_receipt.map(|event_id| LatestReadReceipt { event_id })
     }
@@ -391,7 +397,7 @@ pub(crate) fn compute_notifications(
 
         // The event for the receipt is in `all_events`, so we'll find it and can count
         // safely from here.
-        if read_receipts.find_and_account_events(&event_id, user_id, all_events.iter()) {
+        if read_receipts.find_and_process_events(&event_id, user_id, all_events.iter()) {
             has_changes = true;
         }
 
@@ -407,7 +413,7 @@ pub(crate) fn compute_notifications(
     // for the next receipt.
 
     for event in new_events {
-        if read_receipts.account_event(event, user_id) {
+        if read_receipts.process_events(event, user_id) {
             has_changes = true;
         }
     }
@@ -670,7 +676,7 @@ mod tests {
         // An interesting event from oneself doesn't count as a new unread message.
         let event = make_event(user_id, Vec::new());
         let mut receipts = RoomReadReceipts::default();
-        receipts.account_event(&event, user_id);
+        receipts.process_events(&event, user_id);
         assert_eq!(receipts.num_unread, 0);
         assert_eq!(receipts.num_mentions, 0);
         assert_eq!(receipts.num_notifications, 0);
@@ -678,7 +684,7 @@ mod tests {
         // An interesting event from someone else does count as a new unread message.
         let event = make_event(user_id!("@bob:example.org"), Vec::new());
         let mut receipts = RoomReadReceipts::default();
-        receipts.account_event(&event, user_id);
+        receipts.process_events(&event, user_id);
         assert_eq!(receipts.num_unread, 1);
         assert_eq!(receipts.num_mentions, 0);
         assert_eq!(receipts.num_notifications, 0);
@@ -686,7 +692,7 @@ mod tests {
         // Push actions computed beforehand are respected.
         let event = make_event(user_id!("@bob:example.org"), vec![Action::Notify]);
         let mut receipts = RoomReadReceipts::default();
-        receipts.account_event(&event, user_id);
+        receipts.process_events(&event, user_id);
         assert_eq!(receipts.num_unread, 1);
         assert_eq!(receipts.num_mentions, 0);
         assert_eq!(receipts.num_notifications, 1);
@@ -696,7 +702,7 @@ mod tests {
             vec![Action::SetTweak(ruma::push::Tweak::Highlight(true))],
         );
         let mut receipts = RoomReadReceipts::default();
-        receipts.account_event(&event, user_id);
+        receipts.process_events(&event, user_id);
         assert_eq!(receipts.num_unread, 1);
         assert_eq!(receipts.num_mentions, 1);
         assert_eq!(receipts.num_notifications, 0);
@@ -706,7 +712,7 @@ mod tests {
             vec![Action::SetTweak(ruma::push::Tweak::Highlight(true)), Action::Notify],
         );
         let mut receipts = RoomReadReceipts::default();
-        receipts.account_event(&event, user_id);
+        receipts.process_events(&event, user_id);
         assert_eq!(receipts.num_unread, 1);
         assert_eq!(receipts.num_mentions, 1);
         assert_eq!(receipts.num_notifications, 1);
@@ -715,21 +721,21 @@ mod tests {
         // make sure to resist against it.
         let event = make_event(user_id!("@bob:example.org"), vec![Action::Notify, Action::Notify]);
         let mut receipts = RoomReadReceipts::default();
-        receipts.account_event(&event, user_id);
+        receipts.process_events(&event, user_id);
         assert_eq!(receipts.num_unread, 1);
         assert_eq!(receipts.num_mentions, 0);
         assert_eq!(receipts.num_notifications, 1);
     }
 
     #[test]
-    fn test_find_and_account_events() {
+    fn test_find_and_process_events() {
         let ev0 = event_id!("$0");
         let user_id = user_id!("@alice:example.org");
 
         // When provided with no events, we report not finding the event to which the
         // receipt relates.
         let mut receipts = RoomReadReceipts::default();
-        assert!(receipts.find_and_account_events(ev0, user_id, &[]).not());
+        assert!(receipts.find_and_process_events(ev0, user_id, &[]).not());
         assert_eq!(receipts.num_unread, 0);
         assert_eq!(receipts.num_notifications, 0);
         assert_eq!(receipts.num_mentions, 0);
@@ -757,7 +763,7 @@ mod tests {
             ..Default::default()
         };
         assert!(receipts
-            .find_and_account_events(ev0, user_id, &[make_event(event_id!("$1"))],)
+            .find_and_process_events(ev0, user_id, &[make_event(event_id!("$1"))],)
             .not());
         assert_eq!(receipts.num_unread, 42);
         assert_eq!(receipts.num_notifications, 13);
@@ -772,7 +778,7 @@ mod tests {
             num_mentions: 37,
             ..Default::default()
         };
-        assert!(receipts.find_and_account_events(ev0, user_id, &[make_event(ev0)]));
+        assert!(receipts.find_and_process_events(ev0, user_id, &[make_event(ev0)]));
         assert_eq!(receipts.num_unread, 0);
         assert_eq!(receipts.num_notifications, 0);
         assert_eq!(receipts.num_mentions, 0);
@@ -786,7 +792,7 @@ mod tests {
             ..Default::default()
         };
         assert!(receipts
-            .find_and_account_events(
+            .find_and_process_events(
                 ev0,
                 user_id,
                 &[
@@ -808,7 +814,7 @@ mod tests {
             num_mentions: 37,
             ..Default::default()
         };
-        assert!(receipts.find_and_account_events(
+        assert!(receipts.find_and_process_events(
             ev0,
             user_id,
             &[
@@ -829,7 +835,7 @@ mod tests {
             num_mentions: 37,
             ..Default::default()
         };
-        assert!(receipts.find_and_account_events(
+        assert!(receipts.find_and_process_events(
             ev0,
             user_id,
             &[
