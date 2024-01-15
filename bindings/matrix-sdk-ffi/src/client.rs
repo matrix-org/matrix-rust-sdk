@@ -247,7 +247,11 @@ impl Client {
         device_id: Option<String>,
     ) -> Result<(), ClientError> {
         RUNTIME.block_on(async move {
-            let mut builder = self.inner.matrix_auth().login_username(&username, &password);
+            let mut builder = self
+                .inner
+                .matrix_auth()
+                .with_initialize_e2e_by_default(false)
+                .login_username(&username, &password);
             if let Some(initial_device_name) = initial_device_name.as_ref() {
                 builder = builder.initial_device_display_name(initial_device_name);
             }

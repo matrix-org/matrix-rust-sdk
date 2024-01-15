@@ -76,15 +76,32 @@ impl fmt::Debug for MatrixAuthData {
 #[derive(Debug, Clone)]
 pub struct MatrixAuth {
     client: Client,
+    initialize_e2e_by_default: bool,
 }
 
 impl MatrixAuth {
     pub(crate) fn new(client: Client) -> Self {
-        Self { client }
+        Self { client, initialize_e2e_by_default: true }
     }
 
     fn data(&self) -> Option<&MatrixAuthData> {
         self.client.inner.auth_ctx.auth_data.get()?.as_matrix()
+    }
+
+    ///
+    /// If set to `true`, the client will automatically initialize end-to-end
+    /// encryption (bootstrap cross signing, create a backup, etc.)
+    /// when logging in for the first time.
+    /// If set to `false`, the caller will have to manually call
+    /// `run_initialization_tasks` in order to bootstrap encryption. Default
+    /// is `true`.
+    ///
+    /// # Arguments
+    /// * `initialize_e2e_by_default` - Whether end-to-end encryption should be
+    ///   initialized by default.
+    pub fn with_initialize_e2e_by_default(mut self, initialize_e2e_by_default: bool) -> MatrixAuth {
+        self.initialize_e2e_by_default = initialize_e2e_by_default;
+        self
     }
 
     /// Gets the homeserver’s supported login types.
@@ -864,7 +881,9 @@ impl MatrixAuth {
                 _ => None,
             };
 
-            self.client.encryption().run_initialization_tasks(auth_data).await?;
+            if self.initialize_e2e_by_default {
+                self.client.encryption().run_initialization_tasks(auth_data).await?;
+            }
         }
 
         Ok(())
