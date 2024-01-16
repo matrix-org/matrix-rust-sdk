@@ -23,9 +23,10 @@ use eyeball_im_util::vector::VectorObserverExt;
 use futures_util::{pin_mut, stream, Stream, StreamExt as _};
 use matrix_sdk::{
     executor::{spawn, JoinHandle},
-    Client, RoomListEntry, SlidingSync, SlidingSyncList,
+    RoomListEntry, SlidingSync, SlidingSyncList,
 };
-use tokio::select;
+use ruma::OwnedRoomId;
+use tokio::{select, sync::broadcast};
 
 use super::{filters::Filter, Error, State};
 
@@ -124,7 +125,7 @@ impl RoomList {
     pub fn entries_with_dynamic_adapters(
         &self,
         page_size: usize,
-        client: Client,
+        roominfo_update_recv: &broadcast::Receiver<OwnedRoomId>,
     ) -> (impl Stream<Item = Vec<VectorDiff<RoomListEntry>>>, RoomListDynamicEntriesController)
     {
         let list = self.sliding_sync_list.clone();
@@ -141,16 +142,17 @@ impl RoomList {
             list.maximum_number_of_rooms_stream(),
         );
 
+        let roominfo_update_recv = roominfo_update_recv.resubscribe();
         let stream = stream! {
             loop {
                 let filter_fn = filter_fn_cell.take().await;
                 let (raw_values, mut raw_stream) = list.room_list_stream();
                 let mut raw_current_values = raw_values.clone();
-                let client = client.clone();
+                let mut roominfo_update_recv = roominfo_update_recv.resubscribe();
                 let raw_stream_with_recv = stream! {
                     loop {
-                        let mut roominfo_update_recv = client.roominfo_update_recv();
                         select! {
+                            biased;
                             v = raw_stream.next() => {
                                 if let Some(v) = v {
                                     for change in &v {
@@ -158,18 +160,18 @@ impl RoomList {
                                     }
                                     yield v;
                                 } else {
+                                    // Restart immediately, don't keep on waiting for the receiver
                                     break;
                                 }
                             }
-                            room_id = roominfo_update_recv.recv() => {
-                                if let Ok(room_id) = room_id {
-                                    for (index, room) in raw_current_values.iter().enumerate() {
-                                        if let RoomListEntry::Filled(r) = room {
-                                            if r == &room_id {
-                                                let update = VectorDiff::Set { index, value: raw_current_values[index].clone() };
-                                                yield vec![update];
-                                                break;
-                                            }
+                            Ok(room_id) = roominfo_update_recv.recv() => {
+                                // Search list for the updated room
+                                for (index, room) in raw_current_values.iter().enumerate() {
+                                    if let RoomListEntry::Filled(r) = room {
+                                        if r == &room_id {
+                                            let update = VectorDiff::Set { index, value: raw_current_values[index].clone() };
+                                            yield vec![update];
+                                            break;
                                         }
                                     }
                                 }

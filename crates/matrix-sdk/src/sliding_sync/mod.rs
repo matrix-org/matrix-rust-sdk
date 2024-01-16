@@ -693,11 +693,7 @@ impl SlidingSync {
             }
 
             // Handle the response.
-            // This will batch changes to rooms, so no other service should run at the same
-            // time
-            let lock = this.inner.client.locks().sync_service_lock.lock().await;
             let updates = this.handle_response(response, &mut position_guard).await?;
-            drop(lock);
 
             this.cache_to_storage(&position_guard).await?;
 
