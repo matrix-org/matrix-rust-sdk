@@ -37,8 +37,8 @@ use stream_assert::assert_next_matches;
 
 use super::TestTimeline;
 use crate::timeline::{
-    inner::TimelineInnerSettings, TimelineEventTypeFilter, TimelineItem, TimelineItemContent,
-    TimelineItemKind,
+    inner::TimelineInnerSettings, AnyOtherFullStateEventContent, TimelineEventTypeFilter,
+    TimelineItem, TimelineItemContent, TimelineItemKind,
 };
 
 #[async_test]
@@ -235,14 +235,14 @@ async fn event_type_filter_include_only_room_names() {
         .await;
 
     // The timeline should contain only the room name events
-    let event_items: Vec<Arc<TimelineItem>> = timeline
-        .inner
-        .items()
-        .await
-        .into_iter()
-        .filter(|i| matches!(i.kind, TimelineItemKind::Event(_)))
-        .collect();
+    let event_items: Vec<Arc<TimelineItem>> = timeline.get_event_items().await;
+    let text_message_items: Vec<Arc<TimelineItem>> =
+        event_items.clone().into_iter().filter(is_text_message_item).collect();
+    let room_name_items: Vec<Arc<TimelineItem>> =
+        event_items.clone().into_iter().filter(is_room_name_item).collect();
     assert_eq!(event_items.len(), 2);
+    assert_eq!(text_message_items.len(), 0);
+    assert_eq!(room_name_items.len(), 2);
 }
 
 #[async_test]
@@ -276,12 +276,51 @@ async fn event_type_filter_exclude_messages() {
         .await;
 
     // The timeline should contain everything except for the message event
-    let event_items: Vec<Arc<TimelineItem>> = timeline
-        .inner
-        .items()
-        .await
-        .into_iter()
-        .filter(|i| matches!(i.kind, TimelineItemKind::Event(_)))
-        .collect();
+    let event_items: Vec<Arc<TimelineItem>> = timeline.get_event_items().await;
+    let text_message_items: Vec<Arc<TimelineItem>> =
+        event_items.clone().into_iter().filter(is_text_message_item).collect();
+    let room_name_items: Vec<Arc<TimelineItem>> =
+        event_items.clone().into_iter().filter(is_room_name_item).collect();
     assert_eq!(event_items.len(), 2);
+    assert_eq!(text_message_items.len(), 0);
+    assert_eq!(room_name_items.len(), 2);
+}
+
+impl TestTimeline {
+    async fn get_event_items(&self) -> Vec<Arc<TimelineItem>> {
+        self.inner
+            .items()
+            .await
+            .into_iter()
+            .filter(|i| matches!(i.kind, TimelineItemKind::Event(_)))
+            .collect()
+    }
+}
+
+fn is_event_item(item: &Arc<TimelineItem>) -> bool {
+    matches!(item.kind(), TimelineItemKind::Event(_))
+}
+
+fn is_text_message_item(item: &Arc<TimelineItem>) -> bool {
+    match item.kind() {
+        TimelineItemKind::Event(event) => match &event.content {
+            TimelineItemContent::Message(message) => {
+                matches!(message.msgtype, MessageType::Text(_))
+            }
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
+fn is_room_name_item(item: &Arc<TimelineItem>) -> bool {
+    match item.kind() {
+        TimelineItemKind::Event(event) => match &event.content {
+            TimelineItemContent::OtherState(state) => {
+                matches!(state.content, AnyOtherFullStateEventContent::RoomName(_))
+            }
+            _ => false,
+        },
+        _ => false,
+    }
 }
