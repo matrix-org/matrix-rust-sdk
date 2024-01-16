@@ -64,33 +64,6 @@ pub enum FilterStateEventType {
     SpaceParent,
 }
 
-#[uniffi::export]
-pub fn all_filter_state_event_types() -> Vec<FilterStateEventType> {
-    vec![
-        FilterStateEventType::PolicyRuleRoom,
-        FilterStateEventType::PolicyRuleServer,
-        FilterStateEventType::PolicyRuleUser,
-        FilterStateEventType::RoomAliases,
-        FilterStateEventType::RoomAvatar,
-        FilterStateEventType::RoomCanonicalAlias,
-        FilterStateEventType::RoomCreate,
-        FilterStateEventType::RoomEncryption,
-        FilterStateEventType::RoomGuestAccess,
-        FilterStateEventType::RoomHistoryVisibility,
-        FilterStateEventType::RoomJoinRules,
-        FilterStateEventType::RoomMember,
-        FilterStateEventType::RoomName,
-        FilterStateEventType::RoomPinnedEvents,
-        FilterStateEventType::RoomPowerLevels,
-        FilterStateEventType::RoomServerAcl,
-        FilterStateEventType::RoomThirdPartyInvite,
-        FilterStateEventType::RoomTombstone,
-        FilterStateEventType::RoomTopic,
-        FilterStateEventType::SpaceChild,
-        FilterStateEventType::SpaceParent,
-    ]
-}
-
 impl From<FilterStateEventType> for TimelineEventType {
     fn from(value: FilterStateEventType) -> TimelineEventType {
         match value {
@@ -172,27 +145,4 @@ impl From<FilterMessageLikeEventType> for TimelineEventType {
             FilterMessageLikeEventType::Sticker => TimelineEventType::Sticker,
         }
     }
-}
-
-#[uniffi::export]
-pub fn all_filter_message_like_event_types() -> Vec<FilterMessageLikeEventType> {
-    vec![
-        FilterMessageLikeEventType::CallAnswer,
-        FilterMessageLikeEventType::CallInvite,
-        FilterMessageLikeEventType::CallHangup,
-        FilterMessageLikeEventType::CallCandidates,
-        FilterMessageLikeEventType::KeyVerificationReady,
-        FilterMessageLikeEventType::KeyVerificationStart,
-        FilterMessageLikeEventType::KeyVerificationCancel,
-        FilterMessageLikeEventType::KeyVerificationAccept,
-        FilterMessageLikeEventType::KeyVerificationKey,
-        FilterMessageLikeEventType::KeyVerificationMac,
-        FilterMessageLikeEventType::KeyVerificationDone,
-        FilterMessageLikeEventType::Poll,
-        FilterMessageLikeEventType::Reaction,
-        FilterMessageLikeEventType::RoomEncrypted,
-        FilterMessageLikeEventType::RoomMessage,
-        FilterMessageLikeEventType::RoomRedaction,
-        FilterMessageLikeEventType::Sticker,
-    ]
 }
