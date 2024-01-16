@@ -368,19 +368,7 @@ impl ClientBuilder {
         let base_client = if let Some(base_client) = self.base_client {
             base_client
         } else {
-            #[allow(clippy::infallible_destructuring_match)]
-            let store_config = match self.store_config {
-                #[cfg(feature = "sqlite")]
-                BuilderStoreConfig::Sqlite { path, passphrase } => {
-                    matrix_sdk_sqlite::make_store_config(&path, passphrase.as_deref()).await?
-                }
-                #[cfg(feature = "indexeddb")]
-                BuilderStoreConfig::IndexedDb { name, passphrase } => {
-                    matrix_sdk_indexeddb::make_store_config(&name, passphrase.as_deref()).await?
-                }
-                BuilderStoreConfig::Custom(config) => config,
-            };
-            BaseClient::with_store_config(store_config)
+            BaseClient::with_store_config(build_store_config(self.store_config).await?)
         };
 
         let http_client = HttpClient::new(inner_http_client.clone(), self.request_config);
@@ -481,6 +469,24 @@ impl ClientBuilder {
 
         Ok(Client { inner })
     }
+}
+
+async fn build_store_config(
+    builder_config: BuilderStoreConfig,
+) -> Result<StoreConfig, ClientBuildError> {
+    #[allow(clippy::infallible_destructuring_match)]
+    let store_config = match builder_config {
+        #[cfg(feature = "sqlite")]
+        BuilderStoreConfig::Sqlite { path, passphrase } => {
+            matrix_sdk_sqlite::make_store_config(&path, passphrase.as_deref()).await?
+        }
+        #[cfg(feature = "indexeddb")]
+        BuilderStoreConfig::IndexedDb { name, passphrase } => {
+            matrix_sdk_indexeddb::make_store_config(&name, passphrase.as_deref()).await?
+        }
+        BuilderStoreConfig::Custom(config) => config,
+    };
+    Ok(store_config)
 }
 
 #[derive(Clone, Copy, Debug)]
