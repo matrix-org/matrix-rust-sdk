@@ -184,11 +184,6 @@ impl ClientBuilder {
     }
 
     /// Set up the store configuration for a IndexedDB store.
-    ///
-    /// This is the same as
-    /// <code>.[store_config](Self::store_config)([matrix_sdk_indexeddb]::[make_store_config](matrix_sdk_indexeddb::make_store_config)(path, passphrase).await?)</code>,
-    /// except it delegates the actual store config creation to when
-    /// `.build().await` is called.
     #[cfg(feature = "indexeddb")]
     pub fn indexeddb_store(mut self, name: &str, passphrase: Option<&str>) -> Self {
         self.store_config = BuilderStoreConfig::IndexedDb {
@@ -480,13 +475,44 @@ async fn build_store_config(
         BuilderStoreConfig::Sqlite { path, passphrase } => {
             matrix_sdk_sqlite::make_store_config(&path, passphrase.as_deref()).await?
         }
+
         #[cfg(feature = "indexeddb")]
         BuilderStoreConfig::IndexedDb { name, passphrase } => {
-            matrix_sdk_indexeddb::make_store_config(&name, passphrase.as_deref()).await?
+            build_indexeddb_store_config(&name, passphrase.as_deref()).await?
         }
+
         BuilderStoreConfig::Custom(config) => config,
     };
     Ok(store_config)
+}
+
+// The indexeddb stores only implement `IntoStateStore` and `IntoCryptoStore` on
+// wasm32, so this only compiles there.
+#[cfg(all(target_arch = "wasm32", feature = "indexeddb"))]
+async fn build_indexeddb_store_config(
+    name: &str,
+    passphrase: Option<&str>,
+) -> Result<StoreConfig, ClientBuildError> {
+    #[cfg(feature = "e2e-encryption")]
+    {
+        let (state_store, crypto_store) =
+            matrix_sdk_indexeddb::open_stores_with_name(name, passphrase).await?;
+        Ok(StoreConfig::new().state_store(state_store).crypto_store(crypto_store))
+    }
+
+    #[cfg(not(feature = "e2e-encryption"))]
+    {
+        let state_store = matrix_sdk_indexeddb::open_state_store(name, passphrase).await?;
+        Ok(StoreConfig::new().state_store(state_store))
+    }
+}
+
+#[cfg(all(not(target_arch = "wasm32"), feature = "indexeddb"))]
+async fn build_indexeddb_store_config(
+    _name: &str,
+    _passphrase: Option<&str>,
+) -> Result<StoreConfig, ClientBuildError> {
+    panic!("the IndexedDB is only available on the 'wasm32' arch")
 }
 
 #[derive(Clone, Copy, Debug)]
