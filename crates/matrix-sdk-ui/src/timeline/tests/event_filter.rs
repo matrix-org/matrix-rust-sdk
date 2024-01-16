@@ -297,10 +297,6 @@ impl TestTimeline {
     }
 }
 
-fn is_event_item(item: &Arc<TimelineItem>) -> bool {
-    matches!(item.kind(), TimelineItemKind::Event(_))
-}
-
 fn is_text_message_item(item: &Arc<TimelineItem>) -> bool {
     match item.kind() {
         TimelineItemKind::Event(event) => match &event.content {
