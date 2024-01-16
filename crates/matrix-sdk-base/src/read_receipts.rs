@@ -397,12 +397,12 @@ pub(crate) fn compute_notifications(
 
         // The event for the receipt is in `all_events`, so we'll find it and can count
         // safely from here.
-        if read_receipts.find_and_process_events(&event_id, user_id, all_events.iter()) {
-            has_changes = true;
-        }
+        read_receipts.find_and_process_events(&event_id, user_id, all_events.iter());
 
         trace!(?read_receipts, "after finding a better receipt");
-        return Ok(has_changes);
+
+        // The latest active read receipt has changed, signal that to the caller.
+        return Ok(true);
     }
 
     // If we haven't returned at this point, it means we don't have any new "active"
