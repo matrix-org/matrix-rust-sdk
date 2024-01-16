@@ -1,3 +1,9 @@
+# UNRELEASED
+
+- Add new properties `session_rotation_period` and
+  `session_rotation_period_msgs` to `store::RoomSettings`.
+  ([#3042](https://github.com/matrix-org/matrix-rust-sdk/pull/3042))
+
 # 0.7.0
 
 - Add method to mark a list of inbound group sessions as backed up:

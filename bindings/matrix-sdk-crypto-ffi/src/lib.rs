@@ -843,6 +843,7 @@ impl From<RoomSettings> for RustRoomSettings {
         Self {
             algorithm: value.algorithm.into(),
             only_allow_trusted_devices: value.only_allow_trusted_devices,
+            ..RustRoomSettings::default()
         }
     }
 }
