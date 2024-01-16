@@ -1,6 +1,8 @@
 use std::{convert::TryFrom, sync::Arc};
 
 use anyhow::{Context, Result};
+use matrix_sdk::{room::Room as SdkRoom, RoomMemberships, RoomState};
+use matrix_sdk_ui::timeline::{default_event_filter, RoomExt};
 use mime::Mime;
 use ruma::{
     api::client::room::report_content,
@@ -11,13 +13,11 @@ use ruma::{
 use tokio::sync::RwLock;
 use tracing::error;
 
-use matrix_sdk::{room::Room as SdkRoom, RoomMemberships, RoomState};
-use matrix_sdk_ui::timeline::{default_event_filter, RoomExt};
-
-use crate::event_filter::TimelineEventTypeFilter;
+use super::RUNTIME;
 use crate::{
     chunk_iterator::ChunkIterator,
     error::{ClientError, MediaInfoError, RoomError},
+    event_filter::TimelineEventTypeFilter,
     room_info::RoomInfo,
     room_member::{MessageLikeEventType, RoomMember, StateEventType},
     ruma::ImageInfo,
@@ -25,8 +25,6 @@ use crate::{
     utils::u64_to_uint,
     TaskHandle,
 };
-
-use super::RUNTIME;
 
 #[derive(uniffi::Enum)]
 pub enum Membership {
