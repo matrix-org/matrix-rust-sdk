@@ -1,26 +1,33 @@
+use std::sync::Arc;
+
 use matrix_sdk_ui::timeline::event_type_filter::TimelineEventTypeFilter as InnerTimelineEventTypeFilter;
 use ruma::events::{AnySyncTimelineEvent, TimelineEventType};
 
-#[derive(uniffi::Enum)]
-pub enum TimelineEventTypeFilter {
-    Include { event_types: Vec<FilterTimelineEventType> },
-    Exclude { event_types: Vec<FilterTimelineEventType> },
+#[derive(uniffi::Object)]
+pub struct TimelineEventTypeFilter {
+    inner: InnerTimelineEventTypeFilter,
+}
+
+#[uniffi::export]
+impl TimelineEventTypeFilter {
+    #[uniffi::constructor]
+    pub fn include(event_types: Vec<FilterTimelineEventType>) -> Arc<Self> {
+        let event_types: Vec<TimelineEventType> =
+            event_types.iter().map(|t| t.clone().into()).collect();
+        Arc::new(Self { inner: InnerTimelineEventTypeFilter::Include(event_types) })
+    }
+
+    #[uniffi::constructor]
+    pub fn exclude(event_types: Vec<FilterTimelineEventType>) -> Arc<Self> {
+        let event_types: Vec<TimelineEventType> =
+            event_types.iter().map(|t| t.clone().into()).collect();
+        Arc::new(Self { inner: InnerTimelineEventTypeFilter::Exclude(event_types) })
+    }
 }
 
 impl TimelineEventTypeFilter {
     pub(crate) fn filter(&self, event: &AnySyncTimelineEvent) -> bool {
-        match self {
-            TimelineEventTypeFilter::Include { event_types } => {
-                let event_types: Vec<TimelineEventType> =
-                    event_types.iter().map(|t| t.clone().into()).collect();
-                InnerTimelineEventTypeFilter::Include(event_types).filter(event)
-            }
-            TimelineEventTypeFilter::Exclude { event_types } => {
-                let event_types: Vec<TimelineEventType> =
-                    event_types.iter().map(|t| t.clone().into()).collect();
-                InnerTimelineEventTypeFilter::Exclude(event_types).filter(event)
-            }
-        }
+        self.inner.filter(event)
     }
 }
 
