@@ -62,6 +62,7 @@ use self::futures::SendAttachment;
 
 mod builder;
 mod error;
+pub mod event_type_filter;
 mod event_handler;
 mod event_item;
 pub mod futures;
@@ -90,6 +91,7 @@ pub use self::{
         Message, OtherState, Profile, ReactionGroup, RepliedToEvent, RoomMembershipChange, Sticker,
         TimelineDetails, TimelineItemContent,
     },
+    event_type_filter::TimelineEventTypeFilter,
     inner::default_event_filter,
     item::{TimelineItem, TimelineItemKind},
     pagination::{BackPaginationStatus, PaginationOptions, PaginationOutcome},
