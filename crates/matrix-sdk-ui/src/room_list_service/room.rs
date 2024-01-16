@@ -25,7 +25,7 @@ use ruma::{
 
 use super::Error;
 use crate::{
-    timeline::{EventTimelineItem, SlidingSyncRoomExt},
+    timeline::{EventTimelineItem, SlidingSyncRoomExt, TimelineEventFilterFn},
     Timeline,
 };
 
@@ -117,21 +117,22 @@ impl Room {
         self.inner.sliding_sync.unsubscribe_from_room(self.inner.room.room_id().to_owned())
     }
 
-    /// Get the timeline of the room.
-    pub async fn timeline(&self) -> Arc<Timeline> {
+    /// Get the timeline of the room, with an optional timeline event filter.
+    pub async fn timeline(
+        &self,
+        event_filter: Option<Box<TimelineEventFilterFn>>,
+    ) -> Arc<Timeline> {
         self.inner
             .timeline
             .get_or_init(async {
-                Arc::new(
-                    Timeline::builder(&self.inner.room)
-                        .events(
-                            self.inner.sliding_sync_room.prev_batch(),
-                            self.inner.sliding_sync_room.timeline_queue(),
-                        )
-                        .track_read_marker_and_receipts()
-                        .build()
-                        .await,
-                )
+                let mut builder = Timeline::builder(&self.inner.room).events(
+                    self.inner.sliding_sync_room.prev_batch(),
+                    self.inner.sliding_sync_room.timeline_queue(),
+                );
+                if let Some(event_filter) = event_filter {
+                    builder = builder.event_filter(event_filter);
+                }
+                Arc::new(builder.track_read_marker_and_receipts().build().await)
             })
             .await
             .clone()

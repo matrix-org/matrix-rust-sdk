@@ -12,14 +12,18 @@ use matrix_sdk::{
     },
     RoomListEntry as MatrixRoomListEntry,
 };
-use matrix_sdk_ui::room_list_service::filters::{
-    new_filter_all, new_filter_all_non_left, new_filter_fuzzy_match_room_name, new_filter_none,
-    new_filter_normalized_match_room_name,
+use matrix_sdk_ui::{
+    room_list_service::filters::{
+        new_filter_all, new_filter_all_non_left, new_filter_fuzzy_match_room_name, new_filter_none,
+        new_filter_normalized_match_room_name,
+    },
+    timeline::{default_event_filter, TimelineEventFilterFn},
 };
 use tokio::sync::RwLock;
 
 use crate::{
     error::ClientError,
+    event_filter::TimelineEventTypeFilter,
     room::Room,
     room_info::RoomInfo,
     timeline::{EventTimelineItem, Timeline},
@@ -448,7 +452,23 @@ impl RoomListItem {
     async fn full_room(&self) -> Arc<Room> {
         Arc::new(Room::with_timeline(
             self.inner.inner_room().clone(),
-            Arc::new(RwLock::new(Some(Timeline::from_arc(self.inner.timeline().await)))),
+            Arc::new(RwLock::new(Some(Timeline::from_arc(self.inner.timeline(None).await)))),
+        ))
+    }
+
+    async fn full_room_with_event_type_filter(
+        &self,
+        event_type_filter: Arc<TimelineEventTypeFilter>,
+    ) -> Arc<Room> {
+        let event_filter: Box<TimelineEventFilterFn> = Box::new(move |event, room_version_id| {
+            // Always perform the default filter first
+            default_event_filter(event, room_version_id) && event_type_filter.filter(event)
+        });
+        Arc::new(Room::with_timeline(
+            self.inner.inner_room().clone(),
+            Arc::new(RwLock::new(Some(Timeline::from_arc(
+                self.inner.timeline(Some(event_filter)).await,
+            )))),
         ))
     }
 

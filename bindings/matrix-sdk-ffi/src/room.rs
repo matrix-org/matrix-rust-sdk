@@ -2,7 +2,7 @@ use std::{convert::TryFrom, sync::Arc};
 
 use anyhow::{Context, Result};
 use matrix_sdk::{room::Room as SdkRoom, RoomMemberships, RoomState};
-use matrix_sdk_ui::timeline::{default_event_filter, RoomExt};
+use matrix_sdk_ui::timeline::RoomExt;
 use mime::Mime;
 use ruma::{
     api::client::room::report_content,
@@ -17,7 +17,6 @@ use super::RUNTIME;
 use crate::{
     chunk_iterator::ChunkIterator,
     error::{ClientError, MediaInfoError, RoomError},
-    event_filter::TimelineEventTypeFilter,
     room_info::RoomInfo,
     room_member::{MessageLikeEventType, RoomMember, StateEventType},
     ruma::ImageInfo,
@@ -149,23 +148,6 @@ impl Room {
             *write_guard = Some(timeline.clone());
             timeline
         }
-    }
-
-    pub async fn timeline_with_event_type_filter(
-        &self,
-        event_type_filter: TimelineEventTypeFilter,
-    ) -> Arc<Timeline> {
-        let inner = self
-            .inner
-            .timeline_builder()
-            .event_filter(move |event, room_version_id| {
-                // Always perform the default filter first
-                let ret = default_event_filter(event, room_version_id);
-                ret && event_type_filter.filter(event)
-            })
-            .build()
-            .await;
-        Timeline::new(inner)
     }
 
     pub async fn poll_history(&self) -> Arc<Timeline> {
