@@ -27,6 +27,7 @@ mod client_builder;
 mod encryption;
 mod error;
 mod event;
+mod event_filter;
 mod helpers;
 mod notification;
 mod notification_settings;

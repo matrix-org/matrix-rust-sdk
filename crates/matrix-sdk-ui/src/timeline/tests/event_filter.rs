@@ -33,10 +33,11 @@ use ruma::{
         AnySyncTimelineEvent,
     },
 };
+use ruma::events::TimelineEventType;
 use stream_assert::assert_next_matches;
 
 use super::TestTimeline;
-use crate::timeline::{inner::TimelineInnerSettings, TimelineItemContent};
+use crate::timeline::{inner::TimelineInnerSettings, TimelineEventTypeFilter, TimelineItemContent};
 
 #[async_test]
 async fn default_filter() {
@@ -199,4 +200,53 @@ async fn hide_failed_to_parse() {
         .await;
 
     assert_eq!(timeline.inner.items().await.len(), 0);
+}
+
+#[async_test]
+async fn event_filter_builder_add_filter() {
+    // Only return room name events
+    let event_filter = TimelineEventTypeFilter::Include(vec![TimelineEventType::RoomName]);
+
+    let timeline = TestTimeline::new().with_settings(TimelineInnerSettings {
+        event_filter: Arc::new(move |event, _| event_filter.filter(event)),
+        ..Default::default()
+    });
+
+    // Add a non-encrypted message event
+    timeline
+        .handle_live_message_event(&ALICE, RoomMessageEventContent::text_plain("The first message"))
+        .await;
+    // And a couple of state events
+    timeline.handle_live_state_event(&ALICE, RoomNameEventContent::new("A new room name".to_string()), None)
+        .await;
+    timeline.handle_live_state_event(&ALICE, RoomNameEventContent::new("A new room name (again)".to_string()), None)
+        .await;
+
+    // The timeline should contain only the room name events
+    assert_eq!(timeline.inner.items().await.len(), 2);
+}
+
+#[async_test]
+async fn event_filter_builder_filter_out() {
+    // Don't return any messages
+    let event_filter = TimelineEventTypeFilter::Exclude(vec![TimelineEventType::RoomMessage]);
+
+    let timeline = TestTimeline::new().with_settings(TimelineInnerSettings {
+        event_filter: Arc::new(move |event, _| event_filter.filter(event)),
+        ..Default::default()
+    });
+
+    // Add a message event
+    timeline
+        .handle_live_message_event(&ALICE, RoomMessageEventContent::text_plain("The first message"))
+        .await;
+    // And a couple of state events
+    timeline.handle_live_state_event(&ALICE, RoomNameEventContent::new("A new room name".to_string()), None)
+        .await;
+    timeline.handle_live_state_event(&ALICE, RoomNameEventContent::new("A new room name (again)".to_string()), None)
+        .await;
+
+    // The timeline should contain everything except for the message event
+    let timeline_items = timeline.inner.items().await;
+    assert_eq!(timeline_items.len(), 2);
 }
