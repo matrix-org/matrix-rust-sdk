@@ -38,6 +38,83 @@
 //!
 //! The only public method in that module is [`compute_notifications`], which
 //! updates the `RoomInfo` in place according to the new counts.
+//!
+//! ## Implementation details: How to get the latest receipt?
+//!
+//! ### Preliminary context
+//!
+//! We do have an unbounded, in-memory cache for sync events, as part of sliding
+//! sync. It's reset as soon as we get a "limited" (gappy) sync for a room. Not
+//! as ideal as an on-disk timeline, but it's sufficient to do some interesting
+//! computations already.
+//!
+//! ### How-to
+//!
+//! When we call `compute_notifications`, that's for one of two reasons (and
+//! maybe both at once, or maybe none at all):
+//! - we received a new receipt
+//! - new events came in.
+//!
+//! A read receipt is considered _active_ if it's been received from sync
+//! *and* it matches a known event in the in-memory sync events cache.
+//!
+//! The *latest active* receipt is the one that's active, with the latest order
+//! (according to sync ordering, aka position in the sync cache).
+//!
+//! The problem of keeping a precise read count is thus equivalent to finding
+//! the latest active receipt, and counting interesting events after it (in the
+//! sync ordering).
+//!
+//! When we get new events, we'll incorporate them into an inverse mapping of
+//! event id -> sync order (`event_id_to_pos`). This gives us a simple way to
+//! select a "better" active receipt, using the `ReceiptSelector`. An event that
+//! has a read receipt can be passed to `ReceiptSelector::try_select_better`,
+//! which compares the order of the current best active, to that of the new
+//! event, and records the better one, if applicable.
+//!
+//! When we receive a new receipt event in
+//! `ReceiptSelector::handle_new_receipt`, if we find a {public|private}
+//! {main-threaded|unthreaded} receipt attached to an event, there are two
+//! possibilities:
+//! - we knew the event, so we can immediately try to select it as a better
+//!   event with `try_select_better`,
+//! - or we don't, which may mean the receipt refers to a past event we lost
+//!   track of (because of a restart of the app — remember the cache is mostly
+//!   memory-only, and a few items on disk), or the receipt refers to a future
+//!   event. To cover for the latter possibility, we stash the receipt and mark
+//!   it as pending (we only keep a limited number of pending read receipts
+//!   using a `RingBuffer`).
+//!
+//! That means that when we receive new events, we'll check if their id matches
+//! one of the pending receipts in `handle_pending_receipts`; if so, we can
+//! remove it from the pending set, and try to consider it a better receipt with
+//! `try_select_better`. If not, it's still pending, until it'll be forgotten or
+//! matched.
+//!
+//! Once we have a new *better active receipt*, we'll save it in the
+//! `RoomReadReceipt` data (stored in `RoomInfo`), and we'll compute the counts,
+//! starting from the event the better active receipt was referring to.
+//!
+//! If we *don't* have a better active receipt, that means that all the events
+//! received in that sync batch aren't referred to by a known read receipt,
+//! _and_ we didn't get a new better receipt that matched known events. In that
+//! case, we can just consider that all the events are new, and count them as
+//! such.
+//!
+//! ### Edge cases
+//!
+//! - `compute_notifications` is called after receiving a sliding sync response,
+//!   at a time where we haven't tried to "reconcile" the cached timeline items
+//!   with the new ones. The only kind of reconciliation we'd do anyways is
+//!   clearing the timeline if it was limited, which equates to having common
+//!   events ids in both sets. As a matter of fact, we have to manually handle
+//!   this edge case here. I hope that having an event database will help avoid
+//!   this kind of workaround here later.
+//! - In addition to that, and as noted in the timeline code, it seems that the
+//!   sliding-sync proxy could return the same event multiple times in a sync
+//!   timeline, leading to incorrect results. We have to take that into account
+//!   by resetting the read counts *every* time we see an event that was the
+//!   target of the latest active read receipt.
 #![allow(dead_code)] // too many different build configurations, I give up
 
 use std::collections::{BTreeMap, BTreeSet};
