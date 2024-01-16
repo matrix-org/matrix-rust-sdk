@@ -37,7 +37,10 @@ use ruma::{
 use stream_assert::assert_next_matches;
 
 use super::TestTimeline;
-use crate::timeline::{inner::TimelineInnerSettings, TimelineEventTypeFilter, TimelineItemContent};
+use crate::timeline::{
+    inner::TimelineInnerSettings, TimelineEventTypeFilter, TimelineItem, TimelineItemContent,
+    TimelineItemKind,
+};
 
 #[async_test]
 async fn default_filter() {
@@ -203,7 +206,7 @@ async fn hide_failed_to_parse() {
 }
 
 #[async_test]
-async fn event_filter_builder_add_filter() {
+async fn event_type_filter_include_only_room_names() {
     // Only return room name events
     let event_filter = TimelineEventTypeFilter::Include(vec![TimelineEventType::RoomName]);
 
@@ -216,7 +219,7 @@ async fn event_filter_builder_add_filter() {
     timeline
         .handle_live_message_event(&ALICE, RoomMessageEventContent::text_plain("The first message"))
         .await;
-    // And a couple of state events
+    // And a couple of room name events
     timeline
         .handle_live_state_event(
             &ALICE,
@@ -233,11 +236,18 @@ async fn event_filter_builder_add_filter() {
         .await;
 
     // The timeline should contain only the room name events
-    assert_eq!(timeline.inner.items().await.len(), 2);
+    let event_items: Vec<Arc<TimelineItem>> = timeline
+        .inner
+        .items()
+        .await
+        .into_iter()
+        .filter(|i| matches!(i.kind, TimelineItemKind::Event(_)))
+        .collect();
+    assert_eq!(event_items.len(), 2);
 }
 
 #[async_test]
-async fn event_filter_builder_filter_out() {
+async fn event_type_filter_exclude_messages() {
     // Don't return any messages
     let event_filter = TimelineEventTypeFilter::Exclude(vec![TimelineEventType::RoomMessage]);
 
@@ -267,6 +277,12 @@ async fn event_filter_builder_filter_out() {
         .await;
 
     // The timeline should contain everything except for the message event
-    let timeline_items = timeline.inner.items().await;
-    assert_eq!(timeline_items.len(), 2);
+    let event_items: Vec<Arc<TimelineItem>> = timeline
+        .inner
+        .items()
+        .await
+        .into_iter()
+        .filter(|i| matches!(i.kind, TimelineItemKind::Event(_)))
+        .collect();
+    assert_eq!(event_items.len(), 2);
 }
