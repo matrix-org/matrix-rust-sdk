@@ -1600,7 +1600,7 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
     let all_rooms = room_list.all_rooms().await?;
 
     let (dynamic_entries_stream, dynamic_entries) =
-        all_rooms.entries_with_dynamic_adapters(5, client.clone());
+        all_rooms.entries_with_dynamic_adapters(5, client.roominfo_update_recv());
     pin_mut!(dynamic_entries_stream);
 
     sync_then_assert_request_and_fake_response! {
@@ -1728,6 +1728,9 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
         insert[2] [ F("!r4:bar.org") ];
         end;
     };
+    // TODO: don't cause duplicate updates
+    dynamic_entries_stream.next().await.unwrap();
+    dynamic_entries_stream.next().await.unwrap();
     assert_pending!(dynamic_entries_stream);
 
     sync_then_assert_request_and_fake_response! {
@@ -1797,6 +1800,8 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
         insert[4] [ F("!r7:bar.org") ];
         end;
     };
+    dynamic_entries_stream.next().await.unwrap();
+    dynamic_entries_stream.next().await.unwrap();
     assert_pending!(dynamic_entries_stream);
 
     // Now, let's change the dynamic entries!
@@ -1885,6 +1890,85 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
             F("!r6:bar.org"),
             F("!r7:bar.org"),
         ];
+        end;
+    };
+    assert_pending!(dynamic_entries_stream);
+
+    Ok(())
+}
+
+#[async_test]
+async fn test_dynamic_entries_stream_manual_update() -> Result<(), Error> {
+    let (client, server, room_list) = new_room_list_service().await?;
+
+    let sync = room_list.sync();
+    pin_mut!(sync);
+
+    let all_rooms = room_list.all_rooms().await?;
+
+    let (dynamic_entries_stream, dynamic_entries) =
+        all_rooms.entries_with_dynamic_adapters(5, client.roominfo_update_recv());
+    pin_mut!(dynamic_entries_stream);
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        states = Init => SettingUp,
+        assert request >= {
+            "lists": {
+                ALL_ROOMS: {
+                    "ranges": [[0, 19]],
+                },
+            },
+        },
+        respond with = {
+            "pos": "0",
+            "lists": {
+                ALL_ROOMS: {
+                    "count": 10,
+                    "ops": [
+                        {
+                            "op": "SYNC",
+                            "range": [0, 0],
+                            "room_ids": [
+                                "!r0:bar.org",
+                            ],
+                        },
+                    ],
+                },
+            },
+            "rooms": {
+                "!r0:bar.org": {
+                    "name": "Matrix Foobar",
+                    "initial": true,
+                    "timeline": [],
+                },
+            },
+        },
+    };
+
+    // Ensure the dynamic entries' stream is pending because there is no filter set
+    // yet.
+    assert_pending!(dynamic_entries_stream);
+
+    // Now, let's define a filter.
+    dynamic_entries.set_filter(new_filter_fuzzy_match_room_name(&client, "mat ba"));
+
+    // Assert the dynamic entries.
+    assert_entries_batch! {
+        [dynamic_entries_stream]
+        // Receive a `reset` because the filter has been reset/set for the first time.
+        reset [ F("!r0:bar.org") ];
+        end;
+    };
+    assert_pending!(dynamic_entries_stream);
+
+    // Updating the summary will cause an updat
+    let room = client.get_room(room_id!("!r0:bar.org")).unwrap();
+    room.update_summary(room.clone_info()).await;
+
+    assert_entries_batch! {
+        [dynamic_entries_stream]
+        set[0] [ F("!r0:bar.org") ];
         end;
     };
     assert_pending!(dynamic_entries_stream);

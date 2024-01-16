@@ -460,7 +460,11 @@ impl BaseClient {
         room_id: &RoomId,
     ) -> (Room, RoomInfo, Option<InvitedRoom>) {
         if let Some(invite_state) = &room_data.invite_state {
-            let room = store.get_or_create_room(room_id, RoomState::Invited, &self);
+            let room = store.get_or_create_room(
+                room_id,
+                RoomState::Invited,
+                &self.roominfo_update_sender.read().unwrap(),
+            );
             let mut room_info = room.clone_info();
 
             // We don't actually know what events are inside invite_state. In theory, they
@@ -482,7 +486,11 @@ impl BaseClient {
                 Some(v3::InvitedRoom::from(v3::InviteState::from(invite_state.clone()))),
             )
         } else {
-            let room = store.get_or_create_room(room_id, RoomState::Joined, &self);
+            let room = store.get_or_create_room(
+                room_id,
+                RoomState::Joined,
+                &self.roominfo_update_sender.read().unwrap(),
+            );
             let mut room_info = room.clone_info();
 
             // We default to considering this room joined if it's not an invite. If it's

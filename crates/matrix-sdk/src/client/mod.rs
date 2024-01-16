@@ -212,10 +212,6 @@ pub(crate) struct ClientLocks {
     /// outside the `OlmMachine`.
     #[cfg(feature = "e2e-encryption")]
     pub(crate) crypto_store_generation: Arc<Mutex<Option<u64>>>,
-
-    /// Ensure that only one service is syncing at a time. Otherwise, they will
-    /// override each other's updates because they batch changes.
-    pub(crate) sync_service_lock: Mutex<()>,
 }
 
 pub(crate) struct ClientInner {
@@ -855,8 +851,9 @@ impl Client {
         }
     }
 
-    pub fn roominfo_update_recv(&self) -> broadcast::Receiver<OwnedRoomId> {
-        self.inner.roominfo_update_recv.resubscribe()
+    /// An update is sent every time the info of a room changes.
+    pub fn roominfo_update_recv(&self) -> &broadcast::Receiver<OwnedRoomId> {
+        &self.inner.roominfo_update_recv
     }
 
     pub(crate) async fn notification_handlers(

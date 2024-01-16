@@ -51,7 +51,7 @@ use ruma::{
     serde::Raw,
     EventId, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, UserId,
 };
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::{broadcast, Mutex, RwLock};
 
 /// BoxStream of owned Types
 pub type BoxStream<T> = Pin<Box<dyn futures_util::Stream<Item = T> + Send>>;
@@ -227,7 +227,7 @@ impl Store {
         &self,
         room_id: &RoomId,
         room_type: RoomState,
-        client: &BaseClient,
+        roominfo_update_sender: &Option<broadcast::Sender<OwnedRoomId>>,
     ) -> Room {
         let user_id =
             &self.session_meta.get().expect("Creating room while not being logged in").user_id;
@@ -242,7 +242,7 @@ impl Store {
                     self.inner.clone(),
                     room_id,
                     room_type,
-                    client.roominfo_update_sender.read().unwrap().clone(),
+                    roominfo_update_sender.clone(),
                 )
             })
             .clone()
