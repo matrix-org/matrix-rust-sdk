@@ -62,9 +62,9 @@ use self::futures::SendAttachment;
 
 mod builder;
 mod error;
-pub mod event_type_filter;
 mod event_handler;
 mod event_item;
+pub mod event_type_filter;
 pub mod futures;
 mod inner;
 mod item;

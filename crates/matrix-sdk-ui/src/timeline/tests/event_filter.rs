@@ -18,6 +18,7 @@ use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use matrix_sdk_test::{async_test, sync_timeline_event, ALICE, BOB};
+use ruma::events::TimelineEventType;
 use ruma::{
     assign,
     events::{
@@ -33,7 +34,6 @@ use ruma::{
         AnySyncTimelineEvent,
     },
 };
-use ruma::events::TimelineEventType;
 use stream_assert::assert_next_matches;
 
 use super::TestTimeline;
@@ -217,9 +217,19 @@ async fn event_filter_builder_add_filter() {
         .handle_live_message_event(&ALICE, RoomMessageEventContent::text_plain("The first message"))
         .await;
     // And a couple of state events
-    timeline.handle_live_state_event(&ALICE, RoomNameEventContent::new("A new room name".to_string()), None)
+    timeline
+        .handle_live_state_event(
+            &ALICE,
+            RoomNameEventContent::new("A new room name".to_string()),
+            None,
+        )
         .await;
-    timeline.handle_live_state_event(&ALICE, RoomNameEventContent::new("A new room name (again)".to_string()), None)
+    timeline
+        .handle_live_state_event(
+            &ALICE,
+            RoomNameEventContent::new("A new room name (again)".to_string()),
+            None,
+        )
         .await;
 
     // The timeline should contain only the room name events
@@ -241,9 +251,19 @@ async fn event_filter_builder_filter_out() {
         .handle_live_message_event(&ALICE, RoomMessageEventContent::text_plain("The first message"))
         .await;
     // And a couple of state events
-    timeline.handle_live_state_event(&ALICE, RoomNameEventContent::new("A new room name".to_string()), None)
+    timeline
+        .handle_live_state_event(
+            &ALICE,
+            RoomNameEventContent::new("A new room name".to_string()),
+            None,
+        )
         .await;
-    timeline.handle_live_state_event(&ALICE, RoomNameEventContent::new("A new room name (again)".to_string()), None)
+    timeline
+        .handle_live_state_event(
+            &ALICE,
+            RoomNameEventContent::new("A new room name (again)".to_string()),
+            None,
+        )
         .await;
 
     // The timeline should contain everything except for the message event
