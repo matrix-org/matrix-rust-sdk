@@ -49,10 +49,10 @@ use ruma::{
             },
             redaction::RoomRedactionEventContent,
         },
-        AnyMessageLikeEventContent,
+        AnyMessageLikeEventContent, AnySyncTimelineEvent,
     },
-    uint, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, TransactionId,
-    UserId,
+    uint, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, RoomVersionId,
+    TransactionId, UserId,
 };
 use thiserror::Error;
 use tokio::sync::{mpsc::Sender, Mutex, Notify};
@@ -833,3 +833,6 @@ impl<S: Stream> Stream for TimelineStream<S> {
         self.project().inner.poll_next(cx)
     }
 }
+
+pub type TimelineEventFilterFn =
+    dyn Fn(&AnySyncTimelineEvent, &RoomVersionId) -> bool + Send + Sync;

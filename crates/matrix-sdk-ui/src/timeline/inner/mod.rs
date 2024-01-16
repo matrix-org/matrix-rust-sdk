@@ -67,6 +67,7 @@ use super::{
     AnnotationKey, EventSendState, EventTimelineItem, InReplyToDetails, Message, Profile,
     RepliedToEvent, TimelineDetails, TimelineItem, TimelineItemContent, TimelineItemKind,
 };
+use crate::timeline::TimelineEventFilterFn;
 
 mod state;
 
@@ -207,9 +208,6 @@ pub fn default_event_filter(event: &AnySyncTimelineEvent, room_version: &RoomVer
         }
     }
 }
-
-pub(super) type TimelineEventFilterFn =
-    dyn Fn(&AnySyncTimelineEvent, &RoomVersionId) -> bool + Send + Sync;
 
 impl<P: RoomDataProvider> TimelineInner<P> {
     pub(super) fn new(room_data_provider: P) -> Self {
