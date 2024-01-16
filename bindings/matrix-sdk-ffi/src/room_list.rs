@@ -452,11 +452,6 @@ impl RoomListItem {
         ))
     }
 
-    // Temporary workaround for coroutine leaks on Kotlin.
-    fn full_room_blocking(&self) -> Arc<Room> {
-        RUNTIME.block_on(async move { self.full_room().await })
-    }
-
     fn subscribe(&self, settings: Option<RoomSubscription>) {
         self.inner.subscribe(settings.map(Into::into));
     }
