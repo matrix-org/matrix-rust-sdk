@@ -152,18 +152,7 @@ impl RoomList {
                 let raw_stream_with_recv = stream! {
                     loop {
                         select! {
-                            biased;
-                            v = raw_stream.next() => {
-                                if let Some(v) = v {
-                                    for change in &v {
-                                        change.clone().apply(&mut raw_current_values);
-                                    }
-                                    yield v;
-                                } else {
-                                    // Restart immediately, don't keep on waiting for the receiver
-                                    break;
-                                }
-                            }
+                            biased; // Prefer manual updates for easier test code
                             Ok(room_id) = roominfo_update_recv.recv() => {
                                 // Search list for the updated room
                                 for (index, room) in raw_current_values.iter().enumerate() {
@@ -174,6 +163,17 @@ impl RoomList {
                                             break;
                                         }
                                     }
+                                }
+                            }
+                            v = raw_stream.next() => {
+                                if let Some(v) = v {
+                                    for change in &v {
+                                        change.clone().apply(&mut raw_current_values);
+                                    }
+                                    yield v;
+                                } else {
+                                    // Restart immediately, don't keep on waiting for the receiver
+                                    break;
                                 }
                             }
                         }

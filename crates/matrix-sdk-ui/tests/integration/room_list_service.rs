@@ -1728,9 +1728,6 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
         insert[2] [ F("!r4:bar.org") ];
         end;
     };
-    // TODO: don't cause duplicate updates
-    dynamic_entries_stream.next().await.unwrap();
-    dynamic_entries_stream.next().await.unwrap();
     assert_pending!(dynamic_entries_stream);
 
     sync_then_assert_request_and_fake_response! {
@@ -1800,8 +1797,6 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
         insert[4] [ F("!r7:bar.org") ];
         end;
     };
-    dynamic_entries_stream.next().await.unwrap();
-    dynamic_entries_stream.next().await.unwrap();
     assert_pending!(dynamic_entries_stream);
 
     // Now, let's change the dynamic entries!
@@ -1962,15 +1957,136 @@ async fn test_dynamic_entries_stream_manual_update() -> Result<(), Error> {
     };
     assert_pending!(dynamic_entries_stream);
 
-    // Updating the summary will cause an updat
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        states = SettingUp => Running,
+        assert request >= {
+            "lists": {
+                ALL_ROOMS: {
+                    "ranges": [[0, 9]],
+                },
+                VISIBLE_ROOMS: {
+                    "ranges": [[0, 19]],
+                },
+                INVITES: {
+                    "ranges": [[0, 19]],
+                },
+            },
+        },
+        respond with = {
+            "pos": "1",
+            "lists": {
+                ALL_ROOMS: {
+                    "count": 10,
+                    "ops": [
+                        {
+                            "op": "SYNC",
+                            "range": [0, 1],
+                            "room_ids": [
+                                "!r1:bar.org",
+                                "!r0:bar.org",
+                            ],
+                        },
+                    ],
+                },
+                VISIBLE_ROOMS: {
+                    "count": 0,
+                },
+                INVITES: {
+                    "count": 0,
+                },
+            },
+            "rooms": {
+                "!r1:bar.org": {
+                    "name": "Matrix Bar",
+                    "initial": true,
+                    "timeline": [],
+                },
+            },
+        },
+    };
+
+    // Assert the dynamic entries.
+    assert_entries_batch! {
+        [dynamic_entries_stream]
+        set[0] [ F("!r1:bar.org") ];
+        insert[1] [ F("!r0:bar.org") ];
+        end;
+    };
+
+    // Variation 1: Send manual update after reading stream, !r0 should be at new pos 1
     let room = client.get_room(room_id!("!r0:bar.org")).unwrap();
     room.update_summary(room.clone_info()).await;
 
     assert_entries_batch! {
         [dynamic_entries_stream]
-        set[0] [ F("!r0:bar.org") ];
+        set[1] [ F("!r0:bar.org") ];
         end;
     };
+
+    assert_pending!(dynamic_entries_stream);
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        states = Running => Running,
+        assert request >= {
+            "lists": {
+                ALL_ROOMS: {
+                    "ranges": [[0, 9]],
+                },
+                VISIBLE_ROOMS: {
+                    "ranges": [[0, 19]],
+                },
+                INVITES: {
+                    "ranges": [[0, 0]],
+                },
+            },
+        },
+        respond with = {
+            "pos": "2",
+            "lists": {
+                ALL_ROOMS: {
+                    "count": 10,
+                    "ops": [
+                        {
+                            "op": "SYNC",
+                            "range": [0, 1],
+                            "room_ids": [
+                                "!r0:bar.org",
+                                "!r1:bar.org",
+                            ],
+                        },
+                    ],
+                },
+                VISIBLE_ROOMS: {
+                    "count": 0,
+                },
+                INVITES: {
+                    "count": 0,
+                },
+            },
+            "rooms": {},
+        },
+    };
+
+    // Variation 2: Send manual update before reading stream, !r0 should still be at previous pos 1
+    let room = client.get_room(room_id!("!r0:bar.org")).unwrap();
+    room.update_summary(room.clone_info()).await;
+
+    assert_entries_batch! {
+        [dynamic_entries_stream]
+        set[1] [ F("!r0:bar.org") ];
+        end;
+    };
+
+    // Assert the dynamic entries.
+    assert_entries_batch! {
+        [dynamic_entries_stream]
+        set[0] [ F("!r0:bar.org") ];
+        set[1] [ F("!r1:bar.org") ];
+        end;
+    };
+
     assert_pending!(dynamic_entries_stream);
 
     Ok(())
