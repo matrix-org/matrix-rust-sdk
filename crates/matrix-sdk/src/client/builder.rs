@@ -165,11 +165,6 @@ impl ClientBuilder {
     }
 
     /// Set up the store configuration for a SQLite store.
-    ///
-    /// This is the same as
-    /// <code>.[store_config](Self::store_config)([matrix_sdk_sqlite]::[make_store_config](matrix_sdk_sqlite::make_store_config)(path, passphrase)?)</code>.
-    /// except it delegates the actual store config creation to when
-    /// `.build().await` is called.
     #[cfg(feature = "sqlite")]
     pub fn sqlite_store(
         mut self,
@@ -473,7 +468,16 @@ async fn build_store_config(
     let store_config = match builder_config {
         #[cfg(feature = "sqlite")]
         BuilderStoreConfig::Sqlite { path, passphrase } => {
-            matrix_sdk_sqlite::make_store_config(&path, passphrase.as_deref()).await?
+            let store_config = StoreConfig::new().state_store(
+                matrix_sdk_sqlite::SqliteStateStore::open(&path, passphrase.as_deref()).await?,
+            );
+
+            #[cfg(feature = "e2e-encryption")]
+            let store_config = store_config.crypto_store(
+                matrix_sdk_sqlite::SqliteCryptoStore::open(&path, passphrase.as_deref()).await?,
+            );
+
+            store_config
         }
 
         #[cfg(feature = "indexeddb")]
