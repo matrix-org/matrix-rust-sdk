@@ -12,17 +12,14 @@ default = ["state-store"]
 testing = ["matrix-sdk-crypto?/testing"]
 
 bundled = ["rusqlite/bundled"]
-crypto-store = [
-    "dep:matrix-sdk-crypto",
-    "matrix-sdk-base/e2e-encryption",
-]
-state-store = []
+crypto-store = ["dep:matrix-sdk-crypto"]
+state-store = ["dep:matrix-sdk-base"]
 
 [dependencies]
 async-trait = { workspace = true }
 deadpool-sqlite = "0.7.0"
 itertools = { workspace = true }
-matrix-sdk-base = { workspace = true }
+matrix-sdk-base = { workspace = true, optional = true }
 matrix-sdk-crypto = { workspace = true, optional = true }
 matrix-sdk-store-encryption = { workspace = true }
 rmp-serde = "1.1.1"
