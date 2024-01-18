@@ -7,15 +7,15 @@
 - Publish all the crates, in topological order of the dependency tree:
 
 ```
-`cargo publish -p matrix-sdk-test-macros`
-`cargo publish -p matrix-sdk-test`
-`cargo publish -p matrix-sdk-common`
-`cargo publish -p matrix-sdk-qrcode`
-`cargo publish -p matrix-sdk-store-encryption`
-`cargo publish -p matrix-sdk-crypto`
-`cargo publish -p matrix-sdk-base`
-`cargo publish -p matrix-sdk-sqlite`
-`cargo publish -p matrix-sdk-indexeddb`
-`cargo publish -p matrix-sdk`
-`cargo publish -p matrix-sdk-ui`
+cargo publish -p matrix-sdk-test-macros
+cargo publish -p matrix-sdk-test
+cargo publish -p matrix-sdk-common
+cargo publish -p matrix-sdk-qrcode
+cargo publish -p matrix-sdk-store-encryption
+cargo publish -p matrix-sdk-crypto
+cargo publish -p matrix-sdk-base
+cargo publish -p matrix-sdk-sqlite
+cargo publish -p matrix-sdk-indexeddb
+cargo publish -p matrix-sdk
+cargo publish -p matrix-sdk-ui
 ```
