@@ -844,7 +844,7 @@ impl MatrixAuth {
     pub(crate) async fn receive_login_response(
         &self,
         response: &login::v3::Response,
-        #[cfg(feature = "e2e-encryption")] login_info: Option<LoginInfo>,
+        #[cfg(feature = "e2e-encryption")] login_info: Option<login::v3::LoginInfo>,
     ) -> Result<()> {
         self.client.maybe_update_login_well_known(response.well_known.as_ref());
 
@@ -861,7 +861,7 @@ impl MatrixAuth {
     async fn set_session(
         &self,
         session: MatrixSession,
-        #[cfg(feature = "e2e-encryption")] login_info: Option<LoginInfo>,
+        #[cfg(feature = "e2e-encryption")] login_info: Option<login::v3::LoginInfo>,
     ) -> Result<()> {
         self.set_session_tokens(session.tokens);
         self.client.set_session_meta(session.meta).await?;
