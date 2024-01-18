@@ -12,6 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! OpenID Connect client registration management.
+//!
+//! This module provides a way to persist OIDC client registrations outside of
+//! the state store. This is useful when using a `Client` with an in-memory
+//! store or when different store paths are used for multi-account support
+//! within the same app, and those accounts need to share the same OIDC client
+//! registration.
+
 use std::{
     collections::HashMap,
     fs,
@@ -20,22 +28,34 @@ use std::{
     path::PathBuf,
 };
 
-use matrix_sdk::oidc::types::registration::{
+use mas_oidc_client::types::registration::{
     ClientMetadata, ClientMetadataVerificationError, VerifiedClientMetadata,
 };
 use serde::{Deserialize, Serialize};
 use url::Url;
 
+/// Errors related to persisting OIDC registrations.
 #[derive(Debug, thiserror::Error)]
 pub enum OidcRegistrationsError {
+    /// The supplied base path is invalid.
     #[error("Failed to use the supplied base path.")]
     InvalidBasePath,
+    /// An error occurred whilst loading the registration data.
     #[error("Failed to load registrations file: {message}")]
-    LoadFailure { message: String },
+    LoadFailure {
+        /// The error message.
+        message: String,
+    },
+    /// The stored metadata doesn't match the supplied metadata: any stored
+    /// registrations are no longer relevant for this client.
     #[error("Metadata mismatch, ignoring any stored registrations.")]
     MetadataMismatch,
+    /// An error occurred whilst saving the registration data.
     #[error("Failed to save the registration data {message}.")]
-    SaveFailure { message: String },
+    SaveFailure {
+        /// The error message.
+        message: String,
+    },
 }
 
 /// A client ID that has been registered with an OpenID Connect provider.
@@ -191,7 +211,7 @@ impl OidcRegistrations {
 mod tests {
     use std::{collections::HashMap, default::Default};
 
-    use matrix_sdk::oidc::types::registration::{ClientMetadata, Localized};
+    use mas_oidc_client::types::registration::{ClientMetadata, Localized};
     use tempfile::tempdir;
     use wiremock::http::Url;
 
