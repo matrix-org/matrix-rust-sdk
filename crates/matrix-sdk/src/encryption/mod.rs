@@ -1240,14 +1240,13 @@ impl Encryption {
     ///
     /// # Arguments
     ///
-    /// * `auth_data` - Some requests might require re-authentication, to avoid
-    ///   asking the user to enter
-    /// their password (or any other methods) again, we can pass the auth data
-    /// here. This is required for uploading cross-signing keys if there are
-    /// none yet. Notice that there is an MSC proposal to remove this
-    /// requirement `MSC3967`, allowing to upload cross-signing keys without
-    /// authentication when for the first time, thus making this parameter
-    /// useless.
+    /// * `auth_data` - Some requests may require re-authentication. To prevent
+    /// the user from having to re-enter their password (or use other methods),
+    /// we can provide the authentication data here. This is necessary for
+    /// uploading cross-signing keys. However, please note that there is a
+    /// proposal (MSC3967) to remove this requirement, which would allow for
+    /// the initial upload of cross-signing keys without authentication,
+    /// rendering this parameter obsolete.
     pub(crate) async fn run_initialization_tasks(&self, auth_data: Option<AuthData>) -> Result<()> {
         let mut tasks = self.client.inner.tasks.lock().unwrap();
 
