@@ -7,7 +7,10 @@ use mime::Mime;
 use ruma::{
     api::client::room::report_content,
     assign,
-    events::room::{avatar::ImageInfo as RumaAvatarImageInfo, MediaSource},
+    events::{
+        call::notify,
+        room::{avatar::ImageInfo as RumaAvatarImageInfo, MediaSource},
+    },
     EventId, UserId,
 };
 use tokio::sync::RwLock;
@@ -19,7 +22,7 @@ use crate::{
     error::{ClientError, MediaInfoError, RoomError},
     room_info::RoomInfo,
     room_member::{MessageLikeEventType, RoomMember, StateEventType},
-    ruma::ImageInfo,
+    ruma::{ImageInfo, Mentions},
     timeline::{EventTimelineItem, Timeline},
     utils::u64_to_uint,
     TaskHandle,
@@ -122,6 +125,52 @@ impl Room {
     /// The vector is ordered by oldest membership user to newest.
     pub fn active_room_call_participants(&self) -> Vec<String> {
         self.inner.active_room_call_participants().iter().map(|u| u.to_string()).collect()
+    }
+
+    /// This will only send a call notify event if appropriate.
+    ///
+    /// This function is supposed to be called whenever the user creates a room
+    /// call. It will send a notify event if:
+    ///  - there is not yet a running call.
+    /// It will configure the notify type: ring or notify based on:
+    ///  - is this a DM room -> ring
+    ///  - is this a group with more then one other member -> notify
+    pub async fn checked_send_room_call_notify(&self) {
+        match self.inner.checked_send_room_call_notify().await {
+            None => tracing::info!("Did not send call notify event, there is already a call."),
+            Some(res) => match res {
+                Ok(_) => tracing::info!("Sent call notify event."),
+                Err(e) => tracing::info!("Failed to send call notify event: {}", e),
+            },
+        }
+    }
+
+    /// Send a call notify event in the current room.
+    ///
+    /// This is only supposed to be used in **custom** situations where the user
+    /// explicitly chooses to send call.notify event to invite/notify someone
+    /// explicitly in unusual conditions. The default should be to use
+    /// [`checked_send_room_call_notify()`] just before a new room call is
+    /// created/joined.
+    ///
+    /// One example could be that the UI allows to start a call with a subset of
+    /// users of the room members first. And then later on the user can
+    /// invite more users to the call.
+    pub async fn send_call_notify(
+        &self,
+        call_id: String,
+        application: RtcApplicationType,
+        notify_type: NotifyType,
+        mentions: Mentions,
+    ) {
+        match self
+            .inner
+            .send_call_notify(call_id, application.into(), notify_type.into(), mentions.into())
+            .await
+        {
+            Ok(_) => tracing::info!("Sent call notify event."),
+            Err(e) => tracing::info!("Failed to send call notify event: {}", e),
+        };
     }
 
     pub fn inviter(&self) -> Option<Arc<RoomMember>> {
@@ -553,5 +602,31 @@ impl TryFrom<ImageInfo> for RumaAvatarImageInfo {
             thumbnail_url: thumbnail_url,
             blurhash: value.blurhash,
         }))
+    }
+}
+
+#[derive(uniffi::Enum)]
+pub enum RtcApplicationType {
+    Call,
+}
+impl From<RtcApplicationType> for notify::ApplicationType {
+    fn from(value: RtcApplicationType) -> Self {
+        match value {
+            RtcApplicationType::Call => notify::ApplicationType::Call,
+        }
+    }
+}
+
+#[derive(uniffi::Enum)]
+pub enum NotifyType {
+    Ring,
+    Notify,
+}
+impl From<NotifyType> for notify::NotifyType {
+    fn from(value: NotifyType) -> Self {
+        match value {
+            NotifyType::Ring => notify::NotifyType::Ring,
+            NotifyType::Notify => notify::NotifyType::Notify,
+        }
     }
 }

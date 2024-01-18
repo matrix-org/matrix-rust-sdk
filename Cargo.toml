@@ -35,7 +35,7 @@ futures-executor = "0.3.21"
 futures-util = { version = "0.3.26", default-features = false, features = ["alloc"] }
 http = "0.2.6"
 itertools = "0.12.0"
-ruma = { version = "0.9.3", features = ["client-api-c", "compat-upload-signatures", "compat-user-id", "compat-arbitrary-length-ids", "unstable-msc3401"] }
+ruma = { version = "0.9.4", features = ["client-api-c", "compat-upload-signatures", "compat-user-id", "compat-arbitrary-length-ids", "unstable-msc3401", "unstable-msc4075"] }
 ruma-common = "0.12.0"
 once_cell = "1.16.0"
 rand = "0.8.5"
