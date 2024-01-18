@@ -151,6 +151,13 @@ impl BaseClient {
         let account_data = &extensions.account_data;
         if !account_data.is_empty() {
             self.handle_account_data(&account_data.global, &mut changes).await;
+            for room_id in account_data.rooms.keys() {
+                if !rooms.contains_key(room_id) {
+                    if let Some(events) = account_data.rooms.get(room_id) {
+                        self.handle_room_account_data(room_id, events, &mut changes).await;
+                    }
+                }
+            }
         }
 
         let mut new_rooms = Rooms::default();
