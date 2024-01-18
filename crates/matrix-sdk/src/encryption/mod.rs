@@ -1224,15 +1224,40 @@ impl Encryption {
         Ok(olm_machine.uploaded_key_count().await?)
     }
 
-    /// Enables event listeners for the E2EE support.
+    /// Bootstrap encryption and enables event listeners for the E2EE support.
     ///
-    /// For now enables only listeners for backups. Should be called once we
+    /// Based on the `EncryptionSettings`, this call might:
+    /// - Bootstrap cross-signing if needed (POST `/device_signing/upload`)
+    /// - Create a key backup if needed (POST `/room_keys/version`)
+    /// - Create a secret storage if needed (PUT `/account_data/{type}`)
+    ///
+    /// As part of this process, and if needed, the current device keys would be
+    /// uploaded to the server, new account data would be added, and cross
+    /// signing keys and signatures might be uploaded.
+    ///
+    /// Should be called once we
     /// created a [`OlmMachine`], i.e. after logging in.
-    pub(crate) async fn run_initialization_tasks(&self) -> Result<()> {
+    ///
+    /// # Arguments
+    ///
+    /// * `auth_data` - Some requests may require re-authentication. To prevent
+    /// the user from having to re-enter their password (or use other methods),
+    /// we can provide the authentication data here. This is necessary for
+    /// uploading cross-signing keys. However, please note that there is a
+    /// proposal (MSC3967) to remove this requirement, which would allow for
+    /// the initial upload of cross-signing keys without authentication,
+    /// rendering this parameter obsolete.
+    pub(crate) async fn run_initialization_tasks(&self, auth_data: Option<AuthData>) -> Result<()> {
         let mut tasks = self.client.inner.tasks.lock().unwrap();
 
         let this = self.clone();
         tasks.setup_e2ee = Some(spawn(async move {
+            if this.settings().auto_enable_cross_signing {
+                if let Err(e) = this.bootstrap_cross_signing_if_needed(auth_data).await {
+                    error!("Couldn't bootstrap cross signing {e:?}");
+                }
+            }
+
             if let Err(e) = this.backups().setup_and_resume().await {
                 error!("Couldn't setup and resume backups {e:?}");
             }

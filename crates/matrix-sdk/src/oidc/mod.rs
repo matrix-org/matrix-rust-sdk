@@ -756,7 +756,7 @@ impl Oidc {
         }
 
         #[cfg(feature = "e2e-encryption")]
-        self.client.encryption().run_initialization_tasks().await?;
+        self.client.encryption().run_initialization_tasks(None).await?;
 
         Ok(())
     }
@@ -920,11 +920,6 @@ impl Oidc {
         // Enable the cross-process lock for refreshes, if needs be.
         self.deferred_enable_cross_process_refresh_lock().await?;
 
-        // Bootstrap cross signing, if needs be.
-        // TODO: (#2763) put this into a background task.
-        #[cfg(feature = "e2e-encryption")]
-        self.client.post_login_cross_signing(None).await;
-
         if let Some(cross_process_manager) = self.ctx().cross_process_token_refresh_manager.get() {
             if let Some(tokens) = self.session_tokens() {
                 let mut cross_process_guard = cross_process_manager
@@ -950,7 +945,7 @@ impl Oidc {
         }
 
         #[cfg(feature = "e2e-encryption")]
-        self.client.encryption().run_initialization_tasks().await?;
+        self.client.encryption().run_initialization_tasks(None).await?;
 
         Ok(())
     }

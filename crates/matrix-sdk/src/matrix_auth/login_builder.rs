@@ -183,24 +183,13 @@ impl LoginBuilder {
         });
 
         let response = client.send(request, Some(RequestConfig::short_retry())).await?;
-        self.auth.receive_login_response(&response).await?;
-
-        // This may block login for a while, but the user asked for it!
-        // TODO: (#2763) put this into a background task.
-        #[cfg(feature = "e2e-encryption")]
-        {
-            use ruma::api::client::uiaa::{AuthData, Password};
-
-            let auth_data = match login_info {
-                login::v3::LoginInfo::Password(p) => {
-                    Some(AuthData::Password(Password::new(p.identifier, p.password)))
-                }
-                // Other methods can't be immediately translated to an auth.
-                _ => None,
-            };
-
-            client.post_login_cross_signing(auth_data).await;
-        }
+        self.auth
+            .receive_login_response(
+                &response,
+                #[cfg(feature = "e2e-encryption")]
+                Some(login_info),
+            )
+            .await?;
 
         Ok(response)
     }
