@@ -183,7 +183,13 @@ impl LoginBuilder {
         });
 
         let response = client.send(request, Some(RequestConfig::short_retry())).await?;
-        self.auth.receive_login_response(&response, Some(login_info)).await?;
+        self.auth
+            .receive_login_response(
+                &response,
+                #[cfg(feature = "e2e-encryption")]
+                Some(login_info),
+            )
+            .await?;
 
         Ok(response)
     }

@@ -29,12 +29,7 @@ use ruma::{
         client::{
             account::register,
             session::{
-                get_login_types,
-                login::{
-                    self,
-                    v3::{LoginInfo, Password},
-                },
-                logout, refresh_token, sso_login, sso_login_with_provider,
+                get_login_types, login, logout, refresh_token, sso_login, sso_login_with_provider,
             },
             uiaa::UserIdentifier,
         },
@@ -551,17 +546,26 @@ impl MatrixAuth {
         let homeserver = self.client.homeserver();
         info!("Registering to {homeserver}");
 
+        #[cfg(feature = "e2e-encryption")]
         let login_info = match (&request.username, &request.password) {
-            (Some(u), Some(p)) => Some(LoginInfo::Password(Password::new(
-                UserIdentifier::UserIdOrLocalpart(u.into()),
-                p.clone(),
-            ))),
+            (Some(u), Some(p)) => Some(ruma::api::client::session::login::v3::LoginInfo::Password(
+                ruma::api::client::session::login::v3::Password::new(
+                    UserIdentifier::UserIdOrLocalpart(u.into()),
+                    p.clone(),
+                ),
+            )),
             _ => None,
         };
 
         let response = self.client.send(request, None).await?;
         if let Some(session) = MatrixSession::from_register_response(&response) {
-            let _ = self.set_session(session, login_info).await;
+            let _ = self
+                .set_session(
+                    session,
+                    #[cfg(feature = "e2e-encryption")]
+                    login_info,
+                )
+                .await;
         }
         Ok(response)
     }
@@ -821,7 +825,12 @@ impl MatrixAuth {
     #[instrument(skip_all)]
     pub async fn restore_session(&self, session: MatrixSession) -> Result<()> {
         debug!("Restoring Matrix auth session");
-        self.set_session(session, None).await?;
+        self.set_session(
+            session,
+            #[cfg(feature = "e2e-encryption")]
+            None,
+        )
+        .await?;
         debug!("Done restoring Matrix auth session");
         Ok(())
     }
@@ -835,11 +844,16 @@ impl MatrixAuth {
     pub(crate) async fn receive_login_response(
         &self,
         response: &login::v3::Response,
-        login_info: Option<LoginInfo>,
+        #[cfg(feature = "e2e-encryption")] login_info: Option<LoginInfo>,
     ) -> Result<()> {
         self.client.maybe_update_login_well_known(response.well_known.as_ref());
 
-        self.set_session(response.into(), login_info).await?;
+        self.set_session(
+            response.into(),
+            #[cfg(feature = "e2e-encryption")]
+            login_info,
+        )
+        .await?;
 
         Ok(())
     }
@@ -847,7 +861,7 @@ impl MatrixAuth {
     async fn set_session(
         &self,
         session: MatrixSession,
-        login_info: Option<LoginInfo>,
+        #[cfg(feature = "e2e-encryption")] login_info: Option<LoginInfo>,
     ) -> Result<()> {
         self.set_session_tokens(session.tokens);
         self.client.set_session_meta(session.meta).await?;
