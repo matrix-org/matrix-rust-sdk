@@ -5,6 +5,7 @@ use std::{
 
 use matrix_sdk::{
     oidc::{
+        registrations::{ClientId, OidcRegistrations, OidcRegistrationsError},
         types::{
             client_credentials::ClientCredentials,
             errors::ClientErrorCode::AccessDenied,
@@ -17,7 +18,6 @@ use matrix_sdk::{
     },
     AuthSession,
 };
-use matrix_sdk_ui::authentication::oidc::{ClientId, OidcRegistrations, OidcRegistrationsError};
 use ruma::{
     api::client::discovery::discover_homeserver::AuthenticationServerInfo, IdParseError,
     OwnedUserId,

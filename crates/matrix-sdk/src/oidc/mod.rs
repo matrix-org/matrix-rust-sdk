@@ -198,6 +198,7 @@ mod backend;
 mod cross_process;
 mod data_serde;
 mod end_session_builder;
+pub mod registrations;
 #[cfg(test)]
 mod tests;
 
