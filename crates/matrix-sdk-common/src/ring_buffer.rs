@@ -433,13 +433,14 @@ mod tests {
         // If a RingBuffer had a 0 capacity, then the underlying `VecDeque` will
         // reallocate on the first call to `push()`, and the default capacity
         // will be the final capacity of that `RingBuffer`. That capacity is an
-        // implementation detail of `VecDequeu`.
+        // implementation detail of `VecDeque`.
         ring_buffer.push(1);
         ring_buffer.push(2);
         ring_buffer.push(3);
         ring_buffer.push(4);
         ring_buffer.push(5);
 
+        // If the capacity were zero, it would be empty even after we added things.
         assert!(!ring_buffer.is_empty());
     }
 }
