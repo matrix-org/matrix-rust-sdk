@@ -219,27 +219,24 @@ impl BaseClient {
                 .ephemeral
                 .push(raw.clone().cast());
         }
-        // Handles the remaining rooms account data not handled by process_sliding_sync_room.
+        // Handles the remaining rooms account data not handled by
+        // process_sliding_sync_room.
         for (room_id, raw) in &rooms_account_data {
             self.handle_room_account_data(room_id, raw, &mut changes).await;
             if let Some(room) = self.store.get_room(room_id) {
                 match room.state() {
-                    RoomState::Joined => {
-                        new_rooms
-                            .join
-                            .entry(room_id.to_owned())
-                            .or_insert_with(JoinedRoom::default)
-                            .account_data
-                            .append(&mut raw.to_vec())
-                    }
-                    RoomState::Left => {
-                        new_rooms
-                            .leave
-                            .entry(room_id.to_owned())
-                            .or_insert_with(LeftRoom::default)
-                            .account_data
-                            .append(&mut raw.to_vec())
-                    }
+                    RoomState::Joined => new_rooms
+                        .join
+                        .entry(room_id.to_owned())
+                        .or_insert_with(JoinedRoom::default)
+                        .account_data
+                        .append(&mut raw.to_vec()),
+                    RoomState::Left => new_rooms
+                        .leave
+                        .entry(room_id.to_owned())
+                        .or_insert_with(LeftRoom::default)
+                        .account_data
+                        .append(&mut raw.to_vec()),
                     RoomState::Invited => {}
                 }
             }
@@ -340,7 +337,7 @@ impl BaseClient {
         } else {
             Default::default()
         };
-        
+
         let push_rules = self.get_push_rules(changes).await?;
 
         if let Some(invite_state) = &room_data.invite_state {

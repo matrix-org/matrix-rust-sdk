@@ -1057,12 +1057,15 @@ mod tests {
     use assert_matches2::assert_let;
     use eyeball_im::VectorDiff;
     use futures_util::{future::join_all, pin_mut, FutureExt as _, StreamExt};
+    use matrix_sdk_base::RoomState;
     use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
     use matrix_sdk_test::async_test;
     use ruma::{
         api::client::{
             error::ErrorKind,
-            sync::sync_events::v4::{self, AccountDataConfig, ExtensionsConfig, ReceiptsConfig, ToDeviceConfig},
+            sync::sync_events::v4::{
+                self, AccountDataConfig, ExtensionsConfig, ReceiptsConfig, ToDeviceConfig,
+            },
         },
         assign, owned_room_id, room_id,
         serde::Raw,
@@ -1073,7 +1076,6 @@ mod tests {
     use stream_assert::assert_pending;
     use url::Url;
     use wiremock::{http::Method, Match, Mock, MockServer, Request, ResponseTemplate};
-    use matrix_sdk_base::RoomState;
 
     use super::{
         compute_limited,
@@ -2195,10 +2197,11 @@ mod tests {
         let client = logged_in_client(Some(server.uri())).await;
         client.base_client().get_or_create_room(&room, RoomState::Joined);
 
-
         let sliding_sync = client
             .sliding_sync("test")?
-            .with_account_data_extension(assign!(AccountDataConfig::default(), { enabled: Some(true) }))
+            .with_account_data_extension(
+                assign!(AccountDataConfig::default(), { enabled: Some(true) }),
+            )
             .add_list(
                 SlidingSyncList::builder("all")
                     .sync_mode(SlidingSyncMode::new_selective().add_range(0..=100)),
