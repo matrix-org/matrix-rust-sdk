@@ -27,7 +27,7 @@ use ruma::{
             v4,
         },
     },
-    events::{AnySyncStateEvent, AnySyncTimelineEvent},
+    events::{AnyRoomAccountDataEvent, AnySyncStateEvent, AnySyncTimelineEvent},
     serde::Raw,
     OwnedRoomId, RoomId,
 };
@@ -151,24 +151,18 @@ impl BaseClient {
         let account_data = &extensions.account_data;
         if !account_data.is_empty() {
             self.handle_account_data(&account_data.global, &mut changes).await;
-            for room_id in account_data.rooms.keys() {
-                if !rooms.contains_key(room_id) {
-                    if let Some(events) = account_data.rooms.get(room_id) {
-                        self.handle_room_account_data(room_id, events, &mut changes).await;
-                    }
-                }
-            }
         }
 
         let mut new_rooms = Rooms::default();
         let mut notifications = Default::default();
+        let mut rooms_account_data = account_data.rooms.clone();
 
         for (room_id, response_room_data) in rooms {
             let (room_info, joined_room, left_room, invited_room) = self
                 .process_sliding_sync_room(
                     room_id,
                     response_room_data,
-                    account_data,
+                    &mut rooms_account_data,
                     &store,
                     &mut changes,
                     &mut notifications,
@@ -227,6 +221,31 @@ impl BaseClient {
                 .or_insert_with(JoinedRoom::default)
                 .ephemeral
                 .push(raw.clone().cast());
+        }
+        // Handles the remaining rooms account data not handled by process_sliding_sync_room.
+        for (room_id, raw) in &rooms_account_data {
+            self.handle_room_account_data(room_id, raw, &mut changes).await;
+            if let Some(room) = self.store.get_room(room_id) {
+                match room.state() {
+                    RoomState::Joined => {
+                        new_rooms
+                            .join
+                            .entry(room_id.to_owned())
+                            .or_insert_with(JoinedRoom::default)
+                            .account_data
+                            .append(&mut raw.to_vec())
+                    }
+                    RoomState::Left => {
+                        new_rooms
+                            .leave
+                            .entry(room_id.to_owned())
+                            .or_insert_with(LeftRoom::default)
+                            .account_data
+                            .append(&mut raw.to_vec())
+                    }
+                    RoomState::Invited => {}
+                }
+            }
         }
 
         // Rooms in `new_rooms.join` either have a timeline update, or a new read
@@ -294,7 +313,7 @@ impl BaseClient {
         &self,
         room_id: &RoomId,
         room_data: &v4::SlidingSyncRoom,
-        account_data: &v4::AccountData,
+        rooms_account_data: &mut BTreeMap<OwnedRoomId, Vec<Raw<AnyRoomAccountDataEvent>>>,
         store: &Store,
         changes: &mut StateChanges,
         notifications: &mut BTreeMap<OwnedRoomId, Vec<Notification>>,
@@ -330,7 +349,7 @@ impl BaseClient {
             Default::default()
         };
 
-        let room_account_data = if let Some(events) = account_data.rooms.get(room_id) {
+        let room_account_data = if let Some(events) = &rooms_account_data.remove(room_id) {
             self.handle_room_account_data(room_id, events, changes).await;
             Some(events.to_vec())
         } else {
