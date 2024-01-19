@@ -1982,11 +1982,19 @@ impl Room {
     }
 
     /// Returns true if the user with the given user_id is able to redact
-    /// messages in the room.
+    /// their own messages in the room.
     ///
     /// The call may fail if there is an error in getting the power levels.
-    pub async fn can_user_redact(&self, user_id: &UserId) -> Result<bool> {
-        Ok(self.get_room_power_levels().await?.user_can_redact(user_id))
+    pub async fn can_user_redact_own(&self, user_id: &UserId) -> Result<bool> {
+        Ok(self.get_room_power_levels().await?.user_can_redact_own_event(user_id))
+    }
+
+    /// Returns true if the user with the given user_id is able to redact
+    /// messages of other users in the room.
+    ///
+    /// The call may fail if there is an error in getting the power levels.
+    pub async fn can_user_redact_other(&self, user_id: &UserId) -> Result<bool> {
+        Ok(self.get_room_power_levels().await?.user_can_redact_event_of_other(user_id))
     }
 
     /// Returns true if the user with the given user_id is able to ban in the
@@ -2242,24 +2250,18 @@ impl Room {
             return Ok(None);
         };
 
-        let room_power_levels = if let Some(event) = self
+        let power_levels = self
             .get_state_event_static::<RoomPowerLevelsEventContent>()
             .await?
             .and_then(|e| e.deserialize().ok())
-        {
-            event.power_levels()
-        } else {
-            return Ok(None);
-        };
+            .map(|e| e.power_levels().into());
 
         Ok(Some(PushConditionRoomCtx {
             user_id: user_id.to_owned(),
             room_id: room_id.to_owned(),
             member_count: UInt::new(member_count).unwrap_or(UInt::MAX),
             user_display_name,
-            users_power_levels: room_power_levels.users,
-            default_power_level: room_power_levels.users_default,
-            notification_power_levels: room_power_levels.notifications,
+            power_levels,
         }))
     }
 

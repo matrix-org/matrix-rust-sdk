@@ -16,7 +16,6 @@ use ruma::html::HtmlSanitizerMode;
 
 mod events;
 
-pub mod authentication;
 pub mod encryption_sync_service;
 pub mod notification_client;
 pub mod room_list_service;

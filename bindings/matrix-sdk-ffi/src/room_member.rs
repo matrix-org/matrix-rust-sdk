@@ -115,8 +115,12 @@ impl RoomMember {
         self.inner.can_kick()
     }
 
-    pub fn can_redact(&self) -> bool {
-        self.inner.can_redact()
+    pub fn can_redact_own(&self) -> bool {
+        self.inner.can_redact_own()
+    }
+
+    pub fn can_redact_other(&self) -> bool {
+        self.inner.can_redact_other()
     }
 
     pub fn can_send_state(&self, state_event: StateEventType) -> bool {
