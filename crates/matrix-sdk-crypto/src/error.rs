@@ -289,3 +289,22 @@ pub enum SessionCreationError {
     #[error(transparent)]
     InboundCreation(#[from] vodozemac::olm::SessionCreationError),
 }
+
+/// Errors that can be returned by
+/// [`crate::machine::OlmMachine::set_room_settings`].
+#[derive(Debug, Error)]
+pub enum SetRoomSettingsError {
+    /// The changes are rejected because they conflict with the previous
+    /// settings for this room.
+    #[error("the new settings would cause a downgrade of encryption security")]
+    EncryptionDowngrade,
+
+    /// The changes are rejected because we would be unable to use them to
+    /// encrypt events.
+    #[error("the new settings are invalid")]
+    InvalidSettings,
+
+    /// The store ran into an error.
+    #[error(transparent)]
+    Store(#[from] CryptoStoreError),
+}
