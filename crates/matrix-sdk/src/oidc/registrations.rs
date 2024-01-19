@@ -40,22 +40,9 @@ pub enum OidcRegistrationsError {
     /// The supplied base path is invalid.
     #[error("Failed to use the supplied base path.")]
     InvalidBasePath,
-    /// An error occurred whilst loading the registration data.
-    #[error("Failed to load registrations file: {message}")]
-    LoadFailure {
-        /// The error message.
-        message: String,
-    },
-    /// The stored metadata doesn't match the supplied metadata: any stored
-    /// registrations are no longer relevant for this client.
-    #[error("Metadata mismatch, ignoring any stored registrations.")]
-    MetadataMismatch,
     /// An error occurred whilst saving the registration data.
-    #[error("Failed to save the registration data {message}.")]
-    SaveFailure {
-        /// The error message.
-        message: String,
-    },
+    #[error("Failed to save the registration data {0}.")]
+    SaveFailure(#[source] Box<dyn std::error::Error>),
 }
 
 /// A client ID that has been registered with an OpenID Connect provider.
@@ -148,8 +135,8 @@ impl OidcRegistrations {
     /// Returns the client ID registered for a particular issuer or None if a
     /// registration hasn't been made.
     pub fn client_id(&self, issuer: &Url) -> Option<ClientId> {
-        let mut data = self.read_registration_data().unwrap_or_else(|e| {
-            tracing::warn!("Generating new registration data ({e})");
+        let mut data = self.read_registration_data().unwrap_or_else(|_| {
+            tracing::warn!("Generating new registration data");
             self.new_registration_data()
         });
         data.dynamic_registrations.extend(self.static_registrations.clone());
@@ -163,37 +150,50 @@ impl OidcRegistrations {
         client_id: ClientId,
         issuer: Url,
     ) -> Result<(), OidcRegistrationsError> {
-        let mut data = self.read_registration_data().unwrap_or_else(|e| {
-            tracing::warn!("Generating new registration data ({e})");
+        let mut data = self.read_registration_data().unwrap_or_else(|_| {
+            tracing::warn!("Generating new registration data");
             self.new_registration_data()
         });
         data.dynamic_registrations.insert(issuer, client_id);
 
         let writer = BufWriter::new(
             File::create(&self.file_path)
-                .map_err(|e| OidcRegistrationsError::SaveFailure { message: e.to_string() })?,
+                .map_err(|e| OidcRegistrationsError::SaveFailure(Box::new(e)))?,
         );
         serde_json::to_writer(writer, &data)
-            .map_err(|e| OidcRegistrationsError::SaveFailure { message: e.to_string() })
+            .map_err(|e| OidcRegistrationsError::SaveFailure(Box::new(e)))
     }
 
     /// Returns the underlying registration data.
-    fn read_registration_data(&self) -> Result<FrozenRegistrationData, OidcRegistrationsError> {
-        let reader = File::open(&self.file_path)
-            .map(BufReader::new)
-            .map_err(|e| OidcRegistrationsError::LoadFailure { message: e.to_string() })?;
+    fn read_registration_data(&self) -> Result<FrozenRegistrationData, ()> {
+        let reader = match File::open(&self.file_path).map(BufReader::new) {
+            Ok(reader) => reader,
+            Err(error) => {
+                tracing::warn!("Failed to load registrations file: {error}");
+                return Err(());
+            }
+        };
 
         let registration_data =
-            serde_json::from_reader::<_, UnvalidatedRegistrationData>(reader)
-                .map_err(|e| OidcRegistrationsError::LoadFailure { message: e.to_string() })?;
+            match serde_json::from_reader::<_, UnvalidatedRegistrationData>(reader) {
+                Ok(registration_data) => registration_data,
+                Err(error) => {
+                    tracing::warn!("Failed to deserialize registrations file: {error}");
+                    return Err(());
+                }
+            };
 
-        let registration_data = registration_data
-            .validate()
-            .map_err(|e| OidcRegistrationsError::LoadFailure { message: e.to_string() })?;
+        let registration_data = match registration_data.validate() {
+            Ok(registration_data) => registration_data,
+            Err(error) => {
+                tracing::warn!("Failed to validate registration data: {error}");
+                return Err(());
+            }
+        };
 
         if registration_data.metadata != self.verified_metadata {
             tracing::warn!("Metadata mismatch, ignoring any stored registrations.");
-            return Err(OidcRegistrationsError::MetadataMismatch);
+            return Err(());
         }
 
         Ok(registration_data)
