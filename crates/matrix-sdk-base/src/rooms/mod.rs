@@ -104,6 +104,9 @@ pub struct BaseRoomInfo {
     /// memberships.
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub(crate) rtc_member: BTreeMap<OwnedUserId, MinimalStateEvent<CallMemberEventContent>>,
+    // Whether this room has been manually marked as unread
+    #[serde(default)]
+    pub(crate) is_marked_unread: bool,
 }
 
 impl BaseRoomInfo {
@@ -317,6 +320,7 @@ impl Default for BaseRoomInfo {
             tombstone: None,
             topic: None,
             rtc_member: BTreeMap::new(),
+            is_marked_unread: false,
         }
     }
 }

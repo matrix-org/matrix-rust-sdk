@@ -204,6 +204,7 @@ impl BaseRoomInfoV1 {
             tombstone,
             topic,
             rtc_member: BTreeMap::new(),
+            is_marked_unread: false,
         })
     }
 }

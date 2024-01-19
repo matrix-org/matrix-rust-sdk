@@ -17,12 +17,12 @@ use matrix_sdk_common::timeout::timeout;
 use mime::Mime;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{
-    room::encrypted::OriginalSyncRoomEncryptedEvent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
-    SyncMessageLikeEvent,
+    marked_unread::MarkedUnreadEventContent, room::encrypted::OriginalSyncRoomEncryptedEvent,
+    AnySyncMessageLikeEvent, AnySyncTimelineEvent, SyncMessageLikeEvent,
 };
 use ruma::{
     api::client::{
-        config::set_global_account_data,
+        config::{set_global_account_data, set_room_account_data},
         context,
         error::ErrorKind,
         filter::LazyLoadOptions,
@@ -2393,6 +2393,24 @@ impl Room {
             reason,
         );
         Ok(self.client.send(request, None).await?)
+    }
+
+    /// Sets a flag on the room to indicate that the user has explicitly marked
+    /// it as (un)read
+    pub async fn mark_unread(&self, unread: bool) -> Result<()> {
+        let user_id =
+            self.client.user_id().ok_or_else(|| Error::from(HttpError::AuthenticationRequired))?;
+
+        let content = MarkedUnreadEventContent::new(unread);
+
+        let request = set_room_account_data::v3::Request::new(
+            user_id.to_owned(),
+            self.inner.room_id().to_owned(),
+            &content,
+        )?;
+
+        self.client.send(request, None).await?;
+        Ok(())
     }
 }
 
