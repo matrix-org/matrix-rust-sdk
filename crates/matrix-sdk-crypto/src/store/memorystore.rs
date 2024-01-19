@@ -25,7 +25,6 @@ use ruma::{
     OwnedUserId, RoomId, TransactionId, UserId,
 };
 use tokio::sync::{Mutex, RwLock};
-use tracing::warn;
 
 use super::{
     caches::{DeviceStore, GroupSessionStore, SessionStore},
@@ -66,6 +65,7 @@ pub struct MemoryStore {
     secret_inbox: StdRwLock<HashMap<String, Vec<GossippedSecret>>>,
     backup_keys: RwLock<BackupKeys>,
     next_batch_token: RwLock<Option<String>>,
+    room_settings: StdRwLock<HashMap<OwnedRoomId, RoomSettings>>,
 }
 
 impl Default for MemoryStore {
@@ -85,6 +85,7 @@ impl Default for MemoryStore {
             backup_keys: Default::default(),
             secret_inbox: Default::default(),
             next_batch_token: Default::default(),
+            room_settings: Default::default(),
         }
     }
 }
@@ -211,6 +212,11 @@ impl CryptoStore for MemoryStore {
 
         if let Some(next_batch_token) = changes.next_batch_token {
             *self.next_batch_token.write().await = Some(next_batch_token);
+        }
+
+        if !changes.room_settings.is_empty() {
+            let mut settings = self.room_settings.write().unwrap();
+            settings.extend(changes.room_settings);
         }
 
         Ok(())
@@ -393,9 +399,8 @@ impl CryptoStore for MemoryStore {
         Ok(())
     }
 
-    async fn get_room_settings(&self, _room_id: &RoomId) -> Result<Option<RoomSettings>> {
-        warn!("Method not implemented");
-        Ok(None)
+    async fn get_room_settings(&self, room_id: &RoomId) -> Result<Option<RoomSettings>> {
+        Ok(self.room_settings.read().unwrap().get(room_id).cloned())
     }
 
     async fn get_custom_value(&self, key: &str) -> Result<Option<Vec<u8>>> {
