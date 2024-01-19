@@ -18,11 +18,9 @@ use matrix_sdk::{
     },
     ruma::{
         api::client::{
-            account::whoami,
             media::get_content_thumbnail::v3::Method,
             push::{EmailPusherData, PusherIds, PusherInit, PusherKind as RumaPusherKind},
             room::{create_room, Visibility},
-            session::get_login_types,
             user_directory::search_users,
         },
         events::{
@@ -313,38 +311,6 @@ impl Client {
             self.inner.restore_session(session).await?;
             Ok(())
         })
-    }
-
-    /// The homeserver's trusted OIDC Provider that was discovered in the
-    /// well-known.
-    ///
-    /// This will only be set if the homeserver supports authenticating via
-    /// OpenID Connect and this `Client` was constructed using auto-discovery by
-    /// setting the homeserver with [`ClientBuilder::server_name()`].
-    pub(crate) fn discovered_authentication_server(&self) -> Option<AuthenticationServerInfo> {
-        self.inner.oidc().authentication_server_info().cloned()
-    }
-
-    /// The sliding sync proxy that is trusted by the homeserver. `None` when
-    /// not configured.
-    pub fn discovered_sliding_sync_proxy(&self) -> Option<Url> {
-        self.inner.sliding_sync_proxy()
-    }
-
-    /// Whether or not the client's homeserver supports the password login flow.
-    pub(crate) async fn supports_password_login(&self) -> anyhow::Result<bool> {
-        let login_types = self.inner.matrix_auth().get_login_types().await?;
-        let supports_password = login_types
-            .flows
-            .iter()
-            .any(|login_type| matches!(login_type, get_login_types::v3::LoginType::Password(_)));
-        Ok(supports_password)
-    }
-
-    /// Gets information about the owner of a given access token.
-    pub(crate) fn whoami(&self) -> anyhow::Result<whoami::v3::Response> {
-        RUNTIME
-            .block_on(async move { self.inner.whoami().await.map_err(|e| anyhow!(e.to_string())) })
     }
 }
 

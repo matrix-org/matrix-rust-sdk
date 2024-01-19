@@ -94,7 +94,7 @@ use crate::{
     store_locks::CrossProcessStoreLock,
 };
 
-mod builder;
+pub(crate) mod builder;
 pub(crate) mod futures;
 #[cfg(feature = "e2e-encryption")]
 mod tasks;

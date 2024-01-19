@@ -15,17 +15,11 @@ use zeroize::Zeroizing;
 use super::{client::Client, RUNTIME};
 use crate::{client::ClientSessionDelegate, error::ClientError, helpers::unwrap_or_clone_arc};
 
-#[derive(Clone)]
-pub(crate) enum UrlScheme {
-    Http,
-    Https,
-}
-
 #[derive(Clone, uniffi::Object)]
 pub struct ClientBuilder {
     base_path: Option<String>,
     username: Option<String>,
-    server_name: Option<(String, UrlScheme)>,
+    server_name: Option<String>,
     homeserver_url: Option<String>,
     server_versions: Option<Vec<String>>,
     passphrase: Zeroizing<Option<String>>,
@@ -83,8 +77,7 @@ impl ClientBuilder {
 
     pub fn server_name(self: Arc<Self>, server_name: String) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        // Assume HTTPS if no protocol is provided.
-        builder.server_name = Some((server_name, UrlScheme::Https));
+        builder.server_name = Some(server_name);
         Arc::new(builder)
     }
 
@@ -156,16 +149,6 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
-    pub(crate) fn server_name_with_protocol(
-        self: Arc<Self>,
-        server_name: String,
-        protocol: UrlScheme,
-    ) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.server_name = Some((server_name, protocol));
-        Arc::new(builder)
-    }
-
     pub(crate) fn build_inner(self: Arc<Self>) -> anyhow::Result<Arc<Client>> {
         let builder = unwrap_or_clone_arc(self);
         let mut inner_builder = builder.inner;
@@ -181,12 +164,9 @@ impl ClientBuilder {
         // Determine server either from URL, server name or user ID.
         if let Some(homeserver_url) = builder.homeserver_url {
             inner_builder = inner_builder.homeserver_url(homeserver_url);
-        } else if let Some((server_name, protocol)) = builder.server_name {
+        } else if let Some(server_name) = builder.server_name {
             let server_name = ServerName::parse(server_name)?;
-            inner_builder = match protocol {
-                UrlScheme::Http => inner_builder.insecure_server_name_no_tls(&server_name),
-                UrlScheme::Https => inner_builder.server_name(&server_name),
-            };
+            inner_builder = inner_builder.server_name(&server_name);
         } else if let Some(username) = builder.username {
             let user = UserId::parse(username)?;
             inner_builder = inner_builder.server_name(user.server_name());

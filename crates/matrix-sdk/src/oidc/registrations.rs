@@ -25,7 +25,7 @@ use std::{
     fs,
     fs::File,
     io::{BufReader, BufWriter},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
 use mas_oidc_client::types::registration::{
@@ -118,11 +118,11 @@ impl OidcRegistrations {
     /// * `static_registrations` - Pre-configured registrations for use with
     ///   issuers that don't support dynamic client registration.
     pub fn new(
-        base_path: &str,
+        base_path: &Path,
         metadata: VerifiedClientMetadata,
         static_registrations: HashMap<Url, ClientId>,
     ) -> Result<Self, OidcRegistrationsError> {
-        let oidc_directory = PathBuf::from(base_path).join("oidc");
+        let oidc_directory = base_path.join("oidc");
         fs::create_dir_all(&oidc_directory).map_err(|_| OidcRegistrationsError::InvalidBasePath)?;
 
         Ok(OidcRegistrations {
@@ -214,7 +214,7 @@ mod tests {
     fn test_oidc_registrations() {
         // Given a fresh registration store with a single static registration.
         let dir = tempdir().unwrap();
-        let base_path = dir.path().to_str().unwrap();
+        let base_path = dir.into_path();
 
         let static_url = Url::parse("https://example.com").unwrap();
         let static_id = ClientId("static_client_id".to_owned());
@@ -227,7 +227,7 @@ mod tests {
         let oidc_metadata = mock_metadata("Example".to_owned());
 
         let registrations =
-            OidcRegistrations::new(base_path, oidc_metadata, static_registrations).unwrap();
+            OidcRegistrations::new(&base_path, oidc_metadata, static_registrations).unwrap();
 
         assert_eq!(registrations.client_id(&static_url), Some(static_id.clone()));
         assert_eq!(registrations.client_id(&dynamic_url), None);
@@ -245,7 +245,7 @@ mod tests {
     fn test_change_of_metadata() {
         // Given a single registration with an example app name.
         let dir = tempdir().unwrap();
-        let base_path = dir.path().to_str().unwrap();
+        let base_path = dir.into_path();
 
         let static_url = Url::parse("https://example.com").unwrap();
         let static_id = ClientId("static_client_id".to_owned());
@@ -258,7 +258,8 @@ mod tests {
         static_registrations.insert(static_url.clone(), static_id.clone());
 
         let registrations =
-            OidcRegistrations::new(base_path, oidc_metadata, static_registrations.clone()).unwrap();
+            OidcRegistrations::new(&base_path, oidc_metadata, static_registrations.clone())
+                .unwrap();
         registrations.set_and_write_client_id(dynamic_id.clone(), dynamic_url.clone()).unwrap();
 
         assert_eq!(registrations.client_id(&static_url), Some(static_id.clone()));
@@ -268,7 +269,7 @@ mod tests {
         let new_oidc_metadata = mock_metadata("New App".to_owned());
 
         let registrations =
-            OidcRegistrations::new(base_path, new_oidc_metadata, static_registrations).unwrap();
+            OidcRegistrations::new(&base_path, new_oidc_metadata, static_registrations).unwrap();
 
         // Then the dynamic registrations are cleared.
         assert_eq!(registrations.client_id(&dynamic_url), None);

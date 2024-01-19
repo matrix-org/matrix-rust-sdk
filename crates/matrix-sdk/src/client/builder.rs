@@ -520,7 +520,7 @@ async fn build_indexeddb_store_config(
 }
 
 #[derive(Clone, Copy, Debug)]
-enum UrlScheme {
+pub(crate) enum UrlScheme {
     Http,
     Https,
 }

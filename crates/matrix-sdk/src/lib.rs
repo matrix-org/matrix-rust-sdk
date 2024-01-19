@@ -32,7 +32,7 @@ pub use reqwest;
 
 mod account;
 pub mod attachment;
-mod authentication;
+pub mod authentication;
 mod client;
 pub mod config;
 mod deduplicating_handler;
