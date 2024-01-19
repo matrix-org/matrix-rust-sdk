@@ -892,6 +892,7 @@ enum InnerRequest {
     Ready(RequestState<Ready>),
     Transitioned(RequestState<Transitioned>),
     Passive(RequestState<Passive>),
+    #[allow(dead_code)] // The `RequestState` field within `Done` is not currently used.
     Done(RequestState<Done>),
     Cancelled(RequestState<Cancelled>),
 }
