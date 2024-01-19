@@ -236,13 +236,11 @@ async fn event_type_filter_include_only_room_names() {
 
     // The timeline should contain only the room name events
     let event_items: Vec<Arc<TimelineItem>> = timeline.get_event_items().await;
-    let text_message_items: Vec<Arc<TimelineItem>> =
-        event_items.clone().into_iter().filter(is_text_message_item).collect();
-    let room_name_items: Vec<Arc<TimelineItem>> =
-        event_items.clone().into_iter().filter(is_room_name_item).collect();
+    let text_message_items_count = event_items.iter().filter(is_text_message_item).count();
+    let room_name_items_count = event_items.iter().filter(is_room_name_item).count();
     assert_eq!(event_items.len(), 2);
-    assert_eq!(text_message_items.len(), 0);
-    assert_eq!(room_name_items.len(), 2);
+    assert_eq!(text_message_items_count, 0);
+    assert_eq!(room_name_items_count, 2);
 }
 
 #[async_test]
@@ -277,13 +275,11 @@ async fn event_type_filter_exclude_messages() {
 
     // The timeline should contain everything except for the message event
     let event_items: Vec<Arc<TimelineItem>> = timeline.get_event_items().await;
-    let text_message_items: Vec<Arc<TimelineItem>> =
-        event_items.clone().into_iter().filter(is_text_message_item).collect();
-    let room_name_items: Vec<Arc<TimelineItem>> =
-        event_items.clone().into_iter().filter(is_room_name_item).collect();
+    let text_message_items_count = event_items.iter().filter(is_text_message_item).count();
+    let room_name_items_count = event_items.iter().filter(is_room_name_item).count();
     assert_eq!(event_items.len(), 2);
-    assert_eq!(text_message_items.len(), 0);
-    assert_eq!(room_name_items.len(), 2);
+    assert_eq!(text_message_items_count, 0);
+    assert_eq!(room_name_items_count, 2);
 }
 
 impl TestTimeline {

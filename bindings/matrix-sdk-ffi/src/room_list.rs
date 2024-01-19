@@ -23,10 +23,10 @@ use tokio::sync::RwLock;
 
 use crate::{
     error::ClientError,
-    event_filter::TimelineEventTypeFilter,
     room::Room,
     room_info::RoomInfo,
     timeline::{EventTimelineItem, Timeline},
+    timeline_event_filter::TimelineEventTypeFilter,
     TaskHandle, RUNTIME,
 };
 

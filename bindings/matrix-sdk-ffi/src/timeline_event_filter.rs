@@ -26,6 +26,8 @@ impl TimelineEventTypeFilter {
 }
 
 impl TimelineEventTypeFilter {
+    /// Filters an [`event`] to decide whether it should be part of the timeline
+    /// based on [`AnySyncTimelineEvent::event_type()`].
     pub(crate) fn filter(&self, event: &AnySyncTimelineEvent) -> bool {
         self.inner.filter(event)
     }
