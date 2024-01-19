@@ -33,12 +33,14 @@ use ruma::events::{
     SyncMessageLikeEvent,
 };
 use ruma::{
-    api::client::{self as api, push::get_notifications::v3::Notification},
+    api::client as api,
     events::{
         push_rules::{PushRulesEvent, PushRulesEventContent},
         room::{
             member::{MembershipState, SyncRoomMemberEvent},
-            power_levels::{RoomPowerLevelsEvent, RoomPowerLevelsEventContent},
+            power_levels::{
+                RoomPowerLevelsEvent, RoomPowerLevelsEventContent, StrippedRoomPowerLevelsEvent,
+            },
         },
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
         AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent, AnySyncStateEvent,
@@ -46,7 +48,7 @@ use ruma::{
     },
     push::{Action, PushConditionRoomCtx, Ruleset},
     serde::Raw,
-    MilliSecondsSinceUnixEpoch, OwnedRoomId, OwnedUserId, RoomId, RoomVersionId, UInt, UserId,
+    OwnedRoomId, OwnedUserId, RoomId, RoomVersionId, UInt, UserId,
 };
 use tokio::sync::RwLock;
 #[cfg(feature = "e2e-encryption")]
@@ -56,14 +58,16 @@ use tracing::{debug, info, instrument, trace, warn};
 #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
 use crate::latest_event::{is_suitable_for_latest_event, LatestEvent, PossibleLatestEvent};
 use crate::{
-    deserialized_responses::{AmbiguityChanges, MembersResponse, SyncTimelineEvent},
+    deserialized_responses::{
+        AmbiguityChanges, MembersResponse, RawAnySyncOrStrippedTimelineEvent, SyncTimelineEvent,
+    },
     error::Result,
     rooms::{Room, RoomInfo, RoomState},
     store::{
         ambiguity_map::AmbiguityCache, DynStateStore, MemoryStore, Result as StoreResult,
         StateChanges, StateStoreDataKey, StateStoreDataValue, StateStoreExt, Store, StoreConfig,
     },
-    sync::{JoinedRoom, LeftRoom, Rooms, SyncResponse, Timeline},
+    sync::{JoinedRoom, LeftRoom, Notification, Rooms, SyncResponse, Timeline},
     RoomStateFilter, SessionMeta,
 };
 #[cfg(feature = "e2e-encryption")]
@@ -399,13 +403,12 @@ impl BaseClient {
 
                         if actions.iter().any(Action::should_notify) {
                             notifications.entry(room.room_id().to_owned()).or_default().push(
-                                Notification::new(
-                                    actions.to_owned(),
-                                    event.event.clone(),
-                                    false,
-                                    room.room_id().to_owned(),
-                                    MilliSecondsSinceUnixEpoch::now(),
-                                ),
+                                Notification {
+                                    actions: actions.to_owned(),
+                                    event: RawAnySyncOrStrippedTimelineEvent::Sync(
+                                        event.event.clone(),
+                                    ),
+                                },
                             );
                         }
                         event.push_actions = actions.to_owned();
@@ -423,12 +426,15 @@ impl BaseClient {
     }
 
     #[instrument(skip_all, fields(room_id = ?room_info.room_id))]
-    pub(crate) fn handle_invited_state(
+    pub(crate) async fn handle_invited_state(
         &self,
+        room: &Room,
         events: &[Raw<AnyStrippedStateEvent>],
+        push_rules: &Ruleset,
         room_info: &mut RoomInfo,
         changes: &mut StateChanges,
-    ) {
+        notifications: &mut BTreeMap<OwnedRoomId, Vec<Notification>>,
+    ) -> Result<()> {
         let mut state_events = BTreeMap::new();
 
         for raw_event in events {
@@ -449,7 +455,26 @@ impl BaseClient {
             }
         }
 
-        changes.stripped_state.insert(room_info.room_id().to_owned(), state_events);
+        changes.stripped_state.insert(room_info.room_id().to_owned(), state_events.clone());
+
+        // We need to check for notifications after we have handled all state
+        // events, to make sure we have the full push context.
+        if let Some(push_context) = self.get_push_room_context(room, room_info, changes).await? {
+            // Check every event again for notification.
+            for event in state_events.values().flat_map(|map| map.values()) {
+                let actions = push_rules.get_actions(event, &push_context);
+                if actions.iter().any(Action::should_notify) {
+                    notifications.entry(room.room_id().to_owned()).or_default().push(
+                        Notification {
+                            actions: actions.to_owned(),
+                            event: RawAnySyncOrStrippedTimelineEvent::Stripped(event.clone()),
+                        },
+                    );
+                }
+            }
+        }
+
+        Ok(())
     }
 
     /// Process the events provided during a sync.
@@ -888,7 +913,15 @@ impl BaseClient {
             room_info.mark_as_invited();
             room_info.mark_state_fully_synced();
 
-            self.handle_invited_state(&new_info.invite_state.events, &mut room_info, &mut changes);
+            self.handle_invited_state(
+                &room,
+                &new_info.invite_state.events,
+                &push_rules,
+                &mut room_info,
+                &mut changes,
+                &mut notifications,
+            )
+            .await?;
 
             changes.add_room(room_info);
 
@@ -1183,39 +1216,48 @@ impl BaseClient {
         let member_count = room_info.active_members_count();
 
         // TODO: Use if let chain once stable
-        let user_display_name = if let Some(Ok(AnySyncStateEvent::RoomMember(member))) = changes
-            .state
-            .get(room_id)
-            .and_then(|events| events.get(&StateEventType::RoomMember))
-            .and_then(|members| members.get(user_id.as_str()))
-            .map(Raw::deserialize)
-        {
+        let user_display_name = if let Some(AnySyncStateEvent::RoomMember(member)) =
+            changes.state.get(room_id).and_then(|events| {
+                events.get(&StateEventType::RoomMember)?.get(user_id.as_str())?.deserialize().ok()
+            }) {
             member
                 .as_original()
                 .and_then(|ev| ev.content.displayname.clone())
                 .unwrap_or_else(|| user_id.localpart().to_owned())
+        } else if let Some(AnyStrippedStateEvent::RoomMember(member)) =
+            changes.stripped_state.get(room_id).and_then(|events| {
+                events.get(&StateEventType::RoomMember)?.get(user_id.as_str())?.deserialize().ok()
+            })
+        {
+            member.content.displayname.clone().unwrap_or_else(|| user_id.localpart().to_owned())
         } else if let Some(member) = Box::pin(room.get_member(user_id)).await? {
             member.name().to_owned()
         } else {
             return Ok(None);
         };
 
-        let room_power_levels = if let Some(event) = changes
-            .state
-            .get(room_id)
-            .and_then(|types| types.get(&StateEventType::RoomPowerLevels)?.get(""))
-            .and_then(|e| e.deserialize_as::<RoomPowerLevelsEvent>().ok())
-        {
-            event.power_levels()
-        } else if let Some(event) = self
-            .store
-            .get_state_event_static::<RoomPowerLevelsEventContent>(room_id)
-            .await?
-            .and_then(|e| e.deserialize().ok())
-        {
-            event.power_levels()
+        let power_levels = if let Some(event) = changes.state.get(room_id).and_then(|types| {
+            types
+                .get(&StateEventType::RoomPowerLevels)?
+                .get("")?
+                .deserialize_as::<RoomPowerLevelsEvent>()
+                .ok()
+        }) {
+            Some(event.power_levels().into())
+        } else if let Some(event) = changes.stripped_state.get(room_id).and_then(|types| {
+            types
+                .get(&StateEventType::RoomPowerLevels)?
+                .get("")?
+                .deserialize_as::<StrippedRoomPowerLevelsEvent>()
+                .ok()
+        }) {
+            Some(event.power_levels().into())
         } else {
-            return Ok(None);
+            self.store
+                .get_state_event_static::<RoomPowerLevelsEventContent>(room_id)
+                .await?
+                .and_then(|e| e.deserialize().ok())
+                .map(|event| event.power_levels().into())
         };
 
         Ok(Some(PushConditionRoomCtx {
@@ -1223,9 +1265,7 @@ impl BaseClient {
             room_id: room_id.to_owned(),
             member_count: UInt::new(member_count).unwrap_or(UInt::MAX),
             user_display_name,
-            users_power_levels: room_power_levels.users,
-            default_power_level: room_power_levels.users_default,
-            notification_power_levels: room_power_levels.notifications,
+            power_levels,
         }))
     }
 
@@ -1244,12 +1284,10 @@ impl BaseClient {
         push_rules.member_count = UInt::new(room_info.active_members_count()).unwrap_or(UInt::MAX);
 
         // TODO: Use if let chain once stable
-        if let Some(Ok(AnySyncStateEvent::RoomMember(member))) = changes
-            .state
-            .get(room_id)
-            .and_then(|events| events.get(&StateEventType::RoomMember))
-            .and_then(|members| members.get(user_id.as_str()))
-            .map(Raw::deserialize)
+        if let Some(AnySyncStateEvent::RoomMember(member)) =
+            changes.state.get(room_id).and_then(|events| {
+                events.get(&StateEventType::RoomMember)?.get(user_id.as_str())?.deserialize().ok()
+            })
         {
             push_rules.user_display_name = member
                 .as_original()
@@ -1257,17 +1295,12 @@ impl BaseClient {
                 .unwrap_or_else(|| user_id.localpart().to_owned())
         }
 
-        if let Some(AnySyncStateEvent::RoomPowerLevels(event)) = changes
-            .state
-            .get(room_id)
-            .and_then(|types| types.get(&StateEventType::RoomPowerLevels)?.get(""))
-            .and_then(|e| e.deserialize().ok())
+        if let Some(AnySyncStateEvent::RoomPowerLevels(event)) =
+            changes.state.get(room_id).and_then(|types| {
+                types.get(&StateEventType::RoomPowerLevels)?.get("")?.deserialize().ok()
+            })
         {
-            let room_power_levels = event.power_levels();
-
-            push_rules.users_power_levels = room_power_levels.users;
-            push_rules.default_power_level = room_power_levels.users_default;
-            push_rules.notification_power_levels = room_power_levels.notifications;
+            push_rules.power_levels = Some(event.power_levels().into());
         }
     }
 

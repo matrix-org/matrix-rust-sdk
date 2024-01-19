@@ -1,3 +1,11 @@
+# unreleased
+
+Breaking changes:
+
+- Replace the `Notification` type from Ruma in `SyncResponse` and `Client::register_notification_handler`
+  by a custom one
+- `Room::can_user_redact` and `Member::can_redact` are split between `*_redact_own` and `*_redact_other`
+
 # 0.7.0
 
 Breaking changes:

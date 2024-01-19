@@ -1,3 +1,7 @@
+# unreleased
+
+- Replace the `Notification` type from Ruma in `SyncResponse` and `StateChanges` by a custom one
+
 # 0.7.0
 
 - Rename `RoomType` to `RoomState`

@@ -420,9 +420,14 @@ impl Room {
         })
     }
 
-    pub async fn can_user_redact(&self, user_id: String) -> Result<bool, ClientError> {
+    pub async fn can_user_redact_own(&self, user_id: String) -> Result<bool, ClientError> {
         let user_id = UserId::parse(&user_id)?;
-        Ok(self.inner.can_user_redact(&user_id).await?)
+        Ok(self.inner.can_user_redact_own(&user_id).await?)
+    }
+
+    pub async fn can_user_redact_other(&self, user_id: String) -> Result<bool, ClientError> {
+        let user_id = UserId::parse(&user_id)?;
+        Ok(self.inner.can_user_redact_other(&user_id).await?)
     }
 
     pub async fn can_user_ban(&self, user_id: String) -> Result<bool, ClientError> {

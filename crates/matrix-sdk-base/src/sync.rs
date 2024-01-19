@@ -16,28 +16,24 @@
 
 use std::{collections::BTreeMap, fmt};
 
-use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
+use matrix_sdk_common::{debug::DebugRawEvent, deserialized_responses::SyncTimelineEvent};
 use ruma::{
-    api::client::{
-        push::get_notifications::v3::Notification,
-        sync::sync_events::{
-            v3::InvitedRoom, UnreadNotificationsCount as RumaUnreadNotificationsCount,
-        },
+    api::client::sync::sync_events::{
+        v3::InvitedRoom, UnreadNotificationsCount as RumaUnreadNotificationsCount,
     },
     events::{
         presence::PresenceEvent, AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent,
         AnySyncEphemeralRoomEvent, AnySyncStateEvent, AnyToDeviceEvent,
     },
+    push::Action,
     serde::Raw,
     OwnedRoomId,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    debug::{
-        DebugInvitedRoom, DebugListOfRawEvents, DebugListOfRawEventsNoId, DebugNotificationMap,
-    },
-    deserialized_responses::AmbiguityChanges,
+    debug::{DebugInvitedRoom, DebugListOfRawEvents, DebugListOfRawEventsNoId},
+    deserialized_responses::{AmbiguityChanges, RawAnySyncOrStrippedTimelineEvent},
 };
 
 /// Internal representation of a `/sync` response.
@@ -68,7 +64,7 @@ impl fmt::Debug for SyncResponse {
             .field("account_data", &DebugListOfRawEventsNoId(&self.account_data))
             .field("to_device", &DebugListOfRawEventsNoId(&self.to_device))
             .field("ambiguity_changes", &self.ambiguity_changes)
-            .field("notifications", &DebugNotificationMap(&self.notifications))
+            .field("notifications", &self.notifications)
             .finish_non_exhaustive()
     }
 }
@@ -221,5 +217,30 @@ struct DebugInvitedRooms<'a>(&'a BTreeMap<OwnedRoomId, InvitedRoom>);
 impl<'a> fmt::Debug for DebugInvitedRooms<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_map().entries(self.0.iter().map(|(k, v)| (k, DebugInvitedRoom(v)))).finish()
+    }
+}
+
+/// A notification triggered by a sync response.
+#[derive(Clone)]
+pub struct Notification {
+    /// The actions to perform when the conditions for this rule are met.
+    pub actions: Vec<Action>,
+
+    /// The event that triggered the notification.
+    pub event: RawAnySyncOrStrippedTimelineEvent,
+}
+
+#[cfg(not(tarpaulin_include))]
+impl fmt::Debug for Notification {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let event_debug = match &self.event {
+            RawAnySyncOrStrippedTimelineEvent::Sync(ev) => DebugRawEvent(ev),
+            RawAnySyncOrStrippedTimelineEvent::Stripped(ev) => DebugRawEvent(ev.cast_ref()),
+        };
+
+        f.debug_struct("Notification")
+            .field("actions", &self.actions)
+            .field("event", &event_debug)
+            .finish()
     }
 }
