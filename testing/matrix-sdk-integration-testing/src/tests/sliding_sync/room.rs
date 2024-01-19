@@ -19,10 +19,11 @@ use matrix_sdk::{
         },
         mxc_uri,
     },
-    RoomListEntry, RoomState, SlidingSyncList, SlidingSyncMode,
+    Client, RoomListEntry, RoomMemberships, RoomState, SlidingSyncList, SlidingSyncMode,
 };
+use matrix_sdk_ui::RoomListService;
 use stream_assert::assert_pending;
-use tokio::{sync::Mutex, time::sleep};
+use tokio::{spawn, sync::Mutex, time::sleep};
 use tracing::{error, warn};
 
 use crate::helpers::TestClientBuilder;
@@ -54,7 +55,7 @@ async fn test_left_room() -> Result<()> {
         .await?;
 
     let s = sliding_peter.clone();
-    tokio::task::spawn(async move {
+    spawn(async move {
         let stream = s.sync();
         pin_mut!(stream);
         while let Some(up) = stream.next().await {
@@ -64,7 +65,7 @@ async fn test_left_room() -> Result<()> {
 
     // Set up regular sync for Steven.
     let steven2 = steven.clone();
-    tokio::task::spawn(async move {
+    spawn(async move {
         if let Err(err) = steven2.sync(SyncSettings::default()).await {
             error!("steven couldn't sync: {err}");
         }
@@ -146,7 +147,7 @@ async fn test_room_avatar_group_conversation() -> Result<()> {
         .await?;
 
     let s = sliding_alice.clone();
-    tokio::task::spawn(async move {
+    spawn(async move {
         let stream = s.sync();
         pin_mut!(stream);
         while let Some(up) = stream.next().await {
@@ -211,6 +212,118 @@ async fn test_room_avatar_group_conversation() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn test_joined_user_can_create_push_context_with_room_list_service() -> Result<()> {
+    // This regression test for #3031 checks that we properly get the logged-in room
+    // member information, when connecting on the first time using the room
+    // list service.
+    //
+    // Now the conditions to trigger this bug were quite precise:
+    // - obviously we shouldn't have had any previous info about the logged-in
+    //   user's room membership (which can be queried and cached for different
+    //   reasons, at different times),
+    // - we need to get information about rooms through the room list service,
+    // - and since we enabled room members lazy-loading already, we shouldn't
+    //   receive any events sent by the logged-in user.
+    //
+    // One way to trigger this is to have a room we've joined, but in which we
+    // haven't sent the last event.
+    //
+    // Set this up, by creating a room, inviting another user, have the other user
+    // send a message, and fake a new "device" by creating another client for
+    // the same user.
+
+    let bob =
+        TestClientBuilder::new("bob".to_owned()).randomize_username().use_sqlite().build().await?;
+
+    let alice = TestClientBuilder::new("alice".to_owned())
+        .randomize_username()
+        .use_sqlite()
+        .build()
+        .await?;
+
+    // Set up regular sync for Alice to start with.
+    let a = alice.clone();
+    let alice_handle = spawn(async move {
+        if let Err(err) = a.sync(Default::default()).await {
+            warn!("alice sync errored: {err}");
+        }
+    });
+
+    // Set up standard sync for Bob.
+    let b = bob.clone();
+    let bob_handle = spawn(async move {
+        if let Err(err) = b.sync(Default::default()).await {
+            warn!("bob sync errored: {err}");
+        }
+    });
+
+    // Alice creates a room and invites Bob.
+    let alice_room = alice
+        .create_room(assign!(CreateRoomRequest::new(), {
+            invite: vec![bob.user_id().unwrap().to_owned()],
+            is_direct: false,
+        }))
+        .await?;
+
+    sleep(Duration::from_secs(1)).await;
+
+    // Bob joins the room.
+    bob.join_room_by_id(alice_room.room_id()).await?;
+
+    let alice_room = alice.get_room(alice_room.room_id()).unwrap();
+    assert_eq!(alice_room.state(), RoomState::Joined);
+
+    // Stop previous sync for Alice.
+    alice_handle.abort();
+
+    // Test setup is done, start with the actual testing.
+
+    // Given a last event sent by Bob to the room,
+    bob.get_room(alice_room.room_id())
+        .unwrap()
+        .send(RoomMessageEventContent::text_plain("hello world"))
+        .await?;
+
+    // And a new device for Alice that uses sliding sync,
+    let hs = alice.homeserver();
+    let sliding_sync_url = alice.sliding_sync_proxy();
+    let alice_id = alice.user_id().unwrap().localpart().to_owned();
+
+    let alice = Client::new(hs).await?;
+    alice.set_sliding_sync_proxy(sliding_sync_url);
+    alice.matrix_auth().login_username(&alice_id, &alice_id).await?;
+
+    let room_list_service = Arc::new(RoomListService::new(alice.clone()).await?);
+
+    // After starting sliding sync,
+    let rls = room_list_service.clone();
+    let alice_handle = spawn(async move {
+        let sync = rls.sync();
+        pin_mut!(sync);
+        while let Some(update) = sync.next().await {
+            warn!("Update from the room list service: {update:?}");
+        }
+    });
+
+    sleep(Duration::from_secs(3)).await;
+
+    // Alice room membership for that room will be known.
+    let members = alice
+        .get_room(alice_room.room_id())
+        .unwrap()
+        .members_no_sync(RoomMemberships::ACTIVE)
+        .await?;
+    let alice_user_id = alice.user_id().unwrap();
+    assert!(members.iter().any(|member| member.user_id() == alice_user_id));
+
+    room_list_service.stop_sync()?;
+    alice_handle.abort();
+    bob_handle.abort();
+
+    Ok(())
+}
+
 #[cfg(not(tarpaulin))]
 #[tokio::test]
 async fn test_room_notification_count() -> Result<()> {
@@ -221,7 +334,7 @@ async fn test_room_notification_count() -> Result<()> {
 
     // Spawn sync for bob.
     let b = bob.clone();
-    tokio::task::spawn(async move {
+    spawn(async move {
         let bob = b;
         loop {
             if let Err(err) = bob.sync(Default::default()).await {
@@ -237,7 +350,7 @@ async fn test_room_notification_count() -> Result<()> {
         .build()
         .await?;
 
-    tokio::task::spawn({
+    spawn({
         let sync = alice
             .sliding_sync("main")?
             .with_receipt_extension(assign!(ReceiptsConfig::default(), { enabled: Some(true) }))
