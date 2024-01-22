@@ -179,6 +179,7 @@ impl RoomListService {
                         (StateEventType::RoomAvatar, "".to_owned()),
                         (StateEventType::RoomEncryption, "".to_owned()),
                         (StateEventType::RoomMember, "$LAZY".to_owned()),
+                        (StateEventType::RoomMember, "$ME".to_owned()),
                         (StateEventType::RoomPowerLevels, "".to_owned()),
                     ]),
             ))
