@@ -1,3 +1,9 @@
+# UNRELEASED
+
+- Fix bug which caused `SecretStorageKey` to incorrectly reject secret storage
+  keys whose metadata lacked check fields.
+  ([#3046](https://github.com/matrix-org/matrix-rust-sdk/pull/3046))
+
 # 0.7.0
 
 - Add method to mark a list of inbound group sessions as backed up:

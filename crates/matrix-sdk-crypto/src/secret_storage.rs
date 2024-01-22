@@ -759,12 +759,14 @@ mod test {
     /// passphrase is correct in that case.
     #[test]
     fn invalid_key_with_no_mac() {
-        let content = SecretStorageKeyEventContent::new(
+        let mut content = SecretStorageKeyEventContent::new(
             "my_new_key_id".to_owned(),
             SecretStorageEncryptionAlgorithm::V1AesHmacSha2(
                 SecretStorageV1AesHmacSha2Properties::new(None, None),
             ),
         );
+        content.passphrase =
+            Some(PassPhrase::new("salty goodness".to_owned(), UInt::new_saturating(100)));
 
         SecretStorageKey::from_account_data("It's a secret to nobody", content.to_owned())
             .expect("Should accept any passphrase");
