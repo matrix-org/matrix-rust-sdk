@@ -245,12 +245,13 @@ impl SecretStorageKey {
     fn check_zero_message(&self) -> Result<(), DecodeError> {
         match &self.storage_key_info.algorithm {
             SecretStorageEncryptionAlgorithm::V1AesHmacSha2(properties) => {
-                let Some(iv) = &properties.iv else {
-                    return Err(DecodeError::IvLength(IV_SIZE, 0));
-                };
-
-                let Some(mac) = &properties.mac else {
-                    return Err(DecodeError::MacLength(MAC_SIZE, 0));
+                let (Some(iv), Some(mac)) = (&properties.iv, &properties.mac) else {
+                    // The IV and/or MAC are missing from the account data
+                    // content. As the [spec] says, we have to assume that the
+                    // key is valid.
+                    //
+                    // [spec]: https://spec.matrix.org/unstable/client-server-api/#msecret_storagev1aes-hmac-sha2
+                    return Ok(());
                 };
 
                 let iv = iv.as_bytes();
