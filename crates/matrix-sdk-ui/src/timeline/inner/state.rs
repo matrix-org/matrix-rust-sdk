@@ -52,10 +52,7 @@ use crate::{
         reactions::{ReactionToggleResult, Reactions},
         read_receipts::ReadReceipts,
         traits::RoomDataProvider,
-        util::{
-            find_read_marker, rfind_event_by_id, rfind_event_item, timestamp_to_date,
-            RelativePosition,
-        },
+        util::{rfind_event_by_id, rfind_event_item, timestamp_to_date, RelativePosition},
         AnnotationKey, Error as TimelineError, Profile, ReactionSenderData, TimelineItem,
         TimelineItemKind, VirtualTimelineItem,
     },
@@ -891,7 +888,7 @@ impl TimelineInnerMetadata {
         let Some(fully_read_event) = &self.fully_read_event else { return };
         trace!(?fully_read_event, "Updating read marker");
 
-        let read_marker_idx = find_read_marker(items);
+        let read_marker_idx = items.iter().rposition(|item| item.is_read_marker());
         let fully_read_event_idx = rfind_event_by_id(items, fully_read_event).map(|(idx, _)| idx);
 
         match (read_marker_idx, fully_read_event_idx) {
