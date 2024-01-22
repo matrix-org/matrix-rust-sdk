@@ -32,7 +32,6 @@ use ruma::{
         receipt::Receipt,
         relation::Replacement,
         room::{
-            encrypted::RoomEncryptedEventContent,
             member::RoomMemberEventContent,
             message::{self, RoomMessageEventContent, RoomMessageEventContentWithoutRelation},
             redaction::{RoomRedactionEventContent, SyncRoomRedactionEvent},
@@ -295,7 +294,10 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 AnyMessageLikeEventContent::RoomMessage(c) => {
                     self.add(should_add, TimelineItemContent::message(c, relations, self.items));
                 }
-                AnyMessageLikeEventContent::RoomEncrypted(c) => self.handle_room_encrypted(c),
+                AnyMessageLikeEventContent::RoomEncrypted(c) => {
+                    // TODO: Handle replacements if the replaced event is also UTD
+                    self.add(true, TimelineItemContent::unable_to_decrypt(c));
+                }
                 AnyMessageLikeEventContent::Sticker(content) => {
                     self.add(should_add, TimelineItemContent::Sticker(Sticker { content }));
                 }
@@ -596,12 +598,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 self.meta.poll_pending_events.add_end(&c.relates_to.event_id, self.ctx.timestamp);
             }
         );
-    }
-
-    #[instrument(skip_all)]
-    fn handle_room_encrypted(&mut self, c: RoomEncryptedEventContent) {
-        // TODO: Handle replacements if the replaced event is also UTD
-        self.add(true, TimelineItemContent::unable_to_decrypt(c));
     }
 
     // Redacted redactions are no-ops (unfortunately)
