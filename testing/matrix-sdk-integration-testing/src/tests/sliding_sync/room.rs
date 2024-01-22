@@ -431,7 +431,19 @@ async fn test_room_notification_count() -> Result<()> {
 
     bob_room.send(RoomMessageEventContent::text_plain("hello world")).await?;
 
-    assert!(info_updates.next().await.is_some());
+    for _ in 0..1 {
+        assert!(info_updates.next().await.is_some());
+        if !alice_room
+            .members_no_sync(RoomMemberships::JOIN)
+            .await?
+            .iter()
+            .any(|member| member.user_id() == alice.user_id().unwrap())
+        {
+            // The proxy may send another update that contains the membership information
+            // soonish.
+            continue;
+        }
+    }
 
     assert_eq!(alice_room.num_unread_messages(), 1);
     assert_eq!(alice_room.num_unread_notifications(), 1);
