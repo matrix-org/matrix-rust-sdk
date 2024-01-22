@@ -31,7 +31,6 @@ use super::{
         EventMeta, FullEventMeta, TimelineInnerMetadata, TimelineInnerState,
         TimelineInnerStateTransaction,
     },
-    item::timeline_item,
     traits::RoomDataProvider,
     util::{rfind_event_by_id, RelativePosition},
     TimelineItem,
@@ -298,7 +297,7 @@ impl ReadReceiptTimelineUpdate {
                      receipt doesn't have a receipt for the user"
                 );
             }
-            items.set(receipt_pos, timeline_item(event_item, event_item_id));
+            items.set(receipt_pos, TimelineItem::new(event_item, event_item_id));
         } else {
             warn!("received a read receipt for a local item, this should not be possible");
         }
@@ -327,7 +326,7 @@ impl ReadReceiptTimelineUpdate {
 
         if let Some(remote_event_item) = event_item.as_remote_mut() {
             remote_event_item.read_receipts.insert(user_id, receipt);
-            items.set(receipt_pos, timeline_item(event_item, event_item_id));
+            items.set(receipt_pos, TimelineItem::new(event_item, event_item_id));
         } else {
             warn!("received a read receipt for a local item, this should not be possible");
         }
@@ -487,7 +486,7 @@ impl TimelineInnerStateTransaction<'_> {
         }
 
         remote_prev_event_item.read_receipts = read_receipts;
-        self.items.set(prev_item_pos, timeline_item(prev_event_item, prev_event_item_id));
+        self.items.set(prev_item_pos, TimelineItem::new(prev_event_item, prev_event_item_id));
     }
 }
 
