@@ -17,6 +17,7 @@ use std::{
         vec_deque::{Drain, Iter},
         VecDeque,
     },
+    num::NonZeroUsize,
     ops::RangeBounds,
 };
 
@@ -35,8 +36,8 @@ pub struct RingBuffer<T> {
 impl<T> RingBuffer<T> {
     /// Create a ring buffer with the supplied capacity, reserving it so we
     /// never need to reallocate.
-    pub fn new(size: usize) -> Self {
-        Self { inner: VecDeque::with_capacity(size) }
+    pub fn new(size: NonZeroUsize) -> Self {
+        Self { inner: VecDeque::with_capacity(size.into()) }
     }
 
     /// Returns the number of items that are stored in this ring buffer.
@@ -123,21 +124,15 @@ impl<U> Extend<U> for RingBuffer<U> {
     }
 }
 
-impl<T> Default for RingBuffer<T> {
-    fn default() -> Self {
-        Self { inner: Default::default() }
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use std::ops::Not;
+    use std::{num::NonZeroUsize, ops::Not};
 
     use super::RingBuffer;
 
     #[test]
     pub fn test_fixed_size() {
-        let mut ring_buffer = RingBuffer::new(5);
+        let mut ring_buffer = RingBuffer::new(NonZeroUsize::new(5).unwrap());
 
         assert!(ring_buffer.is_empty());
 
@@ -171,7 +166,7 @@ mod tests {
 
     #[test]
     pub fn test_push_and_pop_and_remove_and_length() {
-        let mut ring_buffer = RingBuffer::new(3);
+        let mut ring_buffer = RingBuffer::new(NonZeroUsize::new(3).unwrap());
 
         ring_buffer.push(1);
         assert_eq!(ring_buffer.len(), 1);
@@ -228,7 +223,7 @@ mod tests {
 
     #[test]
     fn test_drain() {
-        let mut ring_buffer = RingBuffer::new(5);
+        let mut ring_buffer = RingBuffer::new(NonZeroUsize::new(5).unwrap());
 
         ring_buffer.push(1);
         ring_buffer.push(2);
@@ -249,7 +244,7 @@ mod tests {
 
     #[test]
     fn clear_on_empty_buffer_is_a_noop() {
-        let mut ring_buffer: RingBuffer<u8> = RingBuffer::new(3);
+        let mut ring_buffer: RingBuffer<u8> = RingBuffer::new(NonZeroUsize::new(3).unwrap());
         ring_buffer.clear();
         assert_eq!(ring_buffer.len(), 0);
     }
@@ -257,7 +252,7 @@ mod tests {
     #[test]
     fn clear_removes_all_items() {
         // Given a RingBuffer that has been used
-        let mut ring_buffer = RingBuffer::new(3);
+        let mut ring_buffer = RingBuffer::new(NonZeroUsize::new(3).unwrap());
         ring_buffer.push(4);
         ring_buffer.push(5);
         ring_buffer.push(6);
@@ -277,7 +272,7 @@ mod tests {
     #[test]
     fn clear_does_not_affect_capacity() {
         // Given a RingBuffer that has been used
-        let mut ring_buffer = RingBuffer::new(3);
+        let mut ring_buffer = RingBuffer::new(NonZeroUsize::new(3).unwrap());
         ring_buffer.push(4);
         ring_buffer.push(5);
         ring_buffer.push(6);
@@ -295,7 +290,7 @@ mod tests {
     #[test]
     fn capacity_is_what_we_passed_to_new() {
         // Given a RingBuffer
-        let ring_buffer = RingBuffer::<i32>::new(13);
+        let ring_buffer = RingBuffer::<i32>::new(NonZeroUsize::new(13).unwrap());
         // When I ask for its capacity I get what I provided at the start
         assert_eq!(ring_buffer.capacity(), 13);
     }
@@ -303,7 +298,7 @@ mod tests {
     #[test]
     fn capacity_is_not_affected_by_overflowing() {
         // Given a RingBuffer that has been used
-        let mut ring_buffer = RingBuffer::new(3);
+        let mut ring_buffer = RingBuffer::new(NonZeroUsize::new(3).unwrap());
         ring_buffer.push(4);
         ring_buffer.push(5);
         ring_buffer.push(6);
@@ -325,7 +320,7 @@ mod tests {
     #[test]
     fn roundtrip_serialization() {
         // Given a RingBuffer
-        let mut ring_buffer = RingBuffer::new(3);
+        let mut ring_buffer = RingBuffer::new(NonZeroUsize::new(3).unwrap());
         ring_buffer.push("1".to_owned());
         ring_buffer.push("2".to_owned());
 
@@ -345,7 +340,7 @@ mod tests {
     #[test]
     fn extending_an_empty_ringbuffer_adds_the_items() {
         // Given a RingBuffer
-        let mut ring_buffer = RingBuffer::new(5);
+        let mut ring_buffer = RingBuffer::new(NonZeroUsize::new(5).unwrap());
 
         // When I extend it
         ring_buffer.extend(vec!["a".to_owned(), "b".to_owned()]);
@@ -357,7 +352,7 @@ mod tests {
     #[test]
     fn extend_adds_items_to_the_end() {
         // Given a RingBuffer with something in it
-        let mut ring_buffer = RingBuffer::new(5);
+        let mut ring_buffer = RingBuffer::new(NonZeroUsize::new(5).unwrap());
         ring_buffer.push("1".to_owned());
         ring_buffer.push("2".to_owned());
 
@@ -374,7 +369,7 @@ mod tests {
     #[test]
     fn extend_does_not_overflow_max_length() {
         // Given a RingBuffer with something in it
-        let mut ring_buffer = RingBuffer::new(5);
+        let mut ring_buffer = RingBuffer::new(NonZeroUsize::new(5).unwrap());
         ring_buffer.push("1".to_owned());
         ring_buffer.push("2".to_owned());
 
@@ -397,7 +392,7 @@ mod tests {
     #[test]
     fn extending_a_full_ringbuffer_preserves_max_length() {
         // Given a full RingBuffer with something in it
-        let mut ring_buffer = RingBuffer::new(2);
+        let mut ring_buffer = RingBuffer::new(NonZeroUsize::new(2).unwrap());
         ring_buffer.push("1".to_owned());
         ring_buffer.push("2".to_owned());
 
@@ -416,7 +411,7 @@ mod tests {
 
     #[test]
     fn test_retain() {
-        let mut ring_buffer = RingBuffer::new(2);
+        let mut ring_buffer = RingBuffer::new(NonZeroUsize::new(2).unwrap());
         ring_buffer.push(1);
         ring_buffer.push(2);
 
@@ -424,23 +419,5 @@ mod tests {
 
         assert_eq!(ring_buffer.len(), 1);
         assert_eq!(ring_buffer.get(0).copied().unwrap(), 2);
-    }
-
-    #[test]
-    fn test_default_isnt_zero_capacity() {
-        let mut ring_buffer = RingBuffer::default();
-
-        // If a RingBuffer had a 0 capacity, then the underlying `VecDeque` will
-        // reallocate on the first call to `push()`, and the default capacity
-        // will be the final capacity of that `RingBuffer`. That capacity is an
-        // implementation detail of `VecDeque`.
-        ring_buffer.push(1);
-        ring_buffer.push(2);
-        ring_buffer.push(3);
-        ring_buffer.push(4);
-        ring_buffer.push(5);
-
-        // If the capacity were zero, it would be empty even after we added things.
-        assert!(!ring_buffer.is_empty());
     }
 }

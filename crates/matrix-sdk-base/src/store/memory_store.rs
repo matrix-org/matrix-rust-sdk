@@ -14,6 +14,7 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
+    num::NonZeroUsize,
     sync::RwLock as StdRwLock,
 };
 
@@ -45,7 +46,7 @@ use crate::{
 ///
 /// Default if no other is configured at startup.
 #[allow(clippy::type_complexity)]
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct MemoryStore {
     user_avatar_url: StdRwLock<HashMap<String, String>>,
     sync_token: StdRwLock<Option<String>>,
@@ -82,10 +83,37 @@ pub struct MemoryStore {
     custom: StdRwLock<HashMap<Vec<u8>, Vec<u8>>>,
 }
 
+// SAFETY: `new_unchecked` is safe because 20 is not zero.
+const NUMBER_OF_MEDIAS: NonZeroUsize = unsafe { NonZeroUsize::new_unchecked(20) };
+
+impl Default for MemoryStore {
+    fn default() -> Self {
+        Self {
+            user_avatar_url: Default::default(),
+            sync_token: Default::default(),
+            filters: Default::default(),
+            account_data: Default::default(),
+            profiles: Default::default(),
+            display_names: Default::default(),
+            members: Default::default(),
+            room_info: Default::default(),
+            room_state: Default::default(),
+            room_account_data: Default::default(),
+            stripped_room_state: Default::default(),
+            stripped_members: Default::default(),
+            presence: Default::default(),
+            room_user_receipts: Default::default(),
+            room_event_receipts: Default::default(),
+            media: StdRwLock::new(RingBuffer::new(NUMBER_OF_MEDIAS)),
+            custom: Default::default(),
+        }
+    }
+}
+
 impl MemoryStore {
     /// Create a new empty MemoryStore
     pub fn new() -> Self {
-        Self { media: StdRwLock::new(RingBuffer::new(20)), ..Default::default() }
+        Self::default()
     }
 
     fn get_user_room_receipt_event_impl(

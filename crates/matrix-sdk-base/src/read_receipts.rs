@@ -117,7 +117,10 @@
 //!   target of the latest active read receipt.
 #![allow(dead_code)] // too many different build configurations, I give up
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    num::NonZeroUsize,
+};
 
 use eyeball_im::Vector;
 use matrix_sdk_common::{deserialized_responses::SyncTimelineEvent, ring_buffer::RingBuffer};
@@ -191,7 +194,8 @@ impl Default for RoomReadReceipts {
 
 fn new_nonempty_ring_buffer() -> RingBuffer<OwnedEventId> {
     // 10 pending read receipts per room should be enough for everyone.
-    RingBuffer::new(10)
+    // SAFETY: `unwrap` is safe because 10 is not zero.
+    RingBuffer::new(NonZeroUsize::new(10).unwrap())
 }
 
 impl RoomReadReceipts {
@@ -607,7 +611,7 @@ fn marks_as_unread(event: &Raw<AnySyncTimelineEvent>, user_id: &UserId) -> bool 
 
 #[cfg(test)]
 mod tests {
-    use std::ops::Not as _;
+    use std::{num::NonZeroUsize, ops::Not as _};
 
     use eyeball_im::Vector;
     use matrix_sdk_common::{deserialized_responses::SyncTimelineEvent, ring_buffer::RingBuffer};
@@ -1260,7 +1264,7 @@ mod tests {
             // No pending receipt => no better receipt.
             let mut selector = ReceiptSelector::new(&events, None);
 
-            let mut pending = RingBuffer::new(16);
+            let mut pending = RingBuffer::new(NonZeroUsize::new(16).unwrap());
             selector.handle_pending_receipts(&mut pending);
 
             assert!(pending.is_empty());
@@ -1274,7 +1278,7 @@ mod tests {
             // receipt.
             let mut selector = ReceiptSelector::new(&events, Some(event_id!("$1")));
 
-            let mut pending = RingBuffer::new(16);
+            let mut pending = RingBuffer::new(NonZeroUsize::new(16).unwrap());
             selector.handle_pending_receipts(&mut pending);
 
             assert!(pending.is_empty());
@@ -1295,7 +1299,7 @@ mod tests {
             // A pending receipt for an event that is still missing => no better receipt.
             let mut selector = ReceiptSelector::new(&events, None);
 
-            let mut pending = RingBuffer::new(16);
+            let mut pending = RingBuffer::new(NonZeroUsize::new(16).unwrap());
             pending.push(owned_event_id!("$3"));
             selector.handle_pending_receipts(&mut pending);
 
@@ -1309,7 +1313,7 @@ mod tests {
             // Ditto but there was an active receipt => no better receipt.
             let mut selector = ReceiptSelector::new(&events, Some(event_id!("$1")));
 
-            let mut pending = RingBuffer::new(16);
+            let mut pending = RingBuffer::new(NonZeroUsize::new(16).unwrap());
             pending.push(owned_event_id!("$3"));
             selector.handle_pending_receipts(&mut pending);
 
@@ -1331,7 +1335,7 @@ mod tests {
             // A pending receipt for an event that is present => better receipt.
             let mut selector = ReceiptSelector::new(&events, None);
 
-            let mut pending = RingBuffer::new(16);
+            let mut pending = RingBuffer::new(NonZeroUsize::new(16).unwrap());
             pending.push(owned_event_id!("$2"));
             selector.handle_pending_receipts(&mut pending);
 
@@ -1347,7 +1351,7 @@ mod tests {
             // Mixed found and not found receipt => better receipt.
             let mut selector = ReceiptSelector::new(&events, None);
 
-            let mut pending = RingBuffer::new(16);
+            let mut pending = RingBuffer::new(NonZeroUsize::new(16).unwrap());
             pending.push(owned_event_id!("$1"));
             pending.push(owned_event_id!("$3"));
             selector.handle_pending_receipts(&mut pending);
@@ -1373,7 +1377,7 @@ mod tests {
             // selected => better receipt.
             let mut selector = ReceiptSelector::new(&events, Some(event_id!("$1")));
 
-            let mut pending = RingBuffer::new(16);
+            let mut pending = RingBuffer::new(NonZeroUsize::new(16).unwrap());
             pending.push(owned_event_id!("$2"));
             selector.handle_pending_receipts(&mut pending);
 
@@ -1389,7 +1393,7 @@ mod tests {
             // Same, but the previous receipt was better => no better receipt.
             let mut selector = ReceiptSelector::new(&events, Some(event_id!("$2")));
 
-            let mut pending = RingBuffer::new(16);
+            let mut pending = RingBuffer::new(NonZeroUsize::new(16).unwrap());
             pending.push(owned_event_id!("$1"));
             selector.handle_pending_receipts(&mut pending);
 
