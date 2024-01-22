@@ -2370,7 +2370,7 @@ async fn test_room_timeline() -> Result<(), Error> {
     };
 
     let room = room_list.room(room_id).await?;
-    room.init_timeline_with_builder(room.default_room_timeline_builder()).await?;
+    room.init_timeline_with_builder(room.default_room_timeline_builder().await).await?;
     let timeline = room.timeline().unwrap();
 
     let (previous_timeline_items, mut timeline_items_stream) = timeline.subscribe().await;
@@ -2452,7 +2452,7 @@ async fn test_room_latest_event() -> Result<(), Error> {
     };
 
     let room = room_list.room(room_id).await?;
-    room.init_timeline_with_builder(room.default_room_timeline_builder()).await?;
+    room.init_timeline_with_builder(room.default_room_timeline_builder().await).await?;
 
     // The latest event does not exist.
     assert!(room.latest_event().await.is_none());
