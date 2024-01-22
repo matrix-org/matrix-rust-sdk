@@ -245,29 +245,39 @@ impl SecretStorageKey {
     fn check_zero_message(&self) -> Result<(), DecodeError> {
         match &self.storage_key_info.algorithm {
             SecretStorageEncryptionAlgorithm::V1AesHmacSha2(properties) => {
-                if properties.iv.as_bytes().len() != IV_SIZE {
-                    Err(DecodeError::IvLength(IV_SIZE, properties.iv.as_bytes().len()))
-                } else {
-                    let mut iv_array = [0u8; 16];
-                    iv_array.copy_from_slice(properties.iv.as_bytes());
+                let Some(iv) = &properties.iv else {
+                    return Err(DecodeError::IvLength(IV_SIZE, 0));
+                };
 
-                    // I'm not particularly convinced that this couldn't have been done simpler. Why
-                    // do we need to reproduce the ciphertext? Couldn't we just generate the MAC tag
-                    // using the `ZERO_MESSAGE`?
-                    //
-                    // If someone is reading this and is designing a new secret encryption
-                    // algorithm, please consider the above suggestion.
-                    let key = AesHmacSha2Key::from_secret_storage_key(&self.secret_key, "");
-                    let ciphertext = key.apply_keystream(Self::ZERO_MESSAGE.to_vec(), &iv_array);
-                    let expected_mac = HmacSha256Mac::from_slice(properties.mac.as_bytes())
-                        .ok_or_else(|| {
-                            DecodeError::MacLength(MAC_SIZE, properties.mac.as_bytes().len())
-                        })?;
+                let Some(mac) = &properties.mac else {
+                    return Err(DecodeError::MacLength(MAC_SIZE, 0));
+                };
 
-                    key.verify_mac(&ciphertext, expected_mac.as_bytes())?;
+                let iv = iv.as_bytes();
+                let iv_length = iv.len();
 
-                    Ok(())
+                if iv_length != IV_SIZE {
+                    return Err(DecodeError::IvLength(IV_SIZE, iv_length));
                 }
+
+                let mut iv_array = [0u8; 16];
+                iv_array.copy_from_slice(iv);
+
+                // I'm not particularly convinced that this couldn't have been done simpler.
+                // Why do we need to reproduce the ciphertext?
+                // Couldn't we just generate the MAC tag
+                // using the `ZERO_MESSAGE`?
+                //
+                // If someone is reading this and is designing a new secret encryption
+                // algorithm, please consider the above suggestion.
+                let key = AesHmacSha2Key::from_secret_storage_key(&self.secret_key, "");
+                let ciphertext = key.apply_keystream(Self::ZERO_MESSAGE.to_vec(), &iv_array);
+                let expected_mac = HmacSha256Mac::from_slice(mac.as_bytes())
+                    .ok_or_else(|| DecodeError::MacLength(MAC_SIZE, mac.as_bytes().len()))?;
+
+                key.verify_mac(&ciphertext, expected_mac.as_bytes())?;
+
+                Ok(())
             }
             custom => Err(DecodeError::UnsupportedAlgorithm(custom.algorithm().to_owned())),
         }
@@ -283,7 +293,7 @@ impl SecretStorageKey {
         SecretStorageKeyEventContent::new(
             key_id,
             SecretStorageEncryptionAlgorithm::V1AesHmacSha2(
-                SecretStorageV1AesHmacSha2Properties::new(iv, mac),
+                SecretStorageV1AesHmacSha2Properties::new(Some(iv), Some(mac)),
             ),
         )
     }
@@ -862,8 +872,8 @@ mod test {
             "bmur2d9ypPUH1msSwCxQOJkuKRmJI55e".to_owned(),
             SecretStorageEncryptionAlgorithm::V1AesHmacSha2(
                 SecretStorageV1AesHmacSha2Properties::new(
-                    Base64::new(vec![0u8; 14]),
-                    Base64::new(vec![0u8; 32]),
+                    Some(Base64::new(vec![0u8; 14])),
+                    Some(Base64::new(vec![0u8; 32])),
                 ),
             ),
         );
@@ -878,8 +888,8 @@ mod test {
             "bmur2d9ypPUH1msSwCxQOJkuKRmJI55e".to_owned(),
             SecretStorageEncryptionAlgorithm::V1AesHmacSha2(
                 SecretStorageV1AesHmacSha2Properties::new(
-                    Base64::new(vec![0u8; 16]),
-                    Base64::new(vec![0u8; 10]),
+                    Some(Base64::new(vec![0u8; 16])),
+                    Some(Base64::new(vec![0u8; 10])),
                 ),
             ),
         );
