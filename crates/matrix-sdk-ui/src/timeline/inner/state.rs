@@ -47,7 +47,6 @@ use crate::{
             TimelineItemPosition,
         },
         event_item::EventItemIdentifier,
-        item::timeline_item,
         polls::PollPendingEvents,
         reactions::{ReactionToggleResult, Reactions},
         read_receipts::ReadReceipts,
@@ -425,7 +424,7 @@ impl TimelineInnerState {
             }
         }
 
-        let item = timeline_item(new_related, related.internal_id);
+        let item = TimelineItem::new(new_related, related.internal_id);
         self.items.set(idx, item);
 
         Ok(())
@@ -869,14 +868,17 @@ impl TimelineInnerMetadata {
         None
     }
 
+    /// Returns the next internal id for a timeline item (and increment our
+    /// internal counter).
     pub fn next_internal_id(&mut self) -> u64 {
         let val = self.next_internal_id;
         self.next_internal_id += 1;
         val
     }
 
+    /// Returns a new timeline item with a fresh internal id.
     pub fn new_timeline_item(&mut self, kind: impl Into<TimelineItemKind>) -> Arc<TimelineItem> {
-        timeline_item(kind, self.next_internal_id())
+        TimelineItem::new(kind, self.next_internal_id())
     }
 
     /// Returns a new day divider item for the new timestamp if it is on a

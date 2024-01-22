@@ -60,7 +60,6 @@ use tracing::{field, info_span, Instrument as _};
 use super::traits::Decryptor;
 use super::{
     event_item::EventItemIdentifier,
-    item::timeline_item,
     pagination::PaginationTokens,
     reactions::ReactionToggleResult,
     traits::RoomDataProvider,
@@ -1039,7 +1038,7 @@ impl TimelineInner {
                 event,
             }),
         ));
-        state.items.set(index, timeline_item(item, internal_id));
+        state.items.set(index, TimelineItem::new(item, internal_id));
 
         Ok(())
     }

@@ -55,7 +55,6 @@ use super::{
         RemoteEventTimelineItem,
     },
     inner::{TimelineInnerMetadata, TimelineInnerStateTransaction},
-    item::timeline_item,
     polls::PollState,
     util::{rfind_event_by_id, rfind_event_item, timestamp_to_date},
     EventTimelineItem, InReplyToDetails, Message, OtherState, ReactionGroup, ReactionSenderData,
@@ -910,7 +909,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                         // changes need to happen, replace and return early.
 
                         trace!(idx, "Replacing existing event");
-                        self.items.set(idx, timeline_item(item, old_item_id));
+                        self.items.set(idx, TimelineItem::new(item, old_item_id));
                         return;
                     }
 
@@ -986,7 +985,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                         };
 
                         let day_divider_item =
-                            timeline_item(VirtualTimelineItem::DayDivider(timestamp), id);
+                            TimelineItem::new(VirtualTimelineItem::DayDivider(timestamp), id);
 
                         if should_push {
                             self.items.push_back(day_divider_item);
@@ -1017,7 +1016,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 };
 
                 trace!("Adding new remote timeline item after all non-pending events");
-                let new_item = timeline_item(item, id);
+                let new_item = TimelineItem::new(item, id);
                 if should_push {
                     self.items.push_back(new_item);
                 } else {
@@ -1029,7 +1028,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             Flow::Remote { position: TimelineItemPosition::Update(idx), .. } => {
                 trace!("Updating timeline item at position {idx}");
                 let id = self.items[*idx].internal_id;
-                self.items.set(*idx, timeline_item(item, id));
+                self.items.set(*idx, TimelineItem::new(item, id));
             }
         }
 
@@ -1097,7 +1096,7 @@ fn _update_timeline_item(
         trace!("Found timeline item to update");
         if let Some(new_item) = update(item.inner) {
             trace!("Updating item");
-            items.set(idx, timeline_item(new_item, item.internal_id));
+            items.set(idx, TimelineItem::new(new_item, item.internal_id));
             *items_updated += 1;
         }
     } else {
