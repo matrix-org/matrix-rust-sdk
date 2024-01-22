@@ -4165,7 +4165,7 @@ pub(crate) mod tests {
             algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
             only_allow_trusted_devices: true,
             session_rotation_period: Some(Duration::from_secs(10)),
-            session_rotation_period_msgs: Some(1234),
+            session_rotation_period_messages: Some(1234),
         };
 
         machine.set_room_settings(room_id, &settings).await.unwrap();
@@ -4199,7 +4199,7 @@ pub(crate) mod tests {
         machine
             .set_room_settings(
                 room_id,
-                &RoomSettings { session_rotation_period_msgs: Some(100), ..Default::default() },
+                &RoomSettings { session_rotation_period_messages: Some(100), ..Default::default() },
             )
             .await
             .unwrap();
@@ -4208,7 +4208,10 @@ pub(crate) mod tests {
         let err = machine
             .set_room_settings(
                 room_id,
-                &RoomSettings { session_rotation_period_msgs: Some(1000), ..Default::default() },
+                &RoomSettings {
+                    session_rotation_period_messages: Some(1000),
+                    ..Default::default()
+                },
             )
             .await
             .unwrap_err();
@@ -4225,7 +4228,7 @@ pub(crate) mod tests {
         machine
             .set_room_settings(
                 room_id,
-                &RoomSettings { session_rotation_period_msgs: Some(100), ..Default::default() },
+                &RoomSettings { session_rotation_period_messages: Some(100), ..Default::default() },
             )
             .await
             .unwrap();
@@ -4234,7 +4237,7 @@ pub(crate) mod tests {
         machine
             .set_room_settings(
                 room_id,
-                &RoomSettings { session_rotation_period_msgs: Some(100), ..Default::default() },
+                &RoomSettings { session_rotation_period_messages: Some(100), ..Default::default() },
             )
             .await
             .unwrap();

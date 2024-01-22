@@ -844,7 +844,7 @@ pub struct RoomSettings {
 
     /// The maximum number of messages an encryption session should be used for,
     /// before it is rotated.
-    pub session_rotation_period_msgs: Option<usize>,
+    pub session_rotation_period_messages: Option<usize>,
 }
 
 impl Default for RoomSettings {
@@ -853,7 +853,7 @@ impl Default for RoomSettings {
             algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
             only_allow_trusted_devices: false,
             session_rotation_period: None,
-            session_rotation_period_msgs: None,
+            session_rotation_period_messages: None,
         }
     }
 }

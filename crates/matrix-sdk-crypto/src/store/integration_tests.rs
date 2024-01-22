@@ -857,7 +857,7 @@ macro_rules! cryptostore_integration_tests {
                     algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
                     only_allow_trusted_devices: true,
                     session_rotation_period: Some(Duration::from_secs(10)),
-                    session_rotation_period_msgs: Some(123),
+                    session_rotation_period_messages: Some(123),
                 };
 
                 let room_2 = room_id!("!test_2:localhost");
