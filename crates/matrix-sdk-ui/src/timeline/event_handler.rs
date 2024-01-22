@@ -1033,8 +1033,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             }
         }
 
-        // If we need to update the read marker, try to do it now.
-        if self.meta.event_should_update_fully_read_marker {
+        // If we don't have a read marker item, look if we need to add one now.
+        if !self.meta.has_up_to_date_read_marker_item {
             self.meta.update_read_marker(self.items);
         }
     }
