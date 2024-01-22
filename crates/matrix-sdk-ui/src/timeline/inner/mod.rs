@@ -949,7 +949,7 @@ impl TimelineInner {
         &self.room_data_provider
     }
 
-    /// Get the current fully-read event.
+    /// Get the current fully-read event, from storage.
     pub(super) async fn fully_read_event(&self) -> Option<FullyReadEvent> {
         match self.room().account_data_static().await {
             Ok(Some(fully_read)) => match fully_read.deserialize() {
@@ -967,7 +967,7 @@ impl TimelineInner {
         }
     }
 
-    /// Load the current fully-read event in this inner timeline.
+    /// Load the current fully-read event in this inner timeline from storage.
     pub(super) async fn load_fully_read_event(&self) {
         if let Some(fully_read) = self.fully_read_event().await {
             self.set_fully_read_event(fully_read.content.event_id).await;

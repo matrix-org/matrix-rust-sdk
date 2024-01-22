@@ -818,7 +818,7 @@ impl Room {
             .collect::<FuturesUnordered<_>>())
     }
 
-    /// Get account data in this room.
+    /// Read account data in this room, from storage.
     pub async fn account_data(
         &self,
         data_type: RoomAccountDataEventType,
@@ -830,7 +830,7 @@ impl Room {
             .map_err(Into::into)
     }
 
-    /// Get account data of statically-known type in this room.
+    /// Get account data of a statically-known type in this room, from storage.
     ///
     /// # Examples
     ///
