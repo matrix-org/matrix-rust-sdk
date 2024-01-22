@@ -15,7 +15,7 @@ use matrix_sdk::{
         assign,
         events::{
             receipt::ReceiptThread, room::message::RoomMessageEventContent,
-            AnySyncMessageLikeEvent, Mentions,
+            AnySyncMessageLikeEvent, Mentions, StateEventType,
         },
         mxc_uri,
     },
@@ -360,7 +360,8 @@ async fn test_room_notification_count() -> Result<()> {
             .with_to_device_extension(assign!(ToDeviceConfig::default(), { enabled: Some(true) }))
             .add_list(
                 SlidingSyncList::builder("all")
-                    .sync_mode(SlidingSyncMode::new_selective().add_range(0..=20)),
+                    .sync_mode(SlidingSyncMode::new_selective().add_range(0..=20))
+                    .required_state(vec![(StateEventType::RoomMember, "$ME".to_owned())]),
             )
             .build()
             .await?;
