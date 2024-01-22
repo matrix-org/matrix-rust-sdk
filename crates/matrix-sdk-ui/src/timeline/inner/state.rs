@@ -790,20 +790,25 @@ pub(in crate::timeline) struct TimelineInnerMetadata {
     /// List of all the events as received in the timeline, even the ones that
     /// are discarded in the timeline items.
     pub all_events: VecDeque<EventMeta>,
+
     next_internal_id: u64,
     pub reactions: Reactions,
     pub poll_pending_events: PollPendingEvents,
     pub fully_read_event: Option<OwnedEventId>,
-    /// Whether the fully-read marker item should try to be updated when an
+
+    /// Whether we should try to update the fully-read marker item when a new
     /// event is added.
-    /// This is currently `true` in two cases:
+    ///
+    /// This happens when:
     /// - The fully-read marker points to an event that is not in the timeline,
     /// - The fully-read marker item would be the last item in the timeline.
     pub event_should_update_fully_read_marker: bool,
+
     pub read_receipts: ReadReceipts,
-    /// the local reaction request state that is queued next
+
+    /// The local reaction request state that is queued next.
     pub reaction_state: IndexMap<AnnotationKey, ReactionState>,
-    /// the in flight reaction request state that is ongoing
+    /// The inflight reaction request state that is ongoing.
     pub in_flight_reaction: IndexMap<AnnotationKey, ReactionState>,
     pub room_version: RoomVersionId,
 
@@ -893,39 +898,49 @@ impl TimelineInnerMetadata {
 
         match (read_marker_idx, fully_read_event_idx) {
             (None, None) => {
+                // We didn't have a previous read marker, and we didn't find the fully-read
+                // event in the timeline items. Don't do anything, and retry on
+                // the next event we add.
                 self.event_should_update_fully_read_marker = true;
             }
+
             (None, Some(idx)) => {
-                // We don't want to insert the read marker if it is at the end of the timeline.
+                // Only insert the read marker if it is not at the end of the timeline.
                 if idx + 1 < items.len() {
                     self.event_should_update_fully_read_marker = false;
                     items.insert(idx + 1, TimelineItem::read_marker());
                 } else {
+                    // The next event might require a read marker to be inserted at the current
+                    // end.
                     self.event_should_update_fully_read_marker = true;
                 }
             }
+
             (Some(_), None) => {
-                // Keep the current position of the read marker, hopefully we
-                // should have a new position later.
+                // We didn't find the timeline item containing the event referred to by the read
+                // marker. Retry next time we get a new event.
                 self.event_should_update_fully_read_marker = true;
             }
+
             (Some(from), Some(to)) => {
-                self.event_should_update_fully_read_marker = false;
+                if from >= to {
+                    // The read marker can't move backwards.
+                    self.event_should_update_fully_read_marker = false;
+                    return;
+                }
 
-                // The read marker can't move backwards.
-                if from < to {
-                    let item = items.remove(from);
+                let prev_len = items.len();
+                let read_marker = items.remove(from);
 
-                    // We don't want to re-insert the read marker if it is at the end of the
-                    // timeline.
-                    if to < items.len() {
-                        // Since the fully-read event's index was shifted to the left
-                        // by one position by the remove call above, insert the fully-
-                        // read marker at its previous position, rather than that + 1
-                        items.insert(to, item);
-                    } else {
-                        self.event_should_update_fully_read_marker = true;
-                    }
+                // Only insert the read marker if it is not at the end of the timeline.
+                if to + 1 < prev_len {
+                    // Since the fully-read event's index was shifted to the left
+                    // by one position by the remove call above, insert the fully-
+                    // read marker at its previous position, rather than that + 1
+                    items.insert(to, read_marker);
+                    self.event_should_update_fully_read_marker = false;
+                } else {
+                    self.event_should_update_fully_read_marker = true;
                 }
             }
         }

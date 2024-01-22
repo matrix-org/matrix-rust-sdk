@@ -42,8 +42,10 @@ impl Deref for EventTimelineItemWithId<'_> {
     }
 }
 
-// FIXME: Put an upper bound on timeline size or add a separate map to look up
-// the index of a timeline item by its key, to avoid large linear scans.
+/// Finds an item in the vector of `items` given a predicate `f`.
+///
+/// WARNING/FIXME: this does a linear scan of the items, so this can be slow if
+/// there are many items in the timeline.
 pub(super) fn rfind_event_item(
     items: &Vector<Arc<TimelineItem>>,
     mut f: impl FnMut(&EventTimelineItem) -> bool,
@@ -60,6 +62,7 @@ pub(super) fn rfind_event_item(
         .rfind(|(_, it)| f(it.inner))
 }
 
+/// Find the timeline item that matches the given event id, if any.
 pub(super) fn rfind_event_by_id<'a>(
     items: &'a Vector<Arc<TimelineItem>>,
     event_id: &EventId,
