@@ -2047,7 +2047,7 @@ impl OlmMachine {
     /// encryption algorithm or whether to encrypt only for trusted devices.
     ///
     /// These settings can be modified via [`OlmMachine::set_room_settings`].
-    pub async fn get_room_settings(&self, room_id: &RoomId) -> StoreResult<Option<RoomSettings>> {
+    pub async fn room_settings(&self, room_id: &RoomId) -> StoreResult<Option<RoomSettings>> {
         // There's not much to do here: it's just exposed for symmetry with
         // `set_room_settings`.
         self.inner.store.get_room_settings(room_id).await
@@ -2062,7 +2062,7 @@ impl OlmMachine {
     ///
     /// If the settings are valid, they will be persisted to the crypto store.
     /// These settings are not used directly by this library, but the saved
-    /// settings can be retrieved via [`OlmMachine::get_room_settings`].
+    /// settings can be retrieved via [`OlmMachine::room_settings`].
     pub async fn set_room_settings(
         &self,
         room_id: &RoomId,
@@ -4150,15 +4150,9 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn get_room_settings_returns_none_for_unknown_room() {
+    async fn room_settings_returns_none_for_unknown_room() {
         let machine = OlmMachine::new(user_id(), alice_device_id()).await;
-
-        machine
-            .set_room_settings(room_id!("!test:localhost"), &RoomSettings::default())
-            .await
-            .unwrap();
-
-        let settings = machine.get_room_settings(room_id!("!test2:localhost")).await.unwrap();
+        let settings = machine.room_settings(room_id!("!test2:localhost")).await.unwrap();
         assert!(settings.is_none());
     }
 
@@ -4170,12 +4164,12 @@ pub(crate) mod tests {
         let settings = RoomSettings {
             algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
             only_allow_trusted_devices: true,
-            session_rotation_period: Some(Duration::from_millis(10000)),
+            session_rotation_period: Some(Duration::from_secs(10)),
             session_rotation_period_msgs: Some(1234),
         };
 
         machine.set_room_settings(room_id, &settings).await.unwrap();
-        assert_eq!(machine.get_room_settings(room_id).await.unwrap(), Some(settings));
+        assert_eq!(machine.room_settings(room_id).await.unwrap(), Some(settings));
     }
 
     #[async_test]
