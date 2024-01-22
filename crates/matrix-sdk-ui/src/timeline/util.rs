@@ -67,10 +67,6 @@ pub(super) fn rfind_event_by_id<'a>(
     rfind_event_item(items, |it| it.event_id() == Some(event_id))
 }
 
-pub(super) fn find_read_marker(items: &Vector<Arc<TimelineItem>>) -> Option<usize> {
-    items.iter().rposition(|item| item.is_read_marker())
-}
-
 /// Result of comparing events position in the timeline.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum RelativePosition {
