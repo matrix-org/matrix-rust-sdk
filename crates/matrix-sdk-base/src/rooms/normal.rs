@@ -133,8 +133,10 @@ impl From<&MembershipState> for RoomState {
 
 impl Room {
     /// The size of the latest_encrypted_events RingBuffer
+    // SAFETY: `new_unchecked` is safe because 10 is not zero.
     #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
-    const MAX_ENCRYPTED_EVENTS: usize = 10;
+    const MAX_ENCRYPTED_EVENTS: std::num::NonZeroUsize =
+        unsafe { std::num::NonZeroUsize::new_unchecked(10) };
 
     pub(crate) fn new(
         own_user_id: &UserId,
