@@ -156,6 +156,12 @@ impl Client {
         Ok(response)
     }
 
+    /// Calls event handlers and notification handlers after a sync response has
+    /// been processed.
+    ///
+    /// At this point, the sync response's data has been taken into account and
+    /// persisted in the store, if needs be. This function is only calling
+    /// the event, room update and notification handlers.
     #[tracing::instrument(skip(self, response))]
     pub(crate) async fn handle_sync_response(&self, response: &BaseSyncResponse) -> Result<()> {
         let BaseSyncResponse {
