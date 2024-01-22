@@ -15,7 +15,6 @@
 use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
-use imbl::vector;
 use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
 use matrix_sdk_test::{async_test, sync_timeline_event, ALICE, BOB, CAROL};
 use ruma::{
@@ -47,7 +46,7 @@ async fn initial_events() {
     timeline
         .inner
         .add_initial_events(
-            vector![
+            vec![
                 SyncTimelineEvent::new(
                     timeline
                         .event_builder
@@ -239,7 +238,7 @@ async fn dedup_initial() {
     timeline
         .inner
         .add_initial_events(
-            vector![
+            vec![
                 // two events
                 event_a.clone(),
                 event_b.clone(),
@@ -247,7 +246,7 @@ async fn dedup_initial() {
                 event_a,
                 event_b,
                 // … and a new event also came in
-                event_c
+                event_c,
             ],
             None,
         )

@@ -473,6 +473,7 @@ impl RoomListItem {
     }
 
     /// Initializes the timeline for this room using the provided parameters.
+    ///
     /// * `event_type_filter` - An optional [`TimelineEventTypeFilter`] to be
     ///   used to filter timeline events besides the default timeline filter. If
     ///   `None` is passed, only the default timeline filter will be used.
@@ -480,7 +481,7 @@ impl RoomListItem {
         &self,
         event_type_filter: Option<Arc<TimelineEventTypeFilter>>,
     ) -> Result<(), RoomListError> {
-        let mut timeline_builder = self.inner.default_room_timeline_builder();
+        let mut timeline_builder = self.inner.default_room_timeline_builder().await;
         if let Some(event_type_filter) = event_type_filter {
             timeline_builder = timeline_builder.event_filter(move |event, room_version_id| {
                 // Always perform the default filter first

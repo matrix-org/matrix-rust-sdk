@@ -33,7 +33,13 @@ pub trait SlidingSyncRoomExt {
 #[async_trait]
 impl SlidingSyncRoomExt for SlidingSyncRoom {
     async fn timeline(&self) -> Option<Timeline> {
-        Some(sliding_sync_timeline_builder(self)?.track_read_marker_and_receipts().build().await)
+        Some(
+            sliding_sync_timeline_builder(self)
+                .await?
+                .track_read_marker_and_receipts()
+                .build()
+                .await,
+        )
     }
 
     /// Get a timeline item representing the latest event in this room.
@@ -46,10 +52,12 @@ impl SlidingSyncRoomExt for SlidingSyncRoom {
     }
 }
 
-fn sliding_sync_timeline_builder(room: &SlidingSyncRoom) -> Option<TimelineBuilder> {
+async fn sliding_sync_timeline_builder(room: &SlidingSyncRoom) -> Option<TimelineBuilder> {
     let room_id = room.room_id();
     match room.client().get_room(room_id) {
-        Some(r) => Some(Timeline::builder(&r).events(room.prev_batch(), room.timeline_queue())),
+        Some(r) => {
+            Some(Timeline::builder(&r).events(room.prev_batch(), room.timeline_queue()).await)
+        }
         None => {
             error!(?room_id, "Room not found in client. Can't provide a timeline for it");
             None

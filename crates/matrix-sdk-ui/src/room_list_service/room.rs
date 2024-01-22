@@ -174,12 +174,13 @@ impl Room {
     }
 
     /// Create a new [`TimelineBuilder`] with the default configuration.
-    pub fn default_room_timeline_builder(&self) -> TimelineBuilder {
+    pub async fn default_room_timeline_builder(&self) -> TimelineBuilder {
         Timeline::builder(&self.inner.room)
             .events(
                 self.inner.sliding_sync_room.prev_batch(),
                 self.inner.sliding_sync_room.timeline_queue(),
             )
+            .await
             .track_read_marker_and_receipts()
     }
 }
