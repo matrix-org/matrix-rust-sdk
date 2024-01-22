@@ -324,7 +324,6 @@ async fn test_joined_user_can_create_push_context_with_room_list_service() -> Re
     Ok(())
 }
 
-#[cfg(not(tarpaulin))]
 #[tokio::test]
 async fn test_room_notification_count() -> Result<()> {
     use tokio::time::timeout;
