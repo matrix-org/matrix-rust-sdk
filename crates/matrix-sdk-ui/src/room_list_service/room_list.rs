@@ -25,7 +25,7 @@ use matrix_sdk::{
     executor::{spawn, JoinHandle},
     RoomListEntry, SlidingSync, SlidingSyncList,
 };
-use ruma::OwnedRoomId;
+use matrix_sdk_base::RoomInfoUpdate;
 use tokio::{select, sync::broadcast};
 
 use super::{filters::Filter, Error, State};
@@ -125,7 +125,7 @@ impl RoomList {
     pub fn entries_with_dynamic_adapters(
         &self,
         page_size: usize,
-        roominfo_update_recv: &broadcast::Receiver<OwnedRoomId>,
+        roominfo_update_recv: &broadcast::Receiver<RoomInfoUpdate>,
     ) -> (impl Stream<Item = Vec<VectorDiff<RoomListEntry>>>, RoomListDynamicEntriesController)
     {
         let list = self.sliding_sync_list.clone();
@@ -173,18 +173,21 @@ impl RoomList {
 fn merge_stream_and_receiver(
     mut raw_current_values: Vector<RoomListEntry>,
     raw_stream: impl Stream<Item = Vec<VectorDiff<RoomListEntry>>>,
-    mut roominfo_update_recv: broadcast::Receiver<OwnedRoomId>,
+    mut roominfo_update_recv: broadcast::Receiver<RoomInfoUpdate>,
 ) -> impl Stream<Item = Vec<VectorDiff<RoomListEntry>>> {
     let raw_stream_with_recv = stream! {
         pin_mut!(raw_stream);
         loop {
             select! {
                 biased; // Prefer manual updates for easier test code
-                Ok(room_id) = roominfo_update_recv.recv() => {
+                Ok(update) = roominfo_update_recv.recv() => {
+                    if !update.trigger_room_list_update {
+                        continue;
+                    }
                     // Search list for the updated room
                     for (index, room) in raw_current_values.iter().enumerate() {
                         if let RoomListEntry::Filled(r) = room {
-                            if r == &room_id {
+                            if r == &update.room_id {
                                 let update = VectorDiff::Set { index, value: raw_current_values[index].clone() };
                                 yield vec![update];
                                 break;

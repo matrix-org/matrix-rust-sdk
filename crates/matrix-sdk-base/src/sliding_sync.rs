@@ -96,7 +96,7 @@ impl BaseClient {
 
         trace!("ready to submit changes to store");
         self.store.save_changes(&changes).await?;
-        self.apply_changes(&changes);
+        self.apply_changes(&changes, true);
         trace!("applied changes");
 
         Ok(to_device)
@@ -292,7 +292,7 @@ impl BaseClient {
 
         trace!("ready to submit changes to store");
         store.save_changes(&changes).await?;
-        self.apply_changes(&changes);
+        self.apply_changes(&changes, false);
         trace!("applied changes");
 
         Ok(SyncResponse {
@@ -1385,7 +1385,7 @@ mod tests {
             rawev_id(event2.clone())
         );
 
-        room.set_room_info(room_info);
+        room.set_room_info(room_info, false);
         assert_eq!(
             ev_id(room.latest_event().map(|latest_event| latest_event.event().clone())),
             rawev_id(event2)
@@ -1407,7 +1407,7 @@ mod tests {
         let room = make_room();
         let mut room_info = room.clone_info();
         cache_latest_events(&room, &mut room_info, events, None, None).await;
-        room.set_room_info(room_info);
+        room.set_room_info(room_info, false);
 
         // The latest message is stored
         assert_eq!(
@@ -1434,7 +1434,7 @@ mod tests {
         let room = make_room();
         let mut room_info = room.clone_info();
         cache_latest_events(&room, &mut room_info, events, None, None).await;
-        room.set_room_info(room_info);
+        room.set_room_info(room_info, false);
 
         // The latest message is stored, ignoring the receipt
         assert_eq!(
@@ -1487,7 +1487,7 @@ mod tests {
         let room = make_room();
         let mut room_info = room.clone_info();
         cache_latest_events(&room, &mut room_info, events, None, None).await;
-        room.set_room_info(room_info);
+        room.set_room_info(room_info, false);
 
         // The latest message is stored, ignoring encrypted and receipts
         assert_eq!(
@@ -1528,7 +1528,7 @@ mod tests {
             None,
         )
         .await;
-        room.set_room_info(room_info);
+        room.set_room_info(room_info, false);
 
         // Sanity: room_info has 10 encrypted events inside it
         assert_eq!(room.latest_encrypted_events.read().unwrap().len(), 10);
@@ -1537,7 +1537,7 @@ mod tests {
         let eventa = make_encrypted_event("$a");
         let mut room_info = room.clone_info();
         cache_latest_events(&room, &mut room_info, &[eventa], None, None).await;
-        room.set_room_info(room_info);
+        room.set_room_info(room_info, false);
 
         // The oldest event is gone
         assert!(!rawevs_ids(&room.latest_encrypted_events).contains(&"$0".to_owned()));
@@ -1559,13 +1559,13 @@ mod tests {
             None,
         )
         .await;
-        room.set_room_info(room_info.clone());
+        room.set_room_info(room_info.clone(), false);
 
         // When I ask to cache an unencrypted event, and some more encrypted events
         let eventa = make_event("m.room.message", "$a");
         let eventb = make_encrypted_event("$b");
         cache_latest_events(&room, &mut room_info, &[eventa, eventb], None, None).await;
-        room.set_room_info(room_info);
+        room.set_room_info(room_info, false);
 
         // The only encrypted events stored are the ones after the decrypted one
         assert_eq!(rawevs_ids(&room.latest_encrypted_events), &["$b"]);
@@ -1578,7 +1578,7 @@ mod tests {
         let room = make_room();
         let mut room_info = room.clone_info();
         cache_latest_events(&room, &mut room_info, events, None, None).await;
-        room.set_room_info(room_info);
+        room.set_room_info(room_info, false);
         room.latest_event().map(|latest_event| latest_event.event().clone())
     }
 

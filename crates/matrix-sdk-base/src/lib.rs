@@ -50,8 +50,8 @@ pub use http;
 pub use matrix_sdk_crypto as crypto;
 pub use once_cell;
 pub use rooms::{
-    DisplayName, Room, RoomCreateWithCreatorEventContent, RoomInfo, RoomMember, RoomMemberships,
-    RoomState, RoomStateFilter,
+    DisplayName, Room, RoomCreateWithCreatorEventContent, RoomInfo, RoomInfoUpdate, RoomMember,
+    RoomMemberships, RoomState, RoomStateFilter,
 };
 pub use store::{StateChanges, StateStore, StateStoreDataKey, StateStoreDataValue, StoreError};
 pub use utils::{
