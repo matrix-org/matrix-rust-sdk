@@ -754,6 +754,24 @@ mod test {
         );
     }
 
+    /// The `iv` and `mac` properties within the `m.secret_storage.key.*`
+    /// content are optional, and the spec says we must assume the
+    /// passphrase is correct in that case.
+    #[test]
+    fn accepts_any_passphrase_if_mac_and_iv_are_missing() {
+        let mut content = SecretStorageKeyEventContent::new(
+            "my_new_key_id".to_owned(),
+            SecretStorageEncryptionAlgorithm::V1AesHmacSha2(
+                SecretStorageV1AesHmacSha2Properties::new(None, None),
+            ),
+        );
+        content.passphrase =
+            Some(PassPhrase::new("salty goodness".to_owned(), UInt::new_saturating(100)));
+
+        SecretStorageKey::from_account_data("It's a secret to nobody", content.to_owned())
+            .expect("Should accept any passphrase");
+    }
+
     #[test]
     fn base58_parsing() {
         const DECODED_KEY: [u8; 32] = [
