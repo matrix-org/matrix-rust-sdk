@@ -583,8 +583,6 @@ async fn test_delayed_decryption_latest_event() -> Result<()> {
         .response_preprocessor(delayed_decryption)
         .build()
         .await?;
-    let (tx, rx) = tokio::sync::broadcast::channel(10);
-    alice.base_client().set_roominfo_update_sender(tx);
     let bob =
         TestClientBuilder::new("bob".to_owned()).randomize_username().use_sqlite().build().await?;
 
@@ -660,7 +658,7 @@ async fn test_delayed_decryption_latest_event() -> Result<()> {
         .all_rooms()
         .await
         .unwrap()
-        .entries_with_dynamic_adapters(10, &rx);
+        .entries_with_dynamic_adapters(10, alice.roominfo_update_receiver());
     entries.set_filter(Box::new(new_filter_all(vec![])));
     pin_mut!(stream);
     dbg!(timeout(Duration::from_millis(100), stream.next()).await.unwrap());
