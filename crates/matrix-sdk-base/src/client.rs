@@ -204,7 +204,7 @@ impl BaseClient {
     /// This method panics if it is called twice.
     pub async fn set_session_meta(&self, session_meta: SessionMeta) -> Result<()> {
         debug!(user_id = ?session_meta.user_id, device_id = ?session_meta.device_id, "Restoring login");
-        self.store.set_session_meta(session_meta.clone(), self).await?;
+        self.store.set_session_meta(session_meta.clone(), &self.roominfo_update_sender).await?;
 
         #[cfg(feature = "e2e-encryption")]
         self.regenerate_olm().await?;
@@ -1426,6 +1426,8 @@ impl BaseClient {
             .collect()
     }
 
+    /// Returns a receiver that gets events for each room info update. To watch
+    /// for new events, use `receiver.resubscribe()`.
     pub fn roominfo_update_receiver(&self) -> &broadcast::Receiver<OwnedRoomId> {
         &self.roominfo_update_receiver
     }

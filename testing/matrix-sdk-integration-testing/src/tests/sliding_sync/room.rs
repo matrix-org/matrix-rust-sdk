@@ -623,6 +623,7 @@ impl wiremock::Respond for CustomResponder {
 #[tokio::test]
 async fn test_delayed_decryption_latest_event() -> Result<()> {
     let server = MockServer::start().await;
+    // Setup mockserver that drops to-device messages if DROP_TODEVICE is true
     server
         .register(Mock::given(AnyMatcher).respond_with(CustomResponder::new(drop_todevice)))
         .await;
@@ -696,6 +697,7 @@ async fn test_delayed_decryption_latest_event() -> Result<()> {
     let alice_room = alice.get_room(alice_room.room_id()).unwrap();
     let bob_room = bob.get_room(alice_room.room_id()).unwrap();
     bob_room.join().await.unwrap();
+    // Send a message, but the keys won't arrive
     bob_room.send(RoomMessageEventContent::text_plain("hello world")).await?;
 
     sleep(Duration::from_secs(1)).await;
@@ -711,13 +713,22 @@ async fn test_delayed_decryption_latest_event() -> Result<()> {
         .entries_with_dynamic_adapters(10, alice.roominfo_update_receiver());
     entries.set_filter(Box::new(new_filter_all(vec![])));
     pin_mut!(stream);
+
+    // Stream only has the initial Reset entry
     timeout(Duration::from_millis(100), stream.next()).await.unwrap();
     assert!(timeout(Duration::from_millis(100), stream.next()).await.is_err());
+
+    // Latest event is not set yet
     assert!(matches!(alice_room.latest_event(), None));
 
+    // Now we allow the key to come through
     *DROP_TODEVICE.lock().unwrap() = false;
     sleep(Duration::from_secs(1)).await;
+
+    // Latest event is set now
     alice_room.latest_event().unwrap();
+
+    // The stream has a single update
     timeout(Duration::from_millis(100), stream.next()).await.unwrap();
     assert!(timeout(Duration::from_millis(100), stream.next()).await.is_err());
 
