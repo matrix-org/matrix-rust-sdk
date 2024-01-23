@@ -809,7 +809,7 @@ pub(in crate::timeline) struct TimelineInnerMetadata {
 
     /// The local reaction request state that is queued next.
     pub reaction_state: IndexMap<AnnotationKey, ReactionState>,
-    /// The inflight reaction request state that is ongoing.
+    /// The in-flight reaction request state that is ongoing.
     pub in_flight_reaction: IndexMap<AnnotationKey, ReactionState>,
     pub room_version: RoomVersionId,
 
