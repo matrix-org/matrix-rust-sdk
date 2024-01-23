@@ -1946,7 +1946,7 @@ async fn test_dynamic_entries_stream_manual_update() -> Result<(), Error> {
     assert_pending!(dynamic_entries_stream);
 
     // Now, let's define a filter.
-    dynamic_entries.set_filter(new_filter_fuzzy_match_room_name(&client, "mat ba"));
+    dynamic_entries.set_filter(Box::new(new_filter_fuzzy_match_room_name(&client, "mat ba")));
 
     // Assert the dynamic entries.
     assert_entries_batch! {
@@ -2014,9 +2014,10 @@ async fn test_dynamic_entries_stream_manual_update() -> Result<(), Error> {
         end;
     };
 
-    // Variation 1: Send manual update after reading stream, !r0 should be at new pos 1
+    // Variation 1: Send manual update after reading stream, !r0 should be at new
+    // pos 1
     let room = client.get_room(room_id!("!r0:bar.org")).unwrap();
-    room.update_summary(room.clone_info()).await;
+    room.set_room_info(room.clone_info());
 
     assert_entries_batch! {
         [dynamic_entries_stream]
@@ -2069,9 +2070,10 @@ async fn test_dynamic_entries_stream_manual_update() -> Result<(), Error> {
         },
     };
 
-    // Variation 2: Send manual update before reading stream, !r0 should still be at previous pos 1
+    // Variation 2: Send manual update before reading stream, !r0 should still be at
+    // previous pos 1
     let room = client.get_room(room_id!("!r0:bar.org")).unwrap();
-    room.update_summary(room.clone_info()).await;
+    room.set_room_info(room.clone_info());
 
     assert_entries_batch! {
         [dynamic_entries_stream]

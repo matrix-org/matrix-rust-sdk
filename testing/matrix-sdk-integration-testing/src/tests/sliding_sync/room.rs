@@ -1,16 +1,26 @@
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex as StdMutex,
+    },
+    time::Duration,
+};
 
 use anyhow::Result;
 use futures_util::{pin_mut, StreamExt as _};
 use matrix_sdk::{
+    bytes::Bytes,
     config::SyncSettings,
     ruma::{
-        api::client::{
-            receipt::create_receipt::v3::ReceiptType,
-            room::create_room::v3::Request as CreateRoomRequest,
-            sync::sync_events::v4::{
-                AccountDataConfig, E2EEConfig, ReceiptsConfig, ToDeviceConfig,
+        api::{
+            client::{
+                receipt::create_receipt::v3::ReceiptType,
+                room::create_room::v3::{Request as CreateRoomRequest, RoomPreset},
+                sync::sync_events::v4::{
+                    AccountDataConfig, E2EEConfig, ReceiptsConfig, ToDeviceConfig,
+                },
             },
+            IncomingResponse,
         },
         assign,
         events::{
@@ -21,9 +31,15 @@ use matrix_sdk::{
     },
     Client, RoomListEntry, RoomMemberships, RoomState, SlidingSyncList, SlidingSyncMode,
 };
-use matrix_sdk_ui::RoomListService;
+use matrix_sdk_ui::{
+    room_list_service::filters::new_filter_all, sync_service::SyncService, RoomListService,
+};
 use stream_assert::assert_pending;
-use tokio::{spawn, sync::Mutex, time::sleep};
+use tokio::{
+    spawn,
+    sync::Mutex,
+    time::{sleep, timeout},
+};
 use tracing::{error, warn};
 
 use crate::helpers::TestClientBuilder;
@@ -527,6 +543,135 @@ async fn test_room_notification_count() -> Result<()> {
     assert_eq!(alice_room.num_unread_mentions(), 1);
 
     assert_pending!(info_updates);
+
+    Ok(())
+}
+
+struct DelayedDecryption {
+    active: bool,
+    queued: Vec<serde_json::Value>,
+}
+static DELAYED_DECRYPTION: StdMutex<DelayedDecryption> =
+    StdMutex::new(DelayedDecryption { active: true, queued: Vec::new() });
+
+fn delayed_decryption(request: &http::Request<Bytes>, response: &mut http::Response<Bytes>) {
+    dbg!(request.uri());
+    let Ok(mut json) = serde_json::from_slice::<serde_json::Value>(response.body()) else {
+        return;
+    };
+    let Some(extensions) = json.get_mut("extensions").and_then(|e| e.as_object_mut()) else {
+        return;
+    };
+    let Some(to_device) = extensions.remove("to_device") else {
+        return;
+    };
+    let d = DELAYED_DECRYPTION.lock().unwrap();
+    if d.active {
+        *response.body_mut() = serde_json::to_vec(&json).unwrap().into();
+        return;
+    } else {
+        dbg!(to_device);
+        // d.queued.push(to_device);
+    }
+}
+
+#[tokio::test]
+async fn test_delayed_decryption_latest_event() -> Result<()> {
+    let alice = TestClientBuilder::new("alice".to_owned())
+        .randomize_username()
+        .use_sqlite()
+        .response_preprocessor(delayed_decryption)
+        .build()
+        .await?;
+    let (tx, rx) = tokio::sync::broadcast::channel(10);
+    alice.base_client().set_roominfo_update_sender(tx);
+    let bob =
+        TestClientBuilder::new("bob".to_owned()).randomize_username().use_sqlite().build().await?;
+
+    let alice_sync_service = SyncService::builder(alice.clone()).build().await.unwrap();
+    alice_sync_service.start().await;
+    // Set up sliding sync for alice.
+    let sliding_alice = alice
+        .sliding_sync("main")?
+        .with_all_extensions()
+        .poll_timeout(Duration::from_secs(2))
+        .network_timeout(Duration::from_secs(2))
+        .add_list(
+            SlidingSyncList::builder("all")
+                .sync_mode(SlidingSyncMode::new_selective().add_range(0..=20)),
+        )
+        .build()
+        .await?;
+
+    // Set up sliding sync for bob.
+    let sliding_bob = bob
+        .sliding_sync("main")?
+        .with_all_extensions()
+        .poll_timeout(Duration::from_secs(2))
+        .network_timeout(Duration::from_secs(2))
+        .add_list(
+            SlidingSyncList::builder("all")
+                .sync_mode(SlidingSyncMode::new_selective().add_range(0..=20)),
+        )
+        .build()
+        .await?;
+
+    let s = sliding_alice.clone();
+    tokio::task::spawn(async move {
+        let stream = s.sync();
+        pin_mut!(stream);
+        while let Some(up) = stream.next().await {
+            warn!("alice received update: {up:?}");
+        }
+    });
+
+    let s = sliding_bob.clone();
+    tokio::task::spawn(async move {
+        let stream = s.sync();
+        pin_mut!(stream);
+        while let Some(up) = stream.next().await {
+            warn!("bob received update: {up:?}");
+        }
+    });
+
+    // alice creates a room and invites bob and celine.
+    let alice_room = alice
+        .create_room(assign!(CreateRoomRequest::new(), {
+            invite: vec![bob.user_id().unwrap().to_owned()],
+            is_direct: true,
+            preset: Some(RoomPreset::TrustedPrivateChat),
+        }))
+        .await?;
+    alice_room.enable_encryption().await.unwrap();
+
+    sleep(Duration::from_secs(1)).await;
+    let alice_room = alice.get_room(alice_room.room_id()).unwrap();
+    let bob_room = bob.get_room(alice_room.room_id()).unwrap();
+    bob_room.join().await.unwrap();
+    bob_room.send(RoomMessageEventContent::text_plain("hello world")).await?;
+
+    sleep(Duration::from_secs(1)).await;
+    assert_eq!(alice_room.state(), RoomState::Joined);
+    assert!(alice_room.is_encrypted().await.unwrap());
+    assert_eq!(bob_room.state(), RoomState::Joined);
+
+    let (stream, entries) = alice_sync_service
+        .room_list_service()
+        .all_rooms()
+        .await
+        .unwrap()
+        .entries_with_dynamic_adapters(10, &rx);
+    entries.set_filter(Box::new(new_filter_all(vec![])));
+    pin_mut!(stream);
+    dbg!(timeout(Duration::from_millis(100), stream.next()).await.unwrap());
+    assert!(timeout(Duration::from_millis(100), stream.next()).await.is_err());
+    assert!(matches!(alice_room.latest_event(), None));
+
+    DELAYED_DECRYPTION.lock().unwrap().active = false;
+    sleep(Duration::from_secs(1)).await;
+    dbg!(&alice_room.latest_event().unwrap().event().event);
+    dbg!(timeout(Duration::from_millis(100), stream.next()).await.unwrap());
+    assert!(timeout(Duration::from_millis(100), stream.next()).await.is_err());
 
     Ok(())
 }
