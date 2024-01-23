@@ -49,21 +49,11 @@ pub(crate) struct HttpClient {
     pub(crate) inner: reqwest::Client,
     pub(crate) request_config: RequestConfig,
     next_request_id: Arc<AtomicU64>,
-    response_preprocessor: Option<fn(&http::Request<Bytes>, &mut http::Response<Bytes>)>,
 }
 
 impl HttpClient {
-    pub(crate) fn new(
-        inner: reqwest::Client,
-        request_config: RequestConfig,
-        response_preprocessor: Option<fn(&http::Request<Bytes>, &mut http::Response<Bytes>)>,
-    ) -> Self {
-        HttpClient {
-            inner,
-            request_config,
-            next_request_id: AtomicU64::new(0).into(),
-            response_preprocessor,
-        }
+    pub(crate) fn new(inner: reqwest::Client, request_config: RequestConfig) -> Self {
+        HttpClient { inner, request_config, next_request_id: AtomicU64::new(0).into() }
     }
 
     fn get_request_id(&self) -> String {

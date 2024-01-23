@@ -9,7 +9,6 @@ use std::{
 use anyhow::Result;
 use assign::assign;
 use matrix_sdk::{
-    bytes::Bytes,
     config::{RequestConfig, SyncSettings},
     encryption::EncryptionSettings,
     ruma::api::client::{account::register::v3::Request as RegistrationRequest, uiaa},
@@ -26,7 +25,7 @@ pub struct TestClientBuilder {
     username: String,
     use_sqlite: bool,
     encryption_settings: EncryptionSettings,
-    response_preprocessor: Option<fn(&http::Request<Bytes>, &mut http::Response<Bytes>)>,
+    http_proxy: Option<String>,
 }
 
 impl TestClientBuilder {
@@ -35,7 +34,7 @@ impl TestClientBuilder {
             username: username.into(),
             use_sqlite: false,
             encryption_settings: Default::default(),
-            response_preprocessor: None,
+            http_proxy: None,
         }
     }
 
@@ -55,11 +54,8 @@ impl TestClientBuilder {
         self
     }
 
-    pub fn response_preprocessor(
-        mut self,
-        r: fn(&http::Request<Bytes>, &mut http::Response<Bytes>),
-    ) -> Self {
-        self.response_preprocessor = Some(r);
+    pub fn http_proxy(mut self, proxy: String) -> Self {
+        self.http_proxy = Some(proxy);
         self
     }
 
@@ -83,8 +79,8 @@ impl TestClientBuilder {
             .with_encryption_settings(self.encryption_settings)
             .request_config(RequestConfig::short_retry());
 
-        if let Some(response_preprocessor) = self.response_preprocessor {
-            client_builder = client_builder.response_preprocessor(response_preprocessor);
+        if let Some(proxy) = self.http_proxy {
+            client_builder = client_builder.proxy(proxy);
         }
 
         let client = if self.use_sqlite {

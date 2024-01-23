@@ -11,16 +11,14 @@ use futures_util::{pin_mut, StreamExt as _};
 use matrix_sdk::{
     bytes::Bytes,
     config::SyncSettings,
+    reqwest,
     ruma::{
-        api::{
-            client::{
-                receipt::create_receipt::v3::ReceiptType,
-                room::create_room::v3::{Request as CreateRoomRequest, RoomPreset},
-                sync::sync_events::v4::{
-                    AccountDataConfig, E2EEConfig, ReceiptsConfig, ToDeviceConfig,
-                },
+        api::client::{
+            receipt::create_receipt::v3::ReceiptType,
+            room::create_room::v3::{Request as CreateRoomRequest, RoomPreset},
+            sync::sync_events::v4::{
+                AccountDataConfig, E2EEConfig, ReceiptsConfig, ToDeviceConfig,
             },
-            IncomingResponse,
         },
         assign,
         events::{
@@ -40,7 +38,8 @@ use tokio::{
     sync::Mutex,
     time::{sleep, timeout},
 };
-use tracing::{error, warn};
+use tracing::{error, info, warn};
+use wiremock::{matchers::AnyMatcher, Mock, MockServer};
 
 use crate::helpers::TestClientBuilder;
 
@@ -547,16 +546,9 @@ async fn test_room_notification_count() -> Result<()> {
     Ok(())
 }
 
-struct DelayedDecryption {
-    active: bool,
-    queued: Vec<serde_json::Value>,
-}
-static DELAYED_DECRYPTION: StdMutex<DelayedDecryption> =
-    StdMutex::new(DelayedDecryption { active: true, queued: Vec::new() });
-
-fn delayed_decryption(request: &http::Request<Bytes>, response: &mut http::Response<Bytes>) {
-    dbg!(request.uri());
-    let Ok(mut json) = serde_json::from_slice::<serde_json::Value>(response.body()) else {
+static DROP_TODEVICE: StdMutex<bool> = StdMutex::new(true);
+fn drop_todevice(response: &mut Bytes) {
+    let Ok(mut json) = serde_json::from_slice::<serde_json::Value>(response) else {
         return;
     };
     let Some(extensions) = json.get_mut("extensions").and_then(|e| e.as_object_mut()) else {
@@ -565,22 +557,80 @@ fn delayed_decryption(request: &http::Request<Bytes>, response: &mut http::Respo
     let Some(to_device) = extensions.remove("to_device") else {
         return;
     };
-    let d = DELAYED_DECRYPTION.lock().unwrap();
-    if d.active {
-        *response.body_mut() = serde_json::to_vec(&json).unwrap().into();
+    if *DROP_TODEVICE.lock().unwrap() {
+        info!("Dropping to_device: {to_device}");
+        *response = serde_json::to_vec(&json).unwrap().into();
         return;
-    } else {
-        dbg!(to_device);
-        // d.queued.push(to_device);
+    }
+}
+
+struct CustomResponder {
+    client: reqwest::Client,
+    response_preprocessor: fn(&mut Bytes),
+}
+impl CustomResponder {
+    fn new(response_preprocessor: fn(&mut Bytes)) -> Self {
+        Self { client: reqwest::Client::new(), response_preprocessor }
+    }
+}
+impl wiremock::Respond for CustomResponder {
+    fn respond(&self, request: &wiremock::Request) -> wiremock::ResponseTemplate {
+        let mut req = self.client.request(
+            request.method.to_string().parse().expect("All methods exist"),
+            request.url.clone(),
+        );
+        for header in &request.headers {
+            for value in header.1 {
+                req = req.header(header.0.to_string(), value.to_string());
+            }
+        }
+        req = req.body(request.body.clone());
+
+        // Run await inside of non-async fn by spawning a new thread and creating a new
+        // runtime. Is there a better way?
+        let response_preprocessor = self.response_preprocessor;
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async {
+                let response = timeout(Duration::from_secs(2), req.send()).await;
+
+                if let Ok(Ok(response)) = response {
+                    let mut r = wiremock::ResponseTemplate::new(u16::from(response.status()));
+                    for header in response.headers() {
+                        if header.0 == "Content-Length" {
+                            continue;
+                        }
+                        r = r.append_header(header.0.clone(), header.1.clone());
+                    }
+
+                    let mut bytes = response.bytes().await.unwrap_or_default();
+                    response_preprocessor(&mut bytes);
+
+                    r = r.set_body_bytes(bytes);
+                    r
+                } else {
+                    // Gateway timeout
+                    let r = wiremock::ResponseTemplate::new(504);
+                    r
+                }
+            })
+        })
+        .join()
+        .expect("Thread panicked")
     }
 }
 
 #[tokio::test]
 async fn test_delayed_decryption_latest_event() -> Result<()> {
+    let server = MockServer::start().await;
+    server
+        .register(Mock::given(AnyMatcher).respond_with(CustomResponder::new(drop_todevice)))
+        .await;
+
     let alice = TestClientBuilder::new("alice".to_owned())
         .randomize_username()
         .use_sqlite()
-        .response_preprocessor(delayed_decryption)
+        .http_proxy(server.uri())
         .build()
         .await?;
     let bob =
@@ -615,7 +665,7 @@ async fn test_delayed_decryption_latest_event() -> Result<()> {
         .await?;
 
     let s = sliding_alice.clone();
-    tokio::task::spawn(async move {
+    spawn(async move {
         let stream = s.sync();
         pin_mut!(stream);
         while let Some(up) = stream.next().await {
@@ -624,7 +674,7 @@ async fn test_delayed_decryption_latest_event() -> Result<()> {
     });
 
     let s = sliding_bob.clone();
-    tokio::task::spawn(async move {
+    spawn(async move {
         let stream = s.sync();
         pin_mut!(stream);
         while let Some(up) = stream.next().await {
@@ -661,14 +711,14 @@ async fn test_delayed_decryption_latest_event() -> Result<()> {
         .entries_with_dynamic_adapters(10, alice.roominfo_update_receiver());
     entries.set_filter(Box::new(new_filter_all(vec![])));
     pin_mut!(stream);
-    dbg!(timeout(Duration::from_millis(100), stream.next()).await.unwrap());
+    timeout(Duration::from_millis(100), stream.next()).await.unwrap();
     assert!(timeout(Duration::from_millis(100), stream.next()).await.is_err());
     assert!(matches!(alice_room.latest_event(), None));
 
-    DELAYED_DECRYPTION.lock().unwrap().active = false;
+    *DROP_TODEVICE.lock().unwrap() = false;
     sleep(Duration::from_secs(1)).await;
-    dbg!(&alice_room.latest_event().unwrap().event().event);
-    dbg!(timeout(Duration::from_millis(100), stream.next()).await.unwrap());
+    alice_room.latest_event().unwrap();
+    timeout(Duration::from_millis(100), stream.next()).await.unwrap();
     assert!(timeout(Duration::from_millis(100), stream.next()).await.is_err());
 
     Ok(())

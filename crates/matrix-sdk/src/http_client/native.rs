@@ -92,10 +92,9 @@ impl HttpClient {
                     }
                 };
 
-                let mut response =
-                    send_request(&self.inner, &request, config.timeout, send_progress)
-                        .await
-                        .map_err(error_type)?;
+                let response = send_request(&self.inner, &request, config.timeout, send_progress)
+                    .await
+                    .map_err(error_type)?;
 
                 let status_code = response.status();
                 let response_size = ByteSize(response.body().len().try_into().unwrap_or(u64::MAX));
@@ -114,10 +113,6 @@ impl HttpClient {
                         tracing::Span::current()
                             .record("sentry_event_id", header_value.to_str().unwrap_or("<???>"));
                     }
-                }
-
-                if let Some(preprocessor) = self.response_preprocessor {
-                    preprocessor(&request, &mut response);
                 }
 
                 R::IncomingResponse::try_from_http_response(response)

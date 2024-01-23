@@ -11,6 +11,7 @@ assert_matches2 = { workspace = true }
 anyhow = { workspace = true }
 assign = "1"
 eyeball-im = { workspace = true }
+futures = { version = "0.3.29", features = ["executor"] }
 futures-core = { workspace = true }
 futures-util = { workspace = true }
 http = "0.2.11"
@@ -20,7 +21,9 @@ matrix-sdk-test = { workspace = true }
 once_cell = { workspace = true }
 rand = { workspace = true }
 stream_assert = "0.1.1"
+reqwest = "0.11.20"
 serde_json = "1.0.108"
 tempfile = "3.3.0"
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }
 tracing = { workspace = true }
+wiremock = "0.5.21"

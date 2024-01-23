@@ -167,8 +167,9 @@ impl RoomList {
     }
 }
 
-/// This function remembers the current state of the unfiltered room list, so it knows where all rooms are.
-/// When the receiver is triggered, a Set operation for the room position is inserted to the stream.
+/// This function remembers the current state of the unfiltered room list, so it
+/// knows where all rooms are. When the receiver is triggered, a Set operation
+/// for the room position is inserted to the stream.
 fn merge_stream_and_receiver(
     mut raw_current_values: Vector<RoomListEntry>,
     raw_stream: impl Stream<Item = Vec<VectorDiff<RoomListEntry>>>,
