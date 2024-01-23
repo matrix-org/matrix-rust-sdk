@@ -219,10 +219,12 @@ impl BaseClient {
                 .ephemeral
                 .push(raw.clone().cast());
         }
+
         // Handles the remaining rooms account data not handled by
         // process_sliding_sync_room.
         for (room_id, raw) in &rooms_account_data {
             self.handle_room_account_data(room_id, raw, &mut changes).await;
+
             if let Some(room) = self.store.get_room(room_id) {
                 match room.state() {
                     RoomState::Joined => new_rooms
