@@ -758,7 +758,7 @@ mod test {
     /// content are optional, and the spec says we must assume the
     /// passphrase is correct in that case.
     #[test]
-    fn invalid_key_with_no_mac() {
+    fn accepts_any_passphrase_if_mac_and_iv_are_missing() {
         let mut content = SecretStorageKeyEventContent::new(
             "my_new_key_id".to_owned(),
             SecretStorageEncryptionAlgorithm::V1AesHmacSha2(
