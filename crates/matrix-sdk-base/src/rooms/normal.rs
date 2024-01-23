@@ -71,9 +71,16 @@ use crate::{
     MinimalStateEvent, OriginalMinimalStateEvent, RoomMemberships,
 };
 
+/// Each time a room's RoomInfo is changed, the roominfo_update_receiver in the
+/// BaseClient will receive this struct containing the update information.
+/// The sender must decide if this update should cause a room list update.
+/// If the sender knows that another action has already caused the room to
+/// update, it should not send another update.
 #[derive(Debug, Clone)]
 pub struct RoomInfoUpdate {
+    /// The room which was updated.
     pub room_id: OwnedRoomId,
+    /// Whether this event should trigger the room list to update.
     pub trigger_room_list_update: bool,
 }
 
