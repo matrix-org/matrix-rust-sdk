@@ -1391,7 +1391,7 @@ impl OlmMachine {
 
         let secret_requests = GossipMachine::request_missing_secrets(self.user_id(), secrets);
 
-        // Check if there are already inflight requests for these secrets?
+        // Check if there are already in-flight requests for these secrets?
         let unsent_request = self.store().get_unsent_secret_requests().await?;
         let not_yet_requested = secret_requests
             .into_iter()
