@@ -27,8 +27,8 @@ use futures_core::Stream;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::store::LockableCryptoStore;
 use matrix_sdk_base::{
-    store::DynStateStore, sync::Notification, BaseClient, RoomState, RoomStateFilter,
-    SendOutsideWasm, SessionMeta, SyncOutsideWasm,
+    store::DynStateStore, sync::Notification, BaseClient, RoomInfoUpdate, RoomState,
+    RoomStateFilter, SendOutsideWasm, SessionMeta, SyncOutsideWasm,
 };
 use matrix_sdk_common::instant::Instant;
 #[cfg(feature = "e2e-encryption")]
@@ -445,8 +445,9 @@ impl Client {
     }
 
     /// Returns a receiver that gets events for each room info update. To watch
-    /// for new events, use `receiver.resubscribe()`.
-    pub fn roominfo_update_receiver(&self) -> &broadcast::Receiver<OwnedRoomId> {
+    /// for new events, use `receiver.resubscribe()`. Each event contains the
+    /// room and a boolean whether this event should trigger a room list update.
+    pub fn roominfo_update_receiver(&self) -> &broadcast::Receiver<RoomInfoUpdate> {
         self.base_client().roominfo_update_receiver()
     }
 

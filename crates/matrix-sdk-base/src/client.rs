@@ -63,7 +63,7 @@ use crate::{
         AmbiguityChanges, MembersResponse, RawAnySyncOrStrippedTimelineEvent, SyncTimelineEvent,
     },
     error::Result,
-    rooms::{Room, RoomInfo, RoomState},
+    rooms::{normal::RoomInfoUpdate, Room, RoomInfo, RoomState},
     store::{
         ambiguity_map::AmbiguityCache, DynStateStore, MemoryStore, Result as StoreResult,
         StateChanges, StateStoreDataKey, StateStoreDataValue, StateStoreExt, Store, StoreConfig,
@@ -96,8 +96,8 @@ pub struct BaseClient {
     /// Observable of when a user is ignored/unignored.
     pub(crate) ignore_user_list_changes: SharedObservable<()>,
 
-    pub(crate) roominfo_update_sender: broadcast::Sender<OwnedRoomId>,
-    pub(crate) roominfo_update_receiver: Arc<broadcast::Receiver<OwnedRoomId>>,
+    pub(crate) roominfo_update_sender: broadcast::Sender<RoomInfoUpdate>,
+    pub(crate) roominfo_update_receiver: Arc<broadcast::Receiver<RoomInfoUpdate>>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -750,7 +750,8 @@ impl BaseClient {
             let mut changes = StateChanges::default();
             changes.add_room(room_info.clone());
             self.store.save_changes(&changes).await?; // Update the store
-            room.set_room_info(room_info); // Update the cached room handle
+            room.set_room_info(room_info, false); // Update the cached room
+                                                  // handle
         }
 
         Ok(room)
@@ -775,7 +776,8 @@ impl BaseClient {
             let mut changes = StateChanges::default();
             changes.add_room(room_info.clone());
             self.store.save_changes(&changes).await?; // Update the store
-            room.set_room_info(room_info); // Update the cached room handle
+            room.set_room_info(room_info, false); // Update the cached room
+                                                  // handle
         }
 
         Ok(())
@@ -1050,7 +1052,7 @@ impl BaseClient {
             let _sync_lock = self.sync_lock().lock().await;
             self.store.save_changes(&changes).await?;
             *self.store.sync_token.write().await = Some(response.next_batch.clone());
-            self.apply_changes(&changes);
+            self.apply_changes(&changes, false);
         }
 
         info!("Processed a sync response in {:?}", now.elapsed());
@@ -1066,14 +1068,14 @@ impl BaseClient {
         Ok(response)
     }
 
-    pub(crate) fn apply_changes(&self, changes: &StateChanges) {
+    pub(crate) fn apply_changes(&self, changes: &StateChanges, trigger_room_list_update: bool) {
         if changes.account_data.contains_key(&GlobalAccountDataEventType::IgnoredUserList) {
             self.ignore_user_list_changes.set(());
         }
 
         for (room_id, room_info) in &changes.room_infos {
             if let Some(room) = self.store.get_room(room_id) {
-                room.set_room_info(room_info.clone());
+                room.set_room_info(room_info.clone(), trigger_room_list_update);
             }
         }
     }
@@ -1167,7 +1169,7 @@ impl BaseClient {
             changes.add_room(room_info);
 
             self.store.save_changes(&changes).await?;
-            self.apply_changes(&changes);
+            self.apply_changes(&changes, false);
         }
 
         Ok(MembersResponse {
@@ -1427,8 +1429,9 @@ impl BaseClient {
     }
 
     /// Returns a receiver that gets events for each room info update. To watch
-    /// for new events, use `receiver.resubscribe()`.
-    pub fn roominfo_update_receiver(&self) -> &broadcast::Receiver<OwnedRoomId> {
+    /// for new events, use `receiver.resubscribe()`. Each event contains the
+    /// room and a boolean whether this event should trigger a room list update.
+    pub fn roominfo_update_receiver(&self) -> &broadcast::Receiver<RoomInfoUpdate> {
         &self.roominfo_update_receiver
     }
 }

@@ -57,7 +57,7 @@ use tokio::sync::{broadcast, Mutex, RwLock};
 pub type BoxStream<T> = Pin<Box<dyn futures_util::Stream<Item = T> + Send>>;
 
 use crate::{
-    rooms::{RoomInfo, RoomState},
+    rooms::{normal::RoomInfoUpdate, RoomInfo, RoomState},
     MinimalRoomMemberEvent, Room, RoomStateFilter, SessionMeta,
 };
 
@@ -174,7 +174,7 @@ impl Store {
     pub async fn set_session_meta(
         &self,
         session_meta: SessionMeta,
-        roominfo_update_sender: &broadcast::Sender<OwnedRoomId>,
+        roominfo_update_sender: &broadcast::Sender<RoomInfoUpdate>,
     ) -> Result<()> {
         for info in self.inner.get_room_infos().await? {
             let room = Room::restore(
@@ -227,7 +227,7 @@ impl Store {
         &self,
         room_id: &RoomId,
         room_type: RoomState,
-        roominfo_update_sender: broadcast::Sender<OwnedRoomId>,
+        roominfo_update_sender: broadcast::Sender<RoomInfoUpdate>,
     ) -> Room {
         let user_id =
             &self.session_meta.get().expect("Creating room while not being logged in").user_id;
