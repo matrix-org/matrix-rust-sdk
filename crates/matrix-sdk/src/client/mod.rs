@@ -362,7 +362,7 @@ impl Client {
         ClientBuilder::new()
     }
 
-    pub(crate) fn base_client(&self) -> &BaseClient {
+    pub fn base_client(&self) -> &BaseClient {
         &self.inner.base_client
     }
 

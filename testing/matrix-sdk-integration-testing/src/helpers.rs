@@ -9,6 +9,7 @@ use std::{
 use anyhow::Result;
 use assign::assign;
 use matrix_sdk::{
+    bytes::Bytes,
     config::{RequestConfig, SyncSettings},
     encryption::EncryptionSettings,
     ruma::api::client::{account::register::v3::Request as RegistrationRequest, uiaa},
@@ -25,6 +26,7 @@ pub struct TestClientBuilder {
     username: String,
     use_sqlite: bool,
     encryption_settings: EncryptionSettings,
+    response_preprocessor: Option<fn(&http::Request<Bytes>, &mut http::Response<Bytes>)>,
 }
 
 impl TestClientBuilder {
@@ -33,6 +35,7 @@ impl TestClientBuilder {
             username: username.into(),
             use_sqlite: false,
             encryption_settings: Default::default(),
+            response_preprocessor: None,
         }
     }
 
@@ -52,6 +55,14 @@ impl TestClientBuilder {
         self
     }
 
+    pub fn response_preprocessor(
+        mut self,
+        r: fn(&http::Request<Bytes>, &mut http::Response<Bytes>),
+    ) -> Self {
+        self.response_preprocessor = Some(r);
+        self
+    }
+
     pub async fn build(self) -> Result<Client> {
         let mut users = USERS.lock().await;
         if let Some((client, _)) = users.get(&self.username) {
@@ -65,12 +76,16 @@ impl TestClientBuilder {
 
         let tmp_dir = tempdir()?;
 
-        let client_builder = Client::builder()
+        let mut client_builder = Client::builder()
             .user_agent("matrix-sdk-integration-tests")
             .homeserver_url(homeserver_url)
             .sliding_sync_proxy(sliding_sync_proxy_url)
             .with_encryption_settings(self.encryption_settings)
             .request_config(RequestConfig::short_retry());
+
+        if let Some(response_preprocessor) = self.response_preprocessor {
+            client_builder = client_builder.response_preprocessor(response_preprocessor);
+        }
 
         let client = if self.use_sqlite {
             client_builder.sqlite_store(tmp_dir.path(), None).build().await?

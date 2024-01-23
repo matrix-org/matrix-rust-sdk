@@ -15,6 +15,7 @@
 
 use std::{fmt, sync::Arc};
 
+use bytes::Bytes;
 use matrix_sdk_base::{store::StoreConfig, BaseClient};
 use ruma::{
     api::{client::discovery::discover_homeserver, error::FromHttpResponseError, MatrixVersion},
@@ -90,6 +91,7 @@ pub struct ClientBuilder {
     base_client: Option<BaseClient>,
     #[cfg(feature = "e2e-encryption")]
     encryption_settings: EncryptionSettings,
+    response_preprocessor: Option<fn(&http::Request<Bytes>, &mut http::Response<Bytes>)>,
 }
 
 impl ClientBuilder {
@@ -107,6 +109,7 @@ impl ClientBuilder {
             base_client: None,
             #[cfg(feature = "e2e-encryption")]
             encryption_settings: Default::default(),
+            response_preprocessor: None,
         }
     }
 
@@ -326,6 +329,14 @@ impl ClientBuilder {
         self
     }
 
+    pub fn response_preprocessor(
+        mut self,
+        response_preprocessor: fn(&http::Request<Bytes>, &mut http::Response<Bytes>),
+    ) -> Self {
+        self.response_preprocessor = Some(response_preprocessor);
+        self
+    }
+
     /// Create a [`Client`] with the options set on this builder.
     ///
     /// # Errors
@@ -361,7 +372,11 @@ impl ClientBuilder {
             BaseClient::with_store_config(build_store_config(self.store_config).await?)
         };
 
-        let http_client = HttpClient::new(inner_http_client.clone(), self.request_config);
+        let http_client = HttpClient::new(
+            inner_http_client.clone(),
+            self.request_config,
+            self.response_preprocessor,
+        );
 
         #[cfg(feature = "experimental-oidc")]
         let mut authentication_server_info = None;
