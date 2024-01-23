@@ -50,8 +50,8 @@ tokio = { version = "1.30.0", default-features = false, features = ["sync"] }
 tokio-stream = "0.1.14"
 tracing = { version = "0.1.40", default-features = false, features = ["std"] }
 tracing-core = "0.1.32"
-uniffi = { version = "0.25.3", git = "https://github.com/mozilla/uniffi-rs", rev = "0d58c94cbd2ef63554f3388d03d55984be76bb1f" }
-uniffi_bindgen = { version = "0.25.3", git = "https://github.com/mozilla/uniffi-rs", rev = "0d58c94cbd2ef63554f3388d03d55984be76bb1f" }
+uniffi = "0.26.1"
+uniffi_bindgen = "0.26.1"
 vodozemac = "0.5.0"
 zeroize = "1.6.0"
 
