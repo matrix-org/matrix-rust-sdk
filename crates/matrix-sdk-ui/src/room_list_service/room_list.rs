@@ -143,42 +143,14 @@ impl RoomList {
         );
 
         let roominfo_update_recv = roominfo_update_recv.resubscribe();
+
         let stream = stream! {
             loop {
                 let filter_fn = filter_fn_cell.take().await;
-                let (raw_values, mut raw_stream) = list.room_list_stream();
-                let mut raw_current_values = raw_values.clone();
-                let mut roominfo_update_recv = roominfo_update_recv.resubscribe();
-                let raw_stream_with_recv = stream! {
-                    loop {
-                        select! {
-                            biased; // Prefer manual updates for easier test code
-                            Ok(room_id) = roominfo_update_recv.recv() => {
-                                // Search list for the updated room
-                                for (index, room) in raw_current_values.iter().enumerate() {
-                                    if let RoomListEntry::Filled(r) = room {
-                                        if r == &room_id {
-                                            let update = VectorDiff::Set { index, value: raw_current_values[index].clone() };
-                                            yield vec![update];
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-                            v = raw_stream.next() => {
-                                if let Some(v) = v {
-                                    for change in &v {
-                                        change.clone().apply(&mut raw_current_values);
-                                    }
-                                    yield v;
-                                } else {
-                                    // Restart immediately, don't keep on waiting for the receiver
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                };
+                let (raw_values, raw_stream) = list.room_list_stream();
+
+                // Combine normal stream events with other updates from rooms
+                let raw_stream_with_recv = merge_stream_and_receiver(raw_values.clone(), raw_stream, roominfo_update_recv.resubscribe());
 
                 let (values, stream) = (raw_values, raw_stream_with_recv)
                     .filter(filter_fn)
@@ -193,6 +165,47 @@ impl RoomList {
 
         (stream, dynamic_entries_controller)
     }
+}
+
+/// This function remembers the current state of the unfiltered room list, so it knows where all rooms are.
+/// When the receiver is triggered, a Set operation for the room position is inserted to the stream.
+fn merge_stream_and_receiver(
+    mut raw_current_values: Vector<RoomListEntry>,
+    raw_stream: impl Stream<Item = Vec<VectorDiff<RoomListEntry>>>,
+    mut roominfo_update_recv: broadcast::Receiver<OwnedRoomId>,
+) -> impl Stream<Item = Vec<VectorDiff<RoomListEntry>>> {
+    let raw_stream_with_recv = stream! {
+        pin_mut!(raw_stream);
+        loop {
+            select! {
+                biased; // Prefer manual updates for easier test code
+                Ok(room_id) = roominfo_update_recv.recv() => {
+                    // Search list for the updated room
+                    for (index, room) in raw_current_values.iter().enumerate() {
+                        if let RoomListEntry::Filled(r) = room {
+                            if r == &room_id {
+                                let update = VectorDiff::Set { index, value: raw_current_values[index].clone() };
+                                yield vec![update];
+                                break;
+                            }
+                        }
+                    }
+                }
+                v = raw_stream.next() => {
+                    if let Some(v) = v {
+                        for change in &v {
+                            change.clone().apply(&mut raw_current_values);
+                        }
+                        yield v;
+                    } else {
+                        // Restart immediately, don't keep on waiting for the receiver
+                        break;
+                    }
+                }
+            }
+        }
+    };
+    raw_stream_with_recv
 }
 
 /// The loading state of a [`RoomList`].

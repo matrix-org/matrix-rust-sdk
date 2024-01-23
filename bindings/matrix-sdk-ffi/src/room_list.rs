@@ -215,7 +215,7 @@ impl RoomList {
         let (entries_stream, dynamic_entries_controller) =
             self.inner.entries_with_dynamic_adapters(
                 page_size.try_into().unwrap(),
-                self.room_list_service.inner.client().roominfo_update_recv(),
+                self.room_list_service.inner.client().roominfo_update_receiver(),
             );
 
         RoomListEntriesWithDynamicAdaptersResult {
