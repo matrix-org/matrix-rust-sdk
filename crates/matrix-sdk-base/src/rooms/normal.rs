@@ -654,7 +654,7 @@ impl Room {
     pub fn set_room_info(&self, room_info: RoomInfo) {
         self.inner.set(room_info);
 
-        // Ignore error if receiver is down
+        // Ignore error if no receiver exists
         let _ = self.roominfo_update_sender.send(self.room_id.clone());
     }
 

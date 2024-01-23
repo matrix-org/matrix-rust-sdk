@@ -444,6 +444,8 @@ impl Client {
         self.base_client().session_meta()
     }
 
+    /// Returns a receiver that gets events for each room info update. To watch
+    /// for new events, use `receiver.resubscribe()`.
     pub fn roominfo_update_receiver(&self) -> &broadcast::Receiver<OwnedRoomId> {
         self.base_client().roominfo_update_receiver()
     }

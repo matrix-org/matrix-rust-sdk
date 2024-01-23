@@ -58,7 +58,7 @@ pub type BoxStream<T> = Pin<Box<dyn futures_util::Stream<Item = T> + Send>>;
 
 use crate::{
     rooms::{RoomInfo, RoomState},
-    BaseClient, MinimalRoomMemberEvent, Room, RoomStateFilter, SessionMeta,
+    MinimalRoomMemberEvent, Room, RoomStateFilter, SessionMeta,
 };
 
 pub(crate) mod ambiguity_map;
@@ -174,14 +174,14 @@ impl Store {
     pub async fn set_session_meta(
         &self,
         session_meta: SessionMeta,
-        client: &BaseClient,
+        roominfo_update_sender: &broadcast::Sender<OwnedRoomId>,
     ) -> Result<()> {
         for info in self.inner.get_room_infos().await? {
             let room = Room::restore(
                 &session_meta.user_id,
                 self.inner.clone(),
                 info,
-                client.roominfo_update_sender.clone(),
+                roominfo_update_sender.clone(),
             );
             self.rooms.write().unwrap().insert(room.room_id().to_owned(), room);
         }
