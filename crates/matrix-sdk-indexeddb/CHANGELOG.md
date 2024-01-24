@@ -1,4 +1,4 @@
 # unreleased
 
-- `save_change` performance improvement, all ecnryption and serialization
+- `save_change` performance improvement, all encryption and serialization
   is done now outside of the db transaction.
