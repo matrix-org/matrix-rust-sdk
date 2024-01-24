@@ -184,8 +184,8 @@ impl IndexeddbChangesKeyValue {
         self.store_to_key_values.entry(store).or_default()
     }
 
-    /// Update the store with the stored operation
-    fn perform_operations(self, tx: &IdbTransaction<'_>) -> Result<()> {
+    /// Applies all the pending operations to the store.
+    fn apply(self, tx: &IdbTransaction<'_>) -> Result<()> {
         for (store, operations) in self.store_to_key_values {
             if operations.is_empty() {
                 continue;
@@ -508,10 +508,8 @@ impl IndexeddbCryptoStore {
                     .serializer
                     .encode_key(keys::GOSSIP_REQUESTS, gossip_request.request_id.as_str());
                 let key_request_value = self.serialize_gossip_request(gossip_request)?;
-                gossip_requests.push(PendingOperation::Put {
-                    key: key_request_id,
-                    value: key_request_value,
-                });
+                gossip_requests
+                    .push(PendingOperation::Put { key: key_request_id, value: key_request_value });
             }
         }
 
@@ -674,7 +672,7 @@ impl_crypto_store! {
         let tx =
             self.inner.transaction_on_multi_with_mode(&stores, IdbTransactionMode::Readwrite)?;
 
-        indexeddb_changes.perform_operations(&tx)?;
+        indexeddb_changes.apply(&tx)?;
 
         tx.await.into_result()?;
 
