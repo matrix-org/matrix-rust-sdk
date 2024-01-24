@@ -825,9 +825,9 @@ impl_crypto_store! {
             return Ok(vec![]);
         };
 
-        let mut result = Vec::new();
+        let mut serialized_sessions = Vec::with_capacity(limit);
         for _ in 0..limit {
-            result.push(cursor.value());
+            serialized_sessions.push(cursor.value());
             if !cursor.continue_cursor()?.await? {
                 break;
             }
@@ -836,7 +836,7 @@ impl_crypto_store! {
         tx.await.into_result()?;
 
         // Deserialize and decrypt after the transaction is complete.
-        let result = result.into_iter()
+        let result = serialized_sessions.into_iter()
             .filter_map(|v| match self.deserialize_inbound_group_session(v) {
                 Ok(session) => Some(session),
                 Err(e) => {
