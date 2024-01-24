@@ -458,24 +458,18 @@ impl IndexeddbCryptoStore {
 
         let device_store = indexeddb_changes.get(keys::DEVICES);
 
-        if !device_changes.new.is_empty() || !device_changes.changed.is_empty() {
-            for device in device_changes.new.iter().chain(&device_changes.changed) {
-                let key = self
-                    .serializer
-                    .encode_key(keys::DEVICES, (device.user_id(), device.device_id()));
-                let device = self.serializer.serialize_value(&device)?;
+        for device in device_changes.new.iter().chain(&device_changes.changed) {
+            let key =
+                self.serializer.encode_key(keys::DEVICES, (device.user_id(), device.device_id()));
+            let device = self.serializer.serialize_value(&device)?;
 
-                device_store.push(PendingOperation::Put { key, value: device });
-            }
+            device_store.push(PendingOperation::Put { key, value: device });
         }
 
-        if !device_changes.deleted.is_empty() {
-            for device in &device_changes.deleted {
-                let key = self
-                    .serializer
-                    .encode_key(keys::DEVICES, (device.user_id(), device.device_id()));
-                device_store.push(PendingOperation::Delete(key));
-            }
+        for device in &device_changes.deleted {
+            let key =
+                self.serializer.encode_key(keys::DEVICES, (device.user_id(), device.device_id()));
+            device_store.push(PendingOperation::Delete(key));
         }
 
         if !identity_changes.changed.is_empty() || !identity_changes.new.is_empty() {
