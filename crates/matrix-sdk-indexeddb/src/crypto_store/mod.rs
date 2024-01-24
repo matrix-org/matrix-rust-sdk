@@ -164,7 +164,7 @@ enum PendingOperation {
     Put { key: JsValue, value: JsValue },
     Delete(JsValue),
 }
-/// A structs that represents all the operations that need to be done to the
+/// A struct that represents all the operations that need to be done to the
 /// database when save_changes is called.
 /// The idea is to do all the serialization and encryption before the
 /// transaction, and then just do the actual Indexeddb operations in the
