@@ -161,7 +161,7 @@ type Result<A, E = IndexeddbCryptoStoreError> = std::result::Result<A, E>;
 
 /// Defines an operation to perform on the database
 enum PendingOperation {
-    PutKeyVal { key: JsValue, value: JsValue },
+    Put { key: JsValue, value: JsValue },
     Delete(JsValue),
 }
 /// A structs that represents all the operations that need to be done to the
@@ -193,7 +193,7 @@ impl IndexeddbChangesKeyValue {
             let object_store = tx.object_store(store)?;
             for op in operations {
                 match op {
-                    PendingOperation::PutKeyVal { key, value } => {
+                    PendingOperation::Put { key, value } => {
                         object_store.put_key_val(&key, &value)?;
                     }
                     PendingOperation::Delete(key) => {
@@ -378,28 +378,28 @@ impl IndexeddbCryptoStore {
 
         let core = indexeddb_changes.get(keys::CORE);
         if let Some(next_batch) = &changes.next_batch_token {
-            core.push(PendingOperation::PutKeyVal {
+            core.push(PendingOperation::Put {
                 key: JsValue::from_str(keys::NEXT_BATCH_TOKEN),
                 value: self.serializer.serialize_value(next_batch)?,
             });
         }
 
         if let Some(i) = &private_identity_pickle {
-            core.push(PendingOperation::PutKeyVal {
+            core.push(PendingOperation::Put {
                 key: JsValue::from_str(keys::PRIVATE_IDENTITY),
                 value: self.serializer.serialize_value(i)?,
             });
         }
 
         if let Some(a) = &decryption_key_pickle {
-            indexeddb_changes.get(keys::BACKUP_KEYS).push(PendingOperation::PutKeyVal {
+            indexeddb_changes.get(keys::BACKUP_KEYS).push(PendingOperation::Put {
                 key: JsValue::from_str(keys::RECOVERY_KEY_V1),
                 value: self.serializer.serialize_value(&a)?,
             });
         }
 
         if let Some(a) = &backup_version {
-            indexeddb_changes.get(keys::BACKUP_KEYS).push(PendingOperation::PutKeyVal {
+            indexeddb_changes.get(keys::BACKUP_KEYS).push(PendingOperation::Put {
                 key: JsValue::from_str(keys::BACKUP_KEY_V1),
                 value: self.serializer.serialize_value(&a)?,
             });
@@ -415,7 +415,7 @@ impl IndexeddbCryptoStore {
                 let pickle = session.pickle().await;
                 let key = self.serializer.encode_key(keys::SESSION, (&sender_key, session_id));
 
-                sessions.push(PendingOperation::PutKeyVal {
+                sessions.push(PendingOperation::Put {
                     key,
                     value: self.serializer.serialize_value(&pickle)?,
                 });
@@ -432,7 +432,7 @@ impl IndexeddbCryptoStore {
                     .serializer
                     .encode_key(keys::INBOUND_GROUP_SESSIONS_V2, (room_id, session_id));
                 let value = self.serialize_inbound_group_session(session).await?;
-                sessions.push(PendingOperation::PutKeyVal { key, value });
+                sessions.push(PendingOperation::Put { key, value });
             }
         }
 
@@ -442,7 +442,7 @@ impl IndexeddbCryptoStore {
             for session in &changes.outbound_group_sessions {
                 let room_id = session.room_id();
                 let pickle = session.pickle().await;
-                sessions.push(PendingOperation::PutKeyVal {
+                sessions.push(PendingOperation::Put {
                     key: self.serializer.encode_key(keys::OUTBOUND_GROUP_SESSIONS, room_id),
                     value: self.serializer.serialize_value(&pickle)?,
                 });
@@ -465,7 +465,7 @@ impl IndexeddbCryptoStore {
                     .encode_key(keys::DEVICES, (device.user_id(), device.device_id()));
                 let device = self.serializer.serialize_value(&device)?;
 
-                device_store.push(PendingOperation::PutKeyVal { key, value: device });
+                device_store.push(PendingOperation::Put { key, value: device });
             }
         }
 
@@ -481,7 +481,7 @@ impl IndexeddbCryptoStore {
         if !identity_changes.changed.is_empty() || !identity_changes.new.is_empty() {
             let identities = indexeddb_changes.get(keys::IDENTITIES);
             for identity in identity_changes.changed.iter().chain(&identity_changes.new) {
-                identities.push(PendingOperation::PutKeyVal {
+                identities.push(PendingOperation::Put {
                     key: self.serializer.encode_key(keys::IDENTITIES, identity.user_id()),
                     value: self.serializer.serialize_value(&identity)?,
                 });
@@ -491,7 +491,7 @@ impl IndexeddbCryptoStore {
         if !olm_hashes.is_empty() {
             let hashes = indexeddb_changes.get(keys::OLM_HASHES);
             for hash in olm_hashes {
-                hashes.push(PendingOperation::PutKeyVal {
+                hashes.push(PendingOperation::Put {
                     key: self
                         .serializer
                         .encode_key(keys::OLM_HASHES, (&hash.sender_key, &hash.hash)),
@@ -508,7 +508,7 @@ impl IndexeddbCryptoStore {
                     .serializer
                     .encode_key(keys::GOSSIP_REQUESTS, gossip_request.request_id.as_str());
                 let key_request_value = self.serialize_gossip_request(gossip_request)?;
-                gossip_requests.push(PendingOperation::PutKeyVal {
+                gossip_requests.push(PendingOperation::Put {
                     key: key_request_id,
                     value: key_request_value,
                 });
@@ -523,7 +523,7 @@ impl IndexeddbCryptoStore {
                     let key = self
                         .serializer
                         .encode_key(keys::DIRECT_WITHHELD_INFO, (session_id, &room_id));
-                    withhelds.push(PendingOperation::PutKeyVal {
+                    withhelds.push(PendingOperation::Put {
                         key,
                         value: self.serializer.serialize_value(&event)?,
                     });
@@ -537,7 +537,7 @@ impl IndexeddbCryptoStore {
             for (room_id, settings) in room_settings_changes {
                 let key = self.serializer.encode_key(keys::ROOM_SETTINGS, room_id);
                 let value = self.serializer.serialize_value(&settings)?;
-                settings_store.push(PendingOperation::PutKeyVal { key, value });
+                settings_store.push(PendingOperation::Put { key, value });
             }
         }
 
@@ -551,7 +551,7 @@ impl IndexeddbCryptoStore {
                 );
                 let value = self.serializer.serialize_value(&secret)?;
 
-                secret_store.push(PendingOperation::PutKeyVal { key, value });
+                secret_store.push(PendingOperation::Put { key, value });
             }
         }
 
