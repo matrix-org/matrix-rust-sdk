@@ -840,7 +840,7 @@ impl_crypto_store! {
             .filter_map(|v| match self.deserialize_inbound_group_session(v) {
                 Ok(session) => Some(session),
                 Err(e) => {
-                    warn!("Failed to deserialize inbound group session: {:?}", e);
+                    warn!("Failed to deserialize inbound group session: {e}");
                     None
                 }
             })
