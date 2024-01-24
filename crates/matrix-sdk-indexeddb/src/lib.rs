@@ -11,6 +11,8 @@ mod safe_encode;
 mod serialize_bool_for_indexeddb;
 #[cfg(feature = "state-store")]
 mod state_store;
+#[cfg(any(feature = "e2e-encryption", feature = "state-store"))]
+pub mod stream;
 
 #[cfg(feature = "e2e-encryption")]
 pub use crypto_store::{IndexeddbCryptoStore, IndexeddbCryptoStoreError};

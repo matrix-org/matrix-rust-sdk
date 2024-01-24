@@ -41,7 +41,7 @@ use ruma::{
 use tokio::sync::Mutex;
 use tracing::{debug, warn};
 use wasm_bindgen::JsValue;
-use web_sys::IdbKeyRange;
+use web_sys::{DomException, IdbKeyRange};
 
 use crate::crypto_store::{
     indexeddb_serializer::IndexeddbSerializer, migrations::open_and_upgrade_db,
@@ -132,8 +132,8 @@ pub enum IndexeddbCryptoStoreError {
     CryptoStoreError(#[from] CryptoStoreError),
 }
 
-impl From<indexed_db_futures::web_sys::DomException> for IndexeddbCryptoStoreError {
-    fn from(frm: indexed_db_futures::web_sys::DomException) -> IndexeddbCryptoStoreError {
+impl From<DomException> for IndexeddbCryptoStoreError {
+    fn from(frm: DomException) -> IndexeddbCryptoStoreError {
         IndexeddbCryptoStoreError::DomException {
             name: frm.name(),
             message: frm.message(),
