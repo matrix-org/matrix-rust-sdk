@@ -25,7 +25,7 @@ use ruma::{
 
 use super::Error;
 use crate::{
-    timeline::{EventTimelineItem, SlidingSyncRoomExt, TimelineEventFilterFn},
+    timeline::{EventTimelineItem, SlidingSyncRoomExt, TimelineBuilder},
     Timeline,
 };
 
@@ -117,25 +117,26 @@ impl Room {
         self.inner.sliding_sync.unsubscribe_from_room(self.inner.room.room_id().to_owned())
     }
 
-    /// Get the timeline of the room, with an optional timeline event filter.
-    pub async fn timeline(
-        &self,
-        event_filter: Option<Box<TimelineEventFilterFn>>,
-    ) -> Arc<Timeline> {
-        self.inner
-            .timeline
-            .get_or_init(async {
-                let mut builder = Timeline::builder(&self.inner.room).events(
-                    self.inner.sliding_sync_room.prev_batch(),
-                    self.inner.sliding_sync_room.timeline_queue(),
-                );
-                if let Some(event_filter) = event_filter {
-                    builder = builder.event_filter(event_filter);
-                }
-                Arc::new(builder.track_read_marker_and_receipts().build().await)
-            })
-            .await
-            .clone()
+    /// Get the timeline of the room if one exists.
+    pub fn timeline(&self) -> Option<Arc<Timeline>> {
+        self.inner.timeline.get().cloned()
+    }
+
+    /// Get whether the timeline has been already initialised or not.
+    pub fn is_timeline_initialized(&self) -> bool {
+        self.inner.timeline.get().is_some()
+    }
+
+    /// Initialize the timeline of the room with an event type filter so only
+    /// some events are returned. If a previous timeline exists, it'll
+    /// return an error. Otherwise, a Timeline will be returned.
+    pub async fn init_timeline_with_builder(&self, builder: TimelineBuilder) -> Result<(), Error> {
+        if self.inner.timeline.get().is_some() {
+            Err(Error::TimelineAlreadyExists(self.inner.room.room_id().to_owned()))
+        } else {
+            self.inner.timeline.get_or_init(async { Arc::new(builder.build().await) }).await;
+            Ok(())
+        }
     }
 
     /// Get the latest event in the timeline.
@@ -170,5 +171,14 @@ impl Room {
     /// Get unread notifications.
     pub fn unread_notifications(&self) -> UnreadNotificationsCount {
         self.inner.sliding_sync_room.unread_notifications()
+    }
+
+    pub fn default_room_timeline_builder(&self) -> TimelineBuilder {
+        Timeline::builder(&self.inner.room)
+            .events(
+                self.inner.sliding_sync_room.prev_batch(),
+                self.inner.sliding_sync_room.timeline_queue(),
+            )
+            .track_read_marker_and_receipts()
     }
 }

@@ -293,7 +293,7 @@ impl TestTimeline {
     }
 }
 
-fn is_text_message_item(item: &Arc<TimelineItem>) -> bool {
+fn is_text_message_item(item: &&Arc<TimelineItem>) -> bool {
     match item.kind() {
         TimelineItemKind::Event(event) => match &event.content {
             TimelineItemContent::Message(message) => {
@@ -305,7 +305,7 @@ fn is_text_message_item(item: &Arc<TimelineItem>) -> bool {
     }
 }
 
-fn is_room_name_item(item: &Arc<TimelineItem>) -> bool {
+fn is_room_name_item(item: &&Arc<TimelineItem>) -> bool {
     match item.kind() {
         TimelineItemKind::Event(event) => match &event.content {
             TimelineItemContent::OtherState(state) => {

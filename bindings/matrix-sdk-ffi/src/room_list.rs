@@ -1,7 +1,7 @@
 use std::{fmt::Debug, sync::Arc, time::Duration};
 
 use eyeball_im::VectorDiff;
-use futures_util::{pin_mut, StreamExt};
+use futures_util::{pin_mut, StreamExt, TryFutureExt};
 use matrix_sdk::{
     ruma::{
         api::client::sync::sync_events::{
@@ -17,7 +17,7 @@ use matrix_sdk_ui::{
         new_filter_all, new_filter_all_non_left, new_filter_fuzzy_match_room_name, new_filter_none,
         new_filter_normalized_match_room_name,
     },
-    timeline::{default_event_filter, TimelineEventFilterFn},
+    timeline::default_event_filter,
 };
 use tokio::sync::RwLock;
 
@@ -42,6 +42,10 @@ pub enum RoomListError {
     RoomNotFound { room_name: String },
     #[error("invalid room ID: {error}")]
     InvalidRoomId { error: String },
+    #[error("A timeline instance already exists for room {room_name}")]
+    TimelineAlreadyExists { room_name: String },
+    #[error("A timeline instance hasn't been initialized for room {room_name}")]
+    TimelineNotInitialized { room_name: String },
 }
 
 impl From<matrix_sdk_ui::room_list_service::Error> for RoomListError {
@@ -53,6 +57,9 @@ impl From<matrix_sdk_ui::room_list_service::Error> for RoomListError {
             UnknownList(list_name) => Self::UnknownList { list_name },
             InputCannotBeApplied(_) => Self::InputCannotBeApplied,
             RoomNotFound(room_id) => Self::RoomNotFound { room_name: room_id.to_string() },
+            TimelineAlreadyExists(room_id) => {
+                Self::TimelineAlreadyExists { room_name: room_id.to_string() }
+            }
         }
     }
 }
@@ -445,31 +452,49 @@ impl RoomListItem {
         Ok(RoomInfo::new(self.inner.inner_room(), avatar_url, latest_event).await?)
     }
 
-    /// Building a `Room`.
-    ///
-    /// Be careful that building a `Room` builds its entire `Timeline` at the
-    /// same time.
-    async fn full_room(&self) -> Arc<Room> {
-        Arc::new(Room::with_timeline(
-            self.inner.inner_room().clone(),
-            Arc::new(RwLock::new(Some(Timeline::from_arc(self.inner.timeline(None).await)))),
-        ))
+    /// Building a `Room`. If its internal timeline hasn't been initialized
+    /// it'll fail.
+    async fn full_room(&self) -> Result<Arc<Room>, RoomListError> {
+        if let Some(timeline) = self.inner.timeline() {
+            Ok(Arc::new(Room::with_timeline(
+                self.inner.inner_room().clone(),
+                Arc::new(RwLock::new(Some(Timeline::from_arc(timeline)))),
+            )))
+        } else {
+            Err(RoomListError::TimelineNotInitialized {
+                room_name: self.inner.inner_room().room_id().to_string(),
+            })
+        }
     }
 
-    async fn full_room_with_event_type_filter(
+    /// Checks whether the Room's timeline has been initialized before.
+    fn is_timeline_initialized(&self) -> bool {
+        self.inner.is_timeline_initialized()
+    }
+
+    /// Initializes the timeline for this room using the provided parameters.
+    /// * `event_type_filter` - An optional [`TimelineEventTypeFilter`] to be
+    ///   used to filter timeline events besides the default timeline filter. If
+    ///   `None` is passed, only the default timeline filter will be used.
+    async fn init_timeline(
         &self,
-        event_type_filter: Arc<TimelineEventTypeFilter>,
-    ) -> Arc<Room> {
-        let event_filter: Box<TimelineEventFilterFn> = Box::new(move |event, room_version_id| {
-            // Always perform the default filter first
-            default_event_filter(event, room_version_id) && event_type_filter.filter(event)
-        });
-        Arc::new(Room::with_timeline(
-            self.inner.inner_room().clone(),
-            Arc::new(RwLock::new(Some(Timeline::from_arc(
-                self.inner.timeline(Some(event_filter)).await,
-            )))),
-        ))
+        event_type_filter: Option<Arc<TimelineEventTypeFilter>>,
+    ) -> Result<Arc<Timeline>, RoomListError> {
+        let timeline_builder = self.inner.default_room_timeline_builder();
+        let timeline_builder = if let Some(event_type_filter) = event_type_filter {
+            timeline_builder.event_filter(move |event, room_version_id| {
+                // Always perform the default filter first
+                default_event_filter(event, room_version_id) && event_type_filter.filter(event)
+            })
+        } else {
+            timeline_builder.event_filter(default_event_filter)
+        };
+        let inner_timeline = self
+            .inner
+            .init_timeline_with_builder(timeline_builder)
+            .map_err(RoomListError::from)
+            .await?;
+        Ok(Timeline::from_arc(inner_timeline))
     }
 
     fn subscribe(&self, settings: Option<RoomSubscription>) {
