@@ -136,7 +136,7 @@ use ruma::{
     EventId, OwnedEventId, OwnedUserId, RoomId, UserId,
 };
 use serde::{Deserialize, Serialize};
-use tracing::{debug, instrument, trace};
+use tracing::{debug, instrument, trace, warn};
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 struct LatestReadReceipt {
@@ -332,24 +332,27 @@ impl ReceiptSelector {
             if event_pos >= *best_pos {
                 *best_pos = event_pos;
                 self.latest_event_with_receipt = Some(event_id.to_owned());
-                trace!("saving better");
+                debug!("saving better");
+            } else {
+                trace!("not better, keeping previous");
             }
         } else {
             // We didn't have a previous receipt, this is the first one we
             // store: remember it.
             self.latest_event_pos = Some(event_pos);
             self.latest_event_with_receipt = Some(event_id.to_owned());
-            trace!("saving for the first time");
+            debug!("saving for the first time");
         }
     }
 
     /// Try to match pending receipts against new events.
+    #[instrument(skip_all)]
     fn handle_pending_receipts(&mut self, pending: &mut RingBuffer<OwnedEventId>) {
         // Try to match stashed receipts against the new events.
-        trace!("handle_pending_receipts");
         pending.retain(|event_id| {
             if let Some(event_pos) = self.event_id_to_pos.get(event_id) {
                 // Maybe select this read receipt as it might be better than the ones we had.
+                trace!(%event_id, "matching event against its stashed receipt");
                 self.try_select_later(event_id, *event_pos);
 
                 // Remove this stashed read receipt from the pending list, as it's been
@@ -371,12 +374,12 @@ impl ReceiptSelector {
     ///
     /// Returns any receipts (for the current user) that we could not match
     /// against any event - these are "pending".
+    #[instrument(skip_all)]
     fn handle_new_receipt(
         &mut self,
         user_id: &UserId,
         receipt_event: &ReceiptEventContent,
     ) -> Vec<OwnedEventId> {
-        trace!("handle_new_receipt");
         let mut pending = Vec::new();
         // Now consider new receipts.
         for (event_id, receipts) in &receipt_event.0 {
@@ -384,10 +387,12 @@ impl ReceiptSelector {
                 if let Some(receipt) = receipts.get(&ty).and_then(|receipts| receipts.get(user_id))
                 {
                     if matches!(receipt.thread, ReceiptThread::Main | ReceiptThread::Unthreaded) {
+                        trace!(%event_id, "found new candidate");
                         if let Some(event_pos) = self.event_id_to_pos.get(event_id) {
                             self.try_select_later(event_id, *event_pos);
                         } else {
                             // It's a new pending receipt.
+                            trace!(%event_id, "stashed as pending");
                             pending.push(event_id.clone());
                         }
                     }
@@ -502,7 +507,7 @@ pub(crate) fn compute_unread_counts(
         // safely from here.
         read_receipts.find_and_process_events(&event_id, user_id, all_events.iter());
 
-        trace!(?read_receipts, "after finding a better receipt");
+        debug!(?read_receipts, "after finding a better receipt");
         return;
     }
 
@@ -517,7 +522,7 @@ pub(crate) fn compute_unread_counts(
         read_receipts.process_event(event, user_id);
     }
 
-    trace!(?read_receipts, "no better receipt, {} new events", new_events.len());
+    debug!(?read_receipts, "no better receipt, {} new events", new_events.len());
 }
 
 /// Is the event worth marking a room as unread?
@@ -525,7 +530,7 @@ fn marks_as_unread(event: &Raw<AnySyncTimelineEvent>, user_id: &UserId) -> bool 
     let event = match event.deserialize() {
         Ok(event) => event,
         Err(err) => {
-            debug!(
+            warn!(
                 "couldn't deserialize event {:?}: {err}",
                 event.get_field::<String>("event_id").ok().flatten()
             );
@@ -601,7 +606,7 @@ fn marks_as_unread(event: &Raw<AnySyncTimelineEvent>, user_id: &UserId) -> bool 
 
                 _ => {
                     // What I don't know about, I don't care about.
-                    debug!("unhandled timeline event type: {}", event.event_type());
+                    warn!("unhandled timeline event type: {}", event.event_type());
                     false
                 }
             }

@@ -56,7 +56,7 @@ use ruma::{
 };
 use thiserror::Error;
 use tokio::sync::{mpsc::Sender, Mutex, Notify};
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{debug, error, info, instrument, trace, warn};
 
 use self::futures::SendAttachment;
 
@@ -708,9 +708,13 @@ impl Timeline {
         event_id: OwnedEventId,
     ) -> Result<bool> {
         if !self.inner.should_send_receipt(&receipt_type, &thread, &event_id).await {
+            trace!(
+                "not sending receipt, because we already cover the event with a previous receipt"
+            );
             return Ok(false);
         }
 
+        trace!("sending receipt");
         self.room().send_single_receipt(receipt_type, thread, event_id).await?;
         Ok(true)
     }
