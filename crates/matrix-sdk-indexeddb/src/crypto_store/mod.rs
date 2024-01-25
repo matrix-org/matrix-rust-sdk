@@ -202,6 +202,16 @@ impl PendingIndexeddbChanges {
         Self { store_to_key_values: BTreeMap::new() }
     }
 
+    /// Returns the list of stores that have pending operations.
+    /// Should be used to take for the transaction creation in ReadWrite mode.
+    fn affected_stores(&self) -> Vec<&str> {
+        self.store_to_key_values
+            .iter()
+            .filter(|(_, value)| !value.is_empty())
+            .map(|(key, _)| *key)
+            .collect()
+    }
+
     /// Applies all the pending operations to the store.
     fn apply(self, tx: &IdbTransaction<'_>) -> Result<()> {
         for (store, operations) in self.store_to_key_values {
@@ -635,42 +645,15 @@ impl_crypto_store! {
         // TODO: #2000 should make this lock go away, or change its shape.
         let _guard = self.save_changes_lock.lock().await;
 
-        let mut stores: Vec<&str> = [
-            (changes.private_identity.is_some() || changes.next_batch_token.is_some(), keys::CORE),
-            (changes.backup_decryption_key.is_some() || changes.backup_version.is_some(), keys::BACKUP_KEYS),
-            (!changes.sessions.is_empty(), keys::SESSION),
-            (
-                !changes.devices.new.is_empty()
-                    || !changes.devices.changed.is_empty()
-                    || !changes.devices.deleted.is_empty(),
-                keys::DEVICES,
-            ),
-            (
-                !changes.identities.new.is_empty() || !changes.identities.changed.is_empty(),
-                keys::IDENTITIES,
-            ),
+        let indexeddb_changes = self.prepare_for_transaction(&changes).await?;
 
-            (!changes.inbound_group_sessions.is_empty(), keys::INBOUND_GROUP_SESSIONS_V2),
-            (!changes.outbound_group_sessions.is_empty(), keys::OUTBOUND_GROUP_SESSIONS),
-            (!changes.message_hashes.is_empty(), keys::OLM_HASHES),
-            (!changes.withheld_session_info.is_empty(), keys::DIRECT_WITHHELD_INFO),
-            (!changes.room_settings.is_empty(), keys::ROOM_SETTINGS),
-            (!changes.secrets.is_empty(), keys::SECRETS_INBOX),
-        ]
-        .iter()
-        .filter_map(|(id, key)| if *id { Some(*key) } else { None })
-        .collect();
-
-        if !changes.key_requests.is_empty() {
-            stores.extend([keys::GOSSIP_REQUESTS])
-        }
+        let stores = indexeddb_changes.affected_stores();
 
         if stores.is_empty() {
             // nothing to do, quit early
             return Ok(());
         }
 
-        let indexeddb_changes = self.prepare_for_transaction(&changes).await?;
         let tx =
             self.inner.transaction_on_multi_with_mode(&stores, IdbTransactionMode::Readwrite)?;
 
