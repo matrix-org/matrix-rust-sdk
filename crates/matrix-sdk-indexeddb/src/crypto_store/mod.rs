@@ -170,7 +170,7 @@ enum PendingOperation {
 /// The idea is to do all the serialization and encryption before the
 /// transaction, and then just do the actual Indexeddb operations in the
 /// transaction.
-struct IndexeddbChangesKeyValue {
+struct PendingIndexeddbChanges {
     /// A map of the object store names to the operations to perform on that
     /// store.
     store_to_key_values: BTreeMap<&'static str, Vec<PendingOperation>>,
@@ -191,13 +191,13 @@ impl<'a> PendingStoreChanges<'a> {
     }
 }
 
-impl IndexeddbChangesKeyValue {
+impl PendingIndexeddbChanges {
     fn get(&mut self, store: &'static str) -> PendingStoreChanges<'_> {
         PendingStoreChanges { operations: self.store_to_key_values.entry(store).or_default() }
     }
 }
 
-impl IndexeddbChangesKeyValue {
+impl PendingIndexeddbChanges {
     fn new() -> Self {
         Self { store_to_key_values: BTreeMap::new() }
     }
@@ -385,8 +385,8 @@ impl IndexeddbCryptoStore {
 
     /// Process all the changes and do all encryption/serialization before the
     /// actual transaction.
-    async fn prepare_for_transaction(&self, changes: &Changes) -> Result<IndexeddbChangesKeyValue> {
-        let mut indexeddb_changes = IndexeddbChangesKeyValue::new();
+    async fn prepare_for_transaction(&self, changes: &Changes) -> Result<PendingIndexeddbChanges> {
+        let mut indexeddb_changes = PendingIndexeddbChanges::new();
 
         let private_identity_pickle =
             if let Some(i) = &changes.private_identity { Some(i.pickle().await) } else { None };
