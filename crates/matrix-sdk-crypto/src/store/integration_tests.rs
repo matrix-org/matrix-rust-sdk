@@ -3,6 +3,7 @@
 macro_rules! cryptostore_integration_tests {
     () => {
         mod cryptostore_integration_tests {
+            use std::time::Duration;
             use std::collections::{BTreeMap, HashMap};
 
             use assert_matches::assert_matches;
@@ -855,12 +856,15 @@ macro_rules! cryptostore_integration_tests {
                 let settings_1 = RoomSettings {
                     algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
                     only_allow_trusted_devices: true,
+                    session_rotation_period: Some(Duration::from_secs(10)),
+                    session_rotation_period_messages: Some(123),
                 };
 
                 let room_2 = room_id!("!test_2:localhost");
                 let settings_2 = RoomSettings {
                     algorithm: EventEncryptionAlgorithm::OlmV1Curve25519AesSha2,
                     only_allow_trusted_devices: false,
+                    ..Default::default()
                 };
 
                 let room_3 = room_id!("!test_3:localhost");

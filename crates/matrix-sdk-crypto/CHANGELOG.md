@@ -1,5 +1,13 @@
 # UNRELEASED
 
+- Expose new methods `OlmMachine::set_room_settings` and
+  `OlmMachine::get_room_settings`.
+  ([#3042](https://github.com/matrix-org/matrix-rust-sdk/pull/3042))
+
+- Add new properties `session_rotation_period` and
+  `session_rotation_period_msgs` to `store::RoomSettings`.
+  ([#3042](https://github.com/matrix-org/matrix-rust-sdk/pull/3042))
+
 - Fix bug which caused `SecretStorageKey` to incorrectly reject secret storage
   keys whose metadata lacked check fields.
   ([#3046](https://github.com/matrix-org/matrix-rust-sdk/pull/3046))
