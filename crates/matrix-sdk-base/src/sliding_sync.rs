@@ -354,9 +354,9 @@ impl BaseClient {
             .await?;
         }
 
-        let room_account_data = if let Some(events) = &rooms_account_data.remove(room_id) {
-            self.handle_room_account_data(room_id, events, changes).await;
-            Some(events.to_vec())
+        let room_account_data = if let Some(events) = rooms_account_data.remove(room_id) {
+            self.handle_room_account_data(room_id, &events, changes).await;
+            Some(events)
         } else {
             None
         };
