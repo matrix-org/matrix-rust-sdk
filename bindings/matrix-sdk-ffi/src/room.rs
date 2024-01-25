@@ -1,14 +1,17 @@
 use std::{convert::TryFrom, sync::Arc};
 
 use anyhow::{Context, Result};
-use matrix_sdk::{room::Room as SdkRoom, RoomMemberships, RoomNotableTags, RoomState};
+use matrix_sdk::{
+    room::{power_levels::RoomPowerLevelChanges, Room as SdkRoom},
+    RoomMemberships, RoomNotableTags, RoomState,
+};
 use matrix_sdk_ui::timeline::RoomExt;
 use mime::Mime;
 use ruma::{
     api::client::room::report_content,
     assign,
     events::room::{avatar::ImageInfo as RumaAvatarImageInfo, MediaSource},
-    EventId, UserId,
+    EventId, Int, UserId,
 };
 use tokio::sync::RwLock;
 use tracing::error;
@@ -563,6 +566,35 @@ impl Room {
         }
 
         self.mark_as_read().await
+    }
+
+    pub async fn build_power_level_changes_from_current(
+        &self,
+    ) -> Result<RoomPowerLevelChanges, ClientError> {
+        let power_levels = self.inner.room_power_levels().await?;
+        Ok(power_levels.into())
+    }
+
+    pub async fn apply_power_level_changes(
+        &self,
+        changes: RoomPowerLevelChanges,
+    ) -> Result<(), ClientError> {
+        self.inner.apply_power_level_changes(changes).await?;
+        Ok(())
+    }
+
+    pub async fn update_power_level_for_user(
+        &self,
+        user_id: String,
+        power_level: i64,
+    ) -> Result<(), ClientError> {
+        let user_id = UserId::parse(&user_id)?;
+        let power_level = Int::new(power_level).context("Invalid power level")?;
+        self.inner
+            .update_power_levels(vec![(&user_id, power_level)])
+            .await
+            .map_err(|e| ClientError::Generic { msg: e.to_string() })?;
+        Ok(())
     }
 }
 
