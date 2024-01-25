@@ -230,14 +230,18 @@ impl BaseClient {
                 .cloned()
                 .or_else(|| self.get_room(room_id).map(|r| r.clone_info()))
             {
-                if compute_unread_counts(
+                let prev_read_receipts = room_info.read_receipts.clone();
+
+                compute_unread_counts(
                     user_id,
                     room_id,
                     changes.receipts.get(room_id),
                     previous_events_provider.for_room(room_id),
                     &joined_room_update.timeline.events,
                     &mut room_info.read_receipts,
-                )? {
+                );
+
+                if prev_read_receipts != room_info.read_receipts {
                     changes.add_room(room_info);
                 }
             }
