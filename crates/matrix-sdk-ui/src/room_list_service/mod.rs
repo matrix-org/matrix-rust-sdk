@@ -66,7 +66,7 @@ mod room;
 mod room_list;
 mod state;
 
-use std::{future::ready, sync::Arc, time::Duration};
+use std::{future::ready, num::NonZeroUsize, sync::Arc, time::Duration};
 
 use async_stream::stream;
 use eyeball::{SharedObservable, Subscriber};
@@ -125,7 +125,8 @@ impl RoomListService {
     /// This number should be high enough so that navigating to a room
     /// previously visited is almost instant, but also not too high so as to
     /// avoid exhausting memory.
-    const ROOM_OBJECT_CACHE_SIZE: usize = 128;
+    // SAFETY: `new_unchecked` is safe because 128 is not zero.
+    const ROOM_OBJECT_CACHE_SIZE: NonZeroUsize = unsafe { NonZeroUsize::new_unchecked(128) };
 
     /// Create a new `RoomList`.
     ///
@@ -178,6 +179,7 @@ impl RoomListService {
                         (StateEventType::RoomAvatar, "".to_owned()),
                         (StateEventType::RoomEncryption, "".to_owned()),
                         (StateEventType::RoomMember, "$LAZY".to_owned()),
+                        (StateEventType::RoomMember, "$ME".to_owned()),
                         (StateEventType::RoomPowerLevels, "".to_owned()),
                     ]),
             ))

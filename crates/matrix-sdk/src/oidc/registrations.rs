@@ -135,10 +135,7 @@ impl OidcRegistrations {
     /// Returns the client ID registered for a particular issuer or None if a
     /// registration hasn't been made.
     pub fn client_id(&self, issuer: &Url) -> Option<ClientId> {
-        let mut data = self.read_registration_data().unwrap_or_else(|_| {
-            tracing::warn!("Generating new registration data");
-            self.new_registration_data()
-        });
+        let mut data = self.read_or_generate_registration_data();
         data.dynamic_registrations.extend(self.static_registrations.clone());
         data.dynamic_registrations.get(issuer).cloned()
     }
@@ -150,10 +147,7 @@ impl OidcRegistrations {
         client_id: ClientId,
         issuer: Url,
     ) -> Result<(), OidcRegistrationsError> {
-        let mut data = self.read_registration_data().unwrap_or_else(|_| {
-            tracing::warn!("Generating new registration data");
-            self.new_registration_data()
-        });
+        let mut data = self.read_or_generate_registration_data();
         data.dynamic_registrations.insert(issuer, client_id);
 
         let writer = BufWriter::new(
@@ -164,46 +158,45 @@ impl OidcRegistrations {
             .map_err(|e| OidcRegistrationsError::SaveFailure(Box::new(e)))
     }
 
-    /// Returns the underlying registration data.
-    fn read_registration_data(&self) -> Result<FrozenRegistrationData, ()> {
-        let reader = match File::open(&self.file_path).map(BufReader::new) {
-            Ok(reader) => reader,
-            Err(error) => {
-                tracing::warn!("Failed to load registrations file: {error}");
-                return Err(());
-            }
-        };
+    /// Returns the underlying registration data, or generates a new one.
+    fn read_or_generate_registration_data(&self) -> FrozenRegistrationData {
+        let try_read_previous = || {
+            let reader = BufReader::new(
+                File::open(&self.file_path)
+                    .map_err(|error| {
+                        tracing::warn!("Failed to load registrations file: {error}");
+                    })
+                    .ok()?,
+            );
 
-        let registration_data =
-            match serde_json::from_reader::<_, UnvalidatedRegistrationData>(reader) {
-                Ok(registration_data) => registration_data,
-                Err(error) => {
+            let registration_data: UnvalidatedRegistrationData = serde_json::from_reader(reader)
+                .map_err(|error| {
                     tracing::warn!("Failed to deserialize registrations file: {error}");
-                    return Err(());
-                }
-            };
+                })
+                .ok()?;
 
-        let registration_data = match registration_data.validate() {
-            Ok(registration_data) => registration_data,
-            Err(error) => {
-                tracing::warn!("Failed to validate registration data: {error}");
-                return Err(());
+            let registration_data = registration_data
+                .validate()
+                .map_err(|error| {
+                    tracing::warn!("Failed to validate registration data: {error}");
+                })
+                .ok()?;
+
+            if registration_data.metadata != self.verified_metadata {
+                tracing::warn!("Metadata mismatch, ignoring any stored registrations.");
+                return None;
             }
+
+            Some(registration_data)
         };
 
-        if registration_data.metadata != self.verified_metadata {
-            tracing::warn!("Metadata mismatch, ignoring any stored registrations.");
-            return Err(());
-        }
-
-        Ok(registration_data)
-    }
-
-    fn new_registration_data(&self) -> FrozenRegistrationData {
-        FrozenRegistrationData {
-            metadata: self.verified_metadata.clone(),
-            dynamic_registrations: Default::default(),
-        }
+        try_read_previous().unwrap_or_else(|| {
+            tracing::warn!("Generating new registration data");
+            FrozenRegistrationData {
+                metadata: self.verified_metadata.clone(),
+                dynamic_registrations: Default::default(),
+            }
+        })
     }
 }
 

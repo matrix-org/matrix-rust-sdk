@@ -275,6 +275,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
                         ["m.room.avatar", ""],
                         ["m.room.encryption", ""],
                         ["m.room.member", "$LAZY"],
+                        ["m.room.member", "$ME"],
                         ["m.room.power_levels", ""],
                     ],
                     "filters": {

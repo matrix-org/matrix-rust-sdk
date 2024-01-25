@@ -47,15 +47,11 @@ use crate::{
             TimelineItemPosition,
         },
         event_item::EventItemIdentifier,
-        item::timeline_item,
         polls::PollPendingEvents,
         reactions::{ReactionToggleResult, Reactions},
         read_receipts::ReadReceipts,
         traits::RoomDataProvider,
-        util::{
-            find_read_marker, rfind_event_by_id, rfind_event_item, timestamp_to_date,
-            RelativePosition,
-        },
+        util::{rfind_event_by_id, rfind_event_item, timestamp_to_date, RelativePosition},
         AnnotationKey, Error as TimelineError, Profile, ReactionSenderData, TimelineItem,
         TimelineItemKind, VirtualTimelineItem,
     },
@@ -428,7 +424,7 @@ impl TimelineInnerState {
             }
         }
 
-        let item = timeline_item(new_related, related.internal_id);
+        let item = TimelineItem::new(new_related, related.internal_id);
         self.items.set(idx, item);
 
         Ok(())
@@ -685,7 +681,9 @@ impl TimelineInnerStateTransaction<'_> {
         self.read_receipts.clear();
         self.reactions.clear();
         self.fully_read_event = None;
-        self.event_should_update_fully_read_marker = false;
+        // We forgot about the fully read marker right above, so wait for a new one
+        // before attempting to update it for each new timeline item.
+        self.has_up_to_date_read_marker_item = true;
         self.back_pagination_tokens.clear();
 
         debug!(remaining_items = self.items.len(), "Timeline cleared");
@@ -793,20 +791,25 @@ pub(in crate::timeline) struct TimelineInnerMetadata {
     /// List of all the events as received in the timeline, even the ones that
     /// are discarded in the timeline items.
     pub all_events: VecDeque<EventMeta>,
+
     next_internal_id: u64,
     pub reactions: Reactions,
     pub poll_pending_events: PollPendingEvents,
     pub fully_read_event: Option<OwnedEventId>,
-    /// Whether the fully-read marker item should try to be updated when an
-    /// event is added.
-    /// This is currently `true` in two cases:
+
+    /// Whether we have a fully read-marker item in the timeline, that's up to
+    /// date with the room's read marker.
+    ///
+    /// This is false when:
     /// - The fully-read marker points to an event that is not in the timeline,
     /// - The fully-read marker item would be the last item in the timeline.
-    pub event_should_update_fully_read_marker: bool,
+    pub has_up_to_date_read_marker_item: bool,
+
     pub read_receipts: ReadReceipts,
-    /// the local reaction request state that is queued next
+
+    /// The local reaction request state that is queued next.
     pub reaction_state: IndexMap<AnnotationKey, ReactionState>,
-    /// the in flight reaction request state that is ongoing
+    /// The in-flight reaction request state that is ongoing.
     pub in_flight_reaction: IndexMap<AnnotationKey, ReactionState>,
     pub room_version: RoomVersionId,
 
@@ -825,7 +828,9 @@ impl TimelineInnerMetadata {
             reactions: Default::default(),
             poll_pending_events: Default::default(),
             fully_read_event: Default::default(),
-            event_should_update_fully_read_marker: Default::default(),
+            // It doesn't make sense to set this to false until we fill the `fully_read_event`
+            // field, otherwise we'll keep on exiting early in `Self::update_read_marker`.
+            has_up_to_date_read_marker_item: true,
             read_receipts: Default::default(),
             reaction_state: Default::default(),
             in_flight_reaction: Default::default(),
@@ -863,14 +868,17 @@ impl TimelineInnerMetadata {
         None
     }
 
+    /// Returns the next internal id for a timeline item (and increment our
+    /// internal counter).
     pub fn next_internal_id(&mut self) -> u64 {
         let val = self.next_internal_id;
         self.next_internal_id += 1;
         val
     }
 
+    /// Returns a new timeline item with a fresh internal id.
     pub fn new_timeline_item(&mut self, kind: impl Into<TimelineItemKind>) -> Arc<TimelineItem> {
-        timeline_item(kind, self.next_internal_id())
+        TimelineItem::new(kind, self.next_internal_id())
     }
 
     /// Returns a new day divider item for the new timestamp if it is on a
@@ -884,6 +892,7 @@ impl TimelineInnerMetadata {
             .then(|| self.new_timeline_item(VirtualTimelineItem::DayDivider(new_ts)))
     }
 
+    /// Try to update the read marker item in the timeline.
     pub(crate) fn update_read_marker(
         &mut self,
         items: &mut ObservableVectorTransaction<'_, Arc<TimelineItem>>,
@@ -891,44 +900,54 @@ impl TimelineInnerMetadata {
         let Some(fully_read_event) = &self.fully_read_event else { return };
         trace!(?fully_read_event, "Updating read marker");
 
-        let read_marker_idx = find_read_marker(items);
+        let read_marker_idx = items.iter().rposition(|item| item.is_read_marker());
         let fully_read_event_idx = rfind_event_by_id(items, fully_read_event).map(|(idx, _)| idx);
 
         match (read_marker_idx, fully_read_event_idx) {
             (None, None) => {
-                self.event_should_update_fully_read_marker = true;
+                // We didn't have a previous read marker, and we didn't find the fully-read
+                // event in the timeline items. Don't do anything, and retry on
+                // the next event we add.
+                self.has_up_to_date_read_marker_item = false;
             }
+
             (None, Some(idx)) => {
-                // We don't want to insert the read marker if it is at the end of the timeline.
+                // Only insert the read marker if it is not at the end of the timeline.
                 if idx + 1 < items.len() {
-                    self.event_should_update_fully_read_marker = false;
                     items.insert(idx + 1, TimelineItem::read_marker());
+                    self.has_up_to_date_read_marker_item = true;
                 } else {
-                    self.event_should_update_fully_read_marker = true;
+                    // The next event might require a read marker to be inserted at the current
+                    // end.
+                    self.has_up_to_date_read_marker_item = false;
                 }
             }
+
             (Some(_), None) => {
-                // Keep the current position of the read marker, hopefully we
-                // should have a new position later.
-                self.event_should_update_fully_read_marker = true;
+                // We didn't find the timeline item containing the event referred to by the read
+                // marker. Retry next time we get a new event.
+                self.has_up_to_date_read_marker_item = false;
             }
+
             (Some(from), Some(to)) => {
-                self.event_should_update_fully_read_marker = false;
+                if from >= to {
+                    // The read marker can't move backwards. Keep the current one.
+                    self.has_up_to_date_read_marker_item = true;
+                    return;
+                }
 
-                // The read marker can't move backwards.
-                if from < to {
-                    let item = items.remove(from);
+                let prev_len = items.len();
+                let read_marker = items.remove(from);
 
-                    // We don't want to re-insert the read marker if it is at the end of the
-                    // timeline.
-                    if to < items.len() {
-                        // Since the fully-read event's index was shifted to the left
-                        // by one position by the remove call above, insert the fully-
-                        // read marker at its previous position, rather than that + 1
-                        items.insert(to, item);
-                    } else {
-                        self.event_should_update_fully_read_marker = true;
-                    }
+                // Only insert the read marker if it is not at the end of the timeline.
+                if to + 1 < prev_len {
+                    // Since the fully-read event's index was shifted to the left
+                    // by one position by the remove call above, insert the fully-
+                    // read marker at its previous position, rather than that + 1
+                    items.insert(to, read_marker);
+                    self.has_up_to_date_read_marker_item = true;
+                } else {
+                    self.has_up_to_date_read_marker_item = false;
                 }
             }
         }

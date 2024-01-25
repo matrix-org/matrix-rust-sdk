@@ -1233,6 +1233,7 @@ impl BaseClient {
         } else if let Some(member) = Box::pin(room.get_member(user_id)).await? {
             member.name().to_owned()
         } else {
+            trace!("Couldn't get push context because of missing own member information");
             return Ok(None);
         };
 

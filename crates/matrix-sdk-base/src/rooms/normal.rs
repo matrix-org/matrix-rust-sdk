@@ -133,8 +133,10 @@ impl From<&MembershipState> for RoomState {
 
 impl Room {
     /// The size of the latest_encrypted_events RingBuffer
+    // SAFETY: `new_unchecked` is safe because 10 is not zero.
     #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
-    const MAX_ENCRYPTED_EVENTS: usize = 10;
+    const MAX_ENCRYPTED_EVENTS: std::num::NonZeroUsize =
+        unsafe { std::num::NonZeroUsize::new_unchecked(10) };
 
     pub(crate) fn new(
         own_user_id: &UserId,
@@ -194,6 +196,11 @@ impl Room {
     /// encrypted rooms.
     pub fn num_unread_messages(&self) -> u64 {
         self.inner.read().read_receipts.num_unread
+    }
+
+    /// Get the detailed information about read receipts for the room.
+    pub fn read_receipts(&self) -> RoomReadReceipts {
+        self.inner.read().read_receipts.clone()
     }
 
     /// Get the number of unread notifications (computed client-side).
