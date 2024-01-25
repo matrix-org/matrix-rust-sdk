@@ -164,6 +164,7 @@ enum PendingOperation {
     Put { key: JsValue, value: JsValue },
     Delete(JsValue),
 }
+
 /// A struct that represents all the operations that need to be done to the
 /// database when save_changes is called.
 /// The idea is to do all the serialization and encryption before the
@@ -175,13 +176,30 @@ struct IndexeddbChangesKeyValue {
     store_to_key_values: HashMap<&'static str, Vec<PendingOperation>>,
 }
 
+/// Represents the changes on the single object store.
+struct PendingStoreChanges<'a> {
+    operations: &'a mut Vec<PendingOperation>,
+}
+
+impl<'a> PendingStoreChanges<'a> {
+    fn put(&mut self, key: JsValue, value: JsValue) {
+        self.operations.push(PendingOperation::Put { key, value });
+    }
+
+    fn delete(&mut self, key: JsValue) {
+        self.operations.push(PendingOperation::Delete(key));
+    }
+}
+
+impl IndexeddbChangesKeyValue {
+    fn get(&mut self, store: &'static str) -> PendingStoreChanges<'_> {
+        PendingStoreChanges { operations: self.store_to_key_values.entry(store).or_default() }
+    }
+}
+
 impl IndexeddbChangesKeyValue {
     fn new() -> Self {
         Self { store_to_key_values: HashMap::new() }
-    }
-
-    fn get(&mut self, store: &'static str) -> &mut Vec<PendingOperation> {
-        self.store_to_key_values.entry(store).or_default()
     }
 
     /// Applies all the pending operations to the store.
@@ -376,37 +394,36 @@ impl IndexeddbCryptoStore {
         let decryption_key_pickle = &changes.backup_decryption_key;
         let backup_version = &changes.backup_version;
 
-        let core = indexeddb_changes.get(keys::CORE);
+        let mut core = indexeddb_changes.get(keys::CORE);
         if let Some(next_batch) = &changes.next_batch_token {
-            core.push(PendingOperation::Put {
-                key: JsValue::from_str(keys::NEXT_BATCH_TOKEN),
-                value: self.serializer.serialize_value(next_batch)?,
-            });
+            core.put(
+                JsValue::from_str(keys::NEXT_BATCH_TOKEN),
+                self.serializer.serialize_value(next_batch)?,
+            );
         }
 
         if let Some(i) = &private_identity_pickle {
-            core.push(PendingOperation::Put {
-                key: JsValue::from_str(keys::PRIVATE_IDENTITY),
-                value: self.serializer.serialize_value(i)?,
-            });
+            core.put(
+                JsValue::from_str(keys::PRIVATE_IDENTITY),
+                self.serializer.serialize_value(i)?,
+            );
         }
 
         if let Some(a) = &decryption_key_pickle {
-            indexeddb_changes.get(keys::BACKUP_KEYS).push(PendingOperation::Put {
-                key: JsValue::from_str(keys::RECOVERY_KEY_V1),
-                value: self.serializer.serialize_value(&a)?,
-            });
+            indexeddb_changes.get(keys::BACKUP_KEYS).put(
+                JsValue::from_str(keys::RECOVERY_KEY_V1),
+                self.serializer.serialize_value(&a)?,
+            );
         }
 
         if let Some(a) = &backup_version {
-            indexeddb_changes.get(keys::BACKUP_KEYS).push(PendingOperation::Put {
-                key: JsValue::from_str(keys::BACKUP_KEY_V1),
-                value: self.serializer.serialize_value(&a)?,
-            });
+            indexeddb_changes
+                .get(keys::BACKUP_KEYS)
+                .put(JsValue::from_str(keys::BACKUP_KEY_V1), self.serializer.serialize_value(&a)?);
         }
 
         if !changes.sessions.is_empty() {
-            let sessions = indexeddb_changes.get(keys::SESSION);
+            let mut sessions = indexeddb_changes.get(keys::SESSION);
 
             for session in &changes.sessions {
                 let sender_key = session.sender_key().to_base64();
@@ -415,15 +432,12 @@ impl IndexeddbCryptoStore {
                 let pickle = session.pickle().await;
                 let key = self.serializer.encode_key(keys::SESSION, (&sender_key, session_id));
 
-                sessions.push(PendingOperation::Put {
-                    key,
-                    value: self.serializer.serialize_value(&pickle)?,
-                });
+                sessions.put(key, self.serializer.serialize_value(&pickle)?);
             }
         }
 
         if !changes.inbound_group_sessions.is_empty() {
-            let sessions = indexeddb_changes.get(keys::INBOUND_GROUP_SESSIONS_V2);
+            let mut sessions = indexeddb_changes.get(keys::INBOUND_GROUP_SESSIONS_V2);
 
             for session in &changes.inbound_group_sessions {
                 let room_id = session.room_id();
@@ -432,20 +446,20 @@ impl IndexeddbCryptoStore {
                     .serializer
                     .encode_key(keys::INBOUND_GROUP_SESSIONS_V2, (room_id, session_id));
                 let value = self.serialize_inbound_group_session(session).await?;
-                sessions.push(PendingOperation::Put { key, value });
+                sessions.put(key, value);
             }
         }
 
         if !changes.outbound_group_sessions.is_empty() {
-            let sessions = indexeddb_changes.get(keys::OUTBOUND_GROUP_SESSIONS);
+            let mut sessions = indexeddb_changes.get(keys::OUTBOUND_GROUP_SESSIONS);
 
             for session in &changes.outbound_group_sessions {
                 let room_id = session.room_id();
                 let pickle = session.pickle().await;
-                sessions.push(PendingOperation::Put {
-                    key: self.serializer.encode_key(keys::OUTBOUND_GROUP_SESSIONS, room_id),
-                    value: self.serializer.serialize_value(&pickle)?,
-                });
+                sessions.put(
+                    self.serializer.encode_key(keys::OUTBOUND_GROUP_SESSIONS, room_id),
+                    self.serializer.serialize_value(&pickle)?,
+                );
             }
         }
 
@@ -456,85 +470,79 @@ impl IndexeddbCryptoStore {
         let withheld_session_info = &changes.withheld_session_info;
         let room_settings_changes = &changes.room_settings;
 
-        let device_store = indexeddb_changes.get(keys::DEVICES);
+        let mut device_store = indexeddb_changes.get(keys::DEVICES);
 
         for device in device_changes.new.iter().chain(&device_changes.changed) {
             let key =
                 self.serializer.encode_key(keys::DEVICES, (device.user_id(), device.device_id()));
             let device = self.serializer.serialize_value(&device)?;
 
-            device_store.push(PendingOperation::Put { key, value: device });
+            device_store.put(key, device);
         }
 
         for device in &device_changes.deleted {
             let key =
                 self.serializer.encode_key(keys::DEVICES, (device.user_id(), device.device_id()));
-            device_store.push(PendingOperation::Delete(key));
+            device_store.delete(key);
         }
 
         if !identity_changes.changed.is_empty() || !identity_changes.new.is_empty() {
-            let identities = indexeddb_changes.get(keys::IDENTITIES);
+            let mut identities = indexeddb_changes.get(keys::IDENTITIES);
             for identity in identity_changes.changed.iter().chain(&identity_changes.new) {
-                identities.push(PendingOperation::Put {
-                    key: self.serializer.encode_key(keys::IDENTITIES, identity.user_id()),
-                    value: self.serializer.serialize_value(&identity)?,
-                });
+                identities.put(
+                    self.serializer.encode_key(keys::IDENTITIES, identity.user_id()),
+                    self.serializer.serialize_value(&identity)?,
+                );
             }
         }
 
         if !olm_hashes.is_empty() {
-            let hashes = indexeddb_changes.get(keys::OLM_HASHES);
+            let mut hashes = indexeddb_changes.get(keys::OLM_HASHES);
             for hash in olm_hashes {
-                hashes.push(PendingOperation::Put {
-                    key: self
-                        .serializer
-                        .encode_key(keys::OLM_HASHES, (&hash.sender_key, &hash.hash)),
-                    value: JsValue::TRUE,
-                });
+                hashes.put(
+                    self.serializer.encode_key(keys::OLM_HASHES, (&hash.sender_key, &hash.hash)),
+                    JsValue::TRUE,
+                );
             }
         }
 
         if !key_requests.is_empty() {
-            let gossip_requests = indexeddb_changes.get(keys::GOSSIP_REQUESTS);
+            let mut gossip_requests = indexeddb_changes.get(keys::GOSSIP_REQUESTS);
 
             for gossip_request in key_requests {
                 let key_request_id = self
                     .serializer
                     .encode_key(keys::GOSSIP_REQUESTS, gossip_request.request_id.as_str());
                 let key_request_value = self.serialize_gossip_request(gossip_request)?;
-                gossip_requests
-                    .push(PendingOperation::Put { key: key_request_id, value: key_request_value });
+                gossip_requests.put(key_request_id, key_request_value);
             }
         }
 
         if !withheld_session_info.is_empty() {
-            let withhelds = indexeddb_changes.get(keys::DIRECT_WITHHELD_INFO);
+            let mut withhelds = indexeddb_changes.get(keys::DIRECT_WITHHELD_INFO);
 
             for (room_id, data) in withheld_session_info {
                 for (session_id, event) in data {
                     let key = self
                         .serializer
                         .encode_key(keys::DIRECT_WITHHELD_INFO, (session_id, &room_id));
-                    withhelds.push(PendingOperation::Put {
-                        key,
-                        value: self.serializer.serialize_value(&event)?,
-                    });
+                    withhelds.put(key, self.serializer.serialize_value(&event)?);
                 }
             }
         }
 
         if !room_settings_changes.is_empty() {
-            let settings_store = indexeddb_changes.get(keys::ROOM_SETTINGS);
+            let mut settings_store = indexeddb_changes.get(keys::ROOM_SETTINGS);
 
             for (room_id, settings) in room_settings_changes {
                 let key = self.serializer.encode_key(keys::ROOM_SETTINGS, room_id);
                 let value = self.serializer.serialize_value(&settings)?;
-                settings_store.push(PendingOperation::Put { key, value });
+                settings_store.put(key, value);
             }
         }
 
         if !changes.secrets.is_empty() {
-            let secret_store = indexeddb_changes.get(keys::SECRETS_INBOX);
+            let mut secret_store = indexeddb_changes.get(keys::SECRETS_INBOX);
 
             for secret in &changes.secrets {
                 let key = self.serializer.encode_key(
@@ -543,7 +551,7 @@ impl IndexeddbCryptoStore {
                 );
                 let value = self.serializer.serialize_value(&secret)?;
 
-                secret_store.push(PendingOperation::Put { key, value });
+                secret_store.put(key, value);
             }
         }
 
