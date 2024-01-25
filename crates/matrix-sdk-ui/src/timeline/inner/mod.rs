@@ -1066,9 +1066,11 @@ impl TimelineInner {
                 if let Some((old_pub_read, _)) =
                     state.user_receipt(own_user_id, ReceiptType::Read, room).await
                 {
+                    trace!(%old_pub_read, "found a previous public receipt");
                     if let Some(relative_pos) =
                         state.meta.compare_events_positions(&old_pub_read, event_id)
                     {
+                        trace!("event referred to new receipt is {relative_pos:?} the previous receipt");
                         return relative_pos == RelativePosition::After;
                     }
                 }
@@ -1079,9 +1081,11 @@ impl TimelineInner {
                 if let Some((old_priv_read, _)) =
                     state.latest_user_read_receipt(own_user_id, room).await
                 {
+                    trace!(%old_priv_read, "found a previous private receipt");
                     if let Some(relative_pos) =
                         state.meta.compare_events_positions(&old_priv_read, event_id)
                     {
+                        trace!("event referred to new receipt is {relative_pos:?} the previous receipt");
                         return relative_pos == RelativePosition::After;
                     }
                 }
