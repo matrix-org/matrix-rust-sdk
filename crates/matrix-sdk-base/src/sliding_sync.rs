@@ -38,7 +38,7 @@ use crate::RoomMemberships;
 use crate::{
     deserialized_responses::AmbiguityChanges,
     error::Result,
-    read_receipts::{compute_notifications, PreviousEventsProvider},
+    read_receipts::{compute_unread_counts, PreviousEventsProvider},
     rooms::RoomState,
     store::{ambiguity_map::AmbiguityCache, StateChanges, Store},
     sync::{JoinedRoom, LeftRoom, Notification, Rooms, SyncResponse},
@@ -230,7 +230,7 @@ impl BaseClient {
                 .cloned()
                 .or_else(|| self.get_room(room_id).map(|r| r.clone_info()))
             {
-                if compute_notifications(
+                if compute_unread_counts(
                     user_id,
                     room_id,
                     changes.receipts.get(room_id),

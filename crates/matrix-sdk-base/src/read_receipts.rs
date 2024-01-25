@@ -36,7 +36,7 @@
 //! `marks_as_unread` function shows the opiniated set of rules that will filter
 //! out uninterested events.
 //!
-//! The only public method in that module is [`compute_notifications`], which
+//! The only public method in that module is [`compute_unread_counts`], which
 //! updates the `RoomInfo` in place according to the new counts.
 //!
 //! ## Implementation details: How to get the latest receipt?
@@ -50,7 +50,7 @@
 //!
 //! ### How-to
 //!
-//! When we call `compute_notifications`, that's for one of two reasons (and
+//! When we call `compute_unread_counts`, that's for one of two reasons (and
 //! maybe both at once, or maybe none at all):
 //! - we received a new receipt
 //! - new events came in.
@@ -103,7 +103,7 @@
 //!
 //! ### Edge cases
 //!
-//! - `compute_notifications` is called after receiving a sliding sync response,
+//! - `compute_unread_counts` is called after receiving a sliding sync response,
 //!   at a time where we haven't tried to "reconcile" the cached timeline items
 //!   with the new ones. The only kind of reconciliation we'd do anyways is
 //!   clearing the timeline if it was limited, which equates to having common
@@ -150,7 +150,7 @@ struct LatestReadReceipt {
 /// Public data about read receipts collected during processing of that room.
 ///
 /// Remember that each time a field of `RoomReadReceipts` is updated in
-/// `compute_notifications`, this function must return true!
+/// `compute_unread_counts`, this function must return true!
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RoomReadReceipts {
     /// Does the room have unread messages?
@@ -309,7 +309,7 @@ impl ReceiptSelector {
 
         // Note: `best_receipt` isn't initialized to the latest active receipt, if set,
         // so that `finish` will return only *new* better receipts, making it
-        // possible to take the fast path in `compute_notifications` where every
+        // possible to take the fast path in `compute_unread_counts` where every
         // event is considered new.
         Self { latest_event_pos: best_pos, latest_event_with_receipt: None, event_id_to_pos }
     }
@@ -436,7 +436,7 @@ fn events_intersects<'a>(
 ///
 /// Returns a boolean indicating if a field changed value in the read receipts.
 #[instrument(skip_all, fields(room_id = %room_id))]
-pub(crate) fn compute_notifications(
+pub(crate) fn compute_unread_counts(
     user_id: &UserId,
     room_id: &RoomId,
     receipt_event: Option<&ReceiptEventContent>,
@@ -624,7 +624,7 @@ mod tests {
         room_id, user_id, EventId, UserId,
     };
 
-    use super::compute_notifications;
+    use super::compute_unread_counts;
     use crate::read_receipts::{marks_as_unread, ReceiptSelector, RoomReadReceipts};
 
     #[test]
@@ -961,9 +961,9 @@ mod tests {
         }))
     }
 
-    /// Smoke test for `compute_notifications`.
+    /// Smoke test for `compute_unread_counts`.
     #[test]
-    fn test_basic_compute_notifications() {
+    fn test_basic_compute_unread_counts() {
         let user_id = user_id!("@alice:example.org");
         let other_user_id = user_id!("@bob:example.org");
         let room_id = room_id!("!room:example.org");
@@ -982,7 +982,7 @@ mod tests {
         )]);
 
         let mut read_receipts = Default::default();
-        compute_notifications(
+        compute_unread_counts(
             user_id,
             room_id,
             Some(&receipt_event),
@@ -1000,7 +1000,7 @@ mod tests {
         previous_events.push_back(ev2);
 
         let new_event = sync_timeline_message(other_user_id, "$3", "A");
-        compute_notifications(
+        compute_unread_counts(
             user_id,
             room_id,
             Some(&receipt_event),
@@ -1026,7 +1026,7 @@ mod tests {
     /// Test that when multiple receipts come in a single event, we can still
     /// find the latest one according to the sync order.
     #[test]
-    fn test_compute_notifications_multiple_receipts_in_one_event() {
+    fn test_compute_unread_counts_multiple_receipts_in_one_event() {
         let user_id = user_id!("@alice:example.org");
         let room_id = room_id!("!room:example.org");
 
@@ -1064,7 +1064,7 @@ mod tests {
                         // When I compute the notifications for this room (with no new events),
                         let mut read_receipts = RoomReadReceipts::default();
 
-                        assert!(compute_notifications(
+                        assert!(compute_unread_counts(
                             user_id,
                             room_id,
                             Some(&receipt_event),
@@ -1081,7 +1081,7 @@ mod tests {
 
                         // And when I compute notifications again, with some old and new events,
                         let mut read_receipts = RoomReadReceipts::default();
-                        assert!(compute_notifications(
+                        assert!(compute_unread_counts(
                             user_id,
                             room_id,
                             Some(&receipt_event),
@@ -1102,10 +1102,10 @@ mod tests {
     }
 
     /// Updating the pending list should cause a change in the
-    /// `RoomReadReceipts` fields, and `compute_notifications` should return
+    /// `RoomReadReceipts` fields, and `compute_unread_counts` should return
     /// true then.
     #[test]
-    fn test_compute_notifications_updated_after_field_tracking() {
+    fn test_compute_unread_counts_updated_after_field_tracking() {
         let user_id = owned_user_id!("@alice:example.org");
         let room_id = room_id!("!room:example.org");
 
@@ -1123,7 +1123,7 @@ mod tests {
 
         // Given a receipt event that contains a read receipt referring to an unknown
         // event, and some preexisting events with different ids,
-        assert!(compute_notifications(
+        assert!(compute_unread_counts(
             &user_id,
             room_id,
             Some(&receipt_event),
@@ -1142,7 +1142,7 @@ mod tests {
     }
 
     #[test]
-    fn test_compute_notifications_limited_sync() {
+    fn test_compute_unread_counts_limited_sync() {
         let user_id = owned_user_id!("@alice:example.org");
         let room_id = room_id!("!room:example.org");
 
@@ -1163,7 +1163,7 @@ mod tests {
 
         let ev0 = events[0].clone();
 
-        assert!(compute_notifications(
+        assert!(compute_unread_counts(
             &user_id,
             room_id,
             Some(&receipt_event),
