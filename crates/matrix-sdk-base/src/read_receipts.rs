@@ -138,9 +138,7 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 use tracing::{debug, instrument, trace};
 
-use crate::error::Result;
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 struct LatestReadReceipt {
     /// The id of the event the read receipt is referring to. (Not the read
     /// receipt event id.)
@@ -151,7 +149,7 @@ struct LatestReadReceipt {
 ///
 /// Remember that each time a field of `RoomReadReceipts` is updated in
 /// `compute_unread_counts`, this function must return true!
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct RoomReadReceipts {
     /// Does the room have unread messages?
     pub num_unread: u64,
@@ -204,12 +202,9 @@ impl RoomReadReceipts {
     ///
     /// Returns whether a new event triggered a new unread/notification/mention.
     #[inline(always)]
-    fn process_event(&mut self, event: &SyncTimelineEvent, user_id: &UserId) -> bool {
-        let mut has_unread = false;
-
+    fn process_event(&mut self, event: &SyncTimelineEvent, user_id: &UserId) {
         if marks_as_unread(&event.event, user_id) {
             self.num_unread += 1;
-            has_unread = true
         }
 
         let mut has_notify = false;
@@ -225,8 +220,6 @@ impl RoomReadReceipts {
                 has_mention = true;
             }
         }
-
-        has_unread || has_notify || has_mention
     }
 
     #[inline(always)]
@@ -443,7 +436,7 @@ pub(crate) fn compute_unread_counts(
     previous_events: Vector<SyncTimelineEvent>,
     new_events: &[SyncTimelineEvent],
     read_receipts: &mut RoomReadReceipts,
-) -> Result<bool> {
+) {
     debug!(?read_receipts, "Starting.");
 
     let all_events = if events_intersects(previous_events.iter(), new_events) {
@@ -459,8 +452,6 @@ pub(crate) fn compute_unread_counts(
         all_events
     };
 
-    let mut has_changes = false;
-
     let new_receipt = {
         let mut selector = ReceiptSelector::new(
             &all_events,
@@ -470,9 +461,6 @@ pub(crate) fn compute_unread_counts(
         if let Some(receipt_event) = receipt_event {
             let new_pending = selector.handle_new_receipt(user_id, receipt_event);
             if !new_pending.is_empty() {
-                // Make sure to signal the caller that we've updated some fields of
-                // `RoomReadReceipts`.
-                has_changes = true;
                 read_receipts.pending.extend(new_pending);
             }
         }
@@ -496,9 +484,7 @@ pub(crate) fn compute_unread_counts(
         read_receipts.find_and_process_events(&event_id, user_id, all_events.iter());
 
         trace!(?read_receipts, "after finding a better receipt");
-
-        // The latest active read receipt has changed: signal that to the caller.
-        return Ok(true);
+        return;
     }
 
     // If we haven't returned at this point, it means we don't have any new "active"
@@ -509,13 +495,10 @@ pub(crate) fn compute_unread_counts(
     // for the next receipt.
 
     for event in new_events {
-        if read_receipts.process_event(event, user_id) {
-            has_changes = true;
-        }
+        read_receipts.process_event(event, user_id);
     }
 
     trace!(?read_receipts, "no better receipt, {} new events", new_events.len());
-    Ok(has_changes)
 }
 
 /// Is the event worth marking a room as unread?
@@ -989,8 +972,7 @@ mod tests {
             previous_events.clone(),
             &[ev1.clone(), ev2.clone()],
             &mut read_receipts,
-        )
-        .unwrap();
+        );
 
         // It did find the receipt event (ev1).
         assert_eq!(read_receipts.num_unread, 1);
@@ -1007,8 +989,7 @@ mod tests {
             previous_events,
             &[new_event],
             &mut read_receipts,
-        )
-        .unwrap();
+        );
 
         // Only the new event should be added.
         assert_eq!(read_receipts.num_unread, 2);
@@ -1064,15 +1045,19 @@ mod tests {
                         // When I compute the notifications for this room (with no new events),
                         let mut read_receipts = RoomReadReceipts::default();
 
-                        assert!(compute_unread_counts(
+                        compute_unread_counts(
                             user_id,
                             room_id,
                             Some(&receipt_event),
                             all_events.clone(),
                             &[],
                             &mut read_receipts,
-                        )
-                        .unwrap());
+                        );
+
+                        assert!(
+                            read_receipts != Default::default(),
+                            "read receipts have been updated"
+                        );
 
                         // Then events 1-3 are considered read, but 4 and 5 are not.
                         assert_eq!(read_receipts.num_unread, 2);
@@ -1081,15 +1066,19 @@ mod tests {
 
                         // And when I compute notifications again, with some old and new events,
                         let mut read_receipts = RoomReadReceipts::default();
-                        assert!(compute_unread_counts(
+                        compute_unread_counts(
                             user_id,
                             room_id,
                             Some(&receipt_event),
                             head_events.clone(),
                             &tail_events,
                             &mut read_receipts,
-                        )
-                        .unwrap());
+                        );
+
+                        assert!(
+                            read_receipts != Default::default(),
+                            "read receipts have been updated"
+                        );
 
                         // Then events 1-3 are considered read, but 4 and 5 are not.
                         assert_eq!(read_receipts.num_unread, 2);
@@ -1123,15 +1112,14 @@ mod tests {
 
         // Given a receipt event that contains a read receipt referring to an unknown
         // event, and some preexisting events with different ids,
-        assert!(compute_unread_counts(
+        compute_unread_counts(
             &user_id,
             room_id,
             Some(&receipt_event),
             events,
             &[], // no new events
             &mut read_receipts,
-        )
-        .unwrap());
+        );
 
         // Then there are no unread events,
         assert_eq!(read_receipts.num_unread, 0);
@@ -1163,15 +1151,14 @@ mod tests {
 
         let ev0 = events[0].clone();
 
-        assert!(compute_unread_counts(
+        compute_unread_counts(
             &user_id,
             room_id,
             Some(&receipt_event),
             events,
             &[ev0], // duplicate event!
             &mut read_receipts,
-        )
-        .unwrap());
+        );
 
         // All events are unread, and there's no pending receipt.
         assert_eq!(read_receipts.num_unread, 0);
