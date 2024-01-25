@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     sync::{Arc, RwLock},
 };
 
@@ -173,7 +173,7 @@ enum PendingOperation {
 struct IndexeddbChangesKeyValue {
     /// A map of the object store names to the operations to perform on that
     /// store.
-    store_to_key_values: HashMap<&'static str, Vec<PendingOperation>>,
+    store_to_key_values: BTreeMap<&'static str, Vec<PendingOperation>>,
 }
 
 /// Represents the changes on the single object store.
@@ -199,7 +199,7 @@ impl IndexeddbChangesKeyValue {
 
 impl IndexeddbChangesKeyValue {
     fn new() -> Self {
-        Self { store_to_key_values: HashMap::new() }
+        Self { store_to_key_values: BTreeMap::new() }
     }
 
     /// Applies all the pending operations to the store.
