@@ -176,7 +176,7 @@ struct PendingIndexeddbChanges {
     store_to_key_values: BTreeMap<&'static str, Vec<PendingOperation>>,
 }
 
-/// Represents the changes on the single object store.
+/// Represents the changes on a single object store.
 struct PendingStoreChanges<'a> {
     operations: &'a mut Vec<PendingOperation>,
 }
@@ -207,8 +207,8 @@ impl PendingIndexeddbChanges {
     fn affected_stores(&self) -> Vec<&str> {
         self.store_to_key_values
             .iter()
-            .filter(|(_, value)| !value.is_empty())
-            .map(|(key, _)| *key)
+            .filter(|(_, pending_operations)| !pending_operations.is_empty())
+            .map(|(store, _)| *store)
             .collect()
     }
 
