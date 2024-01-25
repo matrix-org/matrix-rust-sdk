@@ -69,6 +69,7 @@ features = [
     "rustls-tls", # note: differ from block below
     "socks",
     "sqlite",
+    "uniffi",
 ]
 
 [target.'cfg(not(target_os = "android"))'.dependencies.matrix-sdk]
@@ -83,4 +84,5 @@ features = [
     "native-tls", # note: differ from block above
     "socks",
     "sqlite",
+    "uniffi",
 ]
