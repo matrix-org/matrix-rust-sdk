@@ -82,6 +82,9 @@ pub use sliding_sync::{
     SlidingSyncListLoadingState, SlidingSyncMode, SlidingSyncRoom, UpdateSummary,
 };
 
+#[cfg(feature = "uniffi")]
+uniffi::setup_scaffolding!();
+
 #[cfg(any(test, feature = "testing"))]
 pub mod test_utils;
 
