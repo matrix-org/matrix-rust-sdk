@@ -84,4 +84,100 @@ impl RoomMember {
             None => false,
         }
     }
+
+    /// Get the suggested role of this member based on their power level.
+    pub fn suggested_role_for_power_level(&self) -> RoomMemberRole {
+        RoomMemberRole::suggested_role_for_power_level(self.power_level())
+    }
+}
+
+/// The role of a member in a room.
+#[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+pub enum RoomMemberRole {
+    /// The member is an administrator.
+    Administrator,
+    /// The member is a moderator.
+    Moderator,
+    /// The member is a regular user.
+    User,
+}
+
+impl RoomMemberRole {
+    /// Creates the suggested role for a given power level.
+    fn suggested_role_for_power_level(power_level: i64) -> Self {
+        if power_level >= 100 {
+            Self::Administrator
+        } else if power_level >= 50 {
+            Self::Moderator
+        } else {
+            Self::User
+        }
+    }
+
+    /// Get the suggested power level for this role.
+    pub fn suggested_power_level(&self) -> i64 {
+        match self {
+            Self::Administrator => 100,
+            Self::Moderator => 50,
+            Self::User => 0,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_suggested_roles() {
+        assert_eq!(
+            RoomMemberRole::Administrator,
+            RoomMemberRole::suggested_role_for_power_level(100)
+        );
+        assert_eq!(RoomMemberRole::Moderator, RoomMemberRole::suggested_role_for_power_level(50));
+        assert_eq!(RoomMemberRole::User, RoomMemberRole::suggested_role_for_power_level(0));
+    }
+
+    #[test]
+    fn test_unexpected_power_levels() {
+        assert_eq!(
+            RoomMemberRole::Administrator,
+            RoomMemberRole::suggested_role_for_power_level(200)
+        );
+        assert_eq!(
+            RoomMemberRole::Administrator,
+            RoomMemberRole::suggested_role_for_power_level(101)
+        );
+        assert_eq!(RoomMemberRole::Moderator, RoomMemberRole::suggested_role_for_power_level(99));
+        assert_eq!(RoomMemberRole::Moderator, RoomMemberRole::suggested_role_for_power_level(51));
+        assert_eq!(RoomMemberRole::User, RoomMemberRole::suggested_role_for_power_level(-1));
+        assert_eq!(RoomMemberRole::User, RoomMemberRole::suggested_role_for_power_level(-100));
+    }
+
+    #[test]
+    fn test_default_power_levels() {
+        assert_eq!(100, RoomMemberRole::Administrator.suggested_power_level());
+        assert_eq!(50, RoomMemberRole::Moderator.suggested_power_level());
+        assert_eq!(0, RoomMemberRole::User.suggested_power_level());
+
+        assert_eq!(
+            RoomMemberRole::Administrator,
+            RoomMemberRole::suggested_role_for_power_level(
+                RoomMemberRole::Administrator.suggested_power_level()
+            )
+        );
+        assert_eq!(
+            RoomMemberRole::Moderator,
+            RoomMemberRole::suggested_role_for_power_level(
+                RoomMemberRole::Moderator.suggested_power_level()
+            )
+        );
+        assert_eq!(
+            RoomMemberRole::User,
+            RoomMemberRole::suggested_role_for_power_level(
+                RoomMemberRole::User.suggested_power_level()
+            )
+        );
+    }
 }
