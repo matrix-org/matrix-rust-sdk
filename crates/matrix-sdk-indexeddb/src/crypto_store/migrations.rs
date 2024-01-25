@@ -18,16 +18,19 @@ use tracing::{debug, info};
 use wasm_bindgen::JsValue;
 
 use crate::{
-    crypto_store::{
-        indexeddb_serializer::IndexeddbSerializer, keys, InboundGroupSessionIndexedDbObject, Result,
-    },
+    crypto_store::{indexeddb_serializer::IndexeddbSerializer, keys, Result},
     IndexeddbCryptoStoreError,
 };
 
 mod old_keys {
-    /// Old format of the inbound_group_sessions store which lacked indexes or a
-    /// sensible structure
+    /// Old format of the `inbound_group_sessions` store which lacked indexes or
+    /// a sensible structure
     pub const INBOUND_GROUP_SESSIONS_V1: &str = "inbound_group_sessions";
+
+    /// `inbound_group_sessions2` with large values in each record due to double
+    /// JSON-encoding and arrays of ints instead of base64.
+    /// Also lacked the `backed_up_to` property+index.
+    pub const INBOUND_GROUP_SESSIONS_V2: &str = "inbound_group_sessions2";
 }
 
 /// Open the indexeddb with the given name, upgrading it to the latest version
@@ -58,16 +61,30 @@ pub async fn open_and_upgrade_db(
         migrate_schema_for_v7(name).await?;
     }
 
-    // And finally migrate to v8, keeping the same schema but fixing the keys in
+    // Migrate to v8, keeping the same schema but fixing the keys in
     // inbound_group_sessions2
     if old_version < 8 {
         prepare_data_for_v8(name, serializer).await?;
         migrate_schema_for_v8(name).await?;
     }
 
-    // We know we've upgraded to v8 now, so we can open the DB at that version and
+    // Migrate to v10, moving from inbound_group_sessions2 to
+    // inbound_group_sessions3, which has smaller values by storing JavaScript
+    // objects instead of serialized arrays, and base64 strings instead of
+    // arrays of ints. inbound_group_sessions3 also has backed_up_to, which is
+    // indexed.
+    if old_version < 9 {
+        v8_to_v10::upgrade_scheme_to_v9_create_inbound_group_sessions3(name).await?;
+    }
+    if old_version < 10 {
+        v8_to_v10::migrate_data_before_v10_populate_inbound_group_sessions3(name, serializer)
+            .await?;
+        v8_to_v10::upgrade_scheme_to_v10_delete_inbound_group_sessions2(name).await?;
+    }
+
+    // We know we've upgraded to v10 now, so we can open the DB at that version and
     // return it
-    Ok(IdbDatabase::open_u32(name, 8)?.await?)
+    Ok(IdbDatabase::open_u32(name, 10)?.await?)
 }
 
 async fn migrate_schema_up_to_v6(name: &str) -> Result<IdbDatabase, DomException> {
@@ -241,7 +258,7 @@ fn migrate_stores_to_v6(db: &IdbDatabase) -> Result<(), DomException> {
     // have done the upgrade to v6, in `prepare_data_for_v7`. Finally we drop the
     // old store in create_stores_for_v7.
 
-    let object_store = db.create_object_store(keys::INBOUND_GROUP_SESSIONS_V2)?;
+    let object_store = db.create_object_store(old_keys::INBOUND_GROUP_SESSIONS_V2)?;
 
     let mut params = IdbIndexParameters::new();
     params.unique(false);
@@ -257,12 +274,12 @@ fn migrate_stores_to_v6(db: &IdbDatabase) -> Result<(), DomException> {
 async fn prepare_data_for_v7(serializer: &IndexeddbSerializer, db: &IdbDatabase) -> Result<()> {
     // The new store has been made for inbound group sessions; time to populate it.
     let txn = db.transaction_on_multi_with_mode(
-        &[old_keys::INBOUND_GROUP_SESSIONS_V1, keys::INBOUND_GROUP_SESSIONS_V2],
+        &[old_keys::INBOUND_GROUP_SESSIONS_V1, old_keys::INBOUND_GROUP_SESSIONS_V2],
         IdbTransactionMode::Readwrite,
     )?;
 
     let old_store = txn.object_store(old_keys::INBOUND_GROUP_SESSIONS_V1)?;
-    let new_store = txn.object_store(keys::INBOUND_GROUP_SESSIONS_V2)?;
+    let new_store = txn.object_store(old_keys::INBOUND_GROUP_SESSIONS_V2)?;
 
     let row_count = old_store.count()?.await?;
     info!(row_count, "Migrating inbound group session data from v1 to v2");
@@ -283,11 +300,11 @@ async fn prepare_data_for_v7(serializer: &IndexeddbSerializer, db: &IdbDatabase)
             let igs = InboundGroupSession::from_pickle(serializer.deserialize_value(value)?)
                 .map_err(|e| IndexeddbCryptoStoreError::CryptoStoreError(e.into()))?;
 
-            // This is much the same as `IndexeddbStore::serialize_inbound_group_session`.
-            let new_data = serde_wasm_bindgen::to_value(&InboundGroupSessionIndexedDbObject {
-                pickled_session: serializer.serialize_value_as_bytes(&igs.pickle().await)?,
-                needs_backup: !igs.backed_up(),
-            })?;
+            let new_data =
+                serde_wasm_bindgen::to_value(&v8_to_v10::InboundGroupSessionIndexedDbObject2 {
+                    pickled_session: serializer.serialize_value_as_bytes(&igs.pickle().await)?,
+                    needs_backup: !igs.backed_up(),
+                })?;
 
             new_store.add_key_val(&key, &new_data)?;
 
@@ -317,11 +334,11 @@ async fn prepare_data_for_v8(name: &str, serializer: &IndexeddbSerializer) -> Re
 
     let db = IdbDatabase::open(name)?.await?;
     let txn = db.transaction_on_one_with_mode(
-        keys::INBOUND_GROUP_SESSIONS_V2,
+        old_keys::INBOUND_GROUP_SESSIONS_V2,
         IdbTransactionMode::Readwrite,
     )?;
 
-    let store = txn.object_store(keys::INBOUND_GROUP_SESSIONS_V2)?;
+    let store = txn.object_store(old_keys::INBOUND_GROUP_SESSIONS_V2)?;
 
     let row_count = store.count()?.await?;
     info!(row_count, "Fixing inbound group session data keys");
@@ -340,7 +357,7 @@ async fn prepare_data_for_v8(name: &str, serializer: &IndexeddbSerializer) -> Re
                 "inbound_group_sessions2 cursor has no key".into(),
             ))?;
 
-            let idb_object: InboundGroupSessionIndexedDbObject =
+            let idb_object: v8_to_v10::InboundGroupSessionIndexedDbObject2 =
                 serde_wasm_bindgen::from_value(cursor.value())?;
             let pickled_session =
                 serializer.deserialize_value_from_bytes(&idb_object.pickled_session)?;
@@ -355,7 +372,7 @@ async fn prepare_data_for_v8(name: &str, serializer: &IndexeddbSerializer) -> Re
             // (This is much the same as in
             // `IndexeddbCryptoStore::get_inbound_group_session`)
             let new_key = serializer.encode_key(
-                keys::INBOUND_GROUP_SESSIONS_V2,
+                old_keys::INBOUND_GROUP_SESSIONS_V2,
                 (&session.room_id, session.session_id()),
             );
 
@@ -394,6 +411,188 @@ async fn prepare_data_for_v8(name: &str, serializer: &IndexeddbSerializer) -> Re
     Ok(())
 }
 
+/// Migration code that moves from inbound_group_sessions2 to
+/// inbound_group_sessions3, shrinking the values stored in each record.
+///
+/// The migration 8->9 creates the new store inbound_group_sessions3.
+/// Then we move the data into the new store.
+/// The migration 9->10 deletes the old store inbound_group_sessions2.
+mod v8_to_v10 {
+    use indexed_db_futures::{
+        idb_object_store::IdbObjectStore,
+        request::{IdbOpenDbRequestLike, OpenDbRequest},
+        IdbDatabase, IdbIndex, IdbKeyPath, IdbQuerySource, IdbVersionChangeEvent,
+    };
+    use matrix_sdk_crypto::olm::InboundGroupSession;
+    use tracing::{debug, info};
+    use wasm_bindgen::JsValue;
+    use web_sys::{DomException, IdbIndexParameters, IdbTransactionMode};
+
+    use super::Result;
+    use crate::{
+        crypto_store::{
+            indexeddb_serializer::IndexeddbSerializer, keys, migrations::old_keys,
+            InboundGroupSessionIndexedDbObject,
+        },
+        IndexeddbCryptoStoreError,
+    };
+
+    /// The objects we store in the inbound_group_sessions2 indexeddb object
+    /// store (in schemas v7 and v8)
+    #[derive(Debug, serde::Serialize, serde::Deserialize)]
+    pub struct InboundGroupSessionIndexedDbObject2 {
+        /// (Possibly encrypted) serialisation of a
+        /// [`matrix_sdk_crypto::olm::group_sessions::PickledInboundGroupSession`]
+        /// structure.
+        pub pickled_session: Vec<u8>,
+
+        /// Whether the session data has yet to be backed up.
+        ///
+        /// Since we only need to be able to find entries where this is `true`,
+        /// we skip serialization in cases where it is `false`. That has
+        /// the effect of omitting it from the indexeddb index.
+        ///
+        /// We also use a custom serializer because bools can't be used as keys
+        /// in indexeddb.
+        #[serde(
+            default,
+            skip_serializing_if = "std::ops::Not::not",
+            with = "crate::serialize_bool_for_indexeddb"
+        )]
+        pub needs_backup: bool,
+    }
+
+    fn add_nonunique_index<'a>(
+        object_store: &'a IdbObjectStore<'a>,
+        name: &str,
+        key_path: &str,
+    ) -> Result<IdbIndex<'a>, DomException> {
+        let mut params = IdbIndexParameters::new();
+        params.unique(false);
+        object_store.create_index_with_params(name, &IdbKeyPath::str(key_path), &params)
+    }
+
+    async fn do_schema_upgrade<F>(name: &str, version: u32, f: F) -> Result<(), DomException>
+    where
+        F: Fn(&IdbDatabase) -> Result<(), JsValue> + 'static,
+    {
+        info!("IndexeddbCryptoStore upgrade schema -> v{version} starting");
+        let mut db_req: OpenDbRequest = IdbDatabase::open_u32(name, version)?;
+
+        db_req.set_on_upgrade_needed(Some(move |evt: &IdbVersionChangeEvent| f(evt.db())));
+
+        let db = db_req.await?;
+        db.close();
+        info!("IndexeddbCryptoStore upgrade schema -> v{version} complete");
+        Ok(())
+    }
+
+    pub(crate) async fn upgrade_scheme_to_v9_create_inbound_group_sessions3(
+        name: &str,
+    ) -> Result<(), DomException> {
+        do_schema_upgrade(name, 9, |db| {
+            let object_store = db.create_object_store(keys::INBOUND_GROUP_SESSIONS_V3)?;
+
+            add_nonunique_index(
+                &object_store,
+                keys::INBOUND_GROUP_SESSIONS_BACKUP_INDEX,
+                "needs_backup",
+            )?;
+
+            // See https://github.com/element-hq/element-web/issues/26892#issuecomment-1906336076
+            // for the plan concerning this property and index. At time of writing, it is
+            // unused, and needs_backup is still used.
+            add_nonunique_index(
+                &object_store,
+                keys::INBOUND_GROUP_SESSIONS_BACKED_UP_TO_INDEX,
+                "backed_up_to",
+            )?;
+
+            Ok(())
+        })
+        .await
+    }
+
+    pub(crate) async fn migrate_data_before_v10_populate_inbound_group_sessions3(
+        name: &str,
+        serializer: &IndexeddbSerializer,
+    ) -> Result<()> {
+        info!("IndexeddbCryptoStore migrate data before v10 starting");
+
+        let db = IdbDatabase::open(name)?.await?;
+        let txn = db.transaction_on_multi_with_mode(
+            &[old_keys::INBOUND_GROUP_SESSIONS_V2, keys::INBOUND_GROUP_SESSIONS_V3],
+            IdbTransactionMode::Readwrite,
+        )?;
+
+        let inbound_group_sessions2 = txn.object_store(old_keys::INBOUND_GROUP_SESSIONS_V2)?;
+        let inbound_group_sessions3 = txn.object_store(keys::INBOUND_GROUP_SESSIONS_V3)?;
+
+        let row_count = inbound_group_sessions2.count()?.await?;
+        info!(row_count, "Shrinking inbound_group_session records");
+
+        // Iterate through all rows
+        if let Some(cursor) = inbound_group_sessions2.open_cursor()?.await? {
+            let mut idx = 0;
+            loop {
+                idx += 1;
+
+                if idx % 100 == 0 {
+                    debug!("Migrating session {idx} of {row_count}");
+                }
+
+                // Deserialize the session from the old store
+                let old_value: InboundGroupSessionIndexedDbObject2 =
+                    serde_wasm_bindgen::from_value(cursor.value())?;
+
+                let session = InboundGroupSession::from_pickle(
+                    serializer.deserialize_value_from_bytes(&old_value.pickled_session)?,
+                )
+                .map_err(|e| IndexeddbCryptoStoreError::CryptoStoreError(e.into()))?;
+
+                // Calculate its key in the new table
+                let new_key = serializer.encode_key(
+                    keys::INBOUND_GROUP_SESSIONS_V3,
+                    (&session.room_id, session.session_id()),
+                );
+
+                // Serialize the session in the new format
+                // This is much the same as [`IndexeddbStore::serialize_inbound_group_session`].
+                let new_value = InboundGroupSessionIndexedDbObject::new(
+                    serializer.maybe_encrypt_value(session.pickle().await)?,
+                    !session.backed_up(),
+                );
+
+                // Write it to the new store
+                inbound_group_sessions3
+                    .add_key_val(&new_key, &serde_wasm_bindgen::to_value(&new_value)?)?;
+
+                // Continue to the next record, or stop if we're done
+                if !cursor.continue_cursor()?.await? {
+                    debug!("Migrated {idx} sessions.");
+                    break;
+                }
+            }
+        }
+
+        txn.await.into_result()?;
+        db.close();
+        info!("IndexeddbCryptoStore upgrade data before v10 finished");
+
+        Ok(())
+    }
+
+    pub(crate) async fn upgrade_scheme_to_v10_delete_inbound_group_sessions2(
+        name: &str,
+    ) -> Result<(), DomException> {
+        do_schema_upgrade(name, 10, |db| {
+            db.delete_object_store(old_keys::INBOUND_GROUP_SESSIONS_V2)?;
+            Ok(())
+        })
+        .await
+    }
+}
+
 #[cfg(all(test, target_arch = "wasm32"))]
 mod tests {
     use std::sync::Arc;
@@ -411,28 +610,32 @@ mod tests {
     use ruma::{room_id, RoomId};
     use tracing_subscriber::util::SubscriberInitExt;
 
-    use crate::{crypto_store::migrations::*, IndexeddbCryptoStore};
+    use crate::{
+        crypto_store::{migrations::*, InboundGroupSessionIndexedDbObject},
+        IndexeddbCryptoStore,
+    };
 
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-    /// Test migrating `inbound_group_sessions` data from store v5 to store v8,
+    /// Test migrating `inbound_group_sessions` data from store v5 to latest,
     /// on a store with encryption disabled.
     #[async_test]
-    async fn test_v8_migration_unencrypted() {
-        test_v8_migration_with_cipher("test_v8_migration_unencrypted", None).await
+    async fn test_v8_v10_migration_unencrypted() {
+        test_v8_v10_migration_with_cipher("test_v8_migration_unencrypted", None).await
     }
 
     /// Test migrating `inbound_group_sessions` data from store v5 to store v8,
     /// on a store with encryption enabled.
     #[async_test]
-    async fn test_v8_migration_encrypted() {
+    async fn test_v8_v10_migration_encrypted() {
         let cipher = StoreCipher::new().unwrap();
-        test_v8_migration_with_cipher("test_v8_migration_encrypted", Some(Arc::new(cipher))).await;
+        test_v8_v10_migration_with_cipher("test_v8_migration_encrypted", Some(Arc::new(cipher)))
+            .await;
     }
 
-    /// Helper function for `test_v8_migration_{un,}encrypted`: test migrating
-    /// `inbound_group_sessions` data from store v5 to store v8.
-    async fn test_v8_migration_with_cipher(
+    /// Helper function for `test_v8_v10_migration_{un,}encrypted`: test
+    /// migrating `inbound_group_sessions` data from store v5 to store v10.
+    async fn test_v8_v10_migration_with_cipher(
         db_prefix: &str,
         store_cipher: Option<Arc<StoreCipher>>,
     ) {
@@ -457,21 +660,49 @@ mod tests {
             IndexeddbCryptoStore::open_with_store_cipher(&db_prefix, store_cipher).await.unwrap();
 
         // Then I can find the sessions using their keys and their info is correct
-        let s = store
+        let fetched_backed_up_session = store
             .get_inbound_group_session(room_id, backed_up_session.session_id())
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(s.session_id(), backed_up_session.session_id());
-        assert!(s.backed_up());
+        assert_eq!(fetched_backed_up_session.session_id(), backed_up_session.session_id());
 
-        let s = store
+        let fetched_not_backed_up_session = store
             .get_inbound_group_session(room_id, not_backed_up_session.session_id())
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(s.session_id(), not_backed_up_session.session_id());
-        assert!(!s.backed_up());
+        assert_eq!(fetched_not_backed_up_session.session_id(), not_backed_up_session.session_id());
+
+        // For v8: the backed_up info is preserved
+        assert!(fetched_backed_up_session.backed_up());
+        assert!(!fetched_not_backed_up_session.backed_up());
+
+        // For v10: they have the backed_up_to property and it is indexed
+        assert_matches_v10_schema(db_name, store, fetched_backed_up_session).await;
+    }
+
+    async fn assert_matches_v10_schema(
+        db_name: String,
+        store: IndexeddbCryptoStore,
+        fetched_backed_up_session: InboundGroupSession,
+    ) {
+        let db = IdbDatabase::open(&db_name).unwrap().await.unwrap();
+        assert_eq!(db.version(), 10.0);
+        let transaction = db.transaction_on_one("inbound_group_sessions3").unwrap();
+        let raw_store = transaction.object_store("inbound_group_sessions3").unwrap();
+        let key = store.serializer.encode_key(
+            keys::INBOUND_GROUP_SESSIONS_V3,
+            (fetched_backed_up_session.room_id(), fetched_backed_up_session.session_id()),
+        );
+        let idb_object: InboundGroupSessionIndexedDbObject =
+            serde_wasm_bindgen::from_value(raw_store.get(&key).unwrap().await.unwrap().unwrap())
+                .unwrap();
+
+        assert_eq!(idb_object.backed_up_to, -1);
+        assert!(raw_store.index_names().find(|idx| idx == "backed_up_to").is_some());
+
+        db.close();
     }
 
     fn create_sessions(room_id: &RoomId) -> (InboundGroupSession, InboundGroupSession) {

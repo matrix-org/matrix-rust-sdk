@@ -18,6 +18,11 @@
 
 use std::ops::DerefMut;
 
+use base64::{
+    alphabet,
+    engine::{general_purpose, GeneralPurpose},
+    Engine,
+};
 use blake3::{derive_key, Hash};
 use chacha20poly1305::{
     aead::{Aead, Error as EncryptionError},
@@ -35,6 +40,8 @@ const VERSION: u8 = 1;
 const KDF_SALT_SIZE: usize = 32;
 const XNONCE_SIZE: usize = 24;
 const KDF_ROUNDS: u32 = 200_000;
+
+const BASE64: GeneralPurpose = GeneralPurpose::new(&alphabet::STANDARD, general_purpose::NO_PAD);
 
 type MacKeySeed = [u8; 32];
 
@@ -478,7 +485,81 @@ impl StoreCipher {
         Ok(EncryptedValue { version: VERSION, ciphertext, nonce })
     }
 
-    /// Decrypt a value after it was fetchetd from the key/value store.
+    /// Encrypt a value before it is inserted into the key/value store.
+    ///
+    /// A value can be decrypted using the
+    /// [`StoreCipher::decrypt_value_typed()`] method. This is the lower
+    /// level function to `encrypt_value`, but returns the
+    /// full `EncryptdValue`-type
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - A value that should be encrypted, any value that implements
+    /// `Serialize` can be given to this method. The value will be serialized as
+    /// json before it is encrypted.
+    ///
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # let example = || {
+    /// use matrix_sdk_store_encryption::StoreCipher;
+    /// use serde_json::{json, value::Value};
+    ///
+    /// let store_cipher = StoreCipher::new()?;
+    ///
+    /// let value = json!({
+    ///     "some": "data",
+    /// });
+    ///
+    /// let encrypted = store_cipher.encrypt_value_typed(&value)?;
+    /// let decrypted: Value = store_cipher.decrypt_value_typed(encrypted)?;
+    ///
+    /// assert_eq!(value, decrypted);
+    /// # anyhow::Ok(()) };
+    /// ```
+    pub fn encrypt_value_base64_typed(
+        &self,
+        value: &impl Serialize,
+    ) -> Result<EncryptedValueBase64, Error> {
+        let data = serde_json::to_vec(value)?;
+        self.encrypt_value_base64_data(data)
+    }
+
+    /// Encrypt some data before it is inserted into the key/value store,
+    /// using base64 for arrays of integers.
+    ///
+    /// A value can be decrypted using the
+    /// [`StoreCipher::decrypt_value_base64_data()`] method.
+    ///
+    /// # Arguments
+    ///
+    /// * `data` - A value that should be encrypted, encoded as a `Vec<u8>`
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # let example = || {
+    /// use matrix_sdk_store_encryption::StoreCipher;
+    /// use serde_json::{json, value::Value};
+    ///
+    /// let store_cipher = StoreCipher::new()?;
+    ///
+    /// let value = serde_json::to_vec(&json!({
+    ///     "some": "data",
+    /// }))?;
+    ///
+    /// let encrypted = store_cipher.encrypt_value_base64_data(value.clone())?;
+    /// let decrypted = store_cipher.decrypt_value_base64_data(encrypted)?;
+    ///
+    /// assert_eq!(value, decrypted);
+    /// # anyhow::Ok(()) };
+    /// ```
+    pub fn encrypt_value_base64_data(&self, data: Vec<u8>) -> Result<EncryptedValueBase64, Error> {
+        self.encrypt_value_data(data).map(EncryptedValueBase64::from)
+    }
+
+    /// Decrypt a value after it was fetched from the key/value store.
     ///
     /// A value can be encrypted using the [`StoreCipher::encrypt_value()`]
     /// method.
@@ -513,7 +594,7 @@ impl StoreCipher {
         self.decrypt_value_typed(value)
     }
 
-    /// Decrypt a value after it was fetchetd from the key/value store.
+    /// Decrypt a value after it was fetched from the key/value store.
     ///
     /// A value can be encrypted using the
     /// [`StoreCipher::encrypt_value_typed()`] method. Lower level method to
@@ -554,7 +635,82 @@ impl StoreCipher {
         Ok(ret?)
     }
 
-    /// Decrypt a value after it was fetchetd from the key/value store.
+    /// Decrypt a base64-encoded value after it was fetched from the key/value
+    /// store.
+    ///
+    /// A value can be encrypted using the
+    /// [`StoreCipher::encrypt_value_base64_typed()`] method.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - The EncryptedValueBase64 of a value that should be
+    ///   decrypted.
+    ///
+    /// The method will deserialize the decrypted value into the expected type.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # let example = || {
+    /// use matrix_sdk_store_encryption::StoreCipher;
+    /// use serde_json::{json, value::Value};
+    ///
+    /// let store_cipher = StoreCipher::new()?;
+    ///
+    /// let value = json!({
+    ///     "some": "data",
+    /// });
+    ///
+    /// let encrypted = store_cipher.encrypt_value_base64_typed(&value)?;
+    /// let decrypted: Value = store_cipher.decrypt_value_base64_typed(encrypted)?;
+    ///
+    /// assert_eq!(value, decrypted);
+    /// # anyhow::Ok(()) };
+    /// ```
+    pub fn decrypt_value_base64_typed<T: DeserializeOwned>(
+        &self,
+        value: EncryptedValueBase64,
+    ) -> Result<T, Error> {
+        self.decrypt_value_typed(value.try_into()?)
+    }
+
+    /// Decrypt a base64-encoded value after it was fetched from the key/value
+    /// store.
+    ///
+    /// A value can be encrypted using the
+    /// [`StoreCipher::encrypt_value_base64_data()`] method.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - The EncryptedValueBase64 of a value that should be
+    ///   decrypted.
+    ///
+    /// The method will return the raw decrypted value
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # let example = || {
+    /// use matrix_sdk_store_encryption::StoreCipher;
+    /// use serde_json::{json, value::Value};
+    ///
+    /// let store_cipher = StoreCipher::new()?;
+    ///
+    /// let value = serde_json::to_vec(&json!({
+    ///     "some": "data",
+    /// }))?;
+    ///
+    /// let encrypted = store_cipher.encrypt_value_base64_data(value.clone())?;
+    /// let decrypted = store_cipher.decrypt_value_base64_data(encrypted)?;
+    ///
+    /// assert_eq!(value, decrypted);
+    /// # anyhow::Ok(()) };
+    /// ```
+    pub fn decrypt_value_base64_data(&self, value: EncryptedValueBase64) -> Result<Vec<u8>, Error> {
+        self.decrypt_value_data(value.try_into()?)
+    }
+
+    /// Decrypt a value after it was fetched from the key/value store.
     ///
     /// A value can be encrypted using the [`StoreCipher::encrypt_value_data()`]
     /// method. Lower level method to [`StoreCipher::decrypt_value()`].
@@ -623,6 +779,86 @@ pub struct EncryptedValue {
     version: u8,
     ciphertext: Vec<u8>,
     nonce: [u8; XNONCE_SIZE],
+}
+
+/// An error representing a failure to decode and encrypted value from base64
+/// back into a `Vec<u8>`.
+#[derive(Debug)]
+pub enum EncryptedValueBase64DecodeError {
+    /// Base64 decoding failed because the string was not valid base64
+    DecodeError(base64::DecodeError),
+
+    /// Decoding the nonce failed because it was not the expected length
+    IncorrectNonceLength(usize),
+}
+
+impl std::fmt::Display for EncryptedValueBase64DecodeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let msg = match self {
+            EncryptedValueBase64DecodeError::DecodeError(e) => e.to_string(),
+            EncryptedValueBase64DecodeError::IncorrectNonceLength(length) => {
+                format!("Incorrect nonce length {}. Expected length: {}.", length, XNONCE_SIZE)
+            }
+        };
+
+        f.write_str(&msg)
+    }
+}
+
+impl From<base64::DecodeError> for EncryptedValueBase64DecodeError {
+    fn from(value: base64::DecodeError) -> Self {
+        Self::DecodeError(value)
+    }
+}
+
+impl From<Vec<u8>> for EncryptedValueBase64DecodeError {
+    fn from(value: Vec<u8>) -> Self {
+        Self::IncorrectNonceLength(value.len())
+    }
+}
+
+impl From<EncryptedValueBase64DecodeError> for Error {
+    fn from(value: EncryptedValueBase64DecodeError) -> Self {
+        Error::Deserialization(rmp_serde::decode::Error::Uncategorized(value.to_string()))
+    }
+}
+
+impl TryFrom<EncryptedValueBase64> for EncryptedValue {
+    type Error = EncryptedValueBase64DecodeError;
+
+    fn try_from(value: EncryptedValueBase64) -> Result<Self, Self::Error> {
+        Ok(Self {
+            version: value.version,
+            ciphertext: BASE64.decode(value.ciphertext)?,
+            nonce: BASE64.decode(value.nonce)?.try_into()?,
+        })
+    }
+}
+
+/// Encrypted value, ready for storage, as created by the
+/// [`StoreCipher::encrypt_value_base64_data()`]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct EncryptedValueBase64 {
+    version: u8,
+    ciphertext: String,
+    nonce: String,
+}
+
+impl EncryptedValueBase64 {
+    /// Create a new EncryptedValueBase64
+    pub fn new(version: u8, ciphertext: &str, nonce: &str) -> Self {
+        Self { version, ciphertext: ciphertext.to_owned(), nonce: nonce.to_owned() }
+    }
+}
+
+impl From<EncryptedValue> for EncryptedValueBase64 {
+    fn from(value: EncryptedValue) -> Self {
+        Self {
+            version: value.version,
+            ciphertext: BASE64.encode(value.ciphertext),
+            nonce: BASE64.encode(value.nonce),
+        }
+    }
 }
 
 #[derive(Zeroize)]
@@ -719,6 +955,7 @@ mod tests {
     use serde_json::{json, Value};
 
     use super::{Error, StoreCipher};
+    use crate::{EncryptedValue, EncryptedValueBase64, EncryptedValueBase64DecodeError};
 
     #[test]
     fn generating() {
@@ -832,6 +1069,31 @@ mod tests {
     }
 
     #[test]
+    fn encrypting_values_base64() -> Result<(), Error> {
+        let event = json!({
+                "content": {
+                "body": "Bee Gees - Stayin' Alive",
+                "info": {
+                    "duration": 2140786u32,
+                    "mimetype": "audio/mpeg",
+                    "size": 1563685u32
+                },
+                "msgtype": "m.audio",
+                "url": "mxc://example.org/ffed755USFFxlgbQYZGtryd"
+            },
+        });
+
+        let store_cipher = StoreCipher::new()?;
+
+        let encrypted = store_cipher.encrypt_value_base64_typed(&event)?;
+        let decrypted: Value = store_cipher.decrypt_value_base64_typed(encrypted)?;
+
+        assert_eq!(event, decrypted);
+
+        Ok(())
+    }
+
+    #[test]
     fn encrypting_keys() -> Result<(), Error> {
         let store_cipher = StoreCipher::new()?;
 
@@ -847,5 +1109,63 @@ mod tests {
         assert_ne!(fourth, fifth);
 
         Ok(())
+    }
+
+    #[test]
+    fn can_round_trip_normal_to_base64_encrypted_values() {
+        let normal1 = EncryptedValue { version: 2, ciphertext: vec![1, 2, 4], nonce: make_nonce() };
+        let normal2 = EncryptedValue { version: 2, ciphertext: vec![1, 2, 4], nonce: make_nonce() };
+
+        // We can convert to base 64 and the result looks as expected
+        let base64: EncryptedValueBase64 = normal1.into();
+        assert_eq!(base64.ciphertext, "AQIE");
+
+        // The round trip leaves it unchanged
+        let new_normal: EncryptedValue = base64.try_into().unwrap();
+        assert_eq!(normal2, new_normal);
+    }
+
+    #[test]
+    fn can_round_trip_base64_to_normal_encrypted_values() {
+        let base64_1 = EncryptedValueBase64 {
+            version: 2,
+            ciphertext: "abc".to_owned(),
+            nonce: make_nonce_base64(),
+        };
+        let base64_2 = EncryptedValueBase64 {
+            version: 2,
+            ciphertext: "abc".to_owned(),
+            nonce: make_nonce_base64(),
+        };
+
+        // We can convert to normal and the result looks as expected
+        let normal: EncryptedValue = base64_1.try_into().unwrap();
+        assert_eq!(normal.ciphertext, &[105, 183]);
+
+        // The round trip leaves it unchanged
+        let new_base64: EncryptedValueBase64 = normal.into();
+        assert_eq!(base64_2, new_base64);
+    }
+
+    #[test]
+    fn decoding_invalid_base64_returns_an_error() {
+        let base64 =
+            EncryptedValueBase64 { version: 2, ciphertext: "a".to_owned(), nonce: "b".to_owned() };
+
+        let result: Result<EncryptedValue, EncryptedValueBase64DecodeError> = base64.try_into();
+
+        let Err(err) = result else {
+            panic!("Should be an error!");
+        };
+
+        assert_eq!(err.to_string(), "Encoded text cannot have a 6-bit remainder.");
+    }
+
+    fn make_nonce() -> [u8; 24] {
+        [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
+    }
+
+    fn make_nonce_base64() -> String {
+        "AAECAwQFBgcICQoLDA0ODxAREhMUFRYX".to_owned()
     }
 }
