@@ -1061,12 +1061,15 @@ mod tests {
     use assert_matches2::assert_let;
     use eyeball_im::VectorDiff;
     use futures_util::{future::join_all, pin_mut, FutureExt as _, StreamExt};
+    use matrix_sdk_base::RoomState;
     use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
     use matrix_sdk_test::async_test;
     use ruma::{
         api::client::{
             error::ErrorKind,
-            sync::sync_events::v4::{self, ExtensionsConfig, ReceiptsConfig, ToDeviceConfig},
+            sync::sync_events::v4::{
+                self, AccountDataConfig, ExtensionsConfig, ReceiptsConfig, ToDeviceConfig,
+            },
         },
         assign, owned_room_id, room_id,
         serde::Raw,
@@ -2171,6 +2174,86 @@ mod tests {
             })
         });
 
+        let summary = {
+            let mut pos_guard = sliding_sync.inner.position.clone().lock_owned().await;
+            sliding_sync.handle_response(server_response.clone(), &mut pos_guard).await?
+        };
+
+        assert!(summary.rooms.contains(&room));
+        assert!(summary.lists.contains(&String::from("all")));
+
+        // The room has had an update in the room list stream too.
+        assert_let!(Some(Some(updates)) = list_stream.next().now_or_never());
+        assert_eq!(updates.len(), 1);
+        assert_let!(
+            VectorDiff::Set { index: 0, value: RoomListEntry::Filled(updated_room) } = &updates[0]
+        );
+        assert_eq!(*updated_room, room);
+
+        Ok(())
+    }
+
+    #[async_test]
+    async fn test_process_rooms_account_data() -> Result<()> {
+        let room = owned_room_id!("!pony:example.org");
+
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
+        client.base_client().get_or_create_room(&room, RoomState::Joined);
+
+        let sliding_sync = client
+            .sliding_sync("test")?
+            .with_account_data_extension(
+                assign!(AccountDataConfig::default(), { enabled: Some(true) }),
+            )
+            .add_list(
+                SlidingSyncList::builder("all")
+                    .sync_mode(SlidingSyncMode::new_selective().add_range(0..=100)),
+            )
+            .build()
+            .await?;
+
+        let list =
+            sliding_sync.on_list("all", |list| ready(list.clone())).await.expect("found list all");
+
+        {
+            // Pretend the list knows that one room that will receive the account data.
+            list.set_maximum_number_of_rooms(Some(1));
+            list.set_filled_rooms(vec![room.clone()]);
+        }
+
+        let (_, list_stream) = list.room_list_stream();
+
+        pin_mut!(list_stream);
+
+        assert_pending!(list_stream);
+
+        let server_response = assign!(v4::Response::new("1".to_owned()), {
+            extensions: assign!(v4::Extensions::default(), {
+                account_data: assign!(v4::AccountData::default(), {
+                    rooms: BTreeMap::from([
+                        (
+                            room.clone(),
+                            vec![
+                                Raw::from_json_string(
+                                    json!({
+                                        "content": {
+                                            "tags": {
+                                                "u.work": {
+                                                    "order": 0.9
+                                                }
+                                            }
+                                        },
+                                        "type": "m.tag"
+                                    })
+                                    .to_string(),
+                                ).unwrap()
+                            ]
+                        )
+                    ])
+                })
+            })
+        });
         let summary = {
             let mut pos_guard = sliding_sync.inner.position.clone().lock_owned().await;
             sliding_sync.handle_response(server_response.clone(), &mut pos_guard).await?
