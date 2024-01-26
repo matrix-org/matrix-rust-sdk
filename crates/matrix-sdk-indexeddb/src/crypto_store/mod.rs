@@ -836,15 +836,27 @@ impl_crypto_store! {
             return Ok(vec![]);
         };
 
-        let mut result = Vec::new();
+        let mut serialized_sessions = Vec::with_capacity(limit);
         for _ in 0..limit {
-            result.push(self.deserialize_inbound_group_session(cursor.value())?);
+            serialized_sessions.push(cursor.value());
             if !cursor.continue_cursor()?.await? {
                 break;
             }
         }
 
         tx.await.into_result()?;
+
+        // Deserialize and decrypt after the transaction is complete.
+        let result = serialized_sessions.into_iter()
+            .filter_map(|v| match self.deserialize_inbound_group_session(v) {
+                Ok(session) => Some(session),
+                Err(e) => {
+                    warn!("Failed to deserialize inbound group session: {e}");
+                    None
+                }
+            })
+            .collect::<Vec<InboundGroupSession>>();
+
         Ok(result)
     }
 
