@@ -652,7 +652,7 @@ async fn report_content() {
 #[async_test]
 async fn subscribe_to_typing_notifications() {
     let (client, server) = logged_in_client().await;
-    let mut typing_sequences: Arc<Mutex<Vec<Vec<OwnedUserId>>>> = Arc::new(Mutex::new(Vec::new()));
+    let typing_sequences: Arc<Mutex<Vec<Vec<OwnedUserId>>>> = Arc::new(Mutex::new(Vec::new()));
     let asserted_typing_sequences =
         vec![vec![user_id!("@alice:matrix.org"), user_id!("@bob:example.com")], vec![]];
     let room_id = room_id!("!test:example.org");
@@ -673,6 +673,9 @@ async fn subscribe_to_typing_notifications() {
         while let Ok(typing_users) = subscriber.recv().await {
             let mut typings = typing_seq.lock().unwrap();
             typings.push(typing_users);
+            if typings.len() == 2 {
+                break;
+            }
         }
     });
     // Then send a typing notification with 2 users typing
@@ -692,7 +695,7 @@ async fn subscribe_to_typing_notifications() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    // Then send a typing notification with no users typings
+    // Then send a typing notification with no user typing
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
         EphemeralTestEvent::Custom(json!({
             "content": {
@@ -706,14 +709,6 @@ async fn subscribe_to_typing_notifications() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    // Cancel the task, makes sure the subscription is cancelled too.
-    handle.abort();
-    ev_builder.add_joined_room(
-        JoinedRoomBuilder::new(room_id).add_ephemeral_event(EphemeralTestEvent::Typing),
-    );
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
-
+    handle.await.unwrap();
     assert_eq!(typing_sequences.lock().unwrap().to_vec(), asserted_typing_sequences);
 }

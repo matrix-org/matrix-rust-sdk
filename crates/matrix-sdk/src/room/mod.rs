@@ -1,12 +1,6 @@
 //! High-level room API
 
-use std::{
-    borrow::Borrow,
-    collections::BTreeMap,
-    ops::Deref,
-    sync::{mpsc::channel, Arc},
-    time::Duration,
-};
+use std::{borrow::Borrow, collections::BTreeMap, ops::Deref, time::Duration};
 
 use eyeball::SharedObservable;
 use futures_core::Stream;

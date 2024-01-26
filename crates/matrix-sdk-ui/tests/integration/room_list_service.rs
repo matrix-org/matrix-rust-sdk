@@ -315,7 +315,10 @@ async fn test_sync_all_states() -> Result<(), Error> {
                 "receipts": {
                     "enabled": true,
                     "rooms": ["*"]
-                }
+                },
+                "typing": {
+                    "enabled": true,
+                },
             },
         },
         respond with = {
