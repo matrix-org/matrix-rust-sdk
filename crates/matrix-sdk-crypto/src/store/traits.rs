@@ -12,9 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashMap, fmt, sync::Arc};
+use std::{
+    collections::HashMap,
+    fmt,
+    pin::Pin,
+    sync::Arc,
+    task::{Context, Poll},
+};
 
 use async_trait::async_trait;
+use futures_core::Stream;
 use matrix_sdk_common::AsyncTraitDeps;
 use ruma::{
     events::secret::request::SecretName, DeviceId, OwnedDeviceId, RoomId, TransactionId, UserId,
@@ -102,6 +109,11 @@ pub trait CryptoStore: AsyncTraitDeps {
 
     /// Get all the inbound group sessions we have stored.
     async fn get_inbound_group_sessions(&self) -> Result<Vec<InboundGroupSession>, Self::Error>;
+
+    /// Get all the inbound group session we have stored, as a `Stream`.
+    async fn get_inbound_group_sessions_stream(
+        &self,
+    ) -> Result<StreamOf<Result<InboundGroupSession>>, Self::Error>;
 
     /// Get the number inbound group sessions we have and how many of them are
     /// backed up.
@@ -328,6 +340,12 @@ impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
         self.0.get_inbound_group_sessions().await.map_err(Into::into)
     }
 
+    async fn get_inbound_group_sessions_stream(
+        &self,
+    ) -> Result<StreamOf<Result<InboundGroupSession>>> {
+        self.0.get_inbound_group_sessions_stream().await.map_err(Into::into)
+    }
+
     async fn inbound_group_session_counts(&self) -> Result<RoomKeyCounts> {
         self.0.inbound_group_session_counts().await.map_err(Into::into)
     }
@@ -506,5 +524,32 @@ where
 impl IntoCryptoStore for Arc<DynCryptoStore> {
     fn into_crypto_store(self) -> Arc<DynCryptoStore> {
         self
+    }
+}
+
+/// A concrete type wrapping a `Pin<Box<dyn Stream<Item = T>>>`.
+///
+/// It is used only to make the [`CryptoStore`] trait object-safe. Please don't
+/// use it for other things.
+pub struct StreamOf<T>(Pin<Box<dyn Stream<Item = T>>>);
+
+impl<T> StreamOf<T> {
+    /// Create a new `Self`.
+    pub fn new(stream: Pin<Box<dyn Stream<Item = T>>>) -> Self {
+        Self(stream)
+    }
+}
+
+impl<T> fmt::Debug for StreamOf<T> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.debug_tuple("StreamOf").finish()
+    }
+}
+
+impl<T> Stream for StreamOf<T> {
+    type Item = T;
+
+    fn poll_next(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        self.0.as_mut().poll_next(context)
     }
 }

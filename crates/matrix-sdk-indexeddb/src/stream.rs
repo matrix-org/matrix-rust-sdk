@@ -7,6 +7,7 @@ use std::{
     num::NonZeroUsize,
     pin::Pin,
     ptr::NonNull,
+    sync::Arc,
     task::{ready, Context, Poll},
 };
 
@@ -169,8 +170,8 @@ pin_project! {
     ///
     /// Then. What is renewed? The [`IdbTransaction`]. How? With a _transaction
     /// builder_: a closure than generates an [`IdbTransaction`]. Why a range?
-    /// Because when a transaction is renewed, the cursor must be re-positioned to the
-    /// previous position.
+    /// Because when a transaction is renewed, the cursor must be re-positioned to
+    /// the previous position.
     ///
     /// Such async iterator is helpful when reading a lot of data from an IndexedDB
     /// object store. With [`StreamExt`], one can easily map the results from the
@@ -243,30 +244,6 @@ pin_project! {
         // when an [`IdbTransaction`] is renwed.
         latest_key: JsValue,
 
-        // Explanations regarding the next 4 fields
-        //
-        // The types of [`indexedb_db_futures`] are difficult to store because there is a global
-        // lifetime across all the types. To get an `IdbObjectStore`, we need an `IdbTransaction`. If
-        // we store `IdbObjectStore` alone, the `IdbTransaction` will be dropped, thus not having a
-        // long enough lifetime. On the opposite, if we store `IdbTransaction`, the reference is moved
-        // inside the `IdbObjectStore`, which forbids to move the owned `IdbTransaction`. To solve
-        // that, we use self-referential fields, one for the owned value, one for the reference for the
-        // owned value. It's not ideal, but at least it works!
-
-        // The `latest_transaction`.
-        #[pin]
-        latest_transaction: IdbTransaction<'a>,
-
-        // The self-reference to `Self::latest_transaction`.
-        latest_transaction_ptr: NonNull<IdbTransaction<'a>>,
-
-        // The `latest_object_store`.
-        #[pin]
-        latest_object_store: Option<IdbObjectStore<'a>>,
-
-        // The self-reference to `Self::latest_object_store`.
-        latest_object_store_ptr: NonNull<Option<IdbObjectStore<'a>>>,
-
         // The inner stream, aka [`StreamByCursor`].
         #[pin]
         inner_stream: Option<StreamByCursor<'a>>,
@@ -276,6 +253,38 @@ pin_project! {
         // implementation of `Self`, this future must be stored to be polled manually.
         cursor_future: Option<Pin<Box<IdbCursorWithValueFuture<'a, IdbObjectStore<'a>>>>>,
 
+        // Explanations regarding the next 6 fields
+        //
+        // The types of [`indexedb_db_futures`] are difficult to store because there is a global
+        // lifetime across all the types to the database. To get an `IdbObjectStore`, we need an
+        // `IdbTransaction`. If we store `IdbObjectStore` alone, the `IdbTransaction` will be
+        // dropped, thus not having a long enough lifetime. On the opposite, if we store
+        // `IdbTransaction`, the reference is moved inside the `IdbObjectStore`, which forbids to
+        // move the owned `IdbTransaction`. To solve that, we use self-referential fields, one for
+        // the owned value, one for the reference for the owned value. It's not ideal, but at least
+        // it works!
+
+        // The database that will be passed to the `transaction_builder`.
+        #[pin]
+        database: Arc<IdbDatabase>,
+
+        // The self-reference to `Self::database`.
+        database_ptr: NonNull<Arc<IdbDatabase>>,
+
+        // The `latest_transaction`.
+        #[pin]
+        latest_transaction: Option<IdbTransaction<'a>>,
+
+        // The self-reference to `Self::latest_transaction`.
+        latest_transaction_ptr: NonNull<Option<IdbTransaction<'a>>>,
+
+        // The `latest_object_store`.
+        #[pin]
+        latest_object_store: Option<IdbObjectStore<'a>>,
+
+        // The self-reference to `Self::latest_object_store`.
+        latest_object_store_ptr: NonNull<Option<IdbObjectStore<'a>>>,
+
         // The entire struct must be unmovable. Let's use a `PhantomPinned` so that it cannot implement
         // `Unpin`.
         _pin: PhantomPinned,
@@ -284,18 +293,18 @@ pin_project! {
 
 impl<'a, F> StreamByRenewedCursor<'a, F>
 where
-    F: FnMut() -> Result<IdbTransaction<'a>, DomException>,
+    F: FnMut(&'a IdbDatabase) -> Result<IdbTransaction<'a>, DomException>,
 {
     /// Build a new `StreamByRenewdCursor`.
     ///
     /// It takes a `transaction_builder`, an `object_store_name`, and a
     /// `renew_every`. See the documentation of [`Self`] to learn more.
     pub async fn new(
-        mut transaction_builder: F,
+        database: Arc<IdbDatabase>,
+        transaction_builder: F,
         object_store_name: String,
         renew_every: NonZeroUsize,
     ) -> Result<Pin<Box<Self>>, DomException> {
-        let transaction = transaction_builder()?;
         let latest_key = JsValue::from_str("");
         let after_latest_key = IdbKeyRange::lower_bound_with_open(&latest_key, true)?;
 
@@ -305,12 +314,14 @@ where
             renew_every: renew_every.into(),
             renew_in: renew_every.into(),
             latest_key,
-            latest_transaction: transaction,
+            inner_stream: None,
+            cursor_future: None,
+            database,
+            database_ptr: NonNull::dangling(),
+            latest_transaction: None,
             latest_transaction_ptr: NonNull::dangling(),
             latest_object_store: None,
             latest_object_store_ptr: NonNull::dangling(),
-            inner_stream: None,
-            cursor_future: None,
             _pin: PhantomPinned,
         };
         let mut this = Box::pin(this);
@@ -318,10 +329,17 @@ where
         unsafe {
             let this = Pin::get_unchecked_mut(Pin::as_mut(&mut this));
 
+            this.database_ptr = NonNull::from(&this.database);
+
+            let transaction = (this.transaction_builder)(this.database_ptr.as_ref())?;
+            this.latest_transaction = Some(transaction);
+
             this.latest_transaction_ptr = NonNull::from(&this.latest_transaction);
             this.latest_object_store = Some(
                 this.latest_transaction_ptr
                     .as_ref()
+                    .as_ref()
+                    .unwrap()
                     .object_store(this.object_store_name.as_str())?,
             );
             this.latest_object_store_ptr = NonNull::from(&this.latest_object_store);
@@ -344,7 +362,7 @@ where
 
 impl<'a, F> Stream for StreamByRenewedCursor<'a, F>
 where
-    F: FnMut() -> Result<IdbTransaction<'a>, DomException>,
+    F: FnMut(&'a IdbDatabase) -> Result<IdbTransaction<'a>, DomException>,
 {
     type Item = Result<(JsValue, JsValue), DomException>;
 
@@ -357,11 +375,13 @@ where
             // If it's not defined, let's build one.
             if this.cursor_future.is_none() {
                 // Get and save the new `transaction`.
-                let transaction = (this.transaction_builder)()?;
-                this.latest_transaction.set(transaction);
+                let transaction =
+                    (this.transaction_builder)(unsafe { this.database_ptr.as_ref() })?;
+                this.latest_transaction.set(Some(transaction));
 
                 // Get and asve the new `object_store`.
-                let object_store = unsafe { this.latest_transaction_ptr.as_ref() }
+                let object_store = unsafe { this.latest_transaction_ptr.as_ref().as_ref() }
+                    .unwrap()
                     .object_store(this.object_store_name.as_str())?;
                 this.latest_object_store.set(Some(object_store));
 
@@ -525,7 +545,7 @@ mod tests {
             Ok(())
         }));
 
-        let db = db.await?;
+        let db = Arc::new(db.await?);
 
         {
             let transaction =
@@ -555,7 +575,8 @@ mod tests {
         {
             let mut number_of_renews = 0;
             let mut stream = StreamByRenewedCursor::new(
-                || {
+                db.clone(),
+                |db| {
                     number_of_renews += 1;
                     Ok(db.transaction_on_one("baz")?)
                 },
@@ -594,7 +615,8 @@ mod tests {
         {
             let mut number_of_renews = 0;
             let stream = StreamByRenewedCursor::new(
-                || {
+                db.clone(),
+                |db| {
                     number_of_renews += 1;
                     Ok(db.transaction_on_one("baz")?)
                 },

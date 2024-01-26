@@ -14,10 +14,12 @@
 
 use std::{
     collections::HashMap,
+    num::NonZeroUsize,
     sync::{Arc, RwLock},
 };
 
 use async_trait::async_trait;
+use futures_util::StreamExt;
 use gloo_utils::format::JsValueSerdeExt;
 use indexed_db_futures::prelude::*;
 use matrix_sdk_crypto::{
@@ -26,8 +28,8 @@ use matrix_sdk_crypto::{
         Session, StaticAccountData,
     },
     store::{
-        caches::SessionStore, BackupKeys, Changes, CryptoStore, CryptoStoreError, PendingChanges,
-        RoomKeyCounts, RoomSettings,
+        self, caches::SessionStore, BackupKeys, Changes, CryptoStore, CryptoStoreError,
+        PendingChanges, RoomKeyCounts, RoomSettings, StreamOf,
     },
     types::events::room_key_withheld::RoomKeyWithheldEvent,
     Account, GossipRequest, GossippedSecret, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
@@ -43,8 +45,9 @@ use tracing::{debug, warn};
 use wasm_bindgen::JsValue;
 use web_sys::{DomException, IdbKeyRange};
 
-use crate::crypto_store::{
-    indexeddb_serializer::IndexeddbSerializer, migrations::open_and_upgrade_db,
+use crate::{
+    crypto_store::{indexeddb_serializer::IndexeddbSerializer, migrations::open_and_upgrade_db},
+    stream::StreamByRenewedCursor,
 };
 
 mod indexeddb_serializer;
@@ -94,16 +97,16 @@ mod keys {
     pub const RECOVERY_KEY_V1: &str = "recovery_key_v1";
 }
 
-/// An implementation of [CryptoStore] that uses [IndexedDB] for persistent
+/// An implementation of [`CryptoStore`] that uses [`IndexedDB`] for persistent
 /// storage.
 ///
-/// [IndexedDB]: https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API
+/// [`IndexedDB`]: https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API
 pub struct IndexeddbCryptoStore {
     static_account: RwLock<Option<StaticAccountData>>,
     name: String,
-    pub(crate) inner: IdbDatabase,
+    pub(crate) inner: Arc<IdbDatabase>,
 
-    serializer: IndexeddbSerializer,
+    serializer: Arc<IndexeddbSerializer>,
     session_cache: SessionStore,
     save_changes_lock: Arc<Mutex<()>>,
 }
@@ -175,8 +178,8 @@ impl IndexeddbCryptoStore {
         Ok(Self {
             name,
             session_cache,
-            inner: db,
-            serializer,
+            inner: Arc::new(db),
+            serializer: Arc::new(serializer),
             static_account: RwLock::new(None),
             save_changes_lock: Default::default(),
         })
@@ -280,23 +283,7 @@ impl IndexeddbCryptoStore {
         &self,
         stored_value: JsValue,
     ) -> Result<InboundGroupSession> {
-        let idb_object: InboundGroupSessionIndexedDbObject =
-            serde_wasm_bindgen::from_value(stored_value)?;
-        let pickled_session =
-            self.serializer.deserialize_value_from_bytes(&idb_object.pickled_session)?;
-        let session = InboundGroupSession::from_pickle(pickled_session)
-            .map_err(|e| IndexeddbCryptoStoreError::CryptoStoreError(e.into()))?;
-
-        // Although a "backed up" flag is stored inside `idb_object.pickled_session`, it
-        // is not maintained when backups are reset. Overwrite the flag with the
-        // needs_backup value from the IDB object.
-        if idb_object.needs_backup {
-            session.reset_backup_state();
-        } else {
-            session.mark_as_backed_up();
-        }
-
-        Ok(session)
+        deserialize_inbound_group_session(stored_value, &self.serializer)
     }
 
     /// Transform a [`GossipRequest`] into a `JsValue` holding a
@@ -324,6 +311,28 @@ impl IndexeddbCryptoStore {
             serde_wasm_bindgen::from_value(stored_request)?;
         Ok(self.serializer.deserialize_value_from_bytes(&idb_object.request)?)
     }
+}
+
+fn deserialize_inbound_group_session(
+    stored_value: JsValue,
+    serializer: &IndexeddbSerializer,
+) -> Result<InboundGroupSession> {
+    let idb_object: InboundGroupSessionIndexedDbObject =
+        serde_wasm_bindgen::from_value(stored_value)?;
+    let pickled_session = serializer.deserialize_value_from_bytes(&idb_object.pickled_session)?;
+    let session = InboundGroupSession::from_pickle(pickled_session)
+        .map_err(|e| IndexeddbCryptoStoreError::CryptoStoreError(e.into()))?;
+
+    // Although a "backed up" flag is stored inside `idb_object.pickled_session`, it
+    // is not maintained when backups are reset. Overwrite the flag with the
+    // needs_backup value from the IDB object.
+    if idb_object.needs_backup {
+        session.reset_backup_state();
+    } else {
+        session.mark_as_backed_up();
+    }
+
+    Ok(session)
 }
 
 // Small hack to have the following macro invocation act as the appropriate
@@ -798,6 +807,31 @@ impl_crypto_store! {
             |value| self.deserialize_inbound_group_session(value),
             INBOUND_GROUP_SESSIONS_BATCH_SIZE
         ).await
+    }
+
+    async fn get_inbound_group_sessions_stream(&self) -> Result<StreamOf<store::Result<InboundGroupSession>>> {
+        let db = self.inner.clone();
+        let serializer = self.serializer.clone();
+
+        let stream = StreamByRenewedCursor::new(
+            db,
+            |db| db.transaction_on_one_with_mode(
+                keys::INBOUND_GROUP_SESSIONS_V2,
+                IdbTransactionMode::Readonly,
+            ),
+            keys::INBOUND_GROUP_SESSIONS_V2.to_owned(),
+            // SAFETY: `unwrap` is safe because 100 isn't zero.
+            NonZeroUsize::new(100).unwrap(),
+        )
+        .await?
+        .map(move |item: Result<(JsValue, JsValue), DomException>| -> store::Result<InboundGroupSession> {
+            let item: (JsValue, JsValue) = item.map_err(IndexeddbCryptoStoreError::from).map_err(store::CryptoStoreError::backend)?;
+            let (_key, value) = item;
+
+            Ok(deserialize_inbound_group_session(value, &serializer)?)
+        });
+
+        Ok(StreamOf::new(Box::pin(stream)))
     }
 
     async fn inbound_group_session_counts(&self) -> Result<RoomKeyCounts> {

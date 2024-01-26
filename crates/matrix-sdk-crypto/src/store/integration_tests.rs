@@ -3,10 +3,14 @@
 macro_rules! cryptostore_integration_tests {
     () => {
         mod cryptostore_integration_tests {
-            use std::time::Duration;
-            use std::collections::{BTreeMap, HashMap};
+            use std::{
+                collections::{BTreeMap, HashMap},
+                future::ready,
+                time::Duration,
+            };
 
             use assert_matches::assert_matches;
+            use futures_util::{StreamExt, TryStreamExt};
             use matrix_sdk_test::async_test;
             use ruma::{
                 device_id,
@@ -267,6 +271,65 @@ macro_rules! cryptostore_integration_tests {
             }
 
             #[async_test]
+            async fn save_many_inbound_group_sessions() {
+                let (account, store) = get_loaded_store("save_many_inbound_group_sessions").await;
+
+                const NUMBER_OF_SESSIONS_FOR_ROOM1: usize = 400;
+                const NUMBER_OF_SESSIONS_FOR_ROOM2: usize = 600;
+                const NUMBER_OF_SESSIONS: usize = NUMBER_OF_SESSIONS_FOR_ROOM1 + NUMBER_OF_SESSIONS_FOR_ROOM2;
+
+                let room_id1 = room_id!("!a:localhost");
+                let room_id2 = room_id!("!b:localhost");
+                let mut sessions = Vec::with_capacity(NUMBER_OF_SESSIONS);
+
+
+                for i in 0..(NUMBER_OF_SESSIONS) {
+                    let (_, session) = account.create_group_session_pair_with_defaults(
+                        if i < NUMBER_OF_SESSIONS_FOR_ROOM1 {
+                            &room_id1
+                        } else {
+                            &room_id2
+                        }
+                    ).await;
+                    sessions.push(session);
+                }
+
+                let changes =
+                    Changes { inbound_group_sessions: sessions, ..Default::default() };
+
+                store.save_changes(changes).await.expect("Can't save group session");
+
+                assert_eq!(store.get_inbound_group_sessions().await.unwrap().len(), NUMBER_OF_SESSIONS);
+                assert_eq!(store.get_inbound_group_sessions_stream().await.unwrap().collect::<Vec<_>>().await.len(), NUMBER_OF_SESSIONS);
+
+                // Inefficient because all sessions are collected once in a `Vec`, then filtered, then collected again in another `Vec`.
+                assert_eq!(
+                    store
+                        .get_inbound_group_sessions()
+                        .await
+                        .unwrap()
+                        .into_iter()
+                        .filter(|session: &InboundGroupSession| session.room_id() == room_id2)
+                        .collect::<Vec<_>>()
+                        .len(),
+                    NUMBER_OF_SESSIONS_FOR_ROOM2
+                );
+
+                // Efficient because sessions are filtered, then collected only once.
+                assert_eq!(
+                    store
+                        .get_inbound_group_sessions_stream()
+                        .await
+                        .unwrap()
+                        .try_filter(|session: &InboundGroupSession| ready(session.room_id() == room_id2))
+                        .collect::<Vec<_>>()
+                        .await
+                        .len(),
+                    NUMBER_OF_SESSIONS_FOR_ROOM2
+                );
+            }
+
+            #[async_test]
             async fn save_inbound_group_session_for_backup() {
                 let (account, store) =
                     get_loaded_store("save_inbound_group_session_for_backup").await;
@@ -286,6 +349,7 @@ macro_rules! cryptostore_integration_tests {
                     .unwrap();
                 assert_eq!(session, loaded_session);
                 assert_eq!(store.get_inbound_group_sessions().await.unwrap().len(), 1);
+                assert_eq!(store.get_inbound_group_sessions_stream().await.unwrap().collect::<Vec<_>>().await.len(), 1);
                 assert_eq!(store.inbound_group_session_counts().await.unwrap().total, 1);
                 assert_eq!(store.inbound_group_session_counts().await.unwrap().backed_up, 0);
 
@@ -373,7 +437,8 @@ macro_rules! cryptostore_integration_tests {
             async fn load_inbound_group_session() {
                 let dir = "load_inbound_group_session";
                 let (account, store) = get_loaded_store(dir).await;
-                assert_eq!(store.get_inbound_group_sessions().await.unwrap().len(), 0);
+                assert!(store.get_inbound_group_sessions().await.unwrap().is_empty());
+                assert!(store.get_inbound_group_sessions_stream().await.unwrap().collect::<Vec<_>>().await.is_empty());
 
                 let room_id = &room_id!("!test:localhost");
                 let (_, session) = account.create_group_session_pair_with_defaults(room_id).await;
@@ -402,6 +467,7 @@ macro_rules! cryptostore_integration_tests {
                 let export = loaded_session.export().await;
 
                 assert_eq!(store.get_inbound_group_sessions().await.unwrap().len(), 1);
+                assert_eq!(store.get_inbound_group_sessions_stream().await.unwrap().collect::<Vec<_>>().await.len(), 1);
                 assert_eq!(store.inbound_group_session_counts().await.unwrap().total, 1);
             }
 

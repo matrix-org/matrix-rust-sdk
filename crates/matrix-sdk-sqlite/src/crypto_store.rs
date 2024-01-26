@@ -20,6 +20,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+use async_stream::stream;
 use async_trait::async_trait;
 use deadpool_sqlite::{Object as SqliteConn, Pool as SqlitePool, Runtime};
 use matrix_sdk_crypto::{
@@ -28,8 +29,8 @@ use matrix_sdk_crypto::{
         PrivateCrossSigningIdentity, Session, StaticAccountData,
     },
     store::{
-        caches::SessionStore, BackupKeys, Changes, CryptoStore, PendingChanges, RoomKeyCounts,
-        RoomSettings,
+        self, caches::SessionStore, BackupKeys, Changes, CryptoStore, PendingChanges,
+        RoomKeyCounts, RoomSettings, StreamOf,
     },
     types::events::room_key_withheld::RoomKeyWithheldEvent,
     Account, GossipRequest, GossippedSecret, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
@@ -938,6 +939,21 @@ impl CryptoStore for SqliteCryptoStore {
                 Ok(InboundGroupSession::from_pickle(pickle)?)
             })
             .collect()
+    }
+
+    // For now, this method transforms `Self::get_inbound_group_sessions`'s result
+    // into a `Stream`. That's really not useful. Ideally, we want to iterate the
+    // SQLite table progressively, with a cursor or something like this.
+    async fn get_inbound_group_sessions_stream(
+        &self,
+    ) -> Result<StreamOf<store::Result<InboundGroupSession>>> {
+        let inbound_group_sessions = self.get_inbound_group_sessions().await?;
+
+        Ok(StreamOf::new(Box::pin(stream! {
+            for item in inbound_group_sessions {
+                yield Ok(item);
+            }
+        })))
     }
 
     async fn inbound_group_session_counts(&self) -> Result<RoomKeyCounts> {

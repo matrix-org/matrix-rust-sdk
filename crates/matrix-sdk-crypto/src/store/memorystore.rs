@@ -19,6 +19,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use async_stream::stream;
 use async_trait::async_trait;
 use ruma::{
     events::secret::request::SecretName, DeviceId, OwnedDeviceId, OwnedRoomId, OwnedTransactionId,
@@ -28,6 +29,7 @@ use tokio::sync::{Mutex, RwLock};
 
 use super::{
     caches::{DeviceStore, GroupSessionStore, SessionStore},
+    traits::StreamOf,
     Account, BackupKeys, Changes, CryptoStore, InboundGroupSession, PendingChanges, RoomKeyCounts,
     RoomSettings, Session,
 };
@@ -249,6 +251,21 @@ impl CryptoStore for MemoryStore {
 
     async fn get_inbound_group_sessions(&self) -> Result<Vec<InboundGroupSession>> {
         Ok(self.inbound_group_sessions.get_all())
+    }
+
+    async fn get_inbound_group_sessions_stream(
+        &self,
+    ) -> Result<StreamOf<super::error::Result<InboundGroupSession>>> {
+        // There is no stream API for this `MemoryStore`. Let's simply consume the `Vec`
+        // from `get_inbound_group_sessions` as a stream. It's not ideal, but it's
+        // OK-ish for now.
+        let inbound_group_sessions = self.inbound_group_sessions.get_all();
+
+        Ok(StreamOf::new(Box::pin(stream! {
+            for item in inbound_group_sessions {
+                yield Ok(item);
+            }
+        })))
     }
 
     async fn inbound_group_session_counts(&self) -> Result<RoomKeyCounts> {
