@@ -1,6 +1,12 @@
 //! High-level room API
 
-use std::{borrow::Borrow, collections::BTreeMap, ops::Deref, time::Duration};
+use std::{
+    borrow::Borrow,
+    collections::BTreeMap,
+    ops::Deref,
+    sync::{mpsc::channel, Arc},
+    time::Duration,
+};
 
 use eyeball::SharedObservable;
 use futures_core::Stream;
@@ -57,6 +63,7 @@ use ruma::{
         },
         space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
         tag::{TagInfo, TagName},
+        typing::SyncTypingEvent,
         AnyRoomAccountDataEvent, AnyStateEvent, EmptyStateKey, MessageLikeEventContent,
         MessageLikeEventType, RedactContent, RedactedStateEventContent, RoomAccountDataEvent,
         RoomAccountDataEventContent, RoomAccountDataEventType, StateEventContent, StateEventType,
@@ -76,7 +83,7 @@ use self::futures::{SendAttachment, SendMessageLikeEvent, SendRawMessageLikeEven
 use crate::{
     attachment::AttachmentConfig,
     error::WrongRoomState,
-    event_handler::{EventHandler, EventHandlerHandle, SyncEvent},
+    event_handler::{EventHandler, EventHandlerDropGuard, EventHandlerHandle, SyncEvent},
     media::{MediaFormat, MediaRequest},
     notification_settings::{IsEncrypted, IsOneToOne, RoomNotificationMode},
     sync::RoomUpdate,
@@ -313,6 +320,24 @@ impl Room {
     /// that contains updates for this room.
     pub fn subscribe_to_updates(&self) -> broadcast::Receiver<RoomUpdate> {
         self.client.subscribe_to_room_updates(self.room_id())
+    }
+
+    /// Subscribe to typing notifications for this room.
+    ///
+    /// The returned receiver will receive a new vector of user IDs for each
+    /// sync response that contains 'm.typing' event.
+    pub fn subscribe_to_typing_notifications(
+        &self,
+    ) -> (EventHandlerDropGuard, broadcast::Receiver<Vec<OwnedUserId>>) {
+        let (sender, receiver) = broadcast::channel(16);
+        let typing_event_handler_handle = self.client.add_room_event_handler(self.room_id(), {
+            let sender = sender.clone();
+            move |ev: SyncTypingEvent| async move {
+                let _ = sender.send(ev.content.user_ids);
+            }
+        });
+        let guard = self.client().event_handler_drop_guard(typing_event_handler_handle);
+        (guard, receiver)
     }
 
     /// Fetch the event with the given `EventId` in this room.

@@ -505,11 +505,28 @@ impl Room {
     pub async fn typing_notice(&self, is_typing: bool) -> Result<(), ClientError> {
         Ok(self.inner.typing_notice(is_typing).await?)
     }
+    pub async fn subscribe_to_typing_notifications(
+        self: Arc<Self>,
+        listener: Box<dyn TypingNotificationsListener>,
+    ) -> Arc<TaskHandle> {
+        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
+            let (_guard, mut subscriber) = self.inner.subscribe_to_typing_notifications();
+            while let Ok(typing_users) = subscriber.recv().await {
+                let typing_users = typing_users.iter().map(|u| u.to_string()).collect();
+                listener.call(typing_users);
+            }
+        })))
+    }
 }
 
 #[uniffi::export(callback_interface)]
 pub trait RoomInfoListener: Sync + Send {
     fn call(&self, room_info: RoomInfo);
+}
+
+#[uniffi::export(callback_interface)]
+pub trait TypingNotificationsListener: Sync + Send {
+    fn call(&self, typing_users: Vec<String>);
 }
 
 #[derive(uniffi::Object)]
