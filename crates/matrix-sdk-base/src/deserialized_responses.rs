@@ -34,9 +34,12 @@ use serde::Serialize;
 
 /// A change in ambiguity of room members that an `m.room.member` event
 /// triggers.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 #[non_exhaustive]
 pub struct AmbiguityChange {
+    /// The user ID of the member that is contained in the state key of the
+    /// `m.room.member` event.
+    pub member_id: OwnedUserId,
     /// Is the member that is contained in the state key of the `m.room.member`
     /// event itself ambiguous because of the event.
     pub member_ambiguous: bool,
