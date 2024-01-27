@@ -8,7 +8,10 @@ use matrix_sdk::{
     sync::RoomUpdate,
 };
 use matrix_sdk_base::RoomState;
-use matrix_sdk_test::{async_test, test_json, DEFAULT_TEST_ROOM_ID};
+use matrix_sdk_test::{
+    async_test, sync_state_event, test_json, JoinedRoomBuilder, SyncResponseBuilder,
+    DEFAULT_TEST_ROOM_ID,
+};
 use ruma::{
     api::client::{
         directory::{
@@ -20,6 +23,7 @@ use ruma::{
     },
     assign, device_id,
     directory::Filter,
+    event_id,
     events::{
         direct::DirectEventContent,
         room::{message::ImageMessageEventContent, ImageInfo, MediaSource},
@@ -897,4 +901,239 @@ async fn create_dm_error() {
     let client_api_error = error.as_client_api_error().unwrap();
 
     assert_eq!(client_api_error.status_code, 404);
+}
+
+#[async_test]
+async fn ambiguity_changes() {
+    let (client, server) = logged_in_client().await;
+
+    let example_id = user_id!("@example:localhost");
+    let example_2_id = user_id!("@example2:localhost");
+    let example_3_id = user_id!("@example3:localhost");
+
+    // Initial sync, adds 2 members.
+    mock_sync(&server, &*test_json::SYNC, None).await;
+    let response = client.sync_once(SyncSettings::default()).await.unwrap();
+    server.reset().await;
+
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
+
+    let changes = response.ambiguity_changes.changes.get(*DEFAULT_TEST_ROOM_ID).unwrap();
+
+    // A new member always triggers an ambiguity change.
+    let example_change = changes.get(event_id!("$151800140517rfvjc:localhost")).unwrap();
+    assert_eq!(example_change.member_id, example_id);
+    assert!(!example_change.member_ambiguous);
+    assert_eq!(example_change.ambiguated_member, None);
+    assert_eq!(example_change.disambiguated_member, None);
+
+    let example_2_change = changes.get(event_id!("$152034824468gOeNB:localhost")).unwrap();
+    assert_eq!(example_2_change.member_id, example_2_id);
+    assert!(!example_2_change.member_ambiguous);
+    assert_eq!(example_2_change.ambiguated_member, None);
+    assert_eq!(example_2_change.disambiguated_member, None);
+
+    let example = room.get_member_no_sync(example_id).await.unwrap().unwrap();
+    assert!(!example.name_ambiguous());
+    let example_2 = room.get_member_no_sync(example_2_id).await.unwrap().unwrap();
+    assert!(!example_2.name_ambiguous());
+
+    // Add 1 member and set all 3 to the same display name.
+    let example_2_rename_1_event_id = event_id!("$example_2_rename_1");
+    let example_3_join_event_id = event_id!("$example_3_join");
+
+    let mut sync_builder = SyncResponseBuilder::new();
+    let joined_room = JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID).add_state_bulk([
+        sync_state_event!({
+            "content": {
+                "avatar_url": null,
+                "displayname": "example",
+                "membership": "join"
+            },
+            "event_id": example_2_rename_1_event_id,
+            "origin_server_ts": 151800140,
+            "sender": example_2_id,
+            "state_key": example_2_id,
+            "type": "m.room.member",
+        }),
+        sync_state_event!({
+            "content": {
+                "avatar_url": null,
+                "displayname": "example",
+                "membership": "join"
+            },
+            "event_id": example_3_join_event_id,
+            "origin_server_ts": 151800140,
+            "sender": example_3_id,
+            "state_key": example_3_id,
+            "type": "m.room.member",
+        }),
+    ]);
+    sync_builder.add_joined_room(joined_room);
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    let response = client.sync_once(SyncSettings::default()).await.unwrap();
+    server.reset().await;
+
+    let changes = response.ambiguity_changes.changes.get(*DEFAULT_TEST_ROOM_ID).unwrap();
+
+    // First joined member made both members ambiguous.
+    let example_2_change = changes.get(example_2_rename_1_event_id).unwrap();
+    assert_eq!(example_2_change.member_id, example_2_id);
+    assert!(example_2_change.member_ambiguous);
+    assert_eq!(example_2_change.ambiguated_member.as_deref(), Some(example_id));
+    assert_eq!(example_2_change.disambiguated_member, None);
+
+    // Second joined member only adds itself as ambiguous.
+    let example_3_change = changes.get(example_3_join_event_id).unwrap();
+    assert_eq!(example_3_change.member_id, example_3_id);
+    assert!(example_3_change.member_ambiguous);
+    assert_eq!(example_3_change.ambiguated_member, None);
+    assert_eq!(example_3_change.disambiguated_member, None);
+
+    let example = room.get_member_no_sync(example_id).await.unwrap().unwrap();
+    assert!(example.name_ambiguous());
+    let example_2 = room.get_member_no_sync(example_2_id).await.unwrap().unwrap();
+    assert!(example_2.name_ambiguous());
+    let example_3 = room.get_member_no_sync(example_3_id).await.unwrap().unwrap();
+    assert!(example_3.name_ambiguous());
+
+    // Rename example 2 to a unique name.
+    let example_2_rename_2_event_id = event_id!("$example_2_rename_2");
+
+    let joined_room =
+        JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID).add_state_bulk([sync_state_event!({
+            "content": {
+                "avatar_url": null,
+                "displayname": "another example",
+                "membership": "join"
+            },
+            "event_id": example_2_rename_2_event_id,
+            "origin_server_ts": 151800140,
+            "sender": example_2_id,
+            "state_key": example_2_id,
+            "type": "m.room.member",
+        })]);
+    sync_builder.add_joined_room(joined_room);
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    let response = client.sync_once(SyncSettings::default()).await.unwrap();
+    server.reset().await;
+
+    let changes = response.ambiguity_changes.changes.get(*DEFAULT_TEST_ROOM_ID).unwrap();
+
+    // example 2 is not ambiguous anymore.
+    let example_2_change = changes.get(example_2_rename_2_event_id).unwrap();
+    assert_eq!(example_2_change.member_id, example_2_id);
+    assert!(!example_2_change.member_ambiguous);
+    assert_eq!(example_2_change.ambiguated_member, None);
+    assert_eq!(example_2_change.disambiguated_member, None);
+
+    let example = room.get_member_no_sync(example_id).await.unwrap().unwrap();
+    assert!(example.name_ambiguous());
+    let example_2 = room.get_member_no_sync(example_2_id).await.unwrap().unwrap();
+    assert!(!example_2.name_ambiguous());
+    let example_3 = room.get_member_no_sync(example_3_id).await.unwrap().unwrap();
+    assert!(example_3.name_ambiguous());
+
+    // Rename example 3, using the same name as example 2.
+    let example_3_rename_event_id = event_id!("$example_3_rename");
+
+    let joined_room =
+        JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID).add_state_bulk([sync_state_event!({
+            "content": {
+                "avatar_url": null,
+                "displayname": "another example",
+                "membership": "join"
+            },
+            "event_id": example_3_rename_event_id,
+            "origin_server_ts": 151800140,
+            "sender": example_3_id,
+            "state_key": example_3_id,
+            "type": "m.room.member",
+        })]);
+    sync_builder.add_joined_room(joined_room);
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    let response = client.sync_once(SyncSettings::default()).await.unwrap();
+    server.reset().await;
+
+    let changes = response.ambiguity_changes.changes.get(*DEFAULT_TEST_ROOM_ID).unwrap();
+
+    // example 3 is now ambiguous with example 2, not example.
+    let example_3_change = changes.get(example_3_rename_event_id).unwrap();
+    assert_eq!(example_3_change.member_id, example_3_id);
+    assert!(example_3_change.member_ambiguous);
+    assert_eq!(example_3_change.ambiguated_member.as_deref(), Some(example_2_id));
+    assert_eq!(example_3_change.disambiguated_member.as_deref(), Some(example_id));
+
+    let example = room.get_member_no_sync(example_id).await.unwrap().unwrap();
+    assert!(!example.name_ambiguous());
+    let example_2 = room.get_member_no_sync(example_2_id).await.unwrap().unwrap();
+    assert!(example_2.name_ambiguous());
+    let example_3 = room.get_member_no_sync(example_3_id).await.unwrap().unwrap();
+    assert!(example_3.name_ambiguous());
+
+    // Rename example, still using a unique name.
+    let example_rename_event_id = event_id!("$example_rename");
+
+    let joined_room =
+        JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID).add_state_bulk([sync_state_event!({
+            "content": {
+                "avatar_url": null,
+                "displayname": "the first example",
+                "membership": "join"
+            },
+            "event_id": example_rename_event_id,
+            "origin_server_ts": 151800140,
+            "sender": example_id,
+            "state_key": example_id,
+            "type": "m.room.member",
+        })]);
+    sync_builder.add_joined_room(joined_room);
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    let response = client.sync_once(SyncSettings::default()).await.unwrap();
+    server.reset().await;
+
+    let changes = response.ambiguity_changes.changes.get(*DEFAULT_TEST_ROOM_ID).unwrap();
+
+    // name change, even if still not ambiguous, triggers ambiguity change.
+    let example_change = changes.get(example_rename_event_id).unwrap();
+    assert_eq!(example_change.member_id, example_id);
+    assert!(!example_change.member_ambiguous);
+    assert_eq!(example_change.ambiguated_member, None);
+    assert_eq!(example_change.disambiguated_member, None);
+
+    let example = room.get_member_no_sync(example_id).await.unwrap().unwrap();
+    assert!(!example.name_ambiguous());
+    let example_2 = room.get_member_no_sync(example_2_id).await.unwrap().unwrap();
+    assert!(example_2.name_ambiguous());
+    let example_3 = room.get_member_no_sync(example_3_id).await.unwrap().unwrap();
+    assert!(example_3.name_ambiguous());
+
+    // Change avatar.
+    let example_avatar_event_id = event_id!("$example_avatar");
+
+    let joined_room =
+        JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID).add_state_bulk([sync_state_event!({
+            "content": {
+                "avatar_url": "mxc://localhost/avatar",
+                "displayname": "the first example",
+                "membership": "join"
+            },
+            "event_id": example_avatar_event_id,
+            "origin_server_ts": 151800140,
+            "sender": example_id,
+            "state_key": example_id,
+            "type": "m.room.member",
+        })]);
+    sync_builder.add_joined_room(joined_room);
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    let response = client.sync_once(SyncSettings::default()).await.unwrap();
+    server.reset().await;
+
+    // Avatar change does not trigger ambiguity change.
+    assert!(response.ambiguity_changes.changes.get(*DEFAULT_TEST_ROOM_ID).is_none());
 }
