@@ -23,7 +23,7 @@ use matrix_sdk_test::{
     async_test, sync_timeline_event, EventBuilder, GlobalAccountDataTestEvent, JoinedRoomBuilder,
     SyncResponseBuilder, ALICE, BOB,
 };
-use matrix_sdk_ui::timeline::{RoomExt, TimelineItemContent, VirtualTimelineItem};
+use matrix_sdk_ui::timeline::{RoomExt, TimelineDetails, TimelineItemContent, VirtualTimelineItem};
 use ruma::{
     event_id,
     events::room::{
@@ -333,5 +333,264 @@ async fn test_timeline_is_reset_when_a_user_is_ignored_or_unignored() {
     assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
         assert_eq!(value.as_event().unwrap().event_id(), Some(fiveth_event_id));
     });
+    assert_pending!(timeline_stream);
+}
+
+#[async_test]
+async fn test_profile_updates() {
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let (client, server) = logged_in_client().await;
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+    let mut ev_builder = SyncResponseBuilder::new();
+    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+
+    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    let room = client.get_room(room_id).unwrap();
+    let timeline = room.timeline_builder().build().await;
+    let (_, timeline_stream) = timeline.subscribe().await;
+    pin_mut!(timeline_stream);
+
+    let alice = "@alice:example.org";
+    let bob = "@bob:example.org";
+
+    // Add users with unknown profile.
+    let event_1_id = event_id!("$YTQwYl2pl1");
+    let event_2_id = event_id!("$YTQwYl2pl2");
+
+    ev_builder.add_joined_room(
+        JoinedRoomBuilder::new(room_id)
+            .add_timeline_event(sync_timeline_event!({
+                "content": {
+                    "body": "hello",
+                    "msgtype": "m.text",
+                },
+                "event_id": event_1_id,
+                "origin_server_ts": 152037280,
+                "sender": alice,
+                "type": "m.room.message",
+            }))
+            .add_timeline_event(sync_timeline_event!({
+                "content": {
+                    "body": "hello",
+                    "msgtype": "m.text",
+                },
+                "event_id": event_2_id,
+                "origin_server_ts": 152037280,
+                "sender": bob,
+                "type": "m.room.message",
+            })),
+    );
+
+    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
+        assert_matches!(value.as_virtual(), Some(VirtualTimelineItem::DayDivider(_)));
+    });
+
+    let item_1 = assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
+    let event_1_item = item_1.as_event().unwrap();
+    assert_eq!(event_1_item.event_id(), Some(event_1_id));
+    assert_matches!(event_1_item.sender_profile(), TimelineDetails::Unavailable);
+
+    let item_2 = assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
+    let event_2_item = item_2.as_event().unwrap();
+    assert_eq!(event_2_item.event_id(), Some(event_2_id));
+    assert_matches!(event_2_item.sender_profile(), TimelineDetails::Unavailable);
+
+    assert_pending!(timeline_stream);
+
+    // Add profiles of users and other message.
+    let event_3_id = event_id!("$YTQwYl2pl3");
+    let event_4_id = event_id!("$YTQwYl2pl4");
+    let event_5_id = event_id!("$YTQwYl2pl5");
+
+    ev_builder.add_joined_room(
+        JoinedRoomBuilder::new(room_id)
+            .add_timeline_event(sync_timeline_event!({
+                "content": {
+                    "displayname": "Member",
+                    "membership": "join"
+                },
+                "event_id": event_3_id,
+                "origin_server_ts": 152037280,
+                "sender": bob,
+                "state_key": bob,
+                "type": "m.room.member",
+            }))
+            .add_timeline_event(sync_timeline_event!({
+                "content": {
+                    "displayname": "Alice",
+                    "membership": "join"
+                },
+                "event_id": event_4_id,
+                "origin_server_ts": 152037280,
+                "sender": alice,
+                "state_key": alice,
+                "type": "m.room.member",
+            }))
+            .add_timeline_event(sync_timeline_event!({
+                "content": {
+                    "body": "hello",
+                    "msgtype": "m.text",
+                },
+                "event_id": event_5_id,
+                "origin_server_ts": 152037280,
+                "sender": alice,
+                "type": "m.room.message",
+            })),
+    );
+
+    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    // Read receipt change.
+    assert_next_matches!(timeline_stream, VectorDiff::Set { index: 2, value } => {
+        assert_eq!(value.as_event().unwrap().event_id(), Some(event_2_id));
+    });
+
+    // The events are added.
+    let item_3 = assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
+    let event_3_item = item_3.as_event().unwrap();
+    assert_eq!(event_3_item.event_id(), Some(event_3_id));
+    let profile =
+        assert_matches!(event_3_item.sender_profile(), TimelineDetails::Ready(profile) => profile);
+    assert_eq!(profile.display_name.as_deref(), Some("Member"));
+    assert!(!profile.display_name_ambiguous);
+
+    // Read receipt change.
+    assert_next_matches!(timeline_stream, VectorDiff::Set { index: 1, value } => {
+        assert_eq!(value.as_event().unwrap().event_id(), Some(event_1_id));
+    });
+
+    let item_4 = assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
+    let event_4_item = item_4.as_event().unwrap();
+    assert_eq!(event_4_item.event_id(), Some(event_4_id));
+    let profile =
+        assert_matches!(event_4_item.sender_profile(), TimelineDetails::Ready(profile) => profile);
+    assert_eq!(profile.display_name.as_deref(), Some("Alice"));
+    assert!(!profile.display_name_ambiguous);
+
+    // Read receipt change.
+    assert_next_matches!(timeline_stream, VectorDiff::Set { index: 4, value } => {
+        assert_eq!(value.as_event().unwrap().event_id(), Some(event_4_id));
+    });
+
+    let item_5 = assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
+    let event_5_item = item_5.as_event().unwrap();
+    assert_eq!(event_5_item.event_id(), Some(event_5_id));
+    let profile =
+        assert_matches!(event_5_item.sender_profile(), TimelineDetails::Ready(profile) => profile);
+    assert_eq!(profile.display_name.as_deref(), Some("Alice"));
+    assert!(!profile.display_name_ambiguous);
+
+    // The profiles changed.
+    let item_1 =
+        assert_next_matches!(timeline_stream, VectorDiff::Set { index: 1, value } => value);
+    let event_1_item = item_1.as_event().unwrap();
+    assert_eq!(event_1_item.event_id(), Some(event_1_id));
+    let profile =
+        assert_matches!(event_1_item.sender_profile(), TimelineDetails::Ready(profile) => profile);
+    assert_eq!(profile.display_name.as_deref(), Some("Alice"));
+    assert!(!profile.display_name_ambiguous);
+
+    let item_2 =
+        assert_next_matches!(timeline_stream, VectorDiff::Set { index: 2, value } => value);
+    let event_2_item = item_2.as_event().unwrap();
+    assert_eq!(event_2_item.event_id(), Some(event_2_id));
+    let profile =
+        assert_matches!(event_2_item.sender_profile(), TimelineDetails::Ready(profile) => profile);
+    assert_eq!(profile.display_name.as_deref(), Some("Member"));
+    assert!(!profile.display_name_ambiguous);
+
+    assert_pending!(timeline_stream);
+
+    // Change name to be ambiguous.
+    let event_6_id = event_id!("$YTQwYl2pl6");
+
+    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
+        sync_timeline_event!({
+            "content": {
+                "displayname": "Member",
+                "membership": "join"
+            },
+            "event_id": event_6_id,
+            "origin_server_ts": 152037280,
+            "sender": alice,
+            "state_key": alice,
+            "type": "m.room.member",
+        }),
+    ));
+
+    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    // Read receipt change.
+    assert_next_matches!(timeline_stream, VectorDiff::Set { index: 5, value } => {
+        assert_eq!(value.as_event().unwrap().event_id(), Some(event_5_id));
+    });
+
+    // The event is added.
+    let item_6 = assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
+    let event_6_item = item_6.as_event().unwrap();
+    assert_eq!(event_6_item.event_id(), Some(event_6_id));
+    let profile =
+        assert_matches!(event_6_item.sender_profile(), TimelineDetails::Ready(profile) => profile);
+    assert_eq!(profile.display_name.as_deref(), Some("Member"));
+    assert!(profile.display_name_ambiguous);
+
+    // The profiles changed.
+    let item_1 =
+        assert_next_matches!(timeline_stream, VectorDiff::Set { index: 1, value } => value);
+    let event_1_item = item_1.as_event().unwrap();
+    assert_eq!(event_1_item.event_id(), Some(event_1_id));
+    let profile =
+        assert_matches!(event_1_item.sender_profile(), TimelineDetails::Ready(profile) => profile);
+    assert_eq!(profile.display_name.as_deref(), Some("Member"));
+    assert!(profile.display_name_ambiguous);
+
+    let item_2 =
+        assert_next_matches!(timeline_stream, VectorDiff::Set { index: 2, value } => value);
+    let event_2_item = item_2.as_event().unwrap();
+    assert_eq!(event_2_item.event_id(), Some(event_2_id));
+    let profile =
+        assert_matches!(event_2_item.sender_profile(), TimelineDetails::Ready(profile) => profile);
+    assert_eq!(profile.display_name.as_deref(), Some("Member"));
+    assert!(profile.display_name_ambiguous);
+
+    let item_3 =
+        assert_next_matches!(timeline_stream, VectorDiff::Set { index: 3, value } => value);
+    let event_3_item = item_3.as_event().unwrap();
+    assert_eq!(event_3_item.event_id(), Some(event_3_id));
+    let profile =
+        assert_matches!(event_3_item.sender_profile(), TimelineDetails::Ready(profile) => profile);
+    assert_eq!(profile.display_name.as_deref(), Some("Member"));
+    assert!(profile.display_name_ambiguous);
+
+    let item_4 =
+        assert_next_matches!(timeline_stream, VectorDiff::Set { index: 4, value } => value);
+    let event_4_item = item_4.as_event().unwrap();
+    assert_eq!(event_4_item.event_id(), Some(event_4_id));
+    let profile =
+        assert_matches!(event_4_item.sender_profile(), TimelineDetails::Ready(profile) => profile);
+    assert_eq!(profile.display_name.as_deref(), Some("Member"));
+    assert!(profile.display_name_ambiguous);
+
+    let item_5 =
+        assert_next_matches!(timeline_stream, VectorDiff::Set { index: 5, value } => value);
+    let event_5_item = item_5.as_event().unwrap();
+    assert_eq!(event_5_item.event_id(), Some(event_5_id));
+    let profile =
+        assert_matches!(event_5_item.sender_profile(), TimelineDetails::Ready(profile) => profile);
+    assert_eq!(profile.display_name.as_deref(), Some("Member"));
+    assert!(profile.display_name_ambiguous);
+
     assert_pending!(timeline_stream);
 }

@@ -14,7 +14,7 @@
 
 //! SDK-specific variations of response types from Ruma.
 
-use std::{collections::BTreeMap, fmt};
+use std::{collections::BTreeMap, fmt, iter};
 
 pub use matrix_sdk_common::deserialized_responses::*;
 use ruma::{
@@ -47,6 +47,15 @@ pub struct AmbiguityChange {
     pub disambiguated_member: Option<OwnedUserId>,
     /// Has another user become ambiguous because of this event.
     pub ambiguated_member: Option<OwnedUserId>,
+}
+
+impl AmbiguityChange {
+    /// Get an iterator over the user IDs listed in this `AmbiguityChange`.
+    pub fn user_ids(&self) -> impl Iterator<Item = &UserId> {
+        iter::once(&*self.member_id)
+            .chain(self.disambiguated_member.as_deref())
+            .chain(self.ambiguated_member.as_deref())
+    }
 }
 
 /// Collection of ambiguity changes that room member events trigger.

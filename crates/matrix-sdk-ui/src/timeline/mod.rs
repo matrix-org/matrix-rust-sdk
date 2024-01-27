@@ -659,7 +659,7 @@ impl Timeline {
         self.inner.set_sender_profiles_pending().await;
         match self.room().sync_members().await {
             Ok(_) => {
-                self.inner.update_sender_profiles().await;
+                self.inner.update_missing_sender_profiles().await;
             }
             Err(e) => {
                 self.inner.set_sender_profiles_error(Arc::new(e)).await;

@@ -172,11 +172,23 @@ impl TimelineBuilder {
                     trace!("Handling a room update");
 
                     match update {
-                        RoomUpdate::Left { updates, .. } => {
+                        RoomUpdate::Left { updates, ambiguity_changes, .. } => {
                             inner.handle_sync_timeline(updates.timeline).await;
+
+                            let member_ambiguity_changes = ambiguity_changes
+                                .values()
+                                .flat_map(|change| change.user_ids())
+                                .collect::<BTreeSet<_>>();
+                            inner.force_update_sender_profiles(&member_ambiguity_changes).await;
                         }
-                        RoomUpdate::Joined { updates, .. } => {
+                        RoomUpdate::Joined { updates, ambiguity_changes, .. } => {
                             inner.handle_joined_room_update(updates).await;
+
+                            let member_ambiguity_changes = ambiguity_changes
+                                .values()
+                                .flat_map(|change| change.user_ids())
+                                .collect::<BTreeSet<_>>();
+                            inner.force_update_sender_profiles(&member_ambiguity_changes).await;
                         }
                         RoomUpdate::Invited { .. } => {
                             warn!("Room is in invited state, can't build or update its timeline");
