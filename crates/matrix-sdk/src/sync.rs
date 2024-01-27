@@ -23,7 +23,7 @@ use std::{
 pub use matrix_sdk_base::sync::*;
 use matrix_sdk_base::{
     debug::{DebugInvitedRoom, DebugListOfRawEventsNoId},
-    deserialized_responses::AmbiguityChanges,
+    deserialized_responses::{AmbiguityChange, AmbiguityChanges},
     instant::Instant,
     sync::SyncResponse as BaseSyncResponse,
 };
@@ -31,7 +31,7 @@ use ruma::{
     api::client::sync::sync_events::{self, v3::InvitedRoom},
     events::{presence::PresenceEvent, AnyGlobalAccountDataEvent, AnyToDeviceEvent},
     serde::Raw,
-    OwnedRoomId, RoomId,
+    OwnedEventId, OwnedRoomId, RoomId,
 };
 use tracing::{debug, error, warn};
 
@@ -103,6 +103,11 @@ pub enum RoomUpdate {
         room: Room,
         /// Updates to the room.
         updates: LeftRoom,
+        /// Collection of ambiguity changes that room member events trigger.
+        ///
+        /// This is a map of event ID of the `m.room.member` event to the
+        /// details of the ambiguity change.
+        ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
     },
     /// Updates to a room the user is currently in.
     Joined {
@@ -110,6 +115,11 @@ pub enum RoomUpdate {
         room: Room,
         /// Updates to the room.
         updates: JoinedRoom,
+        /// Collection of ambiguity changes that room member events trigger.
+        ///
+        /// This is a map of event ID of the `m.room.member` event to the
+        /// details of the ambiguity change.
+        ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
     },
     /// Updates to a room the user is invited to.
     Invited {
@@ -117,6 +127,11 @@ pub enum RoomUpdate {
         room: Room,
         /// Updates to the room.
         updates: InvitedRoom,
+        /// Collection of ambiguity changes that room member events trigger.
+        ///
+        /// This is a map of event ID of the `m.room.member` event to the
+        /// details of the ambiguity change.
+        ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
     },
 }
 
@@ -124,16 +139,23 @@ pub enum RoomUpdate {
 impl fmt::Debug for RoomUpdate {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Left { room, updates } => {
-                f.debug_struct("Left").field("room", room).field("updates", updates).finish()
-            }
-            Self::Joined { room, updates } => {
-                f.debug_struct("Joined").field("room", room).field("updates", updates).finish()
-            }
-            Self::Invited { room, updates } => f
+            Self::Left { room, updates, ambiguity_changes } => f
+                .debug_struct("Left")
+                .field("room", room)
+                .field("updates", updates)
+                .field("ambiguity_changes", ambiguity_changes)
+                .finish(),
+            Self::Joined { room, updates, ambiguity_changes } => f
+                .debug_struct("Joined")
+                .field("room", room)
+                .field("updates", updates)
+                .field("ambiguity_changes", ambiguity_changes)
+                .finish(),
+            Self::Invited { room, updates, ambiguity_changes } => f
                 .debug_struct("Invited")
                 .field("room", room)
                 .field("updates", &DebugInvitedRoom(updates))
+                .field("ambiguity_changes", ambiguity_changes)
                 .finish(),
         }
     }
@@ -169,7 +191,7 @@ impl Client {
             presence,
             account_data,
             to_device,
-            ambiguity_changes: _,
+            ambiguity_changes,
             notifications,
         } = response;
 
@@ -187,6 +209,11 @@ impl Client {
             self.send_room_update(room_id, || RoomUpdate::Joined {
                 room: room.clone(),
                 updates: room_info.clone(),
+                ambiguity_changes: ambiguity_changes
+                    .changes
+                    .get(room_id)
+                    .cloned()
+                    .unwrap_or_default(),
             });
 
             let JoinedRoom { unread_notifications: _, timeline, state, account_data, ephemeral } =
@@ -210,6 +237,11 @@ impl Client {
             self.send_room_update(room_id, || RoomUpdate::Left {
                 room: room.clone(),
                 updates: room_info.clone(),
+                ambiguity_changes: ambiguity_changes
+                    .changes
+                    .get(room_id)
+                    .cloned()
+                    .unwrap_or_default(),
             });
 
             let LeftRoom { timeline, state, account_data } = room_info;
@@ -229,6 +261,11 @@ impl Client {
             self.send_room_update(room_id, || RoomUpdate::Invited {
                 room: room.clone(),
                 updates: room_info.clone(),
+                ambiguity_changes: ambiguity_changes
+                    .changes
+                    .get(room_id)
+                    .cloned()
+                    .unwrap_or_default(),
             });
 
             let invite_state = &room_info.invite_state.events;

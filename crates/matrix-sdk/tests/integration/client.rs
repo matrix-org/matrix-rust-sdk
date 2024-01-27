@@ -34,6 +34,8 @@ use ruma::{
     uint, user_id, OwnedUserId,
 };
 use serde_json::{json, Value as JsonValue};
+use stream_assert::{assert_next_matches, assert_pending};
+use tokio_stream::wrappers::BroadcastStream;
 use wiremock::{
     matchers::{header, method, path, path_regex},
     Mock, Request, ResponseTemplate,
@@ -911,6 +913,9 @@ async fn ambiguity_changes() {
     let example_2_id = user_id!("@example2:localhost");
     let example_3_id = user_id!("@example3:localhost");
 
+    let mut updates = BroadcastStream::new(client.subscribe_to_room_updates(&DEFAULT_TEST_ROOM_ID));
+    assert_pending!(updates);
+
     // Initial sync, adds 2 members.
     mock_sync(&server, &*test_json::SYNC, None).await;
     let response = client.sync_once(SyncSettings::default()).await.unwrap();
@@ -937,6 +942,20 @@ async fn ambiguity_changes() {
     assert!(!example.name_ambiguous());
     let example_2 = room.get_member_no_sync(example_2_id).await.unwrap().unwrap();
     assert!(!example_2.name_ambiguous());
+
+    let changes = assert_next_matches!(updates, Ok(RoomUpdate::Joined { ambiguity_changes, .. }) => ambiguity_changes);
+
+    let example_change = changes.get(event_id!("$151800140517rfvjc:localhost")).unwrap();
+    assert_eq!(example_change.member_id, example_id);
+    assert!(!example_change.member_ambiguous);
+    assert_eq!(example_change.ambiguated_member, None);
+    assert_eq!(example_change.disambiguated_member, None);
+
+    let example_2_change = changes.get(event_id!("$152034824468gOeNB:localhost")).unwrap();
+    assert_eq!(example_2_change.member_id, example_2_id);
+    assert!(!example_2_change.member_ambiguous);
+    assert_eq!(example_2_change.ambiguated_member, None);
+    assert_eq!(example_2_change.disambiguated_member, None);
 
     // Add 1 member and set all 3 to the same display name.
     let example_2_rename_1_event_id = event_id!("$example_2_rename_1");
@@ -998,6 +1017,20 @@ async fn ambiguity_changes() {
     let example_3 = room.get_member_no_sync(example_3_id).await.unwrap().unwrap();
     assert!(example_3.name_ambiguous());
 
+    let changes = assert_next_matches!(updates, Ok(RoomUpdate::Joined { ambiguity_changes, .. }) => ambiguity_changes);
+
+    let example_2_change = changes.get(example_2_rename_1_event_id).unwrap();
+    assert_eq!(example_2_change.member_id, example_2_id);
+    assert!(example_2_change.member_ambiguous);
+    assert_eq!(example_2_change.ambiguated_member.as_deref(), Some(example_id));
+    assert_eq!(example_2_change.disambiguated_member, None);
+
+    let example_3_change = changes.get(example_3_join_event_id).unwrap();
+    assert_eq!(example_3_change.member_id, example_3_id);
+    assert!(example_3_change.member_ambiguous);
+    assert_eq!(example_3_change.ambiguated_member, None);
+    assert_eq!(example_3_change.disambiguated_member, None);
+
     // Rename example 2 to a unique name.
     let example_2_rename_2_event_id = event_id!("$example_2_rename_2");
 
@@ -1035,6 +1068,14 @@ async fn ambiguity_changes() {
     assert!(!example_2.name_ambiguous());
     let example_3 = room.get_member_no_sync(example_3_id).await.unwrap().unwrap();
     assert!(example_3.name_ambiguous());
+
+    let changes = assert_next_matches!(updates, Ok(RoomUpdate::Joined { ambiguity_changes, .. }) => ambiguity_changes);
+
+    let example_2_change = changes.get(example_2_rename_2_event_id).unwrap();
+    assert_eq!(example_2_change.member_id, example_2_id);
+    assert!(!example_2_change.member_ambiguous);
+    assert_eq!(example_2_change.ambiguated_member, None);
+    assert_eq!(example_2_change.disambiguated_member, None);
 
     // Rename example 3, using the same name as example 2.
     let example_3_rename_event_id = event_id!("$example_3_rename");
@@ -1074,6 +1115,14 @@ async fn ambiguity_changes() {
     let example_3 = room.get_member_no_sync(example_3_id).await.unwrap().unwrap();
     assert!(example_3.name_ambiguous());
 
+    let changes = assert_next_matches!(updates, Ok(RoomUpdate::Joined { ambiguity_changes, .. }) => ambiguity_changes);
+
+    let example_3_change = changes.get(example_3_rename_event_id).unwrap();
+    assert_eq!(example_3_change.member_id, example_3_id);
+    assert!(example_3_change.member_ambiguous);
+    assert_eq!(example_3_change.ambiguated_member.as_deref(), Some(example_2_id));
+    assert_eq!(example_3_change.disambiguated_member.as_deref(), Some(example_id));
+
     // Rename example, still using a unique name.
     let example_rename_event_id = event_id!("$example_rename");
 
@@ -1112,6 +1161,14 @@ async fn ambiguity_changes() {
     let example_3 = room.get_member_no_sync(example_3_id).await.unwrap().unwrap();
     assert!(example_3.name_ambiguous());
 
+    let changes = assert_next_matches!(updates, Ok(RoomUpdate::Joined { ambiguity_changes, .. }) => ambiguity_changes);
+
+    let example_change = changes.get(example_rename_event_id).unwrap();
+    assert_eq!(example_change.member_id, example_id);
+    assert!(!example_change.member_ambiguous);
+    assert_eq!(example_change.ambiguated_member, None);
+    assert_eq!(example_change.disambiguated_member, None);
+
     // Change avatar.
     let example_avatar_event_id = event_id!("$example_avatar");
 
@@ -1136,4 +1193,9 @@ async fn ambiguity_changes() {
 
     // Avatar change does not trigger ambiguity change.
     assert!(response.ambiguity_changes.changes.get(*DEFAULT_TEST_ROOM_ID).is_none());
+
+    let changes = assert_next_matches!(updates, Ok(RoomUpdate::Joined { ambiguity_changes, .. }) => ambiguity_changes);
+    assert!(changes.is_empty());
+
+    assert_pending!(updates);
 }
