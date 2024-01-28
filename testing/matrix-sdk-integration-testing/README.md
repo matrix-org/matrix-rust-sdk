@@ -10,6 +10,8 @@ docker compose -f assets/docker-compose.yml up -d
 docker compose -f assets/docker-compose.yml logs --tail 100 -f
 ```
 
+Note that this works also with `podman compose`.
+
 **Patches**
 You can see the patches we do to configuration (namely activate registration and
 resetting rate limits), check out what `assets/ci-start.sh` changes.

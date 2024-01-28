@@ -29,9 +29,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    links:
-      - synapse
-      - postgres
     environment:
       SYNCV3_SERVER: http://synapse:8008
       SYNCV3_SECRET: SUPER_SECRET
