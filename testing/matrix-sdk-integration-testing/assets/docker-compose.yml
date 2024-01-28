@@ -6,7 +6,7 @@ services:
     healthcheck:
       disable: true
     volumes:
-      - ./data/synapse:/data
+      - synapse:/data
     ports:
       - 8228:8008/tcp
 
@@ -22,7 +22,7 @@ services:
       timeout: 5s
       retries: 5
     volumes:
-      - ./data/db:/var/lib/postgresql/data
+      - db:/var/lib/postgresql/data
 
   sliding-sync-proxy:
     image: ghcr.io/matrix-org/sliding-sync:v0.99.11
@@ -36,3 +36,7 @@ services:
       SYNCV3_DB: "user=postgres password=postgres dbname=syncv3 sslmode=disable host=postgres"
     ports:
       - 8338:8338
+
+volumes:
+  synapse:
+  db:

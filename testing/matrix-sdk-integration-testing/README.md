@@ -30,5 +30,5 @@ To drop the database of your docker compose run:
 
 ```bash
 docker compose -f assets/docker-compose.yml stop
-rm -rf ./assets/data
+docker volume rm assets_db assets_synapse
 ```
