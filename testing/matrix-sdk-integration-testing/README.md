@@ -29,6 +29,5 @@ that server. If you are using the provided `docker-compose.yml`, the default wil
 To drop the database of your docker compose run:
 
 ```bash
-docker compose -f assets/docker-compose.yml stop
-docker volume rm assets_db assets_synapse
+docker compose -f assets/docker-compose.yml down --volumes
 ```
