@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeSet, sync::Arc};
+use std::{collections::BTreeSet, mem, sync::Arc};
 
 use eyeball::SharedObservable;
 use futures_util::{pin_mut, StreamExt};
@@ -172,16 +172,19 @@ impl TimelineBuilder {
                     trace!("Handling a room update");
 
                     match update {
-                        RoomUpdate::Left { updates, ambiguity_changes, .. } => {
+                        RoomUpdate::Left { updates, .. } => {
                             inner.handle_sync_timeline(updates.timeline).await;
 
-                            let member_ambiguity_changes = ambiguity_changes
+                            let member_ambiguity_changes = updates
+                                .ambiguity_changes
                                 .values()
                                 .flat_map(|change| change.user_ids())
                                 .collect::<BTreeSet<_>>();
                             inner.force_update_sender_profiles(&member_ambiguity_changes).await;
                         }
-                        RoomUpdate::Joined { updates, ambiguity_changes, .. } => {
+                        RoomUpdate::Joined { mut updates, .. } => {
+                            let ambiguity_changes = mem::take(&mut updates.ambiguity_changes);
+
                             inner.handle_joined_room_update(updates).await;
 
                             let member_ambiguity_changes = ambiguity_changes

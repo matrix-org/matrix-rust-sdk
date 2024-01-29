@@ -848,6 +848,8 @@ impl BaseClient {
             let notification_count = new_info.unread_notifications.into();
             room_info.update_notification_count(notification_count);
 
+            let ambiguity_changes = ambiguity_cache.changes.remove(&room_id).unwrap_or_default();
+
             new_rooms.join.insert(
                 room_id,
                 JoinedRoom::new(
@@ -856,6 +858,7 @@ impl BaseClient {
                     new_info.account_data.events,
                     new_info.ephemeral.events,
                     notification_count,
+                    ambiguity_changes,
                 ),
             );
 
@@ -900,10 +903,17 @@ impl BaseClient {
             self.handle_room_account_data(&room_id, &new_info.account_data.events, &mut changes)
                 .await;
 
+            let ambiguity_changes = ambiguity_cache.changes.remove(&room_id).unwrap_or_default();
+
             changes.add_room(room_info);
             new_rooms.leave.insert(
                 room_id,
-                LeftRoom::new(timeline, new_info.state.events, new_info.account_data.events),
+                LeftRoom::new(
+                    timeline,
+                    new_info.state.events,
+                    new_info.account_data.events,
+                    ambiguity_changes,
+                ),
             );
         }
 
@@ -959,7 +969,6 @@ impl BaseClient {
             presence: response.presence.events,
             account_data: response.account_data.events,
             to_device,
-            ambiguity_changes: AmbiguityChanges { changes: ambiguity_cache.changes },
             notifications,
         };
 

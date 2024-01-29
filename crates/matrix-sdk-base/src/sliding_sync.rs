@@ -36,7 +36,6 @@ use crate::latest_event::{is_suitable_for_latest_event, LatestEvent, PossibleLat
 #[cfg(feature = "e2e-encryption")]
 use crate::RoomMemberships;
 use crate::{
-    deserialized_responses::AmbiguityChanges,
     error::Result,
     read_receipts::{compute_unread_counts, PreviousEventsProvider},
     rooms::RoomState,
@@ -299,7 +298,6 @@ impl BaseClient {
 
         Ok(SyncResponse {
             rooms: new_rooms,
-            ambiguity_changes: AmbiguityChanges { changes: ambiguity_cache.changes },
             notifications,
             // FIXME not yet supported by sliding sync.
             presence: Default::default(),
@@ -408,6 +406,8 @@ impl BaseClient {
         let notification_count = room_data.unread_notifications.clone().into();
         room_info.update_notification_count(notification_count);
 
+        let ambiguity_changes = ambiguity_cache.changes.remove(room_id).unwrap_or_default();
+
         match room_info.state() {
             RoomState::Joined => {
                 // Ephemeral events are added separately, because we might not
@@ -423,6 +423,7 @@ impl BaseClient {
                         room_account_data.unwrap_or_default(),
                         ephemeral,
                         notification_count,
+                        ambiguity_changes,
                     )),
                     None,
                     None,
@@ -436,6 +437,7 @@ impl BaseClient {
                     timeline,
                     raw_state_events,
                     room_account_data.unwrap_or_default(),
+                    ambiguity_changes,
                 )),
                 None,
             )),
