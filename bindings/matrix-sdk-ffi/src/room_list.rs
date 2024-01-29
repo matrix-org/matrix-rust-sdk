@@ -14,7 +14,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_ui::{
     room_list_service::filters::{
-        new_filter_all, new_filter_all_non_left, new_filter_fuzzy_match_room_name, new_filter_none,
+        new_filter_all, new_filter_fuzzy_match_room_name, new_filter_non_left, new_filter_none,
         new_filter_normalized_match_room_name,
     },
     timeline::default_event_filter,
@@ -395,7 +395,7 @@ impl RoomListDynamicEntriesController {
 
         match kind {
             Kind::All => self.inner.set_filter(new_filter_all()),
-            Kind::AllNonLeft => self.inner.set_filter(new_filter_all_non_left(&self.client)),
+            Kind::NonLeft => self.inner.set_filter(new_filter_non_left(&self.client)),
             Kind::None => self.inner.set_filter(new_filter_none()),
             Kind::NormalizedMatchRoomName { pattern } => {
                 self.inner.set_filter(new_filter_normalized_match_room_name(&self.client, &pattern))
@@ -418,7 +418,7 @@ impl RoomListDynamicEntriesController {
 #[derive(uniffi::Enum)]
 pub enum RoomListEntriesDynamicFilterKind {
     All,
-    AllNonLeft,
+    NonLeft,
     None,
     NormalizedMatchRoomName { pattern: String },
     FuzzyMatchRoomName { pattern: String },

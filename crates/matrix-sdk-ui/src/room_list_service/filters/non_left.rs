@@ -49,7 +49,7 @@ mod tests {
     use matrix_sdk_base::RoomState;
     use ruma::room_id;
 
-    use crate::room_list_service::filters::all_non_left::NonLeftRoomMatcher;
+    use super::NonLeftRoomMatcher;
 
     #[test]
     fn test_all_non_left_kind_of_room_list_entry() {
