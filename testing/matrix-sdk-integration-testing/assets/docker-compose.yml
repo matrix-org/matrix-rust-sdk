@@ -28,6 +28,7 @@ services:
     image: ghcr.io/matrix-org/sliding-sync:v0.99.11
     depends_on:
       synapse:
+        condition: service_started
       postgres:
         condition: service_healthy
     environment:
