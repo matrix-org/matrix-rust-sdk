@@ -1,7 +1,9 @@
 use std::{convert::TryFrom, sync::Arc};
 
 use anyhow::{Context, Result};
-use matrix_sdk::{room::Room as SdkRoom, RoomMemberships, RoomState};
+use matrix_sdk::{
+    room::Room as SdkRoom, RoomMemberships, RoomNotableTags as SdkNotableTags, RoomState,
+};
 use matrix_sdk_ui::timeline::RoomExt;
 use mime::Mime;
 use ruma::{
@@ -252,6 +254,21 @@ impl Room {
                         error!("Failed to compute new RoomInfo: {e}");
                     }
                 }
+            }
+        })))
+    }
+
+    pub fn subscribe_to_notable_tags(
+        self: Arc<Self>,
+        listener: Box<dyn RoomNotableTagsListener>,
+    ) -> Arc<TaskHandle> {
+        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
+            let (initial, mut subscriber) = self.inner.notable_tags_stream().await;
+            // Send the initial value
+            listener.call(initial.into());
+            // Then wait for changes
+            while let Some(notable_tags) = subscriber.next().await {
+                listener.call(notable_tags.into());
             }
         })))
     }
@@ -510,6 +527,21 @@ impl Room {
 #[uniffi::export(callback_interface)]
 pub trait RoomInfoListener: Sync + Send {
     fn call(&self, room_info: RoomInfo);
+}
+
+#[derive(uniffi::Record)]
+pub struct RoomNotableTags {
+    is_favorite: bool,
+}
+impl From<SdkNotableTags> for RoomNotableTags {
+    fn from(value: SdkNotableTags) -> Self {
+        RoomNotableTags { is_favorite: value.is_favorite }
+    }
+}
+
+#[uniffi::export(callback_interface)]
+pub trait RoomNotableTagsListener: Sync + Send {
+    fn call(&self, notable_tags: RoomNotableTags);
 }
 
 #[derive(uniffi::Object)]
