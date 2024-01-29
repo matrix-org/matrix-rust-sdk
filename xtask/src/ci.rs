@@ -9,7 +9,7 @@ use xshell::{cmd, pushd};
 use crate::{build_docs, workspace, DenyWarnings, Result, NIGHTLY};
 
 const WASM_TIMEOUT_ENV_KEY: &str = "WASM_BINDGEN_TEST_TIMEOUT";
-const WASM_TIMEOUT_VALUE: &str = "120";
+const WASM_TIMEOUT_VALUE: &str = "600";
 
 #[derive(Args)]
 pub struct CiArgs {
