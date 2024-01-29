@@ -1,5 +1,10 @@
 # UNRELEASED
 
+- `CryptoStore` gains a new method: `get_inbound_group_sessions_stream` that
+  returns a `Stream`. It is helpful when reading a lot of data from some
+  database.
+  ([#3060](https://github.com/matrix-org/matrix-rust-sdk/pull/3060))
+
 - Expose new methods `OlmMachine::set_room_settings` and
   `OlmMachine::get_room_settings`.
   ([#3042](https://github.com/matrix-org/matrix-rust-sdk/pull/3042))
