@@ -15,6 +15,7 @@
 use std::{
     collections::HashMap,
     num::NonZeroUsize,
+    rc::Rc,
     sync::{Arc, RwLock},
 };
 
@@ -104,7 +105,7 @@ mod keys {
 pub struct IndexeddbCryptoStore {
     static_account: RwLock<Option<StaticAccountData>>,
     name: String,
-    pub(crate) inner: Arc<IdbDatabase>,
+    pub(crate) inner: Rc<IdbDatabase>,
 
     serializer: Arc<IndexeddbSerializer>,
     session_cache: SessionStore,
@@ -178,7 +179,7 @@ impl IndexeddbCryptoStore {
         Ok(Self {
             name,
             session_cache,
-            inner: Arc::new(db),
+            inner: Rc::new(db),
             serializer: Arc::new(serializer),
             static_account: RwLock::new(None),
             save_changes_lock: Default::default(),

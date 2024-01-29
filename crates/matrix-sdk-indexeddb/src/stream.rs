@@ -7,7 +7,7 @@ use std::{
     num::NonZeroUsize,
     pin::Pin,
     ptr::NonNull,
-    sync::Arc,
+    rc::Rc,
     task::{ready, Context, Poll},
 };
 
@@ -72,7 +72,7 @@ pin_project! {
         // When asking for the next cursor, the [`IdbCursorWithValue::continue_cursor`]
         // method has to be called. It's an async method. Thus, in the `Stream`
         // implementation of `Self`, this future must be stored to be polled manually.
-        continue_cursor_future: Option<Pin<Box<dyn Future<Output = Result<bool, DomException>> + 'a>>>,
+        continue_cursor_future: Option<ContinueCursorFuture<'a>>,
 
         // The cursor API is designed in a way that the first item is already fetched
         // when the cursor is created. Because `Stream::poll_next` is designed the other
@@ -81,6 +81,9 @@ pin_project! {
         first_item: Option<(JsValue, JsValue)>,
     }
 }
+
+/// Just a type alias to a “complex type”.
+type ContinueCursorFuture<'a> = Pin<Box<dyn Future<Output = Result<bool, DomException>> + 'a>>;
 
 impl<'a> StreamByCursor<'a> {
     /// Build a new `StreamByCursor`.
@@ -144,10 +147,7 @@ impl<'a> Stream for StreamByCursor<'a> {
             // `continue_cursor_future` can be dropped.
             *this.continue_cursor_future = None;
 
-            Poll::Ready(Some(Ok((
-                cursor.key().unwrap_or_else(|| JsValue::UNDEFINED),
-                cursor.value(),
-            ))))
+            Poll::Ready(Some(Ok((cursor.key().unwrap_or(JsValue::UNDEFINED), cursor.value()))))
         } else {
             // It doesn't have a new value. End of the cursor. End of the stream.
             Poll::Ready(None)
@@ -188,7 +188,7 @@ pin_project! {
     /// [value]: https://developer.mozilla.org/en-US/docs/Web/API/IDBCursorWithValue/value
     ///
     /// ```rust,no_run
-    /// use std::num::NonZeroUsize;
+    /// use std::{num::NonZeroUsize, rc::Rc};
     ///
     /// use futures_util::TryStreamExt;
     /// use indexed_db_futures::prelude::*;
@@ -196,10 +196,11 @@ pin_project! {
     /// use wasm_bindgen::JsValue;
     /// use web_sys::DomException;
     ///
-    /// async fn example(db: &IdbDatabase) -> Result<(), DomException> {
+    /// async fn example(db: Rc<IdbDatabase>) -> Result<(), DomException> {
     ///     let stream = StreamByRenewedCursor::new(
+    ///         db,
     ///         // Transaction builder.
-    ///         || db.transaction_on_one("foo"),
+    ///         |db| db.transaction_on_one("foo"),
     ///         // The `object_store` name.
     ///         "foo".to_owned(),
     ///         // Number of values to successfully fetch before renewing the transaction.
@@ -266,10 +267,10 @@ pin_project! {
 
         // The database that will be passed to the `transaction_builder`.
         #[pin]
-        database: Arc<IdbDatabase>,
+        database: Rc<IdbDatabase>,
 
         // The self-reference to `Self::database`.
-        database_ptr: NonNull<Arc<IdbDatabase>>,
+        database_ptr: NonNull<Rc<IdbDatabase>>,
 
         // The `latest_transaction`.
         #[pin]
@@ -300,7 +301,7 @@ where
     /// It takes a `transaction_builder`, an `object_store_name`, and a
     /// `renew_every`. See the documentation of [`Self`] to learn more.
     pub async fn new(
-        database: Arc<IdbDatabase>,
+        database: Rc<IdbDatabase>,
         transaction_builder: F,
         object_store_name: String,
         renew_every: NonZeroUsize,
@@ -387,7 +388,7 @@ where
 
                 // Get a new `cursor_future`.
                 let object_store_ref = unsafe { this.latest_object_store_ptr.as_ref() };
-                let after_latest_key = IdbKeyRange::lower_bound_with_open(&this.latest_key, true)?;
+                let after_latest_key = IdbKeyRange::lower_bound_with_open(this.latest_key, true)?;
                 let cursor_future =
                     object_store_ref.as_ref().unwrap().open_cursor_with_range(&after_latest_key)?;
 
@@ -545,7 +546,7 @@ mod tests {
             Ok(())
         }));
 
-        let db = Arc::new(db.await?);
+        let db = Rc::new(db.await?);
 
         {
             let transaction =
