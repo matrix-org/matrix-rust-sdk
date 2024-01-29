@@ -667,17 +667,23 @@ async fn subscribe_to_typing_notifications() {
 
     // Send to typing notification
     let room = client.get_room(room_id).unwrap();
-    let typing_seq = Arc::clone(&typing_sequences);
-    let handle = tokio::spawn(async move {
-        let (_guard, mut subscriber) = room.subscribe_to_typing_notifications();
-        while let Ok(typing_users) = subscriber.recv().await {
-            let mut typings = typing_seq.lock().unwrap();
-            typings.push(typing_users);
-            if typings.len() == 2 {
-                break;
+    let join_handle = tokio::spawn({
+        let typing_sequences = Arc::clone(&typing_sequences);
+        async move {
+            let (_drop_guard, mut subscriber) = room.subscribe_to_typing_notifications();
+
+            while let Ok(typing_user_ids) = subscriber.recv().await {
+                let mut typing_sequences = typing_sequences.lock().unwrap();
+                typing_sequences.push(typing_user_ids);
+
+                // When we have received 2 typing notifications, we can stop listening.
+                if typing_sequences.len() == 2 {
+                    break;
+                }
             }
         }
     });
+
     // Then send a typing notification with 2 users typing
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
         EphemeralTestEvent::Custom(json!({
@@ -709,6 +715,6 @@ async fn subscribe_to_typing_notifications() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    handle.await.unwrap();
+    join_handle.await.unwrap();
     assert_eq!(typing_sequences.lock().unwrap().to_vec(), asserted_typing_sequences);
 }

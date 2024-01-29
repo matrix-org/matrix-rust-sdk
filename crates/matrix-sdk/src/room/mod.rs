@@ -325,13 +325,13 @@ impl Room {
     ) -> (EventHandlerDropGuard, broadcast::Receiver<Vec<OwnedUserId>>) {
         let (sender, receiver) = broadcast::channel(16);
         let typing_event_handler_handle = self.client.add_room_event_handler(self.room_id(), {
-            let sender = sender.clone();
-            move |ev: SyncTypingEvent| async move {
-                let _ = sender.send(ev.content.user_ids);
+            move |event: SyncTypingEvent| async move {
+                // Ignore the result. It can only fail if there are no listeners.
+                let _ = sender.send(event.content.user_ids);
             }
         });
-        let guard = self.client().event_handler_drop_guard(typing_event_handler_handle);
-        (guard, receiver)
+        let drop_guard = self.client().event_handler_drop_guard(typing_event_handler_handle);
+        (drop_guard, receiver)
     }
 
     /// Fetch the event with the given `EventId` in this room.
