@@ -479,7 +479,7 @@ impl RoomListItem {
     async fn init_timeline(
         &self,
         event_type_filter: Option<Arc<TimelineEventTypeFilter>>,
-    ) -> Result<Arc<Timeline>, RoomListError> {
+    ) -> Result<(), RoomListError> {
         let timeline_builder = self.inner.default_room_timeline_builder();
         let timeline_builder = if let Some(event_type_filter) = event_type_filter {
             timeline_builder.event_filter(move |event, room_version_id| {
@@ -489,12 +489,7 @@ impl RoomListItem {
         } else {
             timeline_builder.event_filter(default_event_filter)
         };
-        let inner_timeline = self
-            .inner
-            .init_timeline_with_builder(timeline_builder)
-            .map_err(RoomListError::from)
-            .await?;
-        Ok(Timeline::from_arc(inner_timeline))
+        self.inner.init_timeline_with_builder(timeline_builder).map_err(RoomListError::from).await
     }
 
     fn subscribe(&self, settings: Option<RoomSubscription>) {
