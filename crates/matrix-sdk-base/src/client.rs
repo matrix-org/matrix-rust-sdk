@@ -44,7 +44,7 @@ use ruma::{
         },
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
         AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent, AnySyncStateEvent,
-        AnySyncTimelineEvent, GlobalAccountDataEventType, StateEventType,
+        AnySyncTimelineEvent, GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
     },
     push::{Action, PushConditionRoomCtx, Ruleset},
     serde::Raw,
@@ -68,7 +68,7 @@ use crate::{
         StateChanges, StateStoreDataKey, StateStoreDataValue, StateStoreExt, Store, StoreConfig,
     },
     sync::{JoinedRoom, LeftRoom, Notification, Rooms, SyncResponse, Timeline},
-    RoomStateFilter, SessionMeta,
+    RoomNotableTags, RoomStateFilter, SessionMeta,
 };
 #[cfg(feature = "e2e-encryption")]
 use crate::{error::Error, RoomMemberships};
@@ -974,6 +974,21 @@ impl BaseClient {
         for (room_id, room_info) in &changes.room_infos {
             if let Some(room) = self.store.get_room(room_id) {
                 room.set_room_info(room_info.clone())
+            }
+        }
+
+        for (room_id, room_account_data) in &changes.room_account_data {
+            if let Some(room) = self.store.get_room(room_id) {
+                let tags = if let Some(AnyRoomAccountDataEvent::Tag(event)) = room_account_data
+                    .get(&RoomAccountDataEventType::Tag)
+                    .and_then(|r| r.deserialize().ok())
+                {
+                    Some(event.content.tags)
+                } else {
+                    None
+                };
+                let notable_tags = RoomNotableTags::new(tags);
+                room.set_notable_tags(notable_tags)
             }
         }
     }

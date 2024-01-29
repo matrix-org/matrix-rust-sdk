@@ -11,7 +11,7 @@ use std::{
 
 use bitflags::bitflags;
 pub use members::RoomMember;
-pub use normal::{Room, RoomInfo, RoomState, RoomStateFilter};
+pub use normal::{Room, RoomInfo, RoomNotableTags, RoomState, RoomStateFilter};
 use ruma::{
     assign,
     events::{

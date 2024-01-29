@@ -120,7 +120,6 @@ impl SyncResponseBuilder {
         let val = match event {
             GlobalAccountDataTestEvent::Direct => test_json::DIRECT.to_owned(),
             GlobalAccountDataTestEvent::PushRules => test_json::PUSH_RULES.to_owned(),
-            GlobalAccountDataTestEvent::Tags => test_json::TAG.to_owned(),
             GlobalAccountDataTestEvent::Custom(json) => json,
         };
 
