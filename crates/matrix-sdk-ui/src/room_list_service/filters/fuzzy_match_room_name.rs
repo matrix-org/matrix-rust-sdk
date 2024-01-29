@@ -1,7 +1,7 @@
 pub use fuzzy_matcher::{skim::SkimMatcherV2, FuzzyMatcher as _};
-use matrix_sdk::{Client, RoomListEntry};
+use matrix_sdk::Client;
 
-use super::normalize_string;
+use super::{normalize_string, Filter};
 
 struct FuzzyMatcher {
     matcher: SkimMatcherV2,
@@ -19,7 +19,7 @@ impl FuzzyMatcher {
         self
     }
 
-    fn fuzzy_match(&self, subject: &str) -> bool {
+    fn matches(&self, subject: &str) -> bool {
         // No pattern means there is a match.
         let Some(pattern) = self.pattern.as_ref() else { return true };
 
@@ -31,7 +31,7 @@ impl FuzzyMatcher {
 ///
 /// Rooms are fetched from the `Client`. The pattern and the room names are
 /// normalized with `normalize_string`.
-pub fn new_filter(client: &Client, pattern: &str) -> impl Fn(&RoomListEntry) -> bool {
+pub fn new_filter(client: &Client, pattern: &str) -> impl Filter {
     let searcher = FuzzyMatcher::new().with_pattern(pattern);
 
     let client = client.clone();
@@ -41,7 +41,7 @@ pub fn new_filter(client: &Client, pattern: &str) -> impl Fn(&RoomListEntry) -> 
         let Some(room) = client.get_room(room_id) else { return false };
         let Some(room_name) = room.name() else { return false };
 
-        searcher.fuzzy_match(&room_name)
+        searcher.matches(&room_name)
     }
 }
 
@@ -55,14 +55,14 @@ mod tests {
     fn test_no_pattern() {
         let matcher = FuzzyMatcher::new();
 
-        assert!(matcher.fuzzy_match("hello"));
+        assert!(matcher.matches("hello"));
     }
 
     #[test]
     fn test_empty_pattern() {
         let matcher = FuzzyMatcher::new();
 
-        assert!(matcher.fuzzy_match("hello"));
+        assert!(matcher.matches("hello"));
     }
 
     #[test]
@@ -70,10 +70,10 @@ mod tests {
         let matcher = FuzzyMatcher::new();
 
         let matcher = matcher.with_pattern("mtx");
-        assert!(matcher.fuzzy_match("matrix"));
+        assert!(matcher.matches("matrix"));
 
         let matcher = matcher.with_pattern("mxt");
-        assert!(matcher.fuzzy_match("matrix").not());
+        assert!(matcher.matches("matrix").not());
     }
 
     #[test]
@@ -81,10 +81,10 @@ mod tests {
         let matcher = FuzzyMatcher::new();
 
         let matcher = matcher.with_pattern("mtx");
-        assert!(matcher.fuzzy_match("MaTrIX"));
+        assert!(matcher.matches("MaTrIX"));
 
         let matcher = matcher.with_pattern("mxt");
-        assert!(matcher.fuzzy_match("MaTrIX").not());
+        assert!(matcher.matches("MaTrIX").not());
     }
 
     #[test]
@@ -92,12 +92,12 @@ mod tests {
         let matcher = FuzzyMatcher::new();
 
         let matcher = matcher.with_pattern("mtx");
-        assert!(matcher.fuzzy_match("matrix"));
-        assert!(matcher.fuzzy_match("Matrix"));
+        assert!(matcher.matches("matrix"));
+        assert!(matcher.matches("Matrix"));
 
         let matcher = matcher.with_pattern("Mtx");
-        assert!(matcher.fuzzy_match("matrix").not());
-        assert!(matcher.fuzzy_match("Matrix"));
+        assert!(matcher.matches("matrix").not());
+        assert!(matcher.matches("Matrix"));
     }
 
     #[test]
@@ -110,10 +110,10 @@ mod tests {
         assert_eq!(matcher.pattern, Some("ubete".to_owned()));
 
         // Second, assert that the subject is normalized too.
-        assert!(matcher.fuzzy_match("un bel été"));
+        assert!(matcher.matches("un bel été"));
 
         // Another concrete test.
         let matcher = matcher.with_pattern("stf");
-        assert!(matcher.fuzzy_match("Ștefan"));
+        assert!(matcher.matches("Ștefan"));
     }
 }

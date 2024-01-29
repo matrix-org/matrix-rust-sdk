@@ -1,11 +1,19 @@
 use matrix_sdk::{Client, RoomListEntry};
 use matrix_sdk_base::RoomState;
 
-struct NonLeftRoomMatcher<F: Fn(&RoomListEntry) -> Option<RoomState>> {
+use super::Filter;
+
+struct NonLeftRoomMatcher<F>
+where
+    F: Fn(&RoomListEntry) -> Option<RoomState>,
+{
     get_state: F,
 }
 
-impl<F: Fn(&RoomListEntry) -> Option<RoomState>> NonLeftRoomMatcher<F> {
+impl<F> NonLeftRoomMatcher<F>
+where
+    F: Fn(&RoomListEntry) -> Option<RoomState>,
+{
     fn matches(&self, room: &RoomListEntry) -> bool {
         if !matches!(room, RoomListEntry::Filled(_) | RoomListEntry::Invalidated(_)) {
             return false;
@@ -21,7 +29,7 @@ impl<F: Fn(&RoomListEntry) -> Option<RoomState>> NonLeftRoomMatcher<F> {
 
 /// Create a new filter that will accept all filled or invalidated entries, but
 /// filters out left rooms.
-pub fn new_filter(client: &Client) -> impl Fn(&RoomListEntry) -> bool {
+pub fn new_filter(client: &Client) -> impl Filter {
     let client = client.clone();
 
     let matcher = NonLeftRoomMatcher {
