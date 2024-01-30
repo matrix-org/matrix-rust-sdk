@@ -46,8 +46,8 @@ pub enum RoomListError {
     TimelineAlreadyExists { room_name: String },
     #[error("A timeline instance hasn't been initialized for room {room_name}")]
     TimelineNotInitialized { room_name: String },
-    #[error("Timeline couldn't be initialized: {message}")]
-    InitializingTimeline { message: String },
+    #[error("Timeline couldn't be initialized: {error}")]
+    InitializingTimeline { error: String },
 }
 
 impl From<matrix_sdk_ui::room_list_service::Error> for RoomListError {
@@ -63,7 +63,7 @@ impl From<matrix_sdk_ui::room_list_service::Error> for RoomListError {
                 Self::TimelineAlreadyExists { room_name: room_id.to_string() }
             }
             InitializingTimeline(source) => {
-                Self::InitializingTimeline { message: source.to_string() }
+                Self::InitializingTimeline { error: source.to_string() }
             }
         }
     }
