@@ -66,7 +66,7 @@ async fn test_toggling_reaction() -> Result<()> {
     let room_id = room.room_id();
 
     // Create a timeline for this room.
-    let timeline = room.timeline().await;
+    let timeline = room.timeline().await.unwrap();
     let (_items, mut stream) = timeline.subscribe().await;
 
     // Send message.

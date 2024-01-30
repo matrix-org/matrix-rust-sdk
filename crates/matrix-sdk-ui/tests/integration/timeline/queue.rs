@@ -33,7 +33,7 @@ use wiremock::{
 use crate::{logged_in_client, mock_encryption_state, mock_sync};
 
 #[async_test]
-async fn message_order() {
+async fn test_message_order() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
@@ -48,7 +48,7 @@ async fn message_order() {
     mock_encryption_state(&server, false).await;
 
     let room = client.get_room(room_id).unwrap();
-    let timeline = Arc::new(room.timeline().await);
+    let timeline = Arc::new(room.timeline().await.unwrap());
     let (_, mut timeline_stream) =
         timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
 
@@ -105,7 +105,7 @@ async fn message_order() {
 }
 
 #[async_test]
-async fn retry_order() {
+async fn test_retry_order() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
@@ -120,7 +120,7 @@ async fn retry_order() {
     mock_encryption_state(&server, false).await;
 
     let room = client.get_room(room_id).unwrap();
-    let timeline = Arc::new(room.timeline().await);
+    let timeline = Arc::new(room.timeline().await.unwrap());
     let (_, mut timeline_stream) =
         timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
 
@@ -211,7 +211,7 @@ async fn retry_order() {
 }
 
 #[async_test]
-async fn clear_with_echoes() {
+async fn test_clear_with_echoes() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
@@ -227,7 +227,7 @@ async fn clear_with_echoes() {
     mock_encryption_state(&server, false).await;
 
     let room = client.get_room(room_id).unwrap();
-    let timeline = room.timeline().await;
+    let timeline = room.timeline().await.unwrap();
 
     // Send a message without mocking the server response.
     {

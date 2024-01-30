@@ -139,19 +139,19 @@ impl Room {
         }
     }
 
-    pub async fn timeline(&self) -> Arc<Timeline> {
+    pub async fn timeline(&self) -> Result<Arc<Timeline>, ClientError> {
         let mut write_guard = self.timeline.write().await;
         if let Some(timeline) = &*write_guard {
-            timeline.clone()
+            Ok(timeline.clone())
         } else {
-            let timeline = Timeline::new(self.inner.timeline().await);
+            let timeline = Timeline::new(self.inner.timeline().await?);
             *write_guard = Some(timeline.clone());
-            timeline
+            Ok(timeline)
         }
     }
 
-    pub async fn poll_history(&self) -> Arc<Timeline> {
-        Timeline::new(self.inner.poll_history().await)
+    pub async fn poll_history(&self) -> Result<Arc<Timeline>, ClientError> {
+        Ok(Timeline::new(self.inner.poll_history().await?))
     }
 
     pub fn display_name(&self) -> Result<String, ClientError> {

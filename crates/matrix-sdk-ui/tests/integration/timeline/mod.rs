@@ -40,7 +40,7 @@ mod subscribe;
 pub(crate) mod sliding_sync;
 
 #[async_test]
-async fn reaction() {
+async fn test_reaction() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
@@ -53,7 +53,7 @@ async fn reaction() {
     server.reset().await;
 
     let room = client.get_room(room_id).unwrap();
-    let timeline = room.timeline().await;
+    let timeline = room.timeline().await.unwrap();
     let (_, mut timeline_stream) = timeline.subscribe().await;
 
     ev_builder.add_joined_room(
@@ -149,7 +149,7 @@ async fn reaction() {
 }
 
 #[async_test]
-async fn redacted_message() {
+async fn test_redacted_message() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
@@ -162,7 +162,7 @@ async fn redacted_message() {
     server.reset().await;
 
     let room = client.get_room(room_id).unwrap();
-    let timeline = room.timeline().await;
+    let timeline = room.timeline().await.unwrap();
     let (_, mut timeline_stream) = timeline.subscribe().await;
 
     ev_builder.add_joined_room(
@@ -207,7 +207,7 @@ async fn redacted_message() {
 }
 
 #[async_test]
-async fn read_marker() {
+async fn test_read_marker() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
@@ -220,7 +220,7 @@ async fn read_marker() {
     server.reset().await;
 
     let room = client.get_room(room_id).unwrap();
-    let timeline = room.timeline().await;
+    let timeline = room.timeline().await.unwrap();
     let (_, mut timeline_stream) = timeline.subscribe().await;
 
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
@@ -282,7 +282,7 @@ async fn read_marker() {
 }
 
 #[async_test]
-async fn sync_highlighted() {
+async fn test_sync_highlighted() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
@@ -301,7 +301,7 @@ async fn sync_highlighted() {
     server.reset().await;
 
     let room = client.get_room(room_id).unwrap();
-    let timeline = room.timeline().await;
+    let timeline = room.timeline().await.unwrap();
     let (_, mut timeline_stream) = timeline.subscribe().await;
 
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(

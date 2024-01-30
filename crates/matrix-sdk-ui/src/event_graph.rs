@@ -114,14 +114,17 @@ impl EventGraph {
     /// Return a room-specific view over the [`EventGraph`].
     ///
     /// It may not be found, if the room isn't known to the client.
-    pub fn for_room(&mut self, room_id: &RoomId) -> Option<RoomEventGraph> {
+    pub fn for_room(&mut self, room_id: &RoomId) -> Result<RoomEventGraph> {
         match self.by_room.get(room_id) {
-            Some(room) => Some(room.clone()),
+            Some(room) => Ok(room.clone()),
             None => {
-                let room = self.client.get_room(room_id)?;
+                let room = self
+                    .client
+                    .get_room(room_id)
+                    .ok_or_else(|| EventGraphError::RoomNotFound(room_id.to_owned()))?;
                 let room_event_graph = RoomEventGraph::new(room, self.store.clone());
                 self.by_room.insert(room_id.to_owned(), room_event_graph.clone());
-                Some(room_event_graph)
+                Ok(room_event_graph)
             }
         }
     }
@@ -135,9 +138,7 @@ impl EventGraph {
         room_id: &RoomId,
         events: Vec<SyncTimelineEvent>,
     ) -> Result<()> {
-        let room_graph = self
-            .for_room(room_id)
-            .ok_or_else(|| EventGraphError::RoomNotFound(room_id.to_owned()))?;
+        let room_graph = self.for_room(room_id)?;
         room_graph.inner.append_events(events).await?;
         Ok(())
     }

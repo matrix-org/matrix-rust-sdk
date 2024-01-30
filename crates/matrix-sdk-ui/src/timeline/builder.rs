@@ -130,14 +130,11 @@ impl TimelineBuilder {
             prev_token = self.prev_token,
         )
     )]
-    pub async fn build(self) -> Timeline {
+    pub async fn build(self) -> crate::event_graph::Result<Timeline> {
         let Self { room, mut event_graph, prev_token, settings } = self;
 
-        let room_event_graph = event_graph.for_room(room.room_id()).expect("room exists");
-        let (events, mut event_subscriber) = room_event_graph
-            .subscribe()
-            .await
-            .expect("make this function fallible, or allow this for the time being?");
+        let room_event_graph = event_graph.for_room(room.room_id())?;
+        let (events, mut event_subscriber) = room_event_graph.subscribe().await?;
 
         let has_events = !events.is_empty();
         let track_read_marker_and_receipts = settings.track_read_receipts;
@@ -315,6 +312,6 @@ impl TimelineBuilder {
             timeline.retry_decryption_for_all_events().await;
         }
 
-        timeline
+        Ok(timeline)
     }
 }
