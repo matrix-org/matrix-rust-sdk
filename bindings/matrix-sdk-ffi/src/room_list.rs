@@ -480,15 +480,13 @@ impl RoomListItem {
         &self,
         event_type_filter: Option<Arc<TimelineEventTypeFilter>>,
     ) -> Result<(), RoomListError> {
-        let timeline_builder = self.inner.default_room_timeline_builder();
-        let timeline_builder = if let Some(event_type_filter) = event_type_filter {
-            timeline_builder.event_filter(move |event, room_version_id| {
+        let mut timeline_builder = self.inner.default_room_timeline_builder();
+        if let Some(event_type_filter) = event_type_filter {
+            timeline_builder = timeline_builder.event_filter(move |event, room_version_id| {
                 // Always perform the default filter first
                 default_event_filter(event, room_version_id) && event_type_filter.filter(event)
-            })
-        } else {
-            timeline_builder
-        };
+            });
+        }
         self.inner.init_timeline_with_builder(timeline_builder).map_err(RoomListError::from).await
     }
 
