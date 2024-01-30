@@ -1,9 +1,7 @@
 use std::{convert::TryFrom, sync::Arc};
 
 use anyhow::{Context, Result};
-use matrix_sdk::{
-    room::Room as SdkRoom, RoomMemberships, RoomNotableTags as SdkNotableTags, RoomState,
-};
+use matrix_sdk::{room::Room as SdkRoom, RoomMemberships, RoomNotableTags, RoomState};
 use matrix_sdk_ui::timeline::RoomExt;
 use mime::Mime;
 use ruma::{
@@ -527,16 +525,6 @@ impl Room {
 #[uniffi::export(callback_interface)]
 pub trait RoomInfoListener: Sync + Send {
     fn call(&self, room_info: RoomInfo);
-}
-
-#[derive(uniffi::Record)]
-pub struct RoomNotableTags {
-    is_favorite: bool,
-}
-impl From<SdkNotableTags> for RoomNotableTags {
-    fn from(value: SdkNotableTags) -> Self {
-        RoomNotableTags { is_favorite: value.is_favorite }
-    }
 }
 
 #[uniffi::export(callback_interface)]

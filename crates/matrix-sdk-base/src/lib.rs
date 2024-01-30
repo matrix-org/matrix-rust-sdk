@@ -40,6 +40,9 @@ pub mod store;
 pub mod sync;
 mod utils;
 
+#[cfg(feature = "uniffi")]
+uniffi::setup_scaffolding!();
+
 pub use client::BaseClient;
 #[cfg(any(test, feature = "testing"))]
 pub use http;
