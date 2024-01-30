@@ -263,10 +263,10 @@ impl Room {
         Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
             let (initial, mut subscriber) = self.inner.notable_tags_stream().await;
             // Send the initial value
-            listener.call(initial.into());
+            listener.call(initial);
             // Then wait for changes
             while let Some(notable_tags) = subscriber.next().await {
-                listener.call(notable_tags.into());
+                listener.call(notable_tags);
             }
         })))
     }
