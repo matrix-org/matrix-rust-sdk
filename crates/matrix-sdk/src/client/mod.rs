@@ -447,7 +447,7 @@ impl Client {
     /// Returns a receiver that gets events for each room info update. To watch
     /// for new events, use `receiver.resubscribe()`. Each event contains the
     /// room and a boolean whether this event should trigger a room list update.
-    pub fn roominfo_update_receiver(&self) -> &broadcast::Receiver<RoomInfoUpdate> {
+    pub fn roominfo_update_receiver(&self) -> broadcast::Receiver<RoomInfoUpdate> {
         self.base_client().roominfo_update_receiver()
     }
 

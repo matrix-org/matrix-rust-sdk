@@ -96,8 +96,10 @@ pub struct BaseClient {
     /// Observable of when a user is ignored/unignored.
     pub(crate) ignore_user_list_changes: SharedObservable<()>,
 
+    /// A sender that is used to communicate changes to room information. Each
+    /// event contains the room and a boolean whether this event should
+    /// trigger a room list update.
     pub(crate) roominfo_update_sender: broadcast::Sender<RoomInfoUpdate>,
-    pub(crate) roominfo_update_receiver: Arc<broadcast::Receiver<RoomInfoUpdate>>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -123,7 +125,7 @@ impl BaseClient {
     /// * `config` - An optional session if the user already has one from a
     /// previous login call.
     pub fn with_store_config(config: StoreConfig) -> Self {
-        let (roominfo_update_sender, roominfo_update_receiver) =
+        let (roominfo_update_sender, _roominfo_update_receiver) =
             tokio::sync::broadcast::channel(100);
 
         BaseClient {
@@ -134,7 +136,6 @@ impl BaseClient {
             olm_machine: Default::default(),
             ignore_user_list_changes: Default::default(),
             roominfo_update_sender,
-            roominfo_update_receiver: Arc::new(roominfo_update_receiver),
         }
     }
 
@@ -1428,11 +1429,13 @@ impl BaseClient {
             .collect()
     }
 
-    /// Returns a receiver that gets events for each room info update. To watch
-    /// for new events, use `receiver.resubscribe()`. Each event contains the
-    /// room and a boolean whether this event should trigger a room list update.
-    pub fn roominfo_update_receiver(&self) -> &broadcast::Receiver<RoomInfoUpdate> {
-        &self.roominfo_update_receiver
+    /// Returns a new receiver that gets events for all future room info
+    /// updates.
+    ///
+    /// Each event contains the room and a boolean whether this event should
+    /// trigger a room list update.
+    pub fn roominfo_update_receiver(&self) -> broadcast::Receiver<RoomInfoUpdate> {
+        self.roominfo_update_sender.subscribe()
     }
 }
 
