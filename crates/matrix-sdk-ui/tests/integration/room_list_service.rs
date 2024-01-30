@@ -2370,7 +2370,8 @@ async fn test_room_timeline() -> Result<(), Error> {
     };
 
     let room = room_list.room(room_id).await?;
-    let timeline = room.timeline().await;
+    room.init_timeline_with_builder(room.default_room_timeline_builder()).await?;
+    let timeline = room.timeline().unwrap();
 
     let (previous_timeline_items, mut timeline_items_stream) = timeline.subscribe().await;
 
@@ -2451,6 +2452,7 @@ async fn test_room_latest_event() -> Result<(), Error> {
     };
 
     let room = room_list.room(room_id).await?;
+    room.init_timeline_with_builder(room.default_room_timeline_builder()).await?;
 
     // The latest event does not exist.
     assert!(room.latest_event().await.is_none());
@@ -2502,7 +2504,7 @@ async fn test_room_latest_event() -> Result<(), Error> {
     assert_eq!(latest_event.event_id(), Some(event_id!("$x1:bar.org")));
 
     // Now let's compare with the result of the `Timeline`.
-    let timeline = room.timeline().await;
+    let timeline = room.timeline().unwrap();
 
     // The latest event matches the latest event of the `Timeline`.
     assert_matches!(

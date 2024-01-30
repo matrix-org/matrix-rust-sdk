@@ -49,10 +49,10 @@ use ruma::{
             },
             redaction::RoomRedactionEventContent,
         },
-        AnyMessageLikeEventContent,
+        AnyMessageLikeEventContent, AnySyncTimelineEvent,
     },
-    uint, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, TransactionId,
-    UserId,
+    uint, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, RoomVersionId,
+    TransactionId, UserId,
 };
 use thiserror::Error;
 use tokio::sync::{mpsc::Sender, Mutex, Notify};
@@ -64,6 +64,7 @@ mod builder;
 mod error;
 mod event_handler;
 mod event_item;
+pub mod event_type_filter;
 pub mod futures;
 mod inner;
 mod item;
@@ -90,6 +91,7 @@ pub use self::{
         Message, OtherState, Profile, ReactionGroup, RepliedToEvent, RoomMembershipChange, Sticker,
         TimelineDetails, TimelineItemContent,
     },
+    event_type_filter::TimelineEventTypeFilter,
     inner::default_event_filter,
     item::{TimelineItem, TimelineItemKind},
     pagination::{BackPaginationStatus, PaginationOptions, PaginationOutcome},
@@ -831,3 +833,6 @@ impl<S: Stream> Stream for TimelineStream<S> {
         self.project().inner.poll_next(cx)
     }
 }
+
+pub type TimelineEventFilterFn =
+    dyn Fn(&AnySyncTimelineEvent, &RoomVersionId) -> bool + Send + Sync;

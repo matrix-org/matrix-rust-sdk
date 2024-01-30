@@ -506,6 +506,9 @@ pub enum Error {
     /// The requested room doesn't exist.
     #[error("Room `{0}` not found")]
     RoomNotFound(OwnedRoomId),
+
+    #[error("A timeline instance already exists for room {0}")]
+    TimelineAlreadyExists(OwnedRoomId),
 }
 
 /// An input for the [`RoomList`]' state machine.
