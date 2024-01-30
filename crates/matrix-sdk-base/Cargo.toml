@@ -23,6 +23,7 @@ qrcode = ["matrix-sdk-crypto?/qrcode"]
 automatic-room-key-forwarding = ["matrix-sdk-crypto?/automatic-room-key-forwarding"]
 message-ids = ["matrix-sdk-crypto?/message-ids"]
 experimental-sliding-sync = ["ruma/unstable-msc3575"]
+uniffi = ["dep:uniffi"]
 
 # helpers for testing features build upon this
 testing = [
@@ -54,6 +55,7 @@ serde_json = { workspace = true }
 tokio = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
+uniffi = { workspace = true, optional = true }
 
 [dev-dependencies]
 assert_matches = { workspace = true }

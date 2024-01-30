@@ -830,6 +830,7 @@ pub(crate) enum SyncInfo {
 
 /// Holds information computed from the room account data `m.tag` events.
 #[derive(Clone, Debug, Default)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct RoomNotableTags {
     /// Whether or not the room is marked as favorite.
     pub is_favorite: bool,

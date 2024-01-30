@@ -86,7 +86,7 @@ imbl = { version = "2.0.0", features = ["serde"] }
 indexmap = "2.0.2"
 language-tags = { version = "0.3.2", optional = true }
 mas-oidc-client = { version = "0.7.0", optional = true }
-matrix-sdk-base = { workspace = true }
+matrix-sdk-base = { workspace = true, features = ["uniffi"] }
 matrix-sdk-common = { workspace = true }
 matrix-sdk-indexeddb = { workspace = true, optional = true }
 matrix-sdk-sqlite = { workspace = true, optional = true }
