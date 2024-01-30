@@ -31,7 +31,7 @@ use matrix_sdk::{
     Client, LoopCtrl,
 };
 use matrix_sdk_ui::timeline::{EventTimelineItem, RoomExt, TimelineItem};
-use tokio::{spawn, time::timeout};
+use tokio::time::timeout;
 
 use crate::helpers::TestClientBuilder;
 
@@ -77,8 +77,8 @@ async fn test_toggling_reaction() -> Result<()> {
     let reaction_key = "👍";
     let reaction = Annotation::new(event_id.clone(), reaction_key.into());
 
-    // Toggle reaction multiple times
-    let all_tests = spawn(async move {
+    // Toggle reaction multiple times.
+    let all_tests = async move {
         for _ in 0..3 {
             // Add
             timeline.toggle_reaction(&reaction).await.expect("toggling reaction");
@@ -124,9 +124,9 @@ async fn test_toggling_reaction() -> Result<()> {
             assert_local_added(&mut stream, &user_id, &event_id, &reaction, message_position).await;
             assert_redacted(&mut stream, &event_id, message_position).await;
         }
-    });
+    };
 
-    timeout(Duration::from_secs(10), all_tests).await.expect("timed out").expect("couldn't join");
+    timeout(Duration::from_secs(10), all_tests).await.expect("timed out");
 
     Ok(())
 }
