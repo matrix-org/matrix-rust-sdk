@@ -15,7 +15,11 @@
 //! High-level authentication APIs.
 #[cfg(feature = "experimental-oidc")]
 use std::collections::HashMap;
-use std::{fmt::Debug, path::PathBuf, sync::RwLock};
+use std::{
+    fmt::Debug,
+    path::PathBuf,
+    sync::{Arc, RwLock},
+};
 
 #[cfg(feature = "experimental-oidc")]
 use mas_oidc_client::types::{
@@ -29,6 +33,9 @@ use ruma::api::client::discovery::discover_homeserver::AuthenticationServerInfo;
 use ruma::api::{client::session::get_login_types, error::FromHttpResponseError};
 use url::Url;
 
+#[cfg(test)]
+#[cfg(feature = "experimental-oidc")]
+use crate::oidc::backend::mock::MockImpl as OidcBackend;
 #[cfg(feature = "experimental-oidc")]
 use crate::oidc::{
     registrations::{ClientId, OidcRegistrations, OidcRegistrationsError},
@@ -64,6 +71,10 @@ pub struct AuthenticationService {
     /// homeserver that hasn't yet been configured with one.
     #[cfg(feature = "experimental-sliding-sync")]
     pub custom_sliding_sync_proxy: RwLock<Option<String>>,
+    /// An injected OIDC backend for testing purposes.
+    #[cfg(test)]
+    #[cfg(feature = "experimental-oidc")]
+    oidc_backend: Option<Arc<OidcBackend>>,
 }
 
 impl Debug for AuthenticationService {
@@ -225,6 +236,9 @@ impl AuthenticationService {
             oidc_static_registrations,
             #[cfg(feature = "experimental-sliding-sync")]
             custom_sliding_sync_proxy: RwLock::new(custom_sliding_sync_proxy),
+            #[cfg(test)]
+            #[cfg(feature = "experimental-oidc")]
+            oidc_backend: None,
         }
     }
 
@@ -356,7 +370,7 @@ impl AuthenticationService {
         let Some(client) = self.client.read().unwrap().clone() else {
             return Err(AuthenticationError::ClientMissing);
         };
-        let oidc = client.oidc();
+        let oidc = self.oidc_from_client(&client);
 
         let Some(authentication_server) = oidc.authentication_server_info() else {
             return Err(AuthenticationError::OidcNotSupported);
@@ -394,7 +408,7 @@ impl AuthenticationService {
             return Err(AuthenticationError::ClientMissing);
         };
 
-        let oidc = client.oidc();
+        let oidc = self.oidc_from_client(&client);
 
         let response = AuthorizationResponse::parse_uri(&callback_url)
             .map_err(|_| AuthenticationError::OidcCallbackUrlInvalid)?;
@@ -446,7 +460,8 @@ impl AuthenticationService {
         client: &Client,
     ) -> Result<HomeserverLoginDetails, AuthenticationError> {
         #[cfg(feature = "experimental-oidc")]
-        let supports_oidc_login = client.oidc().authentication_server_info().is_some();
+        let supports_oidc_login =
+            self.oidc_from_client(client).authentication_server_info().is_some();
         let login_types = client
             .matrix_auth()
             .get_login_types()
@@ -570,21 +585,37 @@ impl AuthenticationService {
 
         true
     }
+
+    /// A helper method for tests that uses the injected OIDC client if present,
+    /// otherwise simply calls `oidc` on the client.
+    #[cfg(feature = "experimental-oidc")]
+    fn oidc_from_client(&self, client: &Client) -> Oidc {
+        #[cfg(test)]
+        if let Some(backend) = self.oidc_backend.as_ref().map(Arc::clone) {
+            return Oidc { client: client.clone(), backend };
+        }
+
+        client.oidc()
+    }
 }
 
 // The http mocking library is not supported for wasm32
 #[cfg(all(test, not(target_arch = "wasm32")))]
 pub(crate) mod tests {
-    use std::sync::RwLock;
+    use std::{
+        path::Path,
+        sync::{Arc, RwLock},
+    };
 
     use matrix_sdk_test::{async_test, test_json};
-    use serde_json::{json_internal, Value as JsonValue};
+    use serde_json::{json, json_internal, Value as JsonValue};
     use wiremock::{
-        matchers::{body_string_contains, method, path},
+        matchers::{body_string_contains, header, method, path},
         Mock, MockServer, ResponseTemplate,
     };
 
-    use super::{AuthenticationError, AuthenticationService};
+    use super::*;
+    use crate::oidc::OidcSessionTokens;
 
     // Note: Due to a limitation of the http mocking library these tests all supply an http:// url,
     // rather than the plain server name, otherwise the service will prepend https:// to the name
@@ -811,20 +842,148 @@ pub(crate) mod tests {
         assert!(matches!(error, AuthenticationError::Generic { .. }));
     }
 
+    #[async_test]
+    #[cfg(feature = "experimental-oidc")]
+    async fn test_oidc_login() {
+        // Given a service configured with a homeserver that's ready for Matrix 2.0.
+        let server = MockServer::start().await;
+        let homeserver = make_mock_homeserver().await;
+        let oidc_backend = make_oidc_backend();
+        let service = make_service_oidc(None, Some(Arc::new(oidc_backend)));
+        mock_client_registrations(service.oidc_client_metadata.clone().unwrap());
+
+        Mock::given(method("GET"))
+            .and(path("/.well-known/matrix/client"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(make_well_known_json(
+                &homeserver.uri(),
+                Some("https://localhost:1234"),
+                Some(crate::oidc::backend::mock::ISSUER_URL),
+            )))
+            .mount(&server)
+            .await;
+
+        service.configure_homeserver(server.uri()).await.unwrap();
+        assert_eq!(service.homeserver_details().unwrap().supports_oidc_login, true);
+
+        // When logging in with OIDC.
+        let data = service.url_for_oidc_login().await.unwrap();
+        let callback = format!("https://example.com/login?state={}&code=1337", data.state);
+        let client =
+            service.login_with_oidc_callback(data, Url::parse(&callback).unwrap()).await.unwrap();
+
+        // Then a client should be created that is logged in and ready to use.
+        assert!(client.logged_in());
+    }
+
+    #[async_test]
+    #[cfg(feature = "experimental-oidc")]
+    async fn test_oidc_login_cancellation() {
+        // Given a service configured with a homeserver that's ready for Matrix 2.0.
+        let server = MockServer::start().await;
+        let homeserver = make_mock_homeserver().await;
+        let oidc_backend = make_oidc_backend();
+        let service = make_service_oidc(None, Some(Arc::new(oidc_backend)));
+        mock_client_registrations(service.oidc_client_metadata.clone().unwrap());
+
+        Mock::given(method("GET"))
+            .and(path("/.well-known/matrix/client"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(make_well_known_json(
+                &homeserver.uri(),
+                Some("https://localhost:1234"),
+                Some(crate::oidc::backend::mock::ISSUER_URL),
+            )))
+            .mount(&server)
+            .await;
+
+        service.configure_homeserver(server.uri()).await.unwrap();
+        assert_eq!(service.homeserver_details().unwrap().supports_oidc_login, true);
+
+        // When cancelling a login request from the login page.
+        let data = service.url_for_oidc_login().await.unwrap();
+        let callback =
+            format!("https://example.com/login?state={}&error=access_denied", data.state);
+        let error = service
+            .login_with_oidc_callback(data, Url::parse(&callback).unwrap())
+            .await
+            .unwrap_err();
+
+        // Then the login should fail with a cancellation error.
+        assert_eq!(error, AuthenticationError::OidcCancelled);
+    }
+
+    #[async_test]
+    #[cfg(feature = "experimental-oidc")]
+    async fn test_oidc_login_old_data() {
+        // Given a service configured with a homeserver that's ready for Matrix 2.0 and
+        // has provided some authorization data.
+        let server = MockServer::start().await;
+        let homeserver = make_mock_homeserver().await;
+        let oidc_backend = make_oidc_backend();
+        let service = make_service_oidc(None, Some(Arc::new(oidc_backend)));
+        mock_client_registrations(service.oidc_client_metadata.clone().unwrap());
+
+        Mock::given(method("GET"))
+            .and(path("/.well-known/matrix/client"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(make_well_known_json(
+                &homeserver.uri(),
+                Some("https://localhost:1234"),
+                Some(crate::oidc::backend::mock::ISSUER_URL),
+            )))
+            .mount(&server)
+            .await;
+
+        service.configure_homeserver(server.uri()).await.unwrap();
+        assert_eq!(service.homeserver_details().unwrap().supports_oidc_login, true);
+
+        let data = service.url_for_oidc_login().await.unwrap();
+
+        // When attempting to log in using the URL from old OIDC authorization data.
+        let old_data =
+            OidcAuthorizationData { state: "old_state".to_string(), url: data.url.clone() };
+        let callback = format!("https://example.com/login?state={}&code=1337", old_data.state);
+        let error = service
+            .login_with_oidc_callback(data, Url::parse(&callback).unwrap())
+            .await
+            .unwrap_err();
+
+        // Then the login should fail with an invalid callback.
+        assert_eq!(error, AuthenticationError::OidcCallbackUrlInvalid);
+    }
+
     /* Helper functions */
 
     fn make_service(custom_sliding_sync_proxy: Option<String>) -> AuthenticationService {
+        #[cfg(not(feature = "experimental-oidc"))]
+        return make_service_oidc(custom_sliding_sync_proxy);
+        #[cfg(feature = "experimental-oidc")]
+        make_service_oidc(custom_sliding_sync_proxy, None)
+    }
+
+    fn make_service_oidc(
+        custom_sliding_sync_proxy: Option<String>,
+        #[cfg(feature = "experimental-oidc")] oidc_backend: Option<Arc<OidcBackend>>,
+    ) -> AuthenticationService {
+        #[cfg(feature = "experimental-oidc")]
+        let oidc_client_metadata = match &oidc_backend {
+            Some(_) => Some(ClientMetadata {
+                redirect_uris: Some(vec!["https://example.com/login".parse().unwrap()]),
+                ..Default::default()
+            }),
+            None => None,
+        };
         AuthenticationService {
             base_path: "/tmp/matrix".into(),
             user_agent: None,
             client: Default::default(),
             homeserver_details: Default::default(),
             #[cfg(feature = "experimental-oidc")]
-            oidc_client_metadata: None,
+            oidc_client_metadata,
             #[cfg(feature = "experimental-oidc")]
             oidc_static_registrations: Default::default(),
             #[cfg(feature = "experimental-sliding-sync")]
             custom_sliding_sync_proxy: RwLock::new(custom_sliding_sync_proxy),
+            #[cfg(feature = "experimental-oidc")]
+            oidc_backend,
         }
     }
 
@@ -852,7 +1011,42 @@ pub(crate) mod tests {
             .respond_with(ResponseTemplate::new(403).set_body_json(&*test_json::LOGIN_RESPONSE_ERR))
             .mount(&homeserver)
             .await;
+        Mock::given(method("GET"))
+            .and(path("/_matrix/client/r0/account/whoami"))
+            .and(header("authorization", "Bearer 4cc3ss"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(make_whoami_json()))
+            .mount(&homeserver)
+            .await;
         homeserver
+    }
+
+    fn make_oidc_backend() -> OidcBackend {
+        let backend = OidcBackend::new();
+        let next_tokens = OidcSessionTokens {
+            access_token: "4cc3ss".to_owned(),
+            refresh_token: Some("r3fr3sh".to_owned()),
+            latest_id_token: None,
+        };
+        backend.next_session_tokens(next_tokens)
+    }
+
+    /// Pre-fills the OIDC registrations file as the mock OIDC backend doesn't
+    /// support dynamic client registration.
+    fn mock_client_registrations(metadata: ClientMetadata) {
+        let client_id = "BestMatrixClient".to_owned();
+        let registrations = OidcRegistrations::new(
+            Path::new("/tmp/matrix"),
+            metadata.validate().unwrap(),
+            Default::default(),
+        )
+        .unwrap();
+
+        registrations
+            .set_and_write_client_id(
+                ClientId(client_id),
+                Url::parse(crate::oidc::backend::mock::ISSUER_URL).unwrap(),
+            )
+            .unwrap();
     }
 
     fn make_well_known_json(
@@ -889,6 +1083,15 @@ pub(crate) mod tests {
             }
 
             object
+        })
+    }
+
+    /// A custom whoami response as the one provided by `test_json` doesn't
+    /// include a device ID.
+    fn make_whoami_json() -> JsonValue {
+        json!({
+            "user_id": "@user:example.com",
+            "device_id": "D3V1C31D"
         })
     }
 

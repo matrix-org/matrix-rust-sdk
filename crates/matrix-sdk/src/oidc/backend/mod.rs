@@ -41,7 +41,7 @@ pub(super) struct RefreshedSessionTokens {
 }
 
 #[async_trait::async_trait]
-pub(super) trait OidcBackend: std::fmt::Debug + Send + Sync {
+pub(crate) trait OidcBackend: std::fmt::Debug + Send + Sync {
     async fn discover(
         &self,
         issuer: &str,

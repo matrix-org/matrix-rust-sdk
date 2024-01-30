@@ -194,13 +194,16 @@ use tracing::{error, trace, warn};
 use url::Url;
 
 mod auth_code_builder;
+#[cfg(not(test))]
 mod backend;
+#[cfg(test)]
+pub(crate) mod backend;
 mod cross_process;
 mod data_serde;
 mod end_session_builder;
 pub mod registrations;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 pub use self::{
     auth_code_builder::{OidcAuthCodeUrlBuilder, OidcAuthorizationData},
@@ -267,10 +270,10 @@ impl fmt::Debug for OidcAuthData {
 #[derive(Debug, Clone)]
 pub struct Oidc {
     /// The underlying Matrix API client.
-    client: Client,
+    pub(crate) client: Client, // TODO: This is bad…
 
     /// The implementation of the OIDC backend.
-    backend: Arc<dyn OidcBackend>,
+    pub(crate) backend: Arc<dyn OidcBackend>, // TODO: This is also bad
 }
 
 impl Oidc {

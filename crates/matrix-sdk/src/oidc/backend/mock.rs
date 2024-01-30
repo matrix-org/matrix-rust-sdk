@@ -117,7 +117,9 @@ impl OidcBackend for MockImpl {
         issuer: &str,
         insecure: bool,
     ) -> Result<VerifiedProviderMetadata, OidcError> {
-        if insecure != self.is_insecure {
+        // There isn't a UrlNonHttpScheme error, so it's a good enough approximation to
+        // only throw when expecting a secure connection, but getting an insecure one.
+        if !insecure && self.is_insecure {
             return Err(OidcError::Oidc(Discovery(DiscoveryError::Validation(
                 ProviderMetadataVerificationError::UrlNonHttpsScheme(
                     "mocking backend",
