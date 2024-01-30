@@ -150,10 +150,6 @@ impl Room {
         }
     }
 
-    pub async fn poll_history(&self) -> Result<Arc<Timeline>, ClientError> {
-        Ok(Timeline::new(self.inner.poll_history().await?))
-    }
-
     pub fn display_name(&self) -> Result<String, ClientError> {
         let r = self.inner.clone();
         RUNTIME.block_on(async move { Ok(r.display_name().await?.to_string()) })
