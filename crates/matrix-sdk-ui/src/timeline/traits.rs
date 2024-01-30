@@ -18,16 +18,13 @@ use matrix_sdk::Room;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk::{deserialized_responses::TimelineEvent, Result};
 use matrix_sdk_base::latest_event::LatestEvent;
-#[cfg(feature = "e2e-encryption")]
-use ruma::{events::AnySyncTimelineEvent, serde::Raw};
 use ruma::{
-    events::{
-        receipt::{Receipt, ReceiptThread, ReceiptType},
-        AnySyncMessageLikeEvent,
-    },
+    events::receipt::{Receipt, ReceiptThread, ReceiptType},
     push::{PushConditionRoomCtx, Ruleset},
     EventId, OwnedEventId, OwnedUserId, RoomVersionId, UserId,
 };
+#[cfg(feature = "e2e-encryption")]
+use ruma::{events::AnySyncTimelineEvent, serde::Raw};
 use tracing::{debug, error, warn};
 
 use super::{Profile, TimelineBuilder};
@@ -53,9 +50,6 @@ pub trait RoomExt {
     /// This allows to customize settings of the [`Timeline`] before
     /// constructing it.
     fn timeline_builder(&self) -> TimelineBuilder;
-
-    /// Get a [`Timeline`] for this room, filtered to only include poll events.
-    async fn poll_history(&self) -> crate::event_graph::Result<Timeline>;
 }
 
 #[async_trait]
@@ -66,22 +60,6 @@ impl RoomExt for Room {
 
     fn timeline_builder(&self) -> TimelineBuilder {
         Timeline::builder(self).track_read_marker_and_receipts()
-    }
-
-    async fn poll_history(&self) -> crate::event_graph::Result<Timeline> {
-        self.timeline_builder()
-            .event_filter(|e, _| {
-                matches!(
-                    e,
-                    AnySyncTimelineEvent::MessageLike(
-                        AnySyncMessageLikeEvent::UnstablePollStart(_)
-                            | AnySyncMessageLikeEvent::UnstablePollResponse(_)
-                            | AnySyncMessageLikeEvent::UnstablePollEnd(_)
-                    )
-                )
-            })
-            .build()
-            .await
     }
 }
 
