@@ -71,16 +71,17 @@ use crate::{
     MinimalStateEvent, OriginalMinimalStateEvent, RoomMemberships,
 };
 
-/// Each time a room's RoomInfo is changed, the roominfo_update_receiver in the
-/// BaseClient will receive this struct containing the update information.
-/// The sender must decide if this update should cause a room list update.
-/// If the sender knows that another action has already caused the room to
-/// update, it should not send another update.
+/// A summary of changes to room information.
+///
+/// It also indicates whether this update should update the room list.
 #[derive(Debug, Clone)]
 pub struct RoomInfoUpdate {
     /// The room which was updated.
     pub room_id: OwnedRoomId,
     /// Whether this event should trigger the room list to update.
+    ///
+    /// If the change is minor or if another action already causes the room list
+    /// to update, this should be false to avoid duplicate updates.
     pub trigger_room_list_update: bool,
 }
 
@@ -662,12 +663,14 @@ impl Room {
         self.inner.get()
     }
 
-    /// Update the summary with given RoomInfo. This also triggers an update for
-    /// the roominfo_update_recv.
+    /// Update the summary with given RoomInfo.
+    ///
+    /// This also triggers an update for room info observers if
+    /// `trigger_room_list_update` is true.
     pub fn set_room_info(&self, room_info: RoomInfo, trigger_room_list_update: bool) {
         self.inner.set(room_info);
 
-        // Ignore error if no receiver exists
+        // Ignore error if no receiver exists.
         let _ = self
             .roominfo_update_sender
             .send(RoomInfoUpdate { room_id: self.room_id.clone(), trigger_room_list_update });

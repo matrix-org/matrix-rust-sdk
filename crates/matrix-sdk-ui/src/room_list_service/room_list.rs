@@ -125,7 +125,7 @@ impl RoomList {
     pub fn entries_with_dynamic_adapters(
         &self,
         page_size: usize,
-        roominfo_update_recv: &broadcast::Receiver<RoomInfoUpdate>,
+        roominfo_update_recv: broadcast::Receiver<RoomInfoUpdate>,
     ) -> (impl Stream<Item = Vec<VectorDiff<RoomListEntry>>>, RoomListDynamicEntriesController)
     {
         let list = self.sliding_sync_list.clone();
@@ -142,17 +142,15 @@ impl RoomList {
             list.maximum_number_of_rooms_stream(),
         );
 
-        let roominfo_update_recv = roominfo_update_recv.resubscribe();
-
         let stream = stream! {
             loop {
                 let filter_fn = filter_fn_cell.take().await;
                 let (raw_values, raw_stream) = list.room_list_stream();
 
                 // Combine normal stream events with other updates from rooms
-                let raw_stream_with_recv = merge_stream_and_receiver(raw_values.clone(), raw_stream, roominfo_update_recv.resubscribe());
+                let merged_stream = merge_stream_and_receiver(raw_values.clone(), raw_stream, roominfo_update_recv.resubscribe());
 
-                let (values, stream) = (raw_values, raw_stream_with_recv)
+                let (values, stream) = (raw_values, merged_stream)
                     .filter(filter_fn)
                     .dynamic_limit_with_initial_value(page_size, limit_stream.clone());
 
@@ -175,15 +173,18 @@ fn merge_stream_and_receiver(
     raw_stream: impl Stream<Item = Vec<VectorDiff<RoomListEntry>>>,
     mut roominfo_update_recv: broadcast::Receiver<RoomInfoUpdate>,
 ) -> impl Stream<Item = Vec<VectorDiff<RoomListEntry>>> {
-    let raw_stream_with_recv = stream! {
+    stream! {
         pin_mut!(raw_stream);
+
         loop {
             select! {
                 biased; // Prefer manual updates for easier test code
+
                 Ok(update) = roominfo_update_recv.recv() => {
                     if !update.trigger_room_list_update {
                         continue;
                     }
+
                     // Search list for the updated room
                     for (index, room) in raw_current_values.iter().enumerate() {
                         if let RoomListEntry::Filled(r) = room {
@@ -195,6 +196,7 @@ fn merge_stream_and_receiver(
                         }
                     }
                 }
+
                 v = raw_stream.next() => {
                     if let Some(v) = v {
                         for change in &v {
@@ -208,8 +210,7 @@ fn merge_stream_and_receiver(
                 }
             }
         }
-    };
-    raw_stream_with_recv
+    }
 }
 
 /// The loading state of a [`RoomList`].

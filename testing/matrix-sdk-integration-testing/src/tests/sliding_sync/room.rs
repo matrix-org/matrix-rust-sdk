@@ -7,6 +7,7 @@ use std::{
 };
 
 use anyhow::Result;
+use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, StreamExt as _};
 use matrix_sdk::{
     bytes::Bytes,
@@ -546,34 +547,42 @@ async fn test_room_notification_count() -> Result<()> {
     Ok(())
 }
 
-static DROP_TODEVICE: StdMutex<bool> = StdMutex::new(true);
-fn drop_todevice(response: &mut Bytes) {
+/// Response preprocessor that drops to_device events
+fn drop_todevice_events(response: &mut Bytes) {
+    // Looks for a json payload containing "extensions" with a "to_device" part.
+    // This should only match the sliding sync response. In all other cases, it
+    // makes no changes.
     let Ok(mut json) = serde_json::from_slice::<serde_json::Value>(response) else {
         return;
     };
     let Some(extensions) = json.get_mut("extensions").and_then(|e| e.as_object_mut()) else {
         return;
     };
+    // Remove to_device field if it exists
     let Some(to_device) = extensions.remove("to_device") else {
         return;
     };
-    if *DROP_TODEVICE.lock().unwrap() {
-        info!("Dropping to_device: {to_device}");
-        *response = serde_json::to_vec(&json).unwrap().into();
-        return;
+
+    info!("Dropping to_device: {to_device}");
+    *response = serde_json::to_vec(&json).unwrap().into();
+}
+
+/// Proxy between client and homeserver that can do arbitrary changes to the
+/// payloads.
+///
+/// It uses wiremock, but sends the actual server when it runs.
+struct CustomResponder {
+    client: reqwest::Client,
+    drop_todevice: Arc<StdMutex<bool>>,
+}
+
+impl CustomResponder {
+    fn new() -> Self {
+        Self { client: reqwest::Client::new(), drop_todevice: Arc::new(StdMutex::new(true)) }
     }
 }
 
-struct CustomResponder {
-    client: reqwest::Client,
-    response_preprocessor: fn(&mut Bytes),
-}
-impl CustomResponder {
-    fn new(response_preprocessor: fn(&mut Bytes)) -> Self {
-        Self { client: reqwest::Client::new(), response_preprocessor }
-    }
-}
-impl wiremock::Respond for CustomResponder {
+impl wiremock::Respond for &CustomResponder {
     fn respond(&self, request: &wiremock::Request) -> wiremock::ResponseTemplate {
         let mut req = self.client.request(
             request.method.to_string().parse().expect("All methods exist"),
@@ -587,14 +596,15 @@ impl wiremock::Respond for CustomResponder {
         req = req.body(request.body.clone());
 
         // Run await inside of non-async fn by spawning a new thread and creating a new
-        // runtime. Is there a better way?
-        let response_preprocessor = self.response_preprocessor;
+        // runtime. TODO: Is there a better way?
+        let drop_todevice = self.drop_todevice.clone();
         std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
                 let response = timeout(Duration::from_secs(2), req.send()).await;
 
                 if let Ok(Ok(response)) = response {
+                    // Convert reqwest response to wiremock response
                     let mut r = wiremock::ResponseTemplate::new(u16::from(response.status()));
                     for header in response.headers() {
                         if header.0 == "Content-Length" {
@@ -604,14 +614,16 @@ impl wiremock::Respond for CustomResponder {
                     }
 
                     let mut bytes = response.bytes().await.unwrap_or_default();
-                    response_preprocessor(&mut bytes);
 
-                    r = r.set_body_bytes(bytes);
-                    r
+                    // Manipulate the response
+                    if *drop_todevice.lock().unwrap() {
+                        drop_todevice_events(&mut bytes);
+                    }
+
+                    r.set_body_bytes(bytes)
                 } else {
                     // Gateway timeout
-                    let r = wiremock::ResponseTemplate::new(504);
-                    r
+                    wiremock::ResponseTemplate::new(504)
                 }
             })
         })
@@ -623,10 +635,10 @@ impl wiremock::Respond for CustomResponder {
 #[tokio::test]
 async fn test_delayed_decryption_latest_event() -> Result<()> {
     let server = MockServer::start().await;
-    // Setup mockserver that drops to-device messages if DROP_TODEVICE is true
-    server
-        .register(Mock::given(AnyMatcher).respond_with(CustomResponder::new(drop_todevice)))
-        .await;
+    // Setup mockserver that can drop to-device messages
+    let custom_responder: &'static CustomResponder = Box::leak(Box::new(CustomResponder::new()));
+
+    server.register(Mock::given(AnyMatcher).respond_with(custom_responder)).await;
 
     let alice = TestClientBuilder::new("alice".to_owned())
         .randomize_username()
@@ -712,28 +724,43 @@ async fn test_delayed_decryption_latest_event() -> Result<()> {
     entries.set_filter(Box::new(new_filter_all(vec![])));
     pin_mut!(stream);
 
-    // Send a message, but the keys won't arrive
-    bob_room.send(RoomMessageEventContent::text_plain("hello world")).await?;
+    // Send a message, but the keys won't arrive because to-device events are stripped away from the server's response
+    let event = bob_room.send(RoomMessageEventContent::text_plain("hello world")).await?;
 
-    // Stream only has the initial Reset entry
+    // Wait shortly so the manual roominfo update is triggered before we load the
+    // stream.
     sleep(Duration::from_secs(1)).await;
-    timeout(Duration::from_millis(100), stream.next()).await.unwrap();
-    assert!(timeout(Duration::from_millis(100), stream.next()).await.is_err());
+
+    // Stream only has the initial Reset entry.
+    assert_eq!(
+        timeout(Duration::from_millis(100), stream.next()).await,
+        Ok(Some(vec![VectorDiff::Reset {
+            values: vec![RoomListEntry::Filled(alice_room.room_id().to_owned())].into()
+        }]))
+    );
+    assert_pending!(stream);
 
     // Latest event is not set yet
-    assert!(matches!(alice_room.latest_event(), None));
+    assert!(alice_room.latest_event().is_none());
 
     // Now we allow the key to come through
-    *DROP_TODEVICE.lock().unwrap() = false;
+    *custom_responder.drop_todevice.lock().unwrap() = false;
+
     // Wait for next sync
     sleep(Duration::from_secs(3)).await;
 
     // Latest event is set now
-    alice_room.latest_event().unwrap();
+    assert_eq!(alice_room.latest_event().unwrap().event_id(), Some(event.event_id));
 
     // The stream has a single update
-    timeout(Duration::from_millis(100), stream.next()).await.unwrap();
-    assert!(timeout(Duration::from_millis(100), stream.next()).await.is_err());
+    assert_eq!(
+        timeout(Duration::from_millis(100), stream.next()).await,
+        Ok(Some(vec![VectorDiff::Set {
+            index: 0,
+            value: RoomListEntry::Filled(alice_room.room_id().to_owned())
+        }]))
+    );
+    assert_pending!(stream);
 
     Ok(())
 }
@@ -804,7 +831,6 @@ async fn test_roominfo_update_deduplication() -> Result<()> {
         .await?;
     alice_room.enable_encryption().await.unwrap();
 
-    sleep(Duration::from_secs(1)).await;
     let (stream, entries) = alice_sync_service
         .room_list_service()
         .all_rooms()
@@ -812,10 +838,21 @@ async fn test_roominfo_update_deduplication() -> Result<()> {
         .unwrap()
         .entries_with_dynamic_adapters(10, alice.roominfo_update_receiver());
     entries.set_filter(Box::new(new_filter_all(vec![])));
+
     pin_mut!(stream);
-    // Initial reset event
-    timeout(Duration::from_millis(100), stream.next()).await.unwrap();
-    assert!(timeout(Duration::from_millis(100), stream.next()).await.is_err());
+
+    // Wait shortly so the manual roominfo update is triggered before we load the
+    // stream.
+    sleep(Duration::from_secs(1)).await;
+
+    // Stream only has the initial Reset entry.
+    assert_eq!(
+        timeout(Duration::from_millis(100), stream.next()).await,
+        Ok(Some(vec![VectorDiff::Reset {
+            values: vec![RoomListEntry::Filled(alice_room.room_id().to_owned())].into()
+        }]))
+    );
+    assert_pending!(stream);
 
     sleep(Duration::from_secs(1)).await;
     let alice_room = alice.get_room(alice_room.room_id()).unwrap();
@@ -827,17 +864,56 @@ async fn test_roominfo_update_deduplication() -> Result<()> {
     assert!(alice_room.is_encrypted().await.unwrap());
     assert_eq!(bob_room.state(), RoomState::Joined);
     // Room update for join
-    timeout(Duration::from_millis(100), stream.next()).await.unwrap();
-    assert!(timeout(Duration::from_millis(100), stream.next()).await.is_err());
+    assert_eq!(
+        timeout(Duration::from_millis(100), stream.next()).await,
+        Ok(Some(vec![VectorDiff::Set {
+            index: 0,
+            value: RoomListEntry::Filled(alice_room.room_id().to_owned())
+        }]))
+    );
+    assert_pending!(stream);
 
     // Send a message, it should arrive
-    bob_room.send(RoomMessageEventContent::text_plain("hello world")).await?;
+    let event = bob_room.send(RoomMessageEventContent::text_plain("hello world")).await?;
 
     sleep(Duration::from_secs(1)).await;
-    alice_room.latest_event().unwrap();
+
+    // Latest event is set now
+    assert_eq!(alice_room.latest_event().unwrap().event_id(), Some(event.event_id));
+
     // Stream has the room again, but no second event
-    timeout(Duration::from_millis(100), stream.next()).await.unwrap();
-    assert!(timeout(Duration::from_millis(100), stream.next()).await.is_err());
+    // TODO: Synapse sometimes sends the same event two times. This is the
+    // workaround:
+    let updated_rooms = timeout(Duration::from_millis(100), stream.next()).await.unwrap().unwrap();
+    assert!(
+        updated_rooms
+            == vec![VectorDiff::Set {
+                index: 0,
+                value: RoomListEntry::Filled(alice_room.room_id().to_owned())
+            }]
+            || updated_rooms
+                == vec![
+                    VectorDiff::Set {
+                        index: 0,
+                        value: RoomListEntry::Filled(alice_room.room_id().to_owned())
+                    },
+                    VectorDiff::Set {
+                        index: 0,
+                        value: RoomListEntry::Filled(alice_room.room_id().to_owned())
+                    }
+                ]
+    );
+    /*
+    assert_eq!(
+        updated_rooms,
+        vec![VectorDiff::Set {
+            index: 0,
+            value: RoomListEntry::Filled(alice_room.room_id().to_owned())
+        }]
+    );
+    */
+
+    assert_pending!(stream);
 
     Ok(())
 }
