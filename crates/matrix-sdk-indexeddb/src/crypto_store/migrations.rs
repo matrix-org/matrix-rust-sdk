@@ -595,7 +595,7 @@ mod v8_to_v10 {
 
 #[cfg(all(test, target_arch = "wasm32"))]
 mod tests {
-    use std::sync::Arc;
+    use std::{future::Future, sync::Arc};
 
     use indexed_db_futures::prelude::*;
     use matrix_sdk_common::js_tracing::make_tracing_subscriber;
@@ -603,19 +603,238 @@ mod tests {
         olm::SessionKey,
         store::CryptoStore,
         types::EventEncryptionAlgorithm,
-        vodozemac::{Curve25519PublicKey, Curve25519SecretKey, Ed25519SecretKey},
+        vodozemac::{Curve25519PublicKey, Curve25519SecretKey, Ed25519PublicKey, Ed25519SecretKey},
     };
     use matrix_sdk_store_encryption::StoreCipher;
     use matrix_sdk_test::async_test;
-    use ruma::{room_id, RoomId};
+    use ruma::{room_id, OwnedRoomId, RoomId};
+    use tests::v8_to_v10::InboundGroupSessionIndexedDbObject2;
     use tracing_subscriber::util::SubscriberInitExt;
+    use web_sys::console;
 
     use crate::{
-        crypto_store::{migrations::*, InboundGroupSessionIndexedDbObject},
+        crypto_store::{
+            indexeddb_serializer::MaybeEncrypted, migrations::*, InboundGroupSessionIndexedDbObject,
+        },
         IndexeddbCryptoStore,
     };
 
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+
+    /// Adjust this to test do a more comprehensive perf test
+    const NUM_RECORDS_FOR_PERF: usize = 2_000;
+
+    /// Make lots of sessions and see how long it takes to count them in v8
+    #[async_test]
+    async fn count_lots_of_sessions_v8() {
+        let cipher = Arc::new(StoreCipher::new().unwrap());
+        let serializer = IndexeddbSerializer::new(Some(cipher.clone()));
+        // Session keys are slow to create, so make one upfront and use it for every
+        // session
+        let session_key = create_session_key();
+
+        // Create lots of InboundGroupSessionIndexedDbObject2 objects
+        let mut objects = Vec::with_capacity(NUM_RECORDS_FOR_PERF);
+        for i in 0..NUM_RECORDS_FOR_PERF {
+            objects.push(
+                create_inbound_group_sessions2_record(i, &session_key, &cipher, &serializer).await,
+            );
+        }
+
+        // Create a DB with an inbound_group_sessions2 store
+        let db_prefix = "count_lots_of_sessions_v8";
+        let db = create_db(db_prefix).await;
+        let transaction = create_transaction(&db, db_prefix).await;
+        let store = create_store(&transaction, db_prefix).await;
+
+        // Check how long it takes to insert these records
+        measure_performance("Inserting", "v8", NUM_RECORDS_FOR_PERF, || async {
+            for (key, session_js) in objects.iter() {
+                store.add_key_val(key, session_js).unwrap().await.unwrap();
+            }
+        })
+        .await;
+
+        // Check how long it takes to count these records
+        measure_performance("Counting", "v8", NUM_RECORDS_FOR_PERF, || async {
+            store.count().unwrap().await.unwrap();
+        })
+        .await;
+    }
+
+    /// Make lots of sessions and see how long it takes to count them in v10
+    #[async_test]
+    async fn count_lots_of_sessions_v10() {
+        let cipher = Arc::new(StoreCipher::new().unwrap());
+        let serializer = IndexeddbSerializer::new(Some(cipher.clone()));
+        // Session keys are slow to create, so make one upfront and use it for every
+        // session
+        let session_key = create_session_key();
+
+        // Create lots of InboundGroupSessionIndexedDbObject objects
+        let mut objects = Vec::with_capacity(NUM_RECORDS_FOR_PERF);
+        for i in 0..NUM_RECORDS_FOR_PERF {
+            objects.push(
+                create_inbound_group_sessions3_record(i, &session_key, &cipher, &serializer).await,
+            );
+        }
+
+        // Create a DB with an inbound_group_sessions3 store
+        let db_prefix = "count_lots_of_sessions_v8";
+        let db = create_db(db_prefix).await;
+        let transaction = create_transaction(&db, db_prefix).await;
+        let store = create_store(&transaction, db_prefix).await;
+
+        // Check how long it takes to insert these records
+        measure_performance("Inserting", "v10", NUM_RECORDS_FOR_PERF, || async {
+            for (key, session_js) in objects.iter() {
+                store.add_key_val(key, session_js).unwrap().await.unwrap();
+            }
+        })
+        .await;
+
+        // Check how long it takes to count these records
+        measure_performance("Counting", "v10", NUM_RECORDS_FOR_PERF, || async {
+            store.count().unwrap().await.unwrap();
+        })
+        .await;
+    }
+
+    async fn create_db(db_prefix: &str) -> IdbDatabase {
+        let db_name = format!("{db_prefix}::matrix-sdk-crypto");
+        let store_name = format!("{db_prefix}_store");
+        let mut db_req: OpenDbRequest = IdbDatabase::open_u32(&db_name, 1).unwrap();
+        db_req.set_on_upgrade_needed(Some(
+            move |evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
+                evt.db().create_object_store(&store_name)?;
+                Ok(())
+            },
+        ));
+        db_req.await.unwrap()
+    }
+
+    async fn create_transaction<'a>(db: &'a IdbDatabase, db_prefix: &str) -> IdbTransaction<'a> {
+        let store_name = format!("{db_prefix}_store");
+        db.transaction_on_one_with_mode(&store_name, IdbTransactionMode::Readwrite).unwrap()
+    }
+
+    async fn create_store<'a>(
+        transaction: &'a IdbTransaction<'a>,
+        db_prefix: &str,
+    ) -> IdbObjectStore<'a> {
+        let store_name = format!("{db_prefix}_store");
+        transaction.object_store(&store_name).unwrap()
+    }
+
+    fn create_session_key() -> SessionKey {
+        SessionKey::from_base64(
+            "\
+            AgAAAADBy9+YIYTIqBjFT67nyi31gIOypZQl8day2hkhRDCZaHoG+cZh4tZLQIAZimJail0\
+            0zq4DVJVljO6cZ2t8kIto/QVk+7p20Fcf2nvqZyL2ZCda2Ei7VsqWZHTM/gqa2IU9+ktkwz\
+            +KFhENnHvDhG9f+hjsAPZd5mTTpdO+tVcqtdWhX4dymaJ/2UpAAjuPXQW+nXhQWQhXgXOUa\
+            JCYurJtvbCbqZGeDMmVIoqukBs2KugNJ6j5WlTPoeFnMl6Guy9uH2iWWxGg8ZgT2xspqVl5\
+            CwujjC+m7Dh1toVkvu+bAw\
+            ",
+        )
+        .unwrap()
+    }
+
+    async fn create_inbound_group_sessions2_record(
+        i: usize,
+        session_key: &SessionKey,
+        cipher: &Arc<StoreCipher>,
+        serializer: &IndexeddbSerializer,
+    ) -> (JsValue, JsValue) {
+        let session = create_inbound_group_session(i, session_key);
+        let pickled_session = session.pickle().await;
+        let session_dbo = InboundGroupSessionIndexedDbObject2 {
+            pickled_session: cipher.encrypt_value(&pickled_session).unwrap(),
+            needs_backup: false,
+        };
+        let session_js: JsValue = serde_wasm_bindgen::to_value(&session_dbo).unwrap();
+
+        let key = serializer.encode_key(
+            old_keys::INBOUND_GROUP_SESSIONS_V2,
+            (&session.room_id, session.session_id()),
+        );
+
+        (key, session_js)
+    }
+
+    async fn create_inbound_group_sessions3_record(
+        i: usize,
+        session_key: &SessionKey,
+        cipher: &Arc<StoreCipher>,
+        serializer: &IndexeddbSerializer,
+    ) -> (JsValue, JsValue) {
+        let session = create_inbound_group_session(i, session_key);
+        let pickled_session = session.pickle().await;
+        let session_dbo = InboundGroupSessionIndexedDbObject {
+            pickled_session: MaybeEncrypted::Encrypted(
+                cipher.encrypt_value_base64_typed(&pickled_session).unwrap(),
+            ),
+            needs_backup: false,
+            backed_up_to: -1,
+        };
+        let session_js: JsValue = serde_wasm_bindgen::to_value(&session_dbo).unwrap();
+
+        let key = serializer.encode_key(
+            old_keys::INBOUND_GROUP_SESSIONS_V2,
+            (&session.room_id, session.session_id()),
+        );
+
+        (key, session_js)
+    }
+
+    async fn measure_performance<Fut, R>(
+        name: &str,
+        schema: &str,
+        num_records: usize,
+        f: impl Fn() -> Fut,
+    ) -> R
+    where
+        Fut: Future<Output = R>,
+    {
+        let window = web_sys::window().expect("should have a window in this context");
+        let performance = window.performance().expect("performance should be available");
+        let start = performance.now();
+
+        let ret = f().await;
+
+        let elapsed = performance.now() - start;
+        console::log_1(
+            &format!("{name} {num_records} records with {schema} schema took {elapsed:.2}ms.")
+                .into(),
+        );
+
+        ret
+    }
+
+    /// Create an example InboundGroupSession of known size
+    fn create_inbound_group_session(i: usize, session_key: &SessionKey) -> InboundGroupSession {
+        let sender_key = Curve25519PublicKey::from_bytes([
+            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+            24, 25, 26, 27, 28, 29, 30, 31,
+        ]);
+        let signing_key = Ed25519PublicKey::from_slice(&[
+            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+            24, 25, 26, 27, 28, 29, 30, 31,
+        ])
+        .unwrap();
+        let room_id: OwnedRoomId = format!("!a{i}:b.co").try_into().unwrap();
+        let encryption_algorithm = EventEncryptionAlgorithm::MegolmV1AesSha2;
+        let history_visibility = None;
+
+        InboundGroupSession::new(
+            sender_key,
+            signing_key,
+            &room_id,
+            session_key,
+            encryption_algorithm,
+            history_visibility,
+        )
+        .unwrap()
+    }
 
     /// Test migrating `inbound_group_sessions` data from store v5 to latest,
     /// on a store with encryption disabled.
