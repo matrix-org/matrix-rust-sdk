@@ -57,10 +57,11 @@ impl TimelineBuilder {
     }
 
     /// Add initial events to the timeline.
+    ///
     /// TODO: remove this, the EventGraph should hold the events data in the
     /// first place, and we'd provide an existing EventGraph to the
     /// TimelineBuilder.
-    pub(crate) async fn events(
+    pub async fn events(
         mut self,
         prev_token: Option<String>,
         events: Vector<SyncTimelineEvent>,
@@ -75,7 +76,7 @@ impl TimelineBuilder {
 
     /// Enable tracking of the fully-read marker and the read receipts on the
     /// timeline.
-    pub(crate) fn track_read_marker_and_receipts(mut self) -> Self {
+    pub fn track_read_marker_and_receipts(mut self) -> Self {
         self.settings.track_read_receipts = true;
         self
     }

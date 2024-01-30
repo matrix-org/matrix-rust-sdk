@@ -144,7 +144,8 @@ impl From<&Annotation> for AnnotationKey {
 }
 
 impl Timeline {
-    pub(crate) fn builder(room: &Room) -> TimelineBuilder {
+    /// Create a new [`TimelineBuilder`] for the given room.
+    pub fn builder(room: &Room) -> TimelineBuilder {
         TimelineBuilder::new(room)
     }
 
