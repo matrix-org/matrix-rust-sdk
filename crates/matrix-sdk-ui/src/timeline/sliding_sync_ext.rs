@@ -14,17 +14,12 @@
 
 use async_trait::async_trait;
 use matrix_sdk::SlidingSyncRoom;
-use tracing::{error, instrument};
+use tracing::instrument;
 
-use super::{EventTimelineItem, Timeline, TimelineBuilder};
-use crate::event_graph::Result;
+use super::EventTimelineItem;
 
 #[async_trait]
 pub trait SlidingSyncRoomExt {
-    /// Get a `Timeline` for this room.
-    // TODO(bnjbvr): remove from this trait.
-    async fn timeline(&self) -> Result<Option<Timeline>>;
-
     /// Get the latest timeline item of this room, if it is already cached.
     ///
     /// Use `Timeline::latest_event` instead if you already have a timeline for
@@ -34,14 +29,6 @@ pub trait SlidingSyncRoomExt {
 
 #[async_trait]
 impl SlidingSyncRoomExt for SlidingSyncRoom {
-    async fn timeline(&self) -> Result<Option<Timeline>> {
-        if let Some(builder) = sliding_sync_timeline_builder(self).await {
-            Ok(Some(builder.track_read_marker_and_receipts().build().await?))
-        } else {
-            Ok(None)
-        }
-    }
-
     /// Get a timeline item representing the latest event in this room.
     /// This method wraps latest_event, converting the event into an
     /// EventTimelineItem.
@@ -49,19 +36,6 @@ impl SlidingSyncRoomExt for SlidingSyncRoom {
     async fn latest_timeline_item(&self) -> Option<EventTimelineItem> {
         let latest_event = self.latest_event()?;
         EventTimelineItem::from_latest_event(self.client(), self.room_id(), latest_event).await
-    }
-}
-
-async fn sliding_sync_timeline_builder(room: &SlidingSyncRoom) -> Option<TimelineBuilder> {
-    let room_id = room.room_id();
-    match room.client().get_room(room_id) {
-        Some(r) => {
-            Some(Timeline::builder(&r).events(room.prev_batch(), room.timeline_queue()).await)
-        }
-        None => {
-            error!(?room_id, "Room not found in client. Can't provide a timeline for it");
-            None
-        }
     }
 }
 
