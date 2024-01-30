@@ -22,7 +22,7 @@ use crate::{
     error::{ClientError, MediaInfoError, RoomError},
     event::{MessageLikeEventType, StateEventType},
     room_info::RoomInfo,
-    room_member::RoomMember,
+    room_member::{MembershipState, MessageLikeEventType, RoomMember, StateEventType},
     ruma::ImageInfo,
     timeline::{EventTimelineItem, ReceiptType, Timeline},
     utils::u64_to_uint,
@@ -606,6 +606,18 @@ pub trait TypingNotificationsListener: Sync + Send {
     fn call(&self, typing_user_ids: Vec<String>);
 }
 
+#[derive(uniffi::Record)]
+pub struct ExportedRoomMember {
+    user_id: String,
+    display_name: Option<String>,
+    avatar_url: Option<String>,
+    membership: MembershipState,
+    is_name_ambiguous: bool,
+    power_level: i64,
+    normalized_power_level: i64,
+    is_ignored: bool,
+}
+
 #[derive(uniffi::Object)]
 pub struct RoomMembersIterator {
     chunk_iterator: ChunkIterator<matrix_sdk::room::RoomMember>,
@@ -623,10 +635,22 @@ impl RoomMembersIterator {
         self.chunk_iterator.len()
     }
 
-    fn next_chunk(&self, chunk_size: u32) -> Option<Vec<Arc<RoomMember>>> {
-        self.chunk_iterator
-            .next(chunk_size)
-            .map(|members| members.into_iter().map(RoomMember::new).map(Arc::new).collect())
+    fn next_chunk(&self, chunk_size: u32) -> Option<Vec<ExportedRoomMember>> {
+        self.chunk_iterator.next(chunk_size).map(|members| {
+            members
+                .into_iter()
+                .map(|m| ExportedRoomMember {
+                    user_id: m.user_id().to_string(),
+                    display_name: m.display_name().map(|s| s.to_owned()),
+                    avatar_url: m.avatar_url().map(|a| a.to_string()),
+                    membership: m.membership().clone().into(),
+                    is_name_ambiguous: m.name_ambiguous(),
+                    power_level: m.power_level(),
+                    normalized_power_level: m.normalized_power_level(),
+                    is_ignored: m.is_ignored(),
+                })
+                .collect()
+        })
     }
 }
 
