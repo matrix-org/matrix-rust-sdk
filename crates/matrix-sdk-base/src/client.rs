@@ -979,14 +979,16 @@ impl BaseClient {
 
         for (room_id, room_account_data) in &changes.room_account_data {
             if let Some(room) = self.store.get_room(room_id) {
-                let tags = if let Some(AnyRoomAccountDataEvent::Tag(event)) = room_account_data
-                    .get(&RoomAccountDataEventType::Tag)
-                    .and_then(|r| r.deserialize().ok())
-                {
-                    Some(event.content.tags)
-                } else {
-                    None
-                };
+                let tags = room_account_data.get(&RoomAccountDataEventType::Tag).and_then(|r| {
+                    match r.deserialize() {
+                        Ok(AnyRoomAccountDataEvent::Tag(event)) => Some(event.content.tags),
+                        Err(e) => {
+                            warn!("Room account data tag event failed to deserialize : {e}");
+                            None
+                        }
+                        Ok(_) => None,
+                    }
+                });
                 let notable_tags = RoomNotableTags::new(tags);
                 room.set_notable_tags(notable_tags)
             }

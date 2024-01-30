@@ -652,9 +652,13 @@ impl Room {
     pub fn set_notable_tags(&self, notable_tags: RoomNotableTags) {
         self.notable_tags.set(notable_tags);
     }
+
     /// Returns the current RoomNotableTags and subscribe to changes.
     pub async fn notable_tags_stream(&self) -> (RoomNotableTags, Subscriber<RoomNotableTags>) {
-        let current_tags = self.tags().await.unwrap_or(None);
+        let current_tags = self.tags().await.unwrap_or_else(|e| {
+            warn!("Failed to get tags from store: {}", e);
+            None
+        });
         (RoomNotableTags::new(current_tags), self.notable_tags.subscribe())
     }
 
@@ -840,7 +844,7 @@ impl RoomNotableTags {
     /// Computes the provided tags to create a `RoomNotableTags` instance.
     pub fn new(tags: Option<Tags>) -> Self {
         RoomNotableTags {
-            is_favorite: tags.map(|tag| tag.contains_key(&TagName::Favorite)).unwrap_or(false),
+            is_favorite: tags.map_or(false, |tag| tag.contains_key(&TagName::Favorite)),
         }
     }
 }
@@ -1468,9 +1472,12 @@ mod tests {
     async fn when_set_notable_tags_is_called_then_notable_tags_subscriber_is_updated() {
         let (_, room) = make_room(RoomState::Joined);
         let (_, mut notable_tags_subscriber) = room.notable_tags_stream().await;
+
         stream_assert::assert_pending!(notable_tags_subscriber);
+
         let notable_tags = RoomNotableTags::new(None);
         room.set_notable_tags(notable_tags);
+
         use futures_util::FutureExt as _;
         assert!(notable_tags_subscriber.next().now_or_never().is_some());
         stream_assert::assert_pending!(notable_tags_subscriber);
@@ -1493,11 +1500,14 @@ mod tests {
     async fn when_tags_are_inserted_in_room_account_data_then_initial_notable_tags_is_updated() {
         let (store, room) = make_room(RoomState::Joined);
         let mut changes = StateChanges::new("".to_owned());
+
         let tag_json: &Value = &test_json::TAG;
         let tag_raw = Raw::new(tag_json).unwrap().cast();
         let tag_event = tag_raw.deserialize().unwrap();
         changes.add_room_account_data(room.room_id(), tag_event, tag_raw);
+
         store.save_changes(&changes).await.unwrap();
+
         let (initial_notable_tags, _) = room.notable_tags_stream().await;
         assert!(initial_notable_tags.is_favorite);
     }
