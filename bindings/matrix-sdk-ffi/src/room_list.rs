@@ -487,7 +487,7 @@ impl RoomListItem {
                 default_event_filter(event, room_version_id) && event_type_filter.filter(event)
             })
         } else {
-            timeline_builder.event_filter(default_event_filter)
+            timeline_builder
         };
         self.inner.init_timeline_with_builder(timeline_builder).map_err(RoomListError::from).await
     }

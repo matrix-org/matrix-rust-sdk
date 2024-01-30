@@ -29,6 +29,7 @@ use ruma::{
                 MessageType, RedactedRoomMessageEventContent, Relation, RoomMessageEventContent,
             },
             name::RoomNameEventContent,
+            topic::RoomTopicEventContent,
         },
         AnySyncTimelineEvent, TimelineEventType,
     },
@@ -218,7 +219,7 @@ async fn event_type_filter_include_only_room_names() {
     timeline
         .handle_live_message_event(&ALICE, RoomMessageEventContent::text_plain("The first message"))
         .await;
-    // And a couple of room name events
+    // Add a couple of room name events
     timeline
         .handle_live_state_event(
             &ALICE,
@@ -233,14 +234,24 @@ async fn event_type_filter_include_only_room_names() {
             None,
         )
         .await;
+    // And a different state event
+    timeline
+        .handle_live_state_event(
+            &ALICE,
+            RoomTopicEventContent::new("A new room topic".to_string()),
+            None,
+        )
+        .await;
 
     // The timeline should contain only the room name events
     let event_items: Vec<Arc<TimelineItem>> = timeline.get_event_items().await;
     let text_message_items_count = event_items.iter().filter(is_text_message_item).count();
     let room_name_items_count = event_items.iter().filter(is_room_name_item).count();
+    let room_topic_items_count = event_items.iter().filter(is_room_topic_item).count();
     assert_eq!(event_items.len(), 2);
     assert_eq!(text_message_items_count, 0);
     assert_eq!(room_name_items_count, 2);
+    assert_eq!(room_topic_items_count, 0);
 }
 
 #[async_test]
@@ -257,7 +268,7 @@ async fn event_type_filter_exclude_messages() {
     timeline
         .handle_live_message_event(&ALICE, RoomMessageEventContent::text_plain("The first message"))
         .await;
-    // And a couple of state events
+    // Add a couple of room name state events
     timeline
         .handle_live_state_event(
             &ALICE,
@@ -272,14 +283,24 @@ async fn event_type_filter_exclude_messages() {
             None,
         )
         .await;
+    // And a different state event
+    timeline
+        .handle_live_state_event(
+            &ALICE,
+            RoomTopicEventContent::new("A new room topic".to_string()),
+            None,
+        )
+        .await;
 
     // The timeline should contain everything except for the message event
     let event_items: Vec<Arc<TimelineItem>> = timeline.get_event_items().await;
     let text_message_items_count = event_items.iter().filter(is_text_message_item).count();
     let room_name_items_count = event_items.iter().filter(is_room_name_item).count();
-    assert_eq!(event_items.len(), 2);
+    let room_topic_items_count = event_items.iter().filter(is_room_topic_item).count();
+    assert_eq!(event_items.len(), 3);
     assert_eq!(text_message_items_count, 0);
     assert_eq!(room_name_items_count, 2);
+    assert_eq!(room_topic_items_count, 1);
 }
 
 impl TestTimeline {
@@ -310,6 +331,18 @@ fn is_room_name_item(item: &&Arc<TimelineItem>) -> bool {
         TimelineItemKind::Event(event) => match &event.content {
             TimelineItemContent::OtherState(state) => {
                 matches!(state.content, AnyOtherFullStateEventContent::RoomName(_))
+            }
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
+fn is_room_topic_item(item: &&Arc<TimelineItem>) -> bool {
+    match item.kind() {
+        TimelineItemKind::Event(event) => match &event.content {
+            TimelineItemContent::OtherState(state) => {
+                matches!(state.content, AnyOtherFullStateEventContent::RoomTopic(_))
             }
             _ => false,
         },

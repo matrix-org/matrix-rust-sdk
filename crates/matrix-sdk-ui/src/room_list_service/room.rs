@@ -173,6 +173,7 @@ impl Room {
         self.inner.sliding_sync_room.unread_notifications()
     }
 
+    /// Create a new [`TimelineBuilder`] with the default configuration.
     pub fn default_room_timeline_builder(&self) -> TimelineBuilder {
         Timeline::builder(&self.inner.room)
             .events(
