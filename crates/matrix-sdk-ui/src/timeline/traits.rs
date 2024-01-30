@@ -42,7 +42,7 @@ pub trait RoomExt {
     /// independent events.
     ///
     /// This is the same as using `room.timeline_builder().build()`.
-    async fn timeline(&self) -> Timeline;
+    async fn timeline(&self) -> crate::event_graph::Result<Timeline>;
 
     /// Get a [`TimelineBuilder`] for this room.
     ///
@@ -55,12 +55,12 @@ pub trait RoomExt {
     fn timeline_builder(&self) -> TimelineBuilder;
 
     /// Get a [`Timeline`] for this room, filtered to only include poll events.
-    async fn poll_history(&self) -> Timeline;
+    async fn poll_history(&self) -> crate::event_graph::Result<Timeline>;
 }
 
 #[async_trait]
 impl RoomExt for Room {
-    async fn timeline(&self) -> Timeline {
+    async fn timeline(&self) -> crate::event_graph::Result<Timeline> {
         self.timeline_builder().build().await
     }
 
@@ -68,7 +68,7 @@ impl RoomExt for Room {
         Timeline::builder(self).track_read_marker_and_receipts()
     }
 
-    async fn poll_history(&self) -> Timeline {
+    async fn poll_history(&self) -> crate::event_graph::Result<Timeline> {
         self.timeline_builder()
             .event_filter(|e, _| {
                 matches!(

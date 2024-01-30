@@ -134,7 +134,11 @@ impl Room {
         if self.inner.timeline.get().is_some() {
             Err(Error::TimelineAlreadyExists(self.inner.room.room_id().to_owned()))
         } else {
-            self.inner.timeline.get_or_init(async { Arc::new(builder.build().await) }).await;
+            self.inner
+                .timeline
+                .get_or_try_init(async { Ok(Arc::new(builder.build().await?)) })
+                .await
+                .map_err(Error::InitializingTimeline)?;
             Ok(())
         }
     }

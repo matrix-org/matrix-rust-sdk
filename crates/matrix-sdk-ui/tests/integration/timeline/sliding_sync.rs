@@ -253,7 +253,7 @@ async fn timeline_test_helper(
         .await
         .unwrap()
         .timeline()
-        .await
+        .await?
         .context("`timeline`")?
         .subscribe()
         .await)

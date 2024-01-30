@@ -49,7 +49,7 @@ use wiremock::{
 use crate::{logged_in_client, mock_encryption_state, mock_sync};
 
 #[async_test]
-async fn edit() {
+async fn test_edit() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client().await;
     let event_builder = EventBuilder::new();
@@ -63,7 +63,7 @@ async fn edit() {
     server.reset().await;
 
     let room = client.get_room(room_id).unwrap();
-    let timeline = room.timeline().await;
+    let timeline = room.timeline().await.unwrap();
     let (_, mut timeline_stream) = timeline.subscribe().await;
 
     let event_id = event_id!("$msda7m:localhost");
@@ -154,7 +154,7 @@ async fn edit() {
 }
 
 #[async_test]
-async fn send_edit() {
+async fn test_send_edit() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client().await;
     let event_builder = EventBuilder::new();
@@ -168,7 +168,7 @@ async fn send_edit() {
     server.reset().await;
 
     let room = client.get_room(room_id).unwrap();
-    let timeline = room.timeline().await;
+    let timeline = room.timeline().await.unwrap();
     let (_, mut timeline_stream) =
         timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
 
@@ -225,7 +225,7 @@ async fn send_edit() {
 }
 
 #[async_test]
-async fn send_reply_edit() {
+async fn test_send_reply_edit() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client().await;
     let event_builder = EventBuilder::new();
@@ -239,7 +239,7 @@ async fn send_reply_edit() {
     server.reset().await;
 
     let room = client.get_room(room_id).unwrap();
-    let timeline = room.timeline().await;
+    let timeline = room.timeline().await.unwrap();
     let (_, mut timeline_stream) =
         timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
 
@@ -312,7 +312,7 @@ async fn send_reply_edit() {
 }
 
 #[async_test]
-async fn send_edit_poll() {
+async fn test_send_edit_poll() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client().await;
     let event_builder = EventBuilder::new();
@@ -326,7 +326,7 @@ async fn send_edit_poll() {
     server.reset().await;
 
     let room = client.get_room(room_id).unwrap();
-    let timeline = room.timeline().await;
+    let timeline = room.timeline().await.unwrap();
     let (_, mut timeline_stream) =
         timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
 

@@ -34,7 +34,7 @@ use wiremock::{
 use crate::{logged_in_client, mock_sync};
 
 #[async_test]
-async fn update_sender_profiles() {
+async fn test_update_sender_profiles() {
     let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
@@ -47,7 +47,7 @@ async fn update_sender_profiles() {
     server.reset().await;
 
     let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
-    let timeline = Arc::new(room.timeline().await);
+    let timeline = Arc::new(room.timeline().await.unwrap());
 
     sync_builder.add_joined_room(
         JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)

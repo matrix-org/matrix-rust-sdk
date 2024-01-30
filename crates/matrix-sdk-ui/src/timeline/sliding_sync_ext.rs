@@ -17,11 +17,13 @@ use matrix_sdk::SlidingSyncRoom;
 use tracing::{error, instrument};
 
 use super::{EventTimelineItem, Timeline, TimelineBuilder};
+use crate::event_graph::Result;
 
 #[async_trait]
 pub trait SlidingSyncRoomExt {
     /// Get a `Timeline` for this room.
-    async fn timeline(&self) -> Option<Timeline>;
+    // TODO(bnjbvr): remove from this trait.
+    async fn timeline(&self) -> Result<Option<Timeline>>;
 
     /// Get the latest timeline item of this room, if it is already cached.
     ///
@@ -32,14 +34,12 @@ pub trait SlidingSyncRoomExt {
 
 #[async_trait]
 impl SlidingSyncRoomExt for SlidingSyncRoom {
-    async fn timeline(&self) -> Option<Timeline> {
-        Some(
-            sliding_sync_timeline_builder(self)
-                .await?
-                .track_read_marker_and_receipts()
-                .build()
-                .await,
-        )
+    async fn timeline(&self) -> Result<Option<Timeline>> {
+        if let Some(builder) = sliding_sync_timeline_builder(self).await {
+            Ok(Some(builder.track_read_marker_and_receipts().build().await?))
+        } else {
+            Ok(None)
+        }
     }
 
     /// Get a timeline item representing the latest event in this room.
@@ -84,7 +84,7 @@ mod tests {
     use crate::timeline::{SlidingSyncRoomExt, TimelineDetails};
 
     #[async_test]
-    async fn initially_latest_message_event_is_none() {
+    async fn test_initially_latest_message_event_is_none() {
         // Given a room with no latest event
         let room_id = room_id!("!r:x.uk").to_owned();
         let client = logged_in_client(None).await;
