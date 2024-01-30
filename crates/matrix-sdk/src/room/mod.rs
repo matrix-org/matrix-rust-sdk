@@ -11,7 +11,7 @@ use matrix_sdk_base::{
     },
     instant::Instant,
     store::StateStoreExt,
-    RoomMemberships, StateChanges,
+    RoomMemberships, RoomNotableTags, StateChanges,
 };
 use matrix_sdk_common::timeout::timeout;
 use mime::Mime;
@@ -935,6 +935,20 @@ impl Room {
             tag.to_string(),
         );
         self.client.send(request, None).await
+    }
+
+    /// Update the tags from the room by calling set_tag or remove_tag method if
+    /// needed.
+    pub async fn update_notable_tags(&self, notable_tags: RoomNotableTags) -> Result<()> {
+        let current_notable_tags = self.inner.current_notable_tags().await;
+        if current_notable_tags.is_favorite != notable_tags.is_favorite {
+            if notable_tags.is_favorite {
+                self.set_tag(TagName::Favorite, TagInfo::default()).await?;
+            } else {
+                self.remove_tag(TagName::Favorite).await?;
+            }
+        }
+        Ok(())
     }
 
     /// Sets whether this room is a DM.

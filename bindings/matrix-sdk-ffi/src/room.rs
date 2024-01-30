@@ -271,6 +271,14 @@ impl Room {
         })))
     }
 
+    pub async fn update_notable_tags(
+        &self,
+        notable_tags: RoomNotableTags,
+    ) -> Result<(), ClientError> {
+        self.inner.update_notable_tags(notable_tags).await?;
+        Ok(())
+    }
+
     /// Redacts an event from the room.
     ///
     /// # Arguments

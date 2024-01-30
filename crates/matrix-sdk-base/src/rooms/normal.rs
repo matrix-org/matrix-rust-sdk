@@ -655,11 +655,16 @@ impl Room {
 
     /// Returns the current RoomNotableTags and subscribe to changes.
     pub async fn notable_tags_stream(&self) -> (RoomNotableTags, Subscriber<RoomNotableTags>) {
+        (self.current_notable_tags().await, self.notable_tags.subscribe())
+    }
+
+    /// Return the current RoomNotableTags extracted from store.
+    pub async fn current_notable_tags(&self) -> RoomNotableTags {
         let current_tags = self.tags().await.unwrap_or_else(|e| {
             warn!("Failed to get tags from store: {}", e);
             None
         });
-        (RoomNotableTags::new(current_tags), self.notable_tags.subscribe())
+        RoomNotableTags::new(current_tags)
     }
 
     /// Get the `RoomMember` with the given `user_id`.
