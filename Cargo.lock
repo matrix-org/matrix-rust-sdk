@@ -3305,6 +3305,7 @@ name = "matrix-sdk-store-encryption"
 version = "0.7.0"
 dependencies = [
  "anyhow",
+ "base64 0.21.5",
  "blake3",
  "chacha20poly1305",
  "displaydoc",

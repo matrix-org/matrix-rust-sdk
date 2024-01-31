@@ -14,10 +14,15 @@
 
 use std::sync::Arc;
 
+use base64::{
+    alphabet,
+    engine::{general_purpose, GeneralPurpose},
+    Engine,
+};
 use gloo_utils::format::JsValueSerdeExt;
-use matrix_sdk_crypto::CryptoStoreError;
-use matrix_sdk_store_encryption::StoreCipher;
-use serde::{de::DeserializeOwned, Serialize};
+use matrix_sdk_crypto::{olm::PickledInboundGroupSession, CryptoStoreError};
+use matrix_sdk_store_encryption::{EncryptedValueBase64, StoreCipher};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use wasm_bindgen::JsValue;
 use web_sys::IdbKeyRange;
 
@@ -25,10 +30,19 @@ use crate::{safe_encode::SafeEncode, IndexeddbCryptoStoreError};
 
 type Result<A, E = IndexeddbCryptoStoreError> = std::result::Result<A, E>;
 
+const BASE64: GeneralPurpose = GeneralPurpose::new(&alphabet::STANDARD, general_purpose::NO_PAD);
+
 /// Handles the functionality of serializing and encrypting data for the
 /// indexeddb store.
 pub struct IndexeddbSerializer {
     store_cipher: Option<Arc<StoreCipher>>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum MaybeEncrypted {
+    Encrypted(EncryptedValueBase64),
+    Unencrypted(String),
 }
 
 impl IndexeddbSerializer {
@@ -47,8 +61,8 @@ impl IndexeddbSerializer {
     ///
     /// If no cipher is configured, just returns the formatted key.
     ///
-    /// This is faster than [`serialize_value`] and reliably gives the same
-    /// output for the same input, making it suitable for index keys.
+    /// This is faster than [`Self::serialize_value`] and reliably gives the
+    /// same output for the same input, making it suitable for index keys.
     pub fn encode_key<T>(&self, table_name: &str, key: T) -> JsValue
     where
         T: SafeEncode,
@@ -59,8 +73,8 @@ impl IndexeddbSerializer {
     /// Hash the given key securely for the given tablename, using the store
     /// cipher.
     ///
-    /// The same as [`encode_key`], but stops short of converting the resulting
-    /// base64 string into a JsValue
+    /// The same as [`Self::encode_key`], but stops short of converting the
+    /// resulting base64 string into a JsValue
     pub fn encode_key_as_string<T>(&self, table_name: &str, key: T) -> String
     where
         T: SafeEncode,
@@ -116,8 +130,8 @@ impl IndexeddbSerializer {
 
     /// Encode the value for storage as a value in indexeddb.
     ///
-    /// This is the same algorithm as [`serialize_value`], but stops short of
-    /// encoding the resultant byte vector in a JsValue.
+    /// This is the same algorithm as [`Self::serialize_value`], but stops short
+    /// of encoding the resultant byte vector in a JsValue.
     ///
     /// Returns a byte vector which is either the JSON serialisation of the
     /// value, or an encrypted version thereof.
@@ -131,7 +145,23 @@ impl IndexeddbSerializer {
         }
     }
 
-    /// Decode a value that was previously encoded with [`serialize_value`]
+    /// Encode an InboundGroupSession for storage as a value in indexeddb.
+    pub fn maybe_encrypt_value(
+        &self,
+        value: PickledInboundGroupSession,
+    ) -> Result<MaybeEncrypted, CryptoStoreError> {
+        Ok(match &self.store_cipher {
+            Some(cipher) => MaybeEncrypted::Encrypted(
+                cipher.encrypt_value_base64_typed(&value).map_err(CryptoStoreError::backend)?,
+            ),
+            None => MaybeEncrypted::Unencrypted(
+                BASE64.encode(serde_json::to_vec(&value).map_err(CryptoStoreError::backend)?),
+            ),
+        })
+    }
+
+    /// Decode a value that was previously encoded with
+    /// [`Self::serialize_value`]
     pub fn deserialize_value<T: DeserializeOwned>(
         &self,
         value: JsValue,
@@ -150,7 +180,7 @@ impl IndexeddbSerializer {
     }
 
     /// Decode a value that was previously encoded with
-    /// [`serialize_value_as_bytes`]
+    /// [`Self::serialize_value_as_bytes`]
     pub fn deserialize_value_from_bytes<T: DeserializeOwned>(
         &self,
         value: &[u8],
@@ -159,6 +189,25 @@ impl IndexeddbSerializer {
             cipher.decrypt_value(value).map_err(CryptoStoreError::backend)
         } else {
             serde_json::from_slice(value).map_err(CryptoStoreError::backend)
+        }
+    }
+
+    /// Decode a value that was previously encoded with
+    /// [`Self::maybe_encrypt_value`]
+    pub fn maybe_decrypt_value(
+        &self,
+        value: MaybeEncrypted,
+    ) -> Result<PickledInboundGroupSession, CryptoStoreError> {
+        match (&self.store_cipher, value) {
+            (Some(cipher), MaybeEncrypted::Encrypted(enc)) => {
+                cipher.decrypt_value_base64_typed(enc).map_err(CryptoStoreError::backend)
+            }
+            (None, MaybeEncrypted::Unencrypted(unc)) => {
+                Ok(serde_json::from_slice(&BASE64.decode(unc).map_err(CryptoStoreError::backend)?)
+                    .map_err(CryptoStoreError::backend)?)
+            }
+
+            _ => Err(CryptoStoreError::UnpicklingError),
         }
     }
 }
