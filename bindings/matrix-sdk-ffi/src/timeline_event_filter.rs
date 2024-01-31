@@ -114,12 +114,17 @@ pub enum FilterMessageLikeEventType {
     KeyVerificationKey,
     KeyVerificationMac,
     KeyVerificationDone,
-    Poll,
+    PollEnd,
+    PollResponse,
+    PollStart,
     Reaction,
     RoomEncrypted,
     RoomMessage,
     RoomRedaction,
     Sticker,
+    UnstablePollStart,
+    UnstablePollResponse,
+    UnstablePollEnd,
 }
 
 impl From<FilterMessageLikeEventType> for TimelineEventType {
@@ -146,12 +151,19 @@ impl From<FilterMessageLikeEventType> for TimelineEventType {
             FilterMessageLikeEventType::KeyVerificationDone => {
                 TimelineEventType::KeyVerificationDone
             }
-            FilterMessageLikeEventType::Poll => TimelineEventType::PolicyRuleUser,
+            FilterMessageLikeEventType::PollEnd => TimelineEventType::PollEnd,
+            FilterMessageLikeEventType::PollResponse => TimelineEventType::PollResponse,
+            FilterMessageLikeEventType::PollStart => TimelineEventType::PollStart,
             FilterMessageLikeEventType::Reaction => TimelineEventType::Reaction,
             FilterMessageLikeEventType::RoomEncrypted => TimelineEventType::RoomEncrypted,
             FilterMessageLikeEventType::RoomMessage => TimelineEventType::RoomMessage,
             FilterMessageLikeEventType::RoomRedaction => TimelineEventType::RoomRedaction,
             FilterMessageLikeEventType::Sticker => TimelineEventType::Sticker,
+            FilterMessageLikeEventType::UnstablePollEnd => TimelineEventType::UnstablePollEnd,
+            FilterMessageLikeEventType::UnstablePollResponse => {
+                TimelineEventType::UnstablePollResponse
+            }
+            FilterMessageLikeEventType::UnstablePollStart => TimelineEventType::UnstablePollStart,
         }
     }
 }
