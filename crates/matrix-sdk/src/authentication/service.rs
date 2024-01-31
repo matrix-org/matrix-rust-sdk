@@ -43,6 +43,7 @@ use crate::oidc::{
 };
 use crate::{
     sanitize_server_name, Client, ClientBuildError, ClientBuilder, HttpError, IdParseError,
+    ServerName,
 };
 
 /// A high-level service for authenticating a user with a homeserver.
@@ -255,69 +256,7 @@ impl AuthenticationService {
         &self,
         server_name_or_homeserver_url: String,
     ) -> Result<(), AuthenticationError> {
-        let mut builder = self.new_client_builder();
-
-        // Attempt discovery as a server name first.
-        let result = sanitize_server_name(&server_name_or_homeserver_url);
-
-        match result {
-            Ok(server_name) => {
-                if server_name_or_homeserver_url.starts_with("http://") {
-                    builder = builder.insecure_server_name_no_tls(&server_name);
-                } else {
-                    builder = builder.server_name(&server_name);
-                }
-            }
-
-            Err(e) => {
-                // When the input isn't a valid server name check it is a URL.
-                // If this is the case, build the client with a homeserver URL.
-                if Url::parse(&server_name_or_homeserver_url).is_ok() {
-                    builder = builder.homeserver_url(server_name_or_homeserver_url.clone());
-                } else {
-                    return Err(e.into());
-                }
-            }
-        }
-
-        let client = match builder.build().await {
-            Ok(client) => Ok(client),
-            Err(e) => {
-                if !server_name_or_homeserver_url.starts_with("http://")
-                    && !server_name_or_homeserver_url.starts_with("https://")
-                {
-                    Err(e)
-                } else {
-                    // When discovery fails, fallback to the homeserver URL if supplied.
-                    let mut builder = self.new_client_builder();
-                    builder = builder.homeserver_url(server_name_or_homeserver_url);
-                    match builder.build().await {
-                        Ok(client) => {
-                            // Building should always succeed, so check that this really is a
-                            // homeserver, and if not return the original error.
-                            if client.server_versions().await.is_err() {
-                                // Without returning the original error here, the map_err below
-                                // would be skipped and then the thrown error would come from
-                                // checking the login types, which is wrong.
-                                Err(e)
-                            } else {
-                                Ok(client)
-                            }
-                        }
-                        _ => Err(e),
-                    }
-                }
-            }
-        }
-        .map_err(|e| match e {
-            ClientBuildError::Http(HttpError::Reqwest(_)) => AuthenticationError::ServerNotFound,
-            ClientBuildError::AutoDiscovery(FromHttpResponseError::Deserialization(e)) => {
-                AuthenticationError::InvalidWellKnownFile { message: e.to_string() }
-            }
-            ClientBuildError::AutoDiscovery(_) => AuthenticationError::HomeserverNotFound,
-            _ => AuthenticationError::Generic { message: e.to_string() },
-        })?;
-
+        let client = self.build_client(server_name_or_homeserver_url).await?;
         let details = self.details_from_client(&client).await?;
 
         // Now we've verified that it's a valid homeserver, make sure
@@ -443,6 +382,55 @@ impl AuthenticationService {
 // TODO: Is it normal to split up the implementation into public and private
 // like this?
 impl AuthenticationService {
+    /// Builds a client for the given server name or homeserver URL.
+    async fn build_client(
+        &self,
+        server_name_or_homeserver_url: String,
+    ) -> Result<Client, AuthenticationError> {
+        let mut build_error: AuthenticationError =
+            AuthenticationError::Generic { message: "Unknown error occurred.".to_owned() };
+
+        // Attempt discovery as a server name first.
+        let sanitize_result = sanitize_server_name(&server_name_or_homeserver_url);
+        if let Ok(server_name) = sanitize_result.as_ref() {
+            let insecure = server_name_or_homeserver_url.starts_with("http://");
+            match self.build_client_for_server_name(server_name, insecure).await {
+                Ok(client) => return Ok(client),
+                Err(e) => {
+                    build_error = match e {
+                        ClientBuildError::Http(HttpError::Reqwest(_)) => {
+                            AuthenticationError::ServerNotFound
+                        }
+                        ClientBuildError::AutoDiscovery(
+                            FromHttpResponseError::Deserialization(e),
+                        ) => AuthenticationError::InvalidWellKnownFile { message: e.to_string() },
+                        ClientBuildError::AutoDiscovery(_) => {
+                            AuthenticationError::HomeserverNotFound
+                        }
+                        _ => AuthenticationError::Generic { message: e.to_string() },
+                    }
+                }
+            };
+        }
+
+        // When discovery fails, or the input isn't a valid server name, fallback to
+        // trying a homeserver URL if supplied.
+        if let Ok(homeserver_url) = Url::parse(&server_name_or_homeserver_url) {
+            if let Some(client) = self.build_client_for_homeserver_url(homeserver_url).await {
+                return Ok(client);
+            }
+            // No need to worry about the error branch here as the server name
+            // is preferred (to get a well-known file), so we'll return the
+            // error from above instead.
+        };
+
+        if let Err(sanitize_result) = sanitize_result {
+            return Err(sanitize_result.into());
+        } else {
+            return Err(build_error);
+        }
+    }
+
     /// A new client builder pre-configured with a user agent if specified
     fn new_client_builder(&self) -> ClientBuilder {
         let mut builder = ClientBuilder::new();
@@ -452,6 +440,41 @@ impl AuthenticationService {
         }
 
         builder
+    }
+
+    /// Builds a client for the given server name.
+    async fn build_client_for_server_name(
+        &self,
+        server_name: &ServerName,
+        insecure: bool,
+    ) -> Result<Client, ClientBuildError> {
+        let mut builder = self.new_client_builder();
+
+        if insecure {
+            builder = builder.insecure_server_name_no_tls(server_name);
+        } else {
+            builder = builder.server_name(server_name);
+        }
+
+        builder.build().await
+    }
+
+    /// Builds a client for the given homeserver URL, validating that it is
+    /// actually a homeserver. Returns an `Option` as building with a server
+    /// name is preferred, so we'll return the error from building with that
+    /// if this fails.
+    async fn build_client_for_homeserver_url(&self, homeserver_url: Url) -> Option<Client> {
+        let mut builder = self.new_client_builder();
+        builder = builder.homeserver_url(homeserver_url);
+
+        let client = builder.build().await.ok()?;
+
+        // Building should always succeed, so we need to check that a homeserver
+        // actually exists at the supplied URL.
+        match client.server_versions().await {
+            Ok(_) => Some(client),
+            Err(_) => None,
+        }
     }
 
     /// Get the homeserver login details from a client.
