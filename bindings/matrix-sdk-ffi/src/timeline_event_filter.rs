@@ -160,7 +160,9 @@ impl From<FilterMessageLikeEventType> for TimelineEventType {
             FilterMessageLikeEventType::RoomRedaction => TimelineEventType::RoomRedaction,
             FilterMessageLikeEventType::Sticker => TimelineEventType::Sticker,
             FilterMessageLikeEventType::UnstablePollEnd => TimelineEventType::UnstablePollEnd,
-            FilterMessageLikeEventType::UnstablePollResponse => TimelineEventType::UnstablePollResponse,
+            FilterMessageLikeEventType::UnstablePollResponse => {
+                TimelineEventType::UnstablePollResponse
+            }
             FilterMessageLikeEventType::UnstablePollStart => TimelineEventType::UnstablePollStart,
         }
     }
