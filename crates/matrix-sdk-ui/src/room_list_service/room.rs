@@ -167,16 +167,6 @@ impl Room {
         self.inner.sliding_sync_room.latest_timeline_item().await
     }
 
-    /// Is there any unread notifications?
-    pub fn has_unread_notifications(&self) -> bool {
-        self.inner.sliding_sync_room.has_unread_notifications()
-    }
-
-    /// Get unread notifications.
-    pub fn unread_notifications(&self) -> UnreadNotificationsCount {
-        self.inner.sliding_sync_room.unread_notifications()
-    }
-
     /// Create a new [`TimelineBuilder`] with the default configuration.
     pub async fn default_room_timeline_builder(&self) -> TimelineBuilder {
         Timeline::builder(&self.inner.room)
