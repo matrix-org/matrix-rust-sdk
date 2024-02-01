@@ -496,6 +496,7 @@ impl BaseClient {
         let mut profiles = BTreeMap::new();
 
         assert_eq!(raw_events.len(), events.len());
+
         for (raw_event, event) in iter::zip(raw_events, events) {
             room_info.handle_state_event(event);
 

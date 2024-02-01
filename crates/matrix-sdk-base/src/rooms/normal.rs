@@ -34,6 +34,7 @@ use ruma::{
         ignored_user_list::IgnoredUserListEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
         room::{
+            avatar::RoomAvatarEventContent,
             encryption::RoomEncryptionEventContent,
             guest_access::GuestAccess,
             history_visibility::HistoryVisibility,
@@ -1005,6 +1006,16 @@ impl RoomInfo {
             content: RoomNameEventContent::new(name),
             event_id: None,
         }));
+    }
+
+    /// Update the room avatar
+    pub fn update_avatar(&mut self, url: Option<OwnedMxcUri>) {
+        self.base_info.avatar = url.map(|url| {
+            let mut content = RoomAvatarEventContent::new();
+            content.url = Some(url);
+
+            MinimalStateEvent::Original(OriginalMinimalStateEvent { content, event_id: None })
+        });
     }
 
     /// Update the notifications count
