@@ -319,15 +319,24 @@ impl Room {
     /// Subscribe to typing notifications for this room.
     ///
     /// The returned receiver will receive a new vector of user IDs for each
-    /// sync response that contains 'm.typing' event.
+    /// sync response that contains 'm.typing' event. The current user ID will
+    /// be filtered out.
     pub fn subscribe_to_typing_notifications(
         &self,
     ) -> (EventHandlerDropGuard, broadcast::Receiver<Vec<OwnedUserId>>) {
         let (sender, receiver) = broadcast::channel(16);
         let typing_event_handler_handle = self.client.add_room_event_handler(self.room_id(), {
+            let own_user_id = self.own_user_id().to_owned();
             move |event: SyncTypingEvent| async move {
+                // Ignore typing notifications from own user.
+                let typing_user_ids = event
+                    .content
+                    .user_ids
+                    .into_iter()
+                    .filter(|user_id| *user_id != own_user_id)
+                    .collect();
                 // Ignore the result. It can only fail if there are no listeners.
-                let _ = sender.send(event.content.user_ids);
+                let _ = sender.send(typing_user_ids);
             }
         });
         let drop_guard = self.client().event_handler_drop_guard(typing_event_handler_handle);

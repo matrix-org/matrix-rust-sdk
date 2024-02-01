@@ -653,6 +653,8 @@ async fn report_content() {
 async fn subscribe_to_typing_notifications() {
     let (client, server) = logged_in_client().await;
     let typing_sequences: Arc<Mutex<Vec<Vec<OwnedUserId>>>> = Arc::new(Mutex::new(Vec::new()));
+    // The expected typing sequences that we will receive, note that the current
+    // user_id is filtered out.
     let asserted_typing_sequences =
         vec![vec![user_id!("@alice:matrix.org"), user_id!("@bob:example.com")], vec![]];
     let room_id = room_id!("!test:example.org");
@@ -684,13 +686,15 @@ async fn subscribe_to_typing_notifications() {
         }
     });
 
-    // Then send a typing notification with 2 users typing
+    // Then send a typing notification with 3 users typing, including the current
+    // user.
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
         EphemeralTestEvent::Custom(json!({
             "content": {
                 "user_ids": [
                     "@alice:matrix.org",
-                    "@bob:example.com"
+                    "@bob:example.com",
+                    "@example:localhost"
                 ]
             },
             "room_id": "!jEsUZKDJdhlrceRyVU:example.org",
