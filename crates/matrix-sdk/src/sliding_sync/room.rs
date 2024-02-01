@@ -61,27 +61,6 @@ impl SlidingSyncRoom {
         &self.inner.room_id
     }
 
-    /// This rooms name as calculated by the server, if any
-    pub fn name(&self) -> Option<String> {
-        let inner = self.inner.inner.read().unwrap();
-
-        inner.name.to_owned()
-    }
-
-    /// Is this a direct message?
-    pub fn is_dm(&self) -> Option<bool> {
-        let inner = self.inner.inner.read().unwrap();
-
-        inner.is_dm
-    }
-
-    /// Was this an initial response?
-    pub fn is_initial_response(&self) -> Option<bool> {
-        let inner = self.inner.inner.read().unwrap();
-
-        inner.initial
-    }
-
     /// Get the token for back-pagination.
     pub fn prev_batch(&self) -> Option<String> {
         self.inner.inner.read().unwrap().prev_batch.clone()
@@ -363,85 +342,6 @@ mod tests {
         let room = new_room(room_id, room_response!({})).await;
 
         assert_eq!(room.room_id(), room_id);
-    }
-
-    macro_rules! test_getters {
-        (
-            $(
-                $test_name:ident {
-                    $getter:ident () $( . $getter_field:ident )? = $default_value:expr;
-                    receives $room_response:expr;
-                    _ = $init_or_updated_value:expr;
-                    receives nothing;
-                    _ = $no_update_value:expr;
-                }
-            )+
-        ) => {
-            $(
-                #[async_test]
-                async fn $test_name () {
-                    // Default value.
-                    {
-                        let room = new_room(room_id!("!foo:bar.org"), room_response!({})).await;
-
-                        assert_eq!(room.$getter() $( . $getter_field )?, $default_value, "default value");
-                    }
-
-                    // Some value when initializing.
-                    {
-                        let room = new_room(room_id!("!foo:bar.org"), $room_response).await;
-
-                        assert_eq!(room.$getter() $( . $getter_field )?, $init_or_updated_value, "init value");
-                    }
-
-                    // Some value when updating.
-                    {
-
-                        let mut room = new_room(room_id!("!foo:bar.org"), room_response!({})).await;
-
-                        // Value is set to the default value.
-                        assert_eq!(room.$getter() $( . $getter_field )?, $default_value, "default value (bis)");
-
-                        room.update($room_response, vec![]);
-
-                        // Value has been updated.
-                        assert_eq!(room.$getter() $( . $getter_field )?, $init_or_updated_value, "updated value");
-
-                        room.update(room_response!({}), vec![]);
-
-                        // Value is kept.
-                        assert_eq!(room.$getter() $( . $getter_field )?, $no_update_value, "not updated value");
-                    }
-
-                }
-            )+
-        };
-    }
-
-    test_getters! {
-        test_room_name {
-            name() = None;
-            receives room_response!({"name": "gordon"});
-            _ = Some("gordon".to_owned());
-            receives nothing;
-            _ = Some("gordon".to_owned());
-        }
-
-        test_room_is_dm {
-            is_dm() = None;
-            receives room_response!({"is_dm": true});
-            _ = Some(true);
-            receives nothing;
-            _ = Some(true);
-        }
-
-        test_room_is_initial_response {
-            is_initial_response() = None;
-            receives room_response!({"initial": true});
-            _ = Some(true);
-            receives nothing;
-            _ = Some(true);
-        }
     }
 
     #[async_test]

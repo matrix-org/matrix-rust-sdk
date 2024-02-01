@@ -239,8 +239,7 @@ async fn create_one_room(
 
     assert!(update.rooms.contains(&room_id.to_owned()));
 
-    let room = sliding_sync.get_room(room_id).await.context("`get_room`")?;
-    assert_eq!(room.name(), Some(room_name.clone()));
+    let _room = sliding_sync.get_room(room_id).await.context("`get_room`")?;
 
     Ok(())
 }

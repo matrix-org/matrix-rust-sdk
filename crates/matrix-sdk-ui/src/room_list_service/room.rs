@@ -83,15 +83,9 @@ impl Room {
         self.inner.room.room_id()
     }
 
-    /// Get the best possible name for the room.
-    ///
-    /// If the sliding sync room has received a name from the server, then use
-    /// it, otherwise, let's calculate a name.
+    /// Get the name of the room if it exists.
     pub async fn name(&self) -> Option<String> {
-        Some(match self.inner.sliding_sync_room.name() {
-            Some(name) => name,
-            None => self.inner.room.display_name().await.ok()?.to_string(),
-        })
+        Some(self.inner.room.display_name().await.ok()?.to_string())
     }
 
     /// Get the underlying [`matrix_sdk::Room`].
