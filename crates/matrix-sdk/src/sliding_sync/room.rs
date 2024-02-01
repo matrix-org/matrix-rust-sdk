@@ -1,16 +1,12 @@
 use std::{
     fmt::Debug,
-    ops::Not,
     sync::{Arc, RwLock},
 };
 
 use eyeball_im::Vector;
 use matrix_sdk_base::{deserialized_responses::SyncTimelineEvent, latest_event::LatestEvent};
 use ruma::{
-    api::client::sync::sync_events::{v4, UnreadNotificationsCount},
-    events::AnySyncStateEvent,
-    serde::Raw,
-    OwnedRoomId, RoomId,
+    api::client::sync::sync_events::v4, events::AnySyncStateEvent, serde::Raw, OwnedRoomId, RoomId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -86,20 +82,6 @@ impl SlidingSyncRoom {
         let inner = self.inner.inner.read().unwrap();
 
         inner.initial
-    }
-
-    /// Is there any unread notifications?
-    pub fn has_unread_notifications(&self) -> bool {
-        let inner = self.inner.inner.read().unwrap();
-
-        inner.unread_notifications.is_empty().not()
-    }
-
-    /// Get unread notifications.
-    pub fn unread_notifications(&self) -> UnreadNotificationsCount {
-        let inner = self.inner.inner.read().unwrap();
-
-        inner.unread_notifications.clone()
     }
 
     /// Get the required state.
@@ -466,38 +448,6 @@ mod tests {
             _ = Some(true);
             receives nothing;
             _ = Some(true);
-        }
-
-        test_has_unread_notifications_with_notification_count {
-            has_unread_notifications() = false;
-            receives room_response!({"notification_count": 42});
-            _ = true;
-            receives nothing;
-            _ = false;
-        }
-
-        test_has_unread_notifications_with_highlight_count {
-            has_unread_notifications() = false;
-            receives room_response!({"highlight_count": 42});
-            _ = true;
-            receives nothing;
-            _ = false;
-        }
-
-        test_unread_notifications_with_notification_count {
-            unread_notifications().notification_count = None;
-            receives room_response!({"notification_count": 42});
-            _ = Some(uint!(42));
-            receives nothing;
-            _ = None;
-        }
-
-        test_unread_notifications_with_highlight_count {
-            unread_notifications().highlight_count = None;
-            receives room_response!({"highlight_count": 42});
-            _ = Some(uint!(42));
-            receives nothing;
-            _ = None;
         }
     }
 
