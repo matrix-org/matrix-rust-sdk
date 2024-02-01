@@ -18,10 +18,7 @@ use std::{ops::Deref, sync::Arc};
 
 use async_once_cell::OnceCell as AsyncOnceCell;
 use matrix_sdk::{SlidingSync, SlidingSyncRoom};
-use ruma::{
-    api::client::sync::sync_events::{v4::RoomSubscription, UnreadNotificationsCount},
-    RoomId,
-};
+use ruma::{api::client::sync::sync_events::v4::RoomSubscription, RoomId};
 
 use super::Error;
 use crate::{

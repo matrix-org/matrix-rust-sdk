@@ -306,7 +306,7 @@ mod tests {
     use matrix_sdk_test::async_test;
     use ruma::{
         api::client::sync::sync_events::v4, assign, events::room::message::RoomMessageEventContent,
-        mxc_uri, room_id, serde::Raw, uint, JsOption, RoomId,
+        mxc_uri, room_id, serde::Raw, JsOption, RoomId,
     };
     use serde_json::json;
     use wiremock::MockServer;
