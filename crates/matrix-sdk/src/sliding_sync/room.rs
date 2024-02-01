@@ -68,13 +68,6 @@ impl SlidingSyncRoom {
         inner.name.to_owned()
     }
 
-    /// Is this a direct message?
-    pub fn is_dm(&self) -> Option<bool> {
-        let inner = self.inner.inner.read().unwrap();
-
-        inner.is_dm
-    }
-
     /// Get the token for back-pagination.
     pub fn prev_batch(&self) -> Option<String> {
         self.inner.inner.read().unwrap().prev_batch.clone()
@@ -418,14 +411,6 @@ mod tests {
             _ = Some("gordon".to_owned());
             receives nothing;
             _ = Some("gordon".to_owned());
-        }
-
-        test_room_is_dm {
-            is_dm() = None;
-            receives room_response!({"is_dm": true});
-            _ = Some(true);
-            receives nothing;
-            _ = Some(true);
         }
     }
 
