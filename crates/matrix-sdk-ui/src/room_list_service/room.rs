@@ -14,13 +14,13 @@
 
 //! The `Room` type.
 
-use std::sync::Arc;
+use std::{ops::Deref, sync::Arc};
 
 use async_once_cell::OnceCell as AsyncOnceCell;
 use matrix_sdk::{SlidingSync, SlidingSyncRoom};
 use ruma::{
     api::client::sync::sync_events::{v4::RoomSubscription, UnreadNotificationsCount},
-    OwnedMxcUri, RoomId,
+    RoomId,
 };
 
 use super::Error;
@@ -50,6 +50,14 @@ struct RoomInner {
 
     /// The timeline of the room.
     timeline: AsyncOnceCell<Arc<Timeline>>,
+}
+
+impl Deref for Room {
+    type Target = matrix_sdk::Room;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner.room
+    }
 }
 
 impl Room {
@@ -87,14 +95,6 @@ impl Room {
             Some(name) => name,
             None => self.inner.room.display_name().await.ok()?.to_string(),
         })
-    }
-
-    /// Get the best possible avatar for the room.
-    ///
-    /// If the sliding sync room has received an avatar from the server, then
-    /// use it, otherwise, let's try to find one from `Room`.
-    pub fn avatar_url(&self) -> Option<OwnedMxcUri> {
-        self.inner.sliding_sync_room.avatar_url().or_else(|| self.inner.room.avatar_url())
     }
 
     /// Get the underlying [`matrix_sdk::Room`].
