@@ -75,13 +75,6 @@ impl SlidingSyncRoom {
         inner.is_dm
     }
 
-    /// Was this an initial response?
-    pub fn is_initial_response(&self) -> Option<bool> {
-        let inner = self.inner.inner.read().unwrap();
-
-        inner.initial
-    }
-
     /// Get the token for back-pagination.
     pub fn prev_batch(&self) -> Option<String> {
         self.inner.inner.read().unwrap().prev_batch.clone()
@@ -430,14 +423,6 @@ mod tests {
         test_room_is_dm {
             is_dm() = None;
             receives room_response!({"is_dm": true});
-            _ = Some(true);
-            receives nothing;
-            _ = Some(true);
-        }
-
-        test_room_is_initial_response {
-            is_initial_response() = None;
-            receives room_response!({"initial": true});
             _ = Some(true);
             receives nothing;
             _ = Some(true);
