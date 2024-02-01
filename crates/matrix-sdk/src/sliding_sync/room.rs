@@ -5,9 +5,7 @@ use std::{
 
 use eyeball_im::Vector;
 use matrix_sdk_base::{deserialized_responses::SyncTimelineEvent, latest_event::LatestEvent};
-use ruma::{
-    api::client::sync::sync_events::v4, events::AnySyncStateEvent, serde::Raw, OwnedRoomId, RoomId,
-};
+use ruma::{api::client::sync::sync_events::v4, OwnedRoomId, RoomId};
 use serde::{Deserialize, Serialize};
 
 use crate::Client;
@@ -82,11 +80,6 @@ impl SlidingSyncRoom {
         let inner = self.inner.inner.read().unwrap();
 
         inner.initial
-    }
-
-    /// Get the required state.
-    pub fn required_state(&self) -> Vec<Raw<AnySyncStateEvent>> {
-        self.inner.inner.read().unwrap().required_state.clone()
     }
 
     /// Get the token for back-pagination.
@@ -480,65 +473,6 @@ mod tests {
 
             room.update(room_response!({}), vec![]);
             assert_eq!(room.prev_batch(), Some("t111_222_333".to_owned()));
-        }
-    }
-
-    #[async_test]
-    async fn test_required_state() {
-        // Default value.
-        {
-            let room = new_room(room_id!("!foo:bar.org"), room_response!({})).await;
-
-            assert!(room.required_state().is_empty());
-        }
-
-        // Some value when initializing.
-        {
-            let room = new_room(
-                room_id!("!foo:bar.org"),
-                room_response!({
-                    "required_state": [
-                        {
-                            "sender": "@alice:example.com",
-                            "type": "m.room.join_rules",
-                            "state_key": "",
-                            "content": {
-                                "join_rule": "invite"
-                            }
-                        }
-                    ]
-                }),
-            )
-            .await;
-
-            assert!(!room.required_state().is_empty());
-        }
-
-        // Some value when updating.
-        {
-            let mut room = new_room(room_id!("!foo:bar.org"), room_response!({})).await;
-
-            assert!(room.required_state().is_empty());
-
-            room.update(
-                room_response!({
-                    "required_state": [
-                        {
-                            "sender": "@alice:example.com",
-                            "type": "m.room.join_rules",
-                            "state_key": "",
-                            "content": {
-                                "join_rule": "invite"
-                            }
-                        }
-                    ]
-                }),
-                vec![],
-            );
-            assert!(!room.required_state().is_empty());
-
-            room.update(room_response!({}), vec![]);
-            assert!(!room.required_state().is_empty());
         }
     }
 
