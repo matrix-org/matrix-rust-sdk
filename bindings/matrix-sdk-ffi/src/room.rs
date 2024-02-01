@@ -17,8 +17,9 @@ use super::RUNTIME;
 use crate::{
     chunk_iterator::ChunkIterator,
     error::{ClientError, MediaInfoError, RoomError},
+    event::{MessageLikeEventType, StateEventType},
     room_info::RoomInfo,
-    room_member::{MessageLikeEventType, RoomMember, StateEventType},
+    room_member::RoomMember,
     ruma::ImageInfo,
     timeline::{EventTimelineItem, Timeline},
     utils::u64_to_uint,
