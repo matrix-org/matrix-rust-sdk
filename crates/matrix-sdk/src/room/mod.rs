@@ -410,7 +410,7 @@ impl Room {
                     Err(err) => return Err(err.into()),
                 };
 
-                let _sync_lock = self.client.base_client().sync_lock().read().await;
+                let _sync_lock = self.client.base_client().sync_lock().lock().await;
 
                 // Persist the event and the fact that we requested it from the server in
                 // `RoomInfo`.
