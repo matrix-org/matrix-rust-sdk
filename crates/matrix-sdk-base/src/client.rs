@@ -50,9 +50,9 @@ use ruma::{
     serde::Raw,
     OwnedRoomId, OwnedUserId, RoomId, RoomVersionId, UInt, UserId,
 };
-use tokio::sync::RwLock;
+use tokio::sync::Mutex;
 #[cfg(feature = "e2e-encryption")]
-use tokio::sync::RwLockReadGuard;
+use tokio::sync::{RwLock, RwLockReadGuard};
 use tracing::{debug, info, instrument, trace, warn};
 
 #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
@@ -679,7 +679,7 @@ impl BaseClient {
     pub async fn room_joined(&self, room_id: &RoomId) -> Result<Room> {
         let room = self.store.get_or_create_room(room_id, RoomState::Joined);
         if room.state() != RoomState::Joined {
-            let _sync_lock = self.sync_lock().read().await;
+            let _sync_lock = self.sync_lock().lock().await;
 
             let mut room_info = room.clone_info();
             room_info.mark_as_joined();
@@ -700,7 +700,7 @@ impl BaseClient {
     pub async fn room_left(&self, room_id: &RoomId) -> Result<()> {
         let room = self.store.get_or_create_room(room_id, RoomState::Left);
         if room.state() != RoomState::Left {
-            let _sync_lock = self.sync_lock().read().await;
+            let _sync_lock = self.sync_lock().lock().await;
 
             let mut room_info = room.clone_info();
             room_info.mark_as_left();
@@ -716,7 +716,7 @@ impl BaseClient {
     }
 
     /// Get access to the store's sync lock.
-    pub fn sync_lock(&self) -> &RwLock<()> {
+    pub fn sync_lock(&self) -> &Mutex<()> {
         self.store.sync_lock()
     }
 
@@ -946,11 +946,12 @@ impl BaseClient {
 
         changes.ambiguity_maps = ambiguity_cache.cache;
 
-        let sync_lock = self.sync_lock().write().await;
-        self.store.save_changes(&changes).await?;
-        *self.store.sync_token.write().await = Some(response.next_batch.clone());
-        self.apply_changes(&changes);
-        drop(sync_lock);
+        {
+            let _sync_lock = self.sync_lock().lock().await;
+            self.store.save_changes(&changes).await?;
+            *self.store.sync_token.write().await = Some(response.next_batch.clone());
+            self.apply_changes(&changes);
+        }
 
         info!("Processed a sync response in {:?}", now.elapsed());
 
@@ -1078,7 +1079,7 @@ impl BaseClient {
 
             changes.ambiguity_maps = ambiguity_cache.cache;
 
-            let _sync_lock = self.sync_lock().write().await;
+            let _sync_lock = self.sync_lock().lock().await;
             let mut room_info = room.clone_info();
             room_info.mark_members_synced();
             changes.add_room(room_info);
