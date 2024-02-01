@@ -285,11 +285,17 @@ pub enum MessageLikeEventType {
     KeyVerificationMac,
     KeyVerificationReady,
     KeyVerificationStart,
-    ReactionSent,
+    PollEnd,
+    PollResponse,
+    PollStart,
+    Reaction,
     RoomEncrypted,
     RoomMessage,
     RoomRedaction,
     Sticker,
+    UnstablePollEnd,
+    UnstablePollResponse,
+    UnstablePollStart,
 }
 
 impl From<MessageLikeEventType> for ruma::events::MessageLikeEventType {
@@ -306,11 +312,17 @@ impl From<MessageLikeEventType> for ruma::events::MessageLikeEventType {
             MessageLikeEventType::KeyVerificationKey => Self::KeyVerificationKey,
             MessageLikeEventType::KeyVerificationMac => Self::KeyVerificationMac,
             MessageLikeEventType::KeyVerificationDone => Self::KeyVerificationDone,
-            MessageLikeEventType::ReactionSent => Self::Reaction,
+            MessageLikeEventType::Reaction => Self::Reaction,
             MessageLikeEventType::RoomEncrypted => Self::RoomEncrypted,
             MessageLikeEventType::RoomMessage => Self::RoomMessage,
             MessageLikeEventType::RoomRedaction => Self::RoomRedaction,
             MessageLikeEventType::Sticker => Self::Sticker,
+            MessageLikeEventType::PollEnd => Self::PollEnd,
+            MessageLikeEventType::PollResponse => Self::PollResponse,
+            MessageLikeEventType::PollStart => Self::PollStart,
+            MessageLikeEventType::UnstablePollEnd => Self::UnstablePollEnd,
+            MessageLikeEventType::UnstablePollResponse => Self::UnstablePollResponse,
+            MessageLikeEventType::UnstablePollStart => Self::UnstablePollStart,
         }
     }
 }
