@@ -104,16 +104,16 @@ impl From<FilterStateEventType> for TimelineEventType {
 #[derive(uniffi::Enum, Clone)]
 pub enum FilterMessageLikeEventType {
     CallAnswer,
-    CallInvite,
-    CallHangup,
     CallCandidates,
-    KeyVerificationReady,
-    KeyVerificationStart,
-    KeyVerificationCancel,
+    CallHangup,
+    CallInvite,
     KeyVerificationAccept,
+    KeyVerificationCancel,
+    KeyVerificationDone,
     KeyVerificationKey,
     KeyVerificationMac,
-    KeyVerificationDone,
+    KeyVerificationReady,
+    KeyVerificationStart,
     PollEnd,
     PollResponse,
     PollStart,
@@ -122,9 +122,9 @@ pub enum FilterMessageLikeEventType {
     RoomMessage,
     RoomRedaction,
     Sticker,
-    UnstablePollStart,
-    UnstablePollResponse,
     UnstablePollEnd,
+    UnstablePollResponse,
+    UnstablePollStart,
 }
 
 impl From<FilterMessageLikeEventType> for TimelineEventType {
