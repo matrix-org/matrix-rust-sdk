@@ -134,7 +134,9 @@ async fn login_and_sync(server_name: String) -> anyhow::Result<()> {
                     let room_id = { rooms.lock().unwrap()[id].as_room_id().map(ToOwned::to_owned) };
                     if let Some(room_id) = &room_id {
                         let room = room_list_service.room(room_id).await?;
-                        let timeline = room.timeline().await;
+                        room.init_timeline_with_builder(room.default_room_timeline_builder().await)
+                            .await?;
+                        let timeline = room.timeline().unwrap();
 
                         if let Some(latest) = timeline.latest_event().await {
                             let event_id = latest.event_id().expect("event id");

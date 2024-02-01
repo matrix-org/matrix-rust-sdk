@@ -10,7 +10,7 @@ use ruma::{
     api::client::sync::sync_events::{v4, UnreadNotificationsCount},
     events::AnySyncStateEvent,
     serde::Raw,
-    OwnedMxcUri, OwnedRoomId, RoomId,
+    OwnedRoomId, RoomId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -72,13 +72,6 @@ impl SlidingSyncRoom {
         let inner = self.inner.inner.read().unwrap();
 
         inner.name.to_owned()
-    }
-
-    /// Get the room avatar URL.
-    pub fn avatar_url(&self) -> Option<OwnedMxcUri> {
-        let inner = self.inner.inner.read().unwrap();
-
-        inner.avatar.clone().into_option()
     }
 
     /// Is this a direct message?
@@ -457,22 +450,6 @@ mod tests {
             _ = Some("gordon".to_owned());
             receives nothing;
             _ = Some("gordon".to_owned());
-        }
-
-        test_avatar {
-            avatar_url() = None;
-            receives room_response!({"avatar": "mxc://homeserver/media"});
-            _ = Some(mxc_uri!("mxc://homeserver/media").to_owned());
-            receives nothing;
-            _ = Some(mxc_uri!("mxc://homeserver/media").to_owned());
-        }
-
-        test_avatar_unset {
-            avatar_url() = None;
-            receives room_response!({ "avatar": null });
-            _ = None;
-            receives nothing;
-            _ = None;
         }
 
         test_room_is_dm {
@@ -1058,22 +1035,5 @@ mod tests {
                 &format!("$x{max}:baz.org")
             );
         }
-    }
-
-    #[async_test]
-    async fn test_avatar_set_then_unset() {
-        let mut room = new_room(room_id!("!foo:bar.org"), room_response!({})).await;
-        assert_eq!(room.avatar_url(), None);
-
-        room.update(room_response!({ "avatar": "mxc://homeserver/media" }), vec![]);
-        assert_eq!(room.avatar_url().as_deref(), Some(mxc_uri!("mxc://homeserver/media")));
-
-        // avatar is undefined.
-        room.update(room_response!({}), vec![]);
-        assert_eq!(room.avatar_url().as_deref(), Some(mxc_uri!("mxc://homeserver/media")));
-
-        // avatar is null => reset it to None.
-        room.update(room_response!({ "avatar": null }), vec![]);
-        assert_eq!(room.avatar_url().as_deref(), None);
     }
 }

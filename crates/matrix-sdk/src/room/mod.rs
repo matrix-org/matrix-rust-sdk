@@ -90,7 +90,7 @@ mod member;
 mod messages;
 
 pub use self::{
-    member::RoomMember,
+    member::{RoomMember, RoomMemberRole},
     messages::{Messages, MessagesOptions},
 };
 

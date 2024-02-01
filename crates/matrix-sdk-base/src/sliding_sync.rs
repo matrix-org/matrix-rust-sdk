@@ -24,9 +24,9 @@ use ruma::{
         v3::{self, InvitedRoom, RoomSummary},
         v4,
     },
-    events::{AnySyncStateEvent, AnySyncTimelineEvent},
+    events::{AnyRoomAccountDataEvent, AnySyncStateEvent, AnySyncTimelineEvent},
     serde::Raw,
-    OwnedRoomId, RoomId,
+    JsOption, OwnedRoomId, RoomId,
 };
 use tracing::{instrument, trace, warn};
 
@@ -152,13 +152,14 @@ impl BaseClient {
 
         let mut new_rooms = Rooms::default();
         let mut notifications = Default::default();
+        let mut rooms_account_data = account_data.rooms.clone();
 
         for (room_id, response_room_data) in rooms {
             let (room_info, joined_room, left_room, invited_room) = self
                 .process_sliding_sync_room(
                     room_id,
                     response_room_data,
-                    account_data,
+                    &mut rooms_account_data,
                     &store,
                     &mut changes,
                     &mut notifications,
@@ -217,6 +218,30 @@ impl BaseClient {
                 .or_insert_with(JoinedRoom::default)
                 .ephemeral
                 .push(raw.clone().cast());
+        }
+
+        // Handles the remaining rooms account data not handled by
+        // process_sliding_sync_room.
+        for (room_id, raw) in &rooms_account_data {
+            self.handle_room_account_data(room_id, raw, &mut changes).await;
+
+            if let Some(room) = self.store.get_room(room_id) {
+                match room.state() {
+                    RoomState::Joined => new_rooms
+                        .join
+                        .entry(room_id.to_owned())
+                        .or_insert_with(JoinedRoom::default)
+                        .account_data
+                        .append(&mut raw.to_vec()),
+                    RoomState::Left => new_rooms
+                        .leave
+                        .entry(room_id.to_owned())
+                        .or_insert_with(LeftRoom::default)
+                        .account_data
+                        .append(&mut raw.to_vec()),
+                    RoomState::Invited => {}
+                }
+            }
         }
 
         // Rooms in `new_rooms.join` either have a timeline update, or a new read
@@ -288,16 +313,23 @@ impl BaseClient {
         &self,
         room_id: &RoomId,
         room_data: &v4::SlidingSyncRoom,
-        account_data: &v4::AccountData,
+        rooms_account_data: &mut BTreeMap<OwnedRoomId, Vec<Raw<AnyRoomAccountDataEvent>>>,
         store: &Store,
         changes: &mut StateChanges,
         notifications: &mut BTreeMap<OwnedRoomId, Vec<Notification>>,
         ambiguity_cache: &mut AmbiguityCache,
     ) -> Result<(RoomInfo, Option<JoinedRoom>, Option<LeftRoom>, Option<InvitedRoom>)> {
-        let mut state_events = Self::deserialize_state_events(&room_data.required_state);
-        state_events.extend(Self::deserialize_state_events_from_timeline(&room_data.timeline));
+        let (raw_state_events, state_events): (Vec<_>, Vec<_>) = {
+            let mut state_events = Vec::new();
 
-        let (raw_state_events, state_events): (Vec<_>, Vec<_>) = state_events.into_iter().unzip();
+            // Read state events from the `required_state` field.
+            state_events.extend(Self::deserialize_state_events(&room_data.required_state));
+
+            // Read state events from the `timeline` field.
+            state_events.extend(Self::deserialize_state_events_from_timeline(&room_data.timeline));
+
+            state_events.into_iter().unzip()
+        };
 
         // Find or create the room in the store
         #[allow(unused_mut)] // Required for some feature flag combinations
@@ -333,9 +365,9 @@ impl BaseClient {
             .await?;
         }
 
-        let room_account_data = if let Some(events) = account_data.rooms.get(room_id) {
-            self.handle_room_account_data(room_id, events, changes).await;
-            Some(events.to_vec())
+        let room_account_data = if let Some(events) = rooms_account_data.remove(room_id) {
+            self.handle_room_account_data(room_id, &events, changes).await;
+            Some(events)
         } else {
             None
         };
@@ -644,8 +676,23 @@ async fn cache_latest_events(
 }
 
 fn process_room_properties(room_data: &v4::SlidingSyncRoom, room_info: &mut RoomInfo) {
+    // Handle the room's name.
     if let Some(name) = &room_data.name {
         room_info.update_name(name.to_owned());
+    }
+
+    // Handle the room's avatar.
+    //
+    // It can be updated via the state events, or via the `SlidingSyncRoom::avatar`
+    // field. This part of the code handles the latter case. The former case is
+    // handled by [`BaseClient::handle_state`].
+    match &room_data.avatar {
+        // A new avatar!
+        JsOption::Some(avatar_uri) => room_info.update_avatar(Some(avatar_uri.to_owned())),
+        // Avatar must be removed.
+        JsOption::Null => room_info.update_avatar(None),
+        // Nothing to do.
+        JsOption::Undefined => {}
     }
 
     // Sliding sync doesn't have a room summary, nevertheless it contains the joined
@@ -691,7 +738,7 @@ mod tests {
         },
         mxc_uri, room_alias_id, room_id,
         serde::Raw,
-        uint, user_id, MxcUri, OwnedRoomId, OwnedUserId, RoomAliasId, RoomId, UserId,
+        uint, user_id, JsOption, MxcUri, OwnedRoomId, OwnedUserId, RoomAliasId, RoomId, UserId,
     };
     use serde_json::json;
 
@@ -999,6 +1046,86 @@ mod tests {
 
     #[async_test]
     async fn avatar_is_found_when_processing_sliding_sync_response() {
+        // Given a logged-in client
+        let client = logged_in_client().await;
+        let room_id = room_id!("!r:e.uk");
+
+        // When I send sliding sync response containing a room with an avatar
+        let room = {
+            let mut room = v4::SlidingSyncRoom::new();
+            room.avatar = JsOption::from_option(Some(mxc_uri!("mxc://e.uk/med1").to_owned()));
+
+            room
+        };
+        let response = response_with_room(room_id, room).await;
+        client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
+
+        // Then the room in the client has the avatar
+        let client_room = client.get_room(room_id).expect("No room found");
+        assert_eq!(
+            client_room.avatar_url().expect("No avatar URL").media_id().expect("No media ID"),
+            "med1"
+        );
+    }
+
+    #[async_test]
+    async fn avatar_can_be_unset_when_processing_sliding_sync_response() {
+        // Given a logged-in client
+        let client = logged_in_client().await;
+        let room_id = room_id!("!r:e.uk");
+
+        // Set the avatar.
+
+        // When I send sliding sync response containing a room with an avatar
+        let room = {
+            let mut room = v4::SlidingSyncRoom::new();
+            room.avatar = JsOption::from_option(Some(mxc_uri!("mxc://e.uk/med1").to_owned()));
+
+            room
+        };
+        let response = response_with_room(room_id, room).await;
+        client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
+
+        // Then the room in the client has the avatar
+        let client_room = client.get_room(room_id).expect("No room found");
+        assert_eq!(
+            client_room.avatar_url().expect("No avatar URL").media_id().expect("No media ID"),
+            "med1"
+        );
+
+        // No avatar. Still here.
+
+        // When I send sliding sync response containing no avatar.
+        let room = v4::SlidingSyncRoom::new();
+        let response = response_with_room(room_id, room).await;
+        client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
+
+        // Then the room in the client still has the avatar
+        let client_room = client.get_room(room_id).expect("No room found");
+        assert_eq!(
+            client_room.avatar_url().expect("No avatar URL").media_id().expect("No media ID"),
+            "med1"
+        );
+
+        // Avatar is unset.
+
+        // When I send sliding sync response containing an avatar set to `null` (!).
+        let room = {
+            let mut room = v4::SlidingSyncRoom::new();
+            room.avatar = JsOption::Null;
+
+            room
+        };
+        let response = response_with_room(room_id, room).await;
+        client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
+
+        // Then the room in the client has no more avatar
+        let client_room = client.get_room(room_id).expect("No room found");
+        assert!(client_room.avatar_url().is_none());
+    }
+
+    #[async_test]
+    async fn avatar_is_found_from_required_state_when_processing_sliding_sync_response() {
         // Given a logged-in client
         let client = logged_in_client().await;
         let room_id = room_id!("!r:e.uk");

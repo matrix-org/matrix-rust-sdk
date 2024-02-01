@@ -21,7 +21,6 @@ use std::{
 };
 
 use eyeball_im::{ObservableVector, ObservableVectorTransaction, ObservableVectorTransactionEntry};
-use imbl::Vector;
 use indexmap::IndexMap;
 use matrix_sdk::{deserialized_responses::SyncTimelineEvent, sync::Timeline};
 use matrix_sdk_base::{deserialized_responses::TimelineEvent, sync::JoinedRoom};
@@ -82,7 +81,7 @@ impl TimelineInnerState {
     #[tracing::instrument(skip_all)]
     pub(super) async fn add_initial_events<P: RoomDataProvider>(
         &mut self,
-        events: Vector<SyncTimelineEvent>,
+        events: Vec<SyncTimelineEvent>,
         mut back_pagination_token: Option<String>,
         room_data_provider: &P,
         settings: &TimelineInnerSettings,
@@ -108,17 +107,6 @@ impl TimelineInnerState {
                 }
             }
         }
-        txn.commit();
-    }
-
-    pub(super) async fn handle_sync_timeline<P: RoomDataProvider>(
-        &mut self,
-        timeline: Timeline,
-        room_data_provider: &P,
-        settings: &TimelineInnerSettings,
-    ) {
-        let mut txn = self.transaction();
-        txn.handle_sync_timeline(timeline, room_data_provider, settings).await;
         txn.commit();
     }
 

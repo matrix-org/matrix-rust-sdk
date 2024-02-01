@@ -31,11 +31,10 @@ pub use logger::{set_logger, Logger};
 pub use machine::{KeyRequestPair, OlmMachine, SignatureVerification};
 use matrix_sdk_common::deserialized_responses::ShieldState as RustShieldState;
 use matrix_sdk_crypto::{
-    backups::SignatureState,
     olm::{IdentityKeys, InboundGroupSession, Session},
     store::{Changes, CryptoStore, PendingChanges, RoomSettings as RustRoomSettings},
     types::{EventEncryptionAlgorithm as RustEventEncryptionAlgorithm, SigningKey},
-    EncryptionSettings as RustEncryptionSettings, LocalTrust,
+    EncryptionSettings as RustEncryptionSettings,
 };
 use matrix_sdk_sqlite::SqliteCryptoStore;
 pub use responses::{
@@ -843,6 +842,7 @@ impl From<RoomSettings> for RustRoomSettings {
         Self {
             algorithm: value.algorithm.into(),
             only_allow_trusted_devices: value.only_allow_trusted_devices,
+            ..RustRoomSettings::default()
         }
     }
 }
@@ -885,7 +885,7 @@ fn vodozemac_version() -> String {
     vodozemac::VERSION.to_owned()
 }
 
-uniffi::include_scaffolding!("olm");
+uniffi::setup_scaffolding!();
 
 #[cfg(test)]
 mod tests {

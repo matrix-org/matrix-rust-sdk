@@ -29,7 +29,6 @@ use matrix_sdk::{
     sync::JoinedRoom,
     Error, Result, Room,
 };
-use matrix_sdk_base::sync::Timeline;
 #[cfg(test)]
 use ruma::events::receipt::ReceiptEventContent;
 #[cfg(all(test, feature = "e2e-encryption"))]
@@ -67,6 +66,7 @@ use super::{
     AnnotationKey, EventSendState, EventTimelineItem, InReplyToDetails, Message, Profile,
     RepliedToEvent, TimelineDetails, TimelineItem, TimelineItemContent, TimelineItemKind,
 };
+use crate::timeline::TimelineEventFilterFn;
 
 mod state;
 
@@ -207,9 +207,6 @@ pub fn default_event_filter(event: &AnySyncTimelineEvent, room_version: &RoomVer
         }
     }
 }
-
-pub(super) type TimelineEventFilterFn =
-    dyn Fn(&AnySyncTimelineEvent, &RoomVersionId) -> bool + Send + Sync;
 
 impl<P: RoomDataProvider> TimelineInner<P> {
     pub(super) fn new(room_data_provider: P) -> Self {
@@ -409,7 +406,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
     pub(super) async fn add_initial_events(
         &mut self,
-        events: Vector<SyncTimelineEvent>,
+        events: Vec<SyncTimelineEvent>,
         back_pagination_token: Option<String>,
     ) {
         if events.is_empty() {
@@ -434,11 +431,6 @@ impl<P: RoomDataProvider> TimelineInner<P> {
     pub(super) async fn handle_joined_room_update(&self, update: JoinedRoom) {
         let mut state = self.state.write().await;
         state.handle_joined_room_update(update, &self.room_data_provider, &self.settings).await;
-    }
-
-    pub(super) async fn handle_sync_timeline(&self, timeline: Timeline) {
-        let mut state = self.state.write().await;
-        state.handle_sync_timeline(timeline, &self.room_data_provider, &self.settings).await;
     }
 
     #[cfg(test)]
@@ -1066,9 +1058,11 @@ impl TimelineInner {
                 if let Some((old_pub_read, _)) =
                     state.user_receipt(own_user_id, ReceiptType::Read, room).await
                 {
+                    trace!(%old_pub_read, "found a previous public receipt");
                     if let Some(relative_pos) =
                         state.meta.compare_events_positions(&old_pub_read, event_id)
                     {
+                        trace!("event referred to new receipt is {relative_pos:?} the previous receipt");
                         return relative_pos == RelativePosition::After;
                     }
                 }
@@ -1079,9 +1073,11 @@ impl TimelineInner {
                 if let Some((old_priv_read, _)) =
                     state.latest_user_read_receipt(own_user_id, room).await
                 {
+                    trace!(%old_priv_read, "found a previous private receipt");
                     if let Some(relative_pos) =
                         state.meta.compare_events_positions(&old_priv_read, event_id)
                     {
+                        trace!("event referred to new receipt is {relative_pos:?} the previous receipt");
                         return relative_pos == RelativePosition::After;
                     }
                 }

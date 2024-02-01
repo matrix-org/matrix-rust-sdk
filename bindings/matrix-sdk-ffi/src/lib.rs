@@ -40,6 +40,7 @@ mod session_verification;
 mod sync_service;
 mod task_handle;
 mod timeline;
+mod timeline_event_filter;
 mod tracing;
 mod utils;
 mod widget;

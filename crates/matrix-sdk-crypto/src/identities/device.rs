@@ -500,8 +500,9 @@ impl UserDevices {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 /// The local trust state of a device.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum LocalTrust {
     /// The device has been verified and is trusted.
     Verified = 0,

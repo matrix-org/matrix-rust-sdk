@@ -95,6 +95,8 @@ use tokio::{
     time::timeout,
 };
 
+use crate::event_graph::EventGraphError;
+
 /// The [`RoomListService`] type. See the module's documentation to learn more.
 #[derive(Debug)]
 pub struct RoomListService {
@@ -509,6 +511,12 @@ pub enum Error {
     /// The requested room doesn't exist.
     #[error("Room `{0}` not found")]
     RoomNotFound(OwnedRoomId),
+
+    #[error("A timeline instance already exists for room {0}")]
+    TimelineAlreadyExists(OwnedRoomId),
+
+    #[error("An error occurred while initializing the timeline")]
+    InitializingTimeline(#[source] EventGraphError),
 }
 
 /// An input for the [`RoomList`]' state machine.

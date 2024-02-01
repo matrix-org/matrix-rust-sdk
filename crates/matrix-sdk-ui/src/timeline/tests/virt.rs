@@ -94,7 +94,7 @@ async fn day_divider() {
 }
 
 #[async_test]
-async fn update_read_marker() {
+async fn test_update_read_marker() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe().await;
 

@@ -14,6 +14,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 js = ["dep:getrandom", "getrandom?/js"]
 
 [dependencies]
+base64 = { workspace = true }
 blake3 = "1.5.0"
 chacha20poly1305 = { version = "0.10.1", features = ["std"] }
 displaydoc = "0.2.4"

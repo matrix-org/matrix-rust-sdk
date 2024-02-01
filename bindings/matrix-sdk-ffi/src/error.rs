@@ -4,7 +4,10 @@ use matrix_sdk::{
     self, encryption::CryptoStoreError, oidc::OidcError, HttpError, IdParseError,
     NotificationSettingsError as SdkNotificationSettingsError, StoreError,
 };
-use matrix_sdk_ui::{encryption_sync_service, notification_client, sync_service, timeline};
+use matrix_sdk_ui::{
+    encryption_sync_service, event_graph::EventGraphError, notification_client, sync_service,
+    timeline,
+};
 use uniffi::UnexpectedUniFFICallbackError;
 
 #[derive(Debug, thiserror::Error)]
@@ -111,6 +114,12 @@ impl From<OidcError> for ClientError {
 
 impl From<RoomError> for ClientError {
     fn from(e: RoomError) -> Self {
+        Self::new(e)
+    }
+}
+
+impl From<EventGraphError> for ClientError {
+    fn from(e: EventGraphError) -> Self {
         Self::new(e)
     }
 }

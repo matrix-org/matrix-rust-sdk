@@ -34,6 +34,7 @@ use ruma::{
         ignored_user_list::IgnoredUserListEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
         room::{
+            avatar::RoomAvatarEventContent,
             encryption::RoomEncryptionEventContent,
             guest_access::GuestAccess,
             history_visibility::HistoryVisibility,
@@ -43,7 +44,7 @@ use ruma::{
             redaction::SyncRoomRedactionEvent,
             tombstone::RoomTombstoneEventContent,
         },
-        tag::Tags,
+        tag::{TagName, Tags},
         AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncStateEvent,
         RoomAccountDataEventType,
     },
@@ -89,6 +90,9 @@ pub struct Room {
     /// to disk but held in memory.
     #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
     pub latest_encrypted_events: Arc<SyncRwLock<RingBuffer<Raw<AnySyncTimelineEvent>>>>,
+    /// Observable of when some notable tags are set or removed from the room
+    /// account data.
+    notable_tags: SharedObservable<RoomNotableTags>,
 }
 
 /// The room summary containing member counts and members that should be used to
@@ -162,6 +166,7 @@ impl Room {
             latest_encrypted_events: Arc::new(SyncRwLock::new(RingBuffer::new(
                 Self::MAX_ENCRYPTED_EVENTS,
             ))),
+            notable_tags: Default::default(),
         }
     }
 
@@ -643,6 +648,21 @@ impl Room {
         self.inner.set(room_info);
     }
 
+    /// Update the inner observable with the given `RoomNotableTags`, and notify
+    /// subscribers.
+    pub fn set_notable_tags(&self, notable_tags: RoomNotableTags) {
+        self.notable_tags.set(notable_tags);
+    }
+
+    /// Returns the current RoomNotableTags and subscribe to changes.
+    pub async fn notable_tags_stream(&self) -> (RoomNotableTags, Subscriber<RoomNotableTags>) {
+        let current_tags = self.tags().await.unwrap_or_else(|e| {
+            warn!("Failed to get tags from store: {}", e);
+            None
+        });
+        (RoomNotableTags::new(current_tags), self.notable_tags.subscribe())
+    }
+
     /// Get the `RoomMember` with the given `user_id`.
     ///
     /// Returns `None` if the member was never part of this room, otherwise
@@ -813,6 +833,23 @@ pub(crate) enum SyncInfo {
     FullySynced,
 }
 
+/// Holds information computed from the room account data `m.tag` events.
+#[derive(Clone, Debug, Default)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct RoomNotableTags {
+    /// Whether or not the room is marked as favorite.
+    pub is_favorite: bool,
+}
+
+impl RoomNotableTags {
+    /// Computes the provided tags to create a `RoomNotableTags` instance.
+    pub fn new(tags: Option<Tags>) -> Self {
+        RoomNotableTags {
+            is_favorite: tags.map_or(false, |tag| tag.contains_key(&TagName::Favorite)),
+        }
+    }
+}
+
 impl RoomInfo {
     #[doc(hidden)] // used by store tests, otherwise it would be pub(crate)
     pub fn new(room_id: &RoomId, room_state: RoomState) -> Self {
@@ -969,6 +1006,16 @@ impl RoomInfo {
             content: RoomNameEventContent::new(name),
             event_id: None,
         }));
+    }
+
+    /// Update the room avatar
+    pub fn update_avatar(&mut self, url: Option<OwnedMxcUri>) {
+        self.base_info.avatar = url.map(|url| {
+            let mut content = RoomAvatarEventContent::new();
+            content.url = Some(url);
+
+            MinimalStateEvent::Original(OriginalMinimalStateEvent { content, event_id: None })
+        });
     }
 
     /// Update the notifications count
@@ -1237,6 +1284,7 @@ impl RoomStateFilter {
 #[cfg(test)]
 mod tests {
     use std::{
+        collections::BTreeMap,
         ops::Sub,
         str::FromStr,
         sync::Arc,
@@ -1246,7 +1294,7 @@ mod tests {
     use assign::assign;
     #[cfg(feature = "experimental-sliding-sync")]
     use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
-    use matrix_sdk_test::{async_test, ALICE, BOB, CAROL};
+    use matrix_sdk_test::{async_test, test_json, ALICE, BOB, CAROL};
     use ruma::{
         api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
         events::{
@@ -1262,13 +1310,14 @@ mod tests {
                 },
                 name::RoomNameEventContent,
             },
+            tag::{TagInfo, TagName},
             AnySyncStateEvent, StateEventType, StateUnsigned, SyncStateEvent,
         },
         room_alias_id, room_id,
         serde::Raw,
         user_id, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId, UserId,
     };
-    use serde_json::json;
+    use serde_json::{json, Value};
 
     #[cfg(feature = "experimental-sliding-sync")]
     use super::SyncInfo;
@@ -1277,7 +1326,7 @@ mod tests {
     use crate::latest_event::LatestEvent;
     use crate::{
         store::{MemoryStore, StateChanges, StateStore},
-        DisplayName, MinimalStateEvent, OriginalMinimalStateEvent,
+        DisplayName, MinimalStateEvent, OriginalMinimalStateEvent, RoomNotableTags,
     };
 
     #[test]
@@ -1428,6 +1477,50 @@ mod tests {
         assert!(info.base_info.name.is_none());
         assert!(info.base_info.tombstone.is_none());
         assert!(info.base_info.topic.is_none());
+    }
+
+    #[async_test]
+    async fn when_set_notable_tags_is_called_then_notable_tags_subscriber_is_updated() {
+        let (_, room) = make_room(RoomState::Joined);
+        let (_, mut notable_tags_subscriber) = room.notable_tags_stream().await;
+
+        stream_assert::assert_pending!(notable_tags_subscriber);
+
+        let notable_tags = RoomNotableTags::new(None);
+        room.set_notable_tags(notable_tags);
+
+        use futures_util::FutureExt as _;
+        assert!(notable_tags_subscriber.next().now_or_never().is_some());
+        stream_assert::assert_pending!(notable_tags_subscriber);
+    }
+
+    #[test]
+    fn when_tags_has_favorite_tag_then_notable_tags_is_favorite_is_true() {
+        let tags = BTreeMap::from([(TagName::Favorite, TagInfo::new())]);
+        let notable_tags = RoomNotableTags::new(Some(tags));
+        assert!(notable_tags.is_favorite);
+    }
+
+    #[test]
+    fn when_tags_has_no_tags_then_notable_tags_is_favorite_is_false() {
+        let notable_tags = RoomNotableTags::new(None);
+        assert!(!notable_tags.is_favorite);
+    }
+
+    #[async_test]
+    async fn when_tags_are_inserted_in_room_account_data_then_initial_notable_tags_is_updated() {
+        let (store, room) = make_room(RoomState::Joined);
+        let mut changes = StateChanges::new("".to_owned());
+
+        let tag_json: &Value = &test_json::TAG;
+        let tag_raw = Raw::new(tag_json).unwrap().cast();
+        let tag_event = tag_raw.deserialize().unwrap();
+        changes.add_room_account_data(room.room_id(), tag_event, tag_raw);
+
+        store.save_changes(&changes).await.unwrap();
+
+        let (initial_notable_tags, _) = room.notable_tags_stream().await;
+        assert!(initial_notable_tags.is_favorite);
     }
 
     fn make_room(room_type: RoomState) -> (Arc<MemoryStore>, Room) {

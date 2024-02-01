@@ -155,7 +155,7 @@ impl From<RumaUnreadNotificationsCount> for UnreadNotificationsCount {
 }
 
 /// Updates to left rooms.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct LeftRoom {
     /// The timeline of messages and state changes in the room up to the point
     /// when the user left.

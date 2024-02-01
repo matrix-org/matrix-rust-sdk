@@ -1,4 +1,4 @@
-use matrix_sdk::room::RoomMember as SdkRoomMember;
+use matrix_sdk::room::{RoomMember as SdkRoomMember, RoomMemberRole};
 
 use super::RUNTIME;
 use crate::ClientError;
@@ -71,6 +71,10 @@ impl RoomMember {
 
     pub fn power_level(&self) -> i64 {
         self.inner.power_level()
+    }
+
+    pub fn suggested_role_for_power_level(&self) -> RoomMemberRole {
+        self.inner.suggested_role_for_power_level()
     }
 
     pub fn normalized_power_level(&self) -> i64 {

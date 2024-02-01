@@ -49,21 +49,23 @@ use ruma::{
             },
             redaction::RoomRedactionEventContent,
         },
-        AnyMessageLikeEventContent,
+        AnyMessageLikeEventContent, AnySyncTimelineEvent,
     },
-    uint, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, TransactionId,
-    UserId,
+    uint, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, RoomVersionId,
+    TransactionId, UserId,
 };
 use thiserror::Error;
 use tokio::sync::{mpsc::Sender, Mutex, Notify};
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{debug, error, info, instrument, trace, warn};
 
 use self::futures::SendAttachment;
+use crate::event_graph::RoomEventGraph;
 
 mod builder;
 mod error;
 mod event_handler;
 mod event_item;
+pub mod event_type_filter;
 pub mod futures;
 mod inner;
 mod item;
@@ -90,6 +92,7 @@ pub use self::{
         Message, OtherState, Profile, ReactionGroup, RepliedToEvent, RoomMembershipChange, Sticker,
         TimelineDetails, TimelineItemContent,
     },
+    event_type_filter::TimelineEventTypeFilter,
     inner::default_event_filter,
     item::{TimelineItem, TimelineItemKind},
     pagination::{BackPaginationStatus, PaginationOptions, PaginationOutcome},
@@ -141,7 +144,8 @@ impl From<&Annotation> for AnnotationKey {
 }
 
 impl Timeline {
-    pub(crate) fn builder(room: &Room) -> TimelineBuilder {
+    /// Create a new [`TimelineBuilder`] for the given room.
+    pub fn builder(room: &Room) -> TimelineBuilder {
         TimelineBuilder::new(room)
     }
 
@@ -708,9 +712,13 @@ impl Timeline {
         event_id: OwnedEventId,
     ) -> Result<bool> {
         if !self.inner.should_send_receipt(&receipt_type, &thread, &event_id).await {
+            trace!(
+                "not sending receipt, because we already cover the event with a previous receipt"
+            );
             return Ok(false);
         }
 
+        trace!("sending receipt");
         self.room().send_single_receipt(receipt_type, thread, event_id).await?;
         Ok(true)
     }
@@ -790,6 +798,7 @@ struct TimelineDropHandle {
     room_update_join_handle: JoinHandle<()>,
     ignore_user_list_update_join_handle: JoinHandle<()>,
     room_key_from_backups_join_handle: JoinHandle<()>,
+    _event_graph: RoomEventGraph,
 }
 
 impl Drop for TimelineDropHandle {
@@ -827,3 +836,6 @@ impl<S: Stream> Stream for TimelineStream<S> {
         self.project().inner.poll_next(cx)
     }
 }
+
+pub type TimelineEventFilterFn =
+    dyn Fn(&AnySyncTimelineEvent, &RoomVersionId) -> bool + Send + Sync;

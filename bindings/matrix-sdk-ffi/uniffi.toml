@@ -1,3 +1,4 @@
 [bindings.kotlin]
 package_name = "org.matrix.rustcomponents.sdk"
 cdylib_name = "matrix_sdk_ffi"
+android_cleaner = true
