@@ -507,14 +507,6 @@ impl RoomListItem {
     async fn latest_event(&self) -> Option<Arc<EventTimelineItem>> {
         self.inner.latest_event().await.map(EventTimelineItem).map(Arc::new)
     }
-
-    fn has_unread_notifications(&self) -> bool {
-        self.inner.has_unread_notifications()
-    }
-
-    fn unread_notifications(&self) -> Arc<UnreadNotificationsCount> {
-        Arc::new(self.inner.unread_notifications().into())
-    }
 }
 
 #[derive(Clone, Debug, uniffi::Enum)]
