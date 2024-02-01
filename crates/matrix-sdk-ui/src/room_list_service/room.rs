@@ -18,10 +18,7 @@ use std::{ops::Deref, sync::Arc};
 
 use async_once_cell::OnceCell as AsyncOnceCell;
 use matrix_sdk::{SlidingSync, SlidingSyncRoom};
-use ruma::{
-    api::client::sync::sync_events::{v4::RoomSubscription, UnreadNotificationsCount},
-    RoomId,
-};
+use ruma::{api::client::sync::sync_events::v4::RoomSubscription, RoomId};
 
 use super::Error;
 use crate::{
@@ -165,16 +162,6 @@ impl Room {
 
         // Otherwise, fallback to the classical path.
         self.inner.sliding_sync_room.latest_timeline_item().await
-    }
-
-    /// Is there any unread notifications?
-    pub fn has_unread_notifications(&self) -> bool {
-        self.inner.sliding_sync_room.has_unread_notifications()
-    }
-
-    /// Get unread notifications.
-    pub fn unread_notifications(&self) -> UnreadNotificationsCount {
-        self.inner.sliding_sync_room.unread_notifications()
     }
 
     /// Create a new [`TimelineBuilder`] with the default configuration.
