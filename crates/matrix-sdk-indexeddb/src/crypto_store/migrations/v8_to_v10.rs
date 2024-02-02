@@ -20,20 +20,18 @@
 //! The migration 9->10 deletes the old store inbound_group_sessions2.
 
 use indexed_db_futures::{
-    idb_object_store::IdbObjectStore,
-    request::{IdbOpenDbRequestLike, OpenDbRequest},
-    IdbDatabase, IdbIndex, IdbKeyPath, IdbQuerySource, IdbVersionChangeEvent,
+    idb_object_store::IdbObjectStore, IdbDatabase, IdbIndex, IdbKeyPath, IdbQuerySource,
 };
 use matrix_sdk_crypto::olm::InboundGroupSession;
 use tracing::{debug, info};
-use wasm_bindgen::JsValue;
 use web_sys::{DomException, IdbIndexParameters, IdbTransactionMode};
 
-use super::Result;
 use crate::{
     crypto_store::{
-        indexeddb_serializer::IndexeddbSerializer, keys, migrations::old_keys,
-        InboundGroupSessionIndexedDbObject,
+        indexeddb_serializer::IndexeddbSerializer,
+        keys,
+        migrations::{do_schema_upgrade, old_keys},
+        InboundGroupSessionIndexedDbObject, Result,
     },
     IndexeddbCryptoStoreError,
 };
@@ -71,21 +69,6 @@ fn add_nonunique_index<'a>(
     let mut params = IdbIndexParameters::new();
     params.unique(false);
     object_store.create_index_with_params(name, &IdbKeyPath::str(key_path), &params)
-}
-
-async fn do_schema_upgrade<F>(name: &str, version: u32, f: F) -> Result<(), DomException>
-where
-    F: Fn(&IdbDatabase) -> Result<(), JsValue> + 'static,
-{
-    info!("IndexeddbCryptoStore upgrade schema -> v{version} starting");
-    let mut db_req: OpenDbRequest = IdbDatabase::open_u32(name, version)?;
-
-    db_req.set_on_upgrade_needed(Some(move |evt: &IdbVersionChangeEvent| f(evt.db())));
-
-    let db = db_req.await?;
-    db.close();
-    info!("IndexeddbCryptoStore upgrade schema -> v{version} complete");
-    Ok(())
 }
 
 pub(crate) async fn upgrade_scheme_to_v9_create_inbound_group_sessions3(

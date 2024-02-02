@@ -430,6 +430,21 @@ async fn prepare_data_for_v8(name: &str, serializer: &IndexeddbSerializer) -> Re
     Ok(())
 }
 
+async fn do_schema_upgrade<F>(name: &str, version: u32, f: F) -> Result<(), DomException>
+where
+    F: Fn(&IdbDatabase) -> Result<(), JsValue> + 'static,
+{
+    info!("IndexeddbCryptoStore upgrade schema -> v{version} starting");
+    let mut db_req: OpenDbRequest = IdbDatabase::open_u32(name, version)?;
+
+    db_req.set_on_upgrade_needed(Some(move |evt: &IdbVersionChangeEvent| f(evt.db())));
+
+    let db = db_req.await?;
+    db.close();
+    info!("IndexeddbCryptoStore upgrade schema -> v{version} complete");
+    Ok(())
+}
+
 #[cfg(all(test, target_arch = "wasm32"))]
 mod tests {
     use std::{future::Future, sync::Arc};
