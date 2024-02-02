@@ -56,10 +56,7 @@ mod tests {
 
     use imbl::vector;
     use matrix_sdk_base::deserialized_responses::TimelineEvent;
-    use ruma::{
-        api::client::sync::sync_events::v4, events::room::message::RoomMessageEventContent,
-        room_id, serde::Raw,
-    };
+    use ruma::{events::room::message::RoomMessageEventContent, room_id, serde::Raw};
     use serde_json::json;
 
     use super::FrozenSlidingSyncList;

@@ -236,8 +236,8 @@ mod tests {
     use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
     use matrix_sdk_test::async_test;
     use ruma::{
-        api::client::sync::sync_events::v4, assign, events::room::message::RoomMessageEventContent,
-        mxc_uri, room_id, serde::Raw, JsOption, RoomId,
+        api::client::sync::sync_events::v4, events::room::message::RoomMessageEventContent,
+        room_id, serde::Raw, RoomId,
     };
     use serde_json::json;
     use wiremock::MockServer;
