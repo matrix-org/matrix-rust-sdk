@@ -16,6 +16,7 @@
 #![doc = include_str!("../README.md")]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 #![warn(missing_docs, missing_debug_implementations)]
+#![cfg_attr(not(target_arch = "wasm32"), deny(clippy::future_not_send))]
 
 pub use matrix_sdk_common::*;
 use ruma::{OwnedDeviceId, OwnedUserId};

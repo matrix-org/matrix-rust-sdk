@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#![cfg_attr(not(target_arch = "wasm32"), deny(clippy::future_not_send))]
+
 use ruma::html::HtmlSanitizerMode;
 
 mod events;

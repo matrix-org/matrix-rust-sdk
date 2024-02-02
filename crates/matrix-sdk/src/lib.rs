@@ -15,6 +15,7 @@
 #![doc = include_str!("../README.md")]
 #![warn(missing_debug_implementations, missing_docs)]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
+#![cfg_attr(not(target_arch = "wasm32"), deny(clippy::future_not_send))]
 
 pub use async_trait::async_trait;
 pub use bytes;
