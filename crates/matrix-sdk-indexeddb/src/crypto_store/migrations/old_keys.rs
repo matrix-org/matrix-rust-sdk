@@ -1,0 +1,22 @@
+// Copyright 2023 The Matrix.org Foundation C.I.C.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+/// Old format of the `inbound_group_sessions` store which lacked indexes or
+/// a sensible structure
+pub const INBOUND_GROUP_SESSIONS_V1: &str = "inbound_group_sessions";
+
+/// `inbound_group_sessions2` with large values in each record due to double
+/// JSON-encoding and arrays of ints instead of base64.
+/// Also lacked the `backed_up_to` property+index.
+pub const INBOUND_GROUP_SESSIONS_V2: &str = "inbound_group_sessions2";

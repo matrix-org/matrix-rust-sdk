@@ -22,18 +22,8 @@ use crate::{
     IndexeddbCryptoStoreError,
 };
 
+mod old_keys;
 mod v8_to_v10;
-
-mod old_keys {
-    /// Old format of the `inbound_group_sessions` store which lacked indexes or
-    /// a sensible structure
-    pub const INBOUND_GROUP_SESSIONS_V1: &str = "inbound_group_sessions";
-
-    /// `inbound_group_sessions2` with large values in each record due to double
-    /// JSON-encoding and arrays of ints instead of base64.
-    /// Also lacked the `backed_up_to` property+index.
-    pub const INBOUND_GROUP_SESSIONS_V2: &str = "inbound_group_sessions2";
-}
 
 /// Open the indexeddb with the given name, upgrading it to the latest version
 /// of the schema if necessary.
