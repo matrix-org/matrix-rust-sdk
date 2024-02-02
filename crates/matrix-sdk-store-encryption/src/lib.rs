@@ -405,7 +405,11 @@ impl StoreCipher {
     /// assert_eq!(value, decrypted);
     /// # anyhow::Ok(()) };
     /// ```
+    #[deprecated(since = "0.8.0", note = "Use the StoreCipher::encrypt_value_data method instead.")]
     pub fn encrypt_value(&self, value: &impl Serialize) -> Result<Vec<u8>, Error> {
+        // This method is as well deprecated, we're going to use the deprecated one and
+        // then remove both of them.
+        #[allow(deprecated)]
         Ok(serde_json::to_vec(&self.encrypt_value_typed(value)?)?)
     }
 
@@ -442,6 +446,7 @@ impl StoreCipher {
     /// assert_eq!(value, decrypted);
     /// # anyhow::Ok(()) };
     /// ```
+    #[deprecated(since = "0.8.0", note = "Use the StoreCipher::encrypt_value_data method instead.")]
     pub fn encrypt_value_typed(&self, value: &impl Serialize) -> Result<EncryptedValue, Error> {
         let data = serde_json::to_vec(value)?;
         self.encrypt_value_data(data)
@@ -589,8 +594,12 @@ impl StoreCipher {
     /// assert_eq!(value, decrypted);
     /// # anyhow::Ok(()) };
     /// ```
+    #[deprecated(since = "0.8.0", note = "Use the StoreCipher::decrypt_value_data method instead.")]
     pub fn decrypt_value<T: DeserializeOwned>(&self, value: &[u8]) -> Result<T, Error> {
         let value: EncryptedValue = serde_json::from_slice(value)?;
+        // This method is as well deprecated, we're going to use the deprecated one and
+        // then remove both of them.
+        #[allow(deprecated)]
         self.decrypt_value_typed(value)
     }
 
@@ -625,6 +634,7 @@ impl StoreCipher {
     /// assert_eq!(value, decrypted);
     /// # anyhow::Ok(()) };
     /// ```
+    #[deprecated(since = "0.8.0", note = "Use the StoreCipher::decrypt_value_data method instead.")]
     pub fn decrypt_value_typed<T: DeserializeOwned>(
         &self,
         value: EncryptedValue,
@@ -952,6 +962,9 @@ struct EncryptedStoreCipher {
 
 #[cfg(test)]
 mod tests {
+    // Allow the testing of deprecated methods until we remove them.
+    #![allow(deprecated)]
+
     use serde_json::{json, Value};
 
     use super::{Error, StoreCipher};
