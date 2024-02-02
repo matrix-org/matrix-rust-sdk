@@ -9,10 +9,18 @@
 /// of the bot. You will see that it sends the `Ping` event and upon receiving
 /// it responds with the `Ack` event send to the room. You won't see that in
 /// most regular clients, unless you activate showing of unknown events.
-use std::{env, process::exit};
+use std::{
+    env,
+    process::exit,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+};
 
 use matrix_sdk::{
     config::SyncSettings,
+    event_handler::Ctx,
     ruma::{
         events::{
             macros::EventContent,
@@ -42,6 +50,13 @@ pub struct AckEventContent {
     ping_id: OwnedEventId,
 }
 
+// We're going to create a small struct which will count how many times we have
+// been pinged.
+#[derive(Debug, Default, Clone)]
+pub struct CustomContext {
+    ping_counter: Arc<AtomicU64>,
+}
+
 // Deriving `EventContent` generates a few types and aliases,
 // like wrapping the content into full-blown events: for `PingEventContent` this
 // generates us `PingEvent` and `SyncPingEvent`, which have redaction support
@@ -65,16 +80,17 @@ async fn on_regular_room_message(event: OriginalSyncRoomMessageEvent, room: Room
 }
 
 // call this on any PingEvent we receive
-async fn on_ping_event(event: SyncPingEvent, room: Room) {
+async fn on_ping_event(event: SyncPingEvent, room: Room, context: Ctx<CustomContext>) {
     if room.state() != RoomState::Joined {
         return;
     }
 
     let event_id = event.event_id().to_owned();
+    let ping_number = context.ping_counter.fetch_add(1, Ordering::SeqCst);
 
     // Send an ack with the event_id of the ping, as our 'protocol' demands
     let content = AckEventContent { ping_id: event_id };
-    println!("sending ack");
+    println!("sending ack for ping no {ping_number}");
     room.send(content).await.unwrap();
 
     println!("ack sent");
@@ -92,6 +108,8 @@ async fn sync_loop(client: Client) -> anyhow::Result<()> {
     client.add_event_handler(on_regular_room_message);
     //  - send `AckEvent` on `PingEvent` in any room
     client.add_event_handler(on_ping_event);
+    // Add our context so we can increment and print the ping count.
+    client.add_event_handler_context(CustomContext::default());
 
     let settings = SyncSettings::default().token(response.next_batch);
     client.sync(settings).await?; // this essentially loops until we kill the bot
