@@ -30,5 +30,5 @@ extend-exclude = [
     # Fuzzy match patterns that can be understood as typos confusingly.
     "crates/matrix-sdk-ui/tests/integration/room_list_service.rs",
     # Hand-crafted base64 session keys that are understood as typos.
-    "crates/matrix-sdk-indexeddb/src/crypto_store/migrations.rs",
+    "crates/matrix-sdk-indexeddb/src/crypto_store/migrations/mod.rs",
 ]
