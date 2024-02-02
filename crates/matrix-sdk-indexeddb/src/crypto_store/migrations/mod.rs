@@ -50,9 +50,7 @@ pub async fn open_and_upgrade_db(
     // If we have yet to complete the migration to V7, migrate the schema to V6
     // (if necessary), and then migrate any remaining data.
     if old_version < 6 {
-        info!(old_version, "IndexeddbCryptoStore upgrade schema & data -> v6 starting");
-        let db = migrate_schema_up_to_v6(name).await?;
-        db.close();
+        migrate_schema_up_to_v6(name).await?;
     }
     if old_version < 7 {
         let db = IdbDatabase::open(name)?.await?;
@@ -133,27 +131,12 @@ async fn migrate_schema_up_to_v5(name: &str) -> Result<IdbDatabase, DomException
     db_req.await
 }
 
-async fn migrate_schema_up_to_v6(name: &str) -> Result<IdbDatabase, DomException> {
-    let mut db_req: OpenDbRequest = IdbDatabase::open_u32(name, 6)?;
-
-    db_req.set_on_upgrade_needed(Some(|evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
-        // Even if the web-sys bindings expose the version as a f64, the IndexedDB API
-        // works with an unsigned integer.
-        // See <https://github.com/rustwasm/wasm-bindgen/issues/1149>
-        let old_version = evt.old_version() as u32;
-        let new_version = evt.new_version() as u32;
-
-        info!(old_version, new_version, "Upgrading IndexeddbCryptoStore to v6");
-
-        if old_version < 6 {
-            migrate_stores_to_v6(evt.db())?;
-        }
-
-        info!(old_version, new_version, "IndexeddbCryptoStore upgrade to v6 complete");
+async fn migrate_schema_up_to_v6(name: &str) -> Result<(), DomException> {
+    do_schema_upgrade(name, 6, |db| {
+        migrate_stores_to_v6(db)?;
         Ok(())
-    }));
-
-    db_req.await
+    })
+    .await
 }
 
 async fn migrate_schema_for_v7(name: &str) -> Result<(), DomException> {
