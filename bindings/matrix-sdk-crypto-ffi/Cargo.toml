@@ -33,31 +33,12 @@ tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 uniffi = { workspace = true }
 vodozemac = { workspace = true }
 zeroize = { workspace = true, features = ["zeroize_derive"] }
-
-[dependencies.js_int]
-version = "0.2.2"
-features = ["lax_deserialize"]
-
-[dependencies.matrix-sdk-common]
-path = "../../crates/matrix-sdk-common"
-version = "0.6.0"
-
-[dependencies.matrix-sdk-crypto]
-path = "../../crates/matrix-sdk-crypto"
-version = "0.6.0"
-default_features = false
-features = ["qrcode", "automatic-room-key-forwarding"]
-
-[dependencies.matrix-sdk-sqlite]
-path = "../../crates/matrix-sdk-sqlite"
-version = "0.1.0"
-default_features = false
-features = ["crypto-store"]
-
-[dependencies.tokio]
-version = "1.33.0"
-default_features = false
-features = ["rt-multi-thread"]
+js_int = { version = "0.2.2", features = ["lax_deserialize"] }
+matrix-sdk-common = { path = "../../crates/matrix-sdk-common", version = "0.6.0" }
+matrix-sdk-crypto = { path = "../../crates/matrix-sdk-crypto", version = "0.6.0", default_features = false, features = ["qrcode", "automatic-room-key-forwarding"] }
+matrix-sdk-sqlite = { path = "../../crates/matrix-sdk-sqlite", version = "0.1.0", default_features = false, features = ["crypto-store"] }
+tokio = { version = "1.33.0", default_features = false, features = ["rt-multi-thread"] }
+tracing-core = "0.1.32"
 
 [build-dependencies]
 uniffi = { workspace = true, features = ["build"] }
@@ -66,3 +47,4 @@ vergen = { version = "8.2.5", features = ["build", "git", "gitcl"] }
 [dev-dependencies]
 tempfile = "3.8.0"
 assert_matches2 = { workspace = true }
+

@@ -3192,6 +3192,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tokio",
+ "tracing-core",
  "tracing-subscriber",
  "uniffi",
  "vergen",
