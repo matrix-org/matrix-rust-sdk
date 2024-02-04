@@ -32,7 +32,6 @@ use ruma::{
         receipt::Receipt,
         relation::Replacement,
         room::{
-            encrypted::RoomEncryptedEventContent,
             member::RoomMemberEventContent,
             message::{self, RoomMessageEventContent, RoomMessageEventContentWithoutRelation},
             redaction::{RoomRedactionEventContent, SyncRoomRedactionEvent},
@@ -55,7 +54,6 @@ use super::{
         RemoteEventTimelineItem,
     },
     inner::{TimelineInnerMetadata, TimelineInnerStateTransaction},
-    item::timeline_item,
     polls::PollState,
     util::{rfind_event_by_id, rfind_event_item, timestamp_to_date},
     EventTimelineItem, InReplyToDetails, Message, OtherState, ReactionGroup, ReactionSenderData,
@@ -296,7 +294,10 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 AnyMessageLikeEventContent::RoomMessage(c) => {
                     self.add(should_add, TimelineItemContent::message(c, relations, self.items));
                 }
-                AnyMessageLikeEventContent::RoomEncrypted(c) => self.handle_room_encrypted(c),
+                AnyMessageLikeEventContent::RoomEncrypted(c) => {
+                    // TODO: Handle replacements if the replaced event is also UTD
+                    self.add(true, TimelineItemContent::unable_to_decrypt(c));
+                }
                 AnyMessageLikeEventContent::Sticker(content) => {
                     self.add(should_add, TimelineItemContent::Sticker(Sticker { content }));
                 }
@@ -599,12 +600,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         );
     }
 
-    #[instrument(skip_all)]
-    fn handle_room_encrypted(&mut self, c: RoomEncryptedEventContent) {
-        // TODO: Handle replacements if the replaced event is also UTD
-        self.add(true, TimelineItemContent::unable_to_decrypt(c));
-    }
-
     // Redacted redactions are no-ops (unfortunately)
     #[instrument(skip_all, fields(redacts_event_id = ?redacts))]
     fn handle_redaction(&mut self, redacts: OwnedEventId, _content: RoomRedactionEventContent) {
@@ -883,6 +878,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                         // Item was previously received from the server. This
                         // should be very rare normally, but with the sliding-
                         // sync proxy, it is actually very common.
+                        // NOTE: SS proxy workaround.
                         trace!(?item, old_item = ?*old_item, "Received duplicate event");
 
                         if old_item.content.is_redacted() && !item.content.is_redacted() {
@@ -909,7 +905,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                         // changes need to happen, replace and return early.
 
                         trace!(idx, "Replacing existing event");
-                        self.items.set(idx, timeline_item(item, old_item_id));
+                        self.items.set(idx, TimelineItem::new(item, old_item_id));
                         return;
                     }
 
@@ -985,7 +981,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                         };
 
                         let day_divider_item =
-                            timeline_item(VirtualTimelineItem::DayDivider(timestamp), id);
+                            TimelineItem::new(VirtualTimelineItem::DayDivider(timestamp), id);
 
                         if should_push {
                             self.items.push_back(day_divider_item);
@@ -1016,7 +1012,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 };
 
                 trace!("Adding new remote timeline item after all non-pending events");
-                let new_item = timeline_item(item, id);
+                let new_item = TimelineItem::new(item, id);
                 if should_push {
                     self.items.push_back(new_item);
                 } else {
@@ -1028,12 +1024,12 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             Flow::Remote { position: TimelineItemPosition::Update(idx), .. } => {
                 trace!("Updating timeline item at position {idx}");
                 let id = self.items[*idx].internal_id;
-                self.items.set(*idx, timeline_item(item, id));
+                self.items.set(*idx, TimelineItem::new(item, id));
             }
         }
 
-        // See if we can update the read marker.
-        if self.meta.event_should_update_fully_read_marker {
+        // If we don't have a read marker item, look if we need to add one now.
+        if !self.meta.has_up_to_date_read_marker_item {
             self.meta.update_read_marker(self.items);
         }
     }
@@ -1096,7 +1092,7 @@ fn _update_timeline_item(
         trace!("Found timeline item to update");
         if let Some(new_item) = update(item.inner) {
             trace!("Updating item");
-            items.set(idx, timeline_item(new_item, item.internal_id));
+            items.set(idx, TimelineItem::new(new_item, item.internal_id));
             *items_updated += 1;
         }
     } else {

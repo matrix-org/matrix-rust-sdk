@@ -34,6 +34,7 @@ use ruma::{
         ignored_user_list::IgnoredUserListEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
         room::{
+            avatar::RoomAvatarEventContent,
             encryption::RoomEncryptionEventContent,
             guest_access::GuestAccess,
             history_visibility::HistoryVisibility,
@@ -43,7 +44,7 @@ use ruma::{
             redaction::SyncRoomRedactionEvent,
             tombstone::RoomTombstoneEventContent,
         },
-        tag::Tags,
+        tag::{TagName, Tags},
         AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncStateEvent,
         RoomAccountDataEventType,
     },
@@ -63,6 +64,7 @@ use super::{
 use crate::latest_event::LatestEvent;
 use crate::{
     deserialized_responses::MemberEvent,
+    read_receipts::RoomReadReceipts,
     store::{DynStateStore, Result as StoreResult, StateStoreExt},
     sync::UnreadNotificationsCount,
     MinimalStateEvent, OriginalMinimalStateEvent, RoomMemberships,
@@ -88,6 +90,9 @@ pub struct Room {
     /// to disk but held in memory.
     #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
     pub latest_encrypted_events: Arc<SyncRwLock<RingBuffer<Raw<AnySyncTimelineEvent>>>>,
+    /// Observable of when some notable tags are set or removed from the room
+    /// account data.
+    notable_tags: SharedObservable<RoomNotableTags>,
 }
 
 /// The room summary containing member counts and members that should be used to
@@ -132,8 +137,10 @@ impl From<&MembershipState> for RoomState {
 
 impl Room {
     /// The size of the latest_encrypted_events RingBuffer
+    // SAFETY: `new_unchecked` is safe because 10 is not zero.
     #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
-    const MAX_ENCRYPTED_EVENTS: usize = 10;
+    const MAX_ENCRYPTED_EVENTS: std::num::NonZeroUsize =
+        unsafe { std::num::NonZeroUsize::new_unchecked(10) };
 
     pub(crate) fn new(
         own_user_id: &UserId,
@@ -159,6 +166,7 @@ impl Room {
             latest_encrypted_events: Arc::new(SyncRwLock::new(RingBuffer::new(
                 Self::MAX_ENCRYPTED_EVENTS,
             ))),
+            notable_tags: Default::default(),
         }
     }
 
@@ -185,6 +193,36 @@ impl Room {
     /// Get the unread notification counts.
     pub fn unread_notification_counts(&self) -> UnreadNotificationsCount {
         self.inner.read().notification_counts
+    }
+
+    /// Get the number of unread messages (computed client-side).
+    ///
+    /// This might be more precise than [`Self::unread_notification_counts`] for
+    /// encrypted rooms.
+    pub fn num_unread_messages(&self) -> u64 {
+        self.inner.read().read_receipts.num_unread
+    }
+
+    /// Get the detailed information about read receipts for the room.
+    pub fn read_receipts(&self) -> RoomReadReceipts {
+        self.inner.read().read_receipts.clone()
+    }
+
+    /// Get the number of unread notifications (computed client-side).
+    ///
+    /// This might be more precise than [`Self::unread_notification_counts`] for
+    /// encrypted rooms.
+    pub fn num_unread_notifications(&self) -> u64 {
+        self.inner.read().read_receipts.num_notifications
+    }
+
+    /// Get the number of unread mentions (computed client-side), that is,
+    /// messages causing a highlight in a room.
+    ///
+    /// This might be more precise than [`Self::unread_notification_counts`] for
+    /// encrypted rooms.
+    pub fn num_unread_mentions(&self) -> u64 {
+        self.inner.read().read_receipts.num_mentions
     }
 
     /// Check if the room has its members fully synced.
@@ -406,12 +444,6 @@ impl Room {
         self.inner.read().latest_event.as_deref().cloned()
     }
 
-    /// Update the last event in the room
-    #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
-    pub(crate) fn set_latest_event(&self, latest_event: Option<Box<LatestEvent>>) {
-        self.inner.update(|info| info.latest_event = latest_event);
-    }
-
     /// Return the most recent few encrypted events. When the keys come through
     /// to decrypt these, the most recent relevant one will replace
     /// latest_event. (We can't tell which one is relevant until
@@ -428,10 +460,23 @@ impl Room {
     ///
     /// Panics if index is not a valid index in the latest_encrypted_events
     /// list.
+    ///
+    /// It is the responsibility of the caller to apply the changes into the
+    /// state store after calling this function.
     #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
-    pub(crate) fn on_latest_event_decrypted(&self, latest_event: Box<LatestEvent>, index: usize) {
-        self.set_latest_event(Some(latest_event));
+    pub(crate) fn on_latest_event_decrypted(
+        &self,
+        latest_event: Box<LatestEvent>,
+        index: usize,
+        changes: &mut crate::StateChanges,
+    ) {
         self.latest_encrypted_events.write().unwrap().drain(0..=index);
+
+        let room_info = changes
+            .room_infos
+            .entry(self.room_id().to_owned())
+            .or_insert_with(|| self.clone_info());
+        room_info.latest_event = Some(latest_event);
     }
 
     /// Get the list of users ids that are considered to be joined members of
@@ -597,9 +642,25 @@ impl Room {
         self.inner.get()
     }
 
-    /// Update the summary with given RoomInfo
-    pub fn update_summary(&self, summary: RoomInfo) {
-        self.inner.set(summary);
+    /// Update the inner summary with the given RoomInfo, and notify
+    /// subscribers.
+    pub fn set_room_info(&self, room_info: RoomInfo) {
+        self.inner.set(room_info);
+    }
+
+    /// Update the inner observable with the given `RoomNotableTags`, and notify
+    /// subscribers.
+    pub fn set_notable_tags(&self, notable_tags: RoomNotableTags) {
+        self.notable_tags.set(notable_tags);
+    }
+
+    /// Returns the current RoomNotableTags and subscribe to changes.
+    pub async fn notable_tags_stream(&self) -> (RoomNotableTags, Subscriber<RoomNotableTags>) {
+        let current_tags = self.tags().await.unwrap_or_else(|e| {
+            warn!("Failed to get tags from store: {}", e);
+            None
+        });
+        (RoomNotableTags::new(current_tags), self.notable_tags.subscribe())
     }
 
     /// Get the `RoomMember` with the given `user_id`.
@@ -717,23 +778,39 @@ impl Room {
 pub struct RoomInfo {
     /// The unique room id of the room.
     pub(crate) room_id: OwnedRoomId,
+
     /// The state of the room.
     pub(crate) room_state: RoomState,
-    /// The unread notifications counts.
+
+    /// The unread notifications counts, as returned by the server.
+    ///
+    /// These might be incorrect for encrypted rooms, since the server doesn't
+    /// have access to the content of the encrypted events.
     pub(crate) notification_counts: UnreadNotificationsCount,
+
     /// The summary of this room.
     pub(crate) summary: RoomSummary,
+
     /// Flag remembering if the room members are synced.
     pub(crate) members_synced: bool,
+
     /// The prev batch of this room we received during the last sync.
     pub(crate) last_prev_batch: Option<String>,
+
     /// How much we know about this room.
     pub(crate) sync_info: SyncInfo,
+
     /// Whether or not the encryption info was been synced.
     pub(crate) encryption_state_synced: bool,
+
     /// The last event send by sliding sync
     #[cfg(feature = "experimental-sliding-sync")]
     pub(crate) latest_event: Option<Box<LatestEvent>>,
+
+    /// Information about read receipts for this room.
+    #[serde(default)]
+    pub(crate) read_receipts: RoomReadReceipts,
+
     /// Base room info which holds some basic event contents important for the
     /// room state.
     pub(crate) base_info: Box<BaseRoomInfo>,
@@ -756,6 +833,23 @@ pub(crate) enum SyncInfo {
     FullySynced,
 }
 
+/// Holds information computed from the room account data `m.tag` events.
+#[derive(Clone, Debug, Default)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct RoomNotableTags {
+    /// Whether or not the room is marked as favorite.
+    pub is_favorite: bool,
+}
+
+impl RoomNotableTags {
+    /// Computes the provided tags to create a `RoomNotableTags` instance.
+    pub fn new(tags: Option<Tags>) -> Self {
+        RoomNotableTags {
+            is_favorite: tags.map_or(false, |tag| tag.contains_key(&TagName::Favorite)),
+        }
+    }
+}
+
 impl RoomInfo {
     #[doc(hidden)] // used by store tests, otherwise it would be pub(crate)
     pub fn new(room_id: &RoomId, room_state: RoomState) -> Self {
@@ -770,6 +864,7 @@ impl RoomInfo {
             encryption_state_synced: false,
             #[cfg(feature = "experimental-sliding-sync")]
             latest_event: None,
+            read_receipts: Default::default(),
             base_info: Box::new(BaseRoomInfo::new()),
         }
     }
@@ -911,6 +1006,16 @@ impl RoomInfo {
             content: RoomNameEventContent::new(name),
             event_id: None,
         }));
+    }
+
+    /// Update the room avatar
+    pub fn update_avatar(&mut self, url: Option<OwnedMxcUri>) {
+        self.base_info.avatar = url.map(|url| {
+            let mut content = RoomAvatarEventContent::new();
+            content.url = Some(url);
+
+            MinimalStateEvent::Original(OriginalMinimalStateEvent { content, event_id: None })
+        });
     }
 
     /// Update the notifications count
@@ -1179,6 +1284,7 @@ impl RoomStateFilter {
 #[cfg(test)]
 mod tests {
     use std::{
+        collections::BTreeMap,
         ops::Sub,
         str::FromStr,
         sync::Arc,
@@ -1188,7 +1294,7 @@ mod tests {
     use assign::assign;
     #[cfg(feature = "experimental-sliding-sync")]
     use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
-    use matrix_sdk_test::{async_test, ALICE, BOB, CAROL};
+    use matrix_sdk_test::{async_test, test_json, ALICE, BOB, CAROL};
     use ruma::{
         api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
         events::{
@@ -1204,13 +1310,14 @@ mod tests {
                 },
                 name::RoomNameEventContent,
             },
+            tag::{TagInfo, TagName},
             AnySyncStateEvent, StateEventType, StateUnsigned, SyncStateEvent,
         },
         room_alias_id, room_id,
         serde::Raw,
         user_id, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId, UserId,
     };
-    use serde_json::json;
+    use serde_json::{json, Value};
 
     #[cfg(feature = "experimental-sliding-sync")]
     use super::SyncInfo;
@@ -1219,7 +1326,7 @@ mod tests {
     use crate::latest_event::LatestEvent;
     use crate::{
         store::{MemoryStore, StateChanges, StateStore},
-        DisplayName, MinimalStateEvent, OriginalMinimalStateEvent,
+        DisplayName, MinimalStateEvent, OriginalMinimalStateEvent, RoomNotableTags,
     };
 
     #[test]
@@ -1251,6 +1358,7 @@ mod tests {
                 Raw::from_json_string(json!({"sender": "@u:i.uk"}).to_string()).unwrap().into(),
             ))),
             base_info: Box::new(BaseRoomInfo::new()),
+            read_receipts: Default::default(),
         };
 
         let info_json = json!({
@@ -1290,6 +1398,13 @@ mod tests {
                 "name": null,
                 "tombstone": null,
                 "topic": null,
+            },
+            "read_receipts": {
+                "num_unread": 0,
+                "num_mentions": 0,
+                "num_notifications": 0,
+                "latest_active": null,
+                "pending": []
             }
         });
 
@@ -1362,6 +1477,50 @@ mod tests {
         assert!(info.base_info.name.is_none());
         assert!(info.base_info.tombstone.is_none());
         assert!(info.base_info.topic.is_none());
+    }
+
+    #[async_test]
+    async fn when_set_notable_tags_is_called_then_notable_tags_subscriber_is_updated() {
+        let (_, room) = make_room(RoomState::Joined);
+        let (_, mut notable_tags_subscriber) = room.notable_tags_stream().await;
+
+        stream_assert::assert_pending!(notable_tags_subscriber);
+
+        let notable_tags = RoomNotableTags::new(None);
+        room.set_notable_tags(notable_tags);
+
+        use futures_util::FutureExt as _;
+        assert!(notable_tags_subscriber.next().now_or_never().is_some());
+        stream_assert::assert_pending!(notable_tags_subscriber);
+    }
+
+    #[test]
+    fn when_tags_has_favorite_tag_then_notable_tags_is_favorite_is_true() {
+        let tags = BTreeMap::from([(TagName::Favorite, TagInfo::new())]);
+        let notable_tags = RoomNotableTags::new(Some(tags));
+        assert!(notable_tags.is_favorite);
+    }
+
+    #[test]
+    fn when_tags_has_no_tags_then_notable_tags_is_favorite_is_false() {
+        let notable_tags = RoomNotableTags::new(None);
+        assert!(!notable_tags.is_favorite);
+    }
+
+    #[async_test]
+    async fn when_tags_are_inserted_in_room_account_data_then_initial_notable_tags_is_updated() {
+        let (store, room) = make_room(RoomState::Joined);
+        let mut changes = StateChanges::new("".to_owned());
+
+        let tag_json: &Value = &test_json::TAG;
+        let tag_raw = Raw::new(tag_json).unwrap().cast();
+        let tag_event = tag_raw.deserialize().unwrap();
+        changes.add_room_account_data(room.room_id(), tag_event, tag_raw);
+
+        store.save_changes(&changes).await.unwrap();
+
+        let (initial_notable_tags, _) = room.notable_tags_stream().await;
+        assert!(initial_notable_tags.is_favorite);
     }
 
     fn make_room(room_type: RoomState) -> (Arc<MemoryStore>, Room) {
@@ -1627,6 +1786,50 @@ mod tests {
         );
     }
 
+    #[async_test]
+    #[cfg(feature = "experimental-sliding-sync")]
+    async fn test_setting_the_latest_event_doesnt_cause_a_room_info_update() {
+        // Given a room,
+        let client = crate::BaseClient::new();
+
+        client
+            .set_session_meta(crate::SessionMeta {
+                user_id: user_id!("@alice:example.org").into(),
+                device_id: ruma::device_id!("AYEAYEAYE").into(),
+            })
+            .await
+            .unwrap();
+
+        let room_id = room_id!("!test:localhost");
+        let room = client.get_or_create_room(room_id, RoomState::Joined);
+
+        // That has an encrypted event,
+        add_encrypted_event(&room, "$A");
+        // Sanity: it has no latest_event
+        assert!(room.latest_event().is_none());
+
+        // When I set up an observer on the latest_event,
+        let mut room_info_subscriber = room.subscribe_info();
+
+        // And I provide a decrypted event to replace the encrypted one,
+        let event = make_latest_event("$A");
+
+        let mut changes = StateChanges::default();
+        room.on_latest_event_decrypted(event.clone(), 0, &mut changes);
+
+        // The subscriber isn't notified at this point.
+        stream_assert::assert_pending!(room_info_subscriber);
+
+        // Then updating the room info will store the event,
+        client.apply_changes(&changes);
+        assert_eq!(room.latest_event().unwrap().event_id(), event.event_id());
+
+        // And wake up the subscriber.
+        use futures_util::FutureExt as _;
+        assert!(room_info_subscriber.next().now_or_never().is_some());
+        stream_assert::assert_pending!(room_info_subscriber);
+    }
+
     #[test]
     #[cfg(feature = "experimental-sliding-sync")]
     fn when_we_provide_a_newly_decrypted_event_it_replaces_latest_event() {
@@ -1638,7 +1841,9 @@ mod tests {
 
         // When I provide a decrypted event to replace the encrypted one
         let event = make_latest_event("$A");
-        room.on_latest_event_decrypted(event.clone(), 0);
+        let mut changes = StateChanges::default();
+        room.on_latest_event_decrypted(event.clone(), 0, &mut changes);
+        room.set_room_info(changes.room_infos.get(room.room_id()).cloned().unwrap());
 
         // Then is it stored
         assert_eq!(room.latest_event().unwrap().event_id(), event.event_id());
@@ -1658,7 +1863,9 @@ mod tests {
         // When I provide a latest event
         let new_event = make_latest_event("$1");
         let new_event_index = 1;
-        room.on_latest_event_decrypted(new_event.clone(), new_event_index);
+        let mut changes = StateChanges::default();
+        room.on_latest_event_decrypted(new_event.clone(), new_event_index, &mut changes);
+        room.set_room_info(changes.room_infos.get(room.room_id()).cloned().unwrap());
 
         // Then the encrypted events list is shortened to only newer events
         let enc_evs = room.latest_encrypted_events();
@@ -1683,7 +1890,9 @@ mod tests {
         // When I provide a latest event and say it was the very latest
         let new_event = make_latest_event("$3");
         let new_event_index = 3;
-        room.on_latest_event_decrypted(new_event, new_event_index);
+        let mut changes = StateChanges::default();
+        room.on_latest_event_decrypted(new_event, new_event_index, &mut changes);
+        room.set_room_info(changes.room_infos.get(room.room_id()).cloned().unwrap());
 
         // Then the encrypted events list ie empty
         let enc_evs = room.latest_encrypted_events();

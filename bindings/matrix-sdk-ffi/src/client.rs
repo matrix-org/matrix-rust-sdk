@@ -236,7 +236,7 @@ impl Client {
     }
 }
 
-#[uniffi::export]
+#[uniffi::export(async_runtime = "tokio")]
 impl Client {
     /// Login using a username and password.
     pub fn login(
@@ -259,7 +259,7 @@ impl Client {
         })
     }
 
-    pub fn get_media_file(
+    pub async fn get_media_file(
         &self,
         media_source: Arc<MediaSource>,
         body: Option<String>,
@@ -267,24 +267,22 @@ impl Client {
         use_cache: bool,
         temp_dir: Option<String>,
     ) -> Result<Arc<MediaFileHandle>, ClientError> {
-        let client = self.inner.clone();
         let source = (*media_source).clone();
         let mime_type: mime::Mime = mime_type.parse()?;
 
-        RUNTIME.block_on(async move {
-            let handle = client
-                .media()
-                .get_media_file(
-                    &MediaRequest { source, format: MediaFormat::File },
-                    body,
-                    &mime_type,
-                    use_cache,
-                    temp_dir,
-                )
-                .await?;
+        let handle = self
+            .inner
+            .media()
+            .get_media_file(
+                &MediaRequest { source, format: MediaFormat::File },
+                body,
+                &mime_type,
+                use_cache,
+                temp_dir,
+            )
+            .await?;
 
-            Ok(Arc::new(MediaFileHandle::new(handle)))
-        })
+        Ok(Arc::new(MediaFileHandle::new(handle)))
     }
 
     /// Restores the client from a `Session`.
@@ -350,7 +348,7 @@ impl Client {
     }
 }
 
-#[uniffi::export]
+#[uniffi::export(async_runtime = "tokio")]
 impl Client {
     pub fn set_delegate(
         self: Arc<Self>,
@@ -488,68 +486,65 @@ impl Client {
         })
     }
 
-    pub fn upload_media(
+    pub async fn upload_media(
         &self,
         mime_type: String,
         data: Vec<u8>,
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
     ) -> Result<String, ClientError> {
-        let l = self.inner.clone();
+        let mime_type: mime::Mime = mime_type.parse().context("Parsing mime type")?;
+        let request = self.inner.media().upload(&mime_type, data);
 
-        RUNTIME.block_on(async move {
-            let mime_type: mime::Mime = mime_type.parse().context("Parsing mime type")?;
-            let request = l.media().upload(&mime_type, data);
-            if let Some(progress_watcher) = progress_watcher {
-                let mut subscriber = request.subscribe_to_send_progress();
-                RUNTIME.spawn(async move {
-                    while let Some(progress) = subscriber.next().await {
-                        progress_watcher.transmission_progress(progress.into());
-                    }
-                });
-            }
-            let response = request.await?;
-            Ok(String::from(response.content_uri))
-        })
+        if let Some(progress_watcher) = progress_watcher {
+            let mut subscriber = request.subscribe_to_send_progress();
+            RUNTIME.spawn(async move {
+                while let Some(progress) = subscriber.next().await {
+                    progress_watcher.transmission_progress(progress.into());
+                }
+            });
+        }
+
+        let response = request.await?;
+
+        Ok(String::from(response.content_uri))
     }
 
-    pub fn get_media_content(
+    pub async fn get_media_content(
         &self,
         media_source: Arc<MediaSource>,
     ) -> Result<Vec<u8>, ClientError> {
-        let l = self.inner.clone();
         let source = (*media_source).clone();
 
-        RUNTIME.block_on(async move {
-            Ok(l.media()
-                .get_media_content(&MediaRequest { source, format: MediaFormat::File }, true)
-                .await?)
-        })
+        Ok(self
+            .inner
+            .media()
+            .get_media_content(&MediaRequest { source, format: MediaFormat::File }, true)
+            .await?)
     }
 
-    pub fn get_media_thumbnail(
+    pub async fn get_media_thumbnail(
         &self,
         media_source: Arc<MediaSource>,
         width: u64,
         height: u64,
     ) -> Result<Vec<u8>, ClientError> {
-        let l = self.inner.clone();
         let source = (*media_source).clone();
 
-        RUNTIME.block_on(async move {
-            Ok(l.media()
-                .get_media_content(
-                    &MediaRequest {
-                        source,
-                        format: MediaFormat::Thumbnail(MediaThumbnailSize {
-                            method: Method::Scale,
-                            width: UInt::new(width).unwrap(),
-                            height: UInt::new(height).unwrap(),
-                        }),
-                    },
-                    true,
-                )
-                .await?)
-        })
+        Ok(self
+            .inner
+            .media()
+            .get_media_content(
+                &MediaRequest {
+                    source,
+                    format: MediaFormat::Thumbnail(MediaThumbnailSize {
+                        method: Method::Scale,
+                        width: UInt::new(width).unwrap(),
+                        height: UInt::new(height).unwrap(),
+                    }),
+                },
+                true,
+            )
+            .await?)
     }
 
     pub fn get_session_verification_controller(

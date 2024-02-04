@@ -84,6 +84,7 @@ impl TestClientBuilder {
         // safe to assume we have not registered this user yet, but ignore if we did
 
         let auth = client.matrix_auth();
+        let mut try_login = true;
         if let Err(resp) = auth.register(RegistrationRequest::new()).await {
             // FIXME: do actually check the registration types...
             if let Some(_response) = resp.as_uiaa_response() {
@@ -93,11 +94,13 @@ impl TestClientBuilder {
 
                     auth: Some(uiaa::AuthData::Dummy(uiaa::Dummy::new())),
                 });
-                // we don't care if this failed, then we just try to login anyways
-                let _ = auth.register(request).await;
+                // if this failed, we will attempt to login after.
+                try_login = auth.register(request).await.is_err();
             }
         }
-        auth.login_username(&self.username, &self.username).await?;
+        if try_login {
+            auth.login_username(&self.username, &self.username).await?;
+        }
         users.insert(self.username, (client.clone(), tmp_dir)); // keeping temp dir around so it doesn't get destroyed yet
 
         Ok(client)

@@ -731,14 +731,7 @@ impl Encryption {
         let Some(olm) = olm.as_ref() else { return Ok(None) };
         let identity = olm.get_identity(user_id, None).await?;
 
-        Ok(identity.map(|i| match i {
-            matrix_sdk_base::crypto::UserIdentities::Own(i) => {
-                UserIdentity::new_own(self.client.clone(), i)
-            }
-            matrix_sdk_base::crypto::UserIdentities::Other(i) => {
-                UserIdentity::new_other(self.client.clone(), i)
-            }
-        }))
+        Ok(identity.map(|i| UserIdentity::new(self.client.clone(), i)))
     }
 
     /// Returns a stream of device updates, allowing users to listen for
@@ -1231,15 +1224,40 @@ impl Encryption {
         Ok(olm_machine.uploaded_key_count().await?)
     }
 
-    /// Enables event listeners for the E2EE support.
+    /// Bootstrap encryption and enables event listeners for the E2EE support.
     ///
-    /// For now enables only listeners for backups. Should be called once we
+    /// Based on the `EncryptionSettings`, this call might:
+    /// - Bootstrap cross-signing if needed (POST `/device_signing/upload`)
+    /// - Create a key backup if needed (POST `/room_keys/version`)
+    /// - Create a secret storage if needed (PUT `/account_data/{type}`)
+    ///
+    /// As part of this process, and if needed, the current device keys would be
+    /// uploaded to the server, new account data would be added, and cross
+    /// signing keys and signatures might be uploaded.
+    ///
+    /// Should be called once we
     /// created a [`OlmMachine`], i.e. after logging in.
-    pub(crate) async fn run_initialization_tasks(&self) -> Result<()> {
+    ///
+    /// # Arguments
+    ///
+    /// * `auth_data` - Some requests may require re-authentication. To prevent
+    /// the user from having to re-enter their password (or use other methods),
+    /// we can provide the authentication data here. This is necessary for
+    /// uploading cross-signing keys. However, please note that there is a
+    /// proposal (MSC3967) to remove this requirement, which would allow for
+    /// the initial upload of cross-signing keys without authentication,
+    /// rendering this parameter obsolete.
+    pub(crate) async fn run_initialization_tasks(&self, auth_data: Option<AuthData>) -> Result<()> {
         let mut tasks = self.client.inner.tasks.lock().unwrap();
 
         let this = self.clone();
         tasks.setup_e2ee = Some(spawn(async move {
+            if this.settings().auto_enable_cross_signing {
+                if let Err(e) = this.bootstrap_cross_signing_if_needed(auth_data).await {
+                    error!("Couldn't bootstrap cross signing {e:?}");
+                }
+            }
+
             if let Err(e) = this.backups().setup_and_resume().await {
                 error!("Couldn't setup and resume backups {e:?}");
             }
@@ -1452,6 +1470,21 @@ mod tests {
         let initial_olm_machine =
             client1.olm_machine().await.clone().expect("must have an olm machine");
 
+        // Also enable backup to check that new machine has the same backup keys.
+        let decryption_key = matrix_sdk_base::crypto::store::BackupDecryptionKey::new()
+            .expect("Can't create new recovery key");
+        let backup_key = decryption_key.megolm_v1_public_key();
+        backup_key.set_version("1".to_owned());
+        initial_olm_machine
+            .backup_machine()
+            .save_decryption_key(Some(decryption_key.to_owned()), Some("1".to_owned()))
+            .await
+            .expect("Should save");
+
+        initial_olm_machine.backup_machine().enable_backup_v1(backup_key.clone()).await.unwrap();
+
+        assert!(client1.encryption().backups().are_enabled().await);
+
         // The other client can't take the lock too.
         let acquired2 = client2.encryption().try_lock_store_once().await.unwrap();
         assert!(acquired2.is_none());
@@ -1486,7 +1519,16 @@ mod tests {
 
         // But now its olm machine has been invalidated and thus regenerated!
         let olm_machine = client1.olm_machine().await.clone().expect("must have an olm machine");
+
         assert!(!initial_olm_machine.same_as(&olm_machine));
+
+        let backup_key_new = olm_machine.backup_machine().get_backup_keys().await.unwrap();
+        assert!(backup_key_new.decryption_key.is_some());
+        assert_eq!(
+            backup_key_new.decryption_key.unwrap().megolm_v1_public_key().to_base64(),
+            backup_key.to_base64()
+        );
+        assert!(client1.encryption().backups().are_enabled().await);
     }
 
     #[cfg(feature = "sqlite")]

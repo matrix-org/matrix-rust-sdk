@@ -45,7 +45,7 @@ use wiremock::{
 use crate::{logged_in_client, mock_sync};
 
 #[async_test]
-async fn back_pagination() {
+async fn test_back_pagination() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
@@ -58,7 +58,7 @@ async fn back_pagination() {
     server.reset().await;
 
     let room = client.get_room(room_id).unwrap();
-    let timeline = Arc::new(room.timeline().await);
+    let timeline = Arc::new(room.timeline().await.unwrap());
     let (_, mut timeline_stream) = timeline.subscribe().await;
     let mut back_pagination_status = timeline.back_pagination_status();
 
@@ -136,7 +136,7 @@ async fn back_pagination() {
 }
 
 #[async_test]
-async fn back_pagination_highlighted() {
+async fn test_back_pagination_highlighted() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
@@ -155,7 +155,7 @@ async fn back_pagination_highlighted() {
     server.reset().await;
 
     let room = client.get_room(room_id).unwrap();
-    let timeline = Arc::new(room.timeline().await);
+    let timeline = Arc::new(room.timeline().await.unwrap());
     let (_, mut timeline_stream) = timeline.subscribe().await;
 
     let response_json = json!({
@@ -223,7 +223,7 @@ async fn back_pagination_highlighted() {
 }
 
 #[async_test]
-async fn wait_for_token() {
+async fn test_wait_for_token() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
@@ -237,7 +237,7 @@ async fn wait_for_token() {
     server.reset().await;
 
     let room = client.get_room(room_id).unwrap();
-    let timeline = Arc::new(room.timeline().await);
+    let timeline = Arc::new(room.timeline().await.unwrap());
 
     let from = "t392-516_47314_0_7_1_1_1_11444_1";
     let mut back_pagination_status = timeline.back_pagination_status();
@@ -284,7 +284,7 @@ async fn wait_for_token() {
 }
 
 #[async_test]
-async fn dedup() {
+async fn test_dedup() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
@@ -298,7 +298,7 @@ async fn dedup() {
     server.reset().await;
 
     let room = client.get_room(room_id).unwrap();
-    let timeline = Arc::new(room.timeline().await);
+    let timeline = Arc::new(room.timeline().await.unwrap());
 
     let from = "t392-516_47314_0_7_1_1_1_11444_1";
 
@@ -340,7 +340,7 @@ async fn dedup() {
 }
 
 #[async_test]
-async fn timeline_reset_while_paginating() {
+async fn test_timeline_reset_while_paginating() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
@@ -354,7 +354,7 @@ async fn timeline_reset_while_paginating() {
     server.reset().await;
 
     let room = client.get_room(room_id).unwrap();
-    let timeline = Arc::new(room.timeline().await);
+    let timeline = Arc::new(room.timeline().await.unwrap());
 
     sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
@@ -517,7 +517,7 @@ pub static ROOM_MESSAGES_BATCH_2: Lazy<JsonValue> = Lazy::new(|| {
 });
 
 #[async_test]
-async fn empty_chunk() {
+async fn test_empty_chunk() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
@@ -530,7 +530,7 @@ async fn empty_chunk() {
     server.reset().await;
 
     let room = client.get_room(room_id).unwrap();
-    let timeline = Arc::new(room.timeline().await);
+    let timeline = Arc::new(room.timeline().await.unwrap());
     let (_, mut timeline_stream) = timeline.subscribe().await;
     let mut back_pagination_status = timeline.back_pagination_status();
 
@@ -607,7 +607,7 @@ async fn empty_chunk() {
 }
 
 #[async_test]
-async fn until_num_items_with_empty_chunk() {
+async fn test_until_num_items_with_empty_chunk() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
@@ -620,7 +620,7 @@ async fn until_num_items_with_empty_chunk() {
     server.reset().await;
 
     let room = client.get_room(room_id).unwrap();
-    let timeline = Arc::new(room.timeline().await);
+    let timeline = Arc::new(room.timeline().await.unwrap());
     let (_, mut timeline_stream) = timeline.subscribe().await;
     let mut back_pagination_status = timeline.back_pagination_status();
 

@@ -23,13 +23,16 @@ use ruma::{
     events::{
         direct::DirectEventContent,
         room::{message::ImageMessageEventContent, ImageInfo, MediaSource},
+        AnyInitialStateEvent,
     },
-    mxc_uri, room_id, uint, user_id,
+    mxc_uri, room_id,
+    serde::Raw,
+    uint, user_id, OwnedUserId,
 };
-use serde_json::json;
+use serde_json::{json, Value as JsonValue};
 use wiremock::{
     matchers::{header, method, path, path_regex},
-    Mock, ResponseTemplate,
+    Mock, Request, ResponseTemplate,
 };
 
 use crate::{logged_in_client, mock_sync, no_retry_test_client};
@@ -279,18 +282,68 @@ async fn left_rooms() {
 async fn get_media_content() {
     let (client, server) = logged_in_client().await;
 
+    let media = client.media();
+
     let request = MediaRequest {
         source: MediaSource::Plain(mxc_uri!("mxc://localhost/textfile").to_owned()),
         format: MediaFormat::File,
     };
 
-    Mock::given(method("GET"))
-        .and(path("/_matrix/media/r0/download/localhost/textfile"))
-        .respond_with(ResponseTemplate::new(200).set_body_string("Some very interesting text."))
-        .mount(&server)
-        .await;
+    // First time, without the cache.
+    {
+        let expected_content = "Hello, World!";
+        let _mock_guard = Mock::given(method("GET"))
+            .and(path("/_matrix/media/r0/download/localhost/textfile"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(expected_content))
+            .mount_as_scoped(&server)
+            .await;
 
-    client.media().get_media_content(&request, false).await.unwrap();
+        assert_eq!(
+            media.get_media_content(&request, false).await.unwrap(),
+            expected_content.as_bytes()
+        );
+    }
+
+    // Second time, without the cache, error from the HTTP server.
+    {
+        let _mock_guard = Mock::given(method("GET"))
+            .and(path("/_matrix/media/r0/download/localhost/textfile"))
+            .respond_with(ResponseTemplate::new(500))
+            .mount_as_scoped(&server)
+            .await;
+
+        assert!(media.get_media_content(&request, false).await.is_err());
+    }
+
+    let expected_content = "Hello, World (2)!";
+
+    // Third time, with the cache.
+    {
+        let _mock_guard = Mock::given(method("GET"))
+            .and(path("/_matrix/media/r0/download/localhost/textfile"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(expected_content))
+            .mount_as_scoped(&server)
+            .await;
+
+        assert_eq!(
+            media.get_media_content(&request, true).await.unwrap(),
+            expected_content.as_bytes()
+        );
+    }
+
+    // Third time, with the cache, the HTTP server isn't reached.
+    {
+        let _mock_guard = Mock::given(method("GET"))
+            .and(path("/_matrix/media/r0/download/localhost/textfile"))
+            .respond_with(ResponseTemplate::new(500))
+            .mount_as_scoped(&server)
+            .await;
+
+        assert_eq!(
+            client.media().get_media_content(&request, true).await.unwrap(),
+            expected_content.as_bytes()
+        );
+    }
 }
 
 #[async_test]
@@ -472,7 +525,7 @@ async fn marking_room_as_dm() {
         .mount(&server)
         .await;
 
-    let put_direct_content_matcher = |request: &wiremock::Request| {
+    let put_direct_content_matcher = |request: &Request| {
         let content: DirectEventContent = request.body_json().expect(
             "The body of the PUT /account_data request should be a valid DirectEventContent",
         );
@@ -640,7 +693,7 @@ async fn test_encrypt_room_event() {
 
     let event_content_matcher = {
         let event_content = event_content.to_owned();
-        move |request: &wiremock::Request| {
+        move |request: &Request| {
             let mut path_segments =
                 request.url.path_segments().expect("The URL should be able to be a base");
 
@@ -720,4 +773,128 @@ async fn test_encrypt_room_event() {
         "Hello",
         "The now decrypted message should match to our plaintext payload"
     );
+}
+
+#[cfg(not(feature = "e2e-encryption"))]
+#[async_test]
+async fn create_dm_non_encrypted() {
+    let (client, server) = logged_in_client().await;
+    let user_id = user_id!("@invitee:localhost");
+
+    Mock::given(method("POST"))
+        .and(path("/_matrix/client/r0/createRoom"))
+        .and(|request: &Request| {
+            // The body is JSON.
+            let Ok(body) = request.body_json::<Raw<JsonValue>>() else {
+                return false;
+            };
+
+            // The body's `direct` field is set to `true`.
+            if !body.get_field::<bool>("is_direct").is_ok_and(|b| b == Some(true)) {
+                return false;
+            }
+
+            // The body's `preset` field is set to `trusted_private_chat`.
+            if !body
+                .get_field::<String>("preset")
+                .is_ok_and(|s| s.as_deref() == Some("trusted_private_chat"))
+            {
+                return false;
+            }
+
+            // The body's `invite` field is set to an array with the user ID.
+            if !body
+                .get_field::<Vec<OwnedUserId>>("invite")
+                .is_ok_and(|v| v.as_deref() == Some(&[user_id.to_owned()]))
+            {
+                return false;
+            }
+
+            // There is no initial state.
+            body.get_field::<Vec<Raw<AnyInitialStateEvent>>>("initial_state")
+                .is_ok_and(|v| v.is_none())
+        })
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+          "room_id": "!sefiuhWgwghwWgh:example.com"
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    client.create_dm(user_id).await.unwrap();
+}
+
+#[cfg(feature = "e2e-encryption")]
+#[async_test]
+async fn create_dm_encrypted() {
+    let (client, server) = logged_in_client().await;
+    let user_id = user_id!("@invitee:localhost");
+
+    Mock::given(method("POST"))
+        .and(path("/_matrix/client/r0/createRoom"))
+        .and(|request: &Request| {
+            // The body is JSON.
+            let Ok(body) = request.body_json::<Raw<JsonValue>>() else {
+                return false;
+            };
+
+            // The body's `direct` field is set to `true`.
+            if !body.get_field::<bool>("is_direct").is_ok_and(|b| b == Some(true)) {
+                return false;
+            }
+
+            // The body's `preset` field is set to `trusted_private_chat`.
+            if !body
+                .get_field::<String>("preset")
+                .is_ok_and(|s| s.as_deref() == Some("trusted_private_chat"))
+            {
+                return false;
+            }
+
+            // The body's `invite` field is set to an array with the user ID.
+            if !body
+                .get_field::<Vec<OwnedUserId>>("invite")
+                .is_ok_and(|v| v.as_deref() == Some(&[user_id.to_owned()]))
+            {
+                return false;
+            }
+
+            // The body's `initial_state` field is set to an array with an
+            // `m.room.encryption` event.
+            body.get_field::<Vec<Raw<AnyInitialStateEvent>>>("initial_state").is_ok_and(|v| {
+                let Some(v) = v else {
+                    return false;
+                };
+
+                if v.len() != 1 {
+                    return false;
+                }
+
+                let initial_event = &v[0];
+
+                initial_event
+                    .get_field::<String>("type")
+                    .is_ok_and(|s| s.as_deref() == Some("m.room.encryption"))
+            })
+        })
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+          "room_id": "!sefiuhWgwghwWgh:example.com"
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    client.create_dm(user_id).await.unwrap();
+}
+
+#[async_test]
+async fn create_dm_error() {
+    let (client, _server) = logged_in_client().await;
+    let user_id = user_id!("@invitee:localhost");
+
+    // The endpoint is not mocked so we encounter a 404.
+    let error = client.create_dm(user_id).await.unwrap_err();
+    let client_api_error = error.as_client_api_error().unwrap();
+
+    assert_eq!(client_api_error.status_code, 404);
 }

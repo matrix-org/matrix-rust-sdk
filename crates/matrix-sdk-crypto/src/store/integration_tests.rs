@@ -3,6 +3,7 @@
 macro_rules! cryptostore_integration_tests {
     () => {
         mod cryptostore_integration_tests {
+            use std::time::Duration;
             use std::collections::{BTreeMap, HashMap};
 
             use assert_matches::assert_matches;
@@ -14,7 +15,7 @@ macro_rules! cryptostore_integration_tests {
                 room_id,
                 serde::{Base64, Raw},
                 to_device::DeviceIdOrAllDevices,
-                user_id, DeviceId, JsOption, OwnedDeviceId, OwnedUserId, TransactionId, UserId,
+                user_id, DeviceId, JsOption, OwnedDeviceId, OwnedUserId, RoomId, TransactionId, UserId
             };
             use serde_json::value::to_raw_value;
             use $crate::{
@@ -79,7 +80,7 @@ macro_rules! cryptostore_integration_tests {
                 let alice = Account::with_device_id(alice_id(), alice_device_id());
                 let mut bob = Account::with_device_id(bob_id(), bob_device_id());
 
-                bob.generate_one_time_keys_helper(1);
+                bob.generate_one_time_keys(1);
                 let one_time_key = *bob.one_time_keys().values().next().unwrap();
                 let sender_key = bob.identity_keys().curve25519;
                 let session = alice
@@ -290,6 +291,54 @@ macro_rules! cryptostore_integration_tests {
 
                 let to_back_up = store.inbound_group_sessions_for_backup(1).await.unwrap();
                 assert_eq!(to_back_up, vec![session])
+            }
+
+            #[async_test]
+            async fn mark_inbound_group_sessions_as_backed_up() {
+                // Given a store exists with multiple unbacked-up sessions
+                let (account, store) =
+                    get_loaded_store("mark_inbound_group_sessions_as_backed_up").await;
+                let room_id = &room_id!("!test:localhost");
+                let mut sessions: Vec<InboundGroupSession> = Vec::with_capacity(10);
+                for i in 0..10 {
+                    sessions.push(account.create_group_session_pair_with_defaults(room_id).await.1);
+                }
+                let changes = Changes { inbound_group_sessions: sessions.clone(), ..Default::default() };
+                store.save_changes(changes).await.expect("Can't save group session");
+                assert_eq!(store.inbound_group_sessions_for_backup(100).await.unwrap().len(), 10);
+
+                fn session_info(session: &InboundGroupSession) -> (&RoomId, &str) {
+                    (&session.room_id(), &session.session_id())
+                }
+
+                // When I mark some as backed up
+                let x = store.mark_inbound_group_sessions_as_backed_up(&[
+                    session_info(&sessions[1]),
+                    session_info(&sessions[3]),
+                    session_info(&sessions[5]),
+                    session_info(&sessions[7]),
+                    session_info(&sessions[9]),
+                ]).await.expect("Failed to mark sessions as backed up");
+
+
+                // And ask which still need backing up
+                let to_back_up = store.inbound_group_sessions_for_backup(10).await.unwrap();
+                let needs_backing_up = |i: usize| to_back_up.iter().any(|s| s.session_id() == sessions[i].session_id());
+
+                // Then the sessions we said were backed up no longer need backing up
+                assert!(!needs_backing_up(1));
+                assert!(!needs_backing_up(3));
+                assert!(!needs_backing_up(5));
+                assert!(!needs_backing_up(7));
+                assert!(!needs_backing_up(9));
+
+                // And the sessions we didn't mention still need backing up
+                assert!(needs_backing_up(0));
+                assert!(needs_backing_up(2));
+                assert!(needs_backing_up(4));
+                assert!(needs_backing_up(6));
+                assert!(needs_backing_up(8));
+                assert_eq!(to_back_up.len(), 5);
             }
 
             #[async_test]
@@ -807,12 +856,15 @@ macro_rules! cryptostore_integration_tests {
                 let settings_1 = RoomSettings {
                     algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
                     only_allow_trusted_devices: true,
+                    session_rotation_period: Some(Duration::from_secs(10)),
+                    session_rotation_period_messages: Some(123),
                 };
 
                 let room_2 = room_id!("!test_2:localhost");
                 let settings_2 = RoomSettings {
                     algorithm: EventEncryptionAlgorithm::OlmV1Curve25519AesSha2,
                     only_allow_trusted_devices: false,
+                    ..Default::default()
                 };
 
                 let room_3 = room_id!("!test_3:localhost");

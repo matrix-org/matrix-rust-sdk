@@ -216,3 +216,113 @@ where
         event.as_original().context("Failed to get original content")?.content.clone();
     Ok(original_content)
 }
+
+#[derive(Clone, uniffi::Enum)]
+pub enum StateEventType {
+    CallMember,
+    PolicyRuleRoom,
+    PolicyRuleServer,
+    PolicyRuleUser,
+    RoomAliases,
+    RoomAvatar,
+    RoomCanonicalAlias,
+    RoomCreate,
+    RoomEncryption,
+    RoomGuestAccess,
+    RoomHistoryVisibility,
+    RoomJoinRules,
+    RoomMemberEvent,
+    RoomName,
+    RoomPinnedEvents,
+    RoomPowerLevels,
+    RoomServerAcl,
+    RoomThirdPartyInvite,
+    RoomTombstone,
+    RoomTopic,
+    SpaceChild,
+    SpaceParent,
+}
+
+impl From<StateEventType> for ruma::events::StateEventType {
+    fn from(val: StateEventType) -> Self {
+        match val {
+            StateEventType::CallMember => Self::CallMember,
+            StateEventType::PolicyRuleRoom => Self::PolicyRuleRoom,
+            StateEventType::PolicyRuleServer => Self::PolicyRuleServer,
+            StateEventType::PolicyRuleUser => Self::PolicyRuleUser,
+            StateEventType::RoomAliases => Self::RoomAliases,
+            StateEventType::RoomAvatar => Self::RoomAvatar,
+            StateEventType::RoomCanonicalAlias => Self::RoomCanonicalAlias,
+            StateEventType::RoomCreate => Self::RoomCreate,
+            StateEventType::RoomEncryption => Self::RoomEncryption,
+            StateEventType::RoomGuestAccess => Self::RoomGuestAccess,
+            StateEventType::RoomHistoryVisibility => Self::RoomHistoryVisibility,
+            StateEventType::RoomJoinRules => Self::RoomJoinRules,
+            StateEventType::RoomMemberEvent => Self::RoomMember,
+            StateEventType::RoomName => Self::RoomName,
+            StateEventType::RoomPinnedEvents => Self::RoomPinnedEvents,
+            StateEventType::RoomPowerLevels => Self::RoomPowerLevels,
+            StateEventType::RoomServerAcl => Self::RoomServerAcl,
+            StateEventType::RoomThirdPartyInvite => Self::RoomThirdPartyInvite,
+            StateEventType::RoomTombstone => Self::RoomTombstone,
+            StateEventType::RoomTopic => Self::RoomTopic,
+            StateEventType::SpaceChild => Self::SpaceChild,
+            StateEventType::SpaceParent => Self::SpaceParent,
+        }
+    }
+}
+
+#[derive(Clone, uniffi::Enum)]
+pub enum MessageLikeEventType {
+    CallAnswer,
+    CallCandidates,
+    CallHangup,
+    CallInvite,
+    KeyVerificationAccept,
+    KeyVerificationCancel,
+    KeyVerificationDone,
+    KeyVerificationKey,
+    KeyVerificationMac,
+    KeyVerificationReady,
+    KeyVerificationStart,
+    PollEnd,
+    PollResponse,
+    PollStart,
+    Reaction,
+    RoomEncrypted,
+    RoomMessage,
+    RoomRedaction,
+    Sticker,
+    UnstablePollEnd,
+    UnstablePollResponse,
+    UnstablePollStart,
+}
+
+impl From<MessageLikeEventType> for ruma::events::MessageLikeEventType {
+    fn from(val: MessageLikeEventType) -> Self {
+        match val {
+            MessageLikeEventType::CallAnswer => Self::CallAnswer,
+            MessageLikeEventType::CallInvite => Self::CallInvite,
+            MessageLikeEventType::CallHangup => Self::CallHangup,
+            MessageLikeEventType::CallCandidates => Self::CallCandidates,
+            MessageLikeEventType::KeyVerificationReady => Self::KeyVerificationReady,
+            MessageLikeEventType::KeyVerificationStart => Self::KeyVerificationStart,
+            MessageLikeEventType::KeyVerificationCancel => Self::KeyVerificationCancel,
+            MessageLikeEventType::KeyVerificationAccept => Self::KeyVerificationAccept,
+            MessageLikeEventType::KeyVerificationKey => Self::KeyVerificationKey,
+            MessageLikeEventType::KeyVerificationMac => Self::KeyVerificationMac,
+            MessageLikeEventType::KeyVerificationDone => Self::KeyVerificationDone,
+            MessageLikeEventType::Reaction => Self::Reaction,
+            MessageLikeEventType::RoomEncrypted => Self::RoomEncrypted,
+            MessageLikeEventType::RoomMessage => Self::RoomMessage,
+            MessageLikeEventType::RoomRedaction => Self::RoomRedaction,
+            MessageLikeEventType::Sticker => Self::Sticker,
+            MessageLikeEventType::PollEnd => Self::PollEnd,
+            MessageLikeEventType::PollResponse => Self::PollResponse,
+            MessageLikeEventType::PollStart => Self::PollStart,
+            MessageLikeEventType::UnstablePollEnd => Self::UnstablePollEnd,
+            MessageLikeEventType::UnstablePollResponse => Self::UnstablePollResponse,
+            MessageLikeEventType::UnstablePollStart => Self::UnstablePollStart,
+        }
+    }
+}

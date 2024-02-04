@@ -107,12 +107,13 @@ async fn request_verification_handler(client: Client, request: VerificationReque
             VerificationRequestState::Created { .. }
             | VerificationRequestState::Requested { .. }
             | VerificationRequestState::Ready { .. } => (),
-            VerificationRequestState::Transitioned { verification } => match verification {
-                Verification::SasV1(s) => {
+            VerificationRequestState::Transitioned { verification } => {
+                // We only support SAS verification.
+                if let Verification::SasV1(s) = verification {
                     tokio::spawn(sas_verification_handler(client, s));
                     break;
                 }
-            },
+            }
             VerificationRequestState::Done | VerificationRequestState::Cancelled(_) => break,
         }
     }

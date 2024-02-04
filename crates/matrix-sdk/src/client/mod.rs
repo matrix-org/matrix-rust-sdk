@@ -27,10 +27,12 @@ use futures_core::Stream;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::store::LockableCryptoStore;
 use matrix_sdk_base::{
-    store::DynStateStore, BaseClient, RoomState, RoomStateFilter, SendOutsideWasm, SessionMeta,
-    SyncOutsideWasm,
+    store::DynStateStore, sync::Notification, BaseClient, RoomState, RoomStateFilter,
+    SendOutsideWasm, SessionMeta, SyncOutsideWasm,
 };
 use matrix_sdk_common::instant::Instant;
+#[cfg(feature = "e2e-encryption")]
+use ruma::events::{room::encryption::RoomEncryptionEventContent, InitialStateEvent};
 use ruma::{
     api::{
         client::{
@@ -45,7 +47,7 @@ use ruma::{
             filter::{create_filter::v3::Request as FilterUploadRequest, FilterDefinition},
             membership::{join_room_by_id, join_room_by_id_or_alias},
             profile::get_profile,
-            push::{get_notifications::v3::Notification, set_pusher, Pusher},
+            push::{set_pusher, Pusher},
             room::create_room,
             session::login::v3::DiscoveryInfo,
             sync::sync_events,
@@ -1188,13 +1190,30 @@ impl Client {
     /// Convenience shorthand for [`create_room`][Self::create_room] with the
     /// given user being invited, the room marked `is_direct` and both the
     /// creator and invitee getting the default maximum power level.
+    ///
+    /// If the `e2e-encryption` feature is enabled, the room will also be
+    /// encrypted.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The ID of the user to create a DM for.
     pub async fn create_dm(&self, user_id: &UserId) -> Result<Room> {
-        self.create_room(assign!(create_room::v3::Request::new(), {
+        #[cfg(feature = "e2e-encryption")]
+        let initial_state =
+            vec![InitialStateEvent::new(RoomEncryptionEventContent::with_recommended_defaults())
+                .to_raw_any()];
+
+        #[cfg(not(feature = "e2e-encryption"))]
+        let initial_state = vec![];
+
+        let request = assign!(create_room::v3::Request::new(), {
             invite: vec![user_id.to_owned()],
             is_direct: true,
             preset: Some(create_room::v3::RoomPreset::TrustedPrivateChat),
-        }))
-        .await
+            initial_state,
+        });
+
+        self.create_room(request).await
     }
 
     /// Search the homeserver's directory for public rooms with a filter.
@@ -1287,29 +1306,7 @@ impl Client {
             request,
             config,
             send_progress: Default::default(),
-            sliding_sync_proxy_url: None,
-        }
-    }
-
-    #[cfg(feature = "experimental-sliding-sync")]
-    // FIXME: remove this as soon as Sliding-Sync isn't needing an external server
-    // anymore
-    pub(crate) fn send_with_homeserver<Request>(
-        &self,
-        request: Request,
-        config: Option<RequestConfig>,
-        sliding_sync_proxy: Option<String>,
-    ) -> SendRequest<Request>
-    where
-        Request: OutgoingRequest + Clone + Debug,
-        HttpError: From<FromHttpResponseError<Request::EndpointError>>,
-    {
-        SendRequest {
-            client: self.clone(),
-            request,
-            config,
-            send_progress: Default::default(),
-            sliding_sync_proxy_url: sliding_sync_proxy,
+            homeserver_override: None,
         }
     }
 
@@ -1317,14 +1314,14 @@ impl Client {
         &self,
         request: Request,
         config: Option<RequestConfig>,
-        homeserver: Option<String>,
+        homeserver_override: Option<String>,
         send_progress: SharedObservable<TransmissionProgress>,
     ) -> HttpResult<Request::IncomingResponse>
     where
         Request: OutgoingRequest + Debug,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
     {
-        let homeserver = match homeserver {
+        let homeserver = match homeserver_override {
             Some(hs) => hs,
             None => self.homeserver().to_string(),
         };

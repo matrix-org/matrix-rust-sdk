@@ -11,7 +11,7 @@ use std::{
 
 use bitflags::bitflags;
 pub use members::RoomMember;
-pub use normal::{Room, RoomInfo, RoomState, RoomStateFilter};
+pub use normal::{Room, RoomInfo, RoomNotableTags, RoomState, RoomStateFilter};
 use ruma::{
     assign,
     events::{
@@ -100,7 +100,7 @@ pub struct BaseRoomInfo {
     pub(crate) tombstone: Option<MinimalStateEvent<RoomTombstoneEventContent>>,
     /// The topic of this room.
     pub(crate) topic: Option<MinimalStateEvent<RoomTopicEventContent>>,
-    /// All Minimal state events that containing one or more running matrixRTC
+    /// All minimal state events that containing one or more running matrixRTC
     /// memberships.
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub(crate) rtc_member: BTreeMap<OwnedUserId, MinimalStateEvent<CallMemberEventContent>>,

@@ -6,11 +6,12 @@ members = [
     "crates/*",
     "testing/*",
     "examples/*",
+    "labs/*",
     "uniffi-bindgen",
     "xtask",
 ]
 # xtask, testing and the bindings should only be built when invoked explicitly.
-default-members = ["benchmarks", "crates/*"]
+default-members = ["benchmarks", "crates/*", "labs/*"]
 resolver = "2"
 
 [workspace.package]
@@ -35,8 +36,8 @@ futures-executor = "0.3.21"
 futures-util = { version = "0.3.26", default-features = false, features = ["alloc"] }
 http = "0.2.6"
 itertools = "0.12.0"
-ruma = { version = "0.9.3", features = ["client-api-c", "compat-upload-signatures", "compat-user-id", "compat-arbitrary-length-ids", "unstable-msc3401"] }
-ruma-common = "0.12.0"
+ruma = { git = "https://github.com/ruma/ruma", rev = "684ffc789877355bd25269451b2356817c17cc3f", features = ["client-api-c", "compat-upload-signatures", "compat-user-id", "compat-arbitrary-length-ids", "unstable-msc3401"] }
+ruma-common = { git = "https://github.com/ruma/ruma", rev = "684ffc789877355bd25269451b2356817c17cc3f"}
 once_cell = "1.16.0"
 rand = "0.8.5"
 serde = "1.0.151"
@@ -49,10 +50,21 @@ tokio = { version = "1.30.0", default-features = false, features = ["sync"] }
 tokio-stream = "0.1.14"
 tracing = { version = "0.1.40", default-features = false, features = ["std"] }
 tracing-core = "0.1.32"
-uniffi = { git = "https://github.com/mozilla/uniffi-rs", rev = "0a03b713306d6ce3de033157fc2ce92a238c2e24" }
-uniffi_bindgen = { git = "https://github.com/mozilla/uniffi-rs", rev = "0a03b713306d6ce3de033157fc2ce92a238c2e24" }
+uniffi = "0.26.1"
+uniffi_bindgen = "0.26.1"
 vodozemac = "0.5.0"
 zeroize = "1.6.0"
+
+matrix-sdk = { path = "crates/matrix-sdk", version = "0.7.0", default-features = false }
+matrix-sdk-base = { path = "crates/matrix-sdk-base", version = "0.7.0" }
+matrix-sdk-common = { path = "crates/matrix-sdk-common", version = "0.7.0" }
+matrix-sdk-crypto = { path = "crates/matrix-sdk-crypto", version = "0.7.0" }
+matrix-sdk-indexeddb = { path = "crates/matrix-sdk-indexeddb", version = "0.7.0", default-features = false }
+matrix-sdk-qrcode = { path = "crates/matrix-sdk-qrcode", version = "0.7.0" }
+matrix-sdk-sqlite = { path = "crates/matrix-sdk-sqlite", version = "0.7.0", default-features = false }
+matrix-sdk-store-encryption = { path = "crates/matrix-sdk-store-encryption", version = "0.7.0" }
+matrix-sdk-test = { path = "testing/matrix-sdk-test", version = "0.7.0" }
+matrix-sdk-ui = { path = "crates/matrix-sdk-ui", version = "0.7.0", default-features = false }
 
 # Default release profile, select with `--release`
 [profile.release]

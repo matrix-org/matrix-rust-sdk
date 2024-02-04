@@ -30,11 +30,18 @@ mod error;
 pub mod latest_event;
 pub mod media;
 mod rooms;
+
+mod read_receipts;
+pub use read_receipts::PreviousEventsProvider;
 #[cfg(feature = "experimental-sliding-sync")]
 mod sliding_sync;
+
 pub mod store;
 pub mod sync;
 mod utils;
+
+#[cfg(feature = "uniffi")]
+uniffi::setup_scaffolding!();
 
 pub use client::BaseClient;
 #[cfg(any(test, feature = "testing"))]
@@ -44,7 +51,7 @@ pub use matrix_sdk_crypto as crypto;
 pub use once_cell;
 pub use rooms::{
     DisplayName, Room, RoomCreateWithCreatorEventContent, RoomInfo, RoomMember, RoomMemberships,
-    RoomState, RoomStateFilter,
+    RoomNotableTags, RoomState, RoomStateFilter,
 };
 pub use store::{StateChanges, StateStore, StateStoreDataKey, StateStoreDataValue, StoreError};
 pub use utils::{

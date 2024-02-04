@@ -9,7 +9,7 @@ name = "matrix-sdk-crypto"
 readme = "README.md"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 rust-version = { workspace = true }
-version = "0.6.0"
+version = "0.7.0"
 
 [package.metadata.docs.rs]
 rustdoc-args = ["--cfg", "docsrs"]
@@ -17,10 +17,11 @@ rustdoc-args = ["--cfg", "docsrs"]
 [features]
 default = []
 automatic-room-key-forwarding = []
-js = ["ruma/js", "vodozemac/js"]
+js = ["ruma/js", "vodozemac/js", "matrix-sdk-common/js"]
 qrcode = ["dep:matrix-sdk-qrcode"]
 message-ids = ["dep:ulid"]
 experimental-algorithms = []
+uniffi = ["dep:uniffi"]
 
 # Testing helpers for implementations based upon this
 testing = ["dep:http"]
@@ -41,8 +42,8 @@ hkdf = "0.12.3"
 hmac = "0.12.1"
 http = { workspace = true, optional = true } # feature = testing only
 itertools = { workspace = true }
-matrix-sdk-qrcode = { version = "0.4.0", path = "../matrix-sdk-qrcode", optional = true }
-matrix-sdk-common = { version = "0.6.0", path = "../matrix-sdk-common" }
+matrix-sdk-qrcode = { workspace = true, optional = true }
+matrix-sdk-common = { workspace = true }
 pbkdf2 = { version = "0.12.2", default-features = false }
 rand = { workspace = true }
 rmp-serde = "1.1.1"
@@ -56,6 +57,7 @@ tokio = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true, features = ["attributes"] }
 ulid = { version = "1.0.0", optional = true }
+uniffi = { workspace = true, optional = true }
 vodozemac = { workspace = true }
 zeroize = { workspace = true, features = ["zeroize_derive"] }
 
@@ -72,7 +74,7 @@ assert_matches2 = { workspace = true }
 futures-executor = { workspace = true }
 http = { workspace = true }
 indoc = "2.0.1"
-matrix-sdk-test = { version = "0.6.0", path = "../../testing/matrix-sdk-test" }
+matrix-sdk-test = { workspace = true }
 olm-rs = { version = "2.2.0", features = ["serde"] }
 proptest = { version = "1.0.0", default-features = false, features = ["std"] }
 # required for async_test macro

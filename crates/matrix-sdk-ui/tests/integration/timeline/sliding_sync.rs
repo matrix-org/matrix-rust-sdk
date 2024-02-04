@@ -14,7 +14,7 @@
 
 use std::{pin::Pin, sync::Arc};
 
-use anyhow::{Context, Result};
+use anyhow::{Context as _, Result};
 use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::{Vector, VectorDiff};
@@ -23,8 +23,9 @@ use matrix_sdk::{
     SlidingSync, SlidingSyncList, SlidingSyncListBuilder, SlidingSyncMode, UpdateSummary,
 };
 use matrix_sdk_test::async_test;
-use matrix_sdk_ui::timeline::{
-    SlidingSyncRoomExt, TimelineItem, TimelineItemKind, VirtualTimelineItem,
+use matrix_sdk_ui::{
+    timeline::{TimelineItem, TimelineItemKind, VirtualTimelineItem},
+    Timeline,
 };
 use ruma::{room_id, user_id, RoomId};
 use serde_json::json;
@@ -238,8 +239,7 @@ async fn create_one_room(
 
     assert!(update.rooms.contains(&room_id.to_owned()));
 
-    let room = sliding_sync.get_room(room_id).await.context("`get_room`")?;
-    assert_eq!(room.name(), Some(room_name.clone()));
+    let _room = sliding_sync.get_room(room_id).await.context("`get_room`")?;
 
     Ok(())
 }
@@ -248,15 +248,21 @@ async fn timeline_test_helper(
     sliding_sync: &SlidingSync,
     room_id: &RoomId,
 ) -> Result<(Vector<Arc<TimelineItem>>, impl Stream<Item = VectorDiff<Arc<TimelineItem>>>)> {
-    Ok(sliding_sync
-        .get_room(room_id)
+    let sliding_sync_room = sliding_sync.get_room(room_id).await.unwrap();
+
+    let room_id = sliding_sync_room.room_id();
+    let sdk_room = sliding_sync_room.client().get_room(room_id).ok_or_else(|| {
+        anyhow::anyhow!("Room {room_id} not found in client. Can't provide a timeline for it")
+    })?;
+
+    let timeline = Timeline::builder(&sdk_room)
+        .events(sliding_sync_room.prev_batch(), sliding_sync_room.timeline_queue())
         .await
-        .unwrap()
-        .timeline()
-        .await
-        .context("`timeline`")?
-        .subscribe()
-        .await)
+        .track_read_marker_and_receipts()
+        .build()
+        .await?;
+
+    Ok(timeline.subscribe().await)
 }
 
 struct SlidingSyncMatcher;

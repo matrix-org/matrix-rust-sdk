@@ -452,7 +452,7 @@ pub enum NotificationSettingsError {
     #[error("Unable to update push rule")]
     UnableToUpdatePushRule,
     /// Rule not found
-    #[error("Rule not found")]
+    #[error("Rule `{0}` not found")]
     RuleNotFound(String),
     /// Unable to save the push rules
     #[error("Unable to save push rules")]

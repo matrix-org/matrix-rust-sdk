@@ -357,6 +357,7 @@ impl PaginationOutcome {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum BackPaginationStatus {
     Idle,
     Paginating,

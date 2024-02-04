@@ -52,7 +52,7 @@ fn filter_notice(ev: &AnySyncTimelineEvent, _room_version: &RoomVersionId) -> bo
 }
 
 #[async_test]
-async fn read_receipts_updates() {
+async fn test_read_receipts_updates() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
@@ -72,7 +72,7 @@ async fn read_receipts_updates() {
     server.reset().await;
 
     let room = client.get_room(room_id).unwrap();
-    let timeline = room.timeline().await;
+    let timeline = room.timeline().await.unwrap();
     let (items, mut timeline_stream) = timeline.subscribe().await;
 
     assert!(items.is_empty());
@@ -281,7 +281,7 @@ async fn read_receipts_updates() {
 }
 
 #[async_test]
-async fn read_receipts_updates_on_filtered_events() {
+async fn test_read_receipts_updates_on_filtered_events() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
@@ -300,7 +300,7 @@ async fn read_receipts_updates_on_filtered_events() {
     server.reset().await;
 
     let room = client.get_room(room_id).unwrap();
-    let timeline = room.timeline_builder().event_filter(filter_notice).build().await;
+    let timeline = room.timeline_builder().event_filter(filter_notice).build().await.unwrap();
     let (items, mut timeline_stream) = timeline.subscribe().await;
 
     assert!(items.is_empty());
@@ -493,7 +493,7 @@ async fn read_receipts_updates_on_filtered_events() {
 }
 
 #[async_test]
-async fn send_single_receipt() {
+async fn test_send_single_receipt() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
@@ -508,7 +508,7 @@ async fn send_single_receipt() {
     server.reset().await;
 
     let room = client.get_room(room_id).unwrap();
-    let timeline = room.timeline().await;
+    let timeline = room.timeline().await.unwrap();
 
     // Unknown receipts are sent.
     let first_receipts_event_id = event_id!("$first_receipts_event_id");
@@ -840,7 +840,7 @@ async fn send_single_receipt() {
 }
 
 #[async_test]
-async fn send_multiple_receipts() {
+async fn test_send_multiple_receipts() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
@@ -855,7 +855,7 @@ async fn send_multiple_receipts() {
     server.reset().await;
 
     let room = client.get_room(room_id).unwrap();
-    let timeline = room.timeline().await;
+    let timeline = room.timeline().await.unwrap();
 
     // Unknown receipts are sent.
     let first_receipts_event_id = event_id!("$first_receipts_event_id");
@@ -1048,7 +1048,7 @@ async fn send_multiple_receipts() {
 }
 
 #[async_test]
-async fn latest_user_read_receipt() {
+async fn test_latest_user_read_receipt() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
@@ -1069,7 +1069,7 @@ async fn latest_user_read_receipt() {
     server.reset().await;
 
     let room = client.get_room(room_id).unwrap();
-    let timeline = room.timeline().await;
+    let timeline = room.timeline().await.unwrap();
     let (items, _) = timeline.subscribe().await;
 
     assert!(items.is_empty());

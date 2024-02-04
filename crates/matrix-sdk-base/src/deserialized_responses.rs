@@ -23,7 +23,7 @@ use ruma::{
             member::{MembershipState, RoomMemberEvent, RoomMemberEventContent},
             power_levels::{RoomPowerLevels, RoomPowerLevelsEventContent},
         },
-        AnyStrippedStateEvent, AnySyncStateEvent, EventContentFromType,
+        AnyStrippedStateEvent, AnySyncStateEvent, AnySyncTimelineEvent, EventContentFromType,
         PossiblyRedactedStateEventContent, RedactContent, RedactedStateEventContent,
         StateEventContent, StaticStateEventContent, StrippedStateEvent, SyncStateEvent,
     },
@@ -64,6 +64,16 @@ pub struct MembersResponse {
     pub chunk: Vec<RoomMemberEvent>,
     /// Collection of ambiguity changes that room member events trigger.
     pub ambiguity_changes: AmbiguityChanges,
+}
+
+/// Wrapper around both versions of any event received via sync.
+#[derive(Clone, Debug, Serialize)]
+#[serde(untagged)]
+pub enum RawAnySyncOrStrippedTimelineEvent {
+    /// An event from a room in joined or left state.
+    Sync(Raw<AnySyncTimelineEvent>),
+    /// An event from a room in invited state.
+    Stripped(Raw<AnyStrippedStateEvent>),
 }
 
 /// Wrapper around both versions of any raw state event.

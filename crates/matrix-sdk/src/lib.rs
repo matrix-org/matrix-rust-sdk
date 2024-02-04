@@ -24,8 +24,8 @@ pub use matrix_sdk_base::{
     deserialized_responses,
     store::{DynStateStore, MemoryStore, StateStoreExt},
     DisplayName, Room as BaseRoom, RoomCreateWithCreatorEventContent, RoomInfo,
-    RoomMember as BaseRoomMember, RoomMemberships, RoomState, SessionMeta, StateChanges,
-    StateStore, StoreError,
+    RoomMember as BaseRoomMember, RoomMemberships, RoomNotableTags, RoomState, SessionMeta,
+    StateChanges, StateStore, StoreError,
 };
 pub use matrix_sdk_common::*;
 pub use reqwest;
@@ -71,6 +71,8 @@ pub use error::{
 pub use http_client::TransmissionProgress;
 #[cfg(all(feature = "e2e-encryption", feature = "sqlite"))]
 pub use matrix_sdk_sqlite::SqliteCryptoStore;
+#[cfg(feature = "sqlite")]
+pub use matrix_sdk_sqlite::SqliteStateStore;
 pub use media::Media;
 pub use room::Room;
 pub use ruma::{IdParseError, OwnedServerName, ServerName};
@@ -79,6 +81,9 @@ pub use sliding_sync::{
     RoomListEntry, SlidingSync, SlidingSyncBuilder, SlidingSyncList, SlidingSyncListBuilder,
     SlidingSyncListLoadingState, SlidingSyncMode, SlidingSyncRoom, UpdateSummary,
 };
+
+#[cfg(feature = "uniffi")]
+uniffi::setup_scaffolding!();
 
 #[cfg(any(test, feature = "testing"))]
 pub mod test_utils;

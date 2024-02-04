@@ -40,7 +40,7 @@ use ruma::{
     },
     int,
     power_levels::NotificationPowerLevels,
-    push::{PushConditionRoomCtx, Ruleset},
+    push::{PushConditionPowerLevelsCtx, PushConditionRoomCtx, Ruleset},
     room_id,
     serde::Raw,
     server_name, uint, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId,
@@ -318,14 +318,17 @@ impl RoomDataProvider for TestRoomDataProvider {
 
     async fn push_rules_and_context(&self) -> Option<(Ruleset, PushConditionRoomCtx)> {
         let push_rules = Ruleset::server_default(&ALICE);
+        let power_levels = PushConditionPowerLevelsCtx {
+            users: BTreeMap::new(),
+            users_default: int!(0),
+            notifications: NotificationPowerLevels::new(),
+        };
         let push_context = PushConditionRoomCtx {
             room_id: room_id!("!my_room:server.name").to_owned(),
             member_count: uint!(2),
             user_id: ALICE.to_owned(),
             user_display_name: "Alice".to_owned(),
-            users_power_levels: BTreeMap::new(),
-            default_power_level: int!(0),
-            notification_power_levels: NotificationPowerLevels::new(),
+            power_levels: Some(power_levels),
         };
 
         Some((push_rules, push_context))

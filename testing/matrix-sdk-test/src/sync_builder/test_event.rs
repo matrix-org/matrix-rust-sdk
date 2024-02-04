@@ -90,6 +90,7 @@ impl StrippedStateTestEvent {
 /// Test events that can be added to the room account data.
 pub enum RoomAccountDataTestEvent {
     FullyRead,
+    Tags,
     Custom(JsonValue),
 }
 
@@ -98,6 +99,7 @@ impl RoomAccountDataTestEvent {
     pub fn into_json_value(self) -> JsonValue {
         match self {
             Self::FullyRead => test_json::sync_events::FULLY_READ.to_owned(),
+            Self::Tags => test_json::sync_events::TAG.to_owned(),
             Self::Custom(json) => json,
         }
     }
@@ -158,7 +160,6 @@ impl PresenceTestEvent {
 pub enum GlobalAccountDataTestEvent {
     Direct,
     PushRules,
-    Tags,
     Custom(JsonValue),
 }
 
@@ -168,7 +169,6 @@ impl GlobalAccountDataTestEvent {
         match self {
             Self::Direct => test_json::sync_events::DIRECT.to_owned(),
             Self::PushRules => test_json::sync_events::PUSH_RULES.to_owned(),
-            Self::Tags => test_json::sync_events::TAG.to_owned(),
             Self::Custom(json) => json,
         }
     }

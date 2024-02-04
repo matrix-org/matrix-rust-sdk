@@ -21,6 +21,7 @@ anyhow = { workspace = true }
 futures-util = "0.3.28"
 hmac = "0.12.1"
 http = { workspace = true }
+matrix-sdk-common = { workspace = true }
 pbkdf2 = "0.12.2"
 rand = { workspace = true }
 ruma = { workspace = true }
@@ -33,6 +34,7 @@ tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 uniffi = { workspace = true }
 vodozemac = { workspace = true }
 zeroize = { workspace = true, features = ["zeroize_derive"] }
+
 js_int = { version = "0.2.2", features = ["lax_deserialize"] }
 matrix-sdk-common = { path = "../../crates/matrix-sdk-common", version = "0.6.0" }
 matrix-sdk-crypto = { path = "../../crates/matrix-sdk-crypto", version = "0.6.0", default_features = false, features = ["qrcode", "automatic-room-key-forwarding"] }
@@ -40,8 +42,26 @@ matrix-sdk-sqlite = { path = "../../crates/matrix-sdk-sqlite", version = "0.1.0"
 tokio = { version = "1.33.0", default_features = false, features = ["rt-multi-thread"] }
 tracing-core = "0.1.32"
 
+
+[dependencies.js_int]
+version = "0.2.2"
+features = ["lax_deserialize"]
+
+[dependencies.matrix-sdk-crypto]
+workspace = true
+features = ["qrcode", "automatic-room-key-forwarding", "uniffi"]
+
+[dependencies.matrix-sdk-sqlite]
+workspace = true
+features = ["crypto-store"]
+
+[dependencies.tokio]
+version = "1.33.0"
+default_features = false
+features = ["rt-multi-thread"]
+
+
 [build-dependencies]
-uniffi = { workspace = true, features = ["build"] }
 vergen = { version = "8.2.5", features = ["build", "git", "gitcl"] }
 
 [dev-dependencies]

@@ -833,9 +833,18 @@ pub(crate) enum UserKeyQueryResult {
 pub struct RoomSettings {
     /// The encryption algorithm that should be used in the room.
     pub algorithm: EventEncryptionAlgorithm,
+
     /// Should untrusted devices receive the room key, or should they be
     /// excluded from the conversation.
     pub only_allow_trusted_devices: bool,
+
+    /// The maximum time an encryption session should be used for, before it is
+    /// rotated.
+    pub session_rotation_period: Option<Duration>,
+
+    /// The maximum number of messages an encryption session should be used for,
+    /// before it is rotated.
+    pub session_rotation_period_messages: Option<usize>,
 }
 
 impl Default for RoomSettings {
@@ -843,6 +852,8 @@ impl Default for RoomSettings {
         Self {
             algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
             only_allow_trusted_devices: false,
+            session_rotation_period: None,
+            session_rotation_period_messages: None,
         }
     }
 }

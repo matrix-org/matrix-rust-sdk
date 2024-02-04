@@ -25,7 +25,6 @@ use ruma::{
     OwnedUserId, RoomId, TransactionId, UserId,
 };
 use tokio::sync::{Mutex, RwLock};
-use tracing::warn;
 
 use super::{
     caches::{DeviceStore, GroupSessionStore, SessionStore},
@@ -66,6 +65,7 @@ pub struct MemoryStore {
     secret_inbox: StdRwLock<HashMap<String, Vec<GossippedSecret>>>,
     backup_keys: RwLock<BackupKeys>,
     next_batch_token: RwLock<Option<String>>,
+    room_settings: StdRwLock<HashMap<OwnedRoomId, RoomSettings>>,
 }
 
 impl Default for MemoryStore {
@@ -85,6 +85,7 @@ impl Default for MemoryStore {
             backup_keys: Default::default(),
             secret_inbox: Default::default(),
             next_batch_token: Default::default(),
+            room_settings: Default::default(),
         }
     }
 }
@@ -213,6 +214,11 @@ impl CryptoStore for MemoryStore {
             *self.next_batch_token.write().await = Some(next_batch_token);
         }
 
+        if !changes.room_settings.is_empty() {
+            let mut settings = self.room_settings.write().unwrap();
+            settings.extend(changes.room_settings);
+        }
+
         Ok(())
     }
 
@@ -263,6 +269,20 @@ impl CryptoStore for MemoryStore {
             .filter(|s| !s.backed_up())
             .take(limit)
             .collect())
+    }
+
+    async fn mark_inbound_group_sessions_as_backed_up(
+        &self,
+        room_and_session_ids: &[(&RoomId, &str)],
+    ) -> Result<()> {
+        for (room_id, session_id) in room_and_session_ids {
+            let session = self.inbound_group_sessions.get(room_id, session_id);
+            if let Some(session) = session {
+                session.mark_as_backed_up();
+                self.inbound_group_sessions.add(session);
+            }
+        }
+        Ok(())
     }
 
     async fn reset_backup_state(&self) -> Result<()> {
@@ -379,9 +399,8 @@ impl CryptoStore for MemoryStore {
         Ok(())
     }
 
-    async fn get_room_settings(&self, _room_id: &RoomId) -> Result<Option<RoomSettings>> {
-        warn!("Method not implemented");
-        Ok(None)
+    async fn get_room_settings(&self, room_id: &RoomId) -> Result<Option<RoomSettings>> {
+        Ok(self.room_settings.read().unwrap().get(room_id).cloned())
     }
 
     async fn get_custom_value(&self, key: &str) -> Result<Option<Vec<u8>>> {

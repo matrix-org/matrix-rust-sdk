@@ -2,6 +2,14 @@
 
 Breaking changes:
 
+- Replace the `Notification` type from Ruma in `SyncResponse` and `Client::register_notification_handler`
+  by a custom one
+- `Room::can_user_redact` and `Member::can_redact` are split between `*_redact_own` and `*_redact_other`
+
+# 0.7.0
+
+Breaking changes:
+
 - `Common::members` and `Common::members_no_sync` take a `RoomMemberships` to be able to filter the
   results by any membership state.
   - `Common::active_members(_no_sync)` and `Common::joined_members(_no_sync)` are deprecated.
@@ -34,6 +42,7 @@ Breaking changes:
     are still allowed, but so are other types like `Box<serde_json::value::RawValue>`
 - All "named futures" (structs implementing `IntoFuture`) are now exported from modules named
   `futures` instead of directly in the respective parent module
+- `Verification` is non-exhaustive, to make the `qrcode` cargo feature additive
 
 Bug fixes:
 
