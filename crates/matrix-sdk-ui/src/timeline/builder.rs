@@ -12,14 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeSet, mem, sync::Arc};
+use std::{collections::BTreeSet, sync::Arc};
 
 use eyeball::SharedObservable;
 use futures_util::{pin_mut, StreamExt};
 use imbl::Vector;
-use matrix_sdk::{
-    deserialized_responses::SyncTimelineEvent, executor::spawn, sync::RoomUpdate, Room,
-};
+use matrix_sdk::{deserialized_responses::SyncTimelineEvent, executor::spawn, Room};
+use matrix_sdk_base::sync::JoinedRoom;
 use ruma::{
     events::{receipt::ReceiptType, AnySyncTimelineEvent},
     RoomVersionId,
@@ -34,6 +33,7 @@ use super::{
     queue::send_queued_messages,
     BackPaginationStatus, Timeline, TimelineDropHandle,
 };
+use crate::event_graph::{EventGraph, RoomEventGraphUpdate};
 
 /// Builder that allows creating and configuring various parts of a
 /// [`Timeline`].
@@ -42,8 +42,8 @@ use super::{
 pub struct TimelineBuilder {
     room: Room,
     prev_token: Option<String>,
-    events: Vector<SyncTimelineEvent>,
     settings: TimelineInnerSettings,
+    event_graph: EventGraph,
 }
 
 impl TimelineBuilder {
@@ -51,25 +51,32 @@ impl TimelineBuilder {
         Self {
             room: room.clone(),
             prev_token: None,
-            events: Vector::new(),
             settings: TimelineInnerSettings::default(),
+            event_graph: EventGraph::new(room.client()),
         }
     }
 
     /// Add initial events to the timeline.
-    pub(crate) fn events(
+    ///
+    /// TODO: remove this, the EventGraph should hold the events data in the
+    /// first place, and we'd provide an existing EventGraph to the
+    /// TimelineBuilder.
+    pub async fn events(
         mut self,
         prev_token: Option<String>,
         events: Vector<SyncTimelineEvent>,
     ) -> Self {
         self.prev_token = prev_token;
-        self.events = events;
+        self.event_graph
+            .add_initial_events(self.room.room_id(), events.iter().cloned().collect())
+            .await
+            .expect("room exists");
         self
     }
 
     /// Enable tracking of the fully-read marker and the read receipts on the
     /// timeline.
-    pub(crate) fn track_read_marker_and_receipts(mut self) -> Self {
+    pub fn track_read_marker_and_receipts(mut self) -> Self {
         self.settings.track_read_receipts = true;
         self
     }
@@ -120,13 +127,16 @@ impl TimelineBuilder {
         skip(self),
         fields(
             room_id = ?self.room.room_id(),
-            events_length = self.events.len(),
             track_read_receipts = self.settings.track_read_receipts,
             prev_token = self.prev_token,
         )
     )]
-    pub async fn build(self) -> Timeline {
-        let Self { room, prev_token, events, settings } = self;
+    pub async fn build(self) -> crate::event_graph::Result<Timeline> {
+        let Self { room, mut event_graph, prev_token, settings } = self;
+
+        let room_event_graph = event_graph.for_room(room.room_id())?;
+        let (events, mut event_subscriber) = room_event_graph.subscribe().await?;
+
         let has_events = !events.is_empty();
         let track_read_marker_and_receipts = settings.track_read_receipts;
 
@@ -148,7 +158,6 @@ impl TimelineBuilder {
         let client = room.client();
 
         let sync_response_notify = Arc::new(Notify::new());
-        let mut room_update_rx = room.subscribe_to_updates();
         let room_update_join_handle = spawn({
             let sync_response_notify = sync_response_notify.clone();
             let inner = inner.clone();
@@ -158,8 +167,12 @@ impl TimelineBuilder {
             span.follows_from(Span::current());
 
             async move {
+                trace!("Spawned the event subscriber task");
+
                 loop {
-                    let update = match room_update_rx.recv().await {
+                    trace!("Waiting for an event");
+
+                    let update = match event_subscriber.recv().await {
                         Ok(up) => up,
                         Err(broadcast::error::RecvError::Closed) => break,
                         Err(broadcast::error::RecvError::Lagged(_)) => {
@@ -169,36 +182,49 @@ impl TimelineBuilder {
                         }
                     };
 
-                    trace!("Handling a room update");
-
                     match update {
-                        RoomUpdate::Left { updates, .. } => {
-                            inner.handle_sync_timeline(updates.timeline).await;
-
-                            let member_ambiguity_changes = updates
-                                .ambiguity_changes
-                                .values()
-                                .flat_map(|change| change.user_ids())
-                                .collect::<BTreeSet<_>>();
-                            inner.force_update_sender_profiles(&member_ambiguity_changes).await;
+                        RoomEventGraphUpdate::Clear => {
+                            trace!("Clearing the timeline.");
+                            inner.clear().await;
                         }
-                        RoomUpdate::Joined { mut updates, .. } => {
-                            let ambiguity_changes = mem::take(&mut updates.ambiguity_changes);
 
-                            inner.handle_joined_room_update(updates).await;
+                        RoomEventGraphUpdate::Append {
+                            events,
+                            prev_batch,
+                            account_data,
+                            ephemeral,
+                            ambiguity_changes,
+                        } => {
+                            trace!("Received new events");
+
+                            // XXX this timeline and the joined room updates are synthetic, until
+                            // we get rid of `handle_joined_room_update` by adding all functionality
+                            // back in the event graph, and replacing it with a simple
+                            // `handle_add_events`.
+                            let timeline = matrix_sdk_base::sync::Timeline {
+                                limited: false,
+                                prev_batch,
+                                events,
+                            };
+                            let update = JoinedRoom {
+                                unread_notifications: Default::default(),
+                                timeline,
+                                state: Default::default(),
+                                account_data,
+                                ephemeral,
+                                ambiguity_changes: Default::default(),
+                            };
+                            inner.handle_joined_room_update(update).await;
 
                             let member_ambiguity_changes = ambiguity_changes
                                 .values()
                                 .flat_map(|change| change.user_ids())
                                 .collect::<BTreeSet<_>>();
                             inner.force_update_sender_profiles(&member_ambiguity_changes).await;
-                        }
-                        RoomUpdate::Invited { .. } => {
-                            warn!("Room is in invited state, can't build or update its timeline");
+
+                            sync_response_notify.notify_waiters();
                         }
                     }
-
-                    sync_response_notify.notify_waiters();
                 }
             }
             .instrument(span)
@@ -283,6 +309,7 @@ impl TimelineBuilder {
                 room_update_join_handle,
                 ignore_user_list_update_join_handle,
                 room_key_from_backups_join_handle,
+                _event_graph: room_event_graph,
             }),
         };
 
@@ -294,6 +321,6 @@ impl TimelineBuilder {
             timeline.retry_decryption_for_all_events().await;
         }
 
-        timeline
+        Ok(timeline)
     }
 }

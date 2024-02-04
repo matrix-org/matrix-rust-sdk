@@ -59,6 +59,7 @@ use tokio::sync::{mpsc::Sender, Mutex, Notify};
 use tracing::{debug, error, info, instrument, trace, warn};
 
 use self::futures::SendAttachment;
+use crate::event_graph::RoomEventGraph;
 
 mod builder;
 mod error;
@@ -143,7 +144,8 @@ impl From<&Annotation> for AnnotationKey {
 }
 
 impl Timeline {
-    pub(crate) fn builder(room: &Room) -> TimelineBuilder {
+    /// Create a new [`TimelineBuilder`] for the given room.
+    pub fn builder(room: &Room) -> TimelineBuilder {
         TimelineBuilder::new(room)
     }
 
@@ -796,6 +798,7 @@ struct TimelineDropHandle {
     room_update_join_handle: JoinHandle<()>,
     ignore_user_list_update_join_handle: JoinHandle<()>,
     room_key_from_backups_join_handle: JoinHandle<()>,
+    _event_graph: RoomEventGraph,
 }
 
 impl Drop for TimelineDropHandle {

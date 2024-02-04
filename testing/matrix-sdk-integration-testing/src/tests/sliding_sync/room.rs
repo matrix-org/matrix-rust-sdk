@@ -168,17 +168,11 @@ async fn test_room_avatar_group_conversation() -> Result<()> {
     let alice_room = alice.get_room(alice_room.room_id()).unwrap();
     assert_eq!(alice_room.state(), RoomState::Joined);
 
-    let sliding_room = sliding_alice
-        .get_room(alice_room.room_id())
-        .await
-        .expect("sliding sync finds alice's own room");
-
     // Here, there should be no avatar (group conversation and no avatar has been
     // set in the room).
     for _ in 0..3 {
         sleep(Duration::from_secs(1)).await;
         assert_eq!(alice_room.avatar_url(), None);
-        assert_eq!(sliding_room.avatar_url(), None);
 
         // Force a new server response.
         alice_room.send(RoomMessageEventContent::text_plain("hello world")).await?;
@@ -191,7 +185,6 @@ async fn test_room_avatar_group_conversation() -> Result<()> {
     for _ in 0..3 {
         sleep(Duration::from_secs(1)).await;
         assert_eq!(alice_room.avatar_url().as_deref(), Some(group_avatar_uri));
-        assert_eq!(sliding_room.avatar_url().as_deref(), Some(group_avatar_uri));
 
         // Force a new server response.
         alice_room.send(RoomMessageEventContent::text_plain("hello world")).await?;
@@ -203,7 +196,6 @@ async fn test_room_avatar_group_conversation() -> Result<()> {
     for _ in 0..3 {
         sleep(Duration::from_secs(1)).await;
         assert_eq!(alice_room.avatar_url(), None);
-        assert_eq!(sliding_room.avatar_url(), None);
 
         // Force a new server response.
         alice_room.send(RoomMessageEventContent::text_plain("hello world")).await?;

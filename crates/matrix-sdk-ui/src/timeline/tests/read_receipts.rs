@@ -40,7 +40,7 @@ fn filter_notice(ev: &AnySyncTimelineEvent, _room_version: &RoomVersionId) -> bo
 }
 
 #[async_test]
-async fn read_receipts_updates_on_live_events() {
+async fn test_read_receipts_updates_on_live_events() {
     let timeline = TestTimeline::new()
         .with_settings(TimelineInnerSettings { track_read_receipts: true, ..Default::default() });
     let mut stream = timeline.subscribe().await;
@@ -138,7 +138,7 @@ async fn read_receipts_updates_on_back_paginated_events() {
 }
 
 #[async_test]
-async fn read_receipts_updates_on_filtered_events() {
+async fn test_read_receipts_updates_on_filtered_events() {
     let timeline = TestTimeline::new().with_settings(TimelineInnerSettings {
         track_read_receipts: true,
         event_filter: Arc::new(filter_notice),

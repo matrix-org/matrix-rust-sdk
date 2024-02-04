@@ -48,7 +48,7 @@ async fn in_reply_to_details() {
     server.reset().await;
 
     let room = client.get_room(room_id).unwrap();
-    let timeline = room.timeline().await;
+    let timeline = room.timeline().await.unwrap();
     let (_, mut timeline_stream) = timeline.subscribe().await;
 
     // The event doesn't exist.
@@ -185,7 +185,7 @@ async fn transfer_in_reply_to_details_to_re_received_item() {
     server.reset().await;
 
     let room = client.get_room(room_id).unwrap();
-    let timeline = room.timeline().await;
+    let timeline = room.timeline().await.unwrap();
 
     // Given a reply to an event that's not itself in the timeline...
     let event_id_1 = event_id!("$event1");
@@ -267,7 +267,7 @@ async fn send_reply() {
     server.reset().await;
 
     let room = client.get_room(room_id).unwrap();
-    let timeline = room.timeline().await;
+    let timeline = room.timeline().await.unwrap();
     let (_, mut timeline_stream) =
         timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
 
@@ -358,7 +358,7 @@ async fn send_reply_to_threaded() {
     server.reset().await;
 
     let room = client.get_room(room_id).unwrap();
-    let timeline = room.timeline().await;
+    let timeline = room.timeline().await.unwrap();
     let (_, mut timeline_stream) =
         timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
 

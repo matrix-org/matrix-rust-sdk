@@ -46,6 +46,8 @@ pub enum RoomListError {
     TimelineAlreadyExists { room_name: String },
     #[error("A timeline instance hasn't been initialized for room {room_name}")]
     TimelineNotInitialized { room_name: String },
+    #[error("Timeline couldn't be initialized: {error}")]
+    InitializingTimeline { error: String },
 }
 
 impl From<matrix_sdk_ui::room_list_service::Error> for RoomListError {
@@ -59,6 +61,9 @@ impl From<matrix_sdk_ui::room_list_service::Error> for RoomListError {
             RoomNotFound(room_id) => Self::RoomNotFound { room_name: room_id.to_string() },
             TimelineAlreadyExists(room_id) => {
                 Self::TimelineAlreadyExists { room_name: room_id.to_string() }
+            }
+            InitializingTimeline(source) => {
+                Self::InitializingTimeline { error: source.to_string() }
             }
         }
     }
@@ -473,6 +478,7 @@ impl RoomListItem {
     }
 
     /// Initializes the timeline for this room using the provided parameters.
+    ///
     /// * `event_type_filter` - An optional [`TimelineEventTypeFilter`] to be
     ///   used to filter timeline events besides the default timeline filter. If
     ///   `None` is passed, only the default timeline filter will be used.
@@ -480,7 +486,7 @@ impl RoomListItem {
         &self,
         event_type_filter: Option<Arc<TimelineEventTypeFilter>>,
     ) -> Result<(), RoomListError> {
-        let mut timeline_builder = self.inner.default_room_timeline_builder();
+        let mut timeline_builder = self.inner.default_room_timeline_builder().await;
         if let Some(event_type_filter) = event_type_filter {
             timeline_builder = timeline_builder.event_filter(move |event, room_version_id| {
                 // Always perform the default filter first
@@ -500,14 +506,6 @@ impl RoomListItem {
 
     async fn latest_event(&self) -> Option<Arc<EventTimelineItem>> {
         self.inner.latest_event().await.map(EventTimelineItem).map(Arc::new)
-    }
-
-    fn has_unread_notifications(&self) -> bool {
-        self.inner.has_unread_notifications()
-    }
-
-    fn unread_notifications(&self) -> Arc<UnreadNotificationsCount> {
-        Arc::new(self.inner.unread_notifications().into())
     }
 }
 

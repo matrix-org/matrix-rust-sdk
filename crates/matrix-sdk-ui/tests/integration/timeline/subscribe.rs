@@ -52,7 +52,7 @@ async fn test_batched() {
     server.reset().await;
 
     let room = client.get_room(room_id).unwrap();
-    let timeline = room.timeline_builder().event_filter(|_, _| true).build().await;
+    let timeline = room.timeline_builder().event_filter(|_, _| true).build().await.unwrap();
     let (_, mut timeline_stream) = timeline.subscribe_batched().await;
 
     let hdl = tokio::spawn(async move {
@@ -100,7 +100,7 @@ async fn test_event_filter() {
     server.reset().await;
 
     let room = client.get_room(room_id).unwrap();
-    let timeline = room.timeline_builder().event_filter(|_, _| true).build().await;
+    let timeline = room.timeline_builder().event_filter(|_, _| true).build().await.unwrap();
     let (_, mut timeline_stream) = timeline.subscribe().await;
 
     let first_event_id = event_id!("$YTQwYl2ply");
@@ -206,7 +206,7 @@ async fn test_timeline_is_reset_when_a_user_is_ignored_or_unignored() {
     server.reset().await;
 
     let room = client.get_room(room_id).unwrap();
-    let timeline = room.timeline_builder().build().await;
+    let timeline = room.timeline_builder().build().await.unwrap();
     let (_, timeline_stream) = timeline.subscribe().await;
     pin_mut!(timeline_stream);
 
@@ -350,7 +350,7 @@ async fn test_profile_updates() {
     server.reset().await;
 
     let room = client.get_room(room_id).unwrap();
-    let timeline = room.timeline_builder().build().await;
+    let timeline = room.timeline_builder().build().await.unwrap();
     let (_, timeline_stream) = timeline.subscribe().await;
     pin_mut!(timeline_stream);
 

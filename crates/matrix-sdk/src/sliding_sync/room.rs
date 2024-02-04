@@ -1,17 +1,11 @@
 use std::{
     fmt::Debug,
-    ops::Not,
     sync::{Arc, RwLock},
 };
 
 use eyeball_im::Vector;
 use matrix_sdk_base::{deserialized_responses::SyncTimelineEvent, latest_event::LatestEvent};
-use ruma::{
-    api::client::sync::sync_events::{v4, UnreadNotificationsCount},
-    events::AnySyncStateEvent,
-    serde::Raw,
-    OwnedMxcUri, OwnedRoomId, RoomId,
-};
+use ruma::{api::client::sync::sync_events::v4, OwnedRoomId, RoomId};
 use serde::{Deserialize, Serialize};
 
 use crate::Client;
@@ -65,53 +59,6 @@ impl SlidingSyncRoom {
     /// Get the room ID of this `SlidingSyncRoom`.
     pub fn room_id(&self) -> &RoomId {
         &self.inner.room_id
-    }
-
-    /// This rooms name as calculated by the server, if any
-    pub fn name(&self) -> Option<String> {
-        let inner = self.inner.inner.read().unwrap();
-
-        inner.name.to_owned()
-    }
-
-    /// Get the room avatar URL.
-    pub fn avatar_url(&self) -> Option<OwnedMxcUri> {
-        let inner = self.inner.inner.read().unwrap();
-
-        inner.avatar.clone().into_option()
-    }
-
-    /// Is this a direct message?
-    pub fn is_dm(&self) -> Option<bool> {
-        let inner = self.inner.inner.read().unwrap();
-
-        inner.is_dm
-    }
-
-    /// Was this an initial response?
-    pub fn is_initial_response(&self) -> Option<bool> {
-        let inner = self.inner.inner.read().unwrap();
-
-        inner.initial
-    }
-
-    /// Is there any unread notifications?
-    pub fn has_unread_notifications(&self) -> bool {
-        let inner = self.inner.inner.read().unwrap();
-
-        inner.unread_notifications.is_empty().not()
-    }
-
-    /// Get unread notifications.
-    pub fn unread_notifications(&self) -> UnreadNotificationsCount {
-        let inner = self.inner.inner.read().unwrap();
-
-        inner.unread_notifications.clone()
-    }
-
-    /// Get the required state.
-    pub fn required_state(&self) -> Vec<Raw<AnySyncStateEvent>> {
-        self.inner.inner.read().unwrap().required_state.clone()
     }
 
     /// Get the token for back-pagination.
@@ -331,7 +278,7 @@ mod tests {
     use matrix_sdk_test::async_test;
     use ruma::{
         api::client::sync::sync_events::v4, assign, events::room::message::RoomMessageEventContent,
-        mxc_uri, room_id, serde::Raw, uint, JsOption, RoomId,
+        mxc_uri, room_id, serde::Raw, JsOption, RoomId,
     };
     use serde_json::json;
     use wiremock::MockServer;
@@ -397,133 +344,6 @@ mod tests {
         assert_eq!(room.room_id(), room_id);
     }
 
-    macro_rules! test_getters {
-        (
-            $(
-                $test_name:ident {
-                    $getter:ident () $( . $getter_field:ident )? = $default_value:expr;
-                    receives $room_response:expr;
-                    _ = $init_or_updated_value:expr;
-                    receives nothing;
-                    _ = $no_update_value:expr;
-                }
-            )+
-        ) => {
-            $(
-                #[async_test]
-                async fn $test_name () {
-                    // Default value.
-                    {
-                        let room = new_room(room_id!("!foo:bar.org"), room_response!({})).await;
-
-                        assert_eq!(room.$getter() $( . $getter_field )?, $default_value, "default value");
-                    }
-
-                    // Some value when initializing.
-                    {
-                        let room = new_room(room_id!("!foo:bar.org"), $room_response).await;
-
-                        assert_eq!(room.$getter() $( . $getter_field )?, $init_or_updated_value, "init value");
-                    }
-
-                    // Some value when updating.
-                    {
-
-                        let mut room = new_room(room_id!("!foo:bar.org"), room_response!({})).await;
-
-                        // Value is set to the default value.
-                        assert_eq!(room.$getter() $( . $getter_field )?, $default_value, "default value (bis)");
-
-                        room.update($room_response, vec![]);
-
-                        // Value has been updated.
-                        assert_eq!(room.$getter() $( . $getter_field )?, $init_or_updated_value, "updated value");
-
-                        room.update(room_response!({}), vec![]);
-
-                        // Value is kept.
-                        assert_eq!(room.$getter() $( . $getter_field )?, $no_update_value, "not updated value");
-                    }
-
-                }
-            )+
-        };
-    }
-
-    test_getters! {
-        test_room_name {
-            name() = None;
-            receives room_response!({"name": "gordon"});
-            _ = Some("gordon".to_owned());
-            receives nothing;
-            _ = Some("gordon".to_owned());
-        }
-
-        test_avatar {
-            avatar_url() = None;
-            receives room_response!({"avatar": "mxc://homeserver/media"});
-            _ = Some(mxc_uri!("mxc://homeserver/media").to_owned());
-            receives nothing;
-            _ = Some(mxc_uri!("mxc://homeserver/media").to_owned());
-        }
-
-        test_avatar_unset {
-            avatar_url() = None;
-            receives room_response!({ "avatar": null });
-            _ = None;
-            receives nothing;
-            _ = None;
-        }
-
-        test_room_is_dm {
-            is_dm() = None;
-            receives room_response!({"is_dm": true});
-            _ = Some(true);
-            receives nothing;
-            _ = Some(true);
-        }
-
-        test_room_is_initial_response {
-            is_initial_response() = None;
-            receives room_response!({"initial": true});
-            _ = Some(true);
-            receives nothing;
-            _ = Some(true);
-        }
-
-        test_has_unread_notifications_with_notification_count {
-            has_unread_notifications() = false;
-            receives room_response!({"notification_count": 42});
-            _ = true;
-            receives nothing;
-            _ = false;
-        }
-
-        test_has_unread_notifications_with_highlight_count {
-            has_unread_notifications() = false;
-            receives room_response!({"highlight_count": 42});
-            _ = true;
-            receives nothing;
-            _ = false;
-        }
-
-        test_unread_notifications_with_notification_count {
-            unread_notifications().notification_count = None;
-            receives room_response!({"notification_count": 42});
-            _ = Some(uint!(42));
-            receives nothing;
-            _ = None;
-        }
-
-        test_unread_notifications_with_highlight_count {
-            unread_notifications().highlight_count = None;
-            receives room_response!({"highlight_count": 42});
-            _ = Some(uint!(42));
-            receives nothing;
-            _ = None;
-        }
-    }
-
     #[async_test]
     async fn test_prev_batch() {
         // Default value.
@@ -553,65 +373,6 @@ mod tests {
 
             room.update(room_response!({}), vec![]);
             assert_eq!(room.prev_batch(), Some("t111_222_333".to_owned()));
-        }
-    }
-
-    #[async_test]
-    async fn test_required_state() {
-        // Default value.
-        {
-            let room = new_room(room_id!("!foo:bar.org"), room_response!({})).await;
-
-            assert!(room.required_state().is_empty());
-        }
-
-        // Some value when initializing.
-        {
-            let room = new_room(
-                room_id!("!foo:bar.org"),
-                room_response!({
-                    "required_state": [
-                        {
-                            "sender": "@alice:example.com",
-                            "type": "m.room.join_rules",
-                            "state_key": "",
-                            "content": {
-                                "join_rule": "invite"
-                            }
-                        }
-                    ]
-                }),
-            )
-            .await;
-
-            assert!(!room.required_state().is_empty());
-        }
-
-        // Some value when updating.
-        {
-            let mut room = new_room(room_id!("!foo:bar.org"), room_response!({})).await;
-
-            assert!(room.required_state().is_empty());
-
-            room.update(
-                room_response!({
-                    "required_state": [
-                        {
-                            "sender": "@alice:example.com",
-                            "type": "m.room.join_rules",
-                            "state_key": "",
-                            "content": {
-                                "join_rule": "invite"
-                            }
-                        }
-                    ]
-                }),
-                vec![],
-            );
-            assert!(!room.required_state().is_empty());
-
-            room.update(room_response!({}), vec![]);
-            assert!(!room.required_state().is_empty());
         }
     }
 
@@ -1058,22 +819,5 @@ mod tests {
                 &format!("$x{max}:baz.org")
             );
         }
-    }
-
-    #[async_test]
-    async fn test_avatar_set_then_unset() {
-        let mut room = new_room(room_id!("!foo:bar.org"), room_response!({})).await;
-        assert_eq!(room.avatar_url(), None);
-
-        room.update(room_response!({ "avatar": "mxc://homeserver/media" }), vec![]);
-        assert_eq!(room.avatar_url().as_deref(), Some(mxc_uri!("mxc://homeserver/media")));
-
-        // avatar is undefined.
-        room.update(room_response!({}), vec![]);
-        assert_eq!(room.avatar_url().as_deref(), Some(mxc_uri!("mxc://homeserver/media")));
-
-        // avatar is null => reset it to None.
-        room.update(room_response!({ "avatar": null }), vec![]);
-        assert_eq!(room.avatar_url().as_deref(), None);
     }
 }

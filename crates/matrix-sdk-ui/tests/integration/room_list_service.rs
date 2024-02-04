@@ -8,6 +8,7 @@ use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, FutureExt, StreamExt};
 use imbl::vector;
 use matrix_sdk::Client;
+use matrix_sdk_base::sync::UnreadNotificationsCount;
 use matrix_sdk_test::async_test;
 use matrix_sdk_ui::{
     room_list_service::{
@@ -20,7 +21,7 @@ use matrix_sdk_ui::{
     RoomListService,
 };
 use ruma::{
-    api::client::sync::sync_events::{v4::RoomSubscription, UnreadNotificationsCount},
+    api::client::sync::sync_events::v4::RoomSubscription,
     assign, event_id,
     events::{room::message::RoomMessageEventContent, StateEventType},
     mxc_uri, room_id, uint,
@@ -2287,10 +2288,9 @@ async fn test_room_unread_notifications() -> Result<(), Error> {
 
     let room = room_list.room(room_id).await.unwrap();
 
-    assert!(room.has_unread_notifications().not());
     assert_matches!(
-        room.unread_notifications(),
-        UnreadNotificationsCount { highlight_count: None, notification_count: None, .. }
+        room.unread_notification_counts(),
+        UnreadNotificationsCount { highlight_count: 0, notification_count: 0 }
     );
 
     sync_then_assert_request_and_fake_response! {
@@ -2315,17 +2315,9 @@ async fn test_room_unread_notifications() -> Result<(), Error> {
         },
     };
 
-    assert!(room.has_unread_notifications());
     assert_matches!(
-        room.unread_notifications(),
-        UnreadNotificationsCount {
-            highlight_count,
-            notification_count,
-            ..
-        } => {
-            assert_eq!(highlight_count, Some(uint!(1)));
-            assert_eq!(notification_count, Some(uint!(2)));
-        }
+        room.unread_notification_counts(),
+        UnreadNotificationsCount { highlight_count: 1, notification_count: 2 }
     );
 
     Ok(())
@@ -2370,7 +2362,7 @@ async fn test_room_timeline() -> Result<(), Error> {
     };
 
     let room = room_list.room(room_id).await?;
-    room.init_timeline_with_builder(room.default_room_timeline_builder()).await?;
+    room.init_timeline_with_builder(room.default_room_timeline_builder().await).await?;
     let timeline = room.timeline().unwrap();
 
     let (previous_timeline_items, mut timeline_items_stream) = timeline.subscribe().await;
@@ -2452,7 +2444,7 @@ async fn test_room_latest_event() -> Result<(), Error> {
     };
 
     let room = room_list.room(room_id).await?;
-    room.init_timeline_with_builder(room.default_room_timeline_builder()).await?;
+    room.init_timeline_with_builder(room.default_room_timeline_builder().await).await?;
 
     // The latest event does not exist.
     assert!(room.latest_event().await.is_none());

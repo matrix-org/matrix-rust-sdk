@@ -22,8 +22,8 @@ use gloo_utils::format::JsValueSerdeExt;
 use indexed_db_futures::prelude::*;
 use matrix_sdk_crypto::{
     olm::{
-        InboundGroupSession, OlmMessageHash, OutboundGroupSession, PrivateCrossSigningIdentity,
-        Session, StaticAccountData,
+        InboundGroupSession, OlmMessageHash, OutboundGroupSession, PickledInboundGroupSession,
+        PrivateCrossSigningIdentity, Session, StaticAccountData,
     },
     store::{
         caches::SessionStore, BackupKeys, Changes, CryptoStore, CryptoStoreError, PendingChanges,
@@ -43,6 +43,7 @@ use tracing::{debug, warn};
 use wasm_bindgen::JsValue;
 use web_sys::IdbKeyRange;
 
+use self::indexeddb_serializer::MaybeEncrypted;
 use crate::crypto_store::{
     indexeddb_serializer::IndexeddbSerializer, migrations::open_and_upgrade_db,
 };
@@ -56,8 +57,9 @@ mod keys {
 
     pub const SESSION: &str = "session";
 
-    pub const INBOUND_GROUP_SESSIONS_V2: &str = "inbound_group_sessions2";
+    pub const INBOUND_GROUP_SESSIONS_V3: &str = "inbound_group_sessions3";
     pub const INBOUND_GROUP_SESSIONS_BACKUP_INDEX: &str = "backup";
+    pub const INBOUND_GROUP_SESSIONS_BACKED_UP_TO_INDEX: &str = "backed_up_to";
 
     pub const OUTBOUND_GROUP_SESSIONS: &str = "outbound_group_sessions";
 
@@ -267,10 +269,10 @@ impl IndexeddbCryptoStore {
         &self,
         session: &InboundGroupSession,
     ) -> Result<JsValue> {
-        let obj = InboundGroupSessionIndexedDbObject {
-            pickled_session: self.serializer.serialize_value_as_bytes(&session.pickle().await)?,
-            needs_backup: !session.backed_up(),
-        };
+        let obj = InboundGroupSessionIndexedDbObject::new(
+            self.serializer.maybe_encrypt_value(session.pickle().await)?,
+            !session.backed_up(),
+        );
         Ok(serde_wasm_bindgen::to_value(&obj)?)
     }
 
@@ -282,8 +284,8 @@ impl IndexeddbCryptoStore {
     ) -> Result<InboundGroupSession> {
         let idb_object: InboundGroupSessionIndexedDbObject =
             serde_wasm_bindgen::from_value(stored_value)?;
-        let pickled_session =
-            self.serializer.deserialize_value_from_bytes(&idb_object.pickled_session)?;
+        let pickled_session: PickledInboundGroupSession =
+            self.serializer.maybe_decrypt_value(idb_object.pickled_session)?;
         let session = InboundGroupSession::from_pickle(pickled_session)
             .map_err(|e| IndexeddbCryptoStoreError::CryptoStoreError(e.into()))?;
 
@@ -417,7 +419,7 @@ impl_crypto_store! {
                 keys::IDENTITIES,
             ),
 
-            (!changes.inbound_group_sessions.is_empty(), keys::INBOUND_GROUP_SESSIONS_V2),
+            (!changes.inbound_group_sessions.is_empty(), keys::INBOUND_GROUP_SESSIONS_V3),
             (!changes.outbound_group_sessions.is_empty(), keys::OUTBOUND_GROUP_SESSIONS),
             (!changes.message_hashes.is_empty(), keys::OLM_HASHES),
             (!changes.withheld_session_info.is_empty(), keys::DIRECT_WITHHELD_INFO),
@@ -487,12 +489,12 @@ impl_crypto_store! {
         }
 
         if !changes.inbound_group_sessions.is_empty() {
-            let sessions = tx.object_store(keys::INBOUND_GROUP_SESSIONS_V2)?;
+            let sessions = tx.object_store(keys::INBOUND_GROUP_SESSIONS_V3)?;
 
             for session in changes.inbound_group_sessions {
                 let room_id = session.room_id();
                 let session_id = session.session_id();
-                let key = self.serializer.encode_key(keys::INBOUND_GROUP_SESSIONS_V2, (room_id, session_id));
+                let key = self.serializer.encode_key(keys::INBOUND_GROUP_SESSIONS_V3, (room_id, session_id));
                 let value = self.serialize_inbound_group_session(&session).await?;
                 sessions.put_key_val(&key, &value)?;
             }
@@ -764,14 +766,14 @@ impl_crypto_store! {
         room_id: &RoomId,
         session_id: &str,
     ) -> Result<Option<InboundGroupSession>> {
-        let key = self.serializer.encode_key(keys::INBOUND_GROUP_SESSIONS_V2, (room_id, session_id));
+        let key = self.serializer.encode_key(keys::INBOUND_GROUP_SESSIONS_V3, (room_id, session_id));
         if let Some(value) = self
             .inner
             .transaction_on_one_with_mode(
-                keys::INBOUND_GROUP_SESSIONS_V2,
+                keys::INBOUND_GROUP_SESSIONS_V3,
                 IdbTransactionMode::Readonly,
             )?
-            .object_store(keys::INBOUND_GROUP_SESSIONS_V2)?
+            .object_store(keys::INBOUND_GROUP_SESSIONS_V3)?
             .get(&key)?
             .await?
         {
@@ -787,11 +789,11 @@ impl_crypto_store! {
         let transaction = self
             .inner
             .transaction_on_one_with_mode(
-                keys::INBOUND_GROUP_SESSIONS_V2,
+                keys::INBOUND_GROUP_SESSIONS_V3,
                 IdbTransactionMode::Readonly,
             )?;
 
-        let object_store = transaction.object_store(keys::INBOUND_GROUP_SESSIONS_V2)?;
+        let object_store = transaction.object_store(keys::INBOUND_GROUP_SESSIONS_V3)?;
 
         fetch_from_object_store_batched(
             object_store,
@@ -804,10 +806,10 @@ impl_crypto_store! {
         let tx = self
             .inner
             .transaction_on_one_with_mode(
-                keys::INBOUND_GROUP_SESSIONS_V2,
+                keys::INBOUND_GROUP_SESSIONS_V3,
                 IdbTransactionMode::Readonly,
             )?;
-        let store = tx.object_store(keys::INBOUND_GROUP_SESSIONS_V2)?;
+        let store = tx.object_store(keys::INBOUND_GROUP_SESSIONS_V3)?;
         let all = store.count()?.await? as usize;
         let not_backed_up = store.index(keys::INBOUND_GROUP_SESSIONS_BACKUP_INDEX)?.count()?.await? as usize;
         tx.await.into_result()?;
@@ -821,12 +823,12 @@ impl_crypto_store! {
         let tx = self
             .inner
             .transaction_on_one_with_mode(
-                keys::INBOUND_GROUP_SESSIONS_V2,
+                keys::INBOUND_GROUP_SESSIONS_V3,
                 IdbTransactionMode::Readonly,
             )?;
 
 
-        let store = tx.object_store(keys::INBOUND_GROUP_SESSIONS_V2)?;
+        let store = tx.object_store(keys::INBOUND_GROUP_SESSIONS_V3)?;
         let idx = store.index(keys::INBOUND_GROUP_SESSIONS_BACKUP_INDEX)?;
 
         // XXX ideally we would use `get_all_with_key_and_limit`, but that doesn't appear to be
@@ -864,14 +866,14 @@ impl_crypto_store! {
         let tx = self
             .inner
             .transaction_on_one_with_mode(
-                keys::INBOUND_GROUP_SESSIONS_V2,
+                keys::INBOUND_GROUP_SESSIONS_V3,
                 IdbTransactionMode::Readwrite,
             )?;
 
-        let object_store = tx.object_store(keys::INBOUND_GROUP_SESSIONS_V2)?;
+        let object_store = tx.object_store(keys::INBOUND_GROUP_SESSIONS_V3)?;
 
         for (room_id, session_id) in room_and_session_ids {
-            let key = self.serializer.encode_key(keys::INBOUND_GROUP_SESSIONS_V2, (room_id, session_id));
+            let key = self.serializer.encode_key(keys::INBOUND_GROUP_SESSIONS_V3, (room_id, session_id));
             if let Some(idb_object_js) = object_store.get(&key)?.await? {
                 let mut idb_object: InboundGroupSessionIndexedDbObject = serde_wasm_bindgen::from_value(idb_object_js)?;
                 idb_object.needs_backup = false;
@@ -888,11 +890,11 @@ impl_crypto_store! {
         let tx = self
             .inner
             .transaction_on_one_with_mode(
-                keys::INBOUND_GROUP_SESSIONS_V2,
+                keys::INBOUND_GROUP_SESSIONS_V3,
                 IdbTransactionMode::Readwrite,
             )?;
 
-        if let Some(cursor) = tx.object_store(keys::INBOUND_GROUP_SESSIONS_V2)?.open_cursor()?.await? {
+        if let Some(cursor) = tx.object_store(keys::INBOUND_GROUP_SESSIONS_V3)?.open_cursor()?.await? {
             loop {
                 let mut idb_object: InboundGroupSessionIndexedDbObject = serde_wasm_bindgen::from_value(cursor.value())?;
                 if !idb_object.needs_backup {
@@ -1323,12 +1325,11 @@ struct GossipRequestIndexedDbObject {
 }
 
 /// The objects we store in the inbound_group_sessions2 indexeddb object store
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize)]
 struct InboundGroupSessionIndexedDbObject {
-    /// (Possibly encrypted) serialisation of a
+    /// Possibly encrypted
     /// [`matrix_sdk_crypto::olm::group_sessions::PickledInboundGroupSession`]
-    /// structure.
-    pickled_session: Vec<u8>,
+    pickled_session: MaybeEncrypted,
 
     /// Whether the session data has yet to be backed up.
     ///
@@ -1344,30 +1345,54 @@ struct InboundGroupSessionIndexedDbObject {
         with = "crate::serialize_bool_for_indexeddb"
     )]
     needs_backup: bool,
+
+    /// Unused: for future compatibility. In future, will contain the order
+    /// number (not the ID!) of the backup for which this key has been
+    /// backed up. This will replace `needs_backup`, fixing the performance
+    /// problem identified in
+    /// https://github.com/element-hq/element-web/issues/26892
+    /// because we won't need to update all records when we spot a new backup
+    /// version.
+    /// In this version of the code, this is always set to -1, meaning:
+    /// "refer to the `needs_backup` property". See:
+    /// https://github.com/element-hq/element-web/issues/26892#issuecomment-1906336076
+    backed_up_to: i32,
+}
+
+impl InboundGroupSessionIndexedDbObject {
+    pub fn new(pickled_session: MaybeEncrypted, needs_backup: bool) -> Self {
+        Self { pickled_session, needs_backup, backed_up_to: -1 }
+    }
 }
 
 #[cfg(test)]
 mod unit_tests {
+    use matrix_sdk_store_encryption::EncryptedValueBase64;
+
     use super::InboundGroupSessionIndexedDbObject;
+    use crate::crypto_store::indexeddb_serializer::MaybeEncrypted;
 
     #[test]
     fn needs_backup_is_serialized_as_a_u8_in_json() {
-        let session_needs_backup =
-            InboundGroupSessionIndexedDbObject { pickled_session: Vec::new(), needs_backup: true };
+        let session_needs_backup = InboundGroupSessionIndexedDbObject::new(
+            MaybeEncrypted::Encrypted(EncryptedValueBase64::new(1, "", "")),
+            true,
+        );
 
         // Testing the exact JSON here is theoretically flaky in the face of
         // serialization changes in serde_json but it seems unlikely, and it's
         // simple enough to fix if we need to.
-        assert_eq!(
-            serde_json::to_string(&session_needs_backup).unwrap(),
-            r#"{"pickled_session":[],"needs_backup":1}"#
-        );
+        assert!(serde_json::to_string(&session_needs_backup)
+            .unwrap()
+            .contains(r#""needs_backup":1"#),);
     }
 
     #[test]
     fn doesnt_need_backup_is_serialized_with_missing_field_in_json() {
-        let session_backed_up =
-            InboundGroupSessionIndexedDbObject { pickled_session: Vec::new(), needs_backup: false };
+        let session_backed_up = InboundGroupSessionIndexedDbObject::new(
+            MaybeEncrypted::Encrypted(EncryptedValueBase64::new(1, "", "")),
+            false,
+        );
 
         assert!(
             !serde_json::to_string(&session_backed_up).unwrap().contains("needs_backup"),
@@ -1378,10 +1403,11 @@ mod unit_tests {
 
 #[cfg(all(test, target_arch = "wasm32"))]
 mod wasm_unit_tests {
+    use matrix_sdk_store_encryption::EncryptedValueBase64;
     use matrix_sdk_test::async_test;
     use wasm_bindgen::JsValue;
 
-    use super::InboundGroupSessionIndexedDbObject;
+    use super::{indexeddb_serializer::MaybeEncrypted, InboundGroupSessionIndexedDbObject};
 
     fn assert_field_equals(js_value: &JsValue, field: &str, expected: u32) {
         assert_eq!(
@@ -1392,8 +1418,10 @@ mod wasm_unit_tests {
 
     #[async_test]
     fn needs_backup_is_serialized_as_a_u8_in_js() {
-        let session_needs_backup =
-            InboundGroupSessionIndexedDbObject { pickled_session: Vec::new(), needs_backup: true };
+        let session_needs_backup = InboundGroupSessionIndexedDbObject::new(
+            MaybeEncrypted::Encrypted(EncryptedValueBase64::new(3, "", "")),
+            true,
+        );
 
         let js_value = serde_wasm_bindgen::to_value(&session_needs_backup).unwrap();
 
@@ -1403,8 +1431,10 @@ mod wasm_unit_tests {
 
     #[async_test]
     fn doesnt_need_backup_is_serialized_with_missing_field_in_js() {
-        let session_backed_up =
-            InboundGroupSessionIndexedDbObject { pickled_session: Vec::new(), needs_backup: false };
+        let session_backed_up = InboundGroupSessionIndexedDbObject::new(
+            MaybeEncrypted::Encrypted(EncryptedValueBase64::new(3, "", "")),
+            false,
+        );
 
         let js_value = serde_wasm_bindgen::to_value(&session_backed_up).unwrap();
 
