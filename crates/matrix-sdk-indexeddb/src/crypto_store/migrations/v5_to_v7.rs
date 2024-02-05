@@ -40,33 +40,19 @@ use crate::{
 
 pub(crate) async fn migrate_schema_up_to_v6(name: &str) -> Result<(), DomException> {
     do_schema_upgrade(name, 6, |db| {
-        migrate_stores_to_v6(db)?;
+        let object_store = db.create_object_store(old_keys::INBOUND_GROUP_SESSIONS_V2)?;
+
+        let mut params = IdbIndexParameters::new();
+        params.unique(false);
+        object_store.create_index_with_params(
+            keys::INBOUND_GROUP_SESSIONS_BACKUP_INDEX,
+            &IdbKeyPath::str("needs_backup"),
+            &params,
+        )?;
+
         Ok(())
     })
     .await
-}
-
-fn migrate_stores_to_v6(db: &IdbDatabase) -> Result<(), DomException> {
-    // We want to change the shape of the inbound group sessions store. To do so, we
-    // first need to build a new store, then copy all the data over.
-    //
-    // But copying the data needs to happen outside the database upgrade process
-    // (because it needs async calls). So, here we create a new store for
-    // inbound group sessions. We don't populate it yet; that happens once we
-    // have done the upgrade to v6, in `prepare_data_for_v7`. Finally we drop the
-    // old store in create_stores_for_v7.
-
-    let object_store = db.create_object_store(old_keys::INBOUND_GROUP_SESSIONS_V2)?;
-
-    let mut params = IdbIndexParameters::new();
-    params.unique(false);
-    object_store.create_index_with_params(
-        keys::INBOUND_GROUP_SESSIONS_BACKUP_INDEX,
-        &IdbKeyPath::str("needs_backup"),
-        &params,
-    )?;
-
-    Ok(())
 }
 
 pub(crate) async fn prepare_data_for_v7(
@@ -137,23 +123,9 @@ async fn do_prepare_data_for_v7(serializer: &IndexeddbSerializer, db: &IdbDataba
 }
 
 pub(crate) async fn migrate_schema_for_v7(name: &str) -> Result<(), DomException> {
-    let mut db_req: OpenDbRequest = IdbDatabase::open_u32(name, 7)?;
-    db_req.set_on_upgrade_needed(Some(|evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
-        let old_version = evt.old_version() as u32;
-        let new_version = evt.old_version() as u32;
-
-        if old_version < 7 {
-            info!(old_version, new_version, "IndexeddbCryptoStore upgrade schema -> v7 starting");
-            migrate_stores_to_v7(evt.db())?;
-            info!(old_version, new_version, "IndexeddbCryptoStore upgrade schema -> v7 complete");
-        }
-
+    do_schema_upgrade(name, 7, |db| {
+        db.delete_object_store(old_keys::INBOUND_GROUP_SESSIONS_V1)?;
         Ok(())
-    }));
-    db_req.await?.close();
-    Ok(())
-}
-
-fn migrate_stores_to_v7(db: &IdbDatabase) -> Result<(), DomException> {
-    db.delete_object_store(old_keys::INBOUND_GROUP_SESSIONS_V1)
+    })
+    .await
 }
