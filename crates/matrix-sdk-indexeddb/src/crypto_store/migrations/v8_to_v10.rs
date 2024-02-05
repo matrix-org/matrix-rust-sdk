@@ -49,7 +49,7 @@ fn add_nonunique_index<'a>(
 pub(crate) async fn upgrade_scheme_to_v9_create_inbound_group_sessions3(
     name: &str,
 ) -> Result<(), DomException> {
-    do_schema_upgrade(name, 9, |db| {
+    do_schema_upgrade(name, 9, |db, _| {
         let object_store = db.create_object_store(keys::INBOUND_GROUP_SESSIONS_V3)?;
 
         add_nonunique_index(
@@ -144,7 +144,7 @@ pub(crate) async fn migrate_data_before_v10_populate_inbound_group_sessions3(
 pub(crate) async fn upgrade_scheme_to_v10_delete_inbound_group_sessions2(
     name: &str,
 ) -> Result<(), DomException> {
-    do_schema_upgrade(name, 10, |db| {
+    do_schema_upgrade(name, 10, |db, _| {
         db.delete_object_store(old_keys::INBOUND_GROUP_SESSIONS_V2)?;
         Ok(())
     })

@@ -120,7 +120,7 @@ pub(crate) async fn prepare_data_for_v8(
 }
 
 pub(crate) async fn migrate_schema_for_v8(name: &str) -> Result<(), DomException> {
-    do_schema_upgrade(name, 8, |_| {
+    do_schema_upgrade(name, 8, |_, _| {
         // Just bump the version number to 8 to demonstrate that we have run the data
         // changes from prepare_data_for_v8.
         Ok(())

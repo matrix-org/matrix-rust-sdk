@@ -19,13 +19,9 @@
 //! Then we move the data into the new store.
 //! The migration 6->7 deletes the old store inbound_group_sessions.
 
-use indexed_db_futures::{
-    request::{IdbOpenDbRequestLike, OpenDbRequest},
-    IdbDatabase, IdbKeyPath, IdbQuerySource, IdbVersionChangeEvent,
-};
+use indexed_db_futures::{IdbDatabase, IdbKeyPath, IdbQuerySource};
 use matrix_sdk_crypto::olm::InboundGroupSession;
 use tracing::{debug, info};
-use wasm_bindgen::JsValue;
 use web_sys::{DomException, IdbIndexParameters, IdbTransactionMode};
 
 use crate::{
@@ -39,7 +35,7 @@ use crate::{
 };
 
 pub(crate) async fn migrate_schema_up_to_v6(name: &str) -> Result<(), DomException> {
-    do_schema_upgrade(name, 6, |db| {
+    do_schema_upgrade(name, 6, |db, _| {
         let object_store = db.create_object_store(old_keys::INBOUND_GROUP_SESSIONS_V2)?;
 
         let mut params = IdbIndexParameters::new();
@@ -123,7 +119,7 @@ async fn do_prepare_data_for_v7(serializer: &IndexeddbSerializer, db: &IdbDataba
 }
 
 pub(crate) async fn migrate_schema_for_v7(name: &str) -> Result<(), DomException> {
-    do_schema_upgrade(name, 7, |db| {
+    do_schema_upgrade(name, 7, |db, _| {
         db.delete_object_store(old_keys::INBOUND_GROUP_SESSIONS_V1)?;
         Ok(())
     })
