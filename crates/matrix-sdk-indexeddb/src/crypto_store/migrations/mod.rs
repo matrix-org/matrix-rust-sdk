@@ -39,9 +39,7 @@ pub async fn open_and_upgrade_db(
     // JS `upgrade_needed` mechanism does not allow for async calls.
     //
     // Start by finding out what the existing version is, if any.
-    let db = IdbDatabase::open(name)?.await?;
-    let old_version = db.version() as u32;
-    db.close();
+    let old_version = db_version(name).await?;
 
     // Perform the schema-only migrations
     if old_version < 5 {
@@ -84,6 +82,13 @@ pub async fn open_and_upgrade_db(
     // We know we've upgraded to v10 now, so we can open the DB at that version and
     // return it
     Ok(IdbDatabase::open_u32(name, 10)?.await?)
+}
+
+async fn db_version(name: &str) -> Result<u32, IndexeddbCryptoStoreError> {
+    let db = IdbDatabase::open(name)?.await?;
+    let old_version = db.version() as u32;
+    db.close();
+    Ok(old_version)
 }
 
 async fn do_schema_upgrade<F>(name: &str, version: u32, f: F) -> Result<(), DomException>
