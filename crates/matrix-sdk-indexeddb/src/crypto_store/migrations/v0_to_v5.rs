@@ -15,12 +15,12 @@
 //! Schema-only migrations adding various stores and indices, notably
 //! the first version of `inbound_group_sessions`.
 
-use indexed_db_futures::{IdbDatabase, IdbKeyPath};
-use web_sys::{DomException, IdbIndexParameters};
+use indexed_db_futures::IdbDatabase;
+use web_sys::DomException;
 
 use crate::crypto_store::{
     keys,
-    migrations::{do_schema_upgrade, old_keys},
+    migrations::{add_nonunique_index, add_unique_index, do_schema_upgrade, old_keys},
     Result,
 };
 
@@ -108,21 +108,9 @@ fn migrate_stores_to_v5(db: &IdbDatabase) -> Result<(), DomException> {
     // Create a new store for outgoing secret requests
     let object_store = db.create_object_store(keys::GOSSIP_REQUESTS)?;
 
-    let mut params = IdbIndexParameters::new();
-    params.unique(false);
-    object_store.create_index_with_params(
-        keys::GOSSIP_REQUESTS_UNSENT_INDEX,
-        &IdbKeyPath::str("unsent"),
-        &params,
-    )?;
+    add_nonunique_index(&object_store, keys::GOSSIP_REQUESTS_UNSENT_INDEX, "unsent")?;
 
-    let mut params = IdbIndexParameters::new();
-    params.unique(true);
-    object_store.create_index_with_params(
-        keys::GOSSIP_REQUESTS_BY_INFO_INDEX,
-        &IdbKeyPath::str("info"),
-        &params,
-    )?;
+    add_unique_index(&object_store, keys::GOSSIP_REQUESTS_BY_INFO_INDEX, "info")?;
 
     if db.object_store_names().any(|n| n == "outgoing_secret_requests") {
         // Delete the old store names. We just delete any existing requests.

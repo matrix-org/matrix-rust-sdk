@@ -19,16 +19,16 @@
 //! Then we move the data into the new store.
 //! The migration 6->7 deletes the old store inbound_group_sessions.
 
-use indexed_db_futures::{IdbDatabase, IdbKeyPath, IdbQuerySource};
+use indexed_db_futures::{IdbDatabase, IdbQuerySource};
 use matrix_sdk_crypto::olm::InboundGroupSession;
 use tracing::{debug, info};
-use web_sys::{DomException, IdbIndexParameters, IdbTransactionMode};
+use web_sys::{DomException, IdbTransactionMode};
 
 use crate::{
     crypto_store::{
         indexeddb_serializer::IndexeddbSerializer,
         keys,
-        migrations::{do_schema_upgrade, old_keys, v7},
+        migrations::{add_nonunique_index, do_schema_upgrade, old_keys, v7},
         Result,
     },
     IndexeddbCryptoStoreError,
@@ -39,12 +39,10 @@ pub(crate) async fn migrate_schema_up_to_v6(name: &str) -> Result<(), DomExcepti
     do_schema_upgrade(name, 6, |db, _| {
         let object_store = db.create_object_store(old_keys::INBOUND_GROUP_SESSIONS_V2)?;
 
-        let mut params = IdbIndexParameters::new();
-        params.unique(false);
-        object_store.create_index_with_params(
+        add_nonunique_index(
+            &object_store,
             keys::INBOUND_GROUP_SESSIONS_BACKUP_INDEX,
-            &IdbKeyPath::str("needs_backup"),
-            &params,
+            "needs_backup",
         )?;
 
         Ok(())

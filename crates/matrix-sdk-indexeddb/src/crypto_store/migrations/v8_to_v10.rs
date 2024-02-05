@@ -15,12 +15,10 @@
 //! Migration code that moves from inbound_group_sessions2 to
 //! inbound_group_sessions3, shrinking the values stored in each record.
 
-use indexed_db_futures::{
-    idb_object_store::IdbObjectStore, IdbDatabase, IdbIndex, IdbKeyPath, IdbQuerySource,
-};
+use indexed_db_futures::{IdbDatabase, IdbQuerySource};
 use matrix_sdk_crypto::olm::InboundGroupSession;
 use tracing::{debug, info};
-use web_sys::{DomException, IdbIndexParameters, IdbTransactionMode};
+use web_sys::{DomException, IdbTransactionMode};
 
 use crate::{
     crypto_store::{
