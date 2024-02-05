@@ -66,7 +66,68 @@ impl SwiftArgs {
     }
 }
 
+/// A specific build target supported by the SDK.
+struct Target {
+    triple: &'static str,
+    platform: Platform,
+    description: &'static str,
+}
+
+/// The platform for which a particular target can run on.
+#[derive(Hash, PartialEq, Eq, Clone)]
+enum Platform {
+    Macos,
+    Ios,
+    IosSimulator,
+}
+
+impl Platform {
+    /// The human-readable name of the platform.
+    fn as_str(&self) -> &str {
+        match self {
+            Platform::Macos => "macOS",
+            Platform::Ios => "iOS",
+            Platform::IosSimulator => "iOS Simulator",
+        }
+    }
+
+    /// The name of the library for the platform once all architectures are
+    /// lipo'd together.
+    fn lib_name(&self) -> &str {
+        match self {
+            Platform::Macos => "libmatrix_sdk_ffi_macos.a",
+            Platform::Ios => "libmatrix_sdk_ffi_ios.a",
+            Platform::IosSimulator => "libmatrix_sdk_ffi_iossimulator.a",
+        }
+    }
+}
+
+/// The base name of the FFI library.
 const FFI_LIBRARY_NAME: &str = "libmatrix_sdk_ffi.a";
+/// The list of targets supported by the SDK.
+const TARGETS: &[Target] = &[
+    Target { triple: "aarch64-apple-ios", platform: Platform::Ios, description: "iOS" },
+    Target {
+        triple: "aarch64-apple-darwin",
+        platform: Platform::Macos,
+        description: "macOS (Apple Silicon)",
+    },
+    Target {
+        triple: "x86_64-apple-darwin",
+        platform: Platform::Macos,
+        description: "macOS (Intel)",
+    },
+    Target {
+        triple: "aarch64-apple-ios-sim",
+        platform: Platform::IosSimulator,
+        description: "iOS Simulator (Apple Silicon)",
+    },
+    Target {
+        triple: "x86_64-apple-ios",
+        platform: Platform::IosSimulator,
+        description: "iOS Simulator (Intel) ",
+    },
+];
 
 fn build_library() -> Result<()> {
     println!("Running debug library build.");
@@ -101,15 +162,16 @@ fn generate_uniffi(library_path: &Utf8Path, ffi_directory: &Utf8Path) -> Result<
     Ok(())
 }
 
-fn build_path_for_target(target: &str, profile: &str) -> Result<Utf8PathBuf> {
+fn build_path_for_target(target: &Target, profile: &str) -> Result<Utf8PathBuf> {
     // The builtin dev profile has its files stored under target/debug, all
     // other targets have matching directory names
     let profile_dir_name = if profile == "dev" { "debug" } else { profile };
-    Ok(workspace::target_path()?.join(target).join(profile_dir_name).join(FFI_LIBRARY_NAME))
+    Ok(workspace::target_path()?.join(target.triple).join(profile_dir_name).join(FFI_LIBRARY_NAME))
 }
 
-fn build_for_target(target: &str, profile: &str) -> Result<Utf8PathBuf> {
-    cmd!("rustup run stable cargo build -p matrix-sdk-ffi --target {target} --profile {profile}")
+fn build_targets(target: &Target, profile: &str) -> Result<Utf8PathBuf> {
+    let triple = target.triple;
+    cmd!("rustup run stable cargo build -p matrix-sdk-ffi --target {triple} --profile {profile}")
         .run()?;
 
     build_path_for_target(target, profile)
@@ -134,88 +196,70 @@ fn build_xcframework(
     create_dir_all(headers_dir.clone())?;
     create_dir_all(swift_dir.clone())?;
 
-    let (libs, uniffi_lib_path) = if let Some(target) = only_target {
-        println!("-- Building for {target} 1/1");
+    let (libs, uniffi_lib_path) = if let Some(triple) = only_target {
+        let target = TARGETS.iter().find(|t| t.triple == triple).expect("Invalid target specified");
+
+        println!("-- Building for {}", target.description);
 
         cmd!(
-            "rustup run stable cargo build -p matrix-sdk-ffi --target {target} --profile {profile}"
+            "rustup run stable cargo build -p matrix-sdk-ffi --target {triple} --profile {profile}"
         )
         .run()?;
 
-        let build_path = build_path_for_target(target.as_str(), profile)?;
+        let build_path = build_path_for_target(target, profile)?;
 
         (vec![build_path.clone()], build_path)
-    } else if sequentially {
-        println!("-- Building for iOS [1/5]");
-        let ios_path = build_for_target("aarch64-apple-ios", profile)?;
-
-        println!("-- Building for macOS (Apple Silicon) [2/5]");
-        let darwin_arm_path = build_for_target("aarch64-apple-darwin", profile)?;
-        println!("-- Building for macOS (Intel) [3/5]");
-        let darwin_x86_path = build_for_target("x86_64-apple-darwin", profile)?;
-
-        println!("-- Building for iOS Simulator (Apple Silicon) [4/5]");
-        let ios_sim_arm_path = build_for_target("aarch64-apple-ios-sim", profile)?;
-        println!("-- Building for iOS Simulator (Intel) [5/5]");
-        let ios_sim_x86_path = build_for_target("x86_64-apple-ios", profile)?;
-
-        println!("-- Running Lipo for macOS [1/2]");
-        // macOS
-        let lipo_target_macos = generated_dir.join("libmatrix_sdk_ffi_macos.a");
-        cmd!(
-            "lipo -create {darwin_x86_path} {darwin_arm_path}
-            -output {lipo_target_macos}"
-        )
-        .run()?;
-
-        println!("-- Running Lipo for iOS Simulator [2/2]");
-        // iOS Simulator
-        let lipo_target_sim = generated_dir.join("libmatrix_sdk_ffi_iossimulator.a");
-        cmd!(
-            "lipo -create {ios_sim_arm_path} {ios_sim_x86_path}
-            -output {lipo_target_sim}"
-        )
-        .run()?;
-
-        (vec![lipo_target_macos, lipo_target_sim, ios_path], darwin_x86_path)
     } else {
-        println!("-- Building for 5 targets");
+        let targets = TARGETS;
+        if sequentially {
+            for target in targets {
+                let triple = target.triple;
 
-        cmd!(
-            "rustup run stable cargo build -p matrix-sdk-ffi
-            --target aarch64-apple-ios
-            --target aarch64-apple-darwin
-            --target x86_64-apple-darwin
-            --target aarch64-apple-ios-sim
-            --target x86_64-apple-ios
-            --profile {profile}"
-        )
-        .run()?;
+                println!("-- Building for {}", target.description);
+                cmd!("rustup run stable cargo build -p matrix-sdk-ffi --target {triple} --profile {profile}")
+                    .run()?;
+            }
+        } else {
+            let triples = targets.iter().map(|target| target.triple).collect::<Vec<_>>();
+            let mut cmd = cmd!("rustup run stable cargo build -p matrix-sdk-ffi");
+            for triple in &triples {
+                cmd = cmd.arg("--target").arg(triple);
+            }
+            cmd = cmd.arg("--profile").arg(profile);
 
-        let ios_path = build_path_for_target("aarch64-apple-ios", profile)?;
-        let darwin_arm_path = build_path_for_target("aarch64-apple-darwin", profile)?;
-        let darwin_x86_path = build_path_for_target("x86_64-apple-darwin", profile)?;
-        let ios_sim_arm_path = build_path_for_target("aarch64-apple-ios-sim", profile)?;
-        let ios_sim_x86_path = build_path_for_target("x86_64-apple-ios", profile)?;
+            println!("-- Building for {} targets", triples.len());
+            cmd.run()?;
+        }
 
-        println!("-- Running Lipo for macOS [1/2]");
-        // # macOS
-        let lipo_target_macos = generated_dir.join("libmatrix_sdk_ffi_macos.a");
-        cmd!(
-            "lipo -create {darwin_x86_path} {darwin_arm_path}
-            -output {lipo_target_macos}"
-        )
-        .run()?;
+        // a hashmap of platform to array, where each array contains all the paths for
+        // that platform.
+        let mut platform_build_paths = std::collections::HashMap::new();
+        for target in targets {
+            let path = build_path_for_target(target, profile)?;
+            let paths =
+                platform_build_paths.entry(target.platform.clone()).or_insert_with(Vec::new);
+            paths.push(path);
+        }
 
-        println!("-- Running Lipo for iOS Simulator [2/2]");
-        // # iOS Simulator
-        let lipo_target_sim = generated_dir.join("libmatrix_sdk_ffi_iossimulator.a");
-        cmd!(
-            "lipo -create {ios_sim_arm_path} {ios_sim_x86_path}
-            -output {lipo_target_sim}"
-        )
-        .run()?;
-        (vec![lipo_target_macos, lipo_target_sim, ios_path], darwin_x86_path)
+        let mut libs = Vec::new();
+
+        for platform in platform_build_paths.keys() {
+            println!("-- Running Lipo for {}", platform.as_str());
+            let paths = platform_build_paths.get(platform).unwrap();
+            let output_path = generated_dir.join(platform.lib_name());
+            let mut cmd = cmd!("lipo -create");
+            for path in paths {
+                cmd = cmd.arg(path);
+            }
+            cmd = cmd.arg("-output").arg(&output_path);
+            cmd.run()?;
+            libs.push(output_path);
+        }
+
+        /// get the first build path to use for uniffi generation
+        let build_path = platform_build_paths.values().next().unwrap().first().unwrap().clone();
+
+        (libs, build_path)
     };
 
     println!("-- Generating uniffi files");
