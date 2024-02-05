@@ -1,10 +1,10 @@
 use std::ops::Not;
 
-use super::Filter;
+use super::{super::room_list::BoxedFilterFn, Filter};
 
 /// Create a new filter that will negate the inner filter. It returns `false` if
 /// the inner filter returns `true`, otherwise it returns `true`.
-pub fn new_filter(filter: impl Filter) -> impl Filter {
+pub fn new_filter(filter: BoxedFilterFn) -> impl Filter {
     move |room_list_entry| -> bool { filter(room_list_entry).not() }
 }
 
@@ -21,7 +21,7 @@ mod tests {
     fn test_true() {
         let room_list_entry = RoomListEntry::Filled(room_id!("!r0:bar.org").to_owned());
 
-        let filter = |_: &_| true;
+        let filter = Box::new(|_: &_| true);
         let not = new_filter(filter);
 
         assert!(not(&room_list_entry).not());
@@ -31,7 +31,7 @@ mod tests {
     fn test_false() {
         let room_list_entry = RoomListEntry::Filled(room_id!("!r0:bar.org").to_owned());
 
-        let filter = |_: &_| false;
+        let filter = Box::new(|_: &_| false);
         let not = new_filter(filter);
 
         assert!(not(&room_list_entry));

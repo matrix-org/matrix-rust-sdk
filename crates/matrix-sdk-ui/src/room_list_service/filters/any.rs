@@ -1,8 +1,8 @@
-use super::Filter;
+use super::{super::room_list::BoxedFilterFn, Filter};
 
 /// Create a new filter that will run multiple filters. It returns `true` if at
 /// least one of the filter returns `true`.
-pub fn new_filter(filters: Vec<Box<dyn Filter>>) -> impl Filter {
+pub fn new_filter(filters: Vec<BoxedFilterFn>) -> impl Filter {
     move |room_list_entry| -> bool { filters.iter().any(|filter| filter(room_list_entry)) }
 }
 
