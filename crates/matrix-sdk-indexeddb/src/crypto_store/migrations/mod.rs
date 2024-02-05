@@ -17,11 +17,12 @@ use tracing::info;
 use wasm_bindgen::JsValue;
 
 use crate::{
-    crypto_store::{indexeddb_serializer::IndexeddbSerializer, keys, Result},
+    crypto_store::{indexeddb_serializer::IndexeddbSerializer, Result},
     IndexeddbCryptoStoreError,
 };
 
 mod old_keys;
+mod v0_to_v5;
 mod v5_to_v7;
 mod v7;
 mod v7_to_v8;
@@ -44,7 +45,7 @@ pub async fn open_and_upgrade_db(
 
     // Perform the schema-only migrations
     if old_version < 5 {
-        migrate_schema_up_to_v5(name).await?;
+        v0_to_v5::migrate_schema_up_to_v5(name).await?;
     }
 
     // If we have yet to complete the migration to V7, migrate the schema to V6
@@ -83,115 +84,6 @@ pub async fn open_and_upgrade_db(
     // We know we've upgraded to v10 now, so we can open the DB at that version and
     // return it
     Ok(IdbDatabase::open_u32(name, 10)?.await?)
-}
-
-async fn migrate_schema_up_to_v5(name: &str) -> Result<(), DomException> {
-    do_schema_upgrade(name, 5, |db, old_version| {
-        // An old_version of 1 could either mean actually the first version of the
-        // schema, or a completely empty schema that has been created with a
-        // call to `IdbDatabase::open` with no explicit "version". So, to determine
-        // if we need to create the V1 stores, we actually check if the schema is empty.
-        if db.object_store_names().next().is_none() {
-            migrate_stores_to_v1(db)?;
-        }
-
-        if old_version < 2 {
-            migrate_stores_to_v2(db)?;
-        }
-
-        if old_version < 3 {
-            migrate_stores_to_v3(db)?;
-        }
-
-        if old_version < 4 {
-            migrate_stores_to_v4(db)?;
-        }
-
-        if old_version < 5 {
-            migrate_stores_to_v5(db)?;
-        }
-
-        Ok(())
-    })
-    .await
-}
-
-fn migrate_stores_to_v1(db: &IdbDatabase) -> Result<(), DomException> {
-    db.create_object_store(keys::CORE)?;
-    db.create_object_store(keys::SESSION)?;
-
-    db.create_object_store(old_keys::INBOUND_GROUP_SESSIONS_V1)?;
-    db.create_object_store(keys::OUTBOUND_GROUP_SESSIONS)?;
-    db.create_object_store(keys::TRACKED_USERS)?;
-    db.create_object_store(keys::OLM_HASHES)?;
-    db.create_object_store(keys::DEVICES)?;
-
-    db.create_object_store(keys::IDENTITIES)?;
-    db.create_object_store(keys::BACKUP_KEYS)?;
-
-    Ok(())
-}
-
-fn migrate_stores_to_v2(db: &IdbDatabase) -> Result<(), DomException> {
-    // We changed how we store inbound group sessions, the key used to
-    // be a tuple of `(room_id, sender_key, session_id)` now it's a
-    // tuple of `(room_id, session_id)`
-    //
-    // Let's just drop the whole object store.
-    db.delete_object_store(old_keys::INBOUND_GROUP_SESSIONS_V1)?;
-    db.create_object_store(old_keys::INBOUND_GROUP_SESSIONS_V1)?;
-
-    db.create_object_store(keys::ROOM_SETTINGS)?;
-
-    Ok(())
-}
-
-fn migrate_stores_to_v3(db: &IdbDatabase) -> Result<(), DomException> {
-    // We changed the way we store outbound session.
-    // ShareInfo changed from a struct to an enum with struct variant.
-    // Let's just discard the existing outbounds
-    db.delete_object_store(keys::OUTBOUND_GROUP_SESSIONS)?;
-    db.create_object_store(keys::OUTBOUND_GROUP_SESSIONS)?;
-
-    // Support for MSC2399 withheld codes
-    db.create_object_store(keys::DIRECT_WITHHELD_INFO)?;
-
-    Ok(())
-}
-
-fn migrate_stores_to_v4(db: &IdbDatabase) -> Result<(), DomException> {
-    db.create_object_store(keys::SECRETS_INBOX)?;
-    Ok(())
-}
-
-fn migrate_stores_to_v5(db: &IdbDatabase) -> Result<(), DomException> {
-    // Create a new store for outgoing secret requests
-    let object_store = db.create_object_store(keys::GOSSIP_REQUESTS)?;
-
-    let mut params = IdbIndexParameters::new();
-    params.unique(false);
-    object_store.create_index_with_params(
-        keys::GOSSIP_REQUESTS_UNSENT_INDEX,
-        &IdbKeyPath::str("unsent"),
-        &params,
-    )?;
-
-    let mut params = IdbIndexParameters::new();
-    params.unique(true);
-    object_store.create_index_with_params(
-        keys::GOSSIP_REQUESTS_BY_INFO_INDEX,
-        &IdbKeyPath::str("info"),
-        &params,
-    )?;
-
-    if db.object_store_names().any(|n| n == "outgoing_secret_requests") {
-        // Delete the old store names. We just delete any existing requests.
-        db.delete_object_store("outgoing_secret_requests")?;
-        db.delete_object_store("unsent_secret_requests")?;
-        db.delete_object_store("secret_requests_by_info")?;
-    }
-
-    Ok(())
 }
 
 async fn do_schema_upgrade<F>(name: &str, version: u32, f: F) -> Result<(), DomException>
@@ -235,10 +127,11 @@ mod tests {
     use tracing_subscriber::util::SubscriberInitExt;
     use web_sys::console;
 
-    use super::v7::InboundGroupSessionIndexedDbObject2;
+    use super::{v0_to_v5, v7::InboundGroupSessionIndexedDbObject2};
     use crate::{
         crypto_store::{
-            indexeddb_serializer::MaybeEncrypted, migrations::*, InboundGroupSessionIndexedDbObject,
+            indexeddb_serializer::MaybeEncrypted, keys, migrations::*,
+            InboundGroupSessionIndexedDbObject,
         },
         IndexeddbCryptoStore,
     };
@@ -626,16 +519,7 @@ mod tests {
     }
 
     async fn create_v5_db(name: &str) -> std::result::Result<IdbDatabase, DomException> {
-        let mut db_req: OpenDbRequest = IdbDatabase::open_u32(name, 5)?;
-        db_req.set_on_upgrade_needed(Some(|evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
-            let db = evt.db();
-            migrate_stores_to_v1(db)?;
-            migrate_stores_to_v2(db)?;
-            migrate_stores_to_v3(db)?;
-            migrate_stores_to_v4(db)?;
-            migrate_stores_to_v5(db)?;
-            Ok(())
-        }));
-        db_req.await
+        v0_to_v5::migrate_schema_up_to_v5(name).await?;
+        IdbDatabase::open_u32(name, 5)?.await
     }
 }
