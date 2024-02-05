@@ -19,7 +19,7 @@
 //! Then we move the data into the new store.
 //! The migration 6->7 deletes the old store inbound_group_sessions.
 
-use indexed_db_futures::{IdbDatabase, IdbQuerySource};
+use indexed_db_futures::IdbQuerySource;
 use matrix_sdk_crypto::olm::InboundGroupSession;
 use tracing::{debug, info};
 use web_sys::{DomException, IdbTransactionMode};
@@ -28,7 +28,7 @@ use crate::{
     crypto_store::{
         indexeddb_serializer::IndexeddbSerializer,
         keys,
-        migrations::{add_nonunique_index, do_schema_upgrade, old_keys, v7},
+        migrations::{add_nonunique_index, do_schema_upgrade, old_keys, v7, MigrationDb},
         Result,
     },
     IndexeddbCryptoStoreError,
@@ -52,16 +52,8 @@ pub(crate) async fn schema_add(name: &str) -> Result<(), DomException> {
 
 /// Migrate data from `inbound_group_sessions` into `inbound_group_sessions2`.
 pub(crate) async fn data_migrate(name: &str, serializer: &IndexeddbSerializer) -> Result<()> {
-    info!("IndexeddbCryptoStore migrate data before v7 starting");
-    let db = IdbDatabase::open(name)?.await?;
-    let res = do_prepare_data_for_v7(serializer, &db).await;
-    db.close();
-    res?;
-    info!("IndexeddbCryptoStore migrate data before v7 finished");
-    Ok(())
-}
+    let db = MigrationDb::new(name, 7).await?;
 
-async fn do_prepare_data_for_v7(serializer: &IndexeddbSerializer, db: &IdbDatabase) -> Result<()> {
     // The new store has been made for inbound group sessions; time to populate it.
     let txn = db.transaction_on_multi_with_mode(
         &[old_keys::INBOUND_GROUP_SESSIONS_V1, old_keys::INBOUND_GROUP_SESSIONS_V2],

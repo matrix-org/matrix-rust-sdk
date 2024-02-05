@@ -23,7 +23,7 @@ use web_sys::{DomException, IdbTransactionMode};
 use crate::{
     crypto_store::{
         indexeddb_serializer::IndexeddbSerializer,
-        migrations::{do_schema_upgrade, old_keys, v7},
+        migrations::{do_schema_upgrade, old_keys, v7, MigrationDb},
         Result,
     },
     IndexeddbCryptoStoreError,
@@ -34,9 +34,8 @@ use crate::{
 /// should have done is re-hash them using the new table name, so we fix them up
 /// here.
 pub(crate) async fn data_migrate(name: &str, serializer: &IndexeddbSerializer) -> Result<()> {
-    info!("IndexeddbCryptoStore upgrade data -> v8 starting");
+    let db = MigrationDb::new(name, 8).await?;
 
-    let db = IdbDatabase::open(name)?.await?;
     let txn = db.transaction_on_one_with_mode(
         old_keys::INBOUND_GROUP_SESSIONS_V2,
         IdbTransactionMode::Readwrite,
@@ -109,9 +108,6 @@ pub(crate) async fn data_migrate(name: &str, serializer: &IndexeddbSerializer) -
     }
 
     txn.await.into_result()?;
-    db.close();
-    info!("IndexeddbCryptoStore upgrade data -> v8 finished");
-
     Ok(())
 }
 

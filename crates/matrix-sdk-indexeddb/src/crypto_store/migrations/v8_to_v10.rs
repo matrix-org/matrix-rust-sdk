@@ -26,7 +26,7 @@ use crate::{
         keys,
         migrations::{
             add_nonunique_index, do_schema_upgrade, old_keys,
-            v7::InboundGroupSessionIndexedDbObject2,
+            v7::InboundGroupSessionIndexedDbObject2, MigrationDb,
         },
         InboundGroupSessionIndexedDbObject, Result,
     },
@@ -60,9 +60,8 @@ pub(crate) async fn schema_add(name: &str) -> Result<(), DomException> {
 
 /// Migrate data from `inbound_group_sessions2` into `inbound_group_sessions3`.
 pub(crate) async fn data_migrate(name: &str, serializer: &IndexeddbSerializer) -> Result<()> {
-    info!("IndexeddbCryptoStore migrate data before v10 starting");
+    let db = MigrationDb::new(name, 10).await?;
 
-    let db = IdbDatabase::open(name)?.await?;
     let txn = db.transaction_on_multi_with_mode(
         &[old_keys::INBOUND_GROUP_SESSIONS_V2, keys::INBOUND_GROUP_SESSIONS_V3],
         IdbTransactionMode::Readwrite,
@@ -127,9 +126,6 @@ pub(crate) async fn data_migrate(name: &str, serializer: &IndexeddbSerializer) -
     inbound_group_sessions2.clear()?.await?;
 
     txn.await.into_result()?;
-    db.close();
-    info!("IndexeddbCryptoStore upgrade data before v10 finished");
-
     Ok(())
 }
 

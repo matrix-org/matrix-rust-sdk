@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::ops::Deref;
+
 use indexed_db_futures::{prelude::*, web_sys::DomException};
 use tracing::info;
 use wasm_bindgen::JsValue;
@@ -27,6 +29,37 @@ mod v5_to_v7;
 mod v7;
 mod v7_to_v8;
 mod v8_to_v10;
+
+struct MigrationDb {
+    db: IdbDatabase,
+    next_version: u32,
+}
+
+impl MigrationDb {
+    /// Create an Indexed DB wrapper that manages a database migration,
+    /// logging messages before and after the migration, and automatically
+    /// closing the DB when this object is dropped.
+    async fn new(name: &str, next_version: u32) -> Result<Self> {
+        info!("IndexeddbCryptoStore migrate data before v{next_version} starting");
+        Ok(Self { db: IdbDatabase::open(name)?.await?, next_version })
+    }
+}
+
+impl Deref for MigrationDb {
+    type Target = IdbDatabase;
+
+    fn deref(&self) -> &Self::Target {
+        &self.db
+    }
+}
+
+impl Drop for MigrationDb {
+    fn drop(&mut self) {
+        let version = self.next_version;
+        info!("IndexeddbCryptoStore migrate data before v{version} finished");
+        self.db.close();
+    }
+}
 
 /// Open the indexeddb with the given name, upgrading it to the latest version
 /// of the schema if necessary.
