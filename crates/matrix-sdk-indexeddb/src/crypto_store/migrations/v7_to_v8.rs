@@ -1,0 +1,129 @@
+// Copyright 2024 The Matrix.org Foundation C.I.C.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+//! Migration code that modifies the data inside inbound_group_sessions2,
+//! ensuring that the keys are correctly encoded for this new store name.
+
+use indexed_db_futures::{IdbDatabase, IdbQuerySource};
+use matrix_sdk_crypto::olm::InboundGroupSession;
+use tracing::{debug, info};
+use web_sys::{DomException, IdbTransactionMode};
+
+use crate::{
+    crypto_store::{
+        indexeddb_serializer::IndexeddbSerializer,
+        migrations::{do_schema_upgrade, old_keys, v7},
+        Result,
+    },
+    IndexeddbCryptoStoreError,
+};
+
+pub(crate) async fn prepare_data_for_v8(
+    name: &str,
+    serializer: &IndexeddbSerializer,
+) -> Result<()> {
+    // In prepare_data_for_v6, we incorrectly copied the keys in
+    // inbound_group_sessions verbatim into inbound_group_sessions2. What we
+    // should have done is re-hash them using the new table name, so we fix
+    // them up here.
+
+    info!("IndexeddbCryptoStore upgrade data -> v8 starting");
+
+    let db = IdbDatabase::open(name)?.await?;
+    let txn = db.transaction_on_one_with_mode(
+        old_keys::INBOUND_GROUP_SESSIONS_V2,
+        IdbTransactionMode::Readwrite,
+    )?;
+
+    let store = txn.object_store(old_keys::INBOUND_GROUP_SESSIONS_V2)?;
+
+    let row_count = store.count()?.await?;
+    info!(row_count, "Fixing inbound group session data keys");
+
+    // Iterate through all rows
+    if let Some(cursor) = store.open_cursor()?.await? {
+        let mut idx = 0;
+        let mut updated = 0;
+        let mut deleted = 0;
+        loop {
+            idx += 1;
+
+            // Get the old key and session
+
+            let old_key = cursor.key().ok_or(matrix_sdk_crypto::CryptoStoreError::Backend(
+                "inbound_group_sessions2 cursor has no key".into(),
+            ))?;
+
+            let idb_object: v7::InboundGroupSessionIndexedDbObject2 =
+                serde_wasm_bindgen::from_value(cursor.value())?;
+            let pickled_session =
+                serializer.deserialize_value_from_bytes(&idb_object.pickled_session)?;
+            let session = InboundGroupSession::from_pickle(pickled_session)
+                .map_err(|e| IndexeddbCryptoStoreError::CryptoStoreError(e.into()))?;
+
+            if idx % 100 == 0 {
+                debug!("Migrating session {idx} of {row_count}");
+            }
+
+            // Work out what the key should be.
+            // (This is much the same as in
+            // `IndexeddbCryptoStore::get_inbound_group_session`)
+            let new_key = serializer.encode_key(
+                old_keys::INBOUND_GROUP_SESSIONS_V2,
+                (&session.room_id, session.session_id()),
+            );
+
+            if new_key != old_key {
+                // We have found an entry that is stored under the incorrect old key
+
+                // Delete the old entry under the wrong key
+                cursor.delete()?;
+
+                // Check for an existing entry with the new key
+                let new_value = store.get(&new_key)?.await?;
+
+                // If we found an existing entry, it is more up-to-date, so we don't need to do
+                // anything more.
+
+                // If we didn't find an existing entry, we must create one with the correct key
+                if new_value.is_none() {
+                    store.add_key_val(&new_key, &serde_wasm_bindgen::to_value(&idb_object)?)?;
+                    updated += 1;
+                } else {
+                    deleted += 1;
+                }
+            }
+
+            if !cursor.continue_cursor()?.await? {
+                debug!("Migrated {row_count} sessions: {updated} keys updated and {deleted} obsolete entries deleted.");
+                break;
+            }
+        }
+    }
+
+    txn.await.into_result()?;
+    db.close();
+    info!("IndexeddbCryptoStore upgrade data -> v8 finished");
+
+    Ok(())
+}
+
+pub(crate) async fn migrate_schema_for_v8(name: &str) -> Result<(), DomException> {
+    do_schema_upgrade(name, 8, |_| {
+        // Just bump the version number to 8 to demonstrate that we have run the data
+        // changes from prepare_data_for_v8.
+        Ok(())
+    })
+    .await
+}
