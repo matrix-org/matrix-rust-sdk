@@ -5,6 +5,7 @@ mod non_left;
 mod none;
 mod normalized_match_room_name;
 mod not;
+mod unread;
 
 pub use all::new_filter as new_filter_all;
 pub use any::new_filter as new_filter_any;
@@ -15,6 +16,7 @@ pub use none::new_filter as new_filter_none;
 pub use normalized_match_room_name::new_filter as new_filter_normalized_match_room_name;
 pub use not::new_filter as new_filter_not;
 use unicode_normalization::{char::is_combining_mark, UnicodeNormalization};
+pub use unread::new_filter as new_filter_unread;
 
 /// A trait “alias” that represents a _filter_.
 ///
