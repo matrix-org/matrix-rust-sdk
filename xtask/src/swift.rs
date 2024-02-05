@@ -1,4 +1,7 @@
-use std::fs::{copy, create_dir_all, remove_dir_all, remove_file, rename};
+use std::{
+    collections::HashMap,
+    fs::{copy, create_dir_all, remove_dir_all, remove_file, rename},
+};
 
 use camino::{Utf8Path, Utf8PathBuf};
 use clap::{Args, Subcommand};
@@ -169,12 +172,41 @@ fn build_path_for_target(target: &Target, profile: &str) -> Result<Utf8PathBuf> 
     Ok(workspace::target_path()?.join(target.triple).join(profile_dir_name).join(FFI_LIBRARY_NAME))
 }
 
-fn build_targets(target: &Target, profile: &str) -> Result<Utf8PathBuf> {
-    let triple = target.triple;
-    cmd!("rustup run stable cargo build -p matrix-sdk-ffi --target {triple} --profile {profile}")
-        .run()?;
+fn build_targets(
+    targets: Vec<&Target>,
+    profile: &str,
+    sequentially: bool,
+) -> Result<HashMap<Platform, Vec<Utf8PathBuf>>> {
+    if sequentially {
+        for target in &targets {
+            let triple = target.triple;
 
-    build_path_for_target(target, profile)
+            println!("-- Building for {}", target.description);
+            cmd!("rustup run stable cargo build -p matrix-sdk-ffi --target {triple} --profile {profile}")
+                .run()?;
+        }
+    } else {
+        let triples = &targets.iter().map(|target| target.triple).collect::<Vec<_>>();
+        let mut cmd = cmd!("rustup run stable cargo build -p matrix-sdk-ffi");
+        for triple in triples {
+            cmd = cmd.arg("--target").arg(triple);
+        }
+        cmd = cmd.arg("--profile").arg(profile);
+
+        println!("-- Building for {} targets", triples.len());
+        cmd.run()?;
+    }
+
+    // a hashmap of platform to array, where each array contains all the paths for
+    // that platform.
+    let mut platform_build_paths = HashMap::new();
+    for target in targets {
+        let path = build_path_for_target(target, profile)?;
+        let paths = platform_build_paths.entry(target.platform.clone()).or_insert_with(Vec::new);
+        paths.push(path);
+    }
+
+    Ok(platform_build_paths)
 }
 
 fn build_xcframework(
@@ -196,73 +228,31 @@ fn build_xcframework(
     create_dir_all(headers_dir.clone())?;
     create_dir_all(swift_dir.clone())?;
 
-    let (libs, uniffi_lib_path) = if let Some(triple) = only_target {
+    let targets = if let Some(triple) = only_target {
         let target = TARGETS.iter().find(|t| t.triple == triple).expect("Invalid target specified");
-
-        println!("-- Building for {}", target.description);
-
-        cmd!(
-            "rustup run stable cargo build -p matrix-sdk-ffi --target {triple} --profile {profile}"
-        )
-        .run()?;
-
-        let build_path = build_path_for_target(target, profile)?;
-
-        (vec![build_path.clone()], build_path)
+        vec![target]
     } else {
-        let targets = TARGETS;
-        if sequentially {
-            for target in targets {
-                let triple = target.triple;
-
-                println!("-- Building for {}", target.description);
-                cmd!("rustup run stable cargo build -p matrix-sdk-ffi --target {triple} --profile {profile}")
-                    .run()?;
-            }
-        } else {
-            let triples = targets.iter().map(|target| target.triple).collect::<Vec<_>>();
-            let mut cmd = cmd!("rustup run stable cargo build -p matrix-sdk-ffi");
-            for triple in &triples {
-                cmd = cmd.arg("--target").arg(triple);
-            }
-            cmd = cmd.arg("--profile").arg(profile);
-
-            println!("-- Building for {} targets", triples.len());
-            cmd.run()?;
-        }
-
-        // a hashmap of platform to array, where each array contains all the paths for
-        // that platform.
-        let mut platform_build_paths = std::collections::HashMap::new();
-        for target in targets {
-            let path = build_path_for_target(target, profile)?;
-            let paths =
-                platform_build_paths.entry(target.platform.clone()).or_insert_with(Vec::new);
-            paths.push(path);
-        }
-
-        let mut libs = Vec::new();
-
-        for platform in platform_build_paths.keys() {
-            println!("-- Running Lipo for {}", platform.as_str());
-            let paths = platform_build_paths.get(platform).unwrap();
-            let output_path = generated_dir.join(platform.lib_name());
-            let mut cmd = cmd!("lipo -create");
-            for path in paths {
-                cmd = cmd.arg(path);
-            }
-            cmd = cmd.arg("-output").arg(&output_path);
-            cmd.run()?;
-            libs.push(output_path);
-        }
-
-        /// get the first build path to use for uniffi generation
-        let build_path = platform_build_paths.values().next().unwrap().first().unwrap().clone();
-
-        (libs, build_path)
+        TARGETS.iter().collect()
     };
 
+    let platform_build_paths = build_targets(targets, profile, sequentially)?;
+
+    let mut libs = Vec::new();
+    for platform in platform_build_paths.keys() {
+        println!("-- Running Lipo for {}", platform.as_str());
+        let paths = platform_build_paths.get(platform).unwrap();
+        let output_path = generated_dir.join(platform.lib_name());
+        let mut cmd = cmd!("lipo -create");
+        for path in paths {
+            cmd = cmd.arg(path);
+        }
+        cmd = cmd.arg("-output").arg(&output_path);
+        cmd.run()?;
+        libs.push(output_path);
+    }
+
     println!("-- Generating uniffi files");
+    let uniffi_lib_path = platform_build_paths.values().next().unwrap().first().unwrap().clone();
     generate_uniffi(&uniffi_lib_path, &generated_dir)?;
 
     move_files("h", &generated_dir, &headers_dir)?;
