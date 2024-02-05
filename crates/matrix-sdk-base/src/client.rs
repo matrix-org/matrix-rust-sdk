@@ -540,7 +540,21 @@ impl BaseClient {
     ) {
         for raw_event in events {
             if let Ok(event) = raw_event.deserialize() {
-                changes.add_room_account_data(room_id, event, raw_event.clone());
+                changes.add_room_account_data(room_id, event.clone(), raw_event.clone());
+
+                // Rooms can either appear in the current request or already be
+                // known to the store. If neither of
+                // those are true then the room is `unknown` and we cannot
+                // process its account data
+                if let AnyRoomAccountDataEvent::MarkedUnread(e) = event {
+                    if let Some(room) = changes.room_infos.get_mut(room_id) {
+                        room.base_info.is_marked_unread = e.content.unread;
+                    } else if let Some(room) = self.store.get_room(room_id) {
+                        let mut info = room.clone_info();
+                        info.base_info.is_marked_unread = e.content.unread;
+                        changes.add_room(info);
+                    }
+                }
             }
         }
     }
