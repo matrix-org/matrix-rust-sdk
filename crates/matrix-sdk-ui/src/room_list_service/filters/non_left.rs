@@ -7,7 +7,7 @@ struct NonLeftRoomMatcher<F>
 where
     F: Fn(&RoomListEntry) -> Option<RoomState>,
 {
-    get_state: F,
+    state: F,
 }
 
 impl<F> NonLeftRoomMatcher<F>
@@ -19,7 +19,7 @@ where
             return false;
         }
 
-        if let Some(state) = (self.get_state)(room) {
+        if let Some(state) = (self.state)(room) {
             state != RoomState::Left
         } else {
             false
@@ -33,7 +33,7 @@ pub fn new_filter(client: &Client) -> impl Filter {
     let client = client.clone();
 
     let matcher = NonLeftRoomMatcher {
-        get_state: move |room| {
+        state: move |room| {
             let room_id = room.as_room_id()?;
             let room = client.get_room(room_id)?;
             Some(room.state())
@@ -54,19 +54,19 @@ mod tests {
     #[test]
     fn test_all_non_left_kind_of_room_list_entry() {
         // When we can't figure out the room state, nothing matches.
-        let matcher = NonLeftRoomMatcher { get_state: |_| None };
+        let matcher = NonLeftRoomMatcher { state: |_| None };
         assert!(!matcher.matches(&RoomListEntry::Empty));
         assert!(!matcher.matches(&RoomListEntry::Filled(room_id!("!r0:bar.org").to_owned())));
         assert!(!matcher.matches(&RoomListEntry::Invalidated(room_id!("!r0:bar.org").to_owned())));
 
         // When a room has been left, it doesn't match.
-        let matcher = NonLeftRoomMatcher { get_state: |_| Some(RoomState::Left) };
+        let matcher = NonLeftRoomMatcher { state: |_| Some(RoomState::Left) };
         assert!(!matcher.matches(&RoomListEntry::Empty));
         assert!(!matcher.matches(&RoomListEntry::Filled(room_id!("!r0:bar.org").to_owned())));
         assert!(!matcher.matches(&RoomListEntry::Invalidated(room_id!("!r0:bar.org").to_owned())));
 
         // When a room has been joined, it does match (unless it's empty).
-        let matcher = NonLeftRoomMatcher { get_state: |_| Some(RoomState::Joined) };
+        let matcher = NonLeftRoomMatcher { state: |_| Some(RoomState::Joined) };
         assert!(!matcher.matches(&RoomListEntry::Empty));
         assert!(matcher.matches(&RoomListEntry::Filled(room_id!("!r0:bar.org").to_owned())));
         assert!(matcher.matches(&RoomListEntry::Invalidated(room_id!("!r0:bar.org").to_owned())));
