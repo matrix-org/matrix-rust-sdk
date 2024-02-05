@@ -1,4 +1,3 @@
-mod all;
 mod fuzzy_match_room_name;
 mod logical_all;
 mod logical_any;
@@ -7,7 +6,6 @@ mod non_left;
 mod none;
 mod normalized_match_room_name;
 
-pub use all::new_filter as new_filter_all;
 pub use fuzzy_match_room_name::new_filter as new_filter_fuzzy_match_room_name;
 pub use logical_all::new_filter as new_filter_logical_all;
 pub use logical_any::new_filter as new_filter_logical_any;

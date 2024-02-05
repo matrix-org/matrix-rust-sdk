@@ -12,7 +12,7 @@ use matrix_sdk_base::sync::UnreadNotificationsCount;
 use matrix_sdk_test::async_test;
 use matrix_sdk_ui::{
     room_list_service::{
-        filters::{new_filter_all, new_filter_fuzzy_match_room_name, new_filter_none},
+        filters::{new_filter_fuzzy_match_room_name, new_filter_non_left, new_filter_none},
         Error, Input, InputResult, RoomListEntry, RoomListLoadingState, State, SyncIndicator,
         ALL_ROOMS_LIST_NAME as ALL_ROOMS, INVITES_LIST_NAME as INVITES,
         VISIBLE_ROOMS_LIST_NAME as VISIBLE_ROOMS,
@@ -1822,7 +1822,7 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
     };
 
     // Now, let's change again the dynamic filter!
-    dynamic_entries.set_filter(new_filter_all());
+    dynamic_entries.set_filter(new_filter_non_left(&client));
 
     // Assert the dynamic entries.
     assert_entries_batch! {
