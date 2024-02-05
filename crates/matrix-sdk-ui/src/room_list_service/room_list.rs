@@ -26,7 +26,7 @@ use matrix_sdk::{
     RoomListEntry, SlidingSync, SlidingSyncList,
 };
 
-use super::{Error, State};
+use super::{filters::Filter, Error, State};
 
 /// A `RoomList` represents a list of rooms, from a
 /// [`RoomListService`](super::RoomListService).
@@ -199,7 +199,8 @@ pub enum RoomListLoadingState {
     },
 }
 
-type BoxedFilterFn = Box<dyn Fn(&RoomListEntry) -> bool + Send + Sync>;
+/// Type alias for a boxed filter function.
+pub type BoxedFilterFn = Box<dyn Filter + Send + Sync>;
 
 /// Controller for the [`RoomList`] dynamic entries.
 ///
@@ -226,17 +227,14 @@ impl RoomListDynamicEntriesController {
     ///
     /// If the associated stream has been dropped, returns `false` to indicate
     /// the operation didn't have an effect.
-    pub fn set_filter(
-        &self,
-        filter: impl Fn(&RoomListEntry) -> bool + Send + Sync + 'static,
-    ) -> bool {
+    pub fn set_filter(&self, filter: BoxedFilterFn) -> bool {
         if Arc::strong_count(&self.filter) == 1 {
             // there is no other reference to the boxed filter fn, setting it
             // would be pointless (no new references can be created from self,
             // either)
             false
         } else {
-            self.filter.set(Box::new(filter));
+            self.filter.set(filter);
             true
         }
     }

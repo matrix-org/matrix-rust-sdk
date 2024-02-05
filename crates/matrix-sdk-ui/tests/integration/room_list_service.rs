@@ -1643,7 +1643,7 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
     assert_pending!(dynamic_entries_stream);
 
     // Now, let's define a filter.
-    dynamic_entries.set_filter(new_filter_fuzzy_match_room_name(&client, "mat ba"));
+    dynamic_entries.set_filter(Box::new(new_filter_fuzzy_match_room_name(&client, "mat ba")));
 
     // Assert the dynamic entries.
     assert_entries_batch! {
@@ -1799,7 +1799,7 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
     assert_pending!(dynamic_entries_stream);
 
     // Now, let's change the dynamic entries!
-    dynamic_entries.set_filter(new_filter_fuzzy_match_room_name(&client, "hell"));
+    dynamic_entries.set_filter(Box::new(new_filter_fuzzy_match_room_name(&client, "hell")));
 
     // Assert the dynamic entries.
     assert_entries_batch! {
@@ -1811,7 +1811,7 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
     assert_pending!(dynamic_entries_stream);
 
     // Now, let's change again the dynamic filter!
-    dynamic_entries.set_filter(new_filter_none());
+    dynamic_entries.set_filter(Box::new(new_filter_none()));
 
     // Assert the dynamic entries.
     assert_entries_batch! {
@@ -1822,7 +1822,7 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
     };
 
     // Now, let's change again the dynamic filter!
-    dynamic_entries.set_filter(new_filter_non_left(&client));
+    dynamic_entries.set_filter(Box::new(new_filter_non_left(&client)));
 
     // Assert the dynamic entries.
     assert_entries_batch! {
