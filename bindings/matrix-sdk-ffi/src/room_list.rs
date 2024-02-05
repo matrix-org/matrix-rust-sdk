@@ -15,8 +15,9 @@ use matrix_sdk::{
 use matrix_sdk_ui::{
     room_list_service::{
         filters::{
-            new_filter_all, new_filter_any, new_filter_fuzzy_match_room_name, new_filter_non_left,
-            new_filter_none, new_filter_normalized_match_room_name, new_filter_unread,
+            new_filter_all, new_filter_any, new_filter_category, new_filter_fuzzy_match_room_name,
+            new_filter_non_left, new_filter_none, new_filter_normalized_match_room_name,
+            new_filter_unread, RoomCategory,
         },
         BoxedFilterFn,
     },
@@ -413,9 +414,25 @@ pub enum RoomListEntriesDynamicFilterKind {
     Any { filters: Vec<RoomListEntriesDynamicFilterKind> },
     NonLeft,
     Unread,
+    Category { expect: RoomListFilterCategory },
     None,
     NormalizedMatchRoomName { pattern: String },
     FuzzyMatchRoomName { pattern: String },
+}
+
+#[derive(uniffi::Enum)]
+pub enum RoomListFilterCategory {
+    Group,
+    People,
+}
+
+impl From<RoomListFilterCategory> for RoomCategory {
+    fn from(value: RoomListFilterCategory) -> Self {
+        match value {
+            RoomListFilterCategory::Group => Self::Group,
+            RoomListFilterCategory::People => Self::People,
+        }
+    }
 }
 
 /// Custom internal type to transform a `RoomListEntriesDynamicFilterKind` into
@@ -435,6 +452,7 @@ impl FilterWrapper {
             ))),
             Kind::NonLeft => Self(Box::new(new_filter_non_left(client))),
             Kind::Unread => Self(Box::new(new_filter_unread(client))),
+            Kind::Category { expect } => Self(Box::new(new_filter_category(client, expect.into()))),
             Kind::None => Self(Box::new(new_filter_none())),
             Kind::NormalizedMatchRoomName { pattern } => {
                 Self(Box::new(new_filter_normalized_match_room_name(client, &pattern)))
