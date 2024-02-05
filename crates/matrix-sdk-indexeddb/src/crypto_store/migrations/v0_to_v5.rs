@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! Schema-only migrations adding various stores and indices, notably
+//! the first version of `inbound_group_sessions`.
+
 use indexed_db_futures::{IdbDatabase, IdbKeyPath};
 use web_sys::{DomException, IdbIndexParameters};
 
@@ -21,6 +24,7 @@ use crate::crypto_store::{
     Result,
 };
 
+/// Perform schema migrations as needed, up to schema version 5.
 pub(crate) async fn migrate_schema_up_to_v5(name: &str) -> Result<(), DomException> {
     do_schema_upgrade(name, 5, |db, old_version| {
         // An old_version of 1 could either mean actually the first version of the

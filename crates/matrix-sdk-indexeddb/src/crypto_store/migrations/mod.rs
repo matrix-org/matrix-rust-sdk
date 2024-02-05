@@ -34,42 +34,37 @@ pub async fn open_and_upgrade_db(
     name: &str,
     serializer: &IndexeddbSerializer,
 ) -> Result<IdbDatabase, IndexeddbCryptoStoreError> {
-    // This is all a bit of a hack. Some of the version migrations require a data
-    // migration, which has to be done via async APIs; however, the
-    // JS `upgrade_needed` mechanism does not allow for async calls.
+    // Move the DB version up from where it is to the latest version.
     //
-    // Start by finding out what the existing version is, if any.
+    // Schema changes need to be separate from data migrations, so we often
+    // have a pattern of:
+    //
+    // 1. schema_add - create new object stores, indices etc.
+    // 2. data_migrate - move data from the old stores to the new ones
+    // 3. schema_delete - delete any now-unused stores etc.
+    //
+    // Migrations like these require the schema version to be bumped twice,
+    // because of the separate "add" and "delete" stages.
+
     let old_version = db_version(name).await?;
 
-    // Perform the schema-only migrations
     if old_version < 5 {
         v0_to_v5::migrate_schema_up_to_v5(name).await?;
     }
 
-    // If we have yet to complete the migration to V7, migrate the schema to V6
-    // (if necessary), and then migrate any remaining data.
     if old_version < 6 {
         v5_to_v7::migrate_schema_up_to_v6(name).await?;
     }
     if old_version < 7 {
         v5_to_v7::prepare_data_for_v7(name, serializer).await?;
-
-        // Now we can safely complete the migration to V7 which will drop the old store.
         v5_to_v7::migrate_schema_for_v7(name).await?;
     }
 
-    // Migrate to v8, keeping the same schema but fixing the keys in
-    // inbound_group_sessions2
     if old_version < 8 {
         v7_to_v8::prepare_data_for_v8(name, serializer).await?;
         v7_to_v8::migrate_schema_for_v8(name).await?;
     }
 
-    // Migrate to v10, moving from inbound_group_sessions2 to
-    // inbound_group_sessions3, which has smaller values by storing JavaScript
-    // objects instead of serialized arrays, and base64 strings instead of
-    // arrays of ints. inbound_group_sessions3 also has backed_up_to, which is
-    // indexed.
     if old_version < 9 {
         v8_to_v10::upgrade_scheme_to_v9_create_inbound_group_sessions3(name).await?;
     }
@@ -79,8 +74,7 @@ pub async fn open_and_upgrade_db(
         v8_to_v10::upgrade_scheme_to_v10_delete_inbound_group_sessions2(name).await?;
     }
 
-    // We know we've upgraded to v10 now, so we can open the DB at that version and
-    // return it
+    // Open and return the DB (we know it's at the latest version)
     Ok(IdbDatabase::open_u32(name, 10)?.await?)
 }
 

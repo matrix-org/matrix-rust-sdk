@@ -14,10 +14,6 @@
 
 //! Migration code that moves from inbound_group_sessions2 to
 //! inbound_group_sessions3, shrinking the values stored in each record.
-//!
-//! The migration 8->9 creates the new store inbound_group_sessions3.
-//! Then we move the data into the new store.
-//! The migration 9->10 deletes the old store inbound_group_sessions2.
 
 use indexed_db_futures::{
     idb_object_store::IdbObjectStore, IdbDatabase, IdbIndex, IdbKeyPath, IdbQuerySource,
@@ -46,6 +42,7 @@ fn add_nonunique_index<'a>(
     object_store.create_index_with_params(name, &IdbKeyPath::str(key_path), &params)
 }
 
+/// Perform the schema upgrade v8 to v9, creating `inbound_group_sessions3`.
 pub(crate) async fn upgrade_scheme_to_v9_create_inbound_group_sessions3(
     name: &str,
 ) -> Result<(), DomException> {
@@ -72,6 +69,7 @@ pub(crate) async fn upgrade_scheme_to_v9_create_inbound_group_sessions3(
     .await
 }
 
+/// Migrate data from `inbound_group_sessions2` into `inbound_group_sessions3`.
 pub(crate) async fn migrate_data_before_v10_populate_inbound_group_sessions3(
     name: &str,
     serializer: &IndexeddbSerializer,
@@ -141,6 +139,7 @@ pub(crate) async fn migrate_data_before_v10_populate_inbound_group_sessions3(
     Ok(())
 }
 
+/// Perform the schema upgrade v8 to v10, deleting `inbound_group_sessions2`.
 pub(crate) async fn upgrade_scheme_to_v10_delete_inbound_group_sessions2(
     name: &str,
 ) -> Result<(), DomException> {

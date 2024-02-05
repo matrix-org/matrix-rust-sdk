@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! Structs and keys used for reading/writing objects in schema v7
+
 /// The objects we store in the inbound_group_sessions2 indexeddb object
 /// store (in schemas v7 and v8)
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
