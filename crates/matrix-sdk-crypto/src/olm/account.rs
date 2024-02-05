@@ -1240,7 +1240,7 @@ impl Account {
 
     /// Decrypt an Olm message, creating a new Olm session if necessary, and
     /// parse the result.
-    #[instrument(skip(self, store, message))]
+    #[instrument(skip(self, store))]
     async fn decrypt_and_parse_olm_message(
         &mut self,
         store: &Store,
