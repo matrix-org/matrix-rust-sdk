@@ -15,7 +15,7 @@
 //! Migration code that modifies the data inside inbound_group_sessions2,
 //! ensuring that the keys are correctly encoded for this new store name.
 
-use indexed_db_futures::{IdbDatabase, IdbQuerySource};
+use indexed_db_futures::IdbQuerySource;
 use matrix_sdk_crypto::olm::InboundGroupSession;
 use tracing::{debug, info};
 use web_sys::{DomException, IdbTransactionMode};
