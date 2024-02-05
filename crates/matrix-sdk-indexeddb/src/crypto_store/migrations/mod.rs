@@ -53,10 +53,7 @@ pub async fn open_and_upgrade_db(
         migrate_schema_up_to_v6(name).await?;
     }
     if old_version < 7 {
-        let db = IdbDatabase::open(name)?.await?;
-        prepare_data_for_v7(serializer, &db).await?;
-        db.close();
-        info!(old_version, "IndexeddbCryptoStore upgrade schema & data -> v6 finished");
+        prepare_data_for_v7(name, serializer).await?;
 
         // Now we can safely complete the migration to V7 which will drop the old store.
         migrate_schema_for_v7(name).await?;
@@ -267,7 +264,17 @@ fn migrate_stores_to_v6(db: &IdbDatabase) -> Result<(), DomException> {
     Ok(())
 }
 
-async fn prepare_data_for_v7(serializer: &IndexeddbSerializer, db: &IdbDatabase) -> Result<()> {
+async fn prepare_data_for_v7(name: &str, serializer: &IndexeddbSerializer) -> Result<()> {
+    info!("IndexeddbCryptoStore migrate data before v7 starting");
+    let db = IdbDatabase::open(name)?.await?;
+    let res = do_prepare_data_for_v7(serializer, &db).await;
+    db.close();
+    res?;
+    info!("IndexeddbCryptoStore migrate data before v7 finished");
+    Ok(())
+}
+
+async fn do_prepare_data_for_v7(serializer: &IndexeddbSerializer, db: &IdbDatabase) -> Result<()> {
     // The new store has been made for inbound group sessions; time to populate it.
     let txn = db.transaction_on_multi_with_mode(
         &[old_keys::INBOUND_GROUP_SESSIONS_V1, old_keys::INBOUND_GROUP_SESSIONS_V2],
