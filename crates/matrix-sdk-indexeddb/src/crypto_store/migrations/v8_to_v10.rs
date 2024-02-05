@@ -124,6 +124,9 @@ pub(crate) async fn migrate_data_before_v10_populate_inbound_group_sessions3(
             inbound_group_sessions3
                 .add_key_val(&new_key, &serde_wasm_bindgen::to_value(&new_value)?)?;
 
+            // We are done with the original data, so delete it now.
+            cursor.delete()?;
+
             // Continue to the next record, or stop if we're done
             if !cursor.continue_cursor()?.await? {
                 debug!("Migrated {idx} sessions.");
@@ -131,6 +134,11 @@ pub(crate) async fn migrate_data_before_v10_populate_inbound_group_sessions3(
             }
         }
     }
+
+    // We have finished with the old store. Clear it, since it is faster to
+    // clear+delete than just delete. See https://www.artificialworlds.net/blog/2024/02/01/deleting-an-indexed-db-store-can-be-incredibly-slow-on-firefox/
+    // for more details.
+    inbound_group_sessions2.clear()?.await?;
 
     txn.await.into_result()?;
     db.close();

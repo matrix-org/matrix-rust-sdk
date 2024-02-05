@@ -103,7 +103,7 @@ async fn do_prepare_data_for_v7(serializer: &IndexeddbSerializer, db: &IdbDataba
 
             new_store.add_key_val(&key, &new_data)?;
 
-            // we are done with the original data, so delete it now.
+            // We are done with the original data, so delete it now.
             cursor.delete()?;
 
             if !cursor.continue_cursor()?.await? {
