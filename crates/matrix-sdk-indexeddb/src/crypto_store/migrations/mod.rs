@@ -49,29 +49,28 @@ pub async fn open_and_upgrade_db(
     let old_version = db_version(name).await?;
 
     if old_version < 5 {
-        v0_to_v5::migrate_schema_up_to_v5(name).await?;
+        v0_to_v5::schema_add(name).await?;
     }
 
     if old_version < 6 {
-        v5_to_v7::migrate_schema_up_to_v6(name).await?;
+        v5_to_v7::schema_add(name).await?;
     }
     if old_version < 7 {
-        v5_to_v7::prepare_data_for_v7(name, serializer).await?;
-        v5_to_v7::migrate_schema_for_v7(name).await?;
+        v5_to_v7::data_migrate(name, serializer).await?;
+        v5_to_v7::schema_delete(name).await?;
     }
 
     if old_version < 8 {
-        v7_to_v8::prepare_data_for_v8(name, serializer).await?;
-        v7_to_v8::migrate_schema_for_v8(name).await?;
+        v7_to_v8::data_migrate(name, serializer).await?;
+        v7_to_v8::schema_bump(name).await?;
     }
 
     if old_version < 9 {
-        v8_to_v10::upgrade_scheme_to_v9_create_inbound_group_sessions3(name).await?;
+        v8_to_v10::schema_add(name).await?;
     }
     if old_version < 10 {
-        v8_to_v10::migrate_data_before_v10_populate_inbound_group_sessions3(name, serializer)
-            .await?;
-        v8_to_v10::upgrade_scheme_to_v10_delete_inbound_group_sessions2(name).await?;
+        v8_to_v10::data_migrate(name, serializer).await?;
+        v8_to_v10::schema_delete(name).await?;
     }
 
     // Open and return the DB (we know it's at the latest version)
@@ -538,7 +537,7 @@ mod tests {
     }
 
     async fn create_v5_db(name: &str) -> std::result::Result<IdbDatabase, DomException> {
-        v0_to_v5::migrate_schema_up_to_v5(name).await?;
+        v0_to_v5::schema_add(name).await?;
         IdbDatabase::open_u32(name, 5)?.await
     }
 }

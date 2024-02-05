@@ -25,30 +25,30 @@ use crate::crypto_store::{
 };
 
 /// Perform schema migrations as needed, up to schema version 5.
-pub(crate) async fn migrate_schema_up_to_v5(name: &str) -> Result<(), DomException> {
+pub(crate) async fn schema_add(name: &str) -> Result<(), DomException> {
     do_schema_upgrade(name, 5, |db, old_version| {
         // An old_version of 1 could either mean actually the first version of the
         // schema, or a completely empty schema that has been created with a
         // call to `IdbDatabase::open` with no explicit "version". So, to determine
         // if we need to create the V1 stores, we actually check if the schema is empty.
         if db.object_store_names().next().is_none() {
-            migrate_stores_to_v1(db)?;
+            schema_add_v1(db)?;
         }
 
         if old_version < 2 {
-            migrate_stores_to_v2(db)?;
+            schema_add_v2(db)?;
         }
 
         if old_version < 3 {
-            migrate_stores_to_v3(db)?;
+            schema_add_v3(db)?;
         }
 
         if old_version < 4 {
-            migrate_stores_to_v4(db)?;
+            schema_add_v4(db)?;
         }
 
         if old_version < 5 {
-            migrate_stores_to_v5(db)?;
+            schema_add_v5(db)?;
         }
 
         Ok(())
@@ -56,7 +56,7 @@ pub(crate) async fn migrate_schema_up_to_v5(name: &str) -> Result<(), DomExcepti
     .await
 }
 
-fn migrate_stores_to_v1(db: &IdbDatabase) -> Result<(), DomException> {
+fn schema_add_v1(db: &IdbDatabase) -> Result<(), DomException> {
     db.create_object_store(keys::CORE)?;
     db.create_object_store(keys::SESSION)?;
 
@@ -72,7 +72,7 @@ fn migrate_stores_to_v1(db: &IdbDatabase) -> Result<(), DomException> {
     Ok(())
 }
 
-fn migrate_stores_to_v2(db: &IdbDatabase) -> Result<(), DomException> {
+fn schema_add_v2(db: &IdbDatabase) -> Result<(), DomException> {
     // We changed how we store inbound group sessions, the key used to
     // be a tuple of `(room_id, sender_key, session_id)` now it's a
     // tuple of `(room_id, session_id)`
@@ -86,7 +86,7 @@ fn migrate_stores_to_v2(db: &IdbDatabase) -> Result<(), DomException> {
     Ok(())
 }
 
-fn migrate_stores_to_v3(db: &IdbDatabase) -> Result<(), DomException> {
+fn schema_add_v3(db: &IdbDatabase) -> Result<(), DomException> {
     // We changed the way we store outbound session.
     // ShareInfo changed from a struct to an enum with struct variant.
     // Let's just discard the existing outbounds
@@ -99,12 +99,12 @@ fn migrate_stores_to_v3(db: &IdbDatabase) -> Result<(), DomException> {
     Ok(())
 }
 
-fn migrate_stores_to_v4(db: &IdbDatabase) -> Result<(), DomException> {
+fn schema_add_v4(db: &IdbDatabase) -> Result<(), DomException> {
     db.create_object_store(keys::SECRETS_INBOX)?;
     Ok(())
 }
 
-fn migrate_stores_to_v5(db: &IdbDatabase) -> Result<(), DomException> {
+fn schema_add_v5(db: &IdbDatabase) -> Result<(), DomException> {
     // Create a new store for outgoing secret requests
     let object_store = db.create_object_store(keys::GOSSIP_REQUESTS)?;
 

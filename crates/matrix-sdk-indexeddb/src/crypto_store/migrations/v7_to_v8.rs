@@ -33,10 +33,7 @@ use crate::{
 /// `inbound_group_sessions` verbatim into `inbound_group_sessions2`. What we
 /// should have done is re-hash them using the new table name, so we fix them up
 /// here.
-pub(crate) async fn prepare_data_for_v8(
-    name: &str,
-    serializer: &IndexeddbSerializer,
-) -> Result<()> {
+pub(crate) async fn data_migrate(name: &str, serializer: &IndexeddbSerializer) -> Result<()> {
     info!("IndexeddbCryptoStore upgrade data -> v8 starting");
 
     let db = IdbDatabase::open(name)?.await?;
@@ -119,7 +116,7 @@ pub(crate) async fn prepare_data_for_v8(
 }
 
 /// Perform the schema upgrade v7 to v8, Just bumping the schema version.
-pub(crate) async fn migrate_schema_for_v8(name: &str) -> Result<(), DomException> {
+pub(crate) async fn schema_bump(name: &str) -> Result<(), DomException> {
     do_schema_upgrade(name, 8, |_, _| {
         // Just bump the version number to 8 to demonstrate that we have run the data
         // changes from prepare_data_for_v8.

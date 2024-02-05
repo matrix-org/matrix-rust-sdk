@@ -35,7 +35,7 @@ use crate::{
 };
 
 /// Perform the schema upgrade v5 to v6, creating `inbound_group_sessions2`.
-pub(crate) async fn migrate_schema_up_to_v6(name: &str) -> Result<(), DomException> {
+pub(crate) async fn schema_add(name: &str) -> Result<(), DomException> {
     do_schema_upgrade(name, 6, |db, _| {
         let object_store = db.create_object_store(old_keys::INBOUND_GROUP_SESSIONS_V2)?;
 
@@ -51,10 +51,7 @@ pub(crate) async fn migrate_schema_up_to_v6(name: &str) -> Result<(), DomExcepti
 }
 
 /// Migrate data from `inbound_group_sessions` into `inbound_group_sessions2`.
-pub(crate) async fn prepare_data_for_v7(
-    name: &str,
-    serializer: &IndexeddbSerializer,
-) -> Result<()> {
+pub(crate) async fn data_migrate(name: &str, serializer: &IndexeddbSerializer) -> Result<()> {
     info!("IndexeddbCryptoStore migrate data before v7 starting");
     let db = IdbDatabase::open(name)?.await?;
     let res = do_prepare_data_for_v7(serializer, &db).await;
@@ -119,7 +116,7 @@ async fn do_prepare_data_for_v7(serializer: &IndexeddbSerializer, db: &IdbDataba
 }
 
 /// Perform the schema upgrade v6 to v7, deleting `inbound_group_sessions`.
-pub(crate) async fn migrate_schema_for_v7(name: &str) -> Result<(), DomException> {
+pub(crate) async fn schema_delete(name: &str) -> Result<(), DomException> {
     do_schema_upgrade(name, 7, |db, _| {
         db.delete_object_store(old_keys::INBOUND_GROUP_SESSIONS_V1)?;
         Ok(())
