@@ -108,6 +108,16 @@ where
     Ok(())
 }
 
+fn add_nonunique_index<'a>(
+    object_store: &'a IdbObjectStore<'a>,
+    name: &str,
+    key_path: &str,
+) -> Result<IdbIndex<'a>, DomException> {
+    let mut params = IdbIndexParameters::new();
+    params.unique(false);
+    object_store.create_index_with_params(name, &IdbKeyPath::str(key_path), &params)
+}
+
 #[cfg(all(test, target_arch = "wasm32"))]
 mod tests {
     use std::{future::Future, sync::Arc};

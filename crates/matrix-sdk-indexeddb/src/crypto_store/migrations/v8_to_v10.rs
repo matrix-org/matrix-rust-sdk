@@ -26,21 +26,14 @@ use crate::{
     crypto_store::{
         indexeddb_serializer::IndexeddbSerializer,
         keys,
-        migrations::{do_schema_upgrade, old_keys, v7::InboundGroupSessionIndexedDbObject2},
+        migrations::{
+            add_nonunique_index, do_schema_upgrade, old_keys,
+            v7::InboundGroupSessionIndexedDbObject2,
+        },
         InboundGroupSessionIndexedDbObject, Result,
     },
     IndexeddbCryptoStoreError,
 };
-
-fn add_nonunique_index<'a>(
-    object_store: &'a IdbObjectStore<'a>,
-    name: &str,
-    key_path: &str,
-) -> Result<IdbIndex<'a>, DomException> {
-    let mut params = IdbIndexParameters::new();
-    params.unique(false);
-    object_store.create_index_with_params(name, &IdbKeyPath::str(key_path), &params)
-}
 
 /// Perform the schema upgrade v8 to v9, creating `inbound_group_sessions3`.
 pub(crate) async fn upgrade_scheme_to_v9_create_inbound_group_sessions3(
