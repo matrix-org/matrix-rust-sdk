@@ -23,7 +23,6 @@ use std::{
 pub use matrix_sdk_base::sync::*;
 use matrix_sdk_base::{
     debug::{DebugInvitedRoom, DebugListOfRawEventsNoId},
-    deserialized_responses::AmbiguityChanges,
     instant::Instant,
     sync::SyncResponse as BaseSyncResponse,
 };
@@ -51,32 +50,16 @@ pub struct SyncResponse {
     pub account_data: Vec<Raw<AnyGlobalAccountDataEvent>>,
     /// Messages sent directly between devices.
     pub to_device: Vec<Raw<AnyToDeviceEvent>>,
-    /// Collection of ambiguity changes that room member events trigger.
-    pub ambiguity_changes: AmbiguityChanges,
     /// New notifications per room.
     pub notifications: BTreeMap<OwnedRoomId, Vec<Notification>>,
 }
 
 impl SyncResponse {
     pub(crate) fn new(next_batch: String, base_response: BaseSyncResponse) -> Self {
-        let BaseSyncResponse {
-            rooms,
-            presence,
-            account_data,
-            to_device,
-            ambiguity_changes,
-            notifications,
-        } = base_response;
+        let BaseSyncResponse { rooms, presence, account_data, to_device, notifications } =
+            base_response;
 
-        Self {
-            next_batch,
-            rooms,
-            presence,
-            account_data,
-            to_device,
-            ambiguity_changes,
-            notifications,
-        }
+        Self { next_batch, rooms, presence, account_data, to_device, notifications }
     }
 }
 
@@ -88,7 +71,6 @@ impl fmt::Debug for SyncResponse {
             .field("rooms", &self.rooms)
             .field("account_data", &DebugListOfRawEventsNoId(&self.account_data))
             .field("to_device", &DebugListOfRawEventsNoId(&self.to_device))
-            .field("ambiguity_changes", &self.ambiguity_changes)
             .field("notifications", &self.notifications)
             .finish_non_exhaustive()
     }
@@ -164,14 +146,7 @@ impl Client {
     /// the event, room update and notification handlers.
     #[tracing::instrument(skip(self, response))]
     pub(crate) async fn handle_sync_response(&self, response: &BaseSyncResponse) -> Result<()> {
-        let BaseSyncResponse {
-            rooms,
-            presence,
-            account_data,
-            to_device,
-            ambiguity_changes: _,
-            notifications,
-        } = response;
+        let BaseSyncResponse { rooms, presence, account_data, to_device, notifications } = response;
 
         let now = Instant::now();
         self.handle_sync_events(HandlerKind::GlobalAccountData, None, account_data).await?;
@@ -189,8 +164,14 @@ impl Client {
                 updates: room_info.clone(),
             });
 
-            let JoinedRoom { unread_notifications: _, timeline, state, account_data, ephemeral } =
-                room_info;
+            let JoinedRoom {
+                unread_notifications: _,
+                timeline,
+                state,
+                account_data,
+                ephemeral,
+                ambiguity_changes: _,
+            } = room_info;
 
             let room = Some(&room);
             self.handle_sync_events(HandlerKind::RoomAccountData, room, account_data).await?;
@@ -212,7 +193,7 @@ impl Client {
                 updates: room_info.clone(),
             });
 
-            let LeftRoom { timeline, state, account_data } = room_info;
+            let LeftRoom { timeline, state, account_data, ambiguity_changes: _ } = room_info;
 
             let room = Some(&room);
             self.handle_sync_events(HandlerKind::RoomAccountData, room, account_data).await?;

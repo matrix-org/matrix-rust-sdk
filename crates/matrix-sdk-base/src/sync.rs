@@ -27,13 +27,13 @@ use ruma::{
     },
     push::Action,
     serde::Raw,
-    OwnedRoomId,
+    OwnedEventId, OwnedRoomId,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::{
     debug::{DebugInvitedRoom, DebugListOfRawEvents, DebugListOfRawEventsNoId},
-    deserialized_responses::{AmbiguityChanges, RawAnySyncOrStrippedTimelineEvent},
+    deserialized_responses::{AmbiguityChange, RawAnySyncOrStrippedTimelineEvent},
 };
 
 /// Internal representation of a `/sync` response.
@@ -50,8 +50,6 @@ pub struct SyncResponse {
     pub account_data: Vec<Raw<AnyGlobalAccountDataEvent>>,
     /// Messages sent directly between devices.
     pub to_device: Vec<Raw<AnyToDeviceEvent>>,
-    /// Collection of ambiguity changes that room member events trigger.
-    pub ambiguity_changes: AmbiguityChanges,
     /// New notifications per room.
     pub notifications: BTreeMap<OwnedRoomId, Vec<Notification>>,
 }
@@ -63,7 +61,6 @@ impl fmt::Debug for SyncResponse {
             .field("rooms", &self.rooms)
             .field("account_data", &DebugListOfRawEventsNoId(&self.account_data))
             .field("to_device", &DebugListOfRawEventsNoId(&self.to_device))
-            .field("ambiguity_changes", &self.ambiguity_changes)
             .field("notifications", &self.notifications)
             .finish_non_exhaustive()
     }
@@ -108,6 +105,11 @@ pub struct JoinedRoom {
     /// The ephemeral events in the room that aren't recorded in the timeline or
     /// state of the room. e.g. typing.
     pub ephemeral: Vec<Raw<AnySyncEphemeralRoomEvent>>,
+    /// Collection of ambiguity changes that room member events trigger.
+    ///
+    /// This is a map of event ID of the `m.room.member` event to the
+    /// details of the ambiguity change.
+    pub ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -119,6 +121,7 @@ impl fmt::Debug for JoinedRoom {
             .field("state", &DebugListOfRawEvents(&self.state))
             .field("account_data", &DebugListOfRawEventsNoId(&self.account_data))
             .field("ephemeral", &self.ephemeral)
+            .field("ambiguity_changes", &self.ambiguity_changes)
             .finish()
     }
 }
@@ -130,8 +133,9 @@ impl JoinedRoom {
         account_data: Vec<Raw<AnyRoomAccountDataEvent>>,
         ephemeral: Vec<Raw<AnySyncEphemeralRoomEvent>>,
         unread_notifications: UnreadNotificationsCount,
+        ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
     ) -> Self {
-        Self { unread_notifications, timeline, state, account_data, ephemeral }
+        Self { unread_notifications, timeline, state, account_data, ephemeral, ambiguity_changes }
     }
 }
 
@@ -167,6 +171,11 @@ pub struct LeftRoom {
     pub state: Vec<Raw<AnySyncStateEvent>>,
     /// The private data that this user has attached to this room.
     pub account_data: Vec<Raw<AnyRoomAccountDataEvent>>,
+    /// Collection of ambiguity changes that room member events trigger.
+    ///
+    /// This is a map of event ID of the `m.room.member` event to the
+    /// details of the ambiguity change.
+    pub ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
 }
 
 impl LeftRoom {
@@ -174,8 +183,9 @@ impl LeftRoom {
         timeline: Timeline,
         state: Vec<Raw<AnySyncStateEvent>>,
         account_data: Vec<Raw<AnyRoomAccountDataEvent>>,
+        ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
     ) -> Self {
-        Self { timeline, state, account_data }
+        Self { timeline, state, account_data, ambiguity_changes }
     }
 }
 
@@ -186,6 +196,7 @@ impl fmt::Debug for LeftRoom {
             .field("timeline", &self.timeline)
             .field("state", &DebugListOfRawEvents(&self.state))
             .field("account_data", &DebugListOfRawEventsNoId(&self.account_data))
+            .field("ambiguity_changes", &self.ambiguity_changes)
             .finish()
     }
 }

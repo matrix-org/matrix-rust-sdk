@@ -45,13 +45,13 @@ use std::{collections::BTreeMap, fmt::Debug, sync::Arc};
 use async_trait::async_trait;
 use matrix_sdk::{sync::RoomUpdate, Client, Room};
 use matrix_sdk_base::{
-    deserialized_responses::SyncTimelineEvent,
+    deserialized_responses::{AmbiguityChange, SyncTimelineEvent},
     sync::{JoinedRoom, LeftRoom, Timeline},
 };
 use ruma::{
     events::{AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent},
     serde::Raw,
-    OwnedRoomId, RoomId,
+    OwnedEventId, OwnedRoomId, RoomId,
 };
 use tokio::{
     spawn,
@@ -246,8 +246,13 @@ impl RoomEventGraphInner {
     }
 
     async fn handle_joined_room_update(&self, updates: JoinedRoom) -> Result<()> {
-        self.handle_timeline(updates.timeline, updates.ephemeral.clone(), updates.account_data)
-            .await?;
+        self.handle_timeline(
+            updates.timeline,
+            updates.ephemeral.clone(),
+            updates.account_data,
+            updates.ambiguity_changes,
+        )
+        .await?;
         Ok(())
     }
 
@@ -256,6 +261,7 @@ impl RoomEventGraphInner {
         timeline: Timeline,
         ephemeral: Vec<Raw<AnySyncEphemeralRoomEvent>>,
         account_data: Vec<Raw<AnyRoomAccountDataEvent>>,
+        ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
     ) -> Result<()> {
         let room_id = self.room.room_id();
 
@@ -278,13 +284,15 @@ impl RoomEventGraphInner {
             prev_batch: timeline.prev_batch,
             ephemeral,
             account_data,
+            ambiguity_changes,
         });
 
         Ok(())
     }
 
     async fn handle_left_room_update(&self, updates: LeftRoom) -> Result<()> {
-        self.handle_timeline(updates.timeline, Vec::new(), Vec::new()).await?;
+        self.handle_timeline(updates.timeline, Vec::new(), Vec::new(), updates.ambiguity_changes)
+            .await?;
         Ok(())
     }
 
@@ -350,6 +358,7 @@ impl RoomEventGraphInner {
             prev_batch: None,
             account_data: Default::default(),
             ephemeral: Default::default(),
+            ambiguity_changes: Default::default(),
         });
 
         Ok(())
@@ -374,5 +383,10 @@ pub enum RoomEventGraphUpdate {
         /// XXX: this is temporary, until read receipts are handled in the event
         /// graph
         ephemeral: Vec<Raw<AnySyncEphemeralRoomEvent>>,
+        /// Collection of ambiguity changes that room member events trigger.
+        ///
+        /// This is a map of event ID of the `m.room.member` event to the
+        /// details of the ambiguity change.
+        ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
     },
 }
