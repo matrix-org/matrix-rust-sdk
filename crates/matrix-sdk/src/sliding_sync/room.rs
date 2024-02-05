@@ -4,7 +4,7 @@ use std::{
 };
 
 use eyeball_im::Vector;
-use matrix_sdk_base::{deserialized_responses::SyncTimelineEvent, latest_event::LatestEvent};
+use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
 use ruma::{api::client::sync::sync_events::v4, OwnedRoomId, RoomId};
 use serde::{Deserialize, Serialize};
 
@@ -77,11 +77,6 @@ impl SlidingSyncRoom {
     /// Get a clone of the associated client.
     pub fn client(&self) -> Client {
         self.inner.client.clone()
-    }
-
-    /// Find the latest event in this room
-    pub fn latest_event(&self) -> Option<LatestEvent> {
-        self.inner.client.get_room(&self.inner.room_id).and_then(|room| room.latest_event())
     }
 
     pub(super) fn update(
