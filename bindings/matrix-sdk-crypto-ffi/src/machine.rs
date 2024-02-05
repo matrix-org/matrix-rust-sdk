@@ -800,6 +800,44 @@ impl OlmMachine {
         Ok(serde_json::to_string(&encrypted_content)?)
     }
 
+    /// Encrypt the given event with the given type and content for the given
+    /// device. This method is used to send an event to a specific device.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The ID of the user who owns the target device.
+    /// * `device_id` - The ID of the device to which the message will be sent.
+    /// * `event_type` - The event type.
+    /// * `content` - The serialized content of the event.
+    ///
+    /// # Returns
+    /// A `Result` containing the request to be sent out if the encryption was
+    /// successful.
+    ///
+    /// The caller should ensure that there is an olm session (see
+    /// `get_missing_sessions`) with the target device before calling this
+    /// method.
+    pub fn encrypt_to_device_event(
+        &self,
+        user_id: String,
+        device_id: String,
+        event_type: String,
+        content: String,
+    ) -> Result<Option<Request>, CryptoStoreError> {
+        let user_id = parse_user_id(&user_id)?;
+        let device_id = device_id.as_str().into();
+        let content = serde_json::from_str(&content)?;
+
+        let request = self.runtime.block_on(self.inner.create_encrypted_to_device_request(
+            &user_id,
+            device_id,
+            &event_type,
+            &content,
+        ));
+
+        Ok(request?.map(|r| r.into()))
+    }
+
     /// Decrypt the given event that was sent in the given room.
     ///
     /// # Arguments

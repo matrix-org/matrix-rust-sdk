@@ -37,13 +37,14 @@ use ruma::{
     assign,
     events::{
         secret::request::SecretName, AnyMessageLikeEvent, AnyMessageLikeEventContent,
-        AnyToDeviceEvent, MessageLikeEventContent,
+        AnyToDeviceEvent, AnyToDeviceEventContent, MessageLikeEventContent, ToDeviceEventType,
     },
     serde::Raw,
+    to_device::DeviceIdOrAllDevices,
     DeviceId, DeviceKeyAlgorithm, OwnedDeviceId, OwnedDeviceKeyId, OwnedTransactionId, OwnedUserId,
     RoomId, TransactionId, UInt, UserId,
 };
-use serde_json::value::to_raw_value;
+use serde_json::{value::to_raw_value, Value};
 use tokio::sync::Mutex;
 use tracing::{
     debug, error,
@@ -901,6 +902,66 @@ impl OlmMachine {
     /// to invalidate.
     pub async fn invalidate_group_session(&self, room_id: &RoomId) -> StoreResult<bool> {
         self.inner.group_session_manager.invalidate_group_session(room_id).await
+    }
+
+    ///
+    /// Creates an encrypted to_device event ready to be sent to that device.
+    /// The caller should ensure that there is an existing Olm session with the
+    /// target device, by calling `get_missing_sessions(user_id)`
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The user ID of the target device.
+    /// * `device_id` - The device ID of the target device.
+    /// * `event_type` - The type of the event to be sent.
+    /// * `content` - The content of the event to be sent. This should be a type
+    ///   that implements the `Serialize` trait.
+    ///
+    /// # Returns
+    /// None if the device is unknown, errors if no olm session is found or
+    /// if an error occurs during encryption.
+    pub async fn create_encrypted_to_device_request(
+        &self,
+        user_id: &UserId,
+        device_id: &DeviceId,
+        event_type: &str,
+        content: &Value,
+    ) -> OlmResult<Option<ToDeviceRequest>> {
+        // Timeout is None since the caller is expected to ensure `get_missing_sessions`
+        // first.
+        let device = self.get_device(user_id, device_id, None).await?;
+
+        if device.is_none() {
+            warn!(
+                "Trying to send an encrypted to-device event to an unknown device {}:{}",
+                user_id, device_id
+            );
+            return Ok(None);
+        }
+
+        let (used_session, raw_encrypted) = device.unwrap().encrypt(event_type, content).await?;
+
+        // perist the used session
+        self.store()
+            .save_changes(Changes { sessions: vec![used_session], ..Default::default() })
+            .await?;
+
+        let mut messages = BTreeMap::new();
+
+        let any_cast: Raw<AnyToDeviceEventContent> = raw_encrypted.cast();
+
+        messages
+            .entry(user_id.to_owned())
+            .or_insert_with(BTreeMap::new)
+            .insert(DeviceIdOrAllDevices::DeviceId(device_id.to_owned()), any_cast);
+
+        let request = ToDeviceRequest {
+            event_type: ToDeviceEventType::RoomEncrypted,
+            txn_id: TransactionId::new(),
+            messages,
+        };
+
+        Ok(Some(request))
     }
 
     /// Get to-device requests to share a room key with users in a room.
@@ -2233,10 +2294,11 @@ pub(crate) mod tests {
         },
         room_id,
         serde::Raw,
+        to_device::DeviceIdOrAllDevices,
         uint, user_id, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch,
         OwnedDeviceKeyId, SecondsSinceUnixEpoch, TransactionId, UserId,
     };
-    use serde_json::json;
+    use serde_json::{json, value::to_raw_value};
     use vodozemac::{
         megolm::{GroupSession, SessionConfig},
         Curve25519PublicKey, Ed25519PublicKey,
@@ -4241,5 +4303,122 @@ pub(crate) mod tests {
             )
             .await
             .unwrap();
+    }
+
+    #[async_test]
+    async fn test_send_encrypted_to_device() {
+        let (alice, bob) = get_machine_pair_with_session(alice_id(), user_id(), false).await;
+
+        let custom_event_type = "m.new_device";
+
+        let custom_content = json!({
+                "device_id": "XYZABCDE",
+                "rooms": ["!726s6s6q:example.com"]
+        });
+
+        let request = alice
+            .create_encrypted_to_device_request(
+                bob.user_id(),
+                bob_device_id(),
+                custom_event_type,
+                &custom_content,
+            )
+            .await
+            .unwrap()
+            .expect("Should have created a request");
+
+        assert_eq!("m.room.encrypted", request.event_type.to_string());
+
+        let messages = &request.messages;
+        assert_eq!(1, messages.len());
+        assert!(messages.get(bob.user_id()).is_some());
+        let target_devices = messages.get(bob.user_id()).unwrap();
+        assert_eq!(1, target_devices.len());
+        assert!(target_devices
+            .get(&DeviceIdOrAllDevices::DeviceId(bob_device_id().to_owned()))
+            .is_some());
+
+        let event = ToDeviceEvent::new(
+            alice.user_id().to_owned(),
+            to_device_requests_to_content(vec![request.clone().into()]),
+        );
+
+        let event = json_convert(&event).unwrap();
+
+        let sync_changes = EncryptionSyncChanges {
+            to_device_events: vec![event],
+            changed_devices: &Default::default(),
+            one_time_keys_counts: &Default::default(),
+            unused_fallback_keys: None,
+            next_batch_token: None,
+        };
+
+        let (decrypted, _) = bob.receive_sync_changes(sync_changes).await.unwrap();
+
+        assert_eq!(1, decrypted.len());
+
+        let decrypted_event = decrypted[0].deserialize().unwrap();
+
+        assert_eq!(decrypted_event.event_type().to_string(), custom_event_type.to_owned());
+
+        let decrypted_value = to_raw_value(&decrypted[0]).unwrap();
+        let decrypted_value = serde_json::to_value(decrypted_value).unwrap();
+
+        assert_eq!(
+            decrypted_value.get("content").unwrap().get("device_id").unwrap().as_str().unwrap(),
+            custom_content.get("device_id").unwrap().as_str().unwrap(),
+        );
+
+        assert_eq!(
+            decrypted_value.get("content").unwrap().get("rooms").unwrap().as_array().unwrap(),
+            custom_content.get("rooms").unwrap().as_array().unwrap(),
+        );
+    }
+
+    #[async_test]
+    async fn test_send_encrypted_to_device_unknown_device() {
+        let (alice, bob) = get_machine_pair_with_session(alice_id(), user_id(), false).await;
+
+        let custom_event_type = "m.new_device";
+
+        let custom_content = json!({
+                "device_id": "XYZABCDE",
+                "rooms": ["!726s6s6q:example.com"]
+        });
+
+        let request = alice
+            .create_encrypted_to_device_request(
+                bob.user_id(),
+                device_id!("UNKNOWN"),
+                custom_event_type,
+                &custom_content,
+            )
+            .await
+            .unwrap();
+
+        assert!(request.is_none());
+    }
+
+    #[async_test]
+    async fn test_send_encrypted_to_device_no_session() {
+        let (alice, bob, _) = get_machine_pair(alice_id(), user_id(), false).await;
+
+        let custom_event_type = "m.new_device";
+
+        let custom_content = json!({
+                "device_id": "XYZABCDE",
+                "rooms": ["!726s6s6q:example.com"]
+        });
+
+        let request = alice
+            .create_encrypted_to_device_request(
+                bob.user_id(),
+                bob_device_id(),
+                custom_event_type,
+                &custom_content,
+            )
+            .await;
+
+        assert_matches!(request, Err(OlmError::MissingSession));
     }
 }
