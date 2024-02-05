@@ -24,6 +24,7 @@ use crate::{
 
 mod old_keys;
 mod v5_to_v7;
+mod v7;
 mod v8_to_v10;
 
 /// Open the indexeddb with the given name, upgrading it to the latest version
@@ -249,7 +250,7 @@ async fn prepare_data_for_v8(name: &str, serializer: &IndexeddbSerializer) -> Re
                 "inbound_group_sessions2 cursor has no key".into(),
             ))?;
 
-            let idb_object: v8_to_v10::InboundGroupSessionIndexedDbObject2 =
+            let idb_object: v7::InboundGroupSessionIndexedDbObject2 =
                 serde_wasm_bindgen::from_value(cursor.value())?;
             let pickled_session =
                 serializer.deserialize_value_from_bytes(&idb_object.pickled_session)?;
@@ -333,10 +334,10 @@ mod tests {
     use matrix_sdk_store_encryption::StoreCipher;
     use matrix_sdk_test::async_test;
     use ruma::{room_id, OwnedRoomId, RoomId};
-    use tests::v8_to_v10::InboundGroupSessionIndexedDbObject2;
     use tracing_subscriber::util::SubscriberInitExt;
     use web_sys::console;
 
+    use super::v7::InboundGroupSessionIndexedDbObject2;
     use crate::{
         crypto_store::{
             indexeddb_serializer::MaybeEncrypted, migrations::*, InboundGroupSessionIndexedDbObject,

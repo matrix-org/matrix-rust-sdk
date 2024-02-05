@@ -32,7 +32,7 @@ use crate::{
     crypto_store::{
         indexeddb_serializer::IndexeddbSerializer,
         keys,
-        migrations::{do_schema_upgrade, old_keys, v8_to_v10},
+        migrations::{do_schema_upgrade, old_keys, v7},
         Result,
     },
     IndexeddbCryptoStoreError,
@@ -112,7 +112,7 @@ async fn do_prepare_data_for_v7(serializer: &IndexeddbSerializer, db: &IdbDataba
                 .map_err(|e| IndexeddbCryptoStoreError::CryptoStoreError(e.into()))?;
 
             let new_data =
-                serde_wasm_bindgen::to_value(&v8_to_v10::InboundGroupSessionIndexedDbObject2 {
+                serde_wasm_bindgen::to_value(&v7::InboundGroupSessionIndexedDbObject2 {
                     pickled_session: serializer.serialize_value_as_bytes(&igs.pickle().await)?,
                     needs_backup: !igs.backed_up(),
                 })?;
