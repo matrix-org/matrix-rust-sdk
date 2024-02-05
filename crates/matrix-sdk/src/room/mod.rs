@@ -17,8 +17,8 @@ use matrix_sdk_common::timeout::timeout;
 use mime::Mime;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{
-    marked_unread::MarkedUnreadEventContent, room::encrypted::OriginalSyncRoomEncryptedEvent,
-    AnySyncMessageLikeEvent, AnySyncTimelineEvent, SyncMessageLikeEvent,
+    room::encrypted::OriginalSyncRoomEncryptedEvent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
+    SyncMessageLikeEvent,
 };
 use ruma::{
     api::client::{
@@ -43,6 +43,7 @@ use ruma::{
     assign,
     events::{
         direct::DirectEventContent,
+        marked_unread::MarkedUnreadEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
         room::{
             avatar::{self, RoomAvatarEventContent},
