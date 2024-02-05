@@ -42,15 +42,15 @@ impl SlidingSyncRoom {
     pub fn new(
         client: Client,
         room_id: OwnedRoomId,
-        inner: v4::SlidingSyncRoom,
+        prev_batch: Option<String>,
         timeline: Vec<SyncTimelineEvent>,
     ) -> Self {
         Self {
             inner: Arc::new(SlidingSyncRoomInner {
                 client,
                 room_id,
-                inner: RwLock::new(inner),
                 state: RwLock::new(SlidingSyncRoomState::NotLoaded),
+                prev_batch: RwLock::new(prev_batch),
                 timeline_queue: RwLock::new(timeline.into()),
             }),
         }
@@ -63,7 +63,7 @@ impl SlidingSyncRoom {
 
     /// Get the token for back-pagination.
     pub fn prev_batch(&self) -> Option<String> {
-        self.inner.inner.read().unwrap().prev_batch.clone()
+        self.inner.prev_batch.read().unwrap().clone()
     }
 
     /// Get a copy of the cached timeline events.
@@ -89,52 +89,12 @@ impl SlidingSyncRoom {
         room_data: v4::SlidingSyncRoom,
         timeline_updates: Vec<SyncTimelineEvent>,
     ) {
-        let v4::SlidingSyncRoom {
-            name,
-            avatar,
-            initial,
-            limited,
-            is_dm,
-            unread_notifications,
-            required_state,
-            prev_batch,
-            ..
-        } = room_data;
+        let v4::SlidingSyncRoom { prev_batch, limited, .. } = room_data;
 
         {
-            let mut inner = self.inner.inner.write().unwrap();
-
-            inner.unread_notifications = unread_notifications;
-
-            // The server might not send some parts of the response, because they were sent
-            // before and the server wants to save bandwidth. So let's update the values
-            // only when they exist.
-
-            if name.is_some() {
-                inner.name = name;
-            }
-
-            // Note: in the server specification, the avatar is undefined when it hasn't
-            // changed, and it's set to null when it's been unset, so we
-            // distinguish the two here.
-            if !avatar.is_undefined() {
-                inner.avatar = avatar;
-            }
-
-            if initial.is_some() {
-                inner.initial = initial;
-            }
-
-            if is_dm.is_some() {
-                inner.is_dm = is_dm;
-            }
-
-            if !required_state.is_empty() {
-                inner.required_state = required_state;
-            }
-
-            if prev_batch.is_some() {
-                inner.prev_batch = prev_batch;
+            if let Some(prev_batch) = &prev_batch {
+                let mut lock = self.inner.prev_batch.write().unwrap();
+                let _ = lock.replace(prev_batch.clone());
             }
         }
 
@@ -175,13 +135,13 @@ impl SlidingSyncRoom {
     }
 
     pub(super) fn from_frozen(frozen_room: FrozenSlidingSyncRoom, client: Client) -> Self {
-        let FrozenSlidingSyncRoom { room_id, inner, timeline_queue } = frozen_room;
+        let FrozenSlidingSyncRoom { room_id, prev_batch, timeline_queue } = frozen_room;
 
         Self {
             inner: Arc::new(SlidingSyncRoomInner {
                 client,
                 room_id,
-                inner: RwLock::new(inner),
+                prev_batch: RwLock::new(prev_batch),
                 state: RwLock::new(SlidingSyncRoomState::Preloaded),
                 timeline_queue: RwLock::new(timeline_queue),
             }),
@@ -208,13 +168,11 @@ struct SlidingSyncRoomInner {
     /// The room ID.
     room_id: OwnedRoomId,
 
-    /// The room representation as a `SlidingSync`'s response from the server.
-    ///
-    /// We update this response when an update is needed.
-    inner: RwLock<v4::SlidingSyncRoom>,
-
     /// Internal state of `Self`.
     state: RwLock<SlidingSyncRoomState>,
+
+    /// The token for back-pagination.
+    prev_batch: RwLock<Option<String>>,
 
     /// A queue of received events, used to build a
     /// [`Timeline`][crate::Timeline].
@@ -233,7 +191,8 @@ struct SlidingSyncRoomInner {
 #[derive(Debug, Serialize, Deserialize)]
 pub(super) struct FrozenSlidingSyncRoom {
     pub(super) room_id: OwnedRoomId,
-    pub(super) inner: v4::SlidingSyncRoom,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) prev_batch: Option<String>,
     #[serde(rename = "timeline")]
     pub(super) timeline_queue: Vector<SyncTimelineEvent>,
 }
@@ -247,26 +206,26 @@ impl From<&SlidingSyncRoom> for FrozenSlidingSyncRoom {
         let timeline_queue = &value.inner.timeline_queue.read().unwrap();
         let timeline_length = timeline_queue.len();
 
-        let mut inner = value.inner.inner.read().unwrap().clone();
-
         // To not overflow the cache, we only freeze the newest N items. On doing
         // so, we must drop the `prev_batch` key however, as we'd otherwise
         // create a gap between what we have loaded and where the
         // prev_batch-key will start loading when paginating backwards.
-        let timeline_queue = if timeline_length > NUMBER_OF_TIMELINE_EVENTS_TO_KEEP_FOR_THE_CACHE {
-            inner.prev_batch = None;
+        let (timeline_queue, prev_batch) =
+            if timeline_length > NUMBER_OF_TIMELINE_EVENTS_TO_KEEP_FOR_THE_CACHE {
+                (
+                    (*timeline_queue)
+                        .iter()
+                        .skip(timeline_length - NUMBER_OF_TIMELINE_EVENTS_TO_KEEP_FOR_THE_CACHE)
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .into(),
+                    None, // Erase the `prev_batch`.
+                )
+            } else {
+                ((*timeline_queue).clone(), value.prev_batch())
+            };
 
-            (*timeline_queue)
-                .iter()
-                .skip(timeline_length - NUMBER_OF_TIMELINE_EVENTS_TO_KEEP_FOR_THE_CACHE)
-                .cloned()
-                .collect::<Vec<_>>()
-                .into()
-        } else {
-            (*timeline_queue).clone()
-        };
-
-        Self { room_id: value.inner.room_id.clone(), inner, timeline_queue }
+        Self { room_id: value.inner.room_id.clone(), prev_batch, timeline_queue }
     }
 }
 
@@ -277,8 +236,8 @@ mod tests {
     use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
     use matrix_sdk_test::async_test;
     use ruma::{
-        api::client::sync::sync_events::v4, assign, events::room::message::RoomMessageEventContent,
-        mxc_uri, room_id, serde::Raw, JsOption, RoomId,
+        api::client::sync::sync_events::v4, events::room::message::RoomMessageEventContent,
+        room_id, serde::Raw, RoomId,
     };
     use serde_json::json;
     use wiremock::MockServer;
@@ -309,7 +268,7 @@ mod tests {
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
 
-        SlidingSyncRoom::new(client, room_id.to_owned(), inner, timeline)
+        SlidingSyncRoom::new(client, room_id.to_owned(), inner.prev_batch, timeline)
     }
 
     #[async_test]
@@ -681,13 +640,7 @@ mod tests {
     fn test_frozen_sliding_sync_room_serialization() {
         let frozen_room = FrozenSlidingSyncRoom {
             room_id: room_id!("!29fhd83h92h0:example.com").to_owned(),
-            inner: assign!(
-                v4::SlidingSyncRoom::default(),
-                {
-                    name: Some("foobar".to_owned()),
-                    avatar: JsOption::Some(mxc_uri!("mxc://homeserver/media").to_owned()),
-                }
-            ),
+            prev_batch: Some("foo".to_owned()),
             timeline_queue: vector![TimelineEvent::new(
                 Raw::new(&json!({
                     "content": RoomMessageEventContent::text_plain("let it gooo!"),
@@ -709,10 +662,7 @@ mod tests {
             serialized,
             json!({
                 "room_id": "!29fhd83h92h0:example.com",
-                "inner": {
-                    "name": "foobar",
-                    "avatar": "mxc://homeserver/media",
-                },
+                "prev_batch": "foo",
                 "timeline": [
                     {
                         "event": {
@@ -735,8 +685,6 @@ mod tests {
         let deserialized = serde_json::from_value::<FrozenSlidingSyncRoom>(serialized).unwrap();
 
         assert_eq!(deserialized.room_id, frozen_room.room_id);
-        assert_eq!(deserialized.inner.name, frozen_room.inner.name);
-        assert_eq!(deserialized.inner.avatar, frozen_room.inner.avatar);
     }
 
     #[async_test]

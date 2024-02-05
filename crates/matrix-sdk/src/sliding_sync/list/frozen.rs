@@ -56,10 +56,7 @@ mod tests {
 
     use imbl::vector;
     use matrix_sdk_base::deserialized_responses::TimelineEvent;
-    use ruma::{
-        api::client::sync::sync_events::v4, events::room::message::RoomMessageEventContent,
-        room_id, serde::Raw,
-    };
+    use ruma::{events::room::message::RoomMessageEventContent, room_id, serde::Raw};
     use serde_json::json;
 
     use super::FrozenSlidingSyncList;
@@ -77,7 +74,7 @@ mod tests {
                         room_id!("!foo:bar.org").to_owned(),
                         FrozenSlidingSyncRoom {
                             room_id: room_id!("!foo:bar.org").to_owned(),
-                            inner: v4::SlidingSyncRoom::default(),
+                            prev_batch: None,
                             timeline_queue: vector![TimelineEvent::new(
                                 Raw::new(&json!({
                                     "content": RoomMessageEventContent::text_plain("let it gooo!"),
@@ -104,7 +101,6 @@ mod tests {
                 "rooms": {
                     "!foo:bar.org": {
                         "room_id": "!foo:bar.org",
-                        "inner": {},
                         "timeline": [
                             {
                                 "event": {
