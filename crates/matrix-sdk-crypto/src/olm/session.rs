@@ -82,9 +82,10 @@ impl Session {
     #[instrument(skip_all, fields(session))]
     pub async fn decrypt(&mut self, message: &OlmMessage) -> Result<String, DecryptionError> {
         let mut inner = self.inner.lock().await;
+        Span::current().record("session", debug(&inner));
+
         let plaintext = inner.decrypt(message)?;
 
-        Span::current().record("session", debug(inner));
         trace!("Decrypted a Olm message");
 
         let plaintext = String::from_utf8_lossy(&plaintext).to_string();
