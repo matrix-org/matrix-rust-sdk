@@ -9,16 +9,13 @@ use matrix_sdk::{
     config::SyncSettings,
     room::{Receipts, ReportedContentScore},
 };
-use matrix_sdk_base::{RoomNotableTags, RoomState};
-use matrix_sdk_test::{
-    async_test, test_json, JoinedRoomBuilder, RoomAccountDataTestEvent, SyncResponseBuilder,
-    DEFAULT_TEST_ROOM_ID,
-};
+use matrix_sdk_base::RoomState;
+use matrix_sdk_test::{async_test, test_json, DEFAULT_TEST_ROOM_ID};
 use ruma::{
     api::client::{membership::Invite3pidInit, receipt::create_receipt::v3::ReceiptType},
     assign, event_id,
     events::{receipt::ReceiptThread, room::message::RoomMessageEventContent},
-    int, mxc_uri, owned_event_id, room_id, thirdparty, uint, user_id, TransactionId,
+    int, mxc_uri, owned_event_id, thirdparty, uint, user_id, TransactionId,
 };
 use serde_json::json;
 use wiremock::{
@@ -644,79 +641,4 @@ async fn report_content() {
     let score = ReportedContentScore::new(-80).unwrap();
 
     room.report_content(event_id, Some(score), Some(reason.to_owned())).await.unwrap();
-}
-
-#[async_test]
-async fn update_notable_tags() {
-    let (client, server) = logged_in_client().await;
-    let room_id = room_id!("!test:example.org");
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-    let mut ev_builder = SyncResponseBuilder::new();
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
-    client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
-
-    let room = client.get_room(room_id).unwrap();
-    let (initial_notable_tags, mut notable_tags_stream) = room.notable_tags_stream().await;
-    // No tags set up in the sync response, so no favorite.
-    assert!(!initial_notable_tags.is_favorite);
-
-    // Makes sure that the right endpoint is called when updating the notable tags
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/user/.*/rooms/.*/tags/m\.favourite"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EMPTY))
-        .expect(1)
-        .mount(&server)
-        .await;
-
-    let notable_tags = RoomNotableTags { is_favorite: true };
-    room.update_notable_tags(notable_tags).await.unwrap();
-
-    ev_builder.add_joined_room(
-        JoinedRoomBuilder::new(room_id).add_account_data(RoomAccountDataTestEvent::Tags),
-    );
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
-    client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
-    // ensure the notable tags stream is updated when the sync response is received
-    assert!(notable_tags_stream.next().await.unwrap().is_favorite);
-
-    Mock::given(method("DELETE"))
-        .and(path_regex(r"^/_matrix/client/r0/user/.*/rooms/.*/tags/m\.favourite"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EMPTY))
-        .expect(1)
-        .mount(&server)
-        .await;
-
-    let notable_tags = RoomNotableTags { is_favorite: false };
-    room.update_notable_tags(notable_tags).await.unwrap();
-
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_account_data(
-        RoomAccountDataTestEvent::Custom(json!({
-            "content": {
-                "tags": {}
-            },
-            "type": "m.tag"
-        })),
-    ));
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
-    client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
-    assert!(!notable_tags_stream.next().await.unwrap().is_favorite);
-
-    // Ensure the endpoint is not called when the value doesn't change
-    Mock::given(method("DELETE"))
-        .and(path_regex(r"^/_matrix/client/r0/user/.*/rooms/.*/tags/m\.favourite"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EMPTY))
-        .expect(0)
-        .mount(&server)
-        .await;
-
-    let notable_tags = RoomNotableTags { is_favorite: false };
-    room.update_notable_tags(notable_tags).await.unwrap();
 }

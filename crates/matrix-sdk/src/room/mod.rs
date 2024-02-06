@@ -11,7 +11,7 @@ use matrix_sdk_base::{
     },
     instant::Instant,
     store::StateStoreExt,
-    RoomMemberships, RoomNotableTags, StateChanges,
+    RoomMemberships, StateChanges,
 };
 use matrix_sdk_common::timeout::timeout;
 use mime::Mime;
@@ -937,16 +937,48 @@ impl Room {
         self.client.send(request, None).await
     }
 
-    /// Update the tags from the room by calling set_tag or remove_tag method if
-    /// needed.
-    pub async fn update_notable_tags(&self, notable_tags: RoomNotableTags) -> Result<()> {
-        let current_notable_tags = self.inner.current_notable_tags().await;
-        if current_notable_tags.is_favorite != notable_tags.is_favorite {
-            if notable_tags.is_favorite {
-                self.set_tag(TagName::Favorite, TagInfo::default()).await?;
-            } else {
+    /// Update the is_favorite flag from the room by calling set_tag or
+    /// remove_tag method on `m.favourite` tag.
+    /// If is_favorite is true, and `m.low_priority` tag is set on the room, the
+    /// tag will be removed too.
+    /// # Arguments
+    ///
+    /// * `is_favorite` - Whether to mark this room as favorite or not.
+    /// * `tag_order` - The order of the tag if any.
+    pub async fn set_is_favorite(&self, is_favorite: bool, tag_order: Option<f64>) -> Result<()> {
+        if is_favorite {
+            let tag_info = assign!(TagInfo::new(), { order: tag_order });
+            self.set_tag(TagName::Favorite, tag_info).await?;
+            if self.current_notable_tags().await.is_low_priority {
+                self.remove_tag(TagName::LowPriority).await?;
+            }
+        } else {
+            self.remove_tag(TagName::Favorite).await?;
+        }
+        Ok(())
+    }
+
+    /// Update the is_low_priority flag from the room by calling set_tag or
+    /// remove_tag method on `m.low_priority` tag.
+    /// If is_low_priority is true, and `m.favourite` tag is set on the room,
+    /// the tag will be removed too.
+    /// # Arguments
+    ///
+    /// * `is_low_priority` - Whether to mark this room as low_priority or not.
+    /// * `tag_order` - The order of the tag if any.
+    pub async fn set_is_low_priority(
+        &self,
+        is_low_priority: bool,
+        tag_order: Option<f64>,
+    ) -> Result<()> {
+        if is_low_priority {
+            let tag_info = assign!(TagInfo::new(), { order: tag_order });
+            self.set_tag(TagName::LowPriority, tag_info).await?;
+            if self.current_notable_tags().await.is_favorite {
                 self.remove_tag(TagName::Favorite).await?;
             }
+        } else {
+            self.remove_tag(TagName::LowPriority).await?;
         }
         Ok(())
     }

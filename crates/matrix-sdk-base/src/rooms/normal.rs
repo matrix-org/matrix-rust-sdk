@@ -843,13 +843,17 @@ pub(crate) enum SyncInfo {
 pub struct RoomNotableTags {
     /// Whether or not the room is marked as favorite.
     pub is_favorite: bool,
+    /// Whether or not the room is marked as low priority.
+    pub is_low_priority: bool,
 }
 
 impl RoomNotableTags {
     /// Computes the provided tags to create a `RoomNotableTags` instance.
     pub fn new(tags: Option<Tags>) -> Self {
+        let tags = tags.as_ref();
         RoomNotableTags {
             is_favorite: tags.map_or(false, |tag| tag.contains_key(&TagName::Favorite)),
+            is_low_priority: tags.map_or(false, |tag| tag.contains_key(&TagName::LowPriority)),
         }
     }
 }
