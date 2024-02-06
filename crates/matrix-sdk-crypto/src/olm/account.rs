@@ -937,19 +937,12 @@ impl Account {
     ///
     /// * `message` - A pre-key Olm message that was sent to us by the other
     /// account.
-    #[instrument(
-        skip_all,
-        fields(
-            message,
-            session_id = message.session_id(),
-            session,
-        )
-    )]
     pub fn create_inbound_session(
         &mut self,
         their_identity_key: Curve25519PublicKey,
         message: &PreKeyMessage,
     ) -> Result<InboundCreationResult, SessionCreationError> {
+        Span::current().record("session_id", debug(message.session_id()));
         debug!("Creating a new Olm session from a pre-key message");
 
         let result = self.inner.create_inbound_session(their_identity_key, message)?;
@@ -1240,7 +1233,7 @@ impl Account {
 
     /// Decrypt an Olm message, creating a new Olm session if necessary, and
     /// parse the result.
-    #[instrument(skip(self, store))]
+    #[instrument(skip(self, store), fields(session, session_id))]
     async fn decrypt_and_parse_olm_message(
         &mut self,
         store: &Store,
@@ -1251,15 +1244,7 @@ impl Account {
         let (session, plaintext) =
             self.decrypt_olm_message(store, sender, sender_key, message).await?;
 
-        {
-            let session_id = match &session {
-                SessionType::New(s) => s.session_id(),
-                SessionType::Existing(s) => s.session_id(),
-            };
-
-            Span::current().record("session_id", session_id);
-            trace!("Successfully decrypted an Olm message");
-        }
+        trace!("Successfully decrypted an Olm message");
 
         match self.parse_decrypted_to_device_event(store, sender, sender_key, plaintext).await {
             Ok(result) => Ok((session, result)),

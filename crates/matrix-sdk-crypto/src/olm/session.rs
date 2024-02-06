@@ -79,10 +79,9 @@ impl Session {
     /// # Arguments
     ///
     /// * `message` - The Olm message that should be decrypted.
-    #[instrument(skip_all, fields(session))]
     pub async fn decrypt(&mut self, message: &OlmMessage) -> Result<String, DecryptionError> {
         let mut inner = self.inner.lock().await;
-        Span::current().record("session", debug(&inner));
+        Span::current().record("session", debug(&inner)).record("session_id", inner.session_id());
 
         let plaintext = inner.decrypt(message)?;
 
