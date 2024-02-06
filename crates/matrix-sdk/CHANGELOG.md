@@ -12,6 +12,9 @@ Breaking changes:
 
 Breaking changes:
 
+- The `Client::sync_token` accessor function is no longer public. If you were
+  using this for `Client::sync_once()`, you can get the token from the result of
+  the `Client::sync_once()` method instead ([#1216](https://github.com/matrix-org/matrix-rust-sdk/pull/1216)).
 - `Common::members` and `Common::members_no_sync` take a `RoomMemberships` to be able to filter the
   results by any membership state.
   - `Common::active_members(_no_sync)` and `Common::joined_members(_no_sync)` are deprecated.
