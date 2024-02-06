@@ -24,12 +24,14 @@ use std::{
 
 use ruma::{
     api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
-    events::{key::verification::VerificationMethod, AnyToDeviceEventContent},
+    events::{key::verification::VerificationMethod, AnyToDeviceEventContent, ToDeviceEventType},
     serde::Raw,
+    to_device::DeviceIdOrAllDevices,
     DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch, OwnedDeviceId,
-    OwnedDeviceKeyId, UInt, UserId,
+    OwnedDeviceKeyId, TransactionId, UInt, UserId,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use tokio::sync::Mutex;
 use tracing::{instrument, trace, warn};
 use vodozemac::{olm::SessionConfig, Curve25519PublicKey, Ed25519PublicKey};
@@ -439,6 +441,50 @@ impl Device {
         };
 
         self.encrypt(event_type, content).await
+    }
+
+    ///
+    /// Creates an encrypted to_device event ready to be sent to that device.
+    /// The caller should ensure that there is an existing Olm session with the
+    /// target device, by calling `OlmMachine#get_missing_sessions(user_id)`
+    ///
+    /// # Arguments
+    /// * `event_type` - The type of the event to be sent.
+    /// * `content` - The content of the event to be sent. This should be a type
+    ///   that implements the `Serialize` trait.
+    ///
+    /// # Returns
+    ///  Errors if no olm session is found or if an error occurs during
+    /// encryption.
+    pub async fn create_encrypted_to_device_request(
+        &self,
+        event_type: &str,
+        content: &Value,
+    ) -> OlmResult<ToDeviceRequest> {
+        let (used_session, raw_encrypted) = self.encrypt(event_type, content).await?;
+
+        // perist the used session
+        self.verification_machine
+            .store
+            .save_changes(Changes { sessions: vec![used_session], ..Default::default() })
+            .await?;
+
+        let mut messages = BTreeMap::new();
+
+        let any_cast: Raw<AnyToDeviceEventContent> = raw_encrypted.cast();
+
+        messages
+            .entry(self.user_id().to_owned())
+            .or_insert_with(BTreeMap::new)
+            .insert(DeviceIdOrAllDevices::DeviceId(self.device_id().to_owned()), any_cast);
+
+        let request = ToDeviceRequest {
+            event_type: ToDeviceEventType::RoomEncrypted,
+            txn_id: TransactionId::new(),
+            messages,
+        };
+
+        Ok(request)
     }
 }
 

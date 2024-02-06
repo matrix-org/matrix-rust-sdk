@@ -812,12 +812,12 @@ impl OlmMachine {
     ///
     /// # Returns
     /// A `Result` containing the request to be sent out if the encryption was
-    /// successful.
+    /// successful. If the device is not found, the result will be `Ok(None)`.
     ///
     /// The caller should ensure that there is an olm session (see
     /// `get_missing_sessions`) with the target device before calling this
     /// method.
-    pub fn encrypt_to_device_event(
+    pub fn create_encrypted_to_device_request(
         &self,
         user_id: String,
         device_id: String,
@@ -828,14 +828,16 @@ impl OlmMachine {
         let device_id = device_id.as_str().into();
         let content = serde_json::from_str(&content)?;
 
-        let request = self.runtime.block_on(self.inner.create_encrypted_to_device_request(
-            &user_id,
-            device_id,
-            &event_type,
-            &content,
-        ));
+        let device = self.runtime.block_on(self.inner.get_device(&user_id, device_id, None))?;
 
-        Ok(request?.map(|r| r.into()))
+        if let Some(device) = device {
+            let request = self
+                .runtime
+                .block_on(device.create_encrypted_to_device_request(&event_type, &content))?;
+            Ok(Some(request.into()))
+        } else {
+            Ok(None)
+        }
     }
 
     /// Decrypt the given event that was sent in the given room.
