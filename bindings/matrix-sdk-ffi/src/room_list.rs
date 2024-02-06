@@ -347,8 +347,8 @@ pub enum RoomListEntriesUpdate {
     Reset { values: Vec<RoomListEntry> },
 }
 
-impl From<VectorDiff<matrix_sdk::RoomListEntry>> for RoomListEntriesUpdate {
-    fn from(other: VectorDiff<matrix_sdk::RoomListEntry>) -> Self {
+impl From<VectorDiff<MatrixRoomListEntry>> for RoomListEntriesUpdate {
+    fn from(other: VectorDiff<MatrixRoomListEntry>) -> Self {
         match other {
             VectorDiff::Append { values } => {
                 Self::Append { values: values.into_iter().map(Into::into).collect() }

@@ -66,7 +66,9 @@ anyhow = { workspace = true, optional = true }
 anymap2 = "0.13.0"
 aquamarine = "0.5.0"
 as_variant = { workspace = true }
+async_cell = "0.2.2"
 async-channel = "2.1.0"
+async-rx = { workspace = true }
 async-stream = { workspace = true }
 async-trait = { workspace = true }
 bytes = "1.1.0"

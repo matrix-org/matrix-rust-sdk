@@ -1,10 +1,21 @@
 //! High-level room API
 
-use std::{borrow::Borrow, collections::BTreeMap, ops::Deref, time::Duration};
+use std::{
+    borrow::Borrow, collections::BTreeMap, future::ready, ops::Deref, sync::Arc, time::Duration,
+};
 
-use eyeball::SharedObservable;
+use async_cell::sync::AsyncCell;
+use async_rx::StreamExt as _;
+use async_stream::stream;
+use eyeball::{Observable, SharedObservable, Subscriber};
+use eyeball_im::VectorDiff;
+use eyeball_im_util::vector::VectorObserverExt;
 use futures_core::Stream;
-use futures_util::stream::FuturesUnordered;
+use futures_util::{
+    stream::{self, FuturesUnordered},
+    StreamExt,
+};
+use imbl::Vector;
 use matrix_sdk_base::{
     deserialized_responses::{
         RawAnySyncOrStrippedState, RawSyncOrStrippedState, SyncOrStrippedState, TimelineEvent,
@@ -69,7 +80,7 @@ use ruma::{
     uint, EventId, Int, MatrixToUri, MatrixUri, MxcUri, OwnedEventId, OwnedRoomId, OwnedServerName,
     OwnedTransactionId, OwnedUserId, TransactionId, UInt, UserId,
 };
-use serde::de::DeserializeOwned;
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use thiserror::Error;
 use tokio::sync::broadcast;
 use tracing::{debug, info, instrument, warn};
@@ -116,6 +127,85 @@ impl Deref for Room {
 
 const TYPING_NOTICE_TIMEOUT: Duration = Duration::from_secs(4);
 const TYPING_NOTICE_RESEND_TIMEOUT: Duration = Duration::from_secs(3);
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[cfg_attr(any(test, feature = "testing"), derive(PartialEq))]
+pub enum MemberListEntry {
+    /// The list knows there is an entry but this entry has not been loaded yet,
+    /// thus it's marked as empty.
+    #[default]
+    Empty,
+    /// The list has loaded this entry, and it's up-to-date.
+    Filled(OwnedUserId),
+}
+
+type BoxedFilterFn = Box<dyn Fn(&MemberListEntry) -> bool + Send + Sync>;
+
+/// Controller for the [`MemberList`] dynamic entries.
+///
+/// To get one value of this type, use
+/// [`MemberList::entries_with_dynamic_adapters`]
+pub struct MemberListDynamicEntriesController {
+    filter: Arc<AsyncCell<BoxedFilterFn>>,
+    page_size: usize,
+    limit: SharedObservable<usize>,
+    maximum_number_of_members: Subscriber<Option<u32>>,
+}
+
+impl MemberListDynamicEntriesController {
+    fn new(
+        filter: Arc<AsyncCell<BoxedFilterFn>>,
+        page_size: usize,
+        limit_stream: SharedObservable<usize>,
+        maximum_number_of_members: Subscriber<Option<u32>>,
+    ) -> Self {
+        Self { filter, page_size, limit: limit_stream, maximum_number_of_members }
+    }
+
+    /// Set the filter.
+    ///
+    /// If the associated stream has been dropped, returns `false` to indicate
+    /// the operation didn't have an effect.
+    pub fn set_filter(
+        &self,
+        filter: impl Fn(&MemberListEntry) -> bool + Send + Sync + 'static,
+    ) -> bool {
+        if Arc::strong_count(&self.filter) == 1 {
+            // there is no other reference to the boxed filter fn, setting it
+            // would be pointless (no new references can be created from self,
+            // either)
+            false
+        } else {
+            self.filter.set(Box::new(filter));
+            true
+        }
+    }
+
+    /// Add one page, i.e. view `page_size` more entries in the room list if
+    /// any.
+    pub fn add_one_page(&self) {
+        let Some(max) = self.maximum_number_of_members.get() else {
+            return;
+        };
+
+        let max: usize = max.try_into().unwrap();
+        let limit = self.limit.get();
+
+        if limit < max {
+            // With this logic, it is possible that `limit` becomes greater than `max` if
+            // `max - limit < page_size`, and that's perfectly fine. It's OK to have a
+            // `limit` greater than `max`, but it's not OK to increase the limit
+            // indefinitely.
+            self.limit.set_if_not_eq(limit + self.page_size);
+        }
+    }
+
+    /// Reset the one page, i.e. forget all pages and move back to the first
+    /// page.
+    pub fn reset_to_one_page(&self) {
+        self.limit.set_if_not_eq(self.page_size);
+    }
+}
 
 impl Room {
     /// Create a new `Room`
@@ -628,6 +718,48 @@ impl Room {
             .into_iter()
             .map(|member| RoomMember::new(self.client.clone(), member))
             .collect())
+    }
+
+    pub async fn members_with_dynamic_adapters(
+        &self,
+        page_size: usize,
+    ) -> (impl Stream<Item = Vec<VectorDiff<MemberListEntry>>>, MemberListDynamicEntriesController)
+    {
+        let list = self
+            .members(RoomMemberships::all())
+            .await
+            .unwrap()
+            .iter()
+            .map(|m| MemberListEntry::Filled(m.user_id().to_owned()))
+            .collect::<Vec<_>>();
+
+        let filter_fn_cell = AsyncCell::shared();
+
+        let limit = SharedObservable::<usize>::new(page_size);
+        let limit_stream = limit.subscribe();
+
+        let dynamic_entries_controller = MemberListDynamicEntriesController::new(
+            filter_fn_cell.clone(),
+            page_size,
+            limit,
+            Observable::subscribe(&Observable::new(Some(list.len() as u32))),
+        );
+
+        let stream = stream! {
+            loop {
+                let filter_fn = filter_fn_cell.take().await;
+                let (values, stream) = (Vector::from(list.clone()), stream::empty())
+                    .filter(filter_fn)
+                    .dynamic_limit_with_initial_value(page_size, limit_stream.clone());
+
+                // Clearing the stream before chaining with the real stream.
+                yield stream::once(ready(vec![VectorDiff::Reset { values }]))
+                    .chain(stream);
+            }
+        }
+        .switch();
+
+        (stream, dynamic_entries_controller)
     }
 
     /// Get all state events of a given type in this room.

@@ -545,6 +545,7 @@ async fn test_room_notification_count() -> Result<()> {
     Ok(())
 }
 
+<<<<<<< HEAD
 /// Response preprocessor that drops to_device events
 fn drop_todevice_events(response: &mut Bytes) {
     // Looks for a json payload containing "extensions" with a "to_device" part.
@@ -918,6 +919,102 @@ async fn test_roominfo_update_deduplication() -> Result<()> {
     );
     */
 
+=======
+#[tokio::test]
+async fn test_dynamic_room_members() -> Result<()> {
+    use tokio::time::timeout;
+
+    let bob =
+        TestClientBuilder::new("bob".to_owned()).randomize_username().use_sqlite().build().await?;
+
+    // Spawn sync for bob.
+    let b = bob.clone();
+    spawn(async move {
+        let bob = b;
+        loop {
+            if let Err(err) = bob.sync(Default::default()).await {
+                tracing::error!("bob sync error: {err}");
+            }
+        }
+    });
+
+    let mut other_users = Vec::new();
+    for i in 0..20 {
+        other_users.push(
+            TestClientBuilder::new(format!("user_{i}"))
+                .randomize_username()
+                .use_sqlite()
+                .build()
+                .await?,
+        );
+    }
+
+    let room_id = bob
+        .create_room(assign!(CreateRoomRequest::new(), {
+            invite: other_users.iter().map(|u| u.user_id().unwrap().to_owned()).collect(),
+        }))
+        .await?
+        .room_id()
+        .to_owned();
+
+    let mut bob_room = None;
+    for i in 1..=4 {
+        sleep(Duration::from_millis(30 * i)).await;
+        bob_room = bob.get_room(&room_id);
+        if bob_room.is_some() {
+            break;
+        }
+    }
+
+    let bob_room = bob_room.unwrap();
+    assert_eq!(bob_room.state(), RoomState::Joined);
+
+    bob_room.enable_encryption().await?;
+
+    // All other users join
+    for user in other_users {
+        user.join_room_by_id(&room_id).await?;
+    }
+
+    assert_eq!(bob_room.members(RoomMemberships::all()).await.unwrap().len(), 21);
+
+    let (stream, dynamic_entries_controller) =
+        bob_room.members_with_dynamic_adapters(10.try_into().unwrap()).await;
+
+    pin_mut!(stream);
+
+    dynamic_entries_controller.set_filter(|_| true);
+
+    // First page has 10 members:
+    let mut vec = timeout(Duration::from_millis(100), stream.next()).await.unwrap().unwrap();
+    assert_eq!(vec.len(), 1);
+    let VectorDiff::Reset { values } = &vec[0] else {
+        panic!("{vec:?}");
+    };
+    assert_eq!(values.len(), 10);
+    assert_pending!(stream);
+
+    dynamic_entries_controller.add_one_page();
+
+    // Second page has 10 more members:
+    vec = timeout(Duration::from_millis(100), stream.next()).await.unwrap().unwrap();
+    assert_eq!(vec.len(), 1);
+    let VectorDiff::Append { values } = &vec[0] else {
+        panic!("{vec:?}");
+    };
+    assert_eq!(values.len(), 10);
+    assert_pending!(stream);
+
+    dynamic_entries_controller.add_one_page();
+
+    // Last page has one member
+    vec = timeout(Duration::from_millis(100), stream.next()).await.unwrap().unwrap();
+    assert_eq!(vec.len(), 1);
+    let VectorDiff::Append { values } = &vec[0] else {
+        panic!("{vec:?}");
+    };
+    assert_eq!(values.len(), 1);
+>>>>>>> 0e675403f (room_members: dynamic room member loading)
     assert_pending!(stream);
 
     Ok(())
