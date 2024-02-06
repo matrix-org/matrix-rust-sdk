@@ -57,7 +57,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77c3a9648d43b9cd48db467b3f87fdd6e146bcc88ab0180006cef2179fe11d01"
 dependencies = [
  "cfg-if",
- "getrandom 0.2.11",
+ "getrandom 0.2.12",
  "once_cell",
  "version_check",
  "zerocopy",
@@ -425,7 +425,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b62ddb9cb1ec0a098ad4bbf9344d0713fa193ae1a80af55febcff2627b6a00c1"
 dependencies = [
  "futures-core",
- "getrandom 0.2.11",
+ "getrandom 0.2.12",
  "instant",
  "pin-project-lite",
  "rand 0.8.5",
@@ -461,9 +461,9 @@ checksum = "9e1b586273c5702936fe7b7d6896644d8be71e6314cfe09d3167c95f712589e8"
 
 [[package]]
 name = "base64"
-version = "0.21.5"
+version = "0.21.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "35636a1494ede3b646cc98f74f8e62c773a38a659ebc777a2cf26b9b74171df9"
+checksum = "9d297deb1925b89f2ccc13d7635fa0714f12c87adce1c75356b39ca9b7178567"
 
 [[package]]
 name = "base64ct"
@@ -1931,9 +1931,9 @@ dependencies = [
 
 [[package]]
 name = "getrandom"
-version = "0.2.11"
+version = "0.2.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe9006bed769170c11f845cf00c7c1e9092aeb3f268e007c3e760ac68008070f"
+checksum = "190092ea657667030ac6a35e305e62fc4dd69fd98ac98631e5d3a2b1575a12b5"
 dependencies = [
  "cfg-if",
  "js-sys",
@@ -2086,7 +2086,7 @@ version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06683b93020a07e3dbcf5f8c0f6d40080d725bea7936fc01ad345c01b97dc270"
 dependencies = [
- "base64 0.21.5",
+ "base64 0.21.7",
  "bytes",
  "headers-core",
  "http",
@@ -3174,7 +3174,7 @@ dependencies = [
  "anyhow",
  "as_variant",
  "async-compat",
- "base64 0.21.5",
+ "base64 0.21.7",
  "extension-trait",
  "eyeball-im",
  "futures-core",
@@ -3216,8 +3216,8 @@ dependencies = [
  "assert_matches",
  "assert_matches2",
  "async-trait",
- "base64 0.21.5",
- "getrandom 0.2.11",
+ "base64 0.21.7",
+ "getrandom 0.2.12",
  "gloo-utils",
  "indexed_db_futures",
  "js-sys",
@@ -3305,11 +3305,11 @@ name = "matrix-sdk-store-encryption"
 version = "0.7.0"
 dependencies = [
  "anyhow",
- "base64 0.21.5",
+ "base64 0.21.7",
  "blake3",
  "chacha20poly1305",
  "displaydoc",
- "getrandom 0.2.11",
+ "getrandom 0.2.12",
  "hmac",
  "pbkdf2",
  "rand 0.8.5",
@@ -3326,7 +3326,7 @@ name = "matrix-sdk-test"
 version = "0.7.0"
 dependencies = [
  "ctor",
- "getrandom 0.2.11",
+ "getrandom 0.2.12",
  "http",
  "matrix-sdk-test-macros",
  "once_cell",
@@ -3642,7 +3642,7 @@ version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dd6c2c7054110ce4d7b4756d7b7fe507fea9413968ad0ef8f1d043d504aec725"
 dependencies = [
- "getrandom 0.2.11",
+ "getrandom 0.2.12",
  "olm-sys",
  "serde",
  "serde_json",
@@ -4466,7 +4466,7 @@ version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
 dependencies = [
- "getrandom 0.2.11",
+ "getrandom 0.2.12",
 ]
 
 [[package]]
@@ -4537,7 +4537,7 @@ version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a18479200779601e498ada4e8c1e1f50e3ee19deb0259c25825a98b5603b2cb4"
 dependencies = [
- "getrandom 0.2.11",
+ "getrandom 0.2.12",
  "libredox",
  "thiserror",
 ]
@@ -4599,7 +4599,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3e9ad3fe7488d7e34558a2033d45a0c90b72d97b4f80705666fea71472e2e6a1"
 dependencies = [
  "async-compression",
- "base64 0.21.5",
+ "base64 0.21.7",
  "bytes",
  "encoding_rs",
  "futures-core",
@@ -4670,7 +4670,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "688c63d65483050968b2a8937f7995f443e27041a0f7700aa59b0822aedebb74"
 dependencies = [
  "cc",
- "getrandom 0.2.11",
+ "getrandom 0.2.12",
  "libc",
  "spin 0.9.8",
  "untrusted",
@@ -4738,7 +4738,7 @@ dependencies = [
 [[package]]
 name = "ruma"
 version = "0.9.4"
-source = "git+https://github.com/ruma/ruma?rev=684ffc789877355bd25269451b2356817c17cc3f#684ffc789877355bd25269451b2356817c17cc3f"
+source = "git+https://github.com/ruma/ruma?rev=68c9bb0930f2195fa8672fbef9633ef62737df5d#68c9bb0930f2195fa8672fbef9633ef62737df5d"
 dependencies = [
  "assign",
  "js_int",
@@ -4754,7 +4754,7 @@ dependencies = [
 [[package]]
 name = "ruma-client-api"
 version = "0.17.4"
-source = "git+https://github.com/ruma/ruma?rev=684ffc789877355bd25269451b2356817c17cc3f#684ffc789877355bd25269451b2356817c17cc3f"
+source = "git+https://github.com/ruma/ruma?rev=68c9bb0930f2195fa8672fbef9633ef62737df5d#68c9bb0930f2195fa8672fbef9633ef62737df5d"
 dependencies = [
  "as_variant",
  "assign",
@@ -4773,13 +4773,13 @@ dependencies = [
 [[package]]
 name = "ruma-common"
 version = "0.12.1"
-source = "git+https://github.com/ruma/ruma?rev=684ffc789877355bd25269451b2356817c17cc3f#684ffc789877355bd25269451b2356817c17cc3f"
+source = "git+https://github.com/ruma/ruma?rev=68c9bb0930f2195fa8672fbef9633ef62737df5d#68c9bb0930f2195fa8672fbef9633ef62737df5d"
 dependencies = [
  "as_variant",
- "base64 0.21.5",
+ "base64 0.21.7",
  "bytes",
  "form_urlencoded",
- "getrandom 0.2.11",
+ "getrandom 0.2.12",
  "http",
  "indexmap 2.1.0",
  "js-sys",
@@ -4803,7 +4803,7 @@ dependencies = [
 [[package]]
 name = "ruma-events"
 version = "0.27.11"
-source = "git+https://github.com/ruma/ruma?rev=684ffc789877355bd25269451b2356817c17cc3f#684ffc789877355bd25269451b2356817c17cc3f"
+source = "git+https://github.com/ruma/ruma?rev=68c9bb0930f2195fa8672fbef9633ef62737df5d#68c9bb0930f2195fa8672fbef9633ef62737df5d"
 dependencies = [
  "as_variant",
  "indexmap 2.1.0",
@@ -4827,7 +4827,7 @@ dependencies = [
 [[package]]
 name = "ruma-federation-api"
 version = "0.8.0"
-source = "git+https://github.com/ruma/ruma?rev=684ffc789877355bd25269451b2356817c17cc3f#684ffc789877355bd25269451b2356817c17cc3f"
+source = "git+https://github.com/ruma/ruma?rev=68c9bb0930f2195fa8672fbef9633ef62737df5d#68c9bb0930f2195fa8672fbef9633ef62737df5d"
 dependencies = [
  "js_int",
  "ruma-common",
@@ -4839,7 +4839,7 @@ dependencies = [
 [[package]]
 name = "ruma-html"
 version = "0.1.0"
-source = "git+https://github.com/ruma/ruma?rev=684ffc789877355bd25269451b2356817c17cc3f#684ffc789877355bd25269451b2356817c17cc3f"
+source = "git+https://github.com/ruma/ruma?rev=68c9bb0930f2195fa8672fbef9633ef62737df5d#68c9bb0930f2195fa8672fbef9633ef62737df5d"
 dependencies = [
  "as_variant",
  "html5ever",
@@ -4851,7 +4851,7 @@ dependencies = [
 [[package]]
 name = "ruma-identifiers-validation"
 version = "0.9.3"
-source = "git+https://github.com/ruma/ruma?rev=684ffc789877355bd25269451b2356817c17cc3f#684ffc789877355bd25269451b2356817c17cc3f"
+source = "git+https://github.com/ruma/ruma?rev=68c9bb0930f2195fa8672fbef9633ef62737df5d#68c9bb0930f2195fa8672fbef9633ef62737df5d"
 dependencies = [
  "js_int",
  "thiserror",
@@ -4860,7 +4860,7 @@ dependencies = [
 [[package]]
 name = "ruma-macros"
 version = "0.12.0"
-source = "git+https://github.com/ruma/ruma?rev=684ffc789877355bd25269451b2356817c17cc3f#684ffc789877355bd25269451b2356817c17cc3f"
+source = "git+https://github.com/ruma/ruma?rev=68c9bb0930f2195fa8672fbef9633ef62737df5d#68c9bb0930f2195fa8672fbef9633ef62737df5d"
 dependencies = [
  "once_cell",
  "proc-macro-crate 2.0.1",
@@ -4875,7 +4875,7 @@ dependencies = [
 [[package]]
 name = "ruma-push-gateway-api"
 version = "0.8.0"
-source = "git+https://github.com/ruma/ruma?rev=684ffc789877355bd25269451b2356817c17cc3f#684ffc789877355bd25269451b2356817c17cc3f"
+source = "git+https://github.com/ruma/ruma?rev=68c9bb0930f2195fa8672fbef9633ef62737df5d#68c9bb0930f2195fa8672fbef9633ef62737df5d"
 dependencies = [
  "js_int",
  "ruma-common",
@@ -4956,7 +4956,7 @@ version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1c74cae0a4cf6ccbbf5f359f08efdf8ee7e1dc532573bf0db71968cb56b1448c"
 dependencies = [
- "base64 0.21.5",
+ "base64 0.21.7",
 ]
 
 [[package]]
@@ -5142,9 +5142,9 @@ dependencies = [
 
 [[package]]
 name = "serde"
-version = "1.0.194"
+version = "1.0.196"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0b114498256798c94a0689e1a15fec6005dee8ac1f41de56404b67afc2a4b773"
+checksum = "870026e60fa08c69f064aa766c10f10b1d62db9ccd4d0abb206472bee0ce3b32"
 dependencies = [
  "serde_derive",
 ]
@@ -5171,9 +5171,9 @@ dependencies = [
 
 [[package]]
 name = "serde_derive"
-version = "1.0.194"
+version = "1.0.196"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a3385e45322e8f9931410f01b3031ec534c3947d0e94c18049af4d9f9907d4e0"
+checksum = "33c85360c95e7d137454dc81d9a4ed2b8efd8fbe19cee57357b32b9771fccb67"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5206,9 +5206,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.110"
+version = "1.0.113"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6fbd975230bada99c8bb618e0c365c2eefa219158d5c6c29610fd09ff1833257"
+checksum = "69801b70b1c3dac963ecb03a364ba0ceda9cf60c71cfe475e99864759c8b8a79"
 dependencies = [
  "itoa",
  "ryu",
@@ -5253,7 +5253,7 @@ version = "3.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "64cd236ccc1b7a29e7e2739f27c0b2dd199804abc4290e32f59f3b68d6405c23"
 dependencies = [
- "base64 0.21.5",
+ "base64 0.21.7",
  "chrono",
  "hex",
  "indexmap 1.9.3",
@@ -5814,7 +5814,7 @@ checksum = "3082666a3a6433f7f511c7192923fa1fe07c69332d3c6a2e6bb040b569199d5a"
 dependencies = [
  "async-trait",
  "axum",
- "base64 0.21.5",
+ "base64 0.21.7",
  "bytes",
  "futures-core",
  "futures-util",
@@ -6264,7 +6264,7 @@ version = "1.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5e395fcf16a7a3d8127ec99782007af141946b4795001f876d54fb0d55978560"
 dependencies = [
- "getrandom 0.2.11",
+ "getrandom 0.2.12",
  "serde",
  "wasm-bindgen",
 ]
@@ -6300,17 +6300,17 @@ checksum = "49874b5167b65d7193b8aba1567f5c7d93d001cafc34600cee003eda787e483f"
 
 [[package]]
 name = "vodozemac"
-version = "0.5.0"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6c66c59f2218deeddfe34c0fee8a1908967f8566bafd91c3c6b9600d0b68cde1"
+checksum = "2790dffeecc522299d72d9a855c43adb0c23ba1dc1112d79a651fdf3beb2a356"
 dependencies = [
  "aes",
  "arrayvec",
- "base64 0.21.5",
+ "base64 0.21.7",
  "cbc",
  "curve25519-dalek",
  "ed25519-dalek",
- "getrandom 0.2.11",
+ "getrandom 0.2.12",
  "hkdf",
  "hmac",
  "matrix-pickle",
@@ -6714,7 +6714,7 @@ checksum = "13a3a53eaf34f390dd30d7b1b078287dd05df2aa2e21a589ccb80f5c7253c2e9"
 dependencies = [
  "assert-json-diff",
  "async-trait",
- "base64 0.21.5",
+ "base64 0.21.7",
  "deadpool 0.9.5",
  "futures",
  "futures-timer",

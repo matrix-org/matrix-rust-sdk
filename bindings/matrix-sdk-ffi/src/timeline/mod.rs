@@ -534,6 +534,12 @@ impl Timeline {
             Ok(Arc::new(RoomMessageEventContentWithoutRelation::new(msgtype)))
         })
     }
+
+    pub async fn latest_event(&self) -> Option<Arc<EventTimelineItem>> {
+        let latest_event = self.inner.latest_event().await;
+
+        latest_event.map(|item| Arc::new(EventTimelineItem(item)))
+    }
 }
 
 #[derive(uniffi::Record)]

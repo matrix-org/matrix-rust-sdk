@@ -1,6 +1,8 @@
 # unreleased
 
 - Replace the `Notification` type from Ruma in `SyncResponse` and `StateChanges` by a custom one
+- The ambiguity maps in `SyncResponse` are moved to `JoinedRoom` and `LeftRoom`
+- `AmbiguityCache` contains the room member's user ID
 
 # 0.7.0
 

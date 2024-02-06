@@ -36,8 +36,8 @@ futures-executor = "0.3.21"
 futures-util = { version = "0.3.26", default-features = false, features = ["alloc"] }
 http = "0.2.6"
 itertools = "0.12.0"
-ruma = { git = "https://github.com/ruma/ruma", rev = "684ffc789877355bd25269451b2356817c17cc3f", features = ["client-api-c", "compat-upload-signatures", "compat-user-id", "compat-arbitrary-length-ids", "unstable-msc3401"] }
-ruma-common = { git = "https://github.com/ruma/ruma", rev = "684ffc789877355bd25269451b2356817c17cc3f"}
+ruma = { git = "https://github.com/ruma/ruma", rev = "68c9bb0930f2195fa8672fbef9633ef62737df5d", features = ["client-api-c", "compat-upload-signatures", "compat-user-id", "compat-arbitrary-length-ids", "unstable-msc3401"] }
+ruma-common = { git = "https://github.com/ruma/ruma", rev = "68c9bb0930f2195fa8672fbef9633ef62737df5d"}
 once_cell = "1.16.0"
 rand = "0.8.5"
 serde = "1.0.151"
@@ -52,7 +52,7 @@ tracing = { version = "0.1.40", default-features = false, features = ["std"] }
 tracing-core = "0.1.32"
 uniffi = "0.26.1"
 uniffi_bindgen = "0.26.1"
-vodozemac = "0.5.0"
+vodozemac = "0.5.1"
 zeroize = "1.6.0"
 
 matrix-sdk = { path = "crates/matrix-sdk", version = "0.7.0", default-features = false }

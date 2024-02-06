@@ -328,7 +328,7 @@ impl SlidingSync {
         let mut sync_response = {
             // Take the lock to avoid concurrent sliding syncs overwriting each other's room
             // infos.
-            let _sync_lock = self.inner.client.base_client().sync_lock().write().await;
+            let _sync_lock = self.inner.client.base_client().sync_lock().lock().await;
 
             let rooms = &*self.inner.rooms.read().await;
             let mut response_processor =
@@ -393,7 +393,7 @@ impl SlidingSync {
                                 SlidingSyncRoom::new(
                                     self.inner.client.clone(),
                                     room_id.clone(),
-                                    room_data,
+                                    room_data.prev_batch,
                                     timeline,
                                 ),
                             );
@@ -1984,7 +1984,7 @@ mod tests {
                 SlidingSyncRoom::new(
                     client.clone(),
                     no_overlap.to_owned(),
-                    v4::SlidingSyncRoom::default(),
+                    None,
                     vec![event_a.clone(), event_b.clone()],
                 ),
             ),
@@ -1994,7 +1994,7 @@ mod tests {
                 SlidingSyncRoom::new(
                     client.clone(),
                     no_overlap.to_owned(),
-                    v4::SlidingSyncRoom::default(),
+                    None,
                     vec![event_a.clone(), event_b.clone()],
                 ),
             ),
@@ -2004,7 +2004,7 @@ mod tests {
                 SlidingSyncRoom::new(
                     client.clone(),
                     partial_overlap.to_owned(),
-                    v4::SlidingSyncRoom::default(),
+                    None,
                     vec![event_a.clone(), event_b.clone(), event_c.clone()],
                 ),
             ),
@@ -2014,7 +2014,7 @@ mod tests {
                 SlidingSyncRoom::new(
                     client.clone(),
                     partial_overlap.to_owned(),
-                    v4::SlidingSyncRoom::default(),
+                    None,
                     vec![event_c.clone(), event_d.clone()],
                 ),
             ),
@@ -2025,7 +2025,7 @@ mod tests {
                 SlidingSyncRoom::new(
                     client.clone(),
                     no_remote_events.to_owned(),
-                    v4::SlidingSyncRoom::default(),
+                    None,
                     vec![event_c.clone(), event_d.clone()],
                 ),
             ),
@@ -2033,12 +2033,7 @@ mod tests {
                 // We don't have events for this room locally, and even if the remote room contains
                 // some events, it's not a limited sync.
                 no_local_events.to_owned(),
-                SlidingSyncRoom::new(
-                    client.clone(),
-                    no_local_events.to_owned(),
-                    v4::SlidingSyncRoom::default(),
-                    vec![],
-                ),
+                SlidingSyncRoom::new(client.clone(), no_local_events.to_owned(), None, vec![]),
             ),
             (
                 // Already limited, but would be marked limited if the flag wasn't ignored (same as
@@ -2047,7 +2042,7 @@ mod tests {
                 SlidingSyncRoom::new(
                     client.clone(),
                     already_limited.to_owned(),
-                    v4::SlidingSyncRoom::default(),
+                    None,
                     vec![event_a.clone(), event_b.clone(), event_c.clone()],
                 ),
             ),
@@ -2191,6 +2186,129 @@ mod tests {
         assert_eq!(*updated_room, room);
 
         Ok(())
+    }
+
+    #[async_test]
+    async fn test_process_marked_unread_room_account_data() -> Result<()> {
+        let room_id = owned_room_id!("!unicorn:example.org");
+
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
+        client.base_client().get_or_create_room(&room_id, RoomState::Joined);
+
+        // Setup sliding sync with with one room and one list
+
+        let sliding_sync = client
+            .sliding_sync("test")?
+            .with_account_data_extension(
+                assign!(AccountDataConfig::default(), { enabled: Some(true) }),
+            )
+            .add_list(
+                SlidingSyncList::builder("all")
+                    .sync_mode(SlidingSyncMode::new_selective().add_range(0..=100)),
+            )
+            .build()
+            .await?;
+
+        let list =
+            sliding_sync.on_list("all", |list| ready(list.clone())).await.expect("found list all");
+
+        {
+            // Pretend the list knows that one room that will receive the account data.
+            list.set_maximum_number_of_rooms(Some(1));
+            list.set_filled_rooms(vec![room_id.clone()]);
+        }
+
+        let (_, list_stream) = list.room_list_stream();
+
+        pin_mut!(list_stream);
+
+        assert_pending!(list_stream);
+
+        // Simulate a response that only changes the marked unread state of the room to
+        // true
+
+        let server_response = make_mark_unread_response("1", room_id.clone(), true, false);
+
+        let update_summary = {
+            let mut pos_guard = sliding_sync.inner.position.clone().lock_owned().await;
+            sliding_sync.handle_response(server_response.clone(), &mut pos_guard).await?
+        };
+
+        // Check that the list list and entry received the update
+
+        assert!(update_summary.rooms.contains(&room_id));
+        assert!(update_summary.lists.contains(&String::from("all")));
+
+        // The room has had an update in the room list stream too.
+        assert_let!(Some(Some(updates)) = list_stream.next().now_or_never());
+        assert_eq!(updates.len(), 1);
+        assert_let!(
+            VectorDiff::Set { index: 0, value: RoomListEntry::Filled(updated_room_id) } =
+                &updates[0]
+        );
+        assert_eq!(*updated_room_id, room_id);
+
+        let room = client.get_room(updated_room_id).unwrap();
+
+        // Check the actual room data, this powers RoomInfo
+
+        assert!(room.is_marked_unread());
+
+        // Change it back to false and check if it updates
+
+        let server_response = make_mark_unread_response("2", room_id.clone(), false, true);
+
+        let mut pos_guard = sliding_sync.inner.position.clone().lock_owned().await;
+        sliding_sync.handle_response(server_response.clone(), &mut pos_guard).await?;
+
+        let room = client.get_room(updated_room_id).unwrap();
+
+        assert!(!room.is_marked_unread());
+
+        Ok(())
+    }
+
+    fn make_mark_unread_response(
+        response_number: &str,
+        room_id: OwnedRoomId,
+        unread: bool,
+        add_rooms_section: bool,
+    ) -> v4::Response {
+        let rooms = if add_rooms_section {
+            BTreeMap::from([(
+                room_id.clone(),
+                assign!(v4::SlidingSyncRoom::default(), {
+                    name: Some("Marked as unread".to_owned()),
+                    timeline: Vec::new(),
+                }),
+            )])
+        } else {
+            BTreeMap::new()
+        };
+
+        let extensions = assign!(v4::Extensions::default(), {
+            account_data: assign!(v4::AccountData::default(), {
+                rooms: BTreeMap::from([
+                    (
+                        room_id.clone(),
+                        vec![
+                            Raw::from_json_string(
+                                json!({
+                                    "content": {
+                                        "unread": unread
+                                    },
+                                    "type": "com.famedly.marked_unread"
+                                })
+                                .to_string(),
+                            ).unwrap()
+                        ]
+                    )
+                ])
+            })
+        });
+
+        assign!(v4::Response::new(response_number.to_owned()), { rooms: rooms, extensions: extensions })
     }
 
     #[async_test]

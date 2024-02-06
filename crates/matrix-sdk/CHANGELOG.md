@@ -5,6 +5,8 @@ Breaking changes:
 - Replace the `Notification` type from Ruma in `SyncResponse` and `Client::register_notification_handler`
   by a custom one
 - `Room::can_user_redact` and `Member::can_redact` are split between `*_redact_own` and `*_redact_other`
+- The ambiguity maps in `SyncResponse` are moved to `JoinedRoom` and `LeftRoom`
+- `AmbiguityCache` contains the room member's user ID
 
 # 0.7.0
 

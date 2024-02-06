@@ -18,10 +18,7 @@ use std::{ops::Deref, sync::Arc};
 
 use async_once_cell::OnceCell as AsyncOnceCell;
 use matrix_sdk::{SlidingSync, SlidingSyncRoom};
-use ruma::{
-    api::client::sync::sync_events::{v4::RoomSubscription, UnreadNotificationsCount},
-    RoomId,
-};
+use ruma::{api::client::sync::sync_events::v4::RoomSubscription, RoomId};
 
 use super::Error;
 use crate::{
@@ -86,15 +83,9 @@ impl Room {
         self.inner.room.room_id()
     }
 
-    /// Get the best possible name for the room.
-    ///
-    /// If the sliding sync room has received a name from the server, then use
-    /// it, otherwise, let's calculate a name.
+    /// Get the name of the room if it exists.
     pub async fn name(&self) -> Option<String> {
-        Some(match self.inner.sliding_sync_room.name() {
-            Some(name) => name,
-            None => self.inner.room.display_name().await.ok()?.to_string(),
-        })
+        Some(self.inner.room.display_name().await.ok()?.to_string())
     }
 
     /// Get the underlying [`matrix_sdk::Room`].
@@ -165,16 +156,6 @@ impl Room {
 
         // Otherwise, fallback to the classical path.
         self.inner.sliding_sync_room.latest_timeline_item().await
-    }
-
-    /// Is there any unread notifications?
-    pub fn has_unread_notifications(&self) -> bool {
-        self.inner.sliding_sync_room.has_unread_notifications()
-    }
-
-    /// Get unread notifications.
-    pub fn unread_notifications(&self) -> UnreadNotificationsCount {
-        self.inner.sliding_sync_room.unread_notifications()
     }
 
     /// Create a new [`TimelineBuilder`] with the default configuration.

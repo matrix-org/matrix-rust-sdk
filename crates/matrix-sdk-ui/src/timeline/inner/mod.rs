@@ -870,8 +870,8 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         });
     }
 
-    pub(super) async fn update_sender_profiles(&self) {
-        trace!("Updating sender profiles");
+    pub(super) async fn update_missing_sender_profiles(&self) {
+        trace!("Updating missing sender profiles");
 
         let mut state = self.state.write().await;
         let mut entries = state.items.entries();
@@ -907,7 +907,52 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             }
         }
 
-        trace!("Done updating sender profiles");
+        trace!("Done updating missing sender profiles");
+    }
+
+    /// Update the profiles of the given senders, even if they are ready.
+    pub(super) async fn force_update_sender_profiles(&self, sender_ids: &BTreeSet<&UserId>) {
+        trace!("Forcing update of sender profiles: {sender_ids:?}");
+
+        let mut state = self.state.write().await;
+        let mut entries = state.items.entries();
+        while let Some(mut entry) = entries.next() {
+            let Some(event_item) = entry.as_event() else { continue };
+            if !sender_ids.contains(event_item.sender()) {
+                continue;
+            }
+
+            let event_id = event_item.event_id().map(debug);
+            let transaction_id = event_item.transaction_id().map(debug);
+
+            match self.room_data_provider.profile_from_user_id(event_item.sender()).await {
+                Some(profile) => {
+                    if matches!(event_item.sender_profile(), TimelineDetails::Ready(old_profile) if *old_profile == profile)
+                    {
+                        debug!(event_id, transaction_id, "Profile already up-to-date");
+                    } else {
+                        trace!(event_id, transaction_id, "Updating profile");
+                        let updated_item =
+                            event_item.with_sender_profile(TimelineDetails::Ready(profile));
+                        let new_item = entry.with_kind(updated_item);
+                        ObservableVectorEntry::set(&mut entry, new_item);
+                    }
+                }
+                None => {
+                    if !event_item.sender_profile().is_unavailable() {
+                        trace!(event_id, transaction_id, "Marking profile unavailable");
+                        let updated_item =
+                            event_item.with_sender_profile(TimelineDetails::Unavailable);
+                        let new_item = entry.with_kind(updated_item);
+                        ObservableVectorEntry::set(&mut entry, new_item);
+                    } else {
+                        debug!(event_id, transaction_id, "Profile already marked unavailable");
+                    }
+                }
+            }
+        }
+
+        trace!("Done forcing update of sender profiles");
     }
 
     #[cfg(test)]

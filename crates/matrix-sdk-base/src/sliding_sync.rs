@@ -36,7 +36,6 @@ use crate::latest_event::{is_suitable_for_latest_event, LatestEvent, PossibleLat
 #[cfg(feature = "e2e-encryption")]
 use crate::RoomMemberships;
 use crate::{
-    deserialized_responses::AmbiguityChanges,
     error::Result,
     read_receipts::{compute_unread_counts, PreviousEventsProvider},
     rooms::RoomState,
@@ -220,8 +219,7 @@ impl BaseClient {
                 .push(raw.clone().cast());
         }
 
-        // Handles the remaining rooms account data not handled by
-        // process_sliding_sync_room.
+        // Handle room account data
         for (room_id, raw) in &rooms_account_data {
             self.handle_room_account_data(room_id, raw, &mut changes).await;
 
@@ -299,7 +297,6 @@ impl BaseClient {
 
         Ok(SyncResponse {
             rooms: new_rooms,
-            ambiguity_changes: AmbiguityChanges { changes: ambiguity_cache.changes },
             notifications,
             // FIXME not yet supported by sliding sync.
             presence: Default::default(),
@@ -365,13 +362,6 @@ impl BaseClient {
             .await?;
         }
 
-        let room_account_data = if let Some(events) = rooms_account_data.remove(room_id) {
-            self.handle_room_account_data(room_id, &events, changes).await;
-            Some(events)
-        } else {
-            None
-        };
-
         process_room_properties(room_data, &mut room_info);
 
         let timeline = self
@@ -415,6 +405,9 @@ impl BaseClient {
         let notification_count = room_data.unread_notifications.clone().into();
         room_info.update_notification_count(notification_count);
 
+        let ambiguity_changes = ambiguity_cache.changes.remove(room_id).unwrap_or_default();
+        let room_account_data = rooms_account_data.get(room_id).cloned();
+
         match room_info.state() {
             RoomState::Joined => {
                 // Ephemeral events are added separately, because we might not
@@ -430,6 +423,7 @@ impl BaseClient {
                         room_account_data.unwrap_or_default(),
                         ephemeral,
                         notification_count,
+                        ambiguity_changes,
                     )),
                     None,
                     None,
@@ -443,6 +437,7 @@ impl BaseClient {
                     timeline,
                     raw_state_events,
                     room_account_data.unwrap_or_default(),
+                    ambiguity_changes,
                 )),
                 None,
             )),

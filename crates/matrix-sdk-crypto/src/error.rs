@@ -263,11 +263,11 @@ pub enum SessionCreationError {
     )]
     InvalidSignature {
         /// The one-time key that failed the signature verification.
-        one_time_key: SignedKey,
+        one_time_key: Box<SignedKey>,
         /// The key that was used to verify the signature.
-        signing_key: Option<Ed25519PublicKey>,
+        signing_key: Option<Box<Ed25519PublicKey>>,
         /// The exact error describing why the signature verification failed.
-        error: SignatureError,
+        error: Box<SignatureError>,
     },
 
     /// The user's device is missing a curve25519 key.

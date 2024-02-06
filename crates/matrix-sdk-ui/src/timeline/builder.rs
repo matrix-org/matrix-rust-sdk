@@ -193,6 +193,7 @@ impl TimelineBuilder {
                             prev_batch,
                             account_data,
                             ephemeral,
+                            ambiguity_changes,
                         } => {
                             trace!("Received new events");
 
@@ -211,8 +212,15 @@ impl TimelineBuilder {
                                 state: Default::default(),
                                 account_data,
                                 ephemeral,
+                                ambiguity_changes: Default::default(),
                             };
                             inner.handle_joined_room_update(update).await;
+
+                            let member_ambiguity_changes = ambiguity_changes
+                                .values()
+                                .flat_map(|change| change.user_ids())
+                                .collect::<BTreeSet<_>>();
+                            inner.force_update_sender_profiles(&member_ambiguity_changes).await;
 
                             sync_response_notify.notify_waiters();
                         }

@@ -769,6 +769,12 @@ impl Room {
             .get_event_room_receipt_events(self.room_id(), receipt_type, thread, event_id)
             .await
     }
+
+    /// Returns a boolean indicating if this room has been manually marked as
+    /// unread
+    pub fn is_marked_unread(&self) -> bool {
+        self.inner.read().base_info.is_marked_unread
+    }
 }
 
 /// The underlying pure data structure for joined and left rooms.
@@ -1393,6 +1399,7 @@ mod tests {
                 "encryption": null,
                 "guest_access": null,
                 "history_visibility": null,
+                "is_marked_unread": false,
                 "join_rules": null,
                 "max_power_level": 100,
                 "name": null,
