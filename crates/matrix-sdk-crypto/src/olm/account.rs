@@ -900,9 +900,9 @@ impl Account {
             PrekeyBundle::Olm3DH { key } => {
                 device.verify_one_time_key(&key).map_err(|error| {
                     SessionCreationError::InvalidSignature {
-                        signing_key: device.ed25519_key(),
-                        one_time_key: key.clone(),
-                        error,
+                        signing_key: device.ed25519_key().map(Box::new),
+                        one_time_key: key.clone().into(),
+                        error: error.into(),
                     }
                 })?;
 
