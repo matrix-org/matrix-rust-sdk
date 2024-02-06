@@ -118,6 +118,7 @@ impl AmbiguityCache {
         self.update(room_id, old_map, new_map);
 
         let change = AmbiguityChange {
+            member_id: member_event.state_key().clone(),
             disambiguated_member,
             ambiguated_member,
             member_ambiguous: ambiguous,

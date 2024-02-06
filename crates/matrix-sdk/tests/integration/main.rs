@@ -19,6 +19,7 @@ mod client;
 #[cfg(feature = "e2e-encryption")]
 mod encryption;
 mod matrix_auth;
+mod notification;
 mod refresh_token;
 mod room;
 #[cfg(feature = "experimental-widgets")]

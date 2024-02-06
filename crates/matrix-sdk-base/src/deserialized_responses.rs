@@ -14,7 +14,7 @@
 
 //! SDK-specific variations of response types from Ruma.
 
-use std::{collections::BTreeMap, fmt};
+use std::{collections::BTreeMap, fmt, iter};
 
 pub use matrix_sdk_common::deserialized_responses::*;
 use ruma::{
@@ -23,7 +23,7 @@ use ruma::{
             member::{MembershipState, RoomMemberEvent, RoomMemberEventContent},
             power_levels::{RoomPowerLevels, RoomPowerLevelsEventContent},
         },
-        AnyStrippedStateEvent, AnySyncStateEvent, EventContentFromType,
+        AnyStrippedStateEvent, AnySyncStateEvent, AnySyncTimelineEvent, EventContentFromType,
         PossiblyRedactedStateEventContent, RedactContent, RedactedStateEventContent,
         StateEventContent, StaticStateEventContent, StrippedStateEvent, SyncStateEvent,
     },
@@ -34,9 +34,12 @@ use serde::Serialize;
 
 /// A change in ambiguity of room members that an `m.room.member` event
 /// triggers.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 #[non_exhaustive]
 pub struct AmbiguityChange {
+    /// The user ID of the member that is contained in the state key of the
+    /// `m.room.member` event.
+    pub member_id: OwnedUserId,
     /// Is the member that is contained in the state key of the `m.room.member`
     /// event itself ambiguous because of the event.
     pub member_ambiguous: bool,
@@ -44,6 +47,15 @@ pub struct AmbiguityChange {
     pub disambiguated_member: Option<OwnedUserId>,
     /// Has another user become ambiguous because of this event.
     pub ambiguated_member: Option<OwnedUserId>,
+}
+
+impl AmbiguityChange {
+    /// Get an iterator over the user IDs listed in this `AmbiguityChange`.
+    pub fn user_ids(&self) -> impl Iterator<Item = &UserId> {
+        iter::once(&*self.member_id)
+            .chain(self.disambiguated_member.as_deref())
+            .chain(self.ambiguated_member.as_deref())
+    }
 }
 
 /// Collection of ambiguity changes that room member events trigger.
@@ -64,6 +76,16 @@ pub struct MembersResponse {
     pub chunk: Vec<RoomMemberEvent>,
     /// Collection of ambiguity changes that room member events trigger.
     pub ambiguity_changes: AmbiguityChanges,
+}
+
+/// Wrapper around both versions of any event received via sync.
+#[derive(Clone, Debug, Serialize)]
+#[serde(untagged)]
+pub enum RawAnySyncOrStrippedTimelineEvent {
+    /// An event from a room in joined or left state.
+    Sync(Raw<AnySyncTimelineEvent>),
+    /// An event from a room in invited state.
+    Stripped(Raw<AnyStrippedStateEvent>),
 }
 
 /// Wrapper around both versions of any raw state event.

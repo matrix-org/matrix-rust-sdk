@@ -14,15 +14,12 @@
 
 use async_trait::async_trait;
 use matrix_sdk::SlidingSyncRoom;
-use tracing::{error, instrument};
+use tracing::instrument;
 
-use super::{EventTimelineItem, Timeline, TimelineBuilder};
+use super::EventTimelineItem;
 
 #[async_trait]
 pub trait SlidingSyncRoomExt {
-    /// Get a `Timeline` for this room.
-    async fn timeline(&self) -> Option<Timeline>;
-
     /// Get the latest timeline item of this room, if it is already cached.
     ///
     /// Use `Timeline::latest_event` instead if you already have a timeline for
@@ -32,28 +29,15 @@ pub trait SlidingSyncRoomExt {
 
 #[async_trait]
 impl SlidingSyncRoomExt for SlidingSyncRoom {
-    async fn timeline(&self) -> Option<Timeline> {
-        Some(sliding_sync_timeline_builder(self)?.track_read_marker_and_receipts().build().await)
-    }
-
     /// Get a timeline item representing the latest event in this room.
     /// This method wraps latest_event, converting the event into an
     /// EventTimelineItem.
     #[instrument(skip_all)]
     async fn latest_timeline_item(&self) -> Option<EventTimelineItem> {
-        let latest_event = self.latest_event()?;
-        EventTimelineItem::from_latest_event(self.client(), self.room_id(), latest_event).await
-    }
-}
+        let latest_event =
+            self.client().get_room(self.room_id()).and_then(|room| room.latest_event())?;
 
-fn sliding_sync_timeline_builder(room: &SlidingSyncRoom) -> Option<TimelineBuilder> {
-    let room_id = room.room_id();
-    match room.client().get_room(room_id) {
-        Some(r) => Some(Timeline::builder(&r).events(room.prev_batch(), room.timeline_queue())),
-        None => {
-            error!(?room_id, "Room not found in client. Can't provide a timeline for it");
-            None
-        }
+        EventTimelineItem::from_latest_event(self.client(), self.room_id(), latest_event).await
     }
 }
 
@@ -76,11 +60,11 @@ mod tests {
     use crate::timeline::{SlidingSyncRoomExt, TimelineDetails};
 
     #[async_test]
-    async fn initially_latest_message_event_is_none() {
+    async fn test_initially_latest_message_event_is_none() {
         // Given a room with no latest event
         let room_id = room_id!("!r:x.uk").to_owned();
         let client = logged_in_client(None).await;
-        let room = SlidingSyncRoom::new(client, room_id, v4::SlidingSyncRoom::new(), Vec::new());
+        let room = SlidingSyncRoom::new(client, room_id, None, Vec::new());
 
         // When we ask for the latest event, it is None
         assert!(room.latest_timeline_item().await.is_none());
@@ -96,12 +80,7 @@ mod tests {
         process_event_via_sync_test_helper(room_id, event, &client).await;
 
         // When we ask for the latest event in the room
-        let room = SlidingSyncRoom::new(
-            client.clone(),
-            room_id.to_owned(),
-            v4::SlidingSyncRoom::new(),
-            Vec::new(),
-        );
+        let room = SlidingSyncRoom::new(client.clone(), room_id.to_owned(), None, Vec::new());
         let actual = room.latest_timeline_item().await.unwrap();
 
         // Then it is wrapped as an EventTimelineItem

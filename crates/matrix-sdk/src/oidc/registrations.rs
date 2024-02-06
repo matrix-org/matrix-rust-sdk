@@ -12,6 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! OpenID Connect client registration management.
+//!
+//! This module provides a way to persist OIDC client registrations outside of
+//! the state store. This is useful when using a `Client` with an in-memory
+//! store or when different store paths are used for multi-account support
+//! within the same app, and those accounts need to share the same OIDC client
+//! registration.
+
 use std::{
     collections::HashMap,
     fs,
@@ -20,22 +28,21 @@ use std::{
     path::PathBuf,
 };
 
-use matrix_sdk::oidc::types::registration::{
+use mas_oidc_client::types::registration::{
     ClientMetadata, ClientMetadataVerificationError, VerifiedClientMetadata,
 };
 use serde::{Deserialize, Serialize};
 use url::Url;
 
+/// Errors related to persisting OIDC registrations.
 #[derive(Debug, thiserror::Error)]
 pub enum OidcRegistrationsError {
+    /// The supplied base path is invalid.
     #[error("Failed to use the supplied base path.")]
     InvalidBasePath,
-    #[error("Failed to load registrations file: {message}")]
-    LoadFailure { message: String },
-    #[error("Metadata mismatch, ignoring any stored registrations.")]
-    MetadataMismatch,
-    #[error("Failed to save the registration data {message}.")]
-    SaveFailure { message: String },
+    /// An error occurred whilst saving the registration data.
+    #[error("Failed to save the registration data {0}.")]
+    SaveFailure(#[source] Box<dyn std::error::Error>),
 }
 
 /// A client ID that has been registered with an OpenID Connect provider.
@@ -128,10 +135,7 @@ impl OidcRegistrations {
     /// Returns the client ID registered for a particular issuer or None if a
     /// registration hasn't been made.
     pub fn client_id(&self, issuer: &Url) -> Option<ClientId> {
-        let mut data = self.read_registration_data().unwrap_or_else(|e| {
-            tracing::warn!("Generating new registration data ({e})");
-            self.new_registration_data()
-        });
+        let mut data = self.read_or_generate_registration_data();
         data.dynamic_registrations.extend(self.static_registrations.clone());
         data.dynamic_registrations.get(issuer).cloned()
     }
@@ -143,47 +147,56 @@ impl OidcRegistrations {
         client_id: ClientId,
         issuer: Url,
     ) -> Result<(), OidcRegistrationsError> {
-        let mut data = self.read_registration_data().unwrap_or_else(|e| {
-            tracing::warn!("Generating new registration data ({e})");
-            self.new_registration_data()
-        });
+        let mut data = self.read_or_generate_registration_data();
         data.dynamic_registrations.insert(issuer, client_id);
 
         let writer = BufWriter::new(
             File::create(&self.file_path)
-                .map_err(|e| OidcRegistrationsError::SaveFailure { message: e.to_string() })?,
+                .map_err(|e| OidcRegistrationsError::SaveFailure(Box::new(e)))?,
         );
         serde_json::to_writer(writer, &data)
-            .map_err(|e| OidcRegistrationsError::SaveFailure { message: e.to_string() })
+            .map_err(|e| OidcRegistrationsError::SaveFailure(Box::new(e)))
     }
 
-    /// Returns the underlying registration data.
-    fn read_registration_data(&self) -> Result<FrozenRegistrationData, OidcRegistrationsError> {
-        let reader = File::open(&self.file_path)
-            .map(BufReader::new)
-            .map_err(|e| OidcRegistrationsError::LoadFailure { message: e.to_string() })?;
+    /// Returns the underlying registration data, or generates a new one.
+    fn read_or_generate_registration_data(&self) -> FrozenRegistrationData {
+        let try_read_previous = || {
+            let reader = BufReader::new(
+                File::open(&self.file_path)
+                    .map_err(|error| {
+                        tracing::warn!("Failed to load registrations file: {error}");
+                    })
+                    .ok()?,
+            );
 
-        let registration_data =
-            serde_json::from_reader::<_, UnvalidatedRegistrationData>(reader)
-                .map_err(|e| OidcRegistrationsError::LoadFailure { message: e.to_string() })?;
+            let registration_data: UnvalidatedRegistrationData = serde_json::from_reader(reader)
+                .map_err(|error| {
+                    tracing::warn!("Failed to deserialize registrations file: {error}");
+                })
+                .ok()?;
 
-        let registration_data = registration_data
-            .validate()
-            .map_err(|e| OidcRegistrationsError::LoadFailure { message: e.to_string() })?;
+            let registration_data = registration_data
+                .validate()
+                .map_err(|error| {
+                    tracing::warn!("Failed to validate registration data: {error}");
+                })
+                .ok()?;
 
-        if registration_data.metadata != self.verified_metadata {
-            tracing::warn!("Metadata mismatch, ignoring any stored registrations.");
-            return Err(OidcRegistrationsError::MetadataMismatch);
-        }
+            if registration_data.metadata != self.verified_metadata {
+                tracing::warn!("Metadata mismatch, ignoring any stored registrations.");
+                return None;
+            }
 
-        Ok(registration_data)
-    }
+            Some(registration_data)
+        };
 
-    fn new_registration_data(&self) -> FrozenRegistrationData {
-        FrozenRegistrationData {
-            metadata: self.verified_metadata.clone(),
-            dynamic_registrations: Default::default(),
-        }
+        try_read_previous().unwrap_or_else(|| {
+            tracing::warn!("Generating new registration data");
+            FrozenRegistrationData {
+                metadata: self.verified_metadata.clone(),
+                dynamic_registrations: Default::default(),
+            }
+        })
     }
 }
 
@@ -191,7 +204,7 @@ impl OidcRegistrations {
 mod tests {
     use std::{collections::HashMap, default::Default};
 
-    use matrix_sdk::oidc::types::registration::{ClientMetadata, Localized};
+    use mas_oidc_client::types::registration::{ClientMetadata, Localized};
     use tempfile::tempdir;
     use wiremock::http::Url;
 

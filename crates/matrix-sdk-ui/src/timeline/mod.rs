@@ -49,21 +49,23 @@ use ruma::{
             },
             redaction::RoomRedactionEventContent,
         },
-        AnyMessageLikeEventContent,
+        AnyMessageLikeEventContent, AnySyncTimelineEvent,
     },
-    uint, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, TransactionId,
-    UserId,
+    uint, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, RoomVersionId,
+    TransactionId, UserId,
 };
 use thiserror::Error;
 use tokio::sync::{mpsc::Sender, Mutex, Notify};
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{debug, error, info, instrument, trace, warn};
 
 use self::futures::SendAttachment;
+use crate::event_graph::RoomEventGraph;
 
 mod builder;
 mod error;
 mod event_handler;
 mod event_item;
+pub mod event_type_filter;
 pub mod futures;
 mod inner;
 mod item;
@@ -90,6 +92,7 @@ pub use self::{
         Message, OtherState, Profile, ReactionGroup, RepliedToEvent, RoomMembershipChange, Sticker,
         TimelineDetails, TimelineItemContent,
     },
+    event_type_filter::TimelineEventTypeFilter,
     inner::default_event_filter,
     item::{TimelineItem, TimelineItemKind},
     pagination::{BackPaginationStatus, PaginationOptions, PaginationOutcome},
@@ -141,7 +144,8 @@ impl From<&Annotation> for AnnotationKey {
 }
 
 impl Timeline {
-    pub(crate) fn builder(room: &Room) -> TimelineBuilder {
+    /// Create a new [`TimelineBuilder`] for the given room.
+    pub fn builder(room: &Room) -> TimelineBuilder {
         TimelineBuilder::new(room)
     }
 
@@ -483,6 +487,7 @@ impl Timeline {
     async fn redact_reaction(&self, event_id: &EventId) -> ReactionToggleResult {
         let room = self.room();
         if room.state() != RoomState::Joined {
+            warn!("Cannot redact a reaction in a room that is not joined");
             return ReactionToggleResult::RedactFailure { event_id: event_id.to_owned() };
         }
 
@@ -493,7 +498,10 @@ impl Timeline {
 
         match response {
             Ok(_) => ReactionToggleResult::RedactSuccess,
-            Err(_) => ReactionToggleResult::RedactFailure { event_id: event_id.to_owned() },
+            Err(error) => {
+                error!("Failed to redact reaction: {error}");
+                ReactionToggleResult::RedactFailure { event_id: event_id.to_owned() }
+            }
         }
     }
 
@@ -505,6 +513,7 @@ impl Timeline {
     ) -> ReactionToggleResult {
         let room = self.room();
         if room.state() != RoomState::Joined {
+            warn!("Cannot send a reaction in a room that is not joined");
             return ReactionToggleResult::AddFailure { txn_id };
         }
 
@@ -516,7 +525,10 @@ impl Timeline {
             Ok(response) => {
                 ReactionToggleResult::AddSuccess { event_id: response.event_id, txn_id }
             }
-            Err(_) => ReactionToggleResult::AddFailure { txn_id },
+            Err(error) => {
+                error!("Failed to send reaction: {error}");
+                ReactionToggleResult::AddFailure { txn_id }
+            }
         }
     }
 
@@ -649,7 +661,7 @@ impl Timeline {
         self.inner.set_sender_profiles_pending().await;
         match self.room().sync_members().await {
             Ok(_) => {
-                self.inner.update_sender_profiles().await;
+                self.inner.update_missing_sender_profiles().await;
             }
             Err(e) => {
                 self.inner.set_sender_profiles_error(Arc::new(e)).await;
@@ -690,18 +702,25 @@ impl Timeline {
     /// This uses [`Room::send_single_receipt`] internally, but checks
     /// first if the receipt points to an event in this timeline that is more
     /// recent than the current ones, to avoid unnecessary requests.
+    ///
+    /// Returns a boolean indicating if it sent the request or not.
     #[instrument(skip(self))]
     pub async fn send_single_receipt(
         &self,
         receipt_type: ReceiptType,
         thread: ReceiptThread,
         event_id: OwnedEventId,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         if !self.inner.should_send_receipt(&receipt_type, &thread, &event_id).await {
-            return Ok(());
+            trace!(
+                "not sending receipt, because we already cover the event with a previous receipt"
+            );
+            return Ok(false);
         }
 
-        self.room().send_single_receipt(receipt_type, thread, event_id).await
+        trace!("sending receipt");
+        self.room().send_single_receipt(receipt_type, thread, event_id).await?;
+        Ok(true)
     }
 
     /// Send the given receipts.
@@ -779,6 +798,7 @@ struct TimelineDropHandle {
     room_update_join_handle: JoinHandle<()>,
     ignore_user_list_update_join_handle: JoinHandle<()>,
     room_key_from_backups_join_handle: JoinHandle<()>,
+    _event_graph: RoomEventGraph,
 }
 
 impl Drop for TimelineDropHandle {
@@ -816,3 +836,6 @@ impl<S: Stream> Stream for TimelineStream<S> {
         self.project().inner.poll_next(cx)
     }
 }
+
+pub type TimelineEventFilterFn =
+    dyn Fn(&AnySyncTimelineEvent, &RoomVersionId) -> bool + Send + Sync;

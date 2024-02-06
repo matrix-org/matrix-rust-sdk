@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
-use anyhow::{Ok, Result};
+use anyhow::Result;
 use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use assign::assign;
@@ -31,86 +31,133 @@ use matrix_sdk::{
     Client, LoopCtrl,
 };
 use matrix_sdk_ui::timeline::{EventTimelineItem, RoomExt, TimelineItem};
+use tokio::time::timeout;
 
 use crate::helpers::TestClientBuilder;
 
+/// Sync until we receive an update for a room.
+///
+/// Beware: it may sync forever, if it doesn't receive such an update!
+async fn sync_until_update_for_room(client: &Client, room_id: &RoomId) -> Result<()> {
+    client
+        .sync_with_callback(SyncSettings::default(), |response| async move {
+            if response.rooms.join.iter().any(|(id, _)| id == room_id) {
+                LoopCtrl::Break
+            } else {
+                LoopCtrl::Continue
+            }
+        })
+        .await?;
+    Ok(())
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_toggling_reaction() -> Result<()> {
-    // Set up
+    // Set up sync for user Alice, and create a room.
     let alice = TestClientBuilder::new("alice".to_owned()).use_sqlite().build().await?;
-    let user_id = alice.user_id().unwrap();
+
+    let user_id = alice.user_id().unwrap().to_owned();
     let room = alice
         .create_room(assign!(CreateRoomRequest::new(), {
             is_direct: true,
         }))
         .await?;
+
     let room_id = room.room_id();
-    let timeline = room.timeline().await;
-    let reaction_key = "👍";
+
+    // Create a timeline for this room.
+    let timeline = room.timeline().await.unwrap();
     let (_items, mut stream) = timeline.subscribe().await;
 
-    // Send message
+    // Send message.
     timeline.send(RoomMessageEventContent::text_plain("hi!").into()).await;
 
-    // Sync until the remote echo arrives
+    // Sync until the remote echo arrives.
+    let mut num_attempts = 0;
     let event_id = loop {
-        sync_room(&alice, room_id).await?;
+        // We expect a quick update from sync, so timeout after 10 seconds, and ignore
+        // timeouts; they might just indicate we received the necessary
+        // information on the previous attempt, but racily tried to read the
+        // timeline items.
+        if let Ok(sync_result) =
+            timeout(Duration::from_secs(10), sync_until_update_for_room(&alice, room_id)).await
+        {
+            sync_result?;
+        }
+
+        // Let time to the timeline for processing the update, at most 1 second.
+        let _ = timeout(Duration::from_secs(1), stream.next()).await;
+
         let items = timeline.items().await;
         let last_item = items.last().unwrap().as_event().unwrap();
         if !last_item.is_local_echo() {
             break last_item.event_id().unwrap().to_owned();
         }
+
+        if num_attempts == 2 {
+            panic!("had 3 sync responses and no echo of our own event");
+        }
+        num_attempts += 1;
     };
 
-    // Skip all stream updates that have happened so far
+    // Skip all stream updates that have happened so far.
     while stream.next().now_or_never().is_some() {}
 
     let message_position = timeline.items().await.len() - 1;
+
+    let reaction_key = "👍";
     let reaction = Annotation::new(event_id.clone(), reaction_key.into());
 
-    // Toggle reaction multiple times
-    for _ in 0..3 {
-        // Add
-        timeline.toggle_reaction(&reaction).await?;
-        assert_local_added(&mut stream, user_id, &event_id, &reaction, message_position).await;
-        assert_remote_added(&mut stream, user_id, &event_id, &reaction, message_position).await;
+    // Toggle reaction multiple times.
+    let all_tests = async move {
+        for _ in 0..3 {
+            // Add
+            timeline.toggle_reaction(&reaction).await.expect("toggling reaction");
+            assert_local_added(&mut stream, &user_id, &event_id, &reaction, message_position).await;
+            assert_remote_added(&mut stream, &user_id, &event_id, &reaction, message_position)
+                .await;
 
-        // Redact
-        timeline.toggle_reaction(&reaction).await?;
-        assert_redacted(&mut stream, &event_id, message_position).await;
+            // Redact
+            timeline.toggle_reaction(&reaction).await.expect("toggling reaction the second time");
+            assert_redacted(&mut stream, &event_id, message_position).await;
 
-        // Add, redact, add, redact, add
-        join_all((0..5).map(|_| timeline.toggle_reaction(&reaction)).collect::<Vec<_>>()).await;
-        assert_local_added(&mut stream, user_id, &event_id, &reaction, message_position).await;
-        assert_redacted(&mut stream, &event_id, message_position).await;
-        assert_local_added(&mut stream, user_id, &event_id, &reaction, message_position).await;
-        assert_redacted(&mut stream, &event_id, message_position).await;
-        assert_local_added(&mut stream, user_id, &event_id, &reaction, message_position).await;
-        assert_remote_added(&mut stream, user_id, &event_id, &reaction, message_position).await;
+            // Add, redact, add, redact, add
+            join_all((0..5).map(|_| timeline.toggle_reaction(&reaction)).collect::<Vec<_>>()).await;
+            assert_local_added(&mut stream, &user_id, &event_id, &reaction, message_position).await;
+            assert_redacted(&mut stream, &event_id, message_position).await;
+            assert_local_added(&mut stream, &user_id, &event_id, &reaction, message_position).await;
+            assert_redacted(&mut stream, &event_id, message_position).await;
+            assert_local_added(&mut stream, &user_id, &event_id, &reaction, message_position).await;
+            assert_remote_added(&mut stream, &user_id, &event_id, &reaction, message_position)
+                .await;
 
-        // Redact, add, redact, add
-        join_all((0..4).map(|_| timeline.toggle_reaction(&reaction)).collect::<Vec<_>>()).await;
-        assert_redacted(&mut stream, &event_id, message_position).await;
-        assert_local_added(&mut stream, user_id, &event_id, &reaction, message_position).await;
-        assert_redacted(&mut stream, &event_id, message_position).await;
-        assert_local_added(&mut stream, user_id, &event_id, &reaction, message_position).await;
-        assert_remote_added(&mut stream, user_id, &event_id, &reaction, message_position).await;
+            // Redact, add, redact, add
+            join_all((0..4).map(|_| timeline.toggle_reaction(&reaction)).collect::<Vec<_>>()).await;
+            assert_redacted(&mut stream, &event_id, message_position).await;
+            assert_local_added(&mut stream, &user_id, &event_id, &reaction, message_position).await;
+            assert_redacted(&mut stream, &event_id, message_position).await;
+            assert_local_added(&mut stream, &user_id, &event_id, &reaction, message_position).await;
+            assert_remote_added(&mut stream, &user_id, &event_id, &reaction, message_position)
+                .await;
 
-        // Redact, add, redact, add, redact
-        join_all((0..5).map(|_| timeline.toggle_reaction(&reaction)).collect::<Vec<_>>()).await;
-        assert_redacted(&mut stream, &event_id, message_position).await;
-        assert_local_added(&mut stream, user_id, &event_id, &reaction, message_position).await;
-        assert_redacted(&mut stream, &event_id, message_position).await;
-        assert_local_added(&mut stream, user_id, &event_id, &reaction, message_position).await;
-        assert_redacted(&mut stream, &event_id, message_position).await;
+            // Redact, add, redact, add, redact
+            join_all((0..5).map(|_| timeline.toggle_reaction(&reaction)).collect::<Vec<_>>()).await;
+            assert_redacted(&mut stream, &event_id, message_position).await;
+            assert_local_added(&mut stream, &user_id, &event_id, &reaction, message_position).await;
+            assert_redacted(&mut stream, &event_id, message_position).await;
+            assert_local_added(&mut stream, &user_id, &event_id, &reaction, message_position).await;
+            assert_redacted(&mut stream, &event_id, message_position).await;
 
-        // Add, redact, add, redact
-        join_all((0..4).map(|_| timeline.toggle_reaction(&reaction)).collect::<Vec<_>>()).await;
-        assert_local_added(&mut stream, user_id, &event_id, &reaction, message_position).await;
-        assert_redacted(&mut stream, &event_id, message_position).await;
-        assert_local_added(&mut stream, user_id, &event_id, &reaction, message_position).await;
-        assert_redacted(&mut stream, &event_id, message_position).await;
-    }
+            // Add, redact, add, redact
+            join_all((0..4).map(|_| timeline.toggle_reaction(&reaction)).collect::<Vec<_>>()).await;
+            assert_local_added(&mut stream, &user_id, &event_id, &reaction, message_position).await;
+            assert_redacted(&mut stream, &event_id, message_position).await;
+            assert_local_added(&mut stream, &user_id, &event_id, &reaction, message_position).await;
+            assert_redacted(&mut stream, &event_id, message_position).await;
+        }
+    };
+
+    timeout(Duration::from_secs(10), all_tests).await.expect("timed out");
 
     Ok(())
 }
@@ -165,19 +212,6 @@ async fn assert_remote_added(
     assert!(reaction.unwrap().timestamp <= MilliSecondsSinceUnixEpoch::now());
 }
 
-async fn sync_room(client: &Client, room_id: &RoomId) -> Result<()> {
-    client
-        .sync_with_callback(SyncSettings::default(), |response| async move {
-            if response.rooms.join.iter().any(|(id, _)| id == room_id) {
-                LoopCtrl::Break
-            } else {
-                LoopCtrl::Continue
-            }
-        })
-        .await?;
-    Ok(())
-}
-
 async fn assert_event_is_updated(
     stream: &mut (impl Stream<Item = VectorDiff<Arc<TimelineItem>>> + Unpin),
     event_id: &EventId,
@@ -185,7 +219,9 @@ async fn assert_event_is_updated(
 ) -> EventTimelineItem {
     assert_let!(Some(VectorDiff::Set { index: i, value: event }) = stream.next().await);
     assert_eq!(i, index);
+
     let event = event.as_event().unwrap();
     assert_eq!(event.event_id().unwrap(), event_id);
+
     event.to_owned()
 }

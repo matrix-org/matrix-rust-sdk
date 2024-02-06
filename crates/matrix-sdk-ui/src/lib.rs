@@ -16,8 +16,8 @@ use ruma::html::HtmlSanitizerMode;
 
 mod events;
 
-pub mod authentication;
 pub mod encryption_sync_service;
+pub mod event_graph;
 pub mod notification_client;
 pub mod room_list_service;
 pub mod sync_service;
@@ -30,3 +30,6 @@ const DEFAULT_SANITIZER_MODE: HtmlSanitizerMode = HtmlSanitizerMode::Compat;
 
 #[cfg(test)]
 matrix_sdk_test::init_tracing_for_tests!();
+
+#[cfg(feature = "uniffi")]
+uniffi::setup_scaffolding!();

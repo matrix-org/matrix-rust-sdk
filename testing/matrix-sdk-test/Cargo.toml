@@ -9,7 +9,7 @@ name = "matrix-sdk-test"
 readme = "README.md"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 rust-version = { workspace = true }
-version = "0.6.0"
+version = "0.7.0"
 
 [lib]
 test = false
@@ -17,7 +17,7 @@ doctest = false
 
 [dependencies]
 http = { workspace = true }
-matrix-sdk-test-macros = { version = "0.3.0", path = "../matrix-sdk-test-macros" }
+matrix-sdk-test-macros = { version = "0.7.0", path = "../matrix-sdk-test-macros" }
 once_cell = { workspace = true }
 ruma = { workspace = true, features = ["rand"] }
 serde = { workspace = true }

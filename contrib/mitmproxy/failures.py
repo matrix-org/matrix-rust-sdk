@@ -36,7 +36,7 @@ FAILURES = {
     "Success": (lambda x: None, 50),
     "Gateway error":
     (lambda _: http.Response.make(500, b"Gateway error"), 20),
-    "Limit exeeded": (lambda _: http.Response.make(
+    "Limit exceeded": (lambda _: http.Response.make(
         429,
         json.dumps({
             "errcode": "M_LIMIT_EXCEEDED",

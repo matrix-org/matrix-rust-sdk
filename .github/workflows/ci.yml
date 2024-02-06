@@ -210,11 +210,8 @@ jobs:
           - name: '[m]-common'
             cmd: matrix-sdk-common
 
-          - name: '[m]-indexeddb, no crypto'
-            cmd: indexeddb-no-crypto
-
-          - name: '[m]-indexeddb, with crypto'
-            cmd: indexeddb-with-crypto
+          - name: '[m]-indexeddb'
+            cmd: indexeddb
 
           - name: '[m], no-default, wasm-flags'
             cmd: matrix-sdk-no-default
@@ -298,7 +295,7 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Check the spelling of the files in our repo
-        uses: crate-ci/typos@v1.16.17
+        uses: crate-ci/typos@v1.17.0
 
   clippy:
     name: Run clippy

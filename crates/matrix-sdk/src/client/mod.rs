@@ -27,8 +27,8 @@ use futures_core::Stream;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::store::LockableCryptoStore;
 use matrix_sdk_base::{
-    store::DynStateStore, BaseClient, RoomState, RoomStateFilter, SendOutsideWasm, SessionMeta,
-    SyncOutsideWasm,
+    store::DynStateStore, sync::Notification, BaseClient, RoomState, RoomStateFilter,
+    SendOutsideWasm, SessionMeta, SyncOutsideWasm,
 };
 use matrix_sdk_common::instant::Instant;
 #[cfg(feature = "e2e-encryption")]
@@ -47,7 +47,7 @@ use ruma::{
             filter::{create_filter::v3::Request as FilterUploadRequest, FilterDefinition},
             membership::{join_room_by_id, join_room_by_id_or_alias},
             profile::get_profile,
-            push::{get_notifications::v3::Notification, set_pusher, Pusher},
+            push::{set_pusher, Pusher},
             room::create_room,
             session::login::v3::DiscoveryInfo,
             sync::sync_events,
@@ -1306,29 +1306,7 @@ impl Client {
             request,
             config,
             send_progress: Default::default(),
-            sliding_sync_proxy_url: None,
-        }
-    }
-
-    #[cfg(feature = "experimental-sliding-sync")]
-    // FIXME: remove this as soon as Sliding-Sync isn't needing an external server
-    // anymore
-    pub(crate) fn send_with_homeserver<Request>(
-        &self,
-        request: Request,
-        config: Option<RequestConfig>,
-        sliding_sync_proxy: Option<String>,
-    ) -> SendRequest<Request>
-    where
-        Request: OutgoingRequest + Clone + Debug,
-        HttpError: From<FromHttpResponseError<Request::EndpointError>>,
-    {
-        SendRequest {
-            client: self.clone(),
-            request,
-            config,
-            send_progress: Default::default(),
-            sliding_sync_proxy_url: sliding_sync_proxy,
+            homeserver_override: None,
         }
     }
 
@@ -1336,14 +1314,14 @@ impl Client {
         &self,
         request: Request,
         config: Option<RequestConfig>,
-        homeserver: Option<String>,
+        homeserver_override: Option<String>,
         send_progress: SharedObservable<TransmissionProgress>,
     ) -> HttpResult<Request::IncomingResponse>
     where
         Request: OutgoingRequest + Debug,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
     {
-        let homeserver = match homeserver {
+        let homeserver = match homeserver_override {
             Some(hs) => hs,
             None => self.homeserver().to_string(),
         };

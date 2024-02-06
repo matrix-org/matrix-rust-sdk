@@ -70,7 +70,9 @@ impl RoomKeyImportResult {
     }
 }
 
-pub use error::{EventError, MegolmError, OlmError, SessionCreationError, SignatureError};
+pub use error::{
+    EventError, MegolmError, OlmError, SessionCreationError, SetRoomSettingsError, SignatureError,
+};
 pub use file_encryption::{
     decrypt_room_key_export, encrypt_room_key_export, AttachmentDecryptor, AttachmentEncryptor,
     DecryptorError, KeyExportError, MediaEncryptionInfo,
@@ -105,3 +107,6 @@ pub static VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[cfg(test)]
 matrix_sdk_test::init_tracing_for_tests!();
+
+#[cfg(feature = "uniffi")]
+uniffi::setup_scaffolding!();

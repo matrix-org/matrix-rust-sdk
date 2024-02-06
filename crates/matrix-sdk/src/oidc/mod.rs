@@ -198,6 +198,7 @@ mod backend;
 mod cross_process;
 mod data_serde;
 mod end_session_builder;
+pub mod registrations;
 #[cfg(test)]
 mod tests;
 
@@ -756,7 +757,7 @@ impl Oidc {
         }
 
         #[cfg(feature = "e2e-encryption")]
-        self.client.encryption().run_initialization_tasks().await?;
+        self.client.encryption().run_initialization_tasks(None).await?;
 
         Ok(())
     }
@@ -920,17 +921,6 @@ impl Oidc {
         // Enable the cross-process lock for refreshes, if needs be.
         self.deferred_enable_cross_process_refresh_lock().await?;
 
-        // Bootstrap cross signing, if needs be.
-        // TODO: (#2763) put this into a background task.
-        if self.client.encryption().settings().auto_enable_cross_signing {
-            // According to MSC3967, OIDC doesn't require User-Interactive Authentication to
-            // call this API. Let's find out!
-            if let Err(err) = self.client.encryption().bootstrap_cross_signing_if_needed(None).await
-            {
-                warn!("cross-signing bootstrapping failed: {err}");
-            }
-        }
-
         if let Some(cross_process_manager) = self.ctx().cross_process_token_refresh_manager.get() {
             if let Some(tokens) = self.session_tokens() {
                 let mut cross_process_guard = cross_process_manager
@@ -956,7 +946,7 @@ impl Oidc {
         }
 
         #[cfg(feature = "e2e-encryption")]
-        self.client.encryption().run_initialization_tasks().await?;
+        self.client.encryption().run_initialization_tasks(None).await?;
 
         Ok(())
     }

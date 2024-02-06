@@ -31,7 +31,6 @@ fn setup_x86_64_android_workaround() {
 
 fn main() -> Result<(), Box<dyn Error>> {
     setup_x86_64_android_workaround();
-    uniffi::generate_scaffolding("./src/olm.udl")?;
 
     EmitBuilder::builder().git_sha(true).git_describe(true, false, None).emit()?;
 

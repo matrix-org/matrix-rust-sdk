@@ -160,11 +160,19 @@ impl RoomMember {
         self.can_do_impl(|pls| pls.user_can_kick(self.user_id()))
     }
 
-    /// Whether this user can redact events based on the power levels.
+    /// Whether this user can redact their own events based on the power levels.
     ///
-    /// Same as `member.can_do(PowerLevelAction::Redact)`.
-    pub fn can_redact(&self) -> bool {
-        self.can_do_impl(|pls| pls.user_can_redact(self.user_id()))
+    /// Same as `member.can_do(PowerLevelAction::RedactOwn)`.
+    pub fn can_redact_own(&self) -> bool {
+        self.can_do_impl(|pls| pls.user_can_redact_own_event(self.user_id()))
+    }
+
+    /// Whether this user can redact events of other users based on the power
+    /// levels.
+    ///
+    /// Same as `member.can_do(PowerLevelAction::RedactOther)`.
+    pub fn can_redact_other(&self) -> bool {
+        self.can_do_impl(|pls| pls.user_can_redact_event_of_other(self.user_id()))
     }
 
     /// Whether this user can send message events based on the power levels.

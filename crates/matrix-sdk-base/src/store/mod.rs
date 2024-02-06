@@ -51,7 +51,7 @@ use ruma::{
     serde::Raw,
     EventId, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, UserId,
 };
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 
 /// BoxStream of owned Types
 pub type BoxStream<T> = Pin<Box<dyn futures_util::Stream<Item = T> + Send>>;
@@ -144,11 +144,8 @@ pub(crate) struct Store {
     pub(super) sync_token: Arc<RwLock<Option<String>>>,
     rooms: Arc<StdRwLock<BTreeMap<OwnedRoomId, Room>>>,
     /// A lock to synchronize access to the store, such that data by the sync is
-    /// never overwritten. The sync processing is supposed to use write access,
-    /// such that only it is currently accessing the store overall. Other things
-    /// might acquire read access, such that access to different rooms can be
-    /// parallelized.
-    sync_lock: Arc<RwLock<()>>,
+    /// never overwritten.
+    sync_lock: Arc<Mutex<()>>,
 }
 
 impl Store {
@@ -164,7 +161,7 @@ impl Store {
     }
 
     /// Get access to the syncing lock.
-    pub fn sync_lock(&self) -> &RwLock<()> {
+    pub fn sync_lock(&self) -> &Mutex<()> {
         &self.sync_lock
     }
 

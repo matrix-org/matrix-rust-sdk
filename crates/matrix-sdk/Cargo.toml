@@ -9,7 +9,7 @@ name = "matrix-sdk"
 readme = "README.md"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 rust-version = { workspace = true }
-version = "0.6.2"
+version = "0.7.1"
 
 [package.metadata.docs.rs]
 features = ["docsrs"]
@@ -29,7 +29,7 @@ js = ["matrix-sdk-common/js", "matrix-sdk-base/js"]
 
 sqlite = ["dep:matrix-sdk-sqlite", "matrix-sdk-sqlite?/state-store"]
 bundled-sqlite = ["sqlite", "matrix-sdk-sqlite?/bundled"]
-indexeddb = ["dep:matrix-sdk-indexeddb"]
+indexeddb = ["matrix-sdk-indexeddb/state-store"]
 
 qrcode = ["e2e-encryption", "matrix-sdk-base/qrcode"]
 automatic-room-key-forwarding = ["e2e-encryption", "matrix-sdk-base/automatic-room-key-forwarding"]
@@ -40,6 +40,8 @@ socks = ["reqwest/socks"]
 sso-login = ["dep:hyper", "dep:rand", "dep:tower"]
 image-proc = ["dep:image"]
 image-rayon = ["image-proc", "image?/jpeg_rayon"]
+
+uniffi = ["dep:uniffi"]
 
 experimental-oidc = [
     "ruma/unstable-msc2967",
@@ -62,7 +64,7 @@ docsrs = ["e2e-encryption", "sqlite", "indexeddb", "sso-login", "qrcode", "image
 [dependencies]
 anyhow = { workspace = true, optional = true }
 anymap2 = "0.13.0"
-aquamarine = "0.3.2"
+aquamarine = "0.5.0"
 as_variant = { workspace = true }
 async-channel = "2.1.0"
 async-stream = { workspace = true }
@@ -84,14 +86,14 @@ imbl = { version = "2.0.0", features = ["serde"] }
 indexmap = "2.0.2"
 language-tags = { version = "0.3.2", optional = true }
 mas-oidc-client = { version = "0.7.0", optional = true }
-matrix-sdk-base = { version = "0.6.0", path = "../matrix-sdk-base", default_features = false }
-matrix-sdk-common = { version = "0.6.0", path = "../matrix-sdk-common" }
-matrix-sdk-indexeddb = { version = "0.2.0", path = "../matrix-sdk-indexeddb", default-features = false, optional = true }
-matrix-sdk-sqlite = { version = "0.1.0", path = "../matrix-sdk-sqlite", default-features = false, optional = true }
+matrix-sdk-base = { workspace = true, features = ["uniffi"] }
+matrix-sdk-common = { workspace = true }
+matrix-sdk-indexeddb = { workspace = true, optional = true }
+matrix-sdk-sqlite = { workspace = true, optional = true }
 mime = "0.3.16"
 mime2ext = "0.1.52"
 rand = { workspace = true , optional = true }
-ruma = { workspace = true, features = ["rand", "unstable-msc2448", "unstable-msc2965", "unstable-msc3930", "unstable-msc3245-v1-compat"] }
+ruma = { workspace = true, features = ["rand", "unstable-msc2448", "unstable-msc2965", "unstable-msc3930", "unstable-msc3245-v1-compat", "unstable-msc2867"] }
 serde = { workspace = true }
 serde_html_form = { workspace = true }
 serde_json = { workspace = true }
@@ -101,6 +103,7 @@ thiserror = { workspace = true }
 tokio-stream = { workspace = true, features = ["sync"] }
 tower = { version = "0.4.13", features = ["make"], optional = true }
 tracing = { workspace = true, features = ["attributes"] }
+uniffi = { workspace = true, optional = true }
 url = "2.2.2"
 urlencoding = "2.1.3"
 uuid = { version = "1.4.1", features = ["serde", "v4"], optional = true }
@@ -146,8 +149,8 @@ assert_matches = { workspace = true }
 assert_matches2 = { workspace = true }
 dirs = "5.0.1"
 futures-executor = { workspace = true }
-matrix-sdk-base = { version = "0.6.0", path = "../matrix-sdk-base", default_features = false, features = ["testing"] }
-matrix-sdk-test = { version = "0.6.0", path = "../../testing/matrix-sdk-test" }
+matrix-sdk-base = { workspace = true, features = ["testing"] }
+matrix-sdk-test = { workspace = true }
 once_cell = { workspace = true }
 serde_urlencoded = "0.7.1"
 stream_assert = { workspace = true }

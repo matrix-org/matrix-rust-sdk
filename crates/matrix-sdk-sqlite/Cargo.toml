@@ -1,6 +1,6 @@
 [package]
 name = "matrix-sdk-sqlite"
-version = "0.1.0"
+version = "0.7.0"
 edition = "2021"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 description = "Sqlite storage backend for matrix-sdk"
@@ -12,19 +12,16 @@ default = ["state-store"]
 testing = ["matrix-sdk-crypto?/testing"]
 
 bundled = ["rusqlite/bundled"]
-crypto-store = [
-    "dep:matrix-sdk-crypto",
-    "matrix-sdk-base/e2e-encryption",
-]
-state-store = []
+crypto-store = ["dep:matrix-sdk-crypto"]
+state-store = ["dep:matrix-sdk-base"]
 
 [dependencies]
 async-trait = { workspace = true }
 deadpool-sqlite = "0.7.0"
 itertools = { workspace = true }
-matrix-sdk-base = { version = "0.6.0", path = "../matrix-sdk-base" }
-matrix-sdk-crypto = { version = "0.6.0", path = "../matrix-sdk-crypto", optional = true }
-matrix-sdk-store-encryption = { version = "0.2.0", path = "../matrix-sdk-store-encryption" }
+matrix-sdk-base = { workspace = true, optional = true }
+matrix-sdk-crypto = { workspace = true, optional = true }
+matrix-sdk-store-encryption = { workspace = true }
 rmp-serde = "1.1.1"
 ruma = { workspace = true }
 rusqlite = { version = "0.30.0", features = ["limits"] }
@@ -38,9 +35,9 @@ vodozemac = { workspace = true }
 [dev-dependencies]
 assert_matches = { workspace = true }
 glob = "0.3.0"
-matrix-sdk-base = { path = "../matrix-sdk-base", features = ["testing"] }
-matrix-sdk-crypto = { path = "../matrix-sdk-crypto", features = ["testing"] }
-matrix-sdk-test = { path = "../../testing/matrix-sdk-test" }
+matrix-sdk-base = { workspace = true, features = ["testing"] }
+matrix-sdk-crypto = { workspace = true, features = ["testing"] }
+matrix-sdk-test = { workspace = true }
 once_cell = { workspace = true }
 tempfile = "3.3.0"
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

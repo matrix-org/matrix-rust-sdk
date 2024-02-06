@@ -13,9 +13,9 @@ assign = "1"
 eyeball-im = { workspace = true }
 futures-core = { workspace = true }
 futures-util = { workspace = true }
-matrix-sdk = { path = "../../crates/matrix-sdk", features = ["testing", "qrcode"] }
-matrix-sdk-ui = { path = "../../crates/matrix-sdk-ui" }
-matrix-sdk-test = { path = "../matrix-sdk-test" }
+matrix-sdk = { workspace = true, default-features = true, features = ["testing", "qrcode"] }
+matrix-sdk-ui = { workspace = true, default-features = true }
+matrix-sdk-test = { workspace = true }
 once_cell = { workspace = true }
 rand = { workspace = true }
 stream_assert = "0.1.1"

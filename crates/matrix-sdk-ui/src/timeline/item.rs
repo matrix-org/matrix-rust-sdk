@@ -36,6 +36,11 @@ pub struct TimelineItem {
 }
 
 impl TimelineItem {
+    /// Create a new `TimelineItem` with the given kind and internal id.
+    pub(crate) fn new(kind: impl Into<TimelineItemKind>, internal_id: u64) -> Arc<Self> {
+        Arc::new(TimelineItem { kind: kind.into(), internal_id })
+    }
+
     pub(crate) fn with_kind(&self, kind: impl Into<TimelineItemKind>) -> Arc<Self> {
         Arc::new(Self { kind: kind.into(), internal_id: self.internal_id })
     }
@@ -117,11 +122,4 @@ impl From<VirtualTimelineItem> for TimelineItemKind {
     fn from(item: VirtualTimelineItem) -> Self {
         Self::Virtual(item)
     }
-}
-
-pub(crate) fn timeline_item(
-    kind: impl Into<TimelineItemKind>,
-    internal_id: u64,
-) -> Arc<TimelineItem> {
-    Arc::new(TimelineItem { kind: kind.into(), internal_id })
 }

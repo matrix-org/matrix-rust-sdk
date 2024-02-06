@@ -18,7 +18,7 @@ use ruma::{serde::Raw, OwnedDeviceId, OwnedUserId, SecondsSinceUnixEpoch};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::sync::Mutex;
-use tracing::{field::debug, instrument, trace, Span};
+use tracing::{field::debug, trace, Span};
 use vodozemac::{
     olm::{DecryptionError, OlmMessage, Session as InnerSession, SessionConfig, SessionPickle},
     Curve25519PublicKey,
@@ -79,12 +79,12 @@ impl Session {
     /// # Arguments
     ///
     /// * `message` - The Olm message that should be decrypted.
-    #[instrument(skip_all, fields(session))]
     pub async fn decrypt(&mut self, message: &OlmMessage) -> Result<String, DecryptionError> {
         let mut inner = self.inner.lock().await;
+        Span::current().record("session", debug(&inner)).record("session_id", inner.session_id());
+
         let plaintext = inner.decrypt(message)?;
 
-        Span::current().record("session", debug(inner));
         trace!("Decrypted a Olm message");
 
         let plaintext = String::from_utf8_lossy(&plaintext).to_string();

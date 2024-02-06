@@ -108,6 +108,7 @@ impl SignatureVerification {
 
 /// The result of a signature check.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum SignatureState {
     /// The signature is missing.
     #[default]
@@ -484,10 +485,7 @@ impl BackupMachine {
 
                 self.store.mark_inbound_group_sessions_as_backed_up(&room_and_session_ids).await?;
 
-                let counts = self.store.inbound_group_session_counts().await?;
-
                 trace!(
-                    room_key_counts = ?counts,
                     request_id = ?r.request_id,
                     keys = ?r.sessions,
                     "Marked room keys as backed up"

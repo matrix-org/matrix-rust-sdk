@@ -15,7 +15,6 @@
 use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
-use imbl::vector;
 use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
 use matrix_sdk_test::{async_test, sync_timeline_event, ALICE, BOB};
 use ruma::{
@@ -148,10 +147,10 @@ async fn reaction_redaction_timeline_filter() {
     timeline
         .inner
         .add_initial_events(
-            vector![SyncTimelineEvent::new(
+            vec![SyncTimelineEvent::new(
                 timeline
                     .event_builder
-                    .make_sync_redacted_message_event(*ALICE, RedactedReactionEventContent::new())
+                    .make_sync_redacted_message_event(*ALICE, RedactedReactionEventContent::new()),
             )],
             None,
         )

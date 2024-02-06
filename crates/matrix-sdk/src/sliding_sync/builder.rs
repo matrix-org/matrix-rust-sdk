@@ -1,6 +1,7 @@
 use std::{
     collections::BTreeMap,
     fmt::Debug,
+    num::NonZeroUsize,
     sync::{Arc, RwLock as StdRwLock},
     time::Duration,
 };
@@ -296,7 +297,8 @@ impl SlidingSyncBuilder {
             rooms,
 
             position: Arc::new(AsyncMutex::new(SlidingSyncPositionMarkers { pos, delta_token })),
-            past_positions: StdRwLock::new(RingBuffer::new(20)),
+            // SAFETY: `unwrap` is safe because 20 is not zero.
+            past_positions: StdRwLock::new(RingBuffer::new(NonZeroUsize::new(20).unwrap())),
 
             sticky: StdRwLock::new(SlidingSyncStickyManager::new(
                 SlidingSyncStickyParameters::new(

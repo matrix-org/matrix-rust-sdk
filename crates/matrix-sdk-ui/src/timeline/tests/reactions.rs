@@ -18,7 +18,6 @@ use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_core::Stream;
-use imbl::vector;
 use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
 use matrix_sdk_test::{async_test, ALICE, BOB};
 use ruma::{
@@ -51,7 +50,7 @@ async fn add_reaction_failed() {
     timeline
         .handle_reaction_response(&reaction, &ReactionToggleResult::AddFailure { txn_id })
         .await
-        .unwrap();
+        .unwrap_err();
     assert_reactions_are_removed(&mut stream, &msg_id, msg_pos).await;
 
     assert_no_more_updates(&mut stream).await;
@@ -135,7 +134,7 @@ async fn redact_reaction_failure() {
             &ReactionToggleResult::RedactFailure { event_id: event_id.clone() },
         )
         .await
-        .unwrap();
+        .unwrap_err();
     assert_reaction_is_updated(&mut stream, &msg_id, msg_pos, Some(&event_id), None).await;
 
     assert_no_more_updates(&mut stream).await;
@@ -229,7 +228,7 @@ async fn reactions_store_timestamp() {
             &ReactionToggleResult::RedactFailure { event_id: msg_id.clone() },
         )
         .await
-        .unwrap();
+        .unwrap_err();
 
     // Restores an event with a valid timestamp.
     let event = assert_event_is_updated(&mut stream, &msg_id, msg_pos).await;
@@ -248,7 +247,7 @@ async fn initial_reaction_timestamp_is_stored() {
     timeline
         .inner
         .add_initial_events(
-            vector![
+            vec![
                 SyncTimelineEvent::new(timeline.event_builder.make_sync_reaction(
                     *ALICE,
                     &Annotation::new(message_event_id.clone(), REACTION_KEY.to_owned()),
@@ -258,7 +257,7 @@ async fn initial_reaction_timestamp_is_stored() {
                     *ALICE,
                     &message_event_id,
                     RoomMessageEventContent::text_plain("A"),
-                ))
+                )),
             ],
             None,
         )

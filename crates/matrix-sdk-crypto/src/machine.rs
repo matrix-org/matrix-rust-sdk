@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     sync::{Arc, RwLock as StdRwLock},
     time::Duration,
 };
@@ -58,7 +58,7 @@ use vodozemac::{
 use crate::{
     backups::{BackupMachine, MegolmV1BackupKey},
     dehydrated_devices::{DehydratedDevices, DehydrationError},
-    error::{EventError, MegolmError, MegolmResult, OlmError, OlmResult},
+    error::{EventError, MegolmError, MegolmResult, OlmError, OlmResult, SetRoomSettingsError},
     gossiping::GossipMachine,
     identities::{user::UserIdentities, Device, IdentityManager, UserDevices},
     olm::{
@@ -70,8 +70,8 @@ use crate::{
     session_manager::{GroupSessionManager, SessionManager},
     store::{
         Changes, CryptoStoreWrapper, DeviceChanges, IdentityChanges, IntoCryptoStore, MemoryStore,
-        PendingChanges, Result as StoreResult, RoomKeyInfo, SecretImportError, Store, StoreCache,
-        StoreTransaction,
+        PendingChanges, Result as StoreResult, RoomKeyInfo, RoomSettings, SecretImportError, Store,
+        StoreCache, StoreTransaction,
     },
     types::{
         events::{
@@ -86,7 +86,7 @@ use crate::{
             },
             ToDeviceEvents,
         },
-        Signatures,
+        EventEncryptionAlgorithm, Signatures,
     },
     verification::{Verification, VerificationMachine, VerificationRequest},
     CrossSigningKeyExport, CryptoStoreError, KeysQueryRequest, LocalTrust, ReadOnlyDevice,
@@ -1101,7 +1101,7 @@ impl OlmMachine {
         transaction: &mut StoreTransaction,
         changes: &mut Changes,
         mut raw_event: Raw<AnyToDeviceEvent>,
-    ) -> OlmResult<Raw<AnyToDeviceEvent>> {
+    ) -> Raw<AnyToDeviceEvent> {
         Self::record_message_id(&raw_event);
 
         let event: ToDeviceEvents = match raw_event.deserialize_as() {
@@ -1110,7 +1110,7 @@ impl OlmMachine {
                 // Skip invalid events.
                 warn!("Received an invalid to-device event: {e}");
 
-                return Ok(raw_event);
+                return raw_event;
             }
         };
 
@@ -1135,7 +1135,7 @@ impl OlmMachine {
                             }
                         }
 
-                        return Ok(raw_event);
+                        return raw_event;
                     }
                 };
 
@@ -1172,7 +1172,7 @@ impl OlmMachine {
             e => self.handle_to_device_event(changes, &e).await,
         }
 
-        Ok(raw_event)
+        raw_event
     }
 
     /// Handle a to-device and one-time key counts from a sync response.
@@ -1247,8 +1247,7 @@ impl OlmMachine {
 
         for raw_event in sync_changes.to_device_events {
             let raw_event =
-                Box::pin(self.receive_to_device_event(transaction, &mut changes, raw_event))
-                    .await?;
+                Box::pin(self.receive_to_device_event(transaction, &mut changes, raw_event)).await;
             events.push(raw_event);
         }
 
@@ -1392,7 +1391,7 @@ impl OlmMachine {
 
         let secret_requests = GossipMachine::request_missing_secrets(self.user_id(), secrets);
 
-        // Check if there are already inflight requests for these secrets?
+        // Check if there are already in-flight requests for these secrets?
         let unsent_request = self.store().get_unsent_secret_requests().await?;
         let not_yet_requested = secret_requests
             .into_iter()
@@ -1827,17 +1826,12 @@ impl OlmMachine {
     /// ```
     pub async fn export_room_keys(
         &self,
-        mut predicate: impl FnMut(&InboundGroupSession) -> bool,
+        predicate: impl FnMut(&InboundGroupSession) -> bool,
     ) -> StoreResult<Vec<ExportedRoomKey>> {
         let mut exported = Vec::new();
 
-        let sessions: Vec<InboundGroupSession> = self
-            .store()
-            .get_inbound_group_sessions()
-            .await?
-            .into_iter()
-            .filter(|s| predicate(s))
-            .collect();
+        let mut sessions = self.store().get_inbound_group_sessions().await?;
+        sessions.retain(predicate);
 
         for session in sessions {
             let export = session.export().await;
@@ -2049,6 +2043,89 @@ impl OlmMachine {
         DehydratedDevices { inner: self.to_owned() }
     }
 
+    /// Get the stored encryption settings for the given room, such as the
+    /// encryption algorithm or whether to encrypt only for trusted devices.
+    ///
+    /// These settings can be modified via [`OlmMachine::set_room_settings`].
+    pub async fn room_settings(&self, room_id: &RoomId) -> StoreResult<Option<RoomSettings>> {
+        // There's not much to do here: it's just exposed for symmetry with
+        // `set_room_settings`.
+        self.inner.store.get_room_settings(room_id).await
+    }
+
+    /// Store encryption settings for the given room.
+    ///
+    /// This method checks if the new settings are "safe" -- ie, that they do
+    /// not represent a downgrade in encryption security from any previous
+    /// settings. Attempts to downgrade security will result in a
+    /// [`SetRoomSettingsError::EncryptionDowngrade`].
+    ///
+    /// If the settings are valid, they will be persisted to the crypto store.
+    /// These settings are not used directly by this library, but the saved
+    /// settings can be retrieved via [`OlmMachine::room_settings`].
+    pub async fn set_room_settings(
+        &self,
+        room_id: &RoomId,
+        new_settings: &RoomSettings,
+    ) -> Result<(), SetRoomSettingsError> {
+        let store = &self.inner.store;
+
+        // We want to make sure that we do not race against a second concurrent call to
+        // `set_room_settings`. By way of an easy way to do so, we start a
+        // StoreTransaction. There's no need to commit() it: we're just using it as a
+        // lock guard.
+        let _store_transaction = store.transaction().await;
+
+        let old_settings = store.get_room_settings(room_id).await?;
+
+        // We want to make sure that the change to the room settings does not represent
+        // a downgrade in security. The [E2EE implementation guide] recommends:
+        //
+        //  > This flag should **not** be cleared if a later `m.room.encryption` event
+        //  > changes the configuration.
+        //
+        // (However, it doesn't really address how to handle changes to the rotation
+        // parameters, etc.) For now at least, we are very conservative here:
+        // any new settings are rejected if they differ from the existing settings.
+        // merit improvement (cf https://github.com/element-hq/element-meta/issues/69).
+        //
+        // [E2EE implementation guide]: https://matrix.org/docs/matrix-concepts/end-to-end-encryption/#handling-an-m-room-encryption-state-event
+        if let Some(old_settings) = old_settings {
+            if old_settings != *new_settings {
+                return Err(SetRoomSettingsError::EncryptionDowngrade);
+            } else {
+                // nothing to do here
+                return Ok(());
+            }
+        }
+
+        // Make sure that the new settings are valid
+        match new_settings.algorithm {
+            EventEncryptionAlgorithm::MegolmV1AesSha2 => (),
+
+            #[cfg(feature = "experimental-algorithms")]
+            EventEncryptionAlgorithm::MegolmV2AesSha2 => (),
+
+            _ => {
+                warn!(
+                    ?room_id,
+                    "Rejecting invalid encryption algorithm {}", new_settings.algorithm
+                );
+                return Err(SetRoomSettingsError::InvalidSettings);
+            }
+        }
+
+        // The new settings are acceptable, so let's save them.
+        store
+            .save_changes(Changes {
+                room_settings: HashMap::from([(room_id.to_owned(), new_settings.clone())]),
+                ..Default::default()
+            })
+            .await?;
+
+        Ok(())
+    }
+
     #[cfg(any(feature = "testing", test))]
     /// Returns whether this `OlmMachine` is the same another one.
     ///
@@ -2167,10 +2244,10 @@ pub(crate) mod tests {
 
     use super::{testing::response_from_file, CrossSigningBootstrapRequests};
     use crate::{
-        error::EventError,
+        error::{EventError, SetRoomSettingsError},
         machine::{EncryptionSyncChanges, OlmMachine},
         olm::{InboundGroupSession, OutboundGroupSession, VerifyJson},
-        store::Changes,
+        store::{Changes, RoomSettings},
         types::{
             events::{
                 room::encrypted::{EncryptedToDeviceEvent, ToDeviceEncryptedEventContent},
@@ -2245,7 +2322,7 @@ pub(crate) mod tests {
                 let account = tr.account().await.unwrap();
                 account.generate_fallback_key_helper();
                 account.update_uploaded_key_count(0);
-                account.generate_one_time_keys();
+                account.generate_one_time_keys_if_needed();
                 let request = machine
                     .keys_for_upload(account)
                     .await
@@ -2371,7 +2448,7 @@ pub(crate) mod tests {
             .store()
             .with_transaction(|mut tr| async {
                 let account = tr.account().await.unwrap();
-                assert!(account.generate_one_time_keys().is_some());
+                assert!(account.generate_one_time_keys_if_needed().is_some());
                 Ok((tr, ()))
             })
             .await
@@ -2385,7 +2462,7 @@ pub(crate) mod tests {
             .store()
             .with_transaction(|mut tr| async {
                 let account = tr.account().await.unwrap();
-                assert!(account.generate_one_time_keys().is_some());
+                assert!(account.generate_one_time_keys_if_needed().is_some());
                 Ok((tr, ()))
             })
             .await
@@ -2399,7 +2476,7 @@ pub(crate) mod tests {
             .store()
             .with_transaction(|mut tr| async {
                 let account = tr.account().await.unwrap();
-                assert!(account.generate_one_time_keys().is_none());
+                assert!(account.generate_one_time_keys_if_needed().is_none());
 
                 Ok((tr, ()))
             })
@@ -2467,7 +2544,7 @@ pub(crate) mod tests {
     fn test_one_time_key_signing() {
         let mut account = Account::with_device_id(user_id(), alice_device_id());
         account.update_uploaded_key_count(49);
-        account.generate_one_time_keys();
+        account.generate_one_time_keys_if_needed();
 
         let mut one_time_keys = account.signed_one_time_keys();
         let ed25519_key = account.identity_keys().ed25519;
@@ -4070,5 +4147,99 @@ pub(crate) mod tests {
 
         // The waiting should successfully complete.
         wait.await.unwrap();
+    }
+
+    #[async_test]
+    async fn room_settings_returns_none_for_unknown_room() {
+        let machine = OlmMachine::new(user_id(), alice_device_id()).await;
+        let settings = machine.room_settings(room_id!("!test2:localhost")).await.unwrap();
+        assert!(settings.is_none());
+    }
+
+    #[async_test]
+    async fn stores_and_returns_room_settings() {
+        let machine = OlmMachine::new(user_id(), alice_device_id()).await;
+        let room_id = room_id!("!test:localhost");
+
+        let settings = RoomSettings {
+            algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
+            only_allow_trusted_devices: true,
+            session_rotation_period: Some(Duration::from_secs(10)),
+            session_rotation_period_messages: Some(1234),
+        };
+
+        machine.set_room_settings(room_id, &settings).await.unwrap();
+        assert_eq!(machine.room_settings(room_id).await.unwrap(), Some(settings));
+    }
+
+    #[async_test]
+    async fn set_room_settings_rejects_invalid_algorithms() {
+        let machine = OlmMachine::new(user_id(), alice_device_id()).await;
+        let room_id = room_id!("!test:localhost");
+
+        let err = machine
+            .set_room_settings(
+                room_id,
+                &RoomSettings {
+                    algorithm: EventEncryptionAlgorithm::OlmV1Curve25519AesSha2,
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap_err();
+        assert_matches!(err, SetRoomSettingsError::InvalidSettings)
+    }
+
+    #[async_test]
+    async fn set_room_settings_rejects_changes() {
+        let machine = OlmMachine::new(user_id(), alice_device_id()).await;
+        let room_id = room_id!("!test:localhost");
+
+        // Initial settings
+        machine
+            .set_room_settings(
+                room_id,
+                &RoomSettings { session_rotation_period_messages: Some(100), ..Default::default() },
+            )
+            .await
+            .unwrap();
+
+        // Now, modifying the settings should be rejected
+        let err = machine
+            .set_room_settings(
+                room_id,
+                &RoomSettings {
+                    session_rotation_period_messages: Some(1000),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap_err();
+
+        assert_matches!(err, SetRoomSettingsError::EncryptionDowngrade);
+    }
+
+    #[async_test]
+    async fn set_room_settings_accepts_noop_changes() {
+        let machine = OlmMachine::new(user_id(), alice_device_id()).await;
+        let room_id = room_id!("!test:localhost");
+
+        // Initial settings
+        machine
+            .set_room_settings(
+                room_id,
+                &RoomSettings { session_rotation_period_messages: Some(100), ..Default::default() },
+            )
+            .await
+            .unwrap();
+
+        // Same again; should be fine.
+        machine
+            .set_room_settings(
+                room_id,
+                &RoomSettings { session_rotation_period_messages: Some(100), ..Default::default() },
+            )
+            .await
+            .unwrap();
     }
 }

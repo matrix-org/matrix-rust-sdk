@@ -670,6 +670,9 @@ pub static TAG: Lazy<JsonValue> = Lazy::new(|| {
     json!({
         "content": {
             "tags": {
+                "m.favourite": {
+                    "order": 0.0
+                },
                 "u.work": {
                     "order": 0.9
                 }

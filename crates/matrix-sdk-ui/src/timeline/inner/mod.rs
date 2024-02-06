@@ -29,7 +29,6 @@ use matrix_sdk::{
     sync::JoinedRoom,
     Error, Result, Room,
 };
-use matrix_sdk_base::sync::Timeline;
 #[cfg(test)]
 use ruma::events::receipt::ReceiptEventContent;
 #[cfg(all(test, feature = "e2e-encryption"))]
@@ -60,7 +59,6 @@ use tracing::{field, info_span, Instrument as _};
 use super::traits::Decryptor;
 use super::{
     event_item::EventItemIdentifier,
-    item::timeline_item,
     pagination::PaginationTokens,
     reactions::ReactionToggleResult,
     traits::RoomDataProvider,
@@ -68,6 +66,7 @@ use super::{
     AnnotationKey, EventSendState, EventTimelineItem, InReplyToDetails, Message, Profile,
     RepliedToEvent, TimelineDetails, TimelineItem, TimelineItemContent, TimelineItemKind,
 };
+use crate::timeline::TimelineEventFilterFn;
 
 mod state;
 
@@ -209,9 +208,6 @@ pub fn default_event_filter(event: &AnySyncTimelineEvent, room_version: &RoomVer
     }
 }
 
-pub(super) type TimelineEventFilterFn =
-    dyn Fn(&AnySyncTimelineEvent, &RoomVersionId) -> bool + Send + Sync;
-
 impl<P: RoomDataProvider> TimelineInner<P> {
     pub(super) fn new(room_data_provider: P) -> Self {
         let state = TimelineInnerState::new(room_data_provider.room_version());
@@ -273,8 +269,10 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
         let related_event = {
             let items = state.items.clone();
-            let (_, item) = rfind_event_by_id(&items, &annotation.event_id)
-                .ok_or(super::Error::FailedToToggleReaction)?;
+            let Some((_, item)) = rfind_event_by_id(&items, &annotation.event_id) else {
+                warn!("Timeline item not found, can't update reaction ID");
+                return Err(super::Error::FailedToToggleReaction);
+            };
             item.to_owned()
         };
 
@@ -408,7 +406,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
     pub(super) async fn add_initial_events(
         &mut self,
-        events: Vector<SyncTimelineEvent>,
+        events: Vec<SyncTimelineEvent>,
         back_pagination_token: Option<String>,
     ) {
         if events.is_empty() {
@@ -433,11 +431,6 @@ impl<P: RoomDataProvider> TimelineInner<P> {
     pub(super) async fn handle_joined_room_update(&self, update: JoinedRoom) {
         let mut state = self.state.write().await;
         state.handle_joined_room_update(update, &self.room_data_provider, &self.settings).await;
-    }
-
-    pub(super) async fn handle_sync_timeline(&self, timeline: Timeline) {
-        let mut state = self.state.write().await;
-        state.handle_sync_timeline(timeline, &self.room_data_provider, &self.settings).await;
     }
 
     #[cfg(test)]
@@ -621,6 +614,13 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                 ReactionAction::None
             }
         };
+
+        if matches!(
+            result,
+            ReactionToggleResult::AddFailure { .. } | ReactionToggleResult::RedactFailure { .. }
+        ) {
+            return Err(super::Error::FailedToToggleReaction);
+        }
 
         Ok(follow_up_action)
     }
@@ -870,8 +870,8 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         });
     }
 
-    pub(super) async fn update_sender_profiles(&self) {
-        trace!("Updating sender profiles");
+    pub(super) async fn update_missing_sender_profiles(&self) {
+        trace!("Updating missing sender profiles");
 
         let mut state = self.state.write().await;
         let mut entries = state.items.entries();
@@ -907,7 +907,52 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             }
         }
 
-        trace!("Done updating sender profiles");
+        trace!("Done updating missing sender profiles");
+    }
+
+    /// Update the profiles of the given senders, even if they are ready.
+    pub(super) async fn force_update_sender_profiles(&self, sender_ids: &BTreeSet<&UserId>) {
+        trace!("Forcing update of sender profiles: {sender_ids:?}");
+
+        let mut state = self.state.write().await;
+        let mut entries = state.items.entries();
+        while let Some(mut entry) = entries.next() {
+            let Some(event_item) = entry.as_event() else { continue };
+            if !sender_ids.contains(event_item.sender()) {
+                continue;
+            }
+
+            let event_id = event_item.event_id().map(debug);
+            let transaction_id = event_item.transaction_id().map(debug);
+
+            match self.room_data_provider.profile_from_user_id(event_item.sender()).await {
+                Some(profile) => {
+                    if matches!(event_item.sender_profile(), TimelineDetails::Ready(old_profile) if *old_profile == profile)
+                    {
+                        debug!(event_id, transaction_id, "Profile already up-to-date");
+                    } else {
+                        trace!(event_id, transaction_id, "Updating profile");
+                        let updated_item =
+                            event_item.with_sender_profile(TimelineDetails::Ready(profile));
+                        let new_item = entry.with_kind(updated_item);
+                        ObservableVectorEntry::set(&mut entry, new_item);
+                    }
+                }
+                None => {
+                    if !event_item.sender_profile().is_unavailable() {
+                        trace!(event_id, transaction_id, "Marking profile unavailable");
+                        let updated_item =
+                            event_item.with_sender_profile(TimelineDetails::Unavailable);
+                        let new_item = entry.with_kind(updated_item);
+                        ObservableVectorEntry::set(&mut entry, new_item);
+                    } else {
+                        debug!(event_id, transaction_id, "Profile already marked unavailable");
+                    }
+                }
+            }
+        }
+
+        trace!("Done forcing update of sender profiles");
     }
 
     #[cfg(test)]
@@ -941,7 +986,7 @@ impl TimelineInner {
         &self.room_data_provider
     }
 
-    /// Get the current fully-read event.
+    /// Get the current fully-read event, from storage.
     pub(super) async fn fully_read_event(&self) -> Option<FullyReadEvent> {
         match self.room().account_data_static().await {
             Ok(Some(fully_read)) => match fully_read.deserialize() {
@@ -959,7 +1004,7 @@ impl TimelineInner {
         }
     }
 
-    /// Load the current fully-read event in this inner timeline.
+    /// Load the current fully-read event in this inner timeline from storage.
     pub(super) async fn load_fully_read_event(&self) {
         if let Some(fully_read) = self.fully_read_event().await {
             self.set_fully_read_event(fully_read.content.event_id).await;
@@ -1030,7 +1075,7 @@ impl TimelineInner {
                 event,
             }),
         ));
-        state.items.set(index, timeline_item(item, internal_id));
+        state.items.set(index, TimelineItem::new(item, internal_id));
 
         Ok(())
     }
@@ -1058,9 +1103,11 @@ impl TimelineInner {
                 if let Some((old_pub_read, _)) =
                     state.user_receipt(own_user_id, ReceiptType::Read, room).await
                 {
+                    trace!(%old_pub_read, "found a previous public receipt");
                     if let Some(relative_pos) =
                         state.meta.compare_events_positions(&old_pub_read, event_id)
                     {
+                        trace!("event referred to new receipt is {relative_pos:?} the previous receipt");
                         return relative_pos == RelativePosition::After;
                     }
                 }
@@ -1071,9 +1118,11 @@ impl TimelineInner {
                 if let Some((old_priv_read, _)) =
                     state.latest_user_read_receipt(own_user_id, room).await
                 {
+                    trace!(%old_priv_read, "found a previous private receipt");
                     if let Some(relative_pos) =
                         state.meta.compare_events_positions(&old_priv_read, event_id)
                     {
+                        trace!("event referred to new receipt is {relative_pos:?} the previous receipt");
                         return relative_pos == RelativePosition::After;
                     }
                 }
