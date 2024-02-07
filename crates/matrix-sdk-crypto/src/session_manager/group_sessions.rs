@@ -436,13 +436,27 @@ impl GroupSessionManager {
                         shared.difference(&recipient_device_ids).collect::<BTreeSet<_>>();
 
                     should_rotate = !newly_deleted_or_blacklisted.is_empty();
+                    if should_rotate {
+                        debug!(
+                            "collect_session_recipients: {} rotating due to these devices being deleted/blacklisted {:?}",
+                            outbound.session_id(),
+                            newly_deleted_or_blacklisted,
+                        );
+                    }
                 };
             }
 
             devices.entry(user_id.to_owned()).or_default().extend(recipients);
             withheld_devices.extend(withheld_recipients);
         }
-
+        debug!(
+            should_rotate,
+            user_left,
+            visibility_changed,
+            algorithm_changed,
+            "collect_session_recipients {}",
+            outbound.session_id(),
+        );
         trace!(should_rotate, "Done calculating group session recipients");
 
         Ok(CollectRecipientsResult { should_rotate, devices, withheld_devices })
