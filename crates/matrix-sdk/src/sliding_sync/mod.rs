@@ -1049,6 +1049,8 @@ fn compute_limited(
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::dbg_macro)]
+
     use std::{
         collections::BTreeMap,
         future::ready,

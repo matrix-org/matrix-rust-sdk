@@ -223,14 +223,14 @@ async fn event_type_filter_include_only_room_names() {
     timeline
         .handle_live_state_event(
             &ALICE,
-            RoomNameEventContent::new("A new room name".to_string()),
+            RoomNameEventContent::new("A new room name".to_owned()),
             None,
         )
         .await;
     timeline
         .handle_live_state_event(
             &ALICE,
-            RoomNameEventContent::new("A new room name (again)".to_string()),
+            RoomNameEventContent::new("A new room name (again)".to_owned()),
             None,
         )
         .await;
@@ -238,7 +238,7 @@ async fn event_type_filter_include_only_room_names() {
     timeline
         .handle_live_state_event(
             &ALICE,
-            RoomTopicEventContent::new("A new room topic".to_string()),
+            RoomTopicEventContent::new("A new room topic".to_owned()),
             None,
         )
         .await;
@@ -272,14 +272,14 @@ async fn event_type_filter_exclude_messages() {
     timeline
         .handle_live_state_event(
             &ALICE,
-            RoomNameEventContent::new("A new room name".to_string()),
+            RoomNameEventContent::new("A new room name".to_owned()),
             None,
         )
         .await;
     timeline
         .handle_live_state_event(
             &ALICE,
-            RoomNameEventContent::new("A new room name (again)".to_string()),
+            RoomNameEventContent::new("A new room name (again)".to_owned()),
             None,
         )
         .await;
@@ -287,7 +287,7 @@ async fn event_type_filter_exclude_messages() {
     timeline
         .handle_live_state_event(
             &ALICE,
-            RoomTopicEventContent::new("A new room topic".to_string()),
+            RoomTopicEventContent::new("A new room topic".to_owned()),
             None,
         )
         .await;

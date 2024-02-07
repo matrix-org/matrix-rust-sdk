@@ -38,7 +38,7 @@ impl From<matrix_sdk::ruma::events::room::member::MembershipState> for Membershi
             matrix_sdk::ruma::events::room::member::MembershipState::Leave => {
                 MembershipState::Leave
             }
-            _ => todo!(
+            _ => unimplemented!(
                 "Handle Custom case: https://github.com/matrix-org/matrix-rust-sdk/issues/1254"
             ),
         }
