@@ -117,9 +117,11 @@ async fn db_version(name: &str) -> Result<u32, IndexeddbCryptoStoreError> {
     Ok(old_version)
 }
 
+type OldVersion = u32;
+
 async fn do_schema_upgrade<F>(name: &str, version: u32, f: F) -> Result<(), DomException>
 where
-    F: Fn(&IdbDatabase, u32) -> Result<(), JsValue> + 'static,
+    F: Fn(&IdbDatabase, OldVersion) -> Result<(), JsValue> + 'static,
 {
     info!("IndexeddbCryptoStore upgrade schema -> v{version} starting");
     let mut db_req: OpenDbRequest = IdbDatabase::open_u32(name, version)?;
