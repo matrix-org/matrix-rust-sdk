@@ -162,14 +162,14 @@ impl From<IndexeddbCryptoStoreError> for CryptoStoreError {
 
 type Result<A, E = IndexeddbCryptoStoreError> = std::result::Result<A, E>;
 
-/// Defines an operation to perform on the database
+/// Defines an operation to perform on the database.
 enum PendingOperation {
     Put { key: JsValue, value: JsValue },
     Delete(JsValue),
 }
 
 /// A struct that represents all the operations that need to be done to the
-/// database when save_changes is called.
+/// database when calls to the store `save_changes` are made.
 /// The idea is to do all the serialization and encryption before the
 /// transaction, and then just do the actual Indexeddb operations in the
 /// transaction.
@@ -206,8 +206,9 @@ impl PendingIndexeddbChanges {
     }
 
     /// Returns the list of stores that have pending operations.
-    /// Should be used to take for the transaction creation in ReadWrite mode.
-    fn affected_stores(&self) -> Vec<&str> {
+    /// Should be used as the list of store names when starting the indexeddb
+    /// transaction (`transaction_on_multi_with_mode`).
+    fn touched_stores(&self) -> Vec<&str> {
         self.store_to_key_values
             .iter()
             .filter(|(_, pending_operations)| !pending_operations.is_empty())
@@ -656,7 +657,7 @@ impl_crypto_store! {
 
         let indexeddb_changes = self.prepare_for_transaction(&changes).await?;
 
-        let stores = indexeddb_changes.affected_stores();
+        let stores = indexeddb_changes.touched_stores();
 
         if stores.is_empty() {
             // nothing to do, quit early
