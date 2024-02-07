@@ -10,6 +10,7 @@ use anyhow::Result;
 use assign::assign;
 use matrix_sdk::{
     config::{RequestConfig, SyncSettings},
+    encryption::EncryptionSettings,
     ruma::api::client::{account::register::v3::Request as RegistrationRequest, uiaa},
     Client,
 };
@@ -23,12 +24,16 @@ static USERS: Lazy<Mutex<HashMap<String, (Client, TempDir)>>> = Lazy::new(Mutex:
 pub struct TestClientBuilder {
     username: String,
     use_sqlite: bool,
-    bootstrap_cross_signing: bool,
+    encryption_settings: EncryptionSettings,
 }
 
 impl TestClientBuilder {
     pub fn new(username: impl Into<String>) -> Self {
-        Self { username: username.into(), use_sqlite: false, bootstrap_cross_signing: false }
+        Self {
+            username: username.into(),
+            use_sqlite: false,
+            encryption_settings: Default::default(),
+        }
     }
 
     pub fn randomize_username(mut self) -> Self {
@@ -42,8 +47,8 @@ impl TestClientBuilder {
         self
     }
 
-    pub fn bootstrap_cross_signing(mut self) -> Self {
-        self.bootstrap_cross_signing = true;
+    pub fn encryption_settings(mut self, encryption_settings: EncryptionSettings) -> Self {
+        self.encryption_settings = encryption_settings;
         self
     }
 
@@ -60,20 +65,12 @@ impl TestClientBuilder {
 
         let tmp_dir = tempdir()?;
 
-        let mut client_builder = Client::builder()
+        let client_builder = Client::builder()
             .user_agent("matrix-sdk-integration-tests")
             .homeserver_url(homeserver_url)
             .sliding_sync_proxy(sliding_sync_proxy_url)
+            .with_encryption_settings(self.encryption_settings)
             .request_config(RequestConfig::short_retry());
-
-        if self.bootstrap_cross_signing {
-            client_builder = client_builder.with_encryption_settings(
-                matrix_sdk::encryption::EncryptionSettings {
-                    auto_enable_cross_signing: true,
-                    ..Default::default()
-                },
-            );
-        }
 
         let client = if self.use_sqlite {
             client_builder.sqlite_store(tmp_dir.path(), None).build().await?

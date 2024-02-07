@@ -6,8 +6,9 @@ use assign::assign;
 use matrix_sdk::{
     crypto::{format_emojis, SasState},
     encryption::{
+        backups::BackupState,
         verification::{QrVerificationData, QrVerificationState, VerificationRequestState},
-        LocalTrust,
+        EncryptionSettings, LocalTrust,
     },
     ruma::{
         api::client::room::create_room::v3::Request as CreateRoomRequest,
@@ -27,11 +28,13 @@ use crate::helpers::{SyncTokenAwareClient, TestClientBuilder};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_mutual_sas_verification() -> Result<()> {
+    let encryption_settings =
+        EncryptionSettings { auto_enable_cross_signing: true, ..Default::default() };
     let alice = SyncTokenAwareClient::new(
         TestClientBuilder::new("alice")
             .randomize_username()
             .use_sqlite()
-            .bootstrap_cross_signing()
+            .encryption_settings(encryption_settings)
             .build()
             .await?,
     );
@@ -39,7 +42,7 @@ async fn test_mutual_sas_verification() -> Result<()> {
         TestClientBuilder::new("bob")
             .randomize_username()
             .use_sqlite()
-            .bootstrap_cross_signing()
+            .encryption_settings(encryption_settings)
             .build()
             .await?,
     );
@@ -288,11 +291,13 @@ async fn test_mutual_sas_verification() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_mutual_qrcode_verification() -> Result<()> {
+    let encryption_settings =
+        EncryptionSettings { auto_enable_cross_signing: true, ..Default::default() };
     let alice = SyncTokenAwareClient::new(
         TestClientBuilder::new("alice")
             .randomize_username()
             .use_sqlite()
-            .bootstrap_cross_signing()
+            .encryption_settings(encryption_settings)
             .build()
             .await?,
     );
@@ -300,7 +305,7 @@ async fn test_mutual_qrcode_verification() -> Result<()> {
         TestClientBuilder::new("bob")
             .randomize_username()
             .use_sqlite()
-            .bootstrap_cross_signing()
+            .encryption_settings(encryption_settings)
             .build()
             .await?,
     );
@@ -708,6 +713,36 @@ async fn test_failed_members_response() -> Result<()> {
 
     let found = *alice_found_event.lock().unwrap();
     assert!(found, "event has not been found for alice");
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_backup_enable_new_user() -> Result<()> {
+    let encryption_settings =
+        EncryptionSettings { auto_enable_backups: true, ..Default::default() };
+
+    let alice = SyncTokenAwareClient::new(
+        TestClientBuilder::new("alice")
+            .randomize_username()
+            .use_sqlite()
+            .encryption_settings(encryption_settings)
+            .build()
+            .await?,
+    );
+
+    alice.encryption().wait_for_e2ee_initialization_tasks().await;
+
+    assert!(
+        alice.encryption().backups().are_enabled().await,
+        "Backups should have been enabled automatically."
+    );
+
+    assert_eq!(
+        alice.encryption().backups().state(),
+        BackupState::Enabled,
+        "The backup state should now be BackupState::Enabled"
+    );
 
     Ok(())
 }
