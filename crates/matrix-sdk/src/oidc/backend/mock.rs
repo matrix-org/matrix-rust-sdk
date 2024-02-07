@@ -162,7 +162,7 @@ impl OidcBackend for MockImpl {
         _client_metadata: VerifiedClientMetadata,
         _software_statement: Option<String>,
     ) -> Result<ClientRegistrationResponse, OidcError> {
-        todo!()
+        unimplemented!()
     }
 
     async fn build_par_authorization_url(
@@ -172,7 +172,7 @@ impl OidcBackend for MockImpl {
         _authorization_endpoint: Url,
         _authorization_data: AuthorizationRequestData,
     ) -> Result<(Url, AuthorizationValidationData), OidcError> {
-        todo!()
+        unimplemented!()
     }
 
     async fn revoke_token(
