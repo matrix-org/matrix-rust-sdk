@@ -448,10 +448,13 @@ impl GroupSessionManager {
             devices.entry(user_id.to_owned()).or_default().extend(recipients);
             withheld_devices.extend(withheld_recipients);
         }
-        debug!(
-            should_rotate,
-            user_left, visibility_changed, algorithm_changed, "collect_session_recipients",
-        );
+
+        if should_rotate {
+            debug!(
+                should_rotate,
+                user_left, visibility_changed, algorithm_changed, "collect_session_recipients",
+            );
+        }
         trace!(should_rotate, "Done calculating group session recipients");
 
         Ok(CollectRecipientsResult { should_rotate, devices, withheld_devices })
