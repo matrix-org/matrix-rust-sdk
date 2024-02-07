@@ -100,7 +100,7 @@ pub(crate) async fn data_migrate(name: &str, serializer: &IndexeddbSerializer) -
     }
 
     // We have finished with the old store. Clear it, since it is faster to
-    // clear+delete than just delete. See https://www.artificialworlds.net/blog/2024/02/01/deleting-an-indexed-db-store-can-be-incredibly-slow-on-firefox/
+    // clear+delete than just delete. See https://www.artificialworlds.net/blog/2024/02/02/deleting-an-indexed-db-store-can-be-incredibly-slow-on-firefox/
     // for more details.
     old_store.clear()?.await?;
 
