@@ -4256,10 +4256,17 @@ pub(crate) mod tests {
         });
 
         let device = alice.get_device(bob.user_id(), bob.device_id(), None).await.unwrap().unwrap();
-        let request = device
-            .create_encrypted_to_device_request(custom_event_type, &custom_content)
+        let raw_encrypted = device
+            .encrypt_event_raw(custom_event_type, &custom_content)
             .await
-            .expect("Should have created a request");
+            .expect("Should have encryted the content");
+
+        let request = ToDeviceRequest::new(
+            bob.user_id(),
+            DeviceIdOrAllDevices::DeviceId(bob_device_id().to_owned()),
+            "m.room.encrypted",
+            raw_encrypted.cast(),
+        );
 
         assert_eq!("m.room.encrypted", request.event_type.to_string());
 
@@ -4320,14 +4327,14 @@ pub(crate) mod tests {
                 "rooms": ["!726s6s6q:example.com"]
         });
 
-        let request = alice
+        let encryption_result = alice
             .get_device(bob.user_id(), bob_device_id(), None)
             .await
             .unwrap()
             .unwrap()
-            .create_encrypted_to_device_request(custom_event_type, &custom_content)
+            .encrypt_event_raw(custom_event_type, &custom_content)
             .await;
 
-        assert_matches!(request, Err(OlmError::MissingSession));
+        assert_matches!(encryption_result, Err(OlmError::MissingSession));
     }
 }

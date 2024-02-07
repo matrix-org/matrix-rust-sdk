@@ -12,8 +12,8 @@
   keys whose metadata lacked check fields.
   ([#3046](https://github.com/matrix-org/matrix-rust-sdk/pull/3046))
 
-- Add new API `Device::create_encrypted_to_device_request` that allows
-  to encrypt a to device event to a specific device.
+- Add new API `Device::encrypt_event_raw` that allows
+  to encrypt an event to a specific device.
 
 # 0.7.0
 

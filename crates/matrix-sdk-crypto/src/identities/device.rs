@@ -24,11 +24,10 @@ use std::{
 
 use ruma::{
     api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
-    events::{key::verification::VerificationMethod, AnyToDeviceEventContent, ToDeviceEventType},
+    events::{key::verification::VerificationMethod, AnyToDeviceEventContent},
     serde::Raw,
-    to_device::DeviceIdOrAllDevices,
     DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch, OwnedDeviceId,
-    OwnedDeviceKeyId, TransactionId, UInt, UserId,
+    OwnedDeviceKeyId, UInt, UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -443,10 +442,20 @@ impl Device {
         self.encrypt(event_type, content).await
     }
 
+    /// Encrypt an event for the given device.
     ///
-    /// Creates an encrypted to_device event ready to be sent to that device.
-    /// The caller should ensure that there is an existing Olm session with the
-    /// target device, by calling `OlmMachine#get_missing_sessions(user_id)`
+    /// Not to be confused with [`OlmMachine::encrypt_room_event`] that
+    /// encrypts the event to a room. The current method is used to
+    /// encrypt an event directly to a device using the peer to peer e2e
+    /// session.
+    ///
+    /// Beware that the peer to peer session must be established prior to this
+    /// call by using the [`OlmMachine::get_missing_sessions`] method.
+    ///
+    /// Notable limitation: The caller is responsible for sending the encrypted
+    /// event to the target device, this encryption method supports out-of-order
+    /// messages to a certain extent (2000 messages), so it's recommended to
+    /// send the encrypted event as soon as possible.
     ///
     /// # Arguments
     /// * `event_type` - The type of the event to be sent.
@@ -454,13 +463,15 @@ impl Device {
     ///   that implements the `Serialize` trait.
     ///
     /// # Returns
-    ///  Errors if no olm session is found or if an error occurs during
-    /// encryption.
-    pub async fn create_encrypted_to_device_request(
+    ///
+    /// The encrypted raw content to be shared with your prefered transport
+    /// layer (usually to-device). [`OlmError::MissingSession`] if there is
+    /// no established session with the device.
+    pub async fn encrypt_event_raw(
         &self,
         event_type: &str,
         content: &Value,
-    ) -> OlmResult<ToDeviceRequest> {
+    ) -> OlmResult<Raw<ToDeviceEncryptedEventContent>> {
         let (used_session, raw_encrypted) = self.encrypt(event_type, content).await?;
 
         // perist the used session
@@ -469,22 +480,7 @@ impl Device {
             .save_changes(Changes { sessions: vec![used_session], ..Default::default() })
             .await?;
 
-        let mut messages = BTreeMap::new();
-
-        let any_cast: Raw<AnyToDeviceEventContent> = raw_encrypted.cast();
-
-        messages
-            .entry(self.user_id().to_owned())
-            .or_insert_with(BTreeMap::new)
-            .insert(DeviceIdOrAllDevices::DeviceId(self.device_id().to_owned()), any_cast);
-
-        let request = ToDeviceRequest {
-            event_type: ToDeviceEventType::RoomEncrypted,
-            txn_id: TransactionId::new(),
-            messages,
-        };
-
-        Ok(request)
+        Ok(raw_encrypted)
     }
 }
 

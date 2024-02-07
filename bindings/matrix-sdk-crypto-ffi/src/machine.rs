@@ -17,7 +17,7 @@ use matrix_sdk_crypto::{
     decrypt_room_key_export, encrypt_room_key_export,
     olm::ExportedRoomKey,
     store::{BackupDecryptionKey, Changes},
-    LocalTrust, OlmMachine as InnerMachine, UserIdentities,
+    LocalTrust, OlmMachine as InnerMachine, ToDeviceRequest, UserIdentities,
 };
 use ruma::{
     api::{
@@ -40,6 +40,7 @@ use ruma::{
         AnySyncMessageLikeEvent, AnyTimelineEvent, MessageLikeEvent,
     },
     serde::Raw,
+    to_device::DeviceIdOrAllDevices,
     DeviceKeyAlgorithm, EventId, OwnedTransactionId, OwnedUserId, RoomId, UserId,
 };
 use serde::{Deserialize, Serialize};
@@ -831,9 +832,16 @@ impl OlmMachine {
         let device = self.runtime.block_on(self.inner.get_device(&user_id, device_id, None))?;
 
         if let Some(device) = device {
-            let request = self
-                .runtime
-                .block_on(device.create_encrypted_to_device_request(&event_type, &content))?;
+            let encrypted_content =
+                self.runtime.block_on(device.encrypt_event_raw(&event_type, &content))?;
+
+            let request = ToDeviceRequest::new(
+                user_id.as_ref(),
+                DeviceIdOrAllDevices::DeviceId(device_id.to_owned()),
+                "m.room.encrypted",
+                encrypted_content.cast(),
+            );
+
             Ok(Some(request.into()))
         } else {
             Ok(None)
