@@ -36,7 +36,7 @@ use tracing::{instrument, trace, warn};
 use vodozemac::{olm::SessionConfig, Curve25519PublicKey, Ed25519PublicKey};
 
 use super::{atomic_bool_deserializer, atomic_bool_serializer};
-#[cfg(any(test, feature = "testing"))]
+#[cfg(any(test, feature = "testing", doc))]
 use crate::OlmMachine;
 use crate::{
     error::{EventError, OlmError, OlmResult, SignatureError},
