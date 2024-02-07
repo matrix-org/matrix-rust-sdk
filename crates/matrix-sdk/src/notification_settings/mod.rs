@@ -1539,7 +1539,7 @@ mod tests {
 
         // If the initial mode is `AllMessages`
         let mut ruleset = get_server_default_ruleset();
-        ruleset.underride.remove(PredefinedUnderrideRuleId::PollStart.as_str());
+        ruleset.underride.swap_remove(PredefinedUnderrideRuleId::PollStart.as_str());
 
         let settings = NotificationSettings::new(client, ruleset);
         assert_eq!(

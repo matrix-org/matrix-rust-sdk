@@ -366,7 +366,7 @@ impl TimelineInnerState {
             // Remove the local echo from the related event.
             if let Some(txn_id) = local_echo_to_remove {
                 let id = EventItemIdentifier::TransactionId(txn_id.clone());
-                if reaction_group.0.remove(&id).is_none() {
+                if reaction_group.0.swap_remove(&id).is_none() {
                     warn!(
                         "Tried to remove reaction by transaction ID, but didn't \
                          find matching reaction in the related event's reactions"
@@ -383,7 +383,7 @@ impl TimelineInnerState {
             };
 
             if reaction_group.0.is_empty() {
-                reactions.remove(&annotation.key);
+                reactions.swap_remove(&annotation.key);
             }
 
             reactions

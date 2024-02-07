@@ -211,7 +211,7 @@ impl ReadReceipts {
     /// Unmark the given event as seen by the user.
     fn remove_event_receipt_for_user(&mut self, event_id: &EventId, user_id: &UserId) {
         if let Some(map) = self.by_event.get_mut(event_id) {
-            map.remove(user_id);
+            map.swap_remove(user_id);
             // Remove the entire map if this was the last entry.
             if map.is_empty() {
                 self.by_event.remove(event_id);
@@ -290,7 +290,7 @@ impl ReadReceiptTimelineUpdate {
         let mut event_item = event_item.clone();
 
         if let Some(remote_event_item) = event_item.as_remote_mut() {
-            if remote_event_item.read_receipts.remove(user_id).is_none() {
+            if remote_event_item.read_receipts.swap_remove(user_id).is_none() {
                 error!(
                     %event_id, %user_id,
                     "inconsistent state: old event item for user's read \

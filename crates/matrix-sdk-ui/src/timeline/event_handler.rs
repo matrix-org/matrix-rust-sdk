@@ -450,7 +450,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 if let Some(txn_id) = old_txn_id {
                     let id = EventItemIdentifier::TransactionId(txn_id.clone());
                     // Remove the local echo from the related event.
-                    if reaction_group.0.remove(&id).is_none() {
+                    if reaction_group.0.swap_remove(&id).is_none() {
                         warn!(
                             "Received reaction with transaction ID, but didn't \
                              find matching reaction in the related event's reactions"
@@ -622,7 +622,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     };
                     let group = group_entry.get_mut();
 
-                    if group.0.remove(&id).is_none() {
+                    if group.0.swap_remove(&id).is_none() {
                         error!(
                             "inconsistent state: reaction from reaction_map not in reaction list \
                              of timeline item"
@@ -634,7 +634,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 };
 
                 if count == 0 {
-                    reactions.remove(&rel.key);
+                    reactions.swap_remove(&rel.key);
                 }
 
                 trace!("Removing reaction");
@@ -643,7 +643,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
             if self.result.items_updated == 0 {
                 if let Some(reactions) = self.meta.reactions.pending.get_mut(&rel.event_id) {
-                    if !reactions.remove(&redacts.clone()) {
+                    if !reactions.swap_remove(&redacts.clone()) {
                         error!(
                             "inconsistent state: reaction from reaction_map not in reaction list \
                              of pending_reactions"
@@ -719,7 +719,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 };
                 let group = group_entry.get_mut();
 
-                if group.0.remove(&id).is_none() {
+                if group.0.swap_remove(&id).is_none() {
                     error!(
                         "inconsistent state: reaction from reaction_map not in reaction list \
                          of timeline item"
@@ -728,7 +728,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 }
 
                 if group.len() == 0 {
-                    group_entry.remove();
+                    group_entry.swap_remove();
                 }
 
                 trace!("Removing reaction");
