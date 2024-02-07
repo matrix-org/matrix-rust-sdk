@@ -504,10 +504,7 @@ impl VerificationRequest {
         methods: Vec<VerificationMethod>,
     ) -> Option<OutgoingVerificationRequest> {
         let mut guard = self.inner.write();
-
-        let Some((updated, content)) = guard.accept(methods) else {
-            return None;
-        };
+        let (updated, content) = guard.accept(methods)?;
 
         ObservableWriteGuard::set(&mut guard, updated);
 
