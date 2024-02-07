@@ -71,7 +71,8 @@ impl<T> PendingRequests<T> {
     ///
     /// Returns `None` if the value is not present or expired.
     pub(super) fn extract(&mut self, key: &Uuid) -> Result<T, &'static str> {
-        let value = self.requests.remove(key).ok_or("Received response for an unknown request")?;
+        let value =
+            self.requests.swap_remove(key).ok_or("Received response for an unknown request")?;
         value.value().ok_or("Dropping response for an expired request")
     }
 

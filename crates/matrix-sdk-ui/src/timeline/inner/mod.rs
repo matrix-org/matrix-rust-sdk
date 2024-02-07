@@ -607,8 +607,8 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             }
             _ => {
                 // We're done, so also update the timeline
-                state.in_flight_reaction.remove(&annotation_key);
-                state.reaction_state.remove(&annotation_key);
+                state.in_flight_reaction.swap_remove(&annotation_key);
+                state.reaction_state.swap_remove(&annotation_key);
                 state.update_timeline_reaction(user_id, annotation, result)?;
 
                 ReactionAction::None
