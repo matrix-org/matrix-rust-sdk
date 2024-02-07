@@ -464,7 +464,7 @@ impl Device {
     ///
     /// # Returns
     ///
-    /// The encrypted raw content to be shared with your prefered transport
+    /// The encrypted raw content to be shared with your preferred transport
     /// layer (usually to-device). [`OlmError::MissingSession`] if there is
     /// no established session with the device.
     pub async fn encrypt_event_raw(
