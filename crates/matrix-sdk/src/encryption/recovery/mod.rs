@@ -98,7 +98,7 @@ use ruma::{
         secret_storage::default_key::SecretStorageDefaultKeyEvent,
     },
 };
-use tracing::{error, info, instrument};
+use tracing::{error, info, instrument, warn};
 
 #[cfg(doc)]
 use crate::encryption::{
@@ -432,14 +432,18 @@ impl Recovery {
     pub(crate) async fn setup(&self) -> Result<()> {
         info!("Setting up account data listeners and trying to setup recovery");
 
+        self.client.add_event_handler(Self::default_key_event_handler);
+        self.client.add_event_handler(Self::secret_send_event_handler);
+
         self.update_recovery_state().await?;
 
         if self.should_auto_enable_backups().await? {
-            self.enable_backup().await?;
-        }
+            info!("Trying to automatically enable backups");
 
-        self.client.add_event_handler(Self::default_key_event_handler);
-        self.client.add_event_handler(Self::secret_send_event_handler);
+            if let Err(e) = self.enable_backup().await {
+                warn!("Could not automatically enable backups: {e:?}");
+            }
+        }
 
         Ok(())
     }
