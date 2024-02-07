@@ -2985,6 +2985,7 @@ dependencies = [
  "image",
  "imbl",
  "indexmap 2.2.2",
+ "js_int",
  "language-tags",
  "mas-oidc-client",
  "matrix-sdk-base",

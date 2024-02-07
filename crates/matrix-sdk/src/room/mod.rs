@@ -81,6 +81,7 @@ use crate::{
     event_handler::{EventHandler, EventHandlerDropGuard, EventHandlerHandle, SyncEvent},
     media::{MediaFormat, MediaRequest},
     notification_settings::{IsEncrypted, IsOneToOne, RoomNotificationMode},
+    room::power_levels::{RoomPowerLevelChanges, RoomPowerLevelsExt},
     sync::RoomUpdate,
     utils::{IntoRawMessageLikeEventContent, IntoRawStateEventContent},
     BaseRoom, Client, Error, HttpError, HttpResult, Result, RoomState, TransmissionProgress,
@@ -89,6 +90,7 @@ use crate::{
 pub mod futures;
 mod member;
 mod messages;
+pub mod power_levels;
 
 pub use self::{
     member::{RoomMember, RoomMemberRole},
@@ -1720,7 +1722,7 @@ impl Room {
         &self,
         updates: Vec<(&UserId, Int)>,
     ) -> Result<send_state_event::v3::Response> {
-        let mut power_levels = self.get_room_power_levels().await?;
+        let mut power_levels = self.room_power_levels().await?;
 
         for (user_id, new_level) in updates {
             if new_level == power_levels.users_default {
@@ -1733,7 +1735,19 @@ impl Room {
         self.send_state_event(RoomPowerLevelsEventContent::from(power_levels)).await
     }
 
-    async fn get_room_power_levels(&self) -> Result<RoomPowerLevels> {
+    /// Applies a set of power level changes to this room.
+    ///
+    /// Any values that are `None` in the given `RoomPowerLevelChanges` will
+    /// remain unchanged.
+    pub async fn apply_power_level_changes(&self, changes: RoomPowerLevelChanges) -> Result<()> {
+        let mut power_levels = self.room_power_levels().await?;
+        power_levels.apply(changes)?;
+        self.send_state_event(RoomPowerLevelsEventContent::from(power_levels)).await?;
+        Ok(())
+    }
+
+    /// Get the current power levels of this room.
+    pub async fn room_power_levels(&self) -> Result<RoomPowerLevels> {
         Ok(self
             .get_state_event_static::<RoomPowerLevelsEventContent>()
             .await?
@@ -2015,7 +2029,7 @@ impl Room {
     ///
     /// The call may fail if there is an error in getting the power levels.
     pub async fn can_user_redact_own(&self, user_id: &UserId) -> Result<bool> {
-        Ok(self.get_room_power_levels().await?.user_can_redact_own_event(user_id))
+        Ok(self.room_power_levels().await?.user_can_redact_own_event(user_id))
     }
 
     /// Returns true if the user with the given user_id is able to redact
@@ -2023,7 +2037,7 @@ impl Room {
     ///
     /// The call may fail if there is an error in getting the power levels.
     pub async fn can_user_redact_other(&self, user_id: &UserId) -> Result<bool> {
-        Ok(self.get_room_power_levels().await?.user_can_redact_event_of_other(user_id))
+        Ok(self.room_power_levels().await?.user_can_redact_event_of_other(user_id))
     }
 
     /// Returns true if the user with the given user_id is able to ban in the
@@ -2031,7 +2045,7 @@ impl Room {
     ///
     /// The call may fail if there is an error in getting the power levels.
     pub async fn can_user_ban(&self, user_id: &UserId) -> Result<bool> {
-        Ok(self.get_room_power_levels().await?.user_can_ban(user_id))
+        Ok(self.room_power_levels().await?.user_can_ban(user_id))
     }
 
     /// Returns true if the user with the given user_id is able to kick in the
@@ -2039,7 +2053,7 @@ impl Room {
     ///
     /// The call may fail if there is an error in getting the power levels.
     pub async fn can_user_invite(&self, user_id: &UserId) -> Result<bool> {
-        Ok(self.get_room_power_levels().await?.user_can_invite(user_id))
+        Ok(self.room_power_levels().await?.user_can_invite(user_id))
     }
 
     /// Returns true if the user with the given user_id is able to kick in the
@@ -2047,7 +2061,7 @@ impl Room {
     ///
     /// The call may fail if there is an error in getting the power levels.
     pub async fn can_user_kick(&self, user_id: &UserId) -> Result<bool> {
-        Ok(self.get_room_power_levels().await?.user_can_kick(user_id))
+        Ok(self.room_power_levels().await?.user_can_kick(user_id))
     }
 
     /// Returns true if the user with the given user_id is able to send a
@@ -2059,7 +2073,7 @@ impl Room {
         user_id: &UserId,
         state_event: StateEventType,
     ) -> Result<bool> {
-        Ok(self.get_room_power_levels().await?.user_can_send_state(user_id, state_event))
+        Ok(self.room_power_levels().await?.user_can_send_state(user_id, state_event))
     }
 
     /// Returns true if the user with the given user_id is able to send a
@@ -2071,7 +2085,7 @@ impl Room {
         user_id: &UserId,
         message: MessageLikeEventType,
     ) -> Result<bool> {
-        Ok(self.get_room_power_levels().await?.user_can_send_message(user_id, message))
+        Ok(self.room_power_levels().await?.user_can_send_message(user_id, message))
     }
 
     /// Returns true if the user with the given user_id is able to trigger a
@@ -2079,7 +2093,7 @@ impl Room {
     ///
     /// The call may fail if there is an error in getting the power levels.
     pub async fn can_user_trigger_room_notification(&self, user_id: &UserId) -> Result<bool> {
-        Ok(self.get_room_power_levels().await?.user_can_trigger_room_notification(user_id))
+        Ok(self.room_power_levels().await?.user_can_trigger_room_notification(user_id))
     }
 
     /// Get a list of servers that should know this room.
