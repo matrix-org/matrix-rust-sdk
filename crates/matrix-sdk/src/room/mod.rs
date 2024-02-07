@@ -58,6 +58,7 @@ use ruma::{
         },
         space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
         tag::{TagInfo, TagName},
+        typing::SyncTypingEvent,
         AnyRoomAccountDataEvent, AnyStateEvent, EmptyStateKey, MessageLikeEventContent,
         MessageLikeEventType, RedactContent, RedactedStateEventContent, RoomAccountDataEvent,
         RoomAccountDataEventContent, RoomAccountDataEventType, StateEventContent, StateEventType,
@@ -77,7 +78,7 @@ use self::futures::{SendAttachment, SendMessageLikeEvent, SendRawMessageLikeEven
 use crate::{
     attachment::AttachmentConfig,
     error::WrongRoomState,
-    event_handler::{EventHandler, EventHandlerHandle, SyncEvent},
+    event_handler::{EventHandler, EventHandlerDropGuard, EventHandlerHandle, SyncEvent},
     media::{MediaFormat, MediaRequest},
     notification_settings::{IsEncrypted, IsOneToOne, RoomNotificationMode},
     sync::RoomUpdate,
@@ -314,6 +315,33 @@ impl Room {
     /// that contains updates for this room.
     pub fn subscribe_to_updates(&self) -> broadcast::Receiver<RoomUpdate> {
         self.client.subscribe_to_room_updates(self.room_id())
+    }
+
+    /// Subscribe to typing notifications for this room.
+    ///
+    /// The returned receiver will receive a new vector of user IDs for each
+    /// sync response that contains 'm.typing' event. The current user ID will
+    /// be filtered out.
+    pub fn subscribe_to_typing_notifications(
+        &self,
+    ) -> (EventHandlerDropGuard, broadcast::Receiver<Vec<OwnedUserId>>) {
+        let (sender, receiver) = broadcast::channel(16);
+        let typing_event_handler_handle = self.client.add_room_event_handler(self.room_id(), {
+            let own_user_id = self.own_user_id().to_owned();
+            move |event: SyncTypingEvent| async move {
+                // Ignore typing notifications from own user.
+                let typing_user_ids = event
+                    .content
+                    .user_ids
+                    .into_iter()
+                    .filter(|user_id| *user_id != own_user_id)
+                    .collect();
+                // Ignore the result. It can only fail if there are no listeners.
+                let _ = sender.send(typing_user_ids);
+            }
+        });
+        let drop_guard = self.client().event_handler_drop_guard(typing_event_handler_handle);
+        (drop_guard, receiver)
     }
 
     /// Fetch the event with the given `EventId` in this room.

@@ -82,7 +82,7 @@ pub use room_list::*;
 use ruma::{
     api::client::sync::sync_events::v4::{
         AccountDataConfig, E2EEConfig, ReceiptsConfig, RoomReceiptConfig, SyncRequestListFilters,
-        ToDeviceConfig,
+        ToDeviceConfig, TypingConfig,
     },
     assign,
     events::{StateEventType, TimelineEventType},
@@ -159,6 +159,9 @@ impl RoomListService {
             .with_receipt_extension(assign!(ReceiptsConfig::default(), {
                 enabled: Some(true),
                 rooms: Some(vec![RoomReceiptConfig::AllSubscribed])
+            }))
+            .with_typing_extension(assign!(TypingConfig::default(), {
+                enabled: Some(true),
             }));
 
         if with_encryption {

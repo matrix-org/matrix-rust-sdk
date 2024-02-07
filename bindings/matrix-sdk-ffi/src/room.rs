@@ -518,6 +518,21 @@ impl Room {
         Ok(self.inner.typing_notice(is_typing).await?)
     }
 
+    pub async fn subscribe_to_typing_notifications(
+        self: Arc<Self>,
+        listener: Box<dyn TypingNotificationsListener>,
+    ) -> Arc<TaskHandle> {
+        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
+            let (_event_handler_drop_guard, mut subscriber) =
+                self.inner.subscribe_to_typing_notifications();
+            while let Ok(typing_user_ids) = subscriber.recv().await {
+                let typing_user_ids =
+                    typing_user_ids.into_iter().map(|user_id| user_id.to_string()).collect();
+                listener.call(typing_user_ids);
+            }
+        })))
+    }
+
     /// Sets a flag on the room to indicate that the user has explicitly marked
     /// it as unread
     pub async fn mark_as_unread(&self) -> Result<(), ClientError> {
@@ -554,6 +569,11 @@ impl Room {
 #[uniffi::export(callback_interface)]
 pub trait RoomInfoListener: Sync + Send {
     fn call(&self, room_info: RoomInfo);
+}
+
+#[uniffi::export(callback_interface)]
+pub trait TypingNotificationsListener: Sync + Send {
+    fn call(&self, typing_user_ids: Vec<String>);
 }
 
 #[uniffi::export(callback_interface)]

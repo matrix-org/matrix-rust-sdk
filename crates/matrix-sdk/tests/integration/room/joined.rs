@@ -1,4 +1,7 @@
-use std::time::Duration;
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use futures_util::future::join_all;
 use matrix_sdk::{
@@ -10,12 +13,15 @@ use matrix_sdk::{
     room::{Receipts, ReportedContentScore},
 };
 use matrix_sdk_base::RoomState;
-use matrix_sdk_test::{async_test, test_json, DEFAULT_TEST_ROOM_ID};
+use matrix_sdk_test::{
+    async_test, test_json, EphemeralTestEvent, JoinedRoomBuilder, SyncResponseBuilder,
+    DEFAULT_TEST_ROOM_ID,
+};
 use ruma::{
     api::client::{membership::Invite3pidInit, receipt::create_receipt::v3::ReceiptType},
     assign, event_id,
     events::{receipt::ReceiptThread, room::message::RoomMessageEventContent},
-    int, mxc_uri, owned_event_id, thirdparty, uint, user_id, TransactionId,
+    int, mxc_uri, owned_event_id, room_id, thirdparty, uint, user_id, OwnedUserId, TransactionId,
 };
 use serde_json::json;
 use wiremock::{
@@ -667,4 +673,78 @@ async fn report_content() {
     let score = ReportedContentScore::new(-80).unwrap();
 
     room.report_content(event_id, Some(score), Some(reason.to_owned())).await.unwrap();
+}
+
+#[async_test]
+async fn subscribe_to_typing_notifications() {
+    let (client, server) = logged_in_client().await;
+    let typing_sequences: Arc<Mutex<Vec<Vec<OwnedUserId>>>> = Arc::new(Mutex::new(Vec::new()));
+    // The expected typing sequences that we will receive, note that the current
+    // user_id is filtered out.
+    let asserted_typing_sequences =
+        vec![vec![user_id!("@alice:matrix.org"), user_id!("@bob:example.com")], vec![]];
+    let room_id = room_id!("!test:example.org");
+    let mut ev_builder = SyncResponseBuilder::new();
+
+    // Initial sync with our test room.
+    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    // Send to typing notification
+    let room = client.get_room(room_id).unwrap();
+    let join_handle = tokio::spawn({
+        let typing_sequences = Arc::clone(&typing_sequences);
+        async move {
+            let (_drop_guard, mut subscriber) = room.subscribe_to_typing_notifications();
+
+            while let Ok(typing_user_ids) = subscriber.recv().await {
+                let mut typing_sequences = typing_sequences.lock().unwrap();
+                typing_sequences.push(typing_user_ids);
+
+                // When we have received 2 typing notifications, we can stop listening.
+                if typing_sequences.len() == 2 {
+                    break;
+                }
+            }
+        }
+    });
+
+    // Then send a typing notification with 3 users typing, including the current
+    // user.
+    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
+        EphemeralTestEvent::Custom(json!({
+            "content": {
+                "user_ids": [
+                    "@alice:matrix.org",
+                    "@bob:example.com",
+                    "@example:localhost"
+                ]
+            },
+            "room_id": "!jEsUZKDJdhlrceRyVU:example.org",
+            "type": "m.typing"
+        })),
+    ));
+    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    // Then send a typing notification with no user typing
+    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
+        EphemeralTestEvent::Custom(json!({
+            "content": {
+                "user_ids": []
+            },
+            "room_id": "!jEsUZKDJdhlrceRyVU:example.org",
+            "type": "m.typing"
+        })),
+    ));
+    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    join_handle.await.unwrap();
+    assert_eq!(typing_sequences.lock().unwrap().to_vec(), asserted_typing_sequences);
 }
