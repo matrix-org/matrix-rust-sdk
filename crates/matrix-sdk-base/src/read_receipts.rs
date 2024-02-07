@@ -15,9 +15,9 @@
 //! # Client-side read receipts computation
 //!
 //! While Matrix servers have the ability to provide basic information about the
-//! unread status of rooms, via [`matrix_sdk::ruma::UnreadNotificationCounts`],
-//! it's not reliable for encrypted rooms. Indeed, the server doesn't have
-//! access to the content of encrypted events, so it can only makes guesses when
+//! unread status of rooms, via [`crate::sync::UnreadNotificationsCount`], it's
+//! not reliable for encrypted rooms. Indeed, the server doesn't have access to
+//! the content of encrypted events, so it can only makes guesses when
 //! estimating unread and highlight counts.
 //!
 //! Instead, this module provides facilities to compute the number of unread
@@ -36,8 +36,8 @@
 //! `marks_as_unread` function shows the opiniated set of rules that will filter
 //! out uninterested events.
 //!
-//! The only public method in that module is [`compute_unread_counts`], which
-//! updates the `RoomInfo` in place according to the new counts.
+//! The only `pub(crate)` method in that module is `compute_unread_counts`,
+//! which updates the `RoomInfo` in place according to the new counts.
 //!
 //! ## Implementation details: How to get the latest receipt?
 //!
