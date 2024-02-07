@@ -211,8 +211,15 @@ impl PendingIndexeddbChanges {
     fn touched_stores(&self) -> Vec<&str> {
         self.store_to_key_values
             .iter()
-            .filter(|(_, pending_operations)| !pending_operations.is_empty())
-            .map(|(store, _)| *store)
+            .filter_map(
+                |(store, pending_operations)| {
+                    if !pending_operations.is_empty() {
+                        Some(*store)
+                    } else {
+                        None
+                    }
+                },
+            )
             .collect()
     }
 
