@@ -257,3 +257,273 @@ impl AuthenticationService {
         })
     }
 }
+
+// The http mocking library is not supported for wasm32
+#[cfg(all(test, not(target_arch = "wasm32")))]
+pub(crate) mod tests {
+    use std::sync::RwLock;
+
+    use matrix_sdk_test::{async_test, test_json};
+    use serde_json::{json_internal, Value as JsonValue};
+    use wiremock::{
+        matchers::{method, path},
+        Mock, MockServer, ResponseTemplate,
+    };
+
+    use super::*;
+
+    // Note: Due to a limitation of the http mocking library these tests all supply an http:// url,
+    // rather than the plain server name, otherwise the service will prepend https:// to the name
+    // and the request will fail. In practice, this isn't a problem as the service
+    // first strips the scheme and then checks if the name is a valid server
+    // name, so it is a close enough approximation.
+
+    #[async_test]
+    async fn test_configure_invalid_server() {
+        // Given a new service.
+        let service = make_service(None);
+
+        // When configuring the authentication service with an invalid server name.
+        let error =
+            service.configure_homeserver("⚠️ This won't work 🚫".to_owned()).await.unwrap_err();
+
+        // Then the configuration should fail due to the invalid server name.
+        assert!(matches!(error, AuthenticationError::InvalidServerName { .. }));
+        assert!(service.homeserver_details().is_none());
+    }
+
+    #[async_test]
+    async fn test_configure_no_server() {
+        // Given a new service.
+        let service = make_service(None);
+
+        // When configuring the authentication service with a valid server name that
+        // doesn't exist.
+        let error = service.configure_homeserver("localhost:3456".to_owned()).await.unwrap_err();
+
+        // Then the configuration should fail with no server response.
+        assert!(matches!(error, AuthenticationError::ServerNotFound));
+        assert!(service.homeserver_details().is_none());
+    }
+
+    #[async_test]
+    async fn test_configure_web_server() {
+        // Given a random web server that isn't a Matrix homeserver or hosting the
+        // well-known file for one.
+        let server = MockServer::start().await;
+        let service = make_service(None);
+
+        // When configuring the authentication service with the server's URL.
+        let error = service.configure_homeserver(server.uri()).await.unwrap_err();
+
+        // Then the configuration should fail because a homeserver couldn't be found.
+        assert!(matches!(error, AuthenticationError::HomeserverNotFound));
+        assert!(service.homeserver_details().is_none());
+    }
+
+    #[async_test]
+    async fn test_configure_direct_legacy() {
+        // Given a homeserver without a well-known file.
+        let homeserver = make_mock_homeserver().await;
+        let service = make_service(None);
+
+        // When configuring the authentication service with the server's URL.
+        let error = service.configure_homeserver(homeserver.uri()).await.unwrap_err();
+
+        // Then the configuration should fail due to sliding sync not being discovered.
+        assert!(matches!(error, AuthenticationError::SlidingSyncNotAvailable));
+        assert!(service.homeserver_details().is_none());
+    }
+
+    #[async_test]
+    async fn test_configure_direct_legacy_custom_proxy() {
+        // Given a homeserver without a well-known file and a service with a custom
+        // sliding sync proxy injected.
+        let homeserver = make_mock_homeserver().await;
+        let service = make_service(Some("https://localhost:1234".to_owned()));
+
+        // When configuring the authentication service with the server's URL.
+        service.configure_homeserver(homeserver.uri()).await.unwrap();
+
+        // Then the configuration should succeed and password authentication should be
+        // available.
+        let details = service.homeserver_details().unwrap();
+        assert_eq!(details.url, homeserver.uri().parse().unwrap());
+        assert_eq!(details.supports_password_login, true);
+        #[cfg(feature = "experimental-oidc")]
+        assert_eq!(details.supports_oidc_login, false);
+    }
+
+    #[async_test]
+    async fn test_configure_well_known_parse_error() {
+        // Given a base server with a well-known file that has errors.
+        let server = MockServer::start().await;
+        let homeserver = make_mock_homeserver().await;
+        let service = make_service(None);
+
+        let well_known = make_well_known_json(&homeserver.uri(), None, None);
+        let bad_json = well_known.to_string().replace(",", "");
+        Mock::given(method("GET"))
+            .and(path("/.well-known/matrix/client"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(bad_json))
+            .mount(&server)
+            .await;
+
+        // When configuring the authentication service with the base server.
+        let error = service.configure_homeserver(server.uri()).await.unwrap_err();
+
+        // Then the configuration should fail due to an invalid well-known file.
+        assert!(matches!(error, AuthenticationError::InvalidWellKnownFile { .. }));
+        assert!(service.homeserver_details().is_none());
+    }
+
+    #[async_test]
+    async fn test_configure_well_known_legacy() {
+        // Given a base server with a well-known file that points to a homeserver that
+        // doesn't support sliding sync.
+        let server = MockServer::start().await;
+        let homeserver = make_mock_homeserver().await;
+        let service = make_service(None);
+
+        Mock::given(method("GET"))
+            .and(path("/.well-known/matrix/client"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(make_well_known_json(
+                &homeserver.uri(),
+                None,
+                None,
+            )))
+            .mount(&server)
+            .await;
+
+        // When configuring the authentication service with the base server.
+        let error = service.configure_homeserver(server.uri()).await.unwrap_err();
+
+        // Then the configuration should fail due to sliding sync not being configured.
+        assert!(matches!(error, AuthenticationError::SlidingSyncNotAvailable));
+        assert!(service.homeserver_details().is_none());
+    }
+
+    #[async_test]
+    async fn test_configure_well_known_with_sliding_sync() {
+        // Given a base server with a well-known file that points to a homeserver with a
+        // sliding sync proxy.
+        let server = MockServer::start().await;
+        let homeserver = make_mock_homeserver().await;
+        let service = make_service(None);
+
+        Mock::given(method("GET"))
+            .and(path("/.well-known/matrix/client"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(make_well_known_json(
+                &homeserver.uri(),
+                Some("https://localhost:1234"),
+                None,
+            )))
+            .mount(&server)
+            .await;
+
+        // When configuring the authentication service with the base server.
+        service.configure_homeserver(server.uri()).await.unwrap();
+
+        // Then the configuration should succeed and password authentication should be
+        // available.
+        let details = service.homeserver_details().unwrap();
+        assert_eq!(details.url, homeserver.uri().parse().unwrap());
+        assert_eq!(details.supports_password_login, true);
+        #[cfg(feature = "experimental-oidc")]
+        assert_eq!(details.supports_oidc_login, false);
+    }
+
+    #[async_test]
+    async fn test_configure_well_known_matrix2point0() {
+        // Given a base server with a well-known file that points to a homeserver that
+        // is Matrix 2.0 ready (OIDC & Sliding Sync).
+        let server = MockServer::start().await;
+        let homeserver = make_mock_homeserver().await;
+        let service = make_service(None);
+
+        Mock::given(method("GET"))
+            .and(path("/.well-known/matrix/client"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(make_well_known_json(
+                &homeserver.uri(),
+                Some("https://localhost:1234"),
+                Some("https://localhost:5678"),
+            )))
+            .mount(&server)
+            .await;
+
+        // When configuring the authentication service with the base server.
+        service.configure_homeserver(server.uri()).await.unwrap();
+
+        // Then the configuration should succeed and both password and OIDC
+        // authentication should be available.
+        let details = service.homeserver_details().unwrap();
+        assert_eq!(details.url, homeserver.uri().parse().unwrap());
+        assert_eq!(details.supports_password_login, true);
+        #[cfg(feature = "experimental-oidc")]
+        assert_eq!(details.supports_oidc_login, true);
+    }
+
+    /* Helper functions */
+
+    fn make_service(custom_sliding_sync_proxy: Option<String>) -> AuthenticationService {
+        AuthenticationService {
+            user_agent: None,
+            client: Default::default(),
+            homeserver_details: Default::default(),
+            #[cfg(feature = "experimental-sliding-sync")]
+            custom_sliding_sync_proxy: RwLock::new(custom_sliding_sync_proxy),
+        }
+    }
+
+    async fn make_mock_homeserver() -> MockServer {
+        let homeserver = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/_matrix/client/versions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::VERSIONS))
+            .mount(&homeserver)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/_matrix/client/r0/login"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::LOGIN_TYPES))
+            .mount(&homeserver)
+            .await;
+        homeserver
+    }
+
+    fn make_well_known_json(
+        homeserver_url: &str,
+        sliding_sync_proxy_url: Option<&str>,
+        authentication_issuer: Option<&str>,
+    ) -> JsonValue {
+        ::serde_json::Value::Object({
+            let mut object = ::serde_json::Map::new();
+            let _ = object.insert(
+                "m.homeserver".into(),
+                json_internal!({
+                    "base_url": homeserver_url
+                }),
+            );
+
+            if let Some(sliding_sync_proxy_url) = sliding_sync_proxy_url {
+                let _ = object.insert(
+                    "org.matrix.msc3575.proxy".into(),
+                    json_internal!({
+                        "url": sliding_sync_proxy_url
+                    }),
+                );
+            }
+
+            if let Some(authentication_issuer) = authentication_issuer {
+                let _ = object.insert(
+                    "org.matrix.msc2965.authentication".into(),
+                    json_internal!({
+                        "issuer": authentication_issuer,
+                        "account": authentication_issuer.to_owned() + "/account"
+                    }),
+                );
+            }
+
+            object
+        })
+    }
+}
