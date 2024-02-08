@@ -67,7 +67,7 @@ use crate::{
         ambiguity_map::AmbiguityCache, DynStateStore, MemoryStore, Result as StoreResult,
         StateChanges, StateStoreDataKey, StateStoreDataValue, StateStoreExt, Store, StoreConfig,
     },
-    sync::{JoinedRoom, LeftRoom, Notification, Rooms, SyncResponse, Timeline},
+    sync::{JoinedRoom, LeftRoom, Notification, RoomUpdates, SyncResponse, Timeline},
     RoomNotableTags, RoomStateFilter, SessionMeta,
 };
 #[cfg(feature = "e2e-encryption")]
@@ -779,7 +779,7 @@ impl BaseClient {
 
         let push_rules = self.get_push_rules(&changes).await?;
 
-        let mut new_rooms = Rooms::default();
+        let mut new_rooms = RoomUpdates::default();
         let mut notifications = Default::default();
 
         for (room_id, new_info) in response.rooms.join {
