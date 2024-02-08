@@ -23,7 +23,7 @@ use std::{
 use eyeball_im::{ObservableVector, ObservableVectorTransaction, ObservableVectorTransactionEntry};
 use indexmap::IndexMap;
 use matrix_sdk::{deserialized_responses::SyncTimelineEvent, sync::Timeline};
-use matrix_sdk_base::{deserialized_responses::TimelineEvent, sync::JoinedRoom};
+use matrix_sdk_base::{deserialized_responses::TimelineEvent, sync::JoinedRoomUpdate};
 #[cfg(test)]
 use ruma::events::receipt::ReceiptEventContent;
 use ruma::{
@@ -113,7 +113,7 @@ impl TimelineInnerState {
     #[instrument(skip_all)]
     pub(super) async fn handle_joined_room_update<P: RoomDataProvider>(
         &mut self,
-        update: JoinedRoom,
+        update: JoinedRoomUpdate,
         room_data_provider: &P,
         settings: &TimelineInnerSettings,
     ) {

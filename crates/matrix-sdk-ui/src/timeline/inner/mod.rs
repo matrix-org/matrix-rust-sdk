@@ -26,7 +26,7 @@ use itertools::Itertools;
 use matrix_sdk::crypto::OlmMachine;
 use matrix_sdk::{
     deserialized_responses::{SyncTimelineEvent, TimelineEvent},
-    sync::JoinedRoom,
+    sync::JoinedRoomUpdate,
     Error, Result, Room,
 };
 #[cfg(test)]
@@ -428,7 +428,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         self.state.write().await.clear();
     }
 
-    pub(super) async fn handle_joined_room_update(&self, update: JoinedRoom) {
+    pub(super) async fn handle_joined_room_update(&self, update: JoinedRoomUpdate) {
         let mut state = self.state.write().await;
         state.handle_joined_room_update(update, &self.room_data_provider, &self.settings).await;
     }

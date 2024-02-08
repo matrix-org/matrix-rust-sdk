@@ -84,14 +84,14 @@ pub enum RoomUpdate {
         /// Room object with general information on the room.
         room: Room,
         /// Updates to the room.
-        updates: LeftRoom,
+        updates: LeftRoomUpdate,
     },
     /// Updates to a room the user is currently in.
     Joined {
         /// Room object with general information on the room.
         room: Room,
         /// Updates to the room.
-        updates: JoinedRoom,
+        updates: JoinedRoomUpdate,
     },
     /// Updates to a room the user is invited to.
     Invited {
@@ -167,7 +167,7 @@ impl Client {
                 updates: room_info.clone(),
             });
 
-            let JoinedRoom {
+            let JoinedRoomUpdate {
                 unread_notifications: _,
                 timeline,
                 state,
@@ -196,7 +196,7 @@ impl Client {
                 updates: room_info.clone(),
             });
 
-            let LeftRoom { timeline, state, account_data, ambiguity_changes: _ } = room_info;
+            let LeftRoomUpdate { timeline, state, account_data, ambiguity_changes: _ } = room_info;
 
             let room = Some(&room);
             self.handle_sync_events(HandlerKind::RoomAccountData, room, account_data).await?;

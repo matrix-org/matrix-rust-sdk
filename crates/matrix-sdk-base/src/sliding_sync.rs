@@ -40,7 +40,7 @@ use crate::{
     read_receipts::{compute_unread_counts, PreviousEventsProvider},
     rooms::RoomState,
     store::{ambiguity_map::AmbiguityCache, StateChanges, Store},
-    sync::{JoinedRoom, LeftRoom, Notification, RoomUpdates, SyncResponse},
+    sync::{JoinedRoomUpdate, LeftRoomUpdate, Notification, RoomUpdates, SyncResponse},
     Room, RoomInfo,
 };
 
@@ -204,7 +204,7 @@ impl BaseClient {
             new_rooms
                 .join
                 .entry(room_id.to_owned())
-                .or_insert_with(JoinedRoom::default)
+                .or_insert_with(JoinedRoomUpdate::default)
                 .ephemeral
                 .push(raw.clone().cast());
         }
@@ -214,7 +214,7 @@ impl BaseClient {
             new_rooms
                 .join
                 .entry(room_id.to_owned())
-                .or_insert_with(JoinedRoom::default)
+                .or_insert_with(JoinedRoomUpdate::default)
                 .ephemeral
                 .push(raw.clone().cast());
         }
@@ -228,13 +228,13 @@ impl BaseClient {
                     RoomState::Joined => new_rooms
                         .join
                         .entry(room_id.to_owned())
-                        .or_insert_with(JoinedRoom::default)
+                        .or_insert_with(JoinedRoomUpdate::default)
                         .account_data
                         .append(&mut raw.to_vec()),
                     RoomState::Left => new_rooms
                         .leave
                         .entry(room_id.to_owned())
-                        .or_insert_with(LeftRoom::default)
+                        .or_insert_with(LeftRoomUpdate::default)
                         .account_data
                         .append(&mut raw.to_vec()),
                     RoomState::Invited => {}
@@ -315,7 +315,8 @@ impl BaseClient {
         changes: &mut StateChanges,
         notifications: &mut BTreeMap<OwnedRoomId, Vec<Notification>>,
         ambiguity_cache: &mut AmbiguityCache,
-    ) -> Result<(RoomInfo, Option<JoinedRoom>, Option<LeftRoom>, Option<InvitedRoom>)> {
+    ) -> Result<(RoomInfo, Option<JoinedRoomUpdate>, Option<LeftRoomUpdate>, Option<InvitedRoom>)>
+    {
         let (raw_state_events, state_events): (Vec<_>, Vec<_>) = {
             let mut state_events = Vec::new();
 
@@ -417,7 +418,7 @@ impl BaseClient {
 
                 Ok((
                     room_info,
-                    Some(JoinedRoom::new(
+                    Some(JoinedRoomUpdate::new(
                         timeline,
                         raw_state_events,
                         room_account_data.unwrap_or_default(),
@@ -433,7 +434,7 @@ impl BaseClient {
             RoomState::Left => Ok((
                 room_info,
                 None,
-                Some(LeftRoom::new(
+                Some(LeftRoomUpdate::new(
                     timeline,
                     raw_state_events,
                     room_account_data.unwrap_or_default(),
