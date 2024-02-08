@@ -148,3 +148,9 @@ impl RoomMember {
         RoomMember { inner: room_member }
     }
 }
+
+#[uniffi::export]
+pub fn suggested_role_for_power_level(power_level: i64) -> RoomMemberRole {
+    // It's not possible to expose the constructor on the Enum through Uniffi ☹️
+    RoomMemberRole::suggested_role_for_power_level(power_level)
+}

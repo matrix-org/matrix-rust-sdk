@@ -105,7 +105,7 @@ pub enum RoomMemberRole {
 
 impl RoomMemberRole {
     /// Creates the suggested role for a given power level.
-    fn suggested_role_for_power_level(power_level: i64) -> Self {
+    pub fn suggested_role_for_power_level(power_level: i64) -> Self {
         if power_level >= 100 {
             Self::Administrator
         } else if power_level >= 50 {
