@@ -18,7 +18,7 @@ use eyeball::SharedObservable;
 use futures_util::{pin_mut, StreamExt};
 use imbl::Vector;
 use matrix_sdk::{deserialized_responses::SyncTimelineEvent, executor::spawn, Room};
-use matrix_sdk_base::sync::JoinedRoom;
+use matrix_sdk_base::sync::JoinedRoomUpdate;
 use ruma::{
     events::{receipt::ReceiptType, AnySyncTimelineEvent},
     RoomVersionId,
@@ -206,7 +206,7 @@ impl TimelineBuilder {
                                 prev_batch,
                                 events,
                             };
-                            let update = JoinedRoom {
+                            let update = JoinedRoomUpdate {
                                 unread_notifications: Default::default(),
                                 timeline,
                                 state: Default::default(),

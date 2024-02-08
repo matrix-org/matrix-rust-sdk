@@ -67,7 +67,7 @@ use crate::{
         ambiguity_map::AmbiguityCache, DynStateStore, MemoryStore, Result as StoreResult,
         StateChanges, StateStoreDataKey, StateStoreDataValue, StateStoreExt, Store, StoreConfig,
     },
-    sync::{JoinedRoom, LeftRoom, Notification, RoomUpdates, SyncResponse, Timeline},
+    sync::{JoinedRoomUpdate, LeftRoomUpdate, Notification, RoomUpdates, SyncResponse, Timeline},
     RoomNotableTags, RoomStateFilter, SessionMeta,
 };
 #[cfg(feature = "e2e-encryption")]
@@ -867,7 +867,7 @@ impl BaseClient {
 
             new_rooms.join.insert(
                 room_id,
-                JoinedRoom::new(
+                JoinedRoomUpdate::new(
                     timeline,
                     new_info.state.events,
                     new_info.account_data.events,
@@ -923,7 +923,7 @@ impl BaseClient {
             changes.add_room(room_info);
             new_rooms.leave.insert(
                 room_id,
-                LeftRoom::new(
+                LeftRoomUpdate::new(
                     timeline,
                     new_info.state.events,
                     new_info.account_data.events,
