@@ -14,6 +14,7 @@
 
 use std::{collections::HashMap, sync::Arc};
 
+use matrix_sdk::room::power_levels::power_level_user_changes;
 use matrix_sdk_ui::timeline::{PollResult, TimelineDetails};
 use tracing::warn;
 
@@ -307,7 +308,7 @@ pub enum OtherState {
     RoomJoinRules,
     RoomName { name: Option<String> },
     RoomPinnedEvents,
-    RoomPowerLevels,
+    RoomPowerLevels { users: HashMap<String, i64> },
     RoomServerAcl,
     RoomThirdPartyInvite { display_name: Option<String> },
     RoomTombstone,
@@ -350,7 +351,18 @@ impl From<&matrix_sdk_ui::timeline::AnyOtherFullStateEventContent> for OtherStat
                 Self::RoomName { name }
             }
             Content::RoomPinnedEvents(_) => Self::RoomPinnedEvents,
-            Content::RoomPowerLevels(_) => Self::RoomPowerLevels,
+            Content::RoomPowerLevels(c) => {
+                let changes = match c {
+                    FullContent::Original { content, prev_content } => {
+                        power_level_user_changes(content, prev_content)
+                            .iter()
+                            .map(|(k, v)| (k.to_string(), *v))
+                            .collect()
+                    }
+                    FullContent::Redacted(_) => Default::default(),
+                };
+                Self::RoomPowerLevels { users: changes }
+            }
             Content::RoomServerAcl(_) => Self::RoomServerAcl,
             Content::RoomThirdPartyInvite(c) => {
                 let display_name = match c {

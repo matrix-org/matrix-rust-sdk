@@ -1,6 +1,17 @@
 //! Power level configuration types used in [the `room` module][super].
 
-use ruma::events::{room::power_levels::RoomPowerLevels, StateEventType};
+use std::collections::HashMap;
+
+use ruma::{
+    events::{
+        room::power_levels::{
+            PossiblyRedactedRoomPowerLevelsEventContent, RoomPowerLevels,
+            RoomPowerLevelsEventContent,
+        },
+        StateEventType,
+    },
+    OwnedUserId,
+};
 
 use crate::Result;
 
@@ -150,6 +161,40 @@ impl From<js_int::TryFromIntError> for crate::error::Error {
     }
 }
 
+/// Checks for changes in the power levels of users in a room based on a new
+/// event.
+pub fn power_level_user_changes(
+    content: &RoomPowerLevelsEventContent,
+    prev_content: &Option<PossiblyRedactedRoomPowerLevelsEventContent>,
+) -> HashMap<OwnedUserId, i64> {
+    let Some(prev_content) = prev_content.as_ref() else {
+        return Default::default();
+    };
+
+    let mut changes = HashMap::new();
+    let mut prev_users = prev_content.users.clone();
+    let new_users = content.users.clone();
+
+    // If a user is in the new power levels, but not in the old ones, or if the
+    // power level has changed, add them to the changes.
+    for (user_id, power_level) in new_users {
+        let prev_power_level = prev_users.remove(&user_id).unwrap_or(prev_content.users_default);
+        if power_level != prev_power_level {
+            changes.insert(user_id, power_level.into());
+        }
+    }
+
+    // Any remaining users from the old power levels have had their power level set
+    // back to default.
+    for (user_id, power_level) in prev_users {
+        if power_level != content.users_default {
+            changes.insert(user_id, content.users_default.into());
+        }
+    }
+
+    changes
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
@@ -290,7 +335,103 @@ mod tests {
         assert_eq!(power_levels.users_default, original_levels.users_default);
     }
 
+    #[test]
+    fn test_user_power_level_changes_add_mod() {
+        // Given a set of power levels and a new set of power levels that adds a new
+        // moderator.
+        let prev_content = default_power_levels_event_content();
+        let mut content = prev_content.clone();
+        content.users.insert(OwnedUserId::try_from("@charlie:example.com").unwrap(), int!(50));
+
+        // When calculating the changes.
+        let changes = power_level_user_changes(&content, &Some(prev_content));
+
+        // Then the changes should reflect the new moderator.
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes.get(&OwnedUserId::try_from("@charlie:example.com").unwrap()), Some(&50));
+    }
+
+    #[test]
+    fn test_user_power_level_changes_remove_mod() {
+        // Given a set of power levels and a new set of power levels that removes a
+        // moderator.
+        let prev_content = default_power_levels_event_content();
+        let mut content = prev_content.clone();
+        content.users.remove(&OwnedUserId::try_from("@bob:example.com").unwrap());
+
+        // When calculating the changes.
+        let changes = power_level_user_changes(&content, &Some(prev_content));
+
+        // Then the changes should reflect the removed moderator.
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes.get(&OwnedUserId::try_from("@bob:example.com").unwrap()), Some(&0));
+    }
+
+    #[test]
+    fn test_user_power_level_changes_change_mod() {
+        // Given a set of power levels and a new set of power levels that changes a
+        // moderator to an admin.
+        let prev_content = default_power_levels_event_content();
+        let mut content = prev_content.clone();
+        content.users.insert(OwnedUserId::try_from("@bob:example.com").unwrap(), int!(100));
+
+        // When calculating the changes.
+        let changes = power_level_user_changes(&content, &Some(prev_content));
+
+        // Then the changes should reflect the new admin.
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes.get(&OwnedUserId::try_from("@bob:example.com").unwrap()), Some(&100));
+    }
+
+    #[test]
+    fn test_user_power_level_changes_new_default() {
+        // Given a set of power levels and a new set of power levels that changes the
+        // default user power level to moderator and removes the only moderator.
+        let prev_content = default_power_levels_event_content();
+        let mut content = prev_content.clone();
+        content.users_default = int!(50);
+        content.users.remove(&OwnedUserId::try_from("@bob:example.com").unwrap());
+
+        // When calculating the changes.
+        let changes = power_level_user_changes(&content, &Some(prev_content));
+
+        // Then there should be no changes.
+        assert!(changes.is_empty());
+    }
+
+    #[test]
+    fn test_user_power_level_changes_no_change() {
+        // Given a set of power levels and a new set of power levels that's the same.
+        let prev_content = default_power_levels_event_content();
+        let content = prev_content.clone();
+
+        // When calculating the changes.
+        let changes = power_level_user_changes(&content, &Some(prev_content));
+
+        // Then there should be no changes.
+        assert!(changes.is_empty());
+    }
+
+    #[test]
+    fn test_user_power_level_changes_other_properties() {
+        // Given a set of power levels and a new set of power levels with changes that
+        // don't include the user power levels.
+        let prev_content = default_power_levels_event_content();
+        let mut content = prev_content.clone();
+        content.events_default = int!(100);
+
+        // When calculating the changes.
+        let changes = power_level_user_changes(&content, &Some(prev_content));
+
+        // Then there should be no changes.
+        assert!(changes.is_empty());
+    }
+
     fn default_power_levels() -> RoomPowerLevels {
+        default_power_levels_event_content().into()
+    }
+
+    fn default_power_levels_event_content() -> RoomPowerLevelsEventContent {
         let mut content = RoomPowerLevelsEventContent::new();
         content.ban = int!(50);
         content.invite = int!(50);
@@ -299,7 +440,11 @@ mod tests {
         content.events_default = int!(0);
         content.state_default = int!(50);
         content.users_default = int!(0);
+        content.users = BTreeMap::from_iter(vec![
+            (OwnedUserId::try_from("@alice:example.com").unwrap(), int!(100)),
+            (OwnedUserId::try_from("@bob:example.com").unwrap(), int!(50)),
+        ]);
         content.notifications = NotificationPowerLevels::default();
-        content.into()
+        content
     }
 }
