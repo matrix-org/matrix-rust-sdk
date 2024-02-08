@@ -1268,8 +1268,7 @@ impl RoomStateFilter {
 #[cfg(test)]
 mod tests {
     use std::{
-        collections::BTreeMap,
-        ops::Sub,
+        ops::{Not, Sub},
         str::FromStr,
         sync::Arc,
         time::{Duration, SystemTime},
@@ -1464,51 +1463,145 @@ mod tests {
         assert!(info.base_info.topic.is_none());
     }
 
-    /*
     #[async_test]
-    async fn when_set_notable_tags_is_called_then_notable_tags_subscriber_is_updated() {
-        let (_, room) = make_room(RoomState::Joined);
-        let (_, mut notable_tags_subscriber) = room.notable_tags_stream().await;
+    async fn test_is_favourite() {
+        // Given a room,
+        let client = BaseClient::new();
 
-        stream_assert::assert_pending!(notable_tags_subscriber);
+        client
+            .set_session_meta(SessionMeta {
+                user_id: user_id!("@alice:example.org").into(),
+                device_id: ruma::device_id!("AYEAYEAYE").into(),
+            })
+            .await
+            .unwrap();
 
-        let notable_tags = RoomNotableTags::new(None);
-        room.set_notable_tags(notable_tags);
+        let room_id = room_id!("!test:localhost");
+        let room = client.get_or_create_room(room_id, RoomState::Joined);
 
-        use futures_util::FutureExt as _;
-        assert!(notable_tags_subscriber.next().now_or_never().is_some());
-        stream_assert::assert_pending!(notable_tags_subscriber);
-    }
+        // Sanity checks to ensure the room isn't marked as favourite.
+        assert!(room.is_favourite().not());
 
-    #[test]
-    fn when_tags_has_favorite_tag_then_notable_tags_is_favorite_is_true() {
-        let tags = BTreeMap::from([(TagName::Favorite, TagInfo::new())]);
-        let notable_tags = RoomNotableTags::new(Some(tags));
-        assert!(notable_tags.is_favorite);
-    }
+        // Subscribe to the `RoomInfo`.
+        let mut room_info_subscriber = room.subscribe_info();
 
-    #[test]
-    fn when_tags_has_no_tags_then_notable_tags_is_favorite_is_false() {
-        let notable_tags = RoomNotableTags::new(None);
-        assert!(!notable_tags.is_favorite);
+        assert_pending!(room_info_subscriber);
+
+        // Create the tag.
+        let tag_raw = Raw::new(&json!({
+            "content": {
+                "tags": {
+                    "m.favourite": {
+                        "order": 0.0
+                    },
+                },
+            },
+            "type": "m.tag",
+        }))
+        .unwrap()
+        .cast();
+
+        // When the new tag is handled and applied.
+        let mut changes = StateChanges::default();
+        client.handle_room_account_data(room_id, &[tag_raw], &mut changes).await;
+        client.apply_changes(&changes);
+
+        // The `RoomInfo` is getting notified.
+        assert_ready!(room_info_subscriber);
+        assert_pending!(room_info_subscriber);
+
+        // The room is now marked as favourite.
+        assert!(room.is_favourite());
+
+        // Now, let's remove the tag.
+        let tag_raw = Raw::new(&json!({
+            "content": {
+                "tags": {},
+            },
+            "type": "m.tag"
+        }))
+        .unwrap()
+        .cast();
+        client.handle_room_account_data(room_id, &[tag_raw], &mut changes).await;
+        client.apply_changes(&changes);
+
+        // The `RoomInfo` is getting notified.
+        assert_ready!(room_info_subscriber);
+        assert_pending!(room_info_subscriber);
+
+        // The room is now marked as _not_ favourite.
+        assert!(room.is_favourite().not());
     }
 
     #[async_test]
-    async fn when_tags_are_inserted_in_room_account_data_then_initial_notable_tags_is_updated() {
-        let (store, room) = make_room(RoomState::Joined);
-        let mut changes = StateChanges::new("".to_owned());
+    async fn test_is_low_priority() {
+        // Given a room,
+        let client = BaseClient::new();
 
-        let tag_json: &Value = &test_json::TAG;
-        let tag_raw = Raw::new(tag_json).unwrap().cast();
-        let tag_event = tag_raw.deserialize().unwrap();
-        changes.add_room_account_data(room.room_id(), tag_event, tag_raw);
+        client
+            .set_session_meta(SessionMeta {
+                user_id: user_id!("@alice:example.org").into(),
+                device_id: ruma::device_id!("AYEAYEAYE").into(),
+            })
+            .await
+            .unwrap();
 
-        store.save_changes(&changes).await.unwrap();
+        let room_id = room_id!("!test:localhost");
+        let room = client.get_or_create_room(room_id, RoomState::Joined);
 
-        let (initial_notable_tags, _) = room.notable_tags_stream().await;
-        assert!(initial_notable_tags.is_favorite);
+        // Sanity checks to ensure the room isn't marked as low priority.
+        assert!(!room.is_low_priority());
+
+        // Subscribe to the `RoomInfo`.
+        let mut room_info_subscriber = room.subscribe_info();
+
+        assert_pending!(room_info_subscriber);
+
+        // Create the tag.
+        let tag_raw = Raw::new(&json!({
+            "content": {
+                "tags": {
+                    "m.lowpriority": {
+                        "order": 0.0
+                    },
+                }
+            },
+            "type": "m.tag"
+        }))
+        .unwrap()
+        .cast();
+
+        // When the new tag is handled and applied.
+        let mut changes = StateChanges::default();
+        client.handle_room_account_data(room_id, &[tag_raw], &mut changes).await;
+        client.apply_changes(&changes);
+
+        // The `RoomInfo` is getting notified.
+        assert_ready!(room_info_subscriber);
+        assert_pending!(room_info_subscriber);
+
+        // The room is now marked as low priority.
+        assert!(room.is_low_priority());
+
+        // Now, let's remove the tag.
+        let tag_raw = Raw::new(&json!({
+            "content": {
+                "tags": {},
+            },
+            "type": "m.tag"
+        }))
+        .unwrap()
+        .cast();
+        client.handle_room_account_data(room_id, &[tag_raw], &mut changes).await;
+        client.apply_changes(&changes);
+
+        // The `RoomInfo` is getting notified.
+        assert_ready!(room_info_subscriber);
+        assert_pending!(room_info_subscriber);
+
+        // The room is now marked as _not_ low priority.
+        assert!(room.is_low_priority().not());
     }
-    */
 
     fn make_room(room_type: RoomState) -> (Arc<MemoryStore>, Room) {
         let store = Arc::new(MemoryStore::new());

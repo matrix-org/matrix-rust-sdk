@@ -562,7 +562,11 @@ impl RoomMemberships {
 
 #[cfg(test)]
 mod tests {
-    use super::{calculate_room_name, DisplayName};
+    use std::ops::Not;
+
+    use ruma::events::tag::{TagInfo, TagName, Tags};
+
+    use super::{calculate_room_name, BaseRoomInfo, DisplayName, RoomNotableTags};
 
     #[test]
     fn test_calculate_room_name() {
@@ -595,5 +599,35 @@ mod tests {
 
         actual = calculate_room_name(1, 0, vec!["a", "b", "c"]);
         assert_eq!(DisplayName::EmptyWas("a, b, c".to_owned()), actual);
+    }
+
+    #[test]
+    fn test_handle_notable_tags_favourite() {
+        let mut base_room_info = BaseRoomInfo::default();
+
+        let mut tags = Tags::new();
+        tags.insert(TagName::Favorite, TagInfo::default());
+
+        assert!(base_room_info.notable_tags.contains(RoomNotableTags::FAVOURITE).not());
+        base_room_info.handle_notable_tags(&tags);
+        assert!(base_room_info.notable_tags.contains(RoomNotableTags::FAVOURITE));
+        tags.clear();
+        base_room_info.handle_notable_tags(&tags);
+        assert!(base_room_info.notable_tags.contains(RoomNotableTags::FAVOURITE).not());
+    }
+
+    #[test]
+    fn test_handle_notable_tags_low_priority() {
+        let mut base_room_info = BaseRoomInfo::default();
+
+        let mut tags = Tags::new();
+        tags.insert(TagName::LowPriority, TagInfo::default());
+
+        assert!(base_room_info.notable_tags.contains(RoomNotableTags::LOW_PRIORITY).not());
+        base_room_info.handle_notable_tags(&tags);
+        assert!(base_room_info.notable_tags.contains(RoomNotableTags::LOW_PRIORITY));
+        tags.clear();
+        base_room_info.handle_notable_tags(&tags);
+        assert!(base_room_info.notable_tags.contains(RoomNotableTags::LOW_PRIORITY).not());
     }
 }
