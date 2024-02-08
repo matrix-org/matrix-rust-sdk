@@ -30,7 +30,7 @@ impl Client {
         let response = self.base_client().process_sliding_sync(response, &()).await?;
 
         tracing::debug!("done processing on base_client");
-        self.handle_sync_response(&response).await?;
+        self.call_sync_response_handlers(&response).await?;
 
         Ok(response)
     }
@@ -95,7 +95,7 @@ impl<'a> SlidingSyncResponseProcessor<'a> {
 
         response.to_device.extend(self.to_device_events);
 
-        self.client.handle_sync_response(&response).await?;
+        self.client.call_sync_response_handlers(&response).await?;
 
         Ok(response)
     }
