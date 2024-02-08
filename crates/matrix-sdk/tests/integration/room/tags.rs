@@ -81,20 +81,20 @@ async fn synced_client_with_room(
 }
 
 #[async_test]
-async fn when_set_is_favorite_is_run_with_true_then_set_tag_api_is_called() {
+async fn when_set_is_favourite_is_run_with_true_then_set_tag_api_is_called() {
     let room_id = room_id!("!test:example.org");
     let mut ev_builder = SyncResponseBuilder::new();
     let (_client, room, server) = synced_client_with_room(&mut ev_builder, room_id).await;
 
     mock_tag_api(&server, TagName::Favorite, TagOperation::Set, 1).await;
 
-    room.set_is_favorite(true, Option::default()).await.unwrap();
+    room.set_is_favourite(true, Option::default()).await.unwrap();
 
     server.verify().await;
 }
 
 #[async_test]
-async fn when_set_is_favorite_is_run_with_true_and_low_priority_tag_was_set_then_set_tag_and_remove_tag_apis_are_called(
+async fn when_set_is_favourite_is_run_with_true_and_low_priority_tag_was_set_then_set_tag_and_remove_tag_apis_are_called(
 ) {
     let room_id = room_id!("!test:example.org");
     let mut ev_builder = SyncResponseBuilder::new();
@@ -106,20 +106,20 @@ async fn when_set_is_favorite_is_run_with_true_and_low_priority_tag_was_set_then
     mock_tag_api(&server, TagName::Favorite, TagOperation::Set, 1).await;
     mock_tag_api(&server, TagName::LowPriority, TagOperation::Remove, 1).await;
 
-    room.set_is_favorite(true, Option::default()).await.unwrap();
+    room.set_is_favourite(true, Option::default()).await.unwrap();
 
     server.verify().await;
 }
 
 #[async_test]
-async fn when_set_is_favorite_is_run_with_false_then_delete_tag_api_is_called() {
+async fn when_set_is_favourite_is_run_with_false_then_delete_tag_api_is_called() {
     let room_id = room_id!("!test:example.org");
     let mut ev_builder = SyncResponseBuilder::new();
     let (_client, room, server) = synced_client_with_room(&mut ev_builder, room_id).await;
 
     mock_tag_api(&server, TagName::Favorite, TagOperation::Remove, 1).await;
 
-    room.set_is_favorite(false, Option::default()).await.unwrap();
+    room.set_is_favourite(false, Option::default()).await.unwrap();
 
     server.verify().await;
 }
@@ -169,14 +169,12 @@ async fn when_set_is_low_priority_is_run_with_false_then_delete_tag_api_is_calle
 }
 
 #[async_test]
-async fn when_favorite_tag_is_set_in_sync_response_then_notable_tags_is_favorite_is_true() {
+async fn when_favorite_tag_is_set_in_sync_response_then_notable_tags_is_favourite_is_true() {
     let room_id = room_id!("!test:example.org");
     let mut ev_builder = SyncResponseBuilder::new();
     let (client, room, server) = synced_client_with_room(&mut ev_builder, room_id).await;
 
-    let (initial_notable_tags, mut notable_tags_stream) = room.notable_tags_stream().await;
-
-    assert!(!initial_notable_tags.is_favorite);
+    assert!(!room.is_favourite());
 
     // Ensure the notable tags stream is updated when the favorite tag is set on
     // sync
@@ -184,7 +182,7 @@ async fn when_favorite_tag_is_set_in_sync_response_then_notable_tags_is_favorite
     mock_sync_with_tags(&server, &mut ev_builder, room_id, tags).await;
     sync_once(&client, &server).await;
 
-    assert!(notable_tags_stream.next().await.unwrap().is_favorite);
+    assert!(room.is_favourite());
 }
 
 #[async_test]
@@ -193,9 +191,7 @@ async fn when_low_priority_tag_is_set_in_sync_response_then_notable_tags_is_low_
     let mut ev_builder = SyncResponseBuilder::new();
     let (client, room, server) = synced_client_with_room(&mut ev_builder, room_id).await;
 
-    let (initial_notable_tags, mut notable_tags_stream) = room.notable_tags_stream().await;
-
-    assert!(!initial_notable_tags.is_low_priority);
+    assert!(!room.is_low_priority());
 
     // Ensure the notable tags stream is updated when the low_priority tag is set on
     // sync
@@ -203,5 +199,5 @@ async fn when_low_priority_tag_is_set_in_sync_response_then_notable_tags_is_low_
     mock_sync_with_tags(&server, &mut ev_builder, room_id, tags).await;
     sync_once(&client, &server).await;
 
-    assert!(notable_tags_stream.next().await.unwrap().is_low_priority);
+    assert!(room.is_low_priority());
 }

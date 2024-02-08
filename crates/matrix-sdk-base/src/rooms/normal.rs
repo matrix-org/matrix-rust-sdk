@@ -1277,7 +1277,7 @@ mod tests {
     use assign::assign;
     #[cfg(feature = "experimental-sliding-sync")]
     use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
-    use matrix_sdk_test::{async_test, test_json, ALICE, BOB, CAROL};
+    use matrix_sdk_test::{async_test, ALICE, BOB, CAROL};
     use ruma::{
         api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
         events::{
@@ -1293,14 +1293,14 @@ mod tests {
                 },
                 name::RoomNameEventContent,
             },
-            tag::{TagInfo, TagName},
             AnySyncStateEvent, StateEventType, StateUnsigned, SyncStateEvent,
         },
         room_alias_id, room_id,
         serde::Raw,
         user_id, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId, UserId,
     };
-    use serde_json::{json, Value};
+    use serde_json::json;
+    use stream_assert::{assert_pending, assert_ready};
 
     #[cfg(feature = "experimental-sliding-sync")]
     use super::SyncInfo;
@@ -1309,7 +1309,7 @@ mod tests {
     use crate::latest_event::LatestEvent;
     use crate::{
         store::{MemoryStore, StateChanges, StateStore},
-        DisplayName, MinimalStateEvent, OriginalMinimalStateEvent,
+        BaseClient, DisplayName, MinimalStateEvent, OriginalMinimalStateEvent, SessionMeta,
     };
 
     #[test]
@@ -1870,10 +1870,11 @@ mod tests {
     #[cfg(feature = "experimental-sliding-sync")]
     async fn test_setting_the_latest_event_doesnt_cause_a_room_info_update() {
         // Given a room,
-        let client = crate::BaseClient::new();
+
+        let client = BaseClient::new();
 
         client
-            .set_session_meta(crate::SessionMeta {
+            .set_session_meta(SessionMeta {
                 user_id: user_id!("@alice:example.org").into(),
                 device_id: ruma::device_id!("AYEAYEAYE").into(),
             })
@@ -1898,16 +1899,15 @@ mod tests {
         room.on_latest_event_decrypted(event.clone(), 0, &mut changes);
 
         // The subscriber isn't notified at this point.
-        stream_assert::assert_pending!(room_info_subscriber);
+        assert_pending!(room_info_subscriber);
 
         // Then updating the room info will store the event,
         client.apply_changes(&changes);
         assert_eq!(room.latest_event().unwrap().event_id(), event.event_id());
 
         // And wake up the subscriber.
-        use futures_util::FutureExt as _;
-        assert!(room_info_subscriber.next().now_or_never().is_some());
-        stream_assert::assert_pending!(room_info_subscriber);
+        assert_ready!(room_info_subscriber);
+        assert_pending!(room_info_subscriber);
     }
 
     #[test]
