@@ -124,6 +124,8 @@ impl fmt::Debug for RoomUpdate {
 /// Internal functionality related to getting events from the server
 /// (`sync_events` endpoint)
 impl Client {
+    /// Receive a sync response, compute extra information out of it and store
+    /// the interesting bits in the database, then call all the handlers.
     pub(crate) async fn process_sync(
         &self,
         response: sync_events::v3::Response,
@@ -135,6 +137,7 @@ impl Client {
         self.encryption().backups().maybe_trigger_backup();
 
         self.handle_sync_response(&response).await?;
+
         Ok(response)
     }
 
