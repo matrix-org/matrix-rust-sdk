@@ -30,6 +30,7 @@ use ruma::{
             tombstone::RoomTombstoneEventContent,
             topic::RoomTopicEventContent,
         },
+        tag::{TagName, Tags},
         AnyStrippedStateEvent, AnySyncStateEvent, EmptyStateKey, RedactContent,
         RedactedStateEventContent, StaticStateEventContent, SyncStateEvent,
     },
@@ -107,6 +108,12 @@ pub struct BaseRoomInfo {
     // Whether this room has been manually marked as unread
     #[serde(default)]
     pub(crate) is_marked_unread: bool,
+    /// Some notable tags.
+    ///
+    /// We are not interested by all the tags. Some tags are more important than
+    /// others, and this field collects them.
+    #[serde(skip_serializing_if = "NotableTags::is_empty", default)]
+    pub(crate) notable_tags: NotableTags,
 }
 
 impl BaseRoomInfo {
@@ -288,6 +295,36 @@ impl BaseRoomInfo {
             self.rtc_member.retain(|_, member_event| member_event.event_id() != Some(redacts));
         }
     }
+
+    pub fn handle_notable_tags(&mut self, tags: &Tags) {
+        let mut notable_tags = NotableTags::empty();
+
+        if tags.contains_key(&TagName::Favorite) {
+            notable_tags.insert(NotableTags::FAVOURITE);
+        }
+
+        if tags.contains_key(&TagName::LowPriority) {
+            notable_tags.insert(NotableTags::LOW_PRIORITY);
+        }
+
+        self.notable_tags = notable_tags;
+    }
+}
+
+bitflags! {
+    /// Notable tags, i.e. subset of tags that we are more interested by.
+    ///
+    /// We are not interested by all the tags. Some tags are more important than
+    /// others, and this struct describe them.
+    #[repr(transparent)]
+    #[derive(Debug, Default, Clone, Copy, Deserialize, Serialize)]
+    pub struct NotableTags: u8 {
+        /// The `m.favourite` tag.
+        const FAVOURITE = 0b0000_0001;
+
+        /// THe `m.lowpriority` tag.
+        const LOW_PRIORITY = 0b0000_0010;
+    }
 }
 
 trait OptionExt {
@@ -321,6 +358,7 @@ impl Default for BaseRoomInfo {
             topic: None,
             rtc_member: BTreeMap::new(),
             is_marked_unread: false,
+            notable_tags: NotableTags::empty(),
         }
     }
 }

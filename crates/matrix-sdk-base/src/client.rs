@@ -542,7 +542,7 @@ impl BaseClient {
         //
         // It finds the appropriate `RoomInfo`, allowing the caller to modify it, and
         // save it in the correct place.
-        fn on_rooms_infos<F>(
+        fn on_room_info<F>(
             room_id: &RoomId,
             changes: &mut StateChanges,
             client: &BaseClient,
@@ -568,14 +568,21 @@ impl BaseClient {
             }
         }
 
+        // Handle new events.
         for raw_event in events {
             if let Ok(event) = raw_event.deserialize() {
                 changes.add_room_account_data(room_id, event.clone(), raw_event.clone());
 
                 match event {
                     AnyRoomAccountDataEvent::MarkedUnread(event) => {
-                        on_rooms_infos(room_id, changes, self, |room_info| {
+                        on_room_info(room_id, changes, self, |room_info| {
                             room_info.base_info.is_marked_unread = event.content.unread;
+                        });
+                    }
+
+                    AnyRoomAccountDataEvent::Tag(event) => {
+                        on_room_info(room_id, changes, self, |room_info| {
+                            room_info.base_info.handle_notable_tags(&event.content.tags);
                         });
                     }
 
