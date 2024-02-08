@@ -271,6 +271,24 @@ impl Room {
         })))
     }
 
+    pub async fn set_is_favorite(
+        &self,
+        is_favorite: bool,
+        tag_order: Option<f64>,
+    ) -> Result<(), ClientError> {
+        self.inner.set_is_favorite(is_favorite, tag_order).await?;
+        Ok(())
+    }
+
+    pub async fn set_is_low_priority(
+        &self,
+        is_low_priority: bool,
+        tag_order: Option<f64>,
+    ) -> Result<(), ClientError> {
+        self.inner.set_is_low_priority(is_low_priority, tag_order).await?;
+        Ok(())
+    }
+
     /// Redacts an event from the room.
     ///
     /// # Arguments
