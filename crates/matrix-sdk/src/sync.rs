@@ -43,7 +43,7 @@ pub struct SyncResponse {
     /// request.
     pub next_batch: String,
     /// Updates to rooms.
-    pub rooms: Rooms,
+    pub rooms: RoomUpdates,
     /// Updates to the presence status of other users.
     pub presence: Vec<Raw<PresenceEvent>>,
     /// The global private data created by this user.

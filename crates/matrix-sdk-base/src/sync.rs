@@ -43,7 +43,7 @@ use crate::{
 #[derive(Clone, Default)]
 pub struct SyncResponse {
     /// Updates to rooms.
-    pub rooms: Rooms,
+    pub rooms: RoomUpdates,
     /// Updates to the presence status of other users.
     pub presence: Vec<Raw<PresenceEvent>>,
     /// The global private data created by this user.
@@ -68,7 +68,7 @@ impl fmt::Debug for SyncResponse {
 
 /// Updates to rooms in a [`SyncResponse`].
 #[derive(Clone, Default)]
-pub struct Rooms {
+pub struct RoomUpdates {
     /// The rooms that the user has left or been banned from.
     pub leave: BTreeMap<OwnedRoomId, LeftRoom>,
     /// The rooms that the user has joined.
@@ -78,7 +78,7 @@ pub struct Rooms {
 }
 
 #[cfg(not(tarpaulin_include))]
-impl fmt::Debug for Rooms {
+impl fmt::Debug for RoomUpdates {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Rooms")
             .field("leave", &self.leave)

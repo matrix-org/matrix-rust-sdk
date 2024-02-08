@@ -40,7 +40,7 @@ use crate::{
     read_receipts::{compute_unread_counts, PreviousEventsProvider},
     rooms::RoomState,
     store::{ambiguity_map::AmbiguityCache, StateChanges, Store},
-    sync::{JoinedRoom, LeftRoom, Notification, Rooms, SyncResponse},
+    sync::{JoinedRoom, LeftRoom, Notification, RoomUpdates, SyncResponse},
     Room, RoomInfo,
 };
 
@@ -149,7 +149,7 @@ impl BaseClient {
             self.handle_account_data(&account_data.global, &mut changes).await;
         }
 
-        let mut new_rooms = Rooms::default();
+        let mut new_rooms = RoomUpdates::default();
         let mut notifications = Default::default();
         let mut rooms_account_data = account_data.rooms.clone();
 
