@@ -58,7 +58,7 @@ use tracing::{debug, field::debug, info, instrument, trace, warn};
 
 use super::{
     members::{MemberInfo, MemberRoomInfo},
-    BaseRoomInfo, DisplayName, NotableTags, RoomCreateWithCreatorEventContent, RoomMember,
+    BaseRoomInfo, DisplayName, RoomCreateWithCreatorEventContent, RoomMember, RoomNotableTags,
 };
 #[cfg(feature = "experimental-sliding-sync")]
 use crate::latest_event::LatestEvent;
@@ -733,11 +733,11 @@ impl Room {
     }
 
     pub fn is_favourite(&self) -> bool {
-        self.inner.read().base_info.notable_tags.contains(NotableTags::FAVOURITE)
+        self.inner.read().base_info.notable_tags.contains(RoomNotableTags::FAVOURITE)
     }
 
     pub fn is_low_priority(&self) -> bool {
-        self.inner.read().base_info.notable_tags.contains(NotableTags::LOW_PRIORITY)
+        self.inner.read().base_info.notable_tags.contains(RoomNotableTags::LOW_PRIORITY)
     }
 
     /// Get the receipt as an `OwnedEventId` and `Receipt` tuple for the given

@@ -112,8 +112,8 @@ pub struct BaseRoomInfo {
     ///
     /// We are not interested by all the tags. Some tags are more important than
     /// others, and this field collects them.
-    #[serde(skip_serializing_if = "NotableTags::is_empty", default)]
-    pub(crate) notable_tags: NotableTags,
+    #[serde(skip_serializing_if = "RoomNotableTags::is_empty", default)]
+    pub(crate) notable_tags: RoomNotableTags,
 }
 
 impl BaseRoomInfo {
@@ -297,14 +297,14 @@ impl BaseRoomInfo {
     }
 
     pub fn handle_notable_tags(&mut self, tags: &Tags) {
-        let mut notable_tags = NotableTags::empty();
+        let mut notable_tags = RoomNotableTags::empty();
 
         if tags.contains_key(&TagName::Favorite) {
-            notable_tags.insert(NotableTags::FAVOURITE);
+            notable_tags.insert(RoomNotableTags::FAVOURITE);
         }
 
         if tags.contains_key(&TagName::LowPriority) {
-            notable_tags.insert(NotableTags::LOW_PRIORITY);
+            notable_tags.insert(RoomNotableTags::LOW_PRIORITY);
         }
 
         self.notable_tags = notable_tags;
@@ -318,7 +318,7 @@ bitflags! {
     /// others, and this struct describe them.
     #[repr(transparent)]
     #[derive(Debug, Default, Clone, Copy, Deserialize, Serialize)]
-    pub(crate) struct NotableTags: u8 {
+    pub(crate) struct RoomNotableTags: u8 {
         /// The `m.favourite` tag.
         const FAVOURITE = 0b0000_0001;
 
@@ -358,7 +358,7 @@ impl Default for BaseRoomInfo {
             topic: None,
             rtc_member: BTreeMap::new(),
             is_marked_unread: false,
-            notable_tags: NotableTags::empty(),
+            notable_tags: RoomNotableTags::empty(),
         }
     }
 }
