@@ -1391,7 +1391,7 @@ mod tests {
     use crate::{store::StateStoreExt, DisplayName, Room, RoomState, SessionMeta, StateChanges};
 
     #[async_test]
-    async fn invite_after_leaving() {
+    async fn test_invite_after_leaving() {
         let user_id = user_id!("@alice:example.org");
         let room_id = room_id!("!test:example.org");
 
@@ -1435,7 +1435,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn invite_displayname_integration_test() {
+    async fn test_invite_displayname() {
         let user_id = user_id!("@alice:example.org");
         let room_id = room_id!("!ithpyNKDtmhneaTQja:example.org");
 
@@ -1529,7 +1529,7 @@ mod tests {
         let user_id = user_id!("@u:u.to");
         let room_id = room_id!("!r:u.to");
         let client = logged_in_client(user_id).await;
-        let room = process_room_join(&client, room_id, "$1", user_id).await;
+        let room = process_room_join_test_helper(&client, room_id, "$1", user_id).await;
 
         // Sanity: it has no latest_encrypted_events or latest_event
         assert!(room.latest_encrypted_events().is_empty());
@@ -1563,7 +1563,7 @@ mod tests {
     }
 
     #[cfg(feature = "e2e-encryption")]
-    async fn process_room_join(
+    async fn process_room_join_test_helper(
         client: &BaseClient,
         room_id: &RoomId,
         event_id: &str,
@@ -1585,13 +1585,14 @@ mod tests {
                 }),
             ))
             .build_sync_response();
+
         client.receive_sync_response(response).await.unwrap();
 
         client.get_room(room_id).expect("Just-created room not found!")
     }
 
     #[async_test]
-    async fn deserialization_failure_test() {
+    async fn test_deserialization_failure() {
         let user_id = user_id!("@alice:example.org");
         let room_id = room_id!("!ithpyNKDtmhneaTQja:example.org");
 

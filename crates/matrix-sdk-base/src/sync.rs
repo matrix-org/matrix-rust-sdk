@@ -36,7 +36,7 @@ use crate::{
     deserialized_responses::{AmbiguityChange, RawAnySyncOrStrippedTimelineEvent},
 };
 
-/// Internal representation of a `/sync` response.
+/// Generalized representation of a `/sync` response.
 ///
 /// This type is intended to be applicable regardless of the endpoint used for
 /// syncing.
