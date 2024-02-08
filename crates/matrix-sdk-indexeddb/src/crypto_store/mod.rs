@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     sync::{Arc, RwLock},
 };
 
@@ -161,6 +161,89 @@ impl From<IndexeddbCryptoStoreError> for CryptoStoreError {
 }
 
 type Result<A, E = IndexeddbCryptoStoreError> = std::result::Result<A, E>;
+
+/// Defines an operation to perform on the database.
+enum PendingOperation {
+    Put { key: JsValue, value: JsValue },
+    Delete(JsValue),
+}
+
+/// A struct that represents all the operations that need to be done to the
+/// database when calls to the store `save_changes` are made.
+/// The idea is to do all the serialization and encryption before the
+/// transaction, and then just do the actual Indexeddb operations in the
+/// transaction.
+struct PendingIndexeddbChanges {
+    /// A map of the object store names to the operations to perform on that
+    /// store.
+    store_to_key_values: BTreeMap<&'static str, Vec<PendingOperation>>,
+}
+
+/// Represents the changes on a single object store.
+struct PendingStoreChanges<'a> {
+    operations: &'a mut Vec<PendingOperation>,
+}
+
+impl<'a> PendingStoreChanges<'a> {
+    fn put(&mut self, key: JsValue, value: JsValue) {
+        self.operations.push(PendingOperation::Put { key, value });
+    }
+
+    fn delete(&mut self, key: JsValue) {
+        self.operations.push(PendingOperation::Delete(key));
+    }
+}
+
+impl PendingIndexeddbChanges {
+    fn get(&mut self, store: &'static str) -> PendingStoreChanges<'_> {
+        PendingStoreChanges { operations: self.store_to_key_values.entry(store).or_default() }
+    }
+}
+
+impl PendingIndexeddbChanges {
+    fn new() -> Self {
+        Self { store_to_key_values: BTreeMap::new() }
+    }
+
+    /// Returns the list of stores that have pending operations.
+    /// Should be used as the list of store names when starting the indexeddb
+    /// transaction (`transaction_on_multi_with_mode`).
+    fn touched_stores(&self) -> Vec<&str> {
+        self.store_to_key_values
+            .iter()
+            .filter_map(
+                |(store, pending_operations)| {
+                    if !pending_operations.is_empty() {
+                        Some(*store)
+                    } else {
+                        None
+                    }
+                },
+            )
+            .collect()
+    }
+
+    /// Applies all the pending operations to the store.
+    fn apply(self, tx: &IdbTransaction<'_>) -> Result<()> {
+        for (store, operations) in self.store_to_key_values {
+            if operations.is_empty() {
+                continue;
+            }
+            let object_store = tx.object_store(store)?;
+            for op in operations {
+                match op {
+                    PendingOperation::Put { key, value } => {
+                        object_store.put_key_val(&key, &value)?;
+                    }
+                    PendingOperation::Delete(key) => {
+                        object_store.delete(&key)?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+}
 
 impl IndexeddbCryptoStore {
     pub(crate) async fn open_with_store_cipher(
@@ -326,6 +409,181 @@ impl IndexeddbCryptoStore {
             serde_wasm_bindgen::from_value(stored_request)?;
         Ok(self.serializer.deserialize_value_from_bytes(&idb_object.request)?)
     }
+
+    /// Process all the changes and do all encryption/serialization before the
+    /// actual transaction.
+    async fn prepare_for_transaction(&self, changes: &Changes) -> Result<PendingIndexeddbChanges> {
+        let mut indexeddb_changes = PendingIndexeddbChanges::new();
+
+        let private_identity_pickle =
+            if let Some(i) = &changes.private_identity { Some(i.pickle().await) } else { None };
+
+        let decryption_key_pickle = &changes.backup_decryption_key;
+        let backup_version = &changes.backup_version;
+
+        let mut core = indexeddb_changes.get(keys::CORE);
+        if let Some(next_batch) = &changes.next_batch_token {
+            core.put(
+                JsValue::from_str(keys::NEXT_BATCH_TOKEN),
+                self.serializer.serialize_value(next_batch)?,
+            );
+        }
+
+        if let Some(i) = &private_identity_pickle {
+            core.put(
+                JsValue::from_str(keys::PRIVATE_IDENTITY),
+                self.serializer.serialize_value(i)?,
+            );
+        }
+
+        if let Some(a) = &decryption_key_pickle {
+            indexeddb_changes.get(keys::BACKUP_KEYS).put(
+                JsValue::from_str(keys::RECOVERY_KEY_V1),
+                self.serializer.serialize_value(&a)?,
+            );
+        }
+
+        if let Some(a) = &backup_version {
+            indexeddb_changes
+                .get(keys::BACKUP_KEYS)
+                .put(JsValue::from_str(keys::BACKUP_KEY_V1), self.serializer.serialize_value(&a)?);
+        }
+
+        if !changes.sessions.is_empty() {
+            let mut sessions = indexeddb_changes.get(keys::SESSION);
+
+            for session in &changes.sessions {
+                let sender_key = session.sender_key().to_base64();
+                let session_id = session.session_id();
+
+                let pickle = session.pickle().await;
+                let key = self.serializer.encode_key(keys::SESSION, (&sender_key, session_id));
+
+                sessions.put(key, self.serializer.serialize_value(&pickle)?);
+            }
+        }
+
+        if !changes.inbound_group_sessions.is_empty() {
+            let mut sessions = indexeddb_changes.get(keys::INBOUND_GROUP_SESSIONS_V3);
+
+            for session in &changes.inbound_group_sessions {
+                let room_id = session.room_id();
+                let session_id = session.session_id();
+                let key = self
+                    .serializer
+                    .encode_key(keys::INBOUND_GROUP_SESSIONS_V3, (room_id, session_id));
+                let value = self.serialize_inbound_group_session(session).await?;
+                sessions.put(key, value);
+            }
+        }
+
+        if !changes.outbound_group_sessions.is_empty() {
+            let mut sessions = indexeddb_changes.get(keys::OUTBOUND_GROUP_SESSIONS);
+
+            for session in &changes.outbound_group_sessions {
+                let room_id = session.room_id();
+                let pickle = session.pickle().await;
+                sessions.put(
+                    self.serializer.encode_key(keys::OUTBOUND_GROUP_SESSIONS, room_id),
+                    self.serializer.serialize_value(&pickle)?,
+                );
+            }
+        }
+
+        let device_changes = &changes.devices;
+        let identity_changes = &changes.identities;
+        let olm_hashes = &changes.message_hashes;
+        let key_requests = &changes.key_requests;
+        let withheld_session_info = &changes.withheld_session_info;
+        let room_settings_changes = &changes.room_settings;
+
+        let mut device_store = indexeddb_changes.get(keys::DEVICES);
+
+        for device in device_changes.new.iter().chain(&device_changes.changed) {
+            let key =
+                self.serializer.encode_key(keys::DEVICES, (device.user_id(), device.device_id()));
+            let device = self.serializer.serialize_value(&device)?;
+
+            device_store.put(key, device);
+        }
+
+        for device in &device_changes.deleted {
+            let key =
+                self.serializer.encode_key(keys::DEVICES, (device.user_id(), device.device_id()));
+            device_store.delete(key);
+        }
+
+        if !identity_changes.changed.is_empty() || !identity_changes.new.is_empty() {
+            let mut identities = indexeddb_changes.get(keys::IDENTITIES);
+            for identity in identity_changes.changed.iter().chain(&identity_changes.new) {
+                identities.put(
+                    self.serializer.encode_key(keys::IDENTITIES, identity.user_id()),
+                    self.serializer.serialize_value(&identity)?,
+                );
+            }
+        }
+
+        if !olm_hashes.is_empty() {
+            let mut hashes = indexeddb_changes.get(keys::OLM_HASHES);
+            for hash in olm_hashes {
+                hashes.put(
+                    self.serializer.encode_key(keys::OLM_HASHES, (&hash.sender_key, &hash.hash)),
+                    JsValue::TRUE,
+                );
+            }
+        }
+
+        if !key_requests.is_empty() {
+            let mut gossip_requests = indexeddb_changes.get(keys::GOSSIP_REQUESTS);
+
+            for gossip_request in key_requests {
+                let key_request_id = self
+                    .serializer
+                    .encode_key(keys::GOSSIP_REQUESTS, gossip_request.request_id.as_str());
+                let key_request_value = self.serialize_gossip_request(gossip_request)?;
+                gossip_requests.put(key_request_id, key_request_value);
+            }
+        }
+
+        if !withheld_session_info.is_empty() {
+            let mut withhelds = indexeddb_changes.get(keys::DIRECT_WITHHELD_INFO);
+
+            for (room_id, data) in withheld_session_info {
+                for (session_id, event) in data {
+                    let key = self
+                        .serializer
+                        .encode_key(keys::DIRECT_WITHHELD_INFO, (session_id, &room_id));
+                    withhelds.put(key, self.serializer.serialize_value(&event)?);
+                }
+            }
+        }
+
+        if !room_settings_changes.is_empty() {
+            let mut settings_store = indexeddb_changes.get(keys::ROOM_SETTINGS);
+
+            for (room_id, settings) in room_settings_changes {
+                let key = self.serializer.encode_key(keys::ROOM_SETTINGS, room_id);
+                let value = self.serializer.serialize_value(&settings)?;
+                settings_store.put(key, value);
+            }
+        }
+
+        if !changes.secrets.is_empty() {
+            let mut secret_store = indexeddb_changes.get(keys::SECRETS_INBOX);
+
+            for secret in &changes.secrets {
+                let key = self.serializer.encode_key(
+                    keys::SECRETS_INBOX,
+                    (secret.secret_name.as_str(), secret.event.content.request_id.as_str()),
+                );
+                let value = self.serializer.serialize_value(&secret)?;
+
+                secret_store.put(key, value);
+            }
+        }
+
+        Ok(indexeddb_changes)
+    }
 }
 
 // Small hack to have the following macro invocation act as the appropriate
@@ -404,35 +662,9 @@ impl_crypto_store! {
         // TODO: #2000 should make this lock go away, or change its shape.
         let _guard = self.save_changes_lock.lock().await;
 
-        let mut stores: Vec<&str> = [
-            (changes.private_identity.is_some() || changes.next_batch_token.is_some(), keys::CORE),
-            (changes.backup_decryption_key.is_some() || changes.backup_version.is_some(), keys::BACKUP_KEYS),
-            (!changes.sessions.is_empty(), keys::SESSION),
-            (
-                !changes.devices.new.is_empty()
-                    || !changes.devices.changed.is_empty()
-                    || !changes.devices.deleted.is_empty(),
-                keys::DEVICES,
-            ),
-            (
-                !changes.identities.new.is_empty() || !changes.identities.changed.is_empty(),
-                keys::IDENTITIES,
-            ),
+        let indexeddb_changes = self.prepare_for_transaction(&changes).await?;
 
-            (!changes.inbound_group_sessions.is_empty(), keys::INBOUND_GROUP_SESSIONS_V3),
-            (!changes.outbound_group_sessions.is_empty(), keys::OUTBOUND_GROUP_SESSIONS),
-            (!changes.message_hashes.is_empty(), keys::OLM_HASHES),
-            (!changes.withheld_session_info.is_empty(), keys::DIRECT_WITHHELD_INFO),
-            (!changes.room_settings.is_empty(), keys::ROOM_SETTINGS),
-            (!changes.secrets.is_empty(), keys::SECRETS_INBOX),
-        ]
-        .iter()
-        .filter_map(|(id, key)| if *id { Some(*key) } else { None })
-        .collect();
-
-        if !changes.key_requests.is_empty() {
-            stores.extend([keys::GOSSIP_REQUESTS])
-        }
+        let stores = indexeddb_changes.touched_stores();
 
         if stores.is_empty() {
             // nothing to do, quit early
@@ -442,168 +674,7 @@ impl_crypto_store! {
         let tx =
             self.inner.transaction_on_multi_with_mode(&stores, IdbTransactionMode::Readwrite)?;
 
-        let private_identity_pickle =
-            if let Some(i) = changes.private_identity { Some(i.pickle().await) } else { None };
-
-        let decryption_key_pickle = changes.backup_decryption_key;
-        let backup_version = changes.backup_version;
-
-        if let Some(next_batch) = changes.next_batch_token {
-            tx.object_store(keys::CORE)?.put_key_val(
-                &JsValue::from_str(keys::NEXT_BATCH_TOKEN),
-                &self.serializer.serialize_value(&next_batch)?
-            )?;
-        }
-
-        if let Some(i) = &private_identity_pickle {
-            tx.object_store(keys::CORE)?.put_key_val(
-                &JsValue::from_str(keys::PRIVATE_IDENTITY),
-                &self.serializer.serialize_value(i)?,
-            )?;
-        }
-
-        if let Some(a) = &decryption_key_pickle {
-            tx.object_store(keys::BACKUP_KEYS)?.put_key_val(
-                &JsValue::from_str(keys::RECOVERY_KEY_V1),
-                &self.serializer.serialize_value(&a)?,
-            )?;
-        }
-
-        if let Some(a) = &backup_version {
-            tx.object_store(keys::BACKUP_KEYS)?
-                .put_key_val(&JsValue::from_str(keys::BACKUP_KEY_V1), &self.serializer.serialize_value(&a)?)?;
-        }
-
-        if !changes.sessions.is_empty() {
-            let sessions = tx.object_store(keys::SESSION)?;
-
-            for session in &changes.sessions {
-                let sender_key = session.sender_key().to_base64();
-                let session_id = session.session_id();
-
-                let pickle = session.pickle().await;
-                let key = self.serializer.encode_key(keys::SESSION, (&sender_key, session_id));
-
-                sessions.put_key_val(&key, &self.serializer.serialize_value(&pickle)?)?;
-            }
-        }
-
-        if !changes.inbound_group_sessions.is_empty() {
-            let sessions = tx.object_store(keys::INBOUND_GROUP_SESSIONS_V3)?;
-
-            for session in changes.inbound_group_sessions {
-                let room_id = session.room_id();
-                let session_id = session.session_id();
-                let key = self.serializer.encode_key(keys::INBOUND_GROUP_SESSIONS_V3, (room_id, session_id));
-                let value = self.serialize_inbound_group_session(&session).await?;
-                sessions.put_key_val(&key, &value)?;
-            }
-        }
-
-        if !changes.outbound_group_sessions.is_empty() {
-            let sessions = tx.object_store(keys::OUTBOUND_GROUP_SESSIONS)?;
-
-            for session in changes.outbound_group_sessions {
-                let room_id = session.room_id();
-                let pickle = session.pickle().await;
-                sessions.put_key_val(
-                    &self.serializer.encode_key(keys::OUTBOUND_GROUP_SESSIONS, room_id),
-                    &self.serializer.serialize_value(&pickle)?,
-                )?;
-            }
-        }
-
-        let device_changes = changes.devices;
-        let identity_changes = changes.identities;
-        let olm_hashes = changes.message_hashes;
-        let key_requests = changes.key_requests;
-        let withheld_session_info = changes.withheld_session_info;
-        let room_settings_changes = changes.room_settings;
-
-        if !device_changes.new.is_empty() || !device_changes.changed.is_empty() {
-            let device_store = tx.object_store(keys::DEVICES)?;
-            for device in device_changes.new.iter().chain(&device_changes.changed) {
-                let key = self.serializer.encode_key(keys::DEVICES, (device.user_id(), device.device_id()));
-                let device = self.serializer.serialize_value(&device)?;
-
-                device_store.put_key_val(&key, &device)?;
-            }
-        }
-
-        if !device_changes.deleted.is_empty() {
-            let device_store = tx.object_store(keys::DEVICES)?;
-
-            for device in &device_changes.deleted {
-                let key = self.serializer.encode_key(keys::DEVICES, (device.user_id(), device.device_id()));
-                device_store.delete(&key)?;
-            }
-        }
-
-        if !identity_changes.changed.is_empty() || !identity_changes.new.is_empty() {
-            let identities = tx.object_store(keys::IDENTITIES)?;
-            for identity in identity_changes.changed.iter().chain(&identity_changes.new) {
-                identities.put_key_val(
-                    &self.serializer.encode_key(keys::IDENTITIES, identity.user_id()),
-                    &self.serializer.serialize_value(&identity)?,
-                )?;
-            }
-        }
-
-        if !olm_hashes.is_empty() {
-            let hashes = tx.object_store(keys::OLM_HASHES)?;
-            for hash in &olm_hashes {
-                hashes.put_key_val(
-                    &self.serializer.encode_key(keys::OLM_HASHES, (&hash.sender_key, &hash.hash)),
-                    &JsValue::TRUE,
-                )?;
-            }
-        }
-
-        if !key_requests.is_empty() {
-            let gossip_requests = tx.object_store(keys::GOSSIP_REQUESTS)?;
-
-            for gossip_request in &key_requests {
-                let key_request_id = self.serializer.encode_key(keys::GOSSIP_REQUESTS, gossip_request.request_id.as_str());
-                let key_request_value = self.serialize_gossip_request(gossip_request)?;
-                gossip_requests.put_key_val_owned(
-                    key_request_id,
-                    &key_request_value,
-                )?;
-            }
-        }
-
-        if !withheld_session_info.is_empty() {
-            let withhelds = tx.object_store(keys::DIRECT_WITHHELD_INFO)?;
-
-            for (room_id, data) in withheld_session_info {
-                for (session_id, event) in data {
-
-                    let key = self.serializer.encode_key(keys::DIRECT_WITHHELD_INFO, (session_id, &room_id));
-                    withhelds.put_key_val(&key, &self.serializer.serialize_value(&event)?)?;
-                }
-            }
-        }
-
-        if !room_settings_changes.is_empty() {
-            let settings_store = tx.object_store(keys::ROOM_SETTINGS)?;
-
-            for (room_id, settings) in &room_settings_changes {
-                let key = self.serializer.encode_key(keys::ROOM_SETTINGS, room_id);
-                let value = self.serializer.serialize_value(&settings)?;
-                settings_store.put_key_val(&key, &value)?;
-            }
-        }
-
-        if !changes.secrets.is_empty() {
-            let secrets_store = tx.object_store(keys::SECRETS_INBOX)?;
-
-            for secret in changes.secrets {
-                let key = self.serializer.encode_key(keys::SECRETS_INBOX, (secret.secret_name.as_str(), secret.event.content.request_id.as_str()));
-                let value = self.serializer.serialize_value(&secret)?;
-
-                secrets_store.put_key_val(&key, &value)?;
-            }
-        }
+        indexeddb_changes.apply(&tx)?;
 
         tx.await.into_result()?;
 
