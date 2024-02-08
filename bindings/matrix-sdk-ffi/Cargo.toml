@@ -13,8 +13,11 @@ repository = "https://github.com/matrix-org/matrix-rust-sdk"
 crate-type = ["cdylib", "staticlib"]
 
 [features]
-default = ["bundled-sqlite"]
+default = ["bundled-sqlite", "rustls-tls"]
+
 bundled-sqlite = ["matrix-sdk/bundled-sqlite"]
+native-tls = ["matrix-sdk/native-tls"]
+rustls-tls = ["matrix-sdk/rustls-tls"]
 
 [build-dependencies]
 uniffi = { workspace = true, features = ["build"] }
@@ -29,7 +32,7 @@ eyeball-im = { workspace = true }
 extension-trait = "1.0.1"
 futures-core = { workspace = true }
 futures-util = { workspace = true }
-matrix-sdk = { workspace = true, features = ["anyhow", "e2e-encryption", "experimental-oidc", "experimental-sliding-sync", "experimental-widgets", "markdown", "rustls-tls", "socks", "sqlite", "uniffi"] }
+matrix-sdk = { workspace = true, features = ["anyhow", "e2e-encryption", "experimental-oidc", "experimental-sliding-sync", "experimental-widgets", "markdown", "socks", "sqlite", "uniffi"] }
 matrix-sdk-ui = { workspace = true, features = ["e2e-encryption", "uniffi"] }
 mime = "0.3.16"
 once_cell = { workspace = true }
