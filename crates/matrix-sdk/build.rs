@@ -25,10 +25,6 @@ fn main() {
         native_tls_set || rustls_tls_set,
         "one of the features 'native-tls' or 'rustls-tls' must be enabled",
     );
-    ensure(
-        !native_tls_set || !rustls_tls_set,
-        "only one of the features 'native-tls' or 'rustls-tls' can be enabled",
-    );
 
     let is_wasm = env::var_os("CARGO_CFG_TARGET_ARCH").is_some_and(|arch| arch == "wasm32");
     if is_wasm {
