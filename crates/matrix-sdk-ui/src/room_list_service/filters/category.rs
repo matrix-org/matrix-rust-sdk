@@ -2,8 +2,12 @@ use matrix_sdk::{Client, RoomListEntry};
 
 use super::Filter;
 
-/// An enum to represent whether a room is about “people” (1 or 2 users) or
-/// “group” (more than 2 users).
+/// An enum to represent whether a room is about “people” (strictly 2 users) or
+/// “group” (1 or more than 2 users).
+///
+/// Ideally, we would only want to rely on the
+/// [`matrix_sdk::BaseRoom::is_direct`] method, but the rules are a little bit
+/// different for this high-level UI API.
 ///
 /// This is implemented this way so that it's impossible to filter by “group”
 /// and by “people” at the same time: these criteria are mutually
@@ -52,9 +56,10 @@ where
     }
 }
 
-/// Create a new filter that will accept all filled or invalidated entries, but
-/// filters out rooms that have no unread messages.
-pub fn new_filter(client: &Client, expected_kind: RoomCategory) -> impl Filter {
+/// Create a new filter that will accept all filled or invalidated entries, and
+/// if the associated rooms fit in the `expected_category`. The category is
+/// defined by [`RoomCategory`], see this type to learn more.
+pub fn new_filter(client: &Client, expected_category: RoomCategory) -> impl Filter {
     let client = client.clone();
 
     let matcher = CategoryRoomMatcher {
@@ -66,7 +71,7 @@ pub fn new_filter(client: &Client, expected_kind: RoomCategory) -> impl Filter {
         },
     };
 
-    move |room_list_entry| -> bool { matcher.matches(room_list_entry, expected_kind) }
+    move |room_list_entry| -> bool { matcher.matches(room_list_entry, expected_category) }
 }
 
 #[cfg(test)]

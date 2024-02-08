@@ -16,58 +16,66 @@ mod tests {
     use super::new_filter;
 
     #[test]
-    fn test_one_filter() {
+    fn test_one_filter_is_true() {
         let room_list_entry = RoomListEntry::Filled(room_id!("!r0:bar.org").to_owned());
 
-        {
-            let filter = |_: &_| true;
-            let any = new_filter(vec![Box::new(filter)]);
+        let filter = |_: &_| true;
+        let any = new_filter(vec![Box::new(filter)]);
 
-            assert!(any(&room_list_entry));
-        }
-
-        {
-            let filter = |_: &_| false;
-            let any = new_filter(vec![Box::new(filter)]);
-
-            assert!(any(&room_list_entry).not());
-        }
+        assert!(any(&room_list_entry));
     }
 
     #[test]
-    fn test_two_filters() {
+    fn test_one_filter_is_false() {
         let room_list_entry = RoomListEntry::Filled(room_id!("!r0:bar.org").to_owned());
 
-        {
-            let filter1 = |_: &_| true;
-            let filter2 = |_: &_| true;
-            let any = new_filter(vec![Box::new(filter1), Box::new(filter2)]);
+        let filter = |_: &_| false;
+        let any = new_filter(vec![Box::new(filter)]);
 
-            assert!(any(&room_list_entry));
-        }
+        assert!(any(&room_list_entry).not());
+    }
 
-        {
-            let filter1 = |_: &_| true;
-            let filter2 = |_: &_| false;
-            let any = new_filter(vec![Box::new(filter1), Box::new(filter2)]);
+    #[test]
+    fn test_two_filters_with_true_true() {
+        let room_list_entry = RoomListEntry::Filled(room_id!("!r0:bar.org").to_owned());
 
-            assert!(any(&room_list_entry));
-        }
+        let filter1 = |_: &_| true;
+        let filter2 = |_: &_| true;
+        let any = new_filter(vec![Box::new(filter1), Box::new(filter2)]);
 
-        {
-            let filter1 = |_: &_| false;
-            let filter2 = |_: &_| true;
-            let any = new_filter(vec![Box::new(filter1), Box::new(filter2)]);
+        assert!(any(&room_list_entry));
+    }
 
-            assert!(any(&room_list_entry));
-        }
+    #[test]
+    fn test_two_filters_with_true_false() {
+        let room_list_entry = RoomListEntry::Filled(room_id!("!r0:bar.org").to_owned());
 
-        {
-            let filter1 = |_: &_| false;
-            let filter2 = |_: &_| false;
-            let any = new_filter(vec![Box::new(filter1), Box::new(filter2)]);
+        let filter1 = |_: &_| true;
+        let filter2 = |_: &_| false;
+        let any = new_filter(vec![Box::new(filter1), Box::new(filter2)]);
 
-            assert!(any(&room_list_entry).not());
-        }
+        assert!(any(&room_list_entry));
+    }
+
+    #[test]
+    fn test_two_filters_with_false_true() {
+        let room_list_entry = RoomListEntry::Filled(room_id!("!r0:bar.org").to_owned());
+
+        let filter1 = |_: &_| false;
+        let filter2 = |_: &_| true;
+        let any = new_filter(vec![Box::new(filter1), Box::new(filter2)]);
+
+        assert!(any(&room_list_entry));
+    }
+
+    #[test]
+    fn test_two_filters_with_false_false() {
+        let room_list_entry = RoomListEntry::Filled(room_id!("!r0:bar.org").to_owned());
+
+        let filter1 = |_: &_| false;
+        let filter2 = |_: &_| false;
+        let any = new_filter(vec![Box::new(filter1), Box::new(filter2)]);
+
+        assert!(any(&room_list_entry).not());
     }
 }
