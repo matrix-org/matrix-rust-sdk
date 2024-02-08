@@ -939,8 +939,8 @@ impl Room {
 
     /// Update the is_favorite flag from the room by calling set_tag or
     /// remove_tag method on `m.favourite` tag.
-    /// If is_favorite is true, and `m.low_priority` tag is set on the room, the
-    /// tag will be removed too.
+    /// If `is_favorite` is `true`, and `m.low_priority` tag is set on the room,
+    /// the tag will be removed too.
     /// # Arguments
     ///
     /// * `is_favorite` - Whether to mark this room as favorite or not.
@@ -960,8 +960,8 @@ impl Room {
 
     /// Update the is_low_priority flag from the room by calling set_tag or
     /// remove_tag method on `m.low_priority` tag.
-    /// If is_low_priority is true, and `m.favourite` tag is set on the room,
-    /// the tag will be removed too.
+    /// If `is_low_priority` is `true`, and `m.favourite` tag is set on the
+    /// room, the tag will be removed too.
     /// # Arguments
     ///
     /// * `is_low_priority` - Whether to mark this room as low_priority or not.

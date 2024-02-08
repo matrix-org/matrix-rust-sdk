@@ -647,18 +647,18 @@ impl Room {
         self.inner.set(room_info);
     }
 
-    /// Update the inner observable with the given `RoomNotableTags`, and notify
-    /// subscribers.
+    /// Update the inner observable with the given [`RoomNotableTags`], and
+    /// notify subscribers.
     pub fn set_notable_tags(&self, notable_tags: RoomNotableTags) {
         self.notable_tags.set(notable_tags);
     }
 
-    /// Returns the current RoomNotableTags and subscribe to changes.
+    /// Returns the current [`RoomNotableTags`] and subscribe to changes.
     pub async fn notable_tags_stream(&self) -> (RoomNotableTags, Subscriber<RoomNotableTags>) {
         (self.current_notable_tags().await, self.notable_tags.subscribe())
     }
 
-    /// Return the current RoomNotableTags extracted from store.
+    /// Return the current [`RoomNotableTags`] extracted from store.
     pub async fn current_notable_tags(&self) -> RoomNotableTags {
         let current_tags = self.tags().await.unwrap_or_else(|e| {
             warn!("Failed to get tags from store: {}", e);
@@ -848,7 +848,7 @@ pub struct RoomNotableTags {
 }
 
 impl RoomNotableTags {
-    /// Computes the provided tags to create a `RoomNotableTags` instance.
+    /// Computes the provided tags to create a [`RoomNotableTags`] instance.
     pub fn new(tags: Option<Tags>) -> Self {
         let tags = tags.as_ref();
         RoomNotableTags {
