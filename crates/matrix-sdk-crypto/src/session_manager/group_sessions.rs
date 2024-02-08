@@ -438,7 +438,7 @@ impl GroupSessionManager {
                     should_rotate = !newly_deleted_or_blacklisted.is_empty();
                     if should_rotate {
                         debug!(
-                            "collect_session_recipients: rotating due to these devices being deleted/blacklisted {:?}",
+                            "Rotating a room key due to these devices being deleted/blacklisted {:?}",
                             newly_deleted_or_blacklisted,
                         );
                     }
