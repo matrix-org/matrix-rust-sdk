@@ -306,7 +306,7 @@ fn create_range(
     // But there is more! The server can tell us what is the maximum number of rooms
     // fulfilling a particular list. For example, if the server says there is 42
     // rooms for a particular list, with a `start` of 40 and a `batch_size` of 20,
-    // the range must be capped to `[40; 46]`; the range `[40; 60]` would be invalid
+    // the range must be capped to `[40; 42]`; the range `[40; 60]` would be invalid
     // and could be rejected by the server.
     if let Some(maximum_number_of_rooms) = maximum_number_of_rooms {
         end = min(end, maximum_number_of_rooms);
