@@ -979,8 +979,10 @@ impl Room {
     pub async fn set_is_favorite(&self, is_favorite: bool, tag_order: Option<f64>) -> Result<()> {
         if is_favorite {
             let tag_info = assign!(TagInfo::new(), { order: tag_order });
+
             self.set_tag(TagName::Favorite, tag_info).await?;
-            if self.current_notable_tags().await.is_low_priority {
+
+            if self.is_low_priority() {
                 self.remove_tag(TagName::LowPriority).await?;
             }
         } else {
@@ -1004,8 +1006,10 @@ impl Room {
     ) -> Result<()> {
         if is_low_priority {
             let tag_info = assign!(TagInfo::new(), { order: tag_order });
+
             self.set_tag(TagName::LowPriority, tag_info).await?;
-            if self.current_notable_tags().await.is_favorite {
+
+            if self.is_favourite() {
                 self.remove_tag(TagName::Favorite).await?;
             }
         } else {

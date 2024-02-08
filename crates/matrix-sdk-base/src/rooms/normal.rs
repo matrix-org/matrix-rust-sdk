@@ -44,7 +44,7 @@ use ruma::{
             redaction::SyncRoomRedactionEvent,
             tombstone::RoomTombstoneEventContent,
         },
-        tag::{TagName, Tags},
+        tag::Tags,
         AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncStateEvent,
         RoomAccountDataEventType,
     },
@@ -90,9 +90,6 @@ pub struct Room {
     /// to disk but held in memory.
     #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
     pub latest_encrypted_events: Arc<SyncRwLock<RingBuffer<Raw<AnySyncTimelineEvent>>>>,
-    /// Observable of when some notable tags are set or removed from the room
-    /// account data.
-    notable_tags: SharedObservable<RoomNotableTags>,
 }
 
 /// The room summary containing member counts and members that should be used to
@@ -166,7 +163,6 @@ impl Room {
             latest_encrypted_events: Arc::new(SyncRwLock::new(RingBuffer::new(
                 Self::MAX_ENCRYPTED_EVENTS,
             ))),
-            notable_tags: Default::default(),
         }
     }
 
@@ -654,26 +650,6 @@ impl Room {
         self.inner.set(room_info);
     }
 
-    /// Update the inner observable with the given [`RoomNotableTags`], and
-    /// notify subscribers.
-    pub fn set_notable_tags(&self, notable_tags: RoomNotableTags) {
-        self.notable_tags.set(notable_tags);
-    }
-
-    /// Returns the current [`RoomNotableTags`] and subscribe to changes.
-    pub async fn notable_tags_stream(&self) -> (RoomNotableTags, Subscriber<RoomNotableTags>) {
-        (self.current_notable_tags().await, self.notable_tags.subscribe())
-    }
-
-    /// Return the current [`RoomNotableTags`] extracted from store.
-    pub async fn current_notable_tags(&self) -> RoomNotableTags {
-        let current_tags = self.tags().await.unwrap_or_else(|e| {
-            warn!("Failed to get tags from store: {}", e);
-            None
-        });
-        RoomNotableTags::new(current_tags)
-    }
-
     /// Get the `RoomMember` with the given `user_id`.
     ///
     /// Returns `None` if the member was never part of this room, otherwise
@@ -754,6 +730,14 @@ impl Room {
         } else {
             Ok(None)
         }
+    }
+
+    pub fn is_favourite(&self) -> bool {
+        self.inner.read().base_info.notable_tags.contains(NotableTags::FAVOURITE)
+    }
+
+    pub fn is_low_priority(&self) -> bool {
+        self.inner.read().base_info.notable_tags.contains(NotableTags::LOW_PRIORITY)
     }
 
     /// Get the receipt as an `OwnedEventId` and `Receipt` tuple for the given
@@ -848,27 +832,6 @@ pub(crate) enum SyncInfo {
 
     /// We have all the latest state events.
     FullySynced,
-}
-
-/// Holds information computed from the room account data `m.tag` events.
-#[derive(Clone, Debug, Default)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-pub struct RoomNotableTags {
-    /// Whether or not the room is marked as favorite.
-    pub is_favorite: bool,
-    /// Whether or not the room is marked as low priority.
-    pub is_low_priority: bool,
-}
-
-impl RoomNotableTags {
-    /// Computes the provided tags to create a [`RoomNotableTags`] instance.
-    pub fn new(tags: Option<Tags>) -> Self {
-        let tags = tags.as_ref();
-        RoomNotableTags {
-            is_favorite: tags.map_or(false, |tag| tag.contains_key(&TagName::Favorite)),
-            is_low_priority: tags.map_or(false, |tag| tag.contains_key(&TagName::LowPriority)),
-        }
-    }
 }
 
 impl RoomInfo {
@@ -1347,7 +1310,7 @@ mod tests {
     use crate::latest_event::LatestEvent;
     use crate::{
         store::{MemoryStore, StateChanges, StateStore},
-        DisplayName, MinimalStateEvent, OriginalMinimalStateEvent, RoomNotableTags,
+        DisplayName, MinimalStateEvent, OriginalMinimalStateEvent,
     };
 
     #[test]
@@ -1501,6 +1464,7 @@ mod tests {
         assert!(info.base_info.topic.is_none());
     }
 
+    /*
     #[async_test]
     async fn when_set_notable_tags_is_called_then_notable_tags_subscriber_is_updated() {
         let (_, room) = make_room(RoomState::Joined);
@@ -1544,6 +1508,7 @@ mod tests {
         let (initial_notable_tags, _) = room.notable_tags_stream().await;
         assert!(initial_notable_tags.is_favorite);
     }
+    */
 
     fn make_room(room_type: RoomState) -> (Arc<MemoryStore>, Room) {
         let store = Arc::new(MemoryStore::new());
