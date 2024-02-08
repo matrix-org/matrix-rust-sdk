@@ -105,7 +105,7 @@ pub struct BaseRoomInfo {
     /// memberships.
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub(crate) rtc_member: BTreeMap<OwnedUserId, MinimalStateEvent<CallMemberEventContent>>,
-    // Whether this room has been manually marked as unread
+    /// Whether this room has been manually marked as unread.
     #[serde(default)]
     pub(crate) is_marked_unread: bool,
     /// Some notable tags.
@@ -318,7 +318,7 @@ bitflags! {
     /// others, and this struct describe them.
     #[repr(transparent)]
     #[derive(Debug, Default, Clone, Copy, Deserialize, Serialize)]
-    pub struct NotableTags: u8 {
+    pub(crate) struct NotableTags: u8 {
         /// The `m.favourite` tag.
         const FAVOURITE = 0b0000_0001;
 

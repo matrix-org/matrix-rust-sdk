@@ -256,12 +256,12 @@ impl Room {
         })))
     }
 
-    pub async fn set_is_favorite(
+    pub async fn set_is_favourite(
         &self,
         is_favorite: bool,
         tag_order: Option<f64>,
     ) -> Result<(), ClientError> {
-        self.inner.set_is_favorite(is_favorite, tag_order).await?;
+        self.inner.set_is_favourite(is_favorite, tag_order).await?;
         Ok(())
     }
 
