@@ -1,6 +1,6 @@
-use matrix_sdk::{Client, RoomListEntry};
+use matrix_sdk::Client;
 
-use super::normalize_string;
+use super::{normalize_string, Filter};
 
 struct NormalizedMatcher {
     pattern: Option<String>,
@@ -17,7 +17,7 @@ impl NormalizedMatcher {
         self
     }
 
-    fn normalized_match(&self, subject: &str) -> bool {
+    fn matches(&self, subject: &str) -> bool {
         // No pattern means there is a match.
         let Some(pattern) = self.pattern.as_ref() else { return true };
 
@@ -31,7 +31,7 @@ impl NormalizedMatcher {
 ///
 /// Rooms are fetched from the `Client`. The pattern and the room names are
 /// normalized with `normalize_string`.
-pub fn new_filter(client: &Client, pattern: &str) -> impl Fn(&RoomListEntry) -> bool {
+pub fn new_filter(client: &Client, pattern: &str) -> impl Filter {
     let searcher = NormalizedMatcher::new().with_pattern(pattern);
 
     let client = client.clone();
@@ -41,7 +41,7 @@ pub fn new_filter(client: &Client, pattern: &str) -> impl Fn(&RoomListEntry) -> 
         let Some(room) = client.get_room(room_id) else { return false };
         let Some(room_name) = room.name() else { return false };
 
-        searcher.normalized_match(&room_name)
+        searcher.matches(&room_name)
     }
 }
 
@@ -55,14 +55,14 @@ mod tests {
     fn test_no_pattern() {
         let matcher = NormalizedMatcher::new();
 
-        assert!(matcher.normalized_match("hello"));
+        assert!(matcher.matches("hello"));
     }
 
     #[test]
     fn test_empty_pattern() {
         let matcher = NormalizedMatcher::new();
 
-        assert!(matcher.normalized_match("hello"));
+        assert!(matcher.matches("hello"));
     }
 
     #[test]
@@ -70,10 +70,10 @@ mod tests {
         let matcher = NormalizedMatcher::new();
 
         let matcher = matcher.with_pattern("matrix");
-        assert!(matcher.normalized_match("matrix"));
+        assert!(matcher.matches("matrix"));
 
         let matcher = matcher.with_pattern("matrxi");
-        assert!(matcher.normalized_match("matrix").not());
+        assert!(matcher.matches("matrix").not());
     }
 
     #[test]
@@ -81,10 +81,10 @@ mod tests {
         let matcher = NormalizedMatcher::new();
 
         let matcher = matcher.with_pattern("matrix");
-        assert!(matcher.normalized_match("MaTrIX"));
+        assert!(matcher.matches("MaTrIX"));
 
         let matcher = matcher.with_pattern("matrxi");
-        assert!(matcher.normalized_match("MaTrIX").not());
+        assert!(matcher.matches("MaTrIX").not());
     }
 
     #[test]
@@ -97,10 +97,10 @@ mod tests {
         assert_eq!(matcher.pattern, Some("un ete".to_owned()));
 
         // Second, assert that the subject is normalized too.
-        assert!(matcher.normalized_match("un été magnifique"));
+        assert!(matcher.matches("un été magnifique"));
 
         // Another concrete test.
         let matcher = matcher.with_pattern("stefan");
-        assert!(matcher.normalized_match("Ștefan"));
+        assert!(matcher.matches("Ștefan"));
     }
 }

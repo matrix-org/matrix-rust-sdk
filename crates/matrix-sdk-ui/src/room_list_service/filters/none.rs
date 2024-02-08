@@ -1,7 +1,7 @@
-use matrix_sdk::RoomListEntry;
+use super::Filter;
 
 /// Create a new filter that will reject all entries.
-pub fn new_filter() -> impl Fn(&RoomListEntry) -> bool {
+pub fn new_filter() -> impl Filter {
     |_room_list_entry| -> bool { false }
 }
 

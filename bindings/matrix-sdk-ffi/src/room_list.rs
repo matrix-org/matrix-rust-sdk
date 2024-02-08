@@ -13,9 +13,13 @@ use matrix_sdk::{
     RoomListEntry as MatrixRoomListEntry,
 };
 use matrix_sdk_ui::{
-    room_list_service::filters::{
-        new_filter_all, new_filter_all_non_left, new_filter_fuzzy_match_room_name, new_filter_none,
-        new_filter_normalized_match_room_name,
+    room_list_service::{
+        filters::{
+            new_filter_all, new_filter_any, new_filter_category, new_filter_fuzzy_match_room_name,
+            new_filter_non_left, new_filter_none, new_filter_normalized_match_room_name,
+            new_filter_unread, RoomCategory,
+        },
+        BoxedFilterFn,
     },
     timeline::default_event_filter,
 };
@@ -391,19 +395,8 @@ impl RoomListDynamicEntriesController {
 #[uniffi::export]
 impl RoomListDynamicEntriesController {
     fn set_filter(&self, kind: RoomListEntriesDynamicFilterKind) -> bool {
-        use RoomListEntriesDynamicFilterKind as Kind;
-
-        match kind {
-            Kind::All => self.inner.set_filter(new_filter_all()),
-            Kind::AllNonLeft => self.inner.set_filter(new_filter_all_non_left(&self.client)),
-            Kind::None => self.inner.set_filter(new_filter_none()),
-            Kind::NormalizedMatchRoomName { pattern } => {
-                self.inner.set_filter(new_filter_normalized_match_room_name(&self.client, &pattern))
-            }
-            Kind::FuzzyMatchRoomName { pattern } => {
-                self.inner.set_filter(new_filter_fuzzy_match_room_name(&self.client, &pattern))
-            }
-        }
+        let FilterWrapper(filter) = FilterWrapper::from(&self.client, kind);
+        self.inner.set_filter(filter)
     }
 
     fn add_one_page(&self) {
@@ -417,11 +410,58 @@ impl RoomListDynamicEntriesController {
 
 #[derive(uniffi::Enum)]
 pub enum RoomListEntriesDynamicFilterKind {
-    All,
-    AllNonLeft,
+    All { filters: Vec<RoomListEntriesDynamicFilterKind> },
+    Any { filters: Vec<RoomListEntriesDynamicFilterKind> },
+    NonLeft,
+    Unread,
+    Category { expect: RoomListFilterCategory },
     None,
     NormalizedMatchRoomName { pattern: String },
     FuzzyMatchRoomName { pattern: String },
+}
+
+#[derive(uniffi::Enum)]
+pub enum RoomListFilterCategory {
+    Group,
+    People,
+}
+
+impl From<RoomListFilterCategory> for RoomCategory {
+    fn from(value: RoomListFilterCategory) -> Self {
+        match value {
+            RoomListFilterCategory::Group => Self::Group,
+            RoomListFilterCategory::People => Self::People,
+        }
+    }
+}
+
+/// Custom internal type to transform a `RoomListEntriesDynamicFilterKind` into
+/// a `BoxedFilterFn`.
+struct FilterWrapper(BoxedFilterFn);
+
+impl FilterWrapper {
+    fn from(client: &matrix_sdk::Client, value: RoomListEntriesDynamicFilterKind) -> Self {
+        use RoomListEntriesDynamicFilterKind as Kind;
+
+        match value {
+            Kind::All { filters } => Self(Box::new(new_filter_all(
+                filters.into_iter().map(|filter| FilterWrapper::from(client, filter).0).collect(),
+            ))),
+            Kind::Any { filters } => Self(Box::new(new_filter_any(
+                filters.into_iter().map(|filter| FilterWrapper::from(client, filter).0).collect(),
+            ))),
+            Kind::NonLeft => Self(Box::new(new_filter_non_left(client))),
+            Kind::Unread => Self(Box::new(new_filter_unread(client))),
+            Kind::Category { expect } => Self(Box::new(new_filter_category(client, expect.into()))),
+            Kind::None => Self(Box::new(new_filter_none())),
+            Kind::NormalizedMatchRoomName { pattern } => {
+                Self(Box::new(new_filter_normalized_match_room_name(client, &pattern)))
+            }
+            Kind::FuzzyMatchRoomName { pattern } => {
+                Self(Box::new(new_filter_fuzzy_match_room_name(client, &pattern)))
+            }
+        }
+    }
 }
 
 #[derive(uniffi::Object)]

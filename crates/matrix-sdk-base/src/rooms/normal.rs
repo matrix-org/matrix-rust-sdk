@@ -347,6 +347,12 @@ impl Room {
         self.inner.read().base_info.dm_targets.clone()
     }
 
+    /// If this room is a direct message, returns the number of members that
+    /// we're sharing the room with.
+    pub fn direct_targets_length(&self) -> usize {
+        self.inner.read().base_info.dm_targets.len()
+    }
+
     /// Is the room encrypted.
     pub fn is_encrypted(&self) -> bool {
         self.inner.read().is_encrypted()
