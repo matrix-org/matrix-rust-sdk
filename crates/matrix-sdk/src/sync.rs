@@ -136,7 +136,7 @@ impl Client {
         #[cfg(feature = "e2e-encryption")]
         self.encryption().backups().maybe_trigger_backup();
 
-        self.handle_sync_response(&response).await?;
+        self.call_sync_response_handlers(&response).await?;
 
         Ok(response)
     }
@@ -148,7 +148,10 @@ impl Client {
     /// persisted in the store, if needs be. This function is only calling
     /// the event, room update and notification handlers.
     #[tracing::instrument(skip(self, response))]
-    pub(crate) async fn handle_sync_response(&self, response: &BaseSyncResponse) -> Result<()> {
+    pub(crate) async fn call_sync_response_handlers(
+        &self,
+        response: &BaseSyncResponse,
+    ) -> Result<()> {
         let BaseSyncResponse { rooms, presence, account_data, to_device, notifications } = response;
 
         let now = Instant::now();
