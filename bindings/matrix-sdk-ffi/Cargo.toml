@@ -57,7 +57,7 @@ language-tags = "0.3.2"
 log-panics = { version = "2", features = ["with-backtrace"] }
 paranoid-android = "0.2.1"
 
-[target.'cfg(target_os = "android")'.dependencies.matrix-sdk]
+[target.'cfg(any(target_os = "android", target_os = "ios", target_os = "macos"))'.dependencies.matrix-sdk]
 workspace = true
 features = [
     "anyhow",
@@ -72,7 +72,7 @@ features = [
     "uniffi",
 ]
 
-[target.'cfg(not(target_os = "android"))'.dependencies.matrix-sdk]
+[target.'cfg(not(any(target_os = "android", target_os = "ios", target_os = "macos")))'.dependencies.matrix-sdk]
 workspace = true
 features = [
     "anyhow",
