@@ -551,9 +551,9 @@ impl BaseClient {
             F: Fn(&mut RoomInfo),
         {
             // `StateChanges` has the `RoomInfo`.
-            if let Some(room) = changes.room_infos.get_mut(room_id) {
+            if let Some(room_info) = changes.room_infos.get_mut(room_id) {
                 // Show time.
-                on_room_info(room);
+                on_room_info(room_info);
             }
             // The `BaseClient` has the `Room`, which has the `RoomInfo`.
             else if let Some(room) = client.store.get_room(room_id) {
@@ -819,8 +819,8 @@ impl BaseClient {
         for (room_id, new_info) in response.rooms.join {
             let room = self.store.get_or_create_room(&room_id, RoomState::Joined);
             let mut room_info = room.clone_info();
-            room_info.mark_as_joined();
 
+            room_info.mark_as_joined();
             room_info.update_summary(&new_info.summary);
             room_info.set_prev_batch(new_info.timeline.prev_batch.as_deref());
             room_info.mark_state_fully_synced();
@@ -875,8 +875,18 @@ impl BaseClient {
                 )
                 .await?;
 
+            // Save the new `RoomInfo`.
+            changes.add_room(room_info);
+
             self.handle_room_account_data(&room_id, &new_info.account_data.events, &mut changes)
                 .await;
+
+            // `Self::handle_room_account_data` might have updated the `RoomInfo`. Let's
+            // fetch it again.
+            //
+            // SAFETY: `unwrap` is safe because the `RoomInfo` has been inserted 2 lines
+            // above.
+            let mut room_info = changes.room_infos.get(&room_id).unwrap().clone();
 
             #[cfg(feature = "e2e-encryption")]
             if room_info.is_encrypted() {
@@ -949,12 +959,14 @@ impl BaseClient {
                 )
                 .await?;
 
+            // Save the new `RoomInfo`.
+            changes.add_room(room_info);
+
             self.handle_room_account_data(&room_id, &new_info.account_data.events, &mut changes)
                 .await;
 
             let ambiguity_changes = ambiguity_cache.changes.remove(&room_id).unwrap_or_default();
 
-            changes.add_room(room_info);
             new_rooms.leave.insert(
                 room_id,
                 LeftRoom::new(
@@ -1032,7 +1044,7 @@ impl BaseClient {
 
         for (room_id, room_info) in &changes.room_infos {
             if let Some(room) = self.store.get_room(room_id) {
-                room.set_room_info(room_info.clone())
+                room.set_room_info(room_info.clone());
             }
         }
     }
