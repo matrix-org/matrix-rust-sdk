@@ -14,6 +14,7 @@
 
 - Add new API `Device::encrypt_event_raw` that allows
   to encrypt an event to a specific device.
+  ([#3091](https://github.com/matrix-org/matrix-rust-sdk/pull/3091))
 
 # 0.7.0
 

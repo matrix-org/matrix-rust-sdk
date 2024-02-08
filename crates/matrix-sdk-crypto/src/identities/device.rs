@@ -442,20 +442,19 @@ impl Device {
         self.encrypt(event_type, content).await
     }
 
-    /// Encrypt an event for the given device.
+    /// Encrypt an event for this device.
     ///
-    /// Not to be confused with [`OlmMachine::encrypt_room_event`] that
-    /// encrypts the event to a room. The current method is used to
-    /// encrypt an event directly to a device using the peer to peer e2e
-    /// session.
-    ///
-    /// Beware that the peer to peer session must be established prior to this
+    /// Beware that the 1-to-1 session must be established prior to this
     /// call by using the [`OlmMachine::get_missing_sessions`] method.
     ///
     /// Notable limitation: The caller is responsible for sending the encrypted
     /// event to the target device, this encryption method supports out-of-order
-    /// messages to a certain extent (2000 messages), so it's recommended to
-    /// send the encrypted event as soon as possible.
+    /// messages to a certain extent (2000 messages), if multiple messages are
+    /// encrypted using this method they should be sent in the same order as
+    /// they are encrypted.
+    ///
+    /// *Note*: To instead encrypt an event meant for a room use the
+    /// [`OlmMachine::encrypt_room_event()`] method instead.
     ///
     /// # Arguments
     /// * `event_type` - The type of the event to be sent.
@@ -465,7 +464,7 @@ impl Device {
     /// # Returns
     ///
     /// The encrypted raw content to be shared with your preferred transport
-    /// layer (usually to-device). [`OlmError::MissingSession`] if there is
+    /// layer (usually to-device), [`OlmError::MissingSession`] if there is
     /// no established session with the device.
     pub async fn encrypt_event_raw(
         &self,
