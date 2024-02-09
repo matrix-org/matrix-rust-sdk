@@ -18,6 +18,8 @@ use std::{
     time::Duration,
 };
 
+use futures_core::Stream;
+use futures_util::StreamExt;
 use itertools::Itertools;
 use matrix_sdk_common::deserialized_responses::{
     AlgorithmInfo, DeviceLinkProblem, EncryptionInfo, TimelineEvent, VerificationLevel,
@@ -1841,6 +1843,32 @@ impl OlmMachine {
         Ok(exported)
     }
 
+    /// Export all the room keys, and provide them as an async `Stream`.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use std::pin::pin;
+    /// use matrix_sdk_crypto::{OlmMachine, olm::ExportedRoomKey};
+    /// use ruma::{device_id, user_id, room_id};
+    /// use tokio_stream::StreamExt;
+    /// let alice = user_id!("@alice:example.org");
+    /// # async {
+    /// let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
+    /// let mut keys = pin!(machine.export_all_room_keys_stream().await.unwrap());
+    /// while let Some(key) = keys.next().await {
+    ///     println!("{}", key.room_id);
+    /// }
+    /// # };
+    /// ```
+    pub async fn export_all_room_keys_stream(
+        &self,
+    ) -> StoreResult<impl Stream<Item = ExportedRoomKey>> {
+        let sessions = self.store().get_inbound_group_sessions().await?;
+        Ok(futures_util::stream::iter(sessions.into_iter())
+            .then(|session| async move { session.export().await }))
+    }
+
     /// Get the status of the private cross signing keys.
     ///
     /// This can be used to check which private cross signing keys we have
@@ -2199,6 +2227,7 @@ pub(crate) mod tests {
     use std::{
         collections::BTreeMap,
         iter,
+        pin::pin,
         sync::Arc,
         time::{Duration, SystemTime},
     };
@@ -4336,5 +4365,60 @@ pub(crate) mod tests {
             .await;
 
         assert_matches!(encryption_result, Err(OlmError::MissingSession));
+    }
+
+    #[async_test]
+    async fn export_room_keys_provides_selected_keys() {
+        // Given an OlmMachine with room keys in it
+        let (alice, _, _) = get_machine_pair(user_id!("@a:s.co"), user_id!("@b:s.co"), false).await;
+        let room1_id = room_id!("!room1:localhost");
+        let room2_id = room_id!("!room2:localhost");
+        let room3_id = room_id!("!room3:localhost");
+        alice.create_outbound_group_session_with_defaults_test_helper(room1_id).await.unwrap();
+        alice.create_outbound_group_session_with_defaults_test_helper(room2_id).await.unwrap();
+        alice.create_outbound_group_session_with_defaults_test_helper(room3_id).await.unwrap();
+
+        // When I export some of the keys
+        let keys = alice
+            .export_room_keys(|s| s.room_id() == room2_id || s.room_id() == room3_id)
+            .await
+            .unwrap();
+
+        // Then the requested keys were provided
+        assert_eq!(keys.len(), 2);
+        assert_eq!(keys[0].algorithm, EventEncryptionAlgorithm::MegolmV1AesSha2);
+        assert_eq!(keys[1].algorithm, EventEncryptionAlgorithm::MegolmV1AesSha2);
+        assert_eq!(keys[0].room_id, "!room2:localhost");
+        assert_eq!(keys[1].room_id, "!room3:localhost");
+        assert_eq!(keys[0].session_key.to_base64().len(), 220);
+        assert_eq!(keys[1].session_key.to_base64().len(), 220);
+    }
+
+    #[async_test]
+    async fn export_all_room_keys_stream_provides_all_keys() {
+        // Given an OlmMachine with room keys in it
+        let (alice, _, _) = get_machine_pair(user_id!("@a:s.co"), user_id!("@b:s.co"), false).await;
+        let room1_id = room_id!("!room1:localhost");
+        let room2_id = room_id!("!room2:localhost");
+        alice.create_outbound_group_session_with_defaults_test_helper(room1_id).await.unwrap();
+        alice.create_outbound_group_session_with_defaults_test_helper(room2_id).await.unwrap();
+
+        // When I export the keys as a stream
+        let mut keys = pin!(alice.export_all_room_keys_stream().await.unwrap());
+
+        // And collect them
+        let mut collected = vec![];
+        while let Some(key) = keys.next().await {
+            collected.push(key);
+        }
+
+        // Then all the keys were provided
+        assert_eq!(collected.len(), 2);
+        assert_eq!(collected[0].algorithm, EventEncryptionAlgorithm::MegolmV1AesSha2);
+        assert_eq!(collected[1].algorithm, EventEncryptionAlgorithm::MegolmV1AesSha2);
+        assert_eq!(collected[0].room_id, "!room1:localhost");
+        assert_eq!(collected[1].room_id, "!room2:localhost");
+        assert_eq!(collected[0].session_key.to_base64().len(), 220);
+        assert_eq!(collected[1].session_key.to_base64().len(), 220);
     }
 }
