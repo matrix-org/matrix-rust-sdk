@@ -212,7 +212,10 @@ impl NotificationClient {
                     for _ in 0..3 {
                         trace!("waiting for decryption…");
 
+                        #[cfg(not(target_arch = "wasm32"))]
                         tokio::time::sleep(Duration::from_millis(wait)).await;
+                        #[cfg(target_arch = "wasm32")]
+                        gloo_timers::future::TimeoutFuture::new(wait).await;
 
                         match room.decrypt_event(raw_event.cast_ref()).await {
                             Ok(new_event) => {

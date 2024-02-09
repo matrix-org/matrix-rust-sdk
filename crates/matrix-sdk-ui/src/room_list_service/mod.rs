@@ -76,11 +76,11 @@ use std::{
 use async_stream::stream;
 use eyeball::{SharedObservable, Subscriber};
 use futures_util::{pin_mut, Stream, StreamExt};
-use matrix_sdk::timeout::timeout;
 pub use matrix_sdk::RoomListEntry;
 use matrix_sdk::{
-    event_cache::EventCacheError, sliding_sync::Ranges, Client, Error as SlidingSyncError,
-    SlidingSync, SlidingSyncList, SlidingSyncListBuilder, SlidingSyncMode,
+    event_cache::EventCacheError, sliding_sync::Ranges, timeout::timeout, Client,
+    Error as SlidingSyncError, SlidingSync, SlidingSyncList, SlidingSyncListBuilder,
+    SlidingSyncMode,
 };
 use matrix_sdk_base::ring_buffer::RingBuffer;
 pub use room::*;

@@ -171,7 +171,10 @@ impl EncryptionSyncService {
                     LEASE_DURATION_MS
                 );
 
+                #[cfg(not(target_arch = "wasm32"))]
                 tokio::time::sleep(Duration::from_millis(LEASE_DURATION_MS.into())).await;
+                #[cfg(target_arch = "wasm32")]
+                gloo_timers::future::TimeoutFuture::new(LEASE_DURATION_MS).await;
 
                 lock_guard = self
                     .client

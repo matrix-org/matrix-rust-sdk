@@ -1,7 +1,7 @@
 //! Sliding Sync errors.
 
+use matrix_sdk_common::executor::JoinError;
 use thiserror::Error;
-use tokio::task::JoinError;
 
 /// Internal representation of errors in Sliding Sync.
 #[derive(Error, Debug)]

@@ -3583,6 +3583,7 @@ dependencies = [
  "futures-core",
  "futures-util",
  "fuzzy-matcher",
+ "gloo-timers",
  "growable-bloom-filter",
  "imbl",
  "indexmap 2.2.6",
