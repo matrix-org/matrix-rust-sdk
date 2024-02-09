@@ -43,7 +43,7 @@ pub struct SyncResponse {
     /// request.
     pub next_batch: String,
     /// Updates to rooms.
-    pub rooms: Rooms,
+    pub rooms: RoomUpdates,
     /// Updates to the presence status of other users.
     pub presence: Vec<Raw<PresenceEvent>>,
     /// The global private data created by this user.
@@ -84,14 +84,14 @@ pub enum RoomUpdate {
         /// Room object with general information on the room.
         room: Room,
         /// Updates to the room.
-        updates: LeftRoom,
+        updates: LeftRoomUpdate,
     },
     /// Updates to a room the user is currently in.
     Joined {
         /// Room object with general information on the room.
         room: Room,
         /// Updates to the room.
-        updates: JoinedRoom,
+        updates: JoinedRoomUpdate,
     },
     /// Updates to a room the user is invited to.
     Invited {
@@ -124,6 +124,8 @@ impl fmt::Debug for RoomUpdate {
 /// Internal functionality related to getting events from the server
 /// (`sync_events` endpoint)
 impl Client {
+    /// Receive a sync response, compute extra information out of it and store
+    /// the interesting bits in the database, then call all the handlers.
     pub(crate) async fn process_sync(
         &self,
         response: sync_events::v3::Response,
@@ -134,7 +136,8 @@ impl Client {
         #[cfg(feature = "e2e-encryption")]
         self.encryption().backups().maybe_trigger_backup();
 
-        self.handle_sync_response(&response).await?;
+        self.call_sync_response_handlers(&response).await?;
+
         Ok(response)
     }
 
@@ -145,7 +148,10 @@ impl Client {
     /// persisted in the store, if needs be. This function is only calling
     /// the event, room update and notification handlers.
     #[tracing::instrument(skip(self, response))]
-    pub(crate) async fn handle_sync_response(&self, response: &BaseSyncResponse) -> Result<()> {
+    pub(crate) async fn call_sync_response_handlers(
+        &self,
+        response: &BaseSyncResponse,
+    ) -> Result<()> {
         let BaseSyncResponse { rooms, presence, account_data, to_device, notifications } = response;
 
         let now = Instant::now();
@@ -164,7 +170,7 @@ impl Client {
                 updates: room_info.clone(),
             });
 
-            let JoinedRoom {
+            let JoinedRoomUpdate {
                 unread_notifications: _,
                 timeline,
                 state,
@@ -193,7 +199,7 @@ impl Client {
                 updates: room_info.clone(),
             });
 
-            let LeftRoom { timeline, state, account_data, ambiguity_changes: _ } = room_info;
+            let LeftRoomUpdate { timeline, state, account_data, ambiguity_changes: _ } = room_info;
 
             let room = Some(&room);
             self.handle_sync_events(HandlerKind::RoomAccountData, room, account_data).await?;

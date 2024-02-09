@@ -46,7 +46,7 @@ use async_trait::async_trait;
 use matrix_sdk::{sync::RoomUpdate, Client, Room};
 use matrix_sdk_base::{
     deserialized_responses::{AmbiguityChange, SyncTimelineEvent},
-    sync::{JoinedRoom, LeftRoom, Timeline},
+    sync::{JoinedRoomUpdate, LeftRoomUpdate, Timeline},
 };
 use ruma::{
     events::{AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent},
@@ -245,7 +245,7 @@ impl RoomEventGraphInner {
         (room_graph, Arc::new(RoomGraphDropHandles { listen_updates_task }))
     }
 
-    async fn handle_joined_room_update(&self, updates: JoinedRoom) -> Result<()> {
+    async fn handle_joined_room_update(&self, updates: JoinedRoomUpdate) -> Result<()> {
         self.handle_timeline(
             updates.timeline,
             updates.ephemeral.clone(),
@@ -290,7 +290,7 @@ impl RoomEventGraphInner {
         Ok(())
     }
 
-    async fn handle_left_room_update(&self, updates: LeftRoom) -> Result<()> {
+    async fn handle_left_room_update(&self, updates: LeftRoomUpdate) -> Result<()> {
         self.handle_timeline(updates.timeline, Vec::new(), Vec::new(), updates.ambiguity_changes)
             .await?;
         Ok(())
