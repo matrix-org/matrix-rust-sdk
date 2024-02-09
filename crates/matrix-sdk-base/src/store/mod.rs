@@ -21,8 +21,10 @@
 //! store.
 
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    borrow::Borrow,
+    collections::{BTreeMap, BTreeSet, HashMap},
     fmt,
+    hash::Hash,
     ops::Deref,
     pin::Pin,
     result::Result as StdResult,
@@ -30,6 +32,8 @@ use std::{
     sync::{Arc, RwLock as StdRwLock},
 };
 
+use eyeball_im::{ObservableVector, Vector, VectorDiff};
+use futures_util::Stream;
 use once_cell::sync::OnceCell;
 
 #[cfg(any(test, feature = "testing"))]
@@ -142,7 +146,8 @@ pub(crate) struct Store {
     session_meta: Arc<OnceCell<SessionMeta>>,
     /// The current sync token that should be used for the next sync call.
     pub(super) sync_token: Arc<RwLock<Option<String>>>,
-    rooms: Arc<StdRwLock<BTreeMap<OwnedRoomId, Room>>>,
+    /// All rooms the store knows about.
+    rooms: Arc<StdRwLock<ObservableMap<OwnedRoomId, Room>>>,
     /// A lock to synchronize access to the store, such that data by the sync is
     /// never overwritten.
     sync_lock: Arc<Mutex<()>>,
@@ -155,7 +160,7 @@ impl Store {
             inner,
             session_meta: Default::default(),
             sync_token: Default::default(),
-            rooms: Default::default(),
+            rooms: Arc::new(StdRwLock::new(ObservableMap::new())),
             sync_lock: Default::default(),
         }
     }
@@ -172,9 +177,17 @@ impl Store {
     ///
     /// This method panics if it is called twice.
     pub async fn set_session_meta(&self, session_meta: SessionMeta) -> Result<()> {
-        for info in self.inner.get_room_infos().await? {
-            let room = Room::restore(&session_meta.user_id, self.inner.clone(), info);
-            self.rooms.write().unwrap().insert(room.room_id().to_owned(), room);
+        {
+            let room_infos = self.inner.get_room_infos().await?;
+
+            let mut rooms = self.rooms.write().unwrap();
+
+            for room_info in room_infos {
+                let new_room = Room::restore(&session_meta.user_id, self.inner.clone(), room_info);
+                let new_room_id = new_room.room_id().to_owned();
+
+                rooms.insert(new_room_id, new_room);
+            }
         }
 
         let token =
@@ -192,28 +205,33 @@ impl Store {
     }
 
     /// Get all the rooms this store knows about.
-    pub fn get_rooms(&self) -> Vec<Room> {
-        self.rooms.read().unwrap().keys().filter_map(|id| self.get_room(id)).collect()
+    pub fn rooms(&self) -> Vec<Room> {
+        self.rooms.read().unwrap().iter().cloned().collect()
     }
 
     /// Get all the rooms this store knows about, filtered by state.
-    pub fn get_rooms_filtered(&self, filter: RoomStateFilter) -> Vec<Room> {
+    pub fn rooms_filtered(&self, filter: RoomStateFilter) -> Vec<Room> {
         self.rooms
             .read()
             .unwrap()
             .iter()
-            .filter(|(_, r)| filter.matches(r.state()))
-            .filter_map(|(id, _)| self.get_room(id))
+            .filter_map(|room| filter.matches(room.state()).then_some(room))
+            .cloned()
             .collect()
     }
 
+    /// Get a stream of all the rooms, in addition to the existing rooms.
+    pub fn rooms_stream(&self) -> (Vector<Room>, impl Stream<Item = Vec<VectorDiff<Room>>>) {
+        self.rooms.read().unwrap().stream()
+    }
+
     /// Get the room with the given room id.
-    pub fn get_room(&self, room_id: &RoomId) -> Option<Room> {
+    pub fn room(&self, room_id: &RoomId) -> Option<Room> {
         self.rooms.read().unwrap().get(room_id).cloned()
     }
 
-    /// Lookup the Room for the given RoomId, or create one, if it didn't exist
-    /// yet in the store
+    /// Lookup the `Room` for the given `RoomId`, or create one, if it didn't
+    /// exist yet in the store
     pub fn get_or_create_room(&self, room_id: &RoomId, room_type: RoomState) -> Room {
         let user_id =
             &self.session_meta.get().expect("Creating room while not being logged in").user_id;
@@ -221,8 +239,7 @@ impl Store {
         self.rooms
             .write()
             .unwrap()
-            .entry(room_id.to_owned())
-            .or_insert_with(|| Room::new(user_id, self.inner.clone(), room_id, room_type))
+            .get_or_create(room_id, || Room::new(user_id, self.inner.clone(), room_id, room_type))
             .clone()
     }
 }
@@ -244,6 +261,180 @@ impl Deref for Store {
 
     fn deref(&self) -> &Self::Target {
         self.inner.deref()
+    }
+}
+
+/// An observable map.
+///
+/// This is an “observable map” naive implementation. Just like regular hashmap,
+/// we have a redirection from a key to a position, and from a position to
+/// a value. The (key, position) tuples are stored in an [`HashMap`]. The
+/// (position, value) tuples are stored in an [`ObservableVector`]. The (key,
+/// position) tuple is only provided for fast _reading_ implementations, like
+/// `Self::get` and `Self::get_or_create`. The (position, value) tuples are
+/// observable, this is what interests us the most here.
+///
+/// Why not implementing a new `ObservableMap` type in `eyeball-im` instead of
+/// this custom implementation? Because we want to continue providing
+/// `VectorDiff` when observing the changes, so that the rest of the API in the
+/// Matrix Rust SDK aren't broken. Indeed, an `ObservableMap` must produce
+/// `MapDiff`, which would be quite different.
+/// Plus, we would like to re-use all our existing code, test, stream adapters
+/// and so on.
+///
+/// This is a trade-off. And this implementation is simple enough for the
+/// moment, and basically does the job.
+#[derive(Debug)]
+struct ObservableMap<K, V>
+where
+    V: Clone + Send + Sync + 'static,
+{
+    /// The (key, position) tuples.
+    mapping: HashMap<K, usize>,
+
+    /// The (position, value) tuples.
+    values: ObservableVector<V>,
+}
+
+impl<K, V> ObservableMap<K, V>
+where
+    K: Hash + Eq,
+    V: Clone + Send + Sync + 'static,
+{
+    /// Create a new `Self`.
+    fn new() -> Self {
+        Self { mapping: HashMap::new(), values: ObservableVector::new() }
+    }
+
+    /// Insert a new `V` in the collection.
+    ///
+    /// The position of the inserted value is returned.
+    ///
+    /// If the `V` value already exists, it will be updated to the new one.
+    fn insert(&mut self, key: K, value: V) -> usize {
+        match self.mapping.get(&key) {
+            Some(position) => {
+                self.values.set(*position, value);
+
+                *position
+            }
+            None => {
+                let position = self.values.len();
+
+                self.values.push_back(value);
+                self.mapping.insert(key, position);
+
+                position
+            }
+        }
+    }
+
+    /// Reading one `V` value based on their ID, if it exists.
+    fn get<L>(&self, key: &L) -> Option<&V>
+    where
+        K: Borrow<L>,
+        L: Hash + Eq + ?Sized,
+    {
+        self.mapping.get(key).and_then(|position| self.values.get(*position))
+    }
+
+    /// Reading one `V` value based on their ID, or create a new one (by using
+    /// `default`).
+    fn get_or_create<L, F>(&mut self, key: &L, default: F) -> &V
+    where
+        K: Borrow<L>,
+        L: Hash + Eq + ?Sized + ToOwned<Owned = K>,
+        F: FnOnce() -> V,
+    {
+        let position = match self.mapping.get(key) {
+            Some(position) => *position,
+            None => {
+                let value = default();
+                self.insert(key.to_owned(), value)
+            }
+        };
+
+        self.values
+            .get(position)
+            .expect("Value should be present or has just been inserted, but it's missing")
+    }
+
+    /// Return an iterator over the existing values.
+    fn iter(&self) -> impl Iterator<Item = &V> {
+        self.values.iter()
+    }
+
+    /// Get a [`Stream`] of it.
+    fn stream(&self) -> (Vector<V>, impl Stream<Item = Vec<VectorDiff<V>>>) {
+        self.values.subscribe().into_values_and_batched_stream()
+    }
+}
+
+#[cfg(test)]
+mod tests_observable_map {
+    use super::ObservableMap;
+
+    #[test]
+    fn test_insert_and_get() {
+        let mut map = ObservableMap::<char, char>::new();
+
+        assert!(map.get(&'a').is_none());
+        assert!(map.get(&'b').is_none());
+        assert!(map.get(&'c').is_none());
+
+        // new items
+        assert_eq!(map.insert('a', 'e'), 0);
+        assert_eq!(map.insert('b', 'f'), 1);
+
+        assert_eq!(map.get(&'a'), Some(&'e'));
+        assert_eq!(map.get(&'b'), Some(&'f'));
+        assert!(map.get(&'c').is_none());
+
+        // one new item
+        assert_eq!(map.insert('c', 'g'), 2);
+
+        assert_eq!(map.get(&'a'), Some(&'e'));
+        assert_eq!(map.get(&'b'), Some(&'f'));
+        assert_eq!(map.get(&'c'), Some(&'g'));
+
+        // update one item
+        assert_eq!(map.insert('b', 'F'), 1);
+
+        assert_eq!(map.get(&'a'), Some(&'e'));
+        assert_eq!(map.get(&'b'), Some(&'F'));
+        assert_eq!(map.get(&'c'), Some(&'g'));
+    }
+
+    #[test]
+    fn test_get_or_create() {
+        let mut map = ObservableMap::<char, char>::new();
+
+        // insert one item
+        assert_eq!(map.insert('b', 'f'), 0);
+
+        // get or create many items
+        assert_eq!(map.get_or_create(&'a', || 'E'), &'E');
+        assert_eq!(map.get_or_create(&'b', || 'F'), &'f'); // this one already exists
+        assert_eq!(map.get_or_create(&'c', || 'G'), &'G');
+
+        assert_eq!(map.get(&'a'), Some(&'E'));
+        assert_eq!(map.get(&'b'), Some(&'f'));
+        assert_eq!(map.get(&'c'), Some(&'G'));
+    }
+
+    #[test]
+    fn test_iter() {
+        let mut map = ObservableMap::<char, char>::new();
+
+        // new items
+        assert_eq!(map.insert('a', 'e'), 0);
+        assert_eq!(map.insert('b', 'f'), 1);
+        assert_eq!(map.insert('c', 'g'), 2);
+
+        assert_eq!(
+            map.iter().map(|c| c.to_ascii_uppercase()).collect::<Vec<_>>(),
+            &['E', 'F', 'G']
+        );
     }
 }
 
