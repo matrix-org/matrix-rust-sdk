@@ -39,7 +39,7 @@ as_variant = { workspace = true }
 assert_matches = { workspace = true, optional = true }
 assert_matches2 = { workspace = true, optional = true }
 async-trait = { workspace = true }
-bitflags = "2.1.0"
+bitflags = { version = "2.4.0", features = ["serde"] }
 eyeball = { workspace = true }
 eyeball-im = { workspace = true }
 futures-util = { workspace = true }

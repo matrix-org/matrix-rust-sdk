@@ -968,19 +968,22 @@ impl Room {
         self.client.send(request, None).await
     }
 
-    /// Update the is_favorite flag from the room by calling set_tag or
-    /// remove_tag method on `m.favourite` tag.
-    /// If `is_favorite` is `true`, and `m.low_priority` tag is set on the room,
-    /// the tag will be removed too.
+    /// Add or remove the `m.favourite` flag for this room.
+    ///
+    /// If `is_favourite` is `true`, and the `m.low_priority` tag is set on the
+    /// room, the tag will be removed too.
+    ///
     /// # Arguments
     ///
-    /// * `is_favorite` - Whether to mark this room as favorite or not.
+    /// * `is_favourite` - Whether to mark this room as favourite.
     /// * `tag_order` - The order of the tag if any.
-    pub async fn set_is_favorite(&self, is_favorite: bool, tag_order: Option<f64>) -> Result<()> {
-        if is_favorite {
+    pub async fn set_is_favourite(&self, is_favourite: bool, tag_order: Option<f64>) -> Result<()> {
+        if is_favourite {
             let tag_info = assign!(TagInfo::new(), { order: tag_order });
+
             self.set_tag(TagName::Favorite, tag_info).await?;
-            if self.current_notable_tags().await.is_low_priority {
+
+            if self.is_low_priority() {
                 self.remove_tag(TagName::LowPriority).await?;
             }
         } else {
@@ -989,10 +992,11 @@ impl Room {
         Ok(())
     }
 
-    /// Update the is_low_priority flag from the room by calling set_tag or
-    /// remove_tag method on `m.low_priority` tag.
-    /// If `is_low_priority` is `true`, and `m.favourite` tag is set on the
+    /// Add or remove the `m.lowpriority` flag for this room.
+    ///
+    /// If `is_low_priority` is `true`, and the `m.favourite` tag is set on the
     /// room, the tag will be removed too.
+    ///
     /// # Arguments
     ///
     /// * `is_low_priority` - Whether to mark this room as low_priority or not.
@@ -1004,8 +1008,10 @@ impl Room {
     ) -> Result<()> {
         if is_low_priority {
             let tag_info = assign!(TagInfo::new(), { order: tag_order });
+
             self.set_tag(TagName::LowPriority, tag_info).await?;
-            if self.current_notable_tags().await.is_favorite {
+
+            if self.is_favourite() {
                 self.remove_tag(TagName::Favorite).await?;
             }
         } else {

@@ -44,7 +44,7 @@ use ruma::{
             redaction::SyncRoomRedactionEvent,
             tombstone::RoomTombstoneEventContent,
         },
-        tag::{TagName, Tags},
+        tag::Tags,
         AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncStateEvent,
         RoomAccountDataEventType,
     },
@@ -58,7 +58,7 @@ use tracing::{debug, field::debug, info, instrument, trace, warn};
 
 use super::{
     members::{MemberInfo, MemberRoomInfo},
-    BaseRoomInfo, DisplayName, RoomCreateWithCreatorEventContent, RoomMember,
+    BaseRoomInfo, DisplayName, RoomCreateWithCreatorEventContent, RoomMember, RoomNotableTags,
 };
 #[cfg(feature = "experimental-sliding-sync")]
 use crate::latest_event::LatestEvent;
@@ -90,9 +90,6 @@ pub struct Room {
     /// to disk but held in memory.
     #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
     pub latest_encrypted_events: Arc<SyncRwLock<RingBuffer<Raw<AnySyncTimelineEvent>>>>,
-    /// Observable of when some notable tags are set or removed from the room
-    /// account data.
-    notable_tags: SharedObservable<RoomNotableTags>,
 }
 
 /// The room summary containing member counts and members that should be used to
@@ -166,7 +163,6 @@ impl Room {
             latest_encrypted_events: Arc::new(SyncRwLock::new(RingBuffer::new(
                 Self::MAX_ENCRYPTED_EVENTS,
             ))),
-            notable_tags: Default::default(),
         }
     }
 
@@ -654,26 +650,6 @@ impl Room {
         self.inner.set(room_info);
     }
 
-    /// Update the inner observable with the given [`RoomNotableTags`], and
-    /// notify subscribers.
-    pub fn set_notable_tags(&self, notable_tags: RoomNotableTags) {
-        self.notable_tags.set(notable_tags);
-    }
-
-    /// Returns the current [`RoomNotableTags`] and subscribe to changes.
-    pub async fn notable_tags_stream(&self) -> (RoomNotableTags, Subscriber<RoomNotableTags>) {
-        (self.current_notable_tags().await, self.notable_tags.subscribe())
-    }
-
-    /// Return the current [`RoomNotableTags`] extracted from store.
-    pub async fn current_notable_tags(&self) -> RoomNotableTags {
-        let current_tags = self.tags().await.unwrap_or_else(|e| {
-            warn!("Failed to get tags from store: {}", e);
-            None
-        });
-        RoomNotableTags::new(current_tags)
-    }
-
     /// Get the `RoomMember` with the given `user_id`.
     ///
     /// Returns `None` if the member was never part of this room, otherwise
@@ -754,6 +730,21 @@ impl Room {
         } else {
             Ok(None)
         }
+    }
+
+    /// Check whether the room is marked as favourite.
+    ///
+    /// A room is considered favourite if it has received the `m.favourite` tag.
+    pub fn is_favourite(&self) -> bool {
+        self.inner.read().base_info.notable_tags.contains(RoomNotableTags::FAVOURITE)
+    }
+
+    /// Check whether the room is marked as low priority.
+    ///
+    /// A room is considered low priority if it has received the `m.lowpriority`
+    /// tag.
+    pub fn is_low_priority(&self) -> bool {
+        self.inner.read().base_info.notable_tags.contains(RoomNotableTags::LOW_PRIORITY)
     }
 
     /// Get the receipt as an `OwnedEventId` and `Receipt` tuple for the given
@@ -848,27 +839,6 @@ pub(crate) enum SyncInfo {
 
     /// We have all the latest state events.
     FullySynced,
-}
-
-/// Holds information computed from the room account data `m.tag` events.
-#[derive(Clone, Debug, Default)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-pub struct RoomNotableTags {
-    /// Whether or not the room is marked as favorite.
-    pub is_favorite: bool,
-    /// Whether or not the room is marked as low priority.
-    pub is_low_priority: bool,
-}
-
-impl RoomNotableTags {
-    /// Computes the provided tags to create a [`RoomNotableTags`] instance.
-    pub fn new(tags: Option<Tags>) -> Self {
-        let tags = tags.as_ref();
-        RoomNotableTags {
-            is_favorite: tags.map_or(false, |tag| tag.contains_key(&TagName::Favorite)),
-            is_low_priority: tags.map_or(false, |tag| tag.contains_key(&TagName::LowPriority)),
-        }
-    }
 }
 
 impl RoomInfo {
@@ -1305,8 +1275,7 @@ impl RoomStateFilter {
 #[cfg(test)]
 mod tests {
     use std::{
-        collections::BTreeMap,
-        ops::Sub,
+        ops::{Not, Sub},
         str::FromStr,
         sync::Arc,
         time::{Duration, SystemTime},
@@ -1315,7 +1284,7 @@ mod tests {
     use assign::assign;
     #[cfg(feature = "experimental-sliding-sync")]
     use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
-    use matrix_sdk_test::{async_test, test_json, ALICE, BOB, CAROL};
+    use matrix_sdk_test::{async_test, ALICE, BOB, CAROL};
     use ruma::{
         api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
         events::{
@@ -1331,14 +1300,14 @@ mod tests {
                 },
                 name::RoomNameEventContent,
             },
-            tag::{TagInfo, TagName},
             AnySyncStateEvent, StateEventType, StateUnsigned, SyncStateEvent,
         },
         room_alias_id, room_id,
         serde::Raw,
         user_id, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId, UserId,
     };
-    use serde_json::{json, Value};
+    use serde_json::json;
+    use stream_assert::{assert_pending, assert_ready};
 
     #[cfg(feature = "experimental-sliding-sync")]
     use super::SyncInfo;
@@ -1347,7 +1316,7 @@ mod tests {
     use crate::latest_event::LatestEvent;
     use crate::{
         store::{MemoryStore, StateChanges, StateStore},
-        DisplayName, MinimalStateEvent, OriginalMinimalStateEvent, RoomNotableTags,
+        BaseClient, DisplayName, MinimalStateEvent, OriginalMinimalStateEvent, SessionMeta,
     };
 
     #[test]
@@ -1502,47 +1471,143 @@ mod tests {
     }
 
     #[async_test]
-    async fn when_set_notable_tags_is_called_then_notable_tags_subscriber_is_updated() {
-        let (_, room) = make_room(RoomState::Joined);
-        let (_, mut notable_tags_subscriber) = room.notable_tags_stream().await;
+    async fn test_is_favourite() {
+        // Given a room,
+        let client = BaseClient::new();
 
-        stream_assert::assert_pending!(notable_tags_subscriber);
+        client
+            .set_session_meta(SessionMeta {
+                user_id: user_id!("@alice:example.org").into(),
+                device_id: ruma::device_id!("AYEAYEAYE").into(),
+            })
+            .await
+            .unwrap();
 
-        let notable_tags = RoomNotableTags::new(None);
-        room.set_notable_tags(notable_tags);
+        let room_id = room_id!("!test:localhost");
+        let room = client.get_or_create_room(room_id, RoomState::Joined);
 
-        use futures_util::FutureExt as _;
-        assert!(notable_tags_subscriber.next().now_or_never().is_some());
-        stream_assert::assert_pending!(notable_tags_subscriber);
-    }
+        // Sanity checks to ensure the room isn't marked as favourite.
+        assert!(room.is_favourite().not());
 
-    #[test]
-    fn when_tags_has_favorite_tag_then_notable_tags_is_favorite_is_true() {
-        let tags = BTreeMap::from([(TagName::Favorite, TagInfo::new())]);
-        let notable_tags = RoomNotableTags::new(Some(tags));
-        assert!(notable_tags.is_favorite);
-    }
+        // Subscribe to the `RoomInfo`.
+        let mut room_info_subscriber = room.subscribe_info();
 
-    #[test]
-    fn when_tags_has_no_tags_then_notable_tags_is_favorite_is_false() {
-        let notable_tags = RoomNotableTags::new(None);
-        assert!(!notable_tags.is_favorite);
+        assert_pending!(room_info_subscriber);
+
+        // Create the tag.
+        let tag_raw = Raw::new(&json!({
+            "content": {
+                "tags": {
+                    "m.favourite": {
+                        "order": 0.0
+                    },
+                },
+            },
+            "type": "m.tag",
+        }))
+        .unwrap()
+        .cast();
+
+        // When the new tag is handled and applied.
+        let mut changes = StateChanges::default();
+        client.handle_room_account_data(room_id, &[tag_raw], &mut changes).await;
+        client.apply_changes(&changes);
+
+        // The `RoomInfo` is getting notified.
+        assert_ready!(room_info_subscriber);
+        assert_pending!(room_info_subscriber);
+
+        // The room is now marked as favourite.
+        assert!(room.is_favourite());
+
+        // Now, let's remove the tag.
+        let tag_raw = Raw::new(&json!({
+            "content": {
+                "tags": {},
+            },
+            "type": "m.tag"
+        }))
+        .unwrap()
+        .cast();
+        client.handle_room_account_data(room_id, &[tag_raw], &mut changes).await;
+        client.apply_changes(&changes);
+
+        // The `RoomInfo` is getting notified.
+        assert_ready!(room_info_subscriber);
+        assert_pending!(room_info_subscriber);
+
+        // The room is now marked as _not_ favourite.
+        assert!(room.is_favourite().not());
     }
 
     #[async_test]
-    async fn when_tags_are_inserted_in_room_account_data_then_initial_notable_tags_is_updated() {
-        let (store, room) = make_room(RoomState::Joined);
-        let mut changes = StateChanges::new("".to_owned());
+    async fn test_is_low_priority() {
+        // Given a room,
+        let client = BaseClient::new();
 
-        let tag_json: &Value = &test_json::TAG;
-        let tag_raw = Raw::new(tag_json).unwrap().cast();
-        let tag_event = tag_raw.deserialize().unwrap();
-        changes.add_room_account_data(room.room_id(), tag_event, tag_raw);
+        client
+            .set_session_meta(SessionMeta {
+                user_id: user_id!("@alice:example.org").into(),
+                device_id: ruma::device_id!("AYEAYEAYE").into(),
+            })
+            .await
+            .unwrap();
 
-        store.save_changes(&changes).await.unwrap();
+        let room_id = room_id!("!test:localhost");
+        let room = client.get_or_create_room(room_id, RoomState::Joined);
 
-        let (initial_notable_tags, _) = room.notable_tags_stream().await;
-        assert!(initial_notable_tags.is_favorite);
+        // Sanity checks to ensure the room isn't marked as low priority.
+        assert!(!room.is_low_priority());
+
+        // Subscribe to the `RoomInfo`.
+        let mut room_info_subscriber = room.subscribe_info();
+
+        assert_pending!(room_info_subscriber);
+
+        // Create the tag.
+        let tag_raw = Raw::new(&json!({
+            "content": {
+                "tags": {
+                    "m.lowpriority": {
+                        "order": 0.0
+                    },
+                }
+            },
+            "type": "m.tag"
+        }))
+        .unwrap()
+        .cast();
+
+        // When the new tag is handled and applied.
+        let mut changes = StateChanges::default();
+        client.handle_room_account_data(room_id, &[tag_raw], &mut changes).await;
+        client.apply_changes(&changes);
+
+        // The `RoomInfo` is getting notified.
+        assert_ready!(room_info_subscriber);
+        assert_pending!(room_info_subscriber);
+
+        // The room is now marked as low priority.
+        assert!(room.is_low_priority());
+
+        // Now, let's remove the tag.
+        let tag_raw = Raw::new(&json!({
+            "content": {
+                "tags": {},
+            },
+            "type": "m.tag"
+        }))
+        .unwrap()
+        .cast();
+        client.handle_room_account_data(room_id, &[tag_raw], &mut changes).await;
+        client.apply_changes(&changes);
+
+        // The `RoomInfo` is getting notified.
+        assert_ready!(room_info_subscriber);
+        assert_pending!(room_info_subscriber);
+
+        // The room is now marked as _not_ low priority.
+        assert!(room.is_low_priority().not());
     }
 
     fn make_room(room_type: RoomState) -> (Arc<MemoryStore>, Room) {
@@ -1812,10 +1877,11 @@ mod tests {
     #[cfg(feature = "experimental-sliding-sync")]
     async fn test_setting_the_latest_event_doesnt_cause_a_room_info_update() {
         // Given a room,
-        let client = crate::BaseClient::new();
+
+        let client = BaseClient::new();
 
         client
-            .set_session_meta(crate::SessionMeta {
+            .set_session_meta(SessionMeta {
                 user_id: user_id!("@alice:example.org").into(),
                 device_id: ruma::device_id!("AYEAYEAYE").into(),
             })
@@ -1840,16 +1906,15 @@ mod tests {
         room.on_latest_event_decrypted(event.clone(), 0, &mut changes);
 
         // The subscriber isn't notified at this point.
-        stream_assert::assert_pending!(room_info_subscriber);
+        assert_pending!(room_info_subscriber);
 
         // Then updating the room info will store the event,
         client.apply_changes(&changes);
         assert_eq!(room.latest_event().unwrap().event_id(), event.event_id());
 
         // And wake up the subscriber.
-        use futures_util::FutureExt as _;
-        assert!(room_info_subscriber.next().now_or_never().is_some());
-        stream_assert::assert_pending!(room_info_subscriber);
+        assert_ready!(room_info_subscriber);
+        assert_pending!(room_info_subscriber);
     }
 
     #[test]

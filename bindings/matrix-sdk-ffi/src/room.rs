@@ -3,7 +3,7 @@ use std::{convert::TryFrom, sync::Arc};
 use anyhow::{Context, Result};
 use matrix_sdk::{
     room::{power_levels::RoomPowerLevelChanges, Room as SdkRoom},
-    RoomMemberships, RoomNotableTags, RoomState,
+    RoomMemberships, RoomState,
 };
 use matrix_sdk_ui::timeline::RoomExt;
 use mime::Mime;
@@ -256,27 +256,12 @@ impl Room {
         })))
     }
 
-    pub fn subscribe_to_notable_tags(
-        self: Arc<Self>,
-        listener: Box<dyn RoomNotableTagsListener>,
-    ) -> Arc<TaskHandle> {
-        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
-            let (initial, mut subscriber) = self.inner.notable_tags_stream().await;
-            // Send the initial value
-            listener.call(initial);
-            // Then wait for changes
-            while let Some(notable_tags) = subscriber.next().await {
-                listener.call(notable_tags);
-            }
-        })))
-    }
-
-    pub async fn set_is_favorite(
+    pub async fn set_is_favourite(
         &self,
-        is_favorite: bool,
+        is_favourite: bool,
         tag_order: Option<f64>,
     ) -> Result<(), ClientError> {
-        self.inner.set_is_favorite(is_favorite, tag_order).await?;
+        self.inner.set_is_favourite(is_favourite, tag_order).await?;
         Ok(())
     }
 
@@ -624,11 +609,6 @@ pub trait RoomInfoListener: Sync + Send {
 #[uniffi::export(callback_interface)]
 pub trait TypingNotificationsListener: Sync + Send {
     fn call(&self, typing_user_ids: Vec<String>);
-}
-
-#[uniffi::export(callback_interface)]
-pub trait RoomNotableTagsListener: Sync + Send {
-    fn call(&self, notable_tags: RoomNotableTags);
 }
 
 #[derive(uniffi::Object)]

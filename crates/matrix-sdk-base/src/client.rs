@@ -44,7 +44,7 @@ use ruma::{
         },
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
         AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent, AnySyncStateEvent,
-        AnySyncTimelineEvent, GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
+        AnySyncTimelineEvent, GlobalAccountDataEventType, StateEventType,
     },
     push::{Action, PushConditionRoomCtx, Ruleset},
     serde::Raw,
@@ -68,7 +68,7 @@ use crate::{
         StateChanges, StateStoreDataKey, StateStoreDataValue, StateStoreExt, Store, StoreConfig,
     },
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Notification, RoomUpdates, SyncResponse, Timeline},
-    RoomNotableTags, RoomStateFilter, SessionMeta,
+    RoomStateFilter, SessionMeta,
 };
 #[cfg(feature = "e2e-encryption")]
 use crate::{error::Error, RoomMemberships};
@@ -538,22 +538,56 @@ impl BaseClient {
         events: &[Raw<AnyRoomAccountDataEvent>],
         changes: &mut StateChanges,
     ) {
+        // Small helper to make the code easier to read.
+        //
+        // It finds the appropriate `RoomInfo`, allowing the caller to modify it, and
+        // save it in the correct place.
+        fn on_room_info<F>(
+            room_id: &RoomId,
+            changes: &mut StateChanges,
+            client: &BaseClient,
+            on_room_info: F,
+        ) where
+            F: Fn(&mut RoomInfo),
+        {
+            // `StateChanges` has the `RoomInfo`.
+            if let Some(room_info) = changes.room_infos.get_mut(room_id) {
+                // Show time.
+                on_room_info(room_info);
+            }
+            // The `BaseClient` has the `Room`, which has the `RoomInfo`.
+            else if let Some(room) = client.store.get_room(room_id) {
+                // Clone the `RoomInfo`.
+                let mut room_info = room.clone_info();
+
+                // Show time.
+                on_room_info(&mut room_info);
+
+                // Update the `RoomInfo` via `StateChanges`.
+                changes.add_room(room_info);
+            }
+        }
+
+        // Handle new events.
         for raw_event in events {
             if let Ok(event) = raw_event.deserialize() {
                 changes.add_room_account_data(room_id, event.clone(), raw_event.clone());
 
-                // Rooms can either appear in the current request or already be
-                // known to the store. If neither of
-                // those are true then the room is `unknown` and we cannot
-                // process its account data
-                if let AnyRoomAccountDataEvent::MarkedUnread(e) = event {
-                    if let Some(room) = changes.room_infos.get_mut(room_id) {
-                        room.base_info.is_marked_unread = e.content.unread;
-                    } else if let Some(room) = self.store.get_room(room_id) {
-                        let mut info = room.clone_info();
-                        info.base_info.is_marked_unread = e.content.unread;
-                        changes.add_room(info);
+                match event {
+                    AnyRoomAccountDataEvent::MarkedUnread(event) => {
+                        on_room_info(room_id, changes, self, |room_info| {
+                            room_info.base_info.is_marked_unread = event.content.unread;
+                        });
                     }
+
+                    AnyRoomAccountDataEvent::Tag(event) => {
+                        on_room_info(room_id, changes, self, |room_info| {
+                            room_info.base_info.handle_notable_tags(&event.content.tags);
+                        });
+                    }
+
+                    // Nothing.
+                    _ => {}
                 }
             }
         }
@@ -785,8 +819,8 @@ impl BaseClient {
         for (room_id, new_info) in response.rooms.join {
             let room = self.store.get_or_create_room(&room_id, RoomState::Joined);
             let mut room_info = room.clone_info();
-            room_info.mark_as_joined();
 
+            room_info.mark_as_joined();
             room_info.update_summary(&new_info.summary);
             room_info.set_prev_batch(new_info.timeline.prev_batch.as_deref());
             room_info.mark_state_fully_synced();
@@ -841,8 +875,18 @@ impl BaseClient {
                 )
                 .await?;
 
+            // Save the new `RoomInfo`.
+            changes.add_room(room_info);
+
             self.handle_room_account_data(&room_id, &new_info.account_data.events, &mut changes)
                 .await;
+
+            // `Self::handle_room_account_data` might have updated the `RoomInfo`. Let's
+            // fetch it again.
+            //
+            // SAFETY: `unwrap` is safe because the `RoomInfo` has been inserted 2 lines
+            // above.
+            let mut room_info = changes.room_infos.get(&room_id).unwrap().clone();
 
             #[cfg(feature = "e2e-encryption")]
             if room_info.is_encrypted() {
@@ -915,12 +959,14 @@ impl BaseClient {
                 )
                 .await?;
 
+            // Save the new `RoomInfo`.
+            changes.add_room(room_info);
+
             self.handle_room_account_data(&room_id, &new_info.account_data.events, &mut changes)
                 .await;
 
             let ambiguity_changes = ambiguity_cache.changes.remove(&room_id).unwrap_or_default();
 
-            changes.add_room(room_info);
             new_rooms.leave.insert(
                 room_id,
                 LeftRoomUpdate::new(
@@ -998,24 +1044,7 @@ impl BaseClient {
 
         for (room_id, room_info) in &changes.room_infos {
             if let Some(room) = self.store.get_room(room_id) {
-                room.set_room_info(room_info.clone())
-            }
-        }
-
-        for (room_id, room_account_data) in &changes.room_account_data {
-            if let Some(room) = self.store.get_room(room_id) {
-                let tags = room_account_data.get(&RoomAccountDataEventType::Tag).and_then(|r| {
-                    match r.deserialize() {
-                        Ok(AnyRoomAccountDataEvent::Tag(event)) => Some(event.content.tags),
-                        Err(e) => {
-                            warn!("Room account data tag event failed to deserialize : {e}");
-                            None
-                        }
-                        Ok(_) => None,
-                    }
-                });
-                let notable_tags = RoomNotableTags::new(tags);
-                room.set_notable_tags(notable_tags)
+                room.set_room_info(room_info.clone());
             }
         }
     }
@@ -1378,17 +1407,17 @@ impl Default for BaseClient {
 #[cfg(test)]
 mod tests {
     use matrix_sdk_test::{
-        async_test, response_from_file, sync_timeline_event, InvitedRoomBuilder, JoinedRoomBuilder,
-        LeftRoomBuilder, StrippedStateTestEvent, SyncResponseBuilder,
+        async_test, response_from_file, sync_timeline_event, InvitedRoomBuilder, LeftRoomBuilder,
+        StrippedStateTestEvent, SyncResponseBuilder,
     };
     use ruma::{
         api::{client as api, IncomingResponse},
-        room_id, user_id, RoomId, UserId,
+        room_id, user_id, UserId,
     };
     use serde_json::json;
 
     use super::BaseClient;
-    use crate::{store::StateStoreExt, DisplayName, Room, RoomState, SessionMeta, StateChanges};
+    use crate::{store::StateStoreExt, DisplayName, RoomState, SessionMeta};
 
     #[async_test]
     async fn test_invite_after_leaving() {
@@ -1536,7 +1565,7 @@ mod tests {
         assert!(room.latest_event().is_none());
 
         // When I tell it to do some decryption
-        let mut changes = StateChanges::default();
+        let mut changes = crate::StateChanges::default();
         client.decrypt_latest_events(&room, &mut changes).await;
 
         // Then nothing changed
@@ -1565,13 +1594,13 @@ mod tests {
     #[cfg(feature = "e2e-encryption")]
     async fn process_room_join_test_helper(
         client: &BaseClient,
-        room_id: &RoomId,
+        room_id: &ruma::RoomId,
         event_id: &str,
         user_id: &UserId,
-    ) -> Room {
+    ) -> crate::Room {
         let mut ev_builder = SyncResponseBuilder::new();
         let response = ev_builder
-            .add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
+            .add_joined_room(matrix_sdk_test::JoinedRoomBuilder::new(room_id).add_timeline_event(
                 sync_timeline_event!({
                     "content": {
                         "displayname": "Alice",

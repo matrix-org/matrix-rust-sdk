@@ -11,7 +11,7 @@ use std::{
 
 use bitflags::bitflags;
 pub use members::RoomMember;
-pub use normal::{Room, RoomInfo, RoomNotableTags, RoomState, RoomStateFilter};
+pub use normal::{Room, RoomInfo, RoomState, RoomStateFilter};
 use ruma::{
     assign,
     events::{
@@ -30,6 +30,7 @@ use ruma::{
             tombstone::RoomTombstoneEventContent,
             topic::RoomTopicEventContent,
         },
+        tag::{TagName, Tags},
         AnyStrippedStateEvent, AnySyncStateEvent, EmptyStateKey, RedactContent,
         RedactedStateEventContent, StaticStateEventContent, SyncStateEvent,
     },
@@ -104,9 +105,15 @@ pub struct BaseRoomInfo {
     /// memberships.
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub(crate) rtc_member: BTreeMap<OwnedUserId, MinimalStateEvent<CallMemberEventContent>>,
-    // Whether this room has been manually marked as unread
+    /// Whether this room has been manually marked as unread.
     #[serde(default)]
     pub(crate) is_marked_unread: bool,
+    /// Some notable tags.
+    ///
+    /// We are not interested by all the tags. Some tags are more important than
+    /// others, and this field collects them.
+    #[serde(skip_serializing_if = "RoomNotableTags::is_empty", default)]
+    pub(crate) notable_tags: RoomNotableTags,
 }
 
 impl BaseRoomInfo {
@@ -288,6 +295,36 @@ impl BaseRoomInfo {
             self.rtc_member.retain(|_, member_event| member_event.event_id() != Some(redacts));
         }
     }
+
+    pub fn handle_notable_tags(&mut self, tags: &Tags) {
+        let mut notable_tags = RoomNotableTags::empty();
+
+        if tags.contains_key(&TagName::Favorite) {
+            notable_tags.insert(RoomNotableTags::FAVOURITE);
+        }
+
+        if tags.contains_key(&TagName::LowPriority) {
+            notable_tags.insert(RoomNotableTags::LOW_PRIORITY);
+        }
+
+        self.notable_tags = notable_tags;
+    }
+}
+
+bitflags! {
+    /// Notable tags, i.e. subset of tags that we are more interested by.
+    ///
+    /// We are not interested by all the tags. Some tags are more important than
+    /// others, and this struct describes them.
+    #[repr(transparent)]
+    #[derive(Debug, Default, Clone, Copy, Deserialize, Serialize)]
+    pub(crate) struct RoomNotableTags: u8 {
+        /// The `m.favourite` tag.
+        const FAVOURITE = 0b0000_0001;
+
+        /// THe `m.lowpriority` tag.
+        const LOW_PRIORITY = 0b0000_0010;
+    }
 }
 
 trait OptionExt {
@@ -321,6 +358,7 @@ impl Default for BaseRoomInfo {
             topic: None,
             rtc_member: BTreeMap::new(),
             is_marked_unread: false,
+            notable_tags: RoomNotableTags::empty(),
         }
     }
 }
@@ -524,7 +562,11 @@ impl RoomMemberships {
 
 #[cfg(test)]
 mod tests {
-    use super::{calculate_room_name, DisplayName};
+    use std::ops::Not;
+
+    use ruma::events::tag::{TagInfo, TagName, Tags};
+
+    use super::{calculate_room_name, BaseRoomInfo, DisplayName, RoomNotableTags};
 
     #[test]
     fn test_calculate_room_name() {
@@ -557,5 +599,35 @@ mod tests {
 
         actual = calculate_room_name(1, 0, vec!["a", "b", "c"]);
         assert_eq!(DisplayName::EmptyWas("a, b, c".to_owned()), actual);
+    }
+
+    #[test]
+    fn test_handle_notable_tags_favourite() {
+        let mut base_room_info = BaseRoomInfo::default();
+
+        let mut tags = Tags::new();
+        tags.insert(TagName::Favorite, TagInfo::default());
+
+        assert!(base_room_info.notable_tags.contains(RoomNotableTags::FAVOURITE).not());
+        base_room_info.handle_notable_tags(&tags);
+        assert!(base_room_info.notable_tags.contains(RoomNotableTags::FAVOURITE));
+        tags.clear();
+        base_room_info.handle_notable_tags(&tags);
+        assert!(base_room_info.notable_tags.contains(RoomNotableTags::FAVOURITE).not());
+    }
+
+    #[test]
+    fn test_handle_notable_tags_low_priority() {
+        let mut base_room_info = BaseRoomInfo::default();
+
+        let mut tags = Tags::new();
+        tags.insert(TagName::LowPriority, TagInfo::default());
+
+        assert!(base_room_info.notable_tags.contains(RoomNotableTags::LOW_PRIORITY).not());
+        base_room_info.handle_notable_tags(&tags);
+        assert!(base_room_info.notable_tags.contains(RoomNotableTags::LOW_PRIORITY));
+        tags.clear();
+        base_room_info.handle_notable_tags(&tags);
+        assert!(base_room_info.notable_tags.contains(RoomNotableTags::LOW_PRIORITY).not());
     }
 }
