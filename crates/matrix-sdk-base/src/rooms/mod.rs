@@ -315,7 +315,7 @@ bitflags! {
     /// Notable tags, i.e. subset of tags that we are more interested by.
     ///
     /// We are not interested by all the tags. Some tags are more important than
-    /// others, and this struct describe them.
+    /// others, and this struct describes them.
     #[repr(transparent)]
     #[derive(Debug, Default, Clone, Copy, Deserialize, Serialize)]
     pub(crate) struct RoomNotableTags: u8 {
