@@ -399,24 +399,27 @@ impl Recovery {
         Ok(devices.devices().count() == 1)
     }
 
+    /// Did we correctly set up cross-signing and backups?
     async fn all_known_secrets_available(&self) -> Result<bool> {
+        // Cross-signing state is fine if we have all the private cross-signing keys, as
+        // indicated in the status.
         let cross_signing_complete = self
             .client
             .encryption()
             .cross_signing_status()
             .await
-            .map(|status| status.is_complete())
-            .unwrap_or_default();
+            .map(|status| status.is_complete());
+        if !cross_signing_complete.unwrap_or_default() {
+            return Ok(false);
+        }
 
         // The backup state is fine if we have backups enabled locally, or if backups
         // have been marked as disabled.
-        let backup_state_ok = if self.client.encryption().backups().are_enabled().await {
-            true
+        if self.client.encryption().backups().are_enabled().await {
+            Ok(true)
         } else {
-            self.are_backups_marked_as_disabled().await?
-        };
-
-        Ok(cross_signing_complete && backup_state_ok)
+            self.are_backups_marked_as_disabled().await
+        }
     }
 
     async fn should_auto_enable_backups(&self) -> Result<bool> {
@@ -448,6 +451,8 @@ impl Recovery {
         Ok(())
     }
 
+    /// Run a network request to figure whether backups have been disabled at
+    /// the account level.
     async fn are_backups_marked_as_disabled(&self) -> Result<bool> {
         Ok(self
             .client
