@@ -176,19 +176,6 @@ async fn recovery_status_secret_storage_set_up() {
 
     mock_secret_store_with_backup_key(user_id, KEY_ID, &server).await;
 
-    Mock::given(method("GET"))
-        .and(path(format!(
-            "_matrix/client/r0/user/{user_id}/account_data/m.org.matrix.custom.backup_disabled"
-        )))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(404).set_body_json(json!({
-            "errcode": "M_NOT_FOUND",
-            "error": "Account data not found"
-        })))
-        .expect(1..)
-        .mount(&server)
-        .await;
-
     client.restore_session(session).await.unwrap();
     client.encryption().wait_for_e2ee_initialization_tasks().await;
 
@@ -723,19 +710,6 @@ async fn recover_and_reset() {
     let (client, server) = no_retry_test_client().await;
 
     mock_secret_store_with_backup_key(user_id, KEY_ID, &server).await;
-
-    Mock::given(method("GET"))
-        .and(path(format!(
-            "_matrix/client/r0/user/{user_id}/account_data/m.org.matrix.custom.backup_disabled"
-        )))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(404).set_body_json(json!({
-            "errcode": "M_NOT_FOUND",
-            "error": "Account data not found"
-        })))
-        .expect(1..)
-        .mount(&server)
-        .await;
 
     Mock::given(method("GET"))
         .and(path("_matrix/client/r0/room_keys/version"))
