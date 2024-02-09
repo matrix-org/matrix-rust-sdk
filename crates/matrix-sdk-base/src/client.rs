@@ -1407,17 +1407,17 @@ impl Default for BaseClient {
 #[cfg(test)]
 mod tests {
     use matrix_sdk_test::{
-        async_test, response_from_file, sync_timeline_event, InvitedRoomBuilder, JoinedRoomBuilder,
-        LeftRoomBuilder, StrippedStateTestEvent, SyncResponseBuilder,
+        async_test, response_from_file, sync_timeline_event, InvitedRoomBuilder, LeftRoomBuilder,
+        StrippedStateTestEvent, SyncResponseBuilder,
     };
     use ruma::{
         api::{client as api, IncomingResponse},
-        room_id, user_id, RoomId, UserId,
+        room_id, user_id, UserId,
     };
     use serde_json::json;
 
     use super::BaseClient;
-    use crate::{store::StateStoreExt, DisplayName, Room, RoomState, SessionMeta, StateChanges};
+    use crate::{store::StateStoreExt, DisplayName, RoomState, SessionMeta};
 
     #[async_test]
     async fn invite_after_leaving() {
@@ -1565,7 +1565,7 @@ mod tests {
         assert!(room.latest_event().is_none());
 
         // When I tell it to do some decryption
-        let mut changes = StateChanges::default();
+        let mut changes = crate::StateChanges::default();
         client.decrypt_latest_events(&room, &mut changes).await;
 
         // Then nothing changed
@@ -1594,13 +1594,13 @@ mod tests {
     #[cfg(feature = "e2e-encryption")]
     async fn process_room_join(
         client: &BaseClient,
-        room_id: &RoomId,
+        room_id: &ruma::RoomId,
         event_id: &str,
         user_id: &UserId,
-    ) -> Room {
+    ) -> crate::Room {
         let mut ev_builder = SyncResponseBuilder::new();
         let response = ev_builder
-            .add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
+            .add_joined_room(matrix_sdk_test::JoinedRoomBuilder::new(room_id).add_timeline_event(
                 sync_timeline_event!({
                     "content": {
                         "displayname": "Alice",
