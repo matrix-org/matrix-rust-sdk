@@ -704,7 +704,7 @@ impl Timeline {
     /// recent than the current ones, to avoid unnecessary requests.
     ///
     /// Returns a boolean indicating if it sent the request or not.
-    #[instrument(skip(self))]
+    #[instrument(skip(self), fields(room_id = ?self.room().room_id()))]
     pub async fn send_single_receipt(
         &self,
         receipt_type: ReceiptType,
