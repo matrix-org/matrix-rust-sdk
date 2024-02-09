@@ -591,6 +591,12 @@ impl AuthenticationService {
             .passphrase(self.passphrase.clone())
             .homeserver_url(homeserver_url)
             .sliding_sync_proxy(sliding_sync_proxy)
+            .with_encryption_settings(matrix_sdk::encryption::EncryptionSettings {
+                auto_enable_cross_signing: true,
+                backup_download_strategy:
+                    matrix_sdk::encryption::BackupDownloadStrategy::AfterDecryptionFailure,
+                auto_enable_backups: true,
+            })
             .username(user_id.to_string());
 
         if let Some(id) = &self.cross_process_refresh_lock_id {
