@@ -27,6 +27,7 @@ use growable_bloom_filter::{GrowableBloom, GrowableBloomBuilder};
 use matrix_sdk::{
     crypto::types::events::UtdCause,
     executor::{spawn, JoinHandle},
+    sleep::sleep,
     Client,
 };
 use matrix_sdk_base::{StateStoreDataKey, StateStoreDataValue, StoreError};
@@ -34,10 +35,7 @@ use ruma::{
     time::{Duration, Instant},
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedServerName, UserId,
 };
-use tokio::{
-    sync::{Mutex as AsyncMutex, MutexGuard},
-    time::sleep,
-};
+use tokio::sync::{Mutex as AsyncMutex, MutexGuard};
 use tracing::error;
 
 /// A generic interface which methods get called whenever we observe a
