@@ -33,7 +33,7 @@ pub struct AuthenticationService {
     base_path: String,
     passphrase: Option<String>,
     user_agent: Option<String>,
-    client: RwLock<Option<Arc<Client>>>,
+    client: RwLock<Option<Client>>,
     homeserver_details: RwLock<Option<Arc<HomeserverLoginDetails>>>,
     oidc_configuration: Option<OidcConfiguration>,
     custom_sliding_sync_proxy: RwLock<Option<String>>,
@@ -270,7 +270,8 @@ impl AuthenticationService {
         initial_device_name: Option<String>,
         device_id: Option<String>,
     ) -> Result<Arc<Client>, AuthenticationError> {
-        let Some(client) = self.client.read().unwrap().clone() else {
+        let client_guard = self.client.read().unwrap();
+        let Some(client) = client_guard.as_ref() else {
             return Err(AuthenticationError::ClientMissing);
         };
 
@@ -283,14 +284,16 @@ impl AuthenticationService {
         let session =
             client.inner.matrix_auth().session().ok_or(AuthenticationError::SessionMissing)?;
 
-        self.finalize_client(client, session, whoami.user_id)
+        drop(client_guard);
+        self.finalize_client(session, whoami.user_id)
     }
 
     /// Requests the URL needed for login in a web view using OIDC. Once the web
     /// view has succeeded, call `login_with_oidc_callback` with the callback it
     /// returns.
     pub fn url_for_oidc_login(&self) -> Result<Arc<OidcAuthenticationData>, AuthenticationError> {
-        let Some(client) = self.client.read().unwrap().clone() else {
+        let client_guard = self.client.read().unwrap();
+        let Some(client) = client_guard.as_ref() else {
             return Err(AuthenticationError::ClientMissing);
         };
 
@@ -325,7 +328,8 @@ impl AuthenticationService {
         authentication_data: Arc<OidcAuthenticationData>,
         callback_url: String,
     ) -> Result<Arc<Client>, AuthenticationError> {
-        let Some(client) = self.client.read().unwrap().clone() else {
+        let client_guard = self.client.read().unwrap();
+        let Some(client) = client_guard.as_ref() else {
             return Err(AuthenticationError::ClientMissing);
         };
 
@@ -365,7 +369,9 @@ impl AuthenticationService {
         let user_id = client.inner.user_id().unwrap().to_owned();
         let session =
             client.inner.oidc().full_session().ok_or(AuthenticationError::SessionMissing)?;
-        self.finalize_client(client, session, user_id)
+
+        drop(client_guard);
+        self.finalize_client(session, user_id)
     }
 }
 
@@ -385,7 +391,7 @@ impl AuthenticationService {
     /// Get the homeserver login details from a client.
     async fn details_from_client(
         &self,
-        client: &Arc<Client>,
+        client: &Client,
     ) -> Result<HomeserverLoginDetails, AuthenticationError> {
         let supports_oidc_login = client.discovered_authentication_server().is_some();
         let supports_password_login = client.supports_password_login().await.ok().unwrap_or(false);
@@ -552,21 +558,34 @@ impl AuthenticationService {
     /// Creates a new client to setup the store path now the user ID is known.
     fn finalize_client(
         &self,
-        client: Arc<Client>,
         session: impl Into<AuthSession>,
         user_id: OwnedUserId,
     ) -> Result<Arc<Client>, AuthenticationError> {
+        // Take ownership of the client. This means that further attempts to
+        // `finalize_client` may fail, but we want to make sure that there
+        // aren't two clients at any point later.
+        let Some(client) = self.client.write().unwrap().take() else {
+            return Err(AuthenticationError::ClientMissing);
+        };
+
         let homeserver_url = client.homeserver();
 
-        let sliding_sync_proxy: Option<String>;
-        if let Some(custom_proxy) = self.custom_sliding_sync_proxy.read().unwrap().clone() {
-            sliding_sync_proxy = Some(custom_proxy);
-        } else if let Some(discovered_proxy) = client.discovered_sliding_sync_proxy() {
-            sliding_sync_proxy = Some(discovered_proxy.to_string());
-        } else {
-            sliding_sync_proxy = None;
-        }
+        let sliding_sync_proxy = self
+            .custom_sliding_sync_proxy
+            .read()
+            .unwrap()
+            .clone()
+            .or_else(|| client.discovered_sliding_sync_proxy().map(|url| url.to_string()));
 
+        // Wait for the parent client to finish running its initialization tasks.
+        RUNTIME.block_on(client.inner.encryption().wait_for_e2ee_initialization_tasks());
+
+        // Drop the parent client. Both clients shouldn't be alive at the same time, or
+        // it may cause issues (when trying to initialize encryption-related tasks at
+        // the same time).
+        drop(client);
+
+        // Construct the final client.
         let mut client = self
             .new_client_builder()
             .passphrase(self.passphrase.clone())
@@ -591,7 +610,7 @@ impl AuthenticationService {
         // Restore the client using the session from the login request.
         client.restore_session_inner(session)?;
 
-        Ok(client)
+        Ok(Arc::new(client))
     }
 }
 

@@ -131,7 +131,7 @@ impl ClientBuilder {
     }
 
     pub fn build(self: Arc<Self>) -> Result<Arc<Client>, ClientError> {
-        Ok(self.build_inner()?)
+        Ok(Arc::new(self.build_inner()?))
     }
 }
 
@@ -166,7 +166,7 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
-    pub(crate) fn build_inner(self: Arc<Self>) -> anyhow::Result<Arc<Client>> {
+    pub(crate) fn build_inner(self: Arc<Self>) -> anyhow::Result<Client> {
         let builder = unwrap_or_clone_arc(self);
         let mut inner_builder = builder.inner;
 
