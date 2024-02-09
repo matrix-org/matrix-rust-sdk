@@ -179,7 +179,7 @@ impl Client {
         sdk_client: MatrixClient,
         cross_process_refresh_lock_id: Option<String>,
         session_delegate: Option<Arc<dyn ClientSessionDelegate>>,
-    ) -> Result<Arc<Self>, ClientError> {
+    ) -> Result<Self, ClientError> {
         let session_verification_controller: Arc<
             tokio::sync::RwLock<Option<SessionVerificationController>>,
         > = Default::default();
@@ -193,11 +193,11 @@ impl Client {
             }
         });
 
-        let client = Arc::new(Client {
+        let client = Client {
             inner: ManuallyDrop::new(sdk_client),
             delegate: RwLock::new(None),
             session_verification_controller,
-        });
+        };
 
         if let Some(process_id) = cross_process_refresh_lock_id {
             if session_delegate.is_none() {

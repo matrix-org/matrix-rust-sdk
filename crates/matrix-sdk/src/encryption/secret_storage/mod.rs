@@ -269,7 +269,7 @@ impl SecretStorage {
         CreateStore { secret_storage: self, passphrase: None }
     }
 
-    /// Is secret storage set up for this user?
+    /// Run a network request to find if secret storage is set up for this user.
     pub async fn is_enabled(&self) -> crate::Result<bool> {
         if let Some(content) = self
             .client

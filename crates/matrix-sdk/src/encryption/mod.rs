@@ -1269,7 +1269,8 @@ impl Encryption {
         Ok(())
     }
 
-    /// Waits for end-to-end encryption initialization tasks to finish.
+    /// Waits for end-to-end encryption initialization tasks to finish, if any
+    /// was running in the background.
     pub async fn wait_for_e2ee_initialization_tasks(&self) {
         let task = self.client.inner.tasks.lock().unwrap().setup_e2ee.take();
 

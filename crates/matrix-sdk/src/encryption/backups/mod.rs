@@ -634,11 +634,13 @@ impl Backups {
         info!("Setting up secret listeners and trying to resume backups");
 
         self.client.add_event_handler(Self::secret_send_event_handler);
+
         if self.client.inner.encryption_settings.backup_download_strategy
             == BackupDownloadStrategy::AfterDecryptionFailure
         {
             self.client.add_event_handler(Self::utd_event_handler);
         }
+
         self.maybe_resume_backups().await?;
 
         Ok(())
