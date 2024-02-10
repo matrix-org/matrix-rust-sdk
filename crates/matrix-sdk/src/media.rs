@@ -278,13 +278,17 @@ impl Media {
 
                 #[cfg(feature = "e2e-encryption")]
                 let content = {
+                    let content_len = content.len();
                     let mut cursor = std::io::Cursor::new(content);
                     let mut reader = matrix_sdk_base::crypto::AttachmentDecryptor::new(
                         &mut cursor,
                         file.as_ref().clone().into(),
                     )?;
 
-                    let mut decrypted = Vec::new();
+                    // Encrypted size should be the same as the decrypted size,
+                    // rounded up to a cipher block.
+                    let mut decrypted = Vec::with_capacity(content_len);
+
                     reader.read_to_end(&mut decrypted)?;
 
                     decrypted
