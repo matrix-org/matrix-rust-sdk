@@ -7,6 +7,8 @@ Breaking changes:
 - `Room::can_user_redact` and `Member::can_redact` are split between `*_redact_own` and `*_redact_other`
 - The ambiguity maps in `SyncResponse` are moved to `JoinedRoom` and `LeftRoom`
 - `AmbiguityCache` contains the room member's user ID
+- Replace `impl MediaEventContent` with `&impl MediaEventContent` in
+  `Media::get_file`/`Media::remove_file`/`Media::get_thumbnail`/`Media::remove_thumbnail`
 
 # 0.7.0
 

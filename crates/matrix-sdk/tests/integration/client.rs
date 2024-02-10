@@ -374,7 +374,7 @@ async fn get_media_file() {
         .mount(&server)
         .await;
 
-    client.media().get_file(event_content.clone(), false).await.unwrap();
+    client.media().get_file(&event_content, false).await.unwrap();
 
     Mock::given(method("GET"))
         .and(path("/_matrix/media/r0/thumbnail/example.org/image"))
@@ -389,7 +389,7 @@ async fn get_media_file() {
     client
         .media()
         .get_thumbnail(
-            event_content,
+            &event_content,
             MediaThumbnailSize { method: Method::Scale, width: uint!(100), height: uint!(100) },
             false,
         )
