@@ -50,8 +50,7 @@ use ruma::{
     serde::Raw,
     OwnedRoomId, OwnedUserId, RoomId, RoomVersionId, UInt, UserId,
 };
-use tokio::sync::broadcast;
-use tokio::sync::Mutex;
+use tokio::sync::{broadcast, Mutex};
 #[cfg(feature = "e2e-encryption")]
 use tokio::sync::{RwLock, RwLockReadGuard};
 use tracing::{debug, info, instrument, trace, warn};
