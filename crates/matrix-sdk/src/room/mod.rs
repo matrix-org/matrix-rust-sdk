@@ -2490,9 +2490,9 @@ impl Room {
         Ok(self.client.send(request, None).await?)
     }
 
-    /// Sets a flag on the room to indicate that the user has explicitly marked
-    /// it as (un)read
-    pub async fn mark_unread(&self, unread: bool) -> Result<()> {
+    /// Set a flag on the room to indicate that the user has explicitly marked
+    /// it as (un)read.
+    pub async fn set_unread_flag(&self, unread: bool) -> Result<()> {
         let user_id =
             self.client.user_id().ok_or_else(|| Error::from(HttpError::AuthenticationRequired))?;
 
