@@ -42,7 +42,7 @@
 
 use std::{collections::BTreeMap, fmt::Debug, sync::Arc};
 
-use matrix_sdk::{sync::RoomUpdate, Client, Room};
+use matrix_sdk::{Client, Room};
 use matrix_sdk_base::{
     deserialized_responses::{AmbiguityChange, SyncTimelineEvent},
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Timeline},
@@ -54,10 +54,13 @@ use ruma::{
 };
 use tokio::{
     spawn,
-    sync::broadcast::{error::RecvError, Receiver, Sender},
+    sync::{
+        broadcast::{error::RecvError, Receiver, Sender},
+        RwLock,
+    },
     task::JoinHandle,
 };
-use tracing::{debug, error, trace};
+use tracing::{error, trace};
 
 use self::store::{EventCacheStore, MemoryStore};
 
@@ -75,11 +78,17 @@ pub enum EventCacheError {
 pub type Result<T> = std::result::Result<T, EventCacheError>;
 
 /// Hold handles to the tasks spawn by a [`RoomEventCache`].
-struct RoomCacheDropHandles {
+pub struct EventCacheDropHandles {
     listen_updates_task: JoinHandle<()>,
 }
 
-impl Drop for RoomCacheDropHandles {
+impl Debug for EventCacheDropHandles {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EventCacheDropHandles").finish_non_exhaustive()
+    }
+}
+
+impl Drop for EventCacheDropHandles {
     fn drop(&mut self) {
         self.listen_updates_task.abort();
     }
@@ -89,12 +98,9 @@ impl Drop for RoomCacheDropHandles {
 ///
 /// See also the module-level comment.
 pub struct EventCache {
-    /// Reference to the client used to navigate this cache.
-    client: Client,
-    /// Lazily-filled cache of live [`RoomEventCache`], once per room.
-    by_room: BTreeMap<OwnedRoomId, RoomEventCache>,
-    /// Backend used for storage.
-    store: Arc<dyn EventCacheStore>,
+    inner: Arc<RwLock<EventCacheInner>>,
+
+    drop_handles: Arc<EventCacheDropHandles>,
 }
 
 impl Debug for EventCache {
@@ -106,26 +112,97 @@ impl Debug for EventCache {
 impl EventCache {
     /// Create a new [`EventCache`] for the given client.
     pub fn new(client: Client) -> Self {
+        let mut room_updates_feed = client.subscribe_to_all_room_updates();
+
         let store = Arc::new(MemoryStore::new());
-        Self { client, by_room: Default::default(), store }
+        let inner =
+            Arc::new(RwLock::new(EventCacheInner { client, by_room: Default::default(), store }));
+
+        // Spawn the task that will listen to all the room updates at once.
+        trace!("Spawning the listen task");
+        let listen_updates_task = spawn({
+            let inner = inner.clone();
+
+            async move {
+                loop {
+                    match room_updates_feed.recv().await {
+                        Ok(updates) => {
+                            // We received some room updates. Handle them.
+
+                            // Left rooms.
+                            for (room_id, left_room_update) in updates.leave {
+                                let room = match inner.write().await.for_room(&room_id).await {
+                                    Ok(room) => room,
+                                    Err(err) => {
+                                        error!("can't get left room {room_id}: {err}");
+                                        continue;
+                                    }
+                                };
+
+                                if let Err(err) =
+                                    room.inner.handle_left_room_update(left_room_update).await
+                                {
+                                    error!("handling left room update: {err}");
+                                }
+                            }
+
+                            // Joined rooms.
+                            for (room_id, joined_room_update) in updates.join {
+                                let room = match inner.write().await.for_room(&room_id).await {
+                                    Ok(room) => room,
+                                    Err(err) => {
+                                        error!("can't get joined room {room_id}: {err}");
+                                        continue;
+                                    }
+                                };
+
+                                if let Err(err) =
+                                    room.inner.handle_joined_room_update(joined_room_update).await
+                                {
+                                    error!("handling joined room update: {err}");
+                                }
+                            }
+
+                            // Invited rooms.
+                            // TODO: we don't anything with `updates.invite` at
+                            // this point.
+                        }
+
+                        Err(RecvError::Lagged(_)) => {
+                            // Forget everything we know; we could have missed events, and we have
+                            // no way to reconcile at the moment!
+                            // TODO: implement Smart Matching™,
+                            let mut inner = inner.write().await;
+                            for room_id in inner.by_room.keys() {
+                                if let Err(err) = inner.store.clear_room_events(room_id).await {
+                                    error!("unable to clear room after room updates lag: {err}");
+                                }
+                            }
+                            inner.by_room.clear();
+                        }
+
+                        Err(RecvError::Closed) => {
+                            // The sender has shut down, exit.
+                            break;
+                        }
+                    }
+                }
+            }
+        });
+
+        Self { inner, drop_handles: Arc::new(EventCacheDropHandles { listen_updates_task }) }
     }
 
     /// Return a room-specific view over the [`EventCache`].
     ///
     /// It may not be found, if the room isn't known to the client.
-    pub fn for_room(&mut self, room_id: &RoomId) -> Result<RoomEventCache> {
-        match self.by_room.get(room_id) {
-            Some(room) => Ok(room.clone()),
-            None => {
-                let room = self
-                    .client
-                    .get_room(room_id)
-                    .ok_or_else(|| EventCacheError::RoomNotFound(room_id.to_owned()))?;
-                let room_event_cache = RoomEventCache::new(room, self.store.clone());
-                self.by_room.insert(room_id.to_owned(), room_event_cache.clone());
-                Ok(room_event_cache)
-            }
-        }
+    pub async fn for_room(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<(RoomEventCache, Arc<EventCacheDropHandles>)> {
+        let room = self.inner.write().await.for_room(room_id).await?;
+
+        Ok((room, self.drop_handles.clone()))
     }
 
     /// Add an initial set of events to the event cache, reloaded from a cache.
@@ -137,9 +214,42 @@ impl EventCache {
         room_id: &RoomId,
         events: Vec<SyncTimelineEvent>,
     ) -> Result<()> {
-        let room_cache = self.for_room(room_id)?;
+        let room_cache = self.inner.write().await.for_room(room_id).await?;
         room_cache.inner.append_events(events).await?;
         Ok(())
+    }
+}
+
+struct EventCacheInner {
+    /// Reference to the client used to navigate this cache.
+    client: Client,
+
+    /// Lazily-filled cache of live [`RoomEventCache`], once per room.
+    by_room: BTreeMap<OwnedRoomId, RoomEventCache>,
+
+    /// Backend used for storage.
+    store: Arc<dyn EventCacheStore>,
+}
+
+impl EventCacheInner {
+    /// Return a room-specific view over the [`EventCache`].
+    ///
+    /// It may not be found, if the room isn't known to the client.
+    async fn for_room(&mut self, room_id: &RoomId) -> Result<RoomEventCache> {
+        match self.by_room.get(room_id) {
+            Some(room) => Ok(room.clone()),
+            None => {
+                let room = self
+                    .client
+                    .get_room(room_id)
+                    .ok_or_else(|| EventCacheError::RoomNotFound(room_id.to_owned()))?;
+                let room_event_cache = RoomEventCache::new(room, self.store.clone());
+
+                self.by_room.insert(room_id.to_owned(), room_event_cache.clone());
+
+                Ok(room_event_cache)
+            }
+        }
     }
 }
 
@@ -149,8 +259,6 @@ impl EventCache {
 #[derive(Clone)]
 pub struct RoomEventCache {
     inner: Arc<RoomEventCacheInner>,
-
-    _drop_handles: Arc<RoomCacheDropHandles>,
 }
 
 impl Debug for RoomEventCache {
@@ -162,8 +270,7 @@ impl Debug for RoomEventCache {
 impl RoomEventCache {
     /// Create a new [`RoomEventCache`] using the given room and store.
     fn new(room: Room, store: Arc<dyn EventCacheStore>) -> Self {
-        let (inner, drop_handles) = RoomEventCacheInner::new(room, store);
-        Self { inner, _drop_handles: drop_handles }
+        Self { inner: Arc::new(RoomEventCacheInner::new(room, store)) }
     }
 
     /// Subscribe to room updates for this room, after getting the initial list
@@ -189,14 +296,9 @@ struct RoomEventCacheInner {
 impl RoomEventCacheInner {
     /// Creates a new cache for a room, and subscribes to room updates, so as
     /// to handle new timeline events.
-    fn new(room: Room, store: Arc<dyn EventCacheStore>) -> (Arc<Self>, Arc<RoomCacheDropHandles>) {
+    fn new(room: Room, store: Arc<dyn EventCacheStore>) -> Self {
         let sender = Sender::new(32);
-
-        let room_cache = Arc::new(Self { room, store, sender });
-
-        let listen_updates_task = spawn(Self::listen_task(room_cache.clone()));
-
-        (room_cache, Arc::new(RoomCacheDropHandles { listen_updates_task }))
+        Self { room, store, sender }
     }
 
     async fn handle_joined_room_update(&self, updates: JoinedRoomUpdate) -> Result<()> {
@@ -248,58 +350,6 @@ impl RoomEventCacheInner {
         self.handle_timeline(updates.timeline, Vec::new(), Vec::new(), updates.ambiguity_changes)
             .await?;
         Ok(())
-    }
-
-    async fn listen_task(this: Arc<Self>) {
-        // TODO for prototyping, i'm spawning a new task to get the room updates.
-        // Ideally we'd have something like the whole sync update, a generalisation of
-        // the room update.
-        trace!("Spawning the listen task");
-
-        let mut update_receiver = this.room.client().subscribe_to_room_updates(this.room.room_id());
-
-        loop {
-            match update_receiver.recv().await {
-                Ok(update) => {
-                    trace!("Listen task received an update");
-
-                    match update {
-                        RoomUpdate::Left { updates, .. } => {
-                            if let Err(err) = this.handle_left_room_update(updates).await {
-                                error!("handling left room update: {err}");
-                            }
-                        }
-                        RoomUpdate::Joined { updates, .. } => {
-                            if let Err(err) = this.handle_joined_room_update(updates).await {
-                                error!("handling joined room update: {err}");
-                            }
-                        }
-                        RoomUpdate::Invited { .. } => {
-                            // We don't do anything for invited rooms at this
-                            // point. TODO should
-                            // we?
-                        }
-                    }
-                }
-
-                Err(RecvError::Closed) => {
-                    // The loop terminated successfully.
-                    debug!("Listen task closed");
-                    break;
-                }
-
-                Err(RecvError::Lagged(_)) => {
-                    // Since we've lagged behind updates to this room, we might be out of
-                    // sync with the events, leading to potentially lost events. Play it
-                    // safe here, and clear the cache. It's fine because we can retrigger
-                    // backpagination from the last event at any time, if needs be.
-                    debug!("Listen task lagged, clearing room");
-                    if let Err(err) = this.store.clear_room_events(this.room.room_id()).await {
-                        error!("unable to clear room after room updates lag: {err}");
-                    }
-                }
-            }
-        }
     }
 
     /// Append a set of events to the room cache and storage, notifying

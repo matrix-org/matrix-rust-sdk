@@ -132,9 +132,9 @@ impl TimelineBuilder {
         )
     )]
     pub async fn build(self) -> crate::event_cache::Result<Timeline> {
-        let Self { room, mut event_cache, prev_token, settings } = self;
+        let Self { room, event_cache, prev_token, settings } = self;
 
-        let room_event_cache = event_cache.for_room(room.room_id())?;
+        let (room_event_cache, event_cache_drop) = event_cache.for_room(room.room_id()).await?;
         let (events, mut event_subscriber) = room_event_cache.subscribe().await?;
 
         let has_events = !events.is_empty();
@@ -309,7 +309,7 @@ impl TimelineBuilder {
                 room_update_join_handle,
                 ignore_user_list_update_join_handle,
                 room_key_from_backups_join_handle,
-                _event_cache: room_event_cache,
+                _event_cache_drop_handle: event_cache_drop,
             }),
         };
 
