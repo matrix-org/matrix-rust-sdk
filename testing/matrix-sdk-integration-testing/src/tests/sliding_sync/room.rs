@@ -1,14 +1,11 @@
 use std::{
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, Mutex as StdMutex,
-    },
+    sync::{Arc, Mutex as StdMutex},
     time::Duration,
 };
 
 use anyhow::Result;
 use eyeball_im::VectorDiff;
-use futures_util::{pin_mut, StreamExt as _};
+use futures_util::{pin_mut, FutureExt, StreamExt as _};
 use matrix_sdk::{
     bytes::Bytes,
     config::SyncSettings,
@@ -34,7 +31,7 @@ use matrix_sdk_ui::{
     room_list_service::filters::new_filter_all, sync_service::SyncService, RoomListService,
 };
 use once_cell::sync::Lazy;
-use stream_assert::assert_pending;
+use stream_assert::{assert_next_eq, assert_pending};
 use tokio::{
     spawn,
     sync::Mutex,
@@ -740,11 +737,11 @@ async fn test_delayed_decryption_latest_event() -> Result<()> {
     sleep(Duration::from_secs(1)).await;
 
     // Stream only has the initial Reset entry.
-    assert_eq!(
-        timeout(Duration::from_millis(100), stream.next()).await,
-        Ok(Some(vec![VectorDiff::Reset {
+    assert_next_eq!(
+        stream,
+        vec![VectorDiff::Reset {
             values: vec![RoomListEntry::Filled(alice_room.room_id().to_owned())].into()
-        }]))
+        }]
     );
     assert_pending!(stream);
 
@@ -761,12 +758,12 @@ async fn test_delayed_decryption_latest_event() -> Result<()> {
     assert_eq!(alice_room.latest_event().unwrap().event_id(), Some(event.event_id));
 
     // The stream has a single update
-    assert_eq!(
-        timeout(Duration::from_millis(100), stream.next()).await,
-        Ok(Some(vec![VectorDiff::Set {
+    assert_next_eq!(
+        stream,
+        vec![VectorDiff::Set {
             index: 0,
             value: RoomListEntry::Filled(alice_room.room_id().to_owned())
-        }]))
+        }]
     );
     assert_pending!(stream);
 
@@ -854,11 +851,11 @@ async fn test_roominfo_update_deduplication() -> Result<()> {
     sleep(Duration::from_secs(1)).await;
 
     // Stream only has the initial Reset entry.
-    assert_eq!(
-        timeout(Duration::from_millis(100), stream.next()).await,
-        Ok(Some(vec![VectorDiff::Reset {
+    assert_next_eq!(
+        stream,
+        vec![VectorDiff::Reset {
             values: vec![RoomListEntry::Filled(alice_room.room_id().to_owned())].into()
-        }]))
+        }]
     );
     assert_pending!(stream);
 
@@ -872,12 +869,12 @@ async fn test_roominfo_update_deduplication() -> Result<()> {
     assert!(alice_room.is_encrypted().await.unwrap());
     assert_eq!(bob_room.state(), RoomState::Joined);
     // Room update for join
-    assert_eq!(
-        timeout(Duration::from_millis(100), stream.next()).await,
-        Ok(Some(vec![VectorDiff::Set {
+    assert_next_eq!(
+        stream,
+        vec![VectorDiff::Set {
             index: 0,
             value: RoomListEntry::Filled(alice_room.room_id().to_owned())
-        }]))
+        }]
     );
     assert_pending!(stream);
 
@@ -892,7 +889,7 @@ async fn test_roominfo_update_deduplication() -> Result<()> {
     // Stream has the room again, but no second event
     // TODO: Synapse sometimes sends the same event two times. This is the
     // workaround:
-    let updated_rooms = timeout(Duration::from_millis(100), stream.next()).await.unwrap().unwrap();
+    let updated_rooms = stream.next().now_or_never().unwrap().unwrap();
     assert!(
         updated_rooms
             == vec![VectorDiff::Set {
