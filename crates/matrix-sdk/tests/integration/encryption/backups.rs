@@ -832,19 +832,23 @@ async fn steady_state_waiting_errors() {
 
             match state {
                 UploadState::Idle => {
-                    assert_eq!(counter, 0, "The initial state should be the idle state");
+                    if counter != 0 && counter != 2 {
+                        panic!("the first and third state should be the idle states");
+                    }
                     counter += 1;
+                    if counter == 3 {
+                        break;
+                    }
                 }
                 UploadState::Error => {
                     assert_eq!(counter, 1, "The second state should be the error state");
                     counter += 1;
-                    break;
                 }
                 _ => panic!("We should not have entered any other state"),
             }
         }
 
-        assert_eq!(counter, 2, "We should have gone through 2 states, counter: {counter}");
+        assert_eq!(counter, 3, "We should have gone through 3 states, counter: {counter}");
     });
 
     let result = wait_for_steady_state.await;
