@@ -91,12 +91,12 @@ pub enum RecoveryState {
     /// We didn't yet inform ourselves about the state of things.
     #[default]
     Unknown,
-    /// Secret storage is setup and we have all the secrets locally.
+    /// Secret storage is set up and we have all the secrets locally.
     Enabled,
     /// No default secret storage key exists or it is disabled explicitly using
     /// the account data event.
     Disabled,
-    /// Secret storage is setup but we're missing some secrets.
+    /// Secret storage is set up but we're missing some secrets.
     Incomplete,
 }
 
