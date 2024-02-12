@@ -59,7 +59,7 @@ use tokio::sync::{mpsc::Sender, Mutex, Notify};
 use tracing::{debug, error, info, instrument, trace, warn};
 
 use self::futures::SendAttachment;
-use crate::event_cache::RoomEventCache;
+use crate::event_cache::EventCacheDropHandles;
 
 mod builder;
 mod error;
@@ -816,7 +816,7 @@ struct TimelineDropHandle {
     room_update_join_handle: JoinHandle<()>,
     ignore_user_list_update_join_handle: JoinHandle<()>,
     room_key_from_backups_join_handle: JoinHandle<()>,
-    _event_cache: RoomEventCache,
+    _event_cache_drop_handle: Arc<EventCacheDropHandles>,
 }
 
 impl Drop for TimelineDropHandle {
