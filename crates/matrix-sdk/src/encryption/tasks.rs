@@ -76,6 +76,9 @@ impl BackupUploadingTask {
                 if let Err(e) = client.encryption().backups().backup_room_keys().await {
                     upload_progress.set(UploadState::Error);
                     warn!("Error backing up room keys {e:?}");
+                    // Note: it's expected we're not `continue`ing here, because
+                    // *every* single state update
+                    // is propagated to the caller.
                 }
 
                 upload_progress.set(UploadState::Idle);
