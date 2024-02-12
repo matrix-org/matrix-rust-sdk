@@ -453,7 +453,10 @@ impl GroupSessionManager {
         if should_rotate {
             debug!(
                 should_rotate,
-                user_left, visibility_changed, algorithm_changed, "Rotating room key to protect room history",
+                user_left,
+                visibility_changed,
+                algorithm_changed,
+                "Rotating room key to protect room history",
             );
         }
         trace!(should_rotate, "Done calculating group session recipients");
