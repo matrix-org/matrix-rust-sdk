@@ -1,6 +1,7 @@
 //! Complete sync responses.
 
 use once_cell::sync::Lazy;
+use ruma::{room_id, RoomId};
 use serde_json::{json, Value as JsonValue};
 
 use crate::DEFAULT_TEST_ROOM_ID;
@@ -1207,6 +1208,181 @@ pub static LEAVE_SYNC_EVENT: Lazy<JsonValue> = Lazy::new(|| {
                             }
                         ],
                         "prev_batch": "tokenTOKEN",
+                        "limited": false
+                    },
+                    "state": {
+                        "events": []
+                    },
+                    "account_data": {
+                        "events": []
+                    }
+                }
+            }
+        },
+        "groups": {
+            "join": {},
+            "invite": {},
+            "leave": {}
+        },
+        "device_one_time_keys_count": {
+            "signed_curve25519": 50
+        },
+        "next_batch": "s1380317562_757269739_1655566_503953763_334052043_1209862_55290918_65705002_101146"
+    })
+});
+
+/// In the [`MIXED_SYNC`], the room id of the joined room.
+pub static MIXED_JOINED_ROOM_ID: Lazy<&RoomId> =
+    Lazy::new(|| room_id!("!SVkFJHzfwvuaIEawgC:localhost"));
+/// In the [`MIXED_SYNC`], the room id of the left room.
+pub static MIXED_LEFT_ROOM_ID: Lazy<&RoomId> =
+    Lazy::new(|| room_id!("!SVkFJHzfwvuaIEawgD:localhost"));
+/// In the [`MIXED_SYNC`], the room id of the invited room.
+pub static MIXED_INVITED_ROOM_ID: Lazy<&RoomId> =
+    Lazy::new(|| room_id!("!SVkFJHzfwvuaIEawgE:localhost"));
+
+/// A sync that contains updates to joined/invited/left rooms.
+pub static MIXED_SYNC: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
+        "account_data": {
+            "events": []
+        },
+        "to_device": {
+            "events": []
+        },
+        "device_lists": {
+            "changed": [],
+            "left": []
+        },
+        "presence": {
+            "events": []
+        },
+        "rooms": {
+            "join": {
+                *MIXED_JOINED_ROOM_ID: {
+                    "summary": {},
+                    "account_data": {
+                        "events": [
+                            {
+                                "content": {
+                                    "event_id": "$someplace:example.org"
+                                },
+                                "room_id": "!roomid:room.com",
+                                "type": "m.fully_read"
+                            }
+                        ]
+                    },
+                    "ephemeral": {
+                        "events": [
+                            {
+                                "content": {
+                                    "$151680659217152dPKjd:localhost": {
+                                        "m.read": {
+                                            "@example:localhost": {
+                                                "ts": 151680989
+                                            }
+                                        }
+                                    }
+                                },
+                                "room_id": *MIXED_JOINED_ROOM_ID,
+                                "type": "m.receipt"
+                            },
+                        ]
+                    },
+                    "state": {
+                        "events": [
+                            {
+                                "content": {
+                                    "alias": "#tutorial:localhost"
+                                },
+                                "event_id": "$15139375513VdeRF:localhost",
+                                "origin_server_ts": 151393755000000_u64,
+                                "sender": "@example:localhost",
+                                "state_key": "",
+                                "type": "m.room.canonical_alias",
+                                "unsigned": {
+                                    "age": 703422
+                                }
+                            },
+                        ]
+                    },
+                    "timeline": {
+                        "events": [
+                            {
+                                "content": {
+                                    "body": "baba",
+                                    "format": "org.matrix.custom.html",
+                                    "formatted_body": "<strong>baba</strong>",
+                                    "msgtype": "m.text"
+                                },
+                                "event_id": "$152037280074GZeOm:localhost",
+                                "origin_server_ts": 152037280000000_u64,
+                                "sender": "@example:localhost",
+                                "type": "m.room.message",
+                                "unsigned": {
+                                    "age": 598971425
+                                }
+                            }
+                        ],
+                        "limited": true,
+                        "prev_batch": "t392-516_47314_0_7_1_1_1_11444_1"
+                    },
+                    "unread_notifications": {
+                        "highlight_count": 0,
+                        "notification_count": 11
+                    }
+                }
+            },
+            "invite": {
+                *MIXED_INVITED_ROOM_ID: {
+                  "invite_state": {
+                    "events": [
+                      {
+                        "sender": "@alice:example.com",
+                        "type": "m.room.name",
+                        "state_key": "",
+                        "content": {
+                          "name": "My Room Name"
+                        }
+                      },
+                      {
+                        "sender": "@alice:example.com",
+                        "type": "m.room.member",
+                        "state_key": "@bob:example.com",
+                        "content": {
+                          "membership": "invite"
+                        }
+                      }
+                    ]
+                  }
+                }
+            },
+            "leave": {
+                *MIXED_LEFT_ROOM_ID: {
+                    "timeline": {
+                        "events": [
+                            {
+                                "content": {
+                                    "membership": "leave"
+                                },
+                                "origin_server_ts": 158957809000000_u64,
+                                "sender": "@example:localhost",
+                                "state_key": "@example:localhost",
+                                "type": "m.room.member",
+                                "unsigned": {
+                                    "replaces_state": "$blahblah",
+                                    "prev_content": {
+                                        "avatar_url": null,
+                                        "displayname": "me",
+                                        "membership": "invite"
+                                    },
+                                    "prev_sender": "@2example:localhost",
+                                    "age": 1757
+                                },
+                                "event_id": "$lQQ116Y-XqcjpSUGpuz36rNntUvOSpTjuaIvmtQ2AwA"
+                            }
+                        ],
+                        "prev_batch": "toktok",
                         "limited": false
                     },
                     "state": {

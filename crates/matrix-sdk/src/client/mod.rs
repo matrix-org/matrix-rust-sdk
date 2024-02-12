@@ -27,8 +27,10 @@ use futures_core::Stream;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::store::LockableCryptoStore;
 use matrix_sdk_base::{
-    store::DynStateStore, sync::Notification, BaseClient, RoomInfoUpdate, RoomState,
-    RoomStateFilter, SendOutsideWasm, SessionMeta, SyncOutsideWasm,
+    store::DynStateStore,
+    sync::{Notification, RoomUpdates},
+    BaseClient, RoomInfoUpdate, RoomState, RoomStateFilter, SendOutsideWasm, SessionMeta,
+    SyncOutsideWasm,
 };
 use matrix_sdk_common::instant::Instant;
 #[cfg(feature = "e2e-encryption")]
@@ -250,6 +252,10 @@ pub(crate) struct ClientInner {
     /// The sender-side of channels used to receive room updates.
     pub(crate) room_update_channels: StdMutex<BTreeMap<OwnedRoomId, broadcast::Sender<RoomUpdate>>>,
 
+    /// The sender-side of a channel used to observe all the room updates of a
+    /// sync response.
+    pub(crate) room_updates_sender: broadcast::Sender<RoomUpdates>,
+
     /// Whether the client should update its homeserver URL with the discovery
     /// information present in the login response.
     respect_login_well_known: bool,
@@ -296,6 +302,9 @@ impl ClientInner {
             event_handlers: Default::default(),
             notification_handlers: Default::default(),
             room_update_channels: Default::default(),
+            // A single `RoomUpdates` is sent once per sync, so we assume that 32 is sufficient
+            // ballast for all observers to catch up.
+            room_updates_sender: broadcast::Sender::new(32),
             respect_login_well_known,
             sync_beat: event_listener::Event::new(),
             #[cfg(feature = "e2e-encryption")]
@@ -838,6 +847,12 @@ impl Client {
             }
             btree_map::Entry::Occupied(entry) => entry.get().subscribe(),
         }
+    }
+
+    /// Subscribe to all updates to all rooms, whenever any has been received in
+    /// a sync response.
+    pub fn subscribe_to_all_room_updates(&self) -> broadcast::Receiver<RoomUpdates> {
+        self.inner.room_updates_sender.subscribe()
     }
 
     pub(crate) async fn notification_handlers(

@@ -159,6 +159,9 @@ impl Client {
         self.handle_sync_events(HandlerKind::Presence, None, presence).await?;
         self.handle_sync_events(HandlerKind::ToDevice, None, to_device).await?;
 
+        // Ignore errors when there are no receivers.
+        let _ = self.inner.room_updates_sender.send(rooms.clone());
+
         for (room_id, room_info) in &rooms.join {
             let Some(room) = self.get_room(room_id) else {
                 error!(?room_id, "Can't call event handler, room not found");

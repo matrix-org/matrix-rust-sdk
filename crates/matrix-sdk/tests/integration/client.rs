@@ -7,10 +7,14 @@ use matrix_sdk::{
     media::{MediaFormat, MediaRequest, MediaThumbnailSize},
     sync::RoomUpdate,
 };
-use matrix_sdk_base::RoomState;
+use matrix_sdk_base::{sync::RoomUpdates, RoomState};
 use matrix_sdk_test::{
-    async_test, sync_state_event, test_json, JoinedRoomBuilder, SyncResponseBuilder,
-    DEFAULT_TEST_ROOM_ID,
+    async_test, sync_state_event,
+    test_json::{
+        self,
+        sync::{MIXED_INVITED_ROOM_ID, MIXED_JOINED_ROOM_ID, MIXED_LEFT_ROOM_ID, MIXED_SYNC},
+    },
+    JoinedRoomBuilder, SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
 };
 use ruma::{
     api::client::{
@@ -414,7 +418,7 @@ async fn whoami() {
 }
 
 #[async_test]
-async fn room_update_channel() {
+async fn test_room_update_channel() {
     let (client, server) = logged_in_client().await;
 
     let mut rx = client.subscribe_to_room_updates(&DEFAULT_TEST_ROOM_ID);
@@ -436,6 +440,62 @@ async fn room_update_channel() {
 
     assert_eq!(updates.unread_notifications.highlight_count, 0);
     assert_eq!(updates.unread_notifications.notification_count, 11);
+}
+
+#[async_test]
+async fn test_subscribe_all_room_updates() {
+    let (client, server) = logged_in_client().await;
+
+    let mut rx = client.subscribe_to_all_room_updates();
+
+    mock_sync(&server, &*MIXED_SYNC, None).await;
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    client.sync_once(sync_settings).await.unwrap();
+
+    let room_updates = rx.recv().now_or_never().unwrap().unwrap();
+    assert_let!(RoomUpdates { leave, join, invite } = room_updates);
+
+    // Check the left room updates.
+    {
+        assert_eq!(leave.len(), 1);
+
+        let (room_id, update) = leave.iter().next().unwrap();
+
+        assert_eq!(room_id, *MIXED_LEFT_ROOM_ID);
+        assert!(update.state.is_empty());
+        assert_eq!(update.timeline.events.len(), 1);
+        assert!(update.account_data.is_empty());
+    }
+
+    // Check the joined room updates.
+    {
+        assert_eq!(join.len(), 1);
+
+        let (room_id, update) = join.iter().next().unwrap();
+
+        assert_eq!(room_id, *MIXED_JOINED_ROOM_ID);
+
+        assert_eq!(update.account_data.len(), 1);
+        assert_eq!(update.ephemeral.len(), 1);
+        assert_eq!(update.state.len(), 1);
+
+        assert!(update.timeline.limited);
+        assert_eq!(update.timeline.events.len(), 1);
+        assert_eq!(update.timeline.prev_batch, Some("t392-516_47314_0_7_1_1_1_11444_1".to_owned()));
+
+        assert_eq!(update.unread_notifications.highlight_count, 0);
+        assert_eq!(update.unread_notifications.notification_count, 11);
+    }
+
+    // Check the invited room updates.
+    {
+        assert_eq!(invite.len(), 1);
+
+        let (room_id, update) = invite.iter().next().unwrap();
+
+        assert_eq!(room_id, *MIXED_INVITED_ROOM_ID);
+        assert_eq!(update.invite_state.events.len(), 2);
+    }
 }
 
 // Check that the `Room::is_encrypted()` is properly deduplicated, meaning we
@@ -906,7 +966,7 @@ async fn create_dm_error() {
 }
 
 #[async_test]
-async fn ambiguity_changes() {
+async fn test_ambiguity_changes() {
     let (client, server) = logged_in_client().await;
 
     let example_id = user_id!("@example:localhost");
