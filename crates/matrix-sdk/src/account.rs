@@ -799,16 +799,14 @@ impl Account {
         Ok(self.client.send(request, None).await?)
     }
 
-    /// Marks the given room with `room_id` as "direct chat" with with any
+    /// Marks the room identified by `room_id` as a "direct chat" with each
     /// user in `user_ids`.
-    ///
-    /// This is done adding new the `room_id` to the list of DM
-    /// chats for any user id in `user_ids`.
     ///
     /// # Arguments
     ///
-    /// * `room_id` - The room id of the DM room.
-    /// * `user_ids` - The user ids of the invitees for the DM room.
+    /// * `room_id` - The room ID of the direct message room.
+    /// * `user_ids` - The user IDs to be associated with this direct message
+    /// room.
     pub async fn mark_as_dm(&self, room_id: &RoomId, user_ids: &[OwnedUserId]) -> Result<()> {
         use ruma::events::direct::DirectEventContent;
 
