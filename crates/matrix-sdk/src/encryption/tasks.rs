@@ -20,8 +20,8 @@ use ruma::OwnedRoomId;
 use tokio::sync::mpsc::{self, UnboundedReceiver};
 use tracing::{trace, warn};
 
-use super::ClientInner;
 use crate::{
+    client::ClientInner,
     encryption::backups::UploadState,
     executor::{spawn, JoinHandle},
     Client,
@@ -71,13 +71,14 @@ impl BackupUploadingTask {
         while receiver.recv().await.is_some() {
             if let Some(client) = client.upgrade() {
                 let client = Client { inner: client };
+                let upload_progress = &client.inner.e2ee.backup_state.upload_progress;
 
                 if let Err(e) = client.encryption().backups().backup_room_keys().await {
-                    client.inner.backup_state.upload_progress.set(UploadState::Error);
+                    upload_progress.set(UploadState::Error);
                     warn!("Error backing up room keys {e:?}");
                 }
 
-                client.inner.backup_state.upload_progress.set(UploadState::Idle);
+                upload_progress.set(UploadState::Idle);
             } else {
                 trace!("Client got dropped, shutting down the task");
                 break;

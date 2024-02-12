@@ -21,6 +21,7 @@ use std::{
     io::{Cursor, Read, Write},
     iter,
     path::PathBuf,
+    sync::{Arc, Mutex as StdMutex},
 };
 
 use eyeball::SharedObservable;
@@ -59,14 +60,16 @@ use tokio::sync::RwLockReadGuard;
 use tracing::{debug, error, instrument, trace, warn};
 
 use self::{
-    backups::Backups,
+    backups::{types::BackupClientState, Backups},
     futures::PrepareEncryptedFile,
     identities::{DeviceUpdates, IdentityUpdates},
-    recovery::Recovery,
+    recovery::{Recovery, RecoveryState},
     secret_storage::SecretStorage,
+    tasks::{BackupDownloadTask, BackupUploadingTask, ClientTasks},
 };
 use crate::{
     attachment::{AttachmentInfo, Thumbnail},
+    client::ClientInner,
     encryption::{
         identities::{Device, UserDevices},
         verification::{SasVerification, Verification, VerificationRequest},
@@ -81,6 +84,7 @@ pub mod futures;
 pub mod identities;
 pub mod recovery;
 pub mod secret_storage;
+pub(crate) mod tasks;
 pub mod verification;
 
 pub use matrix_sdk_base::crypto::{
@@ -94,6 +98,47 @@ pub use matrix_sdk_base::crypto::{
 };
 
 pub use crate::error::RoomKeyImportError;
+
+/// All the data related to the encryption state.
+pub(crate) struct EncryptionData {
+    /// Background tasks related to encryption (key backup, initialization
+    /// tasks, etc.).
+    pub tasks: StdMutex<ClientTasks>,
+
+    /// End-to-end encryption settings.
+    pub encryption_settings: EncryptionSettings,
+
+    /// All state related to key backup.
+    pub backup_state: BackupClientState,
+
+    /// All state related to secret storage recovery.
+    pub recovery_state: SharedObservable<RecoveryState>,
+}
+
+impl EncryptionData {
+    pub fn new(encryption_settings: EncryptionSettings) -> Self {
+        Self {
+            encryption_settings,
+
+            tasks: StdMutex::new(Default::default()),
+            backup_state: Default::default(),
+            recovery_state: Default::default(),
+        }
+    }
+
+    pub fn initialize_room_key_tasks(&self, client: &Arc<ClientInner>) {
+        let weak_client = Arc::downgrade(client);
+
+        let mut tasks = self.tasks.lock().unwrap();
+        tasks.upload_room_keys = Some(BackupUploadingTask::new(weak_client.clone()));
+
+        if self.encryption_settings.backup_download_strategy
+            == BackupDownloadStrategy::AfterDecryptionFailure
+        {
+            tasks.download_room_keys = Some(BackupDownloadTask::new(weak_client));
+        }
+    }
+}
 
 /// Settings for end-to-end encryption features.
 #[derive(Clone, Copy, Debug, Default)]
@@ -535,7 +580,7 @@ impl Encryption {
 
     /// Returns the current encryption settings for this client.
     pub(crate) fn settings(&self) -> EncryptionSettings {
-        self.client.inner.encryption_settings
+        self.client.inner.e2ee.encryption_settings
     }
 
     /// Get the public ed25519 key of our own device. This is usually what is
@@ -1248,7 +1293,7 @@ impl Encryption {
     /// the initial upload of cross-signing keys without authentication,
     /// rendering this parameter obsolete.
     pub(crate) async fn run_initialization_tasks(&self, auth_data: Option<AuthData>) -> Result<()> {
-        let mut tasks = self.client.inner.tasks.lock().unwrap();
+        let mut tasks = self.client.inner.e2ee.tasks.lock().unwrap();
 
         let this = self.clone();
         tasks.setup_e2ee = Some(spawn(async move {
@@ -1272,7 +1317,7 @@ impl Encryption {
     /// Waits for end-to-end encryption initialization tasks to finish, if any
     /// was running in the background.
     pub async fn wait_for_e2ee_initialization_tasks(&self) {
-        let task = self.client.inner.tasks.lock().unwrap().setup_e2ee.take();
+        let task = self.client.inner.e2ee.tasks.lock().unwrap().setup_e2ee.take();
 
         if let Some(task) = task {
             if let Err(err) = task.await {

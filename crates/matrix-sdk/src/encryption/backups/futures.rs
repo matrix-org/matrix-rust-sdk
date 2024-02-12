@@ -98,7 +98,7 @@ impl<'a> IntoFuture for WaitForSteadyState<'a> {
             let mut progress_stream = progress.subscribe();
 
             let old_delay = if let Some(delay) = timeout {
-                let mut lock = backups.client.inner.backup_state.upload_delay.write().unwrap();
+                let mut lock = backups.client.inner.e2ee.backup_state.upload_delay.write().unwrap();
                 let old_delay = Some(lock.to_owned());
 
                 *lock = delay;
@@ -149,7 +149,7 @@ impl<'a> IntoFuture for WaitForSteadyState<'a> {
             };
 
             if let Some(old_delay) = old_delay {
-                let mut lock = backups.client.inner.backup_state.upload_delay.write().unwrap();
+                let mut lock = backups.client.inner.e2ee.backup_state.upload_delay.write().unwrap();
                 *lock = old_delay;
             }
 
