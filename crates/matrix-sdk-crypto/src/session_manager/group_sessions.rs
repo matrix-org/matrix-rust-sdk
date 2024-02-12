@@ -343,6 +343,7 @@ impl GroupSessionManager {
     /// Returns information indicating whether the session needs to be rotated
     /// and the list of users/devices that should receive or not the session
     /// (with withheld reason).
+    #[instrument(skip_all)]
     pub async fn collect_session_recipients(
         &self,
         users: impl Iterator<Item = &UserId>,
@@ -436,6 +437,12 @@ impl GroupSessionManager {
                         shared.difference(&recipient_device_ids).collect::<BTreeSet<_>>();
 
                     should_rotate = !newly_deleted_or_blacklisted.is_empty();
+                    if should_rotate {
+                        debug!(
+                            "Rotating a room key due to these devices being deleted/blacklisted {:?}",
+                            newly_deleted_or_blacklisted,
+                        );
+                    }
                 };
             }
 
@@ -443,6 +450,15 @@ impl GroupSessionManager {
             withheld_devices.extend(withheld_recipients);
         }
 
+        if should_rotate {
+            debug!(
+                should_rotate,
+                user_left,
+                visibility_changed,
+                algorithm_changed,
+                "Rotating room key to protect room history",
+            );
+        }
         trace!(should_rotate, "Done calculating group session recipients");
 
         Ok(CollectRecipientsResult { should_rotate, devices, withheld_devices })
