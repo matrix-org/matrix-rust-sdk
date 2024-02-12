@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::time::Duration;
+use std::{ops::Not as _, time::Duration};
 
 use assert_matches::assert_matches;
 use assert_matches2::assert_let;
@@ -837,6 +837,110 @@ async fn test_send_single_receipt() {
         )
         .await
         .unwrap();
+}
+
+#[async_test]
+async fn test_mark_as_read() {
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let (client, server) = logged_in_client().await;
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+    let own_user_id = client.user_id().unwrap();
+
+    let mut ev_builder = SyncResponseBuilder::new();
+    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+
+    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    let room = client.get_room(room_id).unwrap();
+    let timeline = room.timeline().await.unwrap();
+
+    let original_event_id = event_id!("$original_event_id");
+    let reaction_event_id = event_id!("$reaction_event_id");
+
+    // When I receive an event with a reaction on it,
+    ev_builder.add_joined_room(
+        JoinedRoomBuilder::new(room_id)
+            .add_timeline_event(sync_timeline_event!({
+                "content": {
+                    "body": "I like big Rust and I cannot lie",
+                    "msgtype": "m.text",
+                },
+                "event_id": original_event_id,
+                "origin_server_ts": 152046694,
+                "sender": "@sir-axalot:example.org",
+                "type": "m.room.message",
+            }))
+            .add_ephemeral_event(EphemeralTestEvent::Custom(json!({
+                "content": {
+                    original_event_id: {
+                        "m.read": {
+                            own_user_id: {
+                                "ts": 1436453550,
+                            },
+                        },
+                    },
+                },
+                "type": "m.receipt",
+            })))
+            .add_timeline_event(sync_timeline_event!({
+                "content": {
+                    "m.relates_to": {
+                        "event_id": original_event_id,
+                        "key": "🔥🔥🔥",
+                        "rel_type": "m.annotation",
+                    },
+                },
+                "event_id": reaction_event_id,
+                "origin_server_ts": 152038300,
+                "sender": "@prime-minirusta:example.org",
+                "type": "m.reaction",
+            })),
+    );
+
+    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    // And I try to mark the latest event related to a timeline item as read,
+    let latest_event = timeline.latest_event().await.expect("missing timeline event item");
+    let latest_event_id =
+        latest_event.event_id().expect("missing event id for latest timeline event item");
+
+    let has_sent = timeline
+        .send_single_receipt(
+            ReceiptType::Read,
+            ReceiptThread::Unthreaded,
+            latest_event_id.to_owned(),
+        )
+        .await
+        .unwrap();
+
+    // Then no request is actually sent, because the event forming the timeline item
+    // (the message) is known as read.
+    assert!(has_sent.not());
+    server.reset().await;
+
+    Mock::given(method("POST"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/receipt/m\.read/"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+        .expect(1)
+        .named("Public read receipt")
+        .mount(&server)
+        .await;
+
+    // But when I mark the room as read by sending a read receipt to the latest
+    // event,
+    let has_sent =
+        timeline.mark_as_read(ReceiptType::Read, ReceiptThread::Unthreaded).await.unwrap();
+
+    // It works.
+    assert!(has_sent);
+
+    server.reset().await;
 }
 
 #[async_test]
