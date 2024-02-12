@@ -5,7 +5,7 @@ use matrix_sdk::{
     NotificationSettingsError as SdkNotificationSettingsError, StoreError,
 };
 use matrix_sdk_ui::{
-    encryption_sync_service, event_graph::EventGraphError, notification_client, sync_service,
+    encryption_sync_service, event_cache::EventCacheError, notification_client, sync_service,
     timeline,
 };
 use uniffi::UnexpectedUniFFICallbackError;
@@ -118,8 +118,8 @@ impl From<RoomError> for ClientError {
     }
 }
 
-impl From<EventGraphError> for ClientError {
-    fn from(e: EventGraphError) -> Self {
+impl From<EventCacheError> for ClientError {
+    fn from(e: EventCacheError) -> Self {
         Self::new(e)
     }
 }

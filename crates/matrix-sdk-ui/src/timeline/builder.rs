@@ -33,7 +33,7 @@ use super::{
     queue::send_queued_messages,
     BackPaginationStatus, Timeline, TimelineDropHandle,
 };
-use crate::event_graph::{EventGraph, RoomEventGraphUpdate};
+use crate::event_cache::{EventCache, RoomEventCacheUpdate};
 
 /// Builder that allows creating and configuring various parts of a
 /// [`Timeline`].
@@ -43,7 +43,7 @@ pub struct TimelineBuilder {
     room: Room,
     prev_token: Option<String>,
     settings: TimelineInnerSettings,
-    event_graph: EventGraph,
+    event_cache: EventCache,
 }
 
 impl TimelineBuilder {
@@ -52,14 +52,14 @@ impl TimelineBuilder {
             room: room.clone(),
             prev_token: None,
             settings: TimelineInnerSettings::default(),
-            event_graph: EventGraph::new(room.client()),
+            event_cache: EventCache::new(room.client()),
         }
     }
 
     /// Add initial events to the timeline.
     ///
-    /// TODO: remove this, the EventGraph should hold the events data in the
-    /// first place, and we'd provide an existing EventGraph to the
+    /// TODO: remove this, the EventCache should hold the events data in the
+    /// first place, and we'd provide an existing EventCache to the
     /// TimelineBuilder.
     pub async fn events(
         mut self,
@@ -67,7 +67,7 @@ impl TimelineBuilder {
         events: Vector<SyncTimelineEvent>,
     ) -> Self {
         self.prev_token = prev_token;
-        self.event_graph
+        self.event_cache
             .add_initial_events(self.room.room_id(), events.iter().cloned().collect())
             .await
             .expect("room exists");
@@ -131,11 +131,11 @@ impl TimelineBuilder {
             prev_token = self.prev_token,
         )
     )]
-    pub async fn build(self) -> crate::event_graph::Result<Timeline> {
-        let Self { room, mut event_graph, prev_token, settings } = self;
+    pub async fn build(self) -> crate::event_cache::Result<Timeline> {
+        let Self { room, mut event_cache, prev_token, settings } = self;
 
-        let room_event_graph = event_graph.for_room(room.room_id())?;
-        let (events, mut event_subscriber) = room_event_graph.subscribe().await?;
+        let room_event_cache = event_cache.for_room(room.room_id())?;
+        let (events, mut event_subscriber) = room_event_cache.subscribe().await?;
 
         let has_events = !events.is_empty();
         let track_read_marker_and_receipts = settings.track_read_receipts;
@@ -183,12 +183,12 @@ impl TimelineBuilder {
                     };
 
                     match update {
-                        RoomEventGraphUpdate::Clear => {
+                        RoomEventCacheUpdate::Clear => {
                             trace!("Clearing the timeline.");
                             inner.clear().await;
                         }
 
-                        RoomEventGraphUpdate::Append {
+                        RoomEventCacheUpdate::Append {
                             events,
                             prev_batch,
                             account_data,
@@ -199,7 +199,7 @@ impl TimelineBuilder {
 
                             // XXX this timeline and the joined room updates are synthetic, until
                             // we get rid of `handle_joined_room_update` by adding all functionality
-                            // back in the event graph, and replacing it with a simple
+                            // back in the event cache, and replacing it with a simple
                             // `handle_add_events`.
                             let timeline = matrix_sdk_base::sync::Timeline {
                                 limited: false,
@@ -309,7 +309,7 @@ impl TimelineBuilder {
                 room_update_join_handle,
                 ignore_user_list_update_join_handle,
                 room_key_from_backups_join_handle,
-                _event_graph: room_event_graph,
+                _event_cache: room_event_cache,
             }),
         };
 

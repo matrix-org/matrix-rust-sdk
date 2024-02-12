@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! The event graph is an abstraction layer, sitting between the Rust SDK and a
+//! The event cache is an abstraction layer, sitting between the Rust SDK and a
 //! final client, that acts as a global observer of all the rooms, gathering and
 //! inferring some extra useful information about each room. In particular, this
 //! doesn't require subscribing to a specific room to get access to this
@@ -63,94 +63,93 @@ use tokio::{
 };
 use tracing::{debug, error, trace};
 
-/// An error observed in the `EventGraph`.
+/// An error observed in the [`EventCache`].
 #[derive(thiserror::Error, Debug)]
-pub enum EventGraphError {
-    /// A room hasn't been found, when trying to create a graph view for that
-    /// room.
+pub enum EventCacheError {
+    /// A room hasn't been found, when trying to create a view for that room.
     #[error("Room with id {0} not found")]
     RoomNotFound(OwnedRoomId),
 }
 
-/// A result using the [`EventGraphError`].
-pub type Result<T> = std::result::Result<T, EventGraphError>;
+/// A result using the [`EventCacheError`].
+pub type Result<T> = std::result::Result<T, EventCacheError>;
 
-/// Hold handles to the tasks spawn by a [`RoomEventGraph`].
-struct RoomGraphDropHandles {
+/// Hold handles to the tasks spawn by a [`RoomEventCache`].
+struct RoomCacheDropHandles {
     listen_updates_task: JoinHandle<()>,
 }
 
-impl Drop for RoomGraphDropHandles {
+impl Drop for RoomCacheDropHandles {
     fn drop(&mut self) {
         self.listen_updates_task.abort();
     }
 }
 
-/// An event graph, providing lots of useful functionality for clients.
+/// An event cache, providing lots of useful functionality for clients.
 ///
 /// See also the module-level comment.
-pub struct EventGraph {
-    /// Reference to the client used to navigate this graph.
+pub struct EventCache {
+    /// Reference to the client used to navigate this cache.
     client: Client,
-    /// Lazily-filled cache of live [`RoomEventGraph`], once per room.
-    by_room: BTreeMap<OwnedRoomId, RoomEventGraph>,
+    /// Lazily-filled cache of live [`RoomEventCache`], once per room.
+    by_room: BTreeMap<OwnedRoomId, RoomEventCache>,
     /// Backend used for storage.
-    store: Arc<dyn EventGraphStore>,
+    store: Arc<dyn EventCacheStore>,
 }
 
-impl Debug for EventGraph {
+impl Debug for EventCache {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("EventGraph").finish_non_exhaustive()
+        f.debug_struct("EventCache").finish_non_exhaustive()
     }
 }
 
-impl EventGraph {
-    /// Create a new [`EventGraph`] for the given client.
+impl EventCache {
+    /// Create a new [`EventCache`] for the given client.
     pub fn new(client: Client) -> Self {
         let store = Arc::new(MemoryStore::new());
         Self { client, by_room: Default::default(), store }
     }
 
-    /// Return a room-specific view over the [`EventGraph`].
+    /// Return a room-specific view over the [`EventCache`].
     ///
     /// It may not be found, if the room isn't known to the client.
-    pub fn for_room(&mut self, room_id: &RoomId) -> Result<RoomEventGraph> {
+    pub fn for_room(&mut self, room_id: &RoomId) -> Result<RoomEventCache> {
         match self.by_room.get(room_id) {
             Some(room) => Ok(room.clone()),
             None => {
                 let room = self
                     .client
                     .get_room(room_id)
-                    .ok_or_else(|| EventGraphError::RoomNotFound(room_id.to_owned()))?;
-                let room_event_graph = RoomEventGraph::new(room, self.store.clone());
-                self.by_room.insert(room_id.to_owned(), room_event_graph.clone());
-                Ok(room_event_graph)
+                    .ok_or_else(|| EventCacheError::RoomNotFound(room_id.to_owned()))?;
+                let room_event_cache = RoomEventCache::new(room, self.store.clone());
+                self.by_room.insert(room_id.to_owned(), room_event_cache.clone());
+                Ok(room_event_cache)
             }
         }
     }
 
-    /// Add an initial set of events to the event graph, reloaded from a cache.
+    /// Add an initial set of events to the event cache, reloaded from a cache.
     ///
-    /// TODO: temporary for API compat, as the event graph should take care of
-    /// its own cache.
+    /// TODO: temporary for API compat, as the event cache should take care of
+    /// its own store.
     pub async fn add_initial_events(
         &mut self,
         room_id: &RoomId,
         events: Vec<SyncTimelineEvent>,
     ) -> Result<()> {
-        let room_graph = self.for_room(room_id)?;
-        room_graph.inner.append_events(events).await?;
+        let room_cache = self.for_room(room_id)?;
+        room_cache.inner.append_events(events).await?;
         Ok(())
     }
 }
 
-/// A store that can be remember information about the event graph.
+/// A store that can be remember information about the event cache.
 ///
 /// It really acts as a cache, in the sense that clearing the backing data
 /// should not have any irremediable effect, other than providing a lesser user
 /// experience.
 #[async_trait]
-pub trait EventGraphStore: Send + Sync {
+pub trait EventCacheStore: Send + Sync {
     /// Returns all the known events for the given room.
     async fn room_events(&self, room: &RoomId) -> Result<Vec<SyncTimelineEvent>>;
 
@@ -173,7 +172,7 @@ impl MemoryStore {
 }
 
 #[async_trait]
-impl EventGraphStore for MemoryStore {
+impl EventCacheStore for MemoryStore {
     async fn room_events(&self, room: &RoomId) -> Result<Vec<SyncTimelineEvent>> {
         Ok(self.by_room.read().await.get(room).cloned().unwrap_or_default())
     }
@@ -189,26 +188,26 @@ impl EventGraphStore for MemoryStore {
     }
 }
 
-/// A subset of an event graph, for a room.
+/// A subset of an event cache, for a room.
 ///
 /// Cloning is shallow, and thus is cheap to do.
 #[derive(Clone)]
-pub struct RoomEventGraph {
-    inner: Arc<RoomEventGraphInner>,
+pub struct RoomEventCache {
+    inner: Arc<RoomEventCacheInner>,
 
-    _drop_handles: Arc<RoomGraphDropHandles>,
+    _drop_handles: Arc<RoomCacheDropHandles>,
 }
 
-impl Debug for RoomEventGraph {
+impl Debug for RoomEventCache {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RoomEventGraph").finish_non_exhaustive()
+        f.debug_struct("RoomEventCache").finish_non_exhaustive()
     }
 }
 
-impl RoomEventGraph {
-    /// Create a new [`RoomEventGraph`] using the given room and store.
-    fn new(room: Room, store: Arc<dyn EventGraphStore>) -> Self {
-        let (inner, drop_handles) = RoomEventGraphInner::new(room, store);
+impl RoomEventCache {
+    /// Create a new [`RoomEventCache`] using the given room and store.
+    fn new(room: Room, store: Arc<dyn EventCacheStore>) -> Self {
+        let (inner, drop_handles) = RoomEventCacheInner::new(room, store);
         Self { inner, _drop_handles: drop_handles }
     }
 
@@ -218,7 +217,7 @@ impl RoomEventGraph {
     /// handlers?
     pub async fn subscribe(
         &self,
-    ) -> Result<(Vec<SyncTimelineEvent>, Receiver<RoomEventGraphUpdate>)> {
+    ) -> Result<(Vec<SyncTimelineEvent>, Receiver<RoomEventCacheUpdate>)> {
         Ok((
             self.inner.store.room_events(self.inner.room.room_id()).await?,
             self.inner.sender.subscribe(),
@@ -226,23 +225,23 @@ impl RoomEventGraph {
     }
 }
 
-struct RoomEventGraphInner {
-    sender: Sender<RoomEventGraphUpdate>,
-    store: Arc<dyn EventGraphStore>,
+struct RoomEventCacheInner {
+    sender: Sender<RoomEventCacheUpdate>,
+    store: Arc<dyn EventCacheStore>,
     room: Room,
 }
 
-impl RoomEventGraphInner {
-    /// Creates a new graph for a room, and subscribes to room updates., so as
+impl RoomEventCacheInner {
+    /// Creates a new cache for a room, and subscribes to room updates, so as
     /// to handle new timeline events.
-    fn new(room: Room, store: Arc<dyn EventGraphStore>) -> (Arc<Self>, Arc<RoomGraphDropHandles>) {
+    fn new(room: Room, store: Arc<dyn EventCacheStore>) -> (Arc<Self>, Arc<RoomCacheDropHandles>) {
         let sender = Sender::new(32);
 
-        let room_graph = Arc::new(Self { room, store, sender });
+        let room_cache = Arc::new(Self { room, store, sender });
 
-        let listen_updates_task = spawn(Self::listen_task(room_graph.clone()));
+        let listen_updates_task = spawn(Self::listen_task(room_cache.clone()));
 
-        (room_graph, Arc::new(RoomGraphDropHandles { listen_updates_task }))
+        (room_cache, Arc::new(RoomCacheDropHandles { listen_updates_task }))
     }
 
     async fn handle_joined_room_update(&self, updates: JoinedRoomUpdate) -> Result<()> {
@@ -271,7 +270,7 @@ impl RoomEventGraphInner {
             // items from the room. TODO: implement Smart Matching™.
             trace!("limited timeline, clearing all previous events");
             self.store.clear_room_events(room_id).await?;
-            let _ = self.sender.send(RoomEventGraphUpdate::Clear);
+            let _ = self.sender.send(RoomEventCacheUpdate::Clear);
         }
 
         // Add all the events to the backend.
@@ -279,7 +278,7 @@ impl RoomEventGraphInner {
         self.store.add_room_events(room_id, timeline.events.clone()).await?;
 
         // Propagate events to observers.
-        let _ = self.sender.send(RoomEventGraphUpdate::Append {
+        let _ = self.sender.send(RoomEventCacheUpdate::Append {
             events: timeline.events,
             prev_batch: timeline.prev_batch,
             ephemeral,
@@ -348,12 +347,12 @@ impl RoomEventGraphInner {
         }
     }
 
-    /// Append a set of events to the room graph and storage, notifying
+    /// Append a set of events to the room cache and storage, notifying
     /// observers.
     async fn append_events(&self, events: Vec<SyncTimelineEvent>) -> Result<()> {
         self.store.add_room_events(self.room.room_id(), events.clone()).await?;
 
-        let _ = self.sender.send(RoomEventGraphUpdate::Append {
+        let _ = self.sender.send(RoomEventCacheUpdate::Append {
             events,
             prev_batch: None,
             account_data: Default::default(),
@@ -367,7 +366,7 @@ impl RoomEventGraphInner {
 
 /// An update related to events happened in a room.
 #[derive(Clone)]
-pub enum RoomEventGraphUpdate {
+pub enum RoomEventCacheUpdate {
     /// The room has been cleared from events.
     Clear,
     /// The room has new events.
@@ -375,13 +374,13 @@ pub enum RoomEventGraphUpdate {
         /// All the new events that have been added to the room.
         events: Vec<SyncTimelineEvent>,
         /// XXX: this is temporary, until backpagination lives in the event
-        /// graph.
+        /// cache.
         prev_batch: Option<String>,
-        /// XXX: this is temporary, until account data lives in the event graph
+        /// XXX: this is temporary, until account data lives in the event cache
         /// — or will it live there?
         account_data: Vec<Raw<AnyRoomAccountDataEvent>>,
         /// XXX: this is temporary, until read receipts are handled in the event
-        /// graph
+        /// cache
         ephemeral: Vec<Raw<AnySyncEphemeralRoomEvent>>,
         /// Collection of ambiguity changes that room member events trigger.
         ///

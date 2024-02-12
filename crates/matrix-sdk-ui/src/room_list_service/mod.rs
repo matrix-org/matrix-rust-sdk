@@ -95,7 +95,7 @@ use tokio::{
     time::timeout,
 };
 
-use crate::event_graph::EventGraphError;
+use crate::event_cache::EventCacheError;
 
 /// The [`RoomListService`] type. See the module's documentation to learn more.
 #[derive(Debug)]
@@ -516,7 +516,7 @@ pub enum Error {
     TimelineAlreadyExists(OwnedRoomId),
 
     #[error("An error occurred while initializing the timeline")]
-    InitializingTimeline(#[source] EventGraphError),
+    InitializingTimeline(#[source] EventCacheError),
 }
 
 /// An input for the [`RoomList`]' state machine.

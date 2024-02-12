@@ -39,7 +39,7 @@ pub trait RoomExt {
     /// independent events.
     ///
     /// This is the same as using `room.timeline_builder().build()`.
-    async fn timeline(&self) -> crate::event_graph::Result<Timeline>;
+    async fn timeline(&self) -> crate::event_cache::Result<Timeline>;
 
     /// Get a [`TimelineBuilder`] for this room.
     ///
@@ -54,7 +54,7 @@ pub trait RoomExt {
 
 #[async_trait]
 impl RoomExt for Room {
-    async fn timeline(&self) -> crate::event_graph::Result<Timeline> {
+    async fn timeline(&self) -> crate::event_cache::Result<Timeline> {
         self.timeline_builder().build().await
     }
 
