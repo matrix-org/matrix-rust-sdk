@@ -343,6 +343,7 @@ impl GroupSessionManager {
     /// Returns information indicating whether the session needs to be rotated
     /// and the list of users/devices that should receive or not the session
     /// (with withheld reason).
+    #[instrument(skip_all)]
     pub async fn collect_session_recipients(
         &self,
         users: impl Iterator<Item = &UserId>,
