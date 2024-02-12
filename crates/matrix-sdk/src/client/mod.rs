@@ -87,21 +87,14 @@ use crate::{
 };
 #[cfg(feature = "e2e-encryption")]
 use crate::{
-    encryption::{
-        backups::types::BackupClientState, recovery::RecoveryState, BackupDownloadStrategy,
-        Encryption, EncryptionSettings,
-    },
+    encryption::{Encryption, EncryptionData, EncryptionSettings},
     store_locks::CrossProcessStoreLock,
 };
 
 mod builder;
 pub(crate) mod futures;
-#[cfg(feature = "e2e-encryption")]
-mod tasks;
 
 pub use self::builder::{ClientBuildError, ClientBuilder};
-#[cfg(feature = "e2e-encryption")]
-use self::tasks::{BackupDownloadTask, BackupUploadingTask, ClientTasks};
 
 #[cfg(not(target_arch = "wasm32"))]
 type NotificationHandlerFut = Pin<Box<dyn Future<Output = ()> + Send>>;
@@ -239,11 +232,6 @@ pub(crate) struct ClientInner {
     /// deduplicate multiple calls to a method.
     locks: ClientLocks,
 
-    /// Background tasks related to encryption (key backup, initialization
-    /// tasks, etc.).
-    #[cfg(feature = "e2e-encryption")]
-    pub(crate) tasks: StdMutex<ClientTasks>,
-
     /// A mapping of the times at which the current user sent typing notices,
     /// keyed by room.
     pub(crate) typing_notice_times: StdRwLock<BTreeMap<OwnedRoomId, Instant>>,
@@ -268,17 +256,9 @@ pub(crate) struct ClientInner {
     /// store.
     pub(crate) sync_beat: event_listener::Event,
 
-    /// End-to-end encryption settings.
+    /// End-to-end encryption related state.
     #[cfg(feature = "e2e-encryption")]
-    pub(crate) encryption_settings: EncryptionSettings,
-
-    /// All state related to key backup.
-    #[cfg(feature = "e2e-encryption")]
-    pub(crate) backup_state: BackupClientState,
-
-    /// All state related to secret storage recovery.
-    #[cfg(feature = "e2e-encryption")]
-    pub(crate) recovery_state: SharedObservable<RecoveryState>,
+    pub(crate) e2ee: EncryptionData,
 }
 
 impl ClientInner {
@@ -305,8 +285,6 @@ impl ClientInner {
             sliding_sync_proxy: StdRwLock::new(sliding_sync_proxy),
             http_client,
             base_client,
-            #[cfg(feature = "e2e-encryption")]
-            tasks: StdMutex::new(Default::default()),
             locks: Default::default(),
             server_versions: OnceCell::new_with(server_versions),
             typing_notice_times: Default::default(),
@@ -316,30 +294,14 @@ impl ClientInner {
             respect_login_well_known,
             sync_beat: event_listener::Event::new(),
             #[cfg(feature = "e2e-encryption")]
-            encryption_settings,
-            #[cfg(feature = "e2e-encryption")]
-            backup_state: Default::default(),
-            #[cfg(feature = "e2e-encryption")]
-            recovery_state: Default::default(),
+            e2ee: EncryptionData::new(encryption_settings),
         };
 
         #[allow(clippy::let_and_return)]
         let client = Arc::new(client);
 
         #[cfg(feature = "e2e-encryption")]
-        {
-            let weak_client = Arc::downgrade(&client);
-
-            let mut tasks = client.tasks.lock().unwrap();
-
-            tasks.upload_room_keys = Some(BackupUploadingTask::new(weak_client.clone()));
-
-            if encryption_settings.backup_download_strategy
-                == BackupDownloadStrategy::AfterDecryptionFailure
-            {
-                tasks.download_room_keys = Some(BackupDownloadTask::new(weak_client));
-            }
-        }
+        client.e2ee.initialize_room_key_tasks(&client);
 
         client
     }
@@ -2015,7 +1977,7 @@ impl Client {
                 self.inner.server_versions.get().cloned(),
                 self.inner.respect_login_well_known,
                 #[cfg(feature = "e2e-encryption")]
-                self.inner.encryption_settings,
+                self.inner.e2ee.encryption_settings,
             ),
         };
 

@@ -263,7 +263,7 @@ impl Backups {
     pub fn wait_for_steady_state(&self) -> WaitForSteadyState<'_> {
         WaitForSteadyState {
             backups: self,
-            progress: self.client.inner.backup_state.upload_progress.clone(),
+            progress: self.client.inner.e2ee.backup_state.upload_progress.clone(),
             timeout: None,
         }
     }
@@ -301,12 +301,12 @@ impl Backups {
     pub fn state_stream(
         &self,
     ) -> impl Stream<Item = Result<BackupState, BroadcastStreamRecvError>> {
-        self.client.inner.backup_state.global_state.subscribe()
+        self.client.inner.e2ee.backup_state.global_state.subscribe()
     }
 
     /// Get the current [`BackupState`] for this [`Client`].
     pub fn state(&self) -> BackupState {
-        self.client.inner.backup_state.global_state.get()
+        self.client.inner.e2ee.backup_state.global_state.get()
     }
 
     /// Are backups enabled for the current [`Client`]?
@@ -420,7 +420,7 @@ impl Backups {
 
     /// Set the state of the backup.
     fn set_state(&self, state: BackupState) {
-        self.client.inner.backup_state.global_state.set(state);
+        self.client.inner.e2ee.backup_state.global_state.set(state);
     }
 
     /// Set the backup state to the `Enabled` variant and insert the backup key
@@ -477,7 +477,7 @@ impl Backups {
 
         // Since we can't use the usual room keys stream from the `OlmMachine`
         // we're going to send things out in our own custom broadcaster.
-        let _ = self.client.inner.backup_state.room_keys_broadcaster.send(result);
+        let _ = self.client.inner.e2ee.backup_state.room_keys_broadcaster.send(result);
 
         Ok(())
     }
@@ -502,7 +502,7 @@ impl Backups {
     fn room_keys_stream(
         &self,
     ) -> impl Stream<Item = Result<RoomKeyImportResult, BroadcastStreamRecvError>> {
-        BroadcastStream::new(self.client.inner.backup_state.room_keys_broadcaster.subscribe())
+        BroadcastStream::new(self.client.inner.e2ee.backup_state.room_keys_broadcaster.subscribe())
     }
 
     /// Get info about the currently active backup from the server.
@@ -565,6 +565,7 @@ impl Backups {
 
                 self.client
                     .inner
+                    .e2ee
                     .backup_state
                     .upload_progress
                     .set(UploadState::Uploading(new_counts));
@@ -572,7 +573,7 @@ impl Backups {
                 #[cfg(not(target_arch = "wasm32"))]
                 {
                     let delay =
-                        self.client.inner.backup_state.upload_delay.read().unwrap().to_owned();
+                        self.client.inner.e2ee.backup_state.upload_delay.read().unwrap().to_owned();
                     tokio::time::sleep(delay).await;
                 }
 
@@ -623,7 +624,7 @@ impl Backups {
             self.send_backup_request(olm_machine, &request_id, request).await?;
         }
 
-        self.client.inner.backup_state.upload_progress.set(UploadState::Done);
+        self.client.inner.e2ee.backup_state.upload_progress.set(UploadState::Done);
 
         Ok(())
     }
@@ -635,7 +636,7 @@ impl Backups {
 
         self.client.add_event_handler(Self::secret_send_event_handler);
 
-        if self.client.inner.encryption_settings.backup_download_strategy
+        if self.client.inner.e2ee.encryption_settings.backup_download_strategy
             == BackupDownloadStrategy::AfterDecryptionFailure
         {
             self.client.add_event_handler(Self::utd_event_handler);
@@ -734,7 +735,7 @@ impl Backups {
                 // response and decrypt all the room keys found in the backup.
                 //
                 // This doesn't work for any sizeable account.
-                if self.client.inner.encryption_settings.backup_download_strategy
+                if self.client.inner.e2ee.encryption_settings.backup_download_strategy
                     == BackupDownloadStrategy::OneShot
                 {
                     self.set_state(BackupState::Downloading);
@@ -876,7 +877,7 @@ impl Backups {
     }
 
     pub(crate) fn maybe_download_room_key(&self, room_id: OwnedRoomId, session_id: String) {
-        let tasks = self.client.inner.tasks.lock().unwrap();
+        let tasks = self.client.inner.e2ee.tasks.lock().unwrap();
 
         if let Some(task) = tasks.download_room_keys.as_ref() {
             task.trigger_download((room_id, session_id))
@@ -886,7 +887,7 @@ impl Backups {
     /// Send a notification to the task which is responsible for uploading room
     /// keys to the backup that it might have new room keys to back up.
     pub(crate) fn maybe_trigger_backup(&self) {
-        let tasks = self.client.inner.tasks.lock().unwrap();
+        let tasks = self.client.inner.e2ee.tasks.lock().unwrap();
 
         if let Some(tasks) = tasks.upload_room_keys.as_ref() {
             tasks.trigger_upload();
@@ -1136,7 +1137,8 @@ mod test {
 
         let backups = client.encryption().backups();
 
-        let old_duration = { client.inner.backup_state.upload_delay.read().unwrap().to_owned() };
+        let old_duration =
+            { client.inner.e2ee.backup_state.upload_delay.read().unwrap().to_owned() };
 
         let wait_for_steady_state =
             backups.wait_for_steady_state().with_delay(Duration::from_nanos(100));
@@ -1155,7 +1157,14 @@ mod test {
                         UploadState::Idle => (),
                         UploadState::Done => {
                             let current_delay = {
-                                client.inner.backup_state.upload_delay.read().unwrap().to_owned()
+                                client
+                                    .inner
+                                    .e2ee
+                                    .backup_state
+                                    .upload_delay
+                                    .read()
+                                    .unwrap()
+                                    .to_owned()
                             };
 
                             assert_ne!(current_delay, old_duration);
@@ -1171,7 +1180,7 @@ mod test {
         task.await.unwrap();
 
         let current_duration =
-            { client.inner.backup_state.upload_delay.read().unwrap().to_owned() };
+            { client.inner.e2ee.backup_state.upload_delay.read().unwrap().to_owned() };
 
         assert_eq!(old_duration, current_duration);
 

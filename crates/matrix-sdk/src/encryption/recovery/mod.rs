@@ -124,7 +124,7 @@ pub struct Recovery {
 impl Recovery {
     /// Get the current [`RecoveryState`] for this [`Client`].
     pub fn state(&self) -> RecoveryState {
-        self.client.inner.recovery_state.get()
+        self.client.inner.e2ee.recovery_state.get()
     }
 
     /// Get a stream of updates to the [`RecoveryState`].
@@ -156,7 +156,7 @@ impl Recovery {
     /// # anyhow::Ok(()) };
     /// ```
     pub fn state_stream(&self) -> impl Stream<Item = RecoveryState> {
-        self.client.inner.recovery_state.subscribe_reset()
+        self.client.inner.e2ee.recovery_state.subscribe_reset()
     }
 
     /// Enable secret storage *and* backups.
@@ -426,7 +426,7 @@ impl Recovery {
         // If we didn't already enable backups, we don't see a backup version on the
         // server, and finally if backups have not been marked to be explicitly
         // disabled, then we can automatically enable them.
-        Ok(self.client.inner.encryption_settings.auto_enable_backups
+        Ok(self.client.inner.e2ee.encryption_settings.auto_enable_backups
             && !self.client.encryption().backups().are_enabled().await
             && !self.client.encryption().backups().exists_on_server().await?
             && !self.are_backups_marked_as_disabled().await?)
@@ -488,7 +488,7 @@ impl Recovery {
 
     async fn update_recovery_state(&self) -> Result<()> {
         let new_state = self.check_recovery_state().await?;
-        self.client.inner.recovery_state.set(new_state);
+        self.client.inner.e2ee.recovery_state.set(new_state);
 
         Ok(())
     }
