@@ -159,7 +159,7 @@ async fn unban_user() {
 }
 
 #[async_test]
-async fn mark_as_unread() {
+async fn test_mark_as_unread() {
     let (client, server) = logged_in_client().await;
 
     Mock::given(method("PUT"))
@@ -179,9 +179,9 @@ async fn mark_as_unread() {
 
     let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
 
-    room.mark_unread(true).await.unwrap();
+    room.set_unread_flag(true).await.unwrap();
 
-    room.mark_unread(false).await.unwrap();
+    room.set_unread_flag(false).await.unwrap();
 }
 
 #[async_test]

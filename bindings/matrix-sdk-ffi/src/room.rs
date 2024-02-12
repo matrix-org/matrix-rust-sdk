@@ -539,32 +539,21 @@ impl Room {
         })))
     }
 
-    /// Sets a flag on the room to indicate that the user has explicitly marked
-    /// it as unread
-    pub async fn mark_as_unread(&self) -> Result<(), ClientError> {
-        Ok(self.inner.mark_unread(true).await?)
+    /// Set (or unset) a flag on the room to indicate that the user has
+    /// explicitly marked it as unread.
+    pub async fn set_unread_flag(&self, new_value: bool) -> Result<(), ClientError> {
+        Ok(self.inner.set_unread_flag(new_value).await?)
     }
 
-    /// Reverts a previously set unread flag.
-    pub async fn mark_as_read(&self) -> Result<(), ClientError> {
-        Ok(self.inner.mark_unread(false).await?)
-    }
-
-    /// Reverts a previously set unread flag and sends a read receipt to the
-    /// latest event in the room.
+    /// Mark a room as read, by attaching a read receipt on the latest event.
     ///
-    /// Sending read receipts is useful when executing this from the room list
-    /// but shouldn't be use when entering the room, the timeline should be
-    /// left to its own devices in that case.
-    pub async fn mark_as_read_and_send_read_receipt(
-        &self,
-        receipt_type: ReceiptType,
-    ) -> Result<(), ClientError> {
+    /// Note: this does NOT unset the unread flag; it's the caller's
+    /// responsibility to do so, if needs be.
+    pub async fn mark_as_read(&self, receipt_type: ReceiptType) -> Result<(), ClientError> {
         let timeline = self.timeline().await?;
 
         timeline.mark_as_read(receipt_type).await?;
-
-        self.mark_as_read().await
+        Ok(())
     }
 
     pub async fn build_power_level_changes_from_current(
