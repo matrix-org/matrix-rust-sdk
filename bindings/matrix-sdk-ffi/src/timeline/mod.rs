@@ -196,6 +196,13 @@ impl Timeline {
         })
     }
 
+    /// Mark the room as read by trying to add a read receipt to the latest
+    /// event.
+    pub async fn mark_as_read(&self, receipt_type: ReceiptType) -> Result<(), ClientError> {
+        self.inner.mark_as_read(receipt_type.into(), ReceiptThread::Unthreaded).await?;
+        Ok(())
+    }
+
     pub fn send(self: Arc<Self>, msg: Arc<RoomMessageEventContentWithoutRelation>) {
         RUNTIME.spawn(async move {
             self.inner.send((*msg).to_owned().with_relation(None).into()).await;

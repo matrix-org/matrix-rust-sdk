@@ -1143,6 +1143,13 @@ impl TimelineInner {
         // Let the server handle unknown receipts.
         true
     }
+
+    /// Returns the latest event identifier, even if it's not visible, or if
+    /// it's folded into another timeline item.
+    pub(crate) async fn latest_event_id(&self) -> Option<OwnedEventId> {
+        let state = self.state.read().await;
+        state.all_events.back().map(|event_meta| &event_meta.event_id).cloned()
+    }
 }
 
 #[derive(Debug, Default)]
