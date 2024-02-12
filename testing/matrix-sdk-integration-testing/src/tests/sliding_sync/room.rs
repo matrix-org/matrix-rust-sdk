@@ -33,6 +33,7 @@ use matrix_sdk::{
 use matrix_sdk_ui::{
     room_list_service::filters::new_filter_all, sync_service::SyncService, RoomListService,
 };
+use once_cell::sync::Lazy;
 use stream_assert::assert_pending;
 use tokio::{
     spawn,
@@ -584,6 +585,7 @@ impl CustomResponder {
 
 impl wiremock::Respond for &CustomResponder {
     fn respond(&self, request: &wiremock::Request) -> wiremock::ResponseTemplate {
+        // Convert the mocked request to an actual server request.
         let mut req = self.client.request(
             request.method.to_string().parse().expect("All methods exist"),
             request.url.clone(),
@@ -596,15 +598,18 @@ impl wiremock::Respond for &CustomResponder {
         req = req.body(request.body.clone());
 
         // Run await inside of non-async fn by spawning a new thread and creating a new
-        // runtime. TODO: Is there a better way?
+        // runtime. We need to do this because the current runtime can't run blocking
+        // tasks (hence can't run `Handle::block_on`).
         let drop_todevice = self.drop_todevice.clone();
+
         std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
+                // Send the request to the actual backend.
                 let response = timeout(Duration::from_secs(2), req.send()).await;
 
                 if let Ok(Ok(response)) = response {
-                    // Convert reqwest response to wiremock response
+                    // Convert reqwest response to wiremock response.
                     let mut r = wiremock::ResponseTemplate::new(u16::from(response.status()));
                     for header in response.headers() {
                         if header.0 == "Content-Length" {
@@ -622,7 +627,7 @@ impl wiremock::Respond for &CustomResponder {
 
                     r.set_body_bytes(bytes)
                 } else {
-                    // Gateway timeout
+                    // Gateway timeout.
                     wiremock::ResponseTemplate::new(504)
                 }
             })
@@ -635,10 +640,12 @@ impl wiremock::Respond for &CustomResponder {
 #[tokio::test]
 async fn test_delayed_decryption_latest_event() -> Result<()> {
     let server = MockServer::start().await;
-    // Setup mockserver that can drop to-device messages
-    let custom_responder: &'static CustomResponder = Box::leak(Box::new(CustomResponder::new()));
 
-    server.register(Mock::given(AnyMatcher).respond_with(custom_responder)).await;
+    // Setup mockserver that can drop to-device messages.
+    static CUSTOM_RESPONDER: Lazy<Arc<CustomResponder>> =
+        Lazy::new(|| Arc::new(CustomResponder::new()));
+
+    server.register(Mock::given(AnyMatcher).respond_with(&**CUSTOM_RESPONDER)).await;
 
     let alice = TestClientBuilder::new("alice".to_owned())
         .randomize_username()
@@ -724,7 +731,8 @@ async fn test_delayed_decryption_latest_event() -> Result<()> {
     entries.set_filter(Box::new(new_filter_all(vec![])));
     pin_mut!(stream);
 
-    // Send a message, but the keys won't arrive because to-device events are stripped away from the server's response
+    // Send a message, but the keys won't arrive because to-device events are
+    // stripped away from the server's response
     let event = bob_room.send(RoomMessageEventContent::text_plain("hello world")).await?;
 
     // Wait shortly so the manual roominfo update is triggered before we load the
@@ -744,7 +752,7 @@ async fn test_delayed_decryption_latest_event() -> Result<()> {
     assert!(alice_room.latest_event().is_none());
 
     // Now we allow the key to come through
-    *custom_responder.drop_todevice.lock().unwrap() = false;
+    *CUSTOM_RESPONDER.drop_todevice.lock().unwrap() = false;
 
     // Wait for next sync
     sleep(Duration::from_secs(3)).await;
