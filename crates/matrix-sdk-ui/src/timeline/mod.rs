@@ -771,6 +771,24 @@ impl Timeline {
 
         self.room().send_multiple_receipts(receipts).await
     }
+
+    /// Mark the room as read by sending a read receipt on the latest event, be
+    /// it visible or not.
+    ///
+    /// Returns a boolean indicating if it sent the request or not.
+    #[instrument(skip(self), fields(room_id = ?self.room().room_id()))]
+    pub async fn mark_as_read(
+        &self,
+        receipt_type: ReceiptType,
+        thread: ReceiptThread,
+    ) -> Result<bool> {
+        if let Some(event_id) = self.inner.latest_event_id().await {
+            self.send_single_receipt(receipt_type, thread, event_id).await
+        } else {
+            trace!("can't mark room as read because there's no latest event id");
+            Ok(false)
+        }
+    }
 }
 
 /// Test helpers, likely not very useful in production.
