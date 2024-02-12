@@ -220,41 +220,63 @@ pub(crate) struct ClientInner {
 
     /// The URL of the homeserver to connect to.
     homeserver: StdRwLock<Url>,
+
     /// The sliding sync proxy that is trusted by the homeserver.
     #[cfg(feature = "experimental-sliding-sync")]
     sliding_sync_proxy: StdRwLock<Option<Url>>,
+
     /// The underlying HTTP client.
     pub(crate) http_client: HttpClient,
+
     /// User session data.
     base_client: BaseClient,
+
     /// The Matrix versions the server supports (well-known ones only)
     server_versions: OnceCell<Box<[MatrixVersion]>>,
+
     /// Collection of locks individual client methods might want to use, either
     /// to ensure that only a single call to a method happens at once or to
     /// deduplicate multiple calls to a method.
     locks: ClientLocks,
+
+    /// Background tasks related to encryption (key backup, initialization
+    /// tasks, etc.).
     #[cfg(feature = "e2e-encryption")]
     pub(crate) tasks: StdMutex<ClientTasks>,
+
+    /// A mapping of the times at which the current user sent typing notices,
+    /// keyed by room.
     pub(crate) typing_notice_times: StdRwLock<BTreeMap<OwnedRoomId, Instant>>,
+
     /// Event handlers. See `add_event_handler`.
     pub(crate) event_handlers: EventHandlerStore,
+
     /// Notification handlers. See `register_notification_handler`.
     notification_handlers: RwLock<Vec<NotificationHandlerFn>>,
+
+    /// The sender-side of channels used to receive room updates.
     pub(crate) room_update_channels: StdMutex<BTreeMap<OwnedRoomId, broadcast::Sender<RoomUpdate>>>,
+
     /// Whether the client should update its homeserver URL with the discovery
     /// information present in the login response.
     respect_login_well_known: bool,
+
     /// An event that can be listened on to wait for a successful sync. The
     /// event will only be fired if a sync loop is running. Can be used for
     /// synchronization, e.g. if we send out a request to create a room, we can
     /// wait for the sync to get the data to fetch a room object from the state
     /// store.
     pub(crate) sync_beat: event_listener::Event,
+
     /// End-to-end encryption settings.
     #[cfg(feature = "e2e-encryption")]
     pub(crate) encryption_settings: EncryptionSettings,
+
+    /// All state related to key backup.
     #[cfg(feature = "e2e-encryption")]
     pub(crate) backup_state: BackupClientState,
+
+    /// All state related to secret storage recovery.
     #[cfg(feature = "e2e-encryption")]
     pub(crate) recovery_state: SharedObservable<RecoveryState>,
 }
