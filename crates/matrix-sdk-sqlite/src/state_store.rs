@@ -12,13 +12,14 @@ use matrix_sdk_base::{
     deserialized_responses::{RawAnySyncOrStrippedState, SyncOrStrippedState},
     media::{MediaRequest, UniqueKey},
     store::migration_helpers::RoomInfoV1,
-    MinimalRoomMemberEvent, RoomInfo, RoomMemberships, RoomState, StateChanges, StateStore,
-    StateStoreDataKey, StateStoreDataValue,
+    MinimalRoomMemberEvent, RawRoomInfo, RoomInfo, RoomMemberships, RoomState, StateChanges,
+    StateStore, StateStoreDataKey, StateStoreDataValue,
 };
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{
-    canonical_json::{redact, RedactedBecause},
+    canonical_json::{redact, redact_in_place, RedactedBecause},
     events::{
+        call::member::CallMemberEvent,
         presence::PresenceEvent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
         room::{
@@ -47,6 +48,7 @@ mod keys {
     // Tables
     pub const KV_BLOB: &str = "kv_blob";
     pub const ROOM_INFO: &str = "room_info";
+    pub const RAW_ROOM_INFO: &str = "raw_room_info";
     pub const STATE_EVENT: &str = "state_event";
     pub const GLOBAL_ACCOUNT_DATA: &str = "global_account_data";
     pub const ROOM_ACCOUNT_DATA: &str = "room_account_data";
@@ -57,7 +59,7 @@ mod keys {
     pub const MEDIA: &str = "media";
 }
 
-const DATABASE_VERSION: u8 = 3;
+const DATABASE_VERSION: u8 = 4;
 
 /// A sqlite based cryptostore.
 #[derive(Clone)]
@@ -213,6 +215,16 @@ impl SqliteStateStore {
             .await?;
         }
 
+        if from < 4 && to >= 4 {
+            conn.with_transaction(move |txn| {
+                // Create new table.
+                txn.execute_batch(include_str!(
+                    "../migrations/state_store/003_create_raw_room_info.sql"
+                ))
+            })
+            .await?;
+        }
+
         conn.set_kv("version", vec![to]).await?;
 
         Ok(())
@@ -344,6 +356,8 @@ trait SqliteConnectionStateStoreExt {
 
     fn set_room_info(&self, room_id: &[u8], state: &[u8], data: &[u8]) -> rusqlite::Result<()>;
     fn get_room_info(&self, room_id: &[u8]) -> rusqlite::Result<Option<Vec<u8>>>;
+    fn set_raw_room_info(&self, room_id: &[u8], data: &[u8]) -> rusqlite::Result<()>;
+    fn get_raw_room_info(&self, room_id: &[u8]) -> rusqlite::Result<Option<Vec<u8>>>;
     fn remove_room_info(&self, room_id: &[u8]) -> rusqlite::Result<()>;
 
     fn set_state_event(
@@ -445,6 +459,22 @@ impl SqliteConnectionStateStoreExt for rusqlite::Connection {
     fn get_room_info(&self, room_id: &[u8]) -> rusqlite::Result<Option<Vec<u8>>> {
         self.query_row("SELECT data FROM room_info WHERE room_id = ?", (room_id,), |row| row.get(0))
             .optional()
+    }
+
+    fn get_raw_room_info(&self, room_id: &[u8]) -> rusqlite::Result<Option<Vec<u8>>> {
+        self.query_row("SELECT data FROM raw_room_info WHERE room_id = ?", (room_id,), |row| {
+            row.get(0)
+        })
+        .optional()
+    }
+
+    fn set_raw_room_info(&self, room_id: &[u8], data: &[u8]) -> rusqlite::Result<()> {
+        self.prepare_cached(
+            "INSERT OR REPLACE INTO raw_room_info (room_id, data)
+             VALUES (?, ?)",
+        )?
+        .execute((room_id, data))?;
+        Ok(())
     }
 
     /// Remove the room info for the given room.
@@ -959,21 +989,94 @@ impl StateStore for SqliteStateStore {
                     txn.set_kv_blob(&key, &value)?;
                 }
 
-                for (room_id, room_info) in room_infos {
+                for (room_id, room_info) in &room_infos {
                     let stripped = room_info.state() == RoomState::Invited;
                     // Remove non-stripped data for stripped rooms and vice-versa.
-                    this.remove_maybe_stripped_room_data(txn, &room_id, !stripped)?;
+                    this.remove_maybe_stripped_room_data(txn, room_id, !stripped)?;
 
-                    let room_id = this.encode_key(keys::ROOM_INFO, room_id);
-                    let state = this
-                        .encode_key(keys::ROOM_INFO, serde_json::to_string(&room_info.state())?);
+                    // This will skip events so we can store the raw versions.
                     let data = this.serialize_json(&room_info)?;
-                    txn.set_room_info(&room_id, &state, &data)?;
+                    txn.set_room_info(
+                        &this.encode_key(keys::ROOM_INFO, room_id),
+                        &this.encode_key(
+                            keys::ROOM_INFO,
+                            serde_json::to_string(&room_info.state())?,
+                        ),
+                        &data,
+                    )?;
+
+                    // We manually save the raw events using a different struct.
+                    let mut raw_room_info = txn
+                        .get_raw_room_info(&this.encode_key(keys::RAW_ROOM_INFO, room_id))?
+                        .and_then(|v| this.deserialize_json::<RawRoomInfo>(&v).ok())
+                        .unwrap_or_default();
+                    let find_state = |event_type, state_key| {
+                        state
+                            .get(room_id)
+                            .and_then(|r| r.get(event_type))
+                            .and_then(|r| r.get(state_key))
+                    };
+
+                    if let Some(event) = find_state(&StateEventType::RoomAvatar, "") {
+                        raw_room_info.avatar = Some(event.clone());
+                    }
+                    if let Some(event) = find_state(&StateEventType::RoomCanonicalAlias, "") {
+                        raw_room_info.canonical_alias = Some(event.clone());
+                    }
+                    if let Some(event) = find_state(&StateEventType::RoomCreate, "") {
+                        raw_room_info.create = Some(event.clone());
+                    }
+                    if let Some(event) = find_state(&StateEventType::RoomEncryption, "") {
+                        raw_room_info.encryption = Some(event.clone());
+                    }
+                    if let Some(event) = find_state(&StateEventType::RoomGuestAccess, "") {
+                        raw_room_info.guest_access = Some(event.clone());
+                    }
+                    if let Some(event) = find_state(&StateEventType::RoomHistoryVisibility, "") {
+                        raw_room_info.history_visibility = Some(event.clone());
+                    }
+                    if let Some(event) = find_state(&StateEventType::RoomJoinRules, "") {
+                        raw_room_info.join_rules = Some(event.clone());
+                    }
+                    if let Some(event) = find_state(&StateEventType::RoomName, "") {
+                        raw_room_info.name = Some(event.clone());
+                    }
+                    if let Some(event) = find_state(&StateEventType::RoomTombstone, "") {
+                        raw_room_info.tombstone = Some(event.clone());
+                    }
+                    if let Some(event) = find_state(&StateEventType::RoomTopic, "") {
+                        raw_room_info.topic = Some(event.clone());
+                    }
+
+                    if let Some(rtc_changes) =
+                        state.get(room_id).and_then(|r| r.get(&StateEventType::CallMember))
+                    {
+                        raw_room_info.rtc_member.extend(
+                            rtc_changes
+                                .clone()
+                                .into_iter()
+                                .filter_map(|(u, r)| OwnedUserId::try_from(u).ok().map(|u| (u, r))),
+                        );
+                        // Remove all events that don't contain any memberships anymore.
+                        raw_room_info.rtc_member.retain(|_, ev| {
+                            ev.deserialize_as::<CallMemberEvent>().is_ok_and(|c| {
+                                c.as_original()
+                                    .is_some_and(|o| !o.content.active_memberships(None).is_empty())
+                            })
+                        });
+                    }
+
+                    if let Ok(serialized) = this.serialize_json(&raw_room_info) {
+                        txn.set_raw_room_info(
+                            &this.encode_key(keys::RAW_ROOM_INFO, room_id),
+                            &serialized,
+                        )?;
+                    }
                 }
 
-                for (room_id, state_event_types) in state {
-                    let profiles = profiles.get(&room_id);
-                    let encoded_room_id = this.encode_key(keys::STATE_EVENT, &room_id);
+                for (room_id, state_event_types) in &state {
+                    let profiles = profiles.get(room_id);
+                    let encoded_room_id = this.encode_key(keys::STATE_EVENT, room_id);
 
                     for (event_type, state_events) in state_event_types {
                         let encoded_event_type =
@@ -997,7 +1100,7 @@ impl StateStore for SqliteStateStore {
                                 &data,
                             )?;
 
-                            if event_type == StateEventType::RoomMember {
+                            if event_type == &StateEventType::RoomMember {
                                 let member_event = match raw_state_event
                                     .deserialize_as::<SyncRoomMemberEvent>()
                                 {
@@ -1008,8 +1111,8 @@ impl StateStore for SqliteStateStore {
                                     }
                                 };
 
-                                let encoded_room_id = this.encode_key(keys::MEMBER, &room_id);
-                                let user_id = this.encode_key(keys::MEMBER, &state_key);
+                                let encoded_room_id = this.encode_key(keys::MEMBER, room_id);
+                                let user_id = this.encode_key(keys::MEMBER, state_key);
                                 let membership = this
                                     .encode_key(keys::MEMBER, member_event.membership().as_str());
                                 let data = this.serialize_value(&state_key)?;
@@ -1025,8 +1128,8 @@ impl StateStore for SqliteStateStore {
                                 if let Some(profile) =
                                     profiles.and_then(|p| p.get(member_event.state_key()))
                                 {
-                                    let room_id = this.encode_key(keys::PROFILE, &room_id);
-                                    let user_id = this.encode_key(keys::PROFILE, &state_key);
+                                    let room_id = this.encode_key(keys::PROFILE, room_id);
+                                    let user_id = this.encode_key(keys::PROFILE, state_key);
                                     let data = this.serialize_json(&profile)?;
                                     txn.set_profile(&room_id, &user_id, &data)?;
                                 }
@@ -1116,9 +1219,11 @@ impl StateStore for SqliteStateStore {
                     }
                 }
 
-                for (room_id, redactions) in redactions {
+                for (room_id, redactions) in &redactions {
+                    let encoded_room_id = this.encode_key(keys::ROOM_INFO, room_id);
+                    let mut room_version = None;
                     let make_room_version = || {
-                        let encoded_room_id = this.encode_key(keys::ROOM_INFO, &room_id);
+                        let encoded_room_id = this.encode_key(keys::ROOM_INFO, room_id);
                         txn.get_room_info(&encoded_room_id)
                             .ok()
                             .flatten()
@@ -1133,8 +1238,74 @@ impl StateStore for SqliteStateStore {
                             })
                     };
 
-                    let encoded_room_id = this.encode_key(keys::STATE_EVENT, &room_id);
-                    let mut room_version = None;
+                    // Clean up raw events we saved for roominfo
+                    if room_infos.get(room_id).is_some() {
+                        // This roominfo has changed, so let's update the raw events
+
+                        let mut raw_room_info = txn
+                            .get_raw_room_info(&this.encode_key(keys::RAW_ROOM_INFO, room_id))?
+                            .and_then(|v| this.deserialize_json::<RawRoomInfo>(&v).ok())
+                            .unwrap_or_default();
+
+                        for (event_id, new_raw) in redactions {
+                            let mut redact = |field: &mut Option<Raw<AnySyncStateEvent>>| {
+                                if field
+                                    .as_ref()
+                                    .and_then(|a| a.deserialize().ok())
+                                    .is_some_and(|e| e.event_id() == event_id)
+                                {
+                                    if let Ok(mut object) = field.as_ref().unwrap().deserialize_as()
+                                    {
+                                        if redact_in_place(
+                                            &mut object,
+                                            room_version.get_or_insert_with(make_room_version),
+                                            None,
+                                        )
+                                        .is_ok()
+                                        {
+                                            *field = Some(Raw::new(&object).unwrap().cast());
+                                        }
+                                    }
+                                }
+                            };
+                            redact(&mut raw_room_info.avatar);
+                            redact(&mut raw_room_info.canonical_alias);
+                            redact(&mut raw_room_info.create);
+                            redact(&mut raw_room_info.encryption);
+                            redact(&mut raw_room_info.guest_access);
+                            redact(&mut raw_room_info.history_visibility);
+                            redact(&mut raw_room_info.join_rules);
+                            redact(&mut raw_room_info.name);
+                            redact(&mut raw_room_info.tombstone);
+                            redact(&mut raw_room_info.topic);
+                            for event in &mut raw_room_info.rtc_member.values_mut() {
+                                if event.deserialize().is_ok_and(|e| e.event_id() == event_id) {
+                                    if let Ok(mut object) = event.deserialize_as() {
+                                        if redact_in_place(
+                                            &mut object,
+                                            room_version.get_or_insert_with(make_room_version),
+                                            None,
+                                        )
+                                        .is_ok()
+                                        {
+                                            *event = Raw::new(&object).unwrap().cast();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if let Ok(serialized) = this.serialize_json(&raw_room_info) {
+                            txn.set_raw_room_info(
+                                &this.encode_key(keys::RAW_ROOM_INFO, room_id),
+                                &serialized,
+                            )?;
+                        }
+                    }
+
+                    // Cleanup events in room state.
+
+                    let encoded_room_id = this.encode_key(keys::STATE_EVENT, room_id);
 
                     for (event_id, redaction) in redactions {
                         let event_id = this.encode_key(keys::STATE_EVENT, event_id);
@@ -1363,13 +1534,32 @@ impl StateStore for SqliteStateStore {
     }
 
     async fn get_room_infos(&self) -> Result<Vec<RoomInfo>> {
-        self.acquire()
+        let mut room_infos = self
+            .acquire()
             .await?
             .get_room_infos(Vec::new())
             .await?
             .into_iter()
-            .map(|data| self.deserialize_json(&data))
-            .collect()
+            .map(|data| self.deserialize_json::<RoomInfo>(&data))
+            .collect::<Result<Vec<_>>>()?;
+
+        for room_info in &mut room_infos {
+            let this = self.clone();
+            let room_id = room_info.room_id().to_owned();
+            if let Some(Ok(raw_room_info)) = self
+                .acquire()
+                .await?
+                .with_transaction(move |txn| {
+                    txn.get_raw_room_info(&this.encode_key(keys::RAW_ROOM_INFO, room_id))
+                })
+                .await?
+                .map(|f| self.deserialize_json::<RawRoomInfo>(&f))
+            {
+                room_info.replace_by_raw(raw_room_info);
+            }
+        }
+
+        Ok(room_infos)
     }
 
     async fn get_stripped_room_infos(&self) -> Result<Vec<RoomInfo>> {

@@ -68,7 +68,7 @@ use crate::{
     read_receipts::RoomReadReceipts,
     store::{DynStateStore, Result as StoreResult, StateStoreExt},
     sync::UnreadNotificationsCount,
-    MinimalStateEvent, OriginalMinimalStateEvent, RoomMemberships,
+    MinimalStateEvent, OriginalMinimalStateEvent, RawRoomInfo, RoomMemberships,
 };
 
 /// A summary of changes to room information.
@@ -886,6 +886,44 @@ impl RoomInfo {
         }
     }
 
+    pub fn replace_by_raw(&mut self, raws: RawRoomInfo) {
+        if let Some(event) = raws.avatar.and_then(|e| e.deserialize_as().ok()) {
+            self.base_info.avatar = Some(event);
+        }
+        if let Some(event) = raws.canonical_alias.and_then(|e| e.deserialize_as().ok()) {
+            self.base_info.canonical_alias = Some(event);
+        }
+        if let Some(event) = raws.create.and_then(|e| e.deserialize_as().ok()) {
+            self.base_info.create = Some(event);
+        }
+        if let Some(event) = raws.encryption.and_then(|e| e.deserialize_as().ok()) {
+            self.base_info.encryption = Some(event);
+        }
+        if let Some(event) = raws.guest_access.and_then(|e| e.deserialize_as().ok()) {
+            self.base_info.guest_access = Some(event);
+        }
+        if let Some(event) = raws.history_visibility.and_then(|e| e.deserialize_as().ok()) {
+            self.base_info.history_visibility = Some(event);
+        }
+        if let Some(event) = raws.join_rules.and_then(|e| e.deserialize_as().ok()) {
+            self.base_info.join_rules = Some(event);
+        }
+        if let Some(event) = raws.name.and_then(|e| e.deserialize_as().ok()) {
+            self.base_info.name = Some(event);
+        }
+        if let Some(event) = raws.tombstone.and_then(|e| e.deserialize_as().ok()) {
+            self.base_info.tombstone = Some(event);
+        }
+        if let Some(event) = raws.topic.and_then(|e| e.deserialize_as().ok()) {
+            self.base_info.topic = Some(event);
+        }
+        for (user, event) in raws.rtc_member {
+            if let Ok(event) = event.deserialize_as() {
+                self.base_info.rtc_member.insert(user, event);
+            }
+        }
+    }
+
     /// Mark this Room as joined.
     pub fn mark_as_joined(&mut self) {
         self.room_state = RoomState::Joined;
@@ -1127,21 +1165,24 @@ impl RoomInfo {
     fn guest_access(&self) -> &GuestAccess {
         match &self.base_info.guest_access {
             Some(MinimalStateEvent::Original(ev)) => &ev.content.guest_access,
-            _ => &GuestAccess::Forbidden,
+            Some(MinimalStateEvent::Redacted(_)) => &GuestAccess::Forbidden, /* Redaction does not keep field */
+            None => &GuestAccess::Forbidden,
         }
     }
 
     fn history_visibility(&self) -> &HistoryVisibility {
         match &self.base_info.history_visibility {
             Some(MinimalStateEvent::Original(ev)) => &ev.content.history_visibility,
-            _ => &HistoryVisibility::WorldReadable,
+            Some(MinimalStateEvent::Redacted(ev)) => &ev.content.history_visibility,
+            None => &HistoryVisibility::WorldReadable,
         }
     }
 
     fn join_rule(&self) -> &JoinRule {
         match &self.base_info.join_rules {
             Some(MinimalStateEvent::Original(ev)) => &ev.content.join_rule,
-            _ => &JoinRule::Public,
+            Some(MinimalStateEvent::Redacted(ev)) => &ev.content.join_rule,
+            None => &JoinRule::Public,
         }
     }
 
@@ -1313,6 +1354,7 @@ mod tests {
     use matrix_sdk_test::{async_test, ALICE, BOB, CAROL};
     use ruma::{
         api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
+        event_id,
         events::{
             call::member::{
                 Application, CallApplicationContent, CallMemberEventContent, Focus, LivekitFocus,
@@ -1320,6 +1362,7 @@ mod tests {
             },
             room::{
                 canonical_alias::RoomCanonicalAliasEventContent,
+                join_rules::{RoomJoinRulesEvent, RoomJoinRulesEventContent},
                 member::{
                     MembershipState, RoomMemberEventContent, StrippedRoomMemberEvent,
                     SyncRoomMemberEvent,
@@ -1332,7 +1375,7 @@ mod tests {
         serde::Raw,
         user_id, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId, UserId,
     };
-    use serde_json::json;
+    use serde_json::{json, value::to_raw_value};
     use stream_assert::{assert_pending, assert_ready};
 
     #[cfg(feature = "experimental-sliding-sync")]
@@ -1342,6 +1385,7 @@ mod tests {
     use crate::latest_event::LatestEvent;
     use crate::{
         store::{MemoryStore, StateChanges, StateStore},
+        sync::UnreadNotificationsCount,
         BaseClient, DisplayName, MinimalStateEvent, OriginalMinimalStateEvent, SessionMeta,
     };
 
@@ -1775,6 +1819,65 @@ mod tests {
         assert_eq!(
             room.display_name().await.unwrap(),
             DisplayName::Calculated("Matthew".to_owned())
+        );
+    }
+
+    #[async_test]
+    async fn test_save_bad_joinrules() {
+        let (store, room) = make_room(RoomState::Invited);
+        let room_id = room_id!("!test:localhost");
+        let matthew = user_id!("@matthew:example.org");
+        let me = user_id!("@me:example.org");
+        let mut changes = StateChanges::new("".to_owned());
+        let summary = assign!(RumaSummary::new(), {
+            heroes: vec![me.to_string(), matthew.to_string()],
+        });
+
+        let raw_join_rules_content = Raw::<MinimalStateEvent<RoomJoinRulesEventContent>>::from_json(
+            to_raw_value(&json!({ "join_rule": "test!" })).unwrap(),
+        );
+        let raw_join_rules = Raw::from_json(
+            to_raw_value(&json!({
+                "event_id": "$test",
+                "type": "m.room.join_rules",
+                "content": raw_join_rules_content,
+                "origin_server_ts": 0,
+                "sender": matthew,
+                "state_key": "",
+            }))
+            .unwrap(),
+        );
+        let join_rules_content =
+            raw_join_rules_content.deserialize_as::<RoomJoinRulesEventContent>().unwrap();
+        assert_eq!(
+            to_raw_value(&join_rules_content).unwrap_err().to_string(),
+            "the enum variant JoinRule::_Custom cannot be serialized"
+        );
+
+        let mut room_info = RoomInfo::new(room_id, RoomState::Joined);
+        room_info.base_info.join_rules =
+            Some(MinimalStateEvent::Original(raw_join_rules.deserialize().unwrap()));
+        changes.add_room(room_info);
+
+        changes.add_state_event(
+            room_id,
+            raw_join_rules.deserialize_as().unwrap(),
+            raw_join_rules.clone().cast(),
+        );
+        store.save_changes(&changes).await.unwrap();
+
+        let read_room_info = &store.get_room_infos().await.unwrap()[0];
+        assert_eq!(
+            read_room_info
+                .base_info
+                .join_rules
+                .as_ref()
+                .unwrap()
+                .as_original()
+                .unwrap()
+                .content
+                .join_rule,
+            raw_join_rules.deserialize().unwrap().content.join_rule
         );
     }
 

@@ -22,9 +22,9 @@ use ruma::{
             canonical_alias::RoomCanonicalAliasEventContent,
             create::{PreviousRoom, RoomCreateEventContent},
             encryption::RoomEncryptionEventContent,
-            guest_access::RoomGuestAccessEventContent,
-            history_visibility::RoomHistoryVisibilityEventContent,
-            join_rules::RoomJoinRulesEventContent,
+            guest_access::{GuestAccess, RoomGuestAccessEventContent},
+            history_visibility::{HistoryVisibility, RoomHistoryVisibilityEventContent},
+            join_rules::{JoinRule, RoomJoinRulesEventContent},
             member::MembershipState,
             name::RoomNameEventContent,
             tombstone::RoomTombstoneEventContent,
@@ -35,6 +35,7 @@ use ruma::{
         RedactedStateEventContent, StaticStateEventContent, SyncStateEvent,
     },
     room::RoomType,
+    serde::Raw,
     EventId, OwnedUserId, RoomVersionId,
 };
 use serde::{Deserialize, Serialize};
@@ -77,33 +78,44 @@ impl fmt::Display for DisplayName {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BaseRoomInfo {
     /// The avatar URL of this room.
+    #[serde(skip_serializing)]
     pub(crate) avatar: Option<MinimalStateEvent<RoomAvatarEventContent>>,
     /// The canonical alias of this room.
+    #[serde(skip_serializing)]
     pub(crate) canonical_alias: Option<MinimalStateEvent<RoomCanonicalAliasEventContent>>,
     /// The `m.room.create` event content of this room.
+    #[serde(skip_serializing)]
     pub(crate) create: Option<MinimalStateEvent<RoomCreateWithCreatorEventContent>>,
     /// A list of user ids this room is considered as direct message, if this
     /// room is a DM.
     pub(crate) dm_targets: HashSet<OwnedUserId>,
     /// The `m.room.encryption` event content that enabled E2EE in this room.
+    #[serde(skip_serializing)]
     pub(crate) encryption: Option<RoomEncryptionEventContent>,
     /// The guest access policy of this room.
+    #[serde(skip_serializing)]
     pub(crate) guest_access: Option<MinimalStateEvent<RoomGuestAccessEventContent>>,
     /// The history visibility policy of this room.
+    #[serde(skip_serializing)]
     pub(crate) history_visibility: Option<MinimalStateEvent<RoomHistoryVisibilityEventContent>>,
     /// The join rule policy of this room.
+    #[serde(skip_serializing)]
     pub(crate) join_rules: Option<MinimalStateEvent<RoomJoinRulesEventContent>>,
     /// The maximal power level that can be found in this room.
     pub(crate) max_power_level: i64,
     /// The `m.room.name` of this room.
+    #[serde(skip_serializing)]
     pub(crate) name: Option<MinimalStateEvent<RoomNameEventContent>>,
     /// The `m.room.tombstone` event content of this room.
+    #[serde(skip_serializing)]
     pub(crate) tombstone: Option<MinimalStateEvent<RoomTombstoneEventContent>>,
     /// The topic of this room.
+    #[serde(skip_serializing)]
     pub(crate) topic: Option<MinimalStateEvent<RoomTopicEventContent>>,
     /// All minimal state events that containing one or more running matrixRTC
     /// memberships.
-    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    // #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    #[serde(skip_serializing, default)]
     pub(crate) rtc_member: BTreeMap<OwnedUserId, MinimalStateEvent<CallMemberEventContent>>,
     /// Whether this room has been manually marked as unread.
     #[serde(default)]
@@ -114,6 +126,34 @@ pub struct BaseRoomInfo {
     /// others, and this field collects them.
     #[serde(skip_serializing_if = "RoomNotableTags::is_empty", default)]
     pub(crate) notable_tags: RoomNotableTags,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct RawRoomInfo {
+    /// The avatar URL of this room.
+    pub avatar: Option<Raw<AnySyncStateEvent>>,
+    /// The canonical alias of this room.
+    pub canonical_alias: Option<Raw<AnySyncStateEvent>>,
+    /// The `m.room.create` event content of this room.
+    pub create: Option<Raw<AnySyncStateEvent>>,
+    /// The `m.room.encryption` event content that enabled E2EE in this room.
+    pub encryption: Option<Raw<AnySyncStateEvent>>,
+    /// The guest access policy of this room.
+    pub guest_access: Option<Raw<AnySyncStateEvent>>,
+    /// The history visibility policy of this room.
+    pub history_visibility: Option<Raw<AnySyncStateEvent>>,
+    /// The join rule policy of this room.
+    pub join_rules: Option<Raw<AnySyncStateEvent>>,
+    /// The `m.room.name` of this room.
+    pub name: Option<Raw<AnySyncStateEvent>>,
+    /// The `m.room.tombstone` event content of this room.
+    pub tombstone: Option<Raw<AnySyncStateEvent>>,
+    /// The topic of this room.
+    pub topic: Option<Raw<AnySyncStateEvent>>,
+    /// All minimal state events that containing one or more running matrixRTC
+    /// memberships.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub rtc_member: BTreeMap<OwnedUserId, Raw<AnySyncStateEvent>>,
 }
 
 impl BaseRoomInfo {
@@ -190,7 +230,7 @@ impl BaseRoomInfo {
                     return false;
                 };
 
-                // we modify the event so that `origin_sever_ts` gets copied into
+                // we modify the event so that `origin_server_ts` gets copied into
                 // `content.created_ts`
                 let mut o_ev = o_ev.clone();
                 o_ev.content.set_created_ts_if_none(o_ev.origin_server_ts);
