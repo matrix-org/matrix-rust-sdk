@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::time::Instant;
+use crate::instant::Instant;
 
 use tracing::{callsite::DefaultCallsite, Callsite as _};
 
