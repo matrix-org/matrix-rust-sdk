@@ -196,10 +196,14 @@ impl Timeline {
         })
     }
 
-    /// Mark the room as read by trying to add a read receipt to the latest
-    /// event.
+    /// Mark the room as read by trying to attach an *unthreaded* read receipt
+    /// to the latest room event.
+    ///
+    /// This works even if the latest event belongs to a thread, as a threaded
+    /// reply also belongs to the unthreaded timeline. No threaded receipt
+    /// will be sent here (see also #3123).
     pub async fn mark_as_read(&self, receipt_type: ReceiptType) -> Result<(), ClientError> {
-        self.inner.mark_as_read(receipt_type.into(), ReceiptThread::Unthreaded).await?;
+        self.inner.mark_as_read(receipt_type.into()).await?;
         Ok(())
     }
 

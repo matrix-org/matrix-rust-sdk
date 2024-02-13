@@ -934,8 +934,7 @@ async fn test_mark_as_read() {
 
     // But when I mark the room as read by sending a read receipt to the latest
     // event,
-    let has_sent =
-        timeline.mark_as_read(ReceiptType::Read, ReceiptThread::Unthreaded).await.unwrap();
+    let has_sent = timeline.mark_as_read(ReceiptType::Read).await.unwrap();
 
     // It works.
     assert!(has_sent);
