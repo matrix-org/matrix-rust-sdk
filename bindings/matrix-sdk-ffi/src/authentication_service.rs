@@ -26,7 +26,11 @@ use url::Url;
 use zeroize::Zeroize;
 
 use super::{client::Client, client_builder::ClientBuilder, RUNTIME};
-use crate::{client::ClientSessionDelegate, client_builder::UrlScheme, error::ClientError};
+use crate::{
+    client::ClientSessionDelegate,
+    client_builder::{CertificateBytes, UrlScheme},
+    error::ClientError,
+};
 
 #[derive(uniffi::Object)]
 pub struct AuthenticationService {
@@ -39,6 +43,7 @@ pub struct AuthenticationService {
     custom_sliding_sync_proxy: RwLock<Option<String>>,
     cross_process_refresh_lock_id: Option<String>,
     session_delegate: Option<Arc<dyn ClientSessionDelegate>>,
+    additional_root_certificates: Vec<CertificateBytes>,
 }
 
 impl Drop for AuthenticationService {
@@ -176,10 +181,15 @@ impl HomeserverLoginDetails {
 impl AuthenticationService {
     /// Creates a new service to authenticate a user with.
     #[uniffi::constructor]
+    // TODO: This has too many arguments, even clippy agrees. Many of these methods are the same as
+    // for the `ClientBuilder`. We should let people pass in a `ClientBuilder` and possibly convert
+    // this to a builder pattern as well.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         base_path: String,
         passphrase: Option<String>,
         user_agent: Option<String>,
+        additional_root_certificates: Vec<Vec<u8>>,
         oidc_configuration: Option<OidcConfiguration>,
         custom_sliding_sync_proxy: Option<String>,
         session_delegate: Option<Box<dyn ClientSessionDelegate>>,
@@ -195,6 +205,7 @@ impl AuthenticationService {
             custom_sliding_sync_proxy: RwLock::new(custom_sliding_sync_proxy),
             session_delegate: session_delegate.map(Into::into),
             cross_process_refresh_lock_id,
+            additional_root_certificates,
         })
     }
 
@@ -384,6 +395,8 @@ impl AuthenticationService {
         if let Some(user_agent) = self.user_agent.clone() {
             builder = builder.user_agent(user_agent);
         }
+
+        builder = builder.add_root_certificates(self.additional_root_certificates.clone());
 
         builder
     }
