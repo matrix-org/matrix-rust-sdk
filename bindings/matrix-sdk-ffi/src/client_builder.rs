@@ -2,6 +2,7 @@ use std::{fs, path::PathBuf, sync::Arc};
 
 use matrix_sdk::{
     encryption::{BackupDownloadStrategy, EncryptionSettings},
+    reqwest::Certificate,
     ruma::{
         api::{error::UnknownVersionError, MatrixVersion},
         ServerName, UserId,
@@ -14,6 +15,9 @@ use zeroize::Zeroizing;
 
 use super::{client::Client, RUNTIME};
 use crate::{client::ClientSessionDelegate, error::ClientError, helpers::unwrap_or_clone_arc};
+
+/// A list of bytes containing a certificate in DER or PEM form.
+pub type CertificateBytes = Vec<u8>;
 
 #[derive(Clone)]
 pub(crate) enum UrlScheme {
@@ -37,6 +41,7 @@ pub struct ClientBuilder {
     inner: MatrixClientBuilder,
     cross_process_refresh_lock_id: Option<String>,
     session_delegate: Option<Arc<dyn ClientSessionDelegate>>,
+    additional_root_certificates: Vec<Vec<u8>>,
 }
 
 #[uniffi::export]
@@ -62,6 +67,7 @@ impl ClientBuilder {
             }),
             cross_process_refresh_lock_id: None,
             session_delegate: None,
+            additional_root_certificates: Default::default(),
         })
     }
 
@@ -149,6 +155,16 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
+    pub fn add_root_certificates(
+        self: Arc<Self>,
+        certificates: Vec<CertificateBytes>,
+    ) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.additional_root_certificates = certificates;
+
+        Arc::new(builder)
+    }
+
     pub fn build(self: Arc<Self>) -> Result<Arc<Client>, ClientError> {
         Ok(Arc::new(self.build_inner()?))
     }
@@ -223,6 +239,22 @@ impl ClientBuilder {
                 "Failed to build: One of homeserver_url, server_name or username must be called."
             );
         }
+
+        let mut certificates = Vec::new();
+
+        for certificate in builder.additional_root_certificates {
+            // We don't really know what type of certificate we may get here, so let's try
+            // first one type, then the other.
+            if let Ok(cert) = Certificate::from_der(&certificate) {
+                certificates.push(cert);
+            } else {
+                let cert = Certificate::from_pem(&certificate)
+                    .map_err(|e| anyhow::anyhow!("Failed to add a root certificate {e:?}"))?;
+                certificates.push(cert);
+            }
+        }
+
+        inner_builder = inner_builder.add_root_certificates(certificates);
 
         if let Some(proxy) = builder.proxy {
             inner_builder = inner_builder.proxy(proxy);
