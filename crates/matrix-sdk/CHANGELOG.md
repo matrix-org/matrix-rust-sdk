@@ -10,6 +10,11 @@ Breaking changes:
 - Replace `impl MediaEventContent` with `&impl MediaEventContent` in
   `Media::get_file`/`Media::remove_file`/`Media::get_thumbnail`/`Media::remove_thumbnail`
 
+Additions:
+
+- Add the `ClientBuilder::add_root_certificates()` method which re-exposes the
+  `reqwest::ClientBuilder::add_root_certificate()` functionality.
+
 # 0.7.0
 
 Breaking changes:

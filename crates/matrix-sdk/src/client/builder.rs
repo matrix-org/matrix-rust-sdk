@@ -260,6 +260,20 @@ impl ClientBuilder {
         self
     }
 
+    /// Add the given list of certificates to the certificate store of the HTTP
+    /// client.
+    ///
+    /// These additional certificates will be trusted and considered when
+    /// establishing a HTTP request.
+    ///
+    /// Internally this will call the
+    /// [`reqwest::ClientBuilder::add_root_certificate()`] method.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn add_root_certificates(mut self, certificates: Vec<reqwest::Certificate>) -> Self {
+        self.http_settings().additional_root_certificates = certificates;
+        self
+    }
+
     /// Specify a [`reqwest::Client`] instance to handle sending requests and
     /// receiving responses.
     ///
