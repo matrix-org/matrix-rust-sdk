@@ -1,7 +1,7 @@
 use std::{fs, path::PathBuf, sync::Arc};
 
 use matrix_sdk::{
-    encryption::EncryptionSettings,
+    encryption::{BackupDownloadStrategy, EncryptionSettings},
     ruma::{
         api::{error::UnknownVersionError, MatrixVersion},
         ServerName, UserId,
@@ -55,7 +55,11 @@ impl ClientBuilder {
             proxy: None,
             disable_ssl_verification: false,
             disable_automatic_token_refresh: false,
-            inner: MatrixClient::builder(),
+            inner: MatrixClient::builder().with_encryption_settings(EncryptionSettings {
+                auto_enable_cross_signing: false,
+                backup_download_strategy: BackupDownloadStrategy::AfterDecryptionFailure,
+                auto_enable_backups: false,
+            }),
             cross_process_refresh_lock_id: None,
             session_delegate: None,
         })
