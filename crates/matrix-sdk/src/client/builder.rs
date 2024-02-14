@@ -17,7 +17,11 @@ use std::{fmt, sync::Arc};
 
 use matrix_sdk_base::{store::StoreConfig, BaseClient};
 use ruma::{
-    api::{client::discovery::discover_homeserver, error::FromHttpResponseError, MatrixVersion},
+    api::{
+        client::discovery::{discover_homeserver, get_supported_versions},
+        error::FromHttpResponseError,
+        MatrixVersion,
+    },
     OwnedServerName, ServerName,
 };
 use thiserror::Error;
@@ -34,7 +38,7 @@ use crate::http_client::HttpSettings;
 use crate::oidc::OidcCtx;
 use crate::{
     authentication::AuthCtx, config::RequestConfig, error::RumaApiError, http_client::HttpClient,
-    HttpError,
+    sanitize_server_name, HttpError,
 };
 
 /// Builder that allows creating and configuring various parts of a [`Client`].
@@ -112,9 +116,12 @@ impl ClientBuilder {
 
     /// Set the homeserver URL to use.
     ///
-    /// This method is mutually exclusive with
-    /// [`server_name()`][Self::server_name], if you set both whatever was set
-    /// last will be used.
+    /// The following methods are mutually exclusive:
+    /// [`homeserver_url()`][Self::homeserver_url]
+    /// [`server_name()`][Self::server_name]
+    /// [`insecure_server_name_no_tls()`][Self::insecure_server_name_no_tls]
+    /// [`server_name_or_homeserver_url()`][Self::server_name_or_homeserver_url],
+    /// If you set more than 1 then whatever was set last will be used.
     pub fn homeserver_url(mut self, url: impl AsRef<str>) -> Self {
         self.homeserver_cfg = Some(HomeserverConfig::Url(url.as_ref().to_owned()));
         self
@@ -137,9 +144,12 @@ impl ClientBuilder {
     /// We assume we can connect in HTTPS to that server. If that's not the
     /// case, prefer using [`Self::insecure_server_name_no_tls`].
     ///
-    /// This method is mutually exclusive with
-    /// [`homeserver_url()`][Self::homeserver_url], if you set both whatever was
-    /// set last will be used.
+    /// The following methods are mutually exclusive:
+    /// [`homeserver_url()`][Self::homeserver_url]
+    /// [`server_name()`][Self::server_name]
+    /// [`insecure_server_name_no_tls()`][Self::insecure_server_name_no_tls]
+    /// [`server_name_or_homeserver_url()`][Self::server_name_or_homeserver_url],
+    /// If you set more than 1 then whatever was set last will be used.
     pub fn server_name(mut self, server_name: &ServerName) -> Self {
         self.homeserver_cfg = Some(HomeserverConfig::ServerName {
             server: server_name.to_owned(),
@@ -153,14 +163,35 @@ impl ClientBuilder {
     /// (not secured) scheme. This also relaxes OIDC discovery checks to allow
     /// HTTP schemes.
     ///
-    /// This method is mutually exclusive with
-    /// [`homeserver_url()`][Self::homeserver_url], if you set both whatever was
-    /// set last will be used.
+    /// The following methods are mutually exclusive:
+    /// [`homeserver_url()`][Self::homeserver_url]
+    /// [`server_name()`][Self::server_name]
+    /// [`insecure_server_name_no_tls()`][Self::insecure_server_name_no_tls]
+    /// [`server_name_or_homeserver_url()`][Self::server_name_or_homeserver_url],
+    /// If you set more than 1 then whatever was set last will be used.
     pub fn insecure_server_name_no_tls(mut self, server_name: &ServerName) -> Self {
         self.homeserver_cfg = Some(HomeserverConfig::ServerName {
             server: server_name.to_owned(),
             protocol: UrlScheme::Http,
         });
+        self
+    }
+
+    /// Set the server name to discover the homeserver from, falling back to
+    /// using it as a homeserver URL if discovery fails. When falling back to a
+    /// homeserver URL, a check is made to ensure that the server exists (unlike
+    /// [`homeserver_url()`][Self::homeserver_url]), so you can guarantee that
+    /// the client is ready to use.
+    ///
+    /// The following methods are mutually exclusive:
+    /// [`homeserver_url()`][Self::homeserver_url]
+    /// [`server_name()`][Self::server_name]
+    /// [`insecure_server_name_no_tls()`][Self::insecure_server_name_no_tls]
+    /// [`server_name_or_homeserver_url()`][Self::server_name_or_homeserver_url],
+    /// If you set more than 1 then whatever was set last will be used.
+    pub fn server_name_or_homeserver_url(mut self, server_name_or_url: impl AsRef<str>) -> Self {
+        self.homeserver_cfg =
+            Some(HomeserverConfig::ServerNameOrUrl(server_name_or_url.as_ref().to_owned()));
         self
     }
 
@@ -385,63 +416,88 @@ impl ClientBuilder {
         #[cfg(feature = "experimental-sliding-sync")]
         let mut sliding_sync_proxy: Option<Url> = None;
 
-        let homeserver = match homeserver_cfg {
-            HomeserverConfig::Url(url) => {
-                #[cfg(feature = "experimental-sliding-sync")]
-                {
-                    sliding_sync_proxy =
-                        self.sliding_sync_proxy.as_ref().map(|url| Url::parse(url)).transpose()?;
-                }
-
-                #[cfg(feature = "experimental-oidc")]
-                {
-                    allow_insecure_oidc = url.starts_with("http://");
-                }
-
-                url
-            }
+        let (homeserver, well_known) = match homeserver_cfg {
+            HomeserverConfig::Url(url) => (url, None),
             HomeserverConfig::ServerName { server: server_name, protocol } => {
-                debug!("Trying to discover the homeserver");
+                let well_known = discover_homeserver(server_name, protocol, &http_client).await?;
+                (well_known.homeserver.base_url.clone(), Some(well_known))
+            }
+            HomeserverConfig::ServerNameOrUrl(server_name_or_url) => {
+                // Store the result to return at the end. If this doesn't get modified, then the
+                // supplied name is neither a server name, nor a valid URL.
+                let mut result: Result<
+                    (String, Option<discover_homeserver::Response>),
+                    ClientBuildError,
+                > = Err(ClientBuildError::InvalidServerName);
 
-                let homeserver = match protocol {
-                    UrlScheme::Http => format!("http://{server_name}"),
-                    UrlScheme::Https => format!("https://{server_name}"),
-                };
+                // Attempt discovery as a server name first.
+                let sanitize_result = sanitize_server_name(&server_name_or_url);
+                if let Ok(server_name) = sanitize_result.as_ref() {
+                    let protocol = if server_name_or_url.starts_with("http://") {
+                        UrlScheme::Http
+                    } else {
+                        UrlScheme::Https
+                    };
 
-                let well_known = http_client
-                    .send(
-                        discover_homeserver::Request::new(),
-                        Some(RequestConfig::short_retry()),
-                        homeserver,
-                        None,
-                        &[MatrixVersion::V1_0],
-                        Default::default(),
-                    )
-                    .await
-                    .map_err(|e| match e {
-                        HttpError::Api(err) => ClientBuildError::AutoDiscovery(err),
-                        err => ClientBuildError::Http(err),
-                    })?;
-
-                #[cfg(feature = "experimental-oidc")]
-                {
-                    authentication_server_info = well_known.authentication;
-                    allow_insecure_oidc = matches!(protocol, UrlScheme::Http);
+                    result = match discover_homeserver(server_name.clone(), protocol, &http_client)
+                        .await
+                    {
+                        Ok(well_known) => {
+                            Ok((well_known.homeserver.base_url.clone(), Some(well_known)))
+                        }
+                        Err(e) => Err(e),
+                    }
                 }
 
-                #[cfg(feature = "experimental-sliding-sync")]
-                if let Some(proxy) = well_known.sliding_sync_proxy.map(|p| p.url) {
-                    sliding_sync_proxy = Url::parse(&proxy).ok();
+                // When discovery fails, or the input isn't a valid server name, fallback to
+                // trying a homeserver URL if supplied.
+                if let Ok(homeserver_url) = Url::parse(&server_name_or_url) {
+                    // Make sure the URL is definitely for a homeserver.
+                    if http_client
+                        .send(
+                            get_supported_versions::Request::new(),
+                            Some(RequestConfig::short_retry()),
+                            homeserver_url.to_string(),
+                            None,
+                            &[MatrixVersion::V1_0],
+                            Default::default(),
+                        )
+                        .await
+                        .is_ok()
+                    {
+                        result = Ok((homeserver_url.to_string(), None));
+                    } else {
+                        // If it isn't, we'll throw the discovery error instead.
+                    }
                 }
 
-                debug!(
-                    homeserver_url = well_known.homeserver.base_url,
-                    "Discovered the homeserver"
-                );
-
-                well_known.homeserver.base_url
+                result?
             }
         };
+
+        #[allow(unused_variables)]
+        if let Some(well_known) = well_known {
+            #[cfg(feature = "experimental-oidc")]
+            {
+                authentication_server_info = well_known.authentication;
+            }
+
+            #[cfg(feature = "experimental-sliding-sync")]
+            if let Some(proxy) = well_known.sliding_sync_proxy.map(|p| p.url) {
+                sliding_sync_proxy = Url::parse(&proxy).ok();
+            }
+        } else {
+            #[cfg(feature = "experimental-sliding-sync")]
+            {
+                sliding_sync_proxy =
+                    self.sliding_sync_proxy.as_ref().map(|url| Url::parse(url)).transpose()?;
+            }
+        }
+
+        #[cfg(feature = "experimental-oidc")]
+        {
+            allow_insecure_oidc = homeserver.starts_with("http://");
+        }
 
         let homeserver = Url::parse(&homeserver)?;
 
@@ -473,6 +529,40 @@ impl ClientBuilder {
 
         Ok(Client { inner })
     }
+}
+
+/// Discovers a homeserver by looking up the well-known at the supplied server
+/// name
+async fn discover_homeserver(
+    server_name: OwnedServerName,
+    protocol: UrlScheme,
+    http_client: &HttpClient,
+) -> Result<discover_homeserver::Response, ClientBuildError> {
+    debug!("Trying to discover the homeserver");
+
+    let homeserver = match protocol {
+        UrlScheme::Http => format!("http://{server_name}"),
+        UrlScheme::Https => format!("https://{server_name}"),
+    };
+
+    let well_known = http_client
+        .send(
+            discover_homeserver::Request::new(),
+            Some(RequestConfig::short_retry()),
+            homeserver,
+            None,
+            &[MatrixVersion::V1_0],
+            Default::default(),
+        )
+        .await
+        .map_err(|e| match e {
+            HttpError::Api(err) => ClientBuildError::AutoDiscovery(err),
+            err => ClientBuildError::Http(err),
+        })?;
+
+    debug!(homeserver_url = well_known.homeserver.base_url, "Discovered the homeserver");
+
+    Ok(well_known)
 }
 
 async fn build_store_config(
@@ -545,6 +635,9 @@ enum HomeserverConfig {
     Url(String),
     /// A host/port pair representing a server URL.
     ServerName { server: OwnedServerName, protocol: UrlScheme },
+    /// First attempts to build as a server name, then falls back to a URL,
+    /// failing if no valid homeserver is found.
+    ServerNameOrUrl(String),
 }
 
 #[derive(Clone, Debug)]
@@ -619,6 +712,10 @@ pub enum ClientBuildError {
     /// No homeserver or user ID was configured
     #[error("no homeserver or user ID was configured")]
     MissingHomeserver,
+
+    /// The supplied server name was invalid.
+    #[error("The supplied server name is invalid")]
+    InvalidServerName,
 
     /// Error looking up the .well-known endpoint on auto-discovery
     #[error("Error looking up the .well-known endpoint on auto-discovery")]
