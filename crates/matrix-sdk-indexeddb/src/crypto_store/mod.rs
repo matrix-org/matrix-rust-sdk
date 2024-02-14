@@ -82,7 +82,7 @@ mod keys {
     // keys
     pub const STORE_CIPHER: &str = "store_cipher";
     pub const ACCOUNT: &str = "account";
-    pub const NEXT_BATCH_TOKEN: &str = "account";
+    pub const NEXT_BATCH_TOKEN: &str = "next_batch_token";
     pub const PRIVATE_IDENTITY: &str = "private_identity";
 
     // backup v1
