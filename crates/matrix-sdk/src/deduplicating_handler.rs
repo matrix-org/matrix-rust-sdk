@@ -12,6 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! Facilities to deduplicate similar queries running at the same time.
+//!
+//! See [`DeduplicatingHandler`].
+
 use std::{collections::BTreeMap, sync::Arc};
 
 use futures_core::Future;
@@ -29,6 +33,7 @@ type DeduplicatedRequestMap<Key> = Mutex<BTreeMap<Key, Arc<Mutex<Result<(), ()>>
 /// This is handy for deduplicating per-room requests, but can also be used in
 /// other contexts.
 pub(crate) struct DeduplicatingHandler<Key> {
+    /// Map of outstanding function calls, grouped by key.
     inflight: DeduplicatedRequestMap<Key>,
 }
 
@@ -39,6 +44,10 @@ impl<Key> Default for DeduplicatingHandler<Key> {
 }
 
 impl<Key: Clone + Ord + std::hash::Hash> DeduplicatingHandler<Key> {
+    /// Runs the given code if and only if there wasn't a similar query running
+    /// for the same key.
+    ///
+    /// See also [`DeduplicatingHandler`] for more details.
     pub async fn run<'a, F: Future<Output = Result<()>> + SendOutsideWasm + 'a>(
         &self,
         key: Key,
