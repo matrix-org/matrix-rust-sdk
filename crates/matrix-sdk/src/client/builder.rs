@@ -458,11 +458,8 @@ impl ClientBuilder {
                     }
                 }
 
-                if let Some(homeserver_details) = homeserver_details {
-                    homeserver_details
-                } else {
-                    Err(discovery_error.unwrap_or(ClientBuildError::InvalidServerName))?
-                }
+                homeserver_details
+                    .ok_or(discovery_error.unwrap_or(ClientBuildError::InvalidServerName))?
             }
         };
 
