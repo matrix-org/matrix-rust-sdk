@@ -59,8 +59,8 @@ use ruma::{
     },
     assign,
     push::Ruleset,
-    DeviceId, OwnedDeviceId, OwnedRoomId, OwnedServerName, RoomAliasId, RoomId, RoomOrAliasId,
-    ServerName, UInt, UserId,
+    DeviceId, OwnedDeviceId, OwnedEventId, OwnedRoomId, OwnedServerName, RoomAliasId, RoomId,
+    RoomOrAliasId, ServerName, UInt, UserId,
 };
 use serde::de::DeserializeOwned;
 use tokio::sync::{broadcast, Mutex, OnceCell, RwLock, RwLockReadGuard};
@@ -182,6 +182,11 @@ pub(crate) struct ClientLocks {
     /// Handler to ensure that only one encryption state request is running at a
     /// time, given a room.
     pub(crate) encryption_state_deduplicated_handler: DeduplicatingHandler<OwnedRoomId>,
+
+    /// Deduplicating handler for sending read receipts. The string is an
+    /// internal implementation detail, see [`Self::send_single_receipt`].
+    pub(crate) read_receipt_deduplicated_handler: DeduplicatingHandler<(String, OwnedEventId)>,
+
     #[cfg(feature = "e2e-encryption")]
     pub(crate) cross_process_crypto_store_lock:
         OnceCell<CrossProcessStoreLock<LockableCryptoStore>>,
@@ -230,7 +235,7 @@ pub(crate) struct ClientInner {
     /// Collection of locks individual client methods might want to use, either
     /// to ensure that only a single call to a method happens at once or to
     /// deduplicate multiple calls to a method.
-    locks: ClientLocks,
+    pub(crate) locks: ClientLocks,
 
     /// A mapping of the times at which the current user sent typing notices,
     /// keyed by room.
