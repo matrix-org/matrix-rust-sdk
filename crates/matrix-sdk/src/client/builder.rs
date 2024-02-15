@@ -948,6 +948,7 @@ pub(crate) mod tests {
     }
 
     #[async_test]
+    #[cfg(feature = "experimental-sliding-sync")]
     async fn test_discovery_well_known_with_sliding_sync_override() {
         // Given a base server with a well-known file that points to a homeserver with a
         // sliding sync proxy.
