@@ -420,10 +420,11 @@ impl ClientBuilder {
             HomeserverConfig::ServerNameOrUrl(server_name_or_url) => {
                 // Store the result to return at the end. If this doesn't get modified, then the
                 // supplied name is neither a server name, nor a valid URL.
-                let mut result: Result<
-                    (String, Option<discover_homeserver::Response>),
-                    ClientBuildError,
-                > = Err(ClientBuildError::InvalidServerName);
+                let mut homeserver_details: Option<(
+                    String,
+                    Option<discover_homeserver::Response>,
+                )> = None;
+                let mut discovery_error: Option<ClientBuildError> = None;
 
                 // Attempt discovery as a server name first.
                 let sanitize_result = sanitize_server_name(&server_name_or_url);
@@ -434,31 +435,34 @@ impl ClientBuilder {
                         UrlScheme::Https
                     };
 
-                    result = match discover_homeserver(server_name.clone(), protocol, &http_client)
-                        .await
-                    {
+                    match discover_homeserver(server_name.clone(), protocol, &http_client).await {
                         Ok(well_known) => {
-                            Ok((well_known.homeserver.base_url.clone(), Some(well_known)))
+                            homeserver_details =
+                                Some((well_known.homeserver.base_url.clone(), Some(well_known)));
                         }
                         Err(e) => {
                             debug!(error = ?e, "Well-known discovery failed.");
-                            Err(e)
+                            discovery_error = Some(e);
                         }
                     }
                 }
 
                 // When discovery fails, or the input isn't a valid server name, fallback to
                 // trying a homeserver URL if supplied.
-                if result.is_err() {
+                if homeserver_details.is_none() {
                     if let Ok(homeserver_url) = Url::parse(&server_name_or_url) {
                         // Make sure the URL is definitely for a homeserver.
                         if check_is_homeserver(&homeserver_url, &http_client).await {
-                            result = Ok((homeserver_url.to_string(), None));
+                            homeserver_details = Some((homeserver_url.to_string(), None));
                         }
                     }
                 }
 
-                result?
+                if let Some(homeserver_details) = homeserver_details {
+                    homeserver_details
+                } else {
+                    Err(discovery_error.unwrap_or(ClientBuildError::InvalidServerName))?
+                }
             }
         };
 
