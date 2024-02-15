@@ -7,10 +7,9 @@ use std::{
 
 use futures_util::{pin_mut, StreamExt as _};
 use matrix_sdk::{
-    config::StoreConfig,
-    matrix_auth::MatrixSession,
-    ruma::{api::client::receipt::create_receipt::v3::ReceiptType, events::receipt::ReceiptThread},
-    AuthSession, Client, ServerName, SqliteCryptoStore, SqliteStateStore,
+    config::StoreConfig, matrix_auth::MatrixSession,
+    ruma::api::client::receipt::create_receipt::v3::ReceiptType, AuthSession, Client, ServerName,
+    SqliteCryptoStore, SqliteStateStore,
 };
 use matrix_sdk_ui::sync_service::{self, SyncService};
 use tokio::spawn;
@@ -134,24 +133,17 @@ async fn login_and_sync(server_name: String) -> anyhow::Result<()> {
                     let room_id = { rooms.lock().unwrap()[id].as_room_id().map(ToOwned::to_owned) };
                     if let Some(room_id) = &room_id {
                         let room = room_list_service.room(room_id).await?;
-                        room.init_timeline_with_builder(room.default_room_timeline_builder().await)
+
+                        if !room.is_timeline_initialized() {
+                            room.init_timeline_with_builder(
+                                room.default_room_timeline_builder().await,
+                            )
                             .await?;
+                        }
                         let timeline = room.timeline().unwrap();
 
-                        if let Some(latest) = timeline.latest_event().await {
-                            let event_id = latest.event_id().expect("event id");
-
-                            let did = timeline
-                                .send_single_receipt(
-                                    ReceiptType::Read,
-                                    ReceiptThread::Unthreaded,
-                                    event_id.to_owned(),
-                                )
-                                .await?;
-                            println!("> did {}send a read receipt!", if did { "" } else { "not " });
-                        } else {
-                            println!("no latest event");
-                        }
+                        let did = timeline.mark_as_read(ReceiptType::Read).await?;
+                        println!("> did {}send a read receipt!", if did { "" } else { "not " });
                     }
                 } else {
                     println!("unknown command");
