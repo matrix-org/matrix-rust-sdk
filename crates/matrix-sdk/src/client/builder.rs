@@ -441,7 +441,7 @@ impl ClientBuilder {
                                 Some((well_known.homeserver.base_url.clone(), Some(well_known)));
                         }
                         Err(e) => {
-                            debug!(error = ?e, "Well-known discovery failed.");
+                            debug!(error = %e, "Well-known discovery failed.");
                             discovery_error = Some(e);
                         }
                     }
@@ -519,7 +519,7 @@ impl ClientBuilder {
 }
 
 /// Discovers a homeserver by looking up the well-known at the supplied server
-/// name
+/// name.
 async fn discover_homeserver(
     server_name: OwnedServerName,
     protocol: UrlScheme,
@@ -567,7 +567,7 @@ async fn check_is_homeserver(homeserver_url: &Url, http_client: &HttpClient) -> 
     {
         Ok(_) => true,
         Err(e) => {
-            debug!(error = ?e, "Checking supported versions failed.");
+            debug!(error = %e, "Checking supported versions failed.");
             false
         }
     }

@@ -9,6 +9,7 @@ Breaking changes:
 - `AmbiguityCache` contains the room member's user ID
 - Replace `impl MediaEventContent` with `&impl MediaEventContent` in
   `Media::get_file`/`Media::remove_file`/`Media::get_thumbnail`/`Media::remove_thumbnail`
+- A custom sliding sync proxy set with `ClientBuilder::sliding_sync_proxy` now takes precedence over a discovered proxy.
 
 Additions:
 
