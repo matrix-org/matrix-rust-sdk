@@ -42,7 +42,6 @@
 
 use std::{collections::BTreeMap, fmt::Debug, sync::Arc};
 
-use matrix_sdk::{Client, Room};
 use matrix_sdk_base::{
     deserialized_responses::{AmbiguityChange, SyncTimelineEvent},
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Timeline},
@@ -63,6 +62,7 @@ use tokio::{
 use tracing::{error, trace};
 
 use self::store::{EventCacheStore, MemoryStore};
+use crate::{Client, Room};
 
 mod store;
 

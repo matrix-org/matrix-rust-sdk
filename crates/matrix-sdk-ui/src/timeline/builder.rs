@@ -17,7 +17,12 @@ use std::{collections::BTreeSet, sync::Arc};
 use eyeball::SharedObservable;
 use futures_util::{pin_mut, StreamExt};
 use imbl::Vector;
-use matrix_sdk::{deserialized_responses::SyncTimelineEvent, executor::spawn, Room};
+use matrix_sdk::{
+    deserialized_responses::SyncTimelineEvent,
+    event_cache::{self, EventCache, RoomEventCacheUpdate},
+    executor::spawn,
+    Room,
+};
 use matrix_sdk_base::sync::JoinedRoomUpdate;
 use ruma::{
     events::{receipt::ReceiptType, AnySyncTimelineEvent},
@@ -33,7 +38,6 @@ use super::{
     queue::send_queued_messages,
     BackPaginationStatus, Timeline, TimelineDropHandle,
 };
-use crate::event_cache::{EventCache, RoomEventCacheUpdate};
 
 /// Builder that allows creating and configuring various parts of a
 /// [`Timeline`].
@@ -131,7 +135,7 @@ impl TimelineBuilder {
             prev_token = self.prev_token,
         )
     )]
-    pub async fn build(self) -> crate::event_cache::Result<Timeline> {
+    pub async fn build(self) -> event_cache::Result<Timeline> {
         let Self { room, event_cache, prev_token, settings } = self;
 
         let (room_event_cache, event_cache_drop) = event_cache.for_room(room.room_id()).await?;

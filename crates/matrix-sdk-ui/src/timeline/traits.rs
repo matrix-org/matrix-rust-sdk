@@ -14,9 +14,9 @@
 
 use async_trait::async_trait;
 use indexmap::IndexMap;
-use matrix_sdk::Room;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk::{deserialized_responses::TimelineEvent, Result};
+use matrix_sdk::{event_cache, Room};
 use matrix_sdk_base::latest_event::LatestEvent;
 use ruma::{
     events::receipt::{Receipt, ReceiptThread, ReceiptType},
@@ -39,7 +39,7 @@ pub trait RoomExt {
     /// independent events.
     ///
     /// This is the same as using `room.timeline_builder().build()`.
-    async fn timeline(&self) -> crate::event_cache::Result<Timeline>;
+    async fn timeline(&self) -> event_cache::Result<Timeline>;
 
     /// Get a [`TimelineBuilder`] for this room.
     ///
@@ -54,7 +54,7 @@ pub trait RoomExt {
 
 #[async_trait]
 impl RoomExt for Room {
-    async fn timeline(&self) -> crate::event_cache::Result<Timeline> {
+    async fn timeline(&self) -> event_cache::Result<Timeline> {
         self.timeline_builder().build().await
     }
 

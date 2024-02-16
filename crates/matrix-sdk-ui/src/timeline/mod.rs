@@ -24,6 +24,7 @@ use futures_core::Stream;
 use imbl::Vector;
 use matrix_sdk::{
     attachment::AttachmentConfig,
+    event_cache::EventCacheDropHandles,
     event_handler::EventHandlerHandle,
     executor::JoinHandle,
     room::{Receipts, Room},
@@ -59,7 +60,6 @@ use tokio::sync::{mpsc::Sender, Mutex, Notify};
 use tracing::{debug, error, info, instrument, trace, warn};
 
 use self::futures::SendAttachment;
-use crate::event_cache::EventCacheDropHandles;
 
 mod builder;
 mod error;
