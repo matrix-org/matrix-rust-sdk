@@ -40,7 +40,11 @@
 
 #![forbid(missing_docs)]
 
-use std::{collections::BTreeMap, fmt::Debug, sync::Arc};
+use std::{
+    collections::BTreeMap,
+    fmt::Debug,
+    sync::{Arc, Weak},
+};
 
 use matrix_sdk_base::{
     deserialized_responses::{AmbiguityChange, SyncTimelineEvent},
@@ -62,13 +66,17 @@ use tokio::{
 use tracing::{error, trace};
 
 use self::store::{EventCacheStore, MemoryStore};
-use crate::{Client, Room};
+use crate::{client::ClientInner, Client, Room};
 
 mod store;
 
 /// An error observed in the [`EventCache`].
 #[derive(thiserror::Error, Debug)]
 pub enum EventCacheError {
+    /// The owning client has been closed.
+    #[error("The owning client has been closed.")]
+    ClientClosed,
+
     /// A room hasn't been found, when trying to create a view for that room.
     #[error("Room with id {0} not found")]
     RoomNotFound(OwnedRoomId),
@@ -114,9 +122,14 @@ impl EventCache {
     pub fn new(client: Client) -> Self {
         let mut room_updates_feed = client.subscribe_to_all_room_updates();
 
+        let weak_client = Arc::downgrade(&client.inner);
+
         let store = Arc::new(MemoryStore::new());
-        let inner =
-            Arc::new(RwLock::new(EventCacheInner { client, by_room: Default::default(), store }));
+        let inner = Arc::new(RwLock::new(EventCacheInner {
+            client: weak_client,
+            by_room: Default::default(),
+            store,
+        }));
 
         // Spawn the task that will listen to all the room updates at once.
         trace!("Spawning the listen task");
@@ -222,7 +235,7 @@ impl EventCache {
 
 struct EventCacheInner {
     /// Reference to the client used to navigate this cache.
-    client: Client,
+    client: Weak<ClientInner>,
 
     /// Lazily-filled cache of live [`RoomEventCache`], once per room.
     by_room: BTreeMap<OwnedRoomId, RoomEventCache>,
@@ -232,6 +245,13 @@ struct EventCacheInner {
 }
 
 impl EventCacheInner {
+    /// Reconstruct a [`Client`] from the weak reference to the client, if
+    /// possible.
+    fn client(&self) -> Result<Client> {
+        let inner = self.client.upgrade().ok_or(EventCacheError::ClientClosed)?;
+        Ok(Client { inner })
+    }
+
     /// Return a room-specific view over the [`EventCache`].
     ///
     /// It may not be found, if the room isn't known to the client.
@@ -240,7 +260,7 @@ impl EventCacheInner {
             Some(room) => Ok(room.clone()),
             None => {
                 let room = self
-                    .client
+                    .client()?
                     .get_room(room_id)
                     .ok_or_else(|| EventCacheError::RoomNotFound(room_id.to_owned()))?;
                 let room_event_cache = RoomEventCache::new(room, self.store.clone());
