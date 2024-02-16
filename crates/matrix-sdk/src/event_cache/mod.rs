@@ -370,7 +370,7 @@ impl RoomEventCacheInner {
 }
 
 /// An update related to events happened in a room.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum RoomEventCacheUpdate {
     /// The room has been cleared from events.
     Clear,
