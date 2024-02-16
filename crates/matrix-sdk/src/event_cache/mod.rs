@@ -40,11 +40,7 @@
 
 #![forbid(missing_docs)]
 
-use std::{
-    collections::BTreeMap,
-    fmt::Debug,
-    sync::{Arc, Weak},
-};
+use std::{collections::BTreeMap, fmt::Debug, sync::Arc};
 
 use matrix_sdk_base::{
     deserialized_responses::{AmbiguityChange, SyncTimelineEvent},
@@ -66,7 +62,7 @@ use tokio::{
 use tracing::{error, trace};
 
 use self::store::{EventCacheStore, MemoryStore};
-use crate::{client::ClientInner, Client, Room};
+use crate::Client;
 
 mod store;
 
@@ -124,12 +120,9 @@ impl Debug for EventCache {
 
 impl EventCache {
     /// Create a new [`EventCache`] for the given client.
-    pub fn new(client: Client) -> Self {
-        let weak_client = Arc::downgrade(&client.inner);
-
+    pub fn new(client: &Client) -> Self {
         let store = Arc::new(MemoryStore::new());
         let inner = Arc::new(EventCacheInner {
-            client: weak_client,
             by_room: Default::default(),
             store,
             process_lock: Default::default(),
@@ -248,9 +241,6 @@ impl EventCache {
 }
 
 struct EventCacheInner {
-    /// Reference to the client used to navigate this cache.
-    client: Weak<ClientInner>,
-
     /// Lazily-filled cache of live [`RoomEventCache`], once per room.
     by_room: RwLock<BTreeMap<OwnedRoomId, RoomEventCache>>,
 
@@ -263,13 +253,6 @@ struct EventCacheInner {
 }
 
 impl EventCacheInner {
-    /// Reconstruct a [`Client`] from the weak reference to the client, if
-    /// possible.
-    fn client(&self) -> Result<Client> {
-        let inner = self.client.upgrade().ok_or(EventCacheError::ClientClosed)?;
-        Ok(Client { inner })
-    }
-
     /// Return a room-specific view over the [`EventCache`].
     ///
     /// It may not be found, if the room isn't known to the client.
@@ -278,12 +261,7 @@ impl EventCacheInner {
         match by_room_guard.get(room_id) {
             Some(room) => Ok(room.clone()),
             None => {
-                let room = self
-                    .client()?
-                    .get_room(room_id)
-                    .ok_or_else(|| EventCacheError::RoomNotFound(room_id.to_owned()))?;
-                let room_event_cache =
-                    RoomEventCache::new(room.room_id().to_owned(), self.store.clone());
+                let room_event_cache = RoomEventCache::new(room_id.to_owned(), self.store.clone());
 
                 drop(by_room_guard);
                 self.by_room.write().await.insert(room_id.to_owned(), room_event_cache.clone());

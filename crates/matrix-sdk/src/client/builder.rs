@@ -523,7 +523,7 @@ impl ClientBuilder {
         client
             .inner
             .event_cache
-            .set(EventCache::new(client.clone()))
+            .set(EventCache::new(&client))
             .expect("once cell should've been uninitialized");
 
         debug!("Done building the Client");
