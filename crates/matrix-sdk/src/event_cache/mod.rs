@@ -105,6 +105,7 @@ impl Drop for EventCacheDropHandles {
 /// An event cache, providing lots of useful functionality for clients.
 ///
 /// See also the module-level comment.
+#[derive(Clone)]
 pub struct EventCache {
     inner: Arc<EventCacheInner>,
 

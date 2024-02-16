@@ -77,6 +77,7 @@ use crate::{
     config::RequestConfig,
     deduplicating_handler::DeduplicatingHandler,
     error::{HttpError, HttpResult},
+    event_cache::EventCache,
     event_handler::{
         EventHandler, EventHandlerDropGuard, EventHandlerHandle, EventHandlerStore, SyncEvent,
     },
@@ -267,6 +268,9 @@ pub(crate) struct ClientInner {
     /// store.
     pub(crate) sync_beat: event_listener::Event,
 
+    /// An event cache spawned when creating the client.
+    pub(crate) event_cache: OnceCell<EventCache>,
+
     /// End-to-end encryption related state.
     #[cfg(feature = "e2e-encryption")]
     pub(crate) e2ee: EncryptionData,
@@ -287,6 +291,7 @@ impl ClientInner {
         base_client: BaseClient,
         server_versions: Option<Box<[MatrixVersion]>>,
         respect_login_well_known: bool,
+        event_cache: OnceCell<EventCache>,
         #[cfg(feature = "e2e-encryption")] encryption_settings: EncryptionSettings,
     ) -> Arc<Self> {
         let client = Self {
@@ -307,6 +312,7 @@ impl ClientInner {
             room_updates_sender: broadcast::Sender::new(32),
             respect_login_well_known,
             sync_beat: event_listener::Event::new(),
+            event_cache,
             #[cfg(feature = "e2e-encryption")]
             e2ee: EncryptionData::new(encryption_settings),
         };
@@ -1996,6 +2002,7 @@ impl Client {
                 self.inner.base_client.clone_with_in_memory_state_store(),
                 self.inner.server_versions.get().cloned(),
                 self.inner.respect_login_well_known,
+                self.inner.event_cache.clone(),
                 #[cfg(feature = "e2e-encryption")]
                 self.inner.e2ee.encryption_settings,
             ),
