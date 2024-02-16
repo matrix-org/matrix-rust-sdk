@@ -162,7 +162,7 @@ impl Room {
     pub async fn default_room_timeline_builder(&self) -> TimelineBuilder {
         Timeline::builder(&self.inner.room)
             .events(
-                self.inner.sliding_sync_room.prev_batch(),
+                self.inner.room.last_prev_batch(),
                 self.inner.sliding_sync_room.timeline_queue(),
             )
             .await

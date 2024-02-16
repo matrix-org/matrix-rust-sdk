@@ -393,7 +393,6 @@ impl SlidingSync {
                                 SlidingSyncRoom::new(
                                     self.inner.client.clone(),
                                     room_id.clone(),
-                                    room_data.prev_batch,
                                     timeline,
                                 ),
                             );
@@ -1986,7 +1985,6 @@ mod tests {
                 SlidingSyncRoom::new(
                     client.clone(),
                     no_overlap.to_owned(),
-                    None,
                     vec![event_a.clone(), event_b.clone()],
                 ),
             ),
@@ -1996,7 +1994,6 @@ mod tests {
                 SlidingSyncRoom::new(
                     client.clone(),
                     no_overlap.to_owned(),
-                    None,
                     vec![event_a.clone(), event_b.clone()],
                 ),
             ),
@@ -2006,7 +2003,6 @@ mod tests {
                 SlidingSyncRoom::new(
                     client.clone(),
                     partial_overlap.to_owned(),
-                    None,
                     vec![event_a.clone(), event_b.clone(), event_c.clone()],
                 ),
             ),
@@ -2016,7 +2012,6 @@ mod tests {
                 SlidingSyncRoom::new(
                     client.clone(),
                     partial_overlap.to_owned(),
-                    None,
                     vec![event_c.clone(), event_d.clone()],
                 ),
             ),
@@ -2027,7 +2022,6 @@ mod tests {
                 SlidingSyncRoom::new(
                     client.clone(),
                     no_remote_events.to_owned(),
-                    None,
                     vec![event_c.clone(), event_d.clone()],
                 ),
             ),
@@ -2035,7 +2029,7 @@ mod tests {
                 // We don't have events for this room locally, and even if the remote room contains
                 // some events, it's not a limited sync.
                 no_local_events.to_owned(),
-                SlidingSyncRoom::new(client.clone(), no_local_events.to_owned(), None, vec![]),
+                SlidingSyncRoom::new(client.clone(), no_local_events.to_owned(), vec![]),
             ),
             (
                 // Already limited, but would be marked limited if the flag wasn't ignored (same as
@@ -2044,7 +2038,6 @@ mod tests {
                 SlidingSyncRoom::new(
                     client.clone(),
                     already_limited.to_owned(),
-                    None,
                     vec![event_a.clone(), event_b.clone(), event_c.clone()],
                 ),
             ),

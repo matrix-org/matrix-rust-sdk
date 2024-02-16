@@ -943,7 +943,7 @@ impl RoomInfo {
 
     /// Set the `prev_batch`-token.
     /// Returns whether the token has differed and thus has been upgraded:
-    /// `false` means no update was applied as the were the same
+    /// `false` means no update was applied as they were the same.
     pub fn set_prev_batch(&mut self, prev_batch: Option<&str>) -> bool {
         if self.last_prev_batch.as_deref() != prev_batch {
             self.last_prev_batch = prev_batch.map(|p| p.to_owned());

@@ -256,7 +256,7 @@ async fn timeline_test_helper(
     })?;
 
     let timeline = Timeline::builder(&sdk_room)
-        .events(sliding_sync_room.prev_batch(), sliding_sync_room.timeline_queue())
+        .events(sdk_room.last_prev_batch(), sliding_sync_room.timeline_queue())
         .await
         .track_read_marker_and_receipts()
         .build()

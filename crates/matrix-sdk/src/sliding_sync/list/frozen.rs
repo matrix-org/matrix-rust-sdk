@@ -55,8 +55,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use imbl::vector;
-    use matrix_sdk_base::deserialized_responses::TimelineEvent;
-    use ruma::{events::room::message::RoomMessageEventContent, room_id, serde::Raw};
+    use ruma::room_id;
     use serde_json::json;
 
     use super::FrozenSlidingSyncList;
@@ -72,23 +71,7 @@ mod tests {
                     let mut rooms = BTreeMap::new();
                     rooms.insert(
                         room_id!("!foo:bar.org").to_owned(),
-                        FrozenSlidingSyncRoom {
-                            room_id: room_id!("!foo:bar.org").to_owned(),
-                            prev_batch: None,
-                            timeline_queue: vector![TimelineEvent::new(
-                                Raw::new(&json!({
-                                    "content": RoomMessageEventContent::text_plain("let it gooo!"),
-                                    "type": "m.room.message",
-                                    "event_id": "$xxxxx:example.org",
-                                    "room_id": "!someroom:example.com",
-                                    "origin_server_ts": 2189,
-                                    "sender": "@bob:example.com",
-                                }))
-                                .unwrap()
-                                .cast(),
-                            )
-                            .into()],
-                        },
+                        FrozenSlidingSyncRoom { room_id: room_id!("!foo:bar.org").to_owned() },
                     );
 
                     rooms
@@ -101,22 +84,6 @@ mod tests {
                 "rooms": {
                     "!foo:bar.org": {
                         "room_id": "!foo:bar.org",
-                        "timeline": [
-                            {
-                                "event": {
-                                    "content": {
-                                        "body": "let it gooo!",
-                                        "msgtype": "m.text",
-                                    },
-                                    "event_id": "$xxxxx:example.org",
-                                    "origin_server_ts": 2189,
-                                    "room_id": "!someroom:example.com",
-                                    "sender": "@bob:example.com",
-                                    "type": "m.room.message",
-                                },
-                                "encryption_info": null,
-                            }
-                        ],
                     },
                 },
             })
