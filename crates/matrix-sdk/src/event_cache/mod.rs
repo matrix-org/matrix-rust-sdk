@@ -59,7 +59,7 @@ use tokio::{
     spawn,
     sync::{
         broadcast::{error::RecvError, Receiver, Sender},
-        RwLock,
+        Mutex, RwLock,
     },
     task::JoinHandle,
 };
@@ -104,11 +104,15 @@ impl Drop for EventCacheDropHandles {
 
 /// An event cache, providing lots of useful functionality for clients.
 ///
+/// Cloning is shallow, and thus is cheap to do.
+///
 /// See also the module-level comment.
 #[derive(Clone)]
 pub struct EventCache {
+    /// Reference to the inner cache.
     inner: Arc<EventCacheInner>,
 
+    /// Handles to keep alive the task listening to updates.
     drop_handles: Arc<EventCacheDropHandles>,
 }
 
@@ -124,8 +128,12 @@ impl EventCache {
         let weak_client = Arc::downgrade(&client.inner);
 
         let store = Arc::new(MemoryStore::new());
-        let inner =
-            Arc::new(EventCacheInner { client: weak_client, by_room: Default::default(), store });
+        let inner = Arc::new(EventCacheInner {
+            client: weak_client,
+            by_room: Default::default(),
+            store,
+            process_lock: Default::default(),
+        });
 
         // Spawn the task that will listen to all the room updates at once.
         let room_updates_feed = client.subscribe_to_all_room_updates();
@@ -143,6 +151,7 @@ impl EventCache {
             match room_updates_feed.recv().await {
                 Ok(updates) => {
                     // We received some room updates. Handle them.
+                    let _process_lock = inner.process_lock.lock().await;
 
                     // Left rooms.
                     for (room_id, left_room_update) in updates.leave {
@@ -239,6 +248,10 @@ struct EventCacheInner {
 
     /// Backend used for storage.
     store: Arc<dyn EventCacheStore>,
+
+    /// A lock to make sure that despite multiple updates coming to the
+    /// `EventCache`, it will only handle one at a time.
+    process_lock: Mutex<()>,
 }
 
 impl EventCacheInner {
