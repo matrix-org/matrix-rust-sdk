@@ -16,10 +16,8 @@ use std::{collections::BTreeSet, sync::Arc};
 
 use eyeball::SharedObservable;
 use futures_util::{pin_mut, StreamExt};
-use imbl::Vector;
 use matrix_sdk::{
-    deserialized_responses::SyncTimelineEvent,
-    event_cache::{self, EventCache, RoomEventCacheUpdate},
+    event_cache::{self, RoomEventCacheUpdate},
     executor::spawn,
     Room,
 };
@@ -47,34 +45,19 @@ pub struct TimelineBuilder {
     room: Room,
     prev_token: Option<String>,
     settings: TimelineInnerSettings,
-    event_cache: EventCache,
 }
 
 impl TimelineBuilder {
     pub(super) fn new(room: &Room) -> Self {
-        Self {
-            room: room.clone(),
-            prev_token: None,
-            settings: TimelineInnerSettings::default(),
-            event_cache: EventCache::new(room.client()),
-        }
+        Self { room: room.clone(), prev_token: None, settings: TimelineInnerSettings::default() }
     }
 
     /// Add initial events to the timeline.
     ///
-    /// TODO: remove this, the EventCache should hold the events data in the
-    /// first place, and we'd provide an existing EventCache to the
-    /// TimelineBuilder.
-    pub async fn events(
-        mut self,
-        prev_token: Option<String>,
-        events: Vector<SyncTimelineEvent>,
-    ) -> Self {
+    /// TODO: remove this, the EventCache should hold the pagination token in
+    /// the first place.
+    pub fn with_pagination_token(mut self, prev_token: Option<String>) -> Self {
         self.prev_token = prev_token;
-        self.event_cache
-            .add_initial_events(self.room.room_id(), events.iter().cloned().collect())
-            .await
-            .expect("room exists");
         self
     }
 
@@ -136,9 +119,10 @@ impl TimelineBuilder {
         )
     )]
     pub async fn build(self) -> event_cache::Result<Timeline> {
-        let Self { room, event_cache, prev_token, settings } = self;
+        let Self { room, prev_token, settings } = self;
 
-        let (room_event_cache, event_cache_drop) = event_cache.for_room(room.room_id()).await?;
+        let (room_event_cache, event_cache_drop) =
+            room.client().event_cache().for_room(room.room_id()).await?;
         let (events, mut event_subscriber) = room_event_cache.subscribe().await?;
 
         let has_events = !events.is_empty();

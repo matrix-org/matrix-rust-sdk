@@ -2021,6 +2021,11 @@ impl Client {
 
         Ok(client)
     }
+
+    /// The [`EventCache`] instance for this [`Client`].
+    pub fn event_cache(&self) -> &EventCache {
+        self.inner.event_cache.get().expect("previously initialized when creating the client")
+    }
 }
 
 // The http mocking library is not supported for wasm32

@@ -251,13 +251,19 @@ async fn timeline_test_helper(
     let sliding_sync_room = sliding_sync.get_room(room_id).await.unwrap();
 
     let room_id = sliding_sync_room.room_id();
-    let sdk_room = sliding_sync_room.client().get_room(room_id).ok_or_else(|| {
+    let client = sliding_sync_room.client();
+    let sdk_room = client.get_room(room_id).ok_or_else(|| {
         anyhow::anyhow!("Room {room_id} not found in client. Can't provide a timeline for it")
     })?;
 
+    // TODO: when the event cache handles its own cache, we can remove this.
+    client
+        .event_cache()
+        .add_initial_events(room_id, sliding_sync_room.timeline_queue().iter().cloned().collect())
+        .await?;
+
     let timeline = Timeline::builder(&sdk_room)
-        .events(sliding_sync_room.prev_batch(), sliding_sync_room.timeline_queue())
-        .await
+        .with_pagination_token(sliding_sync_room.prev_batch())
         .track_read_marker_and_receipts()
         .build()
         .await?;

@@ -229,12 +229,20 @@ impl EventCache {
     /// TODO: temporary for API compat, as the event cache should take care of
     /// its own store.
     pub async fn add_initial_events(
-        &mut self,
+        &self,
         room_id: &RoomId,
         events: Vec<SyncTimelineEvent>,
     ) -> Result<()> {
         let room_cache = self.inner.for_room(room_id).await?;
+
+        // We could have received events during a previous sync; remove them all, since
+        // we can't know where to insert the "initial events" with respect to
+        // them.
+        self.inner.store.clear_room_events(room_id).await?;
+        let _ = room_cache.inner.sender.send(RoomEventCacheUpdate::Clear);
+
         room_cache.inner.append_events(events).await?;
+
         Ok(())
     }
 }
@@ -274,7 +282,8 @@ impl EventCacheInner {
                     .client()?
                     .get_room(room_id)
                     .ok_or_else(|| EventCacheError::RoomNotFound(room_id.to_owned()))?;
-                let room_event_cache = RoomEventCache::new(room, self.store.clone());
+                let room_event_cache =
+                    RoomEventCache::new(room.room_id().to_owned(), self.store.clone());
 
                 drop(by_room_guard);
                 self.by_room.write().await.insert(room_id.to_owned(), room_event_cache.clone());
@@ -301,8 +310,8 @@ impl Debug for RoomEventCache {
 
 impl RoomEventCache {
     /// Create a new [`RoomEventCache`] using the given room and store.
-    fn new(room: Room, store: Arc<dyn EventCacheStore>) -> Self {
-        Self { inner: Arc::new(RoomEventCacheInner::new(room, store)) }
+    fn new(room_id: OwnedRoomId, store: Arc<dyn EventCacheStore>) -> Self {
+        Self { inner: Arc::new(RoomEventCacheInner::new(room_id, store)) }
     }
 
     /// Subscribe to room updates for this room, after getting the initial list
@@ -313,24 +322,28 @@ impl RoomEventCache {
         &self,
     ) -> Result<(Vec<SyncTimelineEvent>, Receiver<RoomEventCacheUpdate>)> {
         Ok((
-            self.inner.store.room_events(self.inner.room.room_id()).await?,
+            self.inner.store.room_events(&self.inner.room_id).await?,
             self.inner.sender.subscribe(),
         ))
     }
 }
 
+/// The (non-clonable) details of the `RoomEventCache`.
 struct RoomEventCacheInner {
+    /// Sender part for subscribers to this room.
     sender: Sender<RoomEventCacheUpdate>,
+    /// A pointer to the store implementation used for this event cache.
     store: Arc<dyn EventCacheStore>,
-    room: Room,
+    /// The room id of the room this event cache applies to.
+    room_id: OwnedRoomId,
 }
 
 impl RoomEventCacheInner {
     /// Creates a new cache for a room, and subscribes to room updates, so as
     /// to handle new timeline events.
-    fn new(room: Room, store: Arc<dyn EventCacheStore>) -> Self {
+    fn new(room_id: OwnedRoomId, store: Arc<dyn EventCacheStore>) -> Self {
         let sender = Sender::new(32);
-        Self { room, store, sender }
+        Self { room_id, store, sender }
     }
 
     async fn handle_joined_room_update(&self, updates: JoinedRoomUpdate) -> Result<()> {
@@ -351,20 +364,18 @@ impl RoomEventCacheInner {
         account_data: Vec<Raw<AnyRoomAccountDataEvent>>,
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
     ) -> Result<()> {
-        let room_id = self.room.room_id();
-
         if timeline.limited {
             // Ideally we'd try to reconcile existing events against those received in the
             // timeline, but we're not there yet. In the meanwhile, clear the
             // items from the room. TODO: implement Smart Matching™.
             trace!("limited timeline, clearing all previous events");
-            self.store.clear_room_events(room_id).await?;
+            self.store.clear_room_events(&self.room_id).await?;
             let _ = self.sender.send(RoomEventCacheUpdate::Clear);
         }
 
         // Add all the events to the backend.
         trace!("adding new events");
-        self.store.add_room_events(room_id, timeline.events.clone()).await?;
+        self.store.add_room_events(&self.room_id, timeline.events.clone()).await?;
 
         // Propagate events to observers.
         let _ = self.sender.send(RoomEventCacheUpdate::Append {
@@ -387,7 +398,7 @@ impl RoomEventCacheInner {
     /// Append a set of events to the room cache and storage, notifying
     /// observers.
     async fn append_events(&self, events: Vec<SyncTimelineEvent>) -> Result<()> {
-        self.store.add_room_events(self.room.room_id(), events.clone()).await?;
+        self.store.add_room_events(&self.room_id, events.clone()).await?;
 
         let _ = self.sender.send(RoomEventCacheUpdate::Append {
             events,
