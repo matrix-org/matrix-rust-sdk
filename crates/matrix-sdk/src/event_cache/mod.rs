@@ -48,7 +48,7 @@ use std::{
 
 use matrix_sdk_base::{
     deserialized_responses::{AmbiguityChange, SyncTimelineEvent},
-    sync::{JoinedRoomUpdate, LeftRoomUpdate, Timeline},
+    sync::{JoinedRoomUpdate, LeftRoomUpdate, RoomUpdates, Timeline},
 };
 use ruma::{
     events::{AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent},
@@ -120,8 +120,6 @@ impl Debug for EventCache {
 impl EventCache {
     /// Create a new [`EventCache`] for the given client.
     pub fn new(client: Client) -> Self {
-        let mut room_updates_feed = client.subscribe_to_all_room_updates();
-
         let weak_client = Arc::downgrade(&client.inner);
 
         let store = Arc::new(MemoryStore::new());
@@ -132,78 +130,79 @@ impl EventCache {
         }));
 
         // Spawn the task that will listen to all the room updates at once.
-        trace!("Spawning the listen task");
-        let listen_updates_task = spawn({
-            let inner = inner.clone();
-
-            async move {
-                loop {
-                    match room_updates_feed.recv().await {
-                        Ok(updates) => {
-                            // We received some room updates. Handle them.
-
-                            // Left rooms.
-                            for (room_id, left_room_update) in updates.leave {
-                                let room = match inner.write().await.for_room(&room_id).await {
-                                    Ok(room) => room,
-                                    Err(err) => {
-                                        error!("can't get left room {room_id}: {err}");
-                                        continue;
-                                    }
-                                };
-
-                                if let Err(err) =
-                                    room.inner.handle_left_room_update(left_room_update).await
-                                {
-                                    error!("handling left room update: {err}");
-                                }
-                            }
-
-                            // Joined rooms.
-                            for (room_id, joined_room_update) in updates.join {
-                                let room = match inner.write().await.for_room(&room_id).await {
-                                    Ok(room) => room,
-                                    Err(err) => {
-                                        error!("can't get joined room {room_id}: {err}");
-                                        continue;
-                                    }
-                                };
-
-                                if let Err(err) =
-                                    room.inner.handle_joined_room_update(joined_room_update).await
-                                {
-                                    error!("handling joined room update: {err}");
-                                }
-                            }
-
-                            // Invited rooms.
-                            // TODO: we don't anything with `updates.invite` at
-                            // this point.
-                        }
-
-                        Err(RecvError::Lagged(_)) => {
-                            // Forget everything we know; we could have missed events, and we have
-                            // no way to reconcile at the moment!
-                            // TODO: implement Smart Matching™,
-                            let mut inner = inner.write().await;
-                            for room_id in inner.by_room.keys() {
-                                if let Err(err) = inner.store.clear_room_events(room_id).await {
-                                    error!("unable to clear room after room updates lag: {err}");
-                                }
-                            }
-                            inner.by_room.clear();
-                        }
-
-                        Err(RecvError::Closed) => {
-                            // The sender has shut down, exit.
-                            break;
-                        }
-                    }
-                }
-            }
-        });
+        let room_updates_feed = client.subscribe_to_all_room_updates();
+        let listen_updates_task = spawn(Self::spawn_listen_task(inner.clone(), room_updates_feed));
 
         Self { inner, drop_handles: Arc::new(EventCacheDropHandles { listen_updates_task }) }
+    }
+
+    async fn spawn_listen_task(
+        inner: Arc<RwLock<EventCacheInner>>,
+        mut room_updates_feed: Receiver<RoomUpdates>,
+    ) {
+        trace!("Spawning the listen task");
+        loop {
+            match room_updates_feed.recv().await {
+                Ok(updates) => {
+                    // We received some room updates. Handle them.
+
+                    // Left rooms.
+                    for (room_id, left_room_update) in updates.leave {
+                        let room = match inner.write().await.for_room(&room_id).await {
+                            Ok(room) => room,
+                            Err(err) => {
+                                error!("can't get left room {room_id}: {err}");
+                                continue;
+                            }
+                        };
+
+                        if let Err(err) = room.inner.handle_left_room_update(left_room_update).await
+                        {
+                            error!("handling left room update: {err}");
+                        }
+                    }
+
+                    // Joined rooms.
+                    for (room_id, joined_room_update) in updates.join {
+                        let room = match inner.write().await.for_room(&room_id).await {
+                            Ok(room) => room,
+                            Err(err) => {
+                                error!("can't get joined room {room_id}: {err}");
+                                continue;
+                            }
+                        };
+
+                        if let Err(err) =
+                            room.inner.handle_joined_room_update(joined_room_update).await
+                        {
+                            error!("handling joined room update: {err}");
+                        }
+                    }
+
+                    // Invited rooms.
+                    // TODO: we don't anything with `updates.invite` at
+                    // this point.
+                }
+
+                Err(RecvError::Lagged(_)) => {
+                    // Forget everything we know; we could have missed events, and we have
+                    // no way to reconcile at the moment!
+                    // TODO: implement Smart Matching™,
+                    let mut inner = inner.write().await;
+                    for room_id in inner.by_room.keys() {
+                        if let Err(err) = inner.store.clear_room_events(room_id).await {
+                            error!("unable to clear room after room updates lag: {err}");
+                        }
+                    }
+                    inner.by_room.clear();
+                }
+
+                Err(RecvError::Closed) => {
+                    // The sender has shut down, exit.
+                    break;
+                }
+            }
+        }
     }
 
     /// Return a room-specific view over the [`EventCache`].
