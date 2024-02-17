@@ -452,7 +452,7 @@ impl NotificationClient {
         }
 
         Ok(NotificationStatus::Event(
-            NotificationItem::new(&room, &raw_event, push_actions.as_deref(), Vec::new()).await?,
+            NotificationItem::new(&room, raw_event, push_actions.as_deref(), Vec::new()).await?,
         ))
     }
 
@@ -501,7 +501,7 @@ impl NotificationClient {
         Ok(Some(
             NotificationItem::new(
                 &room,
-                &RawNotificationEvent::Timeline(timeline_event.event.cast()),
+                RawNotificationEvent::Timeline(timeline_event.event.cast()),
                 timeline_event.push_actions.as_deref(),
                 state_events,
             )
@@ -573,14 +573,26 @@ impl NotificationClientBuilder {
     }
 }
 
-enum RawNotificationEvent {
+/// The Notification event as it was fetched from remote for the
+/// given `event_id`, represented as Raw but decrypted, thus only
+/// whether it is an invite or regular Timeline event has been
+/// determined.
+#[derive(Debug)]
+pub enum RawNotificationEvent {
+    /// The raw event for a timeline event
     Timeline(Raw<AnySyncTimelineEvent>),
+    /// The notification contains an invitation with the given
+    /// StrippedRoomMemberEvent (in raw here)
     Invite(Raw<StrippedRoomMemberEvent>),
 }
 
+/// The deserialized Event as it was fetched from remote for the
+/// given `event_id` and after decryption (if possible).
 #[derive(Debug)]
 pub enum NotificationEvent {
+    /// The Notification was for a TimelineEvent
     Timeline(AnySyncTimelineEvent),
+    /// The Notification is an invite with the given stripped room event data
     Invite(StrippedRoomMemberEvent),
 }
 
@@ -598,6 +610,9 @@ impl NotificationEvent {
 pub struct NotificationItem {
     /// Underlying Ruma event.
     pub event: NotificationEvent,
+
+    /// The raw of the underlying event.
+    pub raw_event: RawNotificationEvent,
 
     /// Display name of the sender.
     pub sender_display_name: Option<String>,
@@ -630,11 +645,11 @@ pub struct NotificationItem {
 impl NotificationItem {
     async fn new(
         room: &Room,
-        raw_event: &RawNotificationEvent,
+        raw_event: RawNotificationEvent,
         push_actions: Option<&[Action]>,
         state_events: Vec<Raw<AnyStateEvent>>,
     ) -> Result<Self, Error> {
-        let event = match raw_event {
+        let event = match &raw_event {
             RawNotificationEvent::Timeline(raw_event) => {
                 let mut event = raw_event.deserialize().map_err(|_| Error::InvalidRumaEvent)?;
                 if let AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
@@ -694,6 +709,7 @@ impl NotificationItem {
 
         let item = NotificationItem {
             event,
+            raw_event,
             sender_display_name,
             sender_avatar_url,
             is_sender_name_ambiguous,
