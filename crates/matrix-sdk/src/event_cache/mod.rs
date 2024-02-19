@@ -267,6 +267,9 @@ struct EventCacheInner {
 
     /// A lock to make sure that despite multiple updates coming to the
     /// `EventCache`, it will only handle one at a time.
+    ///
+    /// [`Mutex`] is “fair”, as it is implemented as a FIFO. It is important to
+    /// ensure that multiple updates will be applied in the correct order.
     process_lock: Mutex<()>,
 
     /// Handles to keep alive the task listening to updates.
@@ -279,12 +282,16 @@ impl EventCacheInner {
     /// It may not be found, if the room isn't known to the client.
     async fn for_room(&self, room_id: &RoomId) -> Result<RoomEventCache> {
         let by_room_guard = self.by_room.read().await;
+
         match by_room_guard.get(room_id) {
             Some(room) => Ok(room.clone()),
             None => {
                 let room_event_cache = RoomEventCache::new(room_id.to_owned(), self.store.clone());
 
+                // Drop the `RwLockReadGuard`.
                 drop(by_room_guard);
+
+                // Create the new `RoomEventCache`.
                 self.by_room.write().await.insert(room_id.to_owned(), room_event_cache.clone());
 
                 Ok(room_event_cache)
@@ -331,8 +338,10 @@ impl RoomEventCache {
 struct RoomEventCacheInner {
     /// Sender part for subscribers to this room.
     sender: Sender<RoomEventCacheUpdate>,
+
     /// A pointer to the store implementation used for this event cache.
     store: Arc<dyn EventCacheStore>,
+
     /// The room id of the room this event cache applies to.
     room_id: OwnedRoomId,
 }
