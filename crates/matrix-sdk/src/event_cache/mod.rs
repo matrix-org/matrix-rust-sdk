@@ -121,6 +121,12 @@ impl Debug for EventCache {
     }
 }
 
+impl Default for EventCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl EventCache {
     /// Create a new [`EventCache`] for the given client.
     pub fn new() -> Self {
