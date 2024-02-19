@@ -16,14 +16,24 @@ use matrix_sdk::{
         },
         AuthorizationResponse, Oidc, OidcError,
     },
-    AuthSession,
+    AuthSession, ClientBuildError as MatrixClientBuildError, HttpError, RumaApiError,
 };
-use ruma::{api::client::discovery::discover_homeserver::AuthenticationServerInfo, OwnedUserId};
+use ruma::{
+    api::{
+        client::discovery::discover_homeserver::AuthenticationServerInfo,
+        error::{DeserializationError, FromHttpResponseError},
+    },
+    OwnedUserId,
+};
 use url::Url;
 use zeroize::Zeroize;
 
 use super::{client::Client, client_builder::ClientBuilder, RUNTIME};
-use crate::{client::ClientSessionDelegate, client_builder::CertificateBytes, error::ClientError};
+use crate::{
+    client::ClientSessionDelegate,
+    client_builder::{CertificateBytes, ClientBuildError},
+    error::ClientError,
+};
 
 #[derive(uniffi::Object)]
 pub struct AuthenticationService {
@@ -50,14 +60,23 @@ impl Drop for AuthenticationService {
 pub enum AuthenticationError {
     #[error("A successful call to configure_homeserver must be made first.")]
     ClientMissing,
-    #[error("{message}")]
-    InvalidServerName { message: String },
+
+    #[error("The supplied server name is invalid.")]
+    InvalidServerName,
+    #[error(transparent)]
+    ServerUnreachable(HttpError),
+    #[error(transparent)]
+    WellKnownLookupFailed(RumaApiError),
+    #[error(transparent)]
+    WellKnownDeserializationError(DeserializationError),
     #[error("The homeserver doesn't provide a trusted sliding sync proxy in its well-known configuration.")]
     SlidingSyncNotAvailable,
+
     #[error("Login was successful but is missing a valid Session to configure the file store.")]
     SessionMissing,
     #[error("Failed to use the supplied base path.")]
     InvalidBasePath,
+
     #[error(
         "The homeserver doesn't provide an authentication issuer in its well-known configuration."
     )]
@@ -72,6 +91,7 @@ pub enum AuthenticationError {
     OidcCancelled,
     #[error("An error occurred with OIDC: {message}")]
     OidcError { message: String },
+
     #[error("An error occurred: {message}")]
     Generic { message: String },
 }
@@ -79,6 +99,30 @@ pub enum AuthenticationError {
 impl From<anyhow::Error> for AuthenticationError {
     fn from(e: anyhow::Error) -> AuthenticationError {
         AuthenticationError::Generic { message: e.to_string() }
+    }
+}
+
+impl From<ClientBuildError> for AuthenticationError {
+    fn from(e: ClientBuildError) -> AuthenticationError {
+        match e {
+            ClientBuildError::Sdk(MatrixClientBuildError::InvalidServerName) => {
+                AuthenticationError::InvalidServerName
+            }
+
+            ClientBuildError::Sdk(MatrixClientBuildError::Http(e)) => {
+                AuthenticationError::ServerUnreachable(e)
+            }
+
+            ClientBuildError::Sdk(MatrixClientBuildError::AutoDiscovery(
+                FromHttpResponseError::Server(e),
+            )) => AuthenticationError::WellKnownLookupFailed(e),
+
+            ClientBuildError::Sdk(MatrixClientBuildError::AutoDiscovery(
+                FromHttpResponseError::Deserialization(e),
+            )) => AuthenticationError::WellKnownDeserializationError(e),
+
+            _ => AuthenticationError::Generic { message: e.to_string() },
+        }
     }
 }
 
@@ -209,7 +253,6 @@ impl AuthenticationService {
         let mut builder = self.new_client_builder();
         builder = builder.server_name_or_homeserver_url(server_name_or_homeserver_url);
 
-        // TODO: Map errors to AuthenticationError.
         let client = builder.build_inner()?;
         let details = RUNTIME.block_on(self.details_from_client(&client))?;
 
