@@ -15,9 +15,9 @@ use matrix_sdk::{
 use matrix_sdk_ui::{
     room_list_service::{
         filters::{
-            new_filter_all, new_filter_any, new_filter_category, new_filter_fuzzy_match_room_name,
-            new_filter_non_left, new_filter_none, new_filter_normalized_match_room_name,
-            new_filter_unread, RoomCategory,
+            new_filter_all, new_filter_any, new_filter_category, new_filter_favourite,
+            new_filter_fuzzy_match_room_name, new_filter_non_left, new_filter_none,
+            new_filter_normalized_match_room_name, new_filter_unread, RoomCategory,
         },
         BoxedFilterFn,
     },
@@ -417,6 +417,7 @@ pub enum RoomListEntriesDynamicFilterKind {
     Any { filters: Vec<RoomListEntriesDynamicFilterKind> },
     NonLeft,
     Unread,
+    Favourite,
     Category { expect: RoomListFilterCategory },
     None,
     NormalizedMatchRoomName { pattern: String },
@@ -455,6 +456,7 @@ impl FilterWrapper {
             ))),
             Kind::NonLeft => Self(Box::new(new_filter_non_left(client))),
             Kind::Unread => Self(Box::new(new_filter_unread(client))),
+            Kind::Favourite => Self(Box::new(new_filter_favourite(client))),
             Kind::Category { expect } => Self(Box::new(new_filter_category(client, expect.into()))),
             Kind::None => Self(Box::new(new_filter_none())),
             Kind::NormalizedMatchRoomName { pattern } => {
