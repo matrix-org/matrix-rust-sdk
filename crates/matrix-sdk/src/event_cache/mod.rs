@@ -122,12 +122,12 @@ impl EventCache {
 
         // Spawn the task that will listen to all the room updates at once.
         let room_updates_feed = client.subscribe_to_all_room_updates();
-        let listen_updates_task = spawn(Self::spawn_listen_task(inner.clone(), room_updates_feed));
+        let listen_updates_task = spawn(Self::listen_task(inner.clone(), room_updates_feed));
 
         Self { inner, drop_handles: Arc::new(EventCacheDropHandles { listen_updates_task }) }
     }
 
-    async fn spawn_listen_task(
+    async fn listen_task(
         inner: Arc<EventCacheInner>,
         mut room_updates_feed: Receiver<RoomUpdates>,
     ) {
