@@ -50,18 +50,15 @@ use matrix_sdk_base::{
     deserialized_responses::{AmbiguityChange, SyncTimelineEvent},
     sync::{JoinedRoomUpdate, LeftRoomUpdate, RoomUpdates, Timeline},
 };
+use matrix_sdk_common::executor::{spawn, JoinHandle};
 use ruma::{
     events::{AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent},
     serde::Raw,
     OwnedEventId, OwnedRoomId, RoomId,
 };
-use tokio::{
-    spawn,
-    sync::{
-        broadcast::{error::RecvError, Receiver, Sender},
-        Mutex, RwLock,
-    },
-    task::JoinHandle,
+use tokio::sync::{
+    broadcast::{error::RecvError, Receiver, Sender},
+    Mutex, RwLock,
 };
 use tracing::{error, trace};
 
