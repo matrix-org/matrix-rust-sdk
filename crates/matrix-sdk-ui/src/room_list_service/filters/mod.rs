@@ -1,3 +1,45 @@
+//! A collection of room filters.
+//!
+//! The room list can provide an access to the rooms per list, like with
+//! [`super::RoomList::entries_with_dynamic_adapters`]. The provided collection
+//! of rooms can be filtered with these filters. A classical usage would be the
+//! following:
+//!
+//! ```rust
+//! use matrix_sdk::Client;
+//! use matrix_sdk_ui::room_list_service::{
+//!     filters, RoomListDynamicEntriesController,
+//! };
+//!
+//! fn configure_room_list(
+//!     client: &Client,
+//!     entries_controller: &RoomListDynamicEntriesController,
+//! ) {
+//!     // _All_ non-left rooms
+//!     // _and_ that fall in the “People” category,
+//!     // _and_ that are marked as favourite,
+//!     // _and_ that are _not_ unread.
+//!     entries_controller.set_filter(Box::new(
+//!         // All
+//!         filters::new_filter_all(vec![
+//!             // Non-left
+//!             Box::new(filters::new_filter_non_left(&client)),
+//!             // People
+//!             Box::new(filters::new_filter_category(
+//!                 client,
+//!                 filters::RoomCategory::People,
+//!             )),
+//!             // Favourite
+//!             Box::new(filters::new_filter_favourite(client)),
+//!             // Not Unread
+//!             Box::new(filters::new_filter_not(Box::new(
+//!                 filters::new_filter_unread(client),
+//!             ))),
+//!         ]),
+//!     ));
+//! }
+//! ```
+
 mod all;
 mod any;
 mod category;
