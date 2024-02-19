@@ -1,6 +1,7 @@
 mod all;
 mod any;
 mod category;
+mod favourite;
 mod fuzzy_match_room_name;
 mod non_left;
 mod none;
@@ -11,6 +12,7 @@ mod unread;
 pub use all::new_filter as new_filter_all;
 pub use any::new_filter as new_filter_any;
 pub use category::{new_filter as new_filter_category, RoomCategory};
+pub use favourite::new_filter as new_filter_favourite;
 pub use fuzzy_match_room_name::new_filter as new_filter_fuzzy_match_room_name;
 use matrix_sdk::RoomListEntry;
 pub use non_left::new_filter as new_filter_non_left;
