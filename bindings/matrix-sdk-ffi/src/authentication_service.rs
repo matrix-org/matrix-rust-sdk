@@ -18,19 +18,12 @@ use matrix_sdk::{
     },
     AuthSession,
 };
-use ruma::{
-    api::client::discovery::discover_homeserver::AuthenticationServerInfo, IdParseError,
-    OwnedUserId,
-};
+use ruma::{api::client::discovery::discover_homeserver::AuthenticationServerInfo, OwnedUserId};
 use url::Url;
 use zeroize::Zeroize;
 
 use super::{client::Client, client_builder::ClientBuilder, RUNTIME};
-use crate::{
-    client::ClientSessionDelegate,
-    client_builder::{CertificateBytes, UrlScheme},
-    error::ClientError,
-};
+use crate::{client::ClientSessionDelegate, client_builder::CertificateBytes, error::ClientError};
 
 #[derive(uniffi::Object)]
 pub struct AuthenticationService {
@@ -86,12 +79,6 @@ pub enum AuthenticationError {
 impl From<anyhow::Error> for AuthenticationError {
     fn from(e: anyhow::Error) -> AuthenticationError {
         AuthenticationError::Generic { message: e.to_string() }
-    }
-}
-
-impl From<IdParseError> for AuthenticationError {
-    fn from(e: IdParseError) -> AuthenticationError {
-        AuthenticationError::InvalidServerName { message: e.to_string() }
     }
 }
 
@@ -220,47 +207,13 @@ impl AuthenticationService {
         server_name_or_homeserver_url: String,
     ) -> Result<(), AuthenticationError> {
         let mut builder = self.new_client_builder();
+        builder = builder.server_name_or_homeserver_url(server_name_or_homeserver_url);
 
-        // Attempt discovery as a server name first.
-        let result = matrix_sdk::sanitize_server_name(&server_name_or_homeserver_url);
-
-        match result {
-            Ok(server_name) => {
-                let protocol = if server_name_or_homeserver_url.starts_with("http://") {
-                    UrlScheme::Http
-                } else {
-                    UrlScheme::Https
-                };
-                builder = builder.server_name_with_protocol(server_name.to_string(), protocol);
-            }
-
-            Err(e) => {
-                // When the input isn't a valid server name check it is a URL.
-                // If this is the case, build the client with a homeserver URL.
-                if Url::parse(&server_name_or_homeserver_url).is_ok() {
-                    builder = builder.homeserver_url(server_name_or_homeserver_url.clone());
-                } else {
-                    return Err(e.into());
-                }
-            }
-        }
-
-        let client = builder.build_inner().or_else(|e| {
-            if !server_name_or_homeserver_url.starts_with("http://")
-                && !server_name_or_homeserver_url.starts_with("https://")
-            {
-                return Err(e);
-            }
-            // When discovery fails, fallback to the homeserver URL if supplied.
-            let mut builder = self.new_client_builder();
-            builder = builder.homeserver_url(server_name_or_homeserver_url);
-            builder.build_inner()
-        })?;
-
+        // TODO: Map errors to AuthenticationError.
+        let client = builder.build_inner()?;
         let details = RUNTIME.block_on(self.details_from_client(&client))?;
 
-        // Now we've verified that it's a valid homeserver, make sure
-        // there's a sliding sync proxy available one way or another.
+        // Make sure there's a sliding sync proxy available.
         if self.custom_sliding_sync_proxy.read().unwrap().is_none()
             && client.discovered_sliding_sync_proxy().is_none()
         {

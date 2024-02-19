@@ -38,7 +38,7 @@ use crate::http_client::HttpSettings;
 use crate::oidc::OidcCtx;
 use crate::{
     authentication::AuthCtx, config::RequestConfig, error::RumaApiError, event_cache::EventCache,
-    http_client::HttpClient, sanitize_server_name, HttpError,
+    http_client::HttpClient, HttpError, IdParseError,
 };
 
 /// Builder that allows creating and configuring various parts of a [`Client`].
@@ -519,6 +519,15 @@ impl ClientBuilder {
     }
 }
 
+/// Creates a server name from a user supplied string. The string is first
+/// sanitized by removing whitespace, the http(s) scheme and any trailing
+/// slashes before being parsed.
+pub(crate) fn sanitize_server_name(s: &str) -> crate::Result<OwnedServerName, IdParseError> {
+    ServerName::parse(
+        s.trim().trim_start_matches("http://").trim_start_matches("https://").trim_end_matches('/'),
+    )
+}
+
 /// Discovers a homeserver by looking up the well-known at the supplied server
 /// name.
 async fn discover_homeserver(
@@ -765,6 +774,7 @@ impl ClientBuildError {
 // The http mocking library is not supported for wasm32
 #[cfg(all(test, not(target_arch = "wasm32")))]
 pub(crate) mod tests {
+    use assert_matches::assert_matches;
     use matrix_sdk_test::{async_test, test_json};
     use serde_json::{json_internal, Value as JsonValue};
     use wiremock::{
@@ -774,8 +784,28 @@ pub(crate) mod tests {
 
     use super::*;
 
-    // Note: Due to a limitation of the http mocking library these tests all supply an http:// url,
-    // to `server_name_or_homeserver_url` rather than the plain server name,
+    #[test]
+    fn test_sanitize_server_name() {
+        assert_eq!(sanitize_server_name("matrix.org").unwrap().as_str(), "matrix.org");
+        assert_eq!(sanitize_server_name("https://matrix.org").unwrap().as_str(), "matrix.org");
+        assert_eq!(sanitize_server_name("http://matrix.org").unwrap().as_str(), "matrix.org");
+        assert_eq!(
+            sanitize_server_name("https://matrix.server.org").unwrap().as_str(),
+            "matrix.server.org"
+        );
+        assert_eq!(
+            sanitize_server_name("https://matrix.server.org/").unwrap().as_str(),
+            "matrix.server.org"
+        );
+        assert_eq!(
+            sanitize_server_name("  https://matrix.server.org// ").unwrap().as_str(),
+            "matrix.server.org"
+        );
+        assert_matches!(sanitize_server_name("https://matrix.server.org/something"), Err(_))
+    }
+
+    // Note: Due to a limitation of the http mocking library the following tests all
+    // supply an http:// url, to `server_name_or_homeserver_url` rather than the plain server name,
     // otherwise  the builder will prepend https:// and the request will fail. In practice, this
     // isn't a problem as the builder first strips the scheme and then checks if the
     // name is a valid server name, so it is a close enough approximation.
@@ -790,7 +820,7 @@ pub(crate) mod tests {
         let error = builder.build().await.unwrap_err();
 
         // Then the operation should fail due to the invalid server name.
-        assert!(matches!(error, ClientBuildError::InvalidServerName));
+        assert_matches!(error, ClientBuildError::InvalidServerName);
     }
 
     #[async_test]
@@ -804,7 +834,7 @@ pub(crate) mod tests {
 
         // Then the operation should fail with an HTTP error.
         println!("{error}");
-        assert!(matches!(error, ClientBuildError::Http(_)));
+        assert_matches!(error, ClientBuildError::Http(_));
     }
 
     #[async_test]
@@ -819,7 +849,7 @@ pub(crate) mod tests {
         let error = builder.build().await.unwrap_err();
 
         // Then the operation should fail with a server discovery error.
-        assert!(matches!(error, ClientBuildError::AutoDiscovery(FromHttpResponseError::Server(_))));
+        assert_matches!(error, ClientBuildError::AutoDiscovery(FromHttpResponseError::Server(_)));
     }
 
     #[async_test]
@@ -881,10 +911,10 @@ pub(crate) mod tests {
         let error = builder.build().await.unwrap_err();
 
         // Then the operation should fail due to the well-known file's contents.
-        assert!(matches!(
+        assert_matches!(
             error,
             ClientBuildError::AutoDiscovery(FromHttpResponseError::Deserialization(_))
-        ));
+        );
     }
 
     #[async_test]
