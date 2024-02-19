@@ -269,9 +269,21 @@ impl EventCacheInner {
     ///
     /// It may not be found, if the room isn't known to the client.
     async fn for_room(&self, room_id: &RoomId) -> RoomEventCache {
+        // Fast path: the entry exists; let's acquire a read lock, it's cheaper than a
+        // write lock.
+        let read_guard = self.by_room.read().await;
+
+        if let Some(room) = read_guard.get(room_id) {
+            return room.clone();
+        }
+
+        // Slow-path: the entry doesn't exist; let's acquire a write lock.
+        drop(read_guard);
+
         self.by_room
             .write()
             .await
+            // Use `Entry` to avoid race condition.
             .entry(room_id.to_owned())
             .or_insert_with(|| {
                 // Create the new `RoomEventCache`.
