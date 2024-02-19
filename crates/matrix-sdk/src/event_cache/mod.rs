@@ -40,7 +40,11 @@
 
 #![forbid(missing_docs)]
 
-use std::{collections::BTreeMap, fmt::Debug, sync::Arc};
+use std::{
+    collections::BTreeMap,
+    fmt::Debug,
+    sync::{Arc, OnceLock},
+};
 
 use matrix_sdk_base::{
     deserialized_responses::{AmbiguityChange, SyncTimelineEvent},
@@ -68,7 +72,14 @@ mod store;
 
 /// An error observed in the [`EventCache`].
 #[derive(thiserror::Error, Debug)]
-pub enum EventCacheError {}
+pub enum EventCacheError {
+    /// The [`EventCache`] instance hasn't been initialized with
+    /// [`EventCache::subscribe`]
+    #[error(
+        "The EventCache hasn't subscribed to sync responses yet, call `EventCache::subscribe()`"
+    )]
+    NotSubscribedYet,
+}
 
 /// A result using the [`EventCacheError`].
 pub type Result<T> = std::result::Result<T, EventCacheError>;
@@ -101,7 +112,7 @@ pub struct EventCache {
     inner: Arc<EventCacheInner>,
 
     /// Handles to keep alive the task listening to updates.
-    drop_handles: Arc<EventCacheDropHandles>,
+    drop_handles: OnceLock<Arc<EventCacheDropHandles>>,
 }
 
 impl Debug for EventCache {
@@ -112,19 +123,29 @@ impl Debug for EventCache {
 
 impl EventCache {
     /// Create a new [`EventCache`] for the given client.
-    pub fn new(client: &Client) -> Self {
+    pub fn new() -> Self {
         let store = Arc::new(MemoryStore::new());
         let inner = Arc::new(EventCacheInner {
             by_room: Default::default(),
             store,
             process_lock: Default::default(),
         });
+        Self { inner, drop_handles: Default::default() }
+    }
 
-        // Spawn the task that will listen to all the room updates at once.
-        let room_updates_feed = client.subscribe_to_all_room_updates();
-        let listen_updates_task = spawn(Self::listen_task(inner.clone(), room_updates_feed));
-
-        Self { inner, drop_handles: Arc::new(EventCacheDropHandles { listen_updates_task }) }
+    /// Starts subscribing the [`EventCache`] to sync responses, if not done
+    /// before.
+    ///
+    /// Re-running this has no effect if we already subscribed before, and is
+    /// cheap.
+    pub fn subscribe(&self, client: &Client) {
+        self.drop_handles.get_or_init(|| {
+            // Spawn the task that will listen to all the room updates at once.
+            let room_updates_feed = client.subscribe_to_all_room_updates();
+            let listen_updates_task =
+                spawn(Self::listen_task(self.inner.clone(), room_updates_feed));
+            Arc::new(EventCacheDropHandles { listen_updates_task })
+        });
     }
 
     async fn listen_task(
@@ -202,9 +223,13 @@ impl EventCache {
         &self,
         room_id: &RoomId,
     ) -> Result<(RoomEventCache, Arc<EventCacheDropHandles>)> {
+        let Some(drop_handles) = self.drop_handles.get().cloned() else {
+            return Err(EventCacheError::NotSubscribedYet);
+        };
+
         let room = self.inner.for_room(room_id).await?;
 
-        Ok((room, self.drop_handles.clone()))
+        Ok((room, drop_handles))
     }
 
     /// Add an initial set of events to the event cache, reloaded from a cache.

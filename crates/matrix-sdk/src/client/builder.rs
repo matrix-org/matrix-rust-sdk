@@ -499,10 +499,6 @@ impl ClientBuilder {
             oidc: OidcCtx::new(authentication_server_info, allow_insecure_oidc),
         });
 
-        // The event cache requires the client to be instantiated first, so we'll
-        // initialize it after we created the Client.
-        let event_cache = OnceCell::new();
-
         let inner = ClientInner::new(
             auth_ctx,
             homeserver,
@@ -512,23 +508,14 @@ impl ClientBuilder {
             base_client,
             self.server_versions,
             self.respect_login_well_known,
-            event_cache,
+            EventCache::new(),
             #[cfg(feature = "e2e-encryption")]
             self.encryption_settings,
         );
 
-        let client = Client { inner };
-
-        // Now initialize the event cache.
-        client
-            .inner
-            .event_cache
-            .set(EventCache::new(&client))
-            .expect("once cell should've been uninitialized");
-
         debug!("Done building the Client");
 
-        Ok(client)
+        Ok(Client { inner })
     }
 }
 

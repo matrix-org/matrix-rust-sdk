@@ -268,8 +268,10 @@ pub(crate) struct ClientInner {
     /// store.
     pub(crate) sync_beat: event_listener::Event,
 
-    /// An event cache spawned when creating the client.
-    pub(crate) event_cache: OnceCell<EventCache>,
+    /// A central cache for events, inactive first.
+    ///
+    /// It becomes active when [`EventCache::subscribe`] is called.
+    pub(crate) event_cache: EventCache,
 
     /// End-to-end encryption related state.
     #[cfg(feature = "e2e-encryption")]
@@ -291,7 +293,7 @@ impl ClientInner {
         base_client: BaseClient,
         server_versions: Option<Box<[MatrixVersion]>>,
         respect_login_well_known: bool,
-        event_cache: OnceCell<EventCache>,
+        event_cache: EventCache,
         #[cfg(feature = "e2e-encryption")] encryption_settings: EncryptionSettings,
     ) -> Arc<Self> {
         let client = Self {
@@ -2024,7 +2026,7 @@ impl Client {
 
     /// The [`EventCache`] instance for this [`Client`].
     pub fn event_cache(&self) -> &EventCache {
-        self.inner.event_cache.get().expect("previously initialized when creating the client")
+        &self.inner.event_cache
     }
 }
 

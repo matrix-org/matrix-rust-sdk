@@ -121,8 +121,13 @@ impl TimelineBuilder {
     pub async fn build(self) -> event_cache::Result<Timeline> {
         let Self { room, prev_token, settings } = self;
 
-        let (room_event_cache, event_cache_drop) =
-            room.client().event_cache().for_room(room.room_id()).await?;
+        let client = room.client();
+        let event_cache = client.event_cache();
+
+        // Subscribe the event cache to sync responses, in case we hadn't done it yet.
+        event_cache.subscribe(&client);
+
+        let (room_event_cache, event_cache_drop) = event_cache.for_room(room.room_id()).await?;
         let (events, mut event_subscriber) = room_event_cache.subscribe().await?;
 
         let has_events = !events.is_empty();
