@@ -68,15 +68,7 @@ mod store;
 
 /// An error observed in the [`EventCache`].
 #[derive(thiserror::Error, Debug)]
-pub enum EventCacheError {
-    /// The owning client has been closed.
-    #[error("The owning client has been closed.")]
-    ClientClosed,
-
-    /// A room hasn't been found, when trying to create a view for that room.
-    #[error("Room with id {0} not found")]
-    RoomNotFound(OwnedRoomId),
-}
+pub enum EventCacheError {}
 
 /// A result using the [`EventCacheError`].
 pub type Result<T> = std::result::Result<T, EventCacheError>;
@@ -206,8 +198,6 @@ impl EventCache {
     }
 
     /// Return a room-specific view over the [`EventCache`].
-    ///
-    /// It may not be found, if the room isn't known to the client.
     pub async fn for_room(
         &self,
         room_id: &RoomId,
