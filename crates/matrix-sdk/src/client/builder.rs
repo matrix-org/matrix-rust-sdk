@@ -522,7 +522,7 @@ impl ClientBuilder {
 /// Creates a server name from a user supplied string. The string is first
 /// sanitized by removing whitespace, the http(s) scheme and any trailing
 /// slashes before being parsed.
-pub(crate) fn sanitize_server_name(s: &str) -> crate::Result<OwnedServerName, IdParseError> {
+fn sanitize_server_name(s: &str) -> crate::Result<OwnedServerName, IdParseError> {
     ServerName::parse(
         s.trim().trim_start_matches("http://").trim_start_matches("https://").trim_end_matches('/'),
     )
