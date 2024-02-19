@@ -1,13 +1,10 @@
 use std::fmt::Display;
 
 use matrix_sdk::{
-    self, encryption::CryptoStoreError, oidc::OidcError, HttpError, IdParseError,
-    NotificationSettingsError as SdkNotificationSettingsError, StoreError,
+    self, encryption::CryptoStoreError, event_cache::EventCacheError, oidc::OidcError, HttpError,
+    IdParseError, NotificationSettingsError as SdkNotificationSettingsError, StoreError,
 };
-use matrix_sdk_ui::{
-    encryption_sync_service, event_cache::EventCacheError, notification_client, sync_service,
-    timeline,
-};
+use matrix_sdk_ui::{encryption_sync_service, notification_client, sync_service, timeline};
 use uniffi::UnexpectedUniFFICallbackError;
 
 #[derive(Debug, thiserror::Error)]

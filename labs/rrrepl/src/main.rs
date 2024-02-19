@@ -136,7 +136,7 @@ async fn login_and_sync(server_name: String) -> anyhow::Result<()> {
 
                         if !room.is_timeline_initialized() {
                             room.init_timeline_with_builder(
-                                room.default_room_timeline_builder().await,
+                                room.default_room_timeline_builder().await?,
                             )
                             .await?;
                         }

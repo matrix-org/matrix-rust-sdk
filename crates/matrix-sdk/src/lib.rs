@@ -39,6 +39,7 @@ mod deduplicating_handler;
 #[cfg(feature = "e2e-encryption")]
 pub mod encryption;
 mod error;
+pub mod event_cache;
 pub mod event_handler;
 mod http_client;
 pub mod matrix_auth;

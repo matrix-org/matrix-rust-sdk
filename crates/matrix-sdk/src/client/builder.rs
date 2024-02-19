@@ -37,8 +37,8 @@ use crate::http_client::HttpSettings;
 #[cfg(feature = "experimental-oidc")]
 use crate::oidc::OidcCtx;
 use crate::{
-    authentication::AuthCtx, config::RequestConfig, error::RumaApiError, http_client::HttpClient,
-    sanitize_server_name, HttpError,
+    authentication::AuthCtx, config::RequestConfig, error::RumaApiError, event_cache::EventCache,
+    http_client::HttpClient, sanitize_server_name, HttpError,
 };
 
 /// Builder that allows creating and configuring various parts of a [`Client`].
@@ -508,6 +508,7 @@ impl ClientBuilder {
             base_client,
             self.server_versions,
             self.respect_login_well_known,
+            EventCache::new(),
             #[cfg(feature = "e2e-encryption")]
             self.encryption_settings,
         );

@@ -17,7 +17,7 @@
 use std::{ops::Deref, sync::Arc};
 
 use async_once_cell::OnceCell as AsyncOnceCell;
-use matrix_sdk::{SlidingSync, SlidingSyncRoom};
+use matrix_sdk::{event_cache, SlidingSync, SlidingSyncRoom};
 use ruma::{api::client::sync::sync_events::v4::RoomSubscription, RoomId};
 
 use super::Error;
@@ -159,13 +159,20 @@ impl Room {
     }
 
     /// Create a new [`TimelineBuilder`] with the default configuration.
-    pub async fn default_room_timeline_builder(&self) -> TimelineBuilder {
-        Timeline::builder(&self.inner.room)
-            .events(
-                self.inner.sliding_sync_room.prev_batch(),
-                self.inner.sliding_sync_room.timeline_queue(),
+    pub async fn default_room_timeline_builder(&self) -> event_cache::Result<TimelineBuilder> {
+        // TODO we can remove this once the event cache handles his own cache.
+        self.inner
+            .room
+            .client()
+            .event_cache()
+            .add_initial_events(
+                self.inner.room.room_id(),
+                self.inner.sliding_sync_room.timeline_queue().iter().cloned().collect(),
             )
-            .await
-            .track_read_marker_and_receipts()
+            .await?;
+
+        Ok(Timeline::builder(&self.inner.room)
+            .with_pagination_token(self.inner.sliding_sync_room.prev_batch())
+            .track_read_marker_and_receipts())
     }
 }

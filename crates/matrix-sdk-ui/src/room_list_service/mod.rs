@@ -73,8 +73,8 @@ use eyeball::{SharedObservable, Subscriber};
 use futures_util::{pin_mut, Stream, StreamExt};
 pub use matrix_sdk::RoomListEntry;
 use matrix_sdk::{
-    sliding_sync::Ranges, Client, Error as SlidingSyncError, SlidingSync, SlidingSyncList,
-    SlidingSyncListBuilder, SlidingSyncMode,
+    event_cache::EventCacheError, sliding_sync::Ranges, Client, Error as SlidingSyncError,
+    SlidingSync, SlidingSyncList, SlidingSyncListBuilder, SlidingSyncMode,
 };
 use matrix_sdk_base::ring_buffer::RingBuffer;
 pub use room::*;
@@ -94,8 +94,6 @@ use tokio::{
     sync::{Mutex, RwLock},
     time::timeout,
 };
-
-use crate::event_cache::EventCacheError;
 
 /// The [`RoomListService`] type. See the module's documentation to learn more.
 #[derive(Debug)]
@@ -213,6 +211,9 @@ impl RoomListService {
             .await
             .map(Arc::new)
             .map_err(Error::SlidingSync)?;
+
+        // Eagerly subscribe the event cache to sync responses.
+        client.event_cache().subscribe(&client);
 
         Ok(Self {
             client,

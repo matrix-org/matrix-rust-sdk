@@ -16,8 +16,11 @@ use std::{collections::BTreeSet, sync::Arc};
 
 use eyeball::SharedObservable;
 use futures_util::{pin_mut, StreamExt};
-use imbl::Vector;
-use matrix_sdk::{deserialized_responses::SyncTimelineEvent, executor::spawn, Room};
+use matrix_sdk::{
+    event_cache::{self, RoomEventCacheUpdate},
+    executor::spawn,
+    Room,
+};
 use matrix_sdk_base::sync::JoinedRoomUpdate;
 use ruma::{
     events::{receipt::ReceiptType, AnySyncTimelineEvent},
@@ -33,7 +36,6 @@ use super::{
     queue::send_queued_messages,
     BackPaginationStatus, Timeline, TimelineDropHandle,
 };
-use crate::event_cache::{EventCache, RoomEventCacheUpdate};
 
 /// Builder that allows creating and configuring various parts of a
 /// [`Timeline`].
@@ -43,34 +45,19 @@ pub struct TimelineBuilder {
     room: Room,
     prev_token: Option<String>,
     settings: TimelineInnerSettings,
-    event_cache: EventCache,
 }
 
 impl TimelineBuilder {
     pub(super) fn new(room: &Room) -> Self {
-        Self {
-            room: room.clone(),
-            prev_token: None,
-            settings: TimelineInnerSettings::default(),
-            event_cache: EventCache::new(room.client()),
-        }
+        Self { room: room.clone(), prev_token: None, settings: TimelineInnerSettings::default() }
     }
 
     /// Add initial events to the timeline.
     ///
-    /// TODO: remove this, the EventCache should hold the events data in the
-    /// first place, and we'd provide an existing EventCache to the
-    /// TimelineBuilder.
-    pub async fn events(
-        mut self,
-        prev_token: Option<String>,
-        events: Vector<SyncTimelineEvent>,
-    ) -> Self {
+    /// TODO: remove this, the EventCache should hold the pagination token in
+    /// the first place.
+    pub fn with_pagination_token(mut self, prev_token: Option<String>) -> Self {
         self.prev_token = prev_token;
-        self.event_cache
-            .add_initial_events(self.room.room_id(), events.iter().cloned().collect())
-            .await
-            .expect("room exists");
         self
     }
 
@@ -131,8 +118,14 @@ impl TimelineBuilder {
             prev_token = self.prev_token,
         )
     )]
-    pub async fn build(self) -> crate::event_cache::Result<Timeline> {
-        let Self { room, event_cache, prev_token, settings } = self;
+    pub async fn build(self) -> event_cache::Result<Timeline> {
+        let Self { room, prev_token, settings } = self;
+
+        let client = room.client();
+        let event_cache = client.event_cache();
+
+        // Subscribe the event cache to sync responses, in case we hadn't done it yet.
+        event_cache.subscribe(&client);
 
         let (room_event_cache, event_cache_drop) = event_cache.for_room(room.room_id()).await?;
         let (events, mut event_subscriber) = room_event_cache.subscribe().await?;
