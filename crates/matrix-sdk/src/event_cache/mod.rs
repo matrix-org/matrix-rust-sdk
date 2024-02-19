@@ -107,9 +107,6 @@ impl Drop for EventCacheDropHandles {
 pub struct EventCache {
     /// Reference to the inner cache.
     inner: Arc<EventCacheInner>,
-
-    /// Handles to keep alive the task listening to updates.
-    drop_handles: OnceLock<Arc<EventCacheDropHandles>>,
 }
 
 impl Debug for EventCache {
@@ -132,8 +129,10 @@ impl EventCache {
             by_room: Default::default(),
             store,
             process_lock: Default::default(),
+            drop_handles: Default::default(),
         });
-        Self { inner, drop_handles: Default::default() }
+
+        Self { inner }
     }
 
     /// Starts subscribing the [`EventCache`] to sync responses, if not done
@@ -142,11 +141,12 @@ impl EventCache {
     /// Re-running this has no effect if we already subscribed before, and is
     /// cheap.
     pub fn subscribe(&self, client: &Client) {
-        self.drop_handles.get_or_init(|| {
+        let _ = self.inner.drop_handles.get_or_init(|| {
             // Spawn the task that will listen to all the room updates at once.
             let room_updates_feed = client.subscribe_to_all_room_updates();
             let listen_updates_task =
                 spawn(Self::listen_task(self.inner.clone(), room_updates_feed));
+
             Arc::new(EventCacheDropHandles { listen_updates_task })
         });
     }
@@ -226,7 +226,7 @@ impl EventCache {
         &self,
         room_id: &RoomId,
     ) -> Result<(RoomEventCache, Arc<EventCacheDropHandles>)> {
-        let Some(drop_handles) = self.drop_handles.get().cloned() else {
+        let Some(drop_handles) = self.inner.drop_handles.get().cloned() else {
             return Err(EventCacheError::NotSubscribedYet);
         };
 
@@ -268,6 +268,9 @@ struct EventCacheInner {
     /// A lock to make sure that despite multiple updates coming to the
     /// `EventCache`, it will only handle one at a time.
     process_lock: Mutex<()>,
+
+    /// Handles to keep alive the task listening to updates.
+    drop_handles: OnceLock<Arc<EventCacheDropHandles>>,
 }
 
 impl EventCacheInner {
