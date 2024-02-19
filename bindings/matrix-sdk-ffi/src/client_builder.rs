@@ -7,7 +7,8 @@ use matrix_sdk::{
         api::{error::UnknownVersionError, MatrixVersion},
         ServerName, UserId,
     },
-    Client as MatrixClient, ClientBuilder as MatrixClientBuilder,
+    Client as MatrixClient, ClientBuildError as MatrixClientBuildError,
+    ClientBuilder as MatrixClientBuilder, IdParseError,
 };
 use sanitize_filename_reader_friendly::sanitize;
 use url::Url;
@@ -24,6 +25,45 @@ enum HomeserverConfig {
     Url(String),
     ServerName(String),
     ServerNameOrUrl(String),
+}
+
+#[derive(Debug, thiserror::Error, uniffi::Error)]
+#[uniffi(flat_error)]
+pub enum ClientBuildError {
+    #[error(transparent)]
+    Sdk(MatrixClientBuildError),
+    #[error("Failed to build the client: {message}")]
+    Generic { message: String },
+}
+
+impl From<MatrixClientBuildError> for ClientBuildError {
+    fn from(e: MatrixClientBuildError) -> ClientBuildError {
+        ClientBuildError::Sdk(e)
+    }
+}
+
+impl From<IdParseError> for ClientBuildError {
+    fn from(e: IdParseError) -> ClientBuildError {
+        ClientBuildError::Generic { message: format!("{e:#}") }
+    }
+}
+
+impl From<std::io::Error> for ClientBuildError {
+    fn from(e: std::io::Error) -> ClientBuildError {
+        ClientBuildError::Generic { message: format!("{e:#}") }
+    }
+}
+
+impl From<url::ParseError> for ClientBuildError {
+    fn from(e: url::ParseError) -> ClientBuildError {
+        ClientBuildError::Generic { message: format!("{e:#}") }
+    }
+}
+
+impl From<ClientError> for ClientBuildError {
+    fn from(e: ClientError) -> ClientBuildError {
+        ClientBuildError::Generic { message: format!("{e:#}") }
+    }
 }
 
 #[derive(Clone, uniffi::Object)]
@@ -169,7 +209,7 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
-    pub fn build(self: Arc<Self>) -> Result<Arc<Client>, ClientError> {
+    pub fn build(self: Arc<Self>) -> Result<Arc<Client>, ClientBuildError> {
         Ok(Arc::new(self.build_inner()?))
     }
 }
@@ -204,7 +244,7 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
-    pub(crate) fn build_inner(self: Arc<Self>) -> anyhow::Result<Client> {
+    pub(crate) fn build_inner(self: Arc<Self>) -> Result<Client, ClientBuildError> {
         let builder = unwrap_or_clone_arc(self);
         let mut inner_builder = builder.inner;
 
@@ -231,9 +271,9 @@ impl ClientBuilder {
                     let user = UserId::parse(username)?;
                     inner_builder.server_name(user.server_name())
                 } else {
-                    anyhow::bail!(
-                        "Failed to build: One of homeserver_url, server_name, server_name_or_homeserver_url or username must be called."
-                    );
+                    return Err(ClientBuildError::Generic {
+                        message: "Failed to build: One of homeserver_url, server_name, server_name_or_homeserver_url or username must be called.".to_string(),
+                    });
                 }
             }
         };
@@ -246,8 +286,10 @@ impl ClientBuilder {
             if let Ok(cert) = Certificate::from_der(&certificate) {
                 certificates.push(cert);
             } else {
-                let cert = Certificate::from_pem(&certificate)
-                    .map_err(|e| anyhow::anyhow!("Failed to add a root certificate {e:?}"))?;
+                let cert =
+                    Certificate::from_pem(&certificate).map_err(|e| ClientBuildError::Generic {
+                        message: format!("Failed to add a root certificate {e:?}"),
+                    })?;
                 certificates.push(cert);
             }
         }
@@ -275,7 +317,8 @@ impl ClientBuilder {
                 server_versions
                     .iter()
                     .map(|s| MatrixVersion::try_from(s.as_str()))
-                    .collect::<Result<Vec<MatrixVersion>, UnknownVersionError>>()?,
+                    .collect::<Result<Vec<MatrixVersion>, UnknownVersionError>>()
+                    .map_err(|e| ClientBuildError::Generic { message: e.to_string() })?,
             );
         }
 
