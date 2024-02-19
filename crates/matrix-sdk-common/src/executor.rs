@@ -16,8 +16,6 @@
 //! we do usually.
 
 #[cfg(target_arch = "wasm32")]
-pub use std::convert::Infallible as JoinError;
-#[cfg(target_arch = "wasm32")]
 use std::{
     future::Future,
     pin::Pin,
@@ -25,7 +23,12 @@ use std::{
 };
 
 #[cfg(target_arch = "wasm32")]
-use futures_util::{future::RemoteHandle, FutureExt};
+pub use futures_util::future::Aborted as JoinError;
+#[cfg(target_arch = "wasm32")]
+use futures_util::{
+    future::{AbortHandle, Abortable, RemoteHandle},
+    FutureExt,
+};
 #[cfg(not(target_arch = "wasm32"))]
 pub use tokio::task::{spawn, JoinError, JoinHandle};
 
@@ -34,16 +37,31 @@ pub fn spawn<F, T>(future: F) -> JoinHandle<T>
 where
     F: Future<Output = T> + 'static,
 {
-    let (fut, handle) = future.remote_handle();
-    wasm_bindgen_futures::spawn_local(fut);
+    let (future, remote_handle) = future.remote_handle();
+    let (abort_handle, abort_registration) = AbortHandle::new_pair();
+    let future = Abortable::new(future, abort_registration);
 
-    JoinHandle { handle }
+    wasm_bindgen_futures::spawn_local(async {
+        // Poll the future, and ignore the result (either it's `Ok(())`, or it's
+        // `Err(Aborted)`).
+        let _ = future.await;
+    });
+
+    JoinHandle { remote_handle, abort_handle }
 }
 
 #[cfg(target_arch = "wasm32")]
 #[derive(Debug)]
 pub struct JoinHandle<T> {
-    handle: RemoteHandle<T>,
+    remote_handle: RemoteHandle<T>,
+    abort_handle: AbortHandle,
+}
+
+#[cfg(target_arch = "wasm32")]
+impl<T> JoinHandle<T> {
+    pub fn abort(&self) {
+        self.abort_handle.abort();
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -51,6 +69,11 @@ impl<T: 'static> Future for JoinHandle<T> {
     type Output = Result<T, JoinError>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        Pin::new(&mut self.handle).poll(cx).map(Ok)
+        if self.abort_handle.is_aborted() {
+            // The future has been aborted. It is not possible to poll it again.
+            Poll::Ready(Err(JoinError))
+        } else {
+            Pin::new(&mut self.remote_handle).poll(cx).map(Ok)
+        }
     }
 }
