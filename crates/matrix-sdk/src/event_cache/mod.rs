@@ -164,13 +164,7 @@ impl EventCache {
 
                     // Left rooms.
                     for (room_id, left_room_update) in updates.leave {
-                        let room = match inner.for_room(&room_id).await {
-                            Ok(room) => room,
-                            Err(err) => {
-                                error!("can't get left room {room_id}: {err}");
-                                continue;
-                            }
-                        };
+                        let room = inner.for_room(&room_id).await;
 
                         if let Err(err) = room.inner.handle_left_room_update(left_room_update).await
                         {
@@ -180,13 +174,7 @@ impl EventCache {
 
                     // Joined rooms.
                     for (room_id, joined_room_update) in updates.join {
-                        let room = match inner.for_room(&room_id).await {
-                            Ok(room) => room,
-                            Err(err) => {
-                                error!("can't get joined room {room_id}: {err}");
-                                continue;
-                            }
-                        };
+                        let room = inner.for_room(&room_id).await;
 
                         if let Err(err) =
                             room.inner.handle_joined_room_update(joined_room_update).await
@@ -230,7 +218,7 @@ impl EventCache {
             return Err(EventCacheError::NotSubscribedYet);
         };
 
-        let room = self.inner.for_room(room_id).await?;
+        let room = self.inner.for_room(room_id).await;
 
         Ok((room, drop_handles))
     }
@@ -244,7 +232,7 @@ impl EventCache {
         room_id: &RoomId,
         events: Vec<SyncTimelineEvent>,
     ) -> Result<()> {
-        let room_cache = self.inner.for_room(room_id).await?;
+        let room_cache = self.inner.for_room(room_id).await;
 
         // We could have received events during a previous sync; remove them all, since
         // we can't know where to insert the "initial events" with respect to
@@ -280,23 +268,16 @@ impl EventCacheInner {
     /// Return a room-specific view over the [`EventCache`].
     ///
     /// It may not be found, if the room isn't known to the client.
-    async fn for_room(&self, room_id: &RoomId) -> Result<RoomEventCache> {
-        let by_room_guard = self.by_room.read().await;
-
-        match by_room_guard.get(room_id) {
-            Some(room) => Ok(room.clone()),
-            None => {
-                let room_event_cache = RoomEventCache::new(room_id.to_owned(), self.store.clone());
-
-                // Drop the `RwLockReadGuard`.
-                drop(by_room_guard);
-
+    async fn for_room(&self, room_id: &RoomId) -> RoomEventCache {
+        self.by_room
+            .write()
+            .await
+            .entry(room_id.to_owned())
+            .or_insert_with(|| {
                 // Create the new `RoomEventCache`.
-                self.by_room.write().await.insert(room_id.to_owned(), room_event_cache.clone());
-
-                Ok(room_event_cache)
-            }
-        }
+                RoomEventCache::new(room_id.to_owned(), self.store.clone())
+            })
+            .clone()
     }
 }
 
