@@ -271,7 +271,7 @@ pub(crate) struct ClientInner {
     /// A central cache for events, inactive first.
     ///
     /// It becomes active when [`EventCache::subscribe`] is called.
-    pub(crate) event_cache: EventCache,
+    pub(crate) event_cache: OnceCell<EventCache>,
 
     /// End-to-end encryption related state.
     #[cfg(feature = "e2e-encryption")]
@@ -285,7 +285,7 @@ impl ClientInner {
     /// upon instantiation of a sub-client, e.g. a client specialized for
     /// notifications.
     #[allow(clippy::too_many_arguments)]
-    fn new(
+    async fn new(
         auth_ctx: Arc<AuthCtx>,
         homeserver: Url,
         #[cfg(feature = "experimental-sliding-sync")] sliding_sync_proxy: Option<Url>,
@@ -293,7 +293,7 @@ impl ClientInner {
         base_client: BaseClient,
         server_versions: Option<Box<[MatrixVersion]>>,
         respect_login_well_known: bool,
-        event_cache: EventCache,
+        event_cache: OnceCell<EventCache>,
         #[cfg(feature = "e2e-encryption")] encryption_settings: EncryptionSettings,
     ) -> Arc<Self> {
         let client = Self {
@@ -324,6 +324,8 @@ impl ClientInner {
 
         #[cfg(feature = "e2e-encryption")]
         client.e2ee.initialize_room_key_tasks(&client);
+
+        let _ = client.event_cache.get_or_init(|| async { EventCache::new(&client) }).await;
 
         client
     }
@@ -1994,12 +1996,15 @@ impl Client {
 
     /// Create a new specialized `Client` that can process notifications.
     pub async fn notification_client(&self) -> Result<Client> {
+        #[cfg(feature = "experimental-sliding-sync")]
+        let sliding_sync_proxy = self.inner.sliding_sync_proxy.read().unwrap().clone();
+
         let client = Client {
             inner: ClientInner::new(
                 self.inner.auth_ctx.clone(),
                 self.homeserver(),
                 #[cfg(feature = "experimental-sliding-sync")]
-                self.inner.sliding_sync_proxy.read().unwrap().clone(),
+                sliding_sync_proxy,
                 self.inner.http_client.clone(),
                 self.inner.base_client.clone_with_in_memory_state_store(),
                 self.inner.server_versions.get().cloned(),
@@ -2007,7 +2012,8 @@ impl Client {
                 self.inner.event_cache.clone(),
                 #[cfg(feature = "e2e-encryption")]
                 self.inner.e2ee.encryption_settings,
-            ),
+            )
+            .await,
         };
 
         // Copy the parent's session meta into the child. This initializes the in-memory
@@ -2026,7 +2032,8 @@ impl Client {
 
     /// The [`EventCache`] instance for this [`Client`].
     pub fn event_cache(&self) -> &EventCache {
-        &self.inner.event_cache
+        // SAFETY: always initialized in the `Client` ctor.
+        self.inner.event_cache.get().unwrap()
     }
 }
 

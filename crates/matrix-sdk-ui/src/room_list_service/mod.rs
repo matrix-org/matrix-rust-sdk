@@ -213,7 +213,7 @@ impl RoomListService {
             .map_err(Error::SlidingSync)?;
 
         // Eagerly subscribe the event cache to sync responses.
-        client.event_cache().subscribe(&client);
+        client.event_cache().subscribe()?;
 
         Ok(Self {
             client,
@@ -518,6 +518,9 @@ pub enum Error {
 
     #[error("An error occurred while initializing the timeline")]
     InitializingTimeline(#[source] EventCacheError),
+
+    #[error("The attached event cache ran into an error")]
+    EventCache(#[from] EventCacheError),
 }
 
 /// An input for the [`RoomList`]' state machine.

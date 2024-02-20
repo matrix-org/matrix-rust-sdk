@@ -43,7 +43,7 @@
 use std::{
     collections::BTreeMap,
     fmt::Debug,
-    sync::{Arc, OnceLock},
+    sync::{Arc, OnceLock, Weak},
 };
 
 use matrix_sdk_base::{
@@ -63,7 +63,7 @@ use tokio::sync::{
 use tracing::{error, trace};
 
 use self::store::{EventCacheStore, MemoryStore};
-use crate::Client;
+use crate::{client::ClientInner, Client, Room};
 
 mod store;
 
@@ -76,6 +76,19 @@ pub enum EventCacheError {
         "The EventCache hasn't subscribed to sync responses yet, call `EventCache::subscribe()`"
     )]
     NotSubscribedYet,
+
+    /// The room hasn't been found in the client.
+    ///
+    /// Technically, it's possible to request a `RoomEventCache` for a room that
+    /// is not known to the client, leading to this error.
+    #[error("Room {0} hasn't been found in the Client.")]
+    RoomNotFound(OwnedRoomId),
+
+    /// The [`EventCache`] owns a weak reference to the [`Client`] it pertains
+    /// to. It's possible this weak reference points to nothing anymore, at
+    /// times where we try to use the client.
+    #[error("The owning client of the event cache has been dropped.")]
+    ClientDropped,
 }
 
 /// A result using the [`EventCacheError`].
@@ -115,17 +128,12 @@ impl Debug for EventCache {
     }
 }
 
-impl Default for EventCache {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl EventCache {
     /// Create a new [`EventCache`] for the given client.
-    pub fn new() -> Self {
+    pub(crate) fn new(client: &Arc<ClientInner>) -> Self {
         let store = Arc::new(MemoryStore::new());
         let inner = Arc::new(EventCacheInner {
+            client: Arc::downgrade(client),
             by_room: Default::default(),
             store,
             process_lock: Default::default(),
@@ -140,7 +148,9 @@ impl EventCache {
     ///
     /// Re-running this has no effect if we already subscribed before, and is
     /// cheap.
-    pub fn subscribe(&self, client: &Client) {
+    pub fn subscribe(&self) -> Result<()> {
+        let client = self.inner.client()?;
+
         let _ = self.inner.drop_handles.get_or_init(|| {
             // Spawn the task that will listen to all the room updates at once.
             let room_updates_feed = client.subscribe_to_all_room_updates();
@@ -149,6 +159,8 @@ impl EventCache {
 
             Arc::new(EventCacheDropHandles { listen_updates_task })
         });
+
+        Ok(())
     }
 
     async fn listen_task(
@@ -159,33 +171,17 @@ impl EventCache {
         loop {
             match room_updates_feed.recv().await {
                 Ok(updates) => {
-                    // We received some room updates. Handle them.
-                    let _process_lock = inner.process_lock.lock().await;
-
-                    // Left rooms.
-                    for (room_id, left_room_update) in updates.leave {
-                        let room = inner.for_room(&room_id).await;
-
-                        if let Err(err) = room.inner.handle_left_room_update(left_room_update).await
-                        {
-                            error!("handling left room update: {err}");
+                    if let Err(err) = inner.handle_room_updates(updates).await {
+                        match err {
+                            EventCacheError::ClientDropped => {
+                                // The client has dropped, exit the listen task.
+                                break;
+                            }
+                            err => {
+                                error!("Error when handling room updates: {err}");
+                            }
                         }
                     }
-
-                    // Joined rooms.
-                    for (room_id, joined_room_update) in updates.join {
-                        let room = inner.for_room(&room_id).await;
-
-                        if let Err(err) =
-                            room.inner.handle_joined_room_update(joined_room_update).await
-                        {
-                            error!("handling joined room update: {err}");
-                        }
-                    }
-
-                    // Invited rooms.
-                    // TODO: we don't anything with `updates.invite` at
-                    // this point.
                 }
 
                 Err(RecvError::Lagged(_)) => {
@@ -218,7 +214,7 @@ impl EventCache {
             return Err(EventCacheError::NotSubscribedYet);
         };
 
-        let room = self.inner.for_room(room_id).await;
+        let room = self.inner.for_room(room_id).await?;
 
         Ok((room, drop_handles))
     }
@@ -232,7 +228,7 @@ impl EventCache {
         room_id: &RoomId,
         events: Vec<SyncTimelineEvent>,
     ) -> Result<()> {
-        let room_cache = self.inner.for_room(room_id).await;
+        let room_cache = self.inner.for_room(room_id).await?;
 
         // We could have received events during a previous sync; remove them all, since
         // we can't know where to insert the "initial events" with respect to
@@ -247,6 +243,10 @@ impl EventCache {
 }
 
 struct EventCacheInner {
+    /// A weak reference to the inner client, useful when trying to get a handle
+    /// on the owning client.
+    client: Weak<ClientInner>,
+
     /// Lazily-filled cache of live [`RoomEventCache`], once per room.
     by_room: RwLock<BTreeMap<OwnedRoomId, RoomEventCache>>,
 
@@ -265,31 +265,76 @@ struct EventCacheInner {
 }
 
 impl EventCacheInner {
+    fn client(&self) -> Result<Client> {
+        Ok(Client { inner: self.client.upgrade().ok_or(EventCacheError::ClientDropped)? })
+    }
+
+    /// Handles a single set of room updates at once.
+    async fn handle_room_updates(&self, updates: RoomUpdates) -> Result<()> {
+        // First, take the lock that indicates we're processing updates, to avoid
+        // handling multiple updates concurrently.
+        let _process_lock = self.process_lock.lock().await;
+
+        // Left rooms.
+        for (room_id, left_room_update) in updates.leave {
+            let room = self.for_room(&room_id).await?;
+
+            if let Err(err) = room.inner.handle_left_room_update(left_room_update).await {
+                // Non-fatal error, try to continue to the next room.
+                error!("handling left room update: {err}");
+            }
+        }
+
+        // Joined rooms.
+        for (room_id, joined_room_update) in updates.join {
+            let room = self.for_room(&room_id).await?;
+
+            if let Err(err) = room.inner.handle_joined_room_update(joined_room_update).await {
+                // Non-fatal error, try to continue to the next room.
+                error!("handling joined room update: {err}");
+            }
+        }
+
+        // Invited rooms.
+        // TODO: we don't anything with `updates.invite` at this point.
+
+        Ok(())
+    }
+
     /// Return a room-specific view over the [`EventCache`].
     ///
     /// It may not be found, if the room isn't known to the client.
-    async fn for_room(&self, room_id: &RoomId) -> RoomEventCache {
+    async fn for_room(&self, room_id: &RoomId) -> Result<RoomEventCache> {
         // Fast path: the entry exists; let's acquire a read lock, it's cheaper than a
         // write lock.
-        let read_guard = self.by_room.read().await;
+        let by_room_guard = self.by_room.read().await;
 
-        if let Some(room) = read_guard.get(room_id) {
-            return room.clone();
+        match by_room_guard.get(room_id) {
+            Some(room) => Ok(room.clone()),
+
+            None => {
+                // Slow-path: the entry doesn't exist; let's acquire a write lock.
+                drop(by_room_guard);
+                let mut by_room_guard = self.by_room.write().await;
+
+                // In the meanwhile, some other caller might have obtained write access and done
+                // the same, so check for existence again.
+                if let Some(room) = by_room_guard.get(room_id) {
+                    return Ok(room.clone());
+                }
+
+                let room = self
+                    .client()?
+                    .get_room(room_id)
+                    .ok_or_else(|| EventCacheError::RoomNotFound(room_id.to_owned()))?;
+
+                let room_event_cache = RoomEventCache::new(room, self.store.clone());
+
+                by_room_guard.insert(room_id.to_owned(), room_event_cache.clone());
+
+                Ok(room_event_cache)
+            }
         }
-
-        // Slow-path: the entry doesn't exist; let's acquire a write lock.
-        drop(read_guard);
-
-        self.by_room
-            .write()
-            .await
-            // Use `Entry` to avoid race condition.
-            .entry(room_id.to_owned())
-            .or_insert_with(|| {
-                // Create the new `RoomEventCache`.
-                RoomEventCache::new(room_id.to_owned(), self.store.clone())
-            })
-            .clone()
     }
 }
 
@@ -309,8 +354,8 @@ impl Debug for RoomEventCache {
 
 impl RoomEventCache {
     /// Create a new [`RoomEventCache`] using the given room and store.
-    fn new(room_id: OwnedRoomId, store: Arc<dyn EventCacheStore>) -> Self {
-        Self { inner: Arc::new(RoomEventCacheInner::new(room_id, store)) }
+    fn new(room: Room, store: Arc<dyn EventCacheStore>) -> Self {
+        Self { inner: Arc::new(RoomEventCacheInner::new(room, store)) }
     }
 
     /// Subscribe to room updates for this room, after getting the initial list
@@ -321,7 +366,7 @@ impl RoomEventCache {
         &self,
     ) -> Result<(Vec<SyncTimelineEvent>, Receiver<RoomEventCacheUpdate>)> {
         Ok((
-            self.inner.store.room_events(&self.inner.room_id).await?,
+            self.inner.store.room_events(self.inner.room.room_id()).await?,
             self.inner.sender.subscribe(),
         ))
     }
@@ -335,16 +380,16 @@ struct RoomEventCacheInner {
     /// A pointer to the store implementation used for this event cache.
     store: Arc<dyn EventCacheStore>,
 
-    /// The room id of the room this event cache applies to.
-    room_id: OwnedRoomId,
+    /// The Client [`Room`] this event cache pertains to.
+    room: Room,
 }
 
 impl RoomEventCacheInner {
     /// Creates a new cache for a room, and subscribes to room updates, so as
     /// to handle new timeline events.
-    fn new(room_id: OwnedRoomId, store: Arc<dyn EventCacheStore>) -> Self {
+    fn new(room: Room, store: Arc<dyn EventCacheStore>) -> Self {
         let sender = Sender::new(32);
-        Self { room_id, store, sender }
+        Self { room, store, sender }
     }
 
     async fn handle_joined_room_update(&self, updates: JoinedRoomUpdate) -> Result<()> {
@@ -370,13 +415,13 @@ impl RoomEventCacheInner {
             // timeline, but we're not there yet. In the meanwhile, clear the
             // items from the room. TODO: implement Smart Matching™.
             trace!("limited timeline, clearing all previous events");
-            self.store.clear_room_events(&self.room_id).await?;
+            self.store.clear_room_events(self.room.room_id()).await?;
             let _ = self.sender.send(RoomEventCacheUpdate::Clear);
         }
 
         // Add all the events to the backend.
         trace!("adding new events");
-        self.store.add_room_events(&self.room_id, timeline.events.clone()).await?;
+        self.store.add_room_events(self.room.room_id(), timeline.events.clone()).await?;
 
         // Propagate events to observers.
         let _ = self.sender.send(RoomEventCacheUpdate::Append {
@@ -399,7 +444,7 @@ impl RoomEventCacheInner {
     /// Append a set of events to the room cache and storage, notifying
     /// observers.
     async fn append_events(&self, events: Vec<SyncTimelineEvent>) -> Result<()> {
-        self.store.add_room_events(&self.room_id, events.clone()).await?;
+        self.store.add_room_events(self.room.room_id(), events.clone()).await?;
 
         let _ = self.sender.send(RoomEventCacheUpdate::Append {
             events,
