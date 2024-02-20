@@ -47,6 +47,7 @@ pub struct AuthenticationService {
     cross_process_refresh_lock_id: Option<String>,
     session_delegate: Option<Arc<dyn ClientSessionDelegate>>,
     additional_root_certificates: Vec<CertificateBytes>,
+    proxy: Option<String>,
 }
 
 impl Drop for AuthenticationService {
@@ -221,6 +222,7 @@ impl AuthenticationService {
         passphrase: Option<String>,
         user_agent: Option<String>,
         additional_root_certificates: Vec<Vec<u8>>,
+        proxy: Option<String>,
         oidc_configuration: Option<OidcConfiguration>,
         custom_sliding_sync_proxy: Option<String>,
         session_delegate: Option<Box<dyn ClientSessionDelegate>>,
@@ -237,6 +239,7 @@ impl AuthenticationService {
             session_delegate: session_delegate.map(Into::into),
             cross_process_refresh_lock_id,
             additional_root_certificates,
+            proxy,
         })
     }
 
@@ -390,6 +393,10 @@ impl AuthenticationService {
 
         if let Some(user_agent) = self.user_agent.clone() {
             builder = builder.user_agent(user_agent);
+        }
+
+        if let Some(proxy) = &self.proxy {
+            builder = builder.proxy(proxy.to_owned())
         }
 
         builder = builder.add_root_certificates(self.additional_root_certificates.clone());
@@ -607,6 +614,10 @@ impl AuthenticationService {
                 auto_enable_backups: true,
             })
             .username(user_id.to_string());
+
+        if let Some(proxy) = &self.proxy {
+            client = client.proxy(proxy.to_owned())
+        }
 
         if let Some(id) = &self.cross_process_refresh_lock_id {
             let Some(ref session_delegate) = self.session_delegate else {
