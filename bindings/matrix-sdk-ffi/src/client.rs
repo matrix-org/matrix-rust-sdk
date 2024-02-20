@@ -766,6 +766,7 @@ impl From<&search_users::v3::User> for UserProfile {
 impl Client {
     fn process_session_change(&self, session_change: SessionChange) {
         if let Some(delegate) = self.delegate.read().unwrap().clone() {
+            debug!("Applying session change: {session_change:?}");
             RUNTIME.spawn_blocking(move || match session_change {
                 SessionChange::UnknownToken { soft_logout } => {
                     delegate.did_receive_auth_error(soft_logout);
@@ -774,6 +775,10 @@ impl Client {
                     delegate.did_refresh_tokens();
                 }
             });
+        } else {
+            debug!(
+                "No client delegate found, session change couldn't be applied: {session_change:?}"
+            );
         }
     }
 
