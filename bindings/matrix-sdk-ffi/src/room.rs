@@ -353,13 +353,11 @@ impl Room {
     ///
     /// # Arguments
     ///
-    /// * `event_id` - The ID of the user to ignore.
-    pub fn ignore_user(&self, user_id: String) -> Result<(), ClientError> {
-        RUNTIME.block_on(async move {
-            let user_id = UserId::parse(user_id)?;
-            self.inner.client().account().ignore_user(&user_id).await?;
-            Ok(())
-        })
+    /// * `user_id` - The ID of the user to ignore.
+    pub async fn ignore_user(&self, user_id: String) -> Result<(), ClientError> {
+        let user_id = UserId::parse(user_id)?;
+        self.inner.client().account().ignore_user(&user_id).await?;
+        Ok(())
     }
 
     /// Leave this room.

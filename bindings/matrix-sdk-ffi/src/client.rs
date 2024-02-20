@@ -717,20 +717,16 @@ impl Client {
         Ok(vec![])
     }
 
-    pub fn ignore_user(&self, user_id: String) -> Result<(), ClientError> {
-        RUNTIME.block_on(async move {
-            let user_id = UserId::parse(user_id)?;
-            self.inner.account().ignore_user(&user_id).await?;
-            Ok(())
-        })
+    pub async fn ignore_user(&self, user_id: String) -> Result<(), ClientError> {
+        let user_id = UserId::parse(user_id)?;
+        self.inner.account().ignore_user(&user_id).await?;
+        Ok(())
     }
 
-    pub fn unignore_user(&self, user_id: String) -> Result<(), ClientError> {
-        RUNTIME.block_on(async move {
-            let user_id = UserId::parse(user_id)?;
-            self.inner.account().unignore_user(&user_id).await?;
-            Ok(())
-        })
+    pub async fn unignore_user(&self, user_id: String) -> Result<(), ClientError> {
+        let user_id = UserId::parse(user_id)?;
+        self.inner.account().unignore_user(&user_id).await?;
+        Ok(())
     }
 
     pub fn subscribe_to_ignored_users(
