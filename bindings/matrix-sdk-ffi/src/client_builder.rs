@@ -31,15 +31,9 @@ enum HomeserverConfig {
 #[uniffi(flat_error)]
 pub enum ClientBuildError {
     #[error(transparent)]
-    Sdk(MatrixClientBuildError),
+    Sdk(#[from] MatrixClientBuildError),
     #[error("Failed to build the client: {message}")]
     Generic { message: String },
-}
-
-impl From<MatrixClientBuildError> for ClientBuildError {
-    fn from(e: MatrixClientBuildError) -> ClientBuildError {
-        ClientBuildError::Sdk(e)
-    }
 }
 
 impl From<IdParseError> for ClientBuildError {
