@@ -26,6 +26,9 @@ Additions:
   to encrypt an event to a specific device.
   ([#3091](https://github.com/matrix-org/matrix-rust-sdk/pull/3091))
 
+- Add new API `store::Store::export_room_keys_stream` that provides room
+  keys on demand.
+
 # 0.7.0
 
 - Add method to mark a list of inbound group sessions as backed up:

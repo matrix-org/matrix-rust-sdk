@@ -2317,7 +2317,7 @@ pub(crate) mod tests {
         (machine, otk)
     }
 
-    async fn get_machine_pair(
+    pub async fn get_machine_pair(
         alice: &UserId,
         bob: &UserId,
         use_fallback_key: bool,
