@@ -5,6 +5,9 @@ Breaking changes:
 - Rename the `OlmMachine::invalidate_group_session` method to
   `OlmMachine::discard_room_key`
 
+- Move `OlmMachine::export_room_keys` to `matrix_sdk_crypto::store::Store`.
+  (Call it with `olm_machine.store().export_room_keys(...)`.)
+
 Additions:
 
 - Expose new methods `OlmMachine::set_room_settings` and
