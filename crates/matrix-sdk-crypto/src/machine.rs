@@ -894,12 +894,17 @@ impl OlmMachine {
         self.inner.group_session_manager.encrypt(room_id, event_type, content).await
     }
 
-    /// Invalidate the currently active outbound group session for the given
-    /// room.
+    /// Forces the currently active room key, which is used to encrypt messages,
+    /// to be rotated.
+    ///
+    /// A new room key will be crated and shared with all the room members the
+    /// next time a message will be sent. You don't have to call this method,
+    /// room keys will be rotated automatically when necessary. This method is
+    /// still useful for debugging purposes.
     ///
     /// Returns true if a session was invalidated, false if there was no session
     /// to invalidate.
-    pub async fn invalidate_group_session(&self, room_id: &RoomId) -> StoreResult<bool> {
+    pub async fn discard_room_key(&self, room_id: &RoomId) -> StoreResult<bool> {
         self.inner.group_session_manager.invalidate_group_session(room_id).await
     }
 
@@ -2515,7 +2520,7 @@ pub(crate) mod tests {
         machine.create_outbound_group_session_with_defaults_test_helper(room_id).await.unwrap();
         assert!(machine.inner.group_session_manager.get_outbound_group_session(room_id).is_some());
 
-        machine.invalidate_group_session(room_id).await.unwrap();
+        machine.discard_room_key(room_id).await.unwrap();
 
         assert!(machine
             .inner

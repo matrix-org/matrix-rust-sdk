@@ -143,14 +143,19 @@ impl Room {
         }
     }
 
-    /// Forces the current outbound group session to be discarded such
-    /// that another one will be created next time an event is sent.
+    /// Forces the currently active room key, which is used to encrypt messages,
+    /// to be rotated.
+    ///
+    /// A new room key will be crated and shared with all the room members the
+    /// next time a message will be sent. You don't have to call this method,
+    /// room keys will be rotated automatically when necessary. This method is
+    /// still useful for debugging purposes.
     pub async fn discard_room_key(&self) -> Result<(), ClientError> {
         self.inner.discard_room_key().await?;
         Ok(())
     }
 
-    pub async fn timeline(&self) -> Arc<Timeline> {
+    pub async fn timeline(&self) -> Result<Arc<Timeline>, ClientError> {
         let mut write_guard = self.timeline.write().await;
         if let Some(timeline) = &*write_guard {
             Ok(timeline.clone())
