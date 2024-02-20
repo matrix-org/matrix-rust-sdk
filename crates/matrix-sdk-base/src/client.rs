@@ -1074,11 +1074,16 @@ impl BaseClient {
             if let Some(event) =
                 changes.account_data.get(&GlobalAccountDataEventType::IgnoredUserList)
             {
-                if let Ok(event) = event.deserialize_as::<IgnoredUserListEvent>() {
-                    let user_ids: Vec<String> =
-                        event.content.ignored_users.keys().map(|id| id.to_string()).collect();
+                match event.deserialize_as::<IgnoredUserListEvent>() {
+                    Ok(event) => {
+                        let user_ids: Vec<String> =
+                            event.content.ignored_users.keys().map(|id| id.to_string()).collect();
 
-                    self.ignore_user_list_changes.set(user_ids);
+                        self.ignore_user_list_changes.set(user_ids);
+                    }
+                    Err(error) => {
+                        warn!("Failed to deserialize ignored user list event: {error}")
+                    }
                 }
             }
         }
