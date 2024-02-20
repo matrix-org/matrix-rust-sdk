@@ -352,7 +352,7 @@ impl Client {
 
     /// Returns a subscriber that publishes an event every time the ignore user
     /// list changes.
-    pub fn subscribe_to_ignore_user_list_changes(&self) -> Subscriber<()> {
+    pub fn subscribe_to_ignore_user_list_changes(&self) -> Subscriber<Vec<String>> {
         self.inner.base_client.subscribe_to_ignore_user_list_changes()
     }
 

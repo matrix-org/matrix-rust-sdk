@@ -536,7 +536,7 @@ impl Room {
         Ok(self.inner.typing_notice(is_typing).await?)
     }
 
-    pub async fn subscribe_to_typing_notifications(
+    pub fn subscribe_to_typing_notifications(
         self: Arc<Self>,
         listener: Box<dyn TypingNotificationsListener>,
     ) -> Arc<TaskHandle> {
