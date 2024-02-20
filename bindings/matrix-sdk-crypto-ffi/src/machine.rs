@@ -1024,7 +1024,7 @@ impl OlmMachine {
     pub fn discard_room_key(&self, room_id: String) -> Result<(), CryptoStoreError> {
         let room_id = RoomId::parse(room_id)?;
 
-        self.runtime.block_on(self.inner.invalidate_group_session(&room_id))?;
+        self.runtime.block_on(self.inner.discard_room_key(&room_id))?;
 
         Ok(())
     }

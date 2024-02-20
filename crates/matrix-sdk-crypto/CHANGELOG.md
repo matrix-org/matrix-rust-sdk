@@ -1,5 +1,12 @@
 # UNRELEASED
 
+Breaking changes:
+
+- Rename the `OlmMachine::invalidate_group_session` method to
+  `OlmMachine::discard_room_key`
+
+Additions:
+
 - Expose new methods `OlmMachine::set_room_settings` and
   `OlmMachine::get_room_settings`.
   ([#3042](https://github.com/matrix-org/matrix-rust-sdk/pull/3042))
