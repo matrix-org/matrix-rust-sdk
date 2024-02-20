@@ -1594,6 +1594,45 @@ impl Store {
     pub(crate) fn crypto_store(&self) -> Arc<CryptoStoreWrapper> {
         self.inner.store.clone()
     }
+
+    /// Export the keys that match the given predicate.
+    ///
+    /// # Arguments
+    ///
+    /// * `predicate` - A closure that will be called for every known
+    /// `InboundGroupSession`, which represents a room key. If the closure
+    /// returns `true` the `InboundGroupSession` will be included in the export,
+    /// if the closure returns `false` it will not be included.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use matrix_sdk_crypto::{OlmMachine, encrypt_room_key_export};
+    /// # use ruma::{device_id, user_id, room_id};
+    /// # let alice = user_id!("@alice:example.org");
+    /// # async {
+    /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
+    /// let room_id = room_id!("!test:localhost");
+    /// let exported_keys = machine.store().export_room_keys(|s| s.room_id() == room_id).await.unwrap();
+    /// let encrypted_export = encrypt_room_key_export(&exported_keys, "1234", 1);
+    /// # };
+    /// ```
+    pub async fn export_room_keys(
+        &self,
+        predicate: impl FnMut(&InboundGroupSession) -> bool,
+    ) -> Result<Vec<ExportedRoomKey>> {
+        let mut exported = Vec::new();
+
+        let mut sessions = self.get_inbound_group_sessions().await?;
+        sessions.retain(predicate);
+
+        for session in sessions {
+            let export = session.export().await;
+            exported.push(export);
+        }
+
+        Ok(exported)
+    }
 }
 
 impl Deref for Store {
