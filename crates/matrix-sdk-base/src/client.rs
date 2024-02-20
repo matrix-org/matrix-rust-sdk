@@ -35,6 +35,7 @@ use ruma::events::{
 use ruma::{
     api::client as api,
     events::{
+        ignored_user_list::IgnoredUserListEvent,
         push_rules::{PushRulesEvent, PushRulesEventContent},
         room::{
             member::{MembershipState, SyncRoomMemberEvent},
@@ -93,7 +94,7 @@ pub struct BaseClient {
     #[cfg(feature = "e2e-encryption")]
     olm_machine: Arc<RwLock<Option<OlmMachine>>>,
     /// Observable of when a user is ignored/unignored.
-    pub(crate) ignore_user_list_changes: SharedObservable<()>,
+    pub(crate) ignore_user_list_changes: SharedObservable<Vec<String>>,
 
     /// A sender that is used to communicate changes to room information. Each
     /// event contains the room and a boolean whether this event should
@@ -1070,7 +1071,16 @@ impl BaseClient {
 
     pub(crate) fn apply_changes(&self, changes: &StateChanges, trigger_room_list_update: bool) {
         if changes.account_data.contains_key(&GlobalAccountDataEventType::IgnoredUserList) {
-            self.ignore_user_list_changes.set(());
+            if let Some(event) =
+                changes.account_data.get(&GlobalAccountDataEventType::IgnoredUserList)
+            {
+                if let Ok(event) = event.deserialize_as::<IgnoredUserListEvent>() {
+                    let user_ids: Vec<String> =
+                        event.content.ignored_users.keys().map(|id| id.to_string()).collect();
+
+                    self.ignore_user_list_changes.set(user_ids);
+                }
+            }
         }
 
         for (room_id, room_info) in &changes.room_infos {
@@ -1409,7 +1419,7 @@ impl BaseClient {
 
     /// Returns a subscriber that publishes an event every time the ignore user
     /// list changes
-    pub fn subscribe_to_ignore_user_list_changes(&self) -> Subscriber<()> {
+    pub fn subscribe_to_ignore_user_list_changes(&self) -> Subscriber<Vec<String>> {
         self.ignore_user_list_changes.subscribe()
     }
 
