@@ -52,6 +52,8 @@ pub enum RoomListError {
     TimelineNotInitialized { room_name: String },
     #[error("Timeline couldn't be initialized: {error}")]
     InitializingTimeline { error: String },
+    #[error("Event cache ran into an error: {error}")]
+    EventCache { error: String },
 }
 
 impl From<matrix_sdk_ui::room_list_service::Error> for RoomListError {
@@ -69,6 +71,7 @@ impl From<matrix_sdk_ui::room_list_service::Error> for RoomListError {
             InitializingTimeline(source) => {
                 Self::InitializingTimeline { error: source.to_string() }
             }
+            EventCache(error) => Self::EventCache { error: error.to_string() },
         }
     }
 }
