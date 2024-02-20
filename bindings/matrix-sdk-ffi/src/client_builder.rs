@@ -266,7 +266,7 @@ impl ClientBuilder {
                     inner_builder.server_name(user.server_name())
                 } else {
                     return Err(ClientBuildError::Generic {
-                        message: "Failed to build: One of homeserver_url, server_name, server_name_or_homeserver_url or username must be called.".to_string(),
+                        message: "Failed to build: One of homeserver_url, server_name, server_name_or_homeserver_url or username must be called.".to_owned(),
                     });
                 }
             }
