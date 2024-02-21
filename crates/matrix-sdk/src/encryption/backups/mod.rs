@@ -451,17 +451,28 @@ impl Backups {
 
         for (room_id, room_keys) in backed_up_keys.rooms {
             for (session_id, room_key) in room_keys.sessions {
-                // TODO: Log that we're skipping some keys here.
-                let Ok(room_key) = room_key.deserialize() else {
-                    warn!("Couldn't deserialize a room key we downloaded from backups, session ID: {session_id}");
-                    continue;
+                let room_key = match room_key.deserialize() {
+                    Ok(k) => k,
+                    Err(e) => {
+                        warn!(
+                            "Couldn't deserialize a room key we downloaded from backups, session \
+                             ID: {session_id}, error: {e:?}"
+                        );
+                        continue;
+                    }
                 };
 
-                let Ok(room_key) =
-                    backup_decryption_key.decrypt_session_data(room_key.session_data)
-                else {
-                    continue;
-                };
+                let room_key =
+                    match backup_decryption_key.decrypt_session_data(room_key.session_data) {
+                        Ok(k) => k,
+                        Err(e) => {
+                            warn!(
+                                "Couldn't decrypt a room key we downloaded from backups, session \
+                                 ID: {session_id}, error: {e:?}"
+                            );
+                            continue;
+                        }
+                    };
 
                 decrypted_room_keys
                     .entry(room_id.to_owned())
