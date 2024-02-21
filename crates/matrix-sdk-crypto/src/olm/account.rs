@@ -597,11 +597,7 @@ impl Account {
             // last time we created/rotated a fallback key.
             //
             // If the key is older than a week, then we rotate it.
-            if elapsed > FALLBACK_KEY_MAX_AGE {
-                true
-            } else {
-                false
-            }
+            elapsed > FALLBACK_KEY_MAX_AGE
         } else {
             // We never created a fallback key, or we're migrating to the time-based
             // fallback key rotation, so let's generate a new fallback key.
