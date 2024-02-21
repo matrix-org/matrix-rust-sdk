@@ -16,6 +16,7 @@ use std::io::{Cursor, Read, Seek, SeekFrom};
 
 use byteorder::{BigEndian, ReadBytesExt};
 use rand::{thread_rng, RngCore};
+use serde::{ser::SerializeSeq, Serialize, Serializer};
 use serde_json::Error as SerdeError;
 use thiserror::Error;
 use vodozemac::{base64_decode, base64_encode};
@@ -130,16 +131,16 @@ pub fn decrypt_room_key_export(
 /// # async {
 /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
 /// let room_id = room_id!("!test:localhost");
-/// let exported_keys = machine.store().export_room_keys(|s| s.room_id() == room_id).await.unwrap();
-/// let encrypted_export = encrypt_room_key_export(&exported_keys, "1234", 1);
+/// let exported_keys = machine.store().export_room_keys_stream(|s| s.room_id() == room_id).await.unwrap();
+/// let encrypted_export = encrypt_room_key_export(exported_keys, "1234", 1);
 /// # };
 /// ```
 pub fn encrypt_room_key_export(
-    keys: &[ExportedRoomKey],
+    keys: impl Iterator<Item = ExportedRoomKey>,
     passphrase: &str,
     rounds: u32,
 ) -> Result<String, SerdeError> {
-    let mut plaintext = serde_json::to_string(keys)?.into_bytes();
+    let mut plaintext = iter_to_json_array_utf8(keys)?;
     let ciphertext = encrypt_helper(&plaintext, passphrase, rounds);
 
     plaintext.zeroize();
@@ -208,6 +209,22 @@ fn decrypt_helper(ciphertext: &str, passphrase: &str) -> Result<String, KeyExpor
     Ok(ret?)
 }
 
+fn iter_to_json_array_utf8<I, T>(mut it: I) -> Result<Vec<u8>, SerdeError>
+where
+    T: Serialize,
+    I: Iterator<Item = T>,
+{
+    let mut stream_json = vec![];
+    let mut ser = serde_json::Serializer::new(&mut stream_json);
+    let mut seq = ser.serialize_seq(None)?;
+    while let Some(key) = it.next() {
+        seq.serialize_element(&key)?;
+    }
+    seq.end()?;
+
+    Ok(stream_json)
+}
+
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod proptests {
     use proptest::prelude::*;
@@ -240,10 +257,11 @@ mod tests {
 
     use super::{
         base64_decode, decrypt_helper, decrypt_room_key_export, encrypt_helper,
-        encrypt_room_key_export,
+        encrypt_room_key_export, iter_to_json_array_utf8,
     };
     use crate::{
-        error::OlmResult, machine::tests::get_prepared_machine_test_helper, RoomKeyImportResult,
+        error::OlmResult, machine::tests::get_prepared_machine_test_helper, olm::ExportedRoomKey,
+        RoomKeyImportResult,
     };
 
     const PASSPHRASE: &str = "1234";
@@ -293,11 +311,13 @@ mod tests {
         let room_id = room_id!("!test:localhost");
 
         machine.create_outbound_group_session_with_defaults_test_helper(room_id).await.unwrap();
-        let export = machine.store().export_room_keys(|s| s.room_id() == room_id).await.unwrap();
+        let export: Vec<_> =
+            machine.store().export_room_keys(|s| s.room_id() == room_id).await.unwrap();
 
         assert!(!export.is_empty());
 
-        let encrypted = encrypt_room_key_export(&export, "1234", 1).unwrap();
+        let encrypted =
+            encrypt_room_key_export(clone_keys(&export).into_iter(), "1234", 1).unwrap();
         let decrypted = decrypt_room_key_export(Cursor::new(encrypted), "1234").unwrap();
 
         for (exported, decrypted) in export.iter().zip(decrypted.iter()) {
@@ -308,6 +328,15 @@ mod tests {
             machine.store().import_exported_room_keys(decrypted, |_, _| {}).await.unwrap(),
             RoomKeyImportResult::new(0, 1, BTreeMap::new())
         );
+    }
+
+    /// `ExportedRoomKey` is not `Clone` so we implement that here
+    fn clone_keys(keys: &Vec<ExportedRoomKey>) -> Vec<ExportedRoomKey> {
+        keys.iter().map(clone_key).collect()
+    }
+
+    fn clone_key(key: &ExportedRoomKey) -> ExportedRoomKey {
+        serde_json::from_str(&serde_json::to_string(&key).unwrap()).unwrap()
     }
 
     #[async_test]
@@ -373,5 +402,15 @@ mod tests {
         let imported =
             decrypt_room_key_export(reader, PASSPHRASE).expect("Can't decrypt key export");
         assert!(!imported.is_empty())
+    }
+
+    #[test]
+    fn serializing_an_empty_iterator_produces_an_empty_array() {
+        assert_eq!(iter_to_json_array_utf8(std::iter::empty::<i32>()).unwrap(), b"[]");
+    }
+
+    #[test]
+    fn serializing_an_iterator_creates_an_array() {
+        assert_eq!(iter_to_json_array_utf8(1..=5).unwrap(), b"[1,2,3,4,5]");
     }
 }
