@@ -16,14 +16,14 @@
 //! we do usually.
 
 #[cfg(target_arch = "wasm32")]
-pub use std::convert::Infallible as JoinError;
-#[cfg(target_arch = "wasm32")]
 use std::{
     future::Future,
     pin::Pin,
     task::{Context, Poll},
 };
 
+#[cfg(target_arch = "wasm32")]
+pub use futures_util::future::Aborted as JoinError;
 #[cfg(target_arch = "wasm32")]
 use futures_util::{future::RemoteHandle, FutureExt};
 #[cfg(not(target_arch = "wasm32"))]
@@ -37,13 +37,30 @@ where
     let (fut, handle) = future.remote_handle();
     wasm_bindgen_futures::spawn_local(fut);
 
-    JoinHandle { handle }
+    JoinHandle { handle: Some(handle) }
 }
 
 #[cfg(target_arch = "wasm32")]
 #[derive(Debug)]
 pub struct JoinHandle<T> {
-    handle: RemoteHandle<T>,
+    handle: Option<RemoteHandle<T>>,
+}
+
+#[cfg(target_arch = "wasm32")]
+impl<T> JoinHandle<T> {
+    pub fn abort(&mut self) {
+        drop(self.handle.take());
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl<T> Drop for JoinHandle<T> {
+    fn drop(&mut self) {
+        // don't abort the spawned future
+        if let Some(h) = self.handle.take() {
+            h.forget();
+        }
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -51,7 +68,11 @@ impl<T: 'static> Future for JoinHandle<T> {
     type Output = Result<T, JoinError>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        Pin::new(&mut self.handle).poll(cx).map(Ok)
+        if let Some(handle) = self.handle.as_mut() {
+            Pin::new(handle).poll(cx).map(Ok)
+        } else {
+            Poll::Ready(Err(JoinError))
+        }
     }
 }
 
@@ -73,7 +94,8 @@ mod tests {
     #[async_test]
     async fn test_abort() {
         let future = async { 42 };
-        let join_handle = spawn(future);
+        #[allow(unused_mut)]
+        let mut join_handle = spawn(future);
 
         join_handle.abort();
 
