@@ -77,3 +77,29 @@ impl<T: 'static> Future for JoinHandle<T> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use assert_matches::assert_matches;
+    use matrix_sdk_test::async_test;
+
+    use super::spawn;
+
+    #[async_test]
+    async fn test_spawn() {
+        let future = async { 42 };
+        let join_handle = spawn(future);
+
+        assert_matches!(join_handle.await, Ok(42));
+    }
+
+    #[async_test]
+    async fn test_abort() {
+        let future = async { 42 };
+        let join_handle = spawn(future);
+
+        join_handle.abort();
+
+        assert!(join_handle.await.is_err());
+    }
+}
