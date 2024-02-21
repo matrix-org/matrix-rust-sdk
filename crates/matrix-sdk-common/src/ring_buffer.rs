@@ -21,7 +21,7 @@ use std::{
     ops::RangeBounds,
 };
 
-use serde::{self, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 /// A simple fixed-size ring buffer implementation.
 ///
