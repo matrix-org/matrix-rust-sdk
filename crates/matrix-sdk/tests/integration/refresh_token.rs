@@ -28,7 +28,7 @@ use wiremock::{
     Mock, ResponseTemplate,
 };
 
-use crate::{logged_in_client, no_retry_test_client, test_client_builder_with_server};
+use crate::{logged_in_client, no_retry_test_client_with_server, test_client_builder_with_server};
 
 fn session() -> MatrixSession {
     MatrixSession {
@@ -45,7 +45,7 @@ fn session() -> MatrixSession {
 
 #[async_test]
 async fn test_login_username_refresh_token() {
-    let (client, server) = no_retry_test_client().await;
+    let (client, server) = no_retry_test_client_with_server().await;
 
     Mock::given(method("POST"))
         .and(path("/_matrix/client/r0/login"))
@@ -74,7 +74,7 @@ async fn test_login_username_refresh_token() {
 #[async_test]
 #[cfg(feature = "sso-login")]
 async fn login_sso_refresh_token() {
-    let (client, server) = no_retry_test_client().await;
+    let (client, server) = no_retry_test_client_with_server().await;
 
     Mock::given(method("POST"))
         .and(path("/_matrix/client/r0/login"))
@@ -118,7 +118,7 @@ async fn login_sso_refresh_token() {
 
 #[async_test]
 async fn register_refresh_token() {
-    let (client, server) = no_retry_test_client().await;
+    let (client, server) = no_retry_test_client_with_server().await;
 
     Mock::given(method("POST"))
         .and(path("/_matrix/client/r0/register"))

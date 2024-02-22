@@ -37,8 +37,8 @@ use wiremock::{
 };
 
 use crate::{
-    encryption::mock_secret_store_with_backup_key, logged_in_client, no_retry_test_client,
-    test_client_builder_with_server,
+    encryption::mock_secret_store_with_backup_key, logged_in_client,
+    no_retry_test_client_with_server, test_client_builder_with_server,
 };
 
 async fn test_client(user_id: &UserId) -> (Client, wiremock::MockServer) {
@@ -172,7 +172,7 @@ async fn recovery_status_secret_storage_set_up() {
         tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
     };
 
-    let (client, server) = no_retry_test_client().await;
+    let (client, server) = no_retry_test_client_with_server().await;
 
     mock_secret_store_with_backup_key(user_id, KEY_ID, &server).await;
 
@@ -193,7 +193,7 @@ async fn recovery_status_secret_storage_not_set_up() {
         tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
     };
 
-    let (client, server) = no_retry_test_client().await;
+    let (client, server) = no_retry_test_client_with_server().await;
 
     Mock::given(method("GET"))
         .and(path(format!(
@@ -707,7 +707,7 @@ async fn recover_and_reset() {
         tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
     };
 
-    let (client, server) = no_retry_test_client().await;
+    let (client, server) = no_retry_test_client_with_server().await;
 
     mock_secret_store_with_backup_key(user_id, KEY_ID, &server).await;
 

@@ -31,7 +31,7 @@ use wiremock::{
     Mock, MockServer, Request, ResponseTemplate,
 };
 
-use crate::{logged_in_client, no_retry_test_client, test_client_builder_with_server};
+use crate::{logged_in_client, no_retry_test_client_with_server, test_client_builder_with_server};
 
 #[async_test]
 async fn test_restore_session() {
@@ -46,7 +46,7 @@ async fn test_restore_session() {
 
 #[async_test]
 async fn test_login() {
-    let (client, server) = no_retry_test_client().await;
+    let (client, server) = no_retry_test_client_with_server().await;
     let homeserver = Url::parse(&server.uri()).unwrap();
 
     Mock::given(method("GET"))
@@ -85,7 +85,7 @@ async fn test_login() {
 
 #[async_test]
 async fn test_login_with_discovery() {
-    let (client, server) = no_retry_test_client().await;
+    let (client, server) = no_retry_test_client_with_server().await;
 
     Mock::given(method("POST"))
         .and(path("/_matrix/client/r0/login"))
@@ -103,7 +103,7 @@ async fn test_login_with_discovery() {
 
 #[async_test]
 async fn test_login_no_discovery() {
-    let (client, server) = no_retry_test_client().await;
+    let (client, server) = no_retry_test_client_with_server().await;
 
     Mock::given(method("POST"))
         .and(path("/_matrix/client/r0/login"))
@@ -122,7 +122,7 @@ async fn test_login_no_discovery() {
 #[async_test]
 #[cfg(feature = "sso-login")]
 async fn test_login_with_sso() {
-    let (client, server) = no_retry_test_client().await;
+    let (client, server) = no_retry_test_client_with_server().await;
 
     Mock::given(method("POST"))
         .and(path("/_matrix/client/r0/login"))
@@ -159,7 +159,7 @@ async fn test_login_with_sso() {
 
 #[async_test]
 async fn test_login_with_sso_token() {
-    let (client, server) = no_retry_test_client().await;
+    let (client, server) = no_retry_test_client_with_server().await;
 
     Mock::given(method("GET"))
         .and(path("/_matrix/client/r0/login"))
@@ -194,7 +194,7 @@ async fn test_login_with_sso_token() {
 
 #[async_test]
 async fn test_login_error() {
-    let (client, server) = no_retry_test_client().await;
+    let (client, server) = no_retry_test_client_with_server().await;
 
     Mock::given(method("POST"))
         .and(path("/_matrix/client/r0/login"))
@@ -225,7 +225,7 @@ async fn test_login_error() {
 
 #[async_test]
 async fn test_register_error() {
-    let (client, server) = no_retry_test_client().await;
+    let (client, server) = no_retry_test_client_with_server().await;
 
     Mock::given(method("POST"))
         .and(path("/_matrix/client/r0/register"))
