@@ -30,12 +30,12 @@ use wiremock::{
     Mock, ResponseTemplate,
 };
 
-use crate::{logged_in_client, mock_encryption_state, mock_sync};
+use crate::{logged_in_client_with_server, mock_encryption_state, mock_sync};
 
 #[async_test]
 async fn test_message_order() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
     let mut ev_builder = SyncResponseBuilder::new();
@@ -107,7 +107,7 @@ async fn test_message_order() {
 #[async_test]
 async fn test_retry_order() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
     let mut ev_builder = SyncResponseBuilder::new();
@@ -213,7 +213,7 @@ async fn test_retry_order() {
 #[async_test]
 async fn test_clear_with_echoes() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
     let event_builder = EventBuilder::new();

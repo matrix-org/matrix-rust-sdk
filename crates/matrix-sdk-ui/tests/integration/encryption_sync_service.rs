@@ -10,14 +10,14 @@ use tokio::sync::Mutex as AsyncMutex;
 use wiremock::{Mock, MockGuard, MockServer, Request, ResponseTemplate};
 
 use crate::{
-    logged_in_client,
+    logged_in_client_with_server,
     sliding_sync::{check_requests, PartialSlidingSyncRequest, SlidingSyncMatcher},
     sliding_sync_then_assert_request_and_fake_response,
 };
 
 #[async_test]
 async fn test_smoke_encryption_sync_works() -> anyhow::Result<()> {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     let sync_permit = Arc::new(AsyncMutex::new(EncryptionSyncPermit::new_for_testing()));
     let sync_permit_guard = sync_permit.clone().lock_owned().await;
@@ -161,7 +161,7 @@ async fn setup_mocking_sliding_sync_server(server: &MockServer) -> MockGuard {
 
 #[async_test]
 async fn test_encryption_sync_one_fixed_iteration() -> anyhow::Result<()> {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     let _guard = setup_mocking_sliding_sync_server(&server).await;
 
@@ -193,7 +193,7 @@ async fn test_encryption_sync_one_fixed_iteration() -> anyhow::Result<()> {
 
 #[async_test]
 async fn test_encryption_sync_two_fixed_iterations() -> anyhow::Result<()> {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     let _guard = setup_mocking_sliding_sync_server(&server).await;
 
@@ -230,7 +230,7 @@ async fn test_encryption_sync_two_fixed_iterations() -> anyhow::Result<()> {
 
 #[async_test]
 async fn test_encryption_sync_always_reloads_todevice_token() -> anyhow::Result<()> {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     let sync_permit = Arc::new(AsyncMutex::new(EncryptionSyncPermit::new_for_testing()));
     let sync_permit_guard = sync_permit.lock_owned().await;

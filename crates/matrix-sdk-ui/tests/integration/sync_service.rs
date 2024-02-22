@@ -24,7 +24,7 @@ use stream_assert::{assert_next_matches, assert_pending};
 use wiremock::{Match as _, Mock, MockGuard, MockServer, Request, ResponseTemplate};
 
 use crate::{
-    logged_in_client,
+    logged_in_client_with_server,
     sliding_sync::{PartialSlidingSyncRequest, SlidingSyncMatcher},
 };
 
@@ -61,7 +61,7 @@ async fn setup_mocking_sliding_sync_server(
 
 #[async_test]
 async fn test_sync_service_state() -> anyhow::Result<()> {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     let encryption_pos = Arc::new(Mutex::new(0));
     let room_pos = Arc::new(Mutex::new(0));

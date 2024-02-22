@@ -31,7 +31,7 @@ use ruma::{room_id, user_id, RoomId};
 use serde_json::json;
 use wiremock::{http::Method, Match, Mock, MockServer, Request, ResponseTemplate};
 
-use crate::logged_in_client;
+use crate::logged_in_client_with_server;
 
 macro_rules! receive_response {
     (
@@ -201,7 +201,7 @@ macro_rules! assert_timeline_stream {
 pub(crate) use assert_timeline_stream;
 
 async fn new_sliding_sync(lists: Vec<SlidingSyncListBuilder>) -> Result<(MockServer, SlidingSync)> {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     let mut sliding_sync_builder = client.sliding_sync("integration-test")?;
 

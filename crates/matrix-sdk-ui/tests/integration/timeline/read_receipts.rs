@@ -40,7 +40,7 @@ use wiremock::{
     Mock, ResponseTemplate,
 };
 
-use crate::{logged_in_client, mock_sync};
+use crate::{logged_in_client_with_server, mock_sync};
 
 fn filter_notice(ev: &AnySyncTimelineEvent, _room_version: &RoomVersionId) -> bool {
     match ev {
@@ -54,7 +54,7 @@ fn filter_notice(ev: &AnySyncTimelineEvent, _room_version: &RoomVersionId) -> bo
 #[async_test]
 async fn test_read_receipts_updates() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
     let own_user_id = client.user_id().unwrap();
@@ -283,7 +283,7 @@ async fn test_read_receipts_updates() {
 #[async_test]
 async fn test_read_receipts_updates_on_filtered_events() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
     let own_user_id = client.user_id().unwrap();
@@ -495,7 +495,7 @@ async fn test_read_receipts_updates_on_filtered_events() {
 #[async_test]
 async fn test_send_single_receipt() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
     let own_user_id = client.user_id().unwrap();
@@ -842,7 +842,7 @@ async fn test_send_single_receipt() {
 #[async_test]
 async fn test_mark_as_read() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
     let own_user_id = client.user_id().unwrap();
@@ -945,7 +945,7 @@ async fn test_mark_as_read() {
 #[async_test]
 async fn test_send_multiple_receipts() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
     let own_user_id = client.user_id().unwrap();
@@ -1153,7 +1153,7 @@ async fn test_send_multiple_receipts() {
 #[async_test]
 async fn test_latest_user_read_receipt() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
     let own_user_id = client.user_id().unwrap();
