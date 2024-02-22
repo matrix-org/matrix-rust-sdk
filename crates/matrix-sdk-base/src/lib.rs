@@ -38,6 +38,8 @@ mod sliding_sync;
 
 pub mod store;
 pub mod sync;
+#[cfg(any(test, feature = "testing"))]
+mod test_utils;
 mod utils;
 
 #[cfg(feature = "uniffi")]
