@@ -329,7 +329,7 @@ pub struct Account {
     /// client to upload new keys.
     uploaded_signed_key_count: u64,
     /// The timestamp of the last time we generated a fallback key. Fallback
-    /// keys are rotated in a time-based manner, this field records when we
+    /// keys are rotated in a time-based manner. This field records when we
     /// either generated our first fallback key or rotated one.
     ///
     /// Will be `None` if we never created a fallback key, or if we're migrating
@@ -563,7 +563,7 @@ impl Account {
 
             debug!(
                 ?removed_fallback_key,
-                "The fallback key either expired or we didn't have one, generated a new fallback key.",
+                "The fallback key either expired or we didn't have one: generated a new fallback key.",
             );
         }
     }
