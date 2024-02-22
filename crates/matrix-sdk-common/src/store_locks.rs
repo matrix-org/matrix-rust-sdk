@@ -46,11 +46,12 @@ use std::{
     time::Duration,
 };
 
-use tokio::{sync::Mutex, time::sleep};
+use tokio::sync::Mutex;
 use tracing::{debug, error, info, instrument, trace};
 
 use crate::{
     executor::{spawn, JoinHandle},
+    sleep::sleep,
     SendOutsideWasm,
 };
 

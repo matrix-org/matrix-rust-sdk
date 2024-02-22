@@ -18,7 +18,9 @@ use std::{
 };
 
 use futures_util::{pin_mut, StreamExt as _};
-use matrix_sdk::{room::Room, Client, ClientBuildError, SlidingSyncList, SlidingSyncMode};
+use matrix_sdk::{
+    room::Room, sleep::sleep, Client, ClientBuildError, SlidingSyncList, SlidingSyncMode,
+};
 use matrix_sdk_base::{
     deserialized_responses::TimelineEvent, sliding_sync::http, RoomState, StoreError,
 };
@@ -212,7 +214,7 @@ impl NotificationClient {
                     for _ in 0..3 {
                         trace!("waiting for decryption…");
 
-                        tokio::time::sleep(Duration::from_millis(wait)).await;
+                        sleep(Duration::from_millis(wait)).await;
 
                         let new_event = room.decrypt_event(raw_event.cast_ref()).await?;
 

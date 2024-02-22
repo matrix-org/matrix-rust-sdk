@@ -41,9 +41,10 @@ impl Error for ElapsedError {}
 /// an error.
 pub async fn timeout<F, T>(future: F, duration: Duration) -> Result<T, ElapsedError>
 where
-    F: Future<Output = T> + Unpin,
+    F: Future<Output = T>,
 {
     #[cfg(not(target_arch = "wasm32"))]
+    #[allow(clippy::disallowed_methods)]
     return tokio_timeout(duration, future).await.map_err(|_| ElapsedError(()));
 
     #[cfg(target_arch = "wasm32")]
@@ -51,7 +52,7 @@ where
         let timeout_future =
             TimeoutFuture::new(u32::try_from(duration.as_millis()).expect("Overlong duration"));
 
-        match select(future, timeout_future).await {
+        match select(std::pin::pin!(future), timeout_future).await {
             Either::Left((res, _)) => Ok(res),
             Either::Right((_, _)) => Err(ElapsedError(())),
         }

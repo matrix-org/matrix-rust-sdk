@@ -17,9 +17,8 @@
 use std::{future::Future, ops::ControlFlow, sync::Arc, time::Duration};
 
 use eyeball::Subscriber;
-use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
+use matrix_sdk_base::{deserialized_responses::SyncTimelineEvent, timeout::timeout};
 use matrix_sdk_common::linked_chunk::ChunkContent;
-use tokio::time::timeout;
 use tracing::{debug, instrument, trace};
 
 use super::{
@@ -295,7 +294,7 @@ impl RoomPagination {
         // Otherwise, wait for a notification that we received a previous-batch token.
         // Note the state lock is released while doing so, allowing other tasks to write
         // into the linked chunk.
-        let _ = timeout(wait_time, self.inner.pagination_batch_token_notifier.notified()).await;
+        let _ = timeout(self.inner.pagination_batch_token_notifier.notified(), wait_time).await;
 
         let mut state = self.inner.state.write().await;
 

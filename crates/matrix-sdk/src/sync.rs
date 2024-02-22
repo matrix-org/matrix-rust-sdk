@@ -23,6 +23,7 @@ use std::{
 pub use matrix_sdk_base::sync::*;
 use matrix_sdk_base::{
     debug::{DebugInvitedRoom, DebugKnockedRoom, DebugListOfRawEventsNoId},
+    sleep::sleep,
     sync::SyncResponse as BaseSyncResponse,
 };
 use ruma::{
@@ -299,11 +300,7 @@ impl Client {
     }
 
     async fn sleep() {
-        #[cfg(target_arch = "wasm32")]
-        gloo_timers::future::TimeoutFuture::new(1_000).await;
-
-        #[cfg(not(target_arch = "wasm32"))]
-        tokio::time::sleep(Duration::from_secs(1)).await;
+        sleep(Duration::from_secs(1)).await;
     }
 
     pub(crate) async fn sync_loop_helper(

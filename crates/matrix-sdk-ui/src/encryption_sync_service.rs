@@ -31,7 +31,7 @@ use std::{pin::Pin, time::Duration};
 use async_stream::stream;
 use futures_core::stream::Stream;
 use futures_util::{pin_mut, StreamExt};
-use matrix_sdk::{Client, SlidingSync, LEASE_DURATION_MS};
+use matrix_sdk::{sleep::sleep, Client, SlidingSync, LEASE_DURATION_MS};
 use matrix_sdk_base::sliding_sync::http;
 use ruma::assign;
 use tokio::sync::OwnedMutexGuard;
@@ -174,7 +174,7 @@ impl EncryptionSyncService {
                     LEASE_DURATION_MS
                 );
 
-                tokio::time::sleep(Duration::from_millis(LEASE_DURATION_MS.into())).await;
+                sleep(Duration::from_millis(LEASE_DURATION_MS.into())).await;
 
                 lock_guard = self
                     .client
