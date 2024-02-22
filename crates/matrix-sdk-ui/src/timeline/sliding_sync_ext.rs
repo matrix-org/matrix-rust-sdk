@@ -44,11 +44,13 @@ impl SlidingSyncRoomExt for SlidingSyncRoom {
 #[cfg(test)]
 mod tests {
     use assert_matches::assert_matches;
-    use matrix_sdk::{config::RequestConfig, Client, ClientBuilder, SlidingSyncRoom};
+    use matrix_sdk::{
+        config::RequestConfig, test_utils::test_client_builder, Client, SlidingSyncRoom,
+    };
     use matrix_sdk_base::{deserialized_responses::SyncTimelineEvent, BaseClient, SessionMeta};
     use matrix_sdk_test::async_test;
     use ruma::{
-        api::{client::sync::sync_events::v4, MatrixVersion},
+        api::client::sync::sync_events::v4,
         device_id,
         events::room::message::{MessageFormat, MessageType},
         room_id,
@@ -159,10 +161,5 @@ mod tests {
             .build()
             .await
             .unwrap()
-    }
-
-    fn test_client_builder(homeserver_url: Option<String>) -> ClientBuilder {
-        let homeserver = homeserver_url.as_deref().unwrap_or("http://localhost:1234");
-        Client::builder().homeserver_url(homeserver).server_versions([MatrixVersion::V1_0])
     }
 }

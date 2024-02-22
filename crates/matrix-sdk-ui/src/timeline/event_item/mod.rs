@@ -507,14 +507,14 @@ pub enum EventItemOrigin {
 mod tests {
     use assert_matches::assert_matches;
     use assert_matches2::assert_let;
-    use matrix_sdk::{config::RequestConfig, Client, ClientBuilder};
+    use matrix_sdk::{config::RequestConfig, test_utils::test_client_builder, Client};
     use matrix_sdk_base::{
         deserialized_responses::SyncTimelineEvent, latest_event::LatestEvent, BaseClient,
         MinimalStateEvent, OriginalMinimalStateEvent, SessionMeta,
     };
     use matrix_sdk_test::{async_test, sync_timeline_event};
     use ruma::{
-        api::{client::sync::sync_events::v4, MatrixVersion},
+        api::client::sync::sync_events::v4,
         device_id,
         events::{
             room::{
@@ -715,10 +715,5 @@ mod tests {
             .build()
             .await
             .unwrap()
-    }
-
-    fn test_client_builder(homeserver_url: Option<String>) -> ClientBuilder {
-        let homeserver = homeserver_url.as_deref().unwrap_or("http://localhost:1234");
-        Client::builder().homeserver_url(homeserver).server_versions([MatrixVersion::V1_0])
     }
 }
