@@ -862,13 +862,13 @@ pub(crate) mod tests {
 
         // When building a client with the server's URL.
         builder = builder.server_name_or_homeserver_url(homeserver.uri());
-        let client = builder.build().await.unwrap();
+        let _client = builder.build().await.unwrap();
 
         // Then a client should be built without support for sliding sync or OIDC.
         #[cfg(feature = "experimental-sliding-sync")]
-        assert!(client.sliding_sync_proxy().is_none());
+        assert!(_client.sliding_sync_proxy().is_none());
         #[cfg(feature = "experimental-oidc")]
-        assert!(client.oidc().authentication_server_info().is_none());
+        assert!(_client.oidc().authentication_server_info().is_none());
     }
 
     #[async_test]
@@ -884,13 +884,13 @@ pub(crate) mod tests {
 
         // When building a client with the server's URL.
         builder = builder.server_name_or_homeserver_url(homeserver.uri());
-        let client = builder.build().await.unwrap();
+        let _client = builder.build().await.unwrap();
 
         // Then a client should be built with support for sliding sync.
         #[cfg(feature = "experimental-sliding-sync")]
-        assert_eq!(client.sliding_sync_proxy(), Some("https://localhost:1234".parse().unwrap()));
+        assert_eq!(_client.sliding_sync_proxy(), Some("https://localhost:1234".parse().unwrap()));
         #[cfg(feature = "experimental-oidc")]
-        assert!(client.oidc().authentication_server_info().is_none());
+        assert!(_client.oidc().authentication_server_info().is_none());
     }
 
     #[async_test]
@@ -939,13 +939,13 @@ pub(crate) mod tests {
 
         // When building a client with the base server.
         builder = builder.server_name_or_homeserver_url(server.uri());
-        let client = builder.build().await.unwrap();
+        let _client = builder.build().await.unwrap();
 
         // Then a client should be built without support for sliding sync or OIDC.
         #[cfg(feature = "experimental-sliding-sync")]
-        assert!(client.sliding_sync_proxy().is_none());
+        assert!(_client.sliding_sync_proxy().is_none());
         #[cfg(feature = "experimental-oidc")]
-        assert!(client.oidc().authentication_server_info().is_none());
+        assert!(_client.oidc().authentication_server_info().is_none());
     }
 
     #[async_test]
@@ -968,13 +968,13 @@ pub(crate) mod tests {
 
         // When building a client with the base server.
         builder = builder.server_name_or_homeserver_url(server.uri());
-        let client = builder.build().await.unwrap();
+        let _client = builder.build().await.unwrap();
 
         // Then a client should be built with support for sliding sync.
         #[cfg(feature = "experimental-sliding-sync")]
-        assert_eq!(client.sliding_sync_proxy(), Some("https://localhost:1234".parse().unwrap()));
+        assert_eq!(_client.sliding_sync_proxy(), Some("https://localhost:1234".parse().unwrap()));
         #[cfg(feature = "experimental-oidc")]
-        assert!(client.oidc().authentication_server_info().is_none());
+        assert!(_client.oidc().authentication_server_info().is_none());
     }
 
     #[async_test]
@@ -1030,14 +1030,14 @@ pub(crate) mod tests {
 
         // When building a client with the base server.
         builder = builder.server_name_or_homeserver_url(server.uri());
-        let client = builder.build().await.unwrap();
+        let _client = builder.build().await.unwrap();
 
         // Then a client should be built with support for both sliding sync and OIDC.
         #[cfg(feature = "experimental-sliding-sync")]
-        assert_eq!(client.sliding_sync_proxy(), Some("https://localhost:1234".parse().unwrap()));
+        assert_eq!(_client.sliding_sync_proxy(), Some("https://localhost:1234".parse().unwrap()));
         #[cfg(feature = "experimental-oidc")]
         assert_eq!(
-            client.oidc().authentication_server_info().unwrap().issuer,
+            _client.oidc().authentication_server_info().unwrap().issuer,
             "https://localhost:5678".to_owned()
         );
     }

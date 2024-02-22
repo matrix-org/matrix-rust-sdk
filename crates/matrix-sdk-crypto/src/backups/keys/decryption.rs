@@ -17,7 +17,6 @@ use std::{
     ops::DerefMut,
 };
 
-use bs58;
 use ruma::api::client::backup::EncryptedSessionData;
 use thiserror::Error;
 use vodozemac::Curve25519PublicKey;

@@ -25,8 +25,6 @@ use eyeball::SharedObservable;
 use futures_util::future::try_join;
 pub use matrix_sdk_base::media::*;
 use mime::Mime;
-#[cfg(not(target_arch = "wasm32"))]
-use mime2ext;
 use ruma::{
     api::client::media::{create_content, get_content, get_content_thumbnail},
     assign,
