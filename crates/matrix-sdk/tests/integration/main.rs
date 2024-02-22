@@ -2,9 +2,9 @@
 #![cfg(not(target_arch = "wasm32"))]
 
 use matrix_sdk::{
-    config::{RequestConfig, SyncSettings},
+    config::SyncSettings,
     matrix_auth::{MatrixSession, MatrixSessionTokens},
-    test_utils::test_client_builder,
+    test_utils::{no_retry_test_client, test_client_builder},
     Client, ClientBuilder,
 };
 use matrix_sdk_base::SessionMeta;
@@ -34,10 +34,9 @@ async fn test_client_builder_with_server() -> (ClientBuilder, MockServer) {
     (builder, server)
 }
 
-async fn no_retry_test_client() -> (Client, MockServer) {
-    let (builder, server) = test_client_builder_with_server().await;
-    let client =
-        builder.request_config(RequestConfig::new().disable_retry()).build().await.unwrap();
+async fn no_retry_test_client_with_server() -> (Client, MockServer) {
+    let server = MockServer::start().await;
+    let client = no_retry_test_client(Some(server.uri().to_string())).await;
     (client, server)
 }
 
@@ -49,7 +48,7 @@ async fn logged_in_client() -> (Client, MockServer) {
         },
         tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
     };
-    let (client, server) = no_retry_test_client().await;
+    let (client, server) = no_retry_test_client_with_server().await;
     client.restore_session(session).await.unwrap();
 
     (client, server)

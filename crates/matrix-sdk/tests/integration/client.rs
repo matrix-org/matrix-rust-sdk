@@ -45,7 +45,7 @@ use wiremock::{
     Mock, Request, ResponseTemplate,
 };
 
-use crate::{logged_in_client, mock_sync, no_retry_test_client};
+use crate::{logged_in_client, mock_sync, no_retry_test_client_with_server};
 
 #[async_test]
 async fn sync() {
@@ -75,7 +75,7 @@ async fn devices() {
 
 #[async_test]
 async fn delete_devices() {
-    let (client, server) = no_retry_test_client().await;
+    let (client, server) = no_retry_test_client_with_server().await;
 
     Mock::given(method("POST"))
         .and(path("/_matrix/client/r0/delete_devices"))
@@ -141,7 +141,7 @@ async fn delete_devices() {
 
 #[async_test]
 async fn resolve_room_alias() {
-    let (client, server) = no_retry_test_client().await;
+    let (client, server) = no_retry_test_client_with_server().await;
 
     Mock::given(method("GET"))
         .and(path("/_matrix/client/r0/directory/room/%23alias:example.org"))
@@ -223,7 +223,7 @@ async fn join_room_by_id_or_alias() {
 
 #[async_test]
 async fn room_search_all() {
-    let (client, server) = no_retry_test_client().await;
+    let (client, server) = no_retry_test_client_with_server().await;
 
     Mock::given(method("GET"))
         .and(path("/_matrix/client/r0/publicRooms"))

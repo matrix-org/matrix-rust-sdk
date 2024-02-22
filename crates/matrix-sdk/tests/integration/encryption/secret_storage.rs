@@ -23,7 +23,7 @@ use wiremock::{
     Mock, MockServer, ResponseTemplate,
 };
 
-use crate::{logged_in_client, no_retry_test_client};
+use crate::{logged_in_client, no_retry_test_client_with_server};
 
 const SECRET_STORE_KEY: &str = "EsTj 3yST y93F SLpB jJsz eAXc 2XzA ygD3 w69H fGaN TKBj jXEd";
 
@@ -375,7 +375,7 @@ async fn restore_cross_signing_from_secret_store() {
         },
         tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
     };
-    let (client, server) = no_retry_test_client().await;
+    let (client, server) = no_retry_test_client_with_server().await;
     client.restore_session(session).await.unwrap();
 
     mock_secret_store_key(
@@ -576,7 +576,7 @@ async fn is_secret_storage_enabled() {
         },
         tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
     };
-    let (client, server) = no_retry_test_client().await;
+    let (client, server) = no_retry_test_client_with_server().await;
     client.restore_session(session).await.unwrap();
 
     {
