@@ -29,7 +29,7 @@ mod timeline;
 
 matrix_sdk_test::init_tracing_for_tests!();
 
-async fn logged_in_client() -> (Client, MockServer) {
+async fn logged_in_client_with_server() -> (Client, MockServer) {
     let server = MockServer::start().await;
     let client = test_utils::logged_in_client(Some(server.uri().to_string())).await;
     (client, server)

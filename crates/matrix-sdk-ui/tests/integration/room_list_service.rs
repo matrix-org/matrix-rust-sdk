@@ -32,12 +32,12 @@ use tokio::{spawn, sync::mpsc::channel, task::yield_now};
 use wiremock::MockServer;
 
 use crate::{
-    logged_in_client,
+    logged_in_client_with_server,
     timeline::sliding_sync::{assert_timeline_stream, timeline_event},
 };
 
 async fn new_room_list_service() -> Result<(Client, MockServer, RoomListService), Error> {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
     let room_list = RoomListService::new(client.clone()).await?;
 
     Ok((client, server, room_list))

@@ -20,14 +20,14 @@ use wiremock::{
 };
 
 use crate::{
-    logged_in_client, mock_encryption_state, mock_sync,
+    logged_in_client_with_server, mock_encryption_state, mock_sync,
     sliding_sync::{check_requests, PartialSlidingSyncRequest, SlidingSyncMatcher},
 };
 
 #[async_test]
 async fn test_notification_client_with_context() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
@@ -113,7 +113,7 @@ async fn test_notification_client_with_context() {
 #[async_test]
 async fn test_notification_client_sliding_sync() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     let event_id = event_id!("$example_event_id");
     let sender = user_id!("@user:example.org");

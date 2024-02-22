@@ -31,12 +31,12 @@ use wiremock::{
     Mock, ResponseTemplate,
 };
 
-use crate::{logged_in_client, mock_encryption_state, mock_sync};
+use crate::{logged_in_client_with_server, mock_encryption_state, mock_sync};
 
 #[async_test]
 async fn in_reply_to_details() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
     let event_builder = EventBuilder::new();
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
@@ -173,7 +173,7 @@ async fn in_reply_to_details() {
 #[async_test]
 async fn transfer_in_reply_to_details_to_re_received_item() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
     let event_builder = EventBuilder::new();
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
@@ -255,7 +255,7 @@ async fn transfer_in_reply_to_details_to_re_received_item() {
 #[async_test]
 async fn send_reply() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
     let event_builder = EventBuilder::new();
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
@@ -346,7 +346,7 @@ async fn send_reply() {
 #[async_test]
 async fn send_reply_to_threaded() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
     let event_builder = EventBuilder::new();
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
