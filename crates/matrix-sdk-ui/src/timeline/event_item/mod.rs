@@ -507,15 +507,14 @@ pub enum EventItemOrigin {
 mod tests {
     use assert_matches::assert_matches;
     use assert_matches2::assert_let;
-    use matrix_sdk::{config::RequestConfig, test_utils::test_client_builder, Client};
+    use matrix_sdk::test_utils::logged_in_client;
     use matrix_sdk_base::{
-        deserialized_responses::SyncTimelineEvent, latest_event::LatestEvent, BaseClient,
-        MinimalStateEvent, OriginalMinimalStateEvent, SessionMeta,
+        deserialized_responses::SyncTimelineEvent, latest_event::LatestEvent, MinimalStateEvent,
+        OriginalMinimalStateEvent,
     };
     use matrix_sdk_test::{async_test, sync_timeline_event};
     use ruma::{
         api::client::sync::sync_events::v4,
-        device_id,
         events::{
             room::{
                 member::RoomMemberEventContent,
@@ -696,24 +695,5 @@ mod tests {
             },
         })
         .into()
-    }
-
-    /// Copied from matrix_sdk_base::sliding_sync::test
-    async fn logged_in_client(homeserver_url: Option<String>) -> Client {
-        let base_client = BaseClient::new();
-        base_client
-            .set_session_meta(SessionMeta {
-                user_id: user_id!("@u:e.uk").to_owned(),
-                device_id: device_id!("XYZ").to_owned(),
-            })
-            .await
-            .expect("Failed to set session meta");
-
-        test_client_builder(homeserver_url)
-            .request_config(RequestConfig::new().disable_retry())
-            .base_client(base_client)
-            .build()
-            .await
-            .unwrap()
     }
 }

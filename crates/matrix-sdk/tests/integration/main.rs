@@ -3,13 +3,10 @@
 
 use matrix_sdk::{
     config::SyncSettings,
-    matrix_auth::{MatrixSession, MatrixSessionTokens},
-    test_utils::{no_retry_test_client, test_client_builder},
+    test_utils::{self, no_retry_test_client, test_client_builder},
     Client, ClientBuilder,
 };
-use matrix_sdk_base::SessionMeta;
 use matrix_sdk_test::test_json;
-use ruma::{device_id, user_id};
 use serde::Serialize;
 use wiremock::{
     matchers::{header, method, path, path_regex, query_param, query_param_is_missing},
@@ -41,16 +38,8 @@ async fn no_retry_test_client_with_server() -> (Client, MockServer) {
 }
 
 async fn logged_in_client() -> (Client, MockServer) {
-    let session = MatrixSession {
-        meta: SessionMeta {
-            user_id: user_id!("@example:localhost").to_owned(),
-            device_id: device_id!("DEVICEID").to_owned(),
-        },
-        tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
-    };
-    let (client, server) = no_retry_test_client_with_server().await;
-    client.restore_session(session).await.unwrap();
-
+    let server = MockServer::start().await;
+    let client = test_utils::logged_in_client(Some(server.uri().to_string())).await;
     (client, server)
 }
 
