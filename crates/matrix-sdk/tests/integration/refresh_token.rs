@@ -28,7 +28,7 @@ use wiremock::{
     Mock, ResponseTemplate,
 };
 
-use crate::{logged_in_client, no_retry_test_client, test_client_builder};
+use crate::{logged_in_client, no_retry_test_client, test_client_builder_with_server};
 
 fn session() -> MatrixSession {
     MatrixSession {
@@ -163,7 +163,7 @@ async fn no_refresh_token() {
 
 #[async_test]
 async fn test_refresh_token() {
-    let (builder, server) = test_client_builder().await;
+    let (builder, server) = test_client_builder_with_server().await;
     let client = builder
         .request_config(RequestConfig::new().disable_retry())
         .server_versions([MatrixVersion::V1_3])
@@ -240,7 +240,7 @@ async fn test_refresh_token() {
 
 #[async_test]
 async fn refresh_token_not_handled() {
-    let (builder, server) = test_client_builder().await;
+    let (builder, server) = test_client_builder_with_server().await;
     let client = builder
         .request_config(RequestConfig::new().disable_retry())
         .server_versions([MatrixVersion::V1_3])
@@ -274,7 +274,7 @@ async fn refresh_token_not_handled() {
 
 #[async_test]
 async fn refresh_token_handled_success() {
-    let (builder, server) = test_client_builder().await;
+    let (builder, server) = test_client_builder_with_server().await;
     let client = builder
         .request_config(RequestConfig::new().disable_retry())
         .server_versions([MatrixVersion::V1_3])
@@ -334,7 +334,7 @@ async fn refresh_token_handled_success() {
 
 #[async_test]
 async fn refresh_token_handled_failure() {
-    let (builder, server) = test_client_builder().await;
+    let (builder, server) = test_client_builder_with_server().await;
     let client = builder
         .request_config(RequestConfig::new().disable_retry())
         .server_versions([MatrixVersion::V1_3])
@@ -384,7 +384,7 @@ async fn refresh_token_handled_failure() {
 
 #[async_test]
 async fn refresh_token_handled_multi_success() {
-    let (builder, server) = test_client_builder().await;
+    let (builder, server) = test_client_builder_with_server().await;
     let client = builder
         .request_config(RequestConfig::new().disable_retry())
         .server_versions([MatrixVersion::V1_3])
@@ -457,7 +457,7 @@ async fn refresh_token_handled_multi_success() {
 
 #[async_test]
 async fn refresh_token_handled_multi_failure() {
-    let (builder, server) = test_client_builder().await;
+    let (builder, server) = test_client_builder_with_server().await;
     let client = builder
         .request_config(RequestConfig::new().disable_retry())
         .server_versions([MatrixVersion::V1_3])
@@ -530,7 +530,7 @@ async fn refresh_token_handled_multi_failure() {
 
 #[async_test]
 async fn refresh_token_handled_other_error() {
-    let (builder, server) = test_client_builder().await;
+    let (builder, server) = test_client_builder_with_server().await;
     let client = builder
         .request_config(RequestConfig::new().disable_retry())
         .server_versions([MatrixVersion::V1_3])

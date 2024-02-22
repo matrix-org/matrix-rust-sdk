@@ -4,11 +4,12 @@
 use matrix_sdk::{
     config::{RequestConfig, SyncSettings},
     matrix_auth::{MatrixSession, MatrixSessionTokens},
+    test_utils::test_client_builder,
     Client, ClientBuilder,
 };
 use matrix_sdk_base::SessionMeta;
 use matrix_sdk_test::test_json;
-use ruma::{api::MatrixVersion, device_id, user_id};
+use ruma::{device_id, user_id};
 use serde::Serialize;
 use wiremock::{
     matchers::{header, method, path, path_regex, query_param, query_param_is_missing},
@@ -27,15 +28,14 @@ mod widget;
 
 matrix_sdk_test::init_tracing_for_tests!();
 
-async fn test_client_builder() -> (ClientBuilder, MockServer) {
+async fn test_client_builder_with_server() -> (ClientBuilder, MockServer) {
     let server = MockServer::start().await;
-    let builder =
-        Client::builder().homeserver_url(server.uri()).server_versions([MatrixVersion::V1_0]);
+    let builder = test_client_builder(Some(server.uri().to_string()));
     (builder, server)
 }
 
 async fn no_retry_test_client() -> (Client, MockServer) {
-    let (builder, server) = test_client_builder().await;
+    let (builder, server) = test_client_builder_with_server().await;
     let client =
         builder.request_config(RequestConfig::new().disable_retry()).build().await.unwrap();
     (client, server)
