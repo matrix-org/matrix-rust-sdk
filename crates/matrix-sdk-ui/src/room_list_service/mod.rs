@@ -71,6 +71,7 @@ use std::{future::ready, num::NonZeroUsize, sync::Arc, time::Duration};
 use async_stream::stream;
 use eyeball::{SharedObservable, Subscriber};
 use futures_util::{pin_mut, Stream, StreamExt};
+use matrix_sdk::timeout::timeout;
 pub use matrix_sdk::RoomListEntry;
 use matrix_sdk::{
     event_cache::EventCacheError, sliding_sync::Ranges, Client, Error as SlidingSyncError,
@@ -90,10 +91,7 @@ use ruma::{
 };
 pub use state::*;
 use thiserror::Error;
-use tokio::{
-    sync::{Mutex, RwLock},
-    time::timeout,
-};
+use tokio::sync::{Mutex, RwLock};
 
 /// The [`RoomListService`] type. See the module's documentation to learn more.
 #[derive(Debug)]
@@ -391,7 +389,7 @@ impl RoomListService {
                 };
 
                 // `state.next().await` has a maximum of `yield_delay` time to execute…
-                let next_state = match timeout(yield_delay, state.next()).await {
+                let next_state = match timeout(state.next(), yield_delay).await {
                     // A new state has been received before `yield_delay` time. The new
                     // `sync_indicator` value won't be yielded.
                     Ok(next_state) => next_state,

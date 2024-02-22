@@ -53,18 +53,16 @@ use matrix_sdk_base::{
     sync::{JoinedRoomUpdate, LeftRoomUpdate, RoomUpdates, Timeline},
 };
 use matrix_sdk_common::executor::{spawn, JoinHandle};
+use matrix_sdk_common::timeout::timeout;
 use ruma::{
     assign,
     events::{AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent},
     serde::Raw,
     OwnedEventId, OwnedRoomId, RoomId,
 };
-use tokio::{
-    sync::{
-        broadcast::{error::RecvError, Receiver, Sender},
-        Mutex, Notify, RwLock, RwLockReadGuard, RwLockWriteGuard,
-    },
-    time::timeout,
+use tokio::sync::{
+    broadcast::{error::RecvError, Receiver, Sender},
+    Mutex, Notify, RwLock, RwLockReadGuard, RwLockWriteGuard,
 };
 use tracing::{error, instrument, trace, warn};
 
@@ -817,7 +815,7 @@ impl RoomEventCacheInner {
 
         // Otherwise wait for a notification that we received a token.
         // Timeouts are fine, per this function's contract.
-        let _ = timeout(max_wait, self.pagination_token_notifier.notified()).await;
+        let _ = timeout(self.pagination_token_notifier.notified(), max_wait).await;
 
         Ok(get_oldest(self.events.read().await))
     }
