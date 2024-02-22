@@ -23,7 +23,7 @@ use wiremock::{
     Mock, MockServer, ResponseTemplate,
 };
 
-use crate::{logged_in_client, no_retry_test_client_with_server};
+use crate::{logged_in_client_with_server, no_retry_test_client_with_server};
 
 const SECRET_STORE_KEY: &str = "EsTj 3yST y93F SLpB jJsz eAXc 2XzA ygD3 w69H fGaN TKBj jXEd";
 
@@ -65,7 +65,7 @@ async fn mock_secret_store_key(
 
 #[async_test]
 async fn secret_store_create_default_key() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     let user_id = client.user_id().expect("We should know our user ID by now");
 
@@ -140,7 +140,7 @@ async fn secret_store_create_default_key() {
 
 #[async_test]
 async fn secret_store_missing_key_info() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     let user_id = client.user_id().expect("We should know our user ID by now");
     let key_id = "bmur2d9ypPUH1msSwCxQOJkuKRmJI55e";
@@ -190,7 +190,7 @@ async fn secret_store_missing_key_info() {
 
 #[async_test]
 async fn secret_store_not_setup() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     let user_id = client.user_id().expect("We should know our user ID by now");
 
@@ -221,7 +221,7 @@ async fn secret_store_not_setup() {
 
 #[async_test]
 async fn secret_store_opening() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     mock_secret_store_key(
         &server,
@@ -269,7 +269,7 @@ async fn secret_store_opening() {
 
 #[async_test]
 async fn set_in_secret_store() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     mock_secret_store_key(
         &server,

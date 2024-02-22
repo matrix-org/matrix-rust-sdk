@@ -28,7 +28,9 @@ use wiremock::{
     Mock, ResponseTemplate,
 };
 
-use crate::{logged_in_client, no_retry_test_client_with_server, test_client_builder_with_server};
+use crate::{
+    logged_in_client_with_server, no_retry_test_client_with_server, test_client_builder_with_server,
+};
 
 fn session() -> MatrixSession {
     MatrixSession {
@@ -147,7 +149,7 @@ async fn register_refresh_token() {
 
 #[async_test]
 async fn no_refresh_token() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     // Refresh token doesn't change.
     Mock::given(method("POST"))

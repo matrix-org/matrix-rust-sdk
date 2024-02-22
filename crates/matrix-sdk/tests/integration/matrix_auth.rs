@@ -31,11 +31,13 @@ use wiremock::{
     Mock, MockServer, Request, ResponseTemplate,
 };
 
-use crate::{logged_in_client, no_retry_test_client_with_server, test_client_builder_with_server};
+use crate::{
+    logged_in_client_with_server, no_retry_test_client_with_server, test_client_builder_with_server,
+};
 
 #[async_test]
 async fn test_restore_session() {
-    let (client, _) = logged_in_client().await;
+    let (client, _) = logged_in_client_with_server().await;
     let auth = client.matrix_auth();
 
     assert!(auth.logged_in(), "Client should be logged in with the MatrixAuth API");

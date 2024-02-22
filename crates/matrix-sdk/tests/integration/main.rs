@@ -3,7 +3,7 @@
 
 use matrix_sdk::{
     config::SyncSettings,
-    test_utils::{self, no_retry_test_client, test_client_builder},
+    test_utils::{logged_in_client, no_retry_test_client, test_client_builder},
     Client, ClientBuilder,
 };
 use matrix_sdk_test::test_json;
@@ -37,14 +37,14 @@ async fn no_retry_test_client_with_server() -> (Client, MockServer) {
     (client, server)
 }
 
-async fn logged_in_client() -> (Client, MockServer) {
+async fn logged_in_client_with_server() -> (Client, MockServer) {
     let server = MockServer::start().await;
-    let client = test_utils::logged_in_client(Some(server.uri().to_string())).await;
+    let client = logged_in_client(Some(server.uri().to_string())).await;
     (client, server)
 }
 
 async fn synced_client() -> (Client, MockServer) {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
     mock_sync(&server, &*test_json::SYNC, None).await;
 
     let sync_settings = SyncSettings::new();

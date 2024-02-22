@@ -20,11 +20,11 @@ use wiremock::{
     Mock, ResponseTemplate,
 };
 
-use crate::{logged_in_client, mock_sync};
+use crate::{logged_in_client_with_server, mock_sync};
 
 #[async_test]
 async fn user_presence() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     mock_sync(&server, &*test_json::SYNC, None).await;
 
@@ -48,7 +48,7 @@ async fn user_presence() {
 
 #[async_test]
 async fn calculate_room_names_from_summary() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     mock_sync(&server, &*test_json::DEFAULT_SYNC_SUMMARY, None).await;
 
@@ -61,7 +61,7 @@ async fn calculate_room_names_from_summary() {
 
 #[async_test]
 async fn room_names() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     mock_sync(&server, &*test_json::SYNC, None).await;
 
@@ -89,7 +89,7 @@ async fn room_names() {
 
 #[async_test]
 async fn test_state_event_getting() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     let sync = json!({
         "next_batch": "1234",
@@ -177,7 +177,7 @@ async fn test_state_event_getting() {
 
 #[async_test]
 async fn room_route() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
     let mut ev_builder = SyncResponseBuilder::new();
     let room_id = &*DEFAULT_TEST_ROOM_ID;
 
@@ -349,7 +349,7 @@ async fn room_route() {
 
 #[async_test]
 async fn room_permalink() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
     let mut ev_builder = SyncResponseBuilder::new();
     let room_id = room_id!("!test_room:127.0.0.1");
 
@@ -438,7 +438,7 @@ async fn room_permalink() {
 
 #[async_test]
 async fn room_event_permalink() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
     let mut ev_builder = SyncResponseBuilder::new();
     let room_id = room_id!("!test_room:127.0.0.1");
     let event_id = event_id!("$15139375512JaHAW");
@@ -503,7 +503,7 @@ async fn room_event_permalink() {
 async fn event() {
     let event_id = event_id!("$foun39djjod0f");
 
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
     let mut ev_builder = SyncResponseBuilder::new();
