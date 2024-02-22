@@ -70,6 +70,9 @@ async fn test_add_initial_events() {
 
     let event_cache = client.event_cache();
 
+    // Immediately subscribe the event cache to sync updates.
+    event_cache.subscribe().unwrap();
+
     // If I sync and get informed I've joined The Room, but with no events,
     let room_id = room_id!("!omelette:fromage.fr");
 
@@ -81,8 +84,7 @@ async fn test_add_initial_events() {
     client.sync_once(Default::default()).await.unwrap();
     server.reset().await;
 
-    // If I create a room event subscriber, just after subscribing,
-    event_cache.subscribe().unwrap();
+    // If I create a room event subscriber,
 
     let (room_event_cache, _drop_handles) = event_cache.for_room(room_id).await.unwrap();
     let (events, mut subscriber) = room_event_cache.subscribe().await.unwrap();
