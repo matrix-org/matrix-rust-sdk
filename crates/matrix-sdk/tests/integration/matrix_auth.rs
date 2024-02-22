@@ -31,7 +31,7 @@ use wiremock::{
     Mock, MockServer, Request, ResponseTemplate,
 };
 
-use crate::{logged_in_client, no_retry_test_client, test_client_builder};
+use crate::{logged_in_client, no_retry_test_client, test_client_builder_with_server};
 
 #[async_test]
 async fn test_restore_session() {
@@ -595,7 +595,7 @@ async fn test_login_doesnt_fail_if_cross_signing_bootstrapping_failed() {
 async fn test_login_with_cross_signing_bootstrapping_already_bootstrapped() {
     // Even if we enabled cross-signing bootstrap for another device, it won't
     // restart the procedure.
-    let (builder, server) = test_client_builder().await;
+    let (builder, server) = test_client_builder_with_server().await;
 
     Mock::given(method("POST"))
         .and(path("/_matrix/client/r0/login"))

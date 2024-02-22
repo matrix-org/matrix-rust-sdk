@@ -38,7 +38,7 @@ use wiremock::{
 
 use crate::{
     encryption::mock_secret_store_with_backup_key, logged_in_client, no_retry_test_client,
-    test_client_builder,
+    test_client_builder_with_server,
 };
 
 async fn test_client(user_id: &UserId) -> (Client, wiremock::MockServer) {
@@ -47,7 +47,7 @@ async fn test_client(user_id: &UserId) -> (Client, wiremock::MockServer) {
         tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
     };
 
-    let (builder, server) = test_client_builder().await;
+    let (builder, server) = test_client_builder_with_server().await;
     let client = builder
         .request_config(RequestConfig::new().disable_retry())
         .with_encryption_settings(matrix_sdk::encryption::EncryptionSettings {

@@ -44,7 +44,7 @@ use wiremock::{
 
 use crate::{
     encryption::mock_secret_store_with_backup_key, mock_sync, no_retry_test_client,
-    test_client_builder,
+    test_client_builder_with_server,
 };
 
 const ROOM_KEY: &[u8] = b"\
@@ -329,7 +329,7 @@ async fn backup_resumption() {
 
     let user_id = user_id!("@example:morpheus.localhost");
 
-    let (builder, server) = test_client_builder().await;
+    let (builder, server) = test_client_builder_with_server().await;
     let client = builder
         .request_config(RequestConfig::new().disable_retry())
         .sqlite_store(dir.path(), None)
@@ -875,7 +875,7 @@ async fn enable_from_secret_storage() {
         meta: SessionMeta { user_id: user_id.into(), device_id: device_id!("DEVICEID").to_owned() },
         tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
     };
-    let (builder, server) = test_client_builder().await;
+    let (builder, server) = test_client_builder_with_server().await;
     let encryption_settings = EncryptionSettings {
         backup_download_strategy: BackupDownloadStrategy::OneShot,
         ..Default::default()
@@ -1042,7 +1042,7 @@ async fn enable_from_secret_storage_no_existing_backup() {
         meta: SessionMeta { user_id: user_id.into(), device_id: device_id!("DEVICEID").to_owned() },
         tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
     };
-    let (builder, server) = test_client_builder().await;
+    let (builder, server) = test_client_builder_with_server().await;
     let encryption_settings = EncryptionSettings {
         backup_download_strategy: BackupDownloadStrategy::OneShot,
         ..Default::default()
@@ -1095,7 +1095,7 @@ async fn enable_from_secret_storage_mismatched_key() {
         meta: SessionMeta { user_id: user_id.into(), device_id: device_id!("DEVICEID").to_owned() },
         tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
     };
-    let (builder, server) = test_client_builder().await;
+    let (builder, server) = test_client_builder_with_server().await;
     let encryption_settings = EncryptionSettings {
         backup_download_strategy: BackupDownloadStrategy::OneShot,
         ..Default::default()
@@ -1156,7 +1156,7 @@ async fn enable_from_secret_storage_manual_download() {
         meta: SessionMeta { user_id: user_id.into(), device_id: device_id!("DEVICEID").to_owned() },
         tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
     };
-    let (builder, server) = test_client_builder().await;
+    let (builder, server) = test_client_builder_with_server().await;
     let client =
         builder.request_config(RequestConfig::new().disable_retry()).build().await.unwrap();
 
@@ -1198,7 +1198,7 @@ async fn enable_from_secret_storage_and_manual_download() {
         meta: SessionMeta { user_id: user_id.into(), device_id: device_id!("DEVICEID").to_owned() },
         tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
     };
-    let (builder, server) = test_client_builder().await;
+    let (builder, server) = test_client_builder_with_server().await;
     let encryption_settings = EncryptionSettings {
         backup_download_strategy: BackupDownloadStrategy::Manual,
         ..Default::default()
@@ -1349,7 +1349,7 @@ async fn enable_from_secret_storage_and_download_after_utd() {
         meta: SessionMeta { user_id: user_id.into(), device_id: device_id!("DEVICEID").to_owned() },
         tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
     };
-    let (builder, server) = test_client_builder().await;
+    let (builder, server) = test_client_builder_with_server().await;
     let encryption_settings = EncryptionSettings {
         backup_download_strategy: BackupDownloadStrategy::AfterDecryptionFailure,
         ..Default::default()
