@@ -44,14 +44,11 @@ impl SlidingSyncRoomExt for SlidingSyncRoom {
 #[cfg(test)]
 mod tests {
     use assert_matches::assert_matches;
-    use matrix_sdk::{
-        config::RequestConfig, test_utils::test_client_builder, Client, SlidingSyncRoom,
-    };
-    use matrix_sdk_base::{deserialized_responses::SyncTimelineEvent, BaseClient, SessionMeta};
+    use matrix_sdk::{test_utils::logged_in_client, Client, SlidingSyncRoom};
+    use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
     use matrix_sdk_test::async_test;
     use ruma::{
         api::client::sync::sync_events::v4,
-        device_id,
         events::room::message::{MessageFormat, MessageType},
         room_id,
         serde::Raw,
@@ -142,24 +139,5 @@ mod tests {
         let mut response = v4::Response::new("6".to_owned());
         response.rooms.insert(room_id.to_owned(), room);
         response
-    }
-
-    /// Copied from matrix_sdk_base::sliding_sync::test
-    async fn logged_in_client(homeserver_url: Option<String>) -> Client {
-        let base_client = BaseClient::new();
-        base_client
-            .set_session_meta(SessionMeta {
-                user_id: user_id!("@u:e.uk").to_owned(),
-                device_id: device_id!("XYZ").to_owned(),
-            })
-            .await
-            .expect("Failed to set session meta");
-
-        test_client_builder(homeserver_url)
-            .request_config(RequestConfig::new().disable_retry())
-            .base_client(base_client)
-            .build()
-            .await
-            .unwrap()
     }
 }
