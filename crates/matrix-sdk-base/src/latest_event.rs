@@ -247,6 +247,7 @@ mod tests {
                 NewUnstablePollStartEventContent, SyncUnstablePollStartEvent, UnstablePollAnswer,
                 UnstablePollStartContentBlock,
             },
+            relation::Replacement,
             room::{
                 encrypted::{
                     EncryptedEventScheme, OlmV1Curve25519AesSha2Content, RoomEncryptedEventContent,
@@ -254,7 +255,7 @@ mod tests {
                 },
                 message::{
                     ImageMessageEventContent, MessageType, RedactedRoomMessageEventContent,
-                    RoomMessageEventContent, SyncRoomMessageEvent,
+                    Relation, RoomMessageEventContent, SyncRoomMessageEvent,
                 },
                 topic::{RoomTopicEventContent, SyncRoomTopicEvent},
                 ImageInfo, MediaSource,
@@ -406,6 +407,30 @@ mod tests {
         assert_matches!(
             is_suitable_for_latest_event(&event),
             PossibleLatestEvent::NoUnsupportedEventType
+        );
+    }
+
+    #[test]
+    fn replacement_events_are_unsuitable() {
+        let mut event_content = RoomMessageEventContent::text_plain("Bye bye, world!");
+        event_content.relates_to = Some(Relation::Replacement(Replacement::new(
+            owned_event_id!("$1"),
+            RoomMessageEventContent::text_plain("Hello, world!").into(),
+        )));
+
+        let event = AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
+            SyncRoomMessageEvent::Original(OriginalSyncMessageLikeEvent {
+                content: event_content,
+                event_id: owned_event_id!("$2"),
+                sender: owned_user_id!("@a:b.c"),
+                origin_server_ts: MilliSecondsSinceUnixEpoch(UInt::new(2123).unwrap()),
+                unsigned: MessageLikeUnsigned::new(),
+            }),
+        ));
+
+        assert_matches!(
+            is_suitable_for_latest_event(&event),
+            PossibleLatestEvent::NoUnsupportedMessageLikeType
         );
     }
 
