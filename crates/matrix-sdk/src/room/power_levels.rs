@@ -199,11 +199,7 @@ pub fn power_level_user_changes(
 mod tests {
     use std::collections::BTreeMap;
 
-    use ruma::{
-        events::room::power_levels::{RoomPowerLevels, RoomPowerLevelsEventContent},
-        int,
-        power_levels::NotificationPowerLevels,
-    };
+    use ruma::{int, power_levels::NotificationPowerLevels};
 
     use super::*;
 
