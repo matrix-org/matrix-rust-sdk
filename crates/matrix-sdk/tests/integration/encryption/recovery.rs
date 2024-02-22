@@ -37,7 +37,7 @@ use wiremock::{
 };
 
 use crate::{
-    encryption::mock_secret_store_with_backup_key, logged_in_client,
+    encryption::mock_secret_store_with_backup_key, logged_in_client_with_server,
     no_retry_test_client_with_server, test_client_builder_with_server,
 };
 
@@ -157,7 +157,7 @@ async fn mock_put_new_default_secret_storage_key(user_id: &UserId, server: &wire
 
 #[async_test]
 async fn recovery_status_server_unavailable() {
-    let (client, _) = logged_in_client().await;
+    let (client, _) = logged_in_client_with_server().await;
     client.encryption().wait_for_e2ee_initialization_tasks().await;
     assert_eq!(client.encryption().recovery().state(), RecoveryState::Unknown);
 }

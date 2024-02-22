@@ -14,13 +14,13 @@ use wiremock::{
     Mock, ResponseTemplate,
 };
 
-use crate::{logged_in_client, mock_sync};
+use crate::{logged_in_client_with_server, mock_sync};
 
 #[async_test]
 async fn get_notification_mode() {
     let room_no_rules_id = room_id!("!jEsUZKDJdhlrceRyVU:localhost");
     let room_not_joined_id = room_id!("!aBfUOMDJhmtucfVzGa:localhost");
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
