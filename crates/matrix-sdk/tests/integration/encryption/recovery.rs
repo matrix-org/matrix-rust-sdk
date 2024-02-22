@@ -23,6 +23,7 @@ use matrix_sdk::{
         BackupDownloadStrategy,
     },
     matrix_auth::{MatrixSession, MatrixSessionTokens},
+    test_utils::{no_retry_test_client_with_server, test_client_builder_with_server},
     Client,
 };
 use matrix_sdk_base::SessionMeta;
@@ -36,10 +37,7 @@ use wiremock::{
     Mock, ResponseTemplate,
 };
 
-use crate::{
-    encryption::mock_secret_store_with_backup_key, logged_in_client_with_server,
-    no_retry_test_client_with_server, test_client_builder_with_server,
-};
+use crate::{encryption::mock_secret_store_with_backup_key, logged_in_client_with_server};
 
 async fn test_client(user_id: &UserId) -> (Client, wiremock::MockServer) {
     let session = MatrixSession {

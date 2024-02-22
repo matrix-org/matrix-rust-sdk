@@ -24,6 +24,7 @@ use matrix_sdk::{
         BackupDownloadStrategy, EncryptionSettings,
     },
     matrix_auth::{MatrixSession, MatrixSessionTokens},
+    test_utils::{no_retry_test_client_with_server, test_client_builder_with_server},
     Client,
 };
 use matrix_sdk_base::SessionMeta;
@@ -42,10 +43,7 @@ use wiremock::{
     Mock, ResponseTemplate,
 };
 
-use crate::{
-    encryption::mock_secret_store_with_backup_key, mock_sync, no_retry_test_client_with_server,
-    test_client_builder_with_server,
-};
+use crate::{encryption::mock_secret_store_with_backup_key, mock_sync};
 
 const ROOM_KEY: &[u8] = b"\
         -----BEGIN MEGOLM SESSION DATA-----\n\

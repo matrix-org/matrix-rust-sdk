@@ -18,7 +18,10 @@ use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
-use matrix_sdk::{config::SyncSettings, executor::spawn, ruma::MilliSecondsSinceUnixEpoch};
+use matrix_sdk::{
+    config::SyncSettings, executor::spawn, ruma::MilliSecondsSinceUnixEpoch,
+    test_utils::logged_in_client_with_server,
+};
 use matrix_sdk_test::{async_test, sync_timeline_event, JoinedRoomBuilder, SyncResponseBuilder};
 use matrix_sdk_ui::timeline::{
     EventSendState, RoomExt, TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
@@ -35,7 +38,7 @@ use wiremock::{
     Mock, ResponseTemplate,
 };
 
-use crate::{logged_in_client_with_server, mock_encryption_state, mock_sync};
+use crate::{mock_encryption_state, mock_sync};
 
 #[async_test]
 async fn test_echo() {

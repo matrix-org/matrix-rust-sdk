@@ -4,6 +4,7 @@ use assert_matches::assert_matches;
 use matrix_sdk::{
     encryption::secret_storage::SecretStorageError,
     matrix_auth::{MatrixSession, MatrixSessionTokens},
+    test_utils::no_retry_test_client_with_server,
 };
 use matrix_sdk_base::SessionMeta;
 use matrix_sdk_test::async_test;
@@ -23,7 +24,7 @@ use wiremock::{
     Mock, MockServer, ResponseTemplate,
 };
 
-use crate::{logged_in_client_with_server, no_retry_test_client_with_server};
+use crate::logged_in_client_with_server;
 
 const SECRET_STORE_KEY: &str = "EsTj 3yST y93F SLpB jJsz eAXc 2XzA ygD3 w69H fGaN TKBj jXEd";
 

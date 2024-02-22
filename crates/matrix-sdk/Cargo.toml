@@ -17,7 +17,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = ["e2e-encryption", "automatic-room-key-forwarding", "sqlite", "native-tls"]
-testing = ["matrix-sdk-sqlite?/testing", "matrix-sdk-indexeddb?/testing", "matrix-sdk-base/testing"]
+testing = ["matrix-sdk-sqlite?/testing", "matrix-sdk-indexeddb?/testing", "matrix-sdk-base/testing", "wiremock"]
 
 e2e-encryption = [
     "matrix-sdk-base/e2e-encryption",
@@ -142,6 +142,7 @@ backoff = { version = "0.4.0", features = ["tokio"] }
 reqwest = { version = "0.11.10", default_features = false, features = ["stream"] }
 tokio = { workspace = true, features = ["fs", "rt", "macros"] }
 tokio-util = "0.7.9"
+wiremock = { version = "0.5.13", optional = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }
@@ -162,7 +163,6 @@ wasm-bindgen-test = "0.3.33"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
-wiremock = "0.5.13"
 
 [[test]]
 name = "integration"

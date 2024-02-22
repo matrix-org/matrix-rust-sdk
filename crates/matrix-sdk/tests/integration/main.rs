@@ -1,11 +1,7 @@
 // The http mocking library is not supported for wasm32
 #![cfg(not(target_arch = "wasm32"))]
 
-use matrix_sdk::{
-    config::SyncSettings,
-    test_utils::{logged_in_client, no_retry_test_client, test_client_builder},
-    Client, ClientBuilder,
-};
+use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server, Client};
 use matrix_sdk_test::test_json;
 use serde::Serialize;
 use wiremock::{
@@ -24,24 +20,6 @@ mod room;
 mod widget;
 
 matrix_sdk_test::init_tracing_for_tests!();
-
-async fn test_client_builder_with_server() -> (ClientBuilder, MockServer) {
-    let server = MockServer::start().await;
-    let builder = test_client_builder(Some(server.uri().to_string()));
-    (builder, server)
-}
-
-async fn no_retry_test_client_with_server() -> (Client, MockServer) {
-    let server = MockServer::start().await;
-    let client = no_retry_test_client(Some(server.uri().to_string())).await;
-    (client, server)
-}
-
-async fn logged_in_client_with_server() -> (Client, MockServer) {
-    let server = MockServer::start().await;
-    let client = logged_in_client(Some(server.uri().to_string())).await;
-    (client, server)
-}
 
 async fn synced_client() -> (Client, MockServer) {
     let (client, server) = logged_in_client_with_server().await;

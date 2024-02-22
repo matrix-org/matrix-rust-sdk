@@ -18,7 +18,7 @@ use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, StreamExt};
-use matrix_sdk::config::SyncSettings;
+use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server};
 use matrix_sdk_test::{
     async_test, sync_timeline_event, EventBuilder, GlobalAccountDataTestEvent, JoinedRoomBuilder,
     SyncResponseBuilder, ALICE, BOB,
@@ -35,7 +35,7 @@ use ruma::{
 use serde_json::json;
 use stream_assert::{assert_next_matches, assert_pending};
 
-use crate::{logged_in_client_with_server, mock_sync};
+use crate::mock_sync;
 
 #[async_test]
 async fn test_batched() {

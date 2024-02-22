@@ -51,3 +51,27 @@ pub async fn logged_in_client(homeserver_url: Option<String>) -> Client {
 
     client
 }
+
+/// Like [`test_client_builder`], but with a mocked server too.
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn test_client_builder_with_server() -> (ClientBuilder, wiremock::MockServer) {
+    let server = wiremock::MockServer::start().await;
+    let builder = test_client_builder(Some(server.uri().to_string()));
+    (builder, server)
+}
+
+/// Like [`no_retry_test_client`], but with a mocked server too.
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn no_retry_test_client_with_server() -> (Client, wiremock::MockServer) {
+    let server = wiremock::MockServer::start().await;
+    let client = no_retry_test_client(Some(server.uri().to_string())).await;
+    (client, server)
+}
+
+/// Like [`logged_in_client`], but with a mocked server too.
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn logged_in_client_with_server() -> (Client, wiremock::MockServer) {
+    let server = wiremock::MockServer::start().await;
+    let client = logged_in_client(Some(server.uri().to_string())).await;
+    (client, server)
+}

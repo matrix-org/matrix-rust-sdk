@@ -17,16 +17,14 @@ use std::{
     time::Duration,
 };
 
+use matrix_sdk::test_utils::logged_in_client_with_server;
 use matrix_sdk_test::async_test;
 use matrix_sdk_ui::sync_service::{State, SyncService};
 use serde_json::json;
 use stream_assert::{assert_next_matches, assert_pending};
 use wiremock::{Match as _, Mock, MockGuard, MockServer, Request, ResponseTemplate};
 
-use crate::{
-    logged_in_client_with_server,
-    sliding_sync::{PartialSlidingSyncRequest, SlidingSyncMatcher},
-};
+use crate::sliding_sync::{PartialSlidingSyncRequest, SlidingSyncMatcher};
 
 /// Sets up a sliding sync server that use different `pos` values for the
 /// encrptyion and the room sync.
