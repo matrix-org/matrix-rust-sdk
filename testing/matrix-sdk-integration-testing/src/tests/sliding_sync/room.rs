@@ -519,6 +519,8 @@ async fn test_room_notification_count() -> Result<()> {
     // Now Alice is only interesting in mentions of their name.
     let settings = alice.notification_settings().await;
 
+    let mut settings_changes = settings.subscribe_to_changes();
+
     tracing::warn!("Updating room notification mode to mentions and keywords only...");
     settings
         .set_room_notification_mode(
@@ -529,7 +531,7 @@ async fn test_room_notification_count() -> Result<()> {
     tracing::warn!("Done!");
 
     // Wait for remote echo.
-    timeout(Duration::from_secs(3), settings.subscribe_to_changes().recv())
+    timeout(Duration::from_secs(3), settings_changes.recv())
         .await
         .expect("timeout when waiting for settings update")
         .expect("should've received echo after updating settings");
