@@ -6,6 +6,7 @@ use matrix_sdk::{
     config::SyncSettings,
     media::{MediaFormat, MediaRequest, MediaThumbnailSize},
     sync::RoomUpdate,
+    test_utils::no_retry_test_client_with_server,
 };
 use matrix_sdk_base::{sync::RoomUpdates, RoomState};
 use matrix_sdk_test::{
@@ -45,7 +46,7 @@ use wiremock::{
     Mock, Request, ResponseTemplate,
 };
 
-use crate::{logged_in_client_with_server, mock_sync, no_retry_test_client_with_server};
+use crate::{logged_in_client_with_server, mock_sync};
 
 #[async_test]
 async fn sync() {

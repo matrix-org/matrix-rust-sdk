@@ -7,7 +7,7 @@ use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, FutureExt, StreamExt};
 use imbl::vector;
-use matrix_sdk::Client;
+use matrix_sdk::{test_utils::logged_in_client_with_server, Client};
 use matrix_sdk_base::sync::UnreadNotificationsCount;
 use matrix_sdk_test::async_test;
 use matrix_sdk_ui::{
@@ -31,10 +31,7 @@ use stream_assert::{assert_next_matches, assert_pending};
 use tokio::{spawn, sync::mpsc::channel, task::yield_now};
 use wiremock::MockServer;
 
-use crate::{
-    logged_in_client_with_server,
-    timeline::sliding_sync::{assert_timeline_stream, timeline_event},
-};
+use crate::timeline::sliding_sync::{assert_timeline_stream, timeline_event};
 
 async fn new_room_list_service() -> Result<(Client, MockServer, RoomListService), Error> {
     let (client, server) = logged_in_client_with_server().await;

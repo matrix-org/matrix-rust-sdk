@@ -4,7 +4,7 @@ use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
-use matrix_sdk::config::SyncSettings;
+use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server};
 use matrix_sdk_base::timeout::timeout;
 use matrix_sdk_test::{
     async_test, EventBuilder, JoinedRoomBuilder, SyncResponseBuilder, ALICE, BOB, CAROL,
@@ -31,7 +31,7 @@ use wiremock::{
     Mock, ResponseTemplate,
 };
 
-use crate::{logged_in_client_with_server, mock_encryption_state, mock_sync};
+use crate::{mock_encryption_state, mock_sync};
 
 #[async_test]
 async fn in_reply_to_details() {

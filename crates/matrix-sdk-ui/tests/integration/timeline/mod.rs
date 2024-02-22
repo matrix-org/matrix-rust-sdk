@@ -18,7 +18,7 @@ use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
-use matrix_sdk::config::SyncSettings;
+use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server};
 use matrix_sdk_test::{
     async_test, sync_timeline_event, JoinedRoomBuilder, RoomAccountDataTestEvent, StateTestEvent,
     SyncResponseBuilder,
@@ -26,7 +26,7 @@ use matrix_sdk_test::{
 use matrix_sdk_ui::timeline::{RoomExt, TimelineItemContent, VirtualTimelineItem};
 use ruma::{room_id, user_id};
 
-use crate::{logged_in_client_with_server, mock_sync};
+use crate::mock_sync;
 
 mod echo;
 mod edit;

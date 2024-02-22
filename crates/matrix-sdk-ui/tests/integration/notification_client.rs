@@ -4,7 +4,7 @@ use std::{
 };
 
 use assert_matches::assert_matches;
-use matrix_sdk::config::SyncSettings;
+use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server};
 use matrix_sdk_test::{async_test, sync_timeline_event, JoinedRoomBuilder, SyncResponseBuilder};
 use matrix_sdk_ui::{
     notification_client::{
@@ -20,7 +20,7 @@ use wiremock::{
 };
 
 use crate::{
-    logged_in_client_with_server, mock_encryption_state, mock_sync,
+    mock_encryption_state, mock_sync,
     sliding_sync::{check_requests, PartialSlidingSyncRequest, SlidingSyncMatcher},
 };
 

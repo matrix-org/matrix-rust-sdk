@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use matrix_sdk::{test_utils, Client};
 use matrix_sdk_test::test_json;
 use serde::Serialize;
 use wiremock::{
@@ -28,12 +27,6 @@ mod sync_service;
 mod timeline;
 
 matrix_sdk_test::init_tracing_for_tests!();
-
-async fn logged_in_client_with_server() -> (Client, MockServer) {
-    let server = MockServer::start().await;
-    let client = test_utils::logged_in_client(Some(server.uri().to_string())).await;
-    (client, server)
-}
 
 /// Mount a Mock on the given server to handle the `GET /sync` endpoint with
 /// an optional `since` param that returns a 200 status code with the given

@@ -1,6 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use futures_util::{pin_mut, StreamExt as _};
+use matrix_sdk::test_utils::logged_in_client_with_server;
 use matrix_sdk_test::async_test;
 use matrix_sdk_ui::encryption_sync_service::{
     EncryptionSyncPermit, EncryptionSyncService, WithLocking,
@@ -10,7 +11,6 @@ use tokio::sync::Mutex as AsyncMutex;
 use wiremock::{Mock, MockGuard, MockServer, Request, ResponseTemplate};
 
 use crate::{
-    logged_in_client_with_server,
     sliding_sync::{check_requests, PartialSlidingSyncRequest, SlidingSyncMatcher},
     sliding_sync_then_assert_request_and_fake_response,
 };

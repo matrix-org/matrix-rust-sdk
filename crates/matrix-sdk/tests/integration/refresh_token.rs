@@ -10,6 +10,10 @@ use matrix_sdk::{
     config::RequestConfig,
     executor::spawn,
     matrix_auth::{MatrixSession, MatrixSessionTokens},
+    test_utils::{
+        logged_in_client_with_server, no_retry_test_client_with_server,
+        test_client_builder_with_server,
+    },
     HttpError, RefreshTokenError, SessionChange,
 };
 use matrix_sdk_base::SessionMeta;
@@ -26,10 +30,6 @@ use tokio::sync::{broadcast::error::TryRecvError, mpsc};
 use wiremock::{
     matchers::{body_partial_json, header, method, path},
     Mock, ResponseTemplate,
-};
-
-use crate::{
-    logged_in_client_with_server, no_retry_test_client_with_server, test_client_builder_with_server,
 };
 
 fn session() -> MatrixSession {
