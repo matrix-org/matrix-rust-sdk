@@ -52,6 +52,9 @@ pub struct DeviceKeys {
     /// Signatures for the device key object.
     pub signatures: Signatures,
 
+    /// Whether the device is a dehydrated device or not
+    pub dehydrated: Option<bool>,
+
     /// Additional data added to the device key information by intermediate
     /// servers, and not covered by the signatures.
     #[serde(default, skip_serializing_if = "UnsignedDeviceInfo::is_empty")]
@@ -77,6 +80,7 @@ impl DeviceKeys {
             algorithms,
             keys,
             signatures,
+            dehydrated: None,
             unsigned: Default::default(),
             other: BTreeMap::new(),
         }
@@ -182,6 +186,7 @@ struct DeviceKeyHelper {
     pub device_id: OwnedDeviceId,
     pub algorithms: Vec<EventEncryptionAlgorithm>,
     pub keys: BTreeMap<OwnedDeviceKeyId, String>,
+    pub dehydrated: Option<bool>,
     pub signatures: Signatures,
     #[serde(default, skip_serializing_if = "UnsignedDeviceInfo::is_empty")]
     pub unsigned: UnsignedDeviceInfo,
@@ -216,6 +221,7 @@ impl TryFrom<DeviceKeyHelper> for DeviceKeys {
             device_id: value.device_id,
             algorithms: value.algorithms,
             keys: keys?,
+            dehydrated: value.dehydrated,
             signatures: value.signatures,
             unsigned: value.unsigned,
             other: value.other,
@@ -233,6 +239,7 @@ impl From<DeviceKeys> for DeviceKeyHelper {
             device_id: value.device_id,
             algorithms: value.algorithms,
             keys,
+            dehydrated: value.dehydrated,
             signatures: value.signatures,
             unsigned: value.unsigned,
             other: value.other,

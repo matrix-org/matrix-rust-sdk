@@ -318,6 +318,7 @@ impl DehydratedDevice {
         let mut transaction = self.store.transaction().await;
 
         let account = transaction.account().await?;
+        account.mark_as_dehydrated();
         account.generate_fallback_key_helper();
 
         let (device_keys, one_time_keys, fallback_keys) = account.keys_for_upload();

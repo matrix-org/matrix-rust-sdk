@@ -161,6 +161,8 @@ pub struct StaticAccountData {
     pub device_id: OwnedDeviceId,
     /// The associated identity keys.
     pub identity_keys: Arc<IdentityKeys>,
+    /// Whether the account is for a dehydrated device
+    pub dehydrated: bool,
     // The creation time of the account in milliseconds since epoch.
     creation_local_time: MilliSecondsSinceUnixEpoch,
 }
@@ -281,13 +283,17 @@ impl StaticAccountData {
             ),
         ]);
 
-        DeviceKeys::new(
+        let mut ret = DeviceKeys::new(
             (*self.user_id).to_owned(),
             (*self.device_id).to_owned(),
             Self::ALGORITHMS.iter().map(|a| (**a).clone()).collect(),
             keys,
             Default::default(),
-        )
+        );
+        if self.dehydrated {
+            ret.dehydrated = Some(true);
+        }
+        ret
     }
 
     /// Get the user id of the owner of the account.
@@ -399,6 +405,7 @@ impl Account {
                 user_id: user_id.into(),
                 device_id: device_id.into(),
                 identity_keys: Arc::new(identity_keys),
+                dehydrated: false,
                 creation_local_time: MilliSecondsSinceUnixEpoch::now(),
             },
             inner: Box::new(account),
@@ -422,6 +429,11 @@ impl Account {
             base64_encode(account.identity_keys().curve25519.as_bytes()).into();
 
         Self::new_helper(account, user_id, &device_id)
+    }
+
+    /// Mark the account as being used for a dehydrated device.
+    pub(crate) fn mark_as_dehydrated(&mut self) {
+        self.static_data.dehydrated = true;
     }
 
     /// Get the immutable data for this account.
@@ -646,6 +658,7 @@ impl Account {
                 user_id: (*pickle.user_id).into(),
                 device_id: (*pickle.device_id).into(),
                 identity_keys: Arc::new(identity_keys),
+                dehydrated: false,
                 creation_local_time: pickle.creation_local_time,
             },
             inner: Box::new(account),
