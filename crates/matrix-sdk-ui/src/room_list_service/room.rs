@@ -168,11 +168,10 @@ impl Room {
             .add_initial_events(
                 self.inner.room.room_id(),
                 self.inner.sliding_sync_room.timeline_queue().iter().cloned().collect(),
+                self.inner.sliding_sync_room.prev_batch(),
             )
             .await?;
 
-        Ok(Timeline::builder(&self.inner.room)
-            .with_pagination_token(self.inner.sliding_sync_room.prev_batch())
-            .track_read_marker_and_receipts())
+        Ok(Timeline::builder(&self.inner.room).track_read_marker_and_receipts())
     }
 }
