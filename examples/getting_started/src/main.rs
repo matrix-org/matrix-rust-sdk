@@ -40,7 +40,7 @@ async fn main() -> anyhow::Result<()> {
                     "Usage: {} <homeserver_url> <username> <password>",
                     env::args().next().unwrap()
                 );
-                // exist if missing
+                // exit if missing
                 exit(1)
             }
         };
@@ -143,8 +143,8 @@ async fn on_stripped_state_member(
 // This fn is called whenever we see a new room message event. You notice that
 // the difference between this and the other function that we've given to the
 // handler lies only in their input parameters. However, that is enough for the
-// rust-sdk to figure out which one to call one and only do so, when
-// the parameters are available.
+// rust-sdk to figure out which one to call and only do so, when the parameters
+// are available.
 async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
     // First, we need to unpack the message: We only want messages from rooms we are
     // still in and that are regular text messages - ignoring everything else.
