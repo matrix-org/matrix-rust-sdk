@@ -10,7 +10,7 @@ use matrix_sdk::{
         Thumbnail,
     },
     config::SyncSettings,
-    room::{Receipts, ReportedContentScore},
+    room::{Receipts, ReportedContentScore, RoomMemberRole},
 };
 use matrix_sdk_base::RoomState;
 use matrix_sdk_test::{
@@ -22,6 +22,7 @@ use ruma::{
     assign, event_id,
     events::{receipt::ReceiptThread, room::message::RoomMessageEventContent},
     int, mxc_uri, owned_event_id, room_id, thirdparty, uint, user_id, OwnedUserId, TransactionId,
+    UserId,
 };
 use serde_json::json;
 use wiremock::{
@@ -747,4 +748,25 @@ async fn subscribe_to_typing_notifications() {
 
     join_handle.await.unwrap();
     assert_eq!(typing_sequences.lock().unwrap().to_vec(), asserted_typing_sequences);
+}
+
+#[async_test]
+async fn get_power_level_for_user() {
+    let (client, server) = logged_in_client_with_server().await;
+
+    mock_sync(&server, &*test_json::DEFAULT_SYNC_SUMMARY, None).await;
+
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let _response = client.sync_once(sync_settings).await.unwrap();
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
+
+    let role_admin =
+        room.get_suggested_user_role(UserId::parse("@example:localhost").unwrap()).await.unwrap();
+    assert_eq!(role_admin, RoomMemberRole::Administrator);
+
+    let role_unknown = room
+        .get_suggested_user_role(UserId::parse("@non-existing:localhost").unwrap())
+        .await
+        .unwrap();
+    assert_eq!(role_unknown, RoomMemberRole::User);
 }
