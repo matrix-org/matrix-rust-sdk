@@ -72,6 +72,7 @@ use crate::{
     client::ClientInner, event_cache::store::PaginationToken, room::MessagesOptions, Client, Room,
 };
 
+mod linked_chunk;
 mod store;
 
 /// An error observed in the [`EventCache`].
