@@ -32,7 +32,7 @@ use ruma::{
     serde::Raw,
     OwnedTransactionId, TransactionId,
 };
-use tracing::{debug, info, Instrument, Span};
+use tracing::{debug, Instrument, Span};
 
 use super::Room;
 use crate::{
@@ -202,10 +202,8 @@ impl<'a> IntoFuture for SendRawMessageLikeEvent<'a> {
 
             let response = room.client.send(request, None).await?;
 
-            info!(
-                event_id = ?response.event_id,
-                "Sent event in room",
-            );
+            tracing::Span::current().record("event_id", tracing::field::debug(&response.event_id));
+            debug!("Sent event in room");
 
             Ok(response)
         };
