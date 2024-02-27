@@ -33,7 +33,9 @@ async fn test_room_directory_search_filter() -> Result<()> {
     for index in 0..25 {
         let mut request: CreateRoomRequest = CreateRoomRequest::new();
         request.visibility = Visibility::Public;
-        request.name = Some(format!("{}{}", search_string, index));
+        let name = format!("{}_{}", search_string, index);
+        warn!("room name: {}", name);
+        request.name = Some(name);
         alice.create_room(request).await?;
     }
     let mut room_directory_search = RoomDirectorySearch::new(alice);
@@ -60,6 +62,17 @@ async fn test_room_directory_search_filter() -> Result<()> {
     }
     assert_pending!(stream);
     room_directory_search.next_page().await?;
+    assert_pending!(stream);
+
+    // This should reset the state completely
+    room_directory_search.search(None, 25).await?;
+    assert_next_eq!(stream, VectorDiff::Clear);
+    if let VectorDiff::Append { values } = stream.next().now_or_never().unwrap().unwrap() {
+        warn!("Values: {:?}", values);
+        assert_eq!(values.len(), 25);
+    } else {
+        panic!("Expected a Vector::Append");
+    }
     assert_pending!(stream);
     Ok(())
 }
