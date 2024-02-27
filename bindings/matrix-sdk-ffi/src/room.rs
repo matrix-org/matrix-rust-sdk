@@ -22,7 +22,7 @@ use crate::{
     error::{ClientError, MediaInfoError, RoomError},
     event::{MessageLikeEventType, StateEventType},
     room_info::RoomInfo,
-    room_member::{ExportedRoomMember, RoomMember},
+    room_member::ExportedRoomMember,
     ruma::ImageInfo,
     timeline::{EventTimelineItem, ReceiptType, Timeline},
     utils::u64_to_uint,
@@ -128,15 +128,10 @@ impl Room {
         self.inner.active_room_call_participants().iter().map(|u| u.to_string()).collect()
     }
 
-    pub fn inviter(&self) -> Option<Arc<RoomMember>> {
+    pub fn inviter(&self) -> Option<ExportedRoomMember> {
         if self.inner.state() == RoomState::Invited {
             RUNTIME.block_on(async move {
-                self.inner
-                    .invite_details()
-                    .await
-                    .ok()
-                    .and_then(|a| a.inviter)
-                    .map(|m| Arc::new(RoomMember::new(m)))
+                self.inner.invite_details().await.ok().and_then(|a| a.inviter).map(|m| m.into())
             })
         } else {
             None
@@ -189,10 +184,10 @@ impl Room {
         )))
     }
 
-    pub async fn member(&self, user_id: String) -> Result<Arc<RoomMember>, ClientError> {
+    pub async fn member(&self, user_id: String) -> Result<ExportedRoomMember, ClientError> {
         let user_id = UserId::parse(&*user_id).context("Invalid user id.")?;
         let member = self.inner.get_member(&user_id).await?.context("No user found")?;
-        Ok(Arc::new(RoomMember::new(member)))
+        Ok(member.into())
     }
 
     pub fn member_avatar_url(&self, user_id: String) -> Result<Option<String>, ClientError> {
@@ -624,22 +619,9 @@ impl RoomMembersIterator {
     }
 
     fn next_chunk(&self, chunk_size: u32) -> Option<Vec<ExportedRoomMember>> {
-        self.chunk_iterator.next(chunk_size).map(|members| {
-            members
-                .into_iter()
-                .map(|m| ExportedRoomMember {
-                    user_id: m.user_id().to_string(),
-                    display_name: m.display_name().map(|s| s.to_owned()),
-                    avatar_url: m.avatar_url().map(|a| a.to_string()),
-                    membership: m.membership().clone().into(),
-                    is_name_ambiguous: m.name_ambiguous(),
-                    power_level: m.power_level(),
-                    normalized_power_level: m.normalized_power_level(),
-                    is_ignored: m.is_ignored(),
-                    suggested_role_for_power_level: m.suggested_role_for_power_level(),
-                })
-                .collect()
-        })
+        self.chunk_iterator
+            .next(chunk_size)
+            .map(|members| members.into_iter().map(|m| m.into()).collect())
     }
 }
 
