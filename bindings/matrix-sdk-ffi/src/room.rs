@@ -599,7 +599,7 @@ impl Room {
         &self,
         user_id: String,
     ) -> Result<RoomMemberRole, ClientError> {
-        let user_id = UserId::parse(&user_id)?.into();
+        let user_id = UserId::parse(&user_id)?;
         Ok(self.inner.get_suggested_user_role(&user_id).await?)
     }
 }
