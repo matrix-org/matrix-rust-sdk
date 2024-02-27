@@ -16,16 +16,19 @@ async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
         return;
     };
 
-    if text_content.body.contains("!party") {
-        let content = RoomMessageEventContent::text_plain("🎉🎊🥳 let's PARTY!! 🥳🎊🎉");
+    println!("Received message: {}", text_content.body);
 
-        println!("sending");
-
-        // send our message to the room we found the "!party" command in
-        room.send(content).await.unwrap();
-
-        println!("message sent");
-    }
+    // if text_content.body.contains("!party") {
+    //     let content = RoomMessageEventContent::text_plain("🎉🎊🥳 let's
+    // PARTY!! 🥳🎊🎉");
+    //
+    //     println!("sending");
+    //
+    //     // send our message to the room we found the "!party" command in
+    //     room.send(content).await.unwrap();
+    //
+    //     println!("message sent");
+    // }
 }
 
 async fn login_and_sync(
@@ -64,7 +67,7 @@ async fn login_and_sync(
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt::init();
+    // tracing_subscriber::fmt::init();
 
     let (homeserver_url, username, password) =
         match (env::args().nth(1), env::args().nth(2), env::args().nth(3)) {
