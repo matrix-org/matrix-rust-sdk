@@ -599,11 +599,8 @@ impl Room {
         &self,
         user_id: String,
     ) -> Result<RoomMemberRole, ClientError> {
-        let user_id = UserId::parse(&user_id)?;
-        self.inner
-            .get_suggested_user_role(user_id)
-            .await
-            .map_err(|e| ClientError::Generic { msg: e.to_string() })
+        let user_id = UserId::parse(&user_id)?.into();
+        Ok(self.inner.get_suggested_user_role(&user_id).await?)
     }
 }
 

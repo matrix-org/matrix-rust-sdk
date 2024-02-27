@@ -1848,7 +1848,7 @@ impl Room {
     ///
     /// This method checks the `RoomPowerLevels` events instead of loading the
     /// member list and looking for the member.
-    pub async fn get_suggested_user_role(&self, user_id: OwnedUserId) -> Result<RoomMemberRole> {
+    pub async fn get_suggested_user_role(&self, user_id: &UserId) -> Result<RoomMemberRole> {
         let power_level = self.get_user_power_level(user_id).await?;
         Ok(RoomMemberRole::suggested_role_for_power_level(power_level))
     }
@@ -1857,9 +1857,9 @@ impl Room {
     ///
     /// This method checks the `RoomPowerLevels` events instead of loading the
     /// member list and looking for the member.
-    async fn get_user_power_level(&self, user_id: OwnedUserId) -> Result<i64> {
+    pub async fn get_user_power_level(&self, user_id: &UserId) -> Result<i64> {
         let event = self.room_power_levels().await?;
-        Ok(event.for_user(&user_id).into())
+        Ok(event.for_user(user_id).into())
     }
 
     /// Sets the name of this room.
