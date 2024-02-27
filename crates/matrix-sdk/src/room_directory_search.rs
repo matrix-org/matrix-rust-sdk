@@ -41,6 +41,7 @@ pub struct RoomDirectorySearch {
     next_token: Option<String>,
     client: Client,
     results: ObservableVector<RoomDescription>,
+    is_at_last_page: bool,
 }
 
 impl RoomDirectorySearch {
@@ -51,6 +52,7 @@ impl RoomDirectorySearch {
             next_token: None,
             client,
             results: ObservableVector::new(),
+            is_at_last_page: false,
         }
     }
 
@@ -59,10 +61,14 @@ impl RoomDirectorySearch {
         self.batch_size = batch_size;
         self.next_token = None;
         self.results.clear();
+        self.is_at_last_page = false;
         self.next_page().await;
     }
 
     pub async fn next_page(&mut self) {
+        if self.is_at_last_page {
+            return;
+        }
         let mut filter = Filter::new();
         filter.generic_search_term = self.filter.clone();
 
@@ -72,6 +78,9 @@ impl RoomDirectorySearch {
         request.since = self.next_token.clone();
         if let Ok(response) = self.client.public_rooms_filtered(request).await {
             self.next_token = response.next_batch;
+            if self.next_token.is_none() {
+                self.is_at_last_page = true;
+            }
             self.results.append(
                 response
                     .chunk
@@ -93,5 +102,12 @@ impl RoomDirectorySearch {
 
     pub fn results(&self) -> impl Stream<Item = VectorDiff<RoomDescription>> {
         self.results.subscribe().into_stream()
+    }
+
+    pub fn loaded_pages(&self) -> usize {
+        if self.batch_size == 0 {
+            return 0;
+        }
+        self.results.len() / self.batch_size as usize
     }
 }
