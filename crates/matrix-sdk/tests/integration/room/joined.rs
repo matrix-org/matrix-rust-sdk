@@ -764,7 +764,7 @@ async fn get_suggested_user_role() {
 
     // This user either does not exist in the room or has no special role
     let role_unknown =
-        room.get_suggested_user_role(&user_id!("@non-existing:localhost")).await.unwrap();
+        room.get_suggested_user_role(user_id!("@non-existing:localhost")).await.unwrap();
     assert_eq!(role_unknown, RoomMemberRole::User);
 }
 
