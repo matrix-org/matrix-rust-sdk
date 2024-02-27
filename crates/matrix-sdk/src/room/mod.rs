@@ -1845,6 +1845,7 @@ impl Room {
     }
 
     /// Gets the suggested role for the user with the provided `user_id`.
+    ///
     /// This method checks the `RoomPowerLevels` events instead of loading the
     /// member list and looking for the member.
     pub async fn get_suggested_user_role(&self, user_id: OwnedUserId) -> Result<RoomMemberRole> {
@@ -1853,6 +1854,7 @@ impl Room {
     }
 
     /// Gets the power level the user with the provided `user_id`.
+    ///
     /// This method checks the `RoomPowerLevels` events instead of loading the
     /// member list and looking for the member.
     async fn get_user_power_level(&self, user_id: OwnedUserId) -> Result<i64> {
