@@ -154,3 +154,16 @@ pub fn suggested_role_for_power_level(power_level: i64) -> RoomMemberRole {
     // It's not possible to expose the constructor on the Enum through Uniffi ☹️
     RoomMemberRole::suggested_role_for_power_level(power_level)
 }
+
+#[derive(uniffi::Record)]
+pub struct ExportedRoomMember {
+    pub user_id: String,
+    pub display_name: Option<String>,
+    pub avatar_url: Option<String>,
+    pub membership: MembershipState,
+    pub is_name_ambiguous: bool,
+    pub power_level: i64,
+    pub normalized_power_level: i64,
+    pub is_ignored: bool,
+    pub suggested_role_for_power_level: RoomMemberRole,
+}

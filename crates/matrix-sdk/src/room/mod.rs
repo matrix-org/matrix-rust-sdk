@@ -416,6 +416,8 @@ impl Room {
                     .client
                     .send(
                         request,
+                        // In some cases it can take longer than 30s to load:
+                        // https://github.com/element-hq/synapse/issues/16872
                         Some(RequestConfig::new().timeout(Duration::from_secs(60)).retry_limit(3)),
                     )
                     .await?;

@@ -22,7 +22,7 @@ use crate::{
     error::{ClientError, MediaInfoError, RoomError},
     event::{MessageLikeEventType, StateEventType},
     room_info::RoomInfo,
-    room_member::{MembershipState, MessageLikeEventType, RoomMember, StateEventType},
+    room_member::{ExportedRoomMember, RoomMember},
     ruma::ImageInfo,
     timeline::{EventTimelineItem, ReceiptType, Timeline},
     utils::u64_to_uint,
@@ -606,18 +606,6 @@ pub trait TypingNotificationsListener: Sync + Send {
     fn call(&self, typing_user_ids: Vec<String>);
 }
 
-#[derive(uniffi::Record)]
-pub struct ExportedRoomMember {
-    user_id: String,
-    display_name: Option<String>,
-    avatar_url: Option<String>,
-    membership: MembershipState,
-    is_name_ambiguous: bool,
-    power_level: i64,
-    normalized_power_level: i64,
-    is_ignored: bool,
-}
-
 #[derive(uniffi::Object)]
 pub struct RoomMembersIterator {
     chunk_iterator: ChunkIterator<matrix_sdk::room::RoomMember>,
@@ -648,6 +636,7 @@ impl RoomMembersIterator {
                     power_level: m.power_level(),
                     normalized_power_level: m.normalized_power_level(),
                     is_ignored: m.is_ignored(),
+                    suggested_role_for_power_level: m.suggested_role_for_power_level(),
                 })
                 .collect()
         })
