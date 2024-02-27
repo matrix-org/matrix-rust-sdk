@@ -72,6 +72,8 @@ async-trait = { workspace = true }
 bytes = "1.1.0"
 bytesize = "1.1"
 cfg-vis = "0.3.0"
+coap = "0.14.3"
+coap-lite = "0.11.5"
 chrono = { version = "0.4.23", optional = true }
 event-listener = "4.0.0"
 eyeball = { workspace = true }

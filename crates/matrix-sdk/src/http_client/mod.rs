@@ -24,11 +24,12 @@ use std::{
 
 use bytes::{Bytes, BytesMut};
 use bytesize::ByteSize;
+use coap::UdpCoAPClient;
 use eyeball::SharedObservable;
-use http::Method;
+use http::{Method, Uri};
 use ruma::api::{
     error::{FromHttpResponseError, IntoHttpError},
-    AuthScheme, MatrixVersion, OutgoingRequest, SendAccessToken,
+    AuthScheme, IncomingResponse, MatrixVersion, OutgoingRequest, SendAccessToken,
 };
 use tracing::{debug, field::debug, instrument, trace};
 
@@ -94,7 +95,7 @@ impl HttpClient {
 
     #[allow(clippy::too_many_arguments)]
     #[instrument(
-        skip(self, request, config, homeserver, access_token, send_progress),
+        skip(self, request, config, homeserver, access_token, _send_progress),
         fields(
             config,
             uri,
@@ -114,7 +115,7 @@ impl HttpClient {
         homeserver: String,
         access_token: Option<&str>,
         server_versions: &[MatrixVersion],
-        send_progress: SharedObservable<TransmissionProgress>,
+        _send_progress: SharedObservable<TransmissionProgress>,
     ) -> Result<R::IncomingResponse, HttpError>
     where
         R: OutgoingRequest + Debug,
@@ -175,18 +176,88 @@ impl HttpClient {
 
         debug!("Sending request");
 
-        // There's a bunch of state in send_request, factor out a pinned inner
-        // future to reduce this size of futures that await this function.
-        match Box::pin(self.send_request::<R>(request, config, send_progress)).await {
-            Ok(response) => {
-                debug!("Got response");
-                Ok(response)
+        let response = Self::send_coap(request).await.unwrap();
+
+        let response =
+            R::IncomingResponse::try_from_http_response(response).map_err(HttpError::from)?;
+
+        Ok(response)
+
+        // // There's a bunch of state in send_request, factor out a pinned
+        // inner // future to reduce this size of futures that await
+        // this function. match Box::pin(self.send_request::<R>(request,
+        // config, send_progress)).await {     Ok(response) => {
+        //         debug!("Got response");
+        //         Ok(response)
+        //     }
+        //     Err(e) => {
+        //         debug!("Error while sending request: {e:?}");
+        //         Err(e)
+        //     }
+        // }
+    }
+
+    async fn send_coap(request: http::Request<Bytes>) -> Result<http::Response<Bytes>, ()> {
+        let mut client = UdpCoAPClient::new_udp("127.0.0.1:5683")
+            .await
+            .expect("We should be able to connect to the CoAP server");
+
+        let (parts, body) = request.into_parts();
+        // TODO: Deserialize the body into a [`serde_json::Value`], convert it into a
+        // [`ciborium::Value`] and serialize it again.
+        let body = body.to_vec();
+
+        // Convert the HTTP request URL into a path we can use over CoAP, put the access
+        // token if it exists into the query string.
+        let path = {
+            let access_token = parts.headers.get("Authorization");
+            let mut url = url::Url::parse(&parts.uri.to_string()).unwrap();
+
+            if let Some(token) = access_token {
+                let mut query = url.query_pairs_mut();
+
+                query.append_pair(
+                    "access_token",
+                    token.to_str().unwrap().strip_prefix("Bearer ").unwrap(),
+                );
             }
-            Err(e) => {
-                debug!("Error while sending request: {e:?}");
-                Err(e)
-            }
-        }
+
+            let url: Uri = url.to_string().parse().unwrap();
+            url.path_and_query().unwrap().to_string()
+        };
+
+        let method = match parts.method {
+            Method::GET => coap_lite::RequestType::Get,
+            Method::PUT => coap_lite::RequestType::Put,
+            Method::POST => coap_lite::RequestType::Post,
+            Method::DELETE => coap_lite::RequestType::Delete,
+            m => unimplemented!("Unsupported request method {m:?}"),
+        };
+
+        let result = client
+            .request_path_with_timeout(
+                &path,
+                method,
+                Some(body),
+                None,
+                None,
+                Duration::from_secs(60),
+            )
+            .await
+            .expect("Unable to send the CoAP request");
+
+        trace!("Received a coap response {:?}", result.get_status());
+
+        // TODO: If we managed to finish the above TODO about converting the body to
+        // cbor, do the opposite now. Deserialize the body into a [`ciborium::Value`],
+        // convert into a [`serde_json::Value`] and serialize again. [`ciborium::Value`]
+        let body = Bytes::from(result.message.payload);
+        let response = http::Response::builder()
+            .status(http::StatusCode::OK)
+            .body(body)
+            .expect("Coulnd't convert the CoAP response into a HTTP response");
+
+        Ok(response)
     }
 }
 
