@@ -743,11 +743,9 @@ impl Client {
     }
 
     pub fn room_directory_search(&self) -> Arc<RoomDirectorySearch> {
-        Arc::new(RoomDirectorySearch {
-            inner: matrix_sdk::room_directory_search::RoomDirectorySearch::new(
-                (*self.inner).clone(),
-            ),
-        })
+        Arc::new(RoomDirectorySearch::new(
+            matrix_sdk::room_directory_search::RoomDirectorySearch::new((*self.inner).clone()),
+        ))
     }
 }
 

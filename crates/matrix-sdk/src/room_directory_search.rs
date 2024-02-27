@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use eyeball_im::{ObservableVector, VectorDiff};
+use eyeball_im::{ObservableVector, VectorDiff, VectorSubscriber};
 use futures_core::Stream;
 use ruma::{
     api::client::directory::get_public_rooms_filtered::v3::Request as PublicRoomsFilterRequest,

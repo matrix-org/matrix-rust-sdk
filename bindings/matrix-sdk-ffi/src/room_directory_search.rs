@@ -13,9 +13,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use matrix_sdk::{room_directory_search::RoomDirectorySearch as SdkRoomDirectorySearch, Client};
+use std::{fmt::Debug, sync::Arc};
 
-use crate::error::ClientError;
+use eyeball_im::VectorDiff;
+use futures_util::{pin_mut, StreamExt};
+use matrix_sdk::{room_directory_search::RoomDirectorySearch as SdkRoomDirectorySearch, Client};
+use tokio::sync::RwLock;
+
+use super::RUNTIME;
+use crate::{error::ClientError, task_handle::TaskHandle};
 
 #[derive(uniffi::Enum)]
 pub enum PublicRoomJoinRule {
@@ -62,12 +68,78 @@ impl From<matrix_sdk::room_directory_search::RoomDescription> for RoomDescriptio
 
 #[derive(uniffi::Object)]
 pub struct RoomDirectorySearch {
-    pub(crate) inner: SdkRoomDirectorySearch,
+    pub(crate) inner: RwLock<SdkRoomDirectorySearch>,
 }
 
-// #[uniffi::export(async_runtime = "tokio")]
-// impl RoomDirectorySearch {
-//     pub async fn next_page(self) -> Result<(), ClientError> {
-//         self.inner.next_page().await.map_err(Into::into)
-//     }
-// }
+impl RoomDirectorySearch {
+    pub fn new(inner: SdkRoomDirectorySearch) -> Self {
+        Self { inner: RwLock::new(inner) }
+    }
+}
+
+#[uniffi::export(async_runtime = "tokio")]
+impl RoomDirectorySearch {
+    pub async fn next_page(&self) -> Result<(), ClientError> {
+        let mut inner = self.inner.write().await;
+        inner.next_page().await?;
+        Ok(())
+    }
+
+    pub async fn search(&self, filter: Option<String>, batch_size: u32) -> Result<(), ClientError> {
+        let mut inner = self.inner.write().await;
+        inner.search(filter, batch_size).await?;
+        Ok(())
+    }
+
+    pub async fn loaded_pages(&self) -> Result<u32, ClientError> {
+        let inner = self.inner.read().await;
+        Ok(inner.loaded_pages() as u32)
+    }
+
+    pub async fn is_at_last_page(&self) -> Result<bool, ClientError> {
+        let inner = self.inner.read().await;
+        Ok(inner.is_at_last_page())
+    }
+
+    pub async fn entries(
+        &self,
+        listener: Box<dyn RoomDirectorySearchEntriesListener>,
+    ) -> RoomDirectorySearchEntriesResult {
+        let entries_stream = self.inner.read().await.results();
+        RoomDirectorySearchEntriesResult {
+            entries_stream: Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
+                pin_mut!(entries_stream);
+
+                while let Some(diff) = entries_stream.next().await {
+                    match diff {
+                        VectorDiff::Clear => {
+                            listener.on_update(RoomDirectorySearchEntryUpdate::Clear);
+                        }
+                        VectorDiff::Append { values } => {
+                            listener.on_update(RoomDirectorySearchEntryUpdate::Append {
+                                values: values.into_iter().map(|value| value.into()).collect(),
+                            });
+                        }
+                        _ => {}
+                    }
+                }
+            }))),
+        }
+    }
+}
+
+#[derive(uniffi::Record)]
+pub struct RoomDirectorySearchEntriesResult {
+    pub entries_stream: Arc<TaskHandle>,
+}
+
+#[derive(uniffi::Enum)]
+pub enum RoomDirectorySearchEntryUpdate {
+    Clear,
+    Append { values: Vec<RoomDescription> },
+}
+
+#[uniffi::export(callback_interface)]
+pub trait RoomDirectorySearchEntriesListener: Send + Sync + Debug {
+    fn on_update(&self, room_entries_update: RoomDirectorySearchEntryUpdate);
+}
