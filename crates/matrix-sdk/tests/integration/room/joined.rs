@@ -22,7 +22,6 @@ use ruma::{
     assign, event_id,
     events::{receipt::ReceiptThread, room::message::RoomMessageEventContent},
     int, mxc_uri, owned_event_id, room_id, thirdparty, uint, user_id, OwnedUserId, TransactionId,
-    UserId,
 };
 use serde_json::json;
 use wiremock::{
@@ -760,15 +759,12 @@ async fn get_suggested_user_role() {
     let _response = client.sync_once(sync_settings).await.unwrap();
     let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
 
-    let role_admin =
-        room.get_suggested_user_role(&UserId::parse("@example:localhost").unwrap()).await.unwrap();
+    let role_admin = room.get_suggested_user_role(user_id!("@example:localhost")).await.unwrap();
     assert_eq!(role_admin, RoomMemberRole::Administrator);
 
     // This user either does not exist in the room or has no special role
-    let role_unknown = room
-        .get_suggested_user_role(&UserId::parse("@non-existing:localhost").unwrap())
-        .await
-        .unwrap();
+    let role_unknown =
+        room.get_suggested_user_role(&user_id!("@non-existing:localhost")).await.unwrap();
     assert_eq!(role_unknown, RoomMemberRole::User);
 }
 
@@ -783,13 +779,11 @@ async fn get_power_level_for_user() {
     let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
 
     let power_level_admin =
-        room.get_user_power_level(&UserId::parse("@example:localhost").unwrap()).await.unwrap();
+        room.get_user_power_level(user_id!("@example:localhost")).await.unwrap();
     assert_eq!(power_level_admin, 100);
 
     // This user either does not exist in the room or has no special power level
-    let power_level_unknown = room
-        .get_user_power_level(&UserId::parse("@non-existing:localhost").unwrap())
-        .await
-        .unwrap();
+    let power_level_unknown =
+        room.get_user_power_level(user_id!("@non-existing:localhost")).await.unwrap();
     assert_eq!(power_level_unknown, 0);
 }
