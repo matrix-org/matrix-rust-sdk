@@ -75,6 +75,10 @@ use tokio::sync::broadcast;
 use tracing::{debug, info, instrument, warn};
 
 use self::futures::{SendAttachment, SendMessageLikeEvent, SendRawMessageLikeEvent};
+pub use self::{
+    member::{RoomMember, RoomMemberRole},
+    messages::{Messages, MessagesOptions},
+};
 use crate::{
     attachment::AttachmentConfig,
     error::WrongRoomState,
@@ -91,11 +95,6 @@ pub mod futures;
 mod member;
 mod messages;
 pub mod power_levels;
-
-pub use self::{
-    member::{RoomMember, RoomMemberRole},
-    messages::{Messages, MessagesOptions},
-};
 
 /// A struct containing methods that are common for Joined, Invited and Left
 /// Rooms
@@ -1843,6 +1842,24 @@ impl Room {
             .ok_or(Error::InsufficientData)?
             .deserialize()?
             .power_levels())
+    }
+
+    /// Gets the suggested role for the user with the provided `user_id`.
+    ///
+    /// This method checks the `RoomPowerLevels` events instead of loading the
+    /// member list and looking for the member.
+    pub async fn get_suggested_user_role(&self, user_id: &UserId) -> Result<RoomMemberRole> {
+        let power_level = self.get_user_power_level(user_id).await?;
+        Ok(RoomMemberRole::suggested_role_for_power_level(power_level))
+    }
+
+    /// Gets the power level the user with the provided `user_id`.
+    ///
+    /// This method checks the `RoomPowerLevels` events instead of loading the
+    /// member list and looking for the member.
+    pub async fn get_user_power_level(&self, user_id: &UserId) -> Result<i64> {
+        let event = self.room_power_levels().await?;
+        Ok(event.for_user(user_id).into())
     }
 
     /// Sets the name of this room.

@@ -15,6 +15,7 @@ Additions:
 
 - Add the `ClientBuilder::add_root_certificates()` method which re-exposes the
   `reqwest::ClientBuilder::add_root_certificate()` functionality.
+- Add `Room::get_user_power_level(user_id)` and `Room::get_suggested_user_role(user_id)` to be able to fetch power level info about an user without loading the room member list.
 
 Additions:
 

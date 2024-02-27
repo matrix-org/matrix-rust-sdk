@@ -2,7 +2,7 @@ use std::{convert::TryFrom, sync::Arc};
 
 use anyhow::{Context, Result};
 use matrix_sdk::{
-    room::{power_levels::RoomPowerLevelChanges, Room as SdkRoom},
+    room::{power_levels::RoomPowerLevelChanges, Room as SdkRoom, RoomMemberRole},
     RoomMemberships, RoomState,
 };
 use matrix_sdk_ui::timeline::RoomExt;
@@ -593,6 +593,14 @@ impl Room {
             .await
             .map_err(|e| ClientError::Generic { msg: e.to_string() })?;
         Ok(())
+    }
+
+    pub async fn suggested_role_for_user(
+        &self,
+        user_id: String,
+    ) -> Result<RoomMemberRole, ClientError> {
+        let user_id = UserId::parse(&user_id)?;
+        Ok(self.inner.get_suggested_user_role(&user_id).await?)
     }
 }
 
