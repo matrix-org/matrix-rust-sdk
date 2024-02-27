@@ -13,6 +13,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::time::Duration;
+
 use anyhow::Result;
 use eyeball_im::VectorDiff;
 use futures::{FutureExt, StreamExt};
@@ -22,6 +24,7 @@ use matrix_sdk::{
 };
 use rand::{thread_rng, Rng};
 use stream_assert::{assert_next_eq, assert_pending};
+use tokio::time::sleep;
 use tracing::warn;
 
 use crate::helpers::TestClientBuilder;
@@ -38,6 +41,7 @@ async fn test_room_directory_search_filter() -> Result<()> {
         request.name = Some(name);
         alice.create_room(request).await?;
     }
+    sleep(Duration::from_secs(1)).await;
     let mut room_directory_search = RoomDirectorySearch::new(alice);
     let mut stream = room_directory_search.results();
     room_directory_search.search(Some(search_string), 10).await?;
