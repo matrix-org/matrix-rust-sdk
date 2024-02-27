@@ -21,7 +21,7 @@ use ruma::{
     OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId,
 };
 
-use crate::Client;
+use crate::{Client, Result};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RoomDescription {
@@ -56,18 +56,18 @@ impl RoomDirectorySearch {
         }
     }
 
-    pub async fn search(&mut self, filter: Option<String>, batch_size: u32) {
+    pub async fn search(&mut self, filter: Option<String>, batch_size: u32) -> Result<()> {
         self.filter = filter;
         self.batch_size = batch_size;
         self.next_token = None;
         self.results.clear();
         self.is_at_last_page = false;
-        self.next_page().await;
+        self.next_page().await
     }
 
-    pub async fn next_page(&mut self) {
+    pub async fn next_page(&mut self) -> Result<()> {
         if self.is_at_last_page {
-            return;
+            return Ok(());
         }
         let mut filter = Filter::new();
         filter.generic_search_term = self.filter.clone();
@@ -76,28 +76,28 @@ impl RoomDirectorySearch {
         request.filter = filter;
         request.limit = Some(self.batch_size.into());
         request.since = self.next_token.clone();
-        if let Ok(response) = self.client.public_rooms_filtered(request).await {
-            self.next_token = response.next_batch;
-            if self.next_token.is_none() {
-                self.is_at_last_page = true;
-            }
-            self.results.append(
-                response
-                    .chunk
-                    .into_iter()
-                    .map(|room| RoomDescription {
-                        room_id: room.room_id,
-                        name: room.name,
-                        topic: room.topic,
-                        alias: room.canonical_alias,
-                        avatar_url: room.avatar_url,
-                        join_rule: room.join_rule,
-                        is_world_readable: room.world_readable,
-                        joined_members: room.num_joined_members.into(),
-                    })
-                    .collect(),
-            );
+        let response = self.client.public_rooms_filtered(request).await?;
+        self.next_token = response.next_batch;
+        if self.next_token.is_none() {
+            self.is_at_last_page = true;
         }
+        self.results.append(
+            response
+                .chunk
+                .into_iter()
+                .map(|room| RoomDescription {
+                    room_id: room.room_id,
+                    name: room.name,
+                    topic: room.topic,
+                    alias: room.canonical_alias,
+                    avatar_url: room.avatar_url,
+                    join_rule: room.join_rule,
+                    is_world_readable: room.world_readable,
+                    joined_members: room.num_joined_members.into(),
+                })
+                .collect(),
+        );
+        Ok(())
     }
 
     pub fn results(&self) -> impl Stream<Item = VectorDiff<RoomDescription>> {
@@ -109,5 +109,9 @@ impl RoomDirectorySearch {
             return 0;
         }
         self.results.len() / self.batch_size as usize
+    }
+
+    pub fn is_at_last_page(&self) -> bool {
+        self.is_at_last_page
     }
 }

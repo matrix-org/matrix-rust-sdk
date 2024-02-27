@@ -32,6 +32,7 @@ mod notification;
 mod notification_settings;
 mod platform;
 mod room;
+mod room_directory_search;
 mod room_info;
 mod room_list;
 mod room_member;
