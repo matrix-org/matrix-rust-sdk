@@ -16,8 +16,8 @@
 use std::{fmt::Debug, sync::Arc};
 
 use eyeball_im::VectorDiff;
-use futures_util::{pin_mut, StreamExt};
-use matrix_sdk::{room_directory_search::RoomDirectorySearch as SdkRoomDirectorySearch, Client};
+use futures_util::pin_mut;
+use matrix_sdk::room_directory_search::RoomDirectorySearch as SdkRoomDirectorySearch;
 use tokio::sync::RwLock;
 
 use super::RUNTIME;
@@ -108,21 +108,24 @@ impl RoomDirectorySearch {
         let entries_stream = self.inner.read().await.results();
         RoomDirectorySearchEntriesResult {
             entries_stream: Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
-                pin_mut!(entries_stream);
+                // TODO: This needs to get improved with sensei Ivan
+                // pin_mut!(entries_stream);
 
-                while let Some(diff) = entries_stream.next().await {
-                    match diff {
-                        VectorDiff::Clear => {
-                            listener.on_update(RoomDirectorySearchEntryUpdate::Clear);
-                        }
-                        VectorDiff::Append { values } => {
-                            listener.on_update(RoomDirectorySearchEntryUpdate::Append {
-                                values: values.into_iter().map(|value| value.into()).collect(),
-                            });
-                        }
-                        _ => {}
-                    }
-                }
+                // while let Some(diff) = entries_stream.next().await {
+                //     match diff {
+                //         VectorDiff::Clear => {
+                //             
+                // listener.on_update(RoomDirectorySearchEntryUpdate::Clear);
+                //         }
+                //         VectorDiff::Append { values } => {
+                //             
+                // listener.on_update(RoomDirectorySearchEntryUpdate::Append {
+                //                 values: values.into_iter().map(|value|
+                // value.into()).collect(),             });
+                //         }
+                //         _ => {}
+                //     }
+                // }
             }))),
         }
     }

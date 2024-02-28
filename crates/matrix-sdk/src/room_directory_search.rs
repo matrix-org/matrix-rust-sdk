@@ -72,6 +72,14 @@ impl RoomDirectorySearch {
         }
     }
 
+    /// Starts a filtered search for the server
+    /// If the `filter` is not provided it will search for all the rooms
+    /// You can specify a `batch_size`` to control the number of rooms to fetch
+    /// per request
+    ///
+    /// This method will clear the current search results and start a new one
+    /// Should never be used concurrently with another `next_page` or a
+    /// `search`.
     pub async fn search(&mut self, filter: Option<String>, batch_size: u32) -> Result<()> {
         self.filter = filter;
         self.batch_size = batch_size;
@@ -81,6 +89,9 @@ impl RoomDirectorySearch {
         self.next_page().await
     }
 
+    /// Asks the server for the next page of the current search
+    /// Should never be used concurrently with another `next_page` or a
+    /// `search`.
     pub async fn next_page(&mut self) -> Result<()> {
         if self.is_at_last_page {
             return Ok(());
@@ -101,12 +112,15 @@ impl RoomDirectorySearch {
         Ok(())
     }
 
+    /// Get the initial value of the current stored room descriptions in the
+    /// search, and a stream of updates for them.
     pub fn results(
         &self,
     ) -> (Vector<RoomDescription>, impl Stream<Item = Vec<VectorDiff<RoomDescription>>>) {
         self.results.subscribe().into_values_and_batched_stream()
     }
 
+    /// Get the number of pages that have been loaded so far
     pub fn loaded_pages(&self) -> usize {
         if self.batch_size == 0 {
             return 0;
@@ -114,6 +128,7 @@ impl RoomDirectorySearch {
         self.results.len() / self.batch_size as usize
     }
 
+    /// Get whether the search is at the last page
     pub fn is_at_last_page(&self) -> bool {
         self.is_at_last_page
     }
