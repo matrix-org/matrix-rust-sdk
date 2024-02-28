@@ -165,6 +165,7 @@ mod tests {
     struct RoomDirectorySearchMatcher {
         next_token: Option<String>,
         filter_term: Option<String>,
+        limit: u32,
     }
 
     impl Match for RoomDirectorySearchMatcher {
@@ -175,6 +176,10 @@ mod tests {
 
             // The body's `since` field is set equal to the matcher's next_token.
             if !body.get_field::<String>("since").is_ok_and(|s| s == self.next_token) {
+                return false;
+            }
+
+            if !body.get_field::<u32>("limit").is_ok_and(|s| s == Some(self.limit)) {
                 return false;
             }
 
@@ -232,7 +237,7 @@ mod tests {
         let (server, client) = new_server_and_client().await;
 
         let mut room_directory_search = RoomDirectorySearch::new(client);
-        Mock::given(RoomDirectorySearchMatcher { next_token: None, filter_term: None })
+        Mock::given(RoomDirectorySearchMatcher { next_token: None, filter_term: None, limit: 1 })
             .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::PUBLIC_ROOMS))
             .mount(&server)
             .await;
@@ -250,7 +255,7 @@ mod tests {
         let (server, client) = new_server_and_client().await;
 
         let mut room_directory_search = RoomDirectorySearch::new(client);
-        Mock::given(RoomDirectorySearchMatcher { next_token: None, filter_term: None })
+        Mock::given(RoomDirectorySearchMatcher { next_token: None, filter_term: None, limit: 1 })
             .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::PUBLIC_ROOMS))
             .mount(&server)
             .await;
@@ -260,6 +265,7 @@ mod tests {
         Mock::given(RoomDirectorySearchMatcher {
             next_token: Some("p190q".into()),
             filter_term: None,
+            limit: 1,
         })
         .respond_with(
             ResponseTemplate::new(200).set_body_json(&*test_json::PUBLIC_ROOMS_FINAL_PAGE),
@@ -283,7 +289,7 @@ mod tests {
         let (server, client) = new_server_and_client().await;
 
         let mut room_directory_search = RoomDirectorySearch::new(client);
-        Mock::given(RoomDirectorySearchMatcher { next_token: None, filter_term: None })
+        Mock::given(RoomDirectorySearchMatcher { next_token: None, filter_term: None, limit: 1 })
             .respond_with(ResponseTemplate::new(404))
             .mount(&server)
             .await;
@@ -300,7 +306,7 @@ mod tests {
         let (server, client) = new_server_and_client().await;
 
         let mut room_directory_search = RoomDirectorySearch::new(client);
-        Mock::given(RoomDirectorySearchMatcher { next_token: None, filter_term: None })
+        Mock::given(RoomDirectorySearchMatcher { next_token: None, filter_term: None, limit: 1 })
             .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::PUBLIC_ROOMS))
             .mount(&server)
             .await;
@@ -310,6 +316,7 @@ mod tests {
         Mock::given(RoomDirectorySearchMatcher {
             next_token: Some("p190q".into()),
             filter_term: None,
+            limit: 1,
         })
         .respond_with(ResponseTemplate::new(404))
         .mount(&server)
@@ -331,6 +338,7 @@ mod tests {
         Mock::given(RoomDirectorySearchMatcher {
             next_token: None,
             filter_term: Some("bleecker.street".into()),
+            limit: 1,
         })
         .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::PUBLIC_ROOMS))
         .mount(&server)
@@ -341,6 +349,7 @@ mod tests {
         Mock::given(RoomDirectorySearchMatcher {
             next_token: Some("p190q".into()),
             filter_term: Some("bleecker.street".into()),
+            limit: 1,
         })
         .respond_with(
             ResponseTemplate::new(200).set_body_json(&*test_json::PUBLIC_ROOMS_FINAL_PAGE),
