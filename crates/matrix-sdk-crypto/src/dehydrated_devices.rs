@@ -95,7 +95,7 @@ impl DehydratedDevices {
         let user_id = self.inner.user_id();
         let user_identity = self.inner.store().private_identity();
 
-        let account = Account::new(user_id);
+        let account = Account::new_dehydrated(user_id);
         let store = Arc::new(CryptoStoreWrapper::new(user_id, MemoryStore::new()));
 
         let verification_machine = VerificationMachine::new(
@@ -318,7 +318,6 @@ impl DehydratedDevice {
         let mut transaction = self.store.transaction().await;
 
         let account = transaction.account().await?;
-        account.mark_as_dehydrated();
         account.generate_fallback_key_helper();
 
         let (device_keys, one_time_keys, fallback_keys) = account.keys_for_upload();
@@ -478,6 +477,10 @@ mod tests {
             !request.fallback_keys.is_empty(),
             "The dehydrated device creation request should contain some fallback keys"
         );
+
+        let device_keys: crate::types::DeviceKeys =
+            serde_json::from_str(request.device_keys.json().get()).unwrap();
+        assert!(device_keys.dehydrated == Some(true));
     }
 
     #[async_test]

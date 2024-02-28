@@ -358,6 +358,9 @@ pub struct PickledAccount {
     pub pickle: AccountPickle,
     /// Was the account shared.
     pub shared: bool,
+    /// Whether this is for a dehydrated device
+    #[serde(default)]
+    pub dehydrated: bool,
     /// The number of uploaded one-time keys we have on the server.
     pub uploaded_signed_key_count: u64,
     /// The local time creation of this account (milliseconds since epoch), used
@@ -431,9 +434,15 @@ impl Account {
         Self::new_helper(account, user_id, &device_id)
     }
 
-    /// Mark the account as being used for a dehydrated device.
-    pub(crate) fn mark_as_dehydrated(&mut self) {
-        self.static_data.dehydrated = true;
+    /// Create a new random Olm Account for a dehydrated device
+    pub fn new_dehydrated(user_id: &UserId) -> Self {
+        let account = InnerAccount::new();
+        let device_id: OwnedDeviceId =
+            base64_encode(account.identity_keys().curve25519.as_bytes()).into();
+
+        let mut ret = Self::new_helper(account, user_id, &device_id);
+        ret.static_data.dehydrated = true;
+        ret
     }
 
     /// Get the immutable data for this account.
@@ -605,6 +614,7 @@ impl Account {
             device_id: self.device_id().to_owned(),
             pickle,
             shared: self.shared(),
+            dehydrated: self.static_data.dehydrated,
             uploaded_signed_key_count: self.uploaded_key_count(),
             creation_local_time: self.static_data.creation_local_time,
         }
@@ -658,7 +668,7 @@ impl Account {
                 user_id: (*pickle.user_id).into(),
                 device_id: (*pickle.device_id).into(),
                 identity_keys: Arc::new(identity_keys),
-                dehydrated: false,
+                dehydrated: pickle.dehydrated,
                 creation_local_time: pickle.creation_local_time,
             },
             inner: Box::new(account),
