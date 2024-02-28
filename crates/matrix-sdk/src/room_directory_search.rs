@@ -122,8 +122,12 @@ impl RoomDirectorySearch {
 #[cfg(test)]
 mod tests {
     use matrix_sdk_test::{async_test, test_json};
-    use ruma::{OwnedRoomId, RoomAliasId, RoomId};
-    use wiremock::{http::Method, Match, Mock, MockServer, Request, ResponseTemplate};
+    use ruma::{directory::Filter, serde::Raw, RoomAliasId, RoomId};
+    use serde_json::Value as JsonValue;
+    use wiremock::{
+        matchers::{method, path_regex},
+        Match, Mock, MockServer, Request, ResponseTemplate,
+    };
 
     use crate::{
         room_directory_search::{RoomDescription, RoomDirectorySearch},
@@ -131,22 +135,77 @@ mod tests {
         Client,
     };
 
-    struct RoomDirectorySearchMatcher;
+    struct RoomDirectorySearchMatcher {
+        next_token: Option<String>,
+        filter_term: Option<String>,
+    }
 
     impl Match for RoomDirectorySearchMatcher {
         fn matches(&self, request: &Request) -> bool {
-            let match_url = request.url.path() == "/_matrix/client/v3/publicRooms";
-            let match_method = request.method == Method::Post;
-            match_url && match_method
+            let Ok(body) = request.body_json::<Raw<JsonValue>>() else {
+                return false;
+            };
+
+            // The body's `since` field is set equal to the matcher's next_token.
+            if !body.get_field::<String>("since").is_ok_and(|s| s == self.next_token) {
+                return false;
+            }
+
+            // The body's `filter` field has `generic_search_term` equal to the matcher's
+            // next_token.
+            if !body.get_field::<Filter>("filter").is_ok_and(|s| {
+                if self.filter_term.is_none() {
+                    s.is_none() || s.is_some_and(|s| s.generic_search_term.is_none())
+                } else {
+                    s.is_some_and(|s| s.generic_search_term == self.filter_term)
+                }
+            }) {
+                return false;
+            }
+
+            method("POST").matches(request)
+                && path_regex("/_matrix/client/../publicRooms").matches(request)
         }
+    }
+
+    fn get_first_page_description() -> RoomDescription {
+        RoomDescription {
+            room_id: RoomId::parse("!ol19s:bleecker.street").unwrap(),
+            name: Some("CHEESE".into()),
+            topic: Some("Tasty tasty cheese".into()),
+            alias: None,
+            avatar_url: Some("mxc://bleeker.street/CHEDDARandBRIE".into()),
+            join_rule: ruma::directory::PublicRoomJoinRule::Public,
+            is_world_readable: true,
+            joined_members: 37,
+        }
+    }
+
+    fn get_second_page_description() -> RoomDescription {
+        RoomDescription {
+            room_id: RoomId::parse("!ca18r:bleecker.street").unwrap(),
+            name: Some("PEAR".into()),
+            topic: Some("Tasty tasty pear".into()),
+            alias: RoomAliasId::parse("#murrays:pear.bar").ok(),
+            avatar_url: Some("mxc://bleeker.street/pear".into()),
+            join_rule: ruma::directory::PublicRoomJoinRule::Knock,
+            is_world_readable: false,
+            joined_members: 20,
+        }
+    }
+
+    async fn new_server_and_client() -> (MockServer, Client) {
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
+        (server, client)
     }
 
     #[async_test]
     async fn search_success() {
-        let (server, client) = new_client().await;
+        let (server, client) = new_server_and_client().await;
 
         let mut room_directory_search = RoomDirectorySearch::new(client);
-        Mock::given(RoomDirectorySearchMatcher)
+        Mock::given(RoomDirectorySearchMatcher { next_token: None, filter_term: None })
             .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::PUBLIC_ROOMS))
             .mount(&server)
             .await;
@@ -154,26 +213,122 @@ mod tests {
         room_directory_search.search(None, 1).await.unwrap();
         let (results, _) = room_directory_search.results();
         assert_eq!(results.len(), 1);
-        assert_eq!(
-            results[0],
-            RoomDescription {
-                room_id: RoomId::parse("!ol19s:bleecker.street").unwrap(),
-                name: Some("CHEESE".into()),
-                topic: Some("Tasty tasty cheese".into()),
-                alias: RoomAliasId::parse("#room:example.com").unwrap().into(),
-                avatar_url: Some("mxc://bleeker.street/CHEDDARandBRIE".into()),
-                join_rule: ruma::directory::PublicRoomJoinRule::Public,
-                is_world_readable: true,
-                joined_members: 37,
-            }
-        );
-        assert_eq!(room_directory_search.is_at_last_page, false);
+        assert_eq!(results[0], get_first_page_description());
+        assert!(!room_directory_search.is_at_last_page);
         assert_eq!(room_directory_search.loaded_pages(), 1);
     }
 
-    async fn new_client() -> (MockServer, Client) {
-        let server = MockServer::start().await;
-        let client = logged_in_client(Some(server.uri())).await;
-        (server, client)
+    #[async_test]
+    async fn search_success_paginated() {
+        let (server, client) = new_server_and_client().await;
+
+        let mut room_directory_search = RoomDirectorySearch::new(client);
+        Mock::given(RoomDirectorySearchMatcher { next_token: None, filter_term: None })
+            .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::PUBLIC_ROOMS))
+            .mount(&server)
+            .await;
+
+        room_directory_search.search(None, 1).await.unwrap();
+
+        Mock::given(RoomDirectorySearchMatcher {
+            next_token: Some("p190q".into()),
+            filter_term: None,
+        })
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(&*test_json::PUBLIC_ROOMS_FINAL_PAGE),
+        )
+        .mount(&server)
+        .await;
+
+        room_directory_search.next_page().await.unwrap();
+
+        let (results, _) = room_directory_search.results();
+        assert_eq!(
+            results,
+            vec![get_first_page_description(), get_second_page_description()].into()
+        );
+        assert!(room_directory_search.is_at_last_page);
+        assert_eq!(room_directory_search.loaded_pages(), 2);
+    }
+
+    #[async_test]
+    async fn search_fails() {
+        let (server, client) = new_server_and_client().await;
+
+        let mut room_directory_search = RoomDirectorySearch::new(client);
+        Mock::given(RoomDirectorySearchMatcher { next_token: None, filter_term: None })
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+
+        room_directory_search.search(None, 1).await.unwrap_err();
+        let (results, _) = room_directory_search.results();
+        assert_eq!(results.len(), 0);
+        assert!(!room_directory_search.is_at_last_page);
+        assert_eq!(room_directory_search.loaded_pages(), 0);
+    }
+
+    #[async_test]
+    async fn search_fails_when_paginating() {
+        let (server, client) = new_server_and_client().await;
+
+        let mut room_directory_search = RoomDirectorySearch::new(client);
+        Mock::given(RoomDirectorySearchMatcher { next_token: None, filter_term: None })
+            .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::PUBLIC_ROOMS))
+            .mount(&server)
+            .await;
+
+        room_directory_search.search(None, 1).await.unwrap();
+
+        Mock::given(RoomDirectorySearchMatcher {
+            next_token: Some("p190q".into()),
+            filter_term: None,
+        })
+        .respond_with(ResponseTemplate::new(404))
+        .mount(&server)
+        .await;
+
+        room_directory_search.next_page().await.unwrap_err();
+
+        let (results, _) = room_directory_search.results();
+        assert_eq!(results, vec![get_first_page_description()].into());
+        assert!(!room_directory_search.is_at_last_page);
+        assert_eq!(room_directory_search.loaded_pages(), 1);
+    }
+
+    #[async_test]
+    async fn search_success_paginated_with_filter() {
+        let (server, client) = new_server_and_client().await;
+
+        let mut room_directory_search = RoomDirectorySearch::new(client);
+        Mock::given(RoomDirectorySearchMatcher {
+            next_token: None,
+            filter_term: Some("bleecker.street".into()),
+        })
+        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::PUBLIC_ROOMS))
+        .mount(&server)
+        .await;
+
+        room_directory_search.search(Some("bleecker.street".into()), 1).await.unwrap();
+
+        Mock::given(RoomDirectorySearchMatcher {
+            next_token: Some("p190q".into()),
+            filter_term: Some("bleecker.street".into()),
+        })
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(&*test_json::PUBLIC_ROOMS_FINAL_PAGE),
+        )
+        .mount(&server)
+        .await;
+
+        room_directory_search.next_page().await.unwrap();
+
+        let (results, _) = room_directory_search.results();
+        assert_eq!(
+            results,
+            vec![get_first_page_description(), get_second_page_description()].into()
+        );
+        assert!(room_directory_search.is_at_last_page);
+        assert_eq!(room_directory_search.loaded_pages(), 2);
     }
 }
