@@ -53,6 +53,7 @@ pub struct DeviceKeys {
     pub signatures: Signatures,
 
     /// Whether the device is a dehydrated device or not
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dehydrated: Option<bool>,
 
     /// Additional data added to the device key information by intermediate
@@ -186,6 +187,7 @@ struct DeviceKeyHelper {
     pub device_id: OwnedDeviceId,
     pub algorithms: Vec<EventEncryptionAlgorithm>,
     pub keys: BTreeMap<OwnedDeviceKeyId, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dehydrated: Option<bool>,
     pub signatures: Signatures,
     #[serde(default, skip_serializing_if = "UnsignedDeviceInfo::is_empty")]
