@@ -13,6 +13,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! Types for searching the public room directory.
+
 use eyeball_im::{ObservableVector, VectorDiff};
 use futures_core::Stream;
 use imbl::Vector;
@@ -24,15 +26,24 @@ use ruma::{
 
 use crate::{Client, Result};
 
+/// This struct represents a single result of a room directory search.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RoomDescription {
+    /// The room's ID.
     pub room_id: OwnedRoomId,
+    /// The name of the room, if any.
     pub name: Option<String>,
+    /// The topic of the room, if any.
     pub topic: Option<String>,
+    /// The canonical alias of the room, if any.
     pub alias: Option<OwnedRoomAliasId>,
+    /// The room's avatar URL, if any.
     pub avatar_url: Option<OwnedMxcUri>,
+    /// The room's join rule.
     pub join_rule: PublicRoomJoinRule,
+    /// Whether can be previewed
     pub is_world_readable: bool,
+    /// The number of members that have joined the room.
     pub joined_members: u64,
 }
 
@@ -51,6 +62,7 @@ impl From<ruma::directory::PublicRoomsChunk> for RoomDescription {
     }
 }
 
+#[derive(Debug)]
 pub struct RoomDirectorySearch {
     batch_size: u32,
     filter: Option<String>,
