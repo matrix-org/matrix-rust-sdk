@@ -13,8 +13,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use eyeball_im::{ObservableVector, VectorDiff, VectorSubscriber};
+use eyeball_im::{ObservableVector, VectorDiff};
 use futures_core::Stream;
+use imbl::Vector;
 use ruma::{
     api::client::directory::get_public_rooms_filtered::v3::Request as PublicRoomsFilterRequest,
     directory::{Filter, PublicRoomJoinRule},
@@ -33,6 +34,21 @@ pub struct RoomDescription {
     pub join_rule: PublicRoomJoinRule,
     pub is_world_readable: bool,
     pub joined_members: u64,
+}
+
+impl From<ruma::directory::PublicRoomsChunk> for RoomDescription {
+    fn from(value: ruma::directory::PublicRoomsChunk) -> Self {
+        Self {
+            room_id: value.room_id,
+            name: value.name,
+            topic: value.topic,
+            alias: value.canonical_alias,
+            avatar_url: value.avatar_url,
+            join_rule: value.join_rule,
+            is_world_readable: value.world_readable,
+            joined_members: value.num_joined_members.into(),
+        }
+    }
 }
 
 pub struct RoomDirectorySearch {
@@ -81,27 +97,14 @@ impl RoomDirectorySearch {
         if self.next_token.is_none() {
             self.is_at_last_page = true;
         }
-        self.results.append(
-            response
-                .chunk
-                .into_iter()
-                .map(|room| RoomDescription {
-                    room_id: room.room_id,
-                    name: room.name,
-                    topic: room.topic,
-                    alias: room.canonical_alias,
-                    avatar_url: room.avatar_url,
-                    join_rule: room.join_rule,
-                    is_world_readable: room.world_readable,
-                    joined_members: room.num_joined_members.into(),
-                })
-                .collect(),
-        );
+        self.results.append(response.chunk.into_iter().map(Into::into).collect());
         Ok(())
     }
 
-    pub fn results(&self) -> impl Stream<Item = VectorDiff<RoomDescription>> {
-        self.results.subscribe().into_stream()
+    pub fn results(
+        &self,
+    ) -> (Vector<RoomDescription>, impl Stream<Item = Vec<VectorDiff<RoomDescription>>>) {
+        self.results.subscribe().into_values_and_batched_stream()
     }
 
     pub fn loaded_pages(&self) -> usize {
@@ -113,5 +116,64 @@ impl RoomDirectorySearch {
 
     pub fn is_at_last_page(&self) -> bool {
         self.is_at_last_page
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use matrix_sdk_test::{async_test, test_json};
+    use ruma::{OwnedRoomId, RoomAliasId, RoomId};
+    use wiremock::{http::Method, Match, Mock, MockServer, Request, ResponseTemplate};
+
+    use crate::{
+        room_directory_search::{RoomDescription, RoomDirectorySearch},
+        test_utils::logged_in_client,
+        Client,
+    };
+
+    struct RoomDirectorySearchMatcher;
+
+    impl Match for RoomDirectorySearchMatcher {
+        fn matches(&self, request: &Request) -> bool {
+            let match_url = request.url.path() == "/_matrix/client/v3/publicRooms";
+            let match_method = request.method == Method::Post;
+            match_url && match_method
+        }
+    }
+
+    #[async_test]
+    async fn search_success() {
+        let (server, client) = new_client().await;
+
+        let mut room_directory_search = RoomDirectorySearch::new(client);
+        Mock::given(RoomDirectorySearchMatcher)
+            .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::PUBLIC_ROOMS))
+            .mount(&server)
+            .await;
+
+        room_directory_search.search(None, 1).await.unwrap();
+        let (results, _) = room_directory_search.results();
+        assert_eq!(results.len(), 1);
+        assert_eq!(
+            results[0],
+            RoomDescription {
+                room_id: RoomId::parse("!ol19s:bleecker.street").unwrap(),
+                name: Some("CHEESE".into()),
+                topic: Some("Tasty tasty cheese".into()),
+                alias: RoomAliasId::parse("#room:example.com").unwrap().into(),
+                avatar_url: Some("mxc://bleeker.street/CHEDDARandBRIE".into()),
+                join_rule: ruma::directory::PublicRoomJoinRule::Public,
+                is_world_readable: true,
+                joined_members: 37,
+            }
+        );
+        assert_eq!(room_directory_search.is_at_last_page, false);
+        assert_eq!(room_directory_search.loaded_pages(), 1);
+    }
+
+    async fn new_client() -> (MockServer, Client) {
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
+        (server, client)
     }
 }

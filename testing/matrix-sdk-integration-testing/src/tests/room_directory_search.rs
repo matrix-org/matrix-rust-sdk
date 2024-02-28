@@ -16,8 +16,9 @@
 use std::time::Duration;
 
 use anyhow::Result;
+use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
-use futures::{FutureExt, StreamExt};
+use futures::StreamExt;
 use matrix_sdk::{
     room_directory_search::RoomDirectorySearch,
     ruma::api::client::room::{create_room::v3::Request as CreateRoomRequest, Visibility},
@@ -43,40 +44,28 @@ async fn test_room_directory_search_filter() -> Result<()> {
     }
     sleep(Duration::from_secs(1)).await;
     let mut room_directory_search = RoomDirectorySearch::new(alice);
-    let mut stream = room_directory_search.results();
+    let (values, mut stream) = room_directory_search.results();
+    assert!(values.is_empty());
     room_directory_search.search(Some(search_string), 10).await?;
-    assert_next_eq!(stream, VectorDiff::Clear);
+    let results_batch = stream.next().await.unwrap();
+    assert_matches!(&results_batch[0], VectorDiff::Clear);
+    assert_matches!(&results_batch[1], VectorDiff::Append { values } => { assert_eq!(values.len(), 10); });
 
-    for _ in 0..2 {
-        if let VectorDiff::Append { values } = stream.next().now_or_never().unwrap().unwrap() {
-            warn!("Values: {:?}", values);
-            assert_eq!(values.len(), 10);
-        } else {
-            panic!("Expected a Vector::Append");
-        }
-        assert_pending!(stream);
-        room_directory_search.next_page().await?;
-    }
-
-    if let VectorDiff::Append { values } = stream.next().now_or_never().unwrap().unwrap() {
-        warn!("Values: {:?}", values);
-        assert_eq!(values.len(), 5);
-    } else {
-        panic!("Expected a Vector::Append");
-    }
+    room_directory_search.next_page().await?;
+    room_directory_search.next_page().await?;
+    let results_batch = stream.next().await.unwrap();
+    assert_eq!(results_batch.len(), 2);
+    assert_matches!(&results_batch[0], VectorDiff::Append { values } => { assert_eq!(values.len(), 10); });
+    assert_matches!(&results_batch[1], VectorDiff::Append { values } => { assert_eq!(values.len(), 5); });
     assert_pending!(stream);
     room_directory_search.next_page().await?;
     assert_pending!(stream);
 
     // This should reset the state completely
     room_directory_search.search(None, 25).await?;
-    assert_next_eq!(stream, VectorDiff::Clear);
-    if let VectorDiff::Append { values } = stream.next().now_or_never().unwrap().unwrap() {
-        warn!("Values: {:?}", values);
-        assert_eq!(values.len(), 25);
-    } else {
-        panic!("Expected a Vector::Append");
-    }
+    let results_batch = stream.next().await.unwrap();
+    assert_matches!(&results_batch[0], VectorDiff::Clear);
+    assert_matches!(&results_batch[1], VectorDiff::Append { values } => { assert_eq!(values.len(), 25); });
     assert_pending!(stream);
     Ok(())
 }
