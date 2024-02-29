@@ -141,8 +141,7 @@ impl RoomDirectorySearch {
         if self.batch_size == 0 {
             return 0;
         }
-
-        (self.results.len() / self.batch_size).ceil() as usize
+        (self.results.len() as f64 / self.batch_size as f64).ceil() as usize
     }
 
     /// Get whether the search is at the last page
@@ -153,9 +152,13 @@ impl RoomDirectorySearch {
 
 #[cfg(test)]
 mod tests {
+    use assert_matches::assert_matches;
+    use eyeball_im::VectorDiff;
+    use futures_util::StreamExt;
     use matrix_sdk_test::{async_test, test_json};
     use ruma::{directory::Filter, serde::Raw, RoomAliasId, RoomId};
     use serde_json::Value as JsonValue;
+    use stream_assert::assert_pending;
     use wiremock::{
         matchers::{method, path_regex},
         Match, Mock, MockServer, Request, ResponseTemplate,
@@ -248,7 +251,7 @@ mod tests {
             .await;
 
         room_directory_search.search(None, 1).await.unwrap();
-        let (results, stream) = room_directory_search.results();
+        let (results, mut stream) = room_directory_search.results();
         assert_pending!(stream);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0], get_first_page_description());
@@ -267,6 +270,10 @@ mod tests {
             .await;
 
         room_directory_search.search(None, 1).await.unwrap();
+        let (initial_results, mut stream) = room_directory_search.results();
+        assert_eq!(initial_results, vec![get_first_page_description()].into());
+        assert!(!room_directory_search.is_at_last_page());
+        assert_eq!(room_directory_search.loaded_pages(), 1);
 
         Mock::given(RoomDirectorySearchMatcher {
             next_token: Some("p190q".into()),
@@ -281,13 +288,11 @@ mod tests {
 
         room_directory_search.next_page().await.unwrap();
 
-        let (results, _) = room_directory_search.results();
-        assert_eq!(
-            results,
-            vec![get_first_page_description(), get_second_page_description()].into()
-        );
-        assert!(room_directory_search.is_at_last_page);
+        let results_batch: Vec<VectorDiff<RoomDescription>> = stream.next().await.unwrap();
+        assert_matches!(&results_batch[0], VectorDiff::Append { values } => { assert_eq!(values, &vec![get_second_page_description()].into()); });
+        assert!(room_directory_search.is_at_last_page());
         assert_eq!(room_directory_search.loaded_pages(), 2);
+        assert_pending!(stream);
     }
 
     #[async_test]
@@ -300,10 +305,9 @@ mod tests {
             .mount(&server)
             .await;
 
-        let search = room_directory_search.search(None, 1).await;
-        assert!(search.is_err());
+        assert!(room_directory_search.next_page().await.is_err());
 
-        let (results, stream) = room_directory_search.results();
+        let (results, mut stream) = room_directory_search.results();
         assert_eq!(results.len(), 0);
         assert!(!room_directory_search.is_at_last_page());
         assert_eq!(room_directory_search.loaded_pages(), 0);
@@ -331,11 +335,11 @@ mod tests {
         .mount(&server)
         .await;
 
-        room_directory_search.next_page().await.unwrap_err();
+        assert!(room_directory_search.next_page().await.is_err());
 
         let (results, _) = room_directory_search.results();
         assert_eq!(results, vec![get_first_page_description()].into());
-        assert!(!room_directory_search.is_at_last_page);
+        assert!(!room_directory_search.is_at_last_page());
         assert_eq!(room_directory_search.loaded_pages(), 1);
     }
 
@@ -354,6 +358,10 @@ mod tests {
         .await;
 
         room_directory_search.search(Some("bleecker.street".into()), 1).await.unwrap();
+        let (initial_results, mut stream) = room_directory_search.results();
+        assert_eq!(initial_results, vec![get_first_page_description()].into());
+        assert!(!room_directory_search.is_at_last_page());
+        assert_eq!(room_directory_search.loaded_pages(), 1);
 
         Mock::given(RoomDirectorySearchMatcher {
             next_token: Some("p190q".into()),
@@ -368,12 +376,45 @@ mod tests {
 
         room_directory_search.next_page().await.unwrap();
 
-        let (results, _) = room_directory_search.results();
-        assert_eq!(
-            results,
-            vec![get_first_page_description(), get_second_page_description()].into()
-        );
-        assert!(room_directory_search.is_at_last_page);
+        let results_batch: Vec<VectorDiff<RoomDescription>> = stream.next().await.unwrap();
+        assert_matches!(&results_batch[0], VectorDiff::Append { values } => { assert_eq!(values, &vec![get_second_page_description()].into()); });
+        assert!(room_directory_search.is_at_last_page());
         assert_eq!(room_directory_search.loaded_pages(), 2);
+        assert_pending!(stream);
+    }
+
+    #[async_test]
+    async fn search_followed_by_another_search_with_filter() {
+        let (server, client) = new_server_and_client().await;
+
+        let mut room_directory_search = RoomDirectorySearch::new(client);
+        Mock::given(RoomDirectorySearchMatcher { next_token: None, filter_term: None, limit: 1 })
+            .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::PUBLIC_ROOMS))
+            .mount(&server)
+            .await;
+
+        room_directory_search.search(None, 1).await.unwrap();
+        let (initial_results, mut stream) = room_directory_search.results();
+        assert_eq!(initial_results, vec![get_first_page_description()].into());
+        assert!(!room_directory_search.is_at_last_page());
+        assert_eq!(room_directory_search.loaded_pages(), 1);
+
+        Mock::given(RoomDirectorySearchMatcher {
+            next_token: None,
+            filter_term: Some("bleecker.street".into()),
+            limit: 1,
+        })
+        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::PUBLIC_ROOMS))
+        .mount(&server)
+        .await;
+
+        room_directory_search.search(Some("bleecker.street".into()), 1).await.unwrap();
+
+        let results_batch: Vec<VectorDiff<RoomDescription>> = stream.next().await.unwrap();
+        assert_matches!(&results_batch[0], VectorDiff::Clear);
+        assert_matches!(&results_batch[1], VectorDiff::Append { values } => { assert_eq!(values, &vec![get_first_page_description()].into()); });
+        assert!(!room_directory_search.is_at_last_page());
+        assert_eq!(room_directory_search.loaded_pages(), 1);
+        assert_pending!(stream);
     }
 }

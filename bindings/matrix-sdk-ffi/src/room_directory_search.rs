@@ -16,6 +16,7 @@
 use std::{fmt::Debug, sync::Arc};
 
 use eyeball_im::VectorDiff;
+use futures::StreamExt;
 use futures_util::pin_mut;
 use matrix_sdk::room_directory_search::RoomDirectorySearch as SdkRoomDirectorySearch;
 use tokio::sync::RwLock;
@@ -106,10 +107,12 @@ impl RoomDirectorySearch {
         listener: Box<dyn RoomDirectorySearchEntriesListener>,
     ) -> TaskHandle {
         let (initial_values, stream) = self.inner.read().await.results();
-        
+
         TaskHandle::new(RUNTIME.spawn(async move {
-            listener.on_update(vec![VectorDiff::Reset { values: initial_values }.map(Into::into)]);
-            
+            listener.on_update(RoomDirectorySearchEntryUpdate::Reset {
+                values: initial_values.into_iter().map(Into::into).collect(),
+            });
+
             while let Some(diffs) = stream.next().await {
                 listener.on_update(diffs.into_iter().map(|diff| diff.map(Into::into)).collect());
             }
@@ -124,8 +127,35 @@ pub struct RoomDirectorySearchEntriesResult {
 
 #[derive(uniffi::Enum)]
 pub enum RoomDirectorySearchEntryUpdate {
-    Clear,
     Append { values: Vec<RoomDescription> },
+    Clear,
+    PushFront { value: RoomDescription },
+    PushBack { value: RoomDescription },
+    PopFront,
+    PopBack,
+    Insert { index: u32, value: RoomDescription },
+    Set { index: u32, value: RoomDescription },
+    Remove { index: u32 },
+    Truncate { length: u32 },
+    Reset { values: Vec<RoomDescription> },
+}
+
+impl From<VectorDiff<RoomDescription>> for RoomDirectorySearchEntryUpdate {
+    fn from(diff: VectorDiff<RoomDescription>) -> Self {
+        match diff {
+            VectorDiff::Append { values } => Self::Append { values },
+            VectorDiff::Clear => Self::Clear,
+            VectorDiff::PushFront { value } => Self::PushFront { value },
+            VectorDiff::PushBack { value } => Self::PushBack { value },
+            VectorDiff::PopFront => Self::PopFront,
+            VectorDiff::PopBack => Self::PopBack,
+            VectorDiff::Insert { index, value } => Self::Insert { index, value },
+            VectorDiff::Set { index, value } => Self::Set { index, value },
+            VectorDiff::Remove { index } => Self::Remove { index },
+            VectorDiff::Truncate { length } => Self::Truncate { length },
+            VectorDiff::Reset { values } => Self::Reset { values },
+        }
+    }
 }
 
 #[uniffi::export(callback_interface)]
