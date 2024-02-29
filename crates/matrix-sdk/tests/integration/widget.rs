@@ -48,7 +48,7 @@ use wiremock::{
     Mock, MockServer, ResponseTemplate,
 };
 
-use crate::{logged_in_client, mock_encryption_state, mock_sync};
+use crate::{logged_in_client_with_server, mock_encryption_state, mock_sync};
 
 /// Create a JSON string from a [`json!`][serde_json::json] "literal".
 #[macro_export]
@@ -70,7 +70,7 @@ async fn run_test_driver(init_on_content_load: bool) -> (Client, MockServer, Wid
         }
     }
 
-    let (client, mock_server) = logged_in_client().await;
+    let (client, mock_server) = logged_in_client_with_server().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
     let mut sync_builder = SyncResponseBuilder::new();

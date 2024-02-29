@@ -20,7 +20,8 @@ use assert_matches2::assert_let;
 use eyeball_im::{Vector, VectorDiff};
 use futures_util::{pin_mut, FutureExt, Stream, StreamExt};
 use matrix_sdk::{
-    SlidingSync, SlidingSyncList, SlidingSyncListBuilder, SlidingSyncMode, UpdateSummary,
+    test_utils::logged_in_client_with_server, SlidingSync, SlidingSyncList, SlidingSyncListBuilder,
+    SlidingSyncMode, UpdateSummary,
 };
 use matrix_sdk_test::async_test;
 use matrix_sdk_ui::{
@@ -30,8 +31,6 @@ use matrix_sdk_ui::{
 use ruma::{room_id, user_id, RoomId};
 use serde_json::json;
 use wiremock::{http::Method, Match, Mock, MockServer, Request, ResponseTemplate};
-
-use crate::logged_in_client;
 
 macro_rules! receive_response {
     (
@@ -201,7 +200,7 @@ macro_rules! assert_timeline_stream {
 pub(crate) use assert_timeline_stream;
 
 async fn new_sliding_sync(lists: Vec<SlidingSyncListBuilder>) -> Result<(MockServer, SlidingSync)> {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     let mut sliding_sync_builder = client.sliding_sync("integration-test")?;
 

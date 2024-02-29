@@ -1,6 +1,6 @@
 End-to-end encryption related types
 
-Matrix has support for end-to-end encrypted messaging, this module contains
+Matrix has support for end-to-end encrypted messaging. This module contains
 types related to end-to-end encryption, describes a bit how E2EE works in
 the matrix-sdk, and how to set your [`Client`] up to support E2EE.
 
@@ -53,12 +53,12 @@ been introduced.
 ## Room keys
 
 Room keys remove the need to encrypt each message for each *end*.
-Instead a room key needs to be shared with each *end*, after that a message
+Instead a room key needs to be shared with each *end*, and after that a message
 can be encrypted in a single, O(1), step.
 
-A room key is backed by a [Megolm] session, which in turn consists two
-parts. The first part, the outbound group session is used for encryption,
-this one never leaves your device. The second part is the inbound group
+A room key is backed by a [Megolm] session, which consists of two
+parts. The first part, the outbound group session, is used for encryption.
+This part never leaves your device. The second part is the inbound group
 session, which is shared with each *end*.
 
 ```text
@@ -83,7 +83,7 @@ comes first.
 ### Decrypting the room history
 
 Since room keys get relatively often rotated, each room key will need to be
-stored, otherwise we won't be able to decrypt historical messages. The SDK
+stored — otherwise we won't be able to decrypt historical messages. The SDK
 stores all room keys locally in an encrypted manner.
 
 Besides storing them as part of the SDK store, users can export room keys
@@ -95,8 +95,8 @@ One important aspect of end-to-end encryption is to check that the *end* you
 are communicating with is indeed the person you expect. This checking is
 done in Matrix via interactive verification. While interactively verifying,
 we'll need to exchange some critical piece of information over another
-communication channel, over the phone, or in person are good candidates
-for such a channel.
+communication channel. (Good ways to make this exchange would be in person or
+via a phone call.)
 
 Usually each *end* will need to verify every *end* it communicates with. An
 *end* is represented as a [`Device`] in the matrix-sdk. This gets rather
@@ -120,11 +120,11 @@ communication between Alice and Bob to be considered secure.
 
 ```
 
-To simplify things and lower the amount of devices a user needs to verify
+To simplify things and lower the amount of devices a user needs to verify,
 cross signing has been introduced. Cross signing adds a concept of a user
 identity which is represented in the matrix-sdk using the [`UserIdentity`]
-struct. This way Alice and Bob only need to verify their own devices and
-each others user identity for the communication to be considered secure.
+struct. This way, Alice and Bob only need to verify their own devices and
+each other's user identity for the communication to be considered secure.
 
 ```text
 
@@ -149,7 +149,7 @@ More info about devices and identities can be found in the [`identities`]
 module.
 
 To add interactive verification support to your client please see the
-[`verification`] module, also check out the documentation for the
+[`verification`] module. Also check out the documentation for the
 [`Device::is_verified()`] method, which explains in more detail what
 it means for a [`Device`] to be verified.
 
@@ -166,23 +166,23 @@ to work.
 
 1. Make sure the `e2e-encryption` feature is enabled.
 2. To persist the encryption keys, you can use [`ClientBuilder::store_config`]
-   or one of the other `_store` methods on [`ClientBuilder`].
+   or one of the `_store` methods on [`ClientBuilder`].
 
 ## Restoring a client
 
-Restoring a Client is relatively easy, still some things need to be kept in
-mind before doing so.
+Restoring a Client is relatively easy, but there are some things that need to be
+kept in mind before doing so.
 
 There are two ways one might wish to restore a [`Client`]:
 
 1. Using an access token
 2. Using the password
 
-Initially, logging in creates a device ID and access token on the server,
-those two are directly connected to each other, more on this relationship
+Initially, logging in creates a device ID and access token on the server.
+Those two are directly connected to each other — more on this relationship
 can be found in the [spec].
 
-After we log in the client will upload the end-to-end encryption related
+After we log in, the client will upload the end-to-end encryption related
 [device keys] to the server. Those device keys cannot be replaced once they
 have been uploaded and tied to a device ID.
 
@@ -207,7 +207,7 @@ the device ID.
    This will replace the access token from the previous login call, but won't
    create a new device.
 
-**Note** that the default store supports only a single device, logging in
+**Note** that the default store supports only a single device. Logging in
 with a different device ID (either `None` or a device ID of another client)
 is **not** supported using the default store.
 
@@ -215,10 +215,10 @@ is **not** supported using the default store.
 
 | Failure | Cause | Fix |
 | ------------------- | ----- | ----------- |
-| No messages get encrypted nor decrypted | The `e2e-encryption` feature is disabled | [Enable the feature in your `Cargo.toml` file] |
+| No messages get encrypted or decrypted | The `e2e-encryption` feature is disabled | [Enable the feature in your `Cargo.toml` file] |
 | Messages that were decryptable aren't after a restart | Storage isn't setup to be persistent | Ensure you've activated the persistent storage backend feature, e.g. `sqlite` |
 | Messages are encrypted but can't be decrypted | The access token that the client is using is tied to another device | Clear storage to create a new device, read the [Restoring a Client] section |
-| Messages don't get encrypted but get decrypted | The `m.room.encryption` event is missing | Make sure encryption is [enabled] for the room and the event isn't [filtered] out, otherwise it might be a deserialization bug |
+| Messages don't get encrypted but get decrypted | The `m.room.encryption` event is missing | Make sure encryption is [enabled] for the room and the event isn't [filtered] out. Otherwise it might be a deserialization bug |
 
 [Enable the feature in your `Cargo.toml` file]: https://doc.rust-lang.org/cargo/reference/specifying-dependencies.html#choosing-features
 [Megolm]: https://gitlab.matrix.org/matrix-org/olm/blob/master/docs/megolm.md

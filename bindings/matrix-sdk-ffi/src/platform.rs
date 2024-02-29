@@ -6,6 +6,7 @@ use opentelemetry::KeyValue;
 use opentelemetry_otlp::{Protocol, WithExportConfig};
 use opentelemetry_sdk::{runtime::RuntimeChannel, trace::Tracer, Resource};
 use tokio::runtime::Handle;
+use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_core::Subscriber;
 use tracing_subscriber::{
     fmt::{self, time::FormatTime, FormatEvent, FormatFields, FormattedFields},
@@ -202,13 +203,26 @@ where
     }
 
     let file_layer = config.write_to_files.map(|c| {
+        let mut builder = RollingFileAppender::builder()
+            .rotation(Rotation::HOURLY)
+            .filename_prefix(&c.file_prefix);
+
+        if let Some(max_files) = c.max_files {
+            builder = builder.max_log_files(max_files as usize)
+        };
+        if let Some(file_suffix) = c.file_suffix {
+            builder = builder.filename_suffix(file_suffix)
+        }
+
+        let writer = builder.build(&c.path).expect("Failed to create a rolling file appender.");
+
         fmt::layer()
             .event_format(EventFormatter::new())
             // EventFormatter doesn't support ANSI colors anyways, but the
             // default field formatter does, which is unhelpful for iOS +
             // Android logs, but enabled by default.
             .with_ansi(false)
-            .with_writer(tracing_appender::rolling::hourly(c.path, c.file_prefix))
+            .with_writer(writer)
     });
 
     Layer::and_then(
@@ -237,6 +251,8 @@ where
 pub struct TracingFileConfiguration {
     path: String,
     file_prefix: String,
+    file_suffix: Option<String>,
+    max_files: Option<u64>,
 }
 
 #[derive(uniffi::Record)]

@@ -18,7 +18,7 @@ use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
-use matrix_sdk::config::SyncSettings;
+use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server};
 use matrix_sdk_test::{
     async_test, EventBuilder, JoinedRoomBuilder, SyncResponseBuilder, ALICE, BOB,
 };
@@ -46,12 +46,12 @@ use wiremock::{
     Mock, ResponseTemplate,
 };
 
-use crate::{logged_in_client, mock_encryption_state, mock_sync};
+use crate::{mock_encryption_state, mock_sync};
 
 #[async_test]
 async fn test_edit() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
     let event_builder = EventBuilder::new();
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
@@ -156,7 +156,7 @@ async fn test_edit() {
 #[async_test]
 async fn test_send_edit() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
     let event_builder = EventBuilder::new();
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
@@ -227,7 +227,7 @@ async fn test_send_edit() {
 #[async_test]
 async fn test_send_reply_edit() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
     let event_builder = EventBuilder::new();
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
@@ -314,7 +314,7 @@ async fn test_send_reply_edit() {
 #[async_test]
 async fn test_send_edit_poll() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
     let event_builder = EventBuilder::new();
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 

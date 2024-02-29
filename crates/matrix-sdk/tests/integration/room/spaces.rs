@@ -12,7 +12,7 @@ use wiremock::{
     Mock, ResponseTemplate,
 };
 
-use crate::{logged_in_client, mock_sync, MockServer};
+use crate::{logged_in_client_with_server, mock_sync, MockServer};
 
 pub static DEFAULT_TEST_SPACE_ID: Lazy<&RoomId> =
     Lazy::new(|| room_id!("!hIMjEx205EXNyjVPCV:localhost"));
@@ -153,7 +153,7 @@ async fn sync_space(
 
 #[async_test]
 async fn no_parent_space() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     mock_sync(&server, &*test_json::SYNC, None).await;
 
@@ -170,7 +170,7 @@ async fn no_parent_space() {
 
 #[async_test]
 async fn parent_space_undeserializable() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     let mut sync = PARENT_SPACE_SYNC.clone();
     sync["rooms"]["join"][DEFAULT_TEST_ROOM_ID.as_str()]["timeline"]["events"][0]["content"]
@@ -186,7 +186,7 @@ async fn parent_space_undeserializable() {
 
 #[async_test]
 async fn parent_space_redacted() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     let mut sync = PARENT_SPACE_SYNC.clone();
     let timeline = &mut sync["rooms"]["join"][DEFAULT_TEST_ROOM_ID.as_str()]["timeline"]["events"];
@@ -215,7 +215,7 @@ async fn parent_space_redacted() {
 
 #[async_test]
 async fn parent_space_unverifiable() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     initial_sync_with_m_space_parent(&client, &server, &PARENT_SPACE_SYNC).await;
 
@@ -230,7 +230,7 @@ async fn parent_space_unverifiable() {
 
 #[async_test]
 async fn parent_space_illegitimate() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     mock_members(&server).await;
 
@@ -249,7 +249,7 @@ async fn parent_space_illegitimate() {
 
 #[async_test]
 async fn parent_space_reciprocal() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     let sync_token = initial_sync_with_m_space_parent(&client, &server, &PARENT_SPACE_SYNC).await;
 
@@ -286,7 +286,7 @@ async fn parent_space_reciprocal() {
 
 #[async_test]
 async fn parent_space_redacted_reciprocal() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     mock_members(&server).await;
 
@@ -374,7 +374,7 @@ async fn setup_parent_member(
 
 #[async_test]
 async fn parent_space_powerlevel() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     let sync_token = initial_sync_with_m_space_parent(&client, &server, &PARENT_SPACE_SYNC).await;
 
@@ -391,7 +391,7 @@ async fn parent_space_powerlevel() {
 
 #[async_test]
 async fn parent_space_powerlevel_too_low() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     let sync_token = initial_sync_with_m_space_parent(&client, &server, &PARENT_SPACE_SYNC).await;
 

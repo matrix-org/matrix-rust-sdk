@@ -10,7 +10,7 @@ use matrix_sdk::{
         Thumbnail,
     },
     config::SyncSettings,
-    room::{Receipts, ReportedContentScore},
+    room::{Receipts, ReportedContentScore, RoomMemberRole},
 };
 use matrix_sdk_base::RoomState;
 use matrix_sdk_test::{
@@ -29,11 +29,11 @@ use wiremock::{
     Mock, ResponseTemplate,
 };
 
-use crate::{logged_in_client, mock_encryption_state, mock_sync, synced_client};
+use crate::{logged_in_client_with_server, mock_encryption_state, mock_sync, synced_client};
 
 #[async_test]
 async fn invite_user_by_id() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     Mock::given(method("POST"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/invite$"))
@@ -56,7 +56,7 @@ async fn invite_user_by_id() {
 
 #[async_test]
 async fn invite_user_by_3pid() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     Mock::given(method("POST"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/invite$"))
@@ -88,7 +88,7 @@ async fn invite_user_by_3pid() {
 
 #[async_test]
 async fn leave_room() -> Result<(), anyhow::Error> {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     Mock::given(method("POST"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/leave$"))
@@ -114,7 +114,7 @@ async fn leave_room() -> Result<(), anyhow::Error> {
 
 #[async_test]
 async fn ban_user() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     Mock::given(method("POST"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/ban$"))
@@ -137,7 +137,7 @@ async fn ban_user() {
 
 #[async_test]
 async fn unban_user() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     Mock::given(method("POST"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/unban$"))
@@ -160,7 +160,7 @@ async fn unban_user() {
 
 #[async_test]
 async fn test_mark_as_unread() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     Mock::given(method("PUT"))
         .and(path_regex(
@@ -186,7 +186,7 @@ async fn test_mark_as_unread() {
 
 #[async_test]
 async fn kick_user() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     Mock::given(method("POST"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/kick$"))
@@ -209,7 +209,7 @@ async fn kick_user() {
 
 #[async_test]
 async fn send_single_receipt() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     Mock::given(method("POST"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/receipt"))
@@ -232,7 +232,7 @@ async fn send_single_receipt() {
 
 #[async_test]
 async fn send_multiple_receipts() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     Mock::given(method("POST"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/read_markers$"))
@@ -256,7 +256,7 @@ async fn send_multiple_receipts() {
 
 #[async_test]
 async fn typing_notice() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     Mock::given(method("PUT"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/typing"))
@@ -280,7 +280,7 @@ async fn typing_notice() {
 async fn room_state_event_send() {
     use ruma::events::room::member::{MembershipState, RoomMemberEventContent};
 
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     Mock::given(method("PUT"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/state/.*"))
@@ -308,7 +308,7 @@ async fn room_state_event_send() {
 
 #[async_test]
 async fn room_message_send() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     Mock::given(method("PUT"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
@@ -335,7 +335,7 @@ async fn room_message_send() {
 
 #[async_test]
 async fn room_attachment_send() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     Mock::given(method("PUT"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
@@ -383,7 +383,7 @@ async fn room_attachment_send() {
 
 #[async_test]
 async fn room_attachment_send_info() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     Mock::given(method("PUT"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
@@ -435,7 +435,7 @@ async fn room_attachment_send_info() {
 
 #[async_test]
 async fn room_attachment_send_wrong_info() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     Mock::given(method("PUT"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
@@ -486,7 +486,7 @@ async fn room_attachment_send_wrong_info() {
 
 #[async_test]
 async fn room_attachment_send_info_thumbnail() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     Mock::given(method("PUT"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
@@ -644,7 +644,7 @@ async fn set_name() {
 
 #[async_test]
 async fn report_content() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     let reason = "I am offended";
     let score = int!(-80);
@@ -677,7 +677,7 @@ async fn report_content() {
 
 #[async_test]
 async fn subscribe_to_typing_notifications() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
     let typing_sequences: Arc<Mutex<Vec<Vec<OwnedUserId>>>> = Arc::new(Mutex::new(Vec::new()));
     // The expected typing sequences that we will receive, note that the current
     // user_id is filtered out.
@@ -747,4 +747,43 @@ async fn subscribe_to_typing_notifications() {
 
     join_handle.await.unwrap();
     assert_eq!(typing_sequences.lock().unwrap().to_vec(), asserted_typing_sequences);
+}
+
+#[async_test]
+async fn get_suggested_user_role() {
+    let (client, server) = logged_in_client_with_server().await;
+
+    mock_sync(&server, &*test_json::DEFAULT_SYNC_SUMMARY, None).await;
+
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let _response = client.sync_once(sync_settings).await.unwrap();
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
+
+    let role_admin = room.get_suggested_user_role(user_id!("@example:localhost")).await.unwrap();
+    assert_eq!(role_admin, RoomMemberRole::Administrator);
+
+    // This user either does not exist in the room or has no special role
+    let role_unknown =
+        room.get_suggested_user_role(user_id!("@non-existing:localhost")).await.unwrap();
+    assert_eq!(role_unknown, RoomMemberRole::User);
+}
+
+#[async_test]
+async fn get_power_level_for_user() {
+    let (client, server) = logged_in_client_with_server().await;
+
+    mock_sync(&server, &*test_json::DEFAULT_SYNC_SUMMARY, None).await;
+
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let _response = client.sync_once(sync_settings).await.unwrap();
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
+
+    let power_level_admin =
+        room.get_user_power_level(user_id!("@example:localhost")).await.unwrap();
+    assert_eq!(power_level_admin, 100);
+
+    // This user either does not exist in the room or has no special power level
+    let power_level_unknown =
+        room.get_user_power_level(user_id!("@non-existing:localhost")).await.unwrap();
+    assert_eq!(power_level_unknown, 0);
 }

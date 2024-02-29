@@ -6,6 +6,7 @@ use matrix_sdk::{
     config::SyncSettings,
     media::{MediaFormat, MediaRequest, MediaThumbnailSize},
     sync::RoomUpdate,
+    test_utils::no_retry_test_client_with_server,
 };
 use matrix_sdk_base::{sync::RoomUpdates, RoomState};
 use matrix_sdk_test::{
@@ -45,11 +46,11 @@ use wiremock::{
     Mock, Request, ResponseTemplate,
 };
 
-use crate::{logged_in_client, mock_sync, no_retry_test_client};
+use crate::{logged_in_client_with_server, mock_sync};
 
 #[async_test]
 async fn sync() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     mock_sync(&server, &*test_json::SYNC, None).await;
 
@@ -62,7 +63,7 @@ async fn sync() {
 
 #[async_test]
 async fn devices() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     Mock::given(method("GET"))
         .and(path("/_matrix/client/r0/devices"))
@@ -75,7 +76,7 @@ async fn devices() {
 
 #[async_test]
 async fn delete_devices() {
-    let (client, server) = no_retry_test_client().await;
+    let (client, server) = no_retry_test_client_with_server().await;
 
     Mock::given(method("POST"))
         .and(path("/_matrix/client/r0/delete_devices"))
@@ -141,7 +142,7 @@ async fn delete_devices() {
 
 #[async_test]
 async fn resolve_room_alias() {
-    let (client, server) = no_retry_test_client().await;
+    let (client, server) = no_retry_test_client_with_server().await;
 
     Mock::given(method("GET"))
         .and(path("/_matrix/client/r0/directory/room/%23alias:example.org"))
@@ -155,7 +156,7 @@ async fn resolve_room_alias() {
 
 #[async_test]
 async fn join_leave_room() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     mock_sync(&server, &*test_json::SYNC, None).await;
 
@@ -178,7 +179,7 @@ async fn join_leave_room() {
 
 #[async_test]
 async fn join_room_by_id() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     Mock::given(method("POST"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/join"))
@@ -197,7 +198,7 @@ async fn join_room_by_id() {
 
 #[async_test]
 async fn join_room_by_id_or_alias() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     Mock::given(method("POST"))
         .and(path_regex(r"^/_matrix/client/r0/join/"))
@@ -223,7 +224,7 @@ async fn join_room_by_id_or_alias() {
 
 #[async_test]
 async fn room_search_all() {
-    let (client, server) = no_retry_test_client().await;
+    let (client, server) = no_retry_test_client_with_server().await;
 
     Mock::given(method("GET"))
         .and(path("/_matrix/client/r0/publicRooms"))
@@ -238,7 +239,7 @@ async fn room_search_all() {
 
 #[async_test]
 async fn room_search_filtered() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     Mock::given(method("POST"))
         .and(path("/_matrix/client/r0/publicRooms"))
@@ -258,7 +259,7 @@ async fn room_search_filtered() {
 
 #[async_test]
 async fn invited_rooms() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     mock_sync(&server, &*test_json::INVITE_SYNC, None).await;
 
@@ -274,7 +275,7 @@ async fn invited_rooms() {
 
 #[async_test]
 async fn left_rooms() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     mock_sync(&server, &*test_json::LEAVE_SYNC, None).await;
 
@@ -290,7 +291,7 @@ async fn left_rooms() {
 
 #[async_test]
 async fn get_media_content() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     let media = client.media();
 
@@ -358,7 +359,7 @@ async fn get_media_content() {
 
 #[async_test]
 async fn get_media_file() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     let event_content = ImageMessageEventContent::plain(
         "filename.jpg".into(),
@@ -403,7 +404,7 @@ async fn get_media_file() {
 
 #[async_test]
 async fn whoami() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     Mock::given(method("GET"))
         .and(path("/_matrix/client/r0/account/whoami"))
@@ -419,7 +420,7 @@ async fn whoami() {
 
 #[async_test]
 async fn test_room_update_channel() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     let mut rx = client.subscribe_to_room_updates(&DEFAULT_TEST_ROOM_ID);
 
@@ -444,7 +445,7 @@ async fn test_room_update_channel() {
 
 #[async_test]
 async fn test_subscribe_all_room_updates() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     let mut rx = client.subscribe_to_all_room_updates();
 
@@ -504,7 +505,7 @@ async fn test_subscribe_all_room_updates() {
 #[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
 #[async_test]
 async fn request_encryption_event_before_sending() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     mock_sync(&server, &*test_json::SYNC, None).await;
     client
@@ -555,7 +556,7 @@ async fn request_encryption_event_before_sending() {
 // a DM.
 #[async_test]
 async fn marking_room_as_dm() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     mock_sync(&server, &*test_json::SYNC, None).await;
     client
@@ -626,7 +627,7 @@ async fn marking_room_as_dm() {
 #[cfg(feature = "e2e-encryption")]
 #[async_test]
 async fn get_own_device() {
-    let (client, _) = logged_in_client().await;
+    let (client, _) = logged_in_client_with_server().await;
 
     let device = client
         .encryption()
@@ -649,7 +650,7 @@ async fn get_own_device() {
 #[cfg(feature = "e2e-encryption")]
 #[async_test]
 async fn cross_signing_status() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     Mock::given(method("POST"))
         .and(path("/_matrix/client/unstable/keys/device_signing/upload"))
@@ -710,7 +711,7 @@ async fn test_encrypt_room_event() {
 
     use ruma::events::room::encrypted::RoomEncryptedEventContent;
 
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
     let user_id = client.user_id().unwrap();
 
     Mock::given(method("POST"))
@@ -844,7 +845,7 @@ async fn test_encrypt_room_event() {
 #[cfg(not(feature = "e2e-encryption"))]
 #[async_test]
 async fn create_dm_non_encrypted() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
     let user_id = user_id!("@invitee:localhost");
 
     Mock::given(method("POST"))
@@ -893,7 +894,7 @@ async fn create_dm_non_encrypted() {
 #[cfg(feature = "e2e-encryption")]
 #[async_test]
 async fn create_dm_encrypted() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
     let user_id = user_id!("@invitee:localhost");
 
     Mock::given(method("POST"))
@@ -955,7 +956,7 @@ async fn create_dm_encrypted() {
 
 #[async_test]
 async fn create_dm_error() {
-    let (client, _server) = logged_in_client().await;
+    let (client, _server) = logged_in_client_with_server().await;
     let user_id = user_id!("@invitee:localhost");
 
     // The endpoint is not mocked so we encounter a 404.
@@ -967,7 +968,7 @@ async fn create_dm_error() {
 
 #[async_test]
 async fn test_ambiguity_changes() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     let example_id = user_id!("@example:localhost");
     let example_2_id = user_id!("@example2:localhost");

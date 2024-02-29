@@ -1472,14 +1472,17 @@ mod tests {
     use serde_json::json;
 
     use super::BaseClient;
-    use crate::{store::StateStoreExt, DisplayName, RoomState, SessionMeta};
+    use crate::{
+        store::StateStoreExt, test_utils::logged_in_base_client, DisplayName, RoomState,
+        SessionMeta,
+    };
 
     #[async_test]
     async fn test_invite_after_leaving() {
         let user_id = user_id!("@alice:example.org");
         let room_id = room_id!("!test:example.org");
 
-        let client = logged_in_client(user_id).await;
+        let client = logged_in_base_client(Some(user_id)).await;
 
         let mut ev_builder = SyncResponseBuilder::new();
 
@@ -1523,7 +1526,7 @@ mod tests {
         let user_id = user_id!("@alice:example.org");
         let room_id = room_id!("!ithpyNKDtmhneaTQja:example.org");
 
-        let client = logged_in_client(user_id).await;
+        let client = logged_in_base_client(Some(user_id)).await;
 
         let response = api::sync::sync_events::v3::Response::try_from_http_response(response_from_file(&json!({
             "next_batch": "asdkl;fjasdkl;fj;asdkl;f",
@@ -1608,11 +1611,11 @@ mod tests {
 
     #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
     #[async_test]
-    async fn when_there_are_no_latest_encrypted_events_decrypting_them_does_nothing() {
+    async fn test_when_there_are_no_latest_encrypted_events_decrypting_them_does_nothing() {
         // Given a room
         let user_id = user_id!("@u:u.to");
         let room_id = room_id!("!r:u.to");
-        let client = logged_in_client(user_id).await;
+        let client = logged_in_base_client(Some(user_id)).await;
         let room = process_room_join_test_helper(&client, room_id, "$1", user_id).await;
 
         // Sanity: it has no latest_encrypted_events or latest_event
@@ -1633,18 +1636,6 @@ mod tests {
     // lost trying to set up my OlmMachine to be able to encrypt and decrypt
     // events. In the meantime, there are tests for the most difficult logic
     // inside Room.  --andyb
-
-    async fn logged_in_client(user_id: &UserId) -> BaseClient {
-        let client = BaseClient::new();
-        client
-            .set_session_meta(SessionMeta {
-                user_id: user_id.to_owned(),
-                device_id: "FOOBAR".into(),
-            })
-            .await
-            .expect("set_session_meta failed!");
-        client
-    }
 
     #[cfg(feature = "e2e-encryption")]
     async fn process_room_join_test_helper(

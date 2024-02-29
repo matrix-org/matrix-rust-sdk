@@ -154,3 +154,9 @@ pub fn suggested_role_for_power_level(power_level: i64) -> RoomMemberRole {
     // It's not possible to expose the constructor on the Enum through Uniffi ☹️
     RoomMemberRole::suggested_role_for_power_level(power_level)
 }
+
+#[uniffi::export]
+pub fn suggested_power_level_for_role(role: RoomMemberRole) -> i64 {
+    // It's not possible to expose methods on an Enum through Uniffi ☹️
+    role.suggested_power_level()
+}

@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use matrix_sdk::RoomState;
 use ruma::OwnedMxcUri;
@@ -27,6 +27,7 @@ pub struct RoomInfo {
     active_members_count: u64,
     invited_members_count: u64,
     joined_members_count: u64,
+    user_power_levels: HashMap<String, i64>,
     highlight_count: u64,
     notification_count: u64,
     user_defined_notification_mode: Option<RoomNotificationMode>,
@@ -53,6 +54,12 @@ impl RoomInfo {
     ) -> matrix_sdk::Result<Self> {
         let unread_notification_counts = room.unread_notification_counts();
 
+        let power_levels = room.room_power_levels().await?;
+        let mut user_power_levels = HashMap::<String, i64>::new();
+        for (id, level) in power_levels.users.iter() {
+            user_power_levels.insert(id.to_string(), (*level).into());
+        }
+
         Ok(Self {
             id: room.room_id().to_string(),
             name: room.name(),
@@ -76,6 +83,7 @@ impl RoomInfo {
             active_members_count: room.active_members_count(),
             invited_members_count: room.invited_members_count(),
             joined_members_count: room.joined_members_count(),
+            user_power_levels,
             highlight_count: unread_notification_counts.highlight_count,
             notification_count: unread_notification_counts.notification_count,
             user_defined_notification_mode: room

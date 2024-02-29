@@ -1,14 +1,8 @@
 // The http mocking library is not supported for wasm32
 #![cfg(not(target_arch = "wasm32"))]
 
-use matrix_sdk::{
-    config::{RequestConfig, SyncSettings},
-    matrix_auth::{MatrixSession, MatrixSessionTokens},
-    Client, ClientBuilder,
-};
-use matrix_sdk_base::SessionMeta;
+use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server, Client};
 use matrix_sdk_test::test_json;
-use ruma::{api::MatrixVersion, device_id, user_id};
 use serde::Serialize;
 use wiremock::{
     matchers::{header, method, path, path_regex, query_param, query_param_is_missing},
@@ -18,6 +12,7 @@ use wiremock::{
 mod client;
 #[cfg(feature = "e2e-encryption")]
 mod encryption;
+mod event_cache;
 mod matrix_auth;
 mod notification;
 mod refresh_token;
@@ -27,36 +22,8 @@ mod widget;
 
 matrix_sdk_test::init_tracing_for_tests!();
 
-async fn test_client_builder() -> (ClientBuilder, MockServer) {
-    let server = MockServer::start().await;
-    let builder =
-        Client::builder().homeserver_url(server.uri()).server_versions([MatrixVersion::V1_0]);
-    (builder, server)
-}
-
-async fn no_retry_test_client() -> (Client, MockServer) {
-    let (builder, server) = test_client_builder().await;
-    let client =
-        builder.request_config(RequestConfig::new().disable_retry()).build().await.unwrap();
-    (client, server)
-}
-
-async fn logged_in_client() -> (Client, MockServer) {
-    let session = MatrixSession {
-        meta: SessionMeta {
-            user_id: user_id!("@example:localhost").to_owned(),
-            device_id: device_id!("DEVICEID").to_owned(),
-        },
-        tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
-    };
-    let (client, server) = no_retry_test_client().await;
-    client.restore_session(session).await.unwrap();
-
-    (client, server)
-}
-
 async fn synced_client() -> (Client, MockServer) {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
     mock_sync(&server, &*test_json::SYNC, None).await;
 
     let sync_settings = SyncSettings::new();

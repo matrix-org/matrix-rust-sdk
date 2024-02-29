@@ -18,7 +18,7 @@ use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::future::{join, join3};
-use matrix_sdk::config::SyncSettings;
+use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server};
 use matrix_sdk_test::{
     async_test, EventBuilder, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder, ALICE, BOB,
 };
@@ -42,12 +42,12 @@ use wiremock::{
     Mock, ResponseTemplate,
 };
 
-use crate::{logged_in_client, mock_sync};
+use crate::mock_sync;
 
 #[async_test]
 async fn test_back_pagination() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
     let mut ev_builder = SyncResponseBuilder::new();
@@ -138,7 +138,7 @@ async fn test_back_pagination() {
 #[async_test]
 async fn test_back_pagination_highlighted() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
     let mut ev_builder = SyncResponseBuilder::new();
@@ -225,7 +225,7 @@ async fn test_back_pagination_highlighted() {
 #[async_test]
 async fn test_wait_for_token() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
     let event_builder = EventBuilder::new();
@@ -286,7 +286,7 @@ async fn test_wait_for_token() {
 #[async_test]
 async fn test_dedup() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
     let event_builder = EventBuilder::new();
@@ -342,7 +342,7 @@ async fn test_dedup() {
 #[async_test]
 async fn test_timeline_reset_while_paginating() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
     let event_builder = EventBuilder::new();
@@ -519,7 +519,7 @@ pub static ROOM_MESSAGES_BATCH_2: Lazy<JsonValue> = Lazy::new(|| {
 #[async_test]
 async fn test_empty_chunk() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
     let mut ev_builder = SyncResponseBuilder::new();
@@ -609,7 +609,7 @@ async fn test_empty_chunk() {
 #[async_test]
 async fn test_until_num_items_with_empty_chunk() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
     let mut ev_builder = SyncResponseBuilder::new();

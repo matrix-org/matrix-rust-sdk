@@ -420,17 +420,24 @@ impl RoomEventCacheInner {
         }
 
         // Add all the events to the backend.
-        trace!("adding new events");
-        self.store.add_room_events(self.room.room_id(), timeline.events.clone()).await?;
+        if !timeline.events.is_empty()
+            || timeline.prev_batch.is_some()
+            || !ephemeral.is_empty()
+            || !account_data.is_empty()
+            || !ambiguity_changes.is_empty()
+        {
+            trace!("adding new events");
+            self.store.add_room_events(self.room.room_id(), timeline.events.clone()).await?;
 
-        // Propagate events to observers.
-        let _ = self.sender.send(RoomEventCacheUpdate::Append {
-            events: timeline.events,
-            prev_batch: timeline.prev_batch,
-            ephemeral,
-            account_data,
-            ambiguity_changes,
-        });
+            // Propagate events to observers.
+            let _ = self.sender.send(RoomEventCacheUpdate::Append {
+                events: timeline.events,
+                prev_batch: timeline.prev_batch,
+                ephemeral,
+                account_data,
+                ambiguity_changes,
+            });
+        }
 
         Ok(())
     }
@@ -444,6 +451,10 @@ impl RoomEventCacheInner {
     /// Append a set of events to the room cache and storage, notifying
     /// observers.
     async fn append_events(&self, events: Vec<SyncTimelineEvent>) -> Result<()> {
+        if events.is_empty() {
+            return Ok(());
+        }
+
         self.store.add_room_events(self.room.room_id(), events.clone()).await?;
 
         let _ = self.sender.send(RoomEventCacheUpdate::Append {

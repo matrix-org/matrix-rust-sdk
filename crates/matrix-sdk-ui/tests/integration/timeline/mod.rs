@@ -18,7 +18,7 @@ use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
-use matrix_sdk::config::SyncSettings;
+use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server};
 use matrix_sdk_test::{
     async_test, sync_timeline_event, JoinedRoomBuilder, RoomAccountDataTestEvent, StateTestEvent,
     SyncResponseBuilder,
@@ -26,7 +26,7 @@ use matrix_sdk_test::{
 use matrix_sdk_ui::timeline::{RoomExt, TimelineItemContent, VirtualTimelineItem};
 use ruma::{room_id, user_id};
 
-use crate::{logged_in_client, mock_sync};
+use crate::mock_sync;
 
 mod echo;
 mod edit;
@@ -42,7 +42,7 @@ pub(crate) mod sliding_sync;
 #[async_test]
 async fn test_reaction() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
     let mut ev_builder = SyncResponseBuilder::new();
@@ -151,7 +151,7 @@ async fn test_reaction() {
 #[async_test]
 async fn test_redacted_message() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
     let mut ev_builder = SyncResponseBuilder::new();
@@ -209,7 +209,7 @@ async fn test_redacted_message() {
 #[async_test]
 async fn test_read_marker() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
     let mut ev_builder = SyncResponseBuilder::new();
@@ -284,7 +284,7 @@ async fn test_read_marker() {
 #[async_test]
 async fn test_sync_highlighted() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
     let mut ev_builder = SyncResponseBuilder::new();

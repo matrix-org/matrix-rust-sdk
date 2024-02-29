@@ -15,7 +15,7 @@
 use std::{sync::Arc, time::Duration};
 
 use assert_matches::assert_matches;
-use matrix_sdk::config::SyncSettings;
+use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server};
 use matrix_sdk_test::{
     async_test, EventBuilder, JoinedRoomBuilder, SyncResponseBuilder, ALICE, BOB, CAROL,
     DEFAULT_TEST_ROOM_ID,
@@ -31,11 +31,11 @@ use wiremock::{
     Mock, ResponseTemplate,
 };
 
-use crate::{logged_in_client, mock_sync};
+use crate::mock_sync;
 
 #[async_test]
 async fn test_update_sender_profiles() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
     let event_builder = EventBuilder::new();
