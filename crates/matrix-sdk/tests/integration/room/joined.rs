@@ -10,7 +10,7 @@ use matrix_sdk::{
         Thumbnail,
     },
     config::SyncSettings,
-    room::{Receipts, ReportedContentScore},
+    room::{Receipts, ReportedContentScore, RoomMemberRole},
 };
 use matrix_sdk_base::RoomState;
 use matrix_sdk_test::{
@@ -747,4 +747,43 @@ async fn subscribe_to_typing_notifications() {
 
     join_handle.await.unwrap();
     assert_eq!(typing_sequences.lock().unwrap().to_vec(), asserted_typing_sequences);
+}
+
+#[async_test]
+async fn get_suggested_user_role() {
+    let (client, server) = logged_in_client_with_server().await;
+
+    mock_sync(&server, &*test_json::DEFAULT_SYNC_SUMMARY, None).await;
+
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let _response = client.sync_once(sync_settings).await.unwrap();
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
+
+    let role_admin = room.get_suggested_user_role(user_id!("@example:localhost")).await.unwrap();
+    assert_eq!(role_admin, RoomMemberRole::Administrator);
+
+    // This user either does not exist in the room or has no special role
+    let role_unknown =
+        room.get_suggested_user_role(user_id!("@non-existing:localhost")).await.unwrap();
+    assert_eq!(role_unknown, RoomMemberRole::User);
+}
+
+#[async_test]
+async fn get_power_level_for_user() {
+    let (client, server) = logged_in_client_with_server().await;
+
+    mock_sync(&server, &*test_json::DEFAULT_SYNC_SUMMARY, None).await;
+
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let _response = client.sync_once(sync_settings).await.unwrap();
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
+
+    let power_level_admin =
+        room.get_user_power_level(user_id!("@example:localhost")).await.unwrap();
+    assert_eq!(power_level_admin, 100);
+
+    // This user either does not exist in the room or has no special power level
+    let power_level_unknown =
+        room.get_user_power_level(user_id!("@non-existing:localhost")).await.unwrap();
+    assert_eq!(power_level_unknown, 0);
 }
