@@ -585,17 +585,17 @@ impl Room {
         &self,
         updates: Vec<UserPowerLevelUpdate>,
     ) -> Result<(), ClientError> {
-        let parse_result: Result<Vec<(&UserId, Int)>> = updates
+        let updates = updates
             .iter()
-            .map(|upl| -> Result<(&UserId, Int)> {
-                let user_id: &UserId = <&UserId>::try_from(upl.user_id.as_str())?;
-                let pl = Int::new(upl.power_level).context("Invalid power level")?;
-                Ok((user_id, pl))
+            .map(|update| {
+                let user_id: &UserId = update.user_id.as_str().try_into()?;
+                let power_level = Int::new(update.power_level).context("Invalid power level")?;
+                Ok((user_id, power_level))
             })
-            .collect();
+            .collect::<Result<Vec<_>>>()?;
 
         self.inner
-            .update_power_levels(parse_result?)
+            .update_power_levels(updates)
             .await
             .map_err(|e| ClientError::Generic { msg: e.to_string() })?;
         Ok(())
