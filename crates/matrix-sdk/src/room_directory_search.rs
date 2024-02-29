@@ -63,7 +63,24 @@ impl From<ruma::directory::PublicRoomsChunk> for RoomDescription {
         }
     }
 }
-
+/// RoomDirectorySearch allows searching the public room directory, with the
+/// capability of using a filter and a batch_size. This struct is also
+/// responsible for keeping the current state of the search, and exposing an
+/// update of stream of the results, reset the search, or ask for the next page.
+///
+/// # Example
+///
+/// ```rust
+/// use matrix_sdk::room_directory_search::RoomDirectorySearch;
+///
+/// # fn main() -> Result<()> {
+/// let room_directory_search = RoomDirectorySearch(client);
+/// room_directory_search.search(None, 10).await?;
+/// let (results, mut stream) = room_directory_search.results();
+/// room_directory_search.next_page().await?;
+/// ...
+/// # }
+/// ```
 #[derive(Debug)]
 pub struct RoomDirectorySearch {
     batch_size: u32,
@@ -75,6 +92,7 @@ pub struct RoomDirectorySearch {
 }
 
 impl RoomDirectorySearch {
+    /// Constructor for the `RoomDirectorySearch`, requires a `Client`.
     pub fn new(client: Client) -> Self {
         Self {
             batch_size: 0,
@@ -326,6 +344,12 @@ mod tests {
 
         room_directory_search.search(None, 1).await.unwrap();
 
+        let (results, mut stream) = room_directory_search.results();
+        assert_eq!(results, vec![get_first_page_description()].into());
+        assert!(!room_directory_search.is_at_last_page());
+        assert_eq!(room_directory_search.loaded_pages(), 1);
+        assert_pending!(stream);
+
         Mock::given(RoomDirectorySearchMatcher {
             next_token: Some("p190q".into()),
             filter_term: None,
@@ -336,11 +360,10 @@ mod tests {
         .await;
 
         assert!(room_directory_search.next_page().await.is_err());
-
-        let (results, _) = room_directory_search.results();
         assert_eq!(results, vec![get_first_page_description()].into());
         assert!(!room_directory_search.is_at_last_page());
         assert_eq!(room_directory_search.loaded_pages(), 1);
+        assert_pending!(stream);
     }
 
     #[async_test]
