@@ -101,33 +101,19 @@ impl RoomDirectorySearch {
         Ok(inner.is_at_last_page())
     }
 
-    pub async fn entries(
+    pub async fn results(
         &self,
         listener: Box<dyn RoomDirectorySearchEntriesListener>,
-    ) -> RoomDirectorySearchEntriesResult {
-        let entries_stream = self.inner.read().await.results();
-        RoomDirectorySearchEntriesResult {
-            entries_stream: Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
-                // TODO: This needs to get improved with sensei Ivan
-                // pin_mut!(entries_stream);
-
-                // while let Some(diff) = entries_stream.next().await {
-                //     match diff {
-                //         VectorDiff::Clear => {
-                //             
-                // listener.on_update(RoomDirectorySearchEntryUpdate::Clear);
-                //         }
-                //         VectorDiff::Append { values } => {
-                //             
-                // listener.on_update(RoomDirectorySearchEntryUpdate::Append {
-                //                 values: values.into_iter().map(|value|
-                // value.into()).collect(),             });
-                //         }
-                //         _ => {}
-                //     }
-                // }
-            }))),
-        }
+    ) -> TaskHandle {
+        let (initial_values, stream) = self.inner.read().await.results();
+        
+        TaskHandle::new(RUNTIME.spawn(async move {
+            listener.on_update(vec![VectorDiff::Reset { values: initial_values }.map(Into::into)]);
+            
+            while let Some(diffs) = stream.next().await {
+                listener.on_update(diffs.into_iter().map(|diff| diff.map(Into::into)).collect());
+            }
+        }))
     }
 }
 

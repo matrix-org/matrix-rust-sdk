@@ -27,6 +27,8 @@ use ruma::{
 use crate::{Client, Result};
 
 /// This struct represents a single result of a room directory search.
+///
+/// It's produced by [`RoomDirectorySearch::results`].
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RoomDescription {
     /// The room's ID.
@@ -84,12 +86,13 @@ impl RoomDirectorySearch {
         }
     }
 
-    /// Starts a filtered search for the server
-    /// If the `filter` is not provided it will search for all the rooms
-    /// You can specify a `batch_size`` to control the number of rooms to fetch
-    /// per request
+    /// Starts a filtered search for the server.
     ///
-    /// This method will clear the current search results and start a new one
+    /// If the `filter` is not provided it will search for all the rooms.
+    /// You can specify a `batch_size`` to control the number of rooms to fetch
+    /// per request.
+    ///
+    /// This method will clear the current search results and start a new one.
     /// Should never be used concurrently with another `next_page` or a
     /// `search`.
     pub async fn search(&mut self, filter: Option<String>, batch_size: u32) -> Result<()> {
@@ -101,7 +104,8 @@ impl RoomDirectorySearch {
         self.next_page().await
     }
 
-    /// Asks the server for the next page of the current search
+    /// Asks the server for the next page of the current search.
+    ///
     /// Should never be used concurrently with another `next_page` or a
     /// `search`.
     pub async fn next_page(&mut self) -> Result<()> {
@@ -124,7 +128,7 @@ impl RoomDirectorySearch {
         Ok(())
     }
 
-    /// Get the initial value of the current stored room descriptions in the
+    /// Get the initial values of the current stored room descriptions in the
     /// search, and a stream of updates for them.
     pub fn results(
         &self,
@@ -132,12 +136,13 @@ impl RoomDirectorySearch {
         self.results.subscribe().into_values_and_batched_stream()
     }
 
-    /// Get the number of pages that have been loaded so far
+    /// Get the number of pages that have been loaded so far.
     pub fn loaded_pages(&self) -> usize {
         if self.batch_size == 0 {
             return 0;
         }
-        self.results.len() / self.batch_size as usize
+
+        (self.results.len() / self.batch_size).ceil() as usize
     }
 
     /// Get whether the search is at the last page
@@ -243,10 +248,11 @@ mod tests {
             .await;
 
         room_directory_search.search(None, 1).await.unwrap();
-        let (results, _) = room_directory_search.results();
+        let (results, stream) = room_directory_search.results();
+        assert_pending!(stream);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0], get_first_page_description());
-        assert!(!room_directory_search.is_at_last_page);
+        assert!(!room_directory_search.is_at_last_page());
         assert_eq!(room_directory_search.loaded_pages(), 1);
     }
 
@@ -294,11 +300,14 @@ mod tests {
             .mount(&server)
             .await;
 
-        room_directory_search.search(None, 1).await.unwrap_err();
-        let (results, _) = room_directory_search.results();
+        let search = room_directory_search.search(None, 1).await;
+        assert!(search.is_err());
+
+        let (results, stream) = room_directory_search.results();
         assert_eq!(results.len(), 0);
-        assert!(!room_directory_search.is_at_last_page);
+        assert!(!room_directory_search.is_at_last_page());
         assert_eq!(room_directory_search.loaded_pages(), 0);
+        assert_pending!(stream);
     }
 
     #[async_test]
