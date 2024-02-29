@@ -91,17 +91,26 @@ impl RoomDirectorySearch {
         Ok(())
     }
 
-    pub async fn state(&self, listener: Box<dyn RoomDirectorySearchEntriesListener>) -> TaskHandle {
+    pub async fn loaded_pages(&self) -> Result<u32, ClientError> {
+        let inner = self.inner.read().await;
+        Ok(inner.loaded_pages() as u32)
+    }
+
+    pub async fn is_at_last_page(&self) -> Result<bool, ClientError> {
+        let inner = self.inner.read().await;
+        Ok(inner.is_at_last_page())
+    }
+
+    pub async fn results(
+        &self,
+        listener: Box<dyn RoomDirectorySearchEntriesListener>,
+    ) -> TaskHandle {
         let (initial_values, mut stream) = self.inner.read().await.results();
 
         TaskHandle::new(RUNTIME.spawn(async move {
-            listener.on_update(RoomDirectorySearchState {
-                updates: vec![RoomDirectorySearchEntryUpdate::Reset {
-                    values: initial_values.into_iter().map(Into::into).collect(),
-                }],
-                is_at_last_page: self.inner.read().await.is_at_last_page(),
-                loaded_pages: self.inner.read().await.loaded_pages() as u32,
-            });
+            listener.on_update(vec![RoomDirectorySearchEntryUpdate::Reset {
+                values: initial_values.into_iter().map(Into::into).collect(),
+            }]);
 
             while let Some(diffs) = stream.next().await {
                 listener.on_update(diffs.into_iter().map(|diff| diff.into()).collect());
@@ -158,14 +167,7 @@ impl From<VectorDiff<matrix_sdk::room_directory_search::RoomDescription>>
     }
 }
 
-#[derive(uniffi::Record)]
-struct RoomDirectorySearchState {
-    pub updates: Vec<RoomDirectorySearchEntryUpdate>,
-    pub is_at_last_page: bool,
-    pub loaded_pages: u32,
-}
-
 #[uniffi::export(callback_interface)]
 pub trait RoomDirectorySearchEntriesListener: Send + Sync + Debug {
-    fn on_update(&self, room_entries_update: RoomDirectorySearchState);
+    fn on_update(&self, room_entries_update: Vec<RoomDirectorySearchEntryUpdate>);
 }
