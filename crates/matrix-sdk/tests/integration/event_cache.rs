@@ -3,7 +3,7 @@ use std::time::Duration;
 use assert_matches2::{assert_let, assert_matches};
 use matrix_sdk::{
     event_cache::{EventCacheError, RoomEventCacheUpdate},
-    test_utils::{logged_in_client, logged_in_client_with_server},
+    test_utils::logged_in_client_with_server,
 };
 use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
 use matrix_sdk_test::{
@@ -32,14 +32,25 @@ fn assert_event_matches_msg(event: &SyncTimelineEvent, expected: &str) {
 
 #[async_test]
 async fn test_must_explicitly_subscribe() {
-    let client = logged_in_client(None).await;
+    let (client, server) = logged_in_client_with_server().await;
 
-    let event_cache = client.event_cache();
+    let room_id = room_id!("!omelette:fromage.fr");
+
+    // Make sure the client is aware of the room.
+    {
+        let mut sync_builder = SyncResponseBuilder::new();
+        sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+        let response_body = sync_builder.build_json_sync_response();
+
+        mock_sync(&server, response_body, None).await;
+        client.sync_once(Default::default()).await.unwrap();
+        server.reset().await;
+    }
 
     // If I create a room event subscriber for a room before subscribing the event
     // cache,
-    let room_id = room_id!("!omelette:fromage.fr");
-    let result = event_cache.for_room(room_id).await;
+    let room = client.get_room(room_id).unwrap();
+    let result = room.event_cache().await;
 
     // Then it fails, because one must explicitly call `.subscribe()` on the event
     // cache.
@@ -47,31 +58,11 @@ async fn test_must_explicitly_subscribe() {
 }
 
 #[async_test]
-async fn test_cant_subscribe_to_unknown_room() {
-    let client = logged_in_client(None).await;
-
-    let event_cache = client.event_cache();
-
-    // First, subscribe to the event cache.
-    event_cache.subscribe().unwrap();
-
-    // If I create a room event subscriber for a room unknown to the client,
-    let room_id = room_id!("!omelette:fromage.fr");
-    let result = event_cache.for_room(room_id).await;
-
-    // Then it fails, because this particular room is still unknown to the client.
-    assert_let!(Err(EventCacheError::RoomNotFound(observed_room_id)) = result);
-    assert_eq!(observed_room_id, room_id);
-}
-
-#[async_test]
 async fn test_add_initial_events() {
     let (client, server) = logged_in_client_with_server().await;
 
-    let event_cache = client.event_cache();
-
     // Immediately subscribe the event cache to sync updates.
-    event_cache.subscribe().unwrap();
+    client.event_cache().subscribe().unwrap();
 
     // If I sync and get informed I've joined The Room, but with no events,
     let room_id = room_id!("!omelette:fromage.fr");
@@ -86,7 +77,8 @@ async fn test_add_initial_events() {
 
     // If I create a room event subscriber,
 
-    let (room_event_cache, _drop_handles) = event_cache.for_room(room_id).await.unwrap();
+    let room = client.get_room(room_id).unwrap();
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
     let (events, mut subscriber) = room_event_cache.subscribe().await.unwrap();
 
     // Then at first it's empty, and the subscriber doesn't yield anything.
@@ -131,7 +123,8 @@ async fn test_add_initial_events() {
 
     // XXX: when we get rid of `add_initial_events`, we can keep this test as a
     // smoke test for the event cache.
-    event_cache
+    client
+        .event_cache()
         .add_initial_events(
             room_id,
             vec![SyncTimelineEvent::new(sync_timeline_event!({

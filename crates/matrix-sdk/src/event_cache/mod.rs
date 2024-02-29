@@ -206,7 +206,7 @@ impl EventCache {
     }
 
     /// Return a room-specific view over the [`EventCache`].
-    pub async fn for_room(
+    pub(crate) async fn for_room(
         &self,
         room_id: &RoomId,
     ) -> Result<(RoomEventCache, Arc<EventCacheDropHandles>)> {

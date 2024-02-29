@@ -1,6 +1,6 @@
 //! High-level room API
 
-use std::{borrow::Borrow, collections::BTreeMap, ops::Deref, time::Duration};
+use std::{borrow::Borrow, collections::BTreeMap, ops::Deref, sync::Arc, time::Duration};
 
 use eyeball::SharedObservable;
 use futures_core::Stream;
@@ -79,9 +79,12 @@ pub use self::{
     member::{RoomMember, RoomMemberRole},
     messages::{Messages, MessagesOptions},
 };
+#[cfg(doc)]
+use crate::event_cache::EventCache;
 use crate::{
     attachment::AttachmentConfig,
     error::WrongRoomState,
+    event_cache::{self, EventCacheDropHandles, RoomEventCache},
     event_handler::{EventHandler, EventHandlerDropGuard, EventHandlerHandle, SyncEvent},
     media::{MediaFormat, MediaRequest},
     notification_settings::{IsEncrypted, IsOneToOne, RoomNotificationMode},
@@ -2560,6 +2563,16 @@ impl Room {
 
         self.client.send(request, None).await?;
         Ok(())
+    }
+
+    /// Returns the [`RoomEventCache`] associated to this room, assuming the
+    /// global [`EventCache`] has been enabled for subscription.
+    pub async fn event_cache(
+        &self,
+    ) -> event_cache::Result<(RoomEventCache, Arc<EventCacheDropHandles>)> {
+        let global_event_cache = self.client.event_cache();
+
+        global_event_cache.for_room(self.room_id()).await
     }
 }
 
