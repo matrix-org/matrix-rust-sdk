@@ -16,8 +16,7 @@
 use std::{fmt::Debug, sync::Arc};
 
 use eyeball_im::VectorDiff;
-use futures::StreamExt;
-use futures_util::pin_mut;
+use futures_util::StreamExt;
 use matrix_sdk::room_directory_search::RoomDirectorySearch as SdkRoomDirectorySearch;
 use tokio::sync::RwLock;
 
@@ -92,29 +91,20 @@ impl RoomDirectorySearch {
         Ok(())
     }
 
-    pub async fn loaded_pages(&self) -> Result<u32, ClientError> {
-        let inner = self.inner.read().await;
-        Ok(inner.loaded_pages() as u32)
-    }
-
-    pub async fn is_at_last_page(&self) -> Result<bool, ClientError> {
-        let inner = self.inner.read().await;
-        Ok(inner.is_at_last_page())
-    }
-
-    pub async fn results(
-        &self,
-        listener: Box<dyn RoomDirectorySearchEntriesListener>,
-    ) -> TaskHandle {
-        let (initial_values, stream) = self.inner.read().await.results();
+    pub async fn state(&self, listener: Box<dyn RoomDirectorySearchEntriesListener>) -> TaskHandle {
+        let (initial_values, mut stream) = self.inner.read().await.results();
 
         TaskHandle::new(RUNTIME.spawn(async move {
-            listener.on_update(RoomDirectorySearchEntryUpdate::Reset {
-                values: initial_values.into_iter().map(Into::into).collect(),
+            listener.on_update(RoomDirectorySearchState {
+                updates: vec![RoomDirectorySearchEntryUpdate::Reset {
+                    values: initial_values.into_iter().map(Into::into).collect(),
+                }],
+                is_at_last_page: self.inner.read().await.is_at_last_page(),
+                loaded_pages: self.inner.read().await.loaded_pages() as u32,
             });
 
             while let Some(diffs) = stream.next().await {
-                listener.on_update(diffs.into_iter().map(|diff| diff.map(Into::into)).collect());
+                listener.on_update(diffs.into_iter().map(|diff| diff.into()).collect());
             }
         }))
     }
@@ -140,25 +130,42 @@ pub enum RoomDirectorySearchEntryUpdate {
     Reset { values: Vec<RoomDescription> },
 }
 
-impl From<VectorDiff<RoomDescription>> for RoomDirectorySearchEntryUpdate {
-    fn from(diff: VectorDiff<RoomDescription>) -> Self {
+impl From<VectorDiff<matrix_sdk::room_directory_search::RoomDescription>>
+    for RoomDirectorySearchEntryUpdate
+{
+    fn from(diff: VectorDiff<matrix_sdk::room_directory_search::RoomDescription>) -> Self {
         match diff {
-            VectorDiff::Append { values } => Self::Append { values },
+            VectorDiff::Append { values } => {
+                Self::Append { values: values.into_iter().map(|v| v.into()).collect() }
+            }
             VectorDiff::Clear => Self::Clear,
-            VectorDiff::PushFront { value } => Self::PushFront { value },
-            VectorDiff::PushBack { value } => Self::PushBack { value },
+            VectorDiff::PushFront { value } => Self::PushFront { value: value.into() },
+            VectorDiff::PushBack { value } => Self::PushBack { value: value.into() },
             VectorDiff::PopFront => Self::PopFront,
             VectorDiff::PopBack => Self::PopBack,
-            VectorDiff::Insert { index, value } => Self::Insert { index, value },
-            VectorDiff::Set { index, value } => Self::Set { index, value },
-            VectorDiff::Remove { index } => Self::Remove { index },
-            VectorDiff::Truncate { length } => Self::Truncate { length },
-            VectorDiff::Reset { values } => Self::Reset { values },
+            VectorDiff::Insert { index, value } => {
+                Self::Insert { index: index as u32, value: value.into() }
+            }
+            VectorDiff::Set { index, value } => {
+                Self::Set { index: index as u32, value: value.into() }
+            }
+            VectorDiff::Remove { index } => Self::Remove { index: index as u32 },
+            VectorDiff::Truncate { length } => Self::Truncate { length: length as u32 },
+            VectorDiff::Reset { values } => {
+                Self::Reset { values: values.into_iter().map(|v| v.into()).collect() }
+            }
         }
     }
 }
 
+#[derive(uniffi::Record)]
+struct RoomDirectorySearchState {
+    pub updates: Vec<RoomDirectorySearchEntryUpdate>,
+    pub is_at_last_page: bool,
+    pub loaded_pages: u32,
+}
+
 #[uniffi::export(callback_interface)]
 pub trait RoomDirectorySearchEntriesListener: Send + Sync + Debug {
-    fn on_update(&self, room_entries_update: RoomDirectorySearchEntryUpdate);
+    fn on_update(&self, room_entries_update: RoomDirectorySearchState);
 }
