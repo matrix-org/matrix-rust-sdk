@@ -46,7 +46,7 @@ pub fn suggested_role_for_power_level(power_level: i64) -> RoomMemberRole {
 }
 
 #[derive(uniffi::Record)]
-pub struct ExportedRoomMember {
+pub struct RoomMember {
     pub user_id: String,
     pub display_name: Option<String>,
     pub avatar_url: Option<String>,
@@ -58,9 +58,9 @@ pub struct ExportedRoomMember {
     pub suggested_role_for_power_level: RoomMemberRole,
 }
 
-impl From<SdkRoomMember> for ExportedRoomMember {
+impl From<SdkRoomMember> for RoomMember {
     fn from(m: SdkRoomMember) -> Self {
-        ExportedRoomMember {
+        RoomMember {
             user_id: m.user_id().to_string(),
             display_name: m.display_name().map(|s| s.to_owned()),
             avatar_url: m.avatar_url().map(|a| a.to_string()),

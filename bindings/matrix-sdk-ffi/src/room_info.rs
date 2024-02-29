@@ -4,7 +4,7 @@ use matrix_sdk::RoomState;
 use ruma::OwnedMxcUri;
 
 use crate::{
-    notification_settings::RoomNotificationMode, room::Membership, room_member::ExportedRoomMember,
+    notification_settings::RoomNotificationMode, room::Membership, room_member::RoomMember,
     timeline::EventTimelineItem,
 };
 
@@ -23,7 +23,7 @@ pub struct RoomInfo {
     alternative_aliases: Vec<String>,
     membership: Membership,
     latest_event: Option<Arc<EventTimelineItem>>,
-    inviter: Option<ExportedRoomMember>,
+    inviter: Option<RoomMember>,
     active_members_count: u64,
     invited_members_count: u64,
     joined_members_count: u64,

@@ -22,7 +22,7 @@ use crate::{
     error::{ClientError, MediaInfoError, RoomError},
     event::{MessageLikeEventType, StateEventType},
     room_info::RoomInfo,
-    room_member::ExportedRoomMember,
+    room_member::RoomMember,
     ruma::ImageInfo,
     timeline::{EventTimelineItem, ReceiptType, Timeline},
     utils::u64_to_uint,
@@ -128,7 +128,7 @@ impl Room {
         self.inner.active_room_call_participants().iter().map(|u| u.to_string()).collect()
     }
 
-    pub fn inviter(&self) -> Option<ExportedRoomMember> {
+    pub fn inviter(&self) -> Option<RoomMember> {
         if self.inner.state() == RoomState::Invited {
             RUNTIME.block_on(async move {
                 self.inner.invite_details().await.ok().and_then(|a| a.inviter).map(|m| m.into())
@@ -184,7 +184,7 @@ impl Room {
         )))
     }
 
-    pub async fn member(&self, user_id: String) -> Result<ExportedRoomMember, ClientError> {
+    pub async fn member(&self, user_id: String) -> Result<RoomMember, ClientError> {
         let user_id = UserId::parse(&*user_id).context("Invalid user id.")?;
         let member = self.inner.get_member(&user_id).await?.context("No user found")?;
         Ok(member.into())
@@ -618,7 +618,7 @@ impl RoomMembersIterator {
         self.chunk_iterator.len()
     }
 
-    fn next_chunk(&self, chunk_size: u32) -> Option<Vec<ExportedRoomMember>> {
+    fn next_chunk(&self, chunk_size: u32) -> Option<Vec<RoomMember>> {
         self.chunk_iterator
             .next(chunk_size)
             .map(|members| members.into_iter().map(|m| m.into()).collect())
