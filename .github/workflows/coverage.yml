@@ -111,7 +111,7 @@ jobs:
           SLIDING_SYNC_PROXY_URL: "http://localhost:8118"
 
       - name: Upload to codecov.io
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v4
         with:
           # Work around frequent upload errors, for runs inside the main repo (not PRs from forks).
           # Otherwise not required for public repos.
