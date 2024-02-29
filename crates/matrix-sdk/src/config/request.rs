@@ -98,7 +98,8 @@ impl RequestConfig {
         self
     }
 
-    /// The number of times a request should be retried. The default is no limit
+    /// The number of times a request should be retried. The default is no
+    /// limit.
     #[must_use]
     pub fn retry_limit(mut self, retry_limit: u64) -> Self {
         self.retry_limit = Some(retry_limit);
