@@ -122,7 +122,8 @@ impl RoomMember {
     /// Get the normalized power level of this member.
     ///
     /// The normalized power level depends on the maximum power level that can
-    /// be found in a certain room, it's always in the range of 0-100.
+    /// be found in a certain room, positive values are always in the range of
+    /// 0-100.
     pub fn normalized_power_level(&self) -> i64 {
         if self.max_power_level > 0 {
             (self.power_level() * 100) / self.max_power_level

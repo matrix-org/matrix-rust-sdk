@@ -128,15 +128,10 @@ impl Room {
         self.inner.active_room_call_participants().iter().map(|u| u.to_string()).collect()
     }
 
-    pub fn inviter(&self) -> Option<Arc<RoomMember>> {
+    pub fn inviter(&self) -> Option<RoomMember> {
         if self.inner.state() == RoomState::Invited {
             RUNTIME.block_on(async move {
-                self.inner
-                    .invite_details()
-                    .await
-                    .ok()
-                    .and_then(|a| a.inviter)
-                    .map(|m| Arc::new(RoomMember::new(m)))
+                self.inner.invite_details().await.ok().and_then(|a| a.inviter).map(|m| m.into())
             })
         } else {
             None
@@ -189,10 +184,10 @@ impl Room {
         )))
     }
 
-    pub async fn member(&self, user_id: String) -> Result<Arc<RoomMember>, ClientError> {
+    pub async fn member(&self, user_id: String) -> Result<RoomMember, ClientError> {
         let user_id = UserId::parse(&*user_id).context("Invalid user id.")?;
         let member = self.inner.get_member(&user_id).await?.context("No user found")?;
-        Ok(Arc::new(RoomMember::new(member)))
+        Ok(member.into())
     }
 
     pub fn member_avatar_url(&self, user_id: String) -> Result<Option<String>, ClientError> {
@@ -631,10 +626,10 @@ impl RoomMembersIterator {
         self.chunk_iterator.len()
     }
 
-    fn next_chunk(&self, chunk_size: u32) -> Option<Vec<Arc<RoomMember>>> {
+    fn next_chunk(&self, chunk_size: u32) -> Option<Vec<RoomMember>> {
         self.chunk_iterator
             .next(chunk_size)
-            .map(|members| members.into_iter().map(RoomMember::new).map(Arc::new).collect())
+            .map(|members| members.into_iter().map(|m| m.into()).collect())
     }
 }
 
