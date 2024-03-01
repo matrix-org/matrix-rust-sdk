@@ -47,7 +47,8 @@ async fn test_room_directory_search_filter() -> Result<()> {
     let (values, mut stream) = room_directory_search.results();
     assert!(values.is_empty());
     room_directory_search.search(Some(search_string), 10).await?;
-    let results_batch: Vec<VectorDiff<matrix_sdk::room_directory_search::RoomDescription>> = stream.next().await.unwrap();
+    let results_batch: Vec<VectorDiff<matrix_sdk::room_directory_search::RoomDescription>> =
+        stream.next().await.unwrap();
     assert_matches!(&results_batch[0], VectorDiff::Clear);
     assert_matches!(&results_batch[1], VectorDiff::Append { values } => { assert_eq!(values.len(), 10); });
 
