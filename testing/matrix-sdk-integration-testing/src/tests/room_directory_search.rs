@@ -24,7 +24,7 @@ use matrix_sdk::{
     ruma::api::client::room::{create_room::v3::Request as CreateRoomRequest, Visibility},
 };
 use rand::{thread_rng, Rng};
-use stream_assert::{assert_next_eq, assert_pending};
+use stream_assert::assert_pending;
 use tokio::time::sleep;
 use tracing::warn;
 
