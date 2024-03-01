@@ -70,15 +70,17 @@ impl From<ruma::directory::PublicRoomsChunk> for RoomDescription {
 ///
 /// # Example
 ///
-/// ```rust
-/// use matrix_sdk::room_directory_search::RoomDirectorySearch;
+/// ```no_run
+/// use matrix_sdk::{room_directory_search::RoomDirectorySearch, Client};
+/// use url::Url;
 ///
 /// # fn main() -> Result<()> {
+/// let homeserver = Url::parse("http://localhost:8080")?;
+/// let client = Client::new(homeserver).await?;
 /// let room_directory_search = RoomDirectorySearch(client);
 /// room_directory_search.search(None, 10).await?;
 /// let (results, mut stream) = room_directory_search.results();
 /// room_directory_search.next_page().await?;
-/// ...
 /// # }
 /// ```
 #[derive(Debug)]
