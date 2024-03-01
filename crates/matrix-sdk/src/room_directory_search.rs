@@ -171,7 +171,7 @@ impl RoomDirectorySearch {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use assert_matches::assert_matches;
     use eyeball_im::VectorDiff;
