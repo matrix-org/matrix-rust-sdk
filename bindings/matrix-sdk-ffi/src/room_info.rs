@@ -23,7 +23,7 @@ pub struct RoomInfo {
     alternative_aliases: Vec<String>,
     membership: Membership,
     latest_event: Option<Arc<EventTimelineItem>>,
-    inviter: Option<Arc<RoomMember>>,
+    inviter: Option<RoomMember>,
     active_members_count: u64,
     invited_members_count: u64,
     joined_members_count: u64,
@@ -75,9 +75,7 @@ impl RoomInfo {
             membership: room.state().into(),
             latest_event,
             inviter: match room.state() {
-                RoomState::Invited => {
-                    room.invite_details().await?.inviter.map(|inner| Arc::new(RoomMember { inner }))
-                }
+                RoomState::Invited => room.invite_details().await?.inviter.map(|m| m.into()),
                 _ => None,
             },
             active_members_count: room.active_members_count(),
