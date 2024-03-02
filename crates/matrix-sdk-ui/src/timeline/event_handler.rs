@@ -309,6 +309,10 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 ) => self.handle_poll_start(c, should_add),
                 AnyMessageLikeEventContent::UnstablePollResponse(c) => self.handle_poll_response(c),
                 AnyMessageLikeEventContent::UnstablePollEnd(c) => self.handle_poll_end(c),
+                AnyMessageLikeEventContent::CallInvite(_) => {
+                    self.add(should_add, TimelineItemContent::CallInvite);
+                }
+
                 // TODO
                 _ => {
                     debug!(
