@@ -598,6 +598,9 @@ impl Timeline {
             TimelineItemContent::Poll(poll_state) => AnyMessageLikeEventContent::UnstablePollStart(
                 UnstablePollStartEventContent::New(poll_state.into()),
             ),
+            TimelineItemContent::CallInvite => {
+                error_return!("Retrying call events is not currently supported");
+            }
         };
 
         debug!("Retrying failed local echo");
