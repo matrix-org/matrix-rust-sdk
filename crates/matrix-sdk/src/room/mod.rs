@@ -1880,8 +1880,8 @@ impl Room {
         let power_levels = self.room_power_levels().await.ok();
         let mut user_power_levels = HashMap::<OwnedUserId, i64>::new();
         if let Some(power_levels) = power_levels {
-            for (id, level) in power_levels.users.iter() {
-                user_power_levels.insert(id.clone(), (*level).into());
+            for (id, level) in power_levels.users.into_iter() {
+                user_power_levels.insert(id, level.into());
             }
         }
         user_power_levels
