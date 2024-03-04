@@ -1862,7 +1862,7 @@ impl Room {
 
     /// Get the default power levels for any room
     ///
-    /// [spec] https://spec.matrix.org/v1.9/client-server-api/#mroompower_levels
+    /// [spec]: https://spec.matrix.org/v1.9/client-server-api/#mroompower_levels
     pub fn default_power_levels() -> RoomPowerLevels {
         RoomPowerLevels::from(RoomPowerLevelsEventContent::new())
     }
