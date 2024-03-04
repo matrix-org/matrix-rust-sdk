@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, convert::TryFrom, sync::Arc};
+use std::{convert::TryFrom, sync::Arc};
 
 use anyhow::{Context, Result};
 use matrix_sdk::{
@@ -17,8 +17,7 @@ use ruma::{
         },
         TimelineEventType,
     },
-    power_levels::NotificationPowerLevels,
-    EventId, Int, OwnedUserId, UserId,
+    EventId, Int, UserId,
 };
 use tokio::sync::RwLock;
 use tracing::error;
