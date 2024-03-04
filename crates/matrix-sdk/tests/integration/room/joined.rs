@@ -792,15 +792,16 @@ async fn get_power_level_for_user() {
 async fn get_users_with_power_levels() {
     let (client, server) = logged_in_client_with_server().await;
 
-    mock_sync(&server, &*test_json::DEFAULT_SYNC_SUMMARY, None).await;
+    mock_sync(&server, &*test_json::sync::SYNC_ADMIN_AND_MOD, None).await;
 
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
     let _response = client.sync_once(sync_settings).await.unwrap();
     let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
 
     let users_with_power_levels = room.users_with_power_levels().await;
-    assert_eq!(users_with_power_levels.len(), 1);
-    assert_eq!(users_with_power_levels[user_id!("@example:localhost")], 100);
+    assert_eq!(users_with_power_levels.len(), 2);
+    assert_eq!(users_with_power_levels[user_id!("@admin:localhost")], 100);
+    assert_eq!(users_with_power_levels[user_id!("@mod:localhost")], 50);
 }
 
 #[async_test]
