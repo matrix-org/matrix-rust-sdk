@@ -1,6 +1,12 @@
 //! High-level room API
 
-use std::{borrow::Borrow, collections::BTreeMap, ops::Deref, sync::Arc, time::Duration};
+use std::{
+    borrow::Borrow,
+    collections::{BTreeMap, HashMap},
+    ops::Deref,
+    sync::Arc,
+    time::Duration,
+};
 
 use eyeball::SharedObservable;
 use futures_core::Stream;
@@ -1589,8 +1595,6 @@ impl Room {
     /// Run /keys/query requests for all the non-tracked users.
     #[cfg(feature = "e2e-encryption")]
     async fn query_keys_for_untracked_users(&self) -> Result<()> {
-        use std::collections::HashMap;
-
         let olm = self.client.olm_machine().await;
         let olm = olm.as_ref().expect("Olm machine wasn't started");
 
@@ -1872,6 +1876,19 @@ impl Room {
     pub async fn get_user_power_level(&self, user_id: &UserId) -> Result<i64> {
         let event = self.room_power_levels().await?;
         Ok(event.for_user(user_id).into())
+    }
+
+    /// Gets a map with the `UserId` of users with power levels other than `0`
+    /// and this power level.
+    pub async fn users_with_power_levels(&self) -> HashMap<OwnedUserId, i64> {
+        let power_levels = self.room_power_levels().await.ok();
+        let mut user_power_levels = HashMap::<OwnedUserId, i64>::new();
+        if let Some(power_levels) = power_levels {
+            for (id, level) in power_levels.users.into_iter() {
+                user_power_levels.insert(id, level.into());
+            }
+        }
+        user_power_levels
     }
 
     /// Sets the name of this room.
