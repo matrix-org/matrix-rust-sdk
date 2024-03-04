@@ -9,7 +9,10 @@ use ruma::events::{
     poll::unstable_start::SyncUnstablePollStartEvent, room::message::SyncRoomMessageEvent,
     AnySyncMessageLikeEvent, AnySyncTimelineEvent,
 };
-use ruma::{events::relation::RelationType, MxcUri, OwnedEventId};
+use ruma::{
+    events::{call::invite::SyncCallInviteEvent, relation::RelationType},
+    MxcUri, OwnedEventId,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::MinimalRoomMemberEvent;
@@ -25,6 +28,10 @@ pub enum PossibleLatestEvent<'a> {
     YesRoomMessage(&'a SyncRoomMessageEvent),
     /// This message is suitable - it is a poll
     YesPoll(&'a SyncUnstablePollStartEvent),
+
+    /// This message is suitable - it is a call invite
+    YesCallInvite(&'a SyncCallInviteEvent),
+
     // Later: YesState(),
     // Later: YesReaction(),
     /// Not suitable - it's a state event
@@ -65,6 +72,10 @@ pub fn is_suitable_for_latest_event(event: &AnySyncTimelineEvent) -> PossibleLat
 
         AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::UnstablePollStart(poll)) => {
             PossibleLatestEvent::YesPoll(poll)
+        }
+
+        AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::CallInvite(invite)) => {
+            PossibleLatestEvent::YesCallInvite(invite)
         }
 
         // Encrypted events are not suitable
@@ -243,6 +254,10 @@ mod tests {
     use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
     use ruma::{
         events::{
+            call::{
+                invite::{CallInviteEventContent, SyncCallInviteEvent},
+                SessionDescription,
+            },
             poll::unstable_start::{
                 NewUnstablePollStartEventContent, SyncUnstablePollStartEvent, UnstablePollAnswer,
                 UnstablePollStartContentBlock,
@@ -268,7 +283,7 @@ mod tests {
         },
         owned_event_id, owned_mxc_uri, owned_user_id,
         serde::Raw,
-        MilliSecondsSinceUnixEpoch, UInt,
+        MilliSecondsSinceUnixEpoch, UInt, VoipVersionId,
     };
     use serde_json::json;
 
@@ -319,6 +334,28 @@ mod tests {
         );
 
         assert_eq!(m.content.poll_start().question.text, "do you like rust?");
+    }
+
+    #[test]
+    fn call_invites_are_suitable() {
+        let event = AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::CallInvite(
+            SyncCallInviteEvent::Original(OriginalSyncMessageLikeEvent {
+                content: CallInviteEventContent::new(
+                    "call_id".into(),
+                    UInt::new(123).unwrap(),
+                    SessionDescription::new("".into(), "".into()),
+                    VoipVersionId::V1,
+                ),
+                event_id: owned_event_id!("$1"),
+                sender: owned_user_id!("@a:b.c"),
+                origin_server_ts: MilliSecondsSinceUnixEpoch(UInt::new(2123).unwrap()),
+                unsigned: MessageLikeUnsigned::new(),
+            }),
+        ));
+        assert_let!(
+            PossibleLatestEvent::YesCallInvite(SyncMessageLikeEvent::Original(_)) =
+                is_suitable_for_latest_event(&event)
+        );
     }
 
     #[test]

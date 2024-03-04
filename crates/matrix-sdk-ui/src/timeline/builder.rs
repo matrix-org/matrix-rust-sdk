@@ -127,7 +127,7 @@ impl TimelineBuilder {
         // Subscribe the event cache to sync responses, in case we hadn't done it yet.
         event_cache.subscribe()?;
 
-        let (room_event_cache, event_cache_drop) = event_cache.for_room(room.room_id()).await?;
+        let (room_event_cache, event_cache_drop) = room.event_cache().await?;
         let (events, mut event_subscriber) = room_event_cache.subscribe().await?;
 
         let has_events = !events.is_empty();
