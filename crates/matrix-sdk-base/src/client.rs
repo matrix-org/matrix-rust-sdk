@@ -45,7 +45,7 @@ use ruma::{
         },
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
         AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent, AnySyncStateEvent,
-        AnySyncTimelineEvent, GlobalAccountDataEventType, StateEventType,
+        AnySyncTimelineEvent, GlobalAccountDataEventType, StateEvent, StateEventType,
     },
     push::{Action, PushConditionRoomCtx, Ruleset},
     serde::Raw,
@@ -59,9 +59,7 @@ use tracing::{debug, info, instrument, trace, warn};
 #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
 use crate::latest_event::{is_suitable_for_latest_event, LatestEvent, PossibleLatestEvent};
 use crate::{
-    deserialized_responses::{
-        AmbiguityChanges, MembersResponse, RawAnySyncOrStrippedTimelineEvent, SyncTimelineEvent,
-    },
+    deserialized_responses::{RawAnySyncOrStrippedTimelineEvent, SyncTimelineEvent},
     error::Result,
     rooms::{normal::RoomInfoUpdate, Room, RoomInfo, RoomState},
     store::{
@@ -1112,15 +1110,16 @@ impl BaseClient {
         &self,
         room_id: &RoomId,
         response: &api::membership::get_member_events::v3::Response,
-    ) -> Result<MembersResponse> {
+    ) -> Result<()> {
         let mut chunk = Vec::with_capacity(response.chunk.len());
-        let mut ambiguity_cache = AmbiguityCache::new(self.store.inner.clone());
 
         if let Some(room) = self.store.get_room(room_id) {
             let mut changes = StateChanges::default();
 
             #[cfg(feature = "e2e-encryption")]
             let mut user_ids = BTreeSet::new();
+
+            let mut ambiguity_map: BTreeMap<String, BTreeSet<OwnedUserId>> = BTreeMap::new();
 
             for raw_event in &response.chunk {
                 let member = match raw_event.deserialize() {
@@ -1150,9 +1149,16 @@ impl BaseClient {
                     _ => (),
                 }
 
-                let sync_member: SyncRoomMemberEvent = member.clone().into();
+                if let StateEvent::Original(e) = &member {
+                    if let Some(d) = &e.content.displayname {
+                        ambiguity_map
+                            .entry(d.clone())
+                            .or_default()
+                            .insert(member.state_key().clone());
+                    }
+                }
 
-                ambiguity_cache.handle_event(&changes, room_id, &sync_member).await?;
+                let sync_member: SyncRoomMemberEvent = member.clone().into();
 
                 if member.state_key() == member.sender() {
                     changes
@@ -1179,7 +1185,7 @@ impl BaseClient {
                 }
             }
 
-            changes.ambiguity_maps = ambiguity_cache.cache;
+            changes.ambiguity_maps.insert(room_id.to_owned(), ambiguity_map);
 
             let _sync_lock = self.sync_lock().lock().await;
             let mut room_info = room.clone_info();
@@ -1190,10 +1196,7 @@ impl BaseClient {
             self.apply_changes(&changes, false);
         }
 
-        Ok(MembersResponse {
-            chunk,
-            ambiguity_changes: AmbiguityChanges { changes: ambiguity_cache.changes },
-        })
+        Ok(())
     }
 
     /// Receive a successful filter upload response, the filter id will be
