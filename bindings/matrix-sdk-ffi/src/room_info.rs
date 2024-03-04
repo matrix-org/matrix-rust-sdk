@@ -54,10 +54,10 @@ impl RoomInfo {
     ) -> matrix_sdk::Result<Self> {
         let unread_notification_counts = room.unread_notification_counts();
 
-        let power_levels = room.room_power_levels().await?;
+        let power_levels_map = room.users_with_power_levels().await;
         let mut user_power_levels = HashMap::<String, i64>::new();
-        for (id, level) in power_levels.users.iter() {
-            user_power_levels.insert(id.to_string(), (*level).into());
+        for (id, level) in power_levels_map.iter() {
+            user_power_levels.insert(id.to_string(), *level);
         }
 
         Ok(Self {
