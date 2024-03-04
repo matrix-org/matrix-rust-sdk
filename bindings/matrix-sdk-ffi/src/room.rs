@@ -1,4 +1,4 @@
-use std::{convert::TryFrom, sync::Arc};
+use std::{collections::BTreeMap, convert::TryFrom, sync::Arc};
 
 use anyhow::{Context, Result};
 use matrix_sdk::{
@@ -10,8 +10,15 @@ use mime::Mime;
 use ruma::{
     api::client::room::report_content,
     assign,
-    events::room::{avatar::ImageInfo as RumaAvatarImageInfo, MediaSource},
-    EventId, Int, UserId,
+    events::{
+        room::{
+            avatar::ImageInfo as RumaAvatarImageInfo,
+            power_levels::RoomPowerLevels as RumaPowerLevels, MediaSource,
+        },
+        TimelineEventType,
+    },
+    power_levels::NotificationPowerLevels,
+    EventId, Int, OwnedUserId, UserId,
 };
 use tokio::sync::RwLock;
 use tracing::error;
@@ -602,6 +609,59 @@ impl Room {
     ) -> Result<RoomMemberRole, ClientError> {
         let user_id = UserId::parse(&user_id)?;
         Ok(self.inner.get_suggested_user_role(&user_id).await?)
+    }
+
+    pub fn default_power_levels(&self) -> RoomPowerLevels {
+        let levels = SdkRoom::default_power_levels();
+        RoomPowerLevels::from(levels)
+    }
+}
+
+#[derive(uniffi::Record)]
+pub struct RoomPowerLevels {
+    /// The level required to ban a user.
+    pub ban: i64,
+    /// The level required to invite a user.
+    pub invite: i64,
+    /// The level required to kick a user.
+    pub kick: i64,
+    /// The level required to redact an event.
+    pub redact: i64,
+    /// The default level required to send message events.
+    pub events_default: i64,
+    /// The default level required to send state events.
+    pub state_default: i64,
+    /// The default power level for every user in the room.
+    pub users_default: i64,
+    /// The level required to change the room's name.
+    pub room_name: i64,
+    /// The level required to change the room's avatar.
+    pub room_avatar: i64,
+    /// The level required to change the room's topic.
+    pub room_topic: i64,
+}
+
+impl From<RumaPowerLevels> for RoomPowerLevels {
+    fn from(value: RumaPowerLevels) -> Self {
+        let default_state: i64 = value.state_default.into();
+        let room_name =
+            value.events.get(&TimelineEventType::RoomName).map_or(default_state, |l| (*l).into());
+        let room_avatar =
+            value.events.get(&TimelineEventType::RoomAvatar).map_or(default_state, |l| (*l).into());
+        let room_topic =
+            value.events.get(&TimelineEventType::RoomTopic).map_or(default_state, |l| (*l).into());
+        Self {
+            ban: value.ban.into(),
+            invite: value.invite.into(),
+            kick: value.kick.into(),
+            redact: value.redact.into(),
+            events_default: value.events_default.into(),
+            state_default: default_state,
+            users_default: value.users_default.into(),
+            room_name,
+            room_avatar,
+            room_topic,
+        }
     }
 }
 
