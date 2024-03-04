@@ -1860,6 +1860,13 @@ impl Room {
             .power_levels())
     }
 
+    /// Get the default power levels for any room
+    ///
+    /// [spec] https://spec.matrix.org/v1.9/client-server-api/#mroompower_levels
+    pub fn default_power_levels() -> RoomPowerLevels {
+        RoomPowerLevels::from(RoomPowerLevelsEventContent::new())
+    }
+
     /// Gets the suggested role for the user with the provided `user_id`.
     ///
     /// This method checks the `RoomPowerLevels` events instead of loading the
@@ -2848,7 +2855,7 @@ mod tests {
     use crate::{
         config::RequestConfig,
         matrix_auth::{MatrixSession, MatrixSessionTokens},
-        Client,
+        Client, Room,
     };
 
     #[cfg(all(feature = "sqlite", feature = "e2e-encryption"))]
@@ -2995,5 +3002,20 @@ mod tests {
         assert_eq!(score.value(), -100);
         ReportedContentScore::try_from(int!(10)).unwrap_err();
         ReportedContentScore::try_from(int!(-110)).unwrap_err();
+    }
+
+    #[test]
+    fn default_power_levels() {
+        let default_power_levels = Room::default_power_levels();
+        assert_eq!(default_power_levels.ban, int!(50));
+        assert_eq!(default_power_levels.events_default, int!(0));
+        assert_eq!(default_power_levels.invite, int!(0));
+        assert_eq!(default_power_levels.kick, int!(50));
+        assert_eq!(default_power_levels.redact, int!(50));
+        assert_eq!(default_power_levels.state_default, int!(50));
+        assert_eq!(default_power_levels.users_default, int!(0));
+        assert!(default_power_levels.events.is_empty());
+        assert!(default_power_levels.notifications.is_default());
+        assert!(default_power_levels.users.is_empty());
     }
 }
