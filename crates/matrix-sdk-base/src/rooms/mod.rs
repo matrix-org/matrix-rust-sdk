@@ -11,20 +11,21 @@ use std::{
 
 use bitflags::bitflags;
 pub use members::RoomMember;
-pub use normal::{Room, RoomInfo, RoomInfoUpdate, RoomState, RoomStateFilter};
+pub use normal::{RawRoomInfo, Room, RoomInfo, RoomInfoUpdate, RoomState, RoomStateFilter};
 use ruma::{
     assign,
+    canonical_json::redact_in_place,
     events::{
-        call::member::CallMemberEventContent,
+        call::member::{CallMemberEvent, CallMemberEventContent},
         macros::EventContent,
         room::{
             avatar::RoomAvatarEventContent,
             canonical_alias::RoomCanonicalAliasEventContent,
             create::{PreviousRoom, RoomCreateEventContent},
             encryption::RoomEncryptionEventContent,
-            guest_access::{GuestAccess, RoomGuestAccessEventContent},
-            history_visibility::{HistoryVisibility, RoomHistoryVisibilityEventContent},
-            join_rules::{JoinRule, RoomJoinRulesEventContent},
+            guest_access::RoomGuestAccessEventContent,
+            history_visibility::RoomHistoryVisibilityEventContent,
+            join_rules::RoomJoinRulesEventContent,
             member::MembershipState,
             name::RoomNameEventContent,
             tombstone::RoomTombstoneEventContent,
@@ -32,7 +33,7 @@ use ruma::{
         },
         tag::{TagName, Tags},
         AnyStrippedStateEvent, AnySyncStateEvent, EmptyStateKey, RedactContent,
-        RedactedStateEventContent, StaticStateEventContent, SyncStateEvent,
+        RedactedStateEventContent, StateEventType, StaticStateEventContent, SyncStateEvent,
     },
     room::RoomType,
     serde::Raw,
@@ -78,44 +79,33 @@ impl fmt::Display for DisplayName {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BaseRoomInfo {
     /// The avatar URL of this room.
-    #[serde(skip_serializing)]
     pub(crate) avatar: Option<MinimalStateEvent<RoomAvatarEventContent>>,
     /// The canonical alias of this room.
-    #[serde(skip_serializing)]
     pub(crate) canonical_alias: Option<MinimalStateEvent<RoomCanonicalAliasEventContent>>,
     /// The `m.room.create` event content of this room.
-    #[serde(skip_serializing)]
     pub(crate) create: Option<MinimalStateEvent<RoomCreateWithCreatorEventContent>>,
     /// A list of user ids this room is considered as direct message, if this
     /// room is a DM.
     pub(crate) dm_targets: HashSet<OwnedUserId>,
     /// The `m.room.encryption` event content that enabled E2EE in this room.
-    #[serde(skip_serializing)]
     pub(crate) encryption: Option<RoomEncryptionEventContent>,
     /// The guest access policy of this room.
-    #[serde(skip_serializing)]
     pub(crate) guest_access: Option<MinimalStateEvent<RoomGuestAccessEventContent>>,
     /// The history visibility policy of this room.
-    #[serde(skip_serializing)]
     pub(crate) history_visibility: Option<MinimalStateEvent<RoomHistoryVisibilityEventContent>>,
     /// The join rule policy of this room.
-    #[serde(skip_serializing)]
     pub(crate) join_rules: Option<MinimalStateEvent<RoomJoinRulesEventContent>>,
     /// The maximal power level that can be found in this room.
     pub(crate) max_power_level: i64,
     /// The `m.room.name` of this room.
-    #[serde(skip_serializing)]
     pub(crate) name: Option<MinimalStateEvent<RoomNameEventContent>>,
     /// The `m.room.tombstone` event content of this room.
-    #[serde(skip_serializing)]
     pub(crate) tombstone: Option<MinimalStateEvent<RoomTombstoneEventContent>>,
     /// The topic of this room.
-    #[serde(skip_serializing)]
     pub(crate) topic: Option<MinimalStateEvent<RoomTopicEventContent>>,
     /// All minimal state events that containing one or more running matrixRTC
     /// memberships.
-    // #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
-    #[serde(skip_serializing, default)]
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub(crate) rtc_member: BTreeMap<OwnedUserId, MinimalStateEvent<CallMemberEventContent>>,
     /// Whether this room has been manually marked as unread.
     #[serde(default)]
@@ -128,14 +118,18 @@ pub struct BaseRoomInfo {
     pub(crate) notable_tags: RoomNotableTags,
 }
 
+/// This contains the same fields as BaseRoomInfo, but events are in the raw, unparsed form.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct RawRoomInfo {
+pub struct RawBaseRoomInfo {
     /// The avatar URL of this room.
     pub avatar: Option<Raw<AnySyncStateEvent>>,
     /// The canonical alias of this room.
     pub canonical_alias: Option<Raw<AnySyncStateEvent>>,
     /// The `m.room.create` event content of this room.
     pub create: Option<Raw<AnySyncStateEvent>>,
+    /// A list of user ids this room is considered as direct message, if this
+    /// room is a DM.
+    pub dm_targets: HashSet<OwnedUserId>,
     /// The `m.room.encryption` event content that enabled E2EE in this room.
     pub encryption: Option<Raw<AnySyncStateEvent>>,
     /// The guest access policy of this room.
@@ -144,6 +138,8 @@ pub struct RawRoomInfo {
     pub history_visibility: Option<Raw<AnySyncStateEvent>>,
     /// The join rule policy of this room.
     pub join_rules: Option<Raw<AnySyncStateEvent>>,
+    /// The maximal power level that can be found in this room.
+    pub max_power_level: i64,
     /// The `m.room.name` of this room.
     pub name: Option<Raw<AnySyncStateEvent>>,
     /// The `m.room.tombstone` event content of this room.
@@ -154,12 +150,129 @@ pub struct RawRoomInfo {
     /// memberships.
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub rtc_member: BTreeMap<OwnedUserId, Raw<AnySyncStateEvent>>,
+    /// Whether this room has been manually marked as unread.
+    #[serde(default)]
+    pub is_marked_unread: bool,
+    /// Some notable tags.
+    ///
+    /// We are not interested by all the tags. Some tags are more important than
+    /// others, and this field collects them.
+    #[serde(skip_serializing_if = "RoomNotableTags::is_empty", default)]
+    pub notable_tags: RoomNotableTags,
+}
+
+impl RawBaseRoomInfo {
+    pub fn map_events(
+        &mut self,
+        f: &dyn Fn(&mut Option<Raw<AnySyncStateEvent>>, StateEventType, &str),
+        f_rtc_member: &dyn Fn(&mut BTreeMap<OwnedUserId, Raw<AnySyncStateEvent>>),
+    ) {
+        f(&mut self.avatar, StateEventType::RoomAvatar, "");
+        f(&mut self.canonical_alias, StateEventType::RoomCanonicalAlias, "");
+        f(&mut self.create, StateEventType::RoomCreate, "");
+        f(&mut self.encryption, StateEventType::RoomEncryption, "");
+        f(&mut self.guest_access, StateEventType::RoomGuestAccess, "");
+        f(&mut self.history_visibility, StateEventType::RoomHistoryVisibility, "");
+        f(&mut self.join_rules, StateEventType::RoomJoinRules, "");
+        f(&mut self.name, StateEventType::RoomName, "");
+        f(&mut self.tombstone, StateEventType::RoomTombstone, "");
+        f(&mut self.topic, StateEventType::RoomTopic, "");
+        f_rtc_member(&mut self.rtc_member);
+    }
+
+    pub fn handle_redaction(&mut self, event_id: &EventId, room_version: &RoomVersionId) {
+        self.map_events(
+            // Clean up normal events
+            &|event, _event_type, _state_key| {
+                if event
+                    .as_ref()
+                    .and_then(|a| a.deserialize().ok())
+                    .is_some_and(|e| e.event_id() == event_id)
+                {
+                    if let Ok(mut object) = event.as_ref().unwrap().deserialize_as() {
+                        if redact_in_place(&mut object, room_version, None).is_ok() {
+                            *event = Some(Raw::new(&object).unwrap().cast());
+                        }
+                    }
+                }
+            },
+            // Clean up rtc_members
+            &|map| {
+                for event in map.values_mut() {
+                    if event.deserialize().is_ok_and(|e| e.event_id() == event_id) {
+                        if let Ok(mut object) = event.deserialize_as() {
+                            if redact_in_place(&mut object, room_version, None).is_ok() {
+                                *event = Raw::new(&object).unwrap().cast();
+                            }
+                        }
+                    }
+                }
+            },
+        );
+    }
+    pub fn extend_with_changes(
+        &mut self,
+        changes: &BTreeMap<StateEventType, BTreeMap<String, Raw<AnySyncStateEvent>>>,
+    ) {
+        self.map_events(
+            &|event, event_type, state_key| {
+                if let Some(e) = changes.get(&event_type).and_then(|c| c.get(state_key)) {
+                    *event = Some(e.clone());
+                }
+            },
+            &|map| {
+                if let Some(rtc_changes) = changes.get(&StateEventType::CallMember) {
+                    map.extend(
+                        rtc_changes
+                            .clone()
+                            .into_iter()
+                            .filter_map(|(u, r)| OwnedUserId::try_from(u).ok().map(|u| (u, r))),
+                    );
+                    // Remove all events that don't contain any memberships anymore.
+                    map.retain(|_, ev| {
+                        ev.deserialize_as::<CallMemberEvent>().is_ok_and(|c| {
+                            c.as_original()
+                                .is_some_and(|o| !o.content.active_memberships(None).is_empty())
+                        })
+                    });
+                }
+            },
+        );
+    }
 }
 
 impl BaseRoomInfo {
     /// Create a new, empty base room info.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Converts BaseRoomInfo into RawBaseRoomInfo, potentially losing information about some events.
+    pub fn into_raw_lossy(self) -> RawBaseRoomInfo {
+        RawBaseRoomInfo {
+            avatar: self.avatar.and_then(|e| Raw::new(&e).ok()).map(|r| r.cast()),
+            canonical_alias: self.canonical_alias.and_then(|e| Raw::new(&e).ok()).map(|r| r.cast()),
+            create: self.create.and_then(|e| Raw::new(&e).ok()).map(|r| r.cast()),
+            dm_targets: self.dm_targets,
+            encryption: self.encryption.and_then(|e| Raw::new(&e).ok()).map(|r| r.cast()),
+            guest_access: self.guest_access.and_then(|e| Raw::new(&e).ok()).map(|r| r.cast()),
+            history_visibility: self
+                .history_visibility
+                .and_then(|e| Raw::new(&e).ok())
+                .map(|r| r.cast()),
+            join_rules: self.join_rules.and_then(|e| Raw::new(&e).ok()).map(|r| r.cast()),
+            max_power_level: self.max_power_level,
+            name: self.name.and_then(|e| Raw::new(&e).ok()).map(|r| r.cast()),
+            tombstone: self.tombstone.and_then(|e| Raw::new(&e).ok()).map(|r| r.cast()),
+            topic: self.topic.and_then(|e| Raw::new(&e).ok()).map(|r| r.cast()),
+            rtc_member: self
+                .rtc_member
+                .into_iter()
+                .filter_map(|(u, e)| Raw::new(&e).ok().map(|r| (u, r.cast())))
+                .collect(),
+            is_marked_unread: self.is_marked_unread,
+            notable_tags: self.notable_tags,
+        }
     }
 
     pub(crate) fn calculate_room_name(
@@ -358,7 +471,7 @@ bitflags! {
     /// others, and this struct describes them.
     #[repr(transparent)]
     #[derive(Debug, Default, Clone, Copy, Deserialize, Serialize)]
-    pub(crate) struct RoomNotableTags: u8 {
+    pub struct RoomNotableTags: u8 {
         /// The `m.favourite` tag.
         const FAVOURITE = 0b0000_0001;
 

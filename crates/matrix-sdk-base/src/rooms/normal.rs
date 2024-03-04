@@ -59,7 +59,8 @@ use tracing::{debug, field::debug, info, instrument, trace, warn};
 
 use super::{
     members::{MemberInfo, MemberRoomInfo},
-    BaseRoomInfo, DisplayName, RoomCreateWithCreatorEventContent, RoomMember, RoomNotableTags,
+    BaseRoomInfo, DisplayName, RawBaseRoomInfo, RoomCreateWithCreatorEventContent, RoomMember,
+    RoomNotableTags,
 };
 #[cfg(feature = "experimental-sliding-sync")]
 use crate::latest_event::LatestEvent;
@@ -68,7 +69,7 @@ use crate::{
     read_receipts::RoomReadReceipts,
     store::{DynStateStore, Result as StoreResult, StateStoreExt},
     sync::UnreadNotificationsCount,
-    MinimalStateEvent, OriginalMinimalStateEvent, RawRoomInfo, RoomMemberships,
+    MinimalStateEvent, OriginalMinimalStateEvent, RoomMemberships,
 };
 
 /// A summary of changes to room information.
@@ -808,7 +809,7 @@ impl Room {
 /// The underlying pure data structure for joined and left rooms.
 ///
 /// Holds all the info needed to persist a room into the state store.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct RoomInfo {
     /// The unique room id of the room.
     pub(crate) room_id: OwnedRoomId,
@@ -850,8 +851,51 @@ pub struct RoomInfo {
     pub(crate) base_info: Box<BaseRoomInfo>,
 }
 
+/// This is the same as RoomInfo, except it contains RawBaseRoomInfo and implements Serialize.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RawRoomInfo {
+    /// The unique room id of the room.
+    pub room_id: OwnedRoomId,
+
+    /// The state of the room.
+    pub room_state: RoomState,
+
+    /// The unread notifications counts, as returned by the server.
+    ///
+    /// These might be incorrect for encrypted rooms, since the server doesn't
+    /// have access to the content of the encrypted events.
+    pub notification_counts: UnreadNotificationsCount,
+
+    /// The summary of this room.
+    pub summary: RoomSummary,
+
+    /// Flag remembering if the room members are synced.
+    pub members_synced: bool,
+
+    /// The prev batch of this room we received during the last sync.
+    pub last_prev_batch: Option<String>,
+
+    /// How much we know about this room.
+    pub sync_info: SyncInfo,
+
+    /// Whether or not the encryption info was been synced.
+    pub encryption_state_synced: bool,
+
+    /// The last event send by sliding sync
+    #[cfg(feature = "experimental-sliding-sync")]
+    pub latest_event: Option<Box<LatestEvent>>,
+
+    /// Information about read receipts for this room.
+    #[serde(default)]
+    pub read_receipts: RoomReadReceipts,
+
+    /// Base room info which holds some basic event contents important for the
+    /// room state.
+    pub base_info: Box<RawBaseRoomInfo>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub(crate) enum SyncInfo {
+pub enum SyncInfo {
     /// We only know the room exists and whether it is in invite / joined / left
     /// state.
     ///
@@ -886,41 +930,20 @@ impl RoomInfo {
         }
     }
 
-    pub fn replace_by_raw(&mut self, raws: RawRoomInfo) {
-        if let Some(event) = raws.avatar.and_then(|e| e.deserialize_as().ok()) {
-            self.base_info.avatar = Some(event);
-        }
-        if let Some(event) = raws.canonical_alias.and_then(|e| e.deserialize_as().ok()) {
-            self.base_info.canonical_alias = Some(event);
-        }
-        if let Some(event) = raws.create.and_then(|e| e.deserialize_as().ok()) {
-            self.base_info.create = Some(event);
-        }
-        if let Some(event) = raws.encryption.and_then(|e| e.deserialize_as().ok()) {
-            self.base_info.encryption = Some(event);
-        }
-        if let Some(event) = raws.guest_access.and_then(|e| e.deserialize_as().ok()) {
-            self.base_info.guest_access = Some(event);
-        }
-        if let Some(event) = raws.history_visibility.and_then(|e| e.deserialize_as().ok()) {
-            self.base_info.history_visibility = Some(event);
-        }
-        if let Some(event) = raws.join_rules.and_then(|e| e.deserialize_as().ok()) {
-            self.base_info.join_rules = Some(event);
-        }
-        if let Some(event) = raws.name.and_then(|e| e.deserialize_as().ok()) {
-            self.base_info.name = Some(event);
-        }
-        if let Some(event) = raws.tombstone.and_then(|e| e.deserialize_as().ok()) {
-            self.base_info.tombstone = Some(event);
-        }
-        if let Some(event) = raws.topic.and_then(|e| e.deserialize_as().ok()) {
-            self.base_info.topic = Some(event);
-        }
-        for (user, event) in raws.rtc_member {
-            if let Ok(event) = event.deserialize_as() {
-                self.base_info.rtc_member.insert(user, event);
-            }
+    /// Converts RoomInfo into RawRoomInfo, potentially losing information about some events.
+    pub fn into_raw_lossy(self) -> RawRoomInfo {
+        RawRoomInfo {
+            room_id: self.room_id,
+            room_state: self.room_state,
+            notification_counts: self.notification_counts,
+            summary: self.summary,
+            members_synced: self.members_synced,
+            last_prev_batch: self.last_prev_batch,
+            sync_info: self.sync_info,
+            encryption_state_synced: self.encryption_state_synced,
+            latest_event: self.latest_event,
+            read_receipts: self.read_receipts,
+            base_info: Box::new(self.base_info.into_raw_lossy()),
         }
     }
 
@@ -1396,9 +1419,13 @@ mod tests {
         // serialized format for `RoomInfo`.
 
         use super::RoomSummary;
-        use crate::{rooms::BaseRoomInfo, sync::UnreadNotificationsCount};
+        use crate::{
+            rooms::{BaseRoomInfo, RawBaseRoomInfo},
+            sync::UnreadNotificationsCount,
+            RawRoomInfo,
+        };
 
-        let info = RoomInfo {
+        let info = RawRoomInfo {
             room_id: room_id!("!gda78o:server.tld").into(),
             room_state: RoomState::Invited,
             notification_counts: UnreadNotificationsCount {
@@ -1417,7 +1444,7 @@ mod tests {
             latest_event: Some(Box::new(LatestEvent::new(
                 Raw::from_json_string(json!({"sender": "@u:i.uk"}).to_string()).unwrap().into(),
             ))),
-            base_info: Box::new(BaseRoomInfo::new()),
+            base_info: Box::new(RawBaseRoomInfo::default()),
             read_receipts: Default::default(),
         };
 
