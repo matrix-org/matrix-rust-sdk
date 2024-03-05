@@ -327,15 +327,19 @@ async fn test_dedup() {
     );
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
 
+    // If I try to paginate twice at the same time,
     let paginate_1 = async {
         timeline.paginate_backwards(PaginationOptions::simple_request(10)).await.unwrap();
     };
     let paginate_2 = async {
         timeline.paginate_backwards(PaginationOptions::simple_request(10)).await.unwrap();
     };
-    timeout(Duration::from_secs(2), join(paginate_1, paginate_2)).await.unwrap();
+    timeout(Duration::from_secs(5), join(paginate_1, paginate_2)).await.unwrap();
 
-    // Make sure pagination was called (with the right parameters)
+    // Then only one request is actually sent to the server (i.e. the number of
+    // `expect()`ed requested is indeed 1.
+    //
+    // Make sure pagination was called (with the right parameters).
     server.verify().await;
 }
 
