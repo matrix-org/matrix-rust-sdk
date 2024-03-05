@@ -1171,11 +1171,7 @@ impl Client {
     ///
     /// ```no_run
     /// use matrix_sdk::Client;
-    ///
-    /// # use matrix_sdk::ruma::api::client::room::{
-    /// #     create_room::v3::Request as CreateRoomRequest,
-    /// #     Visibility,
-    /// # };
+    /// use matrix_sdk::ruma::api::client::room::reate_room::v3::Request as CreateRoomRequest;
     /// # use url::Url;
     /// #
     /// # async {
