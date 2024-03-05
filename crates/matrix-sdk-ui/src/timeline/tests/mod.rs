@@ -63,7 +63,6 @@ mod edit;
 mod encryption;
 mod event_filter;
 mod invalid;
-mod pagination;
 mod polls;
 mod reaction_group;
 mod reactions;
@@ -244,10 +243,7 @@ impl TestTimeline {
 
     async fn handle_back_paginated_custom_event(&self, event: Raw<AnyTimelineEvent>) {
         let timeline_event = TimelineEvent::new(event.cast());
-        self.inner
-            .handle_back_paginated_events(vec![timeline_event], Default::default())
-            .await
-            .unwrap();
+        self.inner.handle_back_paginated_events(vec![timeline_event]).await.unwrap();
     }
 
     async fn handle_read_receipts(
