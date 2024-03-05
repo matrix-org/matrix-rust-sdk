@@ -492,9 +492,11 @@ dependencies = [
  "matrix-sdk-test",
  "pprof",
  "ruma",
+ "serde",
  "serde_json",
  "tempfile",
  "tokio",
+ "wiremock",
 ]
 
 [[package]]

@@ -56,4 +56,8 @@ pub enum Error {
     #[cfg(feature = "e2e-encryption")]
     #[error(transparent)]
     MegolmError(#[from] MegolmError),
+
+    /// An error caused by calling matrix-rust-sdk functions with invalid parameters
+    #[error("matrix-rust-sdk function was called with invalid parameters")]
+    ApiMisuse,
 }

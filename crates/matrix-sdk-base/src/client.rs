@@ -1099,6 +1099,7 @@ impl BaseClient {
     /// Receive a get member events response and convert it to a deserialized
     /// `MembersResponse`
     ///
+    /// This client-server request must be made without filters to make sure all members are received. Otherwise, an error is returned.
     ///
     /// # Arguments
     ///
@@ -1106,11 +1107,17 @@ impl BaseClient {
     ///
     /// * `response` - The raw response that was received from the server.
     #[instrument(skip_all, fields(?room_id))]
-    pub async fn receive_members(
+    pub async fn receive_all_members(
         &self,
         room_id: &RoomId,
+        request: &api::membership::get_member_events::v3::Request,
         response: &api::membership::get_member_events::v3::Response,
     ) -> Result<()> {
+        if request.membership.is_some() || request.not_membership.is_some() || request.at.is_some()
+        {
+            return Err(Error::ApiMisuse);
+        }
+
         let mut chunk = Vec::with_capacity(response.chunk.len());
 
         if let Some(room) = self.store.get_room(room_id) {
