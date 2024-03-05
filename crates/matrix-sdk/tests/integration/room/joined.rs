@@ -787,3 +787,33 @@ async fn get_power_level_for_user() {
         room.get_user_power_level(user_id!("@non-existing:localhost")).await.unwrap();
     assert_eq!(power_level_unknown, 0);
 }
+
+#[async_test]
+async fn get_users_with_power_levels() {
+    let (client, server) = logged_in_client_with_server().await;
+
+    mock_sync(&server, &*test_json::sync::SYNC_ADMIN_AND_MOD, None).await;
+
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let _response = client.sync_once(sync_settings).await.unwrap();
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
+
+    let users_with_power_levels = room.users_with_power_levels().await;
+    assert_eq!(users_with_power_levels.len(), 2);
+    assert_eq!(users_with_power_levels[user_id!("@admin:localhost")], 100);
+    assert_eq!(users_with_power_levels[user_id!("@mod:localhost")], 50);
+}
+
+#[async_test]
+async fn get_users_with_power_levels_is_empty_if_power_level_info_is_not_available() {
+    let (client, server) = logged_in_client_with_server().await;
+
+    mock_sync(&server, &*test_json::INVITE_SYNC, None).await;
+
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let _response = client.sync_once(sync_settings).await.unwrap();
+    // The room doesn't have any power level info
+    let room = client.get_room(room_id!("!696r7674:example.com")).unwrap();
+
+    assert!(room.users_with_power_levels().await.is_empty());
+}

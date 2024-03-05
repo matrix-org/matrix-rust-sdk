@@ -585,8 +585,10 @@ async fn cache_latest_events(
     for event in events.iter().rev() {
         if let Ok(timeline_event) = event.event.deserialize() {
             match is_suitable_for_latest_event(&timeline_event) {
-                PossibleLatestEvent::YesRoomMessage(_) | PossibleLatestEvent::YesPoll(_) => {
-                    // m.room.message or m.poll.start - we found one! Store it.
+                PossibleLatestEvent::YesRoomMessage(_)
+                | PossibleLatestEvent::YesPoll(_)
+                | PossibleLatestEvent::YesCallInvite(_) => {
+                    // We found a suitable latest event. Store it.
 
                     // In order to make the latest event fast to read, we want to keep the
                     // associated sender in cache. This is a best-effort to gather enough

@@ -576,15 +576,21 @@ impl Room {
         Ok(())
     }
 
-    pub async fn update_power_level_for_user(
+    pub async fn update_power_levels_for_users(
         &self,
-        user_id: String,
-        power_level: i64,
+        updates: Vec<UserPowerLevelUpdate>,
     ) -> Result<(), ClientError> {
-        let user_id = UserId::parse(&user_id)?;
-        let power_level = Int::new(power_level).context("Invalid power level")?;
+        let updates = updates
+            .iter()
+            .map(|update| {
+                let user_id: &UserId = update.user_id.as_str().try_into()?;
+                let power_level = Int::new(update.power_level).context("Invalid power level")?;
+                Ok((user_id, power_level))
+            })
+            .collect::<Result<Vec<_>>>()?;
+
         self.inner
-            .update_power_levels(vec![(&user_id, power_level)])
+            .update_power_levels(updates)
             .await
             .map_err(|e| ClientError::Generic { msg: e.to_string() })?;
         Ok(())
@@ -631,6 +637,15 @@ impl RoomMembersIterator {
             .next(chunk_size)
             .map(|members| members.into_iter().map(|m| m.into()).collect())
     }
+}
+
+/// An update for a particular user's power level within the room.
+#[derive(uniffi::Record)]
+pub struct UserPowerLevelUpdate {
+    /// The user ID of the user to update.
+    user_id: String,
+    /// The power level to assign to the user.
+    power_level: i64,
 }
 
 impl TryFrom<ImageInfo> for RumaAvatarImageInfo {

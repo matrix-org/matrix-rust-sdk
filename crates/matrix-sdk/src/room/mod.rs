@@ -1,6 +1,12 @@
 //! High-level room API
 
-use std::{borrow::Borrow, collections::BTreeMap, ops::Deref, time::Duration};
+use std::{
+    borrow::Borrow,
+    collections::{BTreeMap, HashMap},
+    ops::Deref,
+    sync::Arc,
+    time::Duration,
+};
 
 use eyeball::SharedObservable;
 use futures_core::Stream;
@@ -79,10 +85,13 @@ pub use self::{
     member::{RoomMember, RoomMemberRole},
     messages::{Messages, MessagesOptions},
 };
+#[cfg(doc)]
+use crate::event_cache::EventCache;
 use crate::{
     attachment::AttachmentConfig,
     config::RequestConfig,
     error::WrongRoomState,
+    event_cache::{self, EventCacheDropHandles, RoomEventCache},
     event_handler::{EventHandler, EventHandlerDropGuard, EventHandlerHandle, SyncEvent},
     media::{MediaFormat, MediaRequest},
     notification_settings::{IsEncrypted, IsOneToOne, RoomNotificationMode},
@@ -1586,8 +1595,6 @@ impl Room {
     /// Run /keys/query requests for all the non-tracked users.
     #[cfg(feature = "e2e-encryption")]
     async fn query_keys_for_untracked_users(&self) -> Result<()> {
-        use std::collections::HashMap;
-
         let olm = self.client.olm_machine().await;
         let olm = olm.as_ref().expect("Olm machine wasn't started");
 
@@ -1869,6 +1876,19 @@ impl Room {
     pub async fn get_user_power_level(&self, user_id: &UserId) -> Result<i64> {
         let event = self.room_power_levels().await?;
         Ok(event.for_user(user_id).into())
+    }
+
+    /// Gets a map with the `UserId` of users with power levels other than `0`
+    /// and this power level.
+    pub async fn users_with_power_levels(&self) -> HashMap<OwnedUserId, i64> {
+        let power_levels = self.room_power_levels().await.ok();
+        let mut user_power_levels = HashMap::<OwnedUserId, i64>::new();
+        if let Some(power_levels) = power_levels {
+            for (id, level) in power_levels.users.into_iter() {
+                user_power_levels.insert(id, level.into());
+            }
+        }
+        user_power_levels
     }
 
     /// Sets the name of this room.
@@ -2569,6 +2589,20 @@ impl Room {
 
         self.client.send(request, None).await?;
         Ok(())
+    }
+
+    /// Returns the [`RoomEventCache`] associated to this room, assuming the
+    /// global [`EventCache`] has been enabled for subscription.
+    pub async fn event_cache(
+        &self,
+    ) -> event_cache::Result<(RoomEventCache, Arc<EventCacheDropHandles>)> {
+        let global_event_cache = self.client.event_cache();
+
+        global_event_cache.for_room(self.room_id()).await.map(|(maybe_room, drop_handles)| {
+            // SAFETY: the `RoomEventCache` must always been found, since we're constructing
+            // from a `Room`.
+            (maybe_room.unwrap(), drop_handles)
+        })
     }
 }
 

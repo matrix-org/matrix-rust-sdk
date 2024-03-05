@@ -193,6 +193,7 @@ pub fn default_event_filter(event: &AnySyncTimelineEvent, room_version: &RoomVer
                         | AnyMessageLikeEventContent::UnstablePollStart(
                             UnstablePollStartEventContent::New(_),
                         )
+                        | AnyMessageLikeEventContent::CallInvite(_)
                         | AnyMessageLikeEventContent::RoomEncrypted(_) => true,
 
                         _ => false,
