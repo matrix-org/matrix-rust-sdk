@@ -1,9 +1,10 @@
 use std::{ops::Deref, sync::Arc};
 
 use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion, Throughput};
+use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server, Client};
 use matrix_sdk_crypto::{EncryptionSettings, OlmMachine};
 use matrix_sdk_sqlite::SqliteCryptoStore;
-use matrix_sdk_test::response_from_file;
+use matrix_sdk_test::{response_from_file, test_json, DEFAULT_TEST_ROOM_ID};
 use ruma::{
     api::{
         client::{
@@ -14,8 +15,13 @@ use ruma::{
     },
     device_id, room_id, user_id, DeviceId, OwnedUserId, TransactionId, UserId,
 };
-use serde_json::Value;
+use serde::Serialize;
+use serde_json::{json, Value};
 use tokio::runtime::Builder;
+use wiremock::{
+    matchers::{header, method, path, path_regex, query_param, query_param_is_missing},
+    Mock, ResponseTemplate,
+};
 
 fn alice_id() -> &'static UserId {
     user_id!("@alice:example.org")
@@ -23,6 +29,97 @@ fn alice_id() -> &'static UserId {
 
 fn alice_device_id() -> &'static DeviceId {
     device_id!("JLAFKJWSCS")
+}
+
+pub async fn synced_client() -> (Client, wiremock::MockServer) {
+    let (client, server) = logged_in_client_with_server().await;
+    mock_sync(&server, &*test_json::SYNC, None).await;
+
+    let sync_settings = SyncSettings::new();
+
+    let _response = client.sync_once(sync_settings).await.unwrap();
+
+    (client, server)
+}
+
+/// Mount a Mock on the given server to handle the `GET /sync` endpoint with
+/// an optional `since` param that returns a 200 status code with the given
+/// response body.
+async fn mock_sync(
+    server: &wiremock::MockServer,
+    response_body: impl Serialize,
+    since: Option<String>,
+) {
+    let mut builder = wiremock::Mock::given(method("GET"))
+        .and(path("/_matrix/client/r0/sync"))
+        .and(header("authorization", "Bearer 1234"));
+
+    if let Some(since) = since {
+        builder = builder.and(query_param("since", since));
+    } else {
+        builder = builder.and(query_param_is_missing("since"));
+    }
+
+    builder
+        .respond_with(ResponseTemplate::new(200).set_body_json(response_body))
+        .mount(server)
+        .await;
+}
+
+pub fn load_members_benchmark(c: &mut Criterion) {
+    let runtime = Builder::new_multi_thread().enable_all().build().expect("Can't create runtime");
+
+    let members_in_room = 100000;
+
+    let count = members_in_room;
+    let mut group = c.benchmark_group("Keys querying");
+    group.throughput(Throughput::Elements(count));
+
+    let name = format!("{count} members");
+
+    let (client, server) = runtime.block_on(synced_client());
+
+    let mut members = Vec::new();
+    let room_id = *DEFAULT_TEST_ROOM_ID;
+    for i in 0..members_in_room {
+        members.push(
+            serde_json::from_str::<Value>(&format!(
+                r#"{{
+"content": {{
+    "displayname": "User {i}",
+    "membership": "join"
+}},
+"origin_server_ts": 1708337209586,
+"room_id": "{room_id}",
+"sender": "@sender:matrix.org",
+"state_key": "@user_{i}:matrix.org",
+"type": "m.room.member",
+"event_id": "$eventid{i}"
+}}"#
+            ))
+            .unwrap(),
+        );
+    }
+    let response_body = json!({
+        "chunk": members,
+    });
+    runtime.block_on(
+        Mock::given(method("GET"))
+            .and(path_regex(r"^/_matrix/client/r0/rooms/.*/members"))
+            .and(header("authorization", "Bearer 1234"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(response_body))
+            .mount(&server),
+    );
+
+    group.bench_function(BenchmarkId::new("memory store", &name), |b| {
+        b.to_async(&runtime).iter(|| async {
+            let room = client.get_room(room_id).unwrap();
+            room.mark_members_missing();
+            room.sync_members().await.unwrap();
+        })
+    });
+
+    group.finish();
 }
 
 fn keys_query_response() -> get_keys::v3::Response {
@@ -301,6 +398,6 @@ fn criterion() -> Criterion {
 criterion_group! {
     name = benches;
     config = criterion();
-    targets = keys_query, keys_claiming, room_key_sharing, devices_missing_sessions_collecting,
+    targets = load_members_benchmark, keys_query, keys_claiming, room_key_sharing, devices_missing_sessions_collecting,
 }
 criterion_main!(benches);
