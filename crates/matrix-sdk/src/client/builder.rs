@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{fmt, sync::Arc};
+use std::{collections::BTreeMap, fmt, sync::Arc};
 
 use matrix_sdk_base::{store::StoreConfig, BaseClient};
 use ruma::{
@@ -90,6 +90,7 @@ pub struct ClientBuilder {
     request_config: RequestConfig,
     respect_login_well_known: bool,
     server_versions: Option<Box<[MatrixVersion]>>,
+    unstable_features: Option<BTreeMap<String, bool>>,
     handle_refresh_tokens: bool,
     base_client: Option<BaseClient>,
     #[cfg(feature = "e2e-encryption")]
@@ -107,6 +108,7 @@ impl ClientBuilder {
             request_config: Default::default(),
             respect_login_well_known: true,
             server_versions: None,
+            unstable_features: None,
             handle_refresh_tokens: false,
             base_client: None,
             #[cfg(feature = "e2e-encryption")]
@@ -508,6 +510,7 @@ impl ClientBuilder {
             http_client,
             base_client,
             self.server_versions,
+            self.unstable_features,
             self.respect_login_well_known,
             event_cache,
             #[cfg(feature = "e2e-encryption")]
