@@ -3,9 +3,11 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use futures_util::FutureExt;
 use imbl::HashSet;
 use matrix_sdk::{
     config::RequestConfig,
+    encryption::VerificationState,
     matrix_auth::{MatrixSession, MatrixSessionTokens},
     Client,
 };
@@ -336,15 +338,27 @@ async fn test_own_verification() {
         .await
         .unwrap();
 
+    // Subscribe to verification state updates
+    let mut verification_state_subscriber = alice.encryption().verification_state();
+    assert_eq!(alice.encryption().verification_state().get(), VerificationState::Unknown);
+
     server.add_known_device(&device_id);
 
     // Have Alice bootstrap cross-signing.
     bootstrap_cross_signing(&alice).await;
 
-    // The local device is considered verified by default.
+    // The local device is considered verified by default, we need a keys query to
+    // run
     let own_device = alice.encryption().get_device(&user_id, &device_id).await.unwrap().unwrap();
     assert!(own_device.is_verified());
     assert!(!own_device.is_deleted());
+
+    // The device is not considered cross signed yet
+    assert_eq!(
+        verification_state_subscriber.next().now_or_never().flatten().unwrap(),
+        VerificationState::Unverified
+    );
+    assert_eq!(alice.encryption().verification_state().get(), VerificationState::Unverified);
 
     // Manually re-verifying doesn't change the outcome.
     own_device.verify().await.unwrap();
@@ -364,6 +378,22 @@ async fn test_own_verification() {
     // Manually re-verifying doesn't change the outcome.
     user_identity.verify().await.unwrap();
     assert!(user_identity.is_verified());
+
+    // Force a keys query to pick up the cross-signing state
+    let mut sync_response_builder = SyncResponseBuilder::new();
+    sync_response_builder.add_change_device(&user_id);
+
+    {
+        mock_sync(&server.server, sync_response_builder.build_json_sync_response(), None).await;
+        alice.sync_once(Default::default()).await.unwrap();
+    }
+
+    // The device should now be cross-signed
+    assert_eq!(
+        verification_state_subscriber.next().now_or_never().unwrap().unwrap(),
+        VerificationState::Verified
+    );
+    assert_eq!(alice.encryption().verification_state().get(), VerificationState::Verified);
 }
 
 #[async_test]

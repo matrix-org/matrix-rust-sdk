@@ -10,7 +10,7 @@ use ruma::{
     },
     events::{presence::PresenceEvent, AnyGlobalAccountDataEvent},
     serde::Raw,
-    OwnedRoomId,
+    OwnedRoomId, OwnedUserId, UserId,
 };
 use serde_json::{from_value as from_json_value, json, Value as JsonValue};
 
@@ -52,6 +52,8 @@ pub struct SyncResponseBuilder {
     /// Internal counter to enable the `prev_batch` and `next_batch` of each
     /// sync response to vary.
     batch_counter: i64,
+    /// The device lists of the user.
+    changed_device_lists: Vec<OwnedUserId>,
 }
 
 impl SyncResponseBuilder {
@@ -136,6 +138,11 @@ impl SyncResponseBuilder {
         self
     }
 
+    pub fn add_change_device(&mut self, user_id: &UserId) -> &mut Self {
+        self.changed_device_lists.push(user_id.to_owned());
+        self
+    }
+
     /// Builds a sync response as a JSON Value containing the events we queued
     /// so far.
     ///
@@ -155,7 +162,7 @@ impl SyncResponseBuilder {
                 "device_one_time_keys_count": {},
                 "next_batch": next_batch,
                 "device_lists": {
-                    "changed": [],
+                    "changed": self.changed_device_lists,
                     "left": [],
                 },
                 "rooms": {

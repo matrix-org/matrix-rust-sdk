@@ -24,7 +24,7 @@ use std::{
     sync::{Arc, Mutex as StdMutex},
 };
 
-use eyeball::SharedObservable;
+use eyeball::{SharedObservable, Subscriber};
 use futures_core::Stream;
 use futures_util::{
     future::try_join,
@@ -186,6 +186,21 @@ pub enum BackupDownloadStrategy {
     Manual,
 }
 
+/// The verification state of our own device
+///
+/// This enum tells us if our own user identity trusts these devices, in other
+/// words it tells us if the user identity has signed the device.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum VerificationState {
+    /// The verification state is unknown for now.
+    Unknown,
+    /// The device is considered to be verified, it has been signed by its user
+    /// identity.
+    Verified,
+    /// The device is unverified.
+    Unverified,
+}
+
 impl Client {
     pub(crate) async fn olm_machine(&self) -> RwLockReadGuard<'_, Option<OlmMachine>> {
         self.base_client().olm_machine().await
@@ -222,7 +237,7 @@ impl Client {
 
         let response = self.send(request, None).await?;
         self.mark_request_as_sent(request_id, &response).await?;
-        self.encryption().recovery().update_state_after_keys_query(&response).await;
+        self.encryption().update_state_after_keys_query(&response).await;
 
         Ok(response)
     }
@@ -609,6 +624,32 @@ impl Encryption {
         } else {
             Ok(HashSet::new())
         }
+    }
+
+    /// Get a [`Subscriber`] for the [`VerificationState`].
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use matrix_sdk::{encryption, Client};
+    /// use url::Url;
+    ///
+    /// # async {
+    /// let homeserver = Url::parse("http://example.com")?;
+    /// let client = Client::new(homeserver).await?;
+    /// let mut subscriber = client.encryption().verification_state();
+    ///
+    /// let current_value = subscriber.get();
+    ///
+    /// println!("The current verification state is: {current_value:?}");
+    ///
+    /// if let Some(verification_state) = subscriber.next().await {
+    ///     println!("Received verification state update {:?}", verification_state)
+    /// }
+    /// # anyhow::Ok(()) };
+    /// ```
+    pub fn verification_state(&self) -> Subscriber<VerificationState> {
+        self.client.inner.verification_state.subscribe()
     }
 
     /// Get a verification object with the given flow id.
@@ -1171,7 +1212,7 @@ impl Encryption {
             if prev_holder == lock_value {
                 return Ok(());
             }
-            warn!("recreating cross-process store lock with a different holder value: prev was {prev_holder}, new is {lock_value}");
+            warn!("Recreating cross-process store lock with a different holder value: prev was {prev_holder}, new is {lock_value}");
         }
 
         let olm_machine = self.client.base_client().olm_machine().await;
@@ -1309,6 +1350,8 @@ impl Encryption {
             if let Err(e) = this.recovery().setup().await {
                 error!("Couldn't setup and resume recovery {e:?}");
             }
+
+            this.update_verification_state().await;
         }));
 
         Ok(())
@@ -1321,7 +1364,43 @@ impl Encryption {
 
         if let Some(task) = task {
             if let Err(err) = task.await {
-                warn!("error when initializing backups: {err}");
+                warn!("Error when initializing backups: {err}");
+            }
+        }
+    }
+
+    pub(crate) async fn update_state_after_keys_query(&self, response: &get_keys::v3::Response) {
+        self.recovery().update_state_after_keys_query(response).await;
+
+        // Only update the verification_state if our own devices changed
+        if let Some(user_id) = self.client.user_id() {
+            let contains_own_device = response.device_keys.contains_key(user_id);
+
+            if contains_own_device {
+                self.update_verification_state().await;
+            }
+        }
+    }
+
+    async fn update_verification_state(&self) {
+        match self.get_own_device().await {
+            Ok(device) => {
+                if let Some(device) = device {
+                    let is_verified = device.is_cross_signed_by_owner();
+
+                    if is_verified {
+                        self.client.inner.verification_state.set(VerificationState::Verified);
+                    } else {
+                        self.client.inner.verification_state.set(VerificationState::Unverified);
+                    }
+                } else {
+                    warn!("Couldn't find out own device in the store.");
+                    self.client.inner.verification_state.set(VerificationState::Unknown);
+                }
+            }
+            Err(error) => {
+                warn!("Failed retrieving own device: {error}");
+                self.client.inner.verification_state.set(VerificationState::Unknown);
             }
         }
     }
