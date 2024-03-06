@@ -319,6 +319,16 @@ impl NotificationSettings {
         }
     }
 
+    /// Check whether [MSC 4028 push rule][rule] is enabled on the homeserver.
+    ///
+    /// [rule]: https://github.com/matrix-org/matrix-spec-proposals/blob/giomfo/push_encrypted_events/proposals/4028-push-all-encrypted-events-except-for-muted-rooms.md
+    pub async fn can_homeserver_push_encrypted_event_to_device(&self) -> bool {
+        match self.sdk_client.unstable_features().await {
+            Ok(unstable_feature) => *unstable_feature.get("org.matrix.msc4028").unwrap_or(&false),
+            Err(_) => false,
+        }
+    }
+
     /// Set whether user mentions are enabled.
     pub async fn set_user_mention_enabled(
         &self,
