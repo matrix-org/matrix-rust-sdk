@@ -90,7 +90,7 @@ use crate::{
 };
 #[cfg(feature = "e2e-encryption")]
 use crate::{
-    encryption::{Encryption, EncryptionData, EncryptionSettings},
+    encryption::{Encryption, EncryptionData, EncryptionSettings, VerificationState},
     store_locks::CrossProcessStoreLock,
 };
 
@@ -279,6 +279,10 @@ pub(crate) struct ClientInner {
     /// End-to-end encryption related state.
     #[cfg(feature = "e2e-encryption")]
     pub(crate) e2ee: EncryptionData,
+
+    /// The verification state of our own device.
+    #[cfg(feature = "e2e-encryption")]
+    pub(crate) verification_state: SharedObservable<VerificationState>,
 }
 
 impl ClientInner {
@@ -322,6 +326,8 @@ impl ClientInner {
             event_cache,
             #[cfg(feature = "e2e-encryption")]
             e2ee: EncryptionData::new(encryption_settings),
+            #[cfg(feature = "e2e-encryption")]
+            verification_state: SharedObservable::new(VerificationState::Unknown),
         };
 
         #[allow(clippy::let_and_return)]
