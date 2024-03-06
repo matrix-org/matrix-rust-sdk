@@ -21,15 +21,19 @@ use ruma::{
     serde::Raw,
     OwnedEventId, OwnedUserId,
 };
+use serde::Serialize;
 
 use super::BundledReactions;
 
 /// An item for an event that was received from the homeserver.
 #[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub(in crate::timeline) struct RemoteEventTimelineItem {
     /// The event ID.
     pub event_id: OwnedEventId,
     /// All bundled reactions about the event.
+    /// FIXME: Can't serialise ReactionGroup yet as its key is an enum
+    #[cfg_attr(feature = "serde", serde(skip_serializing))]
     pub reactions: BundledReactions,
     /// All read receipts for the event.
     ///
@@ -81,6 +85,7 @@ impl RemoteEventTimelineItem {
 
 /// Where we got an event from.
 #[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub(in crate::timeline) enum RemoteEventOrigin {
     /// The event came from a cache.
     Cache,

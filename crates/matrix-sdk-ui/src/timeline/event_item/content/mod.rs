@@ -52,6 +52,7 @@ use ruma::{
     OwnedDeviceId, OwnedMxcUri, OwnedUserId, RoomVersionId, UserId,
 };
 use tracing::warn;
+use serde::Serialize;
 
 use crate::timeline::{polls::PollState, TimelineItem};
 
@@ -61,6 +62,7 @@ pub use self::message::{InReplyToDetails, Message, RepliedToEvent};
 
 /// The content of an [`EventTimelineItem`][super::EventTimelineItem].
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum TimelineItemContent {
     /// An `m.room.message` event or extensible event, including edits.
     Message(Message),
@@ -89,6 +91,7 @@ pub enum TimelineItemContent {
         event_type: MessageLikeEventType,
 
         /// The deserialization error.
+        #[cfg_attr(feature = "serde", serde(skip_serializing))]
         error: Arc<serde_json::Error>,
     },
 
@@ -101,6 +104,7 @@ pub enum TimelineItemContent {
         state_key: String,
 
         /// The deserialization error.
+        #[cfg_attr(feature = "serde", serde(skip_serializing))]
         error: Arc<serde_json::Error>,
     },
 
@@ -317,6 +321,7 @@ impl TimelineItemContent {
 
 /// Metadata about an `m.room.encrypted` event that could not be decrypted.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum EncryptedMessage {
     /// Metadata about an event using the `m.olm.v1.curve25519-aes-sha2`
     /// algorithm.
@@ -361,6 +366,7 @@ impl From<RoomEncryptedEventContent> for EncryptedMessage {
 
 /// An `m.sticker` event.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Sticker {
     pub(in crate::timeline) content: StickerEventContent,
 }
@@ -374,6 +380,7 @@ impl Sticker {
 
 /// An event changing a room membership.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct RoomMembershipChange {
     pub(in crate::timeline) user_id: OwnedUserId,
     pub(in crate::timeline) content: FullStateEventContent<RoomMemberEventContent>,
@@ -413,6 +420,7 @@ impl RoomMembershipChange {
 
 /// An enum over all the possible room membership changes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum MembershipChange {
     /// No change.
     None,
@@ -471,6 +479,7 @@ pub enum MembershipChange {
 /// Note that profile changes only occur in the timeline when the user's
 /// membership is already `join`.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct MemberProfileChange {
     pub(in crate::timeline) user_id: OwnedUserId,
     pub(in crate::timeline) displayname_change: Option<Change<Option<String>>>,
@@ -509,6 +518,7 @@ impl MemberProfileChange {
 /// An enum over all the full state event contents that don't have their own
 /// `TimelineItemContent` variant.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum AnyOtherFullStateEventContent {
     /// m.policy.rule.room
     PolicyRuleRoom(FullStateEventContent<PolicyRuleRoomEventContent>),
@@ -705,6 +715,7 @@ impl AnyOtherFullStateEventContent {
 
 /// A state event that doesn't have its own variant.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct OtherState {
     pub(in crate::timeline) state_key: String,
     pub(in crate::timeline) content: AnyOtherFullStateEventContent,

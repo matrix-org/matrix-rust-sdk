@@ -28,16 +28,16 @@ async-trait = "0.1.60"
 as_variant = "1.2.0"
 base64 = "0.21.0"
 byteorder = "1.4.3"
-eyeball = { version = "0.8.7", features = ["tracing"] }
-eyeball-im = { version = "0.4.1", features = ["tracing"] }
-eyeball-im-util = "0.5.1"
+eyeball = { path="../eyeball/eyeball", features = ["tracing"] }
+eyeball-im = { path="../eyeball/eyeball-im", features = ["tracing"] }
+eyeball-im-util = { path="../eyeball/eyeball-im-util" }
 futures-core = "0.3.28"
 futures-executor = "0.3.21"
 futures-util = { version = "0.3.26", default-features = false, features = ["alloc"] }
 http = "0.2.6"
 itertools = "0.12.0"
-ruma = { git = "https://github.com/ruma/ruma", rev = "68c9bb0930f2195fa8672fbef9633ef62737df5d", features = ["client-api-c", "compat-upload-signatures", "compat-user-id", "compat-arbitrary-length-ids", "unstable-msc3401"] }
-ruma-common = { git = "https://github.com/ruma/ruma", rev = "68c9bb0930f2195fa8672fbef9633ef62737df5d" }
+ruma = { path="../ruma/crates/ruma", features = ["client-api-c", "compat-upload-signatures", "compat-user-id", "compat-arbitrary-length-ids", "unstable-msc3401"] }
+ruma-common = { path="../ruma/crates/ruma-common" }
 once_cell = "1.16.0"
 rand = "0.8.5"
 serde = "1.0.151"

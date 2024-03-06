@@ -17,6 +17,7 @@ use std::ops::Deref;
 use indexmap::IndexMap;
 use itertools::Itertools;
 use ruma::{OwnedEventId, OwnedTransactionId, UserId};
+use serde::Serialize;
 
 use super::EventItemIdentifier;
 use crate::timeline::ReactionSenderData;
@@ -32,6 +33,7 @@ pub type BundledReactions = IndexMap<String, ReactionGroup>;
 /// This is a map of the event ID or transaction ID of the reactions to the ID
 /// of the sender of the reaction.
 #[derive(Clone, Debug, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct ReactionGroup(pub(in crate::timeline) IndexMap<EventItemIdentifier, ReactionSenderData>);
 
 impl ReactionGroup {

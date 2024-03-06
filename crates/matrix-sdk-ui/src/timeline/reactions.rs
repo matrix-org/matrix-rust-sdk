@@ -19,6 +19,7 @@ use ruma::{
     events::relation::Annotation, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId,
     OwnedUserId,
 };
+use serde::Serialize;
 
 use super::event_item::EventItemIdentifier;
 
@@ -26,6 +27,7 @@ use super::event_item::EventItemIdentifier;
 /// a details UI component for a reaction with both sender
 /// names and the date at which they sent a reaction.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct ReactionSenderData {
     /// Sender identifier.
     pub sender_id: OwnedUserId,

@@ -16,6 +16,7 @@ native-tls = ["matrix-sdk/native-tls"]
 rustls-tls = ["matrix-sdk/rustls-tls"]
 
 uniffi = ["dep:uniffi"]
+serde = []
 
 [dependencies]
 as_variant = { workspace = true }

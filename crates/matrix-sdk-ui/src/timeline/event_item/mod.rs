@@ -25,6 +25,7 @@ use ruma::{
     OwnedUserId, RoomId, RoomVersionId, TransactionId, UserId,
 };
 use tracing::warn;
+use serde::Serialize;
 
 mod content;
 mod local;
@@ -51,6 +52,7 @@ pub(super) use self::{
 /// identity but in many cases, additional events like reactions and edits are
 /// also part of the item.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct EventTimelineItem {
     /// The sender of the event.
     pub(super) sender: OwnedUserId,
@@ -65,6 +67,7 @@ pub struct EventTimelineItem {
 }
 
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub(super) enum EventTimelineItemKind {
     /// A local event, not yet echoed back by the server.
     Local(LocalEventTimelineItem),
@@ -74,6 +77,7 @@ pub(super) enum EventTimelineItemKind {
 
 /// A wrapper that can contain either a transaction id, or an event id.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum EventItemIdentifier {
     TransactionId(OwnedTransactionId),
     EventId(OwnedEventId),
@@ -442,6 +446,7 @@ impl From<RemoteEventTimelineItem> for EventTimelineItemKind {
 
 /// The display name and avatar URL of a room member.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Profile {
     /// The display name, if set.
     pub display_name: Option<String>,
@@ -459,6 +464,7 @@ pub struct Profile {
 /// other than just the regular
 /// [`sync_events`][ruma::api::client::sync::sync_events].
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum TimelineDetails<T> {
     /// The details are not available yet, and have not been request from the
     /// server.
@@ -471,6 +477,7 @@ pub enum TimelineDetails<T> {
     Ready(T),
 
     /// An error occurred when fetching the details.
+    #[cfg_attr(feature = "serde", serde(skip_serializing))]
     Error(Arc<Error>),
 }
 
@@ -494,6 +501,7 @@ impl<T> TimelineDetails<T> {
 /// Where this event came.
 #[derive(Clone, Copy, Debug)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum EventItemOrigin {
     /// The event was created locally.
     Local,

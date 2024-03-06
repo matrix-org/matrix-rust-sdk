@@ -41,6 +41,7 @@ sso-login = ["dep:hyper", "dep:rand", "dep:tower"]
 image-proc = ["dep:image"]
 image-rayon = ["image-proc", "image?/jpeg_rayon"]
 
+serde = []
 uniffi = ["dep:uniffi"]
 
 experimental-oidc = [

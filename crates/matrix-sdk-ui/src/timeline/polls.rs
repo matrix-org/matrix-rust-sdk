@@ -16,12 +16,15 @@ use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId, UserId,
 };
 
+use serde::Serialize;
+
 /// Holds the state of a poll.
 ///
 /// This struct should be created for each poll start event handled and then
 /// updated whenever handling any poll response or poll end event that relates
 /// to the same poll start event.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct PollState {
     pub(super) start_event_content: NewUnstablePollStartEventContent,
     pub(super) response_data: Vec<ResponseData>,
@@ -30,6 +33,7 @@ pub struct PollState {
 }
 
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub(super) struct ResponseData {
     pub(super) sender: OwnedUserId,
     pub(super) timestamp: MilliSecondsSinceUnixEpoch,

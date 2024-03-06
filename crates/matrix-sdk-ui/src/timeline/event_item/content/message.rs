@@ -36,6 +36,7 @@ use ruma::{
     OwnedEventId, OwnedUserId, RoomVersionId, UserId,
 };
 use tracing::error;
+use serde::Serialize;
 
 use super::TimelineItemContent;
 use crate::{
@@ -49,6 +50,7 @@ use crate::{
 
 /// An `m.room.message` event or extensible event, including edits.
 #[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Message {
     pub(in crate::timeline) msgtype: MessageType,
     pub(in crate::timeline) in_reply_to: Option<InReplyToDetails>,
@@ -208,6 +210,7 @@ impl fmt::Debug for Message {
 
 /// Details about an event being replied to.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct InReplyToDetails {
     /// The ID of the event.
     pub event_id: OwnedEventId,
@@ -238,6 +241,7 @@ impl InReplyToDetails {
 
 /// An event that is replied to.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct RepliedToEvent {
     pub(in crate::timeline) content: TimelineItemContent,
     pub(in crate::timeline) sender: OwnedUserId,

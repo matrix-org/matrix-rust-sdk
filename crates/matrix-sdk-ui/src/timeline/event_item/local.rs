@@ -18,9 +18,12 @@ use as_variant::as_variant;
 use matrix_sdk::Error;
 use ruma::{EventId, OwnedEventId, OwnedTransactionId};
 
+use serde::Serialize;
+
 /// An item for an event that was created locally and not yet echoed back by
 /// the homeserver.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub(in crate::timeline) struct LocalEventTimelineItem {
     /// The send state of this local event.
     pub send_state: EventSendState,
@@ -45,6 +48,7 @@ impl LocalEventTimelineItem {
 
 /// This type represents the "send state" of a local event timeline item.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum EventSendState {
     /// The local event has not been sent yet.
     NotSentYet,
@@ -52,6 +56,7 @@ pub enum EventSendState {
     /// sending has failed.
     SendingFailed {
         /// Details about how sending the event failed.
+        #[cfg_attr(feature = "serde", serde(skip_serializing))]
         error: Arc<Error>,
     },
     /// Sending has been cancelled because an earlier event in the
