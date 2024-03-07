@@ -1546,7 +1546,10 @@ impl OlmMachine {
         tracing::Span::current()
             .record("sender", debug(&event.sender))
             .record("event_id", debug(&event.event_id))
-            .record("event_ts", timestamp_to_iso8601(event.origin_server_ts))
+            .record(
+                "event_ts",
+                timestamp_to_iso8601(event.origin_server_ts).unwrap_or("<out of range>".to_owned()),
+            )
             .record("algorithm", debug(event.content.algorithm()));
 
         let content: SupportedEventEncryptionSchemes<'_> = match &event.content.scheme {

@@ -36,17 +36,20 @@ const ISO8601_WITH_MILLIS: iso8601::EncodedConfig = iso8601::Config::DEFAULT
 
 /// Format the given timestamp into a human-readable timestamp.
 ///
-/// The result looks like `1970-01-01T00:00:00.000Z`.
-pub fn timestamp_to_iso8601(ts: MilliSecondsSinceUnixEpoch) -> String {
+/// # Returns
+///
+/// Provided the timestamp fits within an `OffsetDateTime` (ie, it is on or
+/// before year 9999), a string that looks like `1970-01-01T00:00:00.000Z`.
+/// Otherwise, `None`.
+pub fn timestamp_to_iso8601(ts: MilliSecondsSinceUnixEpoch) -> Option<String> {
     let nanos_since_epoch = i128::from(ts.get()) * 1_000_000;
 
     // OffsetDateTime has a max year of 9999, whereas MilliSecondsSinceUnixEpoch has
-    // a max year of 285427, so this can overflow for very large timestamps. (The
-    // Y10K problem!)
-    match OffsetDateTime::from_unix_timestamp_nanos(nanos_since_epoch) {
-        Err(_) => "<out of range>".to_owned(),
-        Ok(dt) => dt.format(&Iso8601::<ISO8601_WITH_MILLIS>).unwrap(),
-    }
+    // a max year of 285427, so `from_unix_timestamp_nanos` can overflow for very
+    // large timestamps. (The Y10K problem!)
+    let dt = OffsetDateTime::from_unix_timestamp_nanos(nanos_since_epoch).ok()?;
+
+    Some(dt.format(&Iso8601::<ISO8601_WITH_MILLIS>).unwrap())
 }
 
 #[cfg(test)]
@@ -59,12 +62,12 @@ pub(crate) mod tests {
     fn test_timestamp_to_iso8601() {
         assert_eq!(
             timestamp_to_iso8601(MilliSecondsSinceUnixEpoch(UInt::new_saturating(0))),
-            "1970-01-01T00:00:00.000Z"
+            Some("1970-01-01T00:00:00.000Z".to_owned())
         );
         assert_eq!(
             timestamp_to_iso8601(MilliSecondsSinceUnixEpoch(UInt::new_saturating(1709657033012))),
-            "2024-03-05T16:43:53.012Z"
+            Some("2024-03-05T16:43:53.012Z".to_owned())
         );
-        assert_eq!(timestamp_to_iso8601(MilliSecondsSinceUnixEpoch(UInt::MAX)), "<out of range>");
+        assert_eq!(timestamp_to_iso8601(MilliSecondsSinceUnixEpoch(UInt::MAX)), None);
     }
 }
