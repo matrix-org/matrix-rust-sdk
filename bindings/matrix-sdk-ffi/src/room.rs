@@ -567,11 +567,9 @@ impl Room {
         Ok(())
     }
 
-    pub async fn build_power_level_changes_from_current(
-        &self,
-    ) -> Result<RoomPowerLevelChanges, ClientError> {
+    pub async fn get_power_levels(&self) -> Result<RoomPowerLevels, ClientError> {
         let power_levels = self.inner.room_power_levels().await?;
-        Ok(power_levels.into())
+        Ok(RoomPowerLevels::from(power_levels))
     }
 
     pub async fn apply_power_level_changes(
@@ -610,9 +608,8 @@ impl Room {
         Ok(self.inner.get_suggested_user_role(&user_id).await?)
     }
 
-    pub fn default_power_levels(&self) -> RoomPowerLevels {
-        let levels = SdkRoom::default_power_levels();
-        RoomPowerLevels::from(levels)
+    pub async fn reset_power_levels(&self) -> Result<RoomPowerLevels, ClientError> {
+        Ok(RoomPowerLevels::from(self.inner.reset_power_levels().await?))
     }
 }
 
