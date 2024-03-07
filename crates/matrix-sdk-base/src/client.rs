@@ -1099,7 +1099,8 @@ impl BaseClient {
     /// Receive a get member events response and convert it to a deserialized
     /// `MembersResponse`
     ///
-    /// This client-server request must be made without filters to make sure all members are received. Otherwise, an error is returned.
+    /// This client-server request must be made without filters to make sure all
+    /// members are received. Otherwise, an error is returned.
     ///
     /// # Arguments
     ///
@@ -1115,7 +1116,10 @@ impl BaseClient {
     ) -> Result<()> {
         if request.membership.is_some() || request.not_membership.is_some() || request.at.is_some()
         {
-            return Err(Error::ApiMisuse);
+            // This function assumes all members are loaded at once to optimise how display
+            // name disambiguation works. Using it with partial member list results
+            // would produce incorrect disambiguated display name entries
+            return Err(Error::InvalidReceiveMembersParameters);
         }
 
         let mut chunk = Vec::with_capacity(response.chunk.len());

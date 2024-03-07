@@ -57,7 +57,8 @@ pub enum Error {
     #[error(transparent)]
     MegolmError(#[from] MegolmError),
 
-    /// An error caused by calling matrix-rust-sdk functions with invalid parameters
-    #[error("matrix-rust-sdk function was called with invalid parameters")]
-    ApiMisuse,
+    /// An error caused by calling the `BaseClient::receive_all_members` function with invalid
+    /// parameters
+    #[error("receive_all_members function was called with invalid parameters")]
+    InvalidReceiveMembersParameters,
 }
