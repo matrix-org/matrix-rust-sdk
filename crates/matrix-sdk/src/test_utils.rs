@@ -7,7 +7,7 @@ use ruma::{api::MatrixVersion, device_id, user_id};
 use url::Url;
 
 use crate::{
-    config::{RequestConfig, SyncSettings},
+    config::RequestConfig,
     matrix_auth::{MatrixSession, MatrixSessionTokens},
     Client, ClientBuilder,
 };
