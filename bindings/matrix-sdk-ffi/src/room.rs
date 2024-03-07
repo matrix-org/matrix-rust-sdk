@@ -642,24 +642,24 @@ pub struct RoomPowerLevels {
 
 impl From<RumaPowerLevels> for RoomPowerLevels {
     fn from(value: RumaPowerLevels) -> Self {
-        let default_state: i64 = value.state_default.into();
-        let room_name =
-            value.events.get(&TimelineEventType::RoomName).map_or(default_state, |l| (*l).into());
-        let room_avatar =
-            value.events.get(&TimelineEventType::RoomAvatar).map_or(default_state, |l| (*l).into());
-        let room_topic =
-            value.events.get(&TimelineEventType::RoomTopic).map_or(default_state, |l| (*l).into());
+        fn state_event_level_for(
+            power_levels: &RumaPowerLevels,
+            event_type: &TimelineEventType,
+        ) -> i64 {
+            let default_state: i64 = power_levels.state_default.into();
+            power_levels.events.get(event_type).map_or(default_state, |&level| level.into())
+        }
         Self {
             ban: value.ban.into(),
             invite: value.invite.into(),
             kick: value.kick.into(),
             redact: value.redact.into(),
             events_default: value.events_default.into(),
-            state_default: default_state,
+            state_default: value.state_default.into(),
             users_default: value.users_default.into(),
-            room_name,
-            room_avatar,
-            room_topic,
+            room_name: state_event_level_for(&value, &TimelineEventType::RoomName),
+            room_avatar: state_event_level_for(&value, &TimelineEventType::RoomAvatar),
+            room_topic: state_event_level_for(&value, &TimelineEventType::RoomTopic),
         }
     }
 }
