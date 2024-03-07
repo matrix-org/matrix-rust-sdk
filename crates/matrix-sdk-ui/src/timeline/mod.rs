@@ -16,7 +16,7 @@
 //!
 //! See [`Timeline`] for details.
 
-use std::{pin::Pin, sync::Arc, task::Poll, time::Duration};
+use std::{pin::Pin, sync::Arc, task::Poll};
 
 use eyeball::{SharedObservable, Subscriber};
 use eyeball_im::VectorDiff;
@@ -24,7 +24,7 @@ use futures_core::Stream;
 use imbl::Vector;
 use matrix_sdk::{
     attachment::AttachmentConfig,
-    event_cache::{self, BackPaginationOutcome, EventCacheDropHandles, RoomEventCache},
+    event_cache::{EventCacheDropHandles, RoomEventCache},
     event_handler::EventHandlerHandle,
     executor::JoinHandle,
     room::{Receipts, Room},
@@ -165,115 +165,6 @@ impl Timeline {
     /// Subscribe to the back-pagination status of the timeline.
     pub fn back_pagination_status(&self) -> Subscriber<BackPaginationStatus> {
         self.back_pagination_status.subscribe()
-    }
-
-    /// Add more events to the start of the timeline.
-    #[instrument(skip_all, fields(room_id = ?self.room().room_id(), ?options))]
-    pub async fn paginate_backwards(
-        &self,
-        mut options: PaginationOptions<'_>,
-    ) -> event_cache::Result<()> {
-        if self.back_pagination_status.get() == BackPaginationStatus::TimelineStartReached {
-            warn!("Start of timeline reached, ignoring backwards-pagination request");
-            return Ok(());
-        }
-
-        if self.back_pagination_status.set_if_not_eq(BackPaginationStatus::Paginating).is_none() {
-            warn!("Another back-pagination is already running in the background");
-            return Ok(());
-        }
-
-        // The first time, we allow to wait a bit for *a* back-pagination token to come
-        // over via sync.
-        const WAIT_FOR_TOKEN_TIMEOUT: Duration = Duration::from_secs(3);
-
-        let mut token =
-            self.event_cache.earliest_backpagination_token(Some(WAIT_FOR_TOKEN_TIMEOUT)).await?;
-
-        let initial_options = options.clone();
-        let mut outcome = PaginationOutcome::default();
-
-        while let Some(batch_size) = options.next_event_limit(outcome) {
-            loop {
-                match self.event_cache.backpaginate_with_token(batch_size, token).await? {
-                    BackPaginationOutcome::Success { events, reached_start } => {
-                        let num_events = events.len();
-                        trace!("Back-pagination succeeded with {num_events} events");
-
-                        let handle_many_events_result =
-                            match self.inner.handle_back_paginated_events(events).await {
-                                Some(res) => res,
-
-                                None => {
-                                    // The number of touched timeline items has overflowed. Oh well,
-                                    // stop here and exit.
-                                    warn!(
-                                "Hit overflow, stopping back-pagination and getting back to idle."
-                            );
-                                    self.back_pagination_status
-                                        .set_if_not_eq(BackPaginationStatus::Idle);
-                                    return Ok(());
-                                }
-                            };
-
-                        if reached_start {
-                            self.back_pagination_status
-                                .set_if_not_eq(BackPaginationStatus::TimelineStartReached);
-                            return Ok(());
-                        }
-
-                        let mut update_outcome = || {
-                            outcome.events_received = num_events.try_into().ok()?;
-                            outcome.total_events_received = outcome
-                                .total_events_received
-                                .checked_add(outcome.events_received)?;
-
-                            outcome.items_added = handle_many_events_result.items_added;
-                            outcome.items_updated = handle_many_events_result.items_updated;
-                            outcome.total_items_added =
-                                outcome.total_items_added.checked_add(outcome.items_added)?;
-                            outcome.total_items_updated =
-                                outcome.total_items_updated.checked_add(outcome.items_updated)?;
-
-                            Some(())
-                        };
-
-                        if update_outcome().is_none() {
-                            // Overflow: stop here and exit.
-                            debug!(
-                                "Hit overflow, stopping back-paginating and getting back to idle."
-                            );
-                            self.back_pagination_status.set_if_not_eq(BackPaginationStatus::Idle);
-                            return Ok(());
-                        }
-
-                        if num_events == 0 {
-                            // As an exceptional contract: if there were no events in the response,
-                            // see if we had another back-pagination token, and retry the request.
-                            token = self.event_cache.earliest_backpagination_token(None).await?;
-                            continue;
-                        }
-                    }
-
-                    BackPaginationOutcome::UnknownBackpaginationToken => {
-                        // The token has been lost.
-                        // It's possible the timeline has been cleared; restart the whole
-                        // back-pagination.
-                        outcome = Default::default();
-                        options = initial_options.clone();
-                    }
-                }
-
-                // Retrieve the next earliest back-pagination token.
-                token = self.event_cache.earliest_backpagination_token(None).await?;
-
-                // Exit the inner loop, and ask for another limit.
-                break;
-            }
-        }
-
-        self.back_pagination_status.set_if_not_eq(BackPaginationStatus::Idle);
-        Ok(())
     }
 
     /// Retry decryption of previously un-decryptable events given a list of
