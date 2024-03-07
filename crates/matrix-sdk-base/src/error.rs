@@ -57,8 +57,8 @@ pub enum Error {
     #[error(transparent)]
     MegolmError(#[from] MegolmError),
 
-    /// An error caused by calling the `BaseClient::receive_all_members` function with invalid
-    /// parameters
+    /// An error caused by calling the `BaseClient::receive_all_members`
+    /// function with invalid parameters
     #[error("receive_all_members function was called with invalid parameters")]
     InvalidReceiveMembersParameters,
 }
