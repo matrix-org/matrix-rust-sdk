@@ -1535,7 +1535,7 @@ impl OlmMachine {
     /// * `event` - The event that should be decrypted.
     ///
     /// * `room_id` - The ID of the room where the event was sent to.
-    #[instrument(skip_all, fields(?room_id, event_id, event_ts, sender, algorithm, session_id, sender_key))]
+    #[instrument(skip_all, fields(?room_id, event_id, origin_server_ts, sender, algorithm, session_id, sender_key))]
     pub async fn decrypt_room_event(
         &self,
         event: &Raw<EncryptedEvent>,
@@ -1548,7 +1548,7 @@ impl OlmMachine {
             .record("event_id", debug(&event.event_id))
             .record(
                 "origin_server_ts",
-                timestamp_to_iso8601(event.origin_server_ts).unwrap_or("<out of range>".to_owned()),
+                timestamp_to_iso8601(event.origin_server_ts).unwrap_or_else(|| "<out of range>".to_owned()),
             )
             .record("algorithm", debug(event.content.algorithm()));
 
