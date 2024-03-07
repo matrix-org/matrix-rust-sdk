@@ -1449,6 +1449,29 @@ impl Client {
         Ok(unstable_features)
     }
 
+    /// Check whether [MSC 4028 push rule][rule] is enabled on the homeserver.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use matrix_sdk::{Client, config::SyncSettings};
+    /// # use url::Url;
+    /// # async {
+    /// # let homeserver = Url::parse("http://localhost:8080")?;
+    /// # let mut client = Client::new(homeserver).await?;
+    /// let msc4028_enabled =
+    ///     client.can_homeserver_push_encrypted_event_to_device().await.unwrap();
+    /// # anyhow::Ok(()) };
+    /// ```
+    pub async fn can_homeserver_push_encrypted_event_to_device(&self) -> HttpResult<bool> {
+        match self.unstable_features().await {
+            Ok(unstable_feature) => {
+                Ok(unstable_feature.get("org.matrix.msc4028").copied().unwrap_or(false))
+            }
+            Err(_) => Ok(false),
+        }
+    }
+
     /// Get information of all our own devices.
     ///
     /// # Examples
@@ -2320,7 +2343,7 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn test_homeserver_server_versions() {
+    async fn test_request_unstable_features() {
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
 
@@ -2334,6 +2357,23 @@ pub(crate) mod tests {
         let unstable_features = client.request_unstable_features().await.unwrap();
 
         assert_eq!(unstable_features.get("org.matrix.e2e_cross_signing"), Some(&true));
-        assert_eq!(unstable_features, client.unstable_features().await.unwrap().clone())
+        assert_eq!(unstable_features, client.unstable_features().await.unwrap().clone());
+    }
+
+    #[async_test]
+    async fn test_can_homeserver_push_encrypted_event_to_device() {
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
+
+        Mock::given(method("GET"))
+            .and(path("_matrix/client/versions"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(&*test_json::api_responses::VERSIONS),
+            )
+            .mount(&server)
+            .await;
+
+        let msc4028_enabled = client.can_homeserver_push_encrypted_event_to_device().await.unwrap();
+        assert_eq!(msc4028_enabled, true);
     }
 }
