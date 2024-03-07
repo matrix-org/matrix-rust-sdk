@@ -1449,7 +1449,7 @@ impl Client {
         Ok(unstable_features)
     }
 
-    /// Check whether [MSC 4028 push rule][rule] is enabled on the homeserver.
+    /// Check whether MSC 4028 is enabled on the homeserver.
     ///
     /// # Examples
     ///
