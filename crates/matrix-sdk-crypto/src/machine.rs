@@ -1548,7 +1548,8 @@ impl OlmMachine {
             .record("event_id", debug(&event.event_id))
             .record(
                 "origin_server_ts",
-                timestamp_to_iso8601(event.origin_server_ts).unwrap_or_else(|| "<out of range>".to_owned()),
+                timestamp_to_iso8601(event.origin_server_ts)
+                    .unwrap_or_else(|| "<out of range>".to_owned()),
             )
             .record("algorithm", debug(event.content.algorithm()));
 
