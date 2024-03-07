@@ -2374,6 +2374,6 @@ pub(crate) mod tests {
             .await;
 
         let msc4028_enabled = client.can_homeserver_push_encrypted_event_to_device().await.unwrap();
-        assert_eq!(msc4028_enabled, true);
+        assert!(msc4028_enabled);
     }
 }
