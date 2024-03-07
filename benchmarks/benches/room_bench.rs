@@ -1,0 +1,110 @@
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use matrix_sdk::utils::IntoRawStateEventContent;
+use matrix_sdk_base::{
+    store::StoreConfig, BaseClient, RoomInfo, RoomState, SessionMeta, StateChanges, StateStore,
+};
+use matrix_sdk_sqlite::SqliteStateStore;
+use matrix_sdk_test::EventBuilder;
+use ruma::{
+    api::client::membership::get_member_events,
+    device_id,
+    events::room::member::{RoomMemberEvent, RoomMemberEventContent},
+    owned_room_id,
+    serde::Raw,
+    user_id, OwnedUserId,
+};
+use serde_json::json;
+use tokio::runtime::Builder;
+
+pub fn receive_all_members_benchmark(c: &mut Criterion) {
+    let runtime = Builder::new_multi_thread().build().expect("Can't create runtime");
+
+    // Create a fake list of changes, and a session to recover from.
+    let mut changes = StateChanges::default();
+
+    let room_id = owned_room_id!("!room:example.com");
+    changes.add_room(RoomInfo::new(&room_id, RoomState::Joined));
+
+    // Sqlite
+    let sqlite_dir = tempfile::tempdir().unwrap();
+    let sqlite_store = runtime.block_on(SqliteStateStore::open(sqlite_dir.path(), None)).unwrap();
+    runtime
+        .block_on(sqlite_store.save_changes(&changes))
+        .expect("initial filling of sqlite failed");
+
+    let base_client = BaseClient::with_store_config(StoreConfig::new().state_store(sqlite_store));
+    runtime
+        .block_on(base_client.set_session_meta(SessionMeta {
+            user_id: user_id!("@somebody:example.com").to_owned(),
+            device_id: device_id!("DEVICE_ID").to_owned(),
+        }))
+        .expect("Could not set session meta");
+    base_client.get_or_create_room(&room_id, RoomState::Joined);
+
+    let members_in_room = 100000;
+
+    let ev_builder = EventBuilder::new();
+    let mut member_events: Vec<Raw<RoomMemberEvent>> = Vec::with_capacity(members_in_room as usize);
+    let member_content_json = json!({
+        "avatar_url": "mxc://example.org/SEsfnsuifSDFSSEF",
+        "displayname": "Alice Margatroid",
+        "membership": "join",
+        "reason": "Looking for support",
+    });
+    let member_content: Raw<RoomMemberEventContent> =
+        member_content_json.into_raw_state_event_content().cast();
+    for i in 0..members_in_room {
+        let user_id = OwnedUserId::try_from(format!("@user_{}:matrix.org", i)).unwrap();
+        let state_key = format!("ev_{i}");
+        let event: Raw<RoomMemberEvent> = ev_builder
+            .make_state_event(
+                &user_id,
+                &room_id,
+                &state_key,
+                member_content.deserialize().unwrap(),
+                None,
+            )
+            .cast();
+        member_events.push(event);
+    }
+
+    let request = get_member_events::v3::Request::new(room_id.clone());
+    let response = get_member_events::v3::Response::new(member_events);
+
+    let count = members_in_room;
+    let name = format!("{count} members");
+    let mut group = c.benchmark_group("Test");
+    group.throughput(Throughput::Elements(count));
+
+    group.bench_function(BenchmarkId::new("receive_members", name), |b| {
+        b.to_async(&runtime).iter(|| async {
+            base_client.receive_all_members(&room_id, &request, &response).await.unwrap();
+        });
+    });
+
+    {
+        let _guard = runtime.enter();
+        drop(base_client);
+    }
+
+    group.finish();
+}
+
+fn criterion() -> Criterion {
+    #[cfg(target_os = "linux")]
+    let criterion = Criterion::default().with_profiler(pprof::criterion::PProfProfiler::new(
+        100,
+        pprof::criterion::Output::Flamegraph(None),
+    ));
+    #[cfg(not(target_os = "linux"))]
+    let criterion = Criterion::default();
+
+    criterion
+}
+
+criterion_group! {
+    name = room;
+    config = criterion();
+    targets = receive_all_members_benchmark,
+}
+criterion_main!(room);
