@@ -88,6 +88,7 @@ use crate::{
         },
         EventEncryptionAlgorithm, Signatures,
     },
+    utilities::timestamp_to_iso8601,
     verification::{Verification, VerificationMachine, VerificationRequest},
     CrossSigningKeyExport, CryptoStoreError, KeysQueryRequest, LocalTrust, ReadOnlyDevice,
     RoomKeyImportResult, SignatureError, ToDeviceRequest,
@@ -1534,7 +1535,7 @@ impl OlmMachine {
     /// * `event` - The event that should be decrypted.
     ///
     /// * `room_id` - The ID of the room where the event was sent to.
-    #[instrument(skip_all, fields(?room_id, event_id, sender, algorithm, session_id, sender_key))]
+    #[instrument(skip_all, fields(?room_id, event_id, event_ts, sender, algorithm, session_id, sender_key))]
     pub async fn decrypt_room_event(
         &self,
         event: &Raw<EncryptedEvent>,
@@ -1545,6 +1546,7 @@ impl OlmMachine {
         tracing::Span::current()
             .record("sender", debug(&event.sender))
             .record("event_id", debug(&event.event_id))
+            .record("event_ts", timestamp_to_iso8601(event.origin_server_ts))
             .record("algorithm", debug(event.content.algorithm()));
 
         let content: SupportedEventEncryptionSchemes<'_> = match &event.content.scheme {
