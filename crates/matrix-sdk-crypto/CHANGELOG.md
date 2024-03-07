@@ -29,6 +29,9 @@ Additions:
 - Add new API `store::Store::export_room_keys_stream` that provides room
   keys on demand.
 
+- Include event timestamps on logs from event decryption.
+  ([#3194](https://github.com/matrix-org/matrix-rust-sdk/pull/3194))
+
 # 0.7.0
 
 - Add method to mark a list of inbound group sessions as backed up:
