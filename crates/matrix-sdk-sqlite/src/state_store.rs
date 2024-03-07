@@ -1517,6 +1517,13 @@ impl StateStore for SqliteStateStore {
         self.acquire().await?.get_kv_blob(self.encode_custom_key(key)).await
     }
 
+    async fn set_custom_value_no_read(&self, key: &[u8], value: Vec<u8>) -> Result<()> {
+        let conn = self.acquire().await?;
+        let key = self.encode_custom_key(key);
+        conn.set_kv_blob(key, value).await?;
+        Ok(())
+    }
+
     async fn set_custom_value(&self, key: &[u8], value: Vec<u8>) -> Result<Option<Vec<u8>>> {
         let conn = self.acquire().await?;
         let key = self.encode_custom_key(key);
