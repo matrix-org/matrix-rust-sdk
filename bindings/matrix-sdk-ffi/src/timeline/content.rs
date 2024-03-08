@@ -310,7 +310,7 @@ pub enum OtherState {
     RoomJoinRules,
     RoomName { name: Option<String> },
     RoomPinnedEvents,
-    RoomPowerLevels { users: HashMap<String, i64> },
+    RoomPowerLevels { users: HashMap<String, i64>, previous: Option<HashMap<String, i64>> },
     RoomServerAcl,
     RoomThirdPartyInvite { display_name: Option<String> },
     RoomTombstone,
@@ -354,16 +354,32 @@ impl From<&matrix_sdk_ui::timeline::AnyOtherFullStateEventContent> for OtherStat
             }
             Content::RoomPinnedEvents(_) => Self::RoomPinnedEvents,
             Content::RoomPowerLevels(c) => {
-                let changes = match c {
+                let previous: Option<HashMap<String, i64>>;
+                let users: HashMap<String, i64>;
+                match c {
                     FullContent::Original { content, prev_content } => {
-                        power_level_user_changes(content, prev_content)
+                        previous = if let Some(prev_content) = prev_content {
+                            Some(
+                                prev_content
+                                    .users
+                                    .iter()
+                                    .map(|(k, &v)| (k.to_string(), v.into()))
+                                    .collect(),
+                            )
+                        } else {
+                            None
+                        };
+                        users = power_level_user_changes(content, prev_content)
                             .iter()
                             .map(|(k, v)| (k.to_string(), *v))
                             .collect()
                     }
-                    FullContent::Redacted(_) => Default::default(),
+                    FullContent::Redacted(_) => {
+                        previous = None;
+                        users = Default::default();
+                    }
                 };
-                Self::RoomPowerLevels { users: changes }
+                Self::RoomPowerLevels { users, previous }
             }
             Content::RoomServerAcl(_) => Self::RoomServerAcl,
             Content::RoomThirdPartyInvite(c) => {
