@@ -310,7 +310,7 @@ pub enum OtherState {
     RoomJoinRules,
     RoomName { name: Option<String> },
     RoomPinnedEvents,
-    RoomPowerLevels { users: HashMap<String, i64> },
+    RoomPowerLevels { users: HashMap<String, i64>, previous: Option<HashMap<String, i64>> },
     RoomServerAcl,
     RoomThirdPartyInvite { display_name: Option<String> },
     RoomTombstone,
@@ -353,18 +353,20 @@ impl From<&matrix_sdk_ui::timeline::AnyOtherFullStateEventContent> for OtherStat
                 Self::RoomName { name }
             }
             Content::RoomPinnedEvents(_) => Self::RoomPinnedEvents,
-            Content::RoomPowerLevels(c) => {
-                let changes = match c {
-                    FullContent::Original { content, prev_content } => {
-                        power_level_user_changes(content, prev_content)
-                            .iter()
-                            .map(|(k, v)| (k.to_string(), *v))
-                            .collect()
-                    }
-                    FullContent::Redacted(_) => Default::default(),
-                };
-                Self::RoomPowerLevels { users: changes }
-            }
+            Content::RoomPowerLevels(c) => match c {
+                FullContent::Original { content, prev_content } => Self::RoomPowerLevels {
+                    users: power_level_user_changes(content, prev_content)
+                        .iter()
+                        .map(|(k, v)| (k.to_string(), *v))
+                        .collect(),
+                    previous: prev_content.as_ref().map(|prev_content| {
+                        prev_content.users.iter().map(|(k, &v)| (k.to_string(), v.into())).collect()
+                    }),
+                },
+                FullContent::Redacted(_) => {
+                    Self::RoomPowerLevels { users: Default::default(), previous: None }
+                }
+            },
             Content::RoomServerAcl(_) => Self::RoomServerAcl,
             Content::RoomThirdPartyInvite(c) => {
                 let display_name = match c {
