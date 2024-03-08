@@ -8,10 +8,7 @@ use matrix_sdk_test::EventBuilder;
 use ruma::{
     api::client::membership::get_member_events,
     device_id,
-    events::{
-        room::member::{RoomMemberEvent, RoomMemberEventContent, SyncRoomMemberEvent},
-        AnySyncStateEvent, AnySyncTimelineEvent, AnyTimelineEvent,
-    },
+    events::room::member::{RoomMemberEvent, RoomMemberEventContent},
     owned_room_id,
     serde::Raw,
     user_id, OwnedUserId,
