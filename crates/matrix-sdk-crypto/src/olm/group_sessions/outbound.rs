@@ -415,13 +415,18 @@ impl OutboundGroupSession {
     fn elapsed(&self) -> bool {
         let creation_time = Duration::from_secs(self.creation_time.get().into());
         let now = Duration::from_secs(SecondsSinceUnixEpoch::now().get().into());
-
-        // Since the encryption settings are provided by users and not
-        // checked someone could set a really low rotation period so
-        // clamp it to an hour.
         now.checked_sub(creation_time)
-            .map(|elapsed| elapsed >= max(self.settings.rotation_period, Duration::from_secs(3600)))
+            .map(|elapsed| elapsed >= self.safe_rotation_period())
             .unwrap_or(true)
+    }
+
+    /// Returns the rotation_period_ms that was set for this session, clamped
+    /// to be no less than one hour.
+    ///
+    /// This is to prevent a malicious or careless user causing sessions to be
+    /// rotated very frequently.
+    fn safe_rotation_period(&self) -> Duration {
+        max(self.settings.rotation_period, Duration::from_secs(3600))
     }
 
     /// Check if the session has expired and if it should be rotated.
