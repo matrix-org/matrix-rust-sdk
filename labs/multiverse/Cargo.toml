@@ -17,6 +17,7 @@ imbl = { workspace = true }
 matrix-sdk = { path = "../../crates/matrix-sdk", features = ["sso-login"] }
 matrix-sdk-ui = { path = "../../crates/matrix-sdk-ui" }
 ratatui = "0.26.1"
+rpassword = "7.3.1"
 serde_json = { workspace = true }
 tokio = { version = "1.24.2", features = ["macros", "rt-multi-thread"] }
 tracing = { workspace = true }

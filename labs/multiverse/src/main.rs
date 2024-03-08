@@ -843,13 +843,9 @@ async fn login_with_password(client: &Client) -> anyhow::Result<()> {
         io::stdin().read_line(&mut username).expect("Unable to read user input");
         username = username.trim().to_owned();
 
-        print!("Password: ");
-        stdout().flush().expect("Unable to write to stdout");
-        let mut password = String::new();
-        io::stdin().read_line(&mut password).expect("Unable to read user input");
-        password = password.trim().to_owned();
+        let password = rpassword::prompt_password("Password.")?;
 
-        match client.matrix_auth().login_username(&username, &password).await {
+        match client.matrix_auth().login_username(&username, password.trim()).await {
             Ok(_) => {
                 println!("Logged in as {username}");
                 break;
