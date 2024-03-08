@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use assert_matches2::{assert_let, assert_matches};
+use futures_util::FutureExt as _;
 use matrix_sdk::{
     event_cache::{BackPaginationOutcome, EventCacheError, RoomEventCacheUpdate},
     test_utils::logged_in_client_with_server,
@@ -20,10 +21,7 @@ use ruma::{
     user_id,
 };
 use serde_json::json;
-use tokio::{
-    spawn,
-    time::{sleep, timeout},
-};
+use tokio::{spawn, time::timeout};
 use wiremock::{
     matchers::{header, method, path_regex, query_param},
     Mock, MockServer, ResponseTemplate,
@@ -257,13 +255,15 @@ async fn test_backpaginate_once() {
     let (room_event_cache, _drop_handles) =
         client.get_room(room_id).unwrap().event_cache().await.unwrap();
 
-    // Wait for the event cache to process the sync response.
-    sleep(Duration::from_millis(300)).await;
+    let (events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
 
-    let (events, room_stream) = room_event_cache.subscribe().await.unwrap();
-
-    assert_eq!(events.len(), 1);
-    assert!(room_stream.is_empty());
+    // This is racy: either the initial message has been processed by the event
+    // cache (and no room updates will happen in this case), or it hasn't, and
+    // the stream will return the next message soon.
+    assert!(
+        events.len() == 1 && room_stream.is_empty()
+            || events.is_empty() && room_stream.recv().now_or_never().is_some()
+    );
 
     let outcome = {
         // Note: events must be presented in reversed order, since this is
@@ -334,13 +334,15 @@ async fn test_backpaginate_multiple_iterations() {
     let (room_event_cache, _drop_handles) =
         client.get_room(room_id).unwrap().event_cache().await.unwrap();
 
-    // Wait for the event cache to process the sync response.
-    sleep(Duration::from_millis(300)).await;
+    let (events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
 
-    let (events, room_stream) = room_event_cache.subscribe().await.unwrap();
-
-    assert_eq!(events.len(), 1);
-    assert!(room_stream.is_empty());
+    // This is racy: either the initial message has been processed by the event
+    // cache (and no room updates will happen in this case), or it hasn't, and
+    // the stream will return the next message soon.
+    assert!(
+        events.len() == 1 && room_stream.is_empty()
+            || events.is_empty() && room_stream.recv().now_or_never().is_some()
+    );
 
     let mut num_iterations = 0;
     let mut global_events = Vec::new();
@@ -441,13 +443,15 @@ async fn test_reset_while_backpaginating() {
     let (room_event_cache, _drop_handles) =
         client.get_room(room_id).unwrap().event_cache().await.unwrap();
 
-    // Wait for the event cache to process the sync response.
-    sleep(Duration::from_millis(300)).await;
+    let (events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
 
-    let (events, room_stream) = room_event_cache.subscribe().await.unwrap();
-
-    assert_eq!(events.len(), 1);
-    assert!(room_stream.is_empty());
+    // This is racy: either the initial message has been processed by the event
+    // cache (and no room updates will happen in this case), or it hasn't, and
+    // the stream will return the next message soon.
+    assert!(
+        events.len() == 1 && room_stream.is_empty()
+            || events.is_empty() && room_stream.recv().now_or_never().is_some()
+    );
 
     // We're going to cause a small race:
     // - a background request to sync will be sent,
@@ -547,12 +551,7 @@ async fn test_backpaginating_without_token() {
     let (room_event_cache, _drop_handles) =
         client.get_room(room_id).unwrap().event_cache().await.unwrap();
 
-    // Wait for the event cache to process the sync response.
-    // TODO: this is a code smell; should the event cache observers be called in
-    // real-time, instead of receiving an async update?
-    sleep(Duration::from_millis(300)).await;
-
-    let (events, room_stream) = room_event_cache.subscribe().await.unwrap();
+    let (events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
 
     assert!(events.is_empty());
     assert!(room_stream.is_empty());
