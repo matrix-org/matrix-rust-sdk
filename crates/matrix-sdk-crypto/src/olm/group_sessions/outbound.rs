@@ -816,10 +816,10 @@ mod tests {
         }
 
         #[async_test]
-        async fn session_with_short_rotation_period_is_not_expired_after_no_time() {
-            // Given a session with a 100ms expiration
+        async fn session_with_rotation_period_is_not_expired_after_no_time() {
+            // Given a session with a 2h expiration
             let session = create_session(EncryptionSettings {
-                rotation_period: Duration::from_millis(100),
+                rotation_period: Duration::from_secs(7200),
                 ..Default::default()
             })
             .await;
@@ -832,6 +832,23 @@ mod tests {
 
         #[async_test]
         async fn session_is_expired_after_rotation_period() {
+            // Given a session with a 2h expiration
+            let mut session = create_session(EncryptionSettings {
+                rotation_period: Duration::from_secs(7200),
+                ..Default::default()
+            })
+            .await;
+
+            // When 3 hours have passed
+            let now = SecondsSinceUnixEpoch::now();
+            session.creation_time = SecondsSinceUnixEpoch(now.get() - uint!(10800));
+
+            // Then the session is expired
+            assert!(session.expired());
+        }
+
+        #[async_test]
+        async fn session_does_not_expire_under_one_hour_even_if_we_ask_for_shorter() {
             // Given a session with a 100ms expiration
             let mut session = create_session(EncryptionSettings {
                 rotation_period: Duration::from_millis(100),
@@ -839,9 +856,15 @@ mod tests {
             })
             .await;
 
-            // When one hour has passed
+            // When less than an hour has passed
             let now = SecondsSinceUnixEpoch::now();
-            session.creation_time = SecondsSinceUnixEpoch(now.get() - uint!(3600));
+            session.creation_time = SecondsSinceUnixEpoch(now.get() - uint!(1800));
+
+            // Then the session is not expired: we enforce a minimum of 1 hour
+            assert!(!session.expired());
+
+            // But when more than an hour has passed
+            session.creation_time = SecondsSinceUnixEpoch(now.get() - uint!(3601));
 
             // Then the session is expired
             assert!(session.expired());
