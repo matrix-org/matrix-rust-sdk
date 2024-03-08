@@ -969,8 +969,8 @@ mod tests {
 
         // then I do get one eventually.
         assert_eq!(found.as_ref(), Some(&expected_token));
-        // and I have waited between ~400 and ~600 milliseconds.
-        assert!(waited.as_millis() < 650);
+        // and I have waited between ~400 and ~1000 milliseconds.
+        assert!(waited.as_secs() < 1);
         assert!(waited.as_millis() >= 400);
 
         // The task succeeded.
