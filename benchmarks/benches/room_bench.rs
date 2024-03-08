@@ -8,7 +8,10 @@ use matrix_sdk_test::EventBuilder;
 use ruma::{
     api::client::membership::get_member_events,
     device_id,
-    events::room::member::{RoomMemberEvent, RoomMemberEventContent},
+    events::{
+        room::member::{RoomMemberEvent, RoomMemberEventContent, SyncRoomMemberEvent},
+        AnySyncStateEvent, AnySyncTimelineEvent, AnyTimelineEvent,
+    },
     owned_room_id,
     serde::Raw,
     user_id, OwnedUserId,
@@ -18,12 +21,41 @@ use tokio::runtime::Builder;
 
 pub fn receive_all_members_benchmark(c: &mut Criterion) {
     let runtime = Builder::new_multi_thread().build().expect("Can't create runtime");
+    let members_in_room = 100000;
+    let room_id = owned_room_id!("!room:example.com");
+
+    let ev_builder = EventBuilder::new();
+    let mut member_events: Vec<Raw<RoomMemberEvent>> = Vec::with_capacity(members_in_room as usize);
+    let member_content_json = json!({
+        "avatar_url": "mxc://example.org/SEsfnsuifSDFSSEF",
+        "displayname": "Alice Margatroid",
+        "membership": "join",
+        "reason": "Looking for support",
+    });
+    let member_content: Raw<RoomMemberEventContent> =
+        member_content_json.into_raw_state_event_content().cast();
+    for i in 0..members_in_room {
+        let user_id = OwnedUserId::try_from(format!("@user_{}:matrix.org", i)).unwrap();
+        let state_key = user_id.to_string();
+        let event: Raw<RoomMemberEvent> = ev_builder
+            .make_state_event(
+                &user_id,
+                &room_id,
+                &state_key,
+                member_content.deserialize().unwrap(),
+                None,
+            )
+            .cast();
+        member_events.push(event);
+    }
 
     // Create a fake list of changes, and a session to recover from.
     let mut changes = StateChanges::default();
-
-    let room_id = owned_room_id!("!room:example.com");
     changes.add_room(RoomInfo::new(&room_id, RoomState::Joined));
+    for member_event in member_events.iter() {
+        let event = member_event.clone().cast();
+        changes.add_state_event(&room_id, event.deserialize().unwrap(), event);
+    }
 
     // Sqlite
     let sqlite_dir = tempfile::tempdir().unwrap();
@@ -41,33 +73,6 @@ pub fn receive_all_members_benchmark(c: &mut Criterion) {
         .expect("Could not set session meta");
     base_client.get_or_create_room(&room_id, RoomState::Joined);
 
-    let members_in_room = 100000;
-
-    let ev_builder = EventBuilder::new();
-    let mut member_events: Vec<Raw<RoomMemberEvent>> = Vec::with_capacity(members_in_room as usize);
-    let member_content_json = json!({
-        "avatar_url": "mxc://example.org/SEsfnsuifSDFSSEF",
-        "displayname": "Alice Margatroid",
-        "membership": "join",
-        "reason": "Looking for support",
-    });
-    let member_content: Raw<RoomMemberEventContent> =
-        member_content_json.into_raw_state_event_content().cast();
-    for i in 0..members_in_room {
-        let user_id = OwnedUserId::try_from(format!("@user_{}:matrix.org", i)).unwrap();
-        let state_key = format!("ev_{i}");
-        let event: Raw<RoomMemberEvent> = ev_builder
-            .make_state_event(
-                &user_id,
-                &room_id,
-                &state_key,
-                member_content.deserialize().unwrap(),
-                None,
-            )
-            .cast();
-        member_events.push(event);
-    }
-
     let request = get_member_events::v3::Request::new(room_id.clone());
     let response = get_member_events::v3::Response::new(member_events);
 
@@ -75,6 +80,7 @@ pub fn receive_all_members_benchmark(c: &mut Criterion) {
     let name = format!("{count} members");
     let mut group = c.benchmark_group("Test");
     group.throughput(Throughput::Elements(count));
+    group.sample_size(50);
 
     group.bench_function(BenchmarkId::new("receive_members", name), |b| {
         b.to_async(&runtime).iter(|| async {
