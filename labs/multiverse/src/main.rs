@@ -29,7 +29,10 @@ use matrix_sdk::{
 use matrix_sdk_ui::{
     room_list_service,
     sync_service::{self, SyncService},
-    timeline::{TimelineItem, TimelineItemContent, TimelineItemKind, VirtualTimelineItem},
+    timeline::{
+        PaginationOptions, TimelineItem, TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
+    },
+    Timeline as SdkTimeline,
 };
 use ratatui::{prelude::*, style::palette::tailwind, widgets::*};
 use tokio::{spawn, task::JoinHandle};
@@ -114,6 +117,7 @@ enum DetailsMode {
 }
 
 struct Timeline {
+    timeline: Arc<SdkTimeline>,
     items: Arc<Mutex<Vector<Arc<TimelineItem>>>>,
     task: JoinHandle<()>,
 }
@@ -148,6 +152,8 @@ struct App {
 
     /// The current room that's subscribed to in the room list's sliding sync.
     current_room_subscription: Option<room_list_service::Room>,
+
+    current_pagination: Arc<Mutex<Option<JoinHandle<()>>>>,
 }
 
 impl App {
@@ -224,7 +230,8 @@ impl App {
                     }
 
                     // Save the timeline in the cache.
-                    let (items, stream) = ui_room.timeline().unwrap().subscribe().await;
+                    let sdk_timeline = ui_room.timeline().unwrap();
+                    let (items, stream) = sdk_timeline.subscribe().await;
                     let items = Arc::new(Mutex::new(items));
 
                     // Spawn a timeline task that will listen to all the timeline item changes.
@@ -238,7 +245,10 @@ impl App {
                         }
                     });
 
-                    new_timelines.push((room_id.clone(), Timeline { items, task: timeline_task }));
+                    new_timelines.push((
+                        room_id.clone(),
+                        Timeline { timeline: sdk_timeline, items, task: timeline_task },
+                    ));
 
                     // Save the room list service room in the cache.
                     new_ui_rooms.insert(room_id, ui_room);
@@ -264,6 +274,7 @@ impl App {
             details_mode: Default::default(),
             timelines,
             current_room_subscription: None,
+            current_pagination: Default::default(),
         })
     }
 }
@@ -289,29 +300,73 @@ impl App {
     }
 
     /// Mark the currently selected room as read.
-    async fn mark_as_read(&mut self) -> anyhow::Result<()> {
-        if let Some(room) = self
-            .room_list_entries
-            .state
-            .selected()
-            .and_then(|selected| {
-                self.room_list_entries.items.lock().unwrap().get(selected).cloned()
-            })
-            .and_then(|entry| entry.as_room_id().map(ToOwned::to_owned))
+    async fn mark_as_read(&mut self) {
+        let Some(room) = self
+            .get_selected_room_id(None)
             .and_then(|room_id| self.ui_rooms.lock().unwrap().get(&room_id).cloned())
-        {
-            // Mark as read!
-            let did = room.timeline().unwrap().mark_as_read(ReceiptType::Read).await?;
-
-            self.set_status_message(format!(
-                "did {}send a read receipt!",
-                if did { "" } else { "not " }
-            ));
-        } else {
+        else {
             self.set_status_message("missing room or nothing to show".to_owned());
+            return;
+        };
+
+        // Mark as read!
+        match room.timeline().unwrap().mark_as_read(ReceiptType::Read).await {
+            Ok(did) => {
+                self.set_status_message(format!(
+                    "did {}send a read receipt!",
+                    if did { "" } else { "not " }
+                ));
+            }
+            Err(err) => {
+                self.set_status_message(format!("error when marking a room as read: {err}",));
+            }
+        }
+    }
+
+    /// Run a small back-pagination (expect a batch of 20 events, continue until
+    /// we get 10 timeline items or hit the timeline start).
+    async fn back_paginate(&mut self) {
+        let Some(sdk_timeline) = self.get_selected_room_id(None).and_then(|room_id| {
+            self.timelines.lock().unwrap().get(&room_id).map(|timeline| timeline.timeline.clone())
+        }) else {
+            self.set_status_message("missing timeline for room".to_owned());
+            return;
+        };
+
+        let mut pagination = self.current_pagination.lock().unwrap();
+
+        // Cancel the previous back-pagination, if any.
+        if let Some(prev) = pagination.take() {
+            prev.abort();
         }
 
-        Ok(())
+        // Start a new one, request batches of 20 events, stop after 10 timeline items
+        // have been added.
+        *pagination = Some(spawn(async move {
+            if let Err(err) =
+                sdk_timeline.paginate_backwards(PaginationOptions::until_num_items(20, 10)).await
+            {
+                // TODO: would be nice to be able to set the status
+                // message remotely?
+                //self.set_status_message(format!(
+                //"Error during backpagination: {err}"
+                //));
+                error!("Error during backpagination: {err}")
+            }
+        }));
+    }
+
+    /// Returns the currently selected room id, if any.
+    fn get_selected_room_id(&self, selected: Option<usize>) -> Option<OwnedRoomId> {
+        let selected = selected.or_else(|| self.room_list_entries.state.selected())?;
+
+        self.room_list_entries
+            .items
+            .lock()
+            .unwrap()
+            .get(selected)
+            .cloned()
+            .and_then(|entry| entry.as_room_id().map(ToOwned::to_owned))
     }
 
     fn subscribe_to_selected_room(&mut self, selected: usize) {
@@ -322,13 +377,7 @@ impl App {
 
         // Subscribe to the new room.
         if let Some(room) = self
-            .room_list_entries
-            .items
-            .lock()
-            .unwrap()
-            .get(selected)
-            .cloned()
-            .and_then(|entry| entry.as_room_id().map(ToOwned::to_owned))
+            .get_selected_room_id(Some(selected))
             .and_then(|room_id| self.ui_rooms.lock().unwrap().get(&room_id).cloned())
         {
             room.subscribe(None);
@@ -364,10 +413,12 @@ impl App {
                             Char('r') => self.details_mode = DetailsMode::ReadReceipts,
                             Char('t') => self.details_mode = DetailsMode::TimelineItems,
 
-                            Char('b') if self.details_mode == DetailsMode::TimelineItems => {}
+                            Char('b') if self.details_mode == DetailsMode::TimelineItems => {
+                                self.back_paginate().await;
+                            }
 
                             Char('m') if self.details_mode == DetailsMode::ReadReceipts => {
-                                self.mark_as_read().await?
+                                self.mark_as_read().await
                             }
 
                             _ => {}
@@ -531,13 +582,7 @@ impl App {
                 .render(inner_area, buf);
         };
 
-        if let Some(room_id) = self
-            .room_list_entries
-            .state
-            .selected()
-            .and_then(|i| self.room_list_entries.items.lock().unwrap().get(i).cloned())
-            .and_then(|room_entry| room_entry.as_room_id().map(ToOwned::to_owned))
-        {
+        if let Some(room_id) = self.get_selected_room_id(None) {
             match self.details_mode {
                 DetailsMode::ReadReceipts => {
                     // In read receipts mode, show the read receipts object as computed
