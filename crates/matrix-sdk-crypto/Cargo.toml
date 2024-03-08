@@ -22,6 +22,7 @@ qrcode = ["dep:matrix-sdk-qrcode"]
 message-ids = ["dep:ulid"]
 experimental-algorithms = []
 uniffi = ["dep:uniffi"]
+disable-minimum-rotation-period-ms = []
 
 # Testing helpers for implementations based upon this
 testing = ["dep:http"]

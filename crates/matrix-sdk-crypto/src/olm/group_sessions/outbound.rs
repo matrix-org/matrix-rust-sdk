@@ -425,8 +425,15 @@ impl OutboundGroupSession {
     ///
     /// This is to prevent a malicious or careless user causing sessions to be
     /// rotated very frequently.
+    ///
+    /// The feature flag `disable-minimum-rotation-period-ms` can
+    /// be used to prevent this behaviour (which can be useful for tests).
     fn safe_rotation_period(&self) -> Duration {
-        max(self.settings.rotation_period, Duration::from_secs(3600))
+        if cfg!(feature = "disable-minimum-rotation-period-ms") {
+            self.settings.rotation_period
+        } else {
+            max(self.settings.rotation_period, Duration::from_secs(3600))
+        }
     }
 
     /// Check if the session has expired and if it should be rotated.
@@ -853,6 +860,7 @@ mod tests {
         }
 
         #[async_test]
+        #[cfg(not(feature = "disable-minimum-rotation-period-ms"))]
         async fn session_does_not_expire_under_one_hour_even_if_we_ask_for_shorter() {
             // Given a session with a 100ms expiration
             let mut session = create_session(EncryptionSettings {
@@ -872,6 +880,25 @@ mod tests {
             session.creation_time = SecondsSinceUnixEpoch(now.get() - uint!(3601));
 
             // Then the session is expired
+            assert!(session.expired());
+        }
+
+        #[async_test]
+        #[cfg(feature = "disable-minimum-rotation-period-ms")]
+        async fn with_disable_minrotperiod_feature_sessions_can_expire_quickly() {
+            // Given a session with a 100ms expiration
+            let mut session = create_session(EncryptionSettings {
+                rotation_period: Duration::from_millis(100),
+                ..Default::default()
+            })
+            .await;
+
+            // When less than an hour has passed
+            let now = SecondsSinceUnixEpoch::now();
+            session.creation_time = SecondsSinceUnixEpoch(now.get() - uint!(1800));
+
+            // Then the session is expired: the feature flag has prevented us enforcing a
+            // minimum
             assert!(session.expired());
         }
 
