@@ -1435,7 +1435,7 @@ impl Client {
     /// # async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let mut client = Client::new(homeserver).await?;
-    /// let unstable_features = client.unstable_features().await.unwrap();
+    /// let unstable_features = client.unstable_features().await?;
     /// let msc_x = unstable_features.get("msc_x").unwrap_or(&false);
     /// # anyhow::Ok(()) };
     /// ```
@@ -1460,16 +1460,11 @@ impl Client {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let mut client = Client::new(homeserver).await?;
     /// let msc4028_enabled =
-    ///     client.can_homeserver_push_encrypted_event_to_device().await.unwrap();
+    ///     client.can_homeserver_push_encrypted_event_to_device().await?;
     /// # anyhow::Ok(()) };
     /// ```
     pub async fn can_homeserver_push_encrypted_event_to_device(&self) -> HttpResult<bool> {
-        match self.unstable_features().await {
-            Ok(unstable_feature) => {
-                Ok(unstable_feature.get("org.matrix.msc4028").copied().unwrap_or(false))
-            }
-            Err(_) => Ok(false),
-        }
+        Ok(self.unstable_features().await?.get("org.matrix.msc4028").copied().unwrap_or(false))
     }
 
     /// Get information of all our own devices.
