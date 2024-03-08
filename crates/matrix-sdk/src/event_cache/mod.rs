@@ -718,9 +718,9 @@ pub enum BackPaginationOutcome {
         /// All the events that have been returned in the back-pagination
         /// request.
         ///
-        /// Events are presented in reverse order: event[0], if present, is the
-        /// most "recent" event from the chunk (or technically, the last one in
-        /// the topological ordering).
+        /// Events are presented in reverse order: the first element of the vec,
+        /// if present, is the most "recent" event from the chunk (or
+        /// technically, the last one in the topological ordering).
         ///
         /// Note: they're not deduplicated (TODO: smart reconciliation).
         events: Vec<TimelineEvent>,
