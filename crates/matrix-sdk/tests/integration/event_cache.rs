@@ -395,10 +395,10 @@ async fn test_backpaginate_multiple_iterations() {
     // And next time I'll open the room, I'll get the events in the right order.
     let (events, _receiver) = room_event_cache.subscribe().await.unwrap();
 
-    assert_event_matches_msg(&events[0].clone().into(), "oh well");
-    assert_event_matches_msg(&events[1].clone().into(), "hello");
-    assert_event_matches_msg(&events[2].clone().into(), "world");
-    assert_event_matches_msg(&events[3].clone().into(), "heyo");
+    assert_event_matches_msg(&events[0], "oh well");
+    assert_event_matches_msg(&events[1], "hello");
+    assert_event_matches_msg(&events[2], "world");
+    assert_event_matches_msg(&events[3], "heyo");
     assert_eq!(events.len(), 4);
 
     assert!(room_stream.is_empty());

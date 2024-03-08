@@ -762,9 +762,10 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use assert_matches2::assert_matches;
+    use matrix_sdk_common::executor::spawn;
     use matrix_sdk_test::{async_test, sync_timeline_event};
     use ruma::room_id;
-    use tokio::{spawn, time::sleep};
+    use tokio::time::sleep;
 
     use super::{store::TimelineEntry, EventCacheError};
     use crate::{event_cache::store::PaginationToken, test_utils::logged_in_client};
