@@ -358,17 +358,13 @@ impl From<&matrix_sdk_ui::timeline::AnyOtherFullStateEventContent> for OtherStat
                 let users: HashMap<String, i64>;
                 match c {
                     FullContent::Original { content, prev_content } => {
-                        previous = if let Some(prev_content) = prev_content {
-                            Some(
-                                prev_content
-                                    .users
-                                    .iter()
-                                    .map(|(k, &v)| (k.to_string(), v.into()))
-                                    .collect(),
-                            )
-                        } else {
-                            None
-                        };
+                        previous = prev_content.as_ref().map(|prev_content| {
+                            prev_content
+                                .users
+                                .iter()
+                                .map(|(k, &v)| (k.to_string(), v.into()))
+                                .collect()
+                        });
                         users = power_level_user_changes(content, prev_content)
                             .iter()
                             .map(|(k, v)| (k.to_string(), *v))
