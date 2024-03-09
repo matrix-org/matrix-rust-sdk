@@ -871,9 +871,11 @@ impl MatrixAuth {
             use ruma::api::client::uiaa::{AuthData, Password};
 
             let auth_data = match login_info {
-                Some(login::v3::LoginInfo::Password(p)) => {
-                    Some(AuthData::Password(Password::new(p.identifier, p.password)))
-                }
+                Some(login::v3::LoginInfo::Password(login::v3::Password {
+                    identifier: Some(identifier),
+                    password,
+                    ..
+                })) => Some(AuthData::Password(Password::new(identifier, password))),
                 // Other methods can't be immediately translated to an auth.
                 _ => None,
             };
