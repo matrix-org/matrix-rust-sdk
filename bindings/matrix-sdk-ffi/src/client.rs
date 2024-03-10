@@ -633,6 +633,15 @@ impl Client {
         })
     }
 
+    /// Deletes a pusher of given pusher ids
+    pub fn delete_pusher(&self, identifiers: PusherIdentifiers) -> Result<(), ClientError> {
+        RUNTIME.block_on(async move {
+            let ids = identifiers.into();
+            self.inner.delete_pusher(ids).await?;
+            Ok(())
+        })
+    }
+
     /// The homeserver this client is configured to use.
     pub fn homeserver(&self) -> String {
         self.inner.homeserver().to_string()
