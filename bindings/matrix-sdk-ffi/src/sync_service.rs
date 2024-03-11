@@ -16,9 +16,12 @@ use std::{fmt::Debug, sync::Arc};
 
 use futures_util::pin_mut;
 use matrix_sdk::Client;
-use matrix_sdk_ui::sync_service::{
-    State as MatrixSyncServiceState, SyncService as MatrixSyncService,
-    SyncServiceBuilder as MatrixSyncServiceBuilder,
+use matrix_sdk_ui::{
+    sync_service::{
+        State as MatrixSyncServiceState, SyncService as MatrixSyncService,
+        SyncServiceBuilder as MatrixSyncServiceBuilder,
+    },
+    unable_to_decrypt_hook::{UnableToDecryptHook, UnableToDecryptInfo},
 };
 
 use crate::{
@@ -53,12 +56,16 @@ pub trait SyncServiceStateObserver: Send + Sync + Debug {
 #[derive(uniffi::Object)]
 pub struct SyncService {
     pub(crate) inner: Arc<MatrixSyncService>,
+    utd_hook: Option<Arc<dyn UnableToDecryptHook>>,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
 impl SyncService {
     pub fn room_list_service(&self) -> Arc<RoomListService> {
-        Arc::new(RoomListService { inner: self.inner.room_list_service() })
+        Arc::new(RoomListService {
+            inner: self.inner.room_list_service(),
+            utd_hook: self.utd_hook.clone(),
+        })
     }
 
     pub async fn start(&self) {
@@ -85,11 +92,13 @@ impl SyncService {
 #[derive(Clone, uniffi::Object)]
 pub struct SyncServiceBuilder {
     builder: MatrixSyncServiceBuilder,
+
+    utd_hook: Option<Arc<dyn UnableToDecryptHook>>,
 }
 
 impl SyncServiceBuilder {
     pub(crate) fn new(client: Client) -> Arc<Self> {
-        Arc::new(Self { builder: MatrixSyncService::builder(client) })
+        Arc::new(Self { builder: MatrixSyncService::builder(client), utd_hook: None })
     }
 }
 
@@ -101,17 +110,53 @@ impl SyncServiceBuilder {
     ) -> Arc<Self> {
         let this = unwrap_or_clone_arc(self);
         let builder = this.builder.with_unified_invites_in_room_list(with_unified_invites);
-        Arc::new(Self { builder })
+        Arc::new(Self { builder, utd_hook: this.utd_hook })
     }
 
     pub fn with_cross_process_lock(self: Arc<Self>, app_identifier: Option<String>) -> Arc<Self> {
         let this = unwrap_or_clone_arc(self);
         let builder = this.builder.with_cross_process_lock(app_identifier);
-        Arc::new(Self { builder })
+        Arc::new(Self { builder, utd_hook: this.utd_hook })
+    }
+
+    pub fn with_utd_hook(self: Arc<Self>, delegate: Box<dyn UnableToDecryptDelegate>) -> Arc<Self> {
+        let this = unwrap_or_clone_arc(self);
+        let utd_hook: Option<Arc<dyn UnableToDecryptHook>> = Some(Arc::new(UtdHook { delegate }));
+        Arc::new(Self { builder: this.builder, utd_hook })
     }
 
     pub async fn finish(self: Arc<Self>) -> Result<Arc<SyncService>, ClientError> {
         let this = unwrap_or_clone_arc(self);
-        Ok(Arc::new(SyncService { inner: Arc::new(this.builder.build().await?) }))
+        Ok(Arc::new(SyncService {
+            inner: Arc::new(this.builder.build().await?),
+            utd_hook: this.utd_hook,
+        }))
+    }
+}
+
+#[uniffi::export(callback_interface)]
+pub trait UnableToDecryptDelegate: Sync + Send {
+    fn on_utd(&self, info: Arc<UnableToDecryptInfo>);
+
+    fn on_late_decrypt(&self, info: Arc<UnableToDecryptInfo>);
+}
+
+struct UtdHook {
+    delegate: Box<dyn UnableToDecryptDelegate>,
+}
+
+impl std::fmt::Debug for UtdHook {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("UtdHook").finish_non_exhaustive()
+    }
+}
+
+impl UnableToDecryptHook for UtdHook {
+    fn on_utd(&self, info: UnableToDecryptInfo) {
+        self.delegate.on_utd(Arc::new(info));
+    }
+
+    fn on_late_decrypt(&self, info: UnableToDecryptInfo) {
+        self.delegate.on_late_decrypt(Arc::new(info));
     }
 }

@@ -47,6 +47,7 @@ pub trait UnableToDecryptHook: std::fmt::Debug + Send + Sync {
 
 /// Information about an event we couldn't decrypt.
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Object))]
 pub struct UnableToDecryptInfo {
     /// The identifier of the event that couldn't get decrypted.
     pub event_id: OwnedEventId,
