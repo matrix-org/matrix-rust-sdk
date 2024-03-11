@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
 use matrix_sdk::{
-    self, encryption::CryptoStoreError, event_cache::EventCacheError, oidc::OidcError, HttpError,
+    encryption::CryptoStoreError, event_cache::EventCacheError, oidc::OidcError, HttpError,
     IdParseError, NotificationSettingsError as SdkNotificationSettingsError, StoreError,
 };
 use matrix_sdk_ui::{encryption_sync_service, notification_client, sync_service, timeline};

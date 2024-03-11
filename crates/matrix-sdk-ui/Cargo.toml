@@ -12,6 +12,9 @@ default = ["e2e-encryption", "native-tls"]
 
 e2e-encryption = ["matrix-sdk/e2e-encryption"]
 
+# This feature will unify the `invites` list with the `all_rooms` list.
+experimental-room-list-with-unified-invites = []
+
 native-tls = ["matrix-sdk/native-tls"]
 rustls-tls = ["matrix-sdk/rustls-tls"]
 
