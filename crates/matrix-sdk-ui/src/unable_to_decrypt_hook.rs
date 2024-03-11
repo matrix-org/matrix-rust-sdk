@@ -27,7 +27,7 @@ use ruma::OwnedEventId;
 
 /// A generic interface which methods get called whenever we observe a
 /// unable-to-decrypt (UTD) event.
-pub trait UnableToDecryptHook {
+pub trait UnableToDecryptHook: std::fmt::Debug + Send + Sync {
     /// Called every time the hook observes an encrypted event that couldn't be
     /// decrypted.
     fn on_utd(&self, info: UnableToDecryptInfo);
@@ -94,7 +94,7 @@ mod tests {
 
     use super::*;
 
-    #[derive(Default)]
+    #[derive(Debug, Default)]
     struct Dummy {
         utds: Mutex<Vec<UnableToDecryptInfo>>,
         late_decrypted: Mutex<Vec<UnableToDecryptInfo>>,

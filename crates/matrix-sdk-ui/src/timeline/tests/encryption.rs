@@ -14,7 +14,11 @@
 
 #![cfg(not(target_arch = "wasm32"))]
 
-use std::{io::Cursor, iter};
+use std::{
+    io::Cursor,
+    iter,
+    sync::{Arc, Mutex},
+};
 
 use assert_matches::assert_matches;
 use assert_matches2::assert_let;
@@ -27,12 +31,15 @@ use ruma::{
         EncryptedEventScheme, MegolmV1AesSha2ContentInit, Relation, Replacement,
         RoomEncryptedEventContent,
     },
-    room_id, user_id,
+    room_id, user_id, OwnedEventId,
 };
 use stream_assert::assert_next_matches;
 
 use super::TestTimeline;
-use crate::timeline::{EncryptedMessage, TimelineItemContent};
+use crate::{
+    timeline::{EncryptedMessage, TimelineItemContent},
+    unable_to_decrypt_hook::{UnableToDecryptHook, UnableToDecryptInfo},
+};
 
 #[async_test]
 async fn retry_message_decryption() {
@@ -51,7 +58,24 @@ async fn retry_message_decryption() {
         HztoSJUr/2Y\n\
         -----END MEGOLM SESSION DATA-----";
 
-    let timeline = TestTimeline::new();
+    #[derive(Debug, Default)]
+    struct DummyUtdHook {
+        utds: Mutex<Vec<OwnedEventId>>,
+        late_decrypted: Mutex<Vec<OwnedEventId>>,
+    }
+
+    impl UnableToDecryptHook for DummyUtdHook {
+        fn on_utd(&self, info: UnableToDecryptInfo) {
+            self.utds.lock().unwrap().push(info.event_id);
+        }
+        fn on_late_decrypt(&self, info: UnableToDecryptInfo) {
+            self.late_decrypted.lock().unwrap().push(info.event_id);
+        }
+    }
+
+    let utd_hook = Arc::new(DummyUtdHook::default());
+
+    let timeline = TestTimeline::with_unable_to_decrypt_hook(utd_hook.clone());
     let mut stream = timeline.subscribe().await;
 
     timeline
@@ -92,6 +116,15 @@ async fn retry_message_decryption() {
     );
     assert_eq!(session_id, SESSION_ID);
 
+    {
+        let utds = utd_hook.utds.lock().unwrap();
+        assert_eq!(utds.len(), 1);
+        assert_eq!(utds[0], event.event_id().unwrap());
+
+        let late = utd_hook.late_decrypted.lock().unwrap();
+        assert!(late.is_empty());
+    }
+
     let own_user_id = user_id!("@example:morheus.localhost");
     let exported_keys = decrypt_room_key_export(Cursor::new(SESSION_KEY), "1234").unwrap();
 
@@ -115,6 +148,16 @@ async fn retry_message_decryption() {
     assert_let!(TimelineItemContent::Message(message) = event.content());
     assert_eq!(message.body(), "It's a secret to everybody");
     assert!(!event.is_highlighted());
+
+    {
+        let utds = utd_hook.utds.lock().unwrap();
+        assert_eq!(utds.len(), 1);
+        assert_eq!(utds[0], event.event_id().unwrap());
+
+        let late = utd_hook.late_decrypted.lock().unwrap();
+        assert_eq!(late.len(), 1);
+        assert_eq!(late[0], event.event_id().unwrap());
+    }
 }
 
 #[async_test]
