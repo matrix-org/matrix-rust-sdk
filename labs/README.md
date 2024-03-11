@@ -13,8 +13,8 @@ Rust SDK can evolve, feel free to propose an experiment.
 
 ## Current experiments
 
-- rrrepl: a *R*ead *R*eceipts REPL, to help with client-side computation of read-receipts. Useful
-  for debugging.
+- multiverse: a TUI client mostly for quick development iteration of SDK features and debugging.
+  Run with `cargo run --bin multiverse matrix.org ~/.cache/multiverse-cache`.
 
 
 ## Archived experiments

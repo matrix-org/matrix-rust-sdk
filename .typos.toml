@@ -22,6 +22,7 @@ sing = "sign"
 singed = "signed"
 singing = "signing"
 Nd = "Nd"
+ratatui = "ratatui"
 
 [files]
 extend-exclude = [
