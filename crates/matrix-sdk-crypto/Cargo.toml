@@ -52,6 +52,7 @@ serde = { workspace = true, features = ["derive", "rc"] }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 subtle = "2.5.0"
+time = { version = "0.3.34", features = ["formatting"] }
 tokio-stream = { workspace = true, features = ["sync"] }
 tokio = { workspace = true }
 thiserror = { workspace = true }
