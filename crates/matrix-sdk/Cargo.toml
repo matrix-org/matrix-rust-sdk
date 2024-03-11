@@ -82,7 +82,7 @@ futures-core = { workspace = true }
 futures-util = { workspace = true }
 http = { workspace = true }
 hyper = { version = "0.14.20", features = ["http1", "http2", "server"], optional = true }
-imbl = { version = "2.0.0", features = ["serde"] }
+imbl = { workspace = true, features = ["serde"] }
 indexmap = "2.0.2"
 js_int = "0.2.2"
 language-tags = { version = "0.3.2", optional = true }

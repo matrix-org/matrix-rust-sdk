@@ -347,7 +347,8 @@ pub static VERSIONS: Lazy<JsonValue> = Lazy::new(|| {
         ],
         "unstable_features": {
             "org.matrix.label_based_filtering":true,
-            "org.matrix.e2e_cross_signing":true
+            "org.matrix.e2e_cross_signing":true,
+            "org.matrix.msc4028":true
         }
     })
 });

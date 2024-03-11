@@ -29,7 +29,7 @@ eyeball-im = { workspace = true }
 extension-trait = "1.0.1"
 futures-core = { workspace = true }
 futures-util = { workspace = true }
-matrix-sdk-ui = { workspace = true, features = ["e2e-encryption", "uniffi"] }
+matrix-sdk-ui = { workspace = true, features = ["e2e-encryption", "uniffi", "experimental-room-list-with-unified-invites"] }
 mime = "0.3.16"
 once_cell = { workspace = true }
 opentelemetry = "0.21.0"

@@ -1,4 +1,4 @@
-use std::{convert::TryFrom, sync::Arc};
+use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use matrix_sdk::{
@@ -10,7 +10,13 @@ use mime::Mime;
 use ruma::{
     api::client::room::report_content,
     assign,
-    events::room::{avatar::ImageInfo as RumaAvatarImageInfo, MediaSource},
+    events::{
+        room::{
+            avatar::ImageInfo as RumaAvatarImageInfo,
+            power_levels::RoomPowerLevels as RumaPowerLevels, MediaSource,
+        },
+        TimelineEventType,
+    },
     EventId, Int, UserId,
 };
 use tokio::sync::RwLock;
@@ -561,11 +567,9 @@ impl Room {
         Ok(())
     }
 
-    pub async fn build_power_level_changes_from_current(
-        &self,
-    ) -> Result<RoomPowerLevelChanges, ClientError> {
+    pub async fn get_power_levels(&self) -> Result<RoomPowerLevels, ClientError> {
         let power_levels = self.inner.room_power_levels().await?;
-        Ok(power_levels.into())
+        Ok(RoomPowerLevels::from(power_levels))
     }
 
     pub async fn apply_power_level_changes(
@@ -602,6 +606,58 @@ impl Room {
     ) -> Result<RoomMemberRole, ClientError> {
         let user_id = UserId::parse(&user_id)?;
         Ok(self.inner.get_suggested_user_role(&user_id).await?)
+    }
+
+    pub async fn reset_power_levels(&self) -> Result<RoomPowerLevels, ClientError> {
+        Ok(RoomPowerLevels::from(self.inner.reset_power_levels().await?))
+    }
+}
+
+#[derive(uniffi::Record)]
+pub struct RoomPowerLevels {
+    /// The level required to ban a user.
+    pub ban: i64,
+    /// The level required to invite a user.
+    pub invite: i64,
+    /// The level required to kick a user.
+    pub kick: i64,
+    /// The level required to redact an event.
+    pub redact: i64,
+    /// The default level required to send message events.
+    pub events_default: i64,
+    /// The default level required to send state events.
+    pub state_default: i64,
+    /// The default power level for every user in the room.
+    pub users_default: i64,
+    /// The level required to change the room's name.
+    pub room_name: i64,
+    /// The level required to change the room's avatar.
+    pub room_avatar: i64,
+    /// The level required to change the room's topic.
+    pub room_topic: i64,
+}
+
+impl From<RumaPowerLevels> for RoomPowerLevels {
+    fn from(value: RumaPowerLevels) -> Self {
+        fn state_event_level_for(
+            power_levels: &RumaPowerLevels,
+            event_type: &TimelineEventType,
+        ) -> i64 {
+            let default_state: i64 = power_levels.state_default.into();
+            power_levels.events.get(event_type).map_or(default_state, |&level| level.into())
+        }
+        Self {
+            ban: value.ban.into(),
+            invite: value.invite.into(),
+            kick: value.kick.into(),
+            redact: value.redact.into(),
+            events_default: value.events_default.into(),
+            state_default: value.state_default.into(),
+            users_default: value.users_default.into(),
+            room_name: state_event_level_for(&value, &TimelineEventType::RoomName),
+            room_avatar: state_event_level_for(&value, &TimelineEventType::RoomAvatar),
+            room_topic: state_event_level_for(&value, &TimelineEventType::RoomTopic),
+        }
     }
 }
 

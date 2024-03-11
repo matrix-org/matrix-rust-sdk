@@ -508,6 +508,7 @@ impl ClientBuilder {
             http_client,
             base_client,
             self.server_versions,
+            None,
             self.respect_login_well_known,
             event_cache,
             #[cfg(feature = "e2e-encryption")]

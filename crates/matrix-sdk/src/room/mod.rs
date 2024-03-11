@@ -1860,6 +1860,16 @@ impl Room {
             .power_levels())
     }
 
+    /// Resets the room's power levels to the default values
+    ///
+    /// [spec]: https://spec.matrix.org/v1.9/client-server-api/#mroompower_levels
+    pub async fn reset_power_levels(&self) -> Result<RoomPowerLevels> {
+        let default_power_levels = RoomPowerLevels::from(RoomPowerLevelsEventContent::new());
+        let changes = RoomPowerLevelChanges::from(default_power_levels);
+        self.apply_power_level_changes(changes).await?;
+        self.room_power_levels().await
+    }
+
     /// Gets the suggested role for the user with the provided `user_id`.
     ///
     /// This method checks the `RoomPowerLevels` events instead of loading the

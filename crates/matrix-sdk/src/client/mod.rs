@@ -235,6 +235,9 @@ pub(crate) struct ClientInner {
     /// The Matrix versions the server supports (well-known ones only)
     server_versions: OnceCell<Box<[MatrixVersion]>>,
 
+    /// The unstable features and their on/off state on the server
+    unstable_features: OnceCell<BTreeMap<String, bool>>,
+
     /// Collection of locks individual client methods might want to use, either
     /// to ensure that only a single call to a method happens at once or to
     /// deduplicate multiple calls to a method.
@@ -292,6 +295,7 @@ impl ClientInner {
         http_client: HttpClient,
         base_client: BaseClient,
         server_versions: Option<Box<[MatrixVersion]>>,
+        unstable_features: Option<BTreeMap<String, bool>>,
         respect_login_well_known: bool,
         event_cache: OnceCell<EventCache>,
         #[cfg(feature = "e2e-encryption")] encryption_settings: EncryptionSettings,
@@ -305,6 +309,7 @@ impl ClientInner {
             base_client,
             locks: Default::default(),
             server_versions: OnceCell::new_with(server_versions),
+            unstable_features: OnceCell::new_with(unstable_features),
             typing_notice_times: Default::default(),
             event_handlers: Default::default(),
             notification_handlers: Default::default(),
@@ -1170,12 +1175,10 @@ impl Client {
     /// # Examples
     ///
     /// ```no_run
-    /// use matrix_sdk::Client;
-    ///
-    /// # use matrix_sdk::ruma::api::client::room::{
-    /// #     create_room::v3::Request as CreateRoomRequest,
-    /// #     Visibility,
-    /// # };
+    /// use matrix_sdk::{
+    ///     ruma::api::client::room::create_room::v3::Request as CreateRoomRequest,
+    ///     Client,
+    /// };
     /// # use url::Url;
     /// #
     /// # async {
@@ -1401,6 +1404,67 @@ impl Client {
             .await?;
 
         Ok(server_versions)
+    }
+
+    /// Fetch unstable_features from homeserver
+    async fn request_unstable_features(&self) -> HttpResult<BTreeMap<String, bool>> {
+        let unstable_features: BTreeMap<String, bool> = self
+            .inner
+            .http_client
+            .send(
+                get_supported_versions::Request::new(),
+                None,
+                self.homeserver().to_string(),
+                None,
+                &[MatrixVersion::V1_0],
+                Default::default(),
+            )
+            .await?
+            .unstable_features;
+
+        Ok(unstable_features)
+    }
+
+    /// Get unstable features from `request_unstable_features` or cache
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use matrix_sdk::{Client, config::SyncSettings};
+    /// # use url::Url;
+    /// # async {
+    /// # let homeserver = Url::parse("http://localhost:8080")?;
+    /// # let mut client = Client::new(homeserver).await?;
+    /// let unstable_features = client.unstable_features().await?;
+    /// let msc_x = unstable_features.get("msc_x").unwrap_or(&false);
+    /// # anyhow::Ok(()) };
+    /// ```
+    pub async fn unstable_features(&self) -> HttpResult<&BTreeMap<String, bool>> {
+        let unstable_features = self
+            .inner
+            .unstable_features
+            .get_or_try_init(|| self.request_unstable_features())
+            .await?;
+
+        Ok(unstable_features)
+    }
+
+    /// Check whether MSC 4028 is enabled on the homeserver.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use matrix_sdk::{Client, config::SyncSettings};
+    /// # use url::Url;
+    /// # async {
+    /// # let homeserver = Url::parse("http://localhost:8080")?;
+    /// # let mut client = Client::new(homeserver).await?;
+    /// let msc4028_enabled =
+    ///     client.can_homeserver_push_encrypted_event_to_device().await?;
+    /// # anyhow::Ok(()) };
+    /// ```
+    pub async fn can_homeserver_push_encrypted_event_to_device(&self) -> HttpResult<bool> {
+        Ok(self.unstable_features().await?.get("org.matrix.msc4028").copied().unwrap_or(false))
     }
 
     /// Get information of all our own devices.
@@ -2008,6 +2072,7 @@ impl Client {
                 self.inner.http_client.clone(),
                 self.inner.base_client.clone_with_in_memory_state_store(),
                 self.inner.server_versions.get().cloned(),
+                self.inner.unstable_features.get().cloned(),
                 self.inner.respect_login_well_known,
                 self.inner.event_cache.clone(),
                 #[cfg(feature = "e2e-encryption")]
@@ -2270,5 +2335,40 @@ pub(crate) mod tests {
         assert_eq!(result.display_name.clone().unwrap(), "Test");
         assert_eq!(result.avatar_url.clone().unwrap().to_string(), "mxc://example.me/someid");
         assert!(!response.limited);
+    }
+
+    #[async_test]
+    async fn test_request_unstable_features() {
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
+
+        Mock::given(method("GET"))
+            .and(path("_matrix/client/versions"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(&*test_json::api_responses::VERSIONS),
+            )
+            .mount(&server)
+            .await;
+        let unstable_features = client.request_unstable_features().await.unwrap();
+
+        assert_eq!(unstable_features.get("org.matrix.e2e_cross_signing"), Some(&true));
+        assert_eq!(unstable_features, client.unstable_features().await.unwrap().clone());
+    }
+
+    #[async_test]
+    async fn test_can_homeserver_push_encrypted_event_to_device() {
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
+
+        Mock::given(method("GET"))
+            .and(path("_matrix/client/versions"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(&*test_json::api_responses::VERSIONS),
+            )
+            .mount(&server)
+            .await;
+
+        let msc4028_enabled = client.can_homeserver_push_encrypted_event_to_device().await.unwrap();
+        assert!(msc4028_enabled);
     }
 }

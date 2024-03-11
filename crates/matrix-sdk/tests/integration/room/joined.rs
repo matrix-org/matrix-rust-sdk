@@ -14,13 +14,13 @@ use matrix_sdk::{
 };
 use matrix_sdk_base::RoomState;
 use matrix_sdk_test::{
-    async_test, test_json, EphemeralTestEvent, JoinedRoomBuilder, SyncResponseBuilder,
-    DEFAULT_TEST_ROOM_ID,
+    async_test, test_json, test_json::sync::CUSTOM_ROOM_POWER_LEVELS, EphemeralTestEvent,
+    JoinedRoomBuilder, SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
 };
 use ruma::{
     api::client::{membership::Invite3pidInit, receipt::create_receipt::v3::ReceiptType},
     assign, event_id,
-    events::{receipt::ReceiptThread, room::message::RoomMessageEventContent},
+    events::{receipt::ReceiptThread, room::message::RoomMessageEventContent, TimelineEventType},
     int, mxc_uri, owned_event_id, room_id, thirdparty, uint, user_id, OwnedUserId, TransactionId,
 };
 use serde_json::json;
@@ -816,4 +816,39 @@ async fn get_users_with_power_levels_is_empty_if_power_level_info_is_not_availab
     let room = client.get_room(room_id!("!696r7674:example.com")).unwrap();
 
     assert!(room.users_with_power_levels().await.is_empty());
+}
+
+#[async_test]
+async fn reset_power_levels() {
+    let (client, server) = logged_in_client_with_server().await;
+
+    mock_sync(&server, &*CUSTOM_ROOM_POWER_LEVELS, None).await;
+
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let _response = client.sync_once(sync_settings).await.unwrap();
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
+
+    Mock::given(method("PUT"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/state/m.room.power_levels/$"))
+        .and(header("authorization", "Bearer 1234"))
+        .and(body_partial_json(json!({
+            "events": {
+                // 'm.room.avatar' is 100 here, if we receive a value '50', the reset worked
+                "m.room.avatar": 50,
+                "m.room.canonical_alias": 50,
+                "m.room.history_visibility": 100,
+                "m.room.name": 50,
+                "m.room.power_levels": 100,
+                "m.room.topic": 50
+            },
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EVENT_ID))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let initial_power_levels = room.room_power_levels().await.unwrap();
+    assert_eq!(initial_power_levels.events[&TimelineEventType::RoomAvatar], int!(100));
+
+    room.reset_power_levels().await.unwrap();
 }
