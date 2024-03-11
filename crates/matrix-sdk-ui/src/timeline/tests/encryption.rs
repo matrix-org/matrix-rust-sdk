@@ -42,7 +42,7 @@ use crate::{
 };
 
 #[async_test]
-async fn retry_message_decryption() {
+async fn test_retry_message_decryption() {
     const SESSION_ID: &str = "gM8i47Xhu0q52xLfgUXzanCMpLinoyVyH7R58cBuVBU";
     const SESSION_KEY: &[u8] = b"\
         -----BEGIN MEGOLM SESSION DATA-----\n\
@@ -161,7 +161,7 @@ async fn retry_message_decryption() {
 }
 
 #[async_test]
-async fn retry_edit_decryption() {
+async fn test_retry_edit_decryption() {
     const SESSION1_KEY: &[u8] = b"\
         -----BEGIN MEGOLM SESSION DATA-----\n\
         AXou7bY+PWm0GrxTioyoKTkxAgfrQ5lGIla62WoBMrqWAAAACgXidLIt0gaK5NT3mGigzFAPjh/M0ibXjSvo\
@@ -267,7 +267,7 @@ async fn retry_edit_decryption() {
 }
 
 #[async_test]
-async fn retry_edit_and_more() {
+async fn test_retry_edit_and_more() {
     const DEVICE_ID: &str = "MTEGRRVPEN";
     const SENDER_KEY: &str = "NFPM2+ucU3n3sEdbDdwwv48Bsj4AiQ185lGuRFjy+gs";
     const SESSION_ID: &str = "SMNh04luorH5E8J3b4XYuOBFp8dldO5njacq0OFO70o";
@@ -372,7 +372,7 @@ async fn retry_edit_and_more() {
 }
 
 #[async_test]
-async fn retry_message_decryption_highlighted() {
+async fn test_retry_message_decryption_highlighted() {
     const SESSION_ID: &str = "C25PoE+4MlNidQD0YU5ibZqHawV0zZ/up7R8vYJBYTY";
     const SESSION_KEY: &[u8] = b"\
         -----BEGIN MEGOLM SESSION DATA-----\n\
