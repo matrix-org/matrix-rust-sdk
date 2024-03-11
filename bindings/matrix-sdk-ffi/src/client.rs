@@ -608,7 +608,7 @@ impl Client {
     }
 
     /// Registers a pusher with given parameters
-    pub fn set_pusher(
+    pub async fn set_pusher(
         &self,
         identifiers: PusherIdentifiers,
         kind: PusherKind,
@@ -617,29 +617,24 @@ impl Client {
         profile_tag: Option<String>,
         lang: String,
     ) -> Result<(), ClientError> {
-        RUNTIME.block_on(async move {
-            let ids = identifiers.into();
+        let ids = identifiers.into();
 
-            let pusher_init = PusherInit {
-                ids,
-                kind: kind.try_into()?,
-                app_display_name,
-                device_display_name,
-                profile_tag,
-                lang,
-            };
-            self.inner.set_pusher(pusher_init.into()).await?;
-            Ok(())
-        })
+        let pusher_init = PusherInit {
+            ids,
+            kind: kind.try_into()?,
+            app_display_name,
+            device_display_name,
+            profile_tag,
+            lang,
+        };
+        self.inner.set_pusher(pusher_init.into()).await?;
+        Ok(())
     }
 
     /// Deletes a pusher of given pusher ids
-    pub fn delete_pusher(&self, identifiers: PusherIdentifiers) -> Result<(), ClientError> {
-        RUNTIME.block_on(async move {
-            let ids = identifiers.into();
-            self.inner.delete_pusher(ids).await?;
-            Ok(())
-        })
+    pub async fn delete_pusher(&self, identifiers: PusherIdentifiers) -> Result<(), ClientError> {
+        self.inner.delete_pusher(identifiers.into()).await?;
+        Ok(())
     }
 
     /// The homeserver this client is configured to use.
