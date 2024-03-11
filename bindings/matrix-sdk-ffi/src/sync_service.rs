@@ -95,6 +95,15 @@ impl SyncServiceBuilder {
 
 #[uniffi::export(async_runtime = "tokio")]
 impl SyncServiceBuilder {
+    pub fn with_unified_invites_in_room_list(
+        self: Arc<Self>,
+        with_unified_invites: bool,
+    ) -> Arc<Self> {
+        let this = unwrap_or_clone_arc(self);
+        let builder = this.builder.with_unified_invites_in_room_list(with_unified_invites);
+        Arc::new(Self { builder })
+    }
+
     pub fn with_cross_process_lock(self: Arc<Self>, app_identifier: Option<String>) -> Arc<Self> {
         let this = unwrap_or_clone_arc(self);
         let builder = this.builder.with_cross_process_lock(app_identifier);

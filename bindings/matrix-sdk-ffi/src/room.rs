@@ -1,4 +1,4 @@
-use std::{convert::TryFrom, sync::Arc};
+use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use matrix_sdk::{
