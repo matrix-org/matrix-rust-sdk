@@ -398,6 +398,103 @@ async fn test_own_verification() {
 }
 
 #[async_test]
+async fn test_reset_cross_signing_resets_verification() {
+    let mut server = MockedServer::new().await;
+
+    let user_id = owned_user_id!("@alice:example.org");
+    let device_id = owned_device_id!("4L1C3");
+    let alice = Client::builder()
+        .homeserver_url(server.server.uri())
+        .server_versions([MatrixVersion::V1_0])
+        .request_config(RequestConfig::new().disable_retry())
+        .build()
+        .await
+        .unwrap();
+    alice
+        .restore_session(MatrixSession {
+            meta: SessionMeta { user_id: user_id.clone(), device_id: device_id.clone() },
+            tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
+        })
+        .await
+        .unwrap();
+
+    // Subscribe to verification state updates
+    let mut verification_state_subscriber = alice.encryption().verification_state();
+    assert_eq!(alice.encryption().verification_state().get(), VerificationState::Unknown);
+
+    server.add_known_device(&device_id);
+
+    // Have Alice bootstrap cross-signing.
+    bootstrap_cross_signing(&alice).await;
+
+    // The device is not considered cross signed yet
+    assert_eq!(
+        verification_state_subscriber.next().await.unwrap_or(VerificationState::Unknown),
+        VerificationState::Unverified
+    );
+    assert_eq!(alice.encryption().verification_state().get(), VerificationState::Unverified);
+
+    // Force a keys query to pick up the cross-signing state
+    let mut sync_response_builder = SyncResponseBuilder::new();
+    sync_response_builder.add_change_device(&user_id);
+
+    {
+        let _scope = mock_sync_scoped(
+            &server.server,
+            sync_response_builder.build_json_sync_response(),
+            None,
+        )
+        .await;
+        alice.sync_once(Default::default()).await.unwrap();
+    }
+
+    // The device should now be cross-signed
+    assert_eq!(
+        verification_state_subscriber.next().now_or_never().unwrap().unwrap(),
+        VerificationState::Verified
+    );
+    assert_eq!(alice.encryption().verification_state().get(), VerificationState::Verified);
+
+    let device_id = owned_device_id!("AliceDevice2");
+    let alice2 = Client::builder()
+        .homeserver_url(server.server.uri())
+        .server_versions([MatrixVersion::V1_0])
+        .request_config(RequestConfig::new().disable_retry())
+        .build()
+        .await
+        .unwrap();
+    alice2
+        .restore_session(MatrixSession {
+            meta: SessionMeta { user_id: user_id.clone(), device_id: device_id.clone() },
+            tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
+        })
+        .await
+        .unwrap();
+
+    server.add_known_device(&device_id);
+
+    // Have Alice bootstrap cross-signing again, this time on her second device.
+    bootstrap_cross_signing(&alice2).await;
+
+    {
+        let _scope = mock_sync_scoped(
+            &server.server,
+            sync_response_builder.build_json_sync_response(),
+            None,
+        )
+        .await;
+        alice.sync_once(Default::default()).await.unwrap();
+    }
+
+    // The device shouldn't be cross-signed anymore.
+    assert_eq!(alice.encryption().verification_state().get(), VerificationState::Unverified);
+    assert_eq!(
+        verification_state_subscriber.next().now_or_never().unwrap().unwrap(),
+        VerificationState::Unverified
+    );
+}
+
+#[async_test]
 async fn test_unchecked_mutual_verification() {
     let mut server = MockedServer::new().await;
 
