@@ -34,7 +34,7 @@ use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::{Client, SlidingSync, LEASE_DURATION_MS};
 use ruma::{api::client::sync::sync_events::v4, assign};
 use tokio::sync::OwnedMutexGuard;
-use tracing::{debug, trace};
+use tracing::{debug, instrument, trace, Span};
 
 /// Unit type representing a permit to *use* an [`EncryptionSyncService`].
 ///
@@ -275,15 +275,18 @@ impl EncryptionSyncService {
 
     /// Helper function for `sync`. Take the cross-process store lock, and call
     /// `sync.next()`
+    #[instrument(skip_all, fields(store_generation))]
     async fn next_sync_with_lock<Item>(
         &self,
         sync: &mut Pin<&mut impl Stream<Item = Item>>,
     ) -> Result<Option<Item>, Error> {
-        let _guard = if self.with_locking {
+        let guard = if self.with_locking {
             self.client.encryption().spin_lock_store(Some(60000)).await.map_err(Error::LockError)?
         } else {
             None
         };
+
+        Span::current().record("store_generation", guard.map(|guard| guard.generation()));
 
         Ok(sync.next().await)
     }

@@ -201,6 +201,19 @@ pub enum VerificationState {
     Unverified,
 }
 
+/// Wraps together a `CrossProcessLockStoreGuard` and a generation number.
+pub struct CrossProcessLockStoreGuardWithGeneration {
+    guard: CrossProcessStoreLockGuard,
+    generation: u64,
+}
+
+impl CrossProcessLockStoreGuardWithGeneration {
+    /// Return the Crypto Store generation associated with this store lock.
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+}
+
 impl Client {
     pub(crate) async fn olm_machine(&self) -> RwLockReadGuard<'_, Option<OlmMachine>> {
         self.base_client().olm_machine().await
@@ -1279,13 +1292,13 @@ impl Encryption {
     pub async fn spin_lock_store(
         &self,
         max_backoff: Option<u32>,
-    ) -> Result<Option<CrossProcessStoreLockGuard>, Error> {
+    ) -> Result<Option<CrossProcessLockStoreGuardWithGeneration>, Error> {
         if let Some(lock) = self.client.locks().cross_process_crypto_store_lock.get() {
             let guard = lock.spin_lock(max_backoff).await?;
 
-            self.on_lock_newly_acquired().await?;
+            let generation = self.on_lock_newly_acquired().await?;
 
-            Ok(Some(guard))
+            Ok(Some(CrossProcessLockStoreGuardWithGeneration { guard, generation }))
         } else {
             Ok(None)
         }
