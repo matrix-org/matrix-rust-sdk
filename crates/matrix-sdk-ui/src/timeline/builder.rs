@@ -62,7 +62,8 @@ impl TimelineBuilder {
         }
     }
 
-    /// Sets up an [`UnableToDecryptHook`] for the timeline we're building.
+    /// Sets up a hook to catch unable-to-decrypt (UTD) events for the timeline
+    /// we're building.
     ///
     /// If it was previously set before, will overwrite the previous one.
     pub fn with_unable_to_decrypt_hook(mut self, hook: Arc<UtdHookManager>) -> Self {

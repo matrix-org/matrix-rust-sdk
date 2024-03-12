@@ -46,42 +46,46 @@ pub struct UnableToDecryptInfo {
     /// The identifier of the event that couldn't get decrypted.
     pub event_id: OwnedEventId,
 
-    /// If the UTD is a late-decryption event (that is, the event was encrypted
-    /// at first but could be decrypted later on), then this indicates the
+    /// If the event could be decrypted late (that is, the event was encrypted
+    /// at first, but could be decrypted later on), then this indicates the
     /// time it took to decrypt the event. If it is not set, this is
     /// considered a definite UTD.
     pub time_to_decrypt: Option<Duration>,
 }
 
-/// A decorator over an existing [`UnableToDecryptHook`] that deduplicates UTDs
+/// A manager over an existing [`UnableToDecryptHook`] that deduplicates UTDs
 /// on similar events, and adds basic consistency checks.
 ///
 /// It can also implement a grace period before reporting an event as a UTD, if
 /// configured with [`Self::with_delay`]. Instead of immediately reporting the
-/// UTD, the reporting will be delayed by the grace period; the reporting of the
-/// late decryption via [`UnableToDecryptHook::on_late_decrypt`] still happens
-/// in all the cases, though.
+/// UTD, the reporting will be delayed by the grace period at most; if the event
+/// could eventually get decrypted, it may be reported before the end of that
+/// grace period.
 #[derive(Debug)]
 pub struct UtdHookManager {
     /// The parent hook we'll call, when we have found a unique UTD.
     parent: Arc<dyn UnableToDecryptHook>,
 
-    /// The set of events we've already marked as UTDs before.
+    /// A mapping of events we've marked as UTDs, and the time at which we
+    /// observed those UTDs.
     ///
     /// Note: this is unbounded, because we have absolutely no idea how long it
     /// will take for a UTD to resolve, or if it will even resolve at any
     /// point.
     known_utds: Arc<Mutex<HashMap<OwnedEventId, Instant>>>,
 
-    /// An optional delay before marking the event as UTD.
+    /// An optional delay before marking the event as UTD ("grace period").
     delay: Option<Duration>,
 
-    /// The set of outstanding tasks to report deferred UTDs.
+    /// The set of outstanding tasks to report deferred UTDs, including the
+    /// event relating to the task.
+    #[allow(clippy::type_complexity)]
+    // No clippy, adding a type alias is just cognitive overhead here.
     pending_delayed: Arc<Mutex<Vec<(OwnedEventId, JoinHandle<()>)>>>,
 }
 
 impl UtdHookManager {
-    /// Create a new [`SmartUtdHook`] for the given hook.
+    /// Create a new [`UtdHookManager`] for the given hook.
     pub fn new(parent: Arc<dyn UnableToDecryptHook>) -> Self {
         Self {
             parent,
@@ -100,6 +104,9 @@ impl UtdHookManager {
         self
     }
 
+    /// The function to call whenever a UTD is seen for the first time.
+    ///
+    /// Pipe in any information that needs to be included in the final report.
     pub(crate) fn on_utd(&self, event_id: &EventId) {
         // Only let the parent hook know if the event wasn't already handled.
         {
@@ -114,7 +121,7 @@ impl UtdHookManager {
 
         let info = UnableToDecryptInfo { event_id: event_id.to_owned(), time_to_decrypt: None };
 
-        let Some(delay) = self.delay.clone() else {
+        let Some(delay) = self.delay else {
             // No delay: immediately report the event to the parent hook.
             self.parent.on_utd(info);
             return;
@@ -131,7 +138,7 @@ impl UtdHookManager {
         // hook then.
         let handle = spawn(async move {
             // Wait for the given delay.
-            sleep(delay.clone()).await;
+            sleep(delay).await;
 
             // In any case, remove the task from the outstanding set.
             pending_delayed.lock().unwrap().retain(|(event_id, _)| *event_id != info.event_id);
@@ -147,27 +154,34 @@ impl UtdHookManager {
         self.pending_delayed.lock().unwrap().push((event_id, handle));
     }
 
+    /// The function to call whenever an event that was marked as a UTD has
+    /// eventually been decrypted.
+    ///
+    /// Note: if this is called for an event that was never marked as a UTD
+    /// before, it has no effect.
     pub(crate) fn on_late_decrypt(&self, event_id: &EventId) {
         // Only let the parent hook know if the event was known to be a UTDs.
-        if let Some(marked_utd_at) = self.known_utds.lock().unwrap().remove(event_id) {
-            let info = UnableToDecryptInfo {
-                event_id: event_id.to_owned(),
-                time_to_decrypt: Some(marked_utd_at.elapsed()),
-            };
+        let Some(marked_utd_at) = self.known_utds.lock().unwrap().remove(event_id) else {
+            return;
+        };
 
-            // Cancel and remove the task from the outstanding set.
-            self.pending_delayed.lock().unwrap().retain(|(event_id, task)| {
-                if *event_id == info.event_id {
-                    task.abort();
-                    false
-                } else {
-                    true
-                }
-            });
+        let info = UnableToDecryptInfo {
+            event_id: event_id.to_owned(),
+            time_to_decrypt: Some(marked_utd_at.elapsed()),
+        };
 
-            // Report to the parent hook.
-            self.parent.on_utd(info);
-        }
+        // Cancel and remove the task from the outstanding set.
+        self.pending_delayed.lock().unwrap().retain(|(event_id, task)| {
+            if *event_id == info.event_id {
+                task.abort();
+                false
+            } else {
+                true
+            }
+        });
+
+        // Report to the parent hook.
+        self.parent.on_utd(info);
     }
 }
 
@@ -204,7 +218,7 @@ mod tests {
         // If I create a dummy hook,
         let hook = Arc::new(Dummy::default());
 
-        // And I wrap with the SmartUtdHook decorator,
+        // And I wrap with the UtdHookManager,
         let wrapper = UtdHookManager::new(hook.clone());
 
         // And I call the `on_utd` method multiple times, sometimes on the same event,
@@ -235,7 +249,7 @@ mod tests {
         // If I create a dummy hook,
         let hook = Arc::new(Dummy::default());
 
-        // And I wrap with the SmartUtdHook decorator,
+        // And I wrap with the UtdHookManager,
         let wrapper = UtdHookManager::new(hook.clone());
 
         // And I call the `on_late_decrypt` method before the event had been marked as
@@ -251,7 +265,7 @@ mod tests {
         // If I create a dummy hook,
         let hook = Arc::new(Dummy::default());
 
-        // And I wrap with the SmartUtdHook decorator,
+        // And I wrap with the UtdHookManager,
         let wrapper = UtdHookManager::new(hook.clone());
 
         // And I call the `on_utd` method for an event,
@@ -290,8 +304,8 @@ mod tests {
         // If I create a dummy hook,
         let hook = Arc::new(Dummy::default());
 
-        // And I wrap with the SmartUtdHook decorator, configured to delay reporting
-        // after 2 seconds.
+        // And I wrap with the UtdHookManager, configured to delay reporting after 2
+        // seconds.
         let wrapper = UtdHookManager::new(hook.clone()).with_delay(Duration::from_secs(2));
 
         // And I call the `on_utd` method for an event,
@@ -326,8 +340,8 @@ mod tests {
         // If I create a dummy hook,
         let hook = Arc::new(Dummy::default());
 
-        // And I wrap with the SmartUtdHook decorator, configured to delay reporting
-        // after 2 seconds.
+        // And I wrap with the UtdHookManager, configured to delay reporting after 2
+        // seconds.
         let wrapper = UtdHookManager::new(hook.clone()).with_delay(Duration::from_secs(2));
 
         // And I call the `on_utd` method for an event,
