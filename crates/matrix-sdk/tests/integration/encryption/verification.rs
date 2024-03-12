@@ -11,14 +11,10 @@ use matrix_sdk::{
     matrix_auth::{MatrixSession, MatrixSessionTokens},
     Client,
 };
-use matrix_sdk_base::{crypto::EncryptionSyncChanges, SessionMeta};
+use matrix_sdk_base::SessionMeta;
 use matrix_sdk_test::{async_test, SyncResponseBuilder};
 use ruma::{
-    api::{
-        client::{keys::upload_signatures::v3::SignedKeys, sync::sync_events::DeviceLists},
-        MatrixVersion,
-    },
-    assign,
+    api::{client::keys::upload_signatures::v3::SignedKeys, MatrixVersion},
     encryption::{CrossSigningKey, DeviceKeys},
     owned_device_id, owned_user_id,
     serde::Raw,
@@ -30,7 +26,7 @@ use wiremock::{
     Mock, MockServer, Request, ResponseTemplate,
 };
 
-use crate::mock_sync;
+use crate::mock_sync_scoped;
 
 #[derive(Debug, Default)]
 struct Keys {
@@ -384,7 +380,12 @@ async fn test_own_verification() {
     sync_response_builder.add_change_device(&user_id);
 
     {
-        mock_sync(&server.server, sync_response_builder.build_json_sync_response(), None).await;
+        let _scope = mock_sync_scoped(
+            &server.server,
+            sync_response_builder.build_json_sync_response(),
+            None,
+        )
+        .await;
         alice.sync_once(Default::default()).await.unwrap();
     }
 
@@ -459,8 +460,13 @@ async fn test_unchecked_mutual_verification() {
     // Have Alice and Bob upload their signed device keys.
     {
         let mut sync_response_builder = SyncResponseBuilder::new();
-        mock_sync(&server.server, sync_response_builder.build_json_sync_response(), None).await;
-        alice.sync_once(Default::default()).await.unwrap();
+        let response_body = sync_response_builder.build_json_sync_response();
+        let _scope = mock_sync_scoped(&server.server, response_body, None).await;
+
+        alice
+            .sync_once(Default::default())
+            .await
+            .expect("We should be able to sync with Alice so we upload the device keys");
         bob.sync_once(Default::default()).await.unwrap();
     }
 
@@ -474,8 +480,19 @@ async fn test_unchecked_mutual_verification() {
     // Run a sync so we do send outgoing requests, including the /keys/query for
     // getting bob's identity.
     let mut sync_response_builder = SyncResponseBuilder::new();
-    mock_sync(&server.server, sync_response_builder.build_json_sync_response(), None).await;
-    alice.sync_once(Default::default()).await.unwrap();
+
+    {
+        let _scope = mock_sync_scoped(
+            &server.server,
+            sync_response_builder.build_json_sync_response(),
+            None,
+        )
+        .await;
+        alice
+            .sync_once(Default::default())
+            .await
+            .expect("We should be able to sync so we get theinitial set of devices");
+    }
 
     // From the point of view of Alice, Bob now has a device.
     let alice_bob_device = alice
@@ -498,28 +515,20 @@ async fn test_unchecked_mutual_verification() {
 
     alice_bob_ident.verify().await.unwrap();
 
-    // Notify Alice's devices that some identify changed, so it does another
-    // /keys/query request.
     {
-        let alice_olm = alice.olm_machine_for_testing().await;
-        let alice_olm = alice_olm.as_ref().unwrap();
-        let changed_devices = &assign!(DeviceLists::default(), {
-            changed: vec![bob_user_id.clone()]
-        });
-        alice_olm
-            .receive_sync_changes(EncryptionSyncChanges {
-                to_device_events: Default::default(),
-                changed_devices,
-                one_time_keys_counts: &Default::default(),
-                unused_fallback_keys: Default::default(),
-                next_batch_token: None,
-            })
+        // Notify Alice's devices that some identify changed, so it does another
+        // /keys/query request.
+        let _scope = mock_sync_scoped(
+            &server.server,
+            sync_response_builder.add_change_device(&bob_user_id).build_json_sync_response(),
+            None,
+        )
+        .await;
+        alice
+            .sync_once(Default::default())
             .await
-            .unwrap();
+            .expect("We should be able to sync to get notified about the changed device");
     }
-
-    mock_sync(&server.server, sync_response_builder.build_json_sync_response(), None).await;
-    alice.sync_once(Default::default()).await.unwrap();
 
     let alice_bob_ident = alice
         .encryption()
