@@ -22,7 +22,7 @@ use matrix_sdk_ui::{
         BoxedFilterFn,
     },
     timeline::default_event_filter,
-    unable_to_decrypt_hook::{UnableToDecryptHook, UtdHookManager},
+    unable_to_decrypt_hook::UtdHookManager,
 };
 use tokio::sync::RwLock;
 
@@ -107,7 +107,7 @@ impl From<RoomListInput> for matrix_sdk_ui::room_list_service::Input {
 #[derive(uniffi::Object)]
 pub struct RoomListService {
     pub(crate) inner: Arc<matrix_sdk_ui::RoomListService>,
-    pub(crate) utd_hook: Option<Arc<dyn UnableToDecryptHook>>,
+    pub(crate) utd_hook: Option<Arc<UtdHookManager>>,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -478,7 +478,7 @@ impl FilterWrapper {
 #[derive(uniffi::Object)]
 pub struct RoomListItem {
     inner: Arc<matrix_sdk_ui::room_list_service::Room>,
-    utd_hook: Option<Arc<dyn UnableToDecryptHook>>,
+    utd_hook: Option<Arc<UtdHookManager>>,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -552,8 +552,7 @@ impl RoomListItem {
         }
 
         if let Some(utd_hook) = self.utd_hook.clone() {
-            timeline_builder = timeline_builder
-                .with_unable_to_decrypt_hook(Arc::new(UtdHookManager::new(utd_hook)));
+            timeline_builder = timeline_builder.with_unable_to_decrypt_hook(utd_hook);
         }
 
         self.inner.init_timeline_with_builder(timeline_builder).map_err(RoomListError::from).await

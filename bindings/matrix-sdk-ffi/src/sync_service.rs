@@ -12,7 +12,7 @@
 // See the License for that specific language governing permissions and
 // limitations under the License.
 
-use std::{fmt::Debug, sync::Arc};
+use std::{fmt::Debug, sync::Arc, time::Duration};
 
 use futures_util::pin_mut;
 use matrix_sdk::Client;
@@ -21,7 +21,7 @@ use matrix_sdk_ui::{
         State as MatrixSyncServiceState, SyncService as MatrixSyncService,
         SyncServiceBuilder as MatrixSyncServiceBuilder,
     },
-    unable_to_decrypt_hook::{UnableToDecryptHook, UnableToDecryptInfo},
+    unable_to_decrypt_hook::{UnableToDecryptHook, UnableToDecryptInfo, UtdHookManager},
 };
 
 use crate::{
@@ -56,7 +56,7 @@ pub trait SyncServiceStateObserver: Send + Sync + Debug {
 #[derive(uniffi::Object)]
 pub struct SyncService {
     pub(crate) inner: Arc<MatrixSyncService>,
-    utd_hook: Option<Arc<dyn UnableToDecryptHook>>,
+    utd_hook: Option<Arc<UtdHookManager>>,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -93,7 +93,7 @@ impl SyncService {
 pub struct SyncServiceBuilder {
     builder: MatrixSyncServiceBuilder,
 
-    utd_hook: Option<Arc<dyn UnableToDecryptHook>>,
+    utd_hook: Option<Arc<UtdHookManager>>,
 }
 
 impl SyncServiceBuilder {
@@ -120,8 +120,14 @@ impl SyncServiceBuilder {
     }
 
     pub fn with_utd_hook(self: Arc<Self>, delegate: Box<dyn UnableToDecryptDelegate>) -> Arc<Self> {
+        // UTDs detected before this duration may be reclassified as "late decryption"
+        // events (or discarded, if they get decrypted fast enough).
+        const UTD_HOOK_GRACE_PERIOD: Duration = Duration::from_secs(60);
+
         let this = unwrap_or_clone_arc(self);
-        let utd_hook: Option<Arc<dyn UnableToDecryptHook>> = Some(Arc::new(UtdHook { delegate }));
+        let utd_hook = Some(Arc::new(
+            UtdHookManager::new(Arc::new(UtdHook { delegate })).with_delay(UTD_HOOK_GRACE_PERIOD),
+        ));
         Arc::new(Self { builder: this.builder, utd_hook })
     }
 
@@ -151,6 +157,17 @@ impl std::fmt::Debug for UtdHook {
 
 impl UnableToDecryptHook for UtdHook {
     fn on_utd(&self, info: UnableToDecryptInfo) {
+        const IGNORE_UTD_PERIOD: Duration = Duration::from_secs(4);
+
+        // UTDs that have been decrypted in the `IGNORE_UTD_PERIOD` are just ignored and
+        // not considered UTDs.
+        if let Some(duration) = &info.time_to_decrypt {
+            if *duration < IGNORE_UTD_PERIOD {
+                return;
+            }
+        }
+
+        // Report the UTD to the parent.
         self.delegate.on_utd(Arc::new(info));
     }
 }
