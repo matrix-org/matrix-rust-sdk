@@ -1308,15 +1308,19 @@ impl Encryption {
     /// attempts to lock it once.
     ///
     /// Returns a guard to the lock, if it was obtained.
-    pub async fn try_lock_store_once(&self) -> Result<Option<CrossProcessStoreLockGuard>, Error> {
+    pub async fn try_lock_store_once(
+        &self,
+    ) -> Result<Option<CrossProcessLockStoreGuardWithGeneration>, Error> {
         if let Some(lock) = self.client.locks().cross_process_crypto_store_lock.get() {
             let maybe_guard = lock.try_lock_once().await?;
 
-            if maybe_guard.is_some() {
-                self.on_lock_newly_acquired().await?;
-            }
+            let Some(guard) = maybe_guard else {
+                return Ok(None);
+            };
 
-            Ok(maybe_guard)
+            let generation = self.on_lock_newly_acquired().await?;
+
+            Ok(Some(CrossProcessLockStoreGuardWithGeneration { guard, generation }))
         } else {
             Ok(None)
         }

@@ -143,6 +143,7 @@ impl EncryptionSyncService {
     /// Note: the [`EncryptionSyncPermit`] parameter ensures that there's at
     /// most one encryption sync running at any time. See its documentation
     /// for more details.
+    #[instrument(skip_all, fields(store_generation))]
     pub async fn run_fixed_iterations(
         self,
         num_iterations: u8,
@@ -152,7 +153,7 @@ impl EncryptionSyncService {
 
         pin_mut!(sync);
 
-        let _lock_guard = if self.with_locking {
+        let lock_guard = if self.with_locking {
             let mut lock_guard =
                 self.client.encryption().try_lock_store_once().await.map_err(Error::LockError)?;
 
@@ -191,6 +192,8 @@ impl EncryptionSyncService {
         } else {
             None
         };
+
+        Span::current().record("store_generation", lock_guard.map(|guard| guard.generation()));
 
         for _ in 0..num_iterations {
             match sync.next().await {
