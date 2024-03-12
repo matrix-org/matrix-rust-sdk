@@ -45,7 +45,7 @@ use ruma::{
         },
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
         AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent, AnySyncStateEvent,
-        AnySyncTimelineEvent, GlobalAccountDataEventType, StateEventType,
+        AnySyncTimelineEvent, GlobalAccountDataEventType, StateEvent, StateEventType,
     },
     push::{Action, PushConditionRoomCtx, Ruleset},
     serde::Raw,
@@ -58,11 +58,11 @@ use tracing::{debug, info, instrument, trace, warn};
 
 #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
 use crate::latest_event::{is_suitable_for_latest_event, LatestEvent, PossibleLatestEvent};
+#[cfg(feature = "e2e-encryption")]
+use crate::RoomMemberships;
 use crate::{
-    deserialized_responses::{
-        AmbiguityChanges, MembersResponse, RawAnySyncOrStrippedTimelineEvent, SyncTimelineEvent,
-    },
-    error::Result,
+    deserialized_responses::{RawAnySyncOrStrippedTimelineEvent, SyncTimelineEvent},
+    error::{Error, Result},
     rooms::{normal::RoomInfoUpdate, Room, RoomInfo, RoomState},
     store::{
         ambiguity_map::AmbiguityCache, DynStateStore, MemoryStore, Result as StoreResult,
@@ -71,8 +71,6 @@ use crate::{
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Notification, RoomUpdates, SyncResponse, Timeline},
     RoomStateFilter, SessionMeta,
 };
-#[cfg(feature = "e2e-encryption")]
-use crate::{error::Error, RoomMemberships};
 
 /// A no IO Client implementation.
 ///
@@ -1101,6 +1099,8 @@ impl BaseClient {
     /// Receive a get member events response and convert it to a deserialized
     /// `MembersResponse`
     ///
+    /// This client-server request must be made without filters to make sure all
+    /// members are received. Otherwise, an error is returned.
     ///
     /// # Arguments
     ///
@@ -1108,92 +1108,105 @@ impl BaseClient {
     ///
     /// * `response` - The raw response that was received from the server.
     #[instrument(skip_all, fields(?room_id))]
-    pub async fn receive_members(
+    pub async fn receive_all_members(
         &self,
         room_id: &RoomId,
+        request: &api::membership::get_member_events::v3::Request,
         response: &api::membership::get_member_events::v3::Response,
-    ) -> Result<MembersResponse> {
-        let mut chunk = Vec::with_capacity(response.chunk.len());
-        let mut ambiguity_cache = AmbiguityCache::new(self.store.inner.clone());
-
-        if let Some(room) = self.store.get_room(room_id) {
-            let mut changes = StateChanges::default();
-
-            #[cfg(feature = "e2e-encryption")]
-            let mut user_ids = BTreeSet::new();
-
-            for raw_event in &response.chunk {
-                let member = match raw_event.deserialize() {
-                    Ok(ev) => ev,
-                    Err(e) => {
-                        let event_id: Option<String> =
-                            raw_event.get_field("event_id").ok().flatten();
-                        debug!(event_id, "Failed to deserialize member event: {e}");
-                        continue;
-                    }
-                };
-
-                // TODO: All the actions in this loop used to be done only when the membership
-                // event was not in the store before. This was changed with the new room API,
-                // because e.g. leaving a room makes members events outdated and they need to be
-                // fetched by `members`. Therefore, they need to be overwritten here, even
-                // if they exist.
-                // However, this makes a new problem occur where setting the member events here
-                // potentially races with the sync.
-                // See <https://github.com/matrix-org/matrix-rust-sdk/issues/1205>.
-
-                #[cfg(feature = "e2e-encryption")]
-                match member.membership() {
-                    MembershipState::Join | MembershipState::Invite => {
-                        user_ids.insert(member.state_key().to_owned());
-                    }
-                    _ => (),
-                }
-
-                let sync_member: SyncRoomMemberEvent = member.clone().into();
-
-                ambiguity_cache.handle_event(&changes, room_id, &sync_member).await?;
-
-                if member.state_key() == member.sender() {
-                    changes
-                        .profiles
-                        .entry(room_id.to_owned())
-                        .or_default()
-                        .insert(member.sender().to_owned(), sync_member.into());
-                }
-
-                changes
-                    .state
-                    .entry(room_id.to_owned())
-                    .or_default()
-                    .entry(member.event_type())
-                    .or_default()
-                    .insert(member.state_key().to_string(), raw_event.clone().cast());
-                chunk.push(member);
-            }
-
-            #[cfg(feature = "e2e-encryption")]
-            if room.is_encrypted() {
-                if let Some(o) = self.olm_machine().await.as_ref() {
-                    o.update_tracked_users(user_ids.iter().map(Deref::deref)).await?
-                }
-            }
-
-            changes.ambiguity_maps = ambiguity_cache.cache;
-
-            let _sync_lock = self.sync_lock().lock().await;
-            let mut room_info = room.clone_info();
-            room_info.mark_members_synced();
-            changes.add_room(room_info);
-
-            self.store.save_changes(&changes).await?;
-            self.apply_changes(&changes, false);
+    ) -> Result<()> {
+        if request.membership.is_some() || request.not_membership.is_some() || request.at.is_some()
+        {
+            // This function assumes all members are loaded at once to optimise how display
+            // name disambiguation works. Using it with partial member list results
+            // would produce incorrect disambiguated display name entries
+            return Err(Error::InvalidReceiveMembersParameters);
         }
 
-        Ok(MembersResponse {
-            chunk,
-            ambiguity_changes: AmbiguityChanges { changes: ambiguity_cache.changes },
-        })
+        let mut chunk = Vec::with_capacity(response.chunk.len());
+
+        let Some(room) = self.store.get_room(room_id) else {
+            // The room is unknown to us: leave early.
+            return Ok(());
+        };
+
+        let mut changes = StateChanges::default();
+
+        #[cfg(feature = "e2e-encryption")]
+        let mut user_ids = BTreeSet::new();
+
+        let mut ambiguity_map: BTreeMap<String, BTreeSet<OwnedUserId>> = BTreeMap::new();
+
+        for raw_event in &response.chunk {
+            let member = match raw_event.deserialize() {
+                Ok(ev) => ev,
+                Err(e) => {
+                    let event_id: Option<String> = raw_event.get_field("event_id").ok().flatten();
+                    debug!(event_id, "Failed to deserialize member event: {e}");
+                    continue;
+                }
+            };
+
+            // TODO: All the actions in this loop used to be done only when the membership
+            // event was not in the store before. This was changed with the new room API,
+            // because e.g. leaving a room makes members events outdated and they need to be
+            // fetched by `members`. Therefore, they need to be overwritten here, even
+            // if they exist.
+            // However, this makes a new problem occur where setting the member events here
+            // potentially races with the sync.
+            // See <https://github.com/matrix-org/matrix-rust-sdk/issues/1205>.
+
+            #[cfg(feature = "e2e-encryption")]
+            match member.membership() {
+                MembershipState::Join | MembershipState::Invite => {
+                    user_ids.insert(member.state_key().to_owned());
+                }
+                _ => (),
+            }
+
+            if let StateEvent::Original(e) = &member {
+                if let Some(d) = &e.content.displayname {
+                    ambiguity_map.entry(d.clone()).or_default().insert(member.state_key().clone());
+                }
+            }
+
+            let sync_member: SyncRoomMemberEvent = member.clone().into();
+
+            if member.state_key() == member.sender() {
+                changes
+                    .profiles
+                    .entry(room_id.to_owned())
+                    .or_default()
+                    .insert(member.sender().to_owned(), sync_member.into());
+            }
+
+            changes
+                .state
+                .entry(room_id.to_owned())
+                .or_default()
+                .entry(member.event_type())
+                .or_default()
+                .insert(member.state_key().to_string(), raw_event.clone().cast());
+            chunk.push(member);
+        }
+
+        #[cfg(feature = "e2e-encryption")]
+        if room.is_encrypted() {
+            if let Some(o) = self.olm_machine().await.as_ref() {
+                o.update_tracked_users(user_ids.iter().map(Deref::deref)).await?
+            }
+        }
+
+        changes.ambiguity_maps.insert(room_id.to_owned(), ambiguity_map);
+
+        let _sync_lock = self.sync_lock().lock().await;
+        let mut room_info = room.clone_info();
+        room_info.mark_members_synced();
+        changes.add_room(room_info);
+
+        self.store.save_changes(&changes).await?;
+        self.apply_changes(&changes, false);
+
+        Ok(())
     }
 
     /// Receive a successful filter upload response, the filter id will be

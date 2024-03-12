@@ -423,7 +423,7 @@ impl Room {
                 let response = self
                     .client
                     .send(
-                        request,
+                        request.clone(),
                         // In some cases it can take longer than 30s to load:
                         // https://github.com/element-hq/synapse/issues/16872
                         Some(RequestConfig::new().timeout(Duration::from_secs(60)).retry_limit(3)),
@@ -431,8 +431,12 @@ impl Room {
                     .await?;
 
                 // That's a large `Future`. Let's `Box::pin` to reduce its size on the stack.
-                Box::pin(self.client.base_client().receive_members(self.room_id(), &response))
-                    .await?;
+                Box::pin(self.client.base_client().receive_all_members(
+                    self.room_id(),
+                    &request,
+                    &response,
+                ))
+                .await?;
 
                 Ok(())
             })
