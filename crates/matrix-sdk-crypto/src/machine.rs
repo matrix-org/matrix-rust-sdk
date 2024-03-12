@@ -1927,6 +1927,8 @@ impl OlmMachine {
             None => 0,
         };
 
+        tracing::debug!("Initialising crypto store generation at {}", gen);
+
         self.inner
             .store
             .set_custom_value(Self::CURRENT_GENERATION_STORE_KEY, gen.to_le_bytes().to_vec())
