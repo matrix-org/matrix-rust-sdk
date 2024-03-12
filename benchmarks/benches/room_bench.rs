@@ -17,12 +17,13 @@ use serde_json::json;
 use tokio::runtime::Builder;
 
 pub fn receive_all_members_benchmark(c: &mut Criterion) {
+    const MEMBERS_IN_ROOM: usize = 100000;
+
     let runtime = Builder::new_multi_thread().build().expect("Can't create runtime");
-    let members_in_room = 100000;
     let room_id = owned_room_id!("!room:example.com");
 
     let ev_builder = EventBuilder::new();
-    let mut member_events: Vec<Raw<RoomMemberEvent>> = Vec::with_capacity(members_in_room as usize);
+    let mut member_events: Vec<Raw<RoomMemberEvent>> = Vec::with_capacity(MEMBERS_IN_ROOM);
     let member_content_json = json!({
         "avatar_url": "mxc://example.org/SEsfnsuifSDFSSEF",
         "displayname": "Alice Margatroid",
@@ -31,7 +32,7 @@ pub fn receive_all_members_benchmark(c: &mut Criterion) {
     });
     let member_content: Raw<RoomMemberEventContent> =
         member_content_json.into_raw_state_event_content().cast();
-    for i in 0..members_in_room {
+    for i in 0..MEMBERS_IN_ROOM {
         let user_id = OwnedUserId::try_from(format!("@user_{}:matrix.org", i)).unwrap();
         let state_key = user_id.to_string();
         let event: Raw<RoomMemberEvent> = ev_builder
@@ -73,10 +74,10 @@ pub fn receive_all_members_benchmark(c: &mut Criterion) {
     let request = get_member_events::v3::Request::new(room_id.clone());
     let response = get_member_events::v3::Response::new(member_events);
 
-    let count = members_in_room;
+    let count = MEMBERS_IN_ROOM;
     let name = format!("{count} members");
     let mut group = c.benchmark_group("Test");
-    group.throughput(Throughput::Elements(count));
+    group.throughput(Throughput::Elements(count as u64));
     group.sample_size(50);
 
     group.bench_function(BenchmarkId::new("receive_members", name), |b| {
