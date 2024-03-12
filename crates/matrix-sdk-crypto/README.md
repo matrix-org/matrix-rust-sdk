@@ -70,4 +70,6 @@ The following crate feature flags are available:
 
 * `qrcode`: Enbles QRcode generation and reading code
 
-* `testing`: provides facilities and functions for tests, in particular for integration testing store implementations. ATTENTION: do not ever use outside of tests, we do not provide any stability warantees on these, these are merely helpers. If you find you _need_ any function provided here outside of tests, please open a Github Issue and inform us about your use case for us to consider.
+* `testing`: Provides facilities and functions for tests, in particular for integration testing store implementations. ATTENTION: do not ever use outside of tests, we do not provide any stability warantees on these, these are merely helpers. If you find you _need_ any function provided here outside of tests, please open a Github Issue and inform us about your use case for us to consider.
+
+* `_disable-minimum-rotation-period-ms`: Do not use except for testing. Disables the floor on the rotation period of room keys.
