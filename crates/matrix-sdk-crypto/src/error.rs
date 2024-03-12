@@ -38,10 +38,6 @@ pub enum OlmError {
     #[error(transparent)]
     JsonError(#[from] SerdeError),
 
-    /// The event could not have been decrypted.
-    #[error(transparent)]
-    Decryption(#[from] vodozemac::olm::DecryptionError),
-
     /// The received room key couldn't be converted into a valid Megolm session.
     #[error(transparent)]
     SessionCreation(#[from] SessionCreationError),
