@@ -1247,21 +1247,28 @@ impl Encryption {
 
     /// Maybe reload the `OlmMachine` after acquiring the lock for the first
     /// time.
-    async fn on_lock_newly_acquired(&self) -> Result<(), Error> {
+    ///
+    /// Returns the current generation number.
+    async fn on_lock_newly_acquired(&self) -> Result<u64, Error> {
         let olm_machine_guard = self.client.olm_machine().await;
         if let Some(olm_machine) = olm_machine_guard.as_ref() {
-            // If the crypto store generation has changed,
-            if olm_machine
+            let (new_gen, generation_number) = olm_machine
                 .maintain_crypto_store_generation(&self.client.locks().crypto_store_generation)
-                .await?
-            {
+                .await?;
+            // If the crypto store generation has changed,
+            if new_gen {
                 // (get rid of the reference to the current crypto store first)
                 drop(olm_machine_guard);
                 // Recreate the OlmMachine.
                 self.client.base_client().regenerate_olm().await?;
             }
+            Ok(generation_number)
+        } else {
+            // XXX: not sure this is reachable. Seems like the OlmMachine should always have
+            // been initialised by the time we get here. We'll just return the
+            // magic number 0.
+            Ok(0)
         }
-        Ok(())
     }
 
     /// If a lock was created with [`Self::enable_cross_process_store_lock`],
