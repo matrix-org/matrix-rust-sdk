@@ -47,6 +47,7 @@ pub mod media;
 pub mod notification_settings;
 #[cfg(feature = "experimental-oidc")]
 pub mod oidc;
+pub mod pusher;
 pub mod room;
 pub mod room_directory_search;
 pub mod utils;
@@ -78,6 +79,7 @@ pub use matrix_sdk_sqlite::SqliteCryptoStore;
 #[cfg(feature = "sqlite")]
 pub use matrix_sdk_sqlite::SqliteStateStore;
 pub use media::Media;
+pub use pusher::Pusher;
 pub use room::Room;
 pub use ruma::{IdParseError, OwnedServerName, ServerName};
 #[cfg(feature = "experimental-sliding-sync")]
