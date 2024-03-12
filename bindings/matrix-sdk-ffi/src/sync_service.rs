@@ -137,8 +137,6 @@ impl SyncServiceBuilder {
 #[uniffi::export(callback_interface)]
 pub trait UnableToDecryptDelegate: Sync + Send {
     fn on_utd(&self, info: Arc<UnableToDecryptInfo>);
-
-    fn on_late_decrypt(&self, info: Arc<UnableToDecryptInfo>);
 }
 
 struct UtdHook {
@@ -154,9 +152,5 @@ impl std::fmt::Debug for UtdHook {
 impl UnableToDecryptHook for UtdHook {
     fn on_utd(&self, info: UnableToDecryptInfo) {
         self.delegate.on_utd(Arc::new(info));
-    }
-
-    fn on_late_decrypt(&self, info: UnableToDecryptInfo) {
-        self.delegate.on_late_decrypt(Arc::new(info));
     }
 }

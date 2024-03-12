@@ -54,7 +54,7 @@ use crate::{
         AnnotationKey, Error as TimelineError, Profile, ReactionSenderData, TimelineItem,
         TimelineItemKind, VirtualTimelineItem,
     },
-    unable_to_decrypt_hook::UnableToDecryptHook,
+    unable_to_decrypt_hook::SmartUtdHook,
 };
 
 #[derive(Debug)]
@@ -66,7 +66,7 @@ pub(in crate::timeline) struct TimelineInnerState {
 impl TimelineInnerState {
     pub(super) fn new(
         room_version: RoomVersionId,
-        unable_to_decrypt_hook: Option<Arc<dyn UnableToDecryptHook>>,
+        unable_to_decrypt_hook: Option<Arc<SmartUtdHook>>,
     ) -> Self {
         Self {
             // Upstream default capacity is currently 16, which is making
@@ -812,14 +812,11 @@ pub(in crate::timeline) struct TimelineInnerMetadata {
     back_pagination_tokens: VecDeque<(OwnedEventId, String)>,
 
     /// The hook to call whenever we run into a unable-to-decrypt event.
-    pub(crate) unable_to_decrypt_hook: Option<Arc<dyn UnableToDecryptHook>>,
+    pub(crate) unable_to_decrypt_hook: Option<Arc<SmartUtdHook>>,
 }
 
 impl TimelineInnerMetadata {
-    fn new(
-        room_version: RoomVersionId,
-        unable_to_decrypt_hook: Option<Arc<dyn UnableToDecryptHook>>,
-    ) -> TimelineInnerMetadata {
+    fn new(room_version: RoomVersionId, unable_to_decrypt_hook: Option<Arc<SmartUtdHook>>) -> Self {
         Self {
             all_events: Default::default(),
             next_internal_id: Default::default(),

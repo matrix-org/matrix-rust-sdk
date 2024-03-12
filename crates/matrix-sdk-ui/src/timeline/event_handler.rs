@@ -59,10 +59,7 @@ use super::{
     EventTimelineItem, InReplyToDetails, Message, OtherState, ReactionGroup, ReactionSenderData,
     Sticker, TimelineDetails, TimelineItem, TimelineItemContent, VirtualTimelineItem,
 };
-use crate::{
-    events::SyncTimelineEventWithoutContent, unable_to_decrypt_hook::UnableToDecryptInfo,
-    DEFAULT_SANITIZER_MODE,
-};
+use crate::{events::SyncTimelineEventWithoutContent, DEFAULT_SANITIZER_MODE};
 
 #[derive(Clone)]
 pub(super) enum Flow {
@@ -305,7 +302,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     // timeline.
                     if let Some(hook) = self.meta.unable_to_decrypt_hook.as_ref() {
                         if let Flow::Remote { event_id, .. } = &self.ctx.flow {
-                            hook.on_utd(UnableToDecryptInfo { event_id: event_id.to_owned() });
+                            hook.on_utd(event_id);
                         }
                     }
                 }

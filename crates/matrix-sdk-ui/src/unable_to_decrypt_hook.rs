@@ -19,12 +19,12 @@
 //! utilities to simplify usage of this trait.
 
 use std::{
-    collections::HashSet,
+    collections::HashMap,
     sync::{Arc, Mutex},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
-use ruma::OwnedEventId;
+use ruma::{EventId, OwnedEventId};
 use tokio::{spawn, task::JoinHandle, time::sleep};
 
 /// A generic interface which methods get called whenever we observe a
@@ -32,25 +32,25 @@ use tokio::{spawn, task::JoinHandle, time::sleep};
 pub trait UnableToDecryptHook: std::fmt::Debug + Send + Sync {
     /// Called every time the hook observes an encrypted event that couldn't be
     /// decrypted.
-    fn on_utd(&self, info: UnableToDecryptInfo);
-
-    /// Called every time we successfully decrypted an event that before,
-    /// couldn't be decrypted initially.
     ///
-    /// This happens whenever the key to decrypt an event comes in after we saw
-    /// the encrypted event. The cause might be that the network sent the
-    /// key slower than the event itself, or that there was any failure in
-    /// the decryption process, or that the key to decrypt was received late
-    /// (e.g. from a backup, etc.).
-    fn on_late_decrypt(&self, info: UnableToDecryptInfo);
+    /// If the hook manager was configured with a grace period, this could also
+    /// contain extra information for late-decrypted events. See details in
+    /// [`UnableToDecryptInfo::time_to_decrypt`].
+    fn on_utd(&self, info: UnableToDecryptInfo);
 }
 
-/// Information about an event we couldn't decrypt.
+/// Information about an event we were unable to decrypt (UTD).
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Object))]
 pub struct UnableToDecryptInfo {
     /// The identifier of the event that couldn't get decrypted.
     pub event_id: OwnedEventId,
+
+    /// If the UTD is a late-decryption event (that is, the event was encrypted
+    /// at first but could be decrypted later on), then this indicates the
+    /// time it took to decrypt the event. If it is not set, this is
+    /// considered a definite UTD.
+    pub time_to_decrypt: Option<Duration>,
 }
 
 /// A decorator over an existing [`UnableToDecryptHook`] that deduplicates UTDs
@@ -71,7 +71,7 @@ pub struct SmartUtdHook {
     /// Note: this is unbounded, because we have absolutely no idea how long it
     /// will take for a UTD to resolve, or if it will even resolve at any
     /// point.
-    known_utds: Arc<Mutex<HashSet<OwnedEventId>>>,
+    known_utds: Arc<Mutex<HashMap<OwnedEventId, Instant>>>,
 
     /// An optional delay before marking the event as UTD.
     delay: Option<Duration>,
@@ -99,24 +99,20 @@ impl SmartUtdHook {
         self.delay = Some(delay);
         self
     }
-}
 
-impl Drop for SmartUtdHook {
-    fn drop(&mut self) {
-        // Cancel all the outstanding delayed tasks to report UTDs.
-        let mut pending_delayed = self.pending_delayed.lock().unwrap();
-        for (_, task) in pending_delayed.drain(..) {
-            task.abort();
-        }
-    }
-}
-
-impl UnableToDecryptHook for SmartUtdHook {
-    fn on_utd(&self, info: UnableToDecryptInfo) {
+    pub(crate) fn on_utd(&self, event_id: &EventId) {
         // Only let the parent hook know if the event wasn't already handled.
-        if !self.known_utds.lock().unwrap().insert(info.event_id.to_owned()) {
-            return;
+        {
+            let mut known_utds = self.known_utds.lock().unwrap();
+            // Note: we don't want to replace the previous time, so don't look at the result
+            // of insert to know whether the entry was already present or not.
+            if known_utds.contains_key(event_id) {
+                return;
+            }
+            known_utds.insert(event_id.to_owned(), Instant::now());
         }
+
+        let info = UnableToDecryptInfo { event_id: event_id.to_owned(), time_to_decrypt: None };
 
         let Some(delay) = self.delay.clone() else {
             // No delay: immediately report the event to the parent hook.
@@ -140,9 +136,9 @@ impl UnableToDecryptHook for SmartUtdHook {
             // In any case, remove the task from the outstanding set.
             pending_delayed.lock().unwrap().retain(|(event_id, _)| *event_id != info.event_id);
 
-            // Check if the event is still in the set: if not, it's been decrypted since
+            // Check if the event is still in the map: if not, it's been decrypted since
             // then!
-            if known_utds.lock().unwrap().contains(&info.event_id) {
+            if known_utds.lock().unwrap().contains_key(&info.event_id) {
                 parent.on_utd(info);
             }
         });
@@ -151,10 +147,36 @@ impl UnableToDecryptHook for SmartUtdHook {
         self.pending_delayed.lock().unwrap().push((event_id, handle));
     }
 
-    fn on_late_decrypt(&self, info: UnableToDecryptInfo) {
+    pub(crate) fn on_late_decrypt(&self, event_id: &EventId) {
         // Only let the parent hook know if the event was known to be a UTDs.
-        if self.known_utds.lock().unwrap().remove(&info.event_id) {
-            self.parent.on_late_decrypt(info);
+        if let Some(marked_utd_at) = self.known_utds.lock().unwrap().remove(event_id) {
+            let info = UnableToDecryptInfo {
+                event_id: event_id.to_owned(),
+                time_to_decrypt: Some(marked_utd_at.elapsed()),
+            };
+
+            // Cancel and remove the task from the outstanding set.
+            self.pending_delayed.lock().unwrap().retain(|(event_id, task)| {
+                if *event_id == info.event_id {
+                    task.abort();
+                    false
+                } else {
+                    true
+                }
+            });
+
+            // Report to the parent hook.
+            self.parent.on_utd(info);
+        }
+    }
+}
+
+impl Drop for SmartUtdHook {
+    fn drop(&mut self) {
+        // Cancel all the outstanding delayed tasks to report UTDs.
+        let mut pending_delayed = self.pending_delayed.lock().unwrap();
+        for (_, task) in pending_delayed.drain(..) {
+            task.abort();
         }
     }
 }
@@ -162,22 +184,18 @@ impl UnableToDecryptHook for SmartUtdHook {
 #[cfg(test)]
 mod tests {
     use matrix_sdk_test::async_test;
-    use ruma::{event_id, owned_event_id};
+    use ruma::event_id;
 
     use super::*;
 
     #[derive(Debug, Default)]
     struct Dummy {
         utds: Mutex<Vec<UnableToDecryptInfo>>,
-        late_decrypted: Mutex<Vec<UnableToDecryptInfo>>,
     }
 
     impl UnableToDecryptHook for Dummy {
         fn on_utd(&self, info: UnableToDecryptInfo) {
             self.utds.lock().unwrap().push(info);
-        }
-        fn on_late_decrypt(&self, info: UnableToDecryptInfo) {
-            self.late_decrypted.lock().unwrap().push(info);
         }
     }
 
@@ -190,12 +208,12 @@ mod tests {
         let wrapper = SmartUtdHook::new(hook.clone());
 
         // And I call the `on_utd` method multiple times, sometimes on the same event,
-        wrapper.on_utd(UnableToDecryptInfo { event_id: owned_event_id!("$1") });
-        wrapper.on_utd(UnableToDecryptInfo { event_id: owned_event_id!("$1") });
-        wrapper.on_utd(UnableToDecryptInfo { event_id: owned_event_id!("$2") });
-        wrapper.on_utd(UnableToDecryptInfo { event_id: owned_event_id!("$1") });
-        wrapper.on_utd(UnableToDecryptInfo { event_id: owned_event_id!("$2") });
-        wrapper.on_utd(UnableToDecryptInfo { event_id: owned_event_id!("$3") });
+        wrapper.on_utd(event_id!("$1"));
+        wrapper.on_utd(event_id!("$1"));
+        wrapper.on_utd(event_id!("$2"));
+        wrapper.on_utd(event_id!("$1"));
+        wrapper.on_utd(event_id!("$2"));
+        wrapper.on_utd(event_id!("$3"));
 
         // Then the event ids have been deduplicated,
         {
@@ -204,10 +222,12 @@ mod tests {
             assert_eq!(utds[0].event_id, event_id!("$1"));
             assert_eq!(utds[1].event_id, event_id!("$2"));
             assert_eq!(utds[2].event_id, event_id!("$3"));
-        }
 
-        // And no late decryption has been reported.
-        assert!(hook.late_decrypted.lock().unwrap().is_empty());
+            // No event is a late-decryption event.
+            assert!(utds[0].time_to_decrypt.is_none());
+            assert!(utds[1].time_to_decrypt.is_none());
+            assert!(utds[2].time_to_decrypt.is_none());
+        }
     }
 
     #[test]
@@ -220,15 +240,14 @@ mod tests {
 
         // And I call the `on_late_decrypt` method before the event had been marked as
         // utd,
-        wrapper.on_late_decrypt(UnableToDecryptInfo { event_id: owned_event_id!("$1") });
+        wrapper.on_late_decrypt(event_id!("$1"));
 
         // Then nothing is registered in the parent hook.
         assert!(hook.utds.lock().unwrap().is_empty());
-        assert!(hook.late_decrypted.lock().unwrap().is_empty());
     }
 
     #[test]
-    fn test_on_late_decrypted_after_utd() {
+    fn test_on_late_decrypted_after_utd_no_grace_period() {
         // If I create a dummy hook,
         let hook = Arc::new(Dummy::default());
 
@@ -236,38 +255,38 @@ mod tests {
         let wrapper = SmartUtdHook::new(hook.clone());
 
         // And I call the `on_utd` method for an event,
-        wrapper.on_utd(UnableToDecryptInfo { event_id: owned_event_id!("$1") });
+        wrapper.on_utd(event_id!("$1"));
 
         // Then the UTD has been notified, but not as late-decrypted event.
         {
             let utds = hook.utds.lock().unwrap();
             assert_eq!(utds.len(), 1);
             assert_eq!(utds[0].event_id, event_id!("$1"));
+            assert!(utds[0].time_to_decrypt.is_none());
         }
-        assert!(hook.late_decrypted.lock().unwrap().is_empty());
 
         // And when I call the `on_late_decrypt` method before the event had been marked
         // as utd,
-        wrapper.on_late_decrypt(UnableToDecryptInfo { event_id: owned_event_id!("$1") });
+        wrapper.on_late_decrypt(event_id!("$1"));
 
-        // Then the event is now known as a late-decrypted event too.
-        {
-            let late_decrypted = hook.late_decrypted.lock().unwrap();
-            assert_eq!(late_decrypted.len(), 1);
-            assert_eq!(late_decrypted[0].event_id, event_id!("$1"));
-        }
-
-        // (Sanity check: The reported UTD hasn't been touched.)
+        // Then the event is now reported as a late-decryption too.
         {
             let utds = hook.utds.lock().unwrap();
-            assert_eq!(utds.len(), 1);
+            assert_eq!(utds.len(), 2);
+
+            // The previous report is still there. (There was no grace period.)
             assert_eq!(utds[0].event_id, event_id!("$1"));
+            assert!(utds[0].time_to_decrypt.is_none());
+
+            // The new report with a late-decryption is there.
+            assert_eq!(utds[1].event_id, event_id!("$1"));
+            assert!(utds[1].time_to_decrypt.is_some());
         }
     }
 
     #[cfg(not(target_arch = "wasm32"))] // wasm32 has no time for that
     #[async_test]
-    async fn test_delayed_reporting() {
+    async fn test_delayed_utd() {
         // If I create a dummy hook,
         let hook = Arc::new(Dummy::default());
 
@@ -276,31 +295,34 @@ mod tests {
         let wrapper = SmartUtdHook::new(hook.clone()).with_delay(Duration::from_secs(2));
 
         // And I call the `on_utd` method for an event,
-        wrapper.on_utd(UnableToDecryptInfo { event_id: owned_event_id!("$1") });
+        wrapper.on_utd(event_id!("$1"));
 
-        // Then the UTD has not been notified quite yet.
+        // Then the UTD is not being reported immediately.
         assert!(hook.utds.lock().unwrap().is_empty());
-        assert!(hook.late_decrypted.lock().unwrap().is_empty());
+        assert_eq!(wrapper.pending_delayed.lock().unwrap().len(), 1);
 
         // If I wait for 1 second, then it's still not been notified yet.
         sleep(Duration::from_secs(1)).await;
 
         assert!(hook.utds.lock().unwrap().is_empty());
-        assert!(hook.late_decrypted.lock().unwrap().is_empty());
+        assert_eq!(wrapper.pending_delayed.lock().unwrap().len(), 1);
 
-        // But if I wait just a bit more, then it's been notified \o/
+        // But if I wait just a bit more, then it's getting notified as a definite UTD.
         sleep(Duration::from_millis(1500)).await;
 
         {
             let utds = hook.utds.lock().unwrap();
             assert_eq!(utds.len(), 1);
             assert_eq!(utds[0].event_id, event_id!("$1"));
+            assert!(utds[0].time_to_decrypt.is_none());
         }
+
+        assert!(wrapper.pending_delayed.lock().unwrap().is_empty());
     }
 
     #[cfg(not(target_arch = "wasm32"))] // wasm32 has no time for that
     #[async_test]
-    async fn test_delayed_not_reporting() {
+    async fn test_delayed_late_decryption() {
         // If I create a dummy hook,
         let hook = Arc::new(Dummy::default());
 
@@ -309,35 +331,23 @@ mod tests {
         let wrapper = SmartUtdHook::new(hook.clone()).with_delay(Duration::from_secs(2));
 
         // And I call the `on_utd` method for an event,
-        wrapper.on_utd(UnableToDecryptInfo { event_id: owned_event_id!("$1") });
+        wrapper.on_utd(event_id!("$1"));
 
         // Then the UTD has not been notified quite yet.
         assert!(hook.utds.lock().unwrap().is_empty());
-        assert!(hook.late_decrypted.lock().unwrap().is_empty());
         assert_eq!(wrapper.pending_delayed.lock().unwrap().len(), 1);
 
         // If I wait for 1 second, and mark the event as late-decrypted,
         sleep(Duration::from_secs(1)).await;
 
-        wrapper.on_late_decrypt(UnableToDecryptInfo { event_id: owned_event_id!("$1") });
+        wrapper.on_late_decrypt(event_id!("$1"));
 
-        // Then it's still not reported as a UTD (but it's reported as a late-decrypted
-        // event).
-        assert!(hook.utds.lock().unwrap().is_empty());
+        // Then it's being immediately reported as a late-decryption UTD.
         {
-            let late = hook.late_decrypted.lock().unwrap();
-            assert_eq!(late.len(), 1);
-            assert_eq!(late[0].event_id, event_id!("$1"));
-        }
-
-        // And I get the same result after the grace period ended for sure.
-        sleep(Duration::from_millis(1500)).await;
-
-        assert!(hook.utds.lock().unwrap().is_empty());
-        {
-            let late = hook.late_decrypted.lock().unwrap();
-            assert_eq!(late.len(), 1);
-            assert_eq!(late[0].event_id, event_id!("$1"));
+            let utds = hook.utds.lock().unwrap();
+            assert_eq!(utds.len(), 1);
+            assert_eq!(utds[0].event_id, event_id!("$1"));
+            assert!(utds[0].time_to_decrypt.is_some());
         }
 
         // And there aren't any pending delayed reports anymore.

@@ -31,14 +31,14 @@ use ruma::{
         EncryptedEventScheme, MegolmV1AesSha2ContentInit, Relation, Replacement,
         RoomEncryptedEventContent,
     },
-    room_id, user_id, OwnedEventId,
+    room_id, user_id,
 };
 use stream_assert::assert_next_matches;
 
 use super::TestTimeline;
 use crate::{
     timeline::{EncryptedMessage, TimelineItemContent},
-    unable_to_decrypt_hook::{UnableToDecryptHook, UnableToDecryptInfo},
+    unable_to_decrypt_hook::{SmartUtdHook, UnableToDecryptHook, UnableToDecryptInfo},
 };
 
 #[async_test]
@@ -60,20 +60,17 @@ async fn test_retry_message_decryption() {
 
     #[derive(Debug, Default)]
     struct DummyUtdHook {
-        utds: Mutex<Vec<OwnedEventId>>,
-        late_decrypted: Mutex<Vec<OwnedEventId>>,
+        utds: Mutex<Vec<UnableToDecryptInfo>>,
     }
 
     impl UnableToDecryptHook for DummyUtdHook {
         fn on_utd(&self, info: UnableToDecryptInfo) {
-            self.utds.lock().unwrap().push(info.event_id);
-        }
-        fn on_late_decrypt(&self, info: UnableToDecryptInfo) {
-            self.late_decrypted.lock().unwrap().push(info.event_id);
+            self.utds.lock().unwrap().push(info);
         }
     }
 
-    let utd_hook = Arc::new(DummyUtdHook::default());
+    let hook = Arc::new(DummyUtdHook::default());
+    let utd_hook = Arc::new(SmartUtdHook::new(hook.clone()));
 
     let timeline = TestTimeline::with_unable_to_decrypt_hook(utd_hook.clone());
     let mut stream = timeline.subscribe().await;
@@ -117,12 +114,10 @@ async fn test_retry_message_decryption() {
     assert_eq!(session_id, SESSION_ID);
 
     {
-        let utds = utd_hook.utds.lock().unwrap();
+        let utds = hook.utds.lock().unwrap();
         assert_eq!(utds.len(), 1);
-        assert_eq!(utds[0], event.event_id().unwrap());
-
-        let late = utd_hook.late_decrypted.lock().unwrap();
-        assert!(late.is_empty());
+        assert_eq!(utds[0].event_id, event.event_id().unwrap());
+        assert!(utds[0].time_to_decrypt.is_none());
     }
 
     let own_user_id = user_id!("@example:morheus.localhost");
@@ -150,13 +145,16 @@ async fn test_retry_message_decryption() {
     assert!(!event.is_highlighted());
 
     {
-        let utds = utd_hook.utds.lock().unwrap();
-        assert_eq!(utds.len(), 1);
-        assert_eq!(utds[0], event.event_id().unwrap());
+        let utds = hook.utds.lock().unwrap();
+        assert_eq!(utds.len(), 2);
 
-        let late = utd_hook.late_decrypted.lock().unwrap();
-        assert_eq!(late.len(), 1);
-        assert_eq!(late[0], event.event_id().unwrap());
+        // The previous UTD report is still there.
+        assert_eq!(utds[0].event_id, event.event_id().unwrap());
+        assert!(utds[0].time_to_decrypt.is_none());
+
+        // The UTD is now *also* reported as a late-decryption event.
+        assert_eq!(utds[1].event_id, event.event_id().unwrap());
+        assert!(utds[1].time_to_decrypt.is_some());
     }
 }
 

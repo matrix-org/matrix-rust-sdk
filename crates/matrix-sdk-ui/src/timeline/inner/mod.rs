@@ -66,7 +66,7 @@ use super::{
     AnnotationKey, EventSendState, EventTimelineItem, InReplyToDetails, Message, Profile,
     RepliedToEvent, TimelineDetails, TimelineItem, TimelineItemContent, TimelineItemKind,
 };
-use crate::{timeline::TimelineEventFilterFn, unable_to_decrypt_hook::UnableToDecryptHook};
+use crate::{timeline::TimelineEventFilterFn, unable_to_decrypt_hook::SmartUtdHook};
 
 mod state;
 
@@ -212,7 +212,7 @@ pub fn default_event_filter(event: &AnySyncTimelineEvent, room_version: &RoomVer
 impl<P: RoomDataProvider> TimelineInner<P> {
     pub(super) fn new(
         room_data_provider: P,
-        unable_to_decrypt_hook: Option<Arc<dyn UnableToDecryptHook>>,
+        unable_to_decrypt_hook: Option<Arc<SmartUtdHook>>,
     ) -> Self {
         let state =
             TimelineInnerState::new(room_data_provider.room_version(), unable_to_decrypt_hook);
@@ -754,7 +754,6 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         session_ids: Option<BTreeSet<String>>,
     ) {
         use super::EncryptedMessage;
-        use crate::unable_to_decrypt_hook::UnableToDecryptInfo;
 
         let mut state = self.state.clone().write_owned().await;
 
@@ -834,9 +833,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
                             // Notify observers that we managed to eventually decrypt an event.
                             if let Some(hook) = unable_to_decrypt_hook {
-                                hook.on_late_decrypt(UnableToDecryptInfo {
-                                    event_id: remote_event.event_id.clone(),
-                                })
+                                hook.on_late_decrypt(&remote_event.event_id);
                             }
 
                             Some(event)
