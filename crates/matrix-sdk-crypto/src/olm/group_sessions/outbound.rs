@@ -59,7 +59,10 @@ use crate::{
     ReadOnlyDevice, ToDeviceRequest,
 };
 
-const ROTATION_PERIOD: Duration = Duration::from_millis(604800000);
+const ONE_HOUR: Duration = Duration::from_secs(60 * 60);
+const ONE_WEEK: Duration = Duration::from_secs(60 * 60 * 24 * 7);
+
+const ROTATION_PERIOD: Duration = ONE_WEEK;
 const ROTATION_MESSAGES: u64 = 100;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -432,7 +435,7 @@ impl OutboundGroupSession {
         if cfg!(feature = "_disable-minimum-rotation-period-ms") {
             self.settings.rotation_period
         } else {
-            max(self.settings.rotation_period, Duration::from_secs(3600))
+            max(self.settings.rotation_period, ONE_HOUR)
         }
     }
 
@@ -788,6 +791,8 @@ mod tests {
 
         use crate::{olm::OutboundGroupSession, Account, EncryptionSettings, MegolmError};
 
+        const TWO_HOURS: Duration = Duration::from_secs(60 * 60 * 2);
+
         #[async_test]
         async fn session_is_not_expired_if_no_messages_sent_and_no_time_passed() {
             // Given a session that expires after one message
@@ -831,7 +836,7 @@ mod tests {
         async fn session_with_rotation_period_is_not_expired_after_no_time() {
             // Given a session with a 2h expiration
             let session = create_session(EncryptionSettings {
-                rotation_period: Duration::from_secs(7200),
+                rotation_period: TWO_HOURS,
                 ..Default::default()
             })
             .await;
@@ -846,7 +851,7 @@ mod tests {
         async fn session_is_expired_after_rotation_period() {
             // Given a session with a 2h expiration
             let mut session = create_session(EncryptionSettings {
-                rotation_period: Duration::from_secs(7200),
+                rotation_period: TWO_HOURS,
                 ..Default::default()
             })
             .await;
