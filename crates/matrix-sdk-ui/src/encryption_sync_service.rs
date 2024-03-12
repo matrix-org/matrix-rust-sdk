@@ -26,7 +26,7 @@
 //!
 //! [NSE]: https://developer.apple.com/documentation/usernotifications/unnotificationserviceextension
 
-use std::time::Duration;
+use std::{pin::Pin, time::Duration};
 
 use async_stream::stream;
 use futures_core::stream::Stream;
@@ -241,17 +241,7 @@ impl EncryptionSyncService {
             pin_mut!(sync);
 
             loop {
-                let guard = if self.with_locking {
-                    self.client
-                        .encryption()
-                        .spin_lock_store(Some(60000))
-                        .await
-                        .map_err(Error::LockError)?
-                } else {
-                    None
-                };
-
-                match sync.next().await {
+                match self.next_sync_with_lock(&mut sync).await? {
                     Some(Ok(update_summary)) => {
                         // This API is only concerned with the e2ee and to-device extensions.
                         // Warn if anything weird has been received from the proxy.
@@ -264,18 +254,12 @@ impl EncryptionSyncService {
 
                         // Cool cool, let's do it again.
                         trace!("Encryption sync received an update!");
-
-                        drop(guard);
-
                         yield Ok(());
                         continue;
                     }
 
                     Some(Err(err)) => {
                         trace!("Encryption sync stopped because of an error: {err:#}");
-
-                        drop(guard);
-
                         yield Err(Error::SlidingSync(err));
                         break;
                     }
@@ -287,6 +271,21 @@ impl EncryptionSyncService {
                 }
             }
         })
+    }
+
+    /// Helper function for `sync`. Take the cross-process store lock, and call
+    /// `sync.next()`
+    async fn next_sync_with_lock<Item>(
+        &self,
+        sync: &mut Pin<&mut impl Stream<Item = Item>>,
+    ) -> Result<Option<Item>, Error> {
+        let _guard = if self.with_locking {
+            self.client.encryption().spin_lock_store(Some(60000)).await.map_err(Error::LockError)?
+        } else {
+            None
+        };
+
+        Ok(sync.next().await)
     }
 
     /// Requests that the underlying sliding sync be stopped.
