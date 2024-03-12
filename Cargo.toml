@@ -28,16 +28,16 @@ async-trait = "0.1.60"
 as_variant = "1.2.0"
 base64 = "0.21.0"
 byteorder = "1.4.3"
-eyeball = { version = "0.8.7", features = ["tracing"] }
-eyeball-im = { version = "0.4.1", features = ["tracing"] }
-eyeball-im-util = "0.5.1"
+eyeball = { git = "https://github.com/jplatte/eyeball.git", rev="71e0a72adc377584da78fb4c1b3ad9714a7287f4", features = ["tracing"] }
+eyeball-im = { git = "https://github.com/jplatte/eyeball.git", rev="71e0a72adc377584da78fb4c1b3ad9714a7287f4", features = ["tracing", "serde"] }
+eyeball-im-util = { git = "https://github.com/jplatte/eyeball.git", rev="71e0a72adc377584da78fb4c1b3ad9714a7287f4" }
 futures-core = "0.3.28"
 futures-executor = "0.3.21"
 futures-util = { version = "0.3.26", default-features = false, features = ["alloc"] }
 http = "0.2.6"
 itertools = "0.12.0"
-ruma = { git = "https://github.com/ruma/ruma", rev = "68c9bb0930f2195fa8672fbef9633ef62737df5d", features = ["client-api-c", "compat-upload-signatures", "compat-user-id", "compat-arbitrary-length-ids", "unstable-msc3401"] }
-ruma-common = { git = "https://github.com/ruma/ruma", rev = "68c9bb0930f2195fa8672fbef9633ef62737df5d" }
+ruma = { git = "https://github.com/ara4n/ruma.git", rev = "7f706bc7df5da887756564d711d2d5a062c3451d" features = ["client-api-c", "compat-upload-signatures", "compat-user-id", "compat-arbitrary-length-ids", "unstable-msc3401"] }
+ruma-common = { git = "https://github.com/ara4n/ruma.git", rev = "7f706bc7df5da887756564d711d2d5a062c3451d" }
 once_cell = "1.16.0"
 rand = "0.8.5"
 serde = "1.0.151"
