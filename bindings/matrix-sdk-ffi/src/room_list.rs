@@ -22,7 +22,7 @@ use matrix_sdk_ui::{
         BoxedFilterFn,
     },
     timeline::default_event_filter,
-    unable_to_decrypt_hook::{SmartUtdHook, UnableToDecryptHook},
+    unable_to_decrypt_hook::{UnableToDecryptHook, UtdHookManager},
 };
 use tokio::sync::RwLock;
 
@@ -552,8 +552,8 @@ impl RoomListItem {
         }
 
         if let Some(utd_hook) = self.utd_hook.clone() {
-            timeline_builder =
-                timeline_builder.with_unable_to_decrypt_hook(Arc::new(SmartUtdHook::new(utd_hook)));
+            timeline_builder = timeline_builder
+                .with_unable_to_decrypt_hook(Arc::new(UtdHookManager::new(utd_hook)));
         }
 
         self.inner.init_timeline_with_builder(timeline_builder).map_err(RoomListError::from).await

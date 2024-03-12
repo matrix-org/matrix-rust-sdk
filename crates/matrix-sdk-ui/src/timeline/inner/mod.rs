@@ -66,7 +66,7 @@ use super::{
     AnnotationKey, EventSendState, EventTimelineItem, InReplyToDetails, Message, Profile,
     RepliedToEvent, TimelineDetails, TimelineItem, TimelineItemContent, TimelineItemKind,
 };
-use crate::{timeline::TimelineEventFilterFn, unable_to_decrypt_hook::SmartUtdHook};
+use crate::{timeline::TimelineEventFilterFn, unable_to_decrypt_hook::UtdHookManager};
 
 mod state;
 
@@ -212,7 +212,7 @@ pub fn default_event_filter(event: &AnySyncTimelineEvent, room_version: &RoomVer
 impl<P: RoomDataProvider> TimelineInner<P> {
     pub(super) fn new(
         room_data_provider: P,
-        unable_to_decrypt_hook: Option<Arc<SmartUtdHook>>,
+        unable_to_decrypt_hook: Option<Arc<UtdHookManager>>,
     ) -> Self {
         let state =
             TimelineInnerState::new(room_data_provider.room_version(), unable_to_decrypt_hook);

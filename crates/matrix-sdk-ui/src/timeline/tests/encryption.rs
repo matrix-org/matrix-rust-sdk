@@ -38,7 +38,7 @@ use stream_assert::assert_next_matches;
 use super::TestTimeline;
 use crate::{
     timeline::{EncryptedMessage, TimelineItemContent},
-    unable_to_decrypt_hook::{SmartUtdHook, UnableToDecryptHook, UnableToDecryptInfo},
+    unable_to_decrypt_hook::{UnableToDecryptHook, UnableToDecryptInfo, UtdHookManager},
 };
 
 #[async_test]
@@ -70,7 +70,7 @@ async fn test_retry_message_decryption() {
     }
 
     let hook = Arc::new(DummyUtdHook::default());
-    let utd_hook = Arc::new(SmartUtdHook::new(hook.clone()));
+    let utd_hook = Arc::new(UtdHookManager::new(hook.clone()));
 
     let timeline = TestTimeline::with_unable_to_decrypt_hook(utd_hook.clone());
     let mut stream = timeline.subscribe().await;

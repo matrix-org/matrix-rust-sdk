@@ -36,7 +36,7 @@ use super::{
     queue::send_queued_messages,
     BackPaginationStatus, Timeline, TimelineDropHandle,
 };
-use crate::unable_to_decrypt_hook::SmartUtdHook;
+use crate::unable_to_decrypt_hook::UtdHookManager;
 
 /// Builder that allows creating and configuring various parts of a
 /// [`Timeline`].
@@ -49,7 +49,7 @@ pub struct TimelineBuilder {
 
     /// An optional hook to call whenever we run into an unable-to-decrypt or a
     /// late-decryption event.
-    unable_to_decrypt_hook: Option<Arc<SmartUtdHook>>,
+    unable_to_decrypt_hook: Option<Arc<UtdHookManager>>,
 }
 
 impl TimelineBuilder {
@@ -65,7 +65,7 @@ impl TimelineBuilder {
     /// Sets up an [`UnableToDecryptHook`] for the timeline we're building.
     ///
     /// If it was previously set before, will overwrite the previous one.
-    pub fn with_unable_to_decrypt_hook(mut self, hook: Arc<SmartUtdHook>) -> Self {
+    pub fn with_unable_to_decrypt_hook(mut self, hook: Arc<UtdHookManager>) -> Self {
         self.unable_to_decrypt_hook = Some(hook);
         self
     }

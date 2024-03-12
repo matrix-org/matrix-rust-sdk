@@ -62,7 +62,7 @@ pub struct UnableToDecryptInfo {
 /// late decryption via [`UnableToDecryptHook::on_late_decrypt`] still happens
 /// in all the cases, though.
 #[derive(Debug)]
-pub struct SmartUtdHook {
+pub struct UtdHookManager {
     /// The parent hook we'll call, when we have found a unique UTD.
     parent: Arc<dyn UnableToDecryptHook>,
 
@@ -80,7 +80,7 @@ pub struct SmartUtdHook {
     pending_delayed: Arc<Mutex<Vec<(OwnedEventId, JoinHandle<()>)>>>,
 }
 
-impl SmartUtdHook {
+impl UtdHookManager {
     /// Create a new [`SmartUtdHook`] for the given hook.
     pub fn new(parent: Arc<dyn UnableToDecryptHook>) -> Self {
         Self {
@@ -171,7 +171,7 @@ impl SmartUtdHook {
     }
 }
 
-impl Drop for SmartUtdHook {
+impl Drop for UtdHookManager {
     fn drop(&mut self) {
         // Cancel all the outstanding delayed tasks to report UTDs.
         let mut pending_delayed = self.pending_delayed.lock().unwrap();
@@ -205,7 +205,7 @@ mod tests {
         let hook = Arc::new(Dummy::default());
 
         // And I wrap with the SmartUtdHook decorator,
-        let wrapper = SmartUtdHook::new(hook.clone());
+        let wrapper = UtdHookManager::new(hook.clone());
 
         // And I call the `on_utd` method multiple times, sometimes on the same event,
         wrapper.on_utd(event_id!("$1"));
@@ -236,7 +236,7 @@ mod tests {
         let hook = Arc::new(Dummy::default());
 
         // And I wrap with the SmartUtdHook decorator,
-        let wrapper = SmartUtdHook::new(hook.clone());
+        let wrapper = UtdHookManager::new(hook.clone());
 
         // And I call the `on_late_decrypt` method before the event had been marked as
         // utd,
@@ -252,7 +252,7 @@ mod tests {
         let hook = Arc::new(Dummy::default());
 
         // And I wrap with the SmartUtdHook decorator,
-        let wrapper = SmartUtdHook::new(hook.clone());
+        let wrapper = UtdHookManager::new(hook.clone());
 
         // And I call the `on_utd` method for an event,
         wrapper.on_utd(event_id!("$1"));
@@ -292,7 +292,7 @@ mod tests {
 
         // And I wrap with the SmartUtdHook decorator, configured to delay reporting
         // after 2 seconds.
-        let wrapper = SmartUtdHook::new(hook.clone()).with_delay(Duration::from_secs(2));
+        let wrapper = UtdHookManager::new(hook.clone()).with_delay(Duration::from_secs(2));
 
         // And I call the `on_utd` method for an event,
         wrapper.on_utd(event_id!("$1"));
@@ -328,7 +328,7 @@ mod tests {
 
         // And I wrap with the SmartUtdHook decorator, configured to delay reporting
         // after 2 seconds.
-        let wrapper = SmartUtdHook::new(hook.clone()).with_delay(Duration::from_secs(2));
+        let wrapper = UtdHookManager::new(hook.clone()).with_delay(Duration::from_secs(2));
 
         // And I call the `on_utd` method for an event,
         wrapper.on_utd(event_id!("$1"));
