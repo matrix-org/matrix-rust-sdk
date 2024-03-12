@@ -48,7 +48,6 @@ use ruma::{
             },
             filter::{create_filter::v3::Request as FilterUploadRequest, FilterDefinition},
             membership::{join_room_by_id, join_room_by_id_or_alias},
-            push::{set_pusher, Pusher, PusherIds},
             room::create_room,
             session::login::v3::DiscoveryInfo,
             sync::sync_events,
@@ -84,7 +83,7 @@ use crate::{
     matrix_auth::MatrixAuth,
     notification_settings::NotificationSettings,
     sync::{RoomUpdate, SyncResponse},
-    Account, AuthApi, AuthSession, Error, Media, RefreshTokenError, Result, Room,
+    Account, AuthApi, AuthSession, Error, Media, Pusher, RefreshTokenError, Result, Room,
     TransmissionProgress,
 };
 #[cfg(feature = "e2e-encryption")]
@@ -559,6 +558,11 @@ impl Client {
     /// Get the media manager of the client.
     pub fn media(&self) -> Media {
         Media::new(self.clone())
+    }
+
+    /// Get the pusher manager of the client.
+    pub fn pusher(&self) -> Pusher {
+        Pusher::new(self.clone())
     }
 
     /// Access the OpenID Connect API of the client.
@@ -2041,21 +2045,6 @@ impl Client {
         Ok(())
     }
 
-    /// Sets a given pusher
-    pub async fn set_pusher(&self, pusher: Pusher) -> HttpResult<set_pusher::v3::Response> {
-        let request = set_pusher::v3::Request::post(pusher);
-        self.send(request, None).await
-    }
-
-    /// Deletes a pusher by its ids
-    pub async fn delete_pusher(
-        &self,
-        pusher_ids: PusherIds,
-    ) -> HttpResult<set_pusher::v3::Response> {
-        let request = set_pusher::v3::Request::delete(pusher_ids);
-        self.send(request, None).await
-    }
-
     /// Get the notification settings of the current owner of the client.
     pub async fn notification_settings(&self) -> NotificationSettings {
         let ruleset = self.account().push_rules().await.unwrap_or_else(|_| Ruleset::new());
@@ -2119,11 +2108,7 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-    use ruma::{
-        api::client::push::PusherIds, events::ignored_user_list::IgnoredUserListEventContent,
-        UserId,
-    };
-    use serde_json::json;
+    use ruma::{events::ignored_user_list::IgnoredUserListEventContent, UserId};
     use url::Url;
     use wiremock::{
         matchers::{body_json, header, method, path},
@@ -2378,22 +2363,5 @@ pub(crate) mod tests {
 
         let msc4028_enabled = client.can_homeserver_push_encrypted_event_to_device().await.unwrap();
         assert!(msc4028_enabled);
-    }
-
-    #[async_test]
-    async fn test_delete_pusher() {
-        let server = MockServer::start().await;
-        let client = logged_in_client(Some(server.uri())).await;
-
-        Mock::given(method("POST"))
-            .and(path("_matrix/client/r0/pushers/set"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
-            .mount(&server)
-            .await;
-
-        let pusher_ids = PusherIds::new("pushKey".to_owned(), "app_id".to_owned());
-        let response = client.delete_pusher(pusher_ids).await;
-
-        assert!(response.is_ok());
     }
 }

@@ -627,13 +627,13 @@ impl Client {
             profile_tag,
             lang,
         };
-        self.inner.set_pusher(pusher_init.into()).await?;
+        self.inner.pusher().set(pusher_init.into()).await?;
         Ok(())
     }
 
     /// Deletes a pusher of given pusher ids
     pub async fn delete_pusher(&self, identifiers: PusherIdentifiers) -> Result<(), ClientError> {
-        self.inner.delete_pusher(identifiers.into()).await?;
+        self.inner.pusher().delete(identifiers.into()).await?;
         Ok(())
     }
 
