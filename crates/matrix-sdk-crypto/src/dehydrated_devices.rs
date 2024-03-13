@@ -480,7 +480,7 @@ mod tests {
 
         let device_keys: crate::types::DeviceKeys =
             serde_json::from_str(request.device_keys.json().get()).unwrap();
-        assert!(device_keys.dehydrated == Some(true));
+        assert_eq!(device_keys.dehydrated, Some(true), "The device keys of the dehydrated device should be marked as dehydrated.");
     }
 
     #[async_test]

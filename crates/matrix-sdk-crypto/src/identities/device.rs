@@ -482,7 +482,7 @@ impl Device {
         Ok(raw_encrypted)
     }
 
-    /// Whether or not the device is a dehydrated device
+    /// Whether or not the device is a dehydrated device.
     pub fn is_dehydrated(&self) -> bool {
         self.inner.inner.dehydrated.unwrap_or(false)
     }

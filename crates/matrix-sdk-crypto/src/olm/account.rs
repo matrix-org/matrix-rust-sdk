@@ -161,7 +161,7 @@ pub struct StaticAccountData {
     pub device_id: OwnedDeviceId,
     /// The associated identity keys.
     pub identity_keys: Arc<IdentityKeys>,
-    /// Whether the account is for a dehydrated device
+    /// Whether the account is for a dehydrated device.
     pub dehydrated: bool,
     // The creation time of the account in milliseconds since epoch.
     creation_local_time: MilliSecondsSinceUnixEpoch,
