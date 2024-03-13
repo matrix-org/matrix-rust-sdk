@@ -1,5 +1,12 @@
 # UNRELEASED
 
+Breaking changes:
+
+- Add new `dehydrated` property to `olm::account::PickledAccount`.
+  ([#3164](https://github.com/matrix-org/matrix-rust-sdk/pull/3164))
+
+Additions:
+
 - Expose new methods `OlmMachine::set_room_settings` and
   `OlmMachine::get_room_settings`.
   ([#3042](https://github.com/matrix-org/matrix-rust-sdk/pull/3042))
