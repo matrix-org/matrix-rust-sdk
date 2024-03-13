@@ -201,6 +201,20 @@ pub enum VerificationState {
     Unverified,
 }
 
+/// Wraps together a `CrossProcessLockStoreGuard` and a generation number.
+#[derive(Debug)]
+pub struct CrossProcessLockStoreGuardWithGeneration {
+    _guard: CrossProcessStoreLockGuard,
+    generation: u64,
+}
+
+impl CrossProcessLockStoreGuardWithGeneration {
+    /// Return the Crypto Store generation associated with this store lock.
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+}
+
 impl Client {
     pub(crate) async fn olm_machine(&self) -> RwLockReadGuard<'_, Option<OlmMachine>> {
         self.base_client().olm_machine().await
@@ -1247,21 +1261,30 @@ impl Encryption {
 
     /// Maybe reload the `OlmMachine` after acquiring the lock for the first
     /// time.
-    async fn on_lock_newly_acquired(&self) -> Result<(), Error> {
+    ///
+    /// Returns the current generation number.
+    async fn on_lock_newly_acquired(&self) -> Result<u64, Error> {
         let olm_machine_guard = self.client.olm_machine().await;
         if let Some(olm_machine) = olm_machine_guard.as_ref() {
-            // If the crypto store generation has changed,
-            if olm_machine
+            let (new_gen, generation_number) = olm_machine
                 .maintain_crypto_store_generation(&self.client.locks().crypto_store_generation)
-                .await?
-            {
+                .await?;
+            // If the crypto store generation has changed,
+            if new_gen {
                 // (get rid of the reference to the current crypto store first)
                 drop(olm_machine_guard);
                 // Recreate the OlmMachine.
                 self.client.base_client().regenerate_olm().await?;
             }
+            Ok(generation_number)
+        } else {
+            // XXX: not sure this is reachable. Seems like the OlmMachine should always have
+            // been initialised by the time we get here. Ideally we'd panic, or return an
+            // error, but for now I'm just adding some logging to check if it
+            // happens, and returning the magic number 0.
+            warn!("Encryption::on_lock_newly_acquired: called before OlmMachine initialised");
+            Ok(0)
         }
-        Ok(())
     }
 
     /// If a lock was created with [`Self::enable_cross_process_store_lock`],
@@ -1272,13 +1295,13 @@ impl Encryption {
     pub async fn spin_lock_store(
         &self,
         max_backoff: Option<u32>,
-    ) -> Result<Option<CrossProcessStoreLockGuard>, Error> {
+    ) -> Result<Option<CrossProcessLockStoreGuardWithGeneration>, Error> {
         if let Some(lock) = self.client.locks().cross_process_crypto_store_lock.get() {
             let guard = lock.spin_lock(max_backoff).await?;
 
-            self.on_lock_newly_acquired().await?;
+            let generation = self.on_lock_newly_acquired().await?;
 
-            Ok(Some(guard))
+            Ok(Some(CrossProcessLockStoreGuardWithGeneration { _guard: guard, generation }))
         } else {
             Ok(None)
         }
@@ -1288,15 +1311,19 @@ impl Encryption {
     /// attempts to lock it once.
     ///
     /// Returns a guard to the lock, if it was obtained.
-    pub async fn try_lock_store_once(&self) -> Result<Option<CrossProcessStoreLockGuard>, Error> {
+    pub async fn try_lock_store_once(
+        &self,
+    ) -> Result<Option<CrossProcessLockStoreGuardWithGeneration>, Error> {
         if let Some(lock) = self.client.locks().cross_process_crypto_store_lock.get() {
             let maybe_guard = lock.try_lock_once().await?;
 
-            if maybe_guard.is_some() {
-                self.on_lock_newly_acquired().await?;
-            }
+            let Some(guard) = maybe_guard else {
+                return Ok(None);
+            };
 
-            Ok(maybe_guard)
+            let generation = self.on_lock_newly_acquired().await?;
+
+            Ok(Some(CrossProcessLockStoreGuardWithGeneration { _guard: guard, generation }))
         } else {
             Ok(None)
         }

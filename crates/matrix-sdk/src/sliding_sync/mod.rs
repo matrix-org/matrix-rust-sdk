@@ -722,14 +722,11 @@ impl SlidingSync {
     pub fn sync(&self) -> impl Stream<Item = Result<UpdateSummary, crate::Error>> + '_ {
         debug!("Starting sync stream");
 
-        let sync_span = Span::current();
         let mut internal_channel_receiver = self.inner.internal_channel.subscribe();
 
         stream! {
             loop {
-                sync_span.in_scope(|| {
-                    debug!("Sync stream is running");
-                });
+                debug!("Sync stream is running");
 
                 select! {
                     biased;
@@ -737,9 +734,7 @@ impl SlidingSync {
                     internal_message = internal_channel_receiver.recv() => {
                         use SlidingSyncInternalMessage::*;
 
-                        sync_span.in_scope(|| {
-                            debug!(?internal_message, "Sync stream has received an internal message");
-                        });
+                        debug!(?internal_message, "Sync stream has received an internal message");
 
                         match internal_message {
                             Err(_) | Ok(SyncLoopStop) => {
@@ -752,7 +747,7 @@ impl SlidingSync {
                         }
                     }
 
-                    update_summary = self.sync_once().instrument(sync_span.clone()) => {
+                    update_summary = self.sync_once() => {
                         match update_summary {
                             Ok(updates) => {
                                 yield Ok(updates);
@@ -767,9 +762,7 @@ impl SlidingSync {
                             Err(error) => {
                                 if error.client_api_error_kind() == Some(&ErrorKind::UnknownPos) {
                                     // The Sliding Sync session has expired. Let's reset `pos` and sticky parameters.
-                                    sync_span.in_scope(|| async {
-                                        self.expire_session().await;
-                                    }).await;
+                                    self.expire_session().await;
                                 }
 
                                 yield Err(error);
