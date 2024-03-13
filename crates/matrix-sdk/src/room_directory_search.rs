@@ -76,7 +76,6 @@ enum SearchState {
     Start,
 }
 
-// if you want extra methods:
 impl SearchState {
     fn next_token(&self) -> Option<&str> {
         if let Self::Next(next_token) = &self {
