@@ -1,7 +1,10 @@
 use std::sync::Arc;
 
 use futures_util::StreamExt;
-use matrix_sdk::encryption::{backups, recovery};
+use matrix_sdk::{
+    encryption,
+    encryption::{backups, recovery},
+};
 use thiserror::Error;
 use zeroize::Zeroize;
 
@@ -32,6 +35,11 @@ pub trait BackupSteadyStateListener: Sync + Send {
 #[uniffi::export(callback_interface)]
 pub trait RecoveryStateListener: Sync + Send {
     fn on_update(&self, status: RecoveryState);
+}
+
+#[uniffi::export(callback_interface)]
+pub trait VerificationStateListener: Sync + Send {
+    fn on_update(&self, status: VerificationState);
 }
 
 #[derive(uniffi::Enum)]
@@ -186,6 +194,23 @@ impl From<recovery::EnableProgress> for EnableRecoveryProgress {
     }
 }
 
+#[derive(uniffi::Enum)]
+pub enum VerificationState {
+    Unknown,
+    Verified,
+    Unverified,
+}
+
+impl From<encryption::VerificationState> for VerificationState {
+    fn from(value: encryption::VerificationState) -> Self {
+        match &value {
+            encryption::VerificationState::Unknown => Self::Unknown,
+            encryption::VerificationState::Verified => Self::Verified,
+            encryption::VerificationState::Unverified => Self::Unverified,
+        }
+    }
+}
+
 #[uniffi::export(async_runtime = "tokio")]
 impl Encryption {
     pub fn backup_state_listener(&self, listener: Box<dyn BackupStateListener>) -> Arc<TaskHandle> {
@@ -325,5 +350,21 @@ impl Encryption {
         recovery_key.zeroize();
 
         Ok(result?)
+    }
+
+    pub fn verification_state(&self) -> VerificationState {
+        self.inner.verification_state().get().into()
+    }
+
+    pub fn verification_state_listener(
+        self: Arc<Self>,
+        listener: Box<dyn VerificationStateListener>,
+    ) -> Arc<TaskHandle> {
+        let mut subscriber = self.inner.verification_state();
+        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
+            while let Some(verification_state) = subscriber.next().await {
+                listener.on_update(verification_state.into());
+            }
+        })))
     }
 }

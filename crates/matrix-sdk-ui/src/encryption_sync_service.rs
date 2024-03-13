@@ -26,7 +26,7 @@
 //!
 //! [NSE]: https://developer.apple.com/documentation/usernotifications/unnotificationserviceextension
 
-use std::time::Duration;
+use std::{pin::Pin, time::Duration};
 
 use async_stream::stream;
 use futures_core::stream::Stream;
@@ -34,7 +34,7 @@ use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::{Client, SlidingSync, LEASE_DURATION_MS};
 use ruma::{api::client::sync::sync_events::v4, assign};
 use tokio::sync::OwnedMutexGuard;
-use tracing::{debug, trace};
+use tracing::{debug, instrument, trace, Span};
 
 /// Unit type representing a permit to *use* an [`EncryptionSyncService`].
 ///
@@ -143,6 +143,7 @@ impl EncryptionSyncService {
     /// Note: the [`EncryptionSyncPermit`] parameter ensures that there's at
     /// most one encryption sync running at any time. See its documentation
     /// for more details.
+    #[instrument(skip_all, fields(store_generation))]
     pub async fn run_fixed_iterations(
         self,
         num_iterations: u8,
@@ -152,7 +153,7 @@ impl EncryptionSyncService {
 
         pin_mut!(sync);
 
-        let _lock_guard = if self.with_locking {
+        let lock_guard = if self.with_locking {
             let mut lock_guard =
                 self.client.encryption().try_lock_store_once().await.map_err(Error::LockError)?;
 
@@ -191,6 +192,8 @@ impl EncryptionSyncService {
         } else {
             None
         };
+
+        Span::current().record("store_generation", lock_guard.map(|guard| guard.generation()));
 
         for _ in 0..num_iterations {
             match sync.next().await {
@@ -241,17 +244,7 @@ impl EncryptionSyncService {
             pin_mut!(sync);
 
             loop {
-                let guard = if self.with_locking {
-                    self.client
-                        .encryption()
-                        .spin_lock_store(Some(60000))
-                        .await
-                        .map_err(Error::LockError)?
-                } else {
-                    None
-                };
-
-                match sync.next().await {
+                match self.next_sync_with_lock(&mut sync).await? {
                     Some(Ok(update_summary)) => {
                         // This API is only concerned with the e2ee and to-device extensions.
                         // Warn if anything weird has been received from the proxy.
@@ -264,18 +257,12 @@ impl EncryptionSyncService {
 
                         // Cool cool, let's do it again.
                         trace!("Encryption sync received an update!");
-
-                        drop(guard);
-
                         yield Ok(());
                         continue;
                     }
 
                     Some(Err(err)) => {
                         trace!("Encryption sync stopped because of an error: {err:#}");
-
-                        drop(guard);
-
                         yield Err(Error::SlidingSync(err));
                         break;
                     }
@@ -287,6 +274,24 @@ impl EncryptionSyncService {
                 }
             }
         })
+    }
+
+    /// Helper function for `sync`. Take the cross-process store lock, and call
+    /// `sync.next()`
+    #[instrument(skip_all, fields(store_generation))]
+    async fn next_sync_with_lock<Item>(
+        &self,
+        sync: &mut Pin<&mut impl Stream<Item = Item>>,
+    ) -> Result<Option<Item>, Error> {
+        let guard = if self.with_locking {
+            self.client.encryption().spin_lock_store(Some(60000)).await.map_err(Error::LockError)?
+        } else {
+            None
+        };
+
+        Span::current().record("store_generation", guard.map(|guard| guard.generation()));
+
+        Ok(sync.next().await)
     }
 
     /// Requests that the underlying sliding sync be stopped.

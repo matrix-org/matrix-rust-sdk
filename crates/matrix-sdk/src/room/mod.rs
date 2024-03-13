@@ -423,7 +423,7 @@ impl Room {
                 let response = self
                     .client
                     .send(
-                        request,
+                        request.clone(),
                         // In some cases it can take longer than 30s to load:
                         // https://github.com/element-hq/synapse/issues/16872
                         Some(RequestConfig::new().timeout(Duration::from_secs(60)).retry_limit(3)),
@@ -431,8 +431,12 @@ impl Room {
                     .await?;
 
                 // That's a large `Future`. Let's `Box::pin` to reduce its size on the stack.
-                Box::pin(self.client.base_client().receive_members(self.room_id(), &response))
-                    .await?;
+                Box::pin(self.client.base_client().receive_all_members(
+                    self.room_id(),
+                    &request,
+                    &response,
+                ))
+                .await?;
 
                 Ok(())
             })
@@ -1444,12 +1448,13 @@ impl Room {
     // TODO: expose this publicly so people can pre-share a group session if
     // e.g. a user starts to type a message for a room.
     #[cfg(feature = "e2e-encryption")]
-    #[instrument(skip_all, fields(room_id = ?self.room_id()))]
+    #[instrument(skip_all, fields(room_id = ?self.room_id(), store_generation))]
     async fn preshare_room_key(&self) -> Result<()> {
         self.ensure_room_joined()?;
 
         // Take and release the lock on the store, if needs be.
-        let _guard = self.client.encryption().spin_lock_store(Some(60000)).await?;
+        let guard = self.client.encryption().spin_lock_store(Some(60000)).await?;
+        tracing::Span::current().record("store_generation", guard.map(|guard| guard.generation()));
 
         self.client
             .locks()

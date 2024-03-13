@@ -59,7 +59,10 @@ use crate::{
     ReadOnlyDevice, ToDeviceRequest,
 };
 
-const ROTATION_PERIOD: Duration = Duration::from_millis(604800000);
+const ONE_HOUR: Duration = Duration::from_secs(60 * 60);
+const ONE_WEEK: Duration = Duration::from_secs(60 * 60 * 24 * 7);
+
+const ROTATION_PERIOD: Duration = ONE_WEEK;
 const ROTATION_MESSAGES: u64 = 100;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -415,13 +418,25 @@ impl OutboundGroupSession {
     fn elapsed(&self) -> bool {
         let creation_time = Duration::from_secs(self.creation_time.get().into());
         let now = Duration::from_secs(SecondsSinceUnixEpoch::now().get().into());
-
-        // Since the encryption settings are provided by users and not
-        // checked someone could set a really low rotation period so
-        // clamp it to an hour.
         now.checked_sub(creation_time)
-            .map(|elapsed| elapsed >= max(self.settings.rotation_period, Duration::from_secs(3600)))
+            .map(|elapsed| elapsed >= self.safe_rotation_period())
             .unwrap_or(true)
+    }
+
+    /// Returns the rotation_period_ms that was set for this session, clamped
+    /// to be no less than one hour.
+    ///
+    /// This is to prevent a malicious or careless user causing sessions to be
+    /// rotated very frequently.
+    ///
+    /// The feature flag `_disable-minimum-rotation-period-ms` can
+    /// be used to prevent this behaviour (which can be useful for tests).
+    fn safe_rotation_period(&self) -> Duration {
+        if cfg!(feature = "_disable-minimum-rotation-period-ms") {
+            self.settings.rotation_period
+        } else {
+            max(self.settings.rotation_period, ONE_HOUR)
+        }
     }
 
     /// Check if the session has expired and if it should be rotated.
@@ -776,6 +791,8 @@ mod tests {
 
         use crate::{olm::OutboundGroupSession, Account, EncryptionSettings, MegolmError};
 
+        const TWO_HOURS: Duration = Duration::from_secs(60 * 60 * 2);
+
         #[async_test]
         async fn session_is_not_expired_if_no_messages_sent_and_no_time_passed() {
             // Given a session that expires after one message
@@ -816,10 +833,10 @@ mod tests {
         }
 
         #[async_test]
-        async fn session_with_short_rotation_period_is_not_expired_after_no_time() {
-            // Given a session with a 100ms expiration
+        async fn session_with_rotation_period_is_not_expired_after_no_time() {
+            // Given a session with a 2h expiration
             let session = create_session(EncryptionSettings {
-                rotation_period: Duration::from_millis(100),
+                rotation_period: TWO_HOURS,
                 ..Default::default()
             })
             .await;
@@ -832,6 +849,24 @@ mod tests {
 
         #[async_test]
         async fn session_is_expired_after_rotation_period() {
+            // Given a session with a 2h expiration
+            let mut session = create_session(EncryptionSettings {
+                rotation_period: TWO_HOURS,
+                ..Default::default()
+            })
+            .await;
+
+            // When 3 hours have passed
+            let now = SecondsSinceUnixEpoch::now();
+            session.creation_time = SecondsSinceUnixEpoch(now.get() - uint!(10800));
+
+            // Then the session is expired
+            assert!(session.expired());
+        }
+
+        #[async_test]
+        #[cfg(not(feature = "_disable-minimum-rotation-period-ms"))]
+        async fn session_does_not_expire_under_one_hour_even_if_we_ask_for_shorter() {
             // Given a session with a 100ms expiration
             let mut session = create_session(EncryptionSettings {
                 rotation_period: Duration::from_millis(100),
@@ -839,11 +874,36 @@ mod tests {
             })
             .await;
 
-            // When one hour has passed
+            // When less than an hour has passed
             let now = SecondsSinceUnixEpoch::now();
-            session.creation_time = SecondsSinceUnixEpoch(now.get() - uint!(3600));
+            session.creation_time = SecondsSinceUnixEpoch(now.get() - uint!(1800));
+
+            // Then the session is not expired: we enforce a minimum of 1 hour
+            assert!(!session.expired());
+
+            // But when more than an hour has passed
+            session.creation_time = SecondsSinceUnixEpoch(now.get() - uint!(3601));
 
             // Then the session is expired
+            assert!(session.expired());
+        }
+
+        #[async_test]
+        #[cfg(feature = "_disable-minimum-rotation-period-ms")]
+        async fn with_disable_minrotperiod_feature_sessions_can_expire_quickly() {
+            // Given a session with a 100ms expiration
+            let mut session = create_session(EncryptionSettings {
+                rotation_period: Duration::from_millis(100),
+                ..Default::default()
+            })
+            .await;
+
+            // When less than an hour has passed
+            let now = SecondsSinceUnixEpoch::now();
+            session.creation_time = SecondsSinceUnixEpoch(now.get() - uint!(1800));
+
+            // Then the session is expired: the feature flag has prevented us enforcing a
+            // minimum
             assert!(session.expired());
         }
 
