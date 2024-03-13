@@ -78,7 +78,7 @@ use ruma::{
 use serde::de::DeserializeOwned;
 use thiserror::Error;
 use tokio::sync::broadcast;
-use tracing::{debug, info, instrument, warn, Span};
+use tracing::{debug, info, instrument, warn};
 
 use self::futures::{SendAttachment, SendMessageLikeEvent, SendRawMessageLikeEvent};
 pub use self::{
@@ -1454,7 +1454,7 @@ impl Room {
 
         // Take and release the lock on the store, if needs be.
         let guard = self.client.encryption().spin_lock_store(Some(60000)).await?;
-        Span::current().record("store_generation", guard.map(|guard| guard.generation()));
+        tracing::Span::current().record("store_generation", guard.map(|guard| guard.generation()));
 
         self.client
             .locks()

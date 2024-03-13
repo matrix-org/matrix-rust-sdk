@@ -202,8 +202,9 @@ pub enum VerificationState {
 }
 
 /// Wraps together a `CrossProcessLockStoreGuard` and a generation number.
+#[derive(Debug)]
 pub struct CrossProcessLockStoreGuardWithGeneration {
-    guard: CrossProcessStoreLockGuard,
+    _guard: CrossProcessStoreLockGuard,
     generation: u64,
 }
 
@@ -1298,7 +1299,7 @@ impl Encryption {
 
             let generation = self.on_lock_newly_acquired().await?;
 
-            Ok(Some(CrossProcessLockStoreGuardWithGeneration { guard, generation }))
+            Ok(Some(CrossProcessLockStoreGuardWithGeneration { _guard: guard, generation }))
         } else {
             Ok(None)
         }
@@ -1320,7 +1321,7 @@ impl Encryption {
 
             let generation = self.on_lock_newly_acquired().await?;
 
-            Ok(Some(CrossProcessLockStoreGuardWithGeneration { guard, generation }))
+            Ok(Some(CrossProcessLockStoreGuardWithGeneration { _guard: guard, generation }))
         } else {
             Ok(None)
         }
