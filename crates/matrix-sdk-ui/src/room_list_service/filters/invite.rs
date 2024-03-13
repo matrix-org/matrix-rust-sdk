@@ -5,21 +5,25 @@ use super::Filter;
 
 struct InviteRoomMatcher<F>
 where
-    F: Fn(&RoomListEntry) -> Option<bool>,
+    F: Fn(&RoomListEntry) -> Option<RoomState>,
 {
-    is_invite: F,
+    state: F,
 }
 
 impl<F> InviteRoomMatcher<F>
 where
-    F: Fn(&RoomListEntry) -> Option<bool>,
+    F: Fn(&RoomListEntry) -> Option<RoomState>,
 {
-    fn matches(&self, room_list_entry: &RoomListEntry) -> bool {
-        if !matches!(room_list_entry, RoomListEntry::Filled(_) | RoomListEntry::Invalidated(_)) {
+    fn matches(&self, room: &RoomListEntry) -> bool {
+        if !matches!(room, RoomListEntry::Filled(_) | RoomListEntry::Invalidated(_)) {
             return false;
         }
 
-        (self.is_invite)(room_list_entry).unwrap_or(false)
+        if let Some(state) = (self.state)(room) {
+            state == RoomState::Invited
+        } else {
+            false
+        }
     }
 }
 
@@ -30,12 +34,10 @@ pub fn new_filter(client: &Client) -> impl Filter {
     let client = client.clone();
 
     let matcher = InviteRoomMatcher {
-        is_invite: move |room| match room {
-            RoomListEntry::Filled(room_id) | RoomListEntry::Invalidated(room_id) => {
-                let room = client.get_room(room_id)?;
-                Some(room.state() == RoomState::Invited)
-            }
-            _ => None,
+        state: move |room| {
+            let room_id = room.as_room_id()?;
+            let room = client.get_room(room_id)?;
+            Some(room.state())
         },
     };
 
