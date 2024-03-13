@@ -156,6 +156,7 @@ impl RoomDirectorySearch {
         if self.search_state.is_at_end() {
             return Ok(());
         }
+
         let mut filter = Filter::new();
         filter.generic_search_term = self.filter.clone();
 
@@ -163,12 +164,15 @@ impl RoomDirectorySearch {
         request.filter = filter;
         request.limit = Some(self.batch_size.into());
         request.since = self.search_state.next_token().map(ToOwned::to_owned);
+
         let response = self.client.public_rooms_filtered(request).await?;
+
         if let Some(next_token) = response.next_batch {
             self.search_state = SearchState::Next(next_token);
         } else {
             self.search_state = SearchState::End;
         }
+
         self.results.append(response.chunk.into_iter().map(Into::into).collect());
         Ok(())
     }
