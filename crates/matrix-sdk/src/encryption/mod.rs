@@ -1279,8 +1279,10 @@ impl Encryption {
             Ok(generation_number)
         } else {
             // XXX: not sure this is reachable. Seems like the OlmMachine should always have
-            // been initialised by the time we get here. We'll just return the
-            // magic number 0.
+            // been initialised by the time we get here. Ideally we'd panic, or return an
+            // error, but for now I'm just adding some logging to check if it
+            // happens, and returning the magic number 0.
+            warn!("Encryption::on_lock_newly_acquired: called before OlmMachine initialised");
             Ok(0)
         }
     }
