@@ -46,41 +46,36 @@ pub fn new_filter(client: &Client) -> impl Filter {
 
 #[cfg(test)]
 mod tests {
-    use std::ops::Not;
-
     use matrix_sdk::RoomListEntry;
+    use matrix_sdk_base::RoomState;
     use ruma::room_id;
 
     use super::InviteRoomMatcher;
 
     #[test]
-    fn test_is_invite() {
-        let matcher = InviteRoomMatcher { is_invite: |_| Some(true) };
+    fn test_all_invite_kind_of_room_list_entry() {
+        // When we can't figure out the room state, nothing matches.
+        let matcher = InviteRoomMatcher { state: |_| None };
+        assert!(!matcher.matches(&RoomListEntry::Empty));
+        assert!(!matcher.matches(&RoomListEntry::Filled(room_id!("!r0:bar.org").to_owned())));
+        assert!(!matcher.matches(&RoomListEntry::Invalidated(room_id!("!r0:bar.org").to_owned())));
 
-        assert!(matcher.matches(&RoomListEntry::Empty).not());
+        // When a room has been left, it doesn't match.
+        let matcher = InviteRoomMatcher { state: |_| Some(RoomState::Left) };
+        assert!(!matcher.matches(&RoomListEntry::Empty));
+        assert!(!matcher.matches(&RoomListEntry::Filled(room_id!("!r0:bar.org").to_owned())));
+        assert!(!matcher.matches(&RoomListEntry::Invalidated(room_id!("!r0:bar.org").to_owned())));
+
+        // When a room has been joined, it doesn't match.
+        let matcher = InviteRoomMatcher { state: |_| Some(RoomState::Joined) };
+        assert!(!matcher.matches(&RoomListEntry::Empty));
+        assert!(!matcher.matches(&RoomListEntry::Filled(room_id!("!r0:bar.org").to_owned())));
+        assert!(!matcher.matches(&RoomListEntry::Invalidated(room_id!("!r0:bar.org").to_owned())));
+
+        // When a room has been joined, it does match (unless it's empty).
+        let matcher = InviteRoomMatcher { state: |_| Some(RoomState::Invited) };
+        assert!(!matcher.matches(&RoomListEntry::Empty));
         assert!(matcher.matches(&RoomListEntry::Filled(room_id!("!r0:bar.org").to_owned())));
         assert!(matcher.matches(&RoomListEntry::Invalidated(room_id!("!r0:bar.org").to_owned())));
-    }
-
-    #[test]
-    fn test_is_not_invite() {
-        let matcher = InviteRoomMatcher { is_invite: |_| Some(false) };
-
-        assert!(matcher.matches(&RoomListEntry::Empty).not());
-        assert!(matcher.matches(&RoomListEntry::Filled(room_id!("!r0:bar.org").to_owned())).not());
-        assert!(matcher
-            .matches(&RoomListEntry::Invalidated(room_id!("!r0:bar.org").to_owned()))
-            .not());
-    }
-
-    #[test]
-    fn test_invite_state_cannot_be_found() {
-        let matcher = InviteRoomMatcher { is_invite: |_| None };
-
-        assert!(matcher.matches(&RoomListEntry::Empty).not());
-        assert!(matcher.matches(&RoomListEntry::Filled(room_id!("!r0:bar.org").to_owned())).not());
-        assert!(matcher
-            .matches(&RoomListEntry::Invalidated(room_id!("!r0:bar.org").to_owned()))
-            .not());
     }
 }
