@@ -63,6 +63,34 @@ impl From<ruma::directory::PublicRoomsChunk> for RoomDescription {
         }
     }
 }
+
+#[derive(Default, Debug)]
+enum SearchState {
+    /// The search has more pages and contains the next token to be used in the
+    /// next page request.
+    Next(String),
+    /// The search has reached the end.
+    End,
+    /// The search is in a starting state, and has yet to fetch the first page.
+    #[default]
+    Start,
+}
+
+// if you want extra methods:
+impl SearchState {
+    fn next_token(&self) -> Option<&str> {
+        if let Self::Next(next_token) = &self {
+            Some(next_token)
+        } else {
+            None
+        }
+    }
+
+    fn is_at_end(&self) -> bool {
+        matches!(self, Self::End)
+    }
+}
+
 /// RoomDirectorySearch allows searching the public room directory, with the
 /// capability of using a filter and a batch_size. This struct is also
 /// responsible for keeping the current state of the search, and exposing an
@@ -88,10 +116,9 @@ impl From<ruma::directory::PublicRoomsChunk> for RoomDescription {
 pub struct RoomDirectorySearch {
     batch_size: u32,
     filter: Option<String>,
-    next_token: Option<String>,
+    search_state: SearchState,
     client: Client,
     results: ObservableVector<RoomDescription>,
-    is_at_last_page: bool,
 }
 
 impl RoomDirectorySearch {
@@ -100,10 +127,9 @@ impl RoomDirectorySearch {
         Self {
             batch_size: 0,
             filter: None,
-            next_token: None,
+            search_state: Default::default(),
             client,
             results: ObservableVector::new(),
-            is_at_last_page: false,
         }
     }
 
@@ -114,23 +140,21 @@ impl RoomDirectorySearch {
     /// per request.
     ///
     /// This method will clear the current search results and start a new one.
-    /// Should never be used concurrently with another `next_page` or a
-    /// `search`.
+    // Should never be used concurrently with another `next_page` or a
+    // `search`.
     pub async fn search(&mut self, filter: Option<String>, batch_size: u32) -> Result<()> {
         self.filter = filter;
         self.batch_size = batch_size;
-        self.next_token = None;
+        self.search_state = Default::default();
         self.results.clear();
-        self.is_at_last_page = false;
         self.next_page().await
     }
 
     /// Asks the server for the next page of the current search.
-    ///
-    /// Should never be used concurrently with another `next_page` or a
-    /// `search`.
+    // Should never be used concurrently with another `next_page` or a
+    // `search`.
     pub async fn next_page(&mut self) -> Result<()> {
-        if self.is_at_last_page {
+        if self.search_state.is_at_end() {
             return Ok(());
         }
         let mut filter = Filter::new();
@@ -139,11 +163,12 @@ impl RoomDirectorySearch {
         let mut request = PublicRoomsFilterRequest::new();
         request.filter = filter;
         request.limit = Some(self.batch_size.into());
-        request.since = self.next_token.clone();
+        request.since = self.search_state.next_token().map(ToOwned::to_owned);
         let response = self.client.public_rooms_filtered(request).await?;
-        self.next_token = response.next_batch;
-        if self.next_token.is_none() {
-            self.is_at_last_page = true;
+        if let Some(next_token) = response.next_batch {
+            self.search_state = SearchState::Next(next_token);
+        } else {
+            self.search_state = SearchState::End;
         }
         self.results.append(response.chunk.into_iter().map(Into::into).collect());
         Ok(())
@@ -167,7 +192,7 @@ impl RoomDirectorySearch {
 
     /// Get whether the search is at the last page
     pub fn is_at_last_page(&self) -> bool {
-        self.is_at_last_page
+        self.search_state.is_at_end()
     }
 }
 

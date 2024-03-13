@@ -29,12 +29,14 @@ pub enum PublicRoomJoinRule {
     Knock,
 }
 
-impl PublicRoomJoinRule {
-    fn convert(value: ruma::directory::PublicRoomJoinRule) -> Option<Self> {
+impl TryFrom<ruma::directory::PublicRoomJoinRule> for PublicRoomJoinRule {
+    type Error = ();
+
+    fn try_from(value: ruma::directory::PublicRoomJoinRule) -> Result<Self, Self::Error> {
         match value {
-            ruma::directory::PublicRoomJoinRule::Public => Some(Self::Public),
-            ruma::directory::PublicRoomJoinRule::Knock => Some(Self::Knock),
-            _ => None,
+            ruma::directory::PublicRoomJoinRule::Public => Ok(Self::Public),
+            ruma::directory::PublicRoomJoinRule::Knock => Ok(Self::Knock),
+            _ => Err(()),
         }
     }
 }
@@ -59,7 +61,7 @@ impl From<matrix_sdk::room_directory_search::RoomDescription> for RoomDescriptio
             topic: value.topic,
             alias: value.alias.map(|alias| alias.to_string()),
             avatar_url: value.avatar_url.map(|url| url.to_string()),
-            join_rule: PublicRoomJoinRule::convert(value.join_rule),
+            join_rule: value.join_rule.try_into().ok(),
             is_world_readable: value.is_world_readable,
             joined_members: value.joined_members,
         }
