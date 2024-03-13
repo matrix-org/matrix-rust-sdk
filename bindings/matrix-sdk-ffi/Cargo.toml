@@ -15,6 +15,7 @@ crate-type = ["cdylib", "staticlib"]
 [features]
 default = ["bundled-sqlite"]
 bundled-sqlite = ["matrix-sdk/bundled-sqlite"]
+_disable-minimum-rotation-period-ms = ["matrix-sdk/_disable-minimum-rotation-period-ms"]
 
 [build-dependencies]
 uniffi = { workspace = true, features = ["build"] }

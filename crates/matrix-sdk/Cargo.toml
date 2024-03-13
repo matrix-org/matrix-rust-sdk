@@ -61,6 +61,12 @@ experimental-widgets = ["dep:language-tags", "dep:uuid"]
 
 docsrs = ["e2e-encryption", "sqlite", "indexeddb", "sso-login", "qrcode", "image-proc"]
 
+_disable-minimum-rotation-period-ms = [
+    "matrix-sdk-base/_disable-minimum-rotation-period-ms",
+    "matrix-sdk-sqlite?/_disable-minimum-rotation-period-ms",
+    "matrix-sdk-indexeddb?/_disable-minimum-rotation-period-ms",
+]
+
 [dependencies]
 anyhow = { workspace = true, optional = true }
 anymap2 = "0.13.0"

@@ -34,6 +34,8 @@ testing = [
     "matrix-sdk-crypto?/testing",
 ]
 
+_disable-minimum-rotation-period-ms = ["matrix-sdk-crypto?/_disable-minimum-rotation-period-ms"]
+
 [dependencies]
 as_variant = { workspace = true }
 assert_matches = { workspace = true, optional = true }

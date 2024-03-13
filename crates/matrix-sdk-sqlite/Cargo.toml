@@ -10,6 +10,7 @@ rust-version = { workspace = true }
 [features]
 default = ["state-store"]
 testing = ["matrix-sdk-crypto?/testing"]
+_disable-minimum-rotation-period-ms = ["matrix-sdk-crypto?/_disable-minimum-rotation-period-ms"]
 
 bundled = ["rusqlite/bundled"]
 crypto-store = ["dep:matrix-sdk-crypto"]

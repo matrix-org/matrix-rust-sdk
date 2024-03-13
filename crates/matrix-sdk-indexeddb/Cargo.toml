@@ -18,6 +18,7 @@ default = ["e2e-encryption", "state-store"]
 state-store = ["dep:matrix-sdk-base"]
 e2e-encryption = ["dep:matrix-sdk-crypto"]
 testing = ["matrix-sdk-crypto?/testing"]
+_disable-minimum-rotation-period-ms = ["matrix-sdk-crypto?/_disable-minimum-rotation-period-ms"]
 
 [dependencies]
 anyhow = { workspace = true }
