@@ -478,9 +478,12 @@ mod tests {
             "The dehydrated device creation request should contain some fallback keys"
         );
 
-        let device_keys: crate::types::DeviceKeys =
-            serde_json::from_str(request.device_keys.json().get()).unwrap();
-        assert_eq!(device_keys.dehydrated, Some(true), "The device keys of the dehydrated device should be marked as dehydrated.");
+        let device_keys: crate::types::DeviceKeys = request.device_keys.deserialize_as().unwrap();
+        assert_eq!(
+            device_keys.dehydrated,
+            Some(true),
+            "The device keys of the dehydrated device should be marked as dehydrated."
+        );
     }
 
     #[async_test]
