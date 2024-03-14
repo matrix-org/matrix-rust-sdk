@@ -188,7 +188,6 @@ impl TimelineBuilder {
 
                         RoomEventCacheUpdate::Append {
                             events,
-                            prev_batch,
                             account_data,
                             ephemeral,
                             ambiguity_changes,
@@ -201,7 +200,7 @@ impl TimelineBuilder {
                             // `handle_add_events`.
                             let timeline = matrix_sdk_base::sync::Timeline {
                                 limited: false,
-                                prev_batch,
+                                prev_batch: None,
                                 events,
                             };
                             let update = JoinedRoomUpdate {
