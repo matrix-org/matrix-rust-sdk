@@ -140,17 +140,20 @@ async fn test_reaction_redaction() {
 
 #[async_test]
 async fn test_reaction_redaction_timeline_filter() {
-    let mut timeline = TestTimeline::new();
+    let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe_events().await;
 
     // Initialise a timeline with a redacted reaction.
     timeline
         .inner
-        .add_initial_events(vec![SyncTimelineEvent::new(
-            timeline
-                .event_builder
-                .make_sync_redacted_message_event(*ALICE, RedactedReactionEventContent::new()),
-        )])
+        .add_events_at(
+            vec![SyncTimelineEvent::new(
+                timeline
+                    .event_builder
+                    .make_sync_redacted_message_event(*ALICE, RedactedReactionEventContent::new()),
+            )],
+            crate::timeline::inner::TimelineEnd::Back { from_cache: false },
+        )
         .await;
     // Timeline items are actually empty.
     assert_eq!(timeline.inner.items().await.len(), 0);

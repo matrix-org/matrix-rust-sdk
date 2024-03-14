@@ -57,6 +57,21 @@ use crate::{
     unable_to_decrypt_hook::UtdHookManager,
 };
 
+/// Which end of the timeline should an event be added to?
+///
+/// This is a simplification of `TimelineItemPosition` which doesn't contain the
+/// `Update` variant, when adding a bunch of events at the same time.
+#[derive(Debug)]
+pub(crate) enum TimelineEnd {
+    /// Event should be prepended to the front of the timeline.
+    Front,
+    /// Event should appended to the back of the timeline.
+    Back {
+        /// Did the event come from the cache?
+        from_cache: bool,
+    },
+}
+
 #[derive(Debug)]
 pub(in crate::timeline) struct TimelineInnerState {
     pub items: ObservableVector<Arc<TimelineItem>>,
@@ -77,26 +92,37 @@ impl TimelineInnerState {
         }
     }
 
-    #[tracing::instrument(skip_all)]
-    pub(super) async fn add_initial_events<P: RoomDataProvider>(
+    /// Add the given events at the given end of the timeline.
+    #[tracing::instrument(skip(self, events, room_data_provider, settings))]
+    pub(super) async fn add_events_at<P: RoomDataProvider>(
         &mut self,
-        events: Vec<SyncTimelineEvent>,
+        events: Vec<impl Into<SyncTimelineEvent>>,
+        position: TimelineEnd,
         room_data_provider: &P,
         settings: &TimelineInnerSettings,
-    ) {
-        debug!("Adding {} initial events", events.len());
+    ) -> HandleManyEventsResult {
+        if events.is_empty() {
+            return Default::default();
+        }
+
+        let mut total = HandleManyEventsResult::default();
+
+        let position = match position {
+            TimelineEnd::Front => TimelineItemPosition::Start,
+            TimelineEnd::Back { from_cache } => TimelineItemPosition::End { from_cache },
+        };
 
         let mut txn = self.transaction();
         for event in events {
-            txn.handle_remote_event(
-                event,
-                TimelineItemPosition::End { from_cache: true },
-                room_data_provider,
-                settings,
-            )
-            .await;
+            let (_, res) =
+                txn.handle_remote_event(event.into(), position, room_data_provider, settings).await;
+
+            total.items_added += res.item_added as u64;
+            total.items_updated += res.items_updated as u64;
         }
         txn.commit();
+
+        total
     }
 
     #[instrument(skip_all)]
@@ -140,54 +166,6 @@ impl TimelineInnerState {
             }
         }
 
-        txn.commit();
-    }
-
-    /// Prepends the given events to the beginning/top of the timeline.
-    #[instrument(skip_all)]
-    pub(super) async fn handle_back_paginated_events<P: RoomDataProvider>(
-        &mut self,
-        events: Vec<TimelineEvent>,
-        room_data_provider: &P,
-        settings: &TimelineInnerSettings,
-    ) -> HandleManyEventsResult {
-        let mut txn = self.transaction();
-
-        let mut total = HandleManyEventsResult::default();
-        for event in events {
-            let (_, res) = txn
-                .handle_remote_event(
-                    event.into(),
-                    TimelineItemPosition::Start,
-                    room_data_provider,
-                    settings,
-                )
-                .await;
-
-            total.items_added += res.item_added as u64;
-            total.items_updated += res.items_updated as u64;
-        }
-
-        txn.commit();
-
-        total
-    }
-
-    #[cfg(test)]
-    pub(super) async fn handle_live_event<P: RoomDataProvider>(
-        &mut self,
-        event: SyncTimelineEvent,
-        room_data_provider: &P,
-        settings: &TimelineInnerSettings,
-    ) {
-        let mut txn = self.transaction();
-        txn.handle_remote_event(
-            event,
-            TimelineItemPosition::End { from_cache: false },
-            room_data_provider,
-            settings,
-        )
-        .await;
         txn.commit();
     }
 

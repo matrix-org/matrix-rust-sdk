@@ -25,9 +25,7 @@ use itertools::Itertools;
 #[cfg(all(test, feature = "e2e-encryption"))]
 use matrix_sdk::crypto::OlmMachine;
 use matrix_sdk::{
-    deserialized_responses::{SyncTimelineEvent, TimelineEvent},
-    sync::JoinedRoomUpdate,
-    Error, Result, Room,
+    deserialized_responses::SyncTimelineEvent, sync::JoinedRoomUpdate, Error, Result, Room,
 };
 #[cfg(test)]
 use ruma::events::receipt::ReceiptEventContent;
@@ -70,7 +68,7 @@ use crate::{timeline::TimelineEventFilterFn, unable_to_decrypt_hook::UtdHookMana
 mod state;
 
 pub(super) use self::state::{
-    EventMeta, FullEventMeta, TimelineInnerMetadata, TimelineInnerState,
+    EventMeta, FullEventMeta, TimelineEnd, TimelineInnerMetadata, TimelineInnerState,
     TimelineInnerStateTransaction,
 };
 
@@ -408,13 +406,20 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         }
     }
 
-    pub(super) async fn add_initial_events(&mut self, events: Vec<SyncTimelineEvent>) {
+    /// Handle a list of events at the given end of the timeline.
+    ///
+    /// Returns the number of timeline updates that were made.
+    pub(super) async fn add_events_at(
+        &self,
+        events: Vec<impl Into<SyncTimelineEvent>>,
+        position: TimelineEnd,
+    ) -> HandleManyEventsResult {
         if events.is_empty() {
-            return;
+            return Default::default();
         }
 
         let mut state = self.state.write().await;
-        state.add_initial_events(events, &self.room_data_provider, &self.settings).await;
+        state.add_events_at(events, position, &self.room_data_provider, &self.settings).await
     }
 
     pub(super) async fn clear(&self) {
@@ -429,7 +434,14 @@ impl<P: RoomDataProvider> TimelineInner<P> {
     #[cfg(test)]
     pub(super) async fn handle_live_event(&self, event: SyncTimelineEvent) {
         let mut state = self.state.write().await;
-        state.handle_live_event(event, &self.room_data_provider, &self.settings).await;
+        state
+            .add_events_at(
+                vec![event],
+                TimelineEnd::Back { from_cache: false },
+                &self.room_data_provider,
+                &self.settings,
+            )
+            .await;
     }
 
     /// Handle the creation of a new local event.
@@ -663,17 +675,6 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             debug!("Can't find local echo to discard");
             false
         }
-    }
-
-    /// Handle a list of back-paginated events.
-    ///
-    /// Returns the number of timeline updates that were made.
-    pub(super) async fn handle_back_paginated_events(
-        &self,
-        events: Vec<TimelineEvent>,
-    ) -> HandleManyEventsResult {
-        let mut state = self.state.write().await;
-        state.handle_back_paginated_events(events, &self.room_data_provider, &self.settings).await
     }
 
     pub(super) async fn set_fully_read_event(&self, fully_read_event_id: OwnedEventId) {
