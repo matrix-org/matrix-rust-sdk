@@ -54,6 +54,7 @@ use crate::{
         AnnotationKey, Error as TimelineError, Profile, ReactionSenderData, TimelineItem,
         TimelineItemKind, VirtualTimelineItem,
     },
+    unable_to_decrypt_hook::UtdHookManager,
 };
 
 #[derive(Debug)]
@@ -63,13 +64,16 @@ pub(in crate::timeline) struct TimelineInnerState {
 }
 
 impl TimelineInnerState {
-    pub(super) fn new(room_version: RoomVersionId) -> Self {
+    pub(super) fn new(
+        room_version: RoomVersionId,
+        unable_to_decrypt_hook: Option<Arc<UtdHookManager>>,
+    ) -> Self {
         Self {
             // Upstream default capacity is currently 16, which is making
             // sliding-sync tests with 20 events lag. This should still be
             // small enough.
             items: ObservableVector::with_capacity(32),
-            meta: TimelineInnerMetadata::new(room_version),
+            meta: TimelineInnerMetadata::new(room_version, unable_to_decrypt_hook),
         }
     }
 
@@ -806,10 +810,16 @@ pub(in crate::timeline) struct TimelineInnerMetadata {
     ///
     /// Private because it's not needed by `TimelineEventHandler`.
     back_pagination_tokens: VecDeque<(OwnedEventId, String)>,
+
+    /// The hook to call whenever we run into a unable-to-decrypt event.
+    pub(crate) unable_to_decrypt_hook: Option<Arc<UtdHookManager>>,
 }
 
 impl TimelineInnerMetadata {
-    fn new(room_version: RoomVersionId) -> TimelineInnerMetadata {
+    fn new(
+        room_version: RoomVersionId,
+        unable_to_decrypt_hook: Option<Arc<UtdHookManager>>,
+    ) -> Self {
         Self {
             all_events: Default::default(),
             next_internal_id: Default::default(),
@@ -824,6 +834,7 @@ impl TimelineInnerMetadata {
             in_flight_reaction: Default::default(),
             room_version,
             back_pagination_tokens: VecDeque::new(),
+            unable_to_decrypt_hook,
         }
     }
 

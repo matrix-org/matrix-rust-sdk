@@ -66,7 +66,7 @@ use super::{
     AnnotationKey, EventSendState, EventTimelineItem, InReplyToDetails, Message, Profile,
     RepliedToEvent, TimelineDetails, TimelineItem, TimelineItemContent, TimelineItemKind,
 };
-use crate::timeline::TimelineEventFilterFn;
+use crate::{timeline::TimelineEventFilterFn, unable_to_decrypt_hook::UtdHookManager};
 
 mod state;
 
@@ -210,8 +210,12 @@ pub fn default_event_filter(event: &AnySyncTimelineEvent, room_version: &RoomVer
 }
 
 impl<P: RoomDataProvider> TimelineInner<P> {
-    pub(super) fn new(room_data_provider: P) -> Self {
-        let state = TimelineInnerState::new(room_data_provider.room_version());
+    pub(super) fn new(
+        room_data_provider: P,
+        unable_to_decrypt_hook: Option<Arc<UtdHookManager>>,
+    ) -> Self {
+        let state =
+            TimelineInnerState::new(room_data_provider.room_version(), unable_to_decrypt_hook);
         Self {
             state: Arc::new(RwLock::new(state)),
             room_data_provider,
@@ -786,11 +790,13 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         let settings = self.settings.clone();
         let room_data_provider = self.room_data_provider.clone();
         let push_rules_context = room_data_provider.push_rules_and_context().await;
+        let unable_to_decrypt_hook = state.unable_to_decrypt_hook.clone();
 
         matrix_sdk::executor::spawn(async move {
             let retry_one = |item: Arc<TimelineItem>| {
                 let decryptor = decryptor.clone();
                 let should_retry = &should_retry;
+                let unable_to_decrypt_hook = unable_to_decrypt_hook.clone();
                 async move {
                     let event_item = item.as_event()?;
 
@@ -824,6 +830,12 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                             trace!(
                                 "Successfully decrypted event that previously failed to decrypt"
                             );
+
+                            // Notify observers that we managed to eventually decrypt an event.
+                            if let Some(hook) = unable_to_decrypt_hook {
+                                hook.on_late_decrypt(&remote_event.event_id);
+                            }
+
                             Some(event)
                         }
                         Err(e) => {

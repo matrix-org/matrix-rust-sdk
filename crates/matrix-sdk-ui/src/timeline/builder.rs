@@ -36,6 +36,7 @@ use super::{
     queue::send_queued_messages,
     BackPaginationStatus, Timeline, TimelineDropHandle,
 };
+use crate::unable_to_decrypt_hook::UtdHookManager;
 
 /// Builder that allows creating and configuring various parts of a
 /// [`Timeline`].
@@ -45,11 +46,29 @@ pub struct TimelineBuilder {
     room: Room,
     prev_token: Option<String>,
     settings: TimelineInnerSettings,
+
+    /// An optional hook to call whenever we run into an unable-to-decrypt or a
+    /// late-decryption event.
+    unable_to_decrypt_hook: Option<Arc<UtdHookManager>>,
 }
 
 impl TimelineBuilder {
     pub(super) fn new(room: &Room) -> Self {
-        Self { room: room.clone(), prev_token: None, settings: TimelineInnerSettings::default() }
+        Self {
+            room: room.clone(),
+            prev_token: None,
+            settings: TimelineInnerSettings::default(),
+            unable_to_decrypt_hook: None,
+        }
+    }
+
+    /// Sets up a hook to catch unable-to-decrypt (UTD) events for the timeline
+    /// we're building.
+    ///
+    /// If it was previously set before, will overwrite the previous one.
+    pub fn with_unable_to_decrypt_hook(mut self, hook: Arc<UtdHookManager>) -> Self {
+        self.unable_to_decrypt_hook = Some(hook);
+        self
     }
 
     /// Add initial events to the timeline.
@@ -119,7 +138,7 @@ impl TimelineBuilder {
         )
     )]
     pub async fn build(self) -> event_cache::Result<Timeline> {
-        let Self { room, prev_token, settings } = self;
+        let Self { room, prev_token, settings, unable_to_decrypt_hook } = self;
 
         let client = room.client();
         let event_cache = client.event_cache();
@@ -133,7 +152,7 @@ impl TimelineBuilder {
         let has_events = !events.is_empty();
         let track_read_marker_and_receipts = settings.track_read_receipts;
 
-        let mut inner = TimelineInner::new(room).with_settings(settings);
+        let mut inner = TimelineInner::new(room, unable_to_decrypt_hook).with_settings(settings);
 
         if track_read_marker_and_receipts {
             inner.populate_initial_user_receipt(ReceiptType::Read).await;

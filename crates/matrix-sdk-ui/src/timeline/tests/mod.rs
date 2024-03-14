@@ -54,6 +54,7 @@ use super::{
     traits::RoomDataProvider,
     EventTimelineItem, Profile, TimelineInner, TimelineItem,
 };
+use crate::unable_to_decrypt_hook::UtdHookManager;
 
 mod basic;
 mod echo;
@@ -81,7 +82,17 @@ impl TestTimeline {
     }
 
     fn with_room_data_provider(room_data_provider: TestRoomDataProvider) -> Self {
-        Self { inner: TimelineInner::new(room_data_provider), event_builder: EventBuilder::new() }
+        Self {
+            inner: TimelineInner::new(room_data_provider, None),
+            event_builder: EventBuilder::new(),
+        }
+    }
+
+    fn with_unable_to_decrypt_hook(hook: Arc<UtdHookManager>) -> Self {
+        Self {
+            inner: TimelineInner::new(TestRoomDataProvider::default(), Some(hook)),
+            event_builder: EventBuilder::new(),
+        }
     }
 
     fn with_settings(mut self, settings: TimelineInnerSettings) -> Self {
