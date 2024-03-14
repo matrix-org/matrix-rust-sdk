@@ -33,7 +33,7 @@ pub trait UnableToDecryptHook: std::fmt::Debug + Send + Sync {
     /// Called every time the hook observes an encrypted event that couldn't be
     /// decrypted.
     ///
-    /// If the hook manager was configured with a grace period, this could also
+    /// If the hook manager was configured with a max delay, this could also
     /// contain extra information for late-decrypted events. See details in
     /// [`UnableToDecryptInfo::time_to_decrypt`].
     fn on_utd(&self, info: UnableToDecryptInfo);
@@ -58,10 +58,10 @@ type PendingUtdReports = Vec<(OwnedEventId, JoinHandle<()>)>;
 /// on similar events, and adds basic consistency checks.
 ///
 /// It can also implement a grace period before reporting an event as a UTD, if
-/// configured with [`Self::with_delay`]. Instead of immediately reporting the
-/// UTD, the reporting will be delayed by the grace period at most; if the event
-/// could eventually get decrypted, it may be reported before the end of that
-/// grace period.
+/// configured with [`Self::with_max_delay`]. Instead of immediately reporting
+/// the UTD, the reporting will be delayed by the max delay at most; if the
+/// event could eventually get decrypted, it may be reported before the end of
+/// that delay.
 #[derive(Debug)]
 pub struct UtdHookManager {
     /// The parent hook we'll call, when we have found a unique UTD.
@@ -76,10 +76,15 @@ pub struct UtdHookManager {
     known_utds: Arc<Mutex<HashMap<OwnedEventId, Instant>>>,
 
     /// An optional delay before marking the event as UTD ("grace period").
-    delay: Option<Duration>,
+    max_delay: Option<Duration>,
 
     /// The set of outstanding tasks to report deferred UTDs, including the
     /// event relating to the task.
+    ///
+    /// Note: this is empty if no [`Self::max_delay`] is set.
+    ///
+    /// Note: this is theoretically unbounded in size, although this set of
+    /// tasks will degrow over time, as tasks expire after the max delay.
     pending_delayed: Arc<Mutex<PendingUtdReports>>,
 }
 
@@ -89,17 +94,17 @@ impl UtdHookManager {
         Self {
             parent,
             known_utds: Default::default(),
-            delay: None,
+            max_delay: None,
             pending_delayed: Default::default(),
         }
     }
 
-    /// Reports UTDs with the given delay.
+    /// Reports UTDs with the given max delay.
     ///
     /// Note: late decryptions are always reported, even if there was a grace
     /// period set for the reporting of the UTD.
-    pub fn with_delay(mut self, delay: Duration) -> Self {
-        self.delay = Some(delay);
+    pub fn with_max_delay(mut self, delay: Duration) -> Self {
+        self.max_delay = Some(delay);
         self
     }
 
@@ -120,7 +125,7 @@ impl UtdHookManager {
 
         let info = UnableToDecryptInfo { event_id: event_id.to_owned(), time_to_decrypt: None };
 
-        let Some(delay) = self.delay else {
+        let Some(max_delay) = self.max_delay else {
             // No delay: immediately report the event to the parent hook.
             self.parent.on_utd(info);
             return;
@@ -137,7 +142,7 @@ impl UtdHookManager {
         // hook then.
         let handle = spawn(async move {
             // Wait for the given delay.
-            sleep(delay).await;
+            sleep(max_delay).await;
 
             // In any case, remove the task from the outstanding set.
             pending_delayed.lock().unwrap().retain(|(event_id, _)| *event_id != info.event_id);
@@ -169,7 +174,7 @@ impl UtdHookManager {
             time_to_decrypt: Some(marked_utd_at.elapsed()),
         };
 
-        // Cancel and remove the task from the outstanding set.
+        // Cancel and remove the task from the outstanding set immediately.
         self.pending_delayed.lock().unwrap().retain(|(event_id, task)| {
             if *event_id == info.event_id {
                 task.abort();
@@ -278,8 +283,7 @@ mod tests {
             assert!(utds[0].time_to_decrypt.is_none());
         }
 
-        // And when I call the `on_late_decrypt` method before the event had been marked
-        // as utd,
+        // And when I call the `on_late_decrypt` method,
         wrapper.on_late_decrypt(event_id!("$1"));
 
         // Then the event is now reported as a late-decryption too.
@@ -305,7 +309,7 @@ mod tests {
 
         // And I wrap with the UtdHookManager, configured to delay reporting after 2
         // seconds.
-        let wrapper = UtdHookManager::new(hook.clone()).with_delay(Duration::from_secs(2));
+        let wrapper = UtdHookManager::new(hook.clone()).with_max_delay(Duration::from_secs(2));
 
         // And I call the `on_utd` method for an event,
         wrapper.on_utd(event_id!("$1"));
@@ -341,7 +345,7 @@ mod tests {
 
         // And I wrap with the UtdHookManager, configured to delay reporting after 2
         // seconds.
-        let wrapper = UtdHookManager::new(hook.clone()).with_delay(Duration::from_secs(2));
+        let wrapper = UtdHookManager::new(hook.clone()).with_max_delay(Duration::from_secs(2));
 
         // And I call the `on_utd` method for an event,
         wrapper.on_utd(event_id!("$1"));

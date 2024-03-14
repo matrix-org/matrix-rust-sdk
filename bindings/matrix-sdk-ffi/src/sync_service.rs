@@ -128,7 +128,8 @@ impl SyncServiceBuilder {
 
         let this = unwrap_or_clone_arc(self);
         let utd_hook = Some(Arc::new(
-            UtdHookManager::new(Arc::new(UtdHook { delegate })).with_delay(UTD_HOOK_GRACE_PERIOD),
+            UtdHookManager::new(Arc::new(UtdHook { delegate }))
+                .with_max_delay(UTD_HOOK_GRACE_PERIOD),
         ));
         Arc::new(Self { builder: this.builder, utd_hook })
     }
