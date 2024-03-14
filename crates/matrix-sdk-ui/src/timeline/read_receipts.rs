@@ -505,14 +505,15 @@ impl TimelineInnerState {
         room_data_provider: &P,
     ) -> Option<(OwnedEventId, Receipt)> {
         let public_read_receipt =
-            self.user_receipt(user_id, ReceiptType::Read, room_data_provider).await;
+            self.meta.user_receipt(user_id, ReceiptType::Read, room_data_provider).await;
         let private_read_receipt =
-            self.user_receipt(user_id, ReceiptType::ReadPrivate, room_data_provider).await;
+            self.meta.user_receipt(user_id, ReceiptType::ReadPrivate, room_data_provider).await;
 
         // Let's assume that a private read receipt should be more recent than a public
         // read receipt, otherwise there's no point in the private read receipt,
         // and use it as default.
         match self
+            .meta
             .compare_optional_receipts(public_read_receipt.as_ref(), private_read_receipt.as_ref())
         {
             Ordering::Greater => public_read_receipt,
@@ -529,22 +530,23 @@ impl TimelineInnerState {
     ) -> Option<OwnedEventId> {
         // We only need to use the local map, since receipts for known events are
         // already loaded from the store.
-        let public_read_receipt = self.read_receipts.get_latest(user_id, &ReceiptType::Read);
+        let public_read_receipt = self.meta.read_receipts.get_latest(user_id, &ReceiptType::Read);
         let private_read_receipt =
-            self.read_receipts.get_latest(user_id, &ReceiptType::ReadPrivate);
+            self.meta.read_receipts.get_latest(user_id, &ReceiptType::ReadPrivate);
 
         // Let's assume that a private read receipt should be more recent than a public
         // read receipt, otherwise there's no point in the private read receipt,
         // and use it as default.
         let (latest_receipt_id, _) =
-            match self.compare_optional_receipts(public_read_receipt, private_read_receipt) {
+            match self.meta.compare_optional_receipts(public_read_receipt, private_read_receipt) {
                 Ordering::Greater => public_read_receipt?,
                 Ordering::Less => private_read_receipt?,
                 _ => unreachable!(),
             };
 
         // Find the corresponding visible event.
-        self.all_events
+        self.meta
+            .all_events
             .iter()
             .rev()
             .skip_while(|ev| ev.event_id != *latest_receipt_id)

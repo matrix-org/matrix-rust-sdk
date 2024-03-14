@@ -16,7 +16,6 @@ use std::{
     collections::VecDeque,
     future::Future,
     mem::{self, ManuallyDrop},
-    ops::{Deref, DerefMut},
     sync::Arc,
 };
 
@@ -407,20 +406,6 @@ impl TimelineInnerState {
         let items = ManuallyDrop::new(self.items.transaction());
         let meta = ManuallyDrop::new(self.meta.clone());
         TimelineInnerStateTransaction { items, previous_meta: &mut self.meta, meta }
-    }
-}
-
-impl Deref for TimelineInnerState {
-    type Target = TimelineInnerMetadata;
-
-    fn deref(&self) -> &Self::Target {
-        &self.meta
-    }
-}
-
-impl DerefMut for TimelineInnerState {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.meta
     }
 }
 
