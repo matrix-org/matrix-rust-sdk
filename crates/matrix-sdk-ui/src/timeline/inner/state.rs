@@ -184,7 +184,13 @@ impl TimelineInnerState {
         settings: &TimelineInnerSettings,
     ) {
         let mut txn = self.transaction();
-        txn.handle_live_event(event, room_data_provider, settings).await;
+        txn.handle_remote_event(
+            event,
+            TimelineItemPosition::End { from_cache: false },
+            room_data_provider,
+            settings,
+        )
+        .await;
         txn.commit();
     }
 
@@ -464,27 +470,14 @@ impl TimelineInnerStateTransaction<'_> {
         let num_events = timeline.events.len();
         for (i, event) in timeline.events.into_iter().enumerate() {
             trace!("Handling event {} out of {num_events}", i + 1);
-            self.handle_live_event(event, room_data_provider, settings).await;
+            self.handle_remote_event(
+                event,
+                TimelineItemPosition::End { from_cache: false },
+                room_data_provider,
+                settings,
+            )
+            .await;
         }
-    }
-
-    /// Handle a live remote event.
-    ///
-    /// Shorthand for `handle_remote_event` with a `position` of
-    /// `TimelineItemPosition::End { from_cache: false }`.
-    async fn handle_live_event<P: RoomDataProvider>(
-        &mut self,
-        event: SyncTimelineEvent,
-        room_data_provider: &P,
-        settings: &TimelineInnerSettings,
-    ) -> (Option<OwnedEventId>, HandleEventResult) {
-        self.handle_remote_event(
-            event,
-            TimelineItemPosition::End { from_cache: false },
-            room_data_provider,
-            settings,
-        )
-        .await
     }
 
     /// Handle a remote event.
