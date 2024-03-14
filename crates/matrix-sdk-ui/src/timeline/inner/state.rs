@@ -115,7 +115,7 @@ impl TimelineInnerState {
     }
 
     #[instrument(skip_all)]
-    pub(super) async fn handle_joined_room_update<P: RoomDataProvider>(
+    pub(super) async fn handle_sync_events<P: RoomDataProvider>(
         &mut self,
         events: Vec<SyncTimelineEvent>,
         account_data: Vec<Raw<AnyRoomAccountDataEvent>>,

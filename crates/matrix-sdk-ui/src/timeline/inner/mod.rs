@@ -425,7 +425,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         self.state.write().await.clear();
     }
 
-    pub(super) async fn handle_joined_room_update(
+    pub(super) async fn handle_sync_events(
         &self,
         events: Vec<SyncTimelineEvent>,
         account_data: Vec<Raw<AnyRoomAccountDataEvent>>,
@@ -433,7 +433,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
     ) {
         let mut state = self.state.write().await;
         state
-            .handle_joined_room_update(
+            .handle_sync_events(
                 events,
                 account_data,
                 ephemeral,
