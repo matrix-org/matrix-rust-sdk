@@ -31,8 +31,9 @@
 //! - [ ] expose that information with a new data structure similar to the
 //!   `RoomInfo`, and that may update a `RoomListService`.
 //! - [ ] provide read receipts for each message.
-//! - [ ] backwards and forward pagination, and reconcile results with cached
-//!   timelines.
+//! - [x] backwards pagination
+//! - [ ] forward pagination
+//! - [ ] reconcile results with cached timelines.
 //! - [ ] retry decryption upon receiving new keys (from an encryption sync
 //!   service or from a key backup).
 //! - [ ] expose the latest event for a given room.
