@@ -34,29 +34,32 @@ use stream_assert::assert_next_matches;
 
 use super::TestTimeline;
 use crate::timeline::{
-    event_item::AnyOtherFullStateEventContent, MembershipChange, TimelineDetails,
-    TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
+    event_item::AnyOtherFullStateEventContent, inner::TimelineEnd, MembershipChange,
+    TimelineDetails, TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
 };
 
 #[async_test]
 async fn test_initial_events() {
-    let mut timeline = TestTimeline::new();
+    let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe().await;
 
     timeline
         .inner
-        .add_initial_events(vec![
-            SyncTimelineEvent::new(
-                timeline
-                    .event_builder
-                    .make_sync_message_event(*ALICE, RoomMessageEventContent::text_plain("A")),
-            ),
-            SyncTimelineEvent::new(
-                timeline
-                    .event_builder
-                    .make_sync_message_event(*BOB, RoomMessageEventContent::text_plain("B")),
-            ),
-        ])
+        .add_events_at(
+            vec![
+                SyncTimelineEvent::new(
+                    timeline
+                        .event_builder
+                        .make_sync_message_event(*ALICE, RoomMessageEventContent::text_plain("A")),
+                ),
+                SyncTimelineEvent::new(
+                    timeline
+                        .event_builder
+                        .make_sync_message_event(*BOB, RoomMessageEventContent::text_plain("B")),
+                ),
+            ],
+            TimelineEnd::Back { from_cache: false },
+        )
         .await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
@@ -214,7 +217,7 @@ async fn test_dedup_pagination() {
 
 #[async_test]
 async fn test_dedup_initial() {
-    let mut timeline = TestTimeline::new();
+    let timeline = TestTimeline::new();
 
     let event_a = SyncTimelineEvent::new(
         timeline
@@ -234,16 +237,19 @@ async fn test_dedup_initial() {
 
     timeline
         .inner
-        .add_initial_events(vec![
-            // two events
-            event_a.clone(),
-            event_b.clone(),
-            // same events got duplicated in next sync response
-            event_a,
-            event_b,
-            // … and a new event also came in
-            event_c,
-        ])
+        .add_events_at(
+            vec![
+                // two events
+                event_a.clone(),
+                event_b.clone(),
+                // same events got duplicated in next sync response
+                event_a,
+                event_b,
+                // … and a new event also came in
+                event_c,
+            ],
+            TimelineEnd::Back { from_cache: false },
+        )
         .await;
 
     let timeline_items = timeline.inner.items().await;

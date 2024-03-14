@@ -36,7 +36,7 @@ use super::{
     queue::send_queued_messages,
     BackPaginationStatus, Timeline, TimelineDropHandle,
 };
-use crate::unable_to_decrypt_hook::UtdHookManager;
+use crate::{timeline::inner::TimelineEnd, unable_to_decrypt_hook::UtdHookManager};
 
 /// Builder that allows creating and configuring various parts of a
 /// [`Timeline`].
@@ -148,7 +148,7 @@ impl TimelineBuilder {
         }
 
         if has_events {
-            inner.add_initial_events(events).await;
+            inner.add_events_at(events, TimelineEnd::Back { from_cache: true }).await;
         }
         if track_read_marker_and_receipts {
             inner.load_fully_read_event().await;

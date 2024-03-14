@@ -17,6 +17,8 @@ use std::{fmt, ops::ControlFlow, sync::Arc, time::Duration};
 use matrix_sdk::event_cache::{self, BackPaginationOutcome};
 use tracing::{debug, instrument, trace, warn};
 
+use crate::timeline::inner::TimelineEnd;
+
 impl super::Timeline {
     /// Add more events to the start of the timeline.
     #[instrument(skip_all, fields(room_id = ?self.room().room_id(), ?options))]
@@ -52,7 +54,7 @@ impl super::Timeline {
                         trace!("Back-pagination succeeded with {num_events} events");
 
                         let handle_many_events_result =
-                            self.inner.handle_back_paginated_events(events).await;
+                            self.inner.add_events_at(events, TimelineEnd::Front).await;
 
                         if reached_start {
                             self.back_pagination_status

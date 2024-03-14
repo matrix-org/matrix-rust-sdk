@@ -239,25 +239,28 @@ async fn test_reactions_store_timestamp() {
 
 #[async_test]
 async fn test_initial_reaction_timestamp_is_stored() {
-    let mut timeline = TestTimeline::new();
+    let timeline = TestTimeline::new();
 
     let message_event_id = EventId::new(server_name!("dummy.server"));
     let reaction_timestamp = MilliSecondsSinceUnixEpoch(uint!(39845));
 
     timeline
         .inner
-        .add_initial_events(vec![
-            SyncTimelineEvent::new(timeline.event_builder.make_sync_reaction(
-                *ALICE,
-                &Annotation::new(message_event_id.clone(), REACTION_KEY.to_owned()),
-                reaction_timestamp,
-            )),
-            SyncTimelineEvent::new(timeline.event_builder.make_sync_message_event_with_id(
-                *ALICE,
-                &message_event_id,
-                RoomMessageEventContent::text_plain("A"),
-            )),
-        ])
+        .add_events_at(
+            vec![
+                SyncTimelineEvent::new(timeline.event_builder.make_sync_reaction(
+                    *ALICE,
+                    &Annotation::new(message_event_id.clone(), REACTION_KEY.to_owned()),
+                    reaction_timestamp,
+                )),
+                SyncTimelineEvent::new(timeline.event_builder.make_sync_message_event_with_id(
+                    *ALICE,
+                    &message_event_id,
+                    RoomMessageEventContent::text_plain("A"),
+                )),
+            ],
+            crate::timeline::inner::TimelineEnd::Back { from_cache: false },
+        )
         .await;
 
     let items = timeline.inner.items().await;
