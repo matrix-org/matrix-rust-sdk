@@ -30,13 +30,13 @@ pub enum PublicRoomJoinRule {
 }
 
 impl TryFrom<ruma::directory::PublicRoomJoinRule> for PublicRoomJoinRule {
-    type Error = ();
+    type Error = String;
 
     fn try_from(value: ruma::directory::PublicRoomJoinRule) -> Result<Self, Self::Error> {
         match value {
             ruma::directory::PublicRoomJoinRule::Public => Ok(Self::Public),
             ruma::directory::PublicRoomJoinRule::Knock => Ok(Self::Knock),
-            _ => Err(()),
+            rule => Err(format!("unsupported join rule: {rule:?}")),
         }
     }
 }
