@@ -1136,32 +1136,33 @@ impl Account {
 
         match message {
             OlmMessage::Normal(_) => {
-                let session_ids = if let Some(sessions) = existing_sessions {
+                let mut errors_by_olm_session = Vec::new();
+
+                if let Some(sessions) = existing_sessions {
                     let sessions = &mut *sessions.lock().await;
 
                     // Try to decrypt the message using each Session we share with the
                     // given curve25519 sender key.
                     for session in sessions.iter_mut() {
-                        if let Ok(p) = session.decrypt(message).await {
-                            // success!
-                            return Ok((SessionType::Existing(session.clone()), p));
-                        } else {
-                            // An error here is completely normal, after all we don't know
-                            // which session was used to encrypt a message. We will log a
-                            // warning if no session was able to decrypt the message.
-                            continue;
+                        match session.decrypt(message).await {
+                            Ok(p) => {
+                                // success!
+                                return Ok((SessionType::Existing(session.clone()), p));
+                            }
+
+                            Err(e) => {
+                                // An error here is completely normal, after all we don't know
+                                // which session was used to encrypt a message.
+                                // We keep hold of the error, so that if *all* sessions fail to
+                                // decrypt, we can log something useful.
+                                errors_by_olm_session.push((session.session_id().to_owned(), e));
+                            }
                         }
                     }
-
-                    // decryption wasn't successful with any of the sessions. Collect a list of
-                    // session IDs to log.
-                    sessions.iter().map(|s| s.session_id().to_owned()).collect()
-                } else {
-                    vec![]
-                };
+                }
 
                 warn!(
-                    ?session_ids,
+                    ?errors_by_olm_session,
                     "Failed to decrypt a non-pre-key message with all available sessions"
                 );
                 Err(OlmError::SessionWedged(sender.to_owned(), sender_key))
