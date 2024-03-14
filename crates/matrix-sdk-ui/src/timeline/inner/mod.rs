@@ -24,9 +24,7 @@ use imbl::Vector;
 use itertools::Itertools;
 #[cfg(all(test, feature = "e2e-encryption"))]
 use matrix_sdk::crypto::OlmMachine;
-use matrix_sdk::{
-    deserialized_responses::SyncTimelineEvent, sync::JoinedRoomUpdate, Error, Result, Room,
-};
+use matrix_sdk::{deserialized_responses::SyncTimelineEvent, Error, Result, Room};
 #[cfg(test)]
 use ruma::events::receipt::ReceiptEventContent;
 #[cfg(all(test, feature = "e2e-encryption"))]
@@ -43,9 +41,10 @@ use ruma::{
             message::{MessageType, Relation},
             redaction::RoomRedactionEventContent,
         },
-        AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
-        MessageLikeEventType,
+        AnyMessageLikeEventContent, AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent,
+        AnySyncMessageLikeEvent, AnySyncTimelineEvent, MessageLikeEventType,
     },
+    serde::Raw,
     EventId, OwnedEventId, OwnedTransactionId, RoomVersionId, TransactionId, UserId,
 };
 use tokio::sync::{RwLock, RwLockWriteGuard};
@@ -426,9 +425,22 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         self.state.write().await.clear();
     }
 
-    pub(super) async fn handle_joined_room_update(&self, update: JoinedRoomUpdate) {
+    pub(super) async fn handle_joined_room_update(
+        &self,
+        events: Vec<SyncTimelineEvent>,
+        account_data: Vec<Raw<AnyRoomAccountDataEvent>>,
+        ephemeral: Vec<Raw<AnySyncEphemeralRoomEvent>>,
+    ) {
         let mut state = self.state.write().await;
-        state.handle_joined_room_update(update, &self.room_data_provider, &self.settings).await;
+        state
+            .handle_joined_room_update(
+                events,
+                account_data,
+                ephemeral,
+                &self.room_data_provider,
+                &self.settings,
+            )
+            .await;
     }
 
     #[cfg(test)]

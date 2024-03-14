@@ -22,8 +22,8 @@ use std::{
 
 use eyeball_im::{ObservableVector, ObservableVectorTransaction, ObservableVectorTransactionEntry};
 use indexmap::IndexMap;
-use matrix_sdk::{deserialized_responses::SyncTimelineEvent, sync::Timeline};
-use matrix_sdk_base::{deserialized_responses::TimelineEvent, sync::JoinedRoomUpdate};
+use matrix_sdk::deserialized_responses::SyncTimelineEvent;
+use matrix_sdk_base::deserialized_responses::TimelineEvent;
 #[cfg(test)]
 use ruma::events::receipt::ReceiptEventContent;
 use ruma::{
@@ -32,6 +32,7 @@ use ruma::{
         AnyMessageLikeEventContent, AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent,
     },
     push::Action,
+    serde::Raw,
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
     RoomVersionId, UserId,
 };
@@ -105,38 +106,35 @@ impl TimelineInnerState {
             return Default::default();
         }
 
-        let mut total = HandleManyEventsResult::default();
-
-        let position = match position {
-            TimelineEnd::Front => TimelineItemPosition::Start,
-            TimelineEnd::Back { from_cache } => TimelineItemPosition::End { from_cache },
-        };
-
         let mut txn = self.transaction();
-        for event in events {
-            let handle_one_res =
-                txn.handle_remote_event(event.into(), position, room_data_provider, settings).await;
-
-            total.items_added += handle_one_res.item_added as u64;
-            total.items_updated += handle_one_res.items_updated as u64;
-        }
+        let handle_many_res =
+            txn.add_events_at(events, position, room_data_provider, settings).await;
         txn.commit();
 
-        total
+        handle_many_res
     }
 
     #[instrument(skip_all)]
     pub(super) async fn handle_joined_room_update<P: RoomDataProvider>(
         &mut self,
-        update: JoinedRoomUpdate,
+        events: Vec<SyncTimelineEvent>,
+        account_data: Vec<Raw<AnyRoomAccountDataEvent>>,
+        ephemeral: Vec<Raw<AnySyncEphemeralRoomEvent>>,
         room_data_provider: &P,
         settings: &TimelineInnerSettings,
     ) {
         let mut txn = self.transaction();
-        txn.handle_sync_timeline(update.timeline, room_data_provider, settings).await;
+
+        txn.add_events_at(
+            events,
+            TimelineEnd::Back { from_cache: false },
+            room_data_provider,
+            settings,
+        )
+        .await;
 
         trace!("Handling account data");
-        for raw_event in update.account_data {
+        for raw_event in account_data {
             match raw_event.deserialize() {
                 Ok(AnyRoomAccountDataEvent::FullyRead(ev)) => {
                     txn.set_fully_read_event(ev.content.event_id);
@@ -149,10 +147,10 @@ impl TimelineInnerState {
             }
         }
 
-        if !update.ephemeral.is_empty() {
+        if !ephemeral.is_empty() {
             trace!("Handling ephemeral room events");
             let own_user_id = room_data_provider.own_user_id();
-            for raw_event in update.ephemeral {
+            for raw_event in ephemeral {
                 match raw_event.deserialize() {
                     Ok(AnySyncEphemeralRoomEvent::Receipt(ev)) => {
                         txn.handle_explicit_read_receipts(ev.content, own_user_id);
@@ -439,28 +437,32 @@ pub(in crate::timeline) struct TimelineInnerStateTransaction<'a> {
 }
 
 impl TimelineInnerStateTransaction<'_> {
-    #[instrument(skip_all, fields(limited = timeline.limited))]
-    async fn handle_sync_timeline<P: RoomDataProvider>(
+    /// Add the given events at the given end of the timeline.
+    #[tracing::instrument(skip(self, events, room_data_provider, settings))]
+    pub(super) async fn add_events_at<P: RoomDataProvider>(
         &mut self,
-        timeline: Timeline,
+        events: Vec<impl Into<SyncTimelineEvent>>,
+        position: TimelineEnd,
         room_data_provider: &P,
         settings: &TimelineInnerSettings,
-    ) {
-        if timeline.limited {
-            self.clear();
+    ) -> HandleManyEventsResult {
+        let mut total = HandleManyEventsResult::default();
+
+        let position = match position {
+            TimelineEnd::Front => TimelineItemPosition::Start,
+            TimelineEnd::Back { from_cache } => TimelineItemPosition::End { from_cache },
+        };
+
+        for event in events {
+            let handle_one_res = self
+                .handle_remote_event(event.into(), position, room_data_provider, settings)
+                .await;
+
+            total.items_added += handle_one_res.item_added as u64;
+            total.items_updated += handle_one_res.items_updated as u64;
         }
 
-        let num_events = timeline.events.len();
-        for (i, event) in timeline.events.into_iter().enumerate() {
-            trace!("Handling event {} out of {num_events}", i + 1);
-            self.handle_remote_event(
-                event,
-                TimelineItemPosition::End { from_cache: false },
-                room_data_provider,
-                settings,
-            )
-            .await;
-        }
+        total
     }
 
     /// Handle a remote event.

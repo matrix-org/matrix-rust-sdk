@@ -53,7 +53,7 @@ impl super::Timeline {
                         let num_events = events.len();
                         trace!("Back-pagination succeeded with {num_events} events");
 
-                        let handle_many_events_result =
+                        let handle_many_res =
                             self.inner.add_events_at(events, TimelineEnd::Front).await;
 
                         if reached_start {
@@ -68,8 +68,8 @@ impl super::Timeline {
                                 .total_events_received
                                 .checked_add(outcome.events_received)?;
 
-                            outcome.items_added = handle_many_events_result.items_added;
-                            outcome.items_updated = handle_many_events_result.items_updated;
+                            outcome.items_added = handle_many_res.items_added;
+                            outcome.items_updated = handle_many_res.items_updated;
                             outcome.total_items_added += outcome.items_added;
                             outcome.total_items_updated += outcome.items_updated;
 

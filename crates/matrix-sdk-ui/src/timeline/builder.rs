@@ -21,7 +21,6 @@ use matrix_sdk::{
     executor::spawn,
     Room,
 };
-use matrix_sdk_base::sync::JoinedRoomUpdate;
 use ruma::{
     events::{receipt::ReceiptType, AnySyncTimelineEvent},
     RoomVersionId,
@@ -194,24 +193,10 @@ impl TimelineBuilder {
                         } => {
                             trace!("Received new events");
 
-                            // XXX this timeline and the joined room updates are synthetic, until
-                            // we get rid of `handle_joined_room_update` by adding all functionality
-                            // back in the event cache, and replacing it with a simple
+                            // TODO: (bnjbvr) account_data and ephemeral should be handled by the
+                            // event cache, and we should replace this with a simple
                             // `handle_add_events`.
-                            let timeline = matrix_sdk_base::sync::Timeline {
-                                limited: false,
-                                prev_batch: None,
-                                events,
-                            };
-                            let update = JoinedRoomUpdate {
-                                unread_notifications: Default::default(),
-                                timeline,
-                                state: Default::default(),
-                                account_data,
-                                ephemeral,
-                                ambiguity_changes: Default::default(),
-                            };
-                            inner.handle_joined_room_update(update).await;
+                            inner.handle_joined_room_update(events, account_data, ephemeral).await;
 
                             let member_ambiguity_changes = ambiguity_changes
                                 .values()
