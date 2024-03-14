@@ -38,7 +38,7 @@ use super::TestTimeline;
 use crate::timeline::{AnyOtherFullStateEventContent, TimelineDetails, TimelineItemContent};
 
 #[async_test]
-async fn redact_state_event() {
+async fn test_redact_state_event() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe_events().await;
 
@@ -68,7 +68,7 @@ async fn redact_state_event() {
 }
 
 #[async_test]
-async fn redact_replied_to_event() {
+async fn test_redact_replied_to_event() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe_events().await;
 
@@ -114,7 +114,7 @@ async fn redact_replied_to_event() {
 }
 
 #[async_test]
-async fn reaction_redaction() {
+async fn test_reaction_redaction() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe_events().await;
 
@@ -139,7 +139,7 @@ async fn reaction_redaction() {
 }
 
 #[async_test]
-async fn reaction_redaction_timeline_filter() {
+async fn test_reaction_redaction_timeline_filter() {
     let mut timeline = TestTimeline::new();
     let mut stream = timeline.subscribe_events().await;
 
@@ -180,7 +180,7 @@ async fn reaction_redaction_timeline_filter() {
 }
 
 #[async_test]
-async fn receive_unredacted() {
+async fn test_receive_unredacted() {
     let timeline = TestTimeline::new();
 
     // send two events, second one redacted
