@@ -26,7 +26,7 @@ use ruma::{
     events::{receipt::ReceiptType, AnySyncTimelineEvent},
     RoomVersionId,
 };
-use tokio::sync::{broadcast, mpsc, Notify};
+use tokio::sync::{broadcast, mpsc};
 use tracing::{info, info_span, trace, warn, Instrument, Span};
 
 #[cfg(feature = "e2e-encryption")]
@@ -36,6 +36,7 @@ use super::{
     queue::send_queued_messages,
     BackPaginationStatus, Timeline, TimelineDropHandle,
 };
+use crate::unable_to_decrypt_hook::UtdHookManager;
 
 /// Builder that allows creating and configuring various parts of a
 /// [`Timeline`].
@@ -43,21 +44,28 @@ use super::{
 #[derive(Debug)]
 pub struct TimelineBuilder {
     room: Room,
-    prev_token: Option<String>,
     settings: TimelineInnerSettings,
+
+    /// An optional hook to call whenever we run into an unable-to-decrypt or a
+    /// late-decryption event.
+    unable_to_decrypt_hook: Option<Arc<UtdHookManager>>,
 }
 
 impl TimelineBuilder {
     pub(super) fn new(room: &Room) -> Self {
-        Self { room: room.clone(), prev_token: None, settings: TimelineInnerSettings::default() }
+        Self {
+            room: room.clone(),
+            settings: TimelineInnerSettings::default(),
+            unable_to_decrypt_hook: None,
+        }
     }
 
-    /// Add initial events to the timeline.
+    /// Sets up a hook to catch unable-to-decrypt (UTD) events for the timeline
+    /// we're building.
     ///
-    /// TODO: remove this, the EventCache should hold the pagination token in
-    /// the first place.
-    pub fn with_pagination_token(mut self, prev_token: Option<String>) -> Self {
-        self.prev_token = prev_token;
+    /// If it was previously set before, will overwrite the previous one.
+    pub fn with_unable_to_decrypt_hook(mut self, hook: Arc<UtdHookManager>) -> Self {
+        self.unable_to_decrypt_hook = Some(hook);
         self
     }
 
@@ -115,11 +123,10 @@ impl TimelineBuilder {
         fields(
             room_id = ?self.room.room_id(),
             track_read_receipts = self.settings.track_read_receipts,
-            prev_token = self.prev_token,
         )
     )]
     pub async fn build(self) -> event_cache::Result<Timeline> {
-        let Self { room, prev_token, settings } = self;
+        let Self { room, settings, unable_to_decrypt_hook } = self;
 
         let client = room.client();
         let event_cache = client.event_cache();
@@ -133,7 +140,7 @@ impl TimelineBuilder {
         let has_events = !events.is_empty();
         let track_read_marker_and_receipts = settings.track_read_receipts;
 
-        let mut inner = TimelineInner::new(room).with_settings(settings);
+        let mut inner = TimelineInner::new(room, unable_to_decrypt_hook).with_settings(settings);
 
         if track_read_marker_and_receipts {
             inner.populate_initial_user_receipt(ReceiptType::Read).await;
@@ -141,7 +148,7 @@ impl TimelineBuilder {
         }
 
         if has_events {
-            inner.add_initial_events(events, prev_token).await;
+            inner.add_initial_events(events).await;
         }
         if track_read_marker_and_receipts {
             inner.load_fully_read_event().await;
@@ -150,9 +157,7 @@ impl TimelineBuilder {
         let room = inner.room();
         let client = room.client();
 
-        let sync_response_notify = Arc::new(Notify::new());
         let room_update_join_handle = spawn({
-            let sync_response_notify = sync_response_notify.clone();
             let inner = inner.clone();
 
             let span =
@@ -214,8 +219,6 @@ impl TimelineBuilder {
                                 .flat_map(|change| change.user_ids())
                                 .collect::<BTreeSet<_>>();
                             inner.force_update_sender_profiles(&member_ambiguity_changes).await;
-
-                            sync_response_notify.notify_waiters();
                         }
                     }
                 }
@@ -292,10 +295,9 @@ impl TimelineBuilder {
 
         let timeline = Timeline {
             inner,
-            back_pagination_mtx: Default::default(),
             back_pagination_status: SharedObservable::new(BackPaginationStatus::Idle),
-            sync_response_notify,
             msg_sender,
+            event_cache: room_event_cache,
             drop_handle: Arc::new(TimelineDropHandle {
                 client,
                 event_handler_handles: handles,

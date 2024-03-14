@@ -45,21 +45,18 @@ async fn initial_events() {
 
     timeline
         .inner
-        .add_initial_events(
-            vec![
-                SyncTimelineEvent::new(
-                    timeline
-                        .event_builder
-                        .make_sync_message_event(*ALICE, RoomMessageEventContent::text_plain("A")),
-                ),
-                SyncTimelineEvent::new(
-                    timeline
-                        .event_builder
-                        .make_sync_message_event(*BOB, RoomMessageEventContent::text_plain("B")),
-                ),
-            ],
-            None,
-        )
+        .add_initial_events(vec![
+            SyncTimelineEvent::new(
+                timeline
+                    .event_builder
+                    .make_sync_message_event(*ALICE, RoomMessageEventContent::text_plain("A")),
+            ),
+            SyncTimelineEvent::new(
+                timeline
+                    .event_builder
+                    .make_sync_message_event(*BOB, RoomMessageEventContent::text_plain("B")),
+            ),
+        ])
         .await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
@@ -237,19 +234,16 @@ async fn dedup_initial() {
 
     timeline
         .inner
-        .add_initial_events(
-            vec![
-                // two events
-                event_a.clone(),
-                event_b.clone(),
-                // same events got duplicated in next sync response
-                event_a,
-                event_b,
-                // … and a new event also came in
-                event_c,
-            ],
-            None,
-        )
+        .add_initial_events(vec![
+            // two events
+            event_a.clone(),
+            event_b.clone(),
+            // same events got duplicated in next sync response
+            event_a,
+            event_b,
+            // … and a new event also came in
+            event_c,
+        ])
         .await;
 
     let timeline_items = timeline.inner.items().await;
