@@ -946,6 +946,7 @@ impl CryptoStore for SqliteCryptoStore {
 
     async fn inbound_group_sessions_for_backup(
         &self,
+        _backup_version: &str,
         limit: usize,
     ) -> Result<Vec<InboundGroupSession>> {
         self.acquire()
@@ -962,6 +963,7 @@ impl CryptoStore for SqliteCryptoStore {
 
     async fn mark_inbound_group_sessions_as_backed_up(
         &self,
+        _backup_version: &str,
         session_ids: &[(&RoomId, &str)],
     ) -> Result<()> {
         Ok(self

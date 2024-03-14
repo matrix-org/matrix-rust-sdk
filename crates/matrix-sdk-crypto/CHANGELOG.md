@@ -17,6 +17,10 @@ Breaking changes:
 - Add new `dehydrated` property to `olm::account::PickledAccount`.
   ([#3164](https://github.com/matrix-org/matrix-rust-sdk/pull/3164))
 
+- Add a `backup_version` argument to `CryptoStore`'s
+  `inbound_group_sessions_for_backup` and
+  `mark_inbound_group_sessions_as_backed_up` methods.
+
 Additions:
 
 - Expose new method `OlmMachine::device_creation_time`.

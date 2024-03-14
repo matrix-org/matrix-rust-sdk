@@ -476,7 +476,12 @@ impl BackupMachine {
 
                 trace!(request_id = ?r.request_id, keys = ?r.sessions, "Marking room keys as backed up");
 
-                self.store.mark_inbound_group_sessions_as_backed_up(&room_and_session_ids).await?;
+                self.store
+                    .mark_inbound_group_sessions_as_backed_up(
+                        &r.request.version,
+                        &room_and_session_ids,
+                    )
+                    .await?;
 
                 trace!(
                     request_id = ?r.request_id,
@@ -514,7 +519,7 @@ impl BackupMachine {
         };
 
         let sessions =
-            self.store.inbound_group_sessions_for_backup(Self::BACKUP_BATCH_SIZE).await?;
+            self.store.inbound_group_sessions_for_backup(&version, Self::BACKUP_BATCH_SIZE).await?;
 
         if sessions.is_empty() {
             trace!(?backup_key, "No room keys need to be backed up");
