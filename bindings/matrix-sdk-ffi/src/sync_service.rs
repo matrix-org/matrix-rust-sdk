@@ -21,7 +21,9 @@ use matrix_sdk_ui::{
         State as MatrixSyncServiceState, SyncService as MatrixSyncService,
         SyncServiceBuilder as MatrixSyncServiceBuilder,
     },
-    unable_to_decrypt_hook::{UnableToDecryptHook, UnableToDecryptInfo, UtdHookManager},
+    unable_to_decrypt_hook::{
+        UnableToDecryptHook, UnableToDecryptInfo as SdkUnableToDecryptInfo, UtdHookManager,
+    },
 };
 
 use crate::{
@@ -142,7 +144,7 @@ impl SyncServiceBuilder {
 
 #[uniffi::export(callback_interface)]
 pub trait UnableToDecryptDelegate: Sync + Send {
-    fn on_utd(&self, info: Arc<UnableToDecryptInfo>);
+    fn on_utd(&self, info: UnableToDecryptInfo);
 }
 
 struct UtdHook {
@@ -156,7 +158,7 @@ impl std::fmt::Debug for UtdHook {
 }
 
 impl UnableToDecryptHook for UtdHook {
-    fn on_utd(&self, info: UnableToDecryptInfo) {
+    fn on_utd(&self, info: SdkUnableToDecryptInfo) {
         const IGNORE_UTD_PERIOD: Duration = Duration::from_secs(4);
 
         // UTDs that have been decrypted in the `IGNORE_UTD_PERIOD` are just ignored and
@@ -167,7 +169,30 @@ impl UnableToDecryptHook for UtdHook {
             }
         }
 
-        // Report the UTD to the parent.
-        self.delegate.on_utd(Arc::new(info));
+        // Report the UTD to the client.
+        self.delegate.on_utd(info.into());
+    }
+}
+
+#[derive(uniffi::Record)]
+pub struct UnableToDecryptInfo {
+    /// The identifier of the event that couldn't get decrypted.
+    event_id: String,
+
+    /// If the event could be decrypted late (that is, the event was encrypted
+    /// at first, but could be decrypted later on), then this indicates the
+    /// time it took to decrypt the event. If it is not set, this is
+    /// considered a definite UTD.
+    ///
+    /// If set, this is in milliseconds.
+    pub time_to_decrypt_ms: Option<u64>,
+}
+
+impl From<SdkUnableToDecryptInfo> for UnableToDecryptInfo {
+    fn from(value: SdkUnableToDecryptInfo) -> Self {
+        Self {
+            event_id: value.event_id.to_string(),
+            time_to_decrypt_ms: value.time_to_decrypt.map(|ttd| ttd.as_millis() as u64),
+        }
     }
 }
