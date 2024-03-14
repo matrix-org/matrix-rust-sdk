@@ -114,11 +114,11 @@ impl TimelineInnerState {
 
         let mut txn = self.transaction();
         for event in events {
-            let (_, res) =
+            let handle_one_res =
                 txn.handle_remote_event(event.into(), position, room_data_provider, settings).await;
 
-            total.items_added += res.item_added as u64;
-            total.items_updated += res.items_updated as u64;
+            total.items_added += handle_one_res.item_added as u64;
+            total.items_updated += handle_one_res.items_updated as u64;
         }
         txn.commit();
 
@@ -265,7 +265,7 @@ impl TimelineInnerState {
                 push_rules.get_actions(&event.event, push_context).to_owned()
             });
 
-            let (_, result) = txn
+            let handle_one_res = txn
                 .handle_remote_event(
                     event.into(),
                     TimelineItemPosition::Update(idx),
@@ -276,7 +276,7 @@ impl TimelineInnerState {
 
             // If the UTD was removed rather than updated, offset all
             // subsequent loop iterations.
-            if result.item_removed {
+            if handle_one_res.item_removed {
                 offset += 1;
             }
         }
@@ -464,7 +464,7 @@ impl TimelineInnerStateTransaction<'_> {
         position: TimelineItemPosition,
         room_data_provider: &P,
         settings: &TimelineInnerSettings,
-    ) -> (Option<OwnedEventId>, HandleEventResult) {
+    ) -> HandleEventResult {
         let raw = event.event;
         let (event_id, sender, timestamp, txn_id, event_kind, should_add) = match raw.deserialize()
         {
@@ -506,7 +506,7 @@ impl TimelineInnerStateTransaction<'_> {
                     };
                     self.add_event(event_meta, position, room_data_provider, settings).await;
 
-                    return (Some(event_id.to_owned()), HandleEventResult::default());
+                    return HandleEventResult::default();
                 }
 
                 Err(e) => {
@@ -532,7 +532,7 @@ impl TimelineInnerStateTransaction<'_> {
                         self.add_event(event_meta, position, room_data_provider, settings).await;
                     }
 
-                    return (event_id, HandleEventResult::default());
+                    return HandleEventResult::default();
                 }
             },
         };
@@ -574,8 +574,7 @@ impl TimelineInnerStateTransaction<'_> {
             },
         };
 
-        let result = TimelineEventHandler::new(self, ctx).handle_event(event_kind);
-        (Some(event_id), result)
+        TimelineEventHandler::new(self, ctx).handle_event(event_kind)
     }
 
     fn clear(&mut self) {
