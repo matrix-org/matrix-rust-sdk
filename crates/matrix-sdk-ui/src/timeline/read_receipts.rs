@@ -370,10 +370,11 @@ impl TimelineInnerStateTransaction<'_> {
                         receipt: &receipt,
                     };
 
-                    self.meta.read_receipts.maybe_update_read_receipt(
+                    let meta = &mut *self.meta;
+                    meta.read_receipts.maybe_update_read_receipt(
                         full_receipt,
                         is_own_user_id,
-                        &self.meta.all_events,
+                        &meta.all_events,
                         &mut self.items,
                     );
                 }
@@ -404,10 +405,12 @@ impl TimelineInnerStateTransaction<'_> {
                 receipt_type: ReceiptType::Read,
                 receipt: &receipt,
             };
-            self.meta.read_receipts.maybe_update_read_receipt(
+
+            let meta = &mut *self.meta;
+            meta.read_receipts.maybe_update_read_receipt(
                 full_receipt,
                 user_id == own_user_id,
-                &self.meta.all_events,
+                &meta.all_events,
                 &mut self.items,
             );
         }
@@ -433,10 +436,11 @@ impl TimelineInnerStateTransaction<'_> {
         let full_receipt =
             FullReceipt { event_id, user_id, receipt_type: ReceiptType::Read, receipt: &receipt };
 
-        self.meta.read_receipts.maybe_update_read_receipt(
+        let meta = &mut *self.meta;
+        meta.read_receipts.maybe_update_read_receipt(
             full_receipt,
             is_own_event,
-            &self.meta.all_events,
+            &meta.all_events,
             &mut self.items,
         );
     }

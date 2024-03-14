@@ -141,7 +141,7 @@ impl From<PollState> for NewUnstablePollStartEventContent {
 
 /// Acts as a cache for poll response and poll end events handled before their
 /// start event has been handled.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub(super) struct PollPendingEvents {
     pub(super) pending_poll_responses: HashMap<OwnedEventId, Vec<ResponseData>>,
     pub(super) pending_poll_ends: HashMap<OwnedEventId, MilliSecondsSinceUnixEpoch>,
