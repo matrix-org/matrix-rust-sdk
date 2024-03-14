@@ -407,7 +407,8 @@ impl TimelineInnerState {
 
     fn transaction(&mut self) -> TimelineInnerStateTransaction<'_> {
         let items = ManuallyDrop::new(self.items.transaction());
-        TimelineInnerStateTransaction { items, meta: &mut self.meta }
+        let meta = ManuallyDrop::new(self.meta.clone());
+        TimelineInnerStateTransaction { items, previous_meta: &mut self.meta, meta }
     }
 }
 
@@ -427,7 +428,14 @@ impl DerefMut for TimelineInnerState {
 
 pub(in crate::timeline) struct TimelineInnerStateTransaction<'a> {
     pub items: ManuallyDrop<ObservableVectorTransaction<'a, Arc<TimelineItem>>>,
-    pub meta: &'a mut TimelineInnerMetadata,
+
+    /// A clone of the previous meta, that we're operating on during the
+    /// transaction, and that will be committed to the previous meta location in
+    /// [`Self::commit`].
+    pub meta: ManuallyDrop<TimelineInnerMetadata>,
+
+    /// Pointer to the previous meta, only used during [`Self::commit`].
+    previous_meta: &'a mut TimelineInnerMetadata,
 }
 
 impl TimelineInnerStateTransaction<'_> {
@@ -630,14 +638,17 @@ impl TimelineInnerStateTransaction<'_> {
     }
 
     fn commit(mut self) {
-        let Self {
-            items,
-            // meta is just a reference, does not any dropping
-            meta: _,
-        } = &mut self;
+        let Self { items, previous_meta, meta } = &mut self;
 
-        // Safety: self is forgotten to avoid double free from drop
+        // Safety: self is forgotten to avoid double free from drop.
+        let meta = unsafe { ManuallyDrop::take(meta) };
+
+        // Replace the pointer to the previous meta with the new one.
+        **previous_meta = meta;
+
+        // Safety: self is forgotten to avoid double free from drop.
         let items = unsafe { ManuallyDrop::take(items) };
+
         mem::forget(self);
 
         items.commit();
@@ -701,7 +712,7 @@ impl Drop for TimelineInnerStateTransaction<'_> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(in crate::timeline) struct TimelineInnerMetadata {
     /// List of all the events as received in the timeline, even the ones that
     /// are discarded in the timeline items.
