@@ -558,7 +558,7 @@ impl TimelineInnerStateTransaction<'_> {
             read_receipts: if settings.track_read_receipts && should_add {
                 self.meta.read_receipts.compute_event_receipts(
                     &event_id,
-                    &self.all_events,
+                    &self.meta.all_events,
                     matches!(position, TimelineItemPosition::End { .. }),
                 )
             } else {
@@ -607,13 +607,13 @@ impl TimelineInnerStateTransaction<'_> {
             self.items.clear();
         }
 
-        self.all_events.clear();
-        self.read_receipts.clear();
-        self.reactions.clear();
-        self.fully_read_event = None;
+        self.meta.all_events.clear();
+        self.meta.read_receipts.clear();
+        self.meta.reactions.clear();
+        self.meta.fully_read_event = None;
         // We forgot about the fully read marker right above, so wait for a new one
         // before attempting to update it for each new timeline item.
-        self.has_up_to_date_read_marker_item = true;
+        self.meta.has_up_to_date_read_marker_item = true;
 
         debug!(remaining_items = self.items.len(), "Timeline cleared");
     }
@@ -621,11 +621,11 @@ impl TimelineInnerStateTransaction<'_> {
     #[instrument(skip_all)]
     fn set_fully_read_event(&mut self, fully_read_event_id: OwnedEventId) {
         // A similar event has been handled already. We can ignore it.
-        if self.fully_read_event.as_ref().is_some_and(|id| *id == fully_read_event_id) {
+        if self.meta.fully_read_event.as_ref().is_some_and(|id| *id == fully_read_event_id) {
             return;
         }
 
-        self.fully_read_event = Some(fully_read_event_id);
+        self.meta.fully_read_event = Some(fully_read_event_id);
         self.meta.update_read_marker(&mut self.items);
     }
 
@@ -651,21 +651,21 @@ impl TimelineInnerStateTransaction<'_> {
         settings: &TimelineInnerSettings,
     ) {
         match position {
-            TimelineItemPosition::Start => self.all_events.push_front(event_meta.base_meta()),
+            TimelineItemPosition::Start => self.meta.all_events.push_front(event_meta.base_meta()),
             TimelineItemPosition::End { .. } => {
                 // Handle duplicated event.
                 if let Some(pos) =
-                    self.all_events.iter().position(|ev| ev.event_id == event_meta.event_id)
+                    self.meta.all_events.iter().position(|ev| ev.event_id == event_meta.event_id)
                 {
-                    self.all_events.remove(pos);
+                    self.meta.all_events.remove(pos);
                 }
 
-                self.all_events.push_back(event_meta.base_meta());
+                self.meta.all_events.push_back(event_meta.base_meta());
             }
             #[cfg(feature = "e2e-encryption")]
             TimelineItemPosition::Update(_) => {
                 if let Some(event) =
-                    self.all_events.iter_mut().find(|e| e.event_id == event_meta.event_id)
+                    self.meta.all_events.iter_mut().find(|e| e.event_id == event_meta.event_id)
                 {
                     if event.visible != event_meta.visible {
                         event.visible = event_meta.visible;
@@ -698,20 +698,6 @@ impl Drop for TimelineInnerStateTransaction<'_> {
         unsafe {
             ManuallyDrop::drop(&mut self.items);
         }
-    }
-}
-
-impl Deref for TimelineInnerStateTransaction<'_> {
-    type Target = TimelineInnerMetadata;
-
-    fn deref(&self) -> &Self::Target {
-        self.meta
-    }
-}
-
-impl DerefMut for TimelineInnerStateTransaction<'_> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.meta
     }
 }
 

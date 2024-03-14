@@ -446,6 +446,7 @@ impl TimelineInnerStateTransaction<'_> {
     pub(super) fn maybe_update_read_receipts_of_prev_event(&mut self, event_id: &EventId) {
         // Find the previous visible event, if there is one.
         let Some(prev_event_meta) = self
+            .meta
             .all_events
             .iter()
             .rev()
@@ -474,9 +475,9 @@ impl TimelineInnerStateTransaction<'_> {
             return;
         };
 
-        let read_receipts = self.read_receipts.compute_event_receipts(
+        let read_receipts = self.meta.read_receipts.compute_event_receipts(
             &remote_prev_event_item.event_id,
-            &self.all_events,
+            &self.meta.all_events,
             false,
         );
 
