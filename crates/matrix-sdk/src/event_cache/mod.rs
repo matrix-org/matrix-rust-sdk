@@ -411,16 +411,16 @@ impl RoomEventCache {
         Ok((store.room_events(self.inner.room.room_id()).await?, self.inner.sender.subscribe()))
     }
 
-    /// Returns the earliest back-pagination token, that is, the one closest to
+    /// Returns the oldest back-pagination token, that is, the one closest to
     /// the beginning of the timeline as we know it.
     ///
     /// Optionally, wait at most for the given duration for a back-pagination
     /// token to be returned by a sync.
-    pub async fn earliest_backpagination_token(
+    pub async fn oldest_backpagination_token(
         &self,
         max_wait: Option<Duration>,
     ) -> Result<Option<PaginationToken>> {
-        self.inner.earliest_backpagination_token(max_wait).await
+        self.inner.oldest_backpagination_token(max_wait).await
     }
 
     /// Back-paginate with the given token, if provided.
@@ -450,11 +450,11 @@ struct RoomEventCacheInner {
     /// See comment there.
     store: Arc<Mutex<Arc<dyn EventCacheStore>>>,
 
-    /// A notifier that we received a new pagination token.
-    pagination_token_notifier: Notify,
-
     /// The Client [`Room`] this event cache pertains to.
     room: Room,
+
+    /// A notifier that we received a new pagination token.
+    pagination_token_notifier: Notify,
 
     /// A lock that ensures we don't run multiple pagination queries at the same
     /// time.
@@ -678,18 +678,18 @@ impl RoomEventCacheInner {
         }
     }
 
-    /// Returns the earliest back-pagination token, that is, the one closest to
-    /// the beginning of the timeline as we know it.
+    /// Returns the oldest back-pagination token, that is, the one closest to
+    /// the start of the timeline as we know it.
     ///
     /// Optionally, wait at most for the given duration for a back-pagination
     /// token to be returned by a sync.
-    async fn earliest_backpagination_token(
+    async fn oldest_backpagination_token(
         &self,
         max_wait: Option<Duration>,
     ) -> Result<Option<PaginationToken>> {
         // Optimistically try to return the backpagination token immediately.
         if let Some(token) =
-            self.store.lock().await.earliest_backpagination_token(self.room.room_id()).await?
+            self.store.lock().await.oldest_backpagination_token(self.room.room_id()).await?
         {
             return Ok(Some(token));
         }
@@ -703,7 +703,7 @@ impl RoomEventCacheInner {
         // Timeouts are fine, per this function's contract.
         let _ = timeout(max_wait, self.pagination_token_notifier.notified()).await;
 
-        self.store.lock().await.earliest_backpagination_token(self.room.room_id()).await
+        self.store.lock().await.oldest_backpagination_token(self.room.room_id()).await
     }
 }
 
@@ -849,14 +849,14 @@ mod tests {
             let room_event_cache = room_event_cache.unwrap();
 
             // If I don't wait for the backpagination token,
-            let found = room_event_cache.earliest_backpagination_token(None).await.unwrap();
+            let found = room_event_cache.oldest_backpagination_token(None).await.unwrap();
             // Then I don't find it.
             assert!(found.is_none());
 
             // If I wait for a back-pagination token for 0 seconds,
             let before = Instant::now();
             let found = room_event_cache
-                .earliest_backpagination_token(Some(Duration::default()))
+                .oldest_backpagination_token(Some(Duration::default()))
                 .await
                 .unwrap();
             let waited = before.elapsed();
@@ -868,7 +868,7 @@ mod tests {
             // If I wait for a back-pagination token for 1 second,
             let before = Instant::now();
             let found = room_event_cache
-                .earliest_backpagination_token(Some(Duration::from_secs(1)))
+                .oldest_backpagination_token(Some(Duration::from_secs(1)))
                 .await
                 .unwrap();
             let waited = before.elapsed();
@@ -920,14 +920,14 @@ mod tests {
                 .unwrap();
 
             // If I don't wait for a back-pagination token,
-            let found = room_event_cache.earliest_backpagination_token(None).await.unwrap();
+            let found = room_event_cache.oldest_backpagination_token(None).await.unwrap();
             // Then I get it.
             assert_eq!(found.as_ref(), Some(&expected_token));
 
             // If I wait for a back-pagination token for 0 seconds,
             let before = Instant::now();
             let found = room_event_cache
-                .earliest_backpagination_token(Some(Duration::default()))
+                .oldest_backpagination_token(Some(Duration::default()))
                 .await
                 .unwrap();
             let waited = before.elapsed();
@@ -939,7 +939,7 @@ mod tests {
             // If I wait for a back-pagination token for 1 second,
             let before = Instant::now();
             let found = room_event_cache
-                .earliest_backpagination_token(Some(Duration::from_secs(1)))
+                .oldest_backpagination_token(Some(Duration::from_secs(1)))
                 .await
                 .unwrap();
             let waited = before.elapsed();
@@ -984,12 +984,12 @@ mod tests {
             });
 
             // Then first I don't get it (if I'm not waiting,)
-            let found = room_event_cache.earliest_backpagination_token(None).await.unwrap();
+            let found = room_event_cache.oldest_backpagination_token(None).await.unwrap();
             assert!(found.is_none());
 
             // And if I wait for the back-pagination token for 600ms,
             let found = room_event_cache
-                .earliest_backpagination_token(Some(Duration::from_millis(600)))
+                .oldest_backpagination_token(Some(Duration::from_millis(600)))
                 .await
                 .unwrap();
             let waited = before.elapsed();

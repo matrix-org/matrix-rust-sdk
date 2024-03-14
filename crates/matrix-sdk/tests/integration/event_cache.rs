@@ -278,7 +278,7 @@ async fn test_backpaginate_once() {
 
         // Then if I backpaginate,
         let token = room_event_cache
-            .earliest_backpagination_token(Some(Duration::from_secs(1)))
+            .oldest_backpagination_token(Some(Duration::from_secs(1)))
             .await
             .unwrap();
         assert!(token.is_some());
@@ -369,7 +369,7 @@ async fn test_backpaginate_multiple_iterations() {
 
     // Then if I backpaginate in a loop,
     while let Some(token) =
-        room_event_cache.earliest_backpagination_token(Some(Duration::from_secs(1))).await.unwrap()
+        room_event_cache.oldest_backpagination_token(Some(Duration::from_secs(1))).await.unwrap()
     {
         match room_event_cache.backpaginate_with_token(20, Some(token)).await.unwrap() {
             BackPaginationOutcome::Success { reached_start, events } => {
@@ -501,7 +501,7 @@ async fn test_reset_while_backpaginating() {
         .await;
 
     let first_token =
-        room_event_cache.earliest_backpagination_token(Some(Duration::from_secs(1))).await.unwrap();
+        room_event_cache.oldest_backpagination_token(Some(Duration::from_secs(1))).await.unwrap();
     assert!(first_token.is_some());
 
     let rec = room_event_cache.clone();
@@ -520,7 +520,7 @@ async fn test_reset_while_backpaginating() {
     assert_matches!(outcome, BackPaginationOutcome::UnknownBackpaginationToken);
 
     // Now if we retrieve the earliest token, it's not the one we had before.
-    let second_token = room_event_cache.earliest_backpagination_token(None).await.unwrap().unwrap();
+    let second_token = room_event_cache.oldest_backpagination_token(None).await.unwrap().unwrap();
     assert!(first_token.unwrap() != second_token);
     assert_eq!(second_token.0, "second_backpagination");
 }
@@ -571,7 +571,7 @@ async fn test_backpaginating_without_token() {
 
     // We don't have a token.
     let token =
-        room_event_cache.earliest_backpagination_token(Some(Duration::from_secs(1))).await.unwrap();
+        room_event_cache.oldest_backpagination_token(Some(Duration::from_secs(1))).await.unwrap();
     assert!(token.is_none());
 
     // If we try to back-paginate with a token, it will hit the end of the timeline

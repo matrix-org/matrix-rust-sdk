@@ -52,9 +52,8 @@ pub trait EventCacheStore: Send + Sync {
         entries: Vec<TimelineEntry>,
     ) -> Result<bool>;
 
-    /// Retrieve the earliest (oldest backpagination token for the given room.)
-    async fn earliest_backpagination_token(&self, room: &RoomId)
-        -> Result<Option<PaginationToken>>;
+    /// Retrieve the oldest backpagination token for the given room.
+    async fn oldest_backpagination_token(&self, room: &RoomId) -> Result<Option<PaginationToken>>;
 
     /// Clear all the information tied to a given room.
     ///
@@ -141,10 +140,7 @@ impl EventCacheStore for MemoryStore {
         Ok(())
     }
 
-    async fn earliest_backpagination_token(
-        &self,
-        room: &RoomId,
-    ) -> Result<Option<PaginationToken>> {
+    async fn oldest_backpagination_token(&self, room: &RoomId) -> Result<Option<PaginationToken>> {
         Ok(self.by_room.read().await.get(room).and_then(|room| {
             room.entries.iter().find_map(|entry| {
                 if let TimelineEntry::Gap { prev_token: backpagination_token } = entry {
