@@ -299,7 +299,8 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             (None, None) => {
                 // No record of the reaction, create a local echo
 
-                let in_flight = state.in_flight_reaction.get::<AnnotationKey>(&annotation.into());
+                let in_flight =
+                    state.meta.in_flight_reaction.get::<AnnotationKey>(&annotation.into());
                 let txn_id = match in_flight {
                     Some(ReactionState::Sending(txn_id)) => {
                         // Use the transaction ID as the in flight request
@@ -343,10 +344,10 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             }
         };
 
-        state.reaction_state.insert(annotation.into(), reaction_state.clone());
+        state.meta.reaction_state.insert(annotation.into(), reaction_state.clone());
 
         // Check the action to perform depending on any in flight request
-        let in_flight = state.in_flight_reaction.get::<AnnotationKey>(&annotation.into());
+        let in_flight = state.meta.in_flight_reaction.get::<AnnotationKey>(&annotation.into());
         let result = match in_flight {
             Some(_) => {
                 // There is an in-flight request
@@ -371,7 +372,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             ReactionAction::None => {}
             ReactionAction::SendRemote(_) | ReactionAction::RedactRemote(_) => {
                 // Remember the new in flight request
-                state.in_flight_reaction.insert(annotation.into(), reaction_state);
+                state.meta.in_flight_reaction.insert(annotation.into(), reaction_state);
             }
         };
 
@@ -397,7 +398,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         }
 
         if let Some(read_receipt) = read_receipt {
-            self.state.write().await.read_receipts.upsert_latest(
+            self.state.write().await.meta.read_receipts.upsert_latest(
                 own_user_id,
                 receipt_type,
                 read_receipt,
@@ -602,6 +603,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         let annotation_key: AnnotationKey = annotation.into();
 
         let reaction_state = state
+            .meta
             .reaction_state
             .get(&AnnotationKey::from(annotation))
             .expect("Reaction state should be set before sending the reaction");
@@ -610,6 +612,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             (ReactionToggleResult::AddSuccess { event_id, .. }, ReactionState::Redacting(_)) => {
                 // A reaction was added successfully but we've been requested to undo it
                 state
+                    .meta
                     .in_flight_reaction
                     .insert(annotation_key, ReactionState::Redacting(Some(event_id.to_owned())));
                 ReactionAction::RedactRemote(event_id.to_owned())
@@ -618,14 +621,15 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                 // A reaction was was redacted successfully but we've been requested to undo it
                 let txn_id = txn_id.to_owned();
                 state
+                    .meta
                     .in_flight_reaction
                     .insert(annotation_key, ReactionState::Sending(txn_id.clone()));
                 ReactionAction::SendRemote(txn_id)
             }
             _ => {
                 // We're done, so also update the timeline
-                state.in_flight_reaction.swap_remove(&annotation_key);
-                state.reaction_state.swap_remove(&annotation_key);
+                state.meta.in_flight_reaction.swap_remove(&annotation_key);
+                state.meta.reaction_state.swap_remove(&annotation_key);
                 state.update_timeline_reaction(user_id, annotation, result)?;
 
                 ReactionAction::None
@@ -756,7 +760,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         let settings = self.settings.clone();
         let room_data_provider = self.room_data_provider.clone();
         let push_rules_context = room_data_provider.push_rules_and_context().await;
-        let unable_to_decrypt_hook = state.unable_to_decrypt_hook.clone();
+        let unable_to_decrypt_hook = state.meta.unable_to_decrypt_hook.clone();
 
         matrix_sdk::executor::spawn(async move {
             let retry_one = |item: Arc<TimelineItem>| {
@@ -1080,7 +1084,7 @@ impl TimelineInner {
         match receipt_type {
             SendReceiptType::Read => {
                 if let Some((old_pub_read, _)) =
-                    state.user_receipt(own_user_id, ReceiptType::Read, room).await
+                    state.meta.user_receipt(own_user_id, ReceiptType::Read, room).await
                 {
                     trace!(%old_pub_read, "found a previous public receipt");
                     if let Some(relative_pos) =
@@ -1127,7 +1131,7 @@ impl TimelineInner {
     /// it's folded into another timeline item.
     pub(crate) async fn latest_event_id(&self) -> Option<OwnedEventId> {
         let state = self.state.read().await;
-        state.all_events.back().map(|event_meta| &event_meta.event_id).cloned()
+        state.meta.all_events.back().map(|event_meta| &event_meta.event_id).cloned()
     }
 }
 
@@ -1169,7 +1173,7 @@ async fn fetch_replied_to_event(
     });
     let event_item = item.with_content(TimelineItemContent::Message(reply), None);
 
-    let new_timeline_item = state.new_timeline_item(event_item);
+    let new_timeline_item = state.meta.new_timeline_item(event_item);
     state.items.set(index, new_timeline_item);
 
     // Don't hold the state lock while the network request is made
