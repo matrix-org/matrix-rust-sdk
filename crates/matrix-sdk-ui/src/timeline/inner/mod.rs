@@ -667,22 +667,12 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
     /// Handle a list of back-paginated events.
     ///
-    /// Returns the number of timeline updates that were made. Short-circuits
-    /// and returns `None` if the number of items added or updated exceeds
-    /// `u16::MAX`, which should practically never happen.
-    ///
-    /// # Arguments
-    ///
-    /// * `events` - The events from back-pagination
-    ///
-    /// * `back_pagination_token` - The back-pagination token for loading
-    ///   further events
+    /// Returns the number of timeline updates that were made.
     pub(super) async fn handle_back_paginated_events(
         &self,
         events: Vec<TimelineEvent>,
-    ) -> Option<HandleManyEventsResult> {
+    ) -> HandleManyEventsResult {
         let mut state = self.state.write().await;
-
         state.handle_back_paginated_events(events, &self.room_data_provider, &self.settings).await
     }
 
@@ -1130,8 +1120,14 @@ impl TimelineInner {
 
 #[derive(Debug, Default)]
 pub(super) struct HandleManyEventsResult {
-    pub items_added: u16,
-    pub items_updated: u16,
+    /// The number of items that were added to the timeline.
+    ///
+    /// Note one can't assume anything about the position at which those were
+    /// added.
+    pub items_added: u64,
+
+    /// The number of items that were updated in the timeline.
+    pub items_updated: u64,
 }
 
 async fn fetch_replied_to_event(
