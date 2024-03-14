@@ -174,18 +174,25 @@ impl TryFrom<MessageType> for RumaMessageType {
             }
             MessageType::Image { content } => Self::Image(
                 RumaImageMessageEventContent::new(content.body, (*content.source).clone())
+                    .formatted(content.formatted.map(Into::into))
+                    .filename(content.filename)
                     .info(content.info.map(Into::into).map(Box::new)),
             ),
             MessageType::Audio { content } => Self::Audio(
                 RumaAudioMessageEventContent::new(content.body, (*content.source).clone())
+                    .formatted(content.formatted.map(Into::into))
+                    .filename(content.filename)
                     .info(content.info.map(Into::into).map(Box::new)),
             ),
             MessageType::Video { content } => Self::Video(
                 RumaVideoMessageEventContent::new(content.body, (*content.source).clone())
+                    .formatted(content.formatted.map(Into::into))
+                    .filename(content.filename)
                     .info(content.info.map(Into::into).map(Box::new)),
             ),
             MessageType::File { content } => Self::File(
                 RumaFileMessageEventContent::new(content.body, (*content.source).clone())
+                    .formatted(content.formatted.map(Into::into))
                     .filename(content.filename)
                     .info(content.info.map(Into::into).map(Box::new)),
             ),
@@ -221,6 +228,8 @@ impl From<RumaMessageType> for MessageType {
             RumaMessageType::Image(c) => MessageType::Image {
                 content: ImageMessageContent {
                     body: c.body.clone(),
+                    formatted: c.formatted.as_ref().map(Into::into),
+                    filename: c.filename.clone(),
                     source: Arc::new(c.source.clone()),
                     info: c.info.as_deref().map(Into::into),
                 },
@@ -228,6 +237,8 @@ impl From<RumaMessageType> for MessageType {
             RumaMessageType::Audio(c) => MessageType::Audio {
                 content: AudioMessageContent {
                     body: c.body.clone(),
+                    formatted: c.formatted.as_ref().map(Into::into),
+                    filename: c.filename.clone(),
                     source: Arc::new(c.source.clone()),
                     info: c.info.as_deref().map(Into::into),
                     audio: c.audio.map(Into::into),
@@ -237,6 +248,8 @@ impl From<RumaMessageType> for MessageType {
             RumaMessageType::Video(c) => MessageType::Video {
                 content: VideoMessageContent {
                     body: c.body.clone(),
+                    formatted: c.formatted.as_ref().map(Into::into),
+                    filename: c.filename.clone(),
                     source: Arc::new(c.source.clone()),
                     info: c.info.as_deref().map(Into::into),
                 },
@@ -244,6 +257,7 @@ impl From<RumaMessageType> for MessageType {
             RumaMessageType::File(c) => MessageType::File {
                 content: FileMessageContent {
                     body: c.body.clone(),
+                    formatted: c.formatted.as_ref().map(Into::into),
                     filename: c.filename.clone(),
                     source: Arc::new(c.source.clone()),
                     info: c.info.as_deref().map(Into::into),
@@ -295,6 +309,8 @@ pub struct EmoteMessageContent {
 #[derive(Clone, uniffi::Record)]
 pub struct ImageMessageContent {
     pub body: String,
+    pub formatted: Option<FormattedBody>,
+    pub filename: Option<String>,
     pub source: Arc<MediaSource>,
     pub info: Option<ImageInfo>,
 }
@@ -302,6 +318,8 @@ pub struct ImageMessageContent {
 #[derive(Clone, uniffi::Record)]
 pub struct AudioMessageContent {
     pub body: String,
+    pub formatted: Option<FormattedBody>,
+    pub filename: Option<String>,
     pub source: Arc<MediaSource>,
     pub info: Option<AudioInfo>,
     pub audio: Option<UnstableAudioDetailsContent>,
@@ -311,6 +329,8 @@ pub struct AudioMessageContent {
 #[derive(Clone, uniffi::Record)]
 pub struct VideoMessageContent {
     pub body: String,
+    pub formatted: Option<FormattedBody>,
+    pub filename: Option<String>,
     pub source: Arc<MediaSource>,
     pub info: Option<VideoInfo>,
 }
@@ -318,6 +338,7 @@ pub struct VideoMessageContent {
 #[derive(Clone, uniffi::Record)]
 pub struct FileMessageContent {
     pub body: String,
+    pub formatted: Option<FormattedBody>,
     pub filename: Option<String>,
     pub source: Arc<MediaSource>,
     pub info: Option<FileInfo>,

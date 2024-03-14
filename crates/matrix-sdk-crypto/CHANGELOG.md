@@ -10,6 +10,9 @@ Breaking changes:
 
 Additions:
 
+- When Olm message decryption fails, report the error code(s) from the failure.
+  ([#3212](https://github.com/matrix-org/matrix-rust-sdk/pull/3212))
+
 - Expose new methods `OlmMachine::set_room_settings` and
   `OlmMachine::get_room_settings`.
   ([#3042](https://github.com/matrix-org/matrix-rust-sdk/pull/3042))
