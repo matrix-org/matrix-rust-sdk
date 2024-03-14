@@ -52,20 +52,7 @@ impl super::Timeline {
                         trace!("Back-pagination succeeded with {num_events} events");
 
                         let handle_many_events_result =
-                            match self.inner.handle_back_paginated_events(events).await {
-                                Some(res) => res,
-
-                                None => {
-                                    // The number of touched timeline items has overflowed. Oh well,
-                                    // stop here and exit.
-                                    warn!(
-                                "Hit overflow, stopping back-pagination and getting back to idle."
-                            );
-                                    self.back_pagination_status
-                                        .set_if_not_eq(BackPaginationStatus::Idle);
-                                    return Ok(());
-                                }
-                            };
+                            self.inner.handle_back_paginated_events(events).await;
 
                         if reached_start {
                             self.back_pagination_status
@@ -81,10 +68,8 @@ impl super::Timeline {
 
                             outcome.items_added = handle_many_events_result.items_added;
                             outcome.items_updated = handle_many_events_result.items_updated;
-                            outcome.total_items_added =
-                                outcome.total_items_added.checked_add(outcome.items_added)?;
-                            outcome.total_items_updated =
-                                outcome.total_items_updated.checked_add(outcome.items_updated)?;
+                            outcome.total_items_added += outcome.items_added;
+                            outcome.total_items_updated += outcome.items_updated;
 
                             Some(())
                         };
@@ -198,7 +183,7 @@ impl<'a> PaginationOptions<'a> {
                 event_limit_if_first.take()
             }
             PaginationOptionsInner::UntilNumItems { items, event_limit } => {
-                (pagination_outcome.total_items_added < *items).then_some(*event_limit)
+                (pagination_outcome.total_items_added < *items as u64).then_some(*event_limit)
             }
             PaginationOptionsInner::Custom { event_limit_if_first, strategy } => {
                 event_limit_if_first.take().or_else(|| match strategy(pagination_outcome) {
@@ -258,22 +243,22 @@ pub struct PaginationOutcome {
     pub events_received: u16,
 
     /// The number of timeline items added by the last pagination response.
-    pub items_added: u16,
+    pub items_added: u64,
 
     /// The number of timeline items updated by the last pagination
     /// response.
-    pub items_updated: u16,
+    pub items_updated: u64,
 
     /// The number of events received by a `paginate_backwards` call so far.
     pub total_events_received: u16,
 
     /// The total number of items added by a `paginate_backwards` call so
     /// far.
-    pub total_items_added: u16,
+    pub total_items_added: u64,
 
     /// The total number of items updated by a `paginate_backwards` call so
     /// far.
-    pub total_items_updated: u16,
+    pub total_items_updated: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

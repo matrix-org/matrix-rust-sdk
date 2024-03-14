@@ -144,16 +144,13 @@ impl TimelineInnerState {
     }
 
     /// Prepends the given events to the beginning/top of the timeline.
-    ///
-    /// Return `None` if there was an overflow while computing the total number
-    /// of added items; in this case, no events are added at all.
     #[instrument(skip_all)]
     pub(super) async fn handle_back_paginated_events<P: RoomDataProvider>(
         &mut self,
         events: Vec<TimelineEvent>,
         room_data_provider: &P,
         settings: &TimelineInnerSettings,
-    ) -> Option<HandleManyEventsResult> {
+    ) -> HandleManyEventsResult {
         let mut txn = self.transaction();
 
         let mut total = HandleManyEventsResult::default();
@@ -167,13 +164,13 @@ impl TimelineInnerState {
                 )
                 .await;
 
-            total.items_added = total.items_added.checked_add(res.item_added as u16)?;
-            total.items_updated = total.items_updated.checked_add(res.items_updated)?;
+            total.items_added += res.item_added as u64;
+            total.items_updated += res.items_updated as u64;
         }
 
         txn.commit();
 
-        Some(total)
+        total
     }
 
     #[cfg(test)]
