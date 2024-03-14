@@ -586,7 +586,6 @@ impl RoomEventCacheInner {
 
         let _ = self.sender.send(RoomEventCacheUpdate::Append {
             events,
-            prev_batch,
             account_data,
             ephemeral,
             ambiguity_changes,
@@ -742,8 +741,6 @@ pub enum RoomEventCacheUpdate {
     Append {
         /// All the new events that have been added to the room's timeline.
         events: Vec<SyncTimelineEvent>,
-        /// XXX: this is temporary, until prev_batch lives in the event cache
-        prev_batch: Option<String>,
         /// XXX: this is temporary, until account data lives in the event cache
         /// — or will it live there?
         account_data: Vec<Raw<AnyRoomAccountDataEvent>>,
