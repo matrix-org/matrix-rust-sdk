@@ -1156,7 +1156,6 @@ impl Account {
                                 // We keep hold of the error, so that if *all* sessions fail to
                                 // decrypt, we can log something useful.
                                 errors_by_olm_session.push((session.session_id().to_owned(), e));
-                                continue;
                             }
                         }
                     }
