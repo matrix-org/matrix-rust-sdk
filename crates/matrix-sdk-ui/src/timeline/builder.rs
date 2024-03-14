@@ -196,7 +196,7 @@ impl TimelineBuilder {
                             // TODO: (bnjbvr) account_data and ephemeral should be handled by the
                             // event cache, and we should replace this with a simple
                             // `handle_add_events`.
-                            inner.handle_joined_room_update(events, account_data, ephemeral).await;
+                            inner.handle_sync_events(events, account_data, ephemeral).await;
 
                             let member_ambiguity_changes = ambiguity_changes
                                 .values()
