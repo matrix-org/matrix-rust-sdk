@@ -326,7 +326,7 @@ macro_rules! cryptostore_integration_tests {
                 assert_eq!(store.inbound_group_session_counts().await.unwrap().total, 1);
                 assert_eq!(store.inbound_group_session_counts().await.unwrap().backed_up, 0);
 
-                let to_back_up = store.inbound_group_sessions_for_backup(1).await.unwrap();
+                let to_back_up = store.inbound_group_sessions_for_backup("bkpver", 1).await.unwrap();
                 assert_eq!(to_back_up, vec![session])
             }
 
@@ -342,14 +342,10 @@ macro_rules! cryptostore_integration_tests {
                 }
                 let changes = Changes { inbound_group_sessions: sessions.clone(), ..Default::default() };
                 store.save_changes(changes).await.expect("Can't save group session");
-                assert_eq!(store.inbound_group_sessions_for_backup(100).await.unwrap().len(), 10);
-
-                fn session_info(session: &InboundGroupSession) -> (&RoomId, &str) {
-                    (&session.room_id(), &session.session_id())
-                }
+                assert_eq!(store.inbound_group_sessions_for_backup("bkpver", 100).await.unwrap().len(), 10);
 
                 // When I mark some as backed up
-                store.mark_inbound_group_sessions_as_backed_up(&[
+                store.mark_inbound_group_sessions_as_backed_up("bkpver", &[
                     session_info(&sessions[1]),
                     session_info(&sessions[3]),
                     session_info(&sessions[5]),
@@ -358,7 +354,7 @@ macro_rules! cryptostore_integration_tests {
                 ]).await.expect("Failed to mark sessions as backed up");
 
                 // And ask which still need backing up
-                let to_back_up = store.inbound_group_sessions_for_backup(10).await.unwrap();
+                let to_back_up = store.inbound_group_sessions_for_backup("bkpver", 10).await.unwrap();
                 let needs_backing_up = |i: usize| to_back_up.iter().any(|s| s.session_id() == sessions[i].session_id());
 
                 // Then the sessions we said were backed up no longer need backing up
@@ -386,22 +382,30 @@ macro_rules! cryptostore_integration_tests {
                 let room_id = &room_id!("!test:localhost");
                 let (_, session) = account.create_group_session_pair_with_defaults(room_id).await;
 
-                session.mark_as_backed_up();
-
                 let changes =
                     Changes { inbound_group_sessions: vec![session.clone()], ..Default::default() };
 
                 store.save_changes(changes).await.expect("Can't save group session");
 
+                // Given we have backed up our session
+                store
+                    .mark_inbound_group_sessions_as_backed_up("bkpver1", &[session_info(&session)])
+                    .await
+                    .expect("Failed to mark_inbound_group_sessions_as_backed_up.");
+
                 assert_eq!(store.inbound_group_session_counts().await.unwrap().total, 1);
                 assert_eq!(store.inbound_group_session_counts().await.unwrap().backed_up, 1);
 
-                let to_back_up = store.inbound_group_sessions_for_backup(1).await.unwrap();
+                // Sanity: before resetting, we have nothing to back up
+                let to_back_up = store.inbound_group_sessions_for_backup("bkpver1", 1).await.unwrap();
                 assert_eq!(to_back_up, vec![]);
 
+                // When we reset the backup
                 store.reset_backup_state().await.unwrap();
 
-                let to_back_up = store.inbound_group_sessions_for_backup(1).await.unwrap();
+                // Then after resetting, even if we supply the same backup version number, we need
+                // to back up the session
+                let to_back_up = store.inbound_group_sessions_for_backup("bkpver1", 1).await.unwrap();
                 assert_eq!(to_back_up, vec![session]);
             }
 
@@ -959,6 +963,10 @@ macro_rules! cryptostore_integration_tests {
 
                 let loaded_2 = store.get_custom_value("B").await.unwrap();
                 assert_eq!(None, loaded_2);
+            }
+
+            fn session_info(session: &InboundGroupSession) -> (&RoomId, &str) {
+                (&session.room_id(), &session.session_id())
             }
         }
     };
