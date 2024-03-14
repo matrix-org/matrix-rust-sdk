@@ -52,6 +52,8 @@ pub struct UnableToDecryptInfo {
     pub time_to_decrypt: Option<Duration>,
 }
 
+type PendingUtdReports = Vec<(OwnedEventId, JoinHandle<()>)>;
+
 /// A manager over an existing [`UnableToDecryptHook`] that deduplicates UTDs
 /// on similar events, and adds basic consistency checks.
 ///
@@ -78,9 +80,7 @@ pub struct UtdHookManager {
 
     /// The set of outstanding tasks to report deferred UTDs, including the
     /// event relating to the task.
-    #[allow(clippy::type_complexity)]
-    // No clippy, adding a type alias is just cognitive overhead here.
-    pending_delayed: Arc<Mutex<Vec<(OwnedEventId, JoinHandle<()>)>>>,
+    pending_delayed: Arc<Mutex<PendingUtdReports>>,
 }
 
 impl UtdHookManager {
