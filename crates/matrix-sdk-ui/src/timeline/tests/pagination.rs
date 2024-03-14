@@ -22,7 +22,7 @@ use super::TestTimeline;
 use crate::timeline::{inner::HandleBackPaginatedEventsError, pagination::PaginationTokens};
 
 #[async_test]
-async fn back_pagination_token_not_updated_with_empty_chunk() {
+async fn test_back_pagination_token_not_updated_with_empty_chunk() {
     let timeline = TestTimeline::new();
 
     timeline
@@ -65,7 +65,7 @@ async fn back_pagination_token_not_updated_with_empty_chunk() {
 }
 
 #[async_test]
-async fn back_pagination_token_not_updated_invalid_event() {
+async fn test_back_pagination_token_not_updated_invalid_event() {
     let timeline = TestTimeline::new();
 
     // Invalid empty event.
