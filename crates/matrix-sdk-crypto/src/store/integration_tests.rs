@@ -299,7 +299,7 @@ macro_rules! cryptostore_integration_tests {
                     get_loaded_store("mark_inbound_group_sessions_as_backed_up").await;
                 let room_id = &room_id!("!test:localhost");
                 let mut sessions: Vec<InboundGroupSession> = Vec::with_capacity(10);
-                for i in 0..10 {
+                for _i in 0..10 {
                     sessions.push(account.create_group_session_pair_with_defaults(room_id).await.1);
                 }
                 let changes = Changes { inbound_group_sessions: sessions.clone(), ..Default::default() };
@@ -311,7 +311,7 @@ macro_rules! cryptostore_integration_tests {
                 }
 
                 // When I mark some as backed up
-                let x = store.mark_inbound_group_sessions_as_backed_up(&[
+                store.mark_inbound_group_sessions_as_backed_up(&[
                     session_info(&sessions[1]),
                     session_info(&sessions[3]),
                     session_info(&sessions[5]),
@@ -377,7 +377,7 @@ macro_rules! cryptostore_integration_tests {
                 let room_id = &room_id!("!test:localhost");
                 let (_, session) = account.create_group_session_pair_with_defaults(room_id).await;
 
-                let mut export = session.export().await;
+                let export = session.export().await;
 
                 let session = InboundGroupSession::from_export(&export).unwrap();
 
@@ -398,7 +398,7 @@ macro_rules! cryptostore_integration_tests {
                     .unwrap()
                     .unwrap();
                 assert_eq!(session, loaded_session);
-                let export = loaded_session.export().await;
+                loaded_session.export().await;
 
                 assert_eq!(store.get_inbound_group_sessions().await.unwrap().len(), 1);
                 assert_eq!(store.inbound_group_session_counts().await.unwrap().total, 1);
@@ -849,7 +849,7 @@ macro_rules! cryptostore_integration_tests {
 
             #[async_test]
             async fn room_settings_saving() {
-                let (account, store) = get_loaded_store("room_settings_saving").await;
+                let (_, store) = get_loaded_store("room_settings_saving").await;
 
                 let room_1 = room_id!("!test_1:localhost");
                 let settings_1 = RoomSettings {
@@ -914,7 +914,7 @@ macro_rules! cryptostore_integration_tests {
 
             #[async_test]
             async fn custom_value_saving() {
-                let (account, store) = get_loaded_store("custom_value_saving").await;
+                let (_, store) = get_loaded_store("custom_value_saving").await;
                 store.set_custom_value("A", "Hello".as_bytes().to_vec()).await.unwrap();
 
                 let loaded_1 = store.get_custom_value("A").await.unwrap();
