@@ -15,7 +15,7 @@
 use std::{fmt, ops::ControlFlow, sync::Arc, time::Duration};
 
 use matrix_sdk::event_cache::{self, BackPaginationOutcome};
-use tracing::{debug, instrument, trace, warn};
+use tracing::{instrument, trace, warn};
 
 use crate::timeline::inner::TimelineEnd;
 
@@ -62,28 +62,13 @@ impl super::Timeline {
                             return Ok(());
                         }
 
-                        let mut update_outcome = || {
-                            outcome.events_received = num_events.try_into().ok()?;
-                            outcome.total_events_received = outcome
-                                .total_events_received
-                                .checked_add(outcome.events_received)?;
+                        outcome.events_received = num_events as u64;
+                        outcome.total_events_received += outcome.events_received;
 
-                            outcome.items_added = handle_many_res.items_added;
-                            outcome.items_updated = handle_many_res.items_updated;
-                            outcome.total_items_added += outcome.items_added;
-                            outcome.total_items_updated += outcome.items_updated;
-
-                            Some(())
-                        };
-
-                        if update_outcome().is_none() {
-                            // Overflow: stop here and exit.
-                            debug!(
-                                "Hit overflow, stopping back-paginating and getting back to idle."
-                            );
-                            self.back_pagination_status.set_if_not_eq(BackPaginationStatus::Idle);
-                            return Ok(());
-                        }
+                        outcome.items_added = handle_many_res.items_added;
+                        outcome.items_updated = handle_many_res.items_updated;
+                        outcome.total_items_added += outcome.items_added;
+                        outcome.total_items_updated += outcome.items_updated;
 
                         if num_events == 0 {
                             // As an exceptional contract: if there were no events in the response,
@@ -242,7 +227,7 @@ impl<'a> fmt::Debug for PaginationOptions<'a> {
 #[non_exhaustive]
 pub struct PaginationOutcome {
     /// The number of events received in last pagination response.
-    pub events_received: u16,
+    pub events_received: u64,
 
     /// The number of timeline items added by the last pagination response.
     pub items_added: u64,
@@ -252,7 +237,7 @@ pub struct PaginationOutcome {
     pub items_updated: u64,
 
     /// The number of events received by a `paginate_backwards` call so far.
-    pub total_events_received: u16,
+    pub total_events_received: u64,
 
     /// The total number of items added by a `paginate_backwards` call so
     /// far.
