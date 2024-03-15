@@ -10,12 +10,11 @@ macro_rules! cryptostore_integration_tests {
             use matrix_sdk_test::async_test;
             use ruma::{
                 device_id,
-                encryption::SignedKey,
                 events::secret::request::SecretName,
                 room_id,
-                serde::{Base64, Raw},
+                serde::Raw,
                 to_device::DeviceIdOrAllDevices,
-                user_id, DeviceId, JsOption, OwnedDeviceId, OwnedUserId, RoomId, TransactionId, UserId
+                user_id, DeviceId, RoomId, TransactionId, UserId
             };
             use serde_json::value::to_raw_value;
             use $crate::{
@@ -24,7 +23,7 @@ macro_rules! cryptostore_integration_tests {
                     PrivateCrossSigningIdentity, Account, Session,
                 },
                 store::{
-                    BackupKeys, Changes, CryptoStore, DeviceChanges,
+                    Changes, CryptoStore, DeviceChanges,
                     GossipRequest, IdentityChanges, BackupDecryptionKey, RoomSettings, PendingChanges,
                 },
                 testing::{get_device, get_other_identity, get_own_identity},
