@@ -55,6 +55,7 @@ pub struct MemoryStore {
     sessions: SessionStore,
     inbound_group_sessions: GroupSessionStore,
     outbound_group_sessions: StdRwLock<BTreeMap<OwnedRoomId, OutboundGroupSession>>,
+    private_identity: StdRwLock<Option<PrivateCrossSigningIdentity>>,
     tracked_users: StdRwLock<Vec<TrackedUser>>,
     olm_hashes: StdRwLock<HashMap<String, HashSet<String>>>,
     devices: DeviceStore,
@@ -77,6 +78,7 @@ impl Default for MemoryStore {
             sessions: SessionStore::new(),
             inbound_group_sessions: GroupSessionStore::new(),
             outbound_group_sessions: Default::default(),
+            private_identity: Default::default(),
             tracked_users: Default::default(),
             olm_hashes: Default::default(),
             devices: DeviceStore::new(),
@@ -130,6 +132,10 @@ impl MemoryStore {
             .unwrap()
             .extend(sessions.into_iter().map(|s| (s.room_id().to_owned(), s)));
     }
+
+    fn save_private_identity(&self, private_identity: Option<PrivateCrossSigningIdentity>) {
+        *self.private_identity.write().unwrap() = private_identity;
+    }
 }
 
 type Result<T> = std::result::Result<T, Infallible>;
@@ -144,7 +150,7 @@ impl CryptoStore for MemoryStore {
     }
 
     async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>> {
-        Ok(None)
+        Ok(self.private_identity.read().unwrap().clone())
     }
 
     async fn next_batch_token(&self) -> Result<Option<String>> {
@@ -163,6 +169,7 @@ impl CryptoStore for MemoryStore {
         self.save_sessions(changes.sessions).await;
         self.save_inbound_group_sessions(changes.inbound_group_sessions);
         self.save_outbound_group_sessions(changes.outbound_group_sessions);
+        self.save_private_identity(changes.private_identity);
 
         self.save_devices(changes.devices.new);
         self.save_devices(changes.devices.changed);
@@ -482,7 +489,10 @@ mod tests {
 
     use crate::{
         identities::device::testing::get_device,
-        olm::{tests::get_account_and_session_test_helper, InboundGroupSession, OlmMessageHash},
+        olm::{
+            tests::get_account_and_session_test_helper, InboundGroupSession, OlmMessageHash,
+            PrivateCrossSigningIdentity,
+        },
         store::{memorystore::MemoryStore, Changes, CryptoStore, PendingChanges},
     };
 
@@ -566,6 +576,22 @@ mod tests {
         assert_eq!(loaded_tracked_users[1].user_id, user_id!("@clean_user:t"));
         assert!(!loaded_tracked_users[1].dirty);
         assert_eq!(loaded_tracked_users.len(), 2);
+    }
+
+    #[async_test]
+    async fn test_private_identity_store() {
+        // Given a private identity
+        let private_identity = PrivateCrossSigningIdentity::empty(user_id!("@u:s"));
+
+        // When we save it to the store
+        let store = MemoryStore::new();
+        store.save_private_identity(Some(private_identity.clone()));
+
+        // Then we can get it out again
+        let loaded_identity =
+            store.load_identity().await.expect("failed to load private identity").unwrap();
+
+        assert_eq!(loaded_identity.user_id(), user_id!("@u:s"));
     }
 
     #[async_test]
