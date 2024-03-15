@@ -526,7 +526,7 @@ pub struct Changes {
 }
 
 /// A user for which we are tracking the list of devices.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TrackedUser {
     /// The user ID of the user.
     pub user_id: OwnedUserId,
