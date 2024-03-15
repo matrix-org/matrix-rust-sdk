@@ -426,13 +426,13 @@ macro_rules! cryptostore_integration_tests {
                     let loaded_alice =
                         loaded.get(alice).expect("Alice should be in the store as a tracked user");
                     let loaded_bob =
-                        loaded.get(alice).expect("Bob should be in the store as as tracked user");
+                        loaded.get(bob).expect("Bob should be in the store as as tracked user");
 
                     assert!(!loaded.contains_key(candy), "Candy shouldn't be part of the store");
                     assert_eq!(loaded.len(), 2, "Candy shouldn't be part of the store");
 
                     assert!(loaded_alice.dirty, "Alice should be considered to be dirty");
-                    assert!(loaded_alice.dirty, "Bob should not be considered to be dirty");
+                    assert!(!loaded_bob.dirty, "Bob should not be considered to be dirty");
                 };
 
                 let loaded = store.load_tracked_users().await.unwrap();
