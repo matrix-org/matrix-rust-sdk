@@ -12,12 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    collections::VecDeque,
-    future::Future,
-    mem::{self, ManuallyDrop},
-    sync::Arc,
-};
+use std::{collections::VecDeque, future::Future, sync::Arc};
 
 use eyeball_im::{ObservableVector, ObservableVectorTransaction, ObservableVectorTransactionEntry};
 use indexmap::IndexMap;
@@ -403,19 +398,21 @@ impl TimelineInnerState {
     }
 
     fn transaction(&mut self) -> TimelineInnerStateTransaction<'_> {
-        let items = ManuallyDrop::new(self.items.transaction());
-        let meta = ManuallyDrop::new(self.meta.clone());
+        let items = self.items.transaction();
+        let meta = self.meta.clone();
         TimelineInnerStateTransaction { items, previous_meta: &mut self.meta, meta }
     }
 }
 
 pub(in crate::timeline) struct TimelineInnerStateTransaction<'a> {
-    pub items: ManuallyDrop<ObservableVectorTransaction<'a, Arc<TimelineItem>>>,
+    /// A vector transaction over the items themselves. Holds temporary state
+    /// until committed.
+    pub items: ObservableVectorTransaction<'a, Arc<TimelineItem>>,
 
     /// A clone of the previous meta, that we're operating on during the
     /// transaction, and that will be committed to the previous meta location in
     /// [`Self::commit`].
-    pub meta: ManuallyDrop<TimelineInnerMetadata>,
+    pub meta: TimelineInnerMetadata,
 
     /// Pointer to the previous meta, only used during [`Self::commit`].
     previous_meta: &'a mut TimelineInnerMetadata,
@@ -624,19 +621,11 @@ impl TimelineInnerStateTransaction<'_> {
         self.meta.update_read_marker(&mut self.items);
     }
 
-    fn commit(mut self) {
-        let Self { items, previous_meta, meta } = &mut self;
-
-        // Safety: self is forgotten to avoid double free from drop.
-        let meta = unsafe { ManuallyDrop::take(meta) };
+    fn commit(self) {
+        let Self { items, previous_meta, meta } = self;
 
         // Replace the pointer to the previous meta with the new one.
-        **previous_meta = meta;
-
-        // Safety: self is forgotten to avoid double free from drop.
-        let items = unsafe { ManuallyDrop::take(items) };
-
-        mem::forget(self);
+        *previous_meta = meta;
 
         items.commit();
     }
@@ -684,17 +673,6 @@ impl TimelineInnerStateTransaction<'_> {
             self.load_read_receipts_for_event(event_meta.event_id, room_data_provider).await;
 
             self.maybe_add_implicit_read_receipt(event_meta);
-        }
-    }
-}
-
-impl Drop for TimelineInnerStateTransaction<'_> {
-    fn drop(&mut self) {
-        warn!("timeline state transaction cancelled");
-        // Safety: self.items is not touched anymore, the only other place
-        // dropping is Self::commit which makes sure to skip this Drop impl.
-        unsafe {
-            ManuallyDrop::drop(&mut self.items);
         }
     }
 }
