@@ -61,16 +61,28 @@ use super::{
 };
 use crate::{events::SyncTimelineEventWithoutContent, DEFAULT_SANITIZER_MODE};
 
+/// When adding an event, useful information related to the source of the event.
 #[derive(Clone)]
 pub(super) enum Flow {
+    /// The event was locally created.
     Local {
+        /// The transaction id we've used in requests associated to this event.
         txn_id: OwnedTransactionId,
     },
+
+    /// The event has been received from a remote source (sync, pagination,
+    /// etc.). This can be a "remote echo".
     Remote {
+        /// The event identifier as returned by the server.
         event_id: OwnedEventId,
+        /// The transaction id we might have used, if we're the sender of the
+        /// event.
         txn_id: Option<OwnedTransactionId>,
+        /// The raw serialized JSON event.
         raw_event: Raw<AnySyncTimelineEvent>,
+        /// Where should this be added in the timeline.
         position: TimelineItemPosition,
+        /// Should this event actually be added, based on the event filters.
         should_add: bool,
     },
 }
@@ -194,29 +206,53 @@ impl TimelineEventKind {
     }
 }
 
+/// The position at which to perform an update of the timeline with events.
 #[derive(Clone, Copy, Debug)]
 pub(super) enum TimelineItemPosition {
+    /// One or more items are prepended to the timeline (i.e. they're the
+    /// oldest).
+    ///
+    /// Usually this means items coming from back-pagination.
     Start,
+
+    /// One or more items are appended to the timeline (i.e. they're the most
+    /// recent).
     End {
         /// Whether this event is coming from a local cache.
         from_cache: bool,
     },
+
+    /// A single item is updated.
+    ///
+    /// This only happens when a UTD must be replaced with the decrypted event.
     #[cfg(feature = "e2e-encryption")]
     Update(usize),
 }
 
+/// The outcome of handling a single event with
+/// [`TimelineEventHandler::handle_event`].
 #[derive(Default)]
 pub(super) struct HandleEventResult {
+    /// Was some timeline item added?
     pub(super) item_added: bool,
+
+    /// Was some timeline item removed?
+    ///
+    /// This can happen only if there was a UTD item that has been decrypted
+    /// into an item that was filtered out with the event filter.
     #[cfg(feature = "e2e-encryption")]
     pub(super) item_removed: bool,
+
+    /// How many items were updated?
     pub(super) items_updated: u16,
 }
 
-// Bundles together a few things that are needed throughout the different stages
-// of handling an event (figuring out whether it should update an existing
-// timeline item, transforming that item or creating a new one, updating the
-// reactive Vec).
+/// Data necessary to update the timeline, given a single event to handle.
+///
+/// Bundles together a few things that are needed throughout the different
+/// stages of handling an event (figuring out whether it should update an
+/// existing timeline item, transforming that item or creating a new one,
+/// updating the reactive Vec).
 pub(super) struct TimelineEventHandler<'a, 'o> {
     items: &'a mut ObservableVectorTransaction<'o, Arc<TimelineItem>>,
     meta: &'a mut TimelineInnerMetadata,
@@ -769,11 +805,13 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
         let kind: EventTimelineItemKind = match &self.ctx.flow {
             Flow::Local { txn_id } => {
-                let send_state = EventSendState::NotSentYet;
-                let transaction_id = txn_id.to_owned();
-                LocalEventTimelineItem { send_state, transaction_id }
+                LocalEventTimelineItem {
+                    send_state: EventSendState::NotSentYet,
+                    transaction_id: txn_id.to_owned(),
+                }
             }
             .into(),
+
             Flow::Remote { event_id, raw_event, position, .. } => {
                 // Drop pending reactions if the message is redacted.
                 if let TimelineItemContent::RedactedMessage = content {
@@ -784,9 +822,12 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
                 let origin = match position {
                     TimelineItemPosition::Start => RemoteEventOrigin::Pagination,
+
                     // We only paginate backwards for now, so End only happens for syncs
                     TimelineItemPosition::End { from_cache: true } => RemoteEventOrigin::Cache,
+
                     TimelineItemPosition::End { from_cache: false } => RemoteEventOrigin::Sync,
+
                     #[cfg(feature = "e2e-encryption")]
                     TimelineItemPosition::Update(idx) => self.items[*idx]
                         .as_event()
@@ -862,10 +903,12 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     if let Some(day_divider_item) =
                         self.meta.maybe_create_day_divider_from_timestamps(divider_ts, timestamp)
                     {
+                        trace!("Adding day divider (remote - start)");
                         self.items.push_front(day_divider_item);
                     }
                 } else {
                     // The list must always start with a day divider.
+                    trace!("Adding first day divider (remote - start)");
                     let day_divider =
                         self.meta.new_timeline_item(VirtualTimelineItem::DayDivider(timestamp));
                     self.items.push_front(day_divider);
@@ -878,6 +921,9 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             Flow::Remote {
                 position: TimelineItemPosition::End { .. }, txn_id, event_id, ..
             } => {
+                // Look if we already have a corresponding item somewhere, based on the
+                // transaction id (if a local echo) or the event id (if a
+                // duplicate remote event).
                 let result = rfind_event_item(self.items, |it| {
                     txn_id.is_some() && it.transaction_id() == txn_id.as_deref()
                         || it.event_id() == Some(event_id)
@@ -885,11 +931,12 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
                 let mut removed_event_item_id = None;
                 let mut removed_day_divider_id = None;
+
                 if let Some((idx, old_item)) = result {
                     if old_item.as_remote().is_some() {
-                        // Item was previously received from the server. This
-                        // should be very rare normally, but with the sliding-
-                        // sync proxy, it is actually very common.
+                        // Item was previously received from the server. This should be very rare
+                        // normally, but with the sliding- sync proxy, it is actually very
+                        // common.
                         // NOTE: SS proxy workaround.
                         trace!(?item, old_item = ?*old_item, "Received duplicate event");
 
@@ -983,7 +1030,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     let old_ts = latest_event.timestamp();
 
                     if timestamp_to_date(old_ts) != timestamp_to_date(timestamp) {
-                        trace!("Adding day divider (remote)");
+                        trace!("Adding day divider (remote - end)");
 
                         let id = match removed_day_divider_id {
                             // If a day divider was removed for an item about to be moved and we
@@ -1004,7 +1051,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     }
                 } else {
                     // If there is no event item, there is no day divider yet.
-                    trace!("Adding first day divider (remote)");
+                    trace!("Adding first day divider (remote - end)");
                     let new_day_divider =
                         self.meta.new_timeline_item(VirtualTimelineItem::DayDivider(timestamp));
                     if should_push {

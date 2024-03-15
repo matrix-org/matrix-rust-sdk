@@ -683,7 +683,10 @@ pub(in crate::timeline) struct TimelineInnerMetadata {
     /// are discarded in the timeline items.
     pub all_events: VecDeque<EventMeta>,
 
+    /// The next internal identifier for timeline items, used for both local and
+    /// remote echoes.
     next_internal_id: u64,
+
     pub reactions: Reactions,
     pub poll_pending_events: PollPendingEvents,
     pub fully_read_event: Option<OwnedEventId>,
@@ -706,6 +709,7 @@ pub(in crate::timeline) struct TimelineInnerMetadata {
     /// The hook to call whenever we run into a unable-to-decrypt event.
     pub(crate) unable_to_decrypt_hook: Option<Arc<UtdHookManager>>,
 
+    /// Matrix room version of the timeline's room, or a sensible default.
     pub room_version: RoomVersionId,
 }
 

@@ -15,7 +15,7 @@
 use std::ops::Deref;
 
 use indexmap::IndexMap;
-use itertools::Itertools;
+use itertools::Itertools as _;
 use ruma::{OwnedEventId, OwnedTransactionId, UserId};
 
 use super::EventItemIdentifier;
@@ -23,7 +23,7 @@ use crate::timeline::ReactionSenderData;
 
 /// The reactions grouped by key.
 ///
-/// Key: The reaction, usually an emoji.\
+/// Key: The reaction, usually an emoji.
 /// Value: The group of reactions.
 pub type BundledReactions = IndexMap<String, ReactionGroup>;
 
