@@ -34,7 +34,7 @@ use wiremock::{
 use crate::{mock_encryption_state, mock_sync};
 
 #[async_test]
-async fn in_reply_to_details() {
+async fn test_in_reply_to_details() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client_with_server().await;
     let event_builder = EventBuilder::new();
@@ -171,7 +171,7 @@ async fn in_reply_to_details() {
 }
 
 #[async_test]
-async fn transfer_in_reply_to_details_to_re_received_item() {
+async fn test_transfer_in_reply_to_details_to_re_received_item() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client_with_server().await;
     let event_builder = EventBuilder::new();
@@ -253,7 +253,7 @@ async fn transfer_in_reply_to_details_to_re_received_item() {
 }
 
 #[async_test]
-async fn send_reply() {
+async fn test_send_reply() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client_with_server().await;
     let event_builder = EventBuilder::new();
@@ -344,7 +344,7 @@ async fn send_reply() {
 }
 
 #[async_test]
-async fn send_reply_to_threaded() {
+async fn test_send_reply_to_threaded() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client_with_server().await;
     let event_builder = EventBuilder::new();

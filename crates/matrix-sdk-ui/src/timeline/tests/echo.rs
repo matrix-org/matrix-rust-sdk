@@ -28,7 +28,7 @@ use super::TestTimeline;
 use crate::timeline::event_item::EventSendState;
 
 #[async_test]
-async fn remote_echo_full_trip() {
+async fn test_remote_echo_full_trip() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe().await;
 
@@ -113,7 +113,7 @@ async fn remote_echo_full_trip() {
 }
 
 #[async_test]
-async fn remote_echo_new_position() {
+async fn test_remote_echo_new_position() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe().await;
 
@@ -167,7 +167,7 @@ async fn remote_echo_new_position() {
 }
 
 #[async_test]
-async fn day_divider_duplication() {
+async fn test_day_divider_duplication() {
     let timeline = TestTimeline::new();
 
     // Given two remote events from one day, and a local event from another day…
