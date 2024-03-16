@@ -25,6 +25,7 @@ mod gossiping;
 mod identities;
 mod machine;
 pub mod olm;
+pub mod qr_login;
 pub mod requests;
 pub mod secret_storage;
 mod session_manager;
