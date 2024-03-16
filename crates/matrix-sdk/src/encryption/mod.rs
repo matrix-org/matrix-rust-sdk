@@ -16,14 +16,6 @@
 #![doc = include_str!("../docs/encryption.md")]
 #![cfg_attr(target_arch = "wasm32", allow(unused_imports))]
 
-use std::{
-    collections::{BTreeMap, HashSet},
-    io::{Cursor, Read, Write},
-    iter,
-    path::PathBuf,
-    sync::{Arc, Mutex as StdMutex},
-};
-
 use eyeball::{SharedObservable, Subscriber};
 use futures_core::Stream;
 use futures_util::{
@@ -32,6 +24,15 @@ use futures_util::{
 };
 use matrix_sdk_base::crypto::{
     CrossSigningBootstrapRequests, OlmMachine, OutgoingRequest, RoomMessageRequest, ToDeviceRequest,
+};
+pub use matrix_sdk_base::crypto::{
+    CrossSigningStatus,
+    CryptoStoreError, DecryptorError, EventError, KeyExportError, LocalTrust, MediaEncryptionInfo,
+    MegolmError, olm::{
+        SessionCreationError as MegolmSessionCreationError,
+        SessionExportError as OlmSessionExportError,
+    }, OlmError, RoomKeyImportResult, SecretImportError, SessionCreationError,
+    SignatureError, VERSION, vodozemac,
 };
 use matrix_sdk_common::executor::spawn;
 use ruma::{
@@ -47,36 +48,45 @@ use ruma::{
         uiaa::AuthData,
     },
     assign,
+    DeviceId,
     events::room::{
-        message::{
-            AudioMessageEventContent, FileInfo, FileMessageEventContent, ImageMessageEventContent,
-            MessageType, VideoInfo, VideoMessageEventContent,
-        },
-        ImageInfo, MediaSource, ThumbnailInfo,
-    },
-    DeviceId, OwnedDeviceId, OwnedUserId, TransactionId, UserId,
+        ImageInfo,
+        MediaSource, message::{
+            AudioMessageEventContent, FileInfo, FileMessageEventContent, FormattedBody,
+            ImageMessageEventContent, MessageType, VideoInfo, VideoMessageEventContent
+        }, ThumbnailInfo,
+    }, OwnedDeviceId, OwnedUserId, TransactionId, UserId,
+};
+use std::{
+    collections::{BTreeMap, HashSet},
+    io::{Cursor, Read, Write},
+    iter,
+    path::PathBuf,
+    sync::{Arc, Mutex as StdMutex},
 };
 use tokio::sync::RwLockReadGuard;
 use tracing::{debug, error, instrument, trace, warn};
 
-use self::{
-    backups::{types::BackupClientState, Backups},
-    futures::PrepareEncryptedFile,
-    identities::{DeviceUpdates, IdentityUpdates},
-    recovery::{Recovery, RecoveryState},
-    secret_storage::SecretStorage,
-    tasks::{BackupDownloadTask, BackupUploadingTask, ClientTasks},
-};
 use crate::{
     attachment::{AttachmentInfo, Thumbnail},
+    Client,
     client::ClientInner,
     encryption::{
         identities::{Device, UserDevices},
         verification::{SasVerification, Verification, VerificationRequest},
     },
-    error::HttpResult,
-    store_locks::CrossProcessStoreLockGuard,
-    Client, Error, Result, Room, TransmissionProgress,
+    Error,
+    error::HttpResult, Result, Room, store_locks::CrossProcessStoreLockGuard, TransmissionProgress,
+};
+pub use crate::error::RoomKeyImportError;
+
+use self::{
+    backups::{Backups, types::BackupClientState},
+    futures::PrepareEncryptedFile,
+    identities::{DeviceUpdates, IdentityUpdates},
+    recovery::{Recovery, RecoveryState},
+    secret_storage::SecretStorage,
+    tasks::{BackupDownloadTask, BackupUploadingTask, ClientTasks},
 };
 
 pub mod backups;
@@ -86,18 +96,6 @@ pub mod recovery;
 pub mod secret_storage;
 pub(crate) mod tasks;
 pub mod verification;
-
-pub use matrix_sdk_base::crypto::{
-    olm::{
-        SessionCreationError as MegolmSessionCreationError,
-        SessionExportError as OlmSessionExportError,
-    },
-    vodozemac, CrossSigningStatus, CryptoStoreError, DecryptorError, EventError, KeyExportError,
-    LocalTrust, MediaEncryptionInfo, MegolmError, OlmError, RoomKeyImportResult, SecretImportError,
-    SessionCreationError, SignatureError, VERSION,
-};
-
-pub use crate::error::RoomKeyImportError;
 
 /// All the data related to the encryption state.
 pub(crate) struct EncryptionData {
@@ -298,10 +296,13 @@ impl Client {
     }
 
     /// Encrypt and upload the file to be read from `reader` and construct an
-    /// attachment message with `body`, `content_type`, `info` and `thumbnail`.
+    /// attachment message with `body`, `content_type`, `info` and `thumbnail`,
+    /// optionanly with `formatted` and `filename`.
     pub(crate) async fn prepare_encrypted_attachment_message(
         &self,
-        body: &str,
+        caption: Option<String>,
+        formatted: Option<FormattedBody>,
+        url: &str,
         content_type: &mime::Mime,
         data: Vec<u8>,
         info: Option<AttachmentInfo>,
@@ -321,6 +322,15 @@ impl Client {
         let ((thumbnail_source, thumbnail_info), file) =
             try_join(upload_thumbnail, upload_attachment).await?;
 
+        let body: &str = match &caption {
+            Some(p) => p,
+            None => url,
+        };
+        let filename = match &caption {
+            Some(p) => Some(String::from(p)),
+            None => None
+        };
+        
         Ok(match content_type.type_() {
             mime::IMAGE => {
                 let info = assign!(info.map(ImageInfo::from).unwrap_or_default(), {
@@ -329,7 +339,9 @@ impl Client {
                     thumbnail_info
                 });
                 let content = assign!(ImageMessageEventContent::encrypted(body.to_owned(), file), {
-                    info: Some(Box::new(info))
+                    info: Some(Box::new(info)),
+                    formatted: formatted,
+                    filename: filename
                 });
                 MessageType::Image(content)
             }
@@ -1435,12 +1447,10 @@ impl Encryption {
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
-    use std::time::Duration;
-
     use matrix_sdk_base::SessionMeta;
     use matrix_sdk_test::{
-        async_test, test_json, GlobalAccountDataTestEvent, JoinedRoomBuilder, StateTestEvent,
-        SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
+        async_test, DEFAULT_TEST_ROOM_ID, GlobalAccountDataTestEvent, JoinedRoomBuilder, StateTestEvent,
+        SyncResponseBuilder, test_json,
     };
     use ruma::{
         device_id, event_id,
@@ -1448,16 +1458,17 @@ mod tests {
         user_id,
     };
     use serde_json::json;
+    use std::time::Duration;
     use wiremock::{
         matchers::{header, method, path_regex},
         Mock, MockServer, ResponseTemplate,
     };
 
     use crate::{
+        Client,
         config::RequestConfig,
         matrix_auth::{MatrixSession, MatrixSessionTokens},
         test_utils::logged_in_client,
-        Client,
     };
 
     #[async_test]

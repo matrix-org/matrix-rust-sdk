@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashMap, fmt::Write as _, fs, sync::Arc};
-
 use anyhow::{Context, Result};
 use as_variant::as_variant;
 use eyeball_im::VectorDiff;
@@ -25,7 +23,9 @@ use matrix_sdk::attachment::{
 use matrix_sdk_ui::timeline::{BackPaginationStatus, EventItemOrigin, Profile, TimelineDetails};
 use mime::Mime;
 use ruma::{
+    EventId,
     events::{
+        AnyMessageLikeEventContent,
         location::{AssetType as RumaAssetType, LocationContent, ZoomLevel},
         poll::{
             unstable_end::UnstablePollEndEventContent,
@@ -38,13 +38,13 @@ use ruma::{
         receipt::ReceiptThread,
         relation::Annotation,
         room::message::{
-            ForwardThread, LocationMessageEventContent, MessageType,
-            RoomMessageEventContentWithoutRelation,
+            FormattedBody as RumaFormattedBody, ForwardThread, LocationMessageEventContent,
+            MessageType,
+            RoomMessageEventContentWithoutRelation
         },
-        AnyMessageLikeEventContent,
     },
-    EventId,
 };
+use std::{collections::HashMap, fmt::Write as _, fs, sync::Arc};
 use tokio::{
     sync::Mutex,
     task::{AbortHandle, JoinHandle},
@@ -56,14 +56,14 @@ use crate::{
     client::ProgressWatcher,
     error::{ClientError, RoomError},
     helpers::unwrap_or_clone_arc,
-    ruma::{AssetType, AudioInfo, FileInfo, ImageInfo, PollKind, ThumbnailInfo, VideoInfo},
-    task_handle::TaskHandle,
+    ruma::{AssetType, AudioInfo, FileInfo, FormattedBody, ImageInfo, PollKind, ThumbnailInfo, VideoInfo},
     RUNTIME,
+    task_handle::TaskHandle,
 };
 
-mod content;
-
 pub use self::content::{Reaction, ReactionSenderData, TimelineItemContent};
+
+mod content;
 
 #[derive(uniffi::Object)]
 #[repr(transparent)]
@@ -106,12 +106,18 @@ impl Timeline {
 
     async fn send_attachment(
         &self,
+        caption: Option<String>,
+        formatted: Option<FormattedBody>,
         url: String,
         mime_type: Mime,
         attachment_config: AttachmentConfig,
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
     ) -> Result<(), RoomError> {
-        let request = self.inner.send_attachment(url, mime_type, attachment_config);
+        let formatted: Option<RumaFormattedBody> = match formatted {
+            Some(p) => Some(RumaFormattedBody::from(p)),
+            None => None
+        };
+        let request = self.inner.send_attachment(caption, formatted, url, mime_type, attachment_config);
         if let Some(progress_watcher) = progress_watcher {
             let mut subscriber = request.subscribe_to_send_progress();
             RUNTIME.spawn(async move {
@@ -215,6 +221,8 @@ impl Timeline {
 
     pub fn send_image(
         self: Arc<Self>,
+        caption: Option<String>,
+        formatted: Option<FormattedBody>,
         url: String,
         thumbnail_url: Option<String>,
         image_info: ImageInfo,
@@ -240,12 +248,14 @@ impl Timeline {
                 _ => AttachmentConfig::new().info(attachment_info),
             };
 
-            self.send_attachment(url, mime_type, attachment_config, progress_watcher).await
+            self.send_attachment(caption, formatted, url, mime_type, attachment_config, progress_watcher).await
         }))
     }
 
     pub fn send_video(
         self: Arc<Self>,
+        caption: Option<String>,
+        formatted: Option<FormattedBody>,
         url: String,
         thumbnail_url: Option<String>,
         video_info: VideoInfo,
@@ -271,12 +281,14 @@ impl Timeline {
                 _ => AttachmentConfig::new().info(attachment_info),
             };
 
-            self.send_attachment(url, mime_type, attachment_config, progress_watcher).await
+            self.send_attachment(caption, formatted, url, mime_type, attachment_config, progress_watcher).await
         }))
     }
 
     pub fn send_audio(
         self: Arc<Self>,
+        caption: Option<String>,
+        formatted: Option<FormattedBody>,
         url: String,
         audio_info: AudioInfo,
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
@@ -293,12 +305,14 @@ impl Timeline {
             let attachment_info = AttachmentInfo::Audio(base_audio_info);
             let attachment_config = AttachmentConfig::new().info(attachment_info);
 
-            self.send_attachment(url, mime_type, attachment_config, progress_watcher).await
+            self.send_attachment(caption, formatted, url, mime_type, attachment_config, progress_watcher).await
         }))
     }
 
     pub fn send_voice_message(
         self: Arc<Self>,
+        caption: Option<String>,
+        formatted: Option<FormattedBody>,
         url: String,
         audio_info: AudioInfo,
         waveform: Vec<u16>,
@@ -317,7 +331,7 @@ impl Timeline {
                 AttachmentInfo::Voice { audio_info: base_audio_info, waveform: Some(waveform) };
             let attachment_config = AttachmentConfig::new().info(attachment_info);
 
-            self.send_attachment(url, mime_type, attachment_config, progress_watcher).await
+            self.send_attachment(caption, formatted, url, mime_type, attachment_config, progress_watcher).await
         }))
     }
 
@@ -339,7 +353,7 @@ impl Timeline {
             let attachment_info = AttachmentInfo::File(base_file_info);
             let attachment_config = AttachmentConfig::new().info(attachment_info);
 
-            self.send_attachment(url, mime_type, attachment_config, progress_watcher).await
+            self.send_attachment(None, None, url, mime_type, attachment_config, progress_watcher).await
         }))
     }
 

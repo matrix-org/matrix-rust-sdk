@@ -15,12 +15,6 @@
 
 //! High-level media API.
 
-#[cfg(feature = "e2e-encryption")]
-use std::io::Read;
-use std::time::Duration;
-#[cfg(not(target_arch = "wasm32"))]
-use std::{fmt, fs::File, io, path::Path};
-
 use eyeball::SharedObservable;
 use futures_util::future::try_join;
 pub use matrix_sdk_base::media::*;
@@ -29,15 +23,20 @@ use ruma::{
     api::client::media::{create_content, get_content, get_content_thumbnail},
     assign,
     events::room::{
-        message::{
+        ImageInfo,
+        MediaSource, message::{
             self, AudioInfo, AudioMessageEventContent, FileInfo, FileMessageEventContent,
-            ImageMessageEventContent, MessageType, UnstableAudioDetailsContentBlock,
+            FormattedBody, ImageMessageEventContent, MessageType, UnstableAudioDetailsContentBlock,
             UnstableVoiceContentBlock, VideoInfo, VideoMessageEventContent,
-        },
-        ImageInfo, MediaSource, ThumbnailInfo,
+        }, ThumbnailInfo,
     },
     MxcUri,
 };
+#[cfg(not(target_arch = "wasm32"))]
+use std::{fmt, fs::File, io, path::Path};
+#[cfg(feature = "e2e-encryption")]
+use std::io::Read;
+use std::time::Duration;
 #[cfg(not(target_arch = "wasm32"))]
 use tempfile::{Builder as TempFileBuilder, NamedTempFile, TempDir};
 #[cfg(not(target_arch = "wasm32"))]
@@ -45,8 +44,8 @@ use tokio::{fs::File as TokioFile, io::AsyncWriteExt};
 
 use crate::{
     attachment::{AttachmentInfo, Thumbnail},
-    futures::SendRequest,
-    Client, Result, TransmissionProgress,
+    Client,
+    futures::SendRequest, Result, TransmissionProgress,
 };
 
 /// A conservative upload speed of 1Mbps
@@ -437,10 +436,13 @@ impl Media {
     }
 
     /// Upload the file bytes in `data` and construct an attachment
-    /// message with `body`, `content_type`, `info` and `thumbnail`.
+    /// message with `body`, `content_type`, `info` and `thumbnail`,
+    /// optionally with `formatted` and `filename`.
     pub(crate) async fn prepare_attachment_message(
         &self,
-        body: &str,
+        caption: Option<String>,
+        formatted: Option<FormattedBody>,
+        url: &str,
         content_type: &Mime,
         data: Vec<u8>,
         info: Option<AttachmentInfo>,
@@ -459,6 +461,14 @@ impl Media {
         let ((thumbnail_source, thumbnail_info), response) =
             try_join(upload_thumbnail, upload_attachment).await?;
 
+        let body: &str = match &caption {
+            Some(p) => p,
+            None => url,
+        };
+        let filename = match &caption {
+            Some(_) => Some(String::from(url)),
+            None => None
+        };
         let url = response.content_uri;
 
         Ok(match content_type.type_() {
@@ -469,12 +479,17 @@ impl Media {
                     thumbnail_info,
                 });
                 MessageType::Image(
-                    ImageMessageEventContent::plain(body.to_owned(), url).info(Box::new(info)),
+                    ImageMessageEventContent::plain(body.to_owned(), url)
+                        .info(Box::new(info))
+                        .filename(filename)
+                        .formatted(formatted),
                 )
             }
             mime::AUDIO => {
                 let audio_message_event_content =
-                    message::AudioMessageEventContent::plain(body.to_owned(), url);
+                    message::AudioMessageEventContent::plain(body.to_owned(), url)
+                        .filename(filename)
+                        .formatted(formatted);
                 MessageType::Audio(update_audio_message_event(
                     audio_message_event_content,
                     content_type,
@@ -488,7 +503,10 @@ impl Media {
                     thumbnail_info
                 });
                 MessageType::Video(
-                    VideoMessageEventContent::plain(body.to_owned(), url).info(Box::new(info)),
+                    VideoMessageEventContent::plain(body.to_owned(), url)
+                        .info(Box::new(info))
+                        .filename(filename)
+                        .formatted(formatted)
                 )
             }
             _ => {
@@ -498,7 +516,10 @@ impl Media {
                     thumbnail_info
                 });
                 MessageType::File(
-                    FileMessageEventContent::plain(body.to_owned(), url).info(Box::new(info)),
+                    FileMessageEventContent::plain(body.to_owned(), url)
+                        .info(Box::new(info))
+                        .filename(filename)
+                        .formatted(formatted),
                 )
             }
         })

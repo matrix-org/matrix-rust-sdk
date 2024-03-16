@@ -16,72 +16,46 @@
 //!
 //! See [`Timeline`] for details.
 
-use std::{pin::Pin, sync::Arc, task::Poll};
-
 use eyeball::{SharedObservable, Subscriber};
 use eyeball_im::VectorDiff;
 use futures_core::Stream;
 use imbl::Vector;
 use matrix_sdk::{
     attachment::AttachmentConfig,
+    Client,
     event_cache::{EventCacheDropHandles, RoomEventCache},
     event_handler::EventHandlerHandle,
     executor::JoinHandle,
-    room::{Receipts, Room},
-    Client, Result,
+    Result, room::{Receipts, Room},
 };
 use matrix_sdk_base::RoomState;
 use mime::Mime;
 use pin_project_lite::pin_project;
 use ruma::{
     api::client::receipt::create_receipt::v3::ReceiptType,
+    EventId,
     events::{
+        AnyMessageLikeEventContent,
+        AnySyncTimelineEvent,
         poll::unstable_start::{
             ReplacementUnstablePollStartEventContent, UnstablePollStartContentBlock,
             UnstablePollStartEventContent,
         },
         reaction::ReactionEventContent,
         receipt::{Receipt, ReceiptThread},
-        relation::Annotation,
-        room::{
+        relation::Annotation, room::{
             message::{
-                AddMentions, ForwardThread, OriginalRoomMessageEvent, ReplacementMetadata,
-                RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
+                AddMentions, FormattedBody, ForwardThread, OriginalRoomMessageEvent, ReplacementMetadata, RoomMessageEventContent, RoomMessageEventContentWithoutRelation
             },
             redaction::RoomRedactionEventContent,
         },
-        AnyMessageLikeEventContent, AnySyncTimelineEvent,
-    },
-    uint, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, RoomVersionId,
-    TransactionId, UserId,
+    }, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, RoomVersionId, TransactionId,
+    uint, UserId,
 };
+use std::{pin::Pin, sync::Arc, task::Poll};
 use thiserror::Error;
 use tokio::sync::mpsc::Sender;
 use tracing::{debug, error, instrument, trace, warn};
-
-use self::futures::SendAttachment;
-
-mod builder;
-mod error;
-mod event_handler;
-mod event_item;
-pub mod event_type_filter;
-pub mod futures;
-mod inner;
-mod item;
-mod pagination;
-mod polls;
-mod queue;
-mod reactions;
-mod read_receipts;
-mod sliding_sync_ext;
-#[cfg(test)]
-mod tests;
-#[cfg(feature = "e2e-encryption")]
-mod to_device;
-mod traits;
-mod util;
-mod virtual_item;
 
 pub use self::{
     builder::TimelineBuilder,
@@ -108,6 +82,29 @@ use self::{
     reactions::ReactionToggleResult,
     util::rfind_event_by_id,
 };
+use self::futures::SendAttachment;
+
+mod builder;
+mod error;
+mod event_handler;
+mod event_item;
+pub mod event_type_filter;
+pub mod futures;
+mod inner;
+mod item;
+mod pagination;
+mod polls;
+mod queue;
+mod reactions;
+mod read_receipts;
+mod sliding_sync_ext;
+#[cfg(test)]
+mod tests;
+#[cfg(feature = "e2e-encryption")]
+mod to_device;
+mod traits;
+mod util;
+mod virtual_item;
 
 /// A high-level view into a regular¹ room's contents.
 ///
@@ -513,6 +510,10 @@ impl Timeline {
     ///
     /// # Arguments
     ///
+    /// * `caption` - The url for the file to be sent
+    ///
+    /// * `formatted` - The url for the file to be sent
+    ///
     /// * `url` - The url for the file to be sent
     ///
     /// * `mime_type` - The attachment's mime type
@@ -523,11 +524,13 @@ impl Timeline {
     #[instrument(skip_all)]
     pub fn send_attachment(
         &self,
+        caption: Option<String>,
+        formatted: Option<FormattedBody>,
         url: String,
         mime_type: Mime,
         config: AttachmentConfig,
     ) -> SendAttachment<'_> {
-        SendAttachment::new(self, url, mime_type, config)
+        SendAttachment::new(self, caption, formatted, url, mime_type, config)
     }
 
     /// Retry sending a message that previously failed to send.

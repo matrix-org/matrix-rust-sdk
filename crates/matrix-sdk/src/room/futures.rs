@@ -16,34 +16,34 @@
 
 #![deny(unreachable_pub)]
 
-use std::future::IntoFuture;
-#[cfg(feature = "image-proc")]
-use std::io::Cursor;
-
 use eyeball::SharedObservable;
 use matrix_sdk_common::boxed_into_future;
 use mime::Mime;
-#[cfg(doc)]
-use ruma::events::{MessageLikeUnsigned, SyncMessageLikeEvent};
 use ruma::{
     api::client::message::send_message_event,
     assign,
-    events::{AnyMessageLikeEventContent, MessageLikeEventContent},
-    serde::Raw,
-    OwnedTransactionId, TransactionId,
+    events::{AnyMessageLikeEventContent, MessageLikeEventContent, room::message::FormattedBody},
+    OwnedTransactionId,
+    serde::Raw, TransactionId,
 };
+#[cfg(doc)]
+use ruma::events::{MessageLikeUnsigned, SyncMessageLikeEvent};
+use std::future::IntoFuture;
+#[cfg(feature = "image-proc")]
+use std::io::Cursor;
 use tracing::{debug, info, Instrument, Span};
 
-use super::Room;
 use crate::{
-    attachment::AttachmentConfig, utils::IntoRawMessageLikeEventContent, Result,
-    TransmissionProgress,
+    attachment::AttachmentConfig, Result, TransmissionProgress,
+    utils::IntoRawMessageLikeEventContent,
 };
 #[cfg(feature = "image-proc")]
 use crate::{
     attachment::{generate_image_thumbnail, Thumbnail},
     error::ImageError,
 };
+
+use super::Room;
 
 /// Future returned by [`Room::send`].
 #[allow(missing_debug_implementations)]
@@ -216,7 +216,9 @@ impl<'a> IntoFuture for SendRawMessageLikeEvent<'a> {
 #[allow(missing_debug_implementations)]
 pub struct SendAttachment<'a> {
     room: &'a Room,
-    body: &'a str,
+    caption: Option<String>,
+    formatted: Option<FormattedBody>,
+    url: &'a str,
     content_type: &'a Mime,
     data: Vec<u8>,
     config: AttachmentConfig,
@@ -227,14 +229,18 @@ pub struct SendAttachment<'a> {
 impl<'a> SendAttachment<'a> {
     pub(crate) fn new(
         room: &'a Room,
-        body: &'a str,
+        caption: Option<String>,
+        formatted: Option<FormattedBody>,
+        url: &'a str,
         content_type: &'a Mime,
         data: Vec<u8>,
         config: AttachmentConfig,
     ) -> Self {
         Self {
             room,
-            body,
+            caption,
+            formatted,
+            url,
             content_type,
             data,
             config,
@@ -260,10 +266,10 @@ impl<'a> IntoFuture for SendAttachment<'a> {
     boxed_into_future!(extra_bounds: 'a);
 
     fn into_future(self) -> Self::IntoFuture {
-        let Self { room, body, content_type, data, config, tracing_span, send_progress } = self;
+        let Self { room, caption, formatted, url, content_type, data, config, tracing_span, send_progress } = self;
         let fut = async move {
             if config.thumbnail.is_some() {
-                room.prepare_and_send_attachment(body, content_type, data, config, send_progress)
+                room.prepare_and_send_attachment(caption, formatted, url, content_type, data, config, send_progress)
                     .await
             } else {
                 #[cfg(not(feature = "image-proc"))]
@@ -322,7 +328,7 @@ impl<'a> IntoFuture for SendAttachment<'a> {
                     thumbnail_size: None,
                 };
 
-                room.prepare_and_send_attachment(body, content_type, data, config, send_progress)
+                room.prepare_and_send_attachment(caption, formatted, url, content_type, data, config, send_progress)
                     .await
             }
         };

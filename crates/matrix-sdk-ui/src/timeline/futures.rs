@@ -1,15 +1,17 @@
-use std::{fs, future::IntoFuture, path::Path};
-
 use eyeball::{SharedObservable, Subscriber};
 use matrix_sdk::{attachment::AttachmentConfig, TransmissionProgress};
 use matrix_sdk_base::boxed_into_future;
 use mime::Mime;
+use ruma::events::room::message::FormattedBody;
+use std::{fs, future::IntoFuture, path::Path};
 use tracing::{Instrument as _, Span};
 
 use super::{Error, Timeline};
 
 pub struct SendAttachment<'a> {
     timeline: &'a Timeline,
+    caption: Option<String>,
+    formatted: Option<FormattedBody>,
     url: String,
     mime_type: Mime,
     config: AttachmentConfig,
@@ -20,12 +22,16 @@ pub struct SendAttachment<'a> {
 impl<'a> SendAttachment<'a> {
     pub(crate) fn new(
         timeline: &'a Timeline,
+        caption: Option<String>,
+        formatted: Option<FormattedBody>,
         url: String,
         mime_type: Mime,
         config: AttachmentConfig,
     ) -> Self {
         Self {
             timeline,
+            caption,
+            formatted,
             url,
             mime_type,
             config,
@@ -47,9 +53,9 @@ impl<'a> IntoFuture for SendAttachment<'a> {
     boxed_into_future!(extra_bounds: 'a);
 
     fn into_future(self) -> Self::IntoFuture {
-        let Self { timeline, url, mime_type, config, tracing_span, send_progress } = self;
+        let Self { timeline, caption, formatted, url, mime_type, config, tracing_span, send_progress } = self;
         let fut = async move {
-            let body = Path::new(&url)
+            let urlbody = Path::new(&url)
                 .file_name()
                 .ok_or(Error::InvalidAttachmentFileName)?
                 .to_str()
@@ -58,7 +64,7 @@ impl<'a> IntoFuture for SendAttachment<'a> {
 
             timeline
                 .room()
-                .send_attachment(body, &mime_type, data, config)
+                .send_attachment(caption, formatted, urlbody, &mime_type, data, config)
                 .with_send_progress_observable(send_progress)
                 .await
                 .map_err(|_| Error::FailedSendingAttachment)?;
