@@ -37,7 +37,7 @@ use crate::timeline::{
 const REACTION_KEY: &str = "👍";
 
 #[async_test]
-async fn add_reaction_failed() {
+async fn test_add_reaction_failed() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe().await;
     let (msg_id, msg_pos) = send_first_message(&timeline, &mut stream).await;
@@ -57,7 +57,7 @@ async fn add_reaction_failed() {
 }
 
 #[async_test]
-async fn add_reaction_on_non_existent_event() {
+async fn test_add_reaction_on_non_existent_event() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe().await;
     let msg_id = EventId::new(server_name!("example.org")); // non existent event
@@ -69,7 +69,7 @@ async fn add_reaction_on_non_existent_event() {
 }
 
 #[async_test]
-async fn add_reaction_success() {
+async fn test_add_reaction_success() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe().await;
     let (msg_id, msg_pos) = send_first_message(&timeline, &mut stream).await;
@@ -93,7 +93,7 @@ async fn add_reaction_success() {
 }
 
 #[async_test]
-async fn redact_reaction_success() {
+async fn test_redact_reaction_success() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe().await;
     let (msg_id, msg_pos) = send_first_message(&timeline, &mut stream).await;
@@ -115,7 +115,7 @@ async fn redact_reaction_success() {
 }
 
 #[async_test]
-async fn redact_reaction_failure() {
+async fn test_redact_reaction_failure() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe().await;
     let (msg_id, msg_pos) = send_first_message(&timeline, &mut stream).await;
@@ -141,7 +141,7 @@ async fn redact_reaction_failure() {
 }
 
 #[async_test]
-async fn redact_reaction_from_non_existent_event() {
+async fn test_redact_reaction_from_non_existent_event() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe().await;
     let reaction_id = EventId::new(server_name!("example.org")); // non existent event
@@ -154,7 +154,7 @@ async fn redact_reaction_from_non_existent_event() {
 }
 
 #[async_test]
-async fn toggle_during_request_resolves_new_action() {
+async fn test_toggle_during_request_resolves_new_action() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe().await;
     let (msg_id, msg_pos) = send_first_message(&timeline, &mut stream).await;
@@ -205,7 +205,7 @@ async fn toggle_during_request_resolves_new_action() {
 }
 
 #[async_test]
-async fn reactions_store_timestamp() {
+async fn test_reactions_store_timestamp() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe().await;
     let (msg_id, msg_pos) = send_first_message(&timeline, &mut stream).await;
@@ -238,26 +238,29 @@ async fn reactions_store_timestamp() {
 }
 
 #[async_test]
-async fn initial_reaction_timestamp_is_stored() {
-    let mut timeline = TestTimeline::new();
+async fn test_initial_reaction_timestamp_is_stored() {
+    let timeline = TestTimeline::new();
 
     let message_event_id = EventId::new(server_name!("dummy.server"));
     let reaction_timestamp = MilliSecondsSinceUnixEpoch(uint!(39845));
 
     timeline
         .inner
-        .add_initial_events(vec![
-            SyncTimelineEvent::new(timeline.event_builder.make_sync_reaction(
-                *ALICE,
-                &Annotation::new(message_event_id.clone(), REACTION_KEY.to_owned()),
-                reaction_timestamp,
-            )),
-            SyncTimelineEvent::new(timeline.event_builder.make_sync_message_event_with_id(
-                *ALICE,
-                &message_event_id,
-                RoomMessageEventContent::text_plain("A"),
-            )),
-        ])
+        .add_events_at(
+            vec![
+                SyncTimelineEvent::new(timeline.event_builder.make_sync_reaction(
+                    *ALICE,
+                    &Annotation::new(message_event_id.clone(), REACTION_KEY.to_owned()),
+                    reaction_timestamp,
+                )),
+                SyncTimelineEvent::new(timeline.event_builder.make_sync_message_event_with_id(
+                    *ALICE,
+                    &message_event_id,
+                    RoomMessageEventContent::text_plain("A"),
+                )),
+            ],
+            crate::timeline::inner::TimelineEnd::Back { from_cache: false },
+        )
         .await;
 
     let items = timeline.inner.items().await;

@@ -249,7 +249,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         state: &'a mut TimelineInnerStateTransaction<'o>,
         ctx: TimelineEventContext,
     ) -> Self {
-        let TimelineInnerStateTransaction { items, meta } = state;
+        let TimelineInnerStateTransaction { items, meta, .. } = state;
         Self { items, meta, ctx, result: HandleEventResult::default() }
     }
 

@@ -49,7 +49,7 @@ use ruma::{
 
 use super::{
     event_item::EventItemIdentifier,
-    inner::{ReactionAction, TimelineInnerSettings},
+    inner::{ReactionAction, TimelineEnd, TimelineInnerSettings},
     reactions::ReactionToggleResult,
     traits::RoomDataProvider,
     EventTimelineItem, Profile, TimelineInner, TimelineItem,
@@ -243,7 +243,7 @@ impl TestTimeline {
 
     async fn handle_back_paginated_custom_event(&self, event: Raw<AnyTimelineEvent>) {
         let timeline_event = TimelineEvent::new(event.cast());
-        self.inner.handle_back_paginated_events(vec![timeline_event]).await.unwrap();
+        self.inner.add_events_at(vec![timeline_event], TimelineEnd::Front).await;
     }
 
     async fn handle_read_receipts(

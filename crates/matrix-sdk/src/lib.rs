@@ -62,7 +62,9 @@ pub mod widget;
 
 pub use account::Account;
 pub use authentication::{AuthApi, AuthSession, SessionTokens};
-pub use client::{Client, ClientBuildError, ClientBuilder, LoopCtrl, SessionChange};
+pub use client::{
+    sanitize_server_name, Client, ClientBuildError, ClientBuilder, LoopCtrl, SessionChange,
+};
 #[cfg(feature = "image-proc")]
 pub use error::ImageError;
 pub use error::{

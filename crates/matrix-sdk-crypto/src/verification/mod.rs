@@ -364,6 +364,8 @@ impl Cancelled {
             }
             CancelCode::InvalidMessage => "The received message was invalid.",
             CancelCode::KeyMismatch => "The expected key did not match the verified one",
+            CancelCode::MismatchedCommitment => "The hash commitment did not match.",
+            CancelCode::MismatchedSas => "The SAS did not match.",
             CancelCode::Timeout => "The verification process timed out.",
             CancelCode::UnexpectedMessage => "The device received an unexpected message.",
             CancelCode::UnknownMethod => {

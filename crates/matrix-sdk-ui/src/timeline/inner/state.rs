@@ -12,18 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    collections::VecDeque,
-    future::Future,
-    mem::{self, ManuallyDrop},
-    ops::{Deref, DerefMut},
-    sync::Arc,
-};
+use std::{collections::VecDeque, future::Future, sync::Arc};
 
 use eyeball_im::{ObservableVector, ObservableVectorTransaction, ObservableVectorTransactionEntry};
 use indexmap::IndexMap;
-use matrix_sdk::{deserialized_responses::SyncTimelineEvent, sync::Timeline};
-use matrix_sdk_base::{deserialized_responses::TimelineEvent, sync::JoinedRoomUpdate};
+use matrix_sdk::deserialized_responses::SyncTimelineEvent;
+use matrix_sdk_base::deserialized_responses::TimelineEvent;
 #[cfg(test)]
 use ruma::events::receipt::ReceiptEventContent;
 use ruma::{
@@ -32,6 +26,7 @@ use ruma::{
         AnyMessageLikeEventContent, AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent,
     },
     push::Action,
+    serde::Raw,
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
     RoomVersionId, UserId,
 };
@@ -57,6 +52,21 @@ use crate::{
     unable_to_decrypt_hook::UtdHookManager,
 };
 
+/// Which end of the timeline should an event be added to?
+///
+/// This is a simplification of `TimelineItemPosition` which doesn't contain the
+/// `Update` variant, when adding a bunch of events at the same time.
+#[derive(Debug)]
+pub(crate) enum TimelineEnd {
+    /// Event should be prepended to the front of the timeline.
+    Front,
+    /// Event should appended to the back of the timeline.
+    Back {
+        /// Did the event come from the cache?
+        from_cache: bool,
+    },
+}
+
 #[derive(Debug)]
 pub(in crate::timeline) struct TimelineInnerState {
     pub items: ObservableVector<Arc<TimelineItem>>,
@@ -77,40 +87,48 @@ impl TimelineInnerState {
         }
     }
 
-    #[tracing::instrument(skip_all)]
-    pub(super) async fn add_initial_events<P: RoomDataProvider>(
+    /// Add the given events at the given end of the timeline.
+    #[tracing::instrument(skip(self, events, room_data_provider, settings))]
+    pub(super) async fn add_events_at<P: RoomDataProvider>(
         &mut self,
-        events: Vec<SyncTimelineEvent>,
+        events: Vec<impl Into<SyncTimelineEvent>>,
+        position: TimelineEnd,
         room_data_provider: &P,
         settings: &TimelineInnerSettings,
-    ) {
-        debug!("Adding {} initial events", events.len());
+    ) -> HandleManyEventsResult {
+        if events.is_empty() {
+            return Default::default();
+        }
 
         let mut txn = self.transaction();
-        for event in events {
-            txn.handle_remote_event(
-                event,
-                TimelineItemPosition::End { from_cache: true },
-                room_data_provider,
-                settings,
-            )
-            .await;
-        }
+        let handle_many_res =
+            txn.add_events_at(events, position, room_data_provider, settings).await;
         txn.commit();
+
+        handle_many_res
     }
 
     #[instrument(skip_all)]
-    pub(super) async fn handle_joined_room_update<P: RoomDataProvider>(
+    pub(super) async fn handle_sync_events<P: RoomDataProvider>(
         &mut self,
-        update: JoinedRoomUpdate,
+        events: Vec<SyncTimelineEvent>,
+        account_data: Vec<Raw<AnyRoomAccountDataEvent>>,
+        ephemeral: Vec<Raw<AnySyncEphemeralRoomEvent>>,
         room_data_provider: &P,
         settings: &TimelineInnerSettings,
     ) {
         let mut txn = self.transaction();
-        txn.handle_sync_timeline(update.timeline, room_data_provider, settings).await;
+
+        txn.add_events_at(
+            events,
+            TimelineEnd::Back { from_cache: false },
+            room_data_provider,
+            settings,
+        )
+        .await;
 
         trace!("Handling account data");
-        for raw_event in update.account_data {
+        for raw_event in account_data {
             match raw_event.deserialize() {
                 Ok(AnyRoomAccountDataEvent::FullyRead(ev)) => {
                     txn.set_fully_read_event(ev.content.event_id);
@@ -123,10 +141,10 @@ impl TimelineInnerState {
             }
         }
 
-        if !update.ephemeral.is_empty() {
+        if !ephemeral.is_empty() {
             trace!("Handling ephemeral room events");
             let own_user_id = room_data_provider.own_user_id();
-            for raw_event in update.ephemeral {
+            for raw_event in ephemeral {
                 match raw_event.deserialize() {
                     Ok(AnySyncEphemeralRoomEvent::Receipt(ev)) => {
                         txn.handle_explicit_read_receipts(ev.content, own_user_id);
@@ -140,51 +158,6 @@ impl TimelineInnerState {
             }
         }
 
-        txn.commit();
-    }
-
-    /// Prepends the given events to the beginning/top of the timeline.
-    ///
-    /// Return `None` if there was an overflow while computing the total number
-    /// of added items; in this case, no events are added at all.
-    #[instrument(skip_all)]
-    pub(super) async fn handle_back_paginated_events<P: RoomDataProvider>(
-        &mut self,
-        events: Vec<TimelineEvent>,
-        room_data_provider: &P,
-        settings: &TimelineInnerSettings,
-    ) -> Option<HandleManyEventsResult> {
-        let mut txn = self.transaction();
-
-        let mut total = HandleManyEventsResult::default();
-        for event in events {
-            let (_, res) = txn
-                .handle_remote_event(
-                    event.into(),
-                    TimelineItemPosition::Start,
-                    room_data_provider,
-                    settings,
-                )
-                .await;
-
-            total.items_added = total.items_added.checked_add(res.item_added as u16)?;
-            total.items_updated = total.items_updated.checked_add(res.items_updated)?;
-        }
-
-        txn.commit();
-
-        Some(total)
-    }
-
-    #[cfg(test)]
-    pub(super) async fn handle_live_event<P: RoomDataProvider>(
-        &mut self,
-        event: SyncTimelineEvent,
-        room_data_provider: &P,
-        settings: &TimelineInnerSettings,
-    ) {
-        let mut txn = self.transaction();
-        txn.handle_live_event(event, room_data_provider, settings).await;
         txn.commit();
     }
 
@@ -284,7 +257,7 @@ impl TimelineInnerState {
                 push_rules.get_actions(&event.event, push_context).to_owned()
             });
 
-            let (_, result) = txn
+            let handle_one_res = txn
                 .handle_remote_event(
                     event.into(),
                     TimelineItemPosition::Update(idx),
@@ -295,7 +268,7 @@ impl TimelineInnerState {
 
             // If the UTD was removed rather than updated, offset all
             // subsequent loop iterations.
-            if result.item_removed {
+            if handle_one_res.item_removed {
                 offset += 1;
             }
         }
@@ -425,66 +398,53 @@ impl TimelineInnerState {
     }
 
     fn transaction(&mut self) -> TimelineInnerStateTransaction<'_> {
-        let items = ManuallyDrop::new(self.items.transaction());
-        TimelineInnerStateTransaction { items, meta: &mut self.meta }
-    }
-}
-
-impl Deref for TimelineInnerState {
-    type Target = TimelineInnerMetadata;
-
-    fn deref(&self) -> &Self::Target {
-        &self.meta
-    }
-}
-
-impl DerefMut for TimelineInnerState {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.meta
+        let items = self.items.transaction();
+        let meta = self.meta.clone();
+        TimelineInnerStateTransaction { items, previous_meta: &mut self.meta, meta }
     }
 }
 
 pub(in crate::timeline) struct TimelineInnerStateTransaction<'a> {
-    pub items: ManuallyDrop<ObservableVectorTransaction<'a, Arc<TimelineItem>>>,
-    pub meta: &'a mut TimelineInnerMetadata,
+    /// A vector transaction over the items themselves. Holds temporary state
+    /// until committed.
+    pub items: ObservableVectorTransaction<'a, Arc<TimelineItem>>,
+
+    /// A clone of the previous meta, that we're operating on during the
+    /// transaction, and that will be committed to the previous meta location in
+    /// [`Self::commit`].
+    pub meta: TimelineInnerMetadata,
+
+    /// Pointer to the previous meta, only used during [`Self::commit`].
+    previous_meta: &'a mut TimelineInnerMetadata,
 }
 
 impl TimelineInnerStateTransaction<'_> {
-    #[instrument(skip_all, fields(limited = timeline.limited))]
-    async fn handle_sync_timeline<P: RoomDataProvider>(
+    /// Add the given events at the given end of the timeline.
+    #[tracing::instrument(skip(self, events, room_data_provider, settings))]
+    pub(super) async fn add_events_at<P: RoomDataProvider>(
         &mut self,
-        timeline: Timeline,
+        events: Vec<impl Into<SyncTimelineEvent>>,
+        position: TimelineEnd,
         room_data_provider: &P,
         settings: &TimelineInnerSettings,
-    ) {
-        if timeline.limited {
-            self.clear();
+    ) -> HandleManyEventsResult {
+        let mut total = HandleManyEventsResult::default();
+
+        let position = match position {
+            TimelineEnd::Front => TimelineItemPosition::Start,
+            TimelineEnd::Back { from_cache } => TimelineItemPosition::End { from_cache },
+        };
+
+        for event in events {
+            let handle_one_res = self
+                .handle_remote_event(event.into(), position, room_data_provider, settings)
+                .await;
+
+            total.items_added += handle_one_res.item_added as u64;
+            total.items_updated += handle_one_res.items_updated as u64;
         }
 
-        let num_events = timeline.events.len();
-        for (i, event) in timeline.events.into_iter().enumerate() {
-            trace!("Handling event {} out of {num_events}", i + 1);
-            self.handle_live_event(event, room_data_provider, settings).await;
-        }
-    }
-
-    /// Handle a live remote event.
-    ///
-    /// Shorthand for `handle_remote_event` with a `position` of
-    /// `TimelineItemPosition::End { from_cache: false }`.
-    async fn handle_live_event<P: RoomDataProvider>(
-        &mut self,
-        event: SyncTimelineEvent,
-        room_data_provider: &P,
-        settings: &TimelineInnerSettings,
-    ) -> (Option<OwnedEventId>, HandleEventResult) {
-        self.handle_remote_event(
-            event,
-            TimelineItemPosition::End { from_cache: false },
-            room_data_provider,
-            settings,
-        )
-        .await
+        total
     }
 
     /// Handle a remote event.
@@ -496,7 +456,7 @@ impl TimelineInnerStateTransaction<'_> {
         position: TimelineItemPosition,
         room_data_provider: &P,
         settings: &TimelineInnerSettings,
-    ) -> (Option<OwnedEventId>, HandleEventResult) {
+    ) -> HandleEventResult {
         let raw = event.event;
         let (event_id, sender, timestamp, txn_id, event_kind, should_add) = match raw.deserialize()
         {
@@ -538,7 +498,7 @@ impl TimelineInnerStateTransaction<'_> {
                     };
                     self.add_event(event_meta, position, room_data_provider, settings).await;
 
-                    return (Some(event_id.to_owned()), HandleEventResult::default());
+                    return HandleEventResult::default();
                 }
 
                 Err(e) => {
@@ -564,7 +524,7 @@ impl TimelineInnerStateTransaction<'_> {
                         self.add_event(event_meta, position, room_data_provider, settings).await;
                     }
 
-                    return (event_id, HandleEventResult::default());
+                    return HandleEventResult::default();
                 }
             },
         };
@@ -590,7 +550,7 @@ impl TimelineInnerStateTransaction<'_> {
             read_receipts: if settings.track_read_receipts && should_add {
                 self.meta.read_receipts.compute_event_receipts(
                     &event_id,
-                    &self.all_events,
+                    &self.meta.all_events,
                     matches!(position, TimelineItemPosition::End { .. }),
                 )
             } else {
@@ -606,8 +566,7 @@ impl TimelineInnerStateTransaction<'_> {
             },
         };
 
-        let result = TimelineEventHandler::new(self, ctx).handle_event(event_kind);
-        (Some(event_id), result)
+        TimelineEventHandler::new(self, ctx).handle_event(event_kind)
     }
 
     fn clear(&mut self) {
@@ -640,13 +599,13 @@ impl TimelineInnerStateTransaction<'_> {
             self.items.clear();
         }
 
-        self.all_events.clear();
-        self.read_receipts.clear();
-        self.reactions.clear();
-        self.fully_read_event = None;
+        self.meta.all_events.clear();
+        self.meta.read_receipts.clear();
+        self.meta.reactions.clear();
+        self.meta.fully_read_event = None;
         // We forgot about the fully read marker right above, so wait for a new one
         // before attempting to update it for each new timeline item.
-        self.has_up_to_date_read_marker_item = true;
+        self.meta.has_up_to_date_read_marker_item = true;
 
         debug!(remaining_items = self.items.len(), "Timeline cleared");
     }
@@ -654,24 +613,19 @@ impl TimelineInnerStateTransaction<'_> {
     #[instrument(skip_all)]
     fn set_fully_read_event(&mut self, fully_read_event_id: OwnedEventId) {
         // A similar event has been handled already. We can ignore it.
-        if self.fully_read_event.as_ref().is_some_and(|id| *id == fully_read_event_id) {
+        if self.meta.fully_read_event.as_ref().is_some_and(|id| *id == fully_read_event_id) {
             return;
         }
 
-        self.fully_read_event = Some(fully_read_event_id);
+        self.meta.fully_read_event = Some(fully_read_event_id);
         self.meta.update_read_marker(&mut self.items);
     }
 
-    fn commit(mut self) {
-        let Self {
-            items,
-            // meta is just a reference, does not any dropping
-            meta: _,
-        } = &mut self;
+    fn commit(self) {
+        let Self { items, previous_meta, meta } = self;
 
-        // Safety: self is forgotten to avoid double free from drop
-        let items = unsafe { ManuallyDrop::take(items) };
-        mem::forget(self);
+        // Replace the pointer to the previous meta with the new one.
+        *previous_meta = meta;
 
         items.commit();
     }
@@ -684,21 +638,21 @@ impl TimelineInnerStateTransaction<'_> {
         settings: &TimelineInnerSettings,
     ) {
         match position {
-            TimelineItemPosition::Start => self.all_events.push_front(event_meta.base_meta()),
+            TimelineItemPosition::Start => self.meta.all_events.push_front(event_meta.base_meta()),
             TimelineItemPosition::End { .. } => {
                 // Handle duplicated event.
                 if let Some(pos) =
-                    self.all_events.iter().position(|ev| ev.event_id == event_meta.event_id)
+                    self.meta.all_events.iter().position(|ev| ev.event_id == event_meta.event_id)
                 {
-                    self.all_events.remove(pos);
+                    self.meta.all_events.remove(pos);
                 }
 
-                self.all_events.push_back(event_meta.base_meta());
+                self.meta.all_events.push_back(event_meta.base_meta());
             }
             #[cfg(feature = "e2e-encryption")]
             TimelineItemPosition::Update(_) => {
                 if let Some(event) =
-                    self.all_events.iter_mut().find(|e| e.event_id == event_meta.event_id)
+                    self.meta.all_events.iter_mut().find(|e| e.event_id == event_meta.event_id)
                 {
                     if event.visible != event_meta.visible {
                         event.visible = event_meta.visible;
@@ -723,32 +677,7 @@ impl TimelineInnerStateTransaction<'_> {
     }
 }
 
-impl Drop for TimelineInnerStateTransaction<'_> {
-    fn drop(&mut self) {
-        warn!("timeline state transaction cancelled");
-        // Safety: self.items is not touched anymore, the only other place
-        // dropping is Self::commit which makes sure to skip this Drop impl.
-        unsafe {
-            ManuallyDrop::drop(&mut self.items);
-        }
-    }
-}
-
-impl Deref for TimelineInnerStateTransaction<'_> {
-    type Target = TimelineInnerMetadata;
-
-    fn deref(&self) -> &Self::Target {
-        self.meta
-    }
-}
-
-impl DerefMut for TimelineInnerStateTransaction<'_> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.meta
-    }
-}
-
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(in crate::timeline) struct TimelineInnerMetadata {
     /// List of all the events as received in the timeline, even the ones that
     /// are discarded in the timeline items.

@@ -31,8 +31,9 @@
 //! - [ ] expose that information with a new data structure similar to the
 //!   `RoomInfo`, and that may update a `RoomListService`.
 //! - [ ] provide read receipts for each message.
-//! - [ ] backwards and forward pagination, and reconcile results with cached
-//!   timelines.
+//! - [x] backwards pagination
+//! - [ ] forward pagination
+//! - [ ] reconcile results with cached timelines.
 //! - [ ] retry decryption upon receiving new keys (from an encryption sync
 //!   service or from a key backup).
 //! - [ ] expose the latest event for a given room.
@@ -586,7 +587,6 @@ impl RoomEventCacheInner {
 
         let _ = self.sender.send(RoomEventCacheUpdate::Append {
             events,
-            prev_batch,
             account_data,
             ephemeral,
             ambiguity_changes,
@@ -742,8 +742,6 @@ pub enum RoomEventCacheUpdate {
     Append {
         /// All the new events that have been added to the room's timeline.
         events: Vec<SyncTimelineEvent>,
-        /// XXX: this is temporary, until prev_batch lives in the event cache
-        prev_batch: Option<String>,
         /// XXX: this is temporary, until account data lives in the event cache
         /// — or will it live there?
         account_data: Vec<Raw<AnyRoomAccountDataEvent>>,
