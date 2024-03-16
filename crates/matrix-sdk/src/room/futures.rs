@@ -16,34 +16,34 @@
 
 #![deny(unreachable_pub)]
 
-use eyeball::SharedObservable;
-use matrix_sdk_common::boxed_into_future;
-use mime::Mime;
-use ruma::{
-    api::client::message::send_message_event,
-    assign,
-    events::{AnyMessageLikeEventContent, MessageLikeEventContent, room::message::FormattedBody},
-    OwnedTransactionId,
-    serde::Raw, TransactionId,
-};
-#[cfg(doc)]
-use ruma::events::{MessageLikeUnsigned, SyncMessageLikeEvent};
 use std::future::IntoFuture;
 #[cfg(feature = "image-proc")]
 use std::io::Cursor;
+
+use eyeball::SharedObservable;
+use matrix_sdk_common::boxed_into_future;
+use mime::Mime;
+#[cfg(doc)]
+use ruma::events::{MessageLikeUnsigned, SyncMessageLikeEvent};
+use ruma::{
+    api::client::message::send_message_event,
+    assign,
+    events::{room::message::FormattedBody, AnyMessageLikeEventContent, MessageLikeEventContent},
+    serde::Raw,
+    OwnedTransactionId, TransactionId,
+};
 use tracing::{debug, info, Instrument, Span};
 
+use super::Room;
 use crate::{
-    attachment::AttachmentConfig, Result, TransmissionProgress,
-    utils::IntoRawMessageLikeEventContent,
+    attachment::AttachmentConfig, utils::IntoRawMessageLikeEventContent, Result,
+    TransmissionProgress,
 };
 #[cfg(feature = "image-proc")]
 use crate::{
     attachment::{generate_image_thumbnail, Thumbnail},
     error::ImageError,
 };
-
-use super::Room;
 
 /// Future returned by [`Room::send`].
 #[allow(missing_debug_implementations)]

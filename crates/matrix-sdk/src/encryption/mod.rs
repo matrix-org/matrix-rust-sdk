@@ -16,6 +16,14 @@
 #![doc = include_str!("../docs/encryption.md")]
 #![cfg_attr(target_arch = "wasm32", allow(unused_imports))]
 
+use std::{
+    collections::{BTreeMap, HashSet},
+    io::{Cursor, Read, Write},
+    iter,
+    path::PathBuf,
+    sync::{Arc, Mutex as StdMutex},
+};
+
 use eyeball::{SharedObservable, Subscriber};
 use futures_core::Stream;
 use futures_util::{
@@ -24,15 +32,6 @@ use futures_util::{
 };
 use matrix_sdk_base::crypto::{
     CrossSigningBootstrapRequests, OlmMachine, OutgoingRequest, RoomMessageRequest, ToDeviceRequest,
-};
-pub use matrix_sdk_base::crypto::{
-    CrossSigningStatus,
-    CryptoStoreError, DecryptorError, EventError, KeyExportError, LocalTrust, MediaEncryptionInfo,
-    MegolmError, olm::{
-        SessionCreationError as MegolmSessionCreationError,
-        SessionExportError as OlmSessionExportError,
-    }, OlmError, RoomKeyImportResult, SecretImportError, SessionCreationError,
-    SignatureError, VERSION, vodozemac,
 };
 use matrix_sdk_common::executor::spawn;
 use ruma::{
@@ -48,45 +47,36 @@ use ruma::{
         uiaa::AuthData,
     },
     assign,
-    DeviceId,
     events::room::{
-        ImageInfo,
-        MediaSource, message::{
-            AudioMessageEventContent, FileInfo, FileMessageEventContent, FormattedBody,
+        message::{
+            AudioMessageEventContent, FileInfo, FileMessageEventContent, FormattedBody, 
             ImageMessageEventContent, MessageType, VideoInfo, VideoMessageEventContent
-        }, ThumbnailInfo,
-    }, OwnedDeviceId, OwnedUserId, TransactionId, UserId,
-};
-use std::{
-    collections::{BTreeMap, HashSet},
-    io::{Cursor, Read, Write},
-    iter,
-    path::PathBuf,
-    sync::{Arc, Mutex as StdMutex},
+        },
+        ImageInfo, MediaSource, ThumbnailInfo,
+    },
+    DeviceId, OwnedDeviceId, OwnedUserId, TransactionId, UserId,
 };
 use tokio::sync::RwLockReadGuard;
 use tracing::{debug, error, instrument, trace, warn};
 
-use crate::{
-    attachment::{AttachmentInfo, Thumbnail},
-    Client,
-    client::ClientInner,
-    encryption::{
-        identities::{Device, UserDevices},
-        verification::{SasVerification, Verification, VerificationRequest},
-    },
-    Error,
-    error::HttpResult, Result, Room, store_locks::CrossProcessStoreLockGuard, TransmissionProgress,
-};
-pub use crate::error::RoomKeyImportError;
-
 use self::{
-    backups::{Backups, types::BackupClientState},
+    backups::{types::BackupClientState, Backups},
     futures::PrepareEncryptedFile,
     identities::{DeviceUpdates, IdentityUpdates},
     recovery::{Recovery, RecoveryState},
     secret_storage::SecretStorage,
     tasks::{BackupDownloadTask, BackupUploadingTask, ClientTasks},
+};
+use crate::{
+    attachment::{AttachmentInfo, Thumbnail},
+    client::ClientInner,
+    encryption::{
+        identities::{Device, UserDevices},
+        verification::{SasVerification, Verification, VerificationRequest},
+    },
+    error::HttpResult,
+    store_locks::CrossProcessStoreLockGuard,
+    Client, Error, Result, Room, TransmissionProgress,
 };
 
 pub mod backups;
@@ -96,6 +86,18 @@ pub mod recovery;
 pub mod secret_storage;
 pub(crate) mod tasks;
 pub mod verification;
+
+pub use matrix_sdk_base::crypto::{
+    olm::{
+        SessionCreationError as MegolmSessionCreationError,
+        SessionExportError as OlmSessionExportError,
+    },
+    vodozemac, CrossSigningStatus, CryptoStoreError, DecryptorError, EventError, KeyExportError,
+    LocalTrust, MediaEncryptionInfo, MegolmError, OlmError, RoomKeyImportResult, SecretImportError,
+    SessionCreationError, SignatureError, VERSION,
+};
+
+pub use crate::error::RoomKeyImportError;
 
 /// All the data related to the encryption state.
 pub(crate) struct EncryptionData {

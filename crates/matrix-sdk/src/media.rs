@@ -15,6 +15,12 @@
 
 //! High-level media API.
 
+#[cfg(feature = "e2e-encryption")]
+use std::io::Read;
+use std::time::Duration;
+#[cfg(not(target_arch = "wasm32"))]
+use std::{fmt, fs::File, io, path::Path};
+
 use eyeball::SharedObservable;
 use futures_util::future::try_join;
 pub use matrix_sdk_base::media::*;
@@ -23,20 +29,15 @@ use ruma::{
     api::client::media::{create_content, get_content, get_content_thumbnail},
     assign,
     events::room::{
-        ImageInfo,
-        MediaSource, message::{
-            self, AudioInfo, AudioMessageEventContent, FileInfo, FileMessageEventContent,
-            FormattedBody, ImageMessageEventContent, MessageType, UnstableAudioDetailsContentBlock,
-            UnstableVoiceContentBlock, VideoInfo, VideoMessageEventContent,
-        }, ThumbnailInfo,
+        message::{
+            self, AudioInfo, AudioMessageEventContent, FileInfo, FileMessageEventContent, 
+            FormattedBody, ImageMessageEventContent, MessageType, UnstableAudioDetailsContentBlock, 
+            UnstableVoiceContentBlock, VideoInfo, VideoMessageEventContent
+        },
+        ImageInfo, MediaSource, ThumbnailInfo,
     },
     MxcUri,
 };
-#[cfg(not(target_arch = "wasm32"))]
-use std::{fmt, fs::File, io, path::Path};
-#[cfg(feature = "e2e-encryption")]
-use std::io::Read;
-use std::time::Duration;
 #[cfg(not(target_arch = "wasm32"))]
 use tempfile::{Builder as TempFileBuilder, NamedTempFile, TempDir};
 #[cfg(not(target_arch = "wasm32"))]
@@ -44,8 +45,8 @@ use tokio::{fs::File as TokioFile, io::AsyncWriteExt};
 
 use crate::{
     attachment::{AttachmentInfo, Thumbnail},
-    Client,
-    futures::SendRequest, Result, TransmissionProgress,
+    futures::SendRequest,
+    Client, Result, TransmissionProgress,
 };
 
 /// A conservative upload speed of 1Mbps

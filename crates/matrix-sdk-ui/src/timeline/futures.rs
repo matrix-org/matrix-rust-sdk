@@ -1,9 +1,10 @@
+use std::{fs, future::IntoFuture, path::Path};
+
 use eyeball::{SharedObservable, Subscriber};
 use matrix_sdk::{attachment::AttachmentConfig, TransmissionProgress};
 use matrix_sdk_base::boxed_into_future;
 use mime::Mime;
 use ruma::events::room::message::FormattedBody;
-use std::{fs, future::IntoFuture, path::Path};
 use tracing::{Instrument as _, Span};
 
 use super::{Error, Timeline};

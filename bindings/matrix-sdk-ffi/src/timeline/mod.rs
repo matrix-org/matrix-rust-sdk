@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{collections::HashMap, fmt::Write as _, fs, sync::Arc};
+
 use anyhow::{Context, Result};
 use as_variant::as_variant;
 use eyeball_im::VectorDiff;
@@ -23,9 +25,7 @@ use matrix_sdk::attachment::{
 use matrix_sdk_ui::timeline::{BackPaginationStatus, EventItemOrigin, Profile, TimelineDetails};
 use mime::Mime;
 use ruma::{
-    EventId,
     events::{
-        AnyMessageLikeEventContent,
         location::{AssetType as RumaAssetType, LocationContent, ZoomLevel},
         poll::{
             unstable_end::UnstablePollEndEventContent,
@@ -39,12 +39,12 @@ use ruma::{
         relation::Annotation,
         room::message::{
             FormattedBody as RumaFormattedBody, ForwardThread, LocationMessageEventContent,
-            MessageType,
-            RoomMessageEventContentWithoutRelation
+            MessageType, RoomMessageEventContentWithoutRelation
         },
+        AnyMessageLikeEventContent,
     },
+    EventId,
 };
-use std::{collections::HashMap, fmt::Write as _, fs, sync::Arc};
 use tokio::{
     sync::Mutex,
     task::{AbortHandle, JoinHandle},
@@ -57,11 +57,11 @@ use crate::{
     error::{ClientError, RoomError},
     helpers::unwrap_or_clone_arc,
     ruma::{AssetType, AudioInfo, FileInfo, FormattedBody, ImageInfo, PollKind, ThumbnailInfo, VideoInfo},
-    RUNTIME,
     task_handle::TaskHandle,
+    RUNTIME,
 };
 
-pub use self::content::{Reaction, ReactionSenderData, TimelineItemContent};
+use self::content::{Reaction, ReactionSenderData, TimelineItemContent};
 
 mod content;
 

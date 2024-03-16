@@ -1,5 +1,13 @@
 //! High-level room API
 
+use std::{
+    borrow::Borrow,
+    collections::{BTreeMap, HashMap},
+    ops::Deref,
+    sync::Arc,
+    time::Duration,
+};
+
 use eyeball::SharedObservable;
 use futures_core::Stream;
 use futures_util::stream::FuturesUnordered;
@@ -8,11 +16,16 @@ use matrix_sdk_base::{
         RawAnySyncOrStrippedState, RawSyncOrStrippedState, SyncOrStrippedState, TimelineEvent,
     },
     instant::Instant,
-    RoomMemberships,
-    StateChanges, store::StateStoreExt,
+    store::StateStoreExt,
+    RoomMemberships, StateChanges,
 };
 use matrix_sdk_common::timeout::timeout;
 use mime::Mime;
+#[cfg(feature = "e2e-encryption")]
+use ruma::events::{
+    room::encrypted::OriginalSyncRoomEncryptedEvent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
+    SyncMessageLikeEvent,
+};
 use ruma::{
     api::client::{
         config::{set_global_account_data, set_room_account_data},
@@ -21,8 +34,8 @@ use ruma::{
         filter::LazyLoadOptions,
         membership::{
             ban_user, forget_room, get_member_events,
-            Invite3pid,
-            invite_user::{self, v3::InvitationRecipient}, join_room_by_id, kick_user, leave_room, unban_user,
+            invite_user::{self, v3::InvitationRecipient},
+            join_room_by_id, kick_user, leave_room, unban_user, Invite3pid,
         },
         message::send_message_event,
         read_marker::set_read_marker,
@@ -34,72 +47,59 @@ use ruma::{
         typing::create_typing_event::{self, v3::Typing},
     },
     assign,
-    EventId,
     events::{
-        AnyRoomAccountDataEvent,
-        AnyStateEvent,
         direct::DirectEventContent,
-        EmptyStateKey,
         marked_unread::MarkedUnreadEventContent,
-        MessageLikeEventContent,
-        MessageLikeEventType,
-        receipt::{Receipt, ReceiptThread, ReceiptType}, RedactContent, RedactedStateEventContent, room::{
+        receipt::{Receipt, ReceiptThread, ReceiptType},
+        room::{
             avatar::{self, RoomAvatarEventContent},
             encryption::RoomEncryptionEventContent,
             history_visibility::HistoryVisibility,
-            MediaSource,
             message::{FormattedBody, RoomMessageEventContent},
             name::RoomNameEventContent,
             power_levels::{RoomPowerLevels, RoomPowerLevelsEventContent},
             server_acl::RoomServerAclEventContent,
             topic::RoomTopicEventContent,
+            MediaSource,
         },
-        RoomAccountDataEvent, RoomAccountDataEventContent, RoomAccountDataEventType, space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
-        StateEventContent, StateEventType, StaticEventContent, StaticStateEventContent,
-        SyncStateEvent, tag::{TagInfo, TagName}, typing::SyncTypingEvent,
+        space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
+        tag::{TagInfo, TagName},
+        typing::SyncTypingEvent,
+        AnyRoomAccountDataEvent, AnyStateEvent, EmptyStateKey, MessageLikeEventContent,
+        MessageLikeEventType, RedactContent, RedactedStateEventContent, RoomAccountDataEvent,
+        RoomAccountDataEventContent, RoomAccountDataEventType, StateEventContent, StateEventType,
+        StaticEventContent, StaticStateEventContent, SyncStateEvent,
     },
-    Int,
-    MatrixToUri, MatrixUri, MxcUri, OwnedEventId, OwnedRoomId, OwnedServerName, OwnedTransactionId, OwnedUserId, push::{Action, PushConditionRoomCtx},
-    serde::Raw, TransactionId, uint, UInt, UserId,
-};
-#[cfg(feature = "e2e-encryption")]
-use ruma::events::{
-    AnySyncMessageLikeEvent, AnySyncTimelineEvent, room::encrypted::OriginalSyncRoomEncryptedEvent,
-    SyncMessageLikeEvent,
+    push::{Action, PushConditionRoomCtx},
+    serde::Raw,
+    uint, EventId, Int, MatrixToUri, MatrixUri, MxcUri, OwnedEventId, OwnedRoomId, OwnedServerName,
+    OwnedTransactionId, OwnedUserId, TransactionId, UInt, UserId,
 };
 use serde::de::DeserializeOwned;
-use std::{
-    borrow::Borrow,
-    collections::{BTreeMap, HashMap},
-    ops::Deref,
-    sync::Arc,
-    time::Duration,
-};
 use thiserror::Error;
 use tokio::sync::broadcast;
 use tracing::{debug, info, instrument, warn};
 
-use crate::{
-    attachment::AttachmentConfig,
-    BaseRoom,
-    Client,
-    config::RequestConfig,
-    Error,
-    error::WrongRoomState,
-    event_cache::{self, EventCacheDropHandles, RoomEventCache},
-    event_handler::{EventHandler, EventHandlerDropGuard, EventHandlerHandle, SyncEvent},
-    HttpError,
-    HttpResult,
-    media::{MediaFormat, MediaRequest}, notification_settings::{IsEncrypted, IsOneToOne, RoomNotificationMode}, Result, room::power_levels::{RoomPowerLevelChanges, RoomPowerLevelsExt}, RoomState, sync::RoomUpdate, TransmissionProgress, utils::{IntoRawMessageLikeEventContent, IntoRawStateEventContent},
-};
-#[cfg(doc)]
-use crate::event_cache::EventCache;
-
+use self::futures::{SendAttachment, SendMessageLikeEvent, SendRawMessageLikeEvent};
 pub use self::{
     member::{RoomMember, RoomMemberRole},
     messages::{Messages, MessagesOptions},
 };
-use self::futures::{SendAttachment, SendMessageLikeEvent, SendRawMessageLikeEvent};
+#[cfg(doc)]
+use crate::event_cache::EventCache;
+use crate::{
+    attachment::AttachmentConfig,
+    config::RequestConfig,
+    error::WrongRoomState,
+    event_cache::{self, EventCacheDropHandles, RoomEventCache},
+    event_handler::{EventHandler, EventHandlerDropGuard, EventHandlerHandle, SyncEvent},
+    media::{MediaFormat, MediaRequest},
+    notification_settings::{IsEncrypted, IsOneToOne, RoomNotificationMode},
+    room::power_levels::{RoomPowerLevelChanges, RoomPowerLevelsExt},
+    sync::RoomUpdate,
+    utils::{IntoRawMessageLikeEventContent, IntoRawStateEventContent},
+    BaseRoom, Client, Error, HttpError, HttpResult, Result, RoomState, TransmissionProgress,
+};
 
 pub mod futures;
 mod member;
