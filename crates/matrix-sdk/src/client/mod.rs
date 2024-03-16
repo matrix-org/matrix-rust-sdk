@@ -97,7 +97,7 @@ use crate::{
 mod builder;
 pub(crate) mod futures;
 
-pub use self::builder::{ClientBuildError, ClientBuilder};
+pub use self::builder::{sanitize_server_name, ClientBuildError, ClientBuilder};
 
 #[cfg(not(target_arch = "wasm32"))]
 type NotificationHandlerFut = Pin<Box<dyn Future<Output = ()> + Send>>;

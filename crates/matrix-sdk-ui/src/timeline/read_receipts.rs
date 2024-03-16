@@ -404,6 +404,7 @@ impl TimelineInnerStateTransaction<'_> {
                 receipt_type: ReceiptType::Read,
                 receipt: &receipt,
             };
+
             self.meta.read_receipts.maybe_update_read_receipt(
                 full_receipt,
                 user_id == own_user_id,
@@ -446,6 +447,7 @@ impl TimelineInnerStateTransaction<'_> {
     pub(super) fn maybe_update_read_receipts_of_prev_event(&mut self, event_id: &EventId) {
         // Find the previous visible event, if there is one.
         let Some(prev_event_meta) = self
+            .meta
             .all_events
             .iter()
             .rev()
@@ -474,9 +476,9 @@ impl TimelineInnerStateTransaction<'_> {
             return;
         };
 
-        let read_receipts = self.read_receipts.compute_event_receipts(
+        let read_receipts = self.meta.read_receipts.compute_event_receipts(
             &remote_prev_event_item.event_id,
-            &self.all_events,
+            &self.meta.all_events,
             false,
         );
 
@@ -500,14 +502,15 @@ impl TimelineInnerState {
         room_data_provider: &P,
     ) -> Option<(OwnedEventId, Receipt)> {
         let public_read_receipt =
-            self.user_receipt(user_id, ReceiptType::Read, room_data_provider).await;
+            self.meta.user_receipt(user_id, ReceiptType::Read, room_data_provider).await;
         let private_read_receipt =
-            self.user_receipt(user_id, ReceiptType::ReadPrivate, room_data_provider).await;
+            self.meta.user_receipt(user_id, ReceiptType::ReadPrivate, room_data_provider).await;
 
         // Let's assume that a private read receipt should be more recent than a public
         // read receipt, otherwise there's no point in the private read receipt,
         // and use it as default.
         match self
+            .meta
             .compare_optional_receipts(public_read_receipt.as_ref(), private_read_receipt.as_ref())
         {
             Ordering::Greater => public_read_receipt,
@@ -524,22 +527,23 @@ impl TimelineInnerState {
     ) -> Option<OwnedEventId> {
         // We only need to use the local map, since receipts for known events are
         // already loaded from the store.
-        let public_read_receipt = self.read_receipts.get_latest(user_id, &ReceiptType::Read);
+        let public_read_receipt = self.meta.read_receipts.get_latest(user_id, &ReceiptType::Read);
         let private_read_receipt =
-            self.read_receipts.get_latest(user_id, &ReceiptType::ReadPrivate);
+            self.meta.read_receipts.get_latest(user_id, &ReceiptType::ReadPrivate);
 
         // Let's assume that a private read receipt should be more recent than a public
         // read receipt, otherwise there's no point in the private read receipt,
         // and use it as default.
         let (latest_receipt_id, _) =
-            match self.compare_optional_receipts(public_read_receipt, private_read_receipt) {
+            match self.meta.compare_optional_receipts(public_read_receipt, private_read_receipt) {
                 Ordering::Greater => public_read_receipt?,
                 Ordering::Less => private_read_receipt?,
                 _ => unreachable!(),
             };
 
         // Find the corresponding visible event.
-        self.all_events
+        self.meta
+            .all_events
             .iter()
             .rev()
             .skip_while(|ev| ev.event_id != *latest_receipt_id)
