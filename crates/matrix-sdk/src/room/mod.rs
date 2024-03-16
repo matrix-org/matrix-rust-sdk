@@ -1,6 +1,12 @@
 //! High-level room API
 
-use std::{borrow::Borrow, collections::BTreeMap, ops::Deref, time::Duration};
+use std::{
+    borrow::Borrow,
+    collections::{BTreeMap, HashMap},
+    ops::Deref,
+    sync::Arc,
+    time::Duration,
+};
 
 use eyeball::SharedObservable;
 use futures_core::Stream;
@@ -75,9 +81,17 @@ use tokio::sync::broadcast;
 use tracing::{debug, info, instrument, warn};
 
 use self::futures::{SendAttachment, SendMessageLikeEvent, SendRawMessageLikeEvent};
+pub use self::{
+    member::{RoomMember, RoomMemberRole},
+    messages::{Messages, MessagesOptions},
+};
+#[cfg(doc)]
+use crate::event_cache::EventCache;
 use crate::{
     attachment::AttachmentConfig,
+    config::RequestConfig,
     error::WrongRoomState,
+    event_cache::{self, EventCacheDropHandles, RoomEventCache},
     event_handler::{EventHandler, EventHandlerDropGuard, EventHandlerHandle, SyncEvent},
     media::{MediaFormat, MediaRequest},
     notification_settings::{IsEncrypted, IsOneToOne, RoomNotificationMode},
@@ -91,11 +105,6 @@ pub mod futures;
 mod member;
 mod messages;
 pub mod power_levels;
-
-pub use self::{
-    member::{RoomMember, RoomMemberRole},
-    messages::{Messages, MessagesOptions},
-};
 
 /// A struct containing methods that are common for Joined, Invited and Left
 /// Rooms
@@ -411,11 +420,23 @@ impl Room {
             .members_request_deduplicated_handler
             .run(self.room_id().to_owned(), async move {
                 let request = get_member_events::v3::Request::new(self.inner.room_id().to_owned());
-                let response = self.client.send(request, None).await?;
+                let response = self
+                    .client
+                    .send(
+                        request.clone(),
+                        // In some cases it can take longer than 30s to load:
+                        // https://github.com/element-hq/synapse/issues/16872
+                        Some(RequestConfig::new().timeout(Duration::from_secs(60)).retry_limit(3)),
+                    )
+                    .await?;
 
                 // That's a large `Future`. Let's `Box::pin` to reduce its size on the stack.
-                Box::pin(self.client.base_client().receive_members(self.room_id(), &response))
-                    .await?;
+                Box::pin(self.client.base_client().receive_all_members(
+                    self.room_id(),
+                    &request,
+                    &response,
+                ))
+                .await?;
 
                 Ok(())
             })
@@ -1107,6 +1128,29 @@ impl Room {
         }
     }
 
+    /// Forces the currently active room key, which is used to encrypt messages,
+    /// to be rotated.
+    ///
+    /// A new room key will be crated and shared with all the room members the
+    /// next time a message will be sent. You don't have to call this method,
+    /// room keys will be rotated automatically when necessary. This method is
+    /// still useful for debugging purposes.
+    ///
+    /// For more info please take a look a the [`encryption`] module
+    /// documentation.
+    ///
+    /// [`encryption`]: crate::encryption
+    #[cfg(feature = "e2e-encryption")]
+    pub async fn discard_room_key(&self) -> Result<()> {
+        let machine = self.client.olm_machine().await;
+        if let Some(machine) = machine.as_ref() {
+            machine.discard_room_key(self.inner.room_id()).await?;
+            Ok(())
+        } else {
+            Err(Error::NoOlmMachine)
+        }
+    }
+
     /// Ban the user with `UserId` from this room.
     ///
     /// # Arguments
@@ -1404,12 +1448,13 @@ impl Room {
     // TODO: expose this publicly so people can pre-share a group session if
     // e.g. a user starts to type a message for a room.
     #[cfg(feature = "e2e-encryption")]
-    #[instrument(skip_all, fields(room_id = ?self.room_id()))]
+    #[instrument(skip_all, fields(room_id = ?self.room_id(), store_generation))]
     async fn preshare_room_key(&self) -> Result<()> {
         self.ensure_room_joined()?;
 
         // Take and release the lock on the store, if needs be.
-        let _guard = self.client.encryption().spin_lock_store(Some(60000)).await?;
+        let guard = self.client.encryption().spin_lock_store(Some(60000)).await?;
+        tracing::Span::current().record("store_generation", guard.map(|guard| guard.generation()));
 
         self.client
             .locks()
@@ -1432,7 +1477,7 @@ impl Room {
                 if let Err(r) = response {
                     let machine = self.client.olm_machine().await;
                     if let Some(machine) = machine.as_ref() {
-                        machine.invalidate_group_session(self.room_id()).await?;
+                        machine.discard_room_key(self.room_id()).await?;
                     }
                     return Err(r);
                 }
@@ -1555,8 +1600,6 @@ impl Room {
     /// Run /keys/query requests for all the non-tracked users.
     #[cfg(feature = "e2e-encryption")]
     async fn query_keys_for_untracked_users(&self) -> Result<()> {
-        use std::collections::HashMap;
-
         let olm = self.client.olm_machine().await;
         let olm = olm.as_ref().expect("Olm machine wasn't started");
 
@@ -1629,7 +1672,7 @@ impl Room {
     /// }
     /// # anyhow::Ok(()) };
     /// ```
-    #[instrument(skip_all, fields(event_type, room_id = ?self.room_id(), transaction_id, encrypted))]
+    #[instrument(skip_all, fields(event_type, room_id = ?self.room_id(), transaction_id, encrypted, event_id))]
     pub fn send_raw<'a>(
         &'a self,
         event_type: &'a str,
@@ -1820,6 +1863,47 @@ impl Room {
             .ok_or(Error::InsufficientData)?
             .deserialize()?
             .power_levels())
+    }
+
+    /// Resets the room's power levels to the default values
+    ///
+    /// [spec]: https://spec.matrix.org/v1.9/client-server-api/#mroompower_levels
+    pub async fn reset_power_levels(&self) -> Result<RoomPowerLevels> {
+        let default_power_levels = RoomPowerLevels::from(RoomPowerLevelsEventContent::new());
+        let changes = RoomPowerLevelChanges::from(default_power_levels);
+        self.apply_power_level_changes(changes).await?;
+        self.room_power_levels().await
+    }
+
+    /// Gets the suggested role for the user with the provided `user_id`.
+    ///
+    /// This method checks the `RoomPowerLevels` events instead of loading the
+    /// member list and looking for the member.
+    pub async fn get_suggested_user_role(&self, user_id: &UserId) -> Result<RoomMemberRole> {
+        let power_level = self.get_user_power_level(user_id).await?;
+        Ok(RoomMemberRole::suggested_role_for_power_level(power_level))
+    }
+
+    /// Gets the power level the user with the provided `user_id`.
+    ///
+    /// This method checks the `RoomPowerLevels` events instead of loading the
+    /// member list and looking for the member.
+    pub async fn get_user_power_level(&self, user_id: &UserId) -> Result<i64> {
+        let event = self.room_power_levels().await?;
+        Ok(event.for_user(user_id).into())
+    }
+
+    /// Gets a map with the `UserId` of users with power levels other than `0`
+    /// and this power level.
+    pub async fn users_with_power_levels(&self) -> HashMap<OwnedUserId, i64> {
+        let power_levels = self.room_power_levels().await.ok();
+        let mut user_power_levels = HashMap::<OwnedUserId, i64>::new();
+        if let Some(power_levels) = power_levels {
+            for (id, level) in power_levels.users.into_iter() {
+                user_power_levels.insert(id, level.into());
+            }
+        }
+        user_power_levels
     }
 
     /// Sets the name of this room.
@@ -2520,6 +2604,20 @@ impl Room {
 
         self.client.send(request, None).await?;
         Ok(())
+    }
+
+    /// Returns the [`RoomEventCache`] associated to this room, assuming the
+    /// global [`EventCache`] has been enabled for subscription.
+    pub async fn event_cache(
+        &self,
+    ) -> event_cache::Result<(RoomEventCache, Arc<EventCacheDropHandles>)> {
+        let global_event_cache = self.client.event_cache();
+
+        global_event_cache.for_room(self.room_id()).await.map(|(maybe_room, drop_handles)| {
+            // SAFETY: the `RoomEventCache` must always been found, since we're constructing
+            // from a `Room`.
+            (maybe_room.unwrap(), drop_handles)
+        })
     }
 }
 

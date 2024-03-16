@@ -302,7 +302,8 @@ pub trait StateStore: AsyncTraitDeps {
     /// * `key` - The key to fetch data for
     async fn get_custom_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>, Self::Error>;
 
-    /// Put arbitrary data into the custom store
+    /// Put arbitrary data into the custom store, return the data previously
+    /// stored
     ///
     /// # Arguments
     ///
@@ -314,6 +315,27 @@ pub trait StateStore: AsyncTraitDeps {
         key: &[u8],
         value: Vec<u8>,
     ) -> Result<Option<Vec<u8>>, Self::Error>;
+
+    /// Put arbitrary data into the custom store, do not attempt to read any
+    /// previous data
+    ///
+    /// Optimization option for set_custom_values for stores that would perform
+    /// better withouts the extra read and the caller not needing that data
+    /// returned. Otherwise this just wraps around `set_custom_data` and
+    /// discards the result.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The key to insert data into
+    ///
+    /// * `value` - The value to insert
+    async fn set_custom_value_no_read(
+        &self,
+        key: &[u8],
+        value: Vec<u8>,
+    ) -> Result<(), Self::Error> {
+        self.set_custom_value(key, value).await.map(|_| ())
+    }
 
     /// Remove arbitrary data from the custom store and return it if existed
     ///

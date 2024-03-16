@@ -20,7 +20,8 @@ use assert_matches2::assert_let;
 use eyeball_im::{Vector, VectorDiff};
 use futures_util::{pin_mut, FutureExt, Stream, StreamExt};
 use matrix_sdk::{
-    SlidingSync, SlidingSyncList, SlidingSyncListBuilder, SlidingSyncMode, UpdateSummary,
+    test_utils::logged_in_client_with_server, SlidingSync, SlidingSyncList, SlidingSyncListBuilder,
+    SlidingSyncMode, UpdateSummary,
 };
 use matrix_sdk_test::async_test;
 use matrix_sdk_ui::{
@@ -30,8 +31,6 @@ use matrix_sdk_ui::{
 use ruma::{room_id, user_id, RoomId};
 use serde_json::json;
 use wiremock::{http::Method, Match, Mock, MockServer, Request, ResponseTemplate};
-
-use crate::logged_in_client;
 
 macro_rules! receive_response {
     (
@@ -201,7 +200,7 @@ macro_rules! assert_timeline_stream {
 pub(crate) use assert_timeline_stream;
 
 async fn new_sliding_sync(lists: Vec<SlidingSyncListBuilder>) -> Result<(MockServer, SlidingSync)> {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     let mut sliding_sync_builder = client.sliding_sync("integration-test")?;
 
@@ -251,16 +250,22 @@ async fn timeline_test_helper(
     let sliding_sync_room = sliding_sync.get_room(room_id).await.unwrap();
 
     let room_id = sliding_sync_room.room_id();
-    let sdk_room = sliding_sync_room.client().get_room(room_id).ok_or_else(|| {
+    let client = sliding_sync_room.client();
+    let sdk_room = client.get_room(room_id).ok_or_else(|| {
         anyhow::anyhow!("Room {room_id} not found in client. Can't provide a timeline for it")
     })?;
 
-    let timeline = Timeline::builder(&sdk_room)
-        .events(sliding_sync_room.prev_batch(), sliding_sync_room.timeline_queue())
-        .await
-        .track_read_marker_and_receipts()
-        .build()
+    // TODO: when the event cache handles its own cache, we can remove this.
+    client
+        .event_cache()
+        .add_initial_events(
+            room_id,
+            sliding_sync_room.timeline_queue().iter().cloned().collect(),
+            sliding_sync_room.prev_batch(),
+        )
         .await?;
+
+    let timeline = Timeline::builder(&sdk_room).track_read_marker_and_receipts().build().await?;
 
     Ok(timeline.subscribe().await)
 }

@@ -16,10 +16,13 @@ use matrix_sdk::{
         },
         AuthorizationResponse, Oidc, OidcError,
     },
-    AuthSession,
+    AuthSession, ClientBuildError as MatrixClientBuildError, HttpError, RumaApiError,
 };
 use ruma::{
-    api::client::discovery::discover_homeserver::AuthenticationServerInfo, IdParseError,
+    api::{
+        client::discovery::discover_homeserver::AuthenticationServerInfo,
+        error::{DeserializationError, FromHttpResponseError},
+    },
     OwnedUserId,
 };
 use url::Url;
@@ -28,7 +31,7 @@ use zeroize::Zeroize;
 use super::{client::Client, client_builder::ClientBuilder, RUNTIME};
 use crate::{
     client::ClientSessionDelegate,
-    client_builder::{CertificateBytes, UrlScheme},
+    client_builder::{CertificateBytes, ClientBuildError},
     error::ClientError,
 };
 
@@ -44,6 +47,7 @@ pub struct AuthenticationService {
     cross_process_refresh_lock_id: Option<String>,
     session_delegate: Option<Arc<dyn ClientSessionDelegate>>,
     additional_root_certificates: Vec<CertificateBytes>,
+    proxy: Option<String>,
 }
 
 impl Drop for AuthenticationService {
@@ -57,14 +61,23 @@ impl Drop for AuthenticationService {
 pub enum AuthenticationError {
     #[error("A successful call to configure_homeserver must be made first.")]
     ClientMissing,
-    #[error("{message}")]
-    InvalidServerName { message: String },
+
+    #[error("The supplied server name is invalid.")]
+    InvalidServerName,
+    #[error(transparent)]
+    ServerUnreachable(HttpError),
+    #[error(transparent)]
+    WellKnownLookupFailed(RumaApiError),
+    #[error(transparent)]
+    WellKnownDeserializationError(DeserializationError),
     #[error("The homeserver doesn't provide a trusted sliding sync proxy in its well-known configuration.")]
     SlidingSyncNotAvailable,
+
     #[error("Login was successful but is missing a valid Session to configure the file store.")]
     SessionMissing,
     #[error("Failed to use the supplied base path.")]
     InvalidBasePath,
+
     #[error(
         "The homeserver doesn't provide an authentication issuer in its well-known configuration."
     )]
@@ -79,6 +92,7 @@ pub enum AuthenticationError {
     OidcCancelled,
     #[error("An error occurred with OIDC: {message}")]
     OidcError { message: String },
+
     #[error("An error occurred: {message}")]
     Generic { message: String },
 }
@@ -89,9 +103,27 @@ impl From<anyhow::Error> for AuthenticationError {
     }
 }
 
-impl From<IdParseError> for AuthenticationError {
-    fn from(e: IdParseError) -> AuthenticationError {
-        AuthenticationError::InvalidServerName { message: e.to_string() }
+impl From<ClientBuildError> for AuthenticationError {
+    fn from(e: ClientBuildError) -> AuthenticationError {
+        match e {
+            ClientBuildError::Sdk(MatrixClientBuildError::InvalidServerName) => {
+                AuthenticationError::InvalidServerName
+            }
+
+            ClientBuildError::Sdk(MatrixClientBuildError::Http(e)) => {
+                AuthenticationError::ServerUnreachable(e)
+            }
+
+            ClientBuildError::Sdk(MatrixClientBuildError::AutoDiscovery(
+                FromHttpResponseError::Server(e),
+            )) => AuthenticationError::WellKnownLookupFailed(e),
+
+            ClientBuildError::Sdk(MatrixClientBuildError::AutoDiscovery(
+                FromHttpResponseError::Deserialization(e),
+            )) => AuthenticationError::WellKnownDeserializationError(e),
+
+            _ => AuthenticationError::Generic { message: e.to_string() },
+        }
     }
 }
 
@@ -190,6 +222,7 @@ impl AuthenticationService {
         passphrase: Option<String>,
         user_agent: Option<String>,
         additional_root_certificates: Vec<Vec<u8>>,
+        proxy: Option<String>,
         oidc_configuration: Option<OidcConfiguration>,
         custom_sliding_sync_proxy: Option<String>,
         session_delegate: Option<Box<dyn ClientSessionDelegate>>,
@@ -206,6 +239,7 @@ impl AuthenticationService {
             session_delegate: session_delegate.map(Into::into),
             cross_process_refresh_lock_id,
             additional_root_certificates,
+            proxy,
         })
     }
 
@@ -220,47 +254,12 @@ impl AuthenticationService {
         server_name_or_homeserver_url: String,
     ) -> Result<(), AuthenticationError> {
         let mut builder = self.new_client_builder();
+        builder = builder.server_name_or_homeserver_url(server_name_or_homeserver_url);
 
-        // Attempt discovery as a server name first.
-        let result = matrix_sdk::sanitize_server_name(&server_name_or_homeserver_url);
-
-        match result {
-            Ok(server_name) => {
-                let protocol = if server_name_or_homeserver_url.starts_with("http://") {
-                    UrlScheme::Http
-                } else {
-                    UrlScheme::Https
-                };
-                builder = builder.server_name_with_protocol(server_name.to_string(), protocol);
-            }
-
-            Err(e) => {
-                // When the input isn't a valid server name check it is a URL.
-                // If this is the case, build the client with a homeserver URL.
-                if Url::parse(&server_name_or_homeserver_url).is_ok() {
-                    builder = builder.homeserver_url(server_name_or_homeserver_url.clone());
-                } else {
-                    return Err(e.into());
-                }
-            }
-        }
-
-        let client = builder.build_inner().or_else(|e| {
-            if !server_name_or_homeserver_url.starts_with("http://")
-                && !server_name_or_homeserver_url.starts_with("https://")
-            {
-                return Err(e);
-            }
-            // When discovery fails, fallback to the homeserver URL if supplied.
-            let mut builder = self.new_client_builder();
-            builder = builder.homeserver_url(server_name_or_homeserver_url);
-            builder.build_inner()
-        })?;
-
+        let client = builder.build_inner()?;
         let details = RUNTIME.block_on(self.details_from_client(&client))?;
 
-        // Now we've verified that it's a valid homeserver, make sure
-        // there's a sliding sync proxy available one way or another.
+        // Make sure there's a sliding sync proxy available.
         if self.custom_sliding_sync_proxy.read().unwrap().is_none()
             && client.discovered_sliding_sync_proxy().is_none()
         {
@@ -394,6 +393,10 @@ impl AuthenticationService {
 
         if let Some(user_agent) = self.user_agent.clone() {
             builder = builder.user_agent(user_agent);
+        }
+
+        if let Some(proxy) = &self.proxy {
+            builder = builder.proxy(proxy.to_owned())
         }
 
         builder = builder.add_root_certificates(self.additional_root_certificates.clone());
@@ -611,6 +614,10 @@ impl AuthenticationService {
                 auto_enable_backups: true,
             })
             .username(user_id.to_string());
+
+        if let Some(proxy) = &self.proxy {
+            client = client.proxy(proxy.to_owned())
+        }
 
         if let Some(id) = &self.cross_process_refresh_lock_id {
             let Some(ref session_delegate) = self.session_delegate else {

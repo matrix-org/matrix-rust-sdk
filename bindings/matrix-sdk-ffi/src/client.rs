@@ -40,7 +40,10 @@ use matrix_sdk_ui::notification_client::NotificationProcessSetup as MatrixNotifi
 use mime::Mime;
 use ruma::{
     api::client::discovery::discover_homeserver::AuthenticationServerInfo,
-    events::room::power_levels::RoomPowerLevelsEventContent,
+    events::{
+        ignored_user_list::IgnoredUserListEventContent,
+        room::power_levels::RoomPowerLevelsEventContent, GlobalAccountDataEventType,
+    },
     push::{HttpPusherData as RumaHttpPusherData, PushFormat as RumaPushFormat},
 };
 use serde::{Deserialize, Serialize};
@@ -645,22 +648,6 @@ impl Client {
         Ok(dm)
     }
 
-    pub fn ignore_user(&self, user_id: String) -> Result<(), ClientError> {
-        RUNTIME.block_on(async move {
-            let user_id = UserId::parse(user_id)?;
-            self.inner.account().ignore_user(&user_id).await?;
-            Ok(())
-        })
-    }
-
-    pub fn unignore_user(&self, user_id: String) -> Result<(), ClientError> {
-        RUNTIME.block_on(async move {
-            let user_id = UserId::parse(user_id)?;
-            self.inner.account().unignore_user(&user_id).await?;
-            Ok(())
-        })
-    }
-
     pub fn search_users(
         &self,
         search_term: String,
@@ -710,6 +697,54 @@ impl Client {
     pub fn encryption(&self) -> Arc<Encryption> {
         Arc::new(self.inner.encryption().into())
     }
+
+    // Ignored users
+
+    pub async fn ignored_users(&self) -> Result<Vec<String>, ClientError> {
+        if let Some(raw_content) = self
+            .inner
+            .account()
+            .fetch_account_data(GlobalAccountDataEventType::IgnoredUserList)
+            .await?
+        {
+            let content = raw_content.deserialize_as::<IgnoredUserListEventContent>()?;
+            let user_ids: Vec<String> =
+                content.ignored_users.keys().map(|id| id.to_string()).collect();
+
+            return Ok(user_ids);
+        }
+
+        Ok(vec![])
+    }
+
+    pub async fn ignore_user(&self, user_id: String) -> Result<(), ClientError> {
+        let user_id = UserId::parse(user_id)?;
+        self.inner.account().ignore_user(&user_id).await?;
+        Ok(())
+    }
+
+    pub async fn unignore_user(&self, user_id: String) -> Result<(), ClientError> {
+        let user_id = UserId::parse(user_id)?;
+        self.inner.account().unignore_user(&user_id).await?;
+        Ok(())
+    }
+
+    pub fn subscribe_to_ignored_users(
+        &self,
+        listener: Box<dyn IgnoredUsersListener>,
+    ) -> Arc<TaskHandle> {
+        let mut subscriber = self.inner.subscribe_to_ignore_user_list_changes();
+        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
+            while let Some(user_ids) = subscriber.next().await {
+                listener.call(user_ids);
+            }
+        })))
+    }
+}
+
+#[uniffi::export(callback_interface)]
+pub trait IgnoredUsersListener: Sync + Send {
+    fn call(&self, ignored_user_ids: Vec<String>);
 }
 
 #[derive(uniffi::Enum)]
@@ -766,6 +801,7 @@ impl From<&search_users::v3::User> for UserProfile {
 impl Client {
     fn process_session_change(&self, session_change: SessionChange) {
         if let Some(delegate) = self.delegate.read().unwrap().clone() {
+            debug!("Applying session change: {session_change:?}");
             RUNTIME.spawn_blocking(move || match session_change {
                 SessionChange::UnknownToken { soft_logout } => {
                     delegate.did_receive_auth_error(soft_logout);
@@ -774,6 +810,10 @@ impl Client {
                     delegate.did_refresh_tokens();
                 }
             });
+        } else {
+            debug!(
+                "No client delegate found, session change couldn't be applied: {session_change:?}"
+            );
         }
     }
 

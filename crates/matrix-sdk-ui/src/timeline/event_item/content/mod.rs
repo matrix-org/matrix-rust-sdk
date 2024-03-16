@@ -19,6 +19,7 @@ use imbl::Vector;
 use matrix_sdk_base::latest_event::{is_suitable_for_latest_event, PossibleLatestEvent};
 use ruma::{
     events::{
+        call::invite::SyncCallInviteEvent,
         policy::rule::{
             room::PolicyRuleRoomEventContent, server::PolicyRuleServerEventContent,
             user::PolicyRuleUserEventContent,
@@ -106,6 +107,9 @@ pub enum TimelineItemContent {
 
     /// An `m.poll.start` event.
     Poll(PollState),
+
+    /// An `m.call.invite` event
+    CallInvite,
 }
 
 impl TimelineItemContent {
@@ -121,6 +125,9 @@ impl TimelineItemContent {
             }
             PossibleLatestEvent::YesPoll(poll) => {
                 Some(Self::from_suitable_latest_poll_event_content(poll))
+            }
+            PossibleLatestEvent::YesCallInvite(call_invite) => {
+                Some(Self::from_suitable_latest_call_invite_content(call_invite))
             }
             PossibleLatestEvent::NoUnsupportedEventType => {
                 // TODO: when we support state events in message previews, this will need change
@@ -189,6 +196,15 @@ impl TimelineItemContent {
         }
     }
 
+    fn from_suitable_latest_call_invite_content(
+        event: &SyncCallInviteEvent,
+    ) -> TimelineItemContent {
+        match event {
+            SyncCallInviteEvent::Original(_) => TimelineItemContent::CallInvite,
+            SyncCallInviteEvent::Redacted(_) => TimelineItemContent::RedactedMessage,
+        }
+    }
+
     /// If `self` is of the [`Message`][Self::Message] variant, return the inner
     /// [`Message`].
     pub fn as_message(&self) -> Option<&Message> {
@@ -228,6 +244,7 @@ impl TimelineItemContent {
             TimelineItemContent::FailedToParseMessageLike { .. }
             | TimelineItemContent::FailedToParseState { .. } => "an event that couldn't be parsed",
             TimelineItemContent::Poll(_) => "a poll",
+            TimelineItemContent::CallInvite => "a call invite",
         }
     }
 
@@ -306,6 +323,7 @@ impl TimelineItemContent {
             | Self::RedactedMessage
             | Self::Sticker(_)
             | Self::Poll(_)
+            | Self::CallInvite
             | Self::UnableToDecrypt(_) => Self::RedactedMessage,
             Self::MembershipChange(ev) => Self::MembershipChange(ev.redact(room_version)),
             Self::ProfileChange(ev) => Self::ProfileChange(ev.redact()),

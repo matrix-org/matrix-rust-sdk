@@ -136,8 +136,11 @@ impl HttpClient {
             span.record("config", debug(config)).record("request_id", request_id);
 
             let auth_scheme = R::METADATA.authentication;
-            if !matches!(auth_scheme, AuthScheme::AccessToken | AuthScheme::None) {
-                return Err(HttpError::NotClientRequest);
+            match auth_scheme {
+                AuthScheme::AccessToken | AuthScheme::AccessTokenOptional | AuthScheme::None => {}
+                AuthScheme::ServerSignatures => {
+                    return Err(HttpError::NotClientRequest);
+                }
             }
 
             let request =

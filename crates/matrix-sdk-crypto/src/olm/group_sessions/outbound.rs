@@ -59,7 +59,10 @@ use crate::{
     ReadOnlyDevice, ToDeviceRequest,
 };
 
-const ROTATION_PERIOD: Duration = Duration::from_millis(604800000);
+const ONE_HOUR: Duration = Duration::from_secs(60 * 60);
+const ONE_WEEK: Duration = Duration::from_secs(60 * 60 * 24 * 7);
+
+const ROTATION_PERIOD: Duration = ONE_WEEK;
 const ROTATION_MESSAGES: u64 = 100;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -415,13 +418,25 @@ impl OutboundGroupSession {
     fn elapsed(&self) -> bool {
         let creation_time = Duration::from_secs(self.creation_time.get().into());
         let now = Duration::from_secs(SecondsSinceUnixEpoch::now().get().into());
-
-        // Since the encryption settings are provided by users and not
-        // checked someone could set a really low rotation period so
-        // clamp it to an hour.
         now.checked_sub(creation_time)
-            .map(|elapsed| elapsed >= max(self.settings.rotation_period, Duration::from_secs(3600)))
+            .map(|elapsed| elapsed >= self.safe_rotation_period())
             .unwrap_or(true)
+    }
+
+    /// Returns the rotation_period_ms that was set for this session, clamped
+    /// to be no less than one hour.
+    ///
+    /// This is to prevent a malicious or careless user causing sessions to be
+    /// rotated very frequently.
+    ///
+    /// The feature flag `_disable-minimum-rotation-period-ms` can
+    /// be used to prevent this behaviour (which can be useful for tests).
+    fn safe_rotation_period(&self) -> Duration {
+        if cfg!(feature = "_disable-minimum-rotation-period-ms") {
+            self.settings.rotation_period
+        } else {
+            max(self.settings.rotation_period, ONE_HOUR)
+        }
     }
 
     /// Check if the session has expired and if it should be rotated.
@@ -735,20 +750,16 @@ pub struct PickledOutboundGroupSession {
 
 #[cfg(test)]
 mod tests {
-    use std::{sync::atomic::Ordering, time::Duration};
+    use std::time::Duration;
 
-    use matrix_sdk_test::async_test;
     use ruma::{
-        device_id,
         events::room::{
             encryption::RoomEncryptionEventContent, history_visibility::HistoryVisibility,
-            message::RoomMessageEventContent,
         },
-        room_id, uint, user_id, EventEncryptionAlgorithm,
+        uint, EventEncryptionAlgorithm,
     };
 
     use super::{EncryptionSettings, ROTATION_MESSAGES, ROTATION_PERIOD};
-    use crate::{Account, MegolmError};
 
     #[test]
     fn test_encryption_settings_conversion() {
@@ -768,78 +779,208 @@ mod tests {
         assert_eq!(settings.rotation_period_msgs, 500);
     }
 
-    #[async_test]
     #[cfg(any(target_os = "linux", target_os = "macos", target_arch = "wasm32"))]
-    async fn test_expiration() -> Result<(), MegolmError> {
-        use ruma::{serde::Raw, SecondsSinceUnixEpoch};
+    mod expiration {
+        use std::{sync::atomic::Ordering, time::Duration};
 
-        let settings = EncryptionSettings { rotation_period_msgs: 1, ..Default::default() };
-
-        let account =
-            Account::with_device_id(user_id!("@alice:example.org"), device_id!("DEVICEID"))
-                .static_data;
-        let (session, _) = account
-            .create_group_session_pair(room_id!("!test_room:example.org"), settings)
-            .await
-            .unwrap();
-
-        assert!(!session.expired());
-        let _ = session
-            .encrypt(
-                "m.room.message",
-                &Raw::new(&RoomMessageEventContent::text_plain("Test message"))?.cast(),
-            )
-            .await;
-        assert!(session.expired());
-
-        let settings = EncryptionSettings {
-            rotation_period: Duration::from_millis(100),
-            ..Default::default()
+        use matrix_sdk_test::async_test;
+        use ruma::{
+            device_id, events::room::message::RoomMessageEventContent, room_id, serde::Raw, uint,
+            user_id, SecondsSinceUnixEpoch,
         };
 
-        let (mut session, _) = account
-            .create_group_session_pair(room_id!("!test_room:example.org"), settings)
-            .await
-            .unwrap();
+        use crate::{olm::OutboundGroupSession, Account, EncryptionSettings, MegolmError};
 
-        assert!(!session.expired());
+        const TWO_HOURS: Duration = Duration::from_secs(60 * 60 * 2);
 
-        let now = SecondsSinceUnixEpoch::now();
-        session.creation_time = SecondsSinceUnixEpoch(now.get() - uint!(3600));
-        assert!(session.expired());
-
-        let settings = EncryptionSettings { rotation_period_msgs: 0, ..Default::default() };
-
-        let (session, _) = account
-            .create_group_session_pair(room_id!("!test_room:example.org"), settings)
-            .await
-            .unwrap();
-
-        assert!(!session.expired());
-
-        let _ = session
-            .encrypt(
-                "m.room.message",
-                &Raw::new(&RoomMessageEventContent::text_plain("Test message"))?.cast(),
-            )
+        #[async_test]
+        async fn session_is_not_expired_if_no_messages_sent_and_no_time_passed() {
+            // Given a session that expires after one message
+            let session = create_session(EncryptionSettings {
+                rotation_period_msgs: 1,
+                ..Default::default()
+            })
             .await;
-        assert!(session.expired());
 
-        let settings = EncryptionSettings { rotation_period_msgs: 100_000, ..Default::default() };
+            // When we send no messages at all
 
-        let (session, _) = account
-            .create_group_session_pair(room_id!("!test_room:example.org"), settings)
-            .await
-            .unwrap();
+            // Then it is not expired
+            assert!(!session.expired());
+        }
 
-        assert!(!session.expired());
-        session.message_count.store(1000, Ordering::SeqCst);
-        assert!(!session.expired());
-        session.message_count.store(9999, Ordering::SeqCst);
-        assert!(!session.expired());
-        session.message_count.store(10_000, Ordering::SeqCst);
-        assert!(session.expired());
+        #[async_test]
+        async fn session_is_expired_if_we_rotate_every_message_and_one_was_sent(
+        ) -> Result<(), MegolmError> {
+            // Given a session that expires after one message
+            let session = create_session(EncryptionSettings {
+                rotation_period_msgs: 1,
+                ..Default::default()
+            })
+            .await;
 
-        Ok(())
+            // When we send a message
+            let _ = session
+                .encrypt(
+                    "m.room.message",
+                    &Raw::new(&RoomMessageEventContent::text_plain("Test message"))?.cast(),
+                )
+                .await;
+
+            // Then the session is expired
+            assert!(session.expired());
+
+            Ok(())
+        }
+
+        #[async_test]
+        async fn session_with_rotation_period_is_not_expired_after_no_time() {
+            // Given a session with a 2h expiration
+            let session = create_session(EncryptionSettings {
+                rotation_period: TWO_HOURS,
+                ..Default::default()
+            })
+            .await;
+
+            // When we don't allow any time to pass
+
+            // Then it is not expired
+            assert!(!session.expired());
+        }
+
+        #[async_test]
+        async fn session_is_expired_after_rotation_period() {
+            // Given a session with a 2h expiration
+            let mut session = create_session(EncryptionSettings {
+                rotation_period: TWO_HOURS,
+                ..Default::default()
+            })
+            .await;
+
+            // When 3 hours have passed
+            let now = SecondsSinceUnixEpoch::now();
+            session.creation_time = SecondsSinceUnixEpoch(now.get() - uint!(10800));
+
+            // Then the session is expired
+            assert!(session.expired());
+        }
+
+        #[async_test]
+        #[cfg(not(feature = "_disable-minimum-rotation-period-ms"))]
+        async fn session_does_not_expire_under_one_hour_even_if_we_ask_for_shorter() {
+            // Given a session with a 100ms expiration
+            let mut session = create_session(EncryptionSettings {
+                rotation_period: Duration::from_millis(100),
+                ..Default::default()
+            })
+            .await;
+
+            // When less than an hour has passed
+            let now = SecondsSinceUnixEpoch::now();
+            session.creation_time = SecondsSinceUnixEpoch(now.get() - uint!(1800));
+
+            // Then the session is not expired: we enforce a minimum of 1 hour
+            assert!(!session.expired());
+
+            // But when more than an hour has passed
+            session.creation_time = SecondsSinceUnixEpoch(now.get() - uint!(3601));
+
+            // Then the session is expired
+            assert!(session.expired());
+        }
+
+        #[async_test]
+        #[cfg(feature = "_disable-minimum-rotation-period-ms")]
+        async fn with_disable_minrotperiod_feature_sessions_can_expire_quickly() {
+            // Given a session with a 100ms expiration
+            let mut session = create_session(EncryptionSettings {
+                rotation_period: Duration::from_millis(100),
+                ..Default::default()
+            })
+            .await;
+
+            // When less than an hour has passed
+            let now = SecondsSinceUnixEpoch::now();
+            session.creation_time = SecondsSinceUnixEpoch(now.get() - uint!(1800));
+
+            // Then the session is expired: the feature flag has prevented us enforcing a
+            // minimum
+            assert!(session.expired());
+        }
+
+        #[async_test]
+        async fn session_with_zero_msgs_rotation_is_not_expired_initially() {
+            // Given a session that is supposed to expire after zero messages
+            let session = create_session(EncryptionSettings {
+                rotation_period_msgs: 0,
+                ..Default::default()
+            })
+            .await;
+
+            // When we send no messages
+
+            // Then the session is not expired: we are protected against this nonsensical
+            // setup
+            assert!(!session.expired());
+        }
+
+        #[async_test]
+        async fn session_with_zero_msgs_rotation_expires_after_one_message(
+        ) -> Result<(), MegolmError> {
+            // Given a session that is supposed to expire after zero messages
+            let session = create_session(EncryptionSettings {
+                rotation_period_msgs: 0,
+                ..Default::default()
+            })
+            .await;
+
+            // When we send a message
+            let _ = session
+                .encrypt(
+                    "m.room.message",
+                    &Raw::new(&RoomMessageEventContent::text_plain("Test message"))?.cast(),
+                )
+                .await;
+
+            // Then the session is expired: we treated rotation_period_msgs=0 as if it were
+            // =1
+            assert!(session.expired());
+
+            Ok(())
+        }
+
+        #[async_test]
+        async fn session_expires_after_10k_messages_even_if_we_ask_for_more() {
+            // Given we asked to expire after 100K messages
+            let session = create_session(EncryptionSettings {
+                rotation_period_msgs: 100_000,
+                ..Default::default()
+            })
+            .await;
+
+            // Sanity: it does not expire after <10K messages
+            assert!(!session.expired());
+            session.message_count.store(1000, Ordering::SeqCst);
+            assert!(!session.expired());
+            session.message_count.store(9999, Ordering::SeqCst);
+            assert!(!session.expired());
+
+            // When we have sent >= 10K messages
+            session.message_count.store(10_000, Ordering::SeqCst);
+
+            // Then it is considered expired: we enforce a maximum of 10K messages before
+            // rotation.
+            assert!(session.expired());
+        }
+
+        async fn create_session(settings: EncryptionSettings) -> OutboundGroupSession {
+            let account =
+                Account::with_device_id(user_id!("@alice:example.org"), device_id!("DEVICEID"))
+                    .static_data;
+            let (session, _) = account
+                .create_group_session_pair(room_id!("!test_room:example.org"), settings)
+                .await
+                .unwrap();
+            session
+        }
     }
 }

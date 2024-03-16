@@ -12,6 +12,9 @@ default = ["e2e-encryption", "native-tls"]
 
 e2e-encryption = ["matrix-sdk/e2e-encryption"]
 
+# This feature will unify the `invites` list with the `all_rooms` list.
+experimental-room-list-with-unified-invites = []
+
 native-tls = ["matrix-sdk/native-tls"]
 rustls-tls = ["matrix-sdk/rustls-tls"]
 
@@ -31,7 +34,7 @@ eyeball-im-util = { workspace = true }
 futures-core = { workspace = true }
 futures-util = { workspace = true }
 fuzzy-matcher = "0.3.7"
-imbl = { version = "2.0.0", features = ["serde"] }
+imbl = { workspace = true, features = ["serde"] }
 indexmap = "2.0.0"
 itertools = { workspace = true }
 matrix-sdk = { workspace = true, features = ["experimental-oidc", "experimental-sliding-sync"] }

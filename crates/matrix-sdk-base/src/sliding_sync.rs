@@ -585,8 +585,10 @@ async fn cache_latest_events(
     for event in events.iter().rev() {
         if let Ok(timeline_event) = event.event.deserialize() {
             match is_suitable_for_latest_event(&timeline_event) {
-                PossibleLatestEvent::YesRoomMessage(_) | PossibleLatestEvent::YesPoll(_) => {
-                    // m.room.message or m.poll.start - we found one! Store it.
+                PossibleLatestEvent::YesRoomMessage(_)
+                | PossibleLatestEvent::YesPoll(_)
+                | PossibleLatestEvent::YesCallInvite(_) => {
+                    // We found a suitable latest event. Store it.
 
                     // In order to make the latest event fast to read, we want to keep the
                     // associated sender in cache. This is a best-effort to gather enough
@@ -728,7 +730,7 @@ mod tests {
     use matrix_sdk_test::async_test;
     use ruma::{
         api::client::sync::sync_events::{v4, UnreadNotificationsCount},
-        assign, device_id, event_id,
+        assign, event_id,
         events::{
             direct::DirectEventContent,
             room::{
@@ -747,11 +749,13 @@ mod tests {
     use serde_json::json;
 
     use super::cache_latest_events;
-    use crate::{store::MemoryStore, BaseClient, Room, RoomState, SessionMeta};
+    use crate::{
+        store::MemoryStore, test_utils::logged_in_base_client, BaseClient, Room, RoomState,
+    };
 
     #[async_test]
     async fn test_notification_count_set() {
-        let client = logged_in_client().await;
+        let client = logged_in_base_client(None).await;
 
         let mut response = v4::Response::new("42".to_owned());
         let room_id = room_id!("!room:example.org");
@@ -781,7 +785,7 @@ mod tests {
 
     #[async_test]
     async fn can_process_empty_sliding_sync_response() {
-        let client = logged_in_client().await;
+        let client = logged_in_base_client(None).await;
         let empty_response = v4::Response::new("5".to_owned());
         client.process_sliding_sync(&empty_response, &()).await.expect("Failed to process sync");
     }
@@ -789,7 +793,7 @@ mod tests {
     #[async_test]
     async fn room_with_unspecified_state_is_added_to_client_and_joined_list() {
         // Given a logged-in client
-        let client = logged_in_client().await;
+        let client = logged_in_base_client(None).await;
         let room_id = room_id!("!r:e.uk");
 
         // When I send sliding sync response containing a room (with identifiable data
@@ -815,7 +819,7 @@ mod tests {
     #[async_test]
     async fn room_name_is_found_when_processing_sliding_sync_response() {
         // Given a logged-in client
-        let client = logged_in_client().await;
+        let client = logged_in_base_client(None).await;
         let room_id = room_id!("!r:e.uk");
 
         // When I send sliding sync response containing a room with a name
@@ -839,7 +843,7 @@ mod tests {
     #[async_test]
     async fn invited_room_name_is_found_when_processing_sliding_sync_response() {
         // Given a logged-in client
-        let client = logged_in_client().await;
+        let client = logged_in_base_client(None).await;
         let room_id = room_id!("!r:e.uk");
         let user_id = user_id!("@w:e.uk");
 
@@ -865,7 +869,7 @@ mod tests {
     #[async_test]
     async fn left_a_room_from_required_state_event() {
         // Given a logged-in client
-        let client = logged_in_client().await;
+        let client = logged_in_base_client(None).await;
         let room_id = room_id!("!r:e.uk");
         let user_id = user_id!("@u:e.uk");
 
@@ -895,7 +899,7 @@ mod tests {
     #[async_test]
     async fn left_a_room_from_timeline_state_event() {
         // Given a logged-in client
-        let client = logged_in_client().await;
+        let client = logged_in_base_client(None).await;
         let room_id = room_id!("!r:e.uk");
         let user_id = user_id!("@u:e.uk");
 
@@ -921,7 +925,7 @@ mod tests {
         // See https://github.com/matrix-org/matrix-rust-sdk/issues/1834
 
         // Given a logged-in client
-        let client = logged_in_client().await;
+        let client = logged_in_base_client(None).await;
         let room_id = room_id!("!r:e.uk");
         let user_id = user_id!("@u:e.uk");
 
@@ -958,7 +962,7 @@ mod tests {
         let user_b_id = user_id!("@b:e.uk");
 
         // Given we have a DM with B, who is joined
-        let client = logged_in_client().await;
+        let client = logged_in_base_client(None).await;
         create_dm(&client, room_id, user_a_id, user_b_id, MembershipState::Join).await;
 
         // (Sanity: B is a direct target, and is in Join state)
@@ -983,7 +987,7 @@ mod tests {
         let user_b_id = user_id!("@b:e.uk");
 
         // Given I have invited B to a DM
-        let client = logged_in_client().await;
+        let client = logged_in_base_client(None).await;
         create_dm(&client, room_id, user_a_id, user_b_id, MembershipState::Invite).await;
 
         // (Sanity: B is a direct target, and is in Invite state)
@@ -1007,7 +1011,7 @@ mod tests {
         let user_b_id = user_id!("@b:bar.org");
 
         // Given we have a DM with B, who is joined
-        let client = logged_in_client().await;
+        let client = logged_in_base_client(None).await;
         create_dm(&client, room_id, user_a_id, user_b_id, MembershipState::Join).await;
 
         // (Sanity: A is in Join state)
@@ -1031,7 +1035,7 @@ mod tests {
         let user_b_id = user_id!("@b:bar.org");
 
         // Given we have a DM with B, who is joined
-        let client = logged_in_client().await;
+        let client = logged_in_base_client(None).await;
         create_dm(&client, room_id, user_a_id, user_b_id, MembershipState::Invite).await;
 
         // (Sanity: A is in Join state)
@@ -1051,7 +1055,7 @@ mod tests {
     #[async_test]
     async fn avatar_is_found_when_processing_sliding_sync_response() {
         // Given a logged-in client
-        let client = logged_in_client().await;
+        let client = logged_in_base_client(None).await;
         let room_id = room_id!("!r:e.uk");
 
         // When I send sliding sync response containing a room with an avatar
@@ -1075,7 +1079,7 @@ mod tests {
     #[async_test]
     async fn avatar_can_be_unset_when_processing_sliding_sync_response() {
         // Given a logged-in client
-        let client = logged_in_client().await;
+        let client = logged_in_base_client(None).await;
         let room_id = room_id!("!r:e.uk");
 
         // Set the avatar.
@@ -1131,7 +1135,7 @@ mod tests {
     #[async_test]
     async fn avatar_is_found_from_required_state_when_processing_sliding_sync_response() {
         // Given a logged-in client
-        let client = logged_in_client().await;
+        let client = logged_in_base_client(None).await;
         let room_id = room_id!("!r:e.uk");
         let user_id = user_id!("@u:e.uk");
 
@@ -1151,7 +1155,7 @@ mod tests {
     #[async_test]
     async fn invitation_room_is_added_to_client_and_invite_list() {
         // Given a logged-in client
-        let client = logged_in_client().await;
+        let client = logged_in_base_client(None).await;
         let room_id = room_id!("!r:e.uk");
         let user_id = user_id!("@u:e.uk");
 
@@ -1175,7 +1179,7 @@ mod tests {
     #[async_test]
     async fn avatar_is_found_in_invitation_room_when_processing_sliding_sync_response() {
         // Given a logged-in client
-        let client = logged_in_client().await;
+        let client = logged_in_base_client(None).await;
         let room_id = room_id!("!r:e.uk");
         let user_id = user_id!("@u:e.uk");
 
@@ -1196,7 +1200,7 @@ mod tests {
     #[async_test]
     async fn canonical_alias_is_found_in_invitation_room_when_processing_sliding_sync_response() {
         // Given a logged-in client
-        let client = logged_in_client().await;
+        let client = logged_in_base_client(None).await;
         let room_id = room_id!("!r:e.uk");
         let user_id = user_id!("@u:e.uk");
         let room_alias_id = room_alias_id!("#myroom:e.uk");
@@ -1215,7 +1219,7 @@ mod tests {
     #[async_test]
     async fn display_name_from_sliding_sync_overrides_alias() {
         // Given a logged-in client
-        let client = logged_in_client().await;
+        let client = logged_in_base_client(None).await;
         let room_id = room_id!("!r:e.uk");
         let user_id = user_id!("@u:e.uk");
         let room_alias_id = room_alias_id!("#myroom:e.uk");
@@ -1238,7 +1242,7 @@ mod tests {
     #[async_test]
     async fn last_event_from_sliding_sync_is_cached() {
         // Given a logged-in client
-        let client = logged_in_client().await;
+        let client = logged_in_base_client(None).await;
         let room_id = room_id!("!r:e.uk");
         let event_a = json!({
             "sender":"@alice:example.com",
@@ -1272,7 +1276,7 @@ mod tests {
     #[async_test]
     async fn cached_latest_event_can_be_redacted() {
         // Given a logged-in client
-        let client = logged_in_client().await;
+        let client = logged_in_base_client(None).await;
         let room_id = room_id!("!r:e.uk");
         let event_a = json!({
             "sender": "@alice:example.com",
@@ -1724,18 +1728,6 @@ mod tests {
             .account_data
             .global
             .push(make_global_account_data_event(DirectEventContent(direct_content)));
-    }
-
-    async fn logged_in_client() -> BaseClient {
-        let client = BaseClient::new();
-        client
-            .set_session_meta(SessionMeta {
-                user_id: user_id!("@u:e.uk").to_owned(),
-                device_id: device_id!("XYZ").to_owned(),
-            })
-            .await
-            .expect("Failed to set session meta");
-        client
     }
 
     async fn response_with_room(room_id: &RoomId, room: v4::SlidingSyncRoom) -> v4::Response {

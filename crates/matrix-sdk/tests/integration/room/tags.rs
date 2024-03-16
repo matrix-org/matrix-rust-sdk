@@ -14,7 +14,7 @@ use wiremock::{
     Mock, MockServer, ResponseTemplate,
 };
 
-use crate::{logged_in_client, mock_sync};
+use crate::{logged_in_client_with_server, mock_sync};
 
 enum TagOperation {
     Set,
@@ -70,7 +70,7 @@ async fn synced_client_with_room(
     ev_builder: &mut SyncResponseBuilder,
     room_id: &RoomId,
 ) -> (Client, Room, MockServer) {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
 
     mock_sync(&server, ev_builder.build_json_sync_response(), None).await;

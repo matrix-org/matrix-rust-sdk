@@ -2,11 +2,21 @@
 
 Breaking changes:
 
+- Rename the `OlmMachine::invalidate_group_session` method to
+  `OlmMachine::discard_room_key`
+
+- Move `OlmMachine::export_room_keys` to `matrix_sdk_crypto::store::Store`.
+  (Call it with `olm_machine.store().export_room_keys(...)`.)
+
 - Add new `dehydrated` property to `olm::account::PickledAccount`.
   ([#3164](https://github.com/matrix-org/matrix-rust-sdk/pull/3164))
 
 Additions:
 
+- When Olm message decryption fails, report the error code(s) from the failure.
+  ([#3212](https://github.com/matrix-org/matrix-rust-sdk/pull/3212))
+
+>>>>>>> main
 - Expose new methods `OlmMachine::set_room_settings` and
   `OlmMachine::get_room_settings`.
   ([#3042](https://github.com/matrix-org/matrix-rust-sdk/pull/3042))
@@ -22,6 +32,12 @@ Additions:
 - Add new API `Device::encrypt_event_raw` that allows
   to encrypt an event to a specific device.
   ([#3091](https://github.com/matrix-org/matrix-rust-sdk/pull/3091))
+
+- Add new API `store::Store::export_room_keys_stream` that provides room
+  keys on demand.
+
+- Include event timestamps on logs from event decryption.
+  ([#3194](https://github.com/matrix-org/matrix-rust-sdk/pull/3194))
 
 # 0.7.0
 

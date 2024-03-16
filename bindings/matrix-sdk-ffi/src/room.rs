@@ -1,8 +1,8 @@
-use std::{convert::TryFrom, sync::Arc};
+use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use matrix_sdk::{
-    room::{power_levels::RoomPowerLevelChanges, Room as SdkRoom},
+    room::{power_levels::RoomPowerLevelChanges, Room as SdkRoom, RoomMemberRole},
     RoomMemberships, RoomState,
 };
 use matrix_sdk_ui::timeline::RoomExt;
@@ -10,7 +10,13 @@ use mime::Mime;
 use ruma::{
     api::client::room::report_content,
     assign,
-    events::room::{avatar::ImageInfo as RumaAvatarImageInfo, MediaSource},
+    events::{
+        room::{
+            avatar::ImageInfo as RumaAvatarImageInfo,
+            power_levels::RoomPowerLevels as RumaPowerLevels, MediaSource,
+        },
+        TimelineEventType,
+    },
     EventId, Int, UserId,
 };
 use tokio::sync::RwLock;
@@ -128,19 +134,26 @@ impl Room {
         self.inner.active_room_call_participants().iter().map(|u| u.to_string()).collect()
     }
 
-    pub fn inviter(&self) -> Option<Arc<RoomMember>> {
+    pub fn inviter(&self) -> Option<RoomMember> {
         if self.inner.state() == RoomState::Invited {
             RUNTIME.block_on(async move {
-                self.inner
-                    .invite_details()
-                    .await
-                    .ok()
-                    .and_then(|a| a.inviter)
-                    .map(|m| Arc::new(RoomMember::new(m)))
+                self.inner.invite_details().await.ok().and_then(|a| a.inviter).map(|m| m.into())
             })
         } else {
             None
         }
+    }
+
+    /// Forces the currently active room key, which is used to encrypt messages,
+    /// to be rotated.
+    ///
+    /// A new room key will be crated and shared with all the room members the
+    /// next time a message will be sent. You don't have to call this method,
+    /// room keys will be rotated automatically when necessary. This method is
+    /// still useful for debugging purposes.
+    pub async fn discard_room_key(&self) -> Result<(), ClientError> {
+        self.inner.discard_room_key().await?;
+        Ok(())
     }
 
     pub async fn timeline(&self) -> Result<Arc<Timeline>, ClientError> {
@@ -177,10 +190,10 @@ impl Room {
         )))
     }
 
-    pub async fn member(&self, user_id: String) -> Result<Arc<RoomMember>, ClientError> {
+    pub async fn member(&self, user_id: String) -> Result<RoomMember, ClientError> {
         let user_id = UserId::parse(&*user_id).context("Invalid user id.")?;
         let member = self.inner.get_member(&user_id).await?.context("No user found")?;
-        Ok(Arc::new(RoomMember::new(member)))
+        Ok(member.into())
     }
 
     pub fn member_avatar_url(&self, user_id: String) -> Result<Option<String>, ClientError> {
@@ -341,13 +354,11 @@ impl Room {
     ///
     /// # Arguments
     ///
-    /// * `event_id` - The ID of the user to ignore.
-    pub fn ignore_user(&self, user_id: String) -> Result<(), ClientError> {
-        RUNTIME.block_on(async move {
-            let user_id = UserId::parse(user_id)?;
-            self.inner.client().account().ignore_user(&user_id).await?;
-            Ok(())
-        })
+    /// * `user_id` - The ID of the user to ignore.
+    pub async fn ignore_user(&self, user_id: String) -> Result<(), ClientError> {
+        let user_id = UserId::parse(user_id)?;
+        self.inner.client().account().ignore_user(&user_id).await?;
+        Ok(())
     }
 
     /// Leave this room.
@@ -524,7 +535,7 @@ impl Room {
         Ok(self.inner.typing_notice(is_typing).await?)
     }
 
-    pub async fn subscribe_to_typing_notifications(
+    pub fn subscribe_to_typing_notifications(
         self: Arc<Self>,
         listener: Box<dyn TypingNotificationsListener>,
     ) -> Arc<TaskHandle> {
@@ -556,11 +567,9 @@ impl Room {
         Ok(())
     }
 
-    pub async fn build_power_level_changes_from_current(
-        &self,
-    ) -> Result<RoomPowerLevelChanges, ClientError> {
+    pub async fn get_power_levels(&self) -> Result<RoomPowerLevels, ClientError> {
         let power_levels = self.inner.room_power_levels().await?;
-        Ok(power_levels.into())
+        Ok(RoomPowerLevels::from(power_levels))
     }
 
     pub async fn apply_power_level_changes(
@@ -571,18 +580,84 @@ impl Room {
         Ok(())
     }
 
-    pub async fn update_power_level_for_user(
+    pub async fn update_power_levels_for_users(
         &self,
-        user_id: String,
-        power_level: i64,
+        updates: Vec<UserPowerLevelUpdate>,
     ) -> Result<(), ClientError> {
-        let user_id = UserId::parse(&user_id)?;
-        let power_level = Int::new(power_level).context("Invalid power level")?;
+        let updates = updates
+            .iter()
+            .map(|update| {
+                let user_id: &UserId = update.user_id.as_str().try_into()?;
+                let power_level = Int::new(update.power_level).context("Invalid power level")?;
+                Ok((user_id, power_level))
+            })
+            .collect::<Result<Vec<_>>>()?;
+
         self.inner
-            .update_power_levels(vec![(&user_id, power_level)])
+            .update_power_levels(updates)
             .await
             .map_err(|e| ClientError::Generic { msg: e.to_string() })?;
         Ok(())
+    }
+
+    pub async fn suggested_role_for_user(
+        &self,
+        user_id: String,
+    ) -> Result<RoomMemberRole, ClientError> {
+        let user_id = UserId::parse(&user_id)?;
+        Ok(self.inner.get_suggested_user_role(&user_id).await?)
+    }
+
+    pub async fn reset_power_levels(&self) -> Result<RoomPowerLevels, ClientError> {
+        Ok(RoomPowerLevels::from(self.inner.reset_power_levels().await?))
+    }
+}
+
+#[derive(uniffi::Record)]
+pub struct RoomPowerLevels {
+    /// The level required to ban a user.
+    pub ban: i64,
+    /// The level required to invite a user.
+    pub invite: i64,
+    /// The level required to kick a user.
+    pub kick: i64,
+    /// The level required to redact an event.
+    pub redact: i64,
+    /// The default level required to send message events.
+    pub events_default: i64,
+    /// The default level required to send state events.
+    pub state_default: i64,
+    /// The default power level for every user in the room.
+    pub users_default: i64,
+    /// The level required to change the room's name.
+    pub room_name: i64,
+    /// The level required to change the room's avatar.
+    pub room_avatar: i64,
+    /// The level required to change the room's topic.
+    pub room_topic: i64,
+}
+
+impl From<RumaPowerLevels> for RoomPowerLevels {
+    fn from(value: RumaPowerLevels) -> Self {
+        fn state_event_level_for(
+            power_levels: &RumaPowerLevels,
+            event_type: &TimelineEventType,
+        ) -> i64 {
+            let default_state: i64 = power_levels.state_default.into();
+            power_levels.events.get(event_type).map_or(default_state, |&level| level.into())
+        }
+        Self {
+            ban: value.ban.into(),
+            invite: value.invite.into(),
+            kick: value.kick.into(),
+            redact: value.redact.into(),
+            events_default: value.events_default.into(),
+            state_default: value.state_default.into(),
+            users_default: value.users_default.into(),
+            room_name: state_event_level_for(&value, &TimelineEventType::RoomName),
+            room_avatar: state_event_level_for(&value, &TimelineEventType::RoomAvatar),
+            room_topic: state_event_level_for(&value, &TimelineEventType::RoomTopic),
+        }
     }
 }
 
@@ -613,11 +688,20 @@ impl RoomMembersIterator {
         self.chunk_iterator.len()
     }
 
-    fn next_chunk(&self, chunk_size: u32) -> Option<Vec<Arc<RoomMember>>> {
+    fn next_chunk(&self, chunk_size: u32) -> Option<Vec<RoomMember>> {
         self.chunk_iterator
             .next(chunk_size)
-            .map(|members| members.into_iter().map(RoomMember::new).map(Arc::new).collect())
+            .map(|members| members.into_iter().map(|m| m.into()).collect())
     }
+}
+
+/// An update for a particular user's power level within the room.
+#[derive(uniffi::Record)]
+pub struct UserPowerLevelUpdate {
+    /// The user ID of the user to update.
+    user_id: String,
+    /// The power level to assign to the user.
+    power_level: i64,
 }
 
 impl TryFrom<ImageInfo> for RumaAvatarImageInfo {

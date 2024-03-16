@@ -38,7 +38,7 @@ use crate::http_client::HttpSettings;
 use crate::oidc::OidcCtx;
 use crate::{
     authentication::AuthCtx, config::RequestConfig, error::RumaApiError, http_client::HttpClient,
-    sanitize_server_name, HttpError,
+    HttpError, IdParseError,
 };
 
 /// Builder that allows creating and configuring various parts of a [`Client`].
@@ -418,48 +418,8 @@ impl ClientBuilder {
             }
 
             HomeserverConfig::ServerNameOrUrl(server_name_or_url) => {
-                // Store the result to return at the end. If this doesn't get modified, then the
-                // supplied name is neither a server name, nor a valid URL.
-                let mut homeserver_details: Option<(
-                    String,
-                    Option<discover_homeserver::Response>,
-                )> = None;
-                let mut discovery_error: Option<ClientBuildError> = None;
-
-                // Attempt discovery as a server name first.
-                let sanitize_result = sanitize_server_name(&server_name_or_url);
-                if let Ok(server_name) = sanitize_result.as_ref() {
-                    let protocol = if server_name_or_url.starts_with("http://") {
-                        UrlScheme::Http
-                    } else {
-                        UrlScheme::Https
-                    };
-
-                    match discover_homeserver(server_name.clone(), protocol, &http_client).await {
-                        Ok(well_known) => {
-                            homeserver_details =
-                                Some((well_known.homeserver.base_url.clone(), Some(well_known)));
-                        }
-                        Err(e) => {
-                            debug!(error = %e, "Well-known discovery failed.");
-                            discovery_error = Some(e);
-                        }
-                    }
-                }
-
-                // When discovery fails, or the input isn't a valid server name, fallback to
-                // trying a homeserver URL if supplied.
-                if homeserver_details.is_none() {
-                    if let Ok(homeserver_url) = Url::parse(&server_name_or_url) {
-                        // Make sure the URL is definitely for a homeserver.
-                        if check_is_homeserver(&homeserver_url, &http_client).await {
-                            homeserver_details = Some((homeserver_url.to_string(), None));
-                        }
-                    }
-                }
-
-                homeserver_details
-                    .ok_or(discovery_error.unwrap_or(ClientBuildError::InvalidServerName))?
+                discover_homeserver_from_server_name_or_url(server_name_or_url, &http_client)
+                    .await?
             }
         };
 
@@ -499,6 +459,7 @@ impl ClientBuilder {
             oidc: OidcCtx::new(authentication_server_info, allow_insecure_oidc),
         });
 
+        let event_cache = OnceCell::new();
         let inner = ClientInner::new(
             auth_ctx,
             homeserver,
@@ -507,15 +468,75 @@ impl ClientBuilder {
             http_client,
             base_client,
             self.server_versions,
+            None,
             self.respect_login_well_known,
+            event_cache,
             #[cfg(feature = "e2e-encryption")]
             self.encryption_settings,
-        );
+        )
+        .await;
 
         debug!("Done building the Client");
 
         Ok(Client { inner })
     }
+}
+
+/// Discovers a homeserver from a server name or a URL.
+///
+/// Tries well-known discovery and checking if the URL points to a homeserver.
+async fn discover_homeserver_from_server_name_or_url(
+    mut server_name_or_url: String,
+    http_client: &HttpClient,
+) -> Result<(String, Option<discover_homeserver::Response>), ClientBuildError> {
+    let mut discovery_error: Option<ClientBuildError> = None;
+
+    // Attempt discovery as a server name first.
+    let sanitize_result = sanitize_server_name(&server_name_or_url);
+
+    if let Ok(server_name) = sanitize_result.as_ref() {
+        let protocol = if server_name_or_url.starts_with("http://") {
+            UrlScheme::Http
+        } else {
+            UrlScheme::Https
+        };
+
+        match discover_homeserver(server_name.clone(), protocol, http_client).await {
+            Ok(well_known) => {
+                return Ok((well_known.homeserver.base_url.clone(), Some(well_known)));
+            }
+            Err(e) => {
+                debug!(error = %e, "Well-known discovery failed.");
+                discovery_error = Some(e);
+
+                // Check if the server name points to a homeserver.
+                server_name_or_url = match protocol {
+                    UrlScheme::Http => format!("http://{server_name}"),
+                    UrlScheme::Https => format!("https://{server_name}"),
+                }
+            }
+        }
+    }
+
+    // When discovery fails, or the input isn't a valid server name, fallback to
+    // trying a homeserver URL.
+    if let Ok(homeserver_url) = Url::parse(&server_name_or_url) {
+        // Make sure the URL is definitely for a homeserver.
+        if check_is_homeserver(&homeserver_url, http_client).await {
+            return Ok((homeserver_url.to_string(), None));
+        }
+    }
+
+    Err(discovery_error.unwrap_or(ClientBuildError::InvalidServerName))
+}
+
+/// Creates a server name from a user supplied string. The string is first
+/// sanitized by removing whitespace, the http(s) scheme and any trailing
+/// slashes before being parsed.
+pub fn sanitize_server_name(s: &str) -> crate::Result<OwnedServerName, IdParseError> {
+    ServerName::parse(
+        s.trim().trim_start_matches("http://").trim_start_matches("https://").trim_end_matches('/'),
+    )
 }
 
 /// Discovers a homeserver by looking up the well-known at the supplied server
@@ -764,6 +785,7 @@ impl ClientBuildError {
 // The http mocking library is not supported for wasm32
 #[cfg(all(test, not(target_arch = "wasm32")))]
 pub(crate) mod tests {
+    use assert_matches::assert_matches;
     use matrix_sdk_test::{async_test, test_json};
     use serde_json::{json_internal, Value as JsonValue};
     use wiremock::{
@@ -773,8 +795,28 @@ pub(crate) mod tests {
 
     use super::*;
 
-    // Note: Due to a limitation of the http mocking library these tests all supply an http:// url,
-    // to `server_name_or_homeserver_url` rather than the plain server name,
+    #[test]
+    fn test_sanitize_server_name() {
+        assert_eq!(sanitize_server_name("matrix.org").unwrap().as_str(), "matrix.org");
+        assert_eq!(sanitize_server_name("https://matrix.org").unwrap().as_str(), "matrix.org");
+        assert_eq!(sanitize_server_name("http://matrix.org").unwrap().as_str(), "matrix.org");
+        assert_eq!(
+            sanitize_server_name("https://matrix.server.org").unwrap().as_str(),
+            "matrix.server.org"
+        );
+        assert_eq!(
+            sanitize_server_name("https://matrix.server.org/").unwrap().as_str(),
+            "matrix.server.org"
+        );
+        assert_eq!(
+            sanitize_server_name("  https://matrix.server.org// ").unwrap().as_str(),
+            "matrix.server.org"
+        );
+        assert_matches!(sanitize_server_name("https://matrix.server.org/something"), Err(_))
+    }
+
+    // Note: Due to a limitation of the http mocking library the following tests all
+    // supply an http:// url, to `server_name_or_homeserver_url` rather than the plain server name,
     // otherwise  the builder will prepend https:// and the request will fail. In practice, this
     // isn't a problem as the builder first strips the scheme and then checks if the
     // name is a valid server name, so it is a close enough approximation.
@@ -789,7 +831,7 @@ pub(crate) mod tests {
         let error = builder.build().await.unwrap_err();
 
         // Then the operation should fail due to the invalid server name.
-        assert!(matches!(error, ClientBuildError::InvalidServerName));
+        assert_matches!(error, ClientBuildError::InvalidServerName);
     }
 
     #[async_test]
@@ -803,7 +845,7 @@ pub(crate) mod tests {
 
         // Then the operation should fail with an HTTP error.
         println!("{error}");
-        assert!(matches!(error, ClientBuildError::Http(_)));
+        assert_matches!(error, ClientBuildError::Http(_));
     }
 
     #[async_test]
@@ -818,7 +860,7 @@ pub(crate) mod tests {
         let error = builder.build().await.unwrap_err();
 
         // Then the operation should fail with a server discovery error.
-        assert!(matches!(error, ClientBuildError::AutoDiscovery(FromHttpResponseError::Server(_))));
+        assert_matches!(error, ClientBuildError::AutoDiscovery(FromHttpResponseError::Server(_)));
     }
 
     #[async_test]
@@ -829,13 +871,13 @@ pub(crate) mod tests {
 
         // When building a client with the server's URL.
         builder = builder.server_name_or_homeserver_url(homeserver.uri());
-        let client = builder.build().await.unwrap();
+        let _client = builder.build().await.unwrap();
 
         // Then a client should be built without support for sliding sync or OIDC.
         #[cfg(feature = "experimental-sliding-sync")]
-        assert!(client.sliding_sync_proxy().is_none());
+        assert!(_client.sliding_sync_proxy().is_none());
         #[cfg(feature = "experimental-oidc")]
-        assert!(client.oidc().authentication_server_info().is_none());
+        assert!(_client.oidc().authentication_server_info().is_none());
     }
 
     #[async_test]
@@ -851,13 +893,13 @@ pub(crate) mod tests {
 
         // When building a client with the server's URL.
         builder = builder.server_name_or_homeserver_url(homeserver.uri());
-        let client = builder.build().await.unwrap();
+        let _client = builder.build().await.unwrap();
 
         // Then a client should be built with support for sliding sync.
         #[cfg(feature = "experimental-sliding-sync")]
-        assert_eq!(client.sliding_sync_proxy(), Some("https://localhost:1234".parse().unwrap()));
+        assert_eq!(_client.sliding_sync_proxy(), Some("https://localhost:1234".parse().unwrap()));
         #[cfg(feature = "experimental-oidc")]
-        assert!(client.oidc().authentication_server_info().is_none());
+        assert!(_client.oidc().authentication_server_info().is_none());
     }
 
     #[async_test]
@@ -880,10 +922,10 @@ pub(crate) mod tests {
         let error = builder.build().await.unwrap_err();
 
         // Then the operation should fail due to the well-known file's contents.
-        assert!(matches!(
+        assert_matches!(
             error,
             ClientBuildError::AutoDiscovery(FromHttpResponseError::Deserialization(_))
-        ));
+        );
     }
 
     #[async_test]
@@ -906,13 +948,13 @@ pub(crate) mod tests {
 
         // When building a client with the base server.
         builder = builder.server_name_or_homeserver_url(server.uri());
-        let client = builder.build().await.unwrap();
+        let _client = builder.build().await.unwrap();
 
         // Then a client should be built without support for sliding sync or OIDC.
         #[cfg(feature = "experimental-sliding-sync")]
-        assert!(client.sliding_sync_proxy().is_none());
+        assert!(_client.sliding_sync_proxy().is_none());
         #[cfg(feature = "experimental-oidc")]
-        assert!(client.oidc().authentication_server_info().is_none());
+        assert!(_client.oidc().authentication_server_info().is_none());
     }
 
     #[async_test]
@@ -935,13 +977,13 @@ pub(crate) mod tests {
 
         // When building a client with the base server.
         builder = builder.server_name_or_homeserver_url(server.uri());
-        let client = builder.build().await.unwrap();
+        let _client = builder.build().await.unwrap();
 
         // Then a client should be built with support for sliding sync.
         #[cfg(feature = "experimental-sliding-sync")]
-        assert_eq!(client.sliding_sync_proxy(), Some("https://localhost:1234".parse().unwrap()));
+        assert_eq!(_client.sliding_sync_proxy(), Some("https://localhost:1234".parse().unwrap()));
         #[cfg(feature = "experimental-oidc")]
-        assert!(client.oidc().authentication_server_info().is_none());
+        assert!(_client.oidc().authentication_server_info().is_none());
     }
 
     #[async_test]
@@ -997,14 +1039,14 @@ pub(crate) mod tests {
 
         // When building a client with the base server.
         builder = builder.server_name_or_homeserver_url(server.uri());
-        let client = builder.build().await.unwrap();
+        let _client = builder.build().await.unwrap();
 
         // Then a client should be built with support for both sliding sync and OIDC.
         #[cfg(feature = "experimental-sliding-sync")]
-        assert_eq!(client.sliding_sync_proxy(), Some("https://localhost:1234".parse().unwrap()));
+        assert_eq!(_client.sliding_sync_proxy(), Some("https://localhost:1234".parse().unwrap()));
         #[cfg(feature = "experimental-oidc")]
         assert_eq!(
-            client.oidc().authentication_server_info().unwrap().issuer,
+            _client.oidc().authentication_server_info().unwrap().issuer,
             "https://localhost:5678".to_owned()
         );
     }

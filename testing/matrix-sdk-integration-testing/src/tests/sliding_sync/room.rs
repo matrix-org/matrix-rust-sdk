@@ -412,39 +412,45 @@ async fn test_room_notification_count() -> Result<()> {
 
     alice_room.enable_encryption().await?;
 
-    let mut info_updates = alice_room.subscribe_info();
+    let mut room_info_updates = alice_room.subscribe_info();
 
     // At first, nothing has happened, so we shouldn't have any notifications.
     assert_eq!(alice_room.num_unread_messages(), 0);
     assert_eq!(alice_room.num_unread_mentions(), 0);
     assert_eq!(alice_room.num_unread_notifications(), 0);
 
-    assert_pending!(info_updates);
+    assert_pending!(room_info_updates);
 
     // Bob joins, nothing happens.
     bob.join_room_by_id(&room_id).await?;
 
-    assert!(info_updates.next().await.is_some());
+    assert!(timeout(Duration::from_secs(3), room_info_updates.next())
+        .await
+        .expect("timeout getting room info update #1")
+        .is_some());
 
     assert_eq!(alice_room.num_unread_messages(), 0);
     assert_eq!(alice_room.num_unread_mentions(), 0);
     assert_eq!(alice_room.num_unread_notifications(), 0);
     assert!(alice_room.latest_event().is_none());
 
-    assert_pending!(info_updates);
+    assert_pending!(room_info_updates);
 
     // Bob sends a non-mention message.
     let bob_room = bob.get_room(&room_id).expect("bob knows about alice's room");
 
     bob_room.send(RoomMessageEventContent::text_plain("hello world")).await?;
 
-    assert!(info_updates.next().await.is_some());
+    assert!(timeout(Duration::from_secs(3), room_info_updates.next())
+        .await
+        .expect("timeout getting room info update #2")
+        .is_some());
 
     assert_eq!(alice_room.num_unread_messages(), 1);
     assert_eq!(alice_room.num_unread_notifications(), 1);
     assert_eq!(alice_room.num_unread_mentions(), 0);
 
-    assert_pending!(info_updates);
+    assert_pending!(room_info_updates);
 
     // Bob sends a mention message.
     bob_room
@@ -454,52 +460,66 @@ async fn test_room_notification_count() -> Result<()> {
         )
         .await?;
 
-    assert!(info_updates.next().await.is_some());
+    assert!(timeout(Duration::from_secs(3), room_info_updates.next())
+        .await
+        .expect("timeout getting room info update #3")
+        .is_some());
 
     // The highlight also counts as a notification.
     assert_eq!(alice_room.num_unread_messages(), 2);
     assert_eq!(alice_room.num_unread_notifications(), 2);
     assert_eq!(alice_room.num_unread_mentions(), 1);
 
-    assert_pending!(info_updates);
+    assert_pending!(room_info_updates);
 
     // Alice marks the room as read.
     let event_id = latest_event.lock().await.take().unwrap().event_id().to_owned();
     alice_room.send_single_receipt(ReceiptType::Read, ReceiptThread::Unthreaded, event_id).await?;
 
     // Remote echo of marking the room as read.
-    assert!(info_updates.next().await.is_some());
+    assert!(timeout(Duration::from_secs(3), room_info_updates.next())
+        .await
+        .expect("timeout getting room info update #4")
+        .is_some());
 
     // Sometimes, we get a spurious update quickly.
-    let _ = timeout(Duration::from_secs(2), info_updates.next()).await;
+    let _ = timeout(Duration::from_secs(2), room_info_updates.next()).await;
 
     assert_eq!(alice_room.num_unread_messages(), 0);
     assert_eq!(alice_room.num_unread_notifications(), 0);
     assert_eq!(alice_room.num_unread_mentions(), 0);
 
-    assert_pending!(info_updates);
+    assert_pending!(room_info_updates);
 
     // Alice sends a message.
     alice_room.send(RoomMessageEventContent::text_plain("hello bob")).await?;
 
     // Local echo for our own message.
-    assert!(info_updates.next().await.is_some());
+    assert!(timeout(Duration::from_secs(3), room_info_updates.next())
+        .await
+        .expect("timeout getting room info update #5")
+        .is_some());
 
     assert_eq!(alice_room.num_unread_messages(), 0);
     assert_eq!(alice_room.num_unread_notifications(), 0);
     assert_eq!(alice_room.num_unread_mentions(), 0);
 
     // Remote echo for our own message.
-    assert!(info_updates.next().await.is_some());
+    assert!(timeout(Duration::from_secs(3), room_info_updates.next())
+        .await
+        .expect("timeout getting room info update #6")
+        .is_some());
 
     assert_eq!(alice_room.num_unread_messages(), 0);
     assert_eq!(alice_room.num_unread_notifications(), 0);
     assert_eq!(alice_room.num_unread_mentions(), 0);
 
-    assert_pending!(info_updates);
+    assert_pending!(room_info_updates);
 
     // Now Alice is only interesting in mentions of their name.
     let settings = alice.notification_settings().await;
+
+    let mut settings_changes = settings.subscribe_to_changes();
 
     tracing::warn!("Updating room notification mode to mentions and keywords only...");
     settings
@@ -511,11 +531,17 @@ async fn test_room_notification_count() -> Result<()> {
     tracing::warn!("Done!");
 
     // Wait for remote echo.
-    let _ = settings.subscribe_to_changes().recv().await;
+    timeout(Duration::from_secs(3), settings_changes.recv())
+        .await
+        .expect("timeout when waiting for settings update")
+        .expect("should've received echo after updating settings");
 
     bob_room.send(RoomMessageEventContent::text_plain("I said hello!")).await?;
 
-    assert!(info_updates.next().await.is_some());
+    assert!(timeout(Duration::from_secs(3), room_info_updates.next())
+        .await
+        .expect("timeout getting room info update #7")
+        .is_some());
 
     // The message doesn't contain a mention, so it doesn't notify Alice. But it
     // exists.
@@ -523,7 +549,7 @@ async fn test_room_notification_count() -> Result<()> {
     assert_eq!(alice_room.num_unread_notifications(), 0);
     assert_eq!(alice_room.num_unread_mentions(), 0);
 
-    assert_pending!(info_updates);
+    assert_pending!(room_info_updates);
 
     // Bob sends a mention message.
     bob_room
@@ -533,14 +559,17 @@ async fn test_room_notification_count() -> Result<()> {
         )
         .await?;
 
-    assert!(info_updates.next().await.is_some());
+    assert!(timeout(Duration::from_secs(3), room_info_updates.next())
+        .await
+        .expect("timeout getting room info update #8")
+        .is_some());
 
     // The highlight also counts as a notification.
     assert_eq!(alice_room.num_unread_messages(), 2);
     assert_eq!(alice_room.num_unread_notifications(), 1);
     assert_eq!(alice_room.num_unread_mentions(), 1);
 
-    assert_pending!(info_updates);
+    assert_pending!(room_info_updates);
 
     Ok(())
 }

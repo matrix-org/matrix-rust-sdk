@@ -7,7 +7,7 @@ use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, FutureExt, StreamExt};
 use imbl::vector;
-use matrix_sdk::Client;
+use matrix_sdk::{test_utils::logged_in_client_with_server, Client};
 use matrix_sdk_base::sync::UnreadNotificationsCount;
 use matrix_sdk_test::async_test;
 use matrix_sdk_ui::{
@@ -31,13 +31,10 @@ use stream_assert::{assert_next_matches, assert_pending};
 use tokio::{spawn, sync::mpsc::channel, task::yield_now};
 use wiremock::MockServer;
 
-use crate::{
-    logged_in_client,
-    timeline::sliding_sync::{assert_timeline_stream, timeline_event},
-};
+use crate::timeline::sliding_sync::{assert_timeline_stream, timeline_event};
 
 async fn new_room_list_service() -> Result<(Client, MockServer, RoomListService), Error> {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
     let room_list = RoomListService::new(client.clone()).await?;
 
     Ok((client, server, room_list))
@@ -2568,7 +2565,7 @@ async fn test_room_timeline() -> Result<(), Error> {
     };
 
     let room = room_list.room(room_id).await?;
-    room.init_timeline_with_builder(room.default_room_timeline_builder().await).await?;
+    room.init_timeline_with_builder(room.default_room_timeline_builder().await.unwrap()).await?;
     let timeline = room.timeline().unwrap();
 
     let (previous_timeline_items, mut timeline_items_stream) = timeline.subscribe().await;
@@ -2650,7 +2647,7 @@ async fn test_room_latest_event() -> Result<(), Error> {
     };
 
     let room = room_list.room(room_id).await?;
-    room.init_timeline_with_builder(room.default_room_timeline_builder().await).await?;
+    room.init_timeline_with_builder(room.default_room_timeline_builder().await.unwrap()).await?;
 
     // The latest event does not exist.
     assert!(room.latest_event().await.is_none());

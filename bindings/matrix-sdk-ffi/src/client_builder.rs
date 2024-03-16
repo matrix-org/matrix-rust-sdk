@@ -7,7 +7,8 @@ use matrix_sdk::{
         api::{error::UnknownVersionError, MatrixVersion},
         ServerName, UserId,
     },
-    Client as MatrixClient, ClientBuilder as MatrixClientBuilder,
+    Client as MatrixClient, ClientBuildError as MatrixClientBuildError,
+    ClientBuilder as MatrixClientBuilder, IdParseError,
 };
 use sanitize_filename_reader_friendly::sanitize;
 use url::Url;
@@ -19,18 +20,51 @@ use crate::{client::ClientSessionDelegate, error::ClientError, helpers::unwrap_o
 /// A list of bytes containing a certificate in DER or PEM form.
 pub type CertificateBytes = Vec<u8>;
 
-#[derive(Clone)]
-pub(crate) enum UrlScheme {
-    Http,
-    Https,
+#[derive(Debug, Clone)]
+enum HomeserverConfig {
+    Url(String),
+    ServerName(String),
+    ServerNameOrUrl(String),
+}
+
+#[derive(Debug, thiserror::Error, uniffi::Error)]
+#[uniffi(flat_error)]
+pub enum ClientBuildError {
+    #[error(transparent)]
+    Sdk(#[from] MatrixClientBuildError),
+    #[error("Failed to build the client: {message}")]
+    Generic { message: String },
+}
+
+impl From<IdParseError> for ClientBuildError {
+    fn from(e: IdParseError) -> ClientBuildError {
+        ClientBuildError::Generic { message: format!("{e:#}") }
+    }
+}
+
+impl From<std::io::Error> for ClientBuildError {
+    fn from(e: std::io::Error) -> ClientBuildError {
+        ClientBuildError::Generic { message: format!("{e:#}") }
+    }
+}
+
+impl From<url::ParseError> for ClientBuildError {
+    fn from(e: url::ParseError) -> ClientBuildError {
+        ClientBuildError::Generic { message: format!("{e:#}") }
+    }
+}
+
+impl From<ClientError> for ClientBuildError {
+    fn from(e: ClientError) -> ClientBuildError {
+        ClientBuildError::Generic { message: format!("{e:#}") }
+    }
 }
 
 #[derive(Clone, uniffi::Object)]
 pub struct ClientBuilder {
     base_path: Option<String>,
     username: Option<String>,
-    server_name: Option<(String, UrlScheme)>,
-    homeserver_url: Option<String>,
+    homeserver_cfg: Option<HomeserverConfig>,
     server_versions: Option<Vec<String>>,
     passphrase: Zeroizing<Option<String>>,
     user_agent: Option<String>,
@@ -51,8 +85,7 @@ impl ClientBuilder {
         Arc::new(Self {
             base_path: None,
             username: None,
-            server_name: None,
-            homeserver_url: None,
+            homeserver_cfg: None,
             server_versions: None,
             passphrase: Zeroizing::new(None),
             user_agent: None,
@@ -108,14 +141,19 @@ impl ClientBuilder {
 
     pub fn server_name(self: Arc<Self>, server_name: String) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        // Assume HTTPS if no protocol is provided.
-        builder.server_name = Some((server_name, UrlScheme::Https));
+        builder.homeserver_cfg = Some(HomeserverConfig::ServerName(server_name));
         Arc::new(builder)
     }
 
     pub fn homeserver_url(self: Arc<Self>, url: String) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.homeserver_url = Some(url);
+        builder.homeserver_cfg = Some(HomeserverConfig::Url(url));
+        Arc::new(builder)
+    }
+
+    pub fn server_name_or_homeserver_url(self: Arc<Self>, server_name_or_url: String) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.homeserver_cfg = Some(HomeserverConfig::ServerNameOrUrl(server_name_or_url));
         Arc::new(builder)
     }
 
@@ -165,7 +203,7 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
-    pub fn build(self: Arc<Self>) -> Result<Arc<Client>, ClientError> {
+    pub fn build(self: Arc<Self>) -> Result<Arc<Client>, ClientBuildError> {
         Ok(Arc::new(self.build_inner()?))
     }
 }
@@ -200,17 +238,7 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
-    pub(crate) fn server_name_with_protocol(
-        self: Arc<Self>,
-        server_name: String,
-        protocol: UrlScheme,
-    ) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.server_name = Some((server_name, protocol));
-        Arc::new(builder)
-    }
-
-    pub(crate) fn build_inner(self: Arc<Self>) -> anyhow::Result<Client> {
+    pub(crate) fn build_inner(self: Arc<Self>) -> Result<Client, ClientBuildError> {
         let builder = unwrap_or_clone_arc(self);
         let mut inner_builder = builder.inner;
 
@@ -223,22 +251,26 @@ impl ClientBuilder {
         }
 
         // Determine server either from URL, server name or user ID.
-        if let Some(homeserver_url) = builder.homeserver_url {
-            inner_builder = inner_builder.homeserver_url(homeserver_url);
-        } else if let Some((server_name, protocol)) = builder.server_name {
-            let server_name = ServerName::parse(server_name)?;
-            inner_builder = match protocol {
-                UrlScheme::Http => inner_builder.insecure_server_name_no_tls(&server_name),
-                UrlScheme::Https => inner_builder.server_name(&server_name),
-            };
-        } else if let Some(username) = builder.username {
-            let user = UserId::parse(username)?;
-            inner_builder = inner_builder.server_name(user.server_name());
-        } else {
-            anyhow::bail!(
-                "Failed to build: One of homeserver_url, server_name or username must be called."
-            );
-        }
+        inner_builder = match builder.homeserver_cfg {
+            Some(HomeserverConfig::Url(url)) => inner_builder.homeserver_url(url),
+            Some(HomeserverConfig::ServerName(server_name)) => {
+                let server_name = ServerName::parse(server_name)?;
+                inner_builder.server_name(&server_name)
+            }
+            Some(HomeserverConfig::ServerNameOrUrl(server_name_or_url)) => {
+                inner_builder.server_name_or_homeserver_url(server_name_or_url)
+            }
+            None => {
+                if let Some(username) = builder.username {
+                    let user = UserId::parse(username)?;
+                    inner_builder.server_name(user.server_name())
+                } else {
+                    return Err(ClientBuildError::Generic {
+                        message: "Failed to build: One of homeserver_url, server_name, server_name_or_homeserver_url or username must be called.".to_owned(),
+                    });
+                }
+            }
+        };
 
         let mut certificates = Vec::new();
 
@@ -248,8 +280,10 @@ impl ClientBuilder {
             if let Ok(cert) = Certificate::from_der(&certificate) {
                 certificates.push(cert);
             } else {
-                let cert = Certificate::from_pem(&certificate)
-                    .map_err(|e| anyhow::anyhow!("Failed to add a root certificate {e:?}"))?;
+                let cert =
+                    Certificate::from_pem(&certificate).map_err(|e| ClientBuildError::Generic {
+                        message: format!("Failed to add a root certificate {e:?}"),
+                    })?;
                 certificates.push(cert);
             }
         }
@@ -277,7 +311,8 @@ impl ClientBuilder {
                 server_versions
                     .iter()
                     .map(|s| MatrixVersion::try_from(s.as_str()))
-                    .collect::<Result<Vec<MatrixVersion>, UnknownVersionError>>()?,
+                    .collect::<Result<Vec<MatrixVersion>, UnknownVersionError>>()
+                    .map_err(|e| ClientBuildError::Generic { message: e.to_string() })?,
             );
         }
 

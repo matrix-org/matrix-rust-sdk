@@ -249,7 +249,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         state: &'a mut TimelineInnerStateTransaction<'o>,
         ctx: TimelineEventContext,
     ) -> Self {
-        let TimelineInnerStateTransaction { items, meta } = state;
+        let TimelineInnerStateTransaction { items, meta, .. } = state;
         Self { items, meta, ctx, result: HandleEventResult::default() }
     }
 
@@ -297,6 +297,14 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 AnyMessageLikeEventContent::RoomEncrypted(c) => {
                     // TODO: Handle replacements if the replaced event is also UTD
                     self.add(true, TimelineItemContent::unable_to_decrypt(c));
+
+                    // Let the hook know that we ran into an unable-to-decrypt that is added to the
+                    // timeline.
+                    if let Some(hook) = self.meta.unable_to_decrypt_hook.as_ref() {
+                        if let Flow::Remote { event_id, .. } = &self.ctx.flow {
+                            hook.on_utd(event_id);
+                        }
+                    }
                 }
                 AnyMessageLikeEventContent::Sticker(content) => {
                     self.add(should_add, TimelineItemContent::Sticker(Sticker { content }));
@@ -309,6 +317,10 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 ) => self.handle_poll_start(c, should_add),
                 AnyMessageLikeEventContent::UnstablePollResponse(c) => self.handle_poll_response(c),
                 AnyMessageLikeEventContent::UnstablePollEnd(c) => self.handle_poll_end(c),
+                AnyMessageLikeEventContent::CallInvite(_) => {
+                    self.add(should_add, TimelineItemContent::CallInvite);
+                }
+
                 // TODO
                 _ => {
                     debug!(

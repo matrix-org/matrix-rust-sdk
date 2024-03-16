@@ -9,11 +9,11 @@ use wiremock::{
     Mock, ResponseTemplate,
 };
 
-use crate::{logged_in_client, mock_sync};
+use crate::{logged_in_client_with_server, mock_sync};
 
 #[async_test]
 async fn forget_room() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     Mock::given(method("POST"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/forget$"))
@@ -35,7 +35,7 @@ async fn forget_room() {
 
 #[async_test]
 async fn rejoin_room() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = logged_in_client_with_server().await;
 
     Mock::given(method("POST"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/join"))

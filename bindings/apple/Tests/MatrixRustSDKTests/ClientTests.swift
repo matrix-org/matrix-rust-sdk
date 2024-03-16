@@ -23,16 +23,6 @@ final class ClientTests: XCTestCase {
         }
     }
     
-    func testBuildingWithUsername() {
-        do {
-            _ = try ClientBuilder()
-                .username(username: "@test:matrix.org")
-                .build()
-        } catch {
-            XCTFail("The client should build successfully when given a username.")
-        }
-    }
-    
     func testBuildingWithInvalidUsername() {
         do {
             _ = try ClientBuilder()
@@ -40,7 +30,7 @@ final class ClientTests: XCTestCase {
                 .build()
             
             XCTFail("The client should not build when given an invalid username.")
-        } catch ClientError.Generic(let message) {
+        } catch ClientBuildError.Sdk(let message) {
             XCTAssertTrue(message.contains(".well-known"), "The client should fail to do the well-known lookup.")
         } catch {
             XCTFail("Not expecting any other kind of exception")

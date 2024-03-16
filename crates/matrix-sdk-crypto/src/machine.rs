@@ -88,6 +88,7 @@ use crate::{
         },
         EventEncryptionAlgorithm, Signatures,
     },
+    utilities::timestamp_to_iso8601,
     verification::{Verification, VerificationMachine, VerificationRequest},
     CrossSigningKeyExport, CryptoStoreError, KeysQueryRequest, LocalTrust, ReadOnlyDevice,
     RoomKeyImportResult, SignatureError, ToDeviceRequest,
@@ -894,12 +895,17 @@ impl OlmMachine {
         self.inner.group_session_manager.encrypt(room_id, event_type, content).await
     }
 
-    /// Invalidate the currently active outbound group session for the given
-    /// room.
+    /// Forces the currently active room key, which is used to encrypt messages,
+    /// to be rotated.
+    ///
+    /// A new room key will be crated and shared with all the room members the
+    /// next time a message will be sent. You don't have to call this method,
+    /// room keys will be rotated automatically when necessary. This method is
+    /// still useful for debugging purposes.
     ///
     /// Returns true if a session was invalidated, false if there was no session
     /// to invalidate.
-    pub async fn invalidate_group_session(&self, room_id: &RoomId) -> StoreResult<bool> {
+    pub async fn discard_room_key(&self, room_id: &RoomId) -> StoreResult<bool> {
         self.inner.group_session_manager.invalidate_group_session(room_id).await
     }
 
@@ -1529,7 +1535,7 @@ impl OlmMachine {
     /// * `event` - The event that should be decrypted.
     ///
     /// * `room_id` - The ID of the room where the event was sent to.
-    #[instrument(skip_all, fields(?room_id, event_id, sender, algorithm, session_id, sender_key))]
+    #[instrument(skip_all, fields(?room_id, event_id, origin_server_ts, sender, algorithm, session_id, sender_key))]
     pub async fn decrypt_room_event(
         &self,
         event: &Raw<EncryptedEvent>,
@@ -1540,6 +1546,11 @@ impl OlmMachine {
         tracing::Span::current()
             .record("sender", debug(&event.sender))
             .record("event_id", debug(&event.event_id))
+            .record(
+                "origin_server_ts",
+                timestamp_to_iso8601(event.origin_server_ts)
+                    .unwrap_or_else(|| "<out of range>".to_owned()),
+            )
             .record("algorithm", debug(event.content.algorithm()));
 
         let content: SupportedEventEncryptionSchemes<'_> = match &event.content.scheme {
@@ -1802,45 +1813,6 @@ impl OlmMachine {
         self.store().import_room_keys(exported_keys, from_backup, progress_listener).await
     }
 
-    /// Export the keys that match the given predicate.
-    ///
-    /// # Arguments
-    ///
-    /// * `predicate` - A closure that will be called for every known
-    /// `InboundGroupSession`, which represents a room key. If the closure
-    /// returns `true` the `InboundGroupSession` will be included in the export,
-    /// if the closure returns `false` it will not be included.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// # use matrix_sdk_crypto::{OlmMachine, encrypt_room_key_export};
-    /// # use ruma::{device_id, user_id, room_id};
-    /// # let alice = user_id!("@alice:example.org");
-    /// # async {
-    /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
-    /// let room_id = room_id!("!test:localhost");
-    /// let exported_keys = machine.export_room_keys(|s| s.room_id() == room_id).await.unwrap();
-    /// let encrypted_export = encrypt_room_key_export(&exported_keys, "1234", 1);
-    /// # };
-    /// ```
-    pub async fn export_room_keys(
-        &self,
-        predicate: impl FnMut(&InboundGroupSession) -> bool,
-    ) -> StoreResult<Vec<ExportedRoomKey>> {
-        let mut exported = Vec::new();
-
-        let mut sessions = self.store().get_inbound_group_sessions().await?;
-        sessions.retain(predicate);
-
-        for session in sessions {
-            let export = session.export().await;
-            exported.push(export);
-        }
-
-        Ok(exported)
-    }
-
     /// Get the status of the private cross signing keys.
     ///
     /// This can be used to check which private cross signing keys we have
@@ -1955,6 +1927,8 @@ impl OlmMachine {
             None => 0,
         };
 
+        tracing::debug!("Initialising crypto store generation at {}", gen);
+
         self.inner
             .store
             .set_custom_value(Self::CURRENT_GENERATION_STORE_KEY, gen.to_le_bytes().to_vec())
@@ -1967,19 +1941,32 @@ impl OlmMachine {
 
     /// If needs be, update the local and on-disk crypto store generation.
     ///
-    /// Returns true whether another user has modified the internal generation
-    /// counter, and as such we've incremented and updated it in the
-    /// database.
-    ///
     /// ## Requirements
     ///
     /// - This assumes that `initialize_crypto_store_generation` has been called
     /// beforehand.
     /// - This requires that the crypto store lock has been acquired.
-    pub async fn maintain_crypto_store_generation(
-        &self,
+    ///
+    /// # Arguments
+    ///
+    /// * `generation` - The in-memory generation counter (or rather, the
+    ///   `Mutex` wrapping it). This defines the "expected" generation on entry,
+    ///   and, if we determine an update is needed, is updated to hold the "new"
+    ///   generation.
+    ///
+    /// # Returns
+    ///
+    /// A tuple containing:
+    ///
+    /// * A `bool`, set to `true` if another process has updated the generation
+    ///   number in the `Store` since our expected value, and as such we've
+    ///   incremented and updated it in the database. Otherwise, `false`.
+    ///
+    /// * The (possibly updated) generation counter.
+    pub async fn maintain_crypto_store_generation<'a>(
+        &'a self,
         generation: &Mutex<Option<u64>>,
-    ) -> StoreResult<bool> {
+    ) -> StoreResult<(bool, u64)> {
         let mut gen_guard = generation.lock().await;
 
         // The database value must be there:
@@ -2001,10 +1988,10 @@ impl OlmMachine {
                 CryptoStoreError::InvalidLockGeneration("invalid format".to_owned())
             })?);
 
-        let expected_gen = match gen_guard.as_ref() {
+        let new_gen = match gen_guard.as_ref() {
             Some(expected_gen) => {
                 if actual_gen == *expected_gen {
-                    return Ok(false);
+                    return Ok((false, actual_gen));
                 }
                 // Increment the biggest, and store it everywhere.
                 actual_gen.max(*expected_gen).wrapping_add(1)
@@ -2020,22 +2007,19 @@ impl OlmMachine {
             "Crypto store generation mismatch: previously known was {:?}, actual is {:?}, next is {}",
             *gen_guard,
             actual_gen,
-            expected_gen
+            new_gen
         );
 
         // Update known value.
-        *gen_guard = Some(expected_gen);
+        *gen_guard = Some(new_gen);
 
         // Update value in database.
         self.inner
             .store
-            .set_custom_value(
-                Self::CURRENT_GENERATION_STORE_KEY,
-                expected_gen.to_le_bytes().to_vec(),
-            )
+            .set_custom_value(Self::CURRENT_GENERATION_STORE_KEY, new_gen.to_le_bytes().to_vec())
             .await?;
 
-        Ok(true)
+        Ok((true, new_gen))
     }
 
     /// Manage dehydrated devices.
@@ -2351,7 +2335,7 @@ pub(crate) mod tests {
         (machine, otk)
     }
 
-    async fn get_machine_pair(
+    pub async fn get_machine_pair(
         alice: &UserId,
         bob: &UserId,
         use_fallback_key: bool,
@@ -2515,7 +2499,7 @@ pub(crate) mod tests {
         machine.create_outbound_group_session_with_defaults_test_helper(room_id).await.unwrap();
         assert!(machine.inner.group_session_manager.get_outbound_group_session(room_id).is_some());
 
-        machine.invalidate_group_session(room_id).await.unwrap();
+        machine.discard_room_key(room_id).await.unwrap();
 
         assert!(machine
             .inner

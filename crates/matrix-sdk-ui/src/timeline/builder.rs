@@ -16,14 +16,16 @@ use std::{collections::BTreeSet, sync::Arc};
 
 use eyeball::SharedObservable;
 use futures_util::{pin_mut, StreamExt};
-use imbl::Vector;
-use matrix_sdk::{deserialized_responses::SyncTimelineEvent, executor::spawn, Room};
-use matrix_sdk_base::sync::JoinedRoomUpdate;
+use matrix_sdk::{
+    event_cache::{self, RoomEventCacheUpdate},
+    executor::spawn,
+    Room,
+};
 use ruma::{
     events::{receipt::ReceiptType, AnySyncTimelineEvent},
     RoomVersionId,
 };
-use tokio::sync::{broadcast, mpsc, Notify};
+use tokio::sync::{broadcast, mpsc};
 use tracing::{info, info_span, trace, warn, Instrument, Span};
 
 #[cfg(feature = "e2e-encryption")]
@@ -33,7 +35,7 @@ use super::{
     queue::send_queued_messages,
     BackPaginationStatus, Timeline, TimelineDropHandle,
 };
-use crate::event_cache::{EventCache, RoomEventCacheUpdate};
+use crate::{timeline::inner::TimelineEnd, unable_to_decrypt_hook::UtdHookManager};
 
 /// Builder that allows creating and configuring various parts of a
 /// [`Timeline`].
@@ -41,36 +43,28 @@ use crate::event_cache::{EventCache, RoomEventCacheUpdate};
 #[derive(Debug)]
 pub struct TimelineBuilder {
     room: Room,
-    prev_token: Option<String>,
     settings: TimelineInnerSettings,
-    event_cache: EventCache,
+
+    /// An optional hook to call whenever we run into an unable-to-decrypt or a
+    /// late-decryption event.
+    unable_to_decrypt_hook: Option<Arc<UtdHookManager>>,
 }
 
 impl TimelineBuilder {
     pub(super) fn new(room: &Room) -> Self {
         Self {
             room: room.clone(),
-            prev_token: None,
             settings: TimelineInnerSettings::default(),
-            event_cache: EventCache::new(room.client()),
+            unable_to_decrypt_hook: None,
         }
     }
 
-    /// Add initial events to the timeline.
+    /// Sets up a hook to catch unable-to-decrypt (UTD) events for the timeline
+    /// we're building.
     ///
-    /// TODO: remove this, the EventCache should hold the events data in the
-    /// first place, and we'd provide an existing EventCache to the
-    /// TimelineBuilder.
-    pub async fn events(
-        mut self,
-        prev_token: Option<String>,
-        events: Vector<SyncTimelineEvent>,
-    ) -> Self {
-        self.prev_token = prev_token;
-        self.event_cache
-            .add_initial_events(self.room.room_id(), events.iter().cloned().collect())
-            .await
-            .expect("room exists");
+    /// If it was previously set before, will overwrite the previous one.
+    pub fn with_unable_to_decrypt_hook(mut self, hook: Arc<UtdHookManager>) -> Self {
+        self.unable_to_decrypt_hook = Some(hook);
         self
     }
 
@@ -128,19 +122,24 @@ impl TimelineBuilder {
         fields(
             room_id = ?self.room.room_id(),
             track_read_receipts = self.settings.track_read_receipts,
-            prev_token = self.prev_token,
         )
     )]
-    pub async fn build(self) -> crate::event_cache::Result<Timeline> {
-        let Self { room, event_cache, prev_token, settings } = self;
+    pub async fn build(self) -> event_cache::Result<Timeline> {
+        let Self { room, settings, unable_to_decrypt_hook } = self;
 
-        let (room_event_cache, event_cache_drop) = event_cache.for_room(room.room_id()).await?;
+        let client = room.client();
+        let event_cache = client.event_cache();
+
+        // Subscribe the event cache to sync responses, in case we hadn't done it yet.
+        event_cache.subscribe()?;
+
+        let (room_event_cache, event_cache_drop) = room.event_cache().await?;
         let (events, mut event_subscriber) = room_event_cache.subscribe().await?;
 
         let has_events = !events.is_empty();
         let track_read_marker_and_receipts = settings.track_read_receipts;
 
-        let mut inner = TimelineInner::new(room).with_settings(settings);
+        let mut inner = TimelineInner::new(room, unable_to_decrypt_hook).with_settings(settings);
 
         if track_read_marker_and_receipts {
             inner.populate_initial_user_receipt(ReceiptType::Read).await;
@@ -148,7 +147,7 @@ impl TimelineBuilder {
         }
 
         if has_events {
-            inner.add_initial_events(events, prev_token).await;
+            inner.add_events_at(events, TimelineEnd::Back { from_cache: true }).await;
         }
         if track_read_marker_and_receipts {
             inner.load_fully_read_event().await;
@@ -157,9 +156,7 @@ impl TimelineBuilder {
         let room = inner.room();
         let client = room.client();
 
-        let sync_response_notify = Arc::new(Notify::new());
         let room_update_join_handle = spawn({
-            let sync_response_notify = sync_response_notify.clone();
             let inner = inner.clone();
 
             let span =
@@ -190,39 +187,22 @@ impl TimelineBuilder {
 
                         RoomEventCacheUpdate::Append {
                             events,
-                            prev_batch,
                             account_data,
                             ephemeral,
                             ambiguity_changes,
                         } => {
                             trace!("Received new events");
 
-                            // XXX this timeline and the joined room updates are synthetic, until
-                            // we get rid of `handle_joined_room_update` by adding all functionality
-                            // back in the event cache, and replacing it with a simple
+                            // TODO: (bnjbvr) account_data and ephemeral should be handled by the
+                            // event cache, and we should replace this with a simple
                             // `handle_add_events`.
-                            let timeline = matrix_sdk_base::sync::Timeline {
-                                limited: false,
-                                prev_batch,
-                                events,
-                            };
-                            let update = JoinedRoomUpdate {
-                                unread_notifications: Default::default(),
-                                timeline,
-                                state: Default::default(),
-                                account_data,
-                                ephemeral,
-                                ambiguity_changes: Default::default(),
-                            };
-                            inner.handle_joined_room_update(update).await;
+                            inner.handle_sync_events(events, account_data, ephemeral).await;
 
                             let member_ambiguity_changes = ambiguity_changes
                                 .values()
                                 .flat_map(|change| change.user_ids())
                                 .collect::<BTreeSet<_>>();
                             inner.force_update_sender_profiles(&member_ambiguity_changes).await;
-
-                            sync_response_notify.notify_waiters();
                         }
                     }
                 }
@@ -299,10 +279,9 @@ impl TimelineBuilder {
 
         let timeline = Timeline {
             inner,
-            back_pagination_mtx: Default::default(),
             back_pagination_status: SharedObservable::new(BackPaginationStatus::Idle),
-            sync_response_notify,
             msg_sender,
+            event_cache: room_event_cache,
             drop_handle: Arc::new(TimelineDropHandle {
                 client,
                 event_handler_handles: handles,

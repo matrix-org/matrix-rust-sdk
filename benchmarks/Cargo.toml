@@ -15,6 +15,7 @@ matrix-sdk-sqlite = { workspace = true, features = ["crypto-store"] }
 matrix-sdk-test = { workspace = true }
 matrix-sdk = { workspace = true }
 ruma = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 tempfile = "3.3.0"
 tokio = { version = "1.24.2", default-features = false, features = ["rt-multi-thread"] }
@@ -28,4 +29,8 @@ harness = false
 
 [[bench]]
 name = "store_bench"
+harness = false
+
+[[bench]]
+name = "room_bench"
 harness = false

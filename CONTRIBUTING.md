@@ -40,7 +40,7 @@ bisections, helping identifying which commit introduced a regression.
 
 A *good commit message* should be composed of:
 
-- a hint to which area/feature is related by the commit
+- a prefix to indicate which area/feature is related by the commit
 - a short description that would give sufficient context for a reviewer to guess what the commit is
   about.
 
@@ -57,7 +57,8 @@ Examples of good commit messages:
 - “read_receipts: Store receipts locally, fixing #12345”
 
 A *proper PR title* would be a one-liner summary of the changes in the PR, following the
-same guidelines of a good commit message.
+same guidelines of a good commit message, including the area/feature prefix. Something like
+`FFI: Allow logs files to be pruned.` would be a good PR title.
 
 (An additional bad example of a bad PR title would be `mynickname/branch name`, that is, just the
 branch name.)

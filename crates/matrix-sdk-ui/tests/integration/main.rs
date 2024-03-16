@@ -12,14 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use matrix_sdk::{
-    config::RequestConfig,
-    matrix_auth::{MatrixSession, MatrixSessionTokens},
-    Client, ClientBuilder,
-};
-use matrix_sdk_base::SessionMeta;
 use matrix_sdk_test::test_json;
-use ruma::{api::MatrixVersion, device_id, user_id};
 use serde::Serialize;
 use wiremock::{
     matchers::{header, method, path, path_regex, query_param, query_param_is_missing},
@@ -34,34 +27,6 @@ mod sync_service;
 mod timeline;
 
 matrix_sdk_test::init_tracing_for_tests!();
-
-async fn test_client_builder() -> (ClientBuilder, MockServer) {
-    let server = MockServer::start().await;
-    let builder =
-        Client::builder().homeserver_url(server.uri()).server_versions([MatrixVersion::V1_0]);
-    (builder, server)
-}
-
-async fn no_retry_test_client() -> (Client, MockServer) {
-    let (builder, server) = test_client_builder().await;
-    let client =
-        builder.request_config(RequestConfig::new().disable_retry()).build().await.unwrap();
-    (client, server)
-}
-
-async fn logged_in_client() -> (Client, MockServer) {
-    let session = MatrixSession {
-        meta: SessionMeta {
-            user_id: user_id!("@example:localhost").to_owned(),
-            device_id: device_id!("DEVICEID").to_owned(),
-        },
-        tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
-    };
-    let (client, server) = no_retry_test_client().await;
-    client.restore_session(session).await.unwrap();
-
-    (client, server)
-}
 
 /// Mount a Mock on the given server to handle the `GET /sync` endpoint with
 /// an optional `since` param that returns a 200 status code with the given

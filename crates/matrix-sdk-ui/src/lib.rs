@@ -17,11 +17,11 @@ use ruma::html::HtmlSanitizerMode;
 mod events;
 
 pub mod encryption_sync_service;
-pub mod event_cache;
 pub mod notification_client;
 pub mod room_list_service;
 pub mod sync_service;
 pub mod timeline;
+pub mod unable_to_decrypt_hook;
 
 pub use self::{room_list_service::RoomListService, timeline::Timeline};
 

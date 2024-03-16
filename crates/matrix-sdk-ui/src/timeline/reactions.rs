@@ -33,7 +33,7 @@ pub struct ReactionSenderData {
     pub timestamp: MilliSecondsSinceUnixEpoch,
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub(super) struct Reactions {
     /// Reaction event / txn ID => sender and reaction data.
     pub(super) map: HashMap<EventItemIdentifier, (ReactionSenderData, Annotation)>,

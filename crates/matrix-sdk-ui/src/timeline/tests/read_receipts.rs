@@ -100,7 +100,7 @@ async fn test_read_receipts_updates_on_live_events() {
 }
 
 #[async_test]
-async fn read_receipts_updates_on_back_paginated_events() {
+async fn test_read_receipts_updates_on_back_paginated_events() {
     let timeline = TestTimeline::new()
         .with_settings(TimelineInnerSettings { track_read_receipts: true, ..Default::default() });
     let room_id = room_id!("!room:localhost");
@@ -223,7 +223,7 @@ async fn test_read_receipts_updates_on_filtered_events() {
 }
 
 #[async_test]
-async fn read_receipts_updates_on_filtered_events_with_stored() {
+async fn test_read_receipts_updates_on_filtered_events_with_stored() {
     let timeline = TestTimeline::new().with_settings(TimelineInnerSettings {
         track_read_receipts: true,
         event_filter: Arc::new(filter_notice),
@@ -276,7 +276,7 @@ async fn read_receipts_updates_on_filtered_events_with_stored() {
 }
 
 #[async_test]
-async fn read_receipts_updates_on_back_paginated_filtered_events() {
+async fn test_read_receipts_updates_on_back_paginated_filtered_events() {
     let timeline = TestTimeline::new().with_settings(TimelineInnerSettings {
         track_read_receipts: true,
         event_filter: Arc::new(filter_notice),
@@ -331,7 +331,7 @@ async fn read_receipts_updates_on_back_paginated_filtered_events() {
 
 #[cfg(feature = "e2e-encryption")]
 #[async_test]
-async fn read_receipts_updates_on_message_decryption() {
+async fn test_read_receipts_updates_on_message_decryption() {
     use std::{io::Cursor, iter};
 
     use assert_matches::assert_matches;
@@ -466,7 +466,7 @@ async fn read_receipts_updates_on_message_decryption() {
 }
 
 #[async_test]
-async fn initial_public_unthreaded_receipt() {
+async fn test_initial_public_unthreaded_receipt() {
     let event_id = owned_event_id!("$event_with_receipt");
 
     // Add initial unthreaded public receipt.
@@ -491,7 +491,7 @@ async fn initial_public_unthreaded_receipt() {
 }
 
 #[async_test]
-async fn initial_public_main_thread_receipt() {
+async fn test_initial_public_main_thread_receipt() {
     let event_id = owned_event_id!("$event_with_receipt");
 
     // Add initial public receipt on the main thread.
@@ -516,7 +516,7 @@ async fn initial_public_main_thread_receipt() {
 }
 
 #[async_test]
-async fn initial_private_unthreaded_receipt() {
+async fn test_initial_private_unthreaded_receipt() {
     let event_id = owned_event_id!("$event_with_receipt");
 
     // Add initial unthreaded private receipt.
@@ -541,7 +541,7 @@ async fn initial_private_unthreaded_receipt() {
 }
 
 #[async_test]
-async fn initial_private_main_thread_receipt() {
+async fn test_initial_private_main_thread_receipt() {
     let event_id = owned_event_id!("$event_with_receipt");
 
     // Add initial private receipt on the main thread.
@@ -566,7 +566,7 @@ async fn initial_private_main_thread_receipt() {
 }
 
 #[async_test]
-async fn clear_read_receipts() {
+async fn test_clear_read_receipts() {
     let room_id = room_id!("!room:localhost");
     let event_a_id = event_id!("$event_a");
     let event_b_id = event_id!("$event_b");
