@@ -1727,7 +1727,7 @@ impl Room {
     ///         &mime::IMAGE_JPEG,
     ///         image,
     ///         AttachmentConfig::new(),
-    ///         "My favorite cat",
+    ///         Some(String::from("My favorite cat")),
     ///         None,
     ///     ).await?;
     /// }
