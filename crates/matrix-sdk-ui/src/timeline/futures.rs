@@ -55,14 +55,14 @@ impl<'a> IntoFuture for SendAttachment<'a> {
 
     fn into_future(self) -> Self::IntoFuture {
         let Self { 
-            timeline, 
-            url, 
-            mime_type, 
-            config, 
-            caption, 
-            formatted, 
-            tracing_span, 
-            send_progress
+            timeline,
+            url,
+            mime_type,
+            config,
+            caption,
+            formatted,
+            tracing_span,
+            send_progress,
         } = self;
         let fut = async move {
             let urlbody = Path::new(&url)

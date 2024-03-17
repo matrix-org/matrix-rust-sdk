@@ -267,26 +267,26 @@ impl<'a> IntoFuture for SendAttachment<'a> {
 
     fn into_future(self) -> Self::IntoFuture {
         let Self { 
-            room, 
-            url, 
-            content_type, 
-            data, 
-            config, 
-            caption, 
-            formatted, 
-            tracing_span, 
-            send_progress 
+            room,
+            url,
+            content_type,
+            data,
+            config,
+            caption,
+            formatted,
+            tracing_span,
+            send_progress,
         } = self;
         let fut = async move {
             if config.thumbnail.is_some() {
                 room.prepare_and_send_attachment(
-                    url, 
-                    content_type, 
-                    data, 
-                    config, 
-                    caption, 
-                    formatted, 
-                    send_progress
+                    url,
+                    content_type,
+                    data,
+                    config,
+                    caption,
+                    formatted,
+                    send_progress,
                 ).await
             } else {
                 #[cfg(not(feature = "image-proc"))]
@@ -346,13 +346,13 @@ impl<'a> IntoFuture for SendAttachment<'a> {
                 };
 
                 room.prepare_and_send_attachment(
-                    url, 
-                    content_type, 
-                    data, 
-                    config, 
-                    caption, 
-                    formatted, 
-                    send_progress
+                    url,
+                    content_type,
+                    data,
+                    config,
+                    caption,
+                    formatted,
+                    send_progress,
                 ).await
             }
         };

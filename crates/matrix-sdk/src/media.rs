@@ -30,8 +30,8 @@ use ruma::{
     assign,
     events::room::{
         message::{
-            self, AudioInfo, AudioMessageEventContent, FileInfo, FileMessageEventContent, 
-            FormattedBody, ImageMessageEventContent, MessageType, UnstableAudioDetailsContentBlock, 
+            self, AudioInfo, AudioMessageEventContent, FileInfo, FileMessageEventContent,
+            FormattedBody, ImageMessageEventContent, MessageType, UnstableAudioDetailsContentBlock,
             UnstableVoiceContentBlock, VideoInfo, VideoMessageEventContent,
         },
         ImageInfo, MediaSource, ThumbnailInfo,
@@ -463,7 +463,7 @@ impl Media {
             try_join(upload_thumbnail, upload_attachment).await?;
 
         let url = url.to_owned();
-        let (body, filename)= match caption {
+        let (body, filename) = match caption {
             Some(caption) => (caption, Some(url)),
             None => (url, None),
         };

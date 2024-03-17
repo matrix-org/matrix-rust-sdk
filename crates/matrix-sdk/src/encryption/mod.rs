@@ -49,7 +49,7 @@ use ruma::{
     assign,
     events::room::{
         message::{
-            AudioMessageEventContent, FileInfo, FileMessageEventContent, FormattedBody, 
+            AudioMessageEventContent, FileInfo, FileMessageEventContent, FormattedBody,
             ImageMessageEventContent, MessageType, VideoInfo, VideoMessageEventContent,
         },
         ImageInfo, MediaSource, ThumbnailInfo,
@@ -329,7 +329,7 @@ impl Client {
             Some(caption) => (caption, Some(url)),
             None => (url, None),
         };
-        
+
         Ok(match content_type.type_() {
             mime::IMAGE => {
                 let info = assign!(info.map(ImageInfo::from).unwrap_or_default(), {
@@ -1447,6 +1447,7 @@ impl Encryption {
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use std::time::Duration;
+    
     use matrix_sdk_base::SessionMeta;
     use matrix_sdk_test::{
         async_test, test_json, GlobalAccountDataTestEvent, JoinedRoomBuilder, StateTestEvent,

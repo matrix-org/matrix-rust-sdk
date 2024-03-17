@@ -1421,7 +1421,7 @@ impl Room {
     #[instrument(skip_all)]
     pub async fn enable_encryption(&self) -> Result<()> {
         use ruma::{
-            events::room::encryption::RoomEncryptionEventContent, EventEncryptionAlgorithm, 
+            events::room::encryption::RoomEncryptionEventContent, EventEncryptionAlgorithm,
         };
         const SYNC_WAIT_TIME: Duration = Duration::from_secs(3);
 
@@ -1705,7 +1705,7 @@ impl Room {
     /// * `caption` - An optional caption of the media that is going to be
     /// uploaded.
     ///
-    /// * `formatted` - A optional formatted caption of the media that is going 
+    /// * `formatted` - A optional formatted caption of the media that is going
     /// to be uploaded.
     ///
     /// # Examples
@@ -1770,7 +1770,7 @@ impl Room {
     /// media.
     ///
     /// * `config` - Metadata and configuration for the attachment.
-    /// 
+    ///
     /// * `caption` - An optional caption of the media that is going to be
     /// uploaded.
     ///
@@ -2871,7 +2871,7 @@ pub struct TryFromReportedContentScoreError(());
 mod tests {
     use matrix_sdk_base::SessionMeta;
     use matrix_sdk_test::{
-        async_test, test_json, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder, 
+        async_test, test_json, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder,
     };
     use ruma::{device_id, int, user_id};
     use wiremock::{

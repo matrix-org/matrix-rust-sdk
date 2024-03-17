@@ -482,12 +482,12 @@ async fn room_attachment_send_wrong_info() {
 
     let response = room
         .send_attachment(
-            "image.jpg", 
-            &mime::IMAGE_JPEG, 
-            b"Hello world".to_vec(), 
-            config, 
-            Some("image caption".to_string()), 
-            None
+            "image.jpg",
+            &mime::IMAGE_JPEG,
+            b"Hello world".to_vec(),
+            config,
+            Some("image caption".to_string()),
+            None,
         ).await;
 
     response.unwrap_err();
@@ -555,7 +555,7 @@ async fn room_attachment_send_info_thumbnail() {
     }));
 
     let response = room
-        .send_attachment("image", &mime::IMAGE_JPEG, b"Hello world".to_vec(), config, None, None, )
+        .send_attachment("image", &mime::IMAGE_JPEG, b"Hello world".to_vec(), config, None, None)
         .await
         .unwrap();
 

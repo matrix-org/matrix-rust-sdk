@@ -58,7 +58,7 @@ use crate::{
     error::{ClientError, RoomError},
     helpers::unwrap_or_clone_arc,
     ruma::{
-        AssetType, AudioInfo, FileInfo, FormattedBody, ImageInfo, PollKind, ThumbnailInfo, 
+        AssetType, AudioInfo, FileInfo, FormattedBody, ImageInfo, PollKind, ThumbnailInfo,
         VideoInfo,
     },
     task_handle::TaskHandle,
@@ -119,7 +119,7 @@ impl Timeline {
             Some(p) => Some(RumaFormattedBody::from(p)),
             None => None,
         };
-        let request = 
+        let request =
             self.inner.send_attachment(url, mime_type, attachment_config, caption, formatted);
         if let Some(progress_watcher) = progress_watcher {
             let mut subscriber = request.subscribe_to_send_progress();
@@ -252,13 +252,14 @@ impl Timeline {
             };
 
             self.send_attachment(
-                url, 
-                mime_type, 
-                attachment_config, 
+                url,
+                mime_type,
+                attachment_config,
                 caption,
-                formatted, 
-                progress_watcher
-            ).await
+                formatted,
+                progress_watcher,
+            )
+            .await
         }))
     }
 
@@ -292,13 +293,14 @@ impl Timeline {
             };
 
             self.send_attachment(
-                url, 
-                mime_type, 
-                attachment_config, 
-                caption, 
+                url,
+                mime_type,
+                attachment_config,
+                caption,
                 formatted,
-                progress_watcher
-            ).await
+                progress_watcher,
+            )
+            .await
         }))
     }
 
@@ -323,13 +325,14 @@ impl Timeline {
             let attachment_config = AttachmentConfig::new().info(attachment_info);
 
             self.send_attachment(
-                url, 
-                mime_type, 
-                attachment_config, 
-                caption, 
-                formatted, 
-                progress_watcher
-            ).await
+                url,
+                mime_type,
+                attachment_config,
+                caption,
+                formatted,
+                progress_watcher,
+            )
+            .await
         }))
     }
 
@@ -357,12 +360,13 @@ impl Timeline {
 
             self.send_attachment(
                 url,
-                mime_type, 
-                attachment_config, 
-                caption, 
-                formatted, 
-                progress_watcher
-            ).await
+                mime_type,
+                attachment_config,
+                caption,
+                formatted,
+                progress_watcher,
+            )
+            .await
         }))
     }
 

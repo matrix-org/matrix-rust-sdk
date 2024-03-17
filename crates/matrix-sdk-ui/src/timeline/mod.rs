@@ -520,7 +520,7 @@ impl Timeline {
     ///
     /// * `config` - An attachment configuration object containing details about
     ///   the attachment
-    /// 
+    ///
     /// * `caption` - An optional caption of this attachment
     ///
     /// * `formatted` - An optional formatted caption of this attachment
