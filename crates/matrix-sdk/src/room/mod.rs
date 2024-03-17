@@ -1724,6 +1724,8 @@ impl Room {
     /// if let Some(room) = client.get_room(&room_id) {
     ///     room.send_attachment(
     ///         "My favorite cat",
+    ///         None,
+    ///         "my_favorite_cat.jpg",
     ///         &mime::IMAGE_JPEG,
     ///         image,
     ///         AttachmentConfig::new(),
