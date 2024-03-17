@@ -441,7 +441,7 @@ impl Media {
     /// optionally with `formatted` and `filename`.
     pub(crate) async fn prepare_attachment_message(
         &self,
-        url: &str,
+        filename: &str,
         content_type: &Mime,
         data: Vec<u8>,
         info: Option<AttachmentInfo>,
@@ -462,10 +462,10 @@ impl Media {
         let ((thumbnail_source, thumbnail_info), response) =
             try_join(upload_thumbnail, upload_attachment).await?;
 
-        let url = url.to_owned();
+        let filename = filename.to_owned();
         let (body, filename) = match caption {
-            Some(caption) => (caption, Some(url)),
-            None => (url, None),
+            Some(caption) => (caption, Some(filename)),
+            None => (filename, None),
         };
 
         let url = response.content_uri;

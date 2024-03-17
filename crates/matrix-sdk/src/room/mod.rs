@@ -1692,7 +1692,7 @@ impl Room {
     /// [`upload()`] and afterwards the [`send()`].
     ///
     /// # Arguments
-    /// * `url` - The file name.
+    /// * `filename` - The file name.
     ///
     /// * `content_type` - The type of the media, this will be used as the
     /// content-type header.
@@ -1723,12 +1723,12 @@ impl Room {
     ///
     /// if let Some(room) = client.get_room(&room_id) {
     ///     room.send_attachment(
-    ///         "My favorite cat",
-    ///         None,
     ///         "my_favorite_cat.jpg",
     ///         &mime::IMAGE_JPEG,
     ///         image,
     ///         AttachmentConfig::new(),
+    ///         "My favorite cat",
+    ///         None,
     ///     ).await?;
     /// }
     /// # anyhow::Ok(()) };
@@ -1739,14 +1739,14 @@ impl Room {
     #[instrument(skip_all)]
     pub fn send_attachment<'a>(
         &'a self,
-        url: &'a str,
+        filename: &'a str,
         content_type: &'a Mime,
         data: Vec<u8>,
         config: AttachmentConfig,
         caption: Option<String>,
         formatted: Option<FormattedBody>,
     ) -> SendAttachment<'a> {
-        SendAttachment::new(self, url, content_type, data, config, caption, formatted)
+        SendAttachment::new(self, filename, content_type, data, config, caption, formatted)
     }
 
     /// Prepare and send an attachment to this room.
@@ -1761,7 +1761,7 @@ impl Room {
     /// [`send()`](#method.send).
     ///
     /// # Arguments
-    /// * `url` - The file name.
+    /// * `filename` - The file name.
     ///
     /// * `content_type` - The type of the media, this will be used as the
     /// content-type header.
@@ -1778,7 +1778,7 @@ impl Room {
     /// to be uploaded.
     pub(super) async fn prepare_and_send_attachment<'a>(
         &'a self,
-        url: &'a str,
+        filename: &'a str,
         content_type: &'a Mime,
         data: Vec<u8>,
         config: AttachmentConfig,
@@ -1792,7 +1792,7 @@ impl Room {
         let content = if self.is_encrypted().await? {
             self.client
                 .prepare_encrypted_attachment_message(
-                    url,
+                    filename,
                     content_type,
                     data,
                     config.info,
@@ -1806,7 +1806,7 @@ impl Room {
             self.client
                 .media()
                 .prepare_attachment_message(
-                    url,
+                    filename,
                     content_type,
                     data,
                     config.info,
@@ -1823,11 +1823,13 @@ impl Room {
             .client
             .media()
             .prepare_attachment_message(
-                body,
+                filename,
                 content_type,
                 data,
                 config.info,
                 config.thumbnail,
+                caption,
+                formatted,
                 send_progress,
             )
             .await?;

@@ -108,7 +108,7 @@ impl Timeline {
 
     async fn send_attachment(
         &self,
-        url: String,
+        filename: String,
         mime_type: Mime,
         attachment_config: AttachmentConfig,
         caption: Option<String>,
@@ -120,7 +120,7 @@ impl Timeline {
             None => None,
         };
         let request =
-            self.inner.send_attachment(url, mime_type, attachment_config, caption, formatted);
+            self.inner.send_attachment(filename, mime_type, attachment_config, caption, formatted);
         if let Some(progress_watcher) = progress_watcher {
             let mut subscriber = request.subscribe_to_send_progress();
             RUNTIME.spawn(async move {

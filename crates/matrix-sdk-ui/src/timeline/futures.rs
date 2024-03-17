@@ -11,7 +11,7 @@ use super::{Error, Timeline};
 
 pub struct SendAttachment<'a> {
     timeline: &'a Timeline,
-    url: String,
+    filename: String,
     mime_type: Mime,
     config: AttachmentConfig,
     caption: Option<String>,
@@ -23,7 +23,7 @@ pub struct SendAttachment<'a> {
 impl<'a> SendAttachment<'a> {
     pub(crate) fn new(
         timeline: &'a Timeline,
-        url: String,
+        filename: String,
         mime_type: Mime,
         config: AttachmentConfig,
         caption: Option<String>,
@@ -31,7 +31,7 @@ impl<'a> SendAttachment<'a> {
     ) -> Self {
         Self {
             timeline,
-            url,
+            filename,
             mime_type,
             config,
             caption,
@@ -56,7 +56,7 @@ impl<'a> IntoFuture for SendAttachment<'a> {
     fn into_future(self) -> Self::IntoFuture {
         let Self {
             timeline,
-            url,
+            filename,
             mime_type,
             config,
             caption,
@@ -65,16 +65,16 @@ impl<'a> IntoFuture for SendAttachment<'a> {
             send_progress,
         } = self;
         let fut = async move {
-            let urlbody = Path::new(&url)
+            let body = Path::new(&filename)
                 .file_name()
                 .ok_or(Error::InvalidAttachmentFileName)?
                 .to_str()
                 .expect("path was created from UTF-8 string, hence filename part is UTF-8 too");
-            let data = fs::read(&url).map_err(|_| Error::InvalidAttachmentData)?;
+            let data = fs::read(&filename).map_err(|_| Error::InvalidAttachmentData)?;
 
             timeline
                 .room()
-                .send_attachment(urlbody, &mime_type, data, config, caption, formatted)
+                .send_attachment(body, &mime_type, data, config, caption, formatted)
                 .with_send_progress_observable(send_progress)
                 .await
                 .map_err(|_| Error::FailedSendingAttachment)?;
