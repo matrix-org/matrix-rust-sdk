@@ -1447,7 +1447,7 @@ impl Encryption {
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use std::time::Duration;
-    
+
     use matrix_sdk_base::SessionMeta;
     use matrix_sdk_test::{
         async_test, test_json, GlobalAccountDataTestEvent, JoinedRoomBuilder, StateTestEvent,

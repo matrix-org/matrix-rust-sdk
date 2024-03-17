@@ -488,7 +488,8 @@ async fn room_attachment_send_wrong_info() {
             config,
             Some("image caption".to_string()),
             None,
-        ).await;
+        )
+        .await;
 
     response.unwrap_err();
 }

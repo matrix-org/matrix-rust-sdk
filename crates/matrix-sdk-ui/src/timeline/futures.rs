@@ -54,7 +54,7 @@ impl<'a> IntoFuture for SendAttachment<'a> {
     boxed_into_future!(extra_bounds: 'a);
 
     fn into_future(self) -> Self::IntoFuture {
-        let Self { 
+        let Self {
             timeline,
             url,
             mime_type,

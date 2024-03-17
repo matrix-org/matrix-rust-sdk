@@ -266,7 +266,7 @@ impl<'a> IntoFuture for SendAttachment<'a> {
     boxed_into_future!(extra_bounds: 'a);
 
     fn into_future(self) -> Self::IntoFuture {
-        let Self { 
+        let Self {
             room,
             url,
             content_type,
@@ -287,7 +287,8 @@ impl<'a> IntoFuture for SendAttachment<'a> {
                     caption,
                     formatted,
                     send_progress,
-                ).await
+                )
+                .await
             } else {
                 #[cfg(not(feature = "image-proc"))]
                 let thumbnail = None;
@@ -353,7 +354,8 @@ impl<'a> IntoFuture for SendAttachment<'a> {
                     caption,
                     formatted,
                     send_progress,
-                ).await
+                )
+                .await
             }
         };
 
