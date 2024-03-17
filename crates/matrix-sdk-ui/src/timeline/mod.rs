@@ -45,7 +45,9 @@ use ruma::{
         relation::Annotation,
         room::{
             message::{
-                AddMentions, FormattedBody, ForwardThread, OriginalRoomMessageEvent, ReplacementMetadata, RoomMessageEventContent, RoomMessageEventContentWithoutRelation
+                AddMentions, FormattedBody, ForwardThread, OriginalRoomMessageEvent,
+                ReplacementMetadata, RoomMessageEventContent,
+                RoomMessageEventContentWithoutRelation,
             },
             redaction::RoomRedactionEventContent,
         },

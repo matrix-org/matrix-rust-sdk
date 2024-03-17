@@ -480,8 +480,9 @@ async fn room_attachment_send_wrong_info() {
         blurhash: None,
     }));
 
-    let response =
-        room.send_attachment(None, None, "image", &mime::IMAGE_JPEG, b"Hello world".to_vec(), config).await;
+    let response = room
+        .send_attachment(Some("image caption".to_string()), None, "image.jpg", &mime::IMAGE_JPEG, b"Hello world".to_vec(), config)
+        .await;
 
     response.unwrap_err();
 }

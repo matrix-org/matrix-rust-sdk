@@ -50,7 +50,7 @@ use ruma::{
     events::room::{
         message::{
             AudioMessageEventContent, FileInfo, FileMessageEventContent, FormattedBody, 
-            ImageMessageEventContent, MessageType, VideoInfo, VideoMessageEventContent
+            ImageMessageEventContent, MessageType, VideoInfo, VideoMessageEventContent,
         },
         ImageInfo, MediaSource, ThumbnailInfo,
     },
@@ -330,7 +330,7 @@ impl Client {
         };
         let filename = match &caption {
             Some(p) => Some(String::from(p)),
-            None => None
+            None => None,
         };
         
         Ok(match content_type.type_() {
@@ -1449,10 +1449,11 @@ impl Encryption {
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
+    use std::time::Duration;
     use matrix_sdk_base::SessionMeta;
     use matrix_sdk_test::{
-        async_test, DEFAULT_TEST_ROOM_ID, GlobalAccountDataTestEvent, JoinedRoomBuilder, StateTestEvent,
-        SyncResponseBuilder, test_json,
+        async_test, test_json, GlobalAccountDataTestEvent, JoinedRoomBuilder, StateTestEvent,
+        SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
     };
     use ruma::{
         device_id, event_id,
@@ -1460,17 +1461,16 @@ mod tests {
         user_id,
     };
     use serde_json::json;
-    use std::time::Duration;
     use wiremock::{
         matchers::{header, method, path_regex},
         Mock, MockServer, ResponseTemplate,
     };
 
     use crate::{
-        Client,
         config::RequestConfig,
         matrix_auth::{MatrixSession, MatrixSessionTokens},
         test_utils::logged_in_client,
+        Client,
     };
 
     #[async_test]

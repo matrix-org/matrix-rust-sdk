@@ -39,7 +39,7 @@ use ruma::{
         relation::Annotation,
         room::message::{
             FormattedBody as RumaFormattedBody, ForwardThread, LocationMessageEventContent,
-            MessageType, RoomMessageEventContentWithoutRelation
+            MessageType, RoomMessageEventContentWithoutRelation,
         },
         AnyMessageLikeEventContent,
     },
@@ -52,16 +52,18 @@ use tokio::{
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
+use self::content::{Reaction, ReactionSenderData, TimelineItemContent};
 use crate::{
     client::ProgressWatcher,
     error::{ClientError, RoomError},
     helpers::unwrap_or_clone_arc,
-    ruma::{AssetType, AudioInfo, FileInfo, FormattedBody, ImageInfo, PollKind, ThumbnailInfo, VideoInfo},
+    ruma::{
+        AssetType, AudioInfo, FileInfo, FormattedBody, ImageInfo, PollKind, ThumbnailInfo, 
+        VideoInfo,
+    },
     task_handle::TaskHandle,
     RUNTIME,
 };
-
-use self::content::{Reaction, ReactionSenderData, TimelineItemContent};
 
 mod content;
 
@@ -115,9 +117,10 @@ impl Timeline {
     ) -> Result<(), RoomError> {
         let formatted: Option<RumaFormattedBody> = match formatted {
             Some(p) => Some(RumaFormattedBody::from(p)),
-            None => None
+            None => None,
         };
-        let request = self.inner.send_attachment(caption, formatted, url, mime_type, attachment_config);
+        let request = 
+            self.inner.send_attachment(caption, formatted, url, mime_type, attachment_config);
         if let Some(progress_watcher) = progress_watcher {
             let mut subscriber = request.subscribe_to_send_progress();
             RUNTIME.spawn(async move {
@@ -248,7 +251,14 @@ impl Timeline {
                 _ => AttachmentConfig::new().info(attachment_info),
             };
 
-            self.send_attachment(caption, formatted, url, mime_type, attachment_config, progress_watcher).await
+            self.send_attachment(
+                caption,
+                formatted, 
+                url, 
+                mime_type, 
+                attachment_config, 
+                progress_watcher
+            ).await
         }))
     }
 
@@ -281,7 +291,14 @@ impl Timeline {
                 _ => AttachmentConfig::new().info(attachment_info),
             };
 
-            self.send_attachment(caption, formatted, url, mime_type, attachment_config, progress_watcher).await
+            self.send_attachment(
+                caption, 
+                formatted,
+                url, 
+                mime_type, 
+                attachment_config, 
+                progress_watcher
+            ).await
         }))
     }
 
@@ -305,7 +322,14 @@ impl Timeline {
             let attachment_info = AttachmentInfo::Audio(base_audio_info);
             let attachment_config = AttachmentConfig::new().info(attachment_info);
 
-            self.send_attachment(caption, formatted, url, mime_type, attachment_config, progress_watcher).await
+            self.send_attachment(
+                caption, 
+                formatted, 
+                url, 
+                mime_type, 
+                attachment_config, 
+                progress_watcher
+            ).await
         }))
     }
 
@@ -331,7 +355,14 @@ impl Timeline {
                 AttachmentInfo::Voice { audio_info: base_audio_info, waveform: Some(waveform) };
             let attachment_config = AttachmentConfig::new().info(attachment_info);
 
-            self.send_attachment(caption, formatted, url, mime_type, attachment_config, progress_watcher).await
+            self.send_attachment(
+                caption, 
+                formatted, 
+                url,
+                mime_type, 
+                attachment_config, 
+                progress_watcher
+            ).await
         }))
     }
 
@@ -353,7 +384,8 @@ impl Timeline {
             let attachment_info = AttachmentInfo::File(base_file_info);
             let attachment_config = AttachmentConfig::new().info(attachment_info);
 
-            self.send_attachment(None, None, url, mime_type, attachment_config, progress_watcher).await
+            self.send_attachment(None, None, url, mime_type, attachment_config, progress_watcher)
+                .await
         }))
     }
 

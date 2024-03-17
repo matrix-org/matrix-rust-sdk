@@ -32,7 +32,7 @@ use ruma::{
         message::{
             self, AudioInfo, AudioMessageEventContent, FileInfo, FileMessageEventContent, 
             FormattedBody, ImageMessageEventContent, MessageType, UnstableAudioDetailsContentBlock, 
-            UnstableVoiceContentBlock, VideoInfo, VideoMessageEventContent
+            UnstableVoiceContentBlock, VideoInfo, VideoMessageEventContent,
         },
         ImageInfo, MediaSource, ThumbnailInfo,
     },
@@ -468,7 +468,7 @@ impl Media {
         };
         let filename = match &caption {
             Some(_) => Some(String::from(url)),
-            None => None
+            None => None,
         };
         let url = response.content_uri;
 
@@ -507,7 +507,7 @@ impl Media {
                     VideoMessageEventContent::plain(body.to_owned(), url)
                         .info(Box::new(info))
                         .filename(filename)
-                        .formatted(formatted)
+                        .formatted(formatted),
                 )
             }
             _ => {

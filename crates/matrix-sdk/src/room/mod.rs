@@ -1421,7 +1421,7 @@ impl Room {
     #[instrument(skip_all)]
     pub async fn enable_encryption(&self) -> Result<()> {
         use ruma::{
-            EventEncryptionAlgorithm, events::room::encryption::RoomEncryptionEventContent,
+            events::room::encryption::RoomEncryptionEventContent, EventEncryptionAlgorithm, 
         };
         const SYNC_WAIT_TIME: Duration = Duration::from_secs(3);
 
@@ -1695,8 +1695,8 @@ impl Room {
     /// * `caption` - An optional caption of the media that is going to be
     /// uploaded.
     ///
-    /// * `formatted` - A optional formatted caption of the media that is going to be
-    /// uploaded.
+    /// * `formatted` - A optional formatted caption of the media that is going 
+    /// to be uploaded.
     ///
     /// * `url` - The file name.
     ///
@@ -1764,8 +1764,8 @@ impl Room {
     /// * `caption` - An optional caption of the media that is going to be
     /// uploaded.
     ///
-    /// * `formatted` - A optional formatted caption of the media that is going to be
-    /// uploaded.
+    /// * `formatted` - A optional formatted caption of the media that is going
+    /// to be uploaded.
     ///
     /// * `url` - The file name.
     ///
@@ -2871,7 +2871,7 @@ pub struct TryFromReportedContentScoreError(());
 mod tests {
     use matrix_sdk_base::SessionMeta;
     use matrix_sdk_test::{
-        async_test, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder, test_json,
+        async_test, test_json, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder, 
     };
     use ruma::{device_id, int, user_id};
     use wiremock::{
@@ -2879,18 +2879,17 @@ mod tests {
         Mock, MockServer, ResponseTemplate,
     };
 
+    use super::ReportedContentScore;
     use crate::{
-        Client,
         config::RequestConfig,
         matrix_auth::{MatrixSession, MatrixSessionTokens},
+        Client,
     };
-
-    use super::ReportedContentScore;
 
     #[cfg(all(feature = "sqlite", feature = "e2e-encryption"))]
     #[async_test]
     async fn test_cache_invalidation_while_encrypt() {
-        use matrix_sdk_test::{DEFAULT_TEST_ROOM_ID, message_like_event_content};
+        use matrix_sdk_test::{message_like_event_content, DEFAULT_TEST_ROOM_ID};
 
         let sqlite_path = std::env::temp_dir().join("cache_invalidation_while_encrypt.db");
         let session = MatrixSession {
