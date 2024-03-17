@@ -302,13 +302,13 @@ impl Client {
     /// optionanly with `formatted` and `filename`.
     pub(crate) async fn prepare_encrypted_attachment_message(
         &self,
-        caption: Option<String>,
-        formatted: Option<FormattedBody>,
         url: &str,
         content_type: &mime::Mime,
         data: Vec<u8>,
         info: Option<AttachmentInfo>,
         thumbnail: Option<Thumbnail>,
+        caption: Option<String>,
+        formatted: Option<FormattedBody>,
         send_progress: SharedObservable<TransmissionProgress>,
     ) -> Result<MessageType> {
         let upload_thumbnail =
@@ -324,13 +324,10 @@ impl Client {
         let ((thumbnail_source, thumbnail_info), file) =
             try_join(upload_thumbnail, upload_attachment).await?;
 
-        let body: &str = match &caption {
-            Some(p) => p,
-            None => url,
-        };
-        let filename = match &caption {
-            Some(p) => Some(String::from(p)),
-            None => None,
+        let url = url.to_owned();
+        let (body, filename) = match caption {
+            Some(caption) => (caption, Some(url)),
+            None => (url, None),
         };
         
         Ok(match content_type.type_() {

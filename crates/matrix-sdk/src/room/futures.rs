@@ -216,12 +216,12 @@ impl<'a> IntoFuture for SendRawMessageLikeEvent<'a> {
 #[allow(missing_debug_implementations)]
 pub struct SendAttachment<'a> {
     room: &'a Room,
-    caption: Option<String>,
-    formatted: Option<FormattedBody>,
     url: &'a str,
     content_type: &'a Mime,
     data: Vec<u8>,
     config: AttachmentConfig,
+    caption: Option<String>,
+    formatted: Option<FormattedBody>,
     tracing_span: Span,
     send_progress: SharedObservable<TransmissionProgress>,
 }
@@ -229,21 +229,21 @@ pub struct SendAttachment<'a> {
 impl<'a> SendAttachment<'a> {
     pub(crate) fn new(
         room: &'a Room,
-        caption: Option<String>,
-        formatted: Option<FormattedBody>,
         url: &'a str,
         content_type: &'a Mime,
         data: Vec<u8>,
         config: AttachmentConfig,
+        caption: Option<String>,
+        formatted: Option<FormattedBody>,
     ) -> Self {
         Self {
             room,
-            caption,
-            formatted,
             url,
             content_type,
             data,
             config,
+            caption,
+            formatted,
             tracing_span: Span::current(),
             send_progress: Default::default(),
         }
@@ -268,24 +268,24 @@ impl<'a> IntoFuture for SendAttachment<'a> {
     fn into_future(self) -> Self::IntoFuture {
         let Self { 
             room, 
-            caption, 
-            formatted, 
             url, 
             content_type, 
             data, 
             config, 
+            caption, 
+            formatted, 
             tracing_span, 
             send_progress 
         } = self;
         let fut = async move {
             if config.thumbnail.is_some() {
                 room.prepare_and_send_attachment(
-                    caption, 
-                    formatted, 
                     url, 
                     content_type, 
                     data, 
                     config, 
+                    caption, 
+                    formatted, 
                     send_progress
                 ).await
             } else {
@@ -346,12 +346,12 @@ impl<'a> IntoFuture for SendAttachment<'a> {
                 };
 
                 room.prepare_and_send_attachment(
-                    caption, 
-                    formatted, 
                     url, 
                     content_type, 
                     data, 
                     config, 
+                    caption, 
+                    formatted, 
                     send_progress
                 ).await
             }

@@ -108,11 +108,11 @@ impl Timeline {
 
     async fn send_attachment(
         &self,
-        caption: Option<String>,
-        formatted: Option<FormattedBody>,
         url: String,
         mime_type: Mime,
         attachment_config: AttachmentConfig,
+        caption: Option<String>,
+        formatted: Option<FormattedBody>,
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
     ) -> Result<(), RoomError> {
         let formatted: Option<RumaFormattedBody> = match formatted {
@@ -120,7 +120,7 @@ impl Timeline {
             None => None,
         };
         let request = 
-            self.inner.send_attachment(caption, formatted, url, mime_type, attachment_config);
+            self.inner.send_attachment(url, mime_type, attachment_config, caption, formatted);
         if let Some(progress_watcher) = progress_watcher {
             let mut subscriber = request.subscribe_to_send_progress();
             RUNTIME.spawn(async move {
@@ -224,11 +224,11 @@ impl Timeline {
 
     pub fn send_image(
         self: Arc<Self>,
-        caption: Option<String>,
-        formatted: Option<FormattedBody>,
         url: String,
         thumbnail_url: Option<String>,
         image_info: ImageInfo,
+        caption: Option<String>,
+        formatted: Option<FormattedBody>,
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
     ) -> Arc<SendAttachmentJoinHandle> {
         SendAttachmentJoinHandle::new(RUNTIME.spawn(async move {
@@ -252,11 +252,11 @@ impl Timeline {
             };
 
             self.send_attachment(
-                caption,
-                formatted, 
                 url, 
                 mime_type, 
                 attachment_config, 
+                caption,
+                formatted, 
                 progress_watcher
             ).await
         }))
@@ -264,11 +264,11 @@ impl Timeline {
 
     pub fn send_video(
         self: Arc<Self>,
-        caption: Option<String>,
-        formatted: Option<FormattedBody>,
         url: String,
         thumbnail_url: Option<String>,
         video_info: VideoInfo,
+        caption: Option<String>,
+        formatted: Option<FormattedBody>,
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
     ) -> Arc<SendAttachmentJoinHandle> {
         SendAttachmentJoinHandle::new(RUNTIME.spawn(async move {
@@ -292,11 +292,11 @@ impl Timeline {
             };
 
             self.send_attachment(
-                caption, 
-                formatted,
                 url, 
                 mime_type, 
                 attachment_config, 
+                caption, 
+                formatted,
                 progress_watcher
             ).await
         }))
@@ -304,10 +304,10 @@ impl Timeline {
 
     pub fn send_audio(
         self: Arc<Self>,
-        caption: Option<String>,
-        formatted: Option<FormattedBody>,
         url: String,
         audio_info: AudioInfo,
+        caption: Option<String>,
+        formatted: Option<FormattedBody>,
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
     ) -> Arc<SendAttachmentJoinHandle> {
         SendAttachmentJoinHandle::new(RUNTIME.spawn(async move {
@@ -323,11 +323,11 @@ impl Timeline {
             let attachment_config = AttachmentConfig::new().info(attachment_info);
 
             self.send_attachment(
-                caption, 
-                formatted, 
                 url, 
                 mime_type, 
                 attachment_config, 
+                caption, 
+                formatted, 
                 progress_watcher
             ).await
         }))
@@ -335,11 +335,11 @@ impl Timeline {
 
     pub fn send_voice_message(
         self: Arc<Self>,
-        caption: Option<String>,
-        formatted: Option<FormattedBody>,
         url: String,
         audio_info: AudioInfo,
         waveform: Vec<u16>,
+        caption: Option<String>,
+        formatted: Option<FormattedBody>,
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
     ) -> Arc<SendAttachmentJoinHandle> {
         SendAttachmentJoinHandle::new(RUNTIME.spawn(async move {
@@ -356,11 +356,11 @@ impl Timeline {
             let attachment_config = AttachmentConfig::new().info(attachment_info);
 
             self.send_attachment(
-                caption, 
-                formatted, 
                 url,
                 mime_type, 
                 attachment_config, 
+                caption, 
+                formatted, 
                 progress_watcher
             ).await
         }))
@@ -384,7 +384,7 @@ impl Timeline {
             let attachment_info = AttachmentInfo::File(base_file_info);
             let attachment_config = AttachmentConfig::new().info(attachment_info);
 
-            self.send_attachment(None, None, url, mime_type, attachment_config, progress_watcher)
+            self.send_attachment(url, mime_type, attachment_config, None, None, progress_watcher)
                 .await
         }))
     }

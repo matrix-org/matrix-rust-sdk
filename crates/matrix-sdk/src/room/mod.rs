@@ -1692,12 +1692,6 @@ impl Room {
     /// [`upload()`] and afterwards the [`send()`].
     ///
     /// # Arguments
-    /// * `caption` - An optional caption of the media that is going to be
-    /// uploaded.
-    ///
-    /// * `formatted` - A optional formatted caption of the media that is going 
-    /// to be uploaded.
-    ///
     /// * `url` - The file name.
     ///
     /// * `content_type` - The type of the media, this will be used as the
@@ -1707,6 +1701,12 @@ impl Room {
     /// media.
     ///
     /// * `config` - Metadata and configuration for the attachment.
+    ///
+    /// * `caption` - An optional caption of the media that is going to be
+    /// uploaded.
+    ///
+    /// * `formatted` - A optional formatted caption of the media that is going 
+    /// to be uploaded.
     ///
     /// # Examples
     ///
@@ -1739,14 +1739,14 @@ impl Room {
     #[instrument(skip_all)]
     pub fn send_attachment<'a>(
         &'a self,
-        caption: Option<String>,
-        formatted: Option<FormattedBody>,
         url: &'a str,
         content_type: &'a Mime,
         data: Vec<u8>,
         config: AttachmentConfig,
+        caption: Option<String>,
+        formatted: Option<FormattedBody>,
     ) -> SendAttachment<'a> {
-        SendAttachment::new(self, caption, formatted, url, content_type, data, config)
+        SendAttachment::new(self, url, content_type, data, config, caption, formatted)
     }
 
     /// Prepare and send an attachment to this room.
@@ -1761,12 +1761,6 @@ impl Room {
     /// [`send()`](#method.send).
     ///
     /// # Arguments
-    /// * `caption` - An optional caption of the media that is going to be
-    /// uploaded.
-    ///
-    /// * `formatted` - A optional formatted caption of the media that is going
-    /// to be uploaded.
-    ///
     /// * `url` - The file name.
     ///
     /// * `content_type` - The type of the media, this will be used as the
@@ -1776,14 +1770,20 @@ impl Room {
     /// media.
     ///
     /// * `config` - Metadata and configuration for the attachment.
+    /// 
+    /// * `caption` - An optional caption of the media that is going to be
+    /// uploaded.
+    ///
+    /// * `formatted` - A optional formatted caption of the media that is going
+    /// to be uploaded.
     pub(super) async fn prepare_and_send_attachment<'a>(
         &'a self,
-        caption: Option<String>,
-        formatted: Option<FormattedBody>,
         url: &'a str,
         content_type: &'a Mime,
         data: Vec<u8>,
         config: AttachmentConfig,
+        caption: Option<String>,
+        formatted: Option<FormattedBody>,
         send_progress: SharedObservable<TransmissionProgress>,
     ) -> Result<send_message_event::v3::Response> {
         self.ensure_room_joined()?;
@@ -1792,13 +1792,13 @@ impl Room {
         let content = if self.is_encrypted().await? {
             self.client
                 .prepare_encrypted_attachment_message(
-                    caption,
-                    formatted,
                     url,
                     content_type,
                     data,
                     config.info,
                     config.thumbnail,
+                    caption,
+                    formatted,
                     send_progress,
                 )
                 .await?
@@ -1806,13 +1806,13 @@ impl Room {
             self.client
                 .media()
                 .prepare_attachment_message(
-                    caption,
-                    formatted,
                     url,
                     content_type,
                     data,
                     config.info,
                     config.thumbnail,
+                    caption,
+                    formatted,
                     send_progress,
                 )
                 .await?

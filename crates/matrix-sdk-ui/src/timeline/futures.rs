@@ -11,11 +11,11 @@ use super::{Error, Timeline};
 
 pub struct SendAttachment<'a> {
     timeline: &'a Timeline,
-    caption: Option<String>,
-    formatted: Option<FormattedBody>,
     url: String,
     mime_type: Mime,
     config: AttachmentConfig,
+    caption: Option<String>,
+    formatted: Option<FormattedBody>,
     tracing_span: Span,
     pub(crate) send_progress: SharedObservable<TransmissionProgress>,
 }
@@ -23,19 +23,19 @@ pub struct SendAttachment<'a> {
 impl<'a> SendAttachment<'a> {
     pub(crate) fn new(
         timeline: &'a Timeline,
-        caption: Option<String>,
-        formatted: Option<FormattedBody>,
         url: String,
         mime_type: Mime,
         config: AttachmentConfig,
+        caption: Option<String>,
+        formatted: Option<FormattedBody>,
     ) -> Self {
         Self {
             timeline,
-            caption,
-            formatted,
             url,
             mime_type,
             config,
+            caption,
+            formatted,
             tracing_span: Span::current(),
             send_progress: Default::default(),
         }
@@ -56,11 +56,11 @@ impl<'a> IntoFuture for SendAttachment<'a> {
     fn into_future(self) -> Self::IntoFuture {
         let Self { 
             timeline, 
-            caption, 
-            formatted, 
             url, 
             mime_type, 
             config, 
+            caption, 
+            formatted, 
             tracing_span, 
             send_progress
         } = self;
@@ -74,7 +74,7 @@ impl<'a> IntoFuture for SendAttachment<'a> {
 
             timeline
                 .room()
-                .send_attachment(caption, formatted, urlbody, &mime_type, data, config)
+                .send_attachment(urlbody, &mime_type, data, config, caption, formatted)
                 .with_send_progress_observable(send_progress)
                 .await
                 .map_err(|_| Error::FailedSendingAttachment)?;
