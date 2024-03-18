@@ -21,7 +21,7 @@ async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room, image:
             "cat.jpg",
             &mime::IMAGE_JPEG,
             image,
-            AttachmentConfig::new().caption(Some("my pretty cat".to_owned()))
+            AttachmentConfig::new().caption(Some("my pretty cat".to_owned())),
         )
         .await
         .unwrap();

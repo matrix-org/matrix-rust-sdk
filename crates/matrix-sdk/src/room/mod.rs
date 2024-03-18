@@ -1702,12 +1702,6 @@ impl Room {
     ///
     /// * `config` - Metadata and configuration for the attachment.
     ///
-    /// * `caption` - An optional caption of the media that is going to be
-    /// uploaded.
-    ///
-    /// * `formatted_caption` - A optional formatted caption of the media that is going
-    /// to be uploaded.
-    ///
     /// # Examples
     ///
     /// ```no_run
@@ -1766,12 +1760,6 @@ impl Room {
     /// media.
     ///
     /// * `config` - Metadata and configuration for the attachment.
-    ///
-    /// * `caption` - An optional caption of the media that is going to be
-    /// uploaded.
-    ///
-    /// * `formatted` - A optional formatted caption of the media that 
-    /// is going to be uploaded.
     pub(super) async fn prepare_and_send_attachment<'a>(
         &'a self,
         filename: &'a str,
@@ -1786,8 +1774,14 @@ impl Room {
         #[cfg(feature = "e2e-encryption")]
         let content = if self.is_encrypted().await? {
             self.client
-                .prepare_encrypted_attachment_message(filename, content_type, data, config, send_progress)
-                    .await?
+                .prepare_encrypted_attachment_message(
+                    filename,
+                    content_type,
+                    data,
+                    config,
+                    send_progress
+                )
+                .await?
         } else {
             self.client
                 .media()
@@ -1799,13 +1793,7 @@ impl Room {
         let content = self
             .client
             .media()
-            .prepare_attachment_message(
-                filename,
-                content_type,
-                data,
-                config,
-                send_progress,
-            )
+            .prepare_attachment_message(filename, content_type, data, config,send_progress)
             .await?;
 
         let mut fut = self.send(RoomMessageEventContent::new(content));

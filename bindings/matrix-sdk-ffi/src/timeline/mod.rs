@@ -39,7 +39,7 @@ use ruma::{
         relation::Annotation,
         room::message::{
             ForwardThread, LocationMessageEventContent, MessageType,
-            RoomMessageEventContentWithoutRelation
+            RoomMessageEventContentWithoutRelation,
         },
         AnyMessageLikeEventContent,
     },
@@ -59,7 +59,7 @@ use crate::{
     helpers::unwrap_or_clone_arc,
     ruma::{
         AssetType, AudioInfo, FileInfo, FormattedBody, ImageInfo, PollKind, ThumbnailInfo,
-        VideoInfo
+        VideoInfo,
     },
     task_handle::TaskHandle,
     RUNTIME,
@@ -308,7 +308,7 @@ impl Timeline {
                 .caption(caption)
                 .formatted_caption(formatted_caption.map(Into::into));
 
-            self.send_attachment(url, mime_type, attachment_config,progress_watcher).await
+            self.send_attachment(url, mime_type, attachment_config, progress_watcher).await
         }))
     }
 
