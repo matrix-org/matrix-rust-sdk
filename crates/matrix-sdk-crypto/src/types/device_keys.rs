@@ -20,6 +20,7 @@
 
 use std::collections::BTreeMap;
 
+use js_option::JsOption;
 use ruma::{
     serde::Raw, DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceId, OwnedDeviceKeyId, OwnedUserId,
 };
@@ -53,8 +54,8 @@ pub struct DeviceKeys {
     pub signatures: Signatures,
 
     /// Whether the device is a dehydrated device or not
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub dehydrated: Option<bool>,
+    #[serde(default, skip_serializing_if = "JsOption::is_undefined")]
+    pub dehydrated: JsOption<bool>,
 
     /// Additional data added to the device key information by intermediate
     /// servers, and not covered by the signatures.
@@ -81,7 +82,7 @@ impl DeviceKeys {
             algorithms,
             keys,
             signatures,
-            dehydrated: None,
+            dehydrated: JsOption::Undefined,
             unsigned: Default::default(),
             other: BTreeMap::new(),
         }
@@ -187,8 +188,8 @@ struct DeviceKeyHelper {
     pub device_id: OwnedDeviceId,
     pub algorithms: Vec<EventEncryptionAlgorithm>,
     pub keys: BTreeMap<OwnedDeviceKeyId, String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub dehydrated: Option<bool>,
+    #[serde(default, skip_serializing_if = "JsOption::is_undefined")]
+    pub dehydrated: JsOption<bool>,
     pub signatures: Signatures,
     #[serde(default, skip_serializing_if = "UnsignedDeviceInfo::is_empty")]
     pub unsigned: UnsignedDeviceInfo,

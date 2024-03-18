@@ -43,6 +43,7 @@ hkdf = "0.12.3"
 hmac = "0.12.1"
 http = { workspace = true, optional = true } # feature = testing only
 itertools = { workspace = true }
+js_option = "0.1.1"
 matrix-sdk-qrcode = { workspace = true, optional = true }
 matrix-sdk-common = { workspace = true }
 pbkdf2 = { version = "0.12.2", default-features = false }

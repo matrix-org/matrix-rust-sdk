@@ -19,6 +19,7 @@ use std::{
     sync::Arc,
 };
 
+use js_option::JsOption;
 use ruma::{
     api::client::{
         dehydrated_device::{DehydratedDeviceData, DehydratedDeviceV1},
@@ -291,7 +292,7 @@ impl StaticAccountData {
             Default::default(),
         );
         if self.dehydrated {
-            ret.dehydrated = Some(true);
+            ret.dehydrated = JsOption::Some(true);
         }
         ret
     }
