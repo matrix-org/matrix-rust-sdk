@@ -15,7 +15,7 @@ default-members = ["benchmarks", "crates/*", "labs/*"]
 resolver = "2"
 
 [workspace.package]
-rust-version = "1.70"
+rust-version = "1.76"
 
 [workspace.dependencies]
 anyhow = "1.0.68"
