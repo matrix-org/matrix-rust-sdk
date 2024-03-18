@@ -205,10 +205,17 @@ impl EventCacheStore for MemoryStore {
     }
 }
 
+#[derive(Debug)]
+pub struct Gap {
+    /// The token to use in the query, extracted from a previous "from" /
+    /// "end" field of a `/messages` response.
+    pub prev_token: PaginationToken,
+}
+
 const DEFAULT_CHUNK_CAPACITY: usize = 128;
 
 pub struct RoomEvents {
-    chunks: LinkedChunk<SyncTimelineEvent, DEFAULT_CHUNK_CAPACITY>,
+    chunks: LinkedChunk<SyncTimelineEvent, Gap, DEFAULT_CHUNK_CAPACITY>,
 }
 
 impl Default for RoomEvents {
@@ -258,14 +265,18 @@ impl RoomEvents {
     }
 
     /// Insert a gap at a specified position.
-    pub fn insert_gap_at(&mut self, position: ItemPosition) -> StdResult<(), LinkedChunkError> {
-        self.chunks.insert_gap_at(position)
+    pub fn insert_gap_at(
+        &mut self,
+        position: ItemPosition,
+        gap: Gap,
+    ) -> StdResult<(), LinkedChunkError> {
+        self.chunks.insert_gap_at(position, gap)
     }
 
     /// Search for a chunk, and return its identifier.
     pub fn chunk_identifier<'a, P>(&'a self, predicate: P) -> Option<ChunkIdentifier>
     where
-        P: FnMut(&'a Chunk<SyncTimelineEvent, DEFAULT_CHUNK_CAPACITY>) -> bool,
+        P: FnMut(&'a Chunk<SyncTimelineEvent, Gap, DEFAULT_CHUNK_CAPACITY>) -> bool,
     {
         self.chunks.chunk_identifier(predicate)
     }
@@ -283,7 +294,7 @@ impl RoomEvents {
     /// The most recent chunk comes first.
     pub fn rchunks(
         &self,
-    ) -> LinkedChunkIterBackward<'_, SyncTimelineEvent, DEFAULT_CHUNK_CAPACITY> {
+    ) -> LinkedChunkIterBackward<'_, SyncTimelineEvent, Gap, DEFAULT_CHUNK_CAPACITY> {
         self.chunks.rchunks()
     }
 
@@ -292,7 +303,7 @@ impl RoomEvents {
         &self,
         identifier: ChunkIdentifier,
     ) -> StdResult<
-        LinkedChunkIterBackward<'_, SyncTimelineEvent, DEFAULT_CHUNK_CAPACITY>,
+        LinkedChunkIterBackward<'_, SyncTimelineEvent, Gap, DEFAULT_CHUNK_CAPACITY>,
         LinkedChunkError,
     > {
         self.chunks.rchunks_from(identifier)
@@ -303,8 +314,10 @@ impl RoomEvents {
     pub fn chunks_from(
         &self,
         identifier: ChunkIdentifier,
-    ) -> StdResult<LinkedChunkIter<'_, SyncTimelineEvent, DEFAULT_CHUNK_CAPACITY>, LinkedChunkError>
-    {
+    ) -> StdResult<
+        LinkedChunkIter<'_, SyncTimelineEvent, Gap, DEFAULT_CHUNK_CAPACITY>,
+        LinkedChunkError,
+    > {
         self.chunks.chunks_from(identifier)
     }
 
