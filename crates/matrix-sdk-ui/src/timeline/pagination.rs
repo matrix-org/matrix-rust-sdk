@@ -48,7 +48,7 @@ impl super::Timeline {
 
         while let Some(batch_size) = options.next_event_limit(outcome) {
             loop {
-                match self.event_cache.backpaginate_with_token(batch_size, token).await? {
+                match self.event_cache.backpaginate(batch_size, token).await? {
                     BackPaginationOutcome::Success { events, reached_start } => {
                         let num_events = events.len();
                         trace!("Back-pagination succeeded with {num_events} events");
