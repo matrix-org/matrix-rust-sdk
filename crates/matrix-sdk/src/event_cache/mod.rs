@@ -70,7 +70,7 @@ use tracing::{error, instrument, trace, warn};
 
 use self::{
     linked_chunk::ChunkContent,
-    store::{EventCacheStore, Gap, MemoryStore, PaginationToken, RoomEvents, TimelineEntry},
+    store::{Gap, PaginationToken, RoomEvents},
 };
 use crate::{client::ClientInner, room::MessagesOptions, Client, Room};
 
@@ -767,7 +767,7 @@ mod tests {
     use matrix_sdk_test::{async_test, sync_timeline_event};
     use ruma::room_id;
 
-    use super::{store::TimelineEntry, EventCacheError};
+    use super::EventCacheError;
     use crate::{event_cache::store::PaginationToken, test_utils::logged_in_client};
 
     #[async_test]
