@@ -260,25 +260,11 @@ impl<'a> IntoFuture for SendAttachment<'a> {
     boxed_into_future!(extra_bounds: 'a);
 
     fn into_future(self) -> Self::IntoFuture {
-        let Self {
-            room,
-            url,
-            content_type,
-            data,
-            config,
-            tracing_span,
-            send_progress,
-        } = self;
+        let Self { room, url, content_type, data, config, tracing_span, send_progress } = self;
         let fut = async move {
             if config.thumbnail.is_some() {
-                room.prepare_and_send_attachment(
-                    url,
-                    content_type,
-                    data,
-                    config,
-                    send_progress,
-                )
-                .await
+                room.prepare_and_send_attachment(url, content_type, data, config, send_progress)
+                    .await
             } else {
                 #[cfg(not(feature = "image-proc"))]
                 let thumbnail = None;
@@ -338,14 +324,8 @@ impl<'a> IntoFuture for SendAttachment<'a> {
                     thumbnail_size: None,
                 };
 
-                room.prepare_and_send_attachment(
-                    url,
-                    content_type,
-                    data,
-                    config,
-                    send_progress,
-                )
-                .await
+                room.prepare_and_send_attachment(url, content_type, data, config, send_progress)
+                    .await
             }
         };
 

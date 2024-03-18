@@ -47,14 +47,7 @@ impl<'a> IntoFuture for SendAttachment<'a> {
     boxed_into_future!(extra_bounds: 'a);
 
     fn into_future(self) -> Self::IntoFuture {
-        let Self {
-            timeline,
-            filename,
-            mime_type,
-            config,
-            tracing_span,
-            send_progress,
-        } = self;
+        let Self { timeline, filename, mime_type, config, tracing_span, send_progress } = self;
         let fut = async move {
             let body = Path::new(&filename)
                 .file_name()
