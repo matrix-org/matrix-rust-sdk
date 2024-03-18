@@ -406,6 +406,19 @@ impl<Item, Gap, const CAP: usize> LinkedChunk<Item, Gap, CAP> {
             .expect("`iter_items_from` cannot fail because at least one empty chunk must exist")
     }
 
+    /// Iterate over the items, forward.
+    ///
+    /// It iterates from the first to the last item.
+    pub fn items(&self) -> impl Iterator<Item = (ItemPosition, &T)> {
+        let first_chunk = self.first_chunk();
+        let ChunkContent::Items(items) = first_chunk.content() else {
+            unreachable!("The first chunk is necessarily an `Items`");
+        };
+
+        self.items_from(ItemPosition(ChunkIdentifierGenerator::FIRST_IDENTIFIER, items.len()))
+            .expect("`items` cannot fail because at least one empty chunk must exist")
+    }
+
     /// Iterate over the items, starting from `position`, backward.
     ///
     /// It iterates from the item at `position` to the first item.
@@ -445,6 +458,11 @@ impl<Item, Gap, const CAP: usize> LinkedChunk<Item, Gap, CAP> {
                 }
             })
             .flatten())
+    }
+
+    /// Get the first chunk, as an immutable reference.
+    fn first_chunk(&self) -> &Chunk<T, U, C> {
+        unsafe { self.first.as_ref() }
     }
 
     /// Get the latest chunk, as an immutable reference.
@@ -1162,6 +1180,23 @@ mod tests {
         assert_matches!(iterator.next(), Some((ItemPosition(ChunkIdentifier(2), 1), 'c')));
         assert_matches!(iterator.next(), Some((ItemPosition(ChunkIdentifier(0), 0), 'b')));
         assert_matches!(iterator.next(), Some((ItemPosition(ChunkIdentifier(0), 1), 'a')));
+        assert_matches!(iterator.next(), None);
+    }
+
+    #[test]
+    fn test_items() {
+        let mut linked_chunk = LinkedChunk::<char, (), 2>::new();
+        linked_chunk.push_items_back(['a', 'b']);
+        linked_chunk.push_gap_back(());
+        linked_chunk.push_items_back(['c', 'd', 'e']);
+
+        let mut iterator = linked_chunk.items();
+
+        assert_matches!(iterator.next(), Some((ItemPosition(ChunkIdentifier(0), 1), 'a')));
+        assert_matches!(iterator.next(), Some((ItemPosition(ChunkIdentifier(0), 0), 'b')));
+        assert_matches!(iterator.next(), Some((ItemPosition(ChunkIdentifier(2), 1), 'c')));
+        assert_matches!(iterator.next(), Some((ItemPosition(ChunkIdentifier(2), 0), 'd')));
+        assert_matches!(iterator.next(), Some((ItemPosition(ChunkIdentifier(3), 0), 'e')));
         assert_matches!(iterator.next(), None);
     }
 
