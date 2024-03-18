@@ -324,6 +324,13 @@ impl RoomEvents {
         self.chunks.rchunks()
     }
 
+    /// Iterate over the chunks, forward.
+    ///
+    /// The oldest chunk comes first.
+    pub fn chunks(&self) -> LinkedChunkIter<'_, SyncTimelineEvent, Gap, DEFAULT_CHUNK_CAPACITY> {
+        self.chunks.chunks()
+    }
+
     /// Iterate over the chunks, starting from `identifier`, backward.
     pub fn rchunks_from(
         &self,

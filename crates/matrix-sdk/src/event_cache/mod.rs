@@ -62,7 +62,7 @@ use ruma::{
 use tokio::{
     sync::{
         broadcast::{error::RecvError, Receiver, Sender},
-        Mutex, Notify, RwLock,
+        Mutex, Notify, RwLock, RwLockReadGuard,
     },
     time::timeout,
 };
@@ -307,7 +307,7 @@ impl EventCacheInner {
     async fn handle_room_updates(&self, updates: RoomUpdates) -> Result<()> {
         // First, take the lock that indicates we're processing updates, to avoid
         // handling multiple updates concurrently.
-        let lock = self.multiple_room_updates_lock.lock().await;
+        let _lock = self.multiple_room_updates_lock.lock().await;
 
         // Left rooms.
         for (room_id, left_room_update) in updates.leave {
@@ -704,16 +704,19 @@ impl RoomEventCacheInner {
         max_wait: Option<Duration>,
     ) -> Result<Option<PaginationToken>> {
         // Optimistically try to return the backpagination token immediately.
-        todo!();
-        /*
-        if let Some(token) =
-            self.store.lock().await.oldest_backpagination_token(self.room.room_id()).await?
-        {
+        fn get_oldest(room_events: RwLockReadGuard<RoomEvents>) -> Option<PaginationToken> {
+            room_events.chunks().find_map(|chunk| match chunk.content() {
+                ChunkContent::Gap(gap) => Some(gap.prev_token.clone()),
+                ChunkContent::Items(..) => None,
+            })
+        }
+
+        if let Some(token) = get_oldest(self.events.read().await) {
             return Ok(Some(token));
         }
 
         let Some(max_wait) = max_wait else {
-            // We had no token and no time to wait, so... no tokens.
+            // We had no token and no time to wait, so… no tokens.
             return Ok(None);
         };
 
@@ -721,8 +724,7 @@ impl RoomEventCacheInner {
         // Timeouts are fine, per this function's contract.
         let _ = timeout(max_wait, self.pagination_token_notifier.notified()).await;
 
-        self.store.lock().await.oldest_backpagination_token(self.room.room_id()).await
-        */
+        Ok(get_oldest(self.events.read().await))
     }
 }
 
