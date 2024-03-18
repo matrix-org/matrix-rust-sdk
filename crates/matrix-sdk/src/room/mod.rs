@@ -55,7 +55,7 @@ use ruma::{
             avatar::{self, RoomAvatarEventContent},
             encryption::RoomEncryptionEventContent,
             history_visibility::HistoryVisibility,
-            message::{FormattedBody, RoomMessageEventContent},
+            message::RoomMessageEventContent,
             name::RoomNameEventContent,
             power_levels::{RoomPowerLevels, RoomPowerLevelsEventContent},
             server_acl::RoomServerAclEventContent,
@@ -1705,7 +1705,7 @@ impl Room {
     /// * `caption` - An optional caption of the media that is going to be
     /// uploaded.
     ///
-    /// * `formatted` - A optional formatted caption of the media that is going
+    /// * `formatted_caption` - A optional formatted caption of the media that is going
     /// to be uploaded.
     ///
     /// # Examples
@@ -1727,8 +1727,6 @@ impl Room {
     ///         &mime::IMAGE_JPEG,
     ///         image,
     ///         AttachmentConfig::new(),
-    ///         Some(String::from("My favorite cat")),
-    ///         None,
     ///     ).await?;
     /// }
     /// # anyhow::Ok(()) };
@@ -1743,10 +1741,8 @@ impl Room {
         content_type: &'a Mime,
         data: Vec<u8>,
         config: AttachmentConfig,
-        caption: Option<String>,
-        formatted: Option<FormattedBody>,
     ) -> SendAttachment<'a> {
-        SendAttachment::new(self, filename, content_type, data, config, caption, formatted)
+        SendAttachment::new(self, filename, content_type, data, config)
     }
 
     /// Prepare and send an attachment to this room.
@@ -1782,12 +1778,11 @@ impl Room {
         content_type: &'a Mime,
         data: Vec<u8>,
         config: AttachmentConfig,
-        caption: Option<String>,
-        formatted: Option<FormattedBody>,
         send_progress: SharedObservable<TransmissionProgress>,
     ) -> Result<send_message_event::v3::Response> {
         self.ensure_room_joined()?;
 
+        let txn_id = config.txn_id.to_owned();
         #[cfg(feature = "e2e-encryption")]
         let content = if self.is_encrypted().await? {
             self.client
@@ -1795,10 +1790,7 @@ impl Room {
                     filename,
                     content_type,
                     data,
-                    config.info,
-                    config.thumbnail,
-                    caption,
-                    formatted,
+                    config,
                     send_progress,
                 )
                 .await?
@@ -1809,10 +1801,7 @@ impl Room {
                     filename,
                     content_type,
                     data,
-                    config.info,
-                    config.thumbnail,
-                    caption,
-                    formatted,
+                    config,
                     send_progress,
                 )
                 .await?
@@ -1826,16 +1815,13 @@ impl Room {
                 filename,
                 content_type,
                 data,
-                config.info,
-                config.thumbnail,
-                caption,
-                formatted,
+                config,
                 send_progress,
             )
             .await?;
 
         let mut fut = self.send(RoomMessageEventContent::new(content));
-        if let Some(txn_id) = &config.txn_id {
+        if let Some(txn_id) = &txn_id {
             fut = fut.with_transaction_id(txn_id);
         }
         fut.await

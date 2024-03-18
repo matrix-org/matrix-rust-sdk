@@ -45,9 +45,8 @@ use ruma::{
         relation::Annotation,
         room::{
             message::{
-                AddMentions, FormattedBody, ForwardThread, OriginalRoomMessageEvent,
-                ReplacementMetadata, RoomMessageEventContent,
-                RoomMessageEventContentWithoutRelation,
+                AddMentions, ForwardThread, OriginalRoomMessageEvent, ReplacementMetadata,
+                RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
             },
             redaction::RoomRedactionEventContent,
         },
@@ -532,10 +531,8 @@ impl Timeline {
         filename: String,
         mime_type: Mime,
         config: AttachmentConfig,
-        caption: Option<String>,
-        formatted: Option<FormattedBody>,
     ) -> SendAttachment<'_> {
-        SendAttachment::new(self, filename, mime_type, config, caption, formatted)
+        SendAttachment::new(self, filename, mime_type, config)
     }
 
     /// Retry sending a message that previously failed to send.

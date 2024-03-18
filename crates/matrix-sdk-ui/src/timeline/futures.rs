@@ -4,7 +4,6 @@ use eyeball::{SharedObservable, Subscriber};
 use matrix_sdk::{attachment::AttachmentConfig, TransmissionProgress};
 use matrix_sdk_base::boxed_into_future;
 use mime::Mime;
-use ruma::events::room::message::FormattedBody;
 use tracing::{Instrument as _, Span};
 
 use super::{Error, Timeline};
@@ -14,8 +13,6 @@ pub struct SendAttachment<'a> {
     filename: String,
     mime_type: Mime,
     config: AttachmentConfig,
-    caption: Option<String>,
-    formatted: Option<FormattedBody>,
     tracing_span: Span,
     pub(crate) send_progress: SharedObservable<TransmissionProgress>,
 }
@@ -26,16 +23,12 @@ impl<'a> SendAttachment<'a> {
         filename: String,
         mime_type: Mime,
         config: AttachmentConfig,
-        caption: Option<String>,
-        formatted: Option<FormattedBody>,
     ) -> Self {
         Self {
             timeline,
             filename,
             mime_type,
             config,
-            caption,
-            formatted,
             tracing_span: Span::current(),
             send_progress: Default::default(),
         }
@@ -59,8 +52,6 @@ impl<'a> IntoFuture for SendAttachment<'a> {
             filename,
             mime_type,
             config,
-            caption,
-            formatted,
             tracing_span,
             send_progress,
         } = self;
@@ -74,7 +65,7 @@ impl<'a> IntoFuture for SendAttachment<'a> {
 
             timeline
                 .room()
-                .send_attachment(body, &mime_type, data, config, caption, formatted)
+                .send_attachment(body, &mime_type, data, config)
                 .with_send_progress_observable(send_progress)
                 .await
                 .map_err(|_| Error::FailedSendingAttachment)?;

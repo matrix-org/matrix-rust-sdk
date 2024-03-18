@@ -17,7 +17,7 @@ async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room, image:
 
     if text_content.body.contains("!image") {
         println!("sending image");
-        room.send_attachment("cat", &mime::IMAGE_JPEG, image, AttachmentConfig::new(), None, None)
+        room.send_attachment("cat.jpg", &mime::IMAGE_JPEG, image, AttachmentConfig::new().caption(Some("my pretty cat".to_owned())))
             .await
             .unwrap();
 
