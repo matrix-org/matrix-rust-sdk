@@ -391,12 +391,10 @@ impl RoomEventCache {
     pub async fn subscribe(
         &self,
     ) -> Result<(Vec<SyncTimelineEvent>, Receiver<RoomEventCacheUpdate>)> {
-        /*
-        let store = self.inner.store.lock().await;
+        let events =
+            self.inner.events.read().await.events().map(|(_position, item)| item.clone()).collect();
 
-        Ok((store.room_events(self.inner.room.room_id()).await?, self.inner.sender.subscribe()))
-        */
-        todo!()
+        Ok((events, self.inner.sender.subscribe()))
     }
 
     /// Returns the oldest back-pagination token, that is, the one closest to
