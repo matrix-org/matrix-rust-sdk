@@ -391,7 +391,7 @@ mod tests {
             create_session, get_prepared_machine_test_helper, to_device_requests_to_content,
         },
         olm::OutboundGroupSession,
-        types::{DeviceKeys as DeviceKeysType, events::ToDeviceEvent},
+        types::{events::ToDeviceEvent, DeviceKeys as DeviceKeysType},
         utilities::json_convert,
         EncryptionSettings, OlmMachine,
     };
