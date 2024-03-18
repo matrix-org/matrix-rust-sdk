@@ -433,12 +433,12 @@ impl RoomEventCache {
     /// If a token has been provided, but it was unknown to the event cache
     /// (i.e. it's not associated to any gap in the timeline stored by the
     /// event cache), then an error result will be returned.
-    pub async fn backpaginate_with_token(
+    pub async fn backpaginate(
         &self,
         batch_size: u16,
         token: Option<PaginationToken>,
     ) -> Result<BackPaginationOutcome> {
-        self.inner.backpaginate_with_token(batch_size, token).await
+        self.inner.backpaginate(batch_size, token).await
     }
 }
 
@@ -602,7 +602,7 @@ impl RoomEventCacheInner {
     ///
     /// Returns the number of messages received in this chunk.
     #[instrument(skip(self))]
-    async fn backpaginate_with_token(
+    async fn backpaginate(
         &self,
         batch_size: u16,
         token: Option<PaginationToken>,
@@ -799,7 +799,7 @@ mod tests {
         let token = PaginationToken("old".to_owned());
 
         // Then I run into an error.
-        let res = room_event_cache.backpaginate_with_token(20, Some(token)).await;
+        let res = room_event_cache.backpaginate(20, Some(token)).await;
         assert_matches!(res.unwrap_err(), EventCacheError::UnknownBackpaginationToken);
     }
 

@@ -283,7 +283,7 @@ async fn test_backpaginate_once() {
             .unwrap();
         assert!(token.is_some());
 
-        room_event_cache.backpaginate_with_token(20, token).await.unwrap()
+        room_event_cache.backpaginate(20, token).await.unwrap()
     };
 
     // I'll get all the previous events, in "reverse" order (same as the response).
@@ -371,7 +371,7 @@ async fn test_backpaginate_multiple_iterations() {
     while let Some(token) =
         room_event_cache.oldest_backpagination_token(Some(Duration::from_secs(1))).await.unwrap()
     {
-        match room_event_cache.backpaginate_with_token(20, Some(token)).await.unwrap() {
+        match room_event_cache.backpaginate(20, Some(token)).await.unwrap() {
             BackPaginationOutcome::Success { reached_start, events } => {
                 if !global_reached_start {
                     global_reached_start = reached_start;
@@ -506,8 +506,7 @@ async fn test_reset_while_backpaginating() {
 
     let rec = room_event_cache.clone();
     let first_token_clone = first_token.clone();
-    let backpagination =
-        spawn(async move { rec.backpaginate_with_token(20, first_token_clone).await });
+    let backpagination = spawn(async move { rec.backpaginate(20, first_token_clone).await });
 
     // Receive the sync response (which clears the timeline).
     mock_sync(&server, sync_response_body, None).await;
@@ -576,7 +575,7 @@ async fn test_backpaginating_without_token() {
 
     // If we try to back-paginate with a token, it will hit the end of the timeline
     // and give us the resulting event.
-    let outcome = room_event_cache.backpaginate_with_token(20, token).await.unwrap();
+    let outcome = room_event_cache.backpaginate(20, token).await.unwrap();
     assert_let!(BackPaginationOutcome::Success { events, reached_start } = outcome);
 
     assert!(reached_start);
