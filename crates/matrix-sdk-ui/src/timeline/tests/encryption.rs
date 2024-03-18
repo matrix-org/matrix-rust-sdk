@@ -102,7 +102,6 @@ async fn test_retry_message_decryption() {
 
     assert_eq!(timeline.inner.items().await.len(), 2);
 
-    let _day_divider = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let event = item.as_event().unwrap();
     assert_let!(
@@ -112,6 +111,9 @@ async fn test_retry_message_decryption() {
         }) = event.content()
     );
     assert_eq!(session_id, SESSION_ID);
+
+    let day_divider = assert_next_matches!(stream, VectorDiff::Insert { index: 0, value } => value);
+    assert!(day_divider.is_day_divider());
 
     {
         let utds = hook.utds.lock().unwrap();
@@ -415,7 +417,6 @@ async fn test_retry_message_decryption_highlighted() {
 
     assert_eq!(timeline.inner.items().await.len(), 2);
 
-    let _day_divider = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let event = item.as_event().unwrap();
     assert_let!(
@@ -425,6 +426,9 @@ async fn test_retry_message_decryption_highlighted() {
         }) = event.content()
     );
     assert_eq!(session_id, SESSION_ID);
+
+    let day_divider = assert_next_matches!(stream, VectorDiff::Insert { index: 0, value } => value);
+    assert!(day_divider.is_day_divider());
 
     let own_user_id = user_id!("@example:matrix.org");
     let exported_keys = decrypt_room_key_export(Cursor::new(SESSION_KEY), "1234").unwrap();

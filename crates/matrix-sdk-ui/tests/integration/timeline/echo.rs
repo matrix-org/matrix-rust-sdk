@@ -23,9 +23,7 @@ use matrix_sdk::{
     test_utils::logged_in_client_with_server,
 };
 use matrix_sdk_test::{async_test, sync_timeline_event, JoinedRoomBuilder, SyncResponseBuilder};
-use matrix_sdk_ui::timeline::{
-    EventSendState, RoomExt, TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
-};
+use matrix_sdk_ui::timeline::{EventSendState, RoomExt, TimelineItemContent};
 use ruma::{
     event_id,
     events::room::message::{MessageType, RoomMessageEventContent},
@@ -76,12 +74,15 @@ async fn test_echo() {
         timeline.send(RoomMessageEventContent::text_plain("Hello, World!").into()).await
     });
 
-    assert_let!(Some(VectorDiff::PushBack { value: day_divider }) = timeline_stream.next().await);
-    assert!(day_divider.is_day_divider());
     assert_let!(Some(VectorDiff::PushBack { value: local_echo }) = timeline_stream.next().await);
     let item = local_echo.as_event().unwrap();
     assert_matches!(item.send_state(), Some(EventSendState::NotSentYet));
     let txn_id = item.transaction_id().unwrap();
+
+    assert_let!(
+        Some(VectorDiff::Insert { index: 0, value: day_divider }) = timeline_stream.next().await
+    );
+    assert!(day_divider.is_day_divider());
 
     assert_let!(TimelineItemContent::Message(msg) = item.content());
     assert_let!(MessageType::Text(text) = msg.msgtype());
@@ -114,20 +115,17 @@ async fn test_echo() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    // Local echo is removed
-    assert_matches!(timeline_stream.next().await, Some(VectorDiff::Remove { index: 1 }));
-    // Local echo day divider is removed
-    assert_matches!(timeline_stream.next().await, Some(VectorDiff::Remove { index: 0 }));
-
-    // New day divider is added
-    assert_let!(Some(VectorDiff::PushBack { value: new_item }) = timeline_stream.next().await);
-    assert_matches!(**new_item, TimelineItemKind::Virtual(VirtualTimelineItem::DayDivider(_)));
-
-    // Remote echo is added
-    assert_let!(Some(VectorDiff::PushBack { value: remote_echo }) = timeline_stream.next().await);
+    // Local echo is replaced with the remote echo.
+    let remote_echo =
+        assert_next_matches!(timeline_stream, VectorDiff::Set { index: 1, value } => value);
     let item = remote_echo.as_event().unwrap();
     assert!(item.is_own());
     assert_eq!(item.timestamp(), MilliSecondsSinceUnixEpoch(uint!(152038280)));
+
+    // The day divider is also replaced.
+    let day_divider =
+        assert_next_matches!(timeline_stream, VectorDiff::Set { index: 0, value } => value);
+    assert!(day_divider.is_day_divider());
 }
 
 #[async_test]
@@ -222,10 +220,13 @@ async fn test_dedup_by_event_id_late() {
 
     timeline.send(RoomMessageEventContent::text_plain("Hello, World!").into()).await;
 
-    assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { .. })); // day divider
     assert_let!(Some(VectorDiff::PushBack { value: local_echo }) = timeline_stream.next().await);
     let item = local_echo.as_event().unwrap();
     assert_matches!(item.send_state(), Some(EventSendState::NotSentYet));
+
+    let day_divider =
+        assert_next_matches!( timeline_stream, VectorDiff::Insert { index: 0, value } => value);
+    assert!(day_divider.is_day_divider());
 
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
         sync_timeline_event!({
@@ -244,11 +245,14 @@ async fn test_dedup_by_event_id_late() {
     mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
 
-    assert_next_matches!(timeline_stream, VectorDiff::Insert { index: 0, .. }); // day divider
     let remote_echo =
-        assert_next_matches!(timeline_stream, VectorDiff::Insert { index: 1, value } => value);
+        assert_next_matches!(timeline_stream, VectorDiff::Insert { index: 0, value } => value);
     let item = remote_echo.as_event().unwrap();
     assert_eq!(item.event_id(), Some(event_id));
+
+    let day_divider =
+        assert_next_matches!(timeline_stream, VectorDiff::Insert { index: 0, value } => value);
+    assert!(day_divider.is_day_divider());
 
     // Local echo and its day divider are removed.
     assert_matches!(timeline_stream.next().await, Some(VectorDiff::Remove { index: 3 }));

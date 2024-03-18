@@ -275,7 +275,7 @@ mod tests {
     }
 
     #[test]
-    fn simple_request_limits() {
+    fn test_simple_request_limits() {
         let mut opts = PaginationOptions::simple_request(10);
         let mut outcome = PaginationOutcome::default();
         assert_eq!(opts.next_event_limit(outcome), Some(10));
@@ -285,7 +285,7 @@ mod tests {
     }
 
     #[test]
-    fn until_num_items_limits() {
+    fn test_until_num_items_limits() {
         let mut opts = PaginationOptions::until_num_items(10, 10);
         let mut outcome = PaginationOutcome::default();
         assert_eq!(opts.next_event_limit(outcome), Some(10));
@@ -298,7 +298,7 @@ mod tests {
     }
 
     #[test]
-    fn custom_limits() {
+    fn test_custom_limits() {
         let num_calls = AtomicU8::new(0);
         let mut opts = PaginationOptions::custom(8, |outcome| {
             num_calls.fetch_add(1, Ordering::AcqRel);

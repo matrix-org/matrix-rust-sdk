@@ -285,11 +285,13 @@ async fn send_first_message(
         .handle_live_message_event(&BOB, RoomMessageEventContent::text_plain("I want you to react"))
         .await;
 
-    let _day_divider = assert_next_matches!(*stream, VectorDiff::PushBack { value } => value);
-
     let item = assert_next_matches!(*stream, VectorDiff::PushBack { value } => value);
     let event_id = item.as_event().unwrap().clone().event_id().unwrap().to_owned();
     let position = timeline.len().await - 1;
+
+    let _day_divider =
+        assert_next_matches!(*stream, VectorDiff::Insert { index: 0, value } => value);
+
     (event_id, position)
 }
 

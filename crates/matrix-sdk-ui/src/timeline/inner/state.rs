@@ -45,9 +45,9 @@ use crate::{
         reactions::{ReactionToggleResult, Reactions},
         read_receipts::ReadReceipts,
         traits::RoomDataProvider,
-        util::{rfind_event_by_id, rfind_event_item, timestamp_to_date, RelativePosition},
+        util::{rfind_event_by_id, rfind_event_item, RelativePosition},
         AnnotationKey, Error as TimelineError, Profile, ReactionSenderData, TimelineItem,
-        TimelineItemKind, VirtualTimelineItem,
+        TimelineItemKind,
     },
     unable_to_decrypt_hook::UtdHookManager,
 };
@@ -775,17 +775,6 @@ impl TimelineInnerMetadata {
     /// Returns a new timeline item with a fresh internal id.
     pub fn new_timeline_item(&mut self, kind: impl Into<TimelineItemKind>) -> Arc<TimelineItem> {
         TimelineItem::new(kind, self.next_internal_id())
-    }
-
-    /// Returns a new day divider item for the new timestamp if it is on a
-    /// different day than the old timestamp
-    pub fn maybe_create_day_divider_from_timestamps(
-        &mut self,
-        old_ts: MilliSecondsSinceUnixEpoch,
-        new_ts: MilliSecondsSinceUnixEpoch,
-    ) -> Option<Arc<TimelineItem>> {
-        (timestamp_to_date(old_ts) != timestamp_to_date(new_ts))
-            .then(|| self.new_timeline_item(VirtualTimelineItem::DayDivider(new_ts)))
     }
 
     /// Try to update the read marker item in the timeline.

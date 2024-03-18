@@ -23,7 +23,7 @@ use matrix_sdk_test::{
     async_test, sync_timeline_event, EventBuilder, GlobalAccountDataTestEvent, JoinedRoomBuilder,
     SyncResponseBuilder, ALICE, BOB,
 };
-use matrix_sdk_ui::timeline::{RoomExt, TimelineDetails, TimelineItemContent, VirtualTimelineItem};
+use matrix_sdk_ui::timeline::{RoomExt, TimelineDetails, TimelineItemContent};
 use ruma::{
     event_id,
     events::room::{
@@ -121,9 +121,6 @@ async fn test_event_filter() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    assert_let!(Some(VectorDiff::PushBack { value: day_divider }) = timeline_stream.next().await);
-    assert!(day_divider.is_day_divider());
-
     assert_let!(Some(VectorDiff::PushBack { value: first }) = timeline_stream.next().await);
     let first_event = first.as_event().unwrap();
     assert_eq!(first_event.event_id(), Some(first_event_id));
@@ -131,6 +128,11 @@ async fn test_event_filter() {
     assert_let!(TimelineItemContent::Message(msg) = first_event.content());
     assert_matches!(msg.msgtype(), MessageType::Text(_));
     assert!(!msg.is_edited());
+
+    assert_let!(
+        Some(VectorDiff::Insert { index: 0, value: day_divider }) = timeline_stream.next().await
+    );
+    assert!(day_divider.is_day_divider());
 
     let second_event_id = event_id!("$Ga6Y2l0gKY");
     let edit_event_id = event_id!("$7i9In0gEmB");
@@ -256,10 +258,10 @@ async fn test_timeline_is_reset_when_a_user_is_ignored_or_unignored() {
     server.reset().await;
 
     assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
-        assert_matches!(value.as_virtual(), Some(VirtualTimelineItem::DayDivider(_)));
-    });
-    assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
         assert_eq!(value.as_event().unwrap().event_id(), Some(first_event_id));
+    });
+    assert_next_matches!(timeline_stream, VectorDiff::Insert { index: 0, value } => {
+        assert!(value.is_day_divider());
     });
     assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
         assert_eq!(value.as_event().unwrap().event_id(), Some(second_event_id));
@@ -322,10 +324,10 @@ async fn test_timeline_is_reset_when_a_user_is_ignored_or_unignored() {
 
     // Timeline receives events as before.
     assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
-        assert_matches!(value.as_virtual(), Some(VirtualTimelineItem::DayDivider(_)));
-    });
-    assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
         assert_eq!(value.as_event().unwrap().event_id(), Some(fourth_event_id));
+    });
+    assert_next_matches!(timeline_stream, VectorDiff::Insert { index: 0, value } => {
+        assert!(value.is_day_divider());
     });
     assert_next_matches!(timeline_stream, VectorDiff::Set { index: 1, value } => {
         assert_eq!(value.as_event().unwrap().event_id(), Some(fourth_event_id));
@@ -389,14 +391,14 @@ async fn test_profile_updates() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
-        assert_matches!(value.as_virtual(), Some(VirtualTimelineItem::DayDivider(_)));
-    });
-
     let item_1 = assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
     let event_1_item = item_1.as_event().unwrap();
     assert_eq!(event_1_item.event_id(), Some(event_1_id));
     assert_matches!(event_1_item.sender_profile(), TimelineDetails::Unavailable);
+
+    assert_next_matches!(timeline_stream, VectorDiff::Insert { index: 0, value } => {
+        assert!(value.is_day_divider());
+    });
 
     let item_2 = assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
     let event_2_item = item_2.as_event().unwrap();
