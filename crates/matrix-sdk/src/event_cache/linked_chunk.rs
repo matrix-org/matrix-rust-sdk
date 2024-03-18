@@ -720,12 +720,12 @@ impl<Item, Gap, const CAPACITY: usize> Chunk<Item, Gap, CAPACITY> {
     }
 
     /// Check whether this current chunk is a gap chunk.
-    fn is_gap(&self) -> bool {
+    pub fn is_gap(&self) -> bool {
         matches!(self.content, ChunkContent::Gap(..))
     }
 
     /// Check whether this current chunk is an items  chunk.
-    fn is_items(&self) -> bool {
+    pub fn is_items(&self) -> bool {
         !self.is_gap()
     }
 
