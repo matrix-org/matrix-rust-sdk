@@ -367,7 +367,15 @@ impl<Item, Gap, const CAP: usize> LinkedChunk<Item, Gap, CAP> {
     /// It iterates from the last to the first chunk.
     pub fn rchunks(&self) -> LinkedChunkIterBackward<'_, Item, Gap, CAP> {
         self.rchunks_from(self.latest_chunk().identifier())
-            .expect("`iter_chunks_from` cannot fail because at least one empty chunk must exist")
+            .expect("`rchunks_from` cannot fail because at least one empty chunk must exist")
+    }
+
+    /// Iterate over the chunks, forward.
+    ///
+    /// It iterates from the first to the last chunk.
+    pub fn chunks(&self) -> LinkedChunkIter<'_, Item, Gap, CAP> {
+        self.chunks_from(ChunkIdentifierGenerator::FIRST_IDENTIFIER)
+            .expect("`chunks_from` cannot fail because at least one empty chunk must exist")
     }
 
     /// Iterate over the chunks, starting from `identifier`, backward.
@@ -403,7 +411,7 @@ impl<Item, Gap, const CAP: usize> LinkedChunk<Item, Gap, CAP> {
     /// It iterates from the last to the first item.
     pub fn ritems(&self) -> impl Iterator<Item = (ItemPosition, &Item)> {
         self.ritems_from(self.latest_chunk().identifier().to_last_item_position())
-            .expect("`iter_items_from` cannot fail because at least one empty chunk must exist")
+            .expect("`ritems_from` cannot fail because at least one empty chunk must exist")
     }
 
     /// Iterate over the items, forward.
@@ -1112,6 +1120,40 @@ mod tests {
             iterator.next(),
             Some(Chunk { identifier: ChunkIdentifier(0), content: ChunkContent::Items(items), .. }) => {
                 assert_eq!(items, &['a', 'b']);
+            }
+        );
+        assert_matches!(iterator.next(), None);
+    }
+
+    #[test]
+    fn test_chunks() {
+        let mut linked_chunk = LinkedChunk::<char, (), 2>::new();
+        linked_chunk.push_items_back(['a', 'b']);
+        linked_chunk.push_gap_back(());
+        linked_chunk.push_items_back(['c', 'd', 'e']);
+
+        let mut iterator = linked_chunk.chunks();
+
+        assert_matches!(
+            iterator.next(),
+            Some(Chunk { identifier: ChunkIdentifier(0), content: ChunkContent::Items(items), .. }) => {
+                assert_eq!(items, &['a', 'b']);
+            }
+        );
+        assert_matches!(
+            iterator.next(),
+            Some(Chunk { identifier: ChunkIdentifier(1), content: ChunkContent::Gap(..), .. })
+        );
+        assert_matches!(
+            iterator.next(),
+            Some(Chunk { identifier: ChunkIdentifier(2), content: ChunkContent::Items(items), .. }) => {
+                assert_eq!(items, &['c', 'd']);
+            }
+        );
+        assert_matches!(
+            iterator.next(),
+            Some(Chunk { identifier: ChunkIdentifier(3), content: ChunkContent::Items(items), .. }) => {
+                assert_eq!(items, &['e']);
             }
         );
         assert_matches!(iterator.next(), None);
