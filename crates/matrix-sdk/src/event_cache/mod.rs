@@ -259,12 +259,8 @@ impl EventCache {
         // We could have received events during a previous sync; remove them all, since
         // we can't know where to insert the "initial events" with respect to
         // them.
-        todo!();
-        /*
-        let store = self.inner.store.lock().await;
+        room_cache.inner.events.write().await.reset();
 
-        store.clear_room(room_id).await?;
-        */
         let _ = room_cache.inner.sender.send(RoomEventCacheUpdate::Clear);
 
         room_cache
