@@ -736,6 +736,11 @@ impl<Item, Gap, const CAPACITY: usize> Chunk<Item, Gap, CAPACITY> {
         self.identifier
     }
 
+    /// Get the content of the chunk.
+    pub fn content(&self) -> &ChunkContent<T, U> {
+        &self.content
+    }
+
     /// The length of the chunk, i.e. how many items are in it.
     ///
     /// It will always return 0 if it's a gap chunk.
