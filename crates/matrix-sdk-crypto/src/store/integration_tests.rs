@@ -10,12 +10,11 @@ macro_rules! cryptostore_integration_tests {
             use matrix_sdk_test::async_test;
             use ruma::{
                 device_id,
-                encryption::SignedKey,
                 events::secret::request::SecretName,
                 room_id,
-                serde::{Base64, Raw},
+                serde::Raw,
                 to_device::DeviceIdOrAllDevices,
-                user_id, DeviceId, JsOption, OwnedDeviceId, OwnedUserId, RoomId, TransactionId, UserId
+                user_id, DeviceId, RoomId, TransactionId, UserId
             };
             use serde_json::value::to_raw_value;
             use $crate::{
@@ -24,7 +23,7 @@ macro_rules! cryptostore_integration_tests {
                     PrivateCrossSigningIdentity, Account, Session,
                 },
                 store::{
-                    BackupKeys, Changes, CryptoStore, DeviceChanges,
+                    Changes, CryptoStore, DeviceChanges,
                     GossipRequest, IdentityChanges, BackupDecryptionKey, RoomSettings, PendingChanges,
                 },
                 testing::{get_device, get_other_identity, get_own_identity},
@@ -300,7 +299,7 @@ macro_rules! cryptostore_integration_tests {
                     get_loaded_store("mark_inbound_group_sessions_as_backed_up").await;
                 let room_id = &room_id!("!test:localhost");
                 let mut sessions: Vec<InboundGroupSession> = Vec::with_capacity(10);
-                for i in 0..10 {
+                for _i in 0..10 {
                     sessions.push(account.create_group_session_pair_with_defaults(room_id).await.1);
                 }
                 let changes = Changes { inbound_group_sessions: sessions.clone(), ..Default::default() };
@@ -312,7 +311,7 @@ macro_rules! cryptostore_integration_tests {
                 }
 
                 // When I mark some as backed up
-                let x = store.mark_inbound_group_sessions_as_backed_up(&[
+                store.mark_inbound_group_sessions_as_backed_up(&[
                     session_info(&sessions[1]),
                     session_info(&sessions[3]),
                     session_info(&sessions[5]),
@@ -378,7 +377,7 @@ macro_rules! cryptostore_integration_tests {
                 let room_id = &room_id!("!test:localhost");
                 let (_, session) = account.create_group_session_pair_with_defaults(room_id).await;
 
-                let mut export = session.export().await;
+                let export = session.export().await;
 
                 let session = InboundGroupSession::from_export(&export).unwrap();
 
@@ -399,7 +398,7 @@ macro_rules! cryptostore_integration_tests {
                     .unwrap()
                     .unwrap();
                 assert_eq!(session, loaded_session);
-                let export = loaded_session.export().await;
+                loaded_session.export().await;
 
                 assert_eq!(store.get_inbound_group_sessions().await.unwrap().len(), 1);
                 assert_eq!(store.inbound_group_session_counts().await.unwrap().total, 1);
@@ -427,13 +426,13 @@ macro_rules! cryptostore_integration_tests {
                     let loaded_alice =
                         loaded.get(alice).expect("Alice should be in the store as a tracked user");
                     let loaded_bob =
-                        loaded.get(alice).expect("Bob should be in the store as as tracked user");
+                        loaded.get(bob).expect("Bob should be in the store as as tracked user");
 
                     assert!(!loaded.contains_key(candy), "Candy shouldn't be part of the store");
                     assert_eq!(loaded.len(), 2, "Candy shouldn't be part of the store");
 
                     assert!(loaded_alice.dirty, "Alice should be considered to be dirty");
-                    assert!(loaded_alice.dirty, "Bob should not be considered to be dirty");
+                    assert!(!loaded_bob.dirty, "Bob should not be considered to be dirty");
                 };
 
                 let loaded = store.load_tracked_users().await.unwrap();
@@ -850,7 +849,7 @@ macro_rules! cryptostore_integration_tests {
 
             #[async_test]
             async fn room_settings_saving() {
-                let (account, store) = get_loaded_store("room_settings_saving").await;
+                let (_, store) = get_loaded_store("room_settings_saving").await;
 
                 let room_1 = room_id!("!test_1:localhost");
                 let settings_1 = RoomSettings {
@@ -915,7 +914,7 @@ macro_rules! cryptostore_integration_tests {
 
             #[async_test]
             async fn custom_value_saving() {
-                let (account, store) = get_loaded_store("custom_value_saving").await;
+                let (_, store) = get_loaded_store("custom_value_saving").await;
                 store.set_custom_value("A", "Hello".as_bytes().to_vec()).await.unwrap();
 
                 let loaded_1 = store.get_custom_value("A").await.unwrap();
