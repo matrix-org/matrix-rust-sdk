@@ -598,6 +598,12 @@ impl ItemPosition {
     }
 }
 
+impl From<ChunkIdentifier> for ItemPosition {
+    fn from(chunk_identifier: ChunkIdentifier) -> Self {
+        Self(chunk_identifier, 0)
+    }
+}
+
 /// An iterator over a [`LinkedChunk`] that traverses the chunk in backward
 /// direction (i.e. it calls `previous` on each chunk to make progress).
 pub struct LinkedChunkIterBackward<'a, Item, Gap, const CAP: usize> {
