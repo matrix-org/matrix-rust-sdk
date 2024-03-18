@@ -163,6 +163,7 @@ wasm-bindgen-test = "0.3.33"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+wiremock = { version = "0.5.13" }
 
 [[test]]
 name = "integration"
