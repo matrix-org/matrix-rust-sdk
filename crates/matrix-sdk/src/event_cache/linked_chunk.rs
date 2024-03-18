@@ -583,7 +583,7 @@ impl ChunkIdentifier {
 ///
 /// It's a pair of a chunk position and an item index. `(…, 0)` represents
 /// the last item in the chunk.
-#[derive(Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub struct ItemPosition(ChunkIdentifier, usize);
 
 impl ItemPosition {
