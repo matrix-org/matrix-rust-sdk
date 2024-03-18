@@ -205,17 +205,7 @@ impl EventCache {
                     // Forget everything we know; we could have missed events, and we have
                     // no way to reconcile at the moment!
                     // TODO: implement Smart Matching™,
-                    todo!();
-                    /*
-                    let store = inner.store.lock().await;
-                    let mut by_room = inner.by_room.write().await;
-                    for room_id in by_room.keys() {
-                        if let Err(err) = store.clear_room(room_id).await {
-                            error!("unable to clear room after room updates lag: {err}");
-                        }
-                    }
-                    by_room.clear();
-                    */
+                    inner.by_room.write().await.clear();
                 }
 
                 Err(RecvError::Closed) => {
