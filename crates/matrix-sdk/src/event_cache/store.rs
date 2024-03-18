@@ -230,6 +230,11 @@ impl RoomEvents {
         Self { chunks: LinkedChunk::new() }
     }
 
+    /// Clear all events.
+    pub fn reset(&mut self) {
+        self.chunks = LinkedChunk::new();
+    }
+
     /// Return the number of events.
     pub fn len(&self) -> usize {
         self.chunks.len()
@@ -249,6 +254,11 @@ impl RoomEvents {
         I::IntoIter: ExactSizeIterator,
     {
         self.chunks.push_items_back(events)
+    }
+
+    /// Push a gap after existing events.
+    pub fn push_gap(&mut self, gap: Gap) {
+        self.chunks.push_gap_back(gap)
     }
 
     /// Insert events at a specified position.
@@ -271,6 +281,22 @@ impl RoomEvents {
         position: Position,
     ) -> StdResult<(), LinkedChunkError> {
         self.chunks.insert_gap_at(gap, position)
+    }
+
+    /// Replace the gap identified by `gap_identifier`, by events.
+    ///
+    /// Because the `gap_identifier` can represent non-gap chunk, this method
+    /// returns a `Result`.
+    pub fn replace_gap_at<I>(
+        &mut self,
+        items: I,
+        gap_identifier: ChunkIdentifier,
+    ) -> StdResult<(), LinkedChunkError>
+    where
+        I: IntoIterator<Item = SyncTimelineEvent>,
+        I::IntoIter: ExactSizeIterator,
+    {
+        self.chunks.replace_gap_at(items, gap_identifier)
     }
 
     /// Search for a chunk, and return its identifier.
@@ -326,6 +352,13 @@ impl RoomEvents {
     /// The most recent event comes first.
     pub fn revents(&self) -> impl Iterator<Item = (Position, &SyncTimelineEvent)> {
         self.chunks.ritems()
+    }
+
+    /// Iterate over the events, forward.
+    ///
+    /// The oldest event comes first.
+    pub fn events(&self) -> impl Iterator<Item = (ItemPosition, &SyncTimelineEvent)> {
+        self.chunks.items()
     }
 
     /// Iterate over the events, starting from `position`, backward.
