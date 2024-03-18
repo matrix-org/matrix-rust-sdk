@@ -127,13 +127,15 @@ async fn test_read_receipts_updates() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    assert_let!(Some(VectorDiff::PushBack { value: day_divider }) = timeline_stream.next().await);
-    assert!(day_divider.is_day_divider());
-
     // We don't list the read receipt of our own user on events.
     assert_let!(Some(VectorDiff::PushBack { value: first_item }) = timeline_stream.next().await);
     let first_event = first_item.as_event().unwrap();
     assert!(first_event.read_receipts().is_empty());
+
+    assert_let!(
+        Some(VectorDiff::Insert { index: 0, value: day_divider }) = timeline_stream.next().await
+    );
+    assert!(day_divider.is_day_divider());
 
     let (own_receipt_event_id, _) = timeline.latest_user_read_receipt(own_user_id).await.unwrap();
     assert_eq!(own_receipt_event_id, first_event.event_id().unwrap());
@@ -362,13 +364,15 @@ async fn test_read_receipts_updates_on_filtered_events() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    assert_let!(Some(VectorDiff::PushBack { value: day_divider }) = timeline_stream.next().await);
-    assert!(day_divider.is_day_divider());
-
     // We don't list the read receipt of our own user on events.
     assert_let!(Some(VectorDiff::PushBack { value: item_a }) = timeline_stream.next().await);
     let event_a = item_a.as_event().unwrap();
     assert!(event_a.read_receipts().is_empty());
+
+    assert_let!(
+        Some(VectorDiff::Insert { index: 0, value: day_divider }) = timeline_stream.next().await
+    );
+    assert!(day_divider.is_day_divider());
 
     let (own_receipt_event_id, _) = timeline.latest_user_read_receipt(own_user_id).await.unwrap();
     assert_eq!(own_receipt_event_id, event_a_id);

@@ -79,9 +79,6 @@ async fn test_edit() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    assert_let!(Some(VectorDiff::PushBack { value: day_divider }) = timeline_stream.next().await);
-    assert!(day_divider.is_day_divider());
-
     assert_let!(Some(VectorDiff::PushBack { value: first }) = timeline_stream.next().await);
     let item = first.as_event().unwrap();
     assert_eq!(item.read_receipts().len(), 1, "implicit read receipt");
@@ -89,6 +86,11 @@ async fn test_edit() {
     assert_matches!(msg.msgtype(), MessageType::Text(_));
     assert_matches!(msg.in_reply_to(), None);
     assert!(!msg.is_edited());
+
+    assert_let!(
+        Some(VectorDiff::Insert { index: 0, value: day_divider }) = timeline_stream.next().await
+    );
+    assert!(day_divider.is_day_divider());
 
     ev_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)

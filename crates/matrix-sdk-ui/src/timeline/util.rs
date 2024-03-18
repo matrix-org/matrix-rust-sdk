@@ -84,7 +84,7 @@ pub(super) enum RelativePosition {
     Before,
 }
 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 pub(super) struct Date {
     year: i32,
     month: u32,

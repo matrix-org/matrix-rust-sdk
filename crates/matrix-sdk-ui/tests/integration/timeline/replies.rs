@@ -80,10 +80,14 @@ async fn test_in_reply_to_details() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    assert_let!(Some(VectorDiff::PushBack { value: day_divider }) = timeline_stream.next().await);
-    assert!(day_divider.is_day_divider());
     assert_let!(Some(VectorDiff::PushBack { value: first }) = timeline_stream.next().await);
     assert_matches!(first.as_event().unwrap().content(), TimelineItemContent::Message(_));
+
+    assert_let!(
+        Some(VectorDiff::Insert { index: 0, value: day_divider }) = timeline_stream.next().await
+    );
+    assert!(day_divider.is_day_divider());
+
     assert_let!(Some(VectorDiff::PushBack { value: second }) = timeline_stream.next().await);
     let second_event = second.as_event().unwrap();
     assert_let!(TimelineItemContent::Message(message) = second_event.content());
