@@ -402,7 +402,7 @@ impl<Item, Gap, const CAP: usize> LinkedChunk<Item, Gap, CAP> {
     ///
     /// It iterates from the last to the first item.
     pub fn ritems(&self) -> impl Iterator<Item = (ItemPosition, &Item)> {
-        self.ritems_from(ItemPosition(self.latest_chunk().identifier(), 0))
+        self.ritems_from(self.latest_chunk().identifier().to_last_item_position())
             .expect("`iter_items_from` cannot fail because at least one empty chunk must exist")
     }
 
@@ -552,6 +552,14 @@ impl ChunkIdentifierGenerator {
 #[derive(Copy, Clone, Debug, PartialEq)]
 #[repr(transparent)]
 pub struct ChunkIdentifier(u64);
+
+impl ChunkIdentifier {
+    /// Transform the `ChunkIdentifier` into an `ItemPosition` representing the
+    /// last item position.
+    fn to_last_item_position(self) -> ItemPosition {
+        ItemPosition(self, 0)
+    }
+}
 
 /// The position of an item in a [`LinkedChunk`].
 ///
