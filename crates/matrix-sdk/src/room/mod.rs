@@ -1779,21 +1779,21 @@ impl Room {
                     content_type,
                     data,
                     config,
-                    send_progress
+                    send_progress,
                 )
                 .await?
         } else {
             self.client
                 .media()
                 .prepare_attachment_message(filename, content_type, data, config, send_progress)
-                    .await?
+                .await?
         };
 
         #[cfg(not(feature = "e2e-encryption"))]
         let content = self
             .client
             .media()
-            .prepare_attachment_message(filename, content_type, data, config,send_progress)
+            .prepare_attachment_message(filename, content_type, data, config, send_progress)
             .await?;
 
         let mut fut = self.send(RoomMessageEventContent::new(content));
