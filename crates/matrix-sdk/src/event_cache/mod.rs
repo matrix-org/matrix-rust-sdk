@@ -806,50 +806,41 @@ mod tests {
         assert_matches!(res.unwrap_err(), EventCacheError::UnknownBackpaginationToken);
     }
 
-    /*
     // Those tests require time to work, and it does not on wasm32.
     #[cfg(not(target_arch = "wasm32"))]
     mod time_tests {
         use std::time::{Duration, Instant};
 
+        use matrix_sdk_base::RoomState;
         use tokio::time::sleep;
 
-        use super::*;
+        use super::{super::store::Gap, *};
 
         #[async_test]
         async fn test_wait_no_pagination_token() {
             let client = logged_in_client(None).await;
             let room_id = room_id!("!galette:saucisse.bzh");
-            client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+            client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
-            client.event_cache().subscribe().unwrap();
+            let event_cache = client.event_cache();
+
+            event_cache.subscribe().unwrap();
+
+            let (room_event_cache, _drop_handlers) = event_cache.for_room(room_id).await.unwrap();
+            let room_event_cache = room_event_cache.unwrap();
 
             // When I only have events in a room,
-            client
-                .event_cache()
-                .inner
-                .store
-                .lock()
-                .await
-                .append_room_entries(
-                    room_id,
-                    vec![TimelineEntry::Event(
-                        sync_timeline_event!({
-                            "sender": "b@z.h",
-                            "type": "m.room.message",
-                            "event_id": "$ida",
-                            "origin_server_ts": 12344446,
-                            "content": { "body":"yolo", "msgtype": "m.text" },
-                        })
-                        .into(),
-                    )],
-                )
-                .await
-                .unwrap();
-
-            let (room_event_cache, _drop_handlers) =
-                client.event_cache().for_room(room_id).await.unwrap();
-            let room_event_cache = room_event_cache.unwrap();
+            {
+                let mut room_events = room_event_cache.inner.events.write().await;
+                room_events.push_events([sync_timeline_event!({
+                    "sender": "b@z.h",
+                    "type": "m.room.message",
+                    "event_id": "$ida",
+                    "origin_server_ts": 12344446,
+                    "content": { "body":"yolo", "msgtype": "m.text" },
+                })
+                .into()]);
+            }
 
             // If I don't wait for the backpagination token,
             let found = room_event_cache.oldest_backpagination_token(None).await.unwrap();
@@ -888,39 +879,28 @@ mod tests {
             let room_id = room_id!("!galette:saucisse.bzh");
             client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
 
-            client.event_cache().subscribe().unwrap();
+            let event_cache = client.event_cache();
 
-            let (room_event_cache, _drop_handles) =
-                client.event_cache().for_room(room_id).await.unwrap();
+            event_cache.subscribe().unwrap();
+
+            let (room_event_cache, _drop_handlers) = event_cache.for_room(room_id).await.unwrap();
             let room_event_cache = room_event_cache.unwrap();
 
             let expected_token = PaginationToken("old".to_owned());
 
             // When I have events and multiple gaps, in a room,
-            client
-                .event_cache()
-                .inner
-                .store
-                .lock()
-                .await
-                .append_room_entries(
-                    room_id,
-                    vec![
-                        TimelineEntry::Gap { prev_token: expected_token.clone() },
-                        TimelineEntry::Event(
-                            sync_timeline_event!({
-                                "sender": "b@z.h",
-                                "type": "m.room.message",
-                                "event_id": "$ida",
-                                "origin_server_ts": 12344446,
-                                "content": { "body":"yolo", "msgtype": "m.text" },
-                            })
-                            .into(),
-                        ),
-                    ],
-                )
-                .await
-                .unwrap();
+            {
+                let mut room_events = room_event_cache.inner.events.write().await;
+                room_events.push_gap(Gap { prev_token: expected_token.clone() });
+                room_events.push_events([sync_timeline_event!({
+                    "sender": "b@z.h",
+                    "type": "m.room.message",
+                    "event_id": "$ida",
+                    "origin_server_ts": 12344446,
+                    "content": { "body":"yolo", "msgtype": "m.text" },
+                })
+                .into()]);
+            }
 
             // If I don't wait for a back-pagination token,
             let found = room_event_cache.oldest_backpagination_token(None).await.unwrap();
@@ -958,7 +938,9 @@ mod tests {
             let room_id = room_id!("!galette:saucisse.bzh");
             client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
 
-            client.event_cache().subscribe().unwrap();
+            let event_cache = client.event_cache();
+
+            event_cache.subscribe().unwrap();
 
             let (room_event_cache, _drop_handles) =
                 client.event_cache().for_room(room_id).await.unwrap();
@@ -968,22 +950,15 @@ mod tests {
 
             let before = Instant::now();
             let cloned_expected_token = expected_token.clone();
+            let cloned_room_event_cache = room_event_cache.clone();
             let insert_token_task = spawn(async move {
                 // If a backpagination token is inserted after 400 milliseconds,
                 sleep(Duration::from_millis(400)).await;
 
-                client
-                    .event_cache()
-                    .inner
-                    .store
-                    .lock()
-                    .await
-                    .append_room_entries(
-                        room_id,
-                        vec![TimelineEntry::Gap { prev_token: cloned_expected_token }],
-                    )
-                    .await
-                    .unwrap();
+                {
+                    let mut room_events = cloned_room_event_cache.inner.events.write().await;
+                    room_events.push_gap(Gap { prev_token: cloned_expected_token });
+                }
             });
 
             // Then first I don't get it (if I'm not waiting,)
@@ -1007,5 +982,4 @@ mod tests {
             insert_token_task.await.unwrap();
         }
     }
-    */
 }
