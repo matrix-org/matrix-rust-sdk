@@ -520,10 +520,6 @@ impl Timeline {
     /// * `config` - An attachment configuration object containing details about
     ///   the attachment
     ///
-    /// * `caption` - An optional caption of this attachment
-    ///
-    /// * `formatted` - An optional formatted caption of this attachment
-    ///
     /// like a thumbnail, its size, duration etc.
     #[instrument(skip_all)]
     pub fn send_attachment(

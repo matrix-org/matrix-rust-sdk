@@ -298,8 +298,8 @@ impl Client {
     }
 
     /// Encrypt and upload the file to be read from `reader` and construct an
-    /// attachment message with `body`, `content_type`, `info` and `thumbnail`,
-    /// optionanly with `formatted` and `filename`.
+    /// attachment message with `body`, `content_type`, `info`, optionally with
+    /// `formatted` and `filename` if present in `config`.
     pub(crate) async fn prepare_encrypted_attachment_message(
         &self,
         filename: &str,

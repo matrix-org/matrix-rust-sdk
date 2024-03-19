@@ -1770,7 +1770,7 @@ impl Room {
     ) -> Result<send_message_event::v3::Response> {
         self.ensure_room_joined()?;
 
-        let txn_id = config.txn_id.to_owned();
+        let txn_id = config.txn_id.clone();
         #[cfg(feature = "e2e-encryption")]
         let content = if self.is_encrypted().await? {
             self.client
