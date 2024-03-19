@@ -142,7 +142,7 @@ backoff = { version = "0.4.0", features = ["tokio"] }
 reqwest = { version = "0.11.10", default_features = false, features = ["stream"] }
 tokio = { workspace = true, features = ["fs", "rt", "macros"] }
 tokio-util = "0.7.9"
-wiremock = { version = "0.5.13", optional = true }
+wiremock = { workspace = true, optional = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }

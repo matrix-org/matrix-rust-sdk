@@ -62,4 +62,4 @@ matrix-sdk = { workspace = true, features = ["testing"] }
 matrix-sdk-test = { workspace = true }
 stream_assert = { workspace = true }
 tempfile = "3.3.0"
-wiremock = "0.5.13"
+wiremock = { workspace = true }
