@@ -437,8 +437,7 @@ impl Media {
     }
 
     /// Upload the file bytes in `data` and construct an attachment
-    /// message with `body`, `content_type`, `info`, optionally with
-    /// `formatted` and `filename` if present in `config`
+    /// message.
     pub(crate) async fn prepare_attachment_message(
         &self,
         filename: &str,
