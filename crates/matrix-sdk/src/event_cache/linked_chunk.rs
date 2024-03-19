@@ -408,7 +408,7 @@ impl<Item, Gap, const CAP: usize> LinkedChunk<Item, Gap, CAP> {
     ///
     /// It iterates from the last to the first item.
     pub fn ritems(&self) -> impl Iterator<Item = (ItemPosition, &Item)> {
-        self.ritems_from(self.latest_chunk().identifier().to_last_item_position())
+        self.ritems_from(self.latest_chunk().last_item_position())
             .expect("`ritems_from` cannot fail because at least one empty chunk must exist")
     }
 
@@ -577,14 +577,6 @@ impl ChunkIdentifierGenerator {
 #[repr(transparent)]
 pub struct ChunkIdentifier(u64);
 
-impl ChunkIdentifier {
-    /// Transform the `ChunkIdentifier` into an `ItemPosition` representing the
-    /// last item position.
-    fn to_last_item_position(self) -> ItemPosition {
-        ItemPosition(self, 0)
-    }
-}
-
 /// The position of an item in a [`LinkedChunk`].
 ///
 /// It's a pair of a chunk position and an item index. `(…, 0)` represents
@@ -750,6 +742,23 @@ impl<Item, Gap, const CAPACITY: usize> Chunk<Item, Gap, CAPACITY> {
     /// Get the content of the chunk.
     pub fn content(&self) -> &ChunkContent<Item, Gap> {
         &self.content
+    }
+
+    /// Get the [`ItemPosition`] of the first item.
+    ///
+    /// If it's a `Gap` chunk, the last part of the tuple will always be `0`.
+    pub fn first_item_position(&self) -> ItemPosition {
+        let identifier = self.identifier();
+
+        match &self.content {
+            ChunkContent::Gap(..) => ItemPosition(identifier, 0),
+            ChunkContent::Items(items) => ItemPosition(identifier, items.len() - 1),
+        }
+    }
+
+    /// Get the [`ItemPosition`] of the last item.
+    pub fn last_item_position(&self) -> ItemPosition {
+        ItemPosition(self.identifier(), 0)
     }
 
     /// The length of the chunk, i.e. how many items are in it.
@@ -1468,5 +1477,45 @@ mod tests {
         assert_eq!(linked_chunk.len(), 13);
 
         Ok(())
+    }
+
+    #[test]
+    fn test_chunk_item_positions() {
+        let mut linked_chunk = LinkedChunk::<char, (), 3>::new();
+        linked_chunk.push_items_back(['a', 'b', 'c', 'd', 'e']);
+        linked_chunk.push_gap_back(());
+        linked_chunk.push_items_back(['f']);
+
+        assert_items_eq!(linked_chunk, ['a', 'b', 'c'] ['d', 'e'] [-] ['f']);
+
+        let mut iterator = linked_chunk.chunks();
+
+        // First chunk.
+        {
+            let chunk = iterator.next().unwrap();
+            assert_eq!(chunk.first_item_position(), ItemPosition(ChunkIdentifier(0), 2));
+            assert_eq!(chunk.last_item_position(), ItemPosition(ChunkIdentifier(0), 0));
+        }
+
+        // Second chunk.
+        {
+            let chunk = iterator.next().unwrap();
+            assert_eq!(chunk.first_item_position(), ItemPosition(ChunkIdentifier(1), 1));
+            assert_eq!(chunk.last_item_position(), ItemPosition(ChunkIdentifier(1), 0));
+        }
+
+        // Gap.
+        {
+            let chunk = iterator.next().unwrap();
+            assert_eq!(chunk.first_item_position(), ItemPosition(ChunkIdentifier(2), 0));
+            assert_eq!(chunk.last_item_position(), ItemPosition(ChunkIdentifier(2), 0));
+        }
+
+        // Last chunk.
+        {
+            let chunk = iterator.next().unwrap();
+            assert_eq!(chunk.first_item_position(), ItemPosition(ChunkIdentifier(3), 0));
+            assert_eq!(chunk.last_item_position(), ItemPosition(ChunkIdentifier(3), 0));
+        }
     }
 }
