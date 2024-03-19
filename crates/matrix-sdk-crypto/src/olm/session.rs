@@ -18,7 +18,7 @@ use ruma::{serde::Raw, OwnedDeviceId, OwnedUserId, SecondsSinceUnixEpoch};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::sync::Mutex;
-use tracing::{debug, trace, Span};
+use tracing::{debug, Span};
 use vodozemac::{
     olm::{DecryptionError, OlmMessage, Session as InnerSession, SessionConfig, SessionPickle},
     Curve25519PublicKey,
