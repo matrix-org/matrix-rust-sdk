@@ -3115,6 +3115,7 @@ dependencies = [
  "http",
  "indoc",
  "itertools 0.12.1",
+ "js_option",
  "matrix-sdk-common",
  "matrix-sdk-qrcode",
  "matrix-sdk-test",

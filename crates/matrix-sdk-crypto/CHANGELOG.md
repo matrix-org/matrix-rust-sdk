@@ -14,6 +14,9 @@ Breaking changes:
 - Move `OlmMachine::export_room_keys` to `matrix_sdk_crypto::store::Store`.
   (Call it with `olm_machine.store().export_room_keys(...)`.)
 
+- Add new `dehydrated` property to `olm::account::PickledAccount`.
+  ([#3164](https://github.com/matrix-org/matrix-rust-sdk/pull/3164))
+
 Additions:
 
 - When Olm message decryption fails, report the error code(s) from the failure.

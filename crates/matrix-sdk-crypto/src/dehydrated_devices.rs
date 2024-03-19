@@ -95,7 +95,7 @@ impl DehydratedDevices {
         let user_id = self.inner.user_id();
         let user_identity = self.inner.store().private_identity();
 
-        let account = Account::new(user_id);
+        let account = Account::new_dehydrated(user_id);
         let store = Arc::new(CryptoStoreWrapper::new(user_id, MemoryStore::new()));
 
         let verification_machine = VerificationMachine::new(
@@ -378,6 +378,7 @@ fn expand_pickle_key(key: &[u8; 32], device_id: &DeviceId) -> Box<[u8; 32]> {
 mod tests {
     use std::{collections::BTreeMap, iter};
 
+    use js_option::JsOption;
     use matrix_sdk_test::async_test;
     use ruma::{
         api::client::keys::get_keys::v3::Response as KeysQueryResponse, assign,
@@ -390,7 +391,7 @@ mod tests {
             create_session, get_prepared_machine_test_helper, to_device_requests_to_content,
         },
         olm::OutboundGroupSession,
-        types::events::ToDeviceEvent,
+        types::{events::ToDeviceEvent, DeviceKeys as DeviceKeysType},
         utilities::json_convert,
         EncryptionSettings, OlmMachine,
     };
@@ -476,6 +477,13 @@ mod tests {
         assert!(
             !request.fallback_keys.is_empty(),
             "The dehydrated device creation request should contain some fallback keys"
+        );
+
+        let device_keys: DeviceKeysType = request.device_keys.deserialize_as().unwrap();
+        assert_eq!(
+            device_keys.dehydrated,
+            JsOption::Some(true),
+            "The device keys of the dehydrated device should be marked as dehydrated."
         );
     }
 

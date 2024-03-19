@@ -243,6 +243,7 @@ async fn migrate_data(
         user_id: parse_user_id(&data.account.user_id)?,
         device_id: device_id.clone(),
         pickle,
+        dehydrated: false, // dehydrated devices are never involved in migration
         shared: data.account.shared,
         uploaded_signed_key_count: data.account.uploaded_signed_key_count as u64,
         creation_local_time: MilliSecondsSinceUnixEpoch::now(),
