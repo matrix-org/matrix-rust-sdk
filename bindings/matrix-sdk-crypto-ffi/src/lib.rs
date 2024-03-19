@@ -245,7 +245,8 @@ async fn migrate_data(
         pickle,
         shared: data.account.shared,
         uploaded_signed_key_count: data.account.uploaded_signed_key_count as u64,
-        creation_local_time: MilliSecondsSinceUnixEpoch(UInt::default()),
+        creation_local_time: MilliSecondsSinceUnixEpoch::now(),
+        fallback_key_creation_timestamp: Some(MilliSecondsSinceUnixEpoch::now()),
     };
     let account = matrix_sdk_crypto::olm::Account::from_pickle(pickled_account)?;
 
