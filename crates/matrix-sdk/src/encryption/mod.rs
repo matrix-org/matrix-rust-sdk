@@ -36,7 +36,6 @@ use matrix_sdk_base::crypto::{
 use matrix_sdk_common::executor::spawn;
 use ruma::{
     api::client::{
-        backup::add_backup_keys::v3::Response as KeysBackupResponse,
         keys::{
             get_keys, upload_keys, upload_signing_keys::v3::Request as UploadSigningKeysRequest,
         },
@@ -541,25 +540,9 @@ impl Client {
                 let response = self.send(request.clone(), None).await?;
                 self.mark_request_as_sent(r.request_id(), &response).await?;
             }
-            OutgoingRequests::KeysBackup(request) => {
-                let response = self.send_backup_request(request).await?;
-                self.mark_request_as_sent(r.request_id(), &response).await?;
-            }
         }
 
         Ok(())
-    }
-
-    async fn send_backup_request(
-        &self,
-        request: &matrix_sdk_base::crypto::KeysBackupRequest,
-    ) -> Result<KeysBackupResponse> {
-        let request = ruma::api::client::backup::add_backup_keys::v3::Request::new(
-            request.version.clone(),
-            request.rooms.clone(),
-        );
-
-        Ok(self.send(request, None).await?)
     }
 
     pub(crate) async fn send_outgoing_requests(&self) -> Result<()> {

@@ -164,7 +164,6 @@ impl From<OutgoingRequest> for Request {
             },
             RoomMessage(r) => Request::from(r),
             KeysClaim(c) => (r.request_id().to_owned(), c.clone()).into(),
-            KeysBackup(b) => (r.request_id().to_owned(), b.clone()).into(),
         }
     }
 }
