@@ -349,7 +349,7 @@ impl<Item, Gap, const CAP: usize> LinkedChunk<Item, Gap, CAP> {
     where
         P: FnMut(&'a Chunk<Item, Gap, CAP>) -> bool,
     {
-        self.rchunks().find_map(|chunk| predicate(chunk).then_some(chunk.identifier()))
+        self.rchunks().find_map(|chunk| predicate(chunk).then(|| chunk.identifier()))
     }
 
     /// Search for an item, and return its position.
@@ -364,16 +364,14 @@ impl<Item, Gap, const CAP: usize> LinkedChunk<Item, Gap, CAP> {
     ///
     /// It iterates from the last to the first chunk.
     pub fn rchunks(&self) -> LinkedChunkIterBackward<'_, Item, Gap, CAP> {
-        self.rchunks_from(self.latest_chunk().identifier())
-            .expect("`rchunks_from` cannot fail because at least one empty chunk must exist")
+        LinkedChunkIterBackward::new(self.latest_chunk())
     }
 
     /// Iterate over the chunks, forward.
     ///
     /// It iterates from the first to the last chunk.
     pub fn chunks(&self) -> LinkedChunkIter<'_, Item, Gap, CAP> {
-        self.chunks_from(ChunkIdentifierGenerator::FIRST_IDENTIFIER)
-            .expect("`chunks_from` cannot fail because at least one empty chunk must exist")
+        LinkedChunkIter::new(self.first_chunk())
     }
 
     /// Iterate over the chunks, starting from `identifier`, backward.
@@ -417,11 +415,8 @@ impl<Item, Gap, const CAP: usize> LinkedChunk<Item, Gap, CAP> {
     /// It iterates from the first to the last item.
     pub fn items(&self) -> impl Iterator<Item = (ItemPosition, &Item)> {
         let first_chunk = self.first_chunk();
-        let ChunkContent::Items(items) = first_chunk.content() else {
-            unreachable!("The first chunk is necessarily an `Items`");
-        };
 
-        self.items_from(ItemPosition(ChunkIdentifierGenerator::FIRST_IDENTIFIER, items.len()))
+        self.items_from(first_chunk.first_item_position())
             .expect("`items` cannot fail because at least one empty chunk must exist")
     }
 
