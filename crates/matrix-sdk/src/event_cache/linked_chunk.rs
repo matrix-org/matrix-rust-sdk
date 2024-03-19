@@ -270,40 +270,38 @@ impl<Item, Gap, const CAP: usize> LinkedChunk<Item, Gap, CAP> {
 
             debug_assert!(chunk.is_first_chunk().not(), "A gap cannot be the first chunk");
 
-            let (previous, number_of_items) = match &mut chunk.content {
+            let (maybe_last_chunk_ptr, number_of_items) = match &mut chunk.content {
                 ChunkContent::Gap(..) => {
                     let items = items.into_iter();
                     let number_of_items = items.len();
 
-                    // Find the previous chunk…
-                    //
-                    // SAFETY: `unwrap` is safe because we are ensured `chunk` is not the first
-                    // chunk, so a previous chunk always exists.
-                    let previous = chunk.previous_mut().unwrap();
+                    let last_inserted_chunk = chunk
+                        // Insert a new items chunk…
+                        .insert_next(Chunk::new_items_leaked(
+                            chunk_identifier_generator.generate_next().unwrap(),
+                        ))
+                        // … and insert the items.
+                        .push_items(items, &chunk_identifier_generator);
 
-                    // … and insert the items on it.
-                    (previous.push_items(items, &chunk_identifier_generator), number_of_items)
+                    (
+                        last_inserted_chunk.is_last_chunk().then(|| last_inserted_chunk.as_ptr()),
+                        number_of_items,
+                    )
                 }
                 ChunkContent::Items(..) => {
                     return Err(LinkedChunkError::ChunkIsItems { identifier: chunk_identifier })
                 }
             };
 
-            // Get the pointer to `chunk` via `previous`.
-            //
-            // SAFETY: `unwrap` is safe because we are ensured the next of the previous
-            // chunk is `chunk` itself.
-            chunk_ptr = previous.next.unwrap();
-
-            // Get the pointer to the `previous` via `chunk`.
-            let previous_ptr = chunk.previous;
-
             // Now that new items have been pushed, we can unlink the gap chunk.
             chunk.unlink();
 
+            // Get the pointer to `chunk`.
+            chunk_ptr = chunk.as_ptr();
+
             // Update `self.last` if the gap chunk was the last chunk.
-            if chunk.is_last_chunk() {
-                self.last = previous_ptr;
+            if let Some(last_chunk_ptr) = maybe_last_chunk_ptr {
+                self.last = Some(last_chunk_ptr);
             }
 
             self.length += number_of_items;
@@ -1432,10 +1430,10 @@ mod tests {
     #[test]
     fn test_replace_gap_at() -> Result<(), LinkedChunkError> {
         let mut linked_chunk = LinkedChunk::<char, (), 3>::new();
-        linked_chunk.push_items_back(['a', 'b', 'c']);
+        linked_chunk.push_items_back(['a', 'b']);
         linked_chunk.push_gap_back(());
-        linked_chunk.push_items_back(['l', 'm', 'n']);
-        assert_items_eq!(linked_chunk, ['a', 'b', 'c'] [-] ['l', 'm', 'n']);
+        linked_chunk.push_items_back(['l', 'm']);
+        assert_items_eq!(linked_chunk, ['a', 'b'] [-] ['l', 'm']);
 
         // Replace a gap in the middle of the linked chunk.
         {
@@ -1445,7 +1443,7 @@ mod tests {
             linked_chunk.replace_gap_at(['d', 'e', 'f', 'g', 'h'], gap_identifier)?;
             assert_items_eq!(
                 linked_chunk,
-                ['a', 'b', 'c'] ['d', 'e', 'f'] ['g', 'h'] ['l', 'm', 'n']
+                ['a', 'b'] ['d', 'e', 'f'] ['g', 'h'] ['l', 'm']
             );
         }
 
@@ -1454,7 +1452,7 @@ mod tests {
             linked_chunk.push_gap_back(());
             assert_items_eq!(
                 linked_chunk,
-                ['a', 'b', 'c'] ['d', 'e', 'f'] ['g', 'h'] ['l', 'm', 'n'] [-]
+                ['a', 'b'] ['d', 'e', 'f'] ['g', 'h'] ['l', 'm'] [-]
             );
 
             let gap_identifier = linked_chunk.chunk_identifier(Chunk::is_gap).unwrap();
@@ -1463,11 +1461,11 @@ mod tests {
             linked_chunk.replace_gap_at(['w', 'x', 'y', 'z'], gap_identifier)?;
             assert_items_eq!(
                 linked_chunk,
-                ['a', 'b', 'c'] ['d', 'e', 'f'] ['g', 'h'] ['l', 'm', 'n'] ['w', 'x', 'y'] ['z']
+                ['a', 'b'] ['d', 'e', 'f'] ['g', 'h'] ['l', 'm'] ['w', 'x', 'y'] ['z']
             );
         }
 
-        assert_eq!(linked_chunk.len(), 15);
+        assert_eq!(linked_chunk.len(), 13);
 
         Ok(())
     }
