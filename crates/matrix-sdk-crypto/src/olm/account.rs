@@ -17,7 +17,6 @@ use std::{
     fmt,
     ops::{Deref, Not as _},
     sync::Arc,
-    time::Duration,
 };
 
 use js_option::JsOption;
@@ -31,7 +30,7 @@ use ruma::{
     },
     events::AnyToDeviceEvent,
     serde::Raw,
-    DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch, OwnedDeviceId,
+    uint, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch, OwnedDeviceId,
     OwnedDeviceKeyId, OwnedUserId, RoomId, SecondsSinceUnixEpoch, UInt, UserId,
 };
 use serde::{de::Error, Deserialize, Serialize};
@@ -604,20 +603,16 @@ impl Account {
     ///
     /// [1]: https://signal.org/docs/specifications/x3dh/#publishing-keys
     fn fallback_key_expired(&self) -> bool {
-        const FALLBACK_KEY_MAX_AGE: Duration = Duration::from_secs(3600 * 24 * 7);
+        // 604800000 = 3600 * 24 * 7 * 1000 (one week in milliseconds)
+        let fallback_key_max_age: UInt = uint!(604800000);
 
         if let Some(time) = self.fallback_creation_timestamp {
-            // `to_system_time()` returns `None` if the the UNIX_EPOCH + `time` doesn't fit
-            // into a i64. This will likely never happen, but let's rotate the
-            // key in case the values are messed up for some other reason.
-            let Some(system_time) = time.to_system_time() else {
-                return true;
-            };
+            let current_time = MilliSecondsSinceUnixEpoch::now();
 
-            // `elapsed()` errors if the `system_time` is in the future, this should mean
+            // If the created time is in the future, this should mean
             // that our clock has changed to the past, let's rotate just in case
             // and then we'll get to a normal time.
-            let Ok(elapsed) = system_time.elapsed() else {
+            if current_time.get() < time.get() {
                 return true;
             };
 
@@ -625,7 +620,7 @@ impl Account {
             // last time we created/rotated a fallback key.
             //
             // If the key is older than a week, then we rotate it.
-            elapsed > FALLBACK_KEY_MAX_AGE
+            current_time.get() - time.get() > fallback_key_max_age
         } else {
             // We never created a fallback key, or we're migrating to the time-based
             // fallback key rotation, so let's generate a new fallback key.
