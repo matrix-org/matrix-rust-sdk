@@ -98,7 +98,7 @@ impl<Item, Gap, const CAP: usize> LinkedChunk<Item, Gap, CAP> {
         if last_chunk.is_first_chunk().not() {
             // Maybe `last_chunk` is the same as the previous `self.last` chunk, but it's
             // OK.
-            self.last = Some(NonNull::from(last_chunk));
+            self.last = Some(last_chunk.as_ptr());
         }
 
         self.length += number_of_items;
@@ -176,7 +176,7 @@ impl<Item, Gap, const CAP: usize> LinkedChunk<Item, Gap, CAP> {
         if chunk.is_first_chunk().not() && chunk.is_last_chunk() {
             // Maybe `chunk` is the same as the previous `self.last` chunk, but it's
             // OK.
-            self.last = Some(NonNull::from(chunk));
+            self.last = Some(chunk.as_ptr());
         }
 
         self.length += number_of_items;
@@ -241,7 +241,7 @@ impl<Item, Gap, const CAP: usize> LinkedChunk<Item, Gap, CAP> {
         if chunk.is_first_chunk().not() && chunk.is_last_chunk() {
             // Maybe `chunk` is the same as the previous `self.last` chunk, but it's
             // OK.
-            self.last = Some(NonNull::from(chunk));
+            self.last = Some(chunk.as_ptr());
         }
 
         Ok(())
@@ -719,6 +719,11 @@ impl<Item, Gap, const CAPACITY: usize> Chunk<Item, Gap, CAPACITY> {
         NonNull::from(Box::leak(chunk_box))
     }
 
+    /// Get the pointer to `Self`.
+    pub fn as_ptr(&self) -> NonNull<Self> {
+        NonNull::from(self)
+    }
+
     /// Check whether this current chunk is a gap chunk.
     pub fn is_gap(&self) -> bool {
         matches!(self.content, ChunkContent::Gap(..))
@@ -848,7 +853,7 @@ impl<Item, Gap, const CAPACITY: usize> Chunk<Item, Gap, CAPACITY> {
         // Link to the new chunk.
         self.next = Some(new_chunk_ptr);
         // Link the new chunk to this one.
-        new_chunk.previous = Some(NonNull::from(self));
+        new_chunk.previous = Some(self.as_ptr());
 
         new_chunk
     }
