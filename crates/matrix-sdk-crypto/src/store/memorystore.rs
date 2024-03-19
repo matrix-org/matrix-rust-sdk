@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::{hash_map::Entry, HashMap, HashSet},
+    collections::{hash_map::Entry, BTreeMap, HashMap, HashSet},
     convert::Infallible,
     sync::{Arc, RwLock as StdRwLock},
     time::{Duration, Instant},
@@ -54,7 +54,7 @@ pub struct MemoryStore {
     account: StdRwLock<Option<Account>>,
     sessions: SessionStore,
     inbound_group_sessions: GroupSessionStore,
-    outbound_group_sessions: StdRwLock<Vec<OutboundGroupSession>>,
+    outbound_group_sessions: StdRwLock<BTreeMap<OwnedRoomId, OutboundGroupSession>>,
     olm_hashes: StdRwLock<HashMap<String, HashSet<String>>>,
     devices: DeviceStore,
     identities: StdRwLock<HashMap<OwnedUserId, ReadOnlyUserIdentities>>,
@@ -122,8 +122,11 @@ impl MemoryStore {
         }
     }
 
-    fn save_outbound_group_sessions(&self, mut sessions: Vec<OutboundGroupSession>) {
-        self.outbound_group_sessions.write().unwrap().append(&mut sessions);
+    fn save_outbound_group_sessions(&self, sessions: Vec<OutboundGroupSession>) {
+        self.outbound_group_sessions
+            .write()
+            .unwrap()
+            .extend(sessions.into_iter().map(|s| (s.room_id().to_owned(), s)));
     }
 }
 
@@ -308,13 +311,7 @@ impl CryptoStore for MemoryStore {
         &self,
         room_id: &RoomId,
     ) -> Result<Option<OutboundGroupSession>> {
-        Ok(self
-            .outbound_group_sessions
-            .read()
-            .unwrap()
-            .iter()
-            .find(|session| session.room_id() == room_id)
-            .cloned())
+        Ok(self.outbound_group_sessions.read().unwrap().get(room_id).cloned())
     }
 
     async fn load_tracked_users(&self) -> Result<Vec<TrackedUser>> {
