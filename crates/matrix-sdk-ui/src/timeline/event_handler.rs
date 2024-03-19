@@ -396,7 +396,9 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 // wouldn't normally be visible. Remove it.
                 trace!("Removing UTD that was successfully retried");
                 self.items.remove(idx);
-                self.maybe_adjust_date_dividers(); // TODO add test?
+
+                let mut adjuster = DayDividerAdjuster { items: self.items, meta: self.meta };
+                adjuster.maybe_adjust_date_dividers(); // TODO add test?
 
                 self.result.item_removed = true;
             }
@@ -924,7 +926,11 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
                         trace!(idx, "Replacing existing event");
                         self.items.set(idx, TimelineItem::new(item, old_item_id));
-                        self.maybe_adjust_date_dividers();
+
+                        let mut adjuster =
+                            DayDividerAdjuster { items: self.items, meta: self.meta };
+                        adjuster.maybe_adjust_date_dividers();
+
                         return;
                     }
 
@@ -999,7 +1005,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
         // TODO: it may be a bit expensive to run it on each add, try to group.
         // TODO: move it to `handle_event`?
-        self.maybe_adjust_date_dividers();
+        let mut adjuster = DayDividerAdjuster { items: self.items, meta: self.meta };
+        adjuster.maybe_adjust_date_dividers();
 
         // If we don't have a read marker item, look if we need to add one now.
         if !self.meta.has_up_to_date_read_marker_item {
@@ -1007,6 +1014,65 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         }
     }
 
+    fn pending_reactions(&mut self) -> Option<BundledReactions> {
+        match &self.ctx.flow {
+            Flow::Local { .. } => None,
+            Flow::Remote { event_id, .. } => {
+                let reactions = self.meta.reactions.pending.remove(event_id)?;
+                let mut bundled = IndexMap::new();
+
+                for reaction_event_id in reactions {
+                    let reaction_id = EventItemIdentifier::EventId(reaction_event_id);
+                    let Some((reaction_sender_data, annotation)) =
+                        self.meta.reactions.map.get(&reaction_id)
+                    else {
+                        error!(
+                            "inconsistent state: reaction from pending_reactions not in reaction_map"
+                        );
+                        continue;
+                    };
+
+                    let group: &mut ReactionGroup =
+                        bundled.entry(annotation.key.clone()).or_default();
+                    group.0.insert(reaction_id, reaction_sender_data.clone());
+                }
+
+                Some(bundled)
+            }
+        }
+    }
+
+    /// Updates the given timeline item.
+    ///
+    /// Returns true iff the item has been found (not necessarily updated),
+    /// false if it's not been found.
+    fn update_timeline_item(
+        &mut self,
+        event_id: &EventId,
+        update: impl FnOnce(&Self, &EventTimelineItem) -> Option<EventTimelineItem>,
+    ) -> bool {
+        if let Some((idx, item)) = rfind_event_by_id(self.items, event_id) {
+            trace!("Found timeline item to update");
+            if let Some(new_item) = update(self, item.inner) {
+                trace!("Updating item");
+                self.items.set(idx, TimelineItem::new(new_item, item.internal_id));
+                self.result.items_updated += 1;
+            }
+            true
+        } else {
+            false
+        }
+    }
+}
+
+/// Algorithm ensuring that day dividers are adjusted correctly, according to new items that have
+/// been inserted.
+pub(super) struct DayDividerAdjuster<'a, 'o> {
+    items: &'a mut ObservableVectorTransaction<'o, Arc<TimelineItem>>,
+    meta: &'a mut TimelineInnerMetadata,
+}
+
+impl<'a, 'o> DayDividerAdjuster<'a, 'o> {
     /// Ensures that date separators are properly inserted/removed when needs
     /// be.
     fn maybe_adjust_date_dividers(&mut self) {
@@ -1209,56 +1275,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     prev_day_divider_ts = Some(*ts);
                 }
             }
-        }
-    }
-
-    fn pending_reactions(&mut self) -> Option<BundledReactions> {
-        match &self.ctx.flow {
-            Flow::Local { .. } => None,
-            Flow::Remote { event_id, .. } => {
-                let reactions = self.meta.reactions.pending.remove(event_id)?;
-                let mut bundled = IndexMap::new();
-
-                for reaction_event_id in reactions {
-                    let reaction_id = EventItemIdentifier::EventId(reaction_event_id);
-                    let Some((reaction_sender_data, annotation)) =
-                        self.meta.reactions.map.get(&reaction_id)
-                    else {
-                        error!(
-                            "inconsistent state: reaction from pending_reactions not in reaction_map"
-                        );
-                        continue;
-                    };
-
-                    let group: &mut ReactionGroup =
-                        bundled.entry(annotation.key.clone()).or_default();
-                    group.0.insert(reaction_id, reaction_sender_data.clone());
-                }
-
-                Some(bundled)
-            }
-        }
-    }
-
-    /// Updates the given timeline item.
-    ///
-    /// Returns true iff the item has been found (not necessarily updated),
-    /// false if it's not been found.
-    fn update_timeline_item(
-        &mut self,
-        event_id: &EventId,
-        update: impl FnOnce(&Self, &EventTimelineItem) -> Option<EventTimelineItem>,
-    ) -> bool {
-        if let Some((idx, item)) = rfind_event_by_id(self.items, event_id) {
-            trace!("Found timeline item to update");
-            if let Some(new_item) = update(self, item.inner) {
-                trace!("Updating item");
-                self.items.set(idx, TimelineItem::new(new_item, item.internal_id));
-                self.result.items_updated += 1;
-            }
-            true
-        } else {
-            false
         }
     }
 }
