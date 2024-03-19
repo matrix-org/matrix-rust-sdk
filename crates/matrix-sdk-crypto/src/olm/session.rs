@@ -81,13 +81,10 @@ impl Session {
     /// * `message` - The Olm message that should be decrypted.
     pub async fn decrypt(&mut self, message: &OlmMessage) -> Result<String, DecryptionError> {
         let mut inner = self.inner.lock().await;
-        Span::current()
-            .record("session", tracing::field::debug(&inner))
-            .record("session_id", inner.session_id());
+        Span::current().record("session_id", inner.session_id());
 
         let plaintext = inner.decrypt(message)?;
-
-        trace!("Decrypted a Olm message");
+        debug!(session=?inner, "Decrypted an Olm message");
 
         let plaintext = String::from_utf8_lossy(&plaintext).to_string();
 
