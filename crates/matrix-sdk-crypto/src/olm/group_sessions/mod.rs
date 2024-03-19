@@ -136,6 +136,11 @@ pub struct BackedUpRoomKey {
 
     /// Chain of Curve25519 keys through which this session was forwarded, via
     /// m.forwarded_room_key events.
+    #[serde(
+        default,
+        deserialize_with = "deserialize_curve_key_vec",
+        serialize_with = "serialize_curve_key_vec"
+    )]
     pub forwarding_curve25519_key_chain: Vec<Curve25519PublicKey>,
 }
 
@@ -243,5 +248,35 @@ impl TryFrom<ForwardedRoomKeyContent> for ExportedRoomKey {
             }),
             ForwardedRoomKeyContent::Unknown(c) => Err(SessionExportError::Algorithm(c.algorithm)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::BackedUpRoomKey;
+
+    #[test]
+    fn test_deserialize_backed_up_key() {
+        let data = json!({
+                "algorithm": "m.megolm.v1.aes-sha2",
+                "room_id": "!room:id",
+                "sender_key": "FOvlmz18LLI3k/llCpqRoKT90+gFF8YhuL+v1YBXHlw",
+                "session_id": "/2K+V777vipCxPZ0gpY9qcpz1DYaXwuMRIu0UEP0Wa0",
+                "session_key": "AQAAAAAclzWVMeWBKH+B/WMowa3rb4ma3jEl6n5W4GCs9ue65CruzD3ihX+85pZ9hsV9Bf6fvhjp76WNRajoJYX0UIt7aosjmu0i+H+07hEQ0zqTKpVoSH0ykJ6stAMhdr6Q4uW5crBmdTTBIsqmoWsNJZKKoE2+ldYrZ1lrFeaJbjBIY/9ivle++74qQsT2dIKWPanKc9Q2Gl8LjESLtFBD9Fmt",
+                "sender_claimed_keys": {
+                    "ed25519": "F4P7f1Z0RjbiZMgHk1xBCG3KC4/Ng9PmxLJ4hQ13sHA"
+                },
+                "forwarding_curve25519_key_chain": ["DBPC2zr6c9qimo9YRFK3RVr0Two/I6ODb9mbsToZN3Q", "bBc/qzZFOOKshMMT+i4gjS/gWPDoKfGmETs9yfw9430"]
+        });
+
+        let backed_up_room_key: BackedUpRoomKey = serde_json::from_value(data)
+            .expect("We should be able to deserialize the backed up room key.");
+        assert_eq!(
+            backed_up_room_key.forwarding_curve25519_key_chain.len(),
+            2,
+            "The number of forwarding Curve25519 chains should be two."
+        );
     }
 }
