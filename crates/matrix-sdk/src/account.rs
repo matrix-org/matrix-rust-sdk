@@ -261,16 +261,16 @@ impl Account {
     /// # async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let client = Client::new(homeserver).await?;
-    /// let profile = client.account().get_current_user_profile().await?;
+    /// let profile = client.account().fetch_user_profile().await?;
     /// println!(
     ///     "You are '{:?}' with avatar '{:?}'",
     ///     profile.displayname, profile.avatar_url
     /// );
     /// # anyhow::Ok(()) };
     /// ```
-    pub async fn get_current_user_profile(&self) -> Result<get_profile::v3::Response> {
+    pub async fn fetch_user_profile(&self) -> Result<get_profile::v3::Response> {
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
-        self.get_profile(user_id).await
+        self.fetch_user_profile_of(user_id).await
     }
 
     /// Get the profile for a given user id
@@ -278,7 +278,10 @@ impl Account {
     /// # Arguments
     ///
     /// * `user_id` the matrix id this function downloads the profile for
-    pub async fn get_profile(&self, user_id: &UserId) -> Result<get_profile::v3::Response> {
+    pub async fn fetch_user_profile_of(
+        &self,
+        user_id: &UserId,
+    ) -> Result<get_profile::v3::Response> {
         let request = get_profile::v3::Request::new(user_id.to_owned());
         Ok(self.client.send(request, Some(RequestConfig::short_retry().force_auth())).await?)
     }
