@@ -44,7 +44,7 @@ use tempfile::{Builder as TempFileBuilder, NamedTempFile, TempDir};
 use tokio::{fs::File as TokioFile, io::AsyncWriteExt};
 
 use crate::{
-    attachment::{AttachmentInfo, Thumbnail},
+    attachment::{AttachmentConfig, AttachmentInfo, Thumbnail},
     futures::SendRequest,
     Client, Result, TransmissionProgress,
 };
@@ -437,17 +437,16 @@ impl Media {
     }
 
     /// Upload the file bytes in `data` and construct an attachment
-    /// message with `body`, `content_type`, `info` and `thumbnail`.
+    /// message.
     pub(crate) async fn prepare_attachment_message(
         &self,
-        body: &str,
+        filename: &str,
         content_type: &Mime,
         data: Vec<u8>,
-        info: Option<AttachmentInfo>,
-        thumbnail: Option<Thumbnail>,
+        config: AttachmentConfig,
         send_progress: SharedObservable<TransmissionProgress>,
     ) -> Result<MessageType> {
-        let upload_thumbnail = self.upload_thumbnail(thumbnail, send_progress.clone());
+        let upload_thumbnail = self.upload_thumbnail(config.thumbnail, send_progress.clone());
 
         let upload_attachment = async move {
             self.upload(content_type, data)
@@ -459,46 +458,65 @@ impl Media {
         let ((thumbnail_source, thumbnail_info), response) =
             try_join(upload_thumbnail, upload_attachment).await?;
 
+        // if config.caption is set, use it as body, and filename as the file name
+        // otherwise, body is the filename, and the filename is not set
+        // https://github.com/tulir/matrix-spec-proposals/blob/body-as-caption/proposals/2530-body-as-caption.md
+        let (body, filename) = match config.caption {
+            Some(caption) => (caption, Some(filename.to_owned())),
+            None => (filename.to_owned(), None),
+        };
+
         let url = response.content_uri;
 
         Ok(match content_type.type_() {
             mime::IMAGE => {
-                let info = assign!(info.map(ImageInfo::from).unwrap_or_default(), {
+                let info = assign!(config.info.map(ImageInfo::from).unwrap_or_default(), {
                     mimetype: Some(content_type.as_ref().to_owned()),
                     thumbnail_source,
                     thumbnail_info,
                 });
                 MessageType::Image(
-                    ImageMessageEventContent::plain(body.to_owned(), url).info(Box::new(info)),
+                    ImageMessageEventContent::plain(body.to_owned(), url)
+                        .info(Box::new(info))
+                        .filename(filename)
+                        .formatted(config.formatted_caption),
                 )
             }
             mime::AUDIO => {
                 let audio_message_event_content =
-                    message::AudioMessageEventContent::plain(body.to_owned(), url);
+                    message::AudioMessageEventContent::plain(body.to_owned(), url)
+                        .filename(filename)
+                        .formatted(config.formatted_caption);
                 MessageType::Audio(update_audio_message_event(
                     audio_message_event_content,
                     content_type,
-                    info,
+                    config.info,
                 ))
             }
             mime::VIDEO => {
-                let info = assign!(info.map(VideoInfo::from).unwrap_or_default(), {
+                let info = assign!(config.info.map(VideoInfo::from).unwrap_or_default(), {
                     mimetype: Some(content_type.as_ref().to_owned()),
                     thumbnail_source,
                     thumbnail_info
                 });
                 MessageType::Video(
-                    VideoMessageEventContent::plain(body.to_owned(), url).info(Box::new(info)),
+                    VideoMessageEventContent::plain(body.to_owned(), url)
+                        .info(Box::new(info))
+                        .filename(filename)
+                        .formatted(config.formatted_caption),
                 )
             }
             _ => {
-                let info = assign!(info.map(FileInfo::from).unwrap_or_default(), {
+                let info = assign!(config.info.map(FileInfo::from).unwrap_or_default(), {
                     mimetype: Some(content_type.as_ref().to_owned()),
                     thumbnail_source,
                     thumbnail_info
                 });
                 MessageType::File(
-                    FileMessageEventContent::plain(body.to_owned(), url).info(Box::new(info)),
+                    FileMessageEventContent::plain(body.to_owned(), url)
+                        .info(Box::new(info))
+                        .filename(filename)
+                        .formatted(config.formatted_caption),
                 )
             }
         })

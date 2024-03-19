@@ -1692,8 +1692,7 @@ impl Room {
     /// [`upload()`] and afterwards the [`send()`].
     ///
     /// # Arguments
-    /// * `body` - A textual representation of the media that is going to be
-    /// uploaded. Usually the file name.
+    /// * `filename` - The file name.
     ///
     /// * `content_type` - The type of the media, this will be used as the
     /// content-type header.
@@ -1718,7 +1717,7 @@ impl Room {
     ///
     /// if let Some(room) = client.get_room(&room_id) {
     ///     room.send_attachment(
-    ///         "My favorite cat",
+    ///         "my_favorite_cat.jpg",
     ///         &mime::IMAGE_JPEG,
     ///         image,
     ///         AttachmentConfig::new(),
@@ -1732,12 +1731,12 @@ impl Room {
     #[instrument(skip_all)]
     pub fn send_attachment<'a>(
         &'a self,
-        body: &'a str,
+        filename: &'a str,
         content_type: &'a Mime,
         data: Vec<u8>,
         config: AttachmentConfig,
     ) -> SendAttachment<'a> {
-        SendAttachment::new(self, body, content_type, data, config)
+        SendAttachment::new(self, filename, content_type, data, config)
     }
 
     /// Prepare and send an attachment to this room.
@@ -1752,8 +1751,7 @@ impl Room {
     /// [`send()`](#method.send).
     ///
     /// # Arguments
-    /// * `body` - A textual representation of the media that is going to be
-    /// uploaded. Usually the file name.
+    /// * `filename` - The file name.
     ///
     /// * `content_type` - The type of the media, this will be used as the
     /// content-type header.
@@ -1764,7 +1762,7 @@ impl Room {
     /// * `config` - Metadata and configuration for the attachment.
     pub(super) async fn prepare_and_send_attachment<'a>(
         &'a self,
-        body: &'a str,
+        filename: &'a str,
         content_type: &'a Mime,
         data: Vec<u8>,
         config: AttachmentConfig,
@@ -1772,29 +1770,22 @@ impl Room {
     ) -> Result<send_message_event::v3::Response> {
         self.ensure_room_joined()?;
 
+        let txn_id = config.txn_id.clone();
         #[cfg(feature = "e2e-encryption")]
         let content = if self.is_encrypted().await? {
             self.client
                 .prepare_encrypted_attachment_message(
-                    body,
+                    filename,
                     content_type,
                     data,
-                    config.info,
-                    config.thumbnail,
+                    config,
                     send_progress,
                 )
                 .await?
         } else {
             self.client
                 .media()
-                .prepare_attachment_message(
-                    body,
-                    content_type,
-                    data,
-                    config.info,
-                    config.thumbnail,
-                    send_progress,
-                )
+                .prepare_attachment_message(filename, content_type, data, config, send_progress)
                 .await?
         };
 
@@ -1802,18 +1793,11 @@ impl Room {
         let content = self
             .client
             .media()
-            .prepare_attachment_message(
-                body,
-                content_type,
-                data,
-                config.info,
-                config.thumbnail,
-                send_progress,
-            )
+            .prepare_attachment_message(filename, content_type, data, config, send_progress)
             .await?;
 
         let mut fut = self.send(RoomMessageEventContent::new(content));
-        if let Some(txn_id) = &config.txn_id {
+        if let Some(txn_id) = &txn_id {
             fut = fut.with_transaction_id(txn_id);
         }
         fut.await

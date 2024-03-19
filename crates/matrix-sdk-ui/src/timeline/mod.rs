@@ -513,21 +513,22 @@ impl Timeline {
     ///
     /// # Arguments
     ///
-    /// * `url` - The url for the file to be sent
+    /// * `filename` - The filename of the file to be sent
     ///
     /// * `mime_type` - The attachment's mime type
     ///
     /// * `config` - An attachment configuration object containing details about
     ///   the attachment
+    ///
     /// like a thumbnail, its size, duration etc.
     #[instrument(skip_all)]
     pub fn send_attachment(
         &self,
-        url: String,
+        filename: String,
         mime_type: Mime,
         config: AttachmentConfig,
     ) -> SendAttachment<'_> {
-        SendAttachment::new(self, url, mime_type, config)
+        SendAttachment::new(self, filename, mime_type, config)
     }
 
     /// Retry sending a message that previously failed to send.
