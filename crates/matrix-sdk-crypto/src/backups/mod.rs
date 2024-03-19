@@ -39,8 +39,7 @@ use crate::{
     olm::{BackedUpRoomKey, ExportedRoomKey, InboundGroupSession, SignedJsonObject},
     store::{BackupDecryptionKey, BackupKeys, Changes, RoomKeyCounts, Store},
     types::{MegolmV1AuthData, RoomKeyBackupInfo, Signatures},
-    CryptoStoreError, Device, KeysBackupRequest, OutgoingRequest, RoomKeyImportResult,
-    SignatureError,
+    CryptoStoreError, Device, KeysBackupRequest, RoomKeyImportResult, SignatureError,
 };
 
 mod keys;
@@ -68,12 +67,6 @@ struct PendingBackup {
     request_id: OwnedTransactionId,
     request: KeysBackupRequest,
     sessions: BTreeMap<OwnedRoomId, BTreeMap<SenderKey, BTreeSet<SessionId>>>,
-}
-
-impl From<PendingBackup> for OutgoingRequest {
-    fn from(b: PendingBackup) -> Self {
-        OutgoingRequest { request_id: b.request_id, request: Arc::new(b.request.into()) }
-    }
 }
 
 /// The result of a signature verification of a signed JSON object.
