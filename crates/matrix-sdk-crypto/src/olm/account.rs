@@ -556,6 +556,12 @@ impl Account {
         Some(key_count as u64)
     }
 
+    /// Generate a new fallback key iff a unpublished one isn't already inside
+    /// of vodozemac and if the currently active one expired.
+    ///
+    /// The former is checked using [`Account::fallback_key().is_empty()`],
+    /// which is a hashmap that gets cleared by the
+    /// [`Account::mark_keys_as_published()`] call.
     pub(crate) fn generate_fallback_key_if_needed(&mut self) {
         if self.inner.fallback_key().is_empty() && self.fallback_key_expired() {
             let removed_fallback_key = self.inner.generate_fallback_key();
