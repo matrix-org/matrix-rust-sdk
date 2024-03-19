@@ -65,7 +65,7 @@ async fn test_initial_events() {
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert_eq!(item.as_event().unwrap().sender(), *ALICE);
 
-    let item = assert_next_matches!(stream, VectorDiff::Insert { index: 0 , value } => value);
+    let item = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
     assert_matches!(&item.kind, TimelineItemKind::Virtual(VirtualTimelineItem::DayDivider(_)));
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
@@ -184,7 +184,7 @@ async fn test_other_state() {
     assert_eq!(content.name, "Alice's room");
     assert_matches!(prev_content, None);
 
-    let day_divider = assert_next_matches!(stream, VectorDiff::Insert { index: 0, value } => value);
+    let day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
     assert!(day_divider.is_day_divider());
 
     timeline.handle_live_redacted_state_event(&ALICE, RedactedRoomTopicEventContent::new()).await;
@@ -313,7 +313,7 @@ async fn test_sanitized() {
         "
     );
 
-    let day_divider = assert_next_matches!(stream, VectorDiff::Insert {index: 0,  value } => value);
+    let day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
     assert!(day_divider.is_day_divider());
 }
 
@@ -335,7 +335,7 @@ async fn test_reply() {
     let first_event_id = first_event.event_id().unwrap();
     let first_event_sender = *ALICE;
 
-    let day_divider = assert_next_matches!(stream, VectorDiff::Insert {index: 0, value } => value);
+    let day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
     assert!(day_divider.is_day_divider());
 
     let reply_formatted_body = format!("\
@@ -390,7 +390,7 @@ async fn test_thread() {
     let first_event = item.as_event().unwrap();
     let first_event_id = first_event.event_id().unwrap();
 
-    let day_divider = assert_next_matches!(stream, VectorDiff::Insert { index: 0, value } => value);
+    let day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
     assert!(day_divider.is_day_divider());
 
     let reply = assign!(RoomMessageEventContent::text_plain("I'm replying in a thread"), {

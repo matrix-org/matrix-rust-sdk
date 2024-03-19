@@ -129,9 +129,7 @@ async fn test_event_filter() {
     assert_matches!(msg.msgtype(), MessageType::Text(_));
     assert!(!msg.is_edited());
 
-    assert_let!(
-        Some(VectorDiff::Insert { index: 0, value: day_divider }) = timeline_stream.next().await
-    );
+    assert_let!(Some(VectorDiff::PushFront { value: day_divider }) = timeline_stream.next().await);
     assert!(day_divider.is_day_divider());
 
     let second_event_id = event_id!("$Ga6Y2l0gKY");
@@ -260,7 +258,7 @@ async fn test_timeline_is_reset_when_a_user_is_ignored_or_unignored() {
     assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
         assert_eq!(value.as_event().unwrap().event_id(), Some(first_event_id));
     });
-    assert_next_matches!(timeline_stream, VectorDiff::Insert { index: 0, value } => {
+    assert_next_matches!(timeline_stream, VectorDiff::PushFront { value } => {
         assert!(value.is_day_divider());
     });
     assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
@@ -326,7 +324,7 @@ async fn test_timeline_is_reset_when_a_user_is_ignored_or_unignored() {
     assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
         assert_eq!(value.as_event().unwrap().event_id(), Some(fourth_event_id));
     });
-    assert_next_matches!(timeline_stream, VectorDiff::Insert { index: 0, value } => {
+    assert_next_matches!(timeline_stream, VectorDiff::PushFront { value } => {
         assert!(value.is_day_divider());
     });
     assert_next_matches!(timeline_stream, VectorDiff::Set { index: 1, value } => {
@@ -396,7 +394,7 @@ async fn test_profile_updates() {
     assert_eq!(event_1_item.event_id(), Some(event_1_id));
     assert_matches!(event_1_item.sender_profile(), TimelineDetails::Unavailable);
 
-    assert_next_matches!(timeline_stream, VectorDiff::Insert { index: 0, value } => {
+    assert_next_matches!(timeline_stream, VectorDiff::PushFront { value } => {
         assert!(value.is_day_divider());
     });
 

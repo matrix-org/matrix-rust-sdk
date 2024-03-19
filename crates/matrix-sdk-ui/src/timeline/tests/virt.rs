@@ -41,7 +41,7 @@ async fn test_day_divider() {
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     item.as_event().unwrap();
 
-    let day_divider = assert_next_matches!(stream, VectorDiff::Insert { index: 0, value } => value);
+    let day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
     assert_let!(VirtualTimelineItem::DayDivider(ts) = day_divider.as_virtual().unwrap());
     let date = Local.timestamp_millis_opt(ts.0.into()).single().unwrap();
     assert_eq!(date.year(), 1970);
@@ -103,7 +103,7 @@ async fn test_update_read_marker() {
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let first_event_id = item.as_event().unwrap().event_id().unwrap().to_owned();
 
-    let day_divider = assert_next_matches!(stream, VectorDiff::Insert { index: 0, value } => value);
+    let day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
     assert!(day_divider.is_day_divider());
 
     timeline.inner.set_fully_read_event(first_event_id.clone()).await;

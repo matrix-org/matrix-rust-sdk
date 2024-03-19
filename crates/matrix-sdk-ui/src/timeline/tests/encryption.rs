@@ -112,7 +112,7 @@ async fn test_retry_message_decryption() {
     );
     assert_eq!(session_id, SESSION_ID);
 
-    let day_divider = assert_next_matches!(stream, VectorDiff::Insert { index: 0, value } => value);
+    let day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
     assert!(day_divider.is_day_divider());
 
     {
@@ -427,7 +427,7 @@ async fn test_retry_message_decryption_highlighted() {
     );
     assert_eq!(session_id, SESSION_ID);
 
-    let day_divider = assert_next_matches!(stream, VectorDiff::Insert { index: 0, value } => value);
+    let day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
     assert!(day_divider.is_day_divider());
 
     let own_user_id = user_id!("@example:matrix.org");

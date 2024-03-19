@@ -79,9 +79,7 @@ async fn test_echo() {
     assert_matches!(item.send_state(), Some(EventSendState::NotSentYet));
     let txn_id = item.transaction_id().unwrap();
 
-    assert_let!(
-        Some(VectorDiff::Insert { index: 0, value: day_divider }) = timeline_stream.next().await
-    );
+    assert_let!(Some(VectorDiff::PushFront { value: day_divider }) = timeline_stream.next().await);
     assert!(day_divider.is_day_divider());
 
     assert_let!(TimelineItemContent::Message(msg) = item.content());
@@ -225,7 +223,7 @@ async fn test_dedup_by_event_id_late() {
     assert_matches!(item.send_state(), Some(EventSendState::NotSentYet));
 
     let day_divider =
-        assert_next_matches!( timeline_stream, VectorDiff::Insert { index: 0, value } => value);
+        assert_next_matches!( timeline_stream, VectorDiff::PushFront { value } => value);
     assert!(day_divider.is_day_divider());
 
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
@@ -246,12 +244,12 @@ async fn test_dedup_by_event_id_late() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
 
     let remote_echo =
-        assert_next_matches!(timeline_stream, VectorDiff::Insert { index: 0, value } => value);
+        assert_next_matches!(timeline_stream, VectorDiff::PushFront { value } => value);
     let item = remote_echo.as_event().unwrap();
     assert_eq!(item.event_id(), Some(event_id));
 
     let day_divider =
-        assert_next_matches!(timeline_stream, VectorDiff::Insert { index: 0, value } => value);
+        assert_next_matches!(timeline_stream, VectorDiff::PushFront { value } => value);
     assert!(day_divider.is_day_divider());
 
     // Local echo and its day divider are removed.
