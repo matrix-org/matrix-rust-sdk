@@ -1055,6 +1055,7 @@ pub(super) struct DayDividerAdjuster<'a, 'o> {
 impl<'a, 'o> DayDividerAdjuster<'a, 'o> {
     /// Ensures that date separators are properly inserted/removed when needs
     /// be.
+    #[instrument(skip(self))]
     pub fn maybe_adjust_day_dividers(&mut self) {
         // We're going to record operations like inserting, replacing and removing day
         // dividers. Since we may remove or insert new items, recorded offsets
