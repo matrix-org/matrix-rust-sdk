@@ -415,7 +415,7 @@ impl<Item, Gap, const CAP: usize> LinkedChunk<Item, Gap, CAP> {
     /// Iterate over the items, forward.
     ///
     /// It iterates from the first to the last item.
-    pub fn items(&self) -> impl Iterator<Item = (ItemPosition, &T)> {
+    pub fn items(&self) -> impl Iterator<Item = (ItemPosition, &Item)> {
         let first_chunk = self.first_chunk();
         let ChunkContent::Items(items) = first_chunk.content() else {
             unreachable!("The first chunk is necessarily an `Items`");
@@ -467,7 +467,7 @@ impl<Item, Gap, const CAP: usize> LinkedChunk<Item, Gap, CAP> {
     }
 
     /// Get the first chunk, as an immutable reference.
-    fn first_chunk(&self) -> &Chunk<T, U, C> {
+    fn first_chunk(&self) -> &Chunk<Item, Gap, CAP> {
         unsafe { self.first.as_ref() }
     }
 
@@ -748,7 +748,7 @@ impl<Item, Gap, const CAPACITY: usize> Chunk<Item, Gap, CAPACITY> {
     }
 
     /// Get the content of the chunk.
-    pub fn content(&self) -> &ChunkContent<T, U> {
+    pub fn content(&self) -> &ChunkContent<Item, Gap> {
         &self.content
     }
 
