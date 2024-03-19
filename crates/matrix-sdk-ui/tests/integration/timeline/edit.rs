@@ -87,9 +87,7 @@ async fn test_edit() {
     assert_matches!(msg.in_reply_to(), None);
     assert!(!msg.is_edited());
 
-    assert_let!(
-        Some(VectorDiff::Insert { index: 0, value: day_divider }) = timeline_stream.next().await
-    );
+    assert_let!(Some(VectorDiff::PushFront { value: day_divider }) = timeline_stream.next().await);
     assert!(day_divider.is_day_divider());
 
     ev_builder.add_joined_room(

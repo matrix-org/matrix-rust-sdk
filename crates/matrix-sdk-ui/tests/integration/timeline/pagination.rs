@@ -81,7 +81,7 @@ async fn test_back_pagination() {
 
     let message = assert_next_matches!(
         timeline_stream,
-        VectorDiff::Insert { index: 0, value } => value
+        VectorDiff::PushFront { value } => value
     );
     assert_let!(TimelineItemContent::Message(msg) = message.as_event().unwrap().content());
     assert_let!(MessageType::Text(text) = msg.msgtype());
@@ -89,13 +89,13 @@ async fn test_back_pagination() {
 
     let day_divider = assert_next_matches!(
         timeline_stream,
-        VectorDiff::Insert { index: 0, value } => value
+        VectorDiff::PushFront { value } => value
     );
     assert!(day_divider.is_day_divider());
 
     let message = assert_next_matches!(
         timeline_stream,
-        VectorDiff::Insert { index: 0, value } => value
+        VectorDiff::PushFront { value } => value
     );
     assert_let!(TimelineItemContent::Message(msg) = message.as_event().unwrap().content());
     assert_let!(MessageType::Text(text) = msg.msgtype());
@@ -104,14 +104,14 @@ async fn test_back_pagination() {
     // The day divider is replaced.
     let day_divider = assert_next_matches!(
         timeline_stream,
-        VectorDiff::Insert { index: 0, value } => value
+        VectorDiff::PushFront { value } => value
     );
     assert!(day_divider.is_day_divider());
     assert_next_matches!(timeline_stream, VectorDiff::Remove { index: 2 });
 
     let message = assert_next_matches!(
         timeline_stream,
-        VectorDiff::Insert { index: 0, value } => value
+        VectorDiff::PushFront {  value } => value
     );
     assert_let!(TimelineItemContent::OtherState(state) = message.as_event().unwrap().content());
     assert_eq!(state.state_key(), "");
@@ -208,7 +208,7 @@ async fn test_back_pagination_highlighted() {
 
     let first = assert_next_matches!(
         timeline_stream,
-        VectorDiff::Insert { index: 0, value } => value
+        VectorDiff::PushFront { value } => value
     );
     let remote_event = first.as_event().unwrap();
     // Own events don't trigger push rules.
@@ -216,13 +216,13 @@ async fn test_back_pagination_highlighted() {
 
     let day_divider = assert_next_matches!(
         timeline_stream,
-        VectorDiff::Insert { index: 0, value } => value
+        VectorDiff::PushFront { value } => value
     );
     assert!(day_divider.is_day_divider());
 
     let second = assert_next_matches!(
         timeline_stream,
-        VectorDiff::Insert { index: 0, value } => value
+        VectorDiff::PushFront { value } => value
     );
     let remote_event = second.as_event().unwrap();
     // `m.room.tombstone` should be highlighted by default.
@@ -230,7 +230,7 @@ async fn test_back_pagination_highlighted() {
 
     let day_divider = assert_next_matches!(
         timeline_stream,
-        VectorDiff::Insert { index: 0, value } => value
+        VectorDiff::PushFront { value } => value
     );
     assert!(day_divider.is_day_divider());
 
@@ -589,7 +589,7 @@ async fn test_empty_chunk() {
 
     let message = assert_next_matches!(
         timeline_stream,
-        VectorDiff::Insert { index: 0, value } => value
+        VectorDiff::PushFront { value } => value
     );
     assert_let!(TimelineItemContent::Message(msg) = message.as_event().unwrap().content());
     assert_let!(MessageType::Text(text) = msg.msgtype());
@@ -597,13 +597,13 @@ async fn test_empty_chunk() {
 
     let day_divider = assert_next_matches!(
         timeline_stream,
-        VectorDiff::Insert { index: 0, value } => value
+        VectorDiff::PushFront { value } => value
     );
     assert!(day_divider.is_day_divider());
 
     let message = assert_next_matches!(
         timeline_stream,
-        VectorDiff::Insert { index: 0, value } => value
+        VectorDiff::PushFront { value } => value
     );
     assert_let!(TimelineItemContent::Message(msg) = message.as_event().unwrap().content());
     assert_let!(MessageType::Text(text) = msg.msgtype());
@@ -611,14 +611,14 @@ async fn test_empty_chunk() {
 
     let day_divider = assert_next_matches!(
         timeline_stream,
-        VectorDiff::Insert { index: 0, value } => value
+        VectorDiff::PushFront { value } => value
     );
     assert!(day_divider.is_day_divider());
     assert_next_matches!(timeline_stream, VectorDiff::Remove { index: 2 });
 
     let message = assert_next_matches!(
         timeline_stream,
-        VectorDiff::Insert { index: 0, value } => value
+        VectorDiff::PushFront { value } => value
     );
     assert_let!(TimelineItemContent::OtherState(state) = message.as_event().unwrap().content());
     assert_eq!(state.state_key(), "");
@@ -695,7 +695,7 @@ async fn test_until_num_items_with_empty_chunk() {
 
     let message = assert_next_matches!(
         timeline_stream,
-        VectorDiff::Insert { index:0, value } => value
+        VectorDiff::PushFront { value } => value
     );
     assert_let!(TimelineItemContent::Message(msg) = message.as_event().unwrap().content());
     assert_let!(MessageType::Text(text) = msg.msgtype());
@@ -703,13 +703,13 @@ async fn test_until_num_items_with_empty_chunk() {
 
     let day_divider = assert_next_matches!(
         timeline_stream,
-        VectorDiff::Insert { index: 0, value } => value
+        VectorDiff::PushFront { value } => value
     );
     assert!(day_divider.is_day_divider());
 
     let message = assert_next_matches!(
         timeline_stream,
-        VectorDiff::Insert { index: 0, value } => value
+        VectorDiff::PushFront { value } => value
     );
     assert_let!(TimelineItemContent::Message(msg) = message.as_event().unwrap().content());
     assert_let!(MessageType::Text(text) = msg.msgtype());
@@ -717,14 +717,14 @@ async fn test_until_num_items_with_empty_chunk() {
 
     let day_divider = assert_next_matches!(
         timeline_stream,
-        VectorDiff::Insert { index: 0, value } => value
+        VectorDiff::PushFront { value } => value
     );
     assert!(day_divider.is_day_divider());
     assert_next_matches!(timeline_stream, VectorDiff::Remove { index: 2 });
 
     let message = assert_next_matches!(
         timeline_stream,
-        VectorDiff::Insert { index: 0, value } => value
+        VectorDiff::PushFront { value } => value
     );
     assert_let!(TimelineItemContent::OtherState(state) = message.as_event().unwrap().content());
     assert_eq!(state.state_key(), "");
@@ -739,14 +739,14 @@ async fn test_until_num_items_with_empty_chunk() {
 
     let day_divider = assert_next_matches!(
         timeline_stream,
-        VectorDiff::Insert { index: 0, value } => value
+        VectorDiff::PushFront { value } => value
     );
     assert!(day_divider.is_day_divider());
     assert_next_matches!(timeline_stream, VectorDiff::Remove { index: 2 });
 
     let message = assert_next_matches!(
         timeline_stream,
-        VectorDiff::Insert { index: 0, value } => value
+        VectorDiff::PushFront { value } => value
     );
     assert_let!(TimelineItemContent::Message(msg) = message.as_event().unwrap().content());
     assert_let!(MessageType::Text(text) = msg.msgtype());

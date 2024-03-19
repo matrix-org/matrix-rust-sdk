@@ -877,7 +877,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 trace!("Adding new remote timeline item at the start");
 
                 let item = self.meta.new_timeline_item(item);
-                self.items.insert(0, item);
+                self.items.push_front(item);
             }
 
             Flow::Remote {
@@ -968,9 +968,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 // pending local echo, or at the start if there is no such item.
                 let insert_idx = latest_event_idx.map_or(0, |idx| idx + 1);
 
-                // Keep push semantics, if we're inserting at the end.
-                let should_push = insert_idx == self.items.len();
-
                 let id = match removed_event_item_id {
                     // If a previous version of the same item (usually a local
                     // echo) was removed and we now need to add it again, reuse
@@ -981,8 +978,12 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
                 trace!("Adding new remote timeline item after all non-pending events");
                 let new_item = TimelineItem::new(item, id);
-                if should_push {
+
+                // Keep push semantics, if we're inserting at the end or at the front.
+                if insert_idx == self.items.len() {
                     self.items.push_back(new_item);
+                } else if insert_idx == 0 {
+                    self.items.push_front(new_item);
                 } else {
                     self.items.insert(insert_idx, new_item);
                 }
@@ -1112,10 +1113,19 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             match op {
                 Operation::Insert(i, ts) => {
                     assert!(i >= max_i);
-                    self.items.insert(
-                        i + offset,
-                        self.meta.new_timeline_item(VirtualTimelineItem::DayDivider(ts)),
-                    );
+
+                    // Keep push semantics, if we're inserting at the front or the back.
+                    let insert_at = i + offset;
+                    let item = self.meta.new_timeline_item(VirtualTimelineItem::DayDivider(ts));
+
+                    if insert_at == 0 {
+                        self.items.push_front(item);
+                    } else if insert_at == self.items.len() {
+                        self.items.push_back(item);
+                    } else {
+                        self.items.insert(insert_at, item);
+                    }
+
                     offset = (offset + 1).min(self.items.len());
                     max_i = i;
                 }

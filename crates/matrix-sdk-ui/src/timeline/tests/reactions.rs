@@ -289,8 +289,8 @@ async fn send_first_message(
     let event_id = item.as_event().unwrap().clone().event_id().unwrap().to_owned();
     let position = timeline.len().await - 1;
 
-    let _day_divider =
-        assert_next_matches!(*stream, VectorDiff::Insert { index: 0, value } => value);
+    let day_divider = assert_next_matches!(*stream, VectorDiff::PushFront { value } => value);
+    assert!(day_divider.is_day_divider());
 
     (event_id, position)
 }

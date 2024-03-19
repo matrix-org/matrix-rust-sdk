@@ -51,9 +51,7 @@ async fn test_remote_echo_full_trip() {
 
     {
         // The day divider comes in late.
-        let (index, day_divider) =
-            assert_next_matches!(stream, VectorDiff::Insert {index,  value } => (index, value));
-        assert_eq!(index, 0);
+        let day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
         assert!(day_divider.is_day_divider());
     }
 
@@ -134,19 +132,17 @@ async fn test_remote_echo_new_position() {
     let txn_id_from_event = item.as_event().unwrap();
     assert_eq!(txn_id, txn_id_from_event.transaction_id().unwrap());
 
-    let day_divider = assert_next_matches!(stream, VectorDiff::Insert { index: 0, value } => value);
+    let day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
     assert!(day_divider.is_day_divider());
 
     // … and another event that comes back before the remote echo
     timeline.handle_live_message_event(&BOB, RoomMessageEventContent::text_plain("test")).await;
 
     // … and is inserted before the local echo item
-    let bob_message = assert_next_matches!(stream, VectorDiff::Insert { index: 0, value } => value);
+    let bob_message = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
     assert!(bob_message.is_remote_event());
 
-    let (day_divider_index, day_divider) =
-        assert_next_matches!(stream, VectorDiff::Insert {index,  value } => (index, value));
-    assert_eq!(day_divider_index, 0);
+    let day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
     assert!(day_divider.is_day_divider());
 
     // When the remote echo comes in…

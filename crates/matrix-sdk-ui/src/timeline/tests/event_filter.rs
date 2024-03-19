@@ -52,8 +52,7 @@ async fn test_default_filter() {
         .handle_live_message_event(&ALICE, RoomMessageEventContent::text_plain("The first message"))
         .await;
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-    let _day_divider =
-        assert_next_matches!(stream, VectorDiff::Insert { index: 0, value } => value);
+    let _day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
     let first_event_id = item.as_event().unwrap().event_id().unwrap();
 
     let edit = assign!(RoomMessageEventContent::text_plain(" * The _edited_ first message"), {
@@ -150,8 +149,7 @@ async fn test_custom_filter() {
         .handle_live_message_event(&ALICE, RoomMessageEventContent::text_plain("The first message"))
         .await;
     let _item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-    let _day_divider =
-        assert_next_matches!(stream, VectorDiff::Insert { index: 0, value } => value);
+    let _day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
 
     timeline
         .handle_live_redacted_message_event(&ALICE, RedactedRoomMessageEventContent::new())

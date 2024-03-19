@@ -132,9 +132,7 @@ async fn test_read_receipts_updates() {
     let first_event = first_item.as_event().unwrap();
     assert!(first_event.read_receipts().is_empty());
 
-    assert_let!(
-        Some(VectorDiff::Insert { index: 0, value: day_divider }) = timeline_stream.next().await
-    );
+    assert_let!(Some(VectorDiff::PushFront { value: day_divider }) = timeline_stream.next().await);
     assert!(day_divider.is_day_divider());
 
     let (own_receipt_event_id, _) = timeline.latest_user_read_receipt(own_user_id).await.unwrap();
@@ -369,9 +367,7 @@ async fn test_read_receipts_updates_on_filtered_events() {
     let event_a = item_a.as_event().unwrap();
     assert!(event_a.read_receipts().is_empty());
 
-    assert_let!(
-        Some(VectorDiff::Insert { index: 0, value: day_divider }) = timeline_stream.next().await
-    );
+    assert_let!(Some(VectorDiff::PushFront { value: day_divider }) = timeline_stream.next().await);
     assert!(day_divider.is_day_divider());
 
     let (own_receipt_event_id, _) = timeline.latest_user_read_receipt(own_user_id).await.unwrap();

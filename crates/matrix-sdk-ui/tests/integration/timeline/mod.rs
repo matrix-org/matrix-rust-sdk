@@ -94,9 +94,7 @@ async fn test_reaction() {
     assert_eq!(event_item.read_receipts().len(), 1);
 
     // The day divider.
-    assert_let!(
-        Some(VectorDiff::Insert { index: 0, value: day_divider }) = timeline_stream.next().await
-    );
+    assert_let!(Some(VectorDiff::PushFront { value: day_divider }) = timeline_stream.next().await);
     assert!(day_divider.is_day_divider());
 
     // The new message is getting the reaction, which implies an implicit read
@@ -203,9 +201,7 @@ async fn test_redacted_message() {
     assert_let!(Some(VectorDiff::PushBack { value: first }) = timeline_stream.next().await);
     assert_matches!(first.as_event().unwrap().content(), TimelineItemContent::RedactedMessage);
 
-    assert_let!(
-        Some(VectorDiff::Insert { index: 0, value: day_divider }) = timeline_stream.next().await
-    );
+    assert_let!(Some(VectorDiff::PushFront { value: day_divider }) = timeline_stream.next().await);
     assert!(day_divider.is_day_divider());
 
     // TODO: After adding raw timeline items, check for one here
@@ -248,9 +244,7 @@ async fn test_read_marker() {
     assert_let!(Some(VectorDiff::PushBack { value: message }) = timeline_stream.next().await);
     assert_matches!(message.as_event().unwrap().content(), TimelineItemContent::Message(_));
 
-    assert_let!(
-        Some(VectorDiff::Insert { index: 0, value: day_divider }) = timeline_stream.next().await
-    );
+    assert_let!(Some(VectorDiff::PushFront { value: day_divider }) = timeline_stream.next().await);
     assert!(day_divider.is_day_divider());
 
     ev_builder.add_joined_room(
@@ -334,9 +328,7 @@ async fn test_sync_highlighted() {
     // Own events don't trigger push rules.
     assert!(!remote_event.is_highlighted());
 
-    assert_let!(
-        Some(VectorDiff::Insert { index: 0, value: day_divider }) = timeline_stream.next().await
-    );
+    assert_let!(Some(VectorDiff::PushFront { value: day_divider }) = timeline_stream.next().await);
     assert!(day_divider.is_day_divider());
 
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(

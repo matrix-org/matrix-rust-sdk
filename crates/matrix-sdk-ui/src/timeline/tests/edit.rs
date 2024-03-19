@@ -52,7 +52,7 @@ async fn test_live_redacted() {
 
     assert_eq!(timeline.inner.items().await.len(), 2);
 
-    let day_divider = assert_next_matches!(stream, VectorDiff::Insert { index: 0, value } => value);
+    let day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
     assert!(day_divider.is_day_divider());
 }
 
@@ -78,7 +78,7 @@ async fn test_live_sanitized() {
     assert_eq!(text.body, "**original** message");
     assert_eq!(text.formatted.as_ref().unwrap().body, "<strong>original</strong> message");
 
-    let day_divider = assert_next_matches!(stream, VectorDiff::Insert { index: 0, value } => value);
+    let day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
     assert!(day_divider.is_day_divider());
 
     let first_event_id = first_event.event_id().unwrap();
@@ -160,6 +160,6 @@ async fn test_aggregated_sanitized() {
     assert_eq!(text.body, "!!edited!! **better** message");
     assert_eq!(text.formatted.as_ref().unwrap().body, " <strong>better</strong> message");
 
-    let day_divider = assert_next_matches!(stream, VectorDiff::Insert { index: 0, value } => value);
+    let day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
     assert!(day_divider.is_day_divider());
 }
