@@ -341,9 +341,9 @@ async fn test_timeline_basic() -> Result<()> {
         assert_timeline_stream! {
             [timeline_stream]
             append    "$x1:bar.org";
-            prepend   --- day divider ---;
-            update[1] "$x1:bar.org";
+            update[0] "$x1:bar.org";
             append    "$x2:bar.org";
+            prepend   --- day divider ---;
         };
     }
 
@@ -387,11 +387,11 @@ async fn test_timeline_duplicated_events() -> Result<()> {
         assert_timeline_stream! {
             [timeline_stream]
             append    "$x1:bar.org";
-            prepend    --- day divider ---;
-            update[1] "$x1:bar.org";
+            update[0] "$x1:bar.org";
             append    "$x2:bar.org";
-            update[2] "$x2:bar.org";
+            update[1] "$x2:bar.org";
             append    "$x3:bar.org";
+            prepend    --- day divider ---;
         };
     }
 
@@ -465,9 +465,9 @@ async fn test_timeline_read_receipts_are_updated_live() -> Result<()> {
         assert_timeline_stream! {
             [timeline_stream]
             append    "$x1:bar.org";
-            prepend   --- day divider ---;
-            update[1] "$x1:bar.org";
+            update[0] "$x1:bar.org";
             append    "$x2:bar.org";
+            prepend   --- day divider ---;
         };
     }
 

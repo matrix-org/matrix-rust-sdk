@@ -397,9 +397,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 trace!("Removing UTD that was successfully retried");
                 self.items.remove(idx);
 
-                let mut adjuster = DayDividerAdjuster { items: self.items, meta: self.meta };
-                adjuster.maybe_adjust_date_dividers(); // TODO add test?
-
                 self.result.item_removed = true;
             }
 
@@ -923,26 +920,14 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     if idx == self.items.len() - 1 {
                         // If the old item is the last one and no day divider
                         // changes need to happen, replace and return early.
-
                         trace!(idx, "Replacing existing event");
                         self.items.set(idx, TimelineItem::new(item, old_item_id));
-
-                        let mut adjuster =
-                            DayDividerAdjuster { items: self.items, meta: self.meta };
-                        adjuster.maybe_adjust_date_dividers();
-
                         return;
                     }
 
                     // In more complex cases, remove the item before re-adding the item.
                     trace!("Removing local echo or duplicate timeline item");
                     removed_event_item_id = Some(self.items.remove(idx).internal_id);
-
-                    assert_ne!(
-                        idx, 0,
-                        "there is never an event item at index 0 because \
-                         the first event item is preceded by a day divider"
-                    );
 
                     // no return here, below code for adding a new event
                     // will run to re-add the removed item
@@ -1002,11 +987,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 self.items.set(*idx, TimelineItem::new(item, id));
             }
         }
-
-        // TODO: it may be a bit expensive to run it on each add, try to group.
-        // TODO: move it to `handle_event`?
-        let mut adjuster = DayDividerAdjuster { items: self.items, meta: self.meta };
-        adjuster.maybe_adjust_date_dividers();
 
         // If we don't have a read marker item, look if we need to add one now.
         if !self.meta.has_up_to_date_read_marker_item {
@@ -1068,14 +1048,14 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 /// Algorithm ensuring that day dividers are adjusted correctly, according to new items that have
 /// been inserted.
 pub(super) struct DayDividerAdjuster<'a, 'o> {
-    items: &'a mut ObservableVectorTransaction<'o, Arc<TimelineItem>>,
-    meta: &'a mut TimelineInnerMetadata,
+    pub items: &'a mut ObservableVectorTransaction<'o, Arc<TimelineItem>>,
+    pub meta: &'a mut TimelineInnerMetadata,
 }
 
 impl<'a, 'o> DayDividerAdjuster<'a, 'o> {
     /// Ensures that date separators are properly inserted/removed when needs
     /// be.
-    fn maybe_adjust_date_dividers(&mut self) {
+    pub fn maybe_adjust_day_dividers(&mut self) {
         // We're going to record operations like inserting, replacing and removing day
         // dividers. Since we may remove or insert new items, recorded offsets
         // will need to be updated, and the list of items must be iterated in
@@ -1225,7 +1205,9 @@ impl<'a, 'o> DayDividerAdjuster<'a, 'o> {
     fn assert_date_divider_invariants(&self) {
         // Assert invariants.
         // 1. The timeline starts with a date separator.
-        assert!(self.items[0].is_day_divider());
+        if let Some(item) = self.items.get(0) {
+            assert!(item.is_day_divider());
+        }
 
         // 2. There are no two date dividers following each other.
         {
@@ -1241,7 +1223,9 @@ impl<'a, 'o> DayDividerAdjuster<'a, 'o> {
         };
 
         // 3. There's no trailing day divider.
-        assert!(!self.items.last().unwrap().is_day_divider());
+        if let Some(last) = self.items.last() {
+            assert!(!last.is_day_divider());
+        }
 
         // 4. Items are properly separated with day dividers.
         {

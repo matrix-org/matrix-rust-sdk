@@ -65,11 +65,11 @@ async fn test_initial_events() {
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert_eq!(item.as_event().unwrap().sender(), *ALICE);
 
-    let item = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
-    assert_matches!(&item.kind, TimelineItemKind::Virtual(VirtualTimelineItem::DayDivider(_)));
-
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert_eq!(item.as_event().unwrap().sender(), *BOB);
+
+    let item = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
+    assert_matches!(&item.kind, TimelineItemKind::Virtual(VirtualTimelineItem::DayDivider(_)));
 }
 
 #[async_test]
@@ -257,6 +257,7 @@ async fn test_dedup_initial() {
 
     let timeline_items = timeline.inner.items().await;
     assert_eq!(timeline_items.len(), 4);
+
     assert!(timeline_items[0].is_day_divider());
 
     let event1 = &timeline_items[1];
@@ -270,9 +271,9 @@ async fn test_dedup_initial() {
 
     // Make sure we reused IDs when deduplicating events
     assert_eq!(event1.unique_id(), 0);
-    // 1 is for the day divider.
-    assert_eq!(event2.unique_id(), 2);
-    assert_eq!(event3.unique_id(), 3);
+    assert_eq!(event2.unique_id(), 1);
+    assert_eq!(event3.unique_id(), 2);
+    assert_eq!(timeline_items[0].unique_id(), 3);
 }
 
 #[async_test]

@@ -93,14 +93,10 @@ async fn test_reaction() {
     assert_matches!(event_item.content(), TimelineItemContent::Message(_));
     assert_eq!(event_item.read_receipts().len(), 1);
 
-    // The day divider.
-    assert_let!(Some(VectorDiff::PushFront { value: day_divider }) = timeline_stream.next().await);
-    assert!(day_divider.is_day_divider());
-
     // The new message is getting the reaction, which implies an implicit read
     // receipt that's obtained first.
     assert_let!(
-        Some(VectorDiff::Set { index: 1, value: updated_message }) = timeline_stream.next().await
+        Some(VectorDiff::Set { index: 0, value: updated_message }) = timeline_stream.next().await
     );
     let event_item = updated_message.as_event().unwrap();
     assert_let!(TimelineItemContent::Message(msg) = event_item.content());
@@ -110,7 +106,7 @@ async fn test_reaction() {
 
     // Then the reaction is taken into account.
     assert_let!(
-        Some(VectorDiff::Set { index: 1, value: updated_message }) = timeline_stream.next().await
+        Some(VectorDiff::Set { index: 0, value: updated_message }) = timeline_stream.next().await
     );
     let event_item = updated_message.as_event().unwrap();
     assert_let!(TimelineItemContent::Message(msg) = event_item.content());
@@ -121,6 +117,10 @@ async fn test_reaction() {
     assert_eq!(group.len(), 1);
     let senders: Vec<_> = group.senders().map(|v| &v.sender_id).collect();
     assert_eq!(senders.as_slice(), [user_id!("@bob:example.org")]);
+
+    // The day divider.
+    assert_let!(Some(VectorDiff::PushFront { value: day_divider }) = timeline_stream.next().await);
+    assert!(day_divider.is_day_divider());
 
     // TODO: After adding raw timeline items, check for one here
 
