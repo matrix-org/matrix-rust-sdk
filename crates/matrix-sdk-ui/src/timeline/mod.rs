@@ -153,7 +153,8 @@ impl Timeline {
         TimelineBuilder::new(room)
     }
 
-    fn room(&self) -> &Room {
+    /// Returns the room for this timeline.
+    pub fn room(&self) -> &Room {
         self.inner.room()
     }
 
