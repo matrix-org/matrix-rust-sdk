@@ -37,8 +37,8 @@ use crate::{
     events::SyncTimelineEventWithoutContent,
     timeline::{
         event_handler::{
-            Flow, HandleEventResult, TimelineEventContext, TimelineEventHandler, TimelineEventKind,
-            TimelineItemPosition,
+            DayDividerAdjuster, Flow, HandleEventResult, TimelineEventContext,
+            TimelineEventHandler, TimelineEventKind, TimelineItemPosition,
         },
         event_item::EventItemIdentifier,
         polls::PollPendingEvents,
@@ -185,6 +185,9 @@ impl TimelineInnerState {
         let mut txn = self.transaction();
         TimelineEventHandler::new(&mut txn, ctx)
             .handle_event(TimelineEventKind::Message { content, relations: Default::default() });
+
+        txn.maybe_adjust_day_dividers();
+
         txn.commit();
     }
 
@@ -226,6 +229,8 @@ impl TimelineInnerState {
                     .handle_event(TimelineEventKind::Redaction { redacts: event_id, content });
             }
         }
+
+        txn.maybe_adjust_day_dividers();
 
         txn.commit();
     }
@@ -272,6 +277,8 @@ impl TimelineInnerState {
                 offset += 1;
             }
         }
+
+        txn.maybe_adjust_day_dividers();
 
         txn.commit();
     }
@@ -443,6 +450,8 @@ impl TimelineInnerStateTransaction<'_> {
             total.items_added += handle_one_res.item_added as u64;
             total.items_updated += handle_one_res.items_updated as u64;
         }
+
+        self.maybe_adjust_day_dividers();
 
         total
     }
@@ -674,6 +683,14 @@ impl TimelineInnerStateTransaction<'_> {
 
             self.maybe_add_implicit_read_receipt(event_meta);
         }
+    }
+
+    /// Inserts/removes any day dividers that might be missing or superfluous, according to the
+    /// events we just handled.
+    fn maybe_adjust_day_dividers(&mut self) {
+        let mut adjuster = DayDividerAdjuster { items: &mut self.items, meta: &mut self.meta };
+
+        adjuster.maybe_adjust_day_dividers();
     }
 }
 

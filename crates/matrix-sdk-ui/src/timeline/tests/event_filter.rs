@@ -292,7 +292,7 @@ async fn test_event_type_filter_exclude_messages() {
         )
         .await;
 
-    // The timeline should contain everything except for the message event
+    // The timeline should contain everything except for the message event.
     let event_items: Vec<Arc<TimelineItem>> = timeline.get_event_items().await;
     let text_message_items_count = event_items.iter().filter(is_text_message_item).count();
     let room_name_items_count = event_items.iter().filter(is_room_name_item).count();

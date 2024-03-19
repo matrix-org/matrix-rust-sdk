@@ -258,17 +258,17 @@ async fn test_timeline_is_reset_when_a_user_is_ignored_or_unignored() {
     assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
         assert_eq!(value.as_event().unwrap().event_id(), Some(first_event_id));
     });
-    assert_next_matches!(timeline_stream, VectorDiff::PushFront { value } => {
-        assert!(value.is_day_divider());
-    });
     assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
         assert_eq!(value.as_event().unwrap().event_id(), Some(second_event_id));
     });
-    assert_next_matches!(timeline_stream, VectorDiff::Set { index: 1, value } => {
+    assert_next_matches!(timeline_stream, VectorDiff::Set { index: 0, value } => {
         assert_eq!(value.as_event().unwrap().event_id(), Some(first_event_id));
     });
     assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
         assert_eq!(value.as_event().unwrap().event_id(), Some(third_event_id));
+    });
+    assert_next_matches!(timeline_stream, VectorDiff::PushFront { value } => {
+        assert!(value.is_day_divider());
     });
     assert_pending!(timeline_stream);
 
@@ -324,14 +324,14 @@ async fn test_timeline_is_reset_when_a_user_is_ignored_or_unignored() {
     assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
         assert_eq!(value.as_event().unwrap().event_id(), Some(fourth_event_id));
     });
-    assert_next_matches!(timeline_stream, VectorDiff::PushFront { value } => {
-        assert!(value.is_day_divider());
-    });
-    assert_next_matches!(timeline_stream, VectorDiff::Set { index: 1, value } => {
+    assert_next_matches!(timeline_stream, VectorDiff::Set { index: 0, value } => {
         assert_eq!(value.as_event().unwrap().event_id(), Some(fourth_event_id));
     });
     assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
         assert_eq!(value.as_event().unwrap().event_id(), Some(fiveth_event_id));
+    });
+    assert_next_matches!(timeline_stream, VectorDiff::PushFront { value } => {
+        assert!(value.is_day_divider());
     });
     assert_pending!(timeline_stream);
 }
@@ -394,14 +394,14 @@ async fn test_profile_updates() {
     assert_eq!(event_1_item.event_id(), Some(event_1_id));
     assert_matches!(event_1_item.sender_profile(), TimelineDetails::Unavailable);
 
-    assert_next_matches!(timeline_stream, VectorDiff::PushFront { value } => {
-        assert!(value.is_day_divider());
-    });
-
     let item_2 = assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
     let event_2_item = item_2.as_event().unwrap();
     assert_eq!(event_2_item.event_id(), Some(event_2_id));
     assert_matches!(event_2_item.sender_profile(), TimelineDetails::Unavailable);
+
+    assert_next_matches!(timeline_stream, VectorDiff::PushFront { value } => {
+        assert!(value.is_day_divider());
+    });
 
     assert_pending!(timeline_stream);
 
