@@ -261,18 +261,29 @@ impl Account {
     /// # async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let client = Client::new(homeserver).await?;
-    /// let profile = client.account().get_profile().await?;
+    /// let profile = client.account().fetch_user_profile().await?;
     /// println!(
     ///     "You are '{:?}' with avatar '{:?}'",
     ///     profile.displayname, profile.avatar_url
     /// );
     /// # anyhow::Ok(()) };
     /// ```
-    pub async fn get_profile(&self) -> Result<get_profile::v3::Response> {
+    pub async fn fetch_user_profile(&self) -> Result<get_profile::v3::Response> {
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
+        self.fetch_user_profile_of(user_id).await
+    }
+
+    /// Get the profile for a given user id
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` the matrix id this function downloads the profile for
+    pub async fn fetch_user_profile_of(
+        &self,
+        user_id: &UserId,
+    ) -> Result<get_profile::v3::Response> {
         let request = get_profile::v3::Request::new(user_id.to_owned());
-        let request_config = self.client.request_config().force_auth();
-        Ok(self.client.send(request, Some(request_config)).await?)
+        Ok(self.client.send(request, Some(RequestConfig::short_retry().force_auth())).await?)
     }
 
     /// Change the password of the account.

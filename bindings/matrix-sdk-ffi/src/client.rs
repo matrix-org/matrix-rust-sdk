@@ -662,7 +662,7 @@ impl Client {
     pub fn get_profile(&self, user_id: String) -> Result<UserProfile, ClientError> {
         RUNTIME.block_on(async move {
             let owned_user_id = UserId::parse(user_id.clone())?;
-            let response = self.inner.get_profile(&owned_user_id).await?;
+            let response = self.inner.account().fetch_user_profile_of(&owned_user_id).await?;
 
             let user_profile = UserProfile {
                 user_id,
