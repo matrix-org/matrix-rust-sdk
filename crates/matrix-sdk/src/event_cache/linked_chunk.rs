@@ -369,7 +369,7 @@ impl<Item, Gap, const CAP: usize> LinkedChunk<Item, Gap, CAP> {
         }
     }
 
-    /// Search backward for a chunk, and return its identifier.
+    /// Search backwards for a chunk, and return its identifier.
     pub fn chunk_identifier<'a, P>(&'a self, mut predicate: P) -> Option<ChunkIdentifier>
     where
         P: FnMut(&'a Chunk<Item, Gap, CAP>) -> bool,
@@ -377,7 +377,7 @@ impl<Item, Gap, const CAP: usize> LinkedChunk<Item, Gap, CAP> {
         self.rchunks().find_map(|chunk| predicate(chunk).then(|| chunk.identifier()))
     }
 
-    /// Search backward for an item, and return its position.
+    /// Search backwards for an item, and return its position.
     pub fn item_position<'a, P>(&'a self, mut predicate: P) -> Option<Position>
     where
         P: FnMut(&'a Item) -> bool,
@@ -385,7 +385,7 @@ impl<Item, Gap, const CAP: usize> LinkedChunk<Item, Gap, CAP> {
         self.ritems().find_map(|(item_position, item)| predicate(item).then_some(item_position))
     }
 
-    /// Iterate over the chunks, backward.
+    /// Iterate over the chunks, backwards.
     ///
     /// It iterates from the last to the first chunk.
     pub fn rchunks(&self) -> LinkedChunkIterBackward<'_, Item, Gap, CAP> {
