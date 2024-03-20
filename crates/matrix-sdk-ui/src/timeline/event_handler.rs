@@ -1057,10 +1057,6 @@ impl<'a, 'o> DayDividerAdjuster<'a, 'o> {
     /// be.
     #[instrument(skip(self))]
     pub fn maybe_adjust_day_dividers(&mut self) {
-        // We're going to record operations like inserting, replacing and removing day
-        // dividers. Since we may remove or insert new items, recorded offsets
-        // will need to be updated, and the list of items must be iterated in
-        // non-decreasing order.
 
         #[derive(Debug)]
         enum Operation {
@@ -1068,6 +1064,16 @@ impl<'a, 'o> DayDividerAdjuster<'a, 'o> {
             Replace(usize, MilliSecondsSinceUnixEpoch),
             Remove(usize),
         }
+        // We're going to record vector operations like inserting, replacing and
+        // removing day dividers. Since we may remove or insert new items,
+        // recorded offsets will change as we're iterating over the array. The
+        // only way this is possible is because we're recording operations
+        // happening in non-decreasing order of the indices, i.e. we can't do an
+        // operation onindex I and then on any index J<I later.
+        //
+        // Note we can't just iterate in reverse order, because we may have a
+        // `Remove(i)` followed by a `Replace((i+1) -1)`, which wouldn't do what
+        // we want, if running in reverse order.
 
         let mut ops = vec![];
 
@@ -1105,27 +1111,26 @@ impl<'a, 'o> DayDividerAdjuster<'a, 'o> {
             if let Some(event) = item.as_event() {
                 // It's an event.
                 let ts = event.timestamp();
+                let event_date = timestamp_to_date(ts);
 
                 if let Some((prev_item, prev_ts)) = prev_item {
                     if prev_item.is_day_divider() {
                         // The event is preceded by a day divider.
-                        if timestamp_to_date(prev_ts) != timestamp_to_date(ts) {
+                        if timestamp_to_date(prev_ts) != event_date {
                             // The day divider is wrong. Should we replace it with the correct
                             // value, or remove it entirely?
-                            //
-                            // Look at the previous event timestamp: if they became the same value,
-                            // remove the divider entirely. Otherwise, they show different values,
-                            // so keep the day divider but adjust its value.
                             if last_event_ts.map_or(
                                 false,
                                 |last_event_ts: MilliSecondsSinceUnixEpoch| {
-                                    timestamp_to_date(last_event_ts) == timestamp_to_date(ts)
+                                    timestamp_to_date(last_event_ts) == event_date
                                 },
                             ) {
-                                // Remove
+                                // There's a previous event with the same date: remove the divider.
                                 trace!("removed day divider @ {i} between two events that have the same date");
                                 ops.push(Operation::Remove(i - 1));
                             } else {
+                                // There's no previous event or there's one with a different date:
+                                // replace the current divider.
                                 trace!("replacing day divider @ {i} with new timestamp from event");
                                 ops.push(Operation::Replace(i - 1, ts));
                             }
@@ -1151,13 +1156,10 @@ impl<'a, 'o> DayDividerAdjuster<'a, 'o> {
             }
         }
 
-        #[cfg(debug)]
+        //#[cfg(debug)]
         let initial_state = Some(self.items.iter().cloned().collect());
-        #[cfg(not(debug))]
-        let initial_state = None;
-
         // Record the deletion offset.
-        let mut offset = 0;
+        let mut offset = 0i64;
         // Remember what the maximum index was, so we can assert that it's
         // non-decreasing.
         let mut max_i = 0;
@@ -1168,41 +1170,52 @@ impl<'a, 'o> DayDividerAdjuster<'a, 'o> {
                     assert!(i >= max_i);
 
                     // Keep push semantics, if we're inserting at the front or the back.
-                    let insert_at = i + offset;
+                    let at = (i64::try_from(i).unwrap() + offset)
+                        .min(i64::try_from(self.items.len()).unwrap());
+                    assert!(at >= 0);
+                    let at = at as usize;
+
                     let item = self.meta.new_timeline_item(VirtualTimelineItem::DayDivider(ts));
 
-                    if insert_at == 0 {
+                    if at == 0 {
                         self.items.push_front(item);
-                    } else if insert_at == self.items.len() {
+                    } else if at == self.items.len() {
                         self.items.push_back(item);
                     } else {
-                        self.items.insert(insert_at, item);
+                        self.items.insert(at, item);
                     }
 
-                    offset = (offset + 1).min(self.items.len());
+                    offset += 1;
                     max_i = i;
                 }
 
                 Operation::Replace(i, ts) => {
                     assert!(i >= max_i);
 
-                    let prev = &self.items[i + offset];
+                    let at = i64::try_from(i).unwrap() + offset;
+                    assert!(at >= 0);
+                    let at = at as usize;
+
+                    let prev = &self.items[at];
                     assert!(prev.is_day_divider(), "we replaced a non day-divider");
 
                     let unique_id = prev.unique_id();
                     let item = TimelineItem::new(VirtualTimelineItem::DayDivider(ts), unique_id);
 
-                    self.items.set(i + offset, item);
+                    self.items.set(at, item);
                     max_i = i;
                 }
 
                 Operation::Remove(i) => {
                     assert!(i >= max_i);
 
-                    let prev = self.items.remove(i + offset);
+                    let at = i64::try_from(i).unwrap() + offset;
+                    assert!(at >= 0);
+
+                    let prev = self.items.remove(at as usize);
                     assert!(prev.is_day_divider(), "we removed a non day-divider");
 
-                    offset = offset.saturating_sub(1);
+                    offset -= 1;
                     max_i = i;
                 }
             }
