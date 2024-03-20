@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{fmt, iter::once, result::Result};
+use std::{fmt, iter::once};
 
 use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
 
@@ -103,16 +103,19 @@ impl RoomEvents {
     ///
     /// Because the `gap_identifier` can represent non-gap chunk, this method
     /// returns a `Result`.
+    ///
+    /// The returned `Chunk` represents the newly created `Chunk` that contains
+    /// the first events.
     pub fn replace_gap_at<I>(
         &mut self,
-        items: I,
+        events: I,
         gap_identifier: ChunkIdentifier,
-    ) -> Result<(), LinkedChunkError>
+    ) -> Result<&Chunk<SyncTimelineEvent, Gap, DEFAULT_CHUNK_CAPACITY>, LinkedChunkError>
     where
         I: IntoIterator<Item = SyncTimelineEvent>,
         I::IntoIter: ExactSizeIterator,
     {
-        self.chunks.replace_gap_at(items, gap_identifier)
+        self.chunks.replace_gap_at(events, gap_identifier)
     }
 
     /// Search for a chunk, and return its identifier.

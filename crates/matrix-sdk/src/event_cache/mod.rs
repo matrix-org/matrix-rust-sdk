@@ -542,6 +542,8 @@ impl RoomEventCacheInner {
             room_events.push_events(events.clone().into_iter());
         }
 
+        // Now that all events have been added, we can trigger the
+        // `pagination_token_notifier`.
         if prev_batch.is_some() {
             self.pagination_token_notifier.notify_one();
         }
@@ -626,17 +628,21 @@ impl RoomEventCacheInner {
 
         // There is a `token`/gap, let's replace it by new events!
         if let Some(gap_identifier) = gap_identifier {
-            // Replace the gap by new events.
-            room_events
-                .replace_gap_at(sync_events, gap_identifier)
-                // SAFETY: we are sure that `gap_identifier` represents a valid `ChunkIdentifier`
-                // for a gap.
-                .unwrap();
+            let new_position = {
+                // Replace the gap by new events.
+                let new_chunk = room_events
+                    .replace_gap_at(sync_events, gap_identifier)
+                    // SAFETY: we are sure that `gap_identifier` represents a valid
+                    // `ChunkIdentifier` for a gap.
+                    .unwrap();
+
+                new_chunk.first_position()
+            };
 
             // And insert a new gap if there is any `prev_token`.
             if let Some(prev_token_gap) = prev_token {
                 room_events
-                    .insert_gap_at(prev_token_gap, gap_identifier.into())
+                    .insert_gap_at(prev_token_gap, new_position)
                     // SAFETY: we are sure that `gap_identifier` represents a valid
                     // `ChunkIdentifier` for a gap.
                     .unwrap();
