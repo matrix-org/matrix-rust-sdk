@@ -685,8 +685,8 @@ impl TimelineInnerStateTransaction<'_> {
         }
     }
 
-    /// Inserts/removes any day dividers that might be missing or superfluous, according to the
-    /// events we just handled.
+    /// Inserts/removes any day dividers that might be missing or superfluous,
+    /// according to the events we just handled.
     fn maybe_adjust_day_dividers(&mut self) {
         let mut adjuster = DayDividerAdjuster { items: &mut self.items, meta: &mut self.meta };
 
