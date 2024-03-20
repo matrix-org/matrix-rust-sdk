@@ -94,7 +94,8 @@ impl SearchState {
 /// capability of using a filter and a batch_size. This struct is also
 /// responsible for keeping the current state of the search, and exposing an
 /// update of stream of the results, reset the search, or ask for the next page.
-/// Users must take great care when using the public room search since the
+///
+/// ⚠️ Users must take great care when using the public room search since the
 /// results might contains NSFW content.
 ///
 /// # Example
