@@ -428,11 +428,12 @@ async fn test_reset_while_backpaginating() {
             JoinedRoomBuilder::new(room_id)
                 // Note to self: a timeline must have at least single event to be properly
                 // serialized.
-                .add_timeline_event(event_builder.make_sync_message_event(
+                .add_timeline_event(event_builder.make_sync_message_event_with_id(
                     user_id!("@a:b.c"),
+                    event_id!("$from_first_sync"),
                     RoomMessageEventContent::text_plain("heyo"),
                 ))
-                .set_timeline_prev_batch("first_backpagination".to_owned()),
+                .set_timeline_prev_batch("first_prev_batch_token".to_owned()),
         );
         let response_body = sync_builder.build_json_sync_response();
 
@@ -471,25 +472,27 @@ async fn test_reset_while_backpaginating() {
         JoinedRoomBuilder::new(room_id)
             // Note to self: a timeline must have at least single event to be properly
             // serialized.
-            .add_timeline_event(event_builder.make_sync_message_event(
+            .add_timeline_event(event_builder.make_sync_message_event_with_id(
                 user_id!("@a:b.c"),
+                event_id!("$from_second_sync"),
                 RoomMessageEventContent::text_plain("heyo"),
             ))
-            .set_timeline_prev_batch("second_backpagination".to_owned())
+            .set_timeline_prev_batch("second_prev_batch_token_from_sync".to_owned())
             .set_timeline_limited(),
     );
     let sync_response_body = sync_builder.build_json_sync_response();
 
     // First back-pagination request:
-    let chunk = non_sync_events!(event_builder, [ (room_id, "$2": "lalala") ]);
+    let chunk = non_sync_events!(event_builder, [ (room_id, "$from_backpagination": "lalala") ]);
     let response_json = json!({
         "chunk": chunk,
         "start": "t392-516_47314_0_7_1_1_1_11444_1",
+        "end": "second_prev_batch_token_from_backpagination"
     });
     Mock::given(method("GET"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
         .and(header("authorization", "Bearer 1234"))
-        .and(query_param("from", "first_backpagination"))
+        .and(query_param("from", "first_prev_batch_token"))
         .respond_with(
             ResponseTemplate::new(200)
                 .set_body_json(response_json.clone())
@@ -506,7 +509,11 @@ async fn test_reset_while_backpaginating() {
 
     let rec = room_event_cache.clone();
     let first_token_clone = first_token.clone();
-    let backpagination = spawn(async move { rec.backpaginate(20, first_token_clone).await });
+    let backpagination = spawn(async move {
+        let ret = rec.backpaginate(20, first_token_clone).await;
+
+        ret
+    });
 
     // Receive the sync response (which clears the timeline).
     mock_sync(&server, sync_response_body, None).await;
@@ -514,14 +521,21 @@ async fn test_reset_while_backpaginating() {
 
     let outcome = backpagination.await.expect("join failed").unwrap();
 
-    // Backpagination should be confused, and the operation should result in an
-    // unknown token.
-    assert_matches!(outcome, BackPaginationOutcome::UnknownBackpaginationToken);
+    // Backpagination should have been executed before the sync, despite the
+    // concurrency here. The backpagination should have acquired a write lock before
+    // the sync.
+    {
+        assert_let!(BackPaginationOutcome::Success { events, reached_start } = outcome);
+        assert!(!reached_start);
+        assert_event_matches_msg(&events[0].clone().into(), "lalala");
+        assert_eq!(events.len(), 1);
+    }
 
     // Now if we retrieve the earliest token, it's not the one we had before.
+    // Even better, it's the one from the sync, NOT from the backpagination!
     let second_token = room_event_cache.oldest_backpagination_token(None).await.unwrap().unwrap();
     assert!(first_token.unwrap() != second_token);
-    assert_eq!(second_token.0, "second_backpagination");
+    assert_eq!(second_token.0, "second_prev_batch_token_from_sync");
 }
 
 #[async_test]
