@@ -593,15 +593,14 @@ impl ChunkIdentifierGenerator {
     /// In this case, `Result::Err` contains the previous unique identifier.
     pub fn generate_next(&self) -> Result<ChunkIdentifier, ChunkIdentifier> {
         let previous = self.next.fetch_add(1, Ordering::Relaxed);
-        let current = self.next.load(Ordering::Relaxed);
 
         // Check for overflows.
         // unlikely — TODO: call `std::intrinsics::unlikely` once it's stable.
-        if current < previous {
+        if previous == u64::MAX {
             return Err(ChunkIdentifier(previous));
         }
 
-        Ok(ChunkIdentifier(current))
+        Ok(ChunkIdentifier(previous.saturating_add(1)))
     }
 }
 
