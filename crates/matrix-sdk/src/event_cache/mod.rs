@@ -573,7 +573,9 @@ impl RoomEventCacheInner {
         // Make sure there's at most one back-pagination request.
         let _guard = self.pagination_lock.lock().await;
 
-        // Make sure the `RoomEvents` isn't updated while we are back-paginating.
+        // Make sure the `RoomEvents` isn't updated while we are back-paginating. This
+        // is really important, for example if a sync is happening while we are
+        // back-paginating.
         let mut room_events = self.events.write().await;
 
         // Check that the `token` exists if any.
