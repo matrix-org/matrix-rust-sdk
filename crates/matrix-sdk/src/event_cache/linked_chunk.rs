@@ -241,17 +241,21 @@ impl<Item, Gap, const CAP: usize> LinkedChunk<Item, Gap, CAP> {
     ///
     /// Because the `chunk_identifier` can represent non-gap chunk, this method
     /// returns a `Result`.
+    ///
+    /// The returned `Chunk` represents the newly created `Chunk` that contains
+    /// the first items.
     pub fn replace_gap_at<I>(
         &mut self,
         items: I,
         chunk_identifier: ChunkIdentifier,
-    ) -> Result<(), LinkedChunkError>
+    ) -> Result<&Chunk<Item, Gap, CAP>, LinkedChunkError>
     where
         I: IntoIterator<Item = Item>,
         I::IntoIter: ExactSizeIterator,
     {
         let chunk_identifier_generator = self.chunk_identifier_generator.clone();
         let chunk_ptr;
+        let new_chunk_ptr;
 
         {
             let chunk = self
@@ -269,8 +273,7 @@ impl<Item, Gap, const CAP: usize> LinkedChunk<Item, Gap, CAP> {
                         // Insert a new items chunk…
                         .insert_next(Chunk::new_items_leaked(
                             chunk_identifier_generator.generate_next().unwrap(),
-                        ))
-                        // … and insert the items.
+                        )) // … and insert the items.
                         .push_items(items, &chunk_identifier_generator);
 
                     (
@@ -282,6 +285,11 @@ impl<Item, Gap, const CAP: usize> LinkedChunk<Item, Gap, CAP> {
                     return Err(LinkedChunkError::ChunkIsItems { identifier: chunk_identifier })
                 }
             };
+
+            new_chunk_ptr = chunk
+                .next
+                // SAFETY: A new `Chunk` has just been inserted, so it exists.
+                .unwrap();
 
             // Now that new items have been pushed, we can unlink the gap chunk.
             chunk.unlink();
@@ -305,7 +313,10 @@ impl<Item, Gap, const CAP: usize> LinkedChunk<Item, Gap, CAP> {
         // pointer, which is valid and well aligned.
         let _chunk_boxed = unsafe { Box::from_raw(chunk_ptr.as_ptr()) };
 
-        Ok(())
+        Ok(
+            // SAFETY: `new_chunk_ptr` is valid, non-null and well-aligned.
+            unsafe { new_chunk_ptr.as_ref() },
+        )
     }
 
     /// Get the chunk as a reference, from its identifier, if it exists.
@@ -1445,7 +1456,9 @@ mod tests {
             let gap_identifier = linked_chunk.chunk_identifier(Chunk::is_gap).unwrap();
             assert_eq!(gap_identifier, ChunkIdentifier(1));
 
-            linked_chunk.replace_gap_at(['d', 'e', 'f', 'g', 'h'], gap_identifier)?;
+            let new_chunk =
+                linked_chunk.replace_gap_at(['d', 'e', 'f', 'g', 'h'], gap_identifier)?;
+            assert_eq!(new_chunk.identifier(), ChunkIdentifier(3));
             assert_items_eq!(
                 linked_chunk,
                 ['a', 'b'] ['d', 'e', 'f'] ['g', 'h'] ['l', 'm']
@@ -1463,7 +1476,8 @@ mod tests {
             let gap_identifier = linked_chunk.chunk_identifier(Chunk::is_gap).unwrap();
             assert_eq!(gap_identifier, ChunkIdentifier(5));
 
-            linked_chunk.replace_gap_at(['w', 'x', 'y', 'z'], gap_identifier)?;
+            let new_chunk = linked_chunk.replace_gap_at(['w', 'x', 'y', 'z'], gap_identifier)?;
+            assert_eq!(new_chunk.identifier(), ChunkIdentifier(6));
             assert_items_eq!(
                 linked_chunk,
                 ['a', 'b'] ['d', 'e', 'f'] ['g', 'h'] ['l', 'm'] ['w', 'x', 'y'] ['z']
