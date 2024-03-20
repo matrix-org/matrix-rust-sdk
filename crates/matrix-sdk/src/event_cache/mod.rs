@@ -685,7 +685,7 @@ impl RoomEventCacheInner {
             // (backward). The `RoomEvents` API expects the first event to be the oldest.
             .rev()
             .cloned()
-            .map(|timeline_event| SyncTimelineEvent::from(timeline_event));
+            .map(SyncTimelineEvent::from);
 
         // There is a `token`/gap, let's replace it by new events!
         if let Some(gap_identifier) = gap_identifier {
@@ -755,7 +755,7 @@ impl RoomEventCacheInner {
         max_wait: Option<Duration>,
     ) -> Result<Option<PaginationToken>> {
         // Optimistically try to return the backpagination token immediately.
-        fn get_oldest(room_events: RwLockReadGuard<RoomEvents>) -> Option<PaginationToken> {
+        fn get_oldest(room_events: RwLockReadGuard<'_, RoomEvents>) -> Option<PaginationToken> {
             room_events.chunks().find_map(|chunk| match chunk.content() {
                 ChunkContent::Gap(gap) => Some(gap.prev_token.clone()),
                 ChunkContent::Items(..) => None,

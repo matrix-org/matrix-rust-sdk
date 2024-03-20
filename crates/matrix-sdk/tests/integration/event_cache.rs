@@ -509,11 +509,7 @@ async fn test_reset_while_backpaginating() {
 
     let rec = room_event_cache.clone();
     let first_token_clone = first_token.clone();
-    let backpagination = spawn(async move {
-        let ret = rec.backpaginate(20, first_token_clone).await;
-
-        ret
-    });
+    let backpagination = spawn(async move { rec.backpaginate(20, first_token_clone).await });
 
     // Receive the sync response (which clears the timeline).
     mock_sync(&server, sync_response_body, None).await;
