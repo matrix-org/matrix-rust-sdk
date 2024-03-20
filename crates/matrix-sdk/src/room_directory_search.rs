@@ -90,7 +90,7 @@ impl SearchState {
     }
 }
 
-/// RoomDirectorySearch allows searching the public room directory, with the
+/// `RoomDirectorySearch` allows searching the public room directory, with the
 /// capability of using a filter and a batch_size. This struct is also
 /// responsible for keeping the current state of the search, and exposing an
 /// update of stream of the results, reset the search, or ask for the next page.
