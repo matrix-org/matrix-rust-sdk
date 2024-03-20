@@ -58,6 +58,7 @@ use crate::{
     encryption::Encryption,
     notification::NotificationClientBuilder,
     notification_settings::NotificationSettings,
+    room_directory_search::RoomDirectorySearch,
     sync_service::{SyncService, SyncServiceBuilder},
     task_handle::TaskHandle,
     ClientError,
@@ -739,6 +740,12 @@ impl Client {
                 listener.call(user_ids);
             }
         })))
+    }
+
+    pub fn room_directory_search(&self) -> Arc<RoomDirectorySearch> {
+        Arc::new(RoomDirectorySearch::new(
+            matrix_sdk::room_directory_search::RoomDirectorySearch::new((*self.inner).clone()),
+        ))
     }
 }
 
