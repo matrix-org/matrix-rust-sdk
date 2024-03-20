@@ -3,45 +3,41 @@
 macro_rules! cryptostore_integration_tests {
     () => {
         mod cryptostore_integration_tests {
-            use std::time::Duration;
             use std::collections::{BTreeMap, HashMap};
+            use std::time::Duration;
 
             use assert_matches::assert_matches;
             use matrix_sdk_test::async_test;
             use ruma::{
-                device_id,
-                events::secret::request::SecretName,
-                room_id,
-                serde::Raw,
-                to_device::DeviceIdOrAllDevices,
-                user_id, DeviceId, RoomId, TransactionId, UserId
+                device_id, events::secret::request::SecretName, room_id, serde::Raw,
+                to_device::DeviceIdOrAllDevices, user_id, DeviceId, RoomId, TransactionId, UserId,
             };
             use serde_json::value::to_raw_value;
             use $crate::{
                 olm::{
-                    Curve25519PublicKey, InboundGroupSession, OlmMessageHash,
-                    PrivateCrossSigningIdentity, Account, Session,
+                    Account, Curve25519PublicKey, InboundGroupSession, OlmMessageHash,
+                    PrivateCrossSigningIdentity, Session,
                 },
                 store::{
-                    Changes, CryptoStore, DeviceChanges,
-                    GossipRequest, IdentityChanges, BackupDecryptionKey, RoomSettings, PendingChanges,
+                    BackupDecryptionKey, Changes, CryptoStore, DeviceChanges, GossipRequest,
+                    IdentityChanges, PendingChanges, RoomSettings,
                 },
                 testing::{get_device, get_other_identity, get_own_identity},
                 types::{
                     events::{
                         dummy::DummyEventContent,
+                        olm_v1::{DecryptedSecretSendEvent, OlmV1Keys},
                         room_key_request::MegolmV1AesSha2Content,
                         room_key_withheld::{
                             CommonWithheldCodeContent, MegolmV1AesSha2WithheldContent,
                             RoomKeyWithheldContent, WithheldCode,
                         },
-                        olm_v1::{DecryptedSecretSendEvent, OlmV1Keys},
                         secret_send::SecretSendContent,
                         ToDeviceEvent,
                     },
                     EventEncryptionAlgorithm,
                 },
-                ReadOnlyDevice, SecretInfo, ToDeviceRequest, TrackedUser, GossippedSecret,
+                GossippedSecret, ReadOnlyDevice, SecretInfo, ToDeviceRequest, TrackedUser,
             };
 
             use super::get_store;
@@ -82,13 +78,12 @@ macro_rules! cryptostore_integration_tests {
                 bob.generate_one_time_keys(1);
                 let one_time_key = *bob.one_time_keys().values().next().unwrap();
                 let sender_key = bob.identity_keys().curve25519;
-                let session = alice
-                    .create_outbound_session_helper(
-                        Default::default(),
-                        sender_key,
-                        one_time_key,
-                        false,
-                    );
+                let session = alice.create_outbound_session_helper(
+                    Default::default(),
+                    sender_key,
+                    one_time_key,
+                    false,
+                );
 
                 (alice, session)
             }
@@ -101,7 +96,7 @@ macro_rules! cryptostore_integration_tests {
                 let account = get_account();
 
                 store
-                    .save_pending_changes(PendingChanges { account: Some(account), })
+                    .save_pending_changes(PendingChanges { account: Some(account) })
                     .await
                     .expect("Can't save account");
                 assert!(store.get_static_account().is_some());
@@ -114,7 +109,10 @@ macro_rules! cryptostore_integration_tests {
                 assert!(store.load_account().await.unwrap().is_none());
                 let account = get_account();
 
-                store.save_pending_changes(PendingChanges { account: Some(account), }).await.expect("Can't save account");
+                store
+                    .save_pending_changes(PendingChanges { account: Some(account) })
+                    .await
+                    .expect("Can't save account");
                 assert!(store.get_static_account().is_some());
             }
 
@@ -123,7 +121,10 @@ macro_rules! cryptostore_integration_tests {
                 let store = get_store("load_account", None).await;
                 let account = get_account();
 
-                store.save_pending_changes(PendingChanges { account: Some(account.deep_clone()), }).await.expect("Can't save account");
+                store
+                    .save_pending_changes(PendingChanges { account: Some(account.deep_clone()) })
+                    .await
+                    .expect("Can't save account");
 
                 let loaded_account = store.load_account().await.expect("Can't load account");
                 let loaded_account = loaded_account.unwrap();
@@ -137,7 +138,10 @@ macro_rules! cryptostore_integration_tests {
                     get_store("load_account_with_passphrase", Some("secret_passphrase")).await;
                 let account = get_account();
 
-                store.save_pending_changes(PendingChanges { account: Some(account.deep_clone()), }).await.expect("Can't save account");
+                store
+                    .save_pending_changes(PendingChanges { account: Some(account.deep_clone()) })
+                    .await
+                    .expect("Can't save account");
 
                 let loaded_account = store.load_account().await.expect("Can't load account");
                 let loaded_account = loaded_account.unwrap();
@@ -150,12 +154,18 @@ macro_rules! cryptostore_integration_tests {
                 let store = get_store("save_and_share_account", None).await;
                 let mut account = get_account();
 
-                store.save_pending_changes(PendingChanges { account: Some(account.deep_clone()), }).await.expect("Can't save account");
+                store
+                    .save_pending_changes(PendingChanges { account: Some(account.deep_clone()) })
+                    .await
+                    .expect("Can't save account");
 
                 account.mark_as_shared();
                 account.update_uploaded_key_count(50);
 
-                store.save_pending_changes(PendingChanges { account: Some(account.deep_clone()), }).await.expect("Can't save account");
+                store
+                    .save_pending_changes(PendingChanges { account: Some(account.deep_clone()) })
+                    .await
+                    .expect("Can't save account");
 
                 let loaded_account = store.load_account().await.expect("Can't load account");
                 let loaded_account = loaded_account.unwrap();
@@ -168,7 +178,10 @@ macro_rules! cryptostore_integration_tests {
             async fn load_sessions() {
                 let store = get_store("load_sessions", None).await;
                 let (account, session) = get_account_and_session().await;
-                store.save_pending_changes(PendingChanges { account: Some(account.deep_clone()), }).await.expect("Can't save account");
+                store
+                    .save_pending_changes(PendingChanges { account: Some(account.deep_clone()) })
+                    .await
+                    .expect("Can't save account");
 
                 let changes = Changes { sessions: vec![session.clone()], ..Default::default() };
 
@@ -195,7 +208,12 @@ macro_rules! cryptostore_integration_tests {
                     let sender_key = session.sender_key.to_base64();
                     let session_id = session.session_id().to_owned();
 
-                    store.save_pending_changes(PendingChanges { account: Some(account.deep_clone()), }).await.expect("Can't save account");
+                    store
+                        .save_pending_changes(PendingChanges {
+                            account: Some(account.deep_clone()),
+                        })
+                        .await
+                        .expect("Can't save account");
 
                     let changes = Changes { sessions: vec![session.clone()], ..Default::default() };
                     store.save_changes(changes).await.unwrap();
@@ -236,7 +254,8 @@ macro_rules! cryptostore_integration_tests {
                         "Initially there should be no outbound group session"
                     );
 
-                    let (session, _) = account.create_group_session_pair_with_defaults(&room_id).await;
+                    let (session, _) =
+                        account.create_group_session_pair_with_defaults(&room_id).await;
 
                     let user_id = user_id!("@example:localhost");
                     let request = ToDeviceRequest::new(
@@ -337,7 +356,6 @@ macro_rules! cryptostore_integration_tests {
                     session_info(&sessions[7]),
                     session_info(&sessions[9]),
                 ]).await.expect("Failed to mark sessions as backed up");
-
 
                 // And ask which still need backing up
                 let to_back_up = store.inbound_group_sessions_for_backup(10).await.unwrap();
@@ -909,7 +927,7 @@ macro_rules! cryptostore_integration_tests {
 
             #[async_test]
             async fn backup_keys_saving() {
-                let (account, store) = get_loaded_store("backup_keys_saving").await;
+                let (_account, store) = get_loaded_store("backup_keys_saving").await;
 
                 let restored = store.load_backup_keys().await.unwrap();
                 assert!(restored.decryption_key.is_none(), "Initially no backup decryption key should be present");
