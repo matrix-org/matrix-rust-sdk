@@ -208,7 +208,7 @@ impl<Item, Gap, const CAP: usize> LinkedChunk<Item, Gap, CAP> {
                 .previous_mut()
                 // SAFETY: The `previous` chunk exists because we have tested
                 // `chunk.previous.is_some()` in the `if` statement.
-                .unwrap();
+                .expect("Previous chunk must be present");
 
             previous_chunk.insert_next(Chunk::new_gap_leaked(
                 chunk_identifier_generator.generate_next().unwrap(),
@@ -266,8 +266,8 @@ impl<Item, Gap, const CAP: usize> LinkedChunk<Item, Gap, CAP> {
     /// Because the `chunk_identifier` can represent non-gap chunk, this method
     /// returns a `Result`.
     ///
-    /// The returned `Chunk` represents the newly created `Chunk` that contains
-    /// the first items.
+    /// This method returns a reference to the (first if many) newly created
+    /// `Chunk` that contains the `items`.
     pub fn replace_gap_at<I>(
         &mut self,
         items: I,
@@ -333,12 +333,14 @@ impl<Item, Gap, const CAP: usize> LinkedChunk<Item, Gap, CAP> {
 
         // Re-box the chunk, and let Rust does its job.
         //
-        // SAFETY: `chunk` is unlinked but it still exists in memory! We have its
-        // pointer, which is valid and well aligned.
+        // SAFETY: `chunk` is unlinked and not borrowed anymore. `LinkedChunk` doesn't
+        // use it anymore, it's a leak. It is time to re-`Box` it and drop it.
         let _chunk_boxed = unsafe { Box::from_raw(chunk_ptr.as_ptr()) };
 
         Ok(
-            // SAFETY: `new_chunk_ptr` is valid, non-null and well-aligned.
+            // SAFETY: `new_chunk_ptr` is valid, non-null and well-aligned. It's taken from
+            // `chunk`, and that's how the entire `LinkedChunk` type works. Pointer construction
+            // safety is guaranteed by `Chunk::new_items_leaked` and `Chunk::new_gap_leaked`.
             unsafe { new_chunk_ptr.as_ref() },
         )
     }
