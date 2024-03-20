@@ -197,6 +197,30 @@ impl<Item, Gap, const CAP: usize> LinkedChunk<Item, Gap, CAP> {
             .chunk_mut(chunk_identifier)
             .ok_or(LinkedChunkError::InvalidChunkIdentifier { identifier: chunk_identifier })?;
 
+        // If `item_index` is 0, we don't want to split the current items chunk to
+        // insert a new gap chunk, otherwise it would create an empty current items
+        // chunk. Let's handle this case in particular.
+        //
+        // Of course this optimisation applies if there is a previous chunk. Remember
+        // the invariant: a `Gap` cannot be the first chunk.
+        if item_index == 0 && chunk.is_items() && chunk.previous.is_some() {
+            let previous_chunk = chunk
+                .previous_mut()
+                // SAFETY: The `previous` chunk exists because we have tested
+                // `chunk.previous.is_some()` in the `if` statement.
+                .unwrap();
+
+            previous_chunk.insert_next(Chunk::new_gap_leaked(
+                chunk_identifier_generator.generate_next().unwrap(),
+                content,
+            ));
+
+            // We don't need to update `self.last` because we have inserted a new chunk
+            // before `chunk`.
+
+            return Ok(());
+        }
+
         let chunk = match &mut chunk.content {
             ChunkContent::Gap(..) => {
                 return Err(LinkedChunkError::ChunkIsAGap { identifier: chunk_identifier });
@@ -345,7 +369,7 @@ impl<Item, Gap, const CAP: usize> LinkedChunk<Item, Gap, CAP> {
         }
     }
 
-    /// Search for a chunk, and return its identifier.
+    /// Search backward for a chunk, and return its identifier.
     pub fn chunk_identifier<'a, P>(&'a self, mut predicate: P) -> Option<ChunkIdentifier>
     where
         P: FnMut(&'a Chunk<Item, Gap, CAP>) -> bool,
@@ -353,7 +377,7 @@ impl<Item, Gap, const CAP: usize> LinkedChunk<Item, Gap, CAP> {
         self.rchunks().find_map(|chunk| predicate(chunk).then(|| chunk.identifier()))
     }
 
-    /// Search for an item, and return its position.
+    /// Search backward for an item, and return its position.
     pub fn item_position<'a, P>(&'a self, mut predicate: P) -> Option<Position>
     where
         P: FnMut(&'a Item) -> bool,
@@ -952,75 +976,60 @@ mod tests {
     };
 
     macro_rules! assert_items_eq {
-        ( @_ [ $iterator:ident, $chunk_index:ident, $item_index:ident ] { [-] $( $rest:tt )* } { $( $accumulator:tt )* } ) => {
+        ( @_ [ $iterator:ident ] { [-] $( $rest:tt )* } { $( $accumulator:tt )* } ) => {
             assert_items_eq!(
                 @_
-                [ $iterator, $chunk_index, $item_index ]
+                [ $iterator ]
                 { $( $rest )* }
                 {
                     $( $accumulator )*
-                    $chunk_index += 1;
+                    {
+                        let chunk = $iterator .next().expect("next chunk (expect gap)");
+                        assert!(chunk.is_gap(), "chunk ");
+                    }
                 }
             )
         };
 
-        ( @_ [ $iterator:ident, $chunk_index:ident, $item_index:ident ] { [ $( $item:expr ),* ] $( $rest:tt )* } { $( $accumulator:tt )* } ) => {
+        ( @_ [ $iterator:ident ] { [ $( $item:expr ),* ] $( $rest:tt )* } { $( $accumulator:tt )* } ) => {
             assert_items_eq!(
                 @_
-                [ $iterator, $chunk_index, $item_index ]
+                [ $iterator ]
                 { $( $rest )* }
                 {
                     $( $accumulator )*
-                    let _expected_chunk_identifier = $iterator .peek().unwrap().1.chunk_identifier();
-                    $(
-                        assert_matches!(
-                            $iterator .next(),
-                            Some((chunk_index, Position(chunk_identifier, item_index), & $item )) => {
-                                // Ensure the chunk index (from the enumeration) is correct.
-                                assert_eq!(chunk_index, $chunk_index);
-                                // Ensure the chunk identifier is the same for all items in this chunk.
-                                assert_eq!(chunk_identifier, _expected_chunk_identifier);
-                                // Ensure the item has the expected position.
-                                assert_eq!(item_index, $item_index);
-                            }
-                        );
-                        $item_index += 1;
-                    )*
-                    $item_index = 0;
-                    $chunk_index += 1;
+                    {
+                        let chunk = $iterator .next().expect("next chunk (expect items)");
+                        assert!(chunk.is_items());
+
+                        let ChunkContent::Items(items) = chunk.content() else { unreachable!() };
+
+                        let mut items_iterator = items.iter();
+
+                        $(
+                            assert_eq!(items_iterator.next(), Some(& $item ));
+                        )*
+
+                        assert!(items_iterator.next().is_none(), "no more items");
+                    }
                 }
             )
         };
 
-        ( @_ [ $iterator:ident, $chunk_index:ident, $item_index:ident ] {} { $( $accumulator:tt )* } ) => {
+        ( @_ [ $iterator:ident ] {} { $( $accumulator:tt )* } ) => {
             {
-                let mut $chunk_index = 0;
-                let mut $item_index = 0;
                 $( $accumulator )*
+                assert!( $iterator .next().is_none(), "no more chunks");
             }
         };
 
         ( $linked_chunk:expr, $( $all:tt )* ) => {
             assert_items_eq!(
                 @_
-                [ iterator, _chunk_index, _item_index ]
+                [ iterator ]
                 { $( $all )* }
                 {
-                    let mut iterator = $linked_chunk
-                        .chunks()
-                        .enumerate()
-                        .filter_map(|(chunk_index, chunk)| match &chunk.content {
-                            ChunkContent::Gap(..) => None,
-                            ChunkContent::Items(items) => {
-                                let identifier = chunk.identifier();
-
-                                Some(items.iter().enumerate().map(move |(item_index, item)| {
-                                    (chunk_index, Position(identifier, item_index), item)
-                                }))
-                            }
-                        })
-                        .flatten()
-                        .peekable();
+                    let mut iterator = $linked_chunk.chunks();
                 }
             )
         }
@@ -1403,12 +1412,46 @@ mod tests {
             assert_items_eq!(linked_chunk, ['a'] [-] ['b', 'c'] ['d', 'e', 'f']);
         }
 
-        // Insert at the beginning of a chunk.
+        // Insert at the beginning of a chunk + it's the first chunk.
         {
             let position_of_a = linked_chunk.item_position(|item| *item == 'a').unwrap();
             linked_chunk.insert_gap_at((), position_of_a)?;
 
+            // A new empty chunk is created as the first chunk.
             assert_items_eq!(linked_chunk, [] [-] ['a'] [-] ['b', 'c'] ['d', 'e', 'f']);
+        }
+
+        // Insert at the beginning of a chunk.
+        {
+            let position_of_d = linked_chunk.item_position(|item| *item == 'd').unwrap();
+            linked_chunk.insert_gap_at((), position_of_d)?;
+
+            // A new empty chunk is NOT created, i.e. `['d', 'e', 'f']` is not
+            // split into `[]` + `['d', 'e', 'f']` because it's a waste of
+            // space.
+            assert_items_eq!(linked_chunk, [] [-] ['a'] [-] ['b', 'c'] [-] ['d', 'e', 'f']);
+        }
+
+        // Insert in an empty chunk + it's the first chunk.
+        {
+            let position_of_first_empty_chunk = Position(ChunkIdentifier(0), 0);
+            assert_matches!(
+                linked_chunk.insert_gap_at((), position_of_first_empty_chunk),
+                Err(LinkedChunkError::InvalidItemIndex { index: 0 })
+            );
+        }
+
+        // Insert in an empty chunk.
+        {
+            // Replace a gap by empty items.
+            let gap_identifier = linked_chunk.chunk_identifier(Chunk::is_gap).unwrap();
+            let position = linked_chunk.replace_gap_at([], gap_identifier)?.first_position();
+
+            assert_items_eq!(linked_chunk, [] [-] ['a'] [-] ['b', 'c'] [] ['d', 'e', 'f']);
+
+            linked_chunk.insert_gap_at((), position)?;
+
+            assert_items_eq!(linked_chunk, [] [-] ['a'] [-] ['b', 'c'] [-] [] ['d', 'e', 'f']);
         }
 
         // Insert in a chunk that does not exist.
