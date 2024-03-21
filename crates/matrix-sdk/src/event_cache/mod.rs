@@ -632,9 +632,18 @@ impl RoomEventCacheInner {
         // Make sure there's at most one back-pagination request.
         let _guard = self.pagination_lock.lock().await;
 
-        // Make sure the `RoomEvents` isn't updated while we are back-paginating. This
-        // is really important, for example if a sync is happening while we are
-        // back-paginating.
+        // Get messages.
+        let messages = self
+            .room
+            .messages(assign!(MessagesOptions::backward(), {
+                from: token.as_ref().map(|token| token.0.clone()),
+                limit: batch_size.into()
+            }))
+            .await
+            .map_err(EventCacheError::SdkError)?;
+
+        // Make sure the `RoomEvents` isn't updated while we are saving events from
+        // backpagination.
         let mut room_events = self.events.write().await;
 
         // Check that the `token` exists if any.
@@ -646,23 +655,13 @@ impl RoomEventCacheInner {
             // The method has been called with `token` but it doesn't exist in `RoomEvents`,
             // it's an error.
             if gap_identifier.is_none() {
-                return Err(EventCacheError::UnknownBackpaginationToken);
+                return Ok(BackPaginationOutcome::UnknownBackpaginationToken);
             }
 
             gap_identifier
         } else {
             None
         };
-
-        // Get messages.
-        let messages = self
-            .room
-            .messages(assign!(MessagesOptions::backward(), {
-                from: token.as_ref().map(|token| token.0.clone()),
-                limit: batch_size.into()
-            }))
-            .await
-            .map_err(EventCacheError::SdkError)?;
 
         // Would we want to backpaginate again, we'd start from the `end` token as the
         // next `from` token.
@@ -834,7 +833,7 @@ mod tests {
     use matrix_sdk_test::{async_test, sync_timeline_event};
     use ruma::room_id;
 
-    use super::EventCacheError;
+    use super::{BackPaginationOutcome, EventCacheError};
     use crate::{event_cache::store::PaginationToken, test_utils::logged_in_client};
 
     #[async_test]
@@ -853,35 +852,57 @@ mod tests {
         assert_matches!(result, Err(EventCacheError::NotSubscribedYet));
     }
 
-    #[async_test]
-    async fn test_unknown_pagination_token() {
-        let client = logged_in_client(None).await;
-        let room_id = room_id!("!galette:saucisse.bzh");
-        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
-
-        client.event_cache().subscribe().unwrap();
-
-        let (room_event_cache, _drop_handles) =
-            client.event_cache().for_room(room_id).await.unwrap();
-        let room_event_cache = room_event_cache.unwrap();
-
-        // If I try to back-paginate with an unknown back-pagination token,
-        let token = PaginationToken("old".to_owned());
-
-        // Then I run into an error.
-        let res = room_event_cache.backpaginate(20, Some(token)).await;
-        assert_matches!(res.unwrap_err(), EventCacheError::UnknownBackpaginationToken);
-    }
-
     // Those tests require time to work, and it does not on wasm32.
     #[cfg(not(target_arch = "wasm32"))]
     mod time_tests {
         use std::time::{Duration, Instant};
 
         use matrix_sdk_base::RoomState;
+        use serde_json::json;
         use tokio::time::sleep;
+        use wiremock::{
+            matchers::{header, method, path_regex, query_param},
+            Mock, ResponseTemplate,
+        };
 
         use super::{super::store::Gap, *};
+        use crate::test_utils::logged_in_client_with_server;
+
+        #[async_test]
+        async fn test_unknown_pagination_token() {
+            let (client, server) = logged_in_client_with_server().await;
+
+            let room_id = room_id!("!galette:saucisse.bzh");
+            client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+
+            client.event_cache().subscribe().unwrap();
+
+            let (room_event_cache, _drop_handles) =
+                client.event_cache().for_room(room_id).await.unwrap();
+            let room_event_cache = room_event_cache.unwrap();
+
+            // If I try to back-paginate with an unknown back-pagination token,
+            let token_name = "unknown";
+            let token = PaginationToken(token_name.to_owned());
+
+            // Then I run into an error.
+            Mock::given(method("GET"))
+                .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
+                .and(header("authorization", "Bearer 1234"))
+                .and(query_param("from", token_name))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                    "start": token_name,
+                    "chunk": [],
+                })))
+                .expect(1)
+                .mount(&server)
+                .await;
+
+            let res = room_event_cache.backpaginate(20, Some(token)).await;
+            assert_matches!(res, Ok(BackPaginationOutcome::UnknownBackpaginationToken));
+
+            server.verify().await
+        }
 
         #[async_test]
         async fn test_wait_no_pagination_token() {

@@ -515,17 +515,11 @@ async fn test_reset_while_backpaginating() {
     mock_sync(&server, sync_response_body, None).await;
     client.sync_once(Default::default()).await.unwrap();
 
-    let outcome = backpagination.await.expect("join failed").unwrap();
+    let outcome = backpagination.await.expect("join failed");
 
-    // Backpagination should have been executed before the sync, despite the
-    // concurrency here. The backpagination should have acquired a write lock before
-    // the sync.
-    {
-        assert_let!(BackPaginationOutcome::Success { events, reached_start } = outcome);
-        assert!(!reached_start);
-        assert_event_matches_msg(&events[0].clone().into(), "lalala");
-        assert_eq!(events.len(), 1);
-    }
+    // Backpagination should be confused, and the operation should result in an
+    // unknown token.
+    assert_matches!(outcome, Ok(BackPaginationOutcome::UnknownBackpaginationToken));
 
     // Now if we retrieve the earliest token, it's not the one we had before.
     // Even better, it's the one from the sync, NOT from the backpagination!
