@@ -106,10 +106,10 @@ impl RoomDirectorySearch {
     pub async fn results(
         &self,
         listener: Box<dyn RoomDirectorySearchEntriesListener>,
-    ) -> TaskHandle {
+    ) -> Arc<TaskHandle> {
         let (initial_values, mut stream) = self.inner.read().await.results();
 
-        TaskHandle::new(RUNTIME.spawn(async move {
+        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
             listener.on_update(vec![RoomDirectorySearchEntryUpdate::Reset {
                 values: initial_values.into_iter().map(Into::into).collect(),
             }]);
@@ -117,7 +117,7 @@ impl RoomDirectorySearch {
             while let Some(diffs) = stream.next().await {
                 listener.on_update(diffs.into_iter().map(|diff| diff.into()).collect());
             }
-        }))
+        })))
     }
 }
 
