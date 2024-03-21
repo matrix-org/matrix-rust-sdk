@@ -36,7 +36,7 @@ pub(super) struct DayDividerAdjuster {
 impl DayDividerAdjuster {
     /// Ensures that date separators are properly inserted/removed when needs
     /// be.
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     pub fn maybe_adjust_day_dividers(
         mut self,
         items: &mut ObservableVectorTransaction<'_, Arc<TimelineItem>>,
@@ -151,7 +151,7 @@ impl DayDividerAdjuster {
         match prev_item.kind() {
             TimelineItemKind::Event(prev_event) => {
                 // The event is preceded by another event. If they're not the same date,
-                // insert a date divider.
+                // insert a day divider.
                 let prev_ts = prev_event.timestamp();
 
                 if !is_same_date_as(prev_ts, ts) {
@@ -287,7 +287,7 @@ impl DayDividerAdjuster {
             }
         }
 
-        // 2. There are no two date dividers following each other.
+        // 2. There are no two day dividers following each other.
         {
             let mut prev_was_day_divider = false;
             for (i, item) in items.iter().enumerate() {
