@@ -62,6 +62,7 @@ use tracing::{debug, error, instrument, trace, warn};
 use self::futures::SendAttachment;
 
 mod builder;
+mod day_dividers;
 mod error;
 mod event_handler;
 mod event_item;

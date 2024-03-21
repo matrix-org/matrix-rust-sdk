@@ -36,9 +36,10 @@ use super::{HandleManyEventsResult, ReactionState, TimelineInnerSettings};
 use crate::{
     events::SyncTimelineEventWithoutContent,
     timeline::{
+        day_dividers::DayDividerAdjuster,
         event_handler::{
-            DayDividerAdjuster, Flow, HandleEventResult, TimelineEventContext,
-            TimelineEventHandler, TimelineEventKind, TimelineItemPosition,
+            Flow, HandleEventResult, TimelineEventContext, TimelineEventHandler, TimelineEventKind,
+            TimelineItemPosition,
         },
         event_item::EventItemIdentifier,
         polls::PollPendingEvents,
