@@ -107,7 +107,7 @@ impl<Item, Gap, const CAP: usize> LinkedChunk<Item, Gap, CAP> {
     /// Push a gap at the end of the [`LinkedChunk`], i.e. after the last
     /// chunk.
     pub fn push_gap_back(&mut self, content: Gap) {
-        let next_identifier = self.chunk_identifier_generator.generate_next();
+        let next_identifier = self.chunk_identifier_generator.next();
 
         let last_chunk = self.latest_chunk_mut();
         last_chunk.insert_next(Chunk::new_gap_leaked(next_identifier, content));
@@ -210,10 +210,8 @@ impl<Item, Gap, const CAP: usize> LinkedChunk<Item, Gap, CAP> {
                 // `chunk.previous.is_some()` in the `if` statement.
                 .expect("Previous chunk must be present");
 
-            previous_chunk.insert_next(Chunk::new_gap_leaked(
-                chunk_identifier_generator.generate_next(),
-                content,
-            ));
+            previous_chunk
+                .insert_next(Chunk::new_gap_leaked(chunk_identifier_generator.next(), content));
 
             // We don't need to update `self.last` because we have inserted a new chunk
             // before `chunk`.
@@ -237,14 +235,9 @@ impl<Item, Gap, const CAP: usize> LinkedChunk<Item, Gap, CAP> {
 
                 chunk
                     // Insert a new gap chunk.
-                    .insert_next(Chunk::new_gap_leaked(
-                        chunk_identifier_generator.generate_next(),
-                        content,
-                    ))
+                    .insert_next(Chunk::new_gap_leaked(chunk_identifier_generator.next(), content))
                     // Insert a new items chunk.
-                    .insert_next(Chunk::new_items_leaked(
-                        chunk_identifier_generator.generate_next(),
-                    ))
+                    .insert_next(Chunk::new_items_leaked(chunk_identifier_generator.next()))
                     // Finally, push the items that have been detached.
                     .push_items(detached_items.into_iter(), &chunk_identifier_generator)
             }
@@ -295,9 +288,8 @@ impl<Item, Gap, const CAP: usize> LinkedChunk<Item, Gap, CAP> {
 
                     let last_inserted_chunk = chunk
                         // Insert a new items chunk…
-                        .insert_next(Chunk::new_items_leaked(
-                            chunk_identifier_generator.generate_next(),
-                        )) // … and insert the items.
+                        .insert_next(Chunk::new_items_leaked(chunk_identifier_generator.next()))
+                        // … and insert the items.
                         .push_items(items, &chunk_identifier_generator);
 
                     (
@@ -591,7 +583,7 @@ impl ChunkIdentifierGenerator {
     ///
     /// Note that it can fail if there is no more unique identifier available.
     /// In this case, this method will panic.
-    pub fn generate_next(&self) -> ChunkIdentifier {
+    pub fn next(&self) -> ChunkIdentifier {
         let previous = self.next.fetch_add(1, Ordering::Relaxed);
 
         // Check for overflows.
@@ -600,7 +592,7 @@ impl ChunkIdentifierGenerator {
             panic!("No more chunk identifiers available. Congrats, you did it. 2^64 identifiers have been consumed.")
         }
 
-        ChunkIdentifier(previous.saturating_add(1))
+        ChunkIdentifier(previous + 1)
     }
 }
 
@@ -835,7 +827,7 @@ impl<Item, Gap, const CAPACITY: usize> Chunk<Item, Gap, CAPACITY> {
             ChunkContent::Gap(..) => {
                 self
                     // Insert a new items chunk.
-                    .insert_next(Self::new_items_leaked(chunk_identifier_generator.generate_next()))
+                    .insert_next(Self::new_items_leaked(chunk_identifier_generator.next()))
                     // Now push the new items on the next chunk, and return the result of
                     // `push_items`.
                     .push_items(new_items, chunk_identifier_generator)
@@ -859,9 +851,7 @@ impl<Item, Gap, const CAPACITY: usize> Chunk<Item, Gap, CAPACITY> {
 
                     self
                         // Insert a new items chunk.
-                        .insert_next(Self::new_items_leaked(
-                            chunk_identifier_generator.generate_next(),
-                        ))
+                        .insert_next(Self::new_items_leaked(chunk_identifier_generator.next()))
                         // Now push the rest of the new items on the next chunk, and return the
                         // result of `push_items`.
                         .push_items(new_items, chunk_identifier_generator)
@@ -1038,18 +1028,18 @@ mod tests {
     fn test_chunk_identifier_generator() {
         let generator = ChunkIdentifierGenerator::new_from_scratch();
 
-        assert_eq!(generator.generate_next(), ChunkIdentifier(1));
-        assert_eq!(generator.generate_next(), ChunkIdentifier(2));
-        assert_eq!(generator.generate_next(), ChunkIdentifier(3));
-        assert_eq!(generator.generate_next(), ChunkIdentifier(4));
+        assert_eq!(generator.next(), ChunkIdentifier(1));
+        assert_eq!(generator.next(), ChunkIdentifier(2));
+        assert_eq!(generator.next(), ChunkIdentifier(3));
+        assert_eq!(generator.next(), ChunkIdentifier(4));
 
         let generator =
             ChunkIdentifierGenerator::new_from_previous_chunk_identifier(ChunkIdentifier(42));
 
-        assert_eq!(generator.generate_next(), ChunkIdentifier(43));
-        assert_eq!(generator.generate_next(), ChunkIdentifier(44));
-        assert_eq!(generator.generate_next(), ChunkIdentifier(45));
-        assert_eq!(generator.generate_next(), ChunkIdentifier(46));
+        assert_eq!(generator.next(), ChunkIdentifier(43));
+        assert_eq!(generator.next(), ChunkIdentifier(44));
+        assert_eq!(generator.next(), ChunkIdentifier(45));
+        assert_eq!(generator.next(), ChunkIdentifier(46));
     }
 
     #[test]
