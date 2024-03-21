@@ -751,6 +751,11 @@ impl Client {
             matrix_sdk::room_directory_search::RoomDirectorySearch::new((*self.inner).clone()),
         ))
     }
+
+    pub async fn join_room_by_id(&self, room_id: String) -> Result<Arc<Room>, ClientError> {
+        let room = self.inner.join_room_by_id(room_id.into()).await?;
+        Ok(Arc::new(Room::new(room)))
+    }
 }
 
 #[uniffi::export(callback_interface)]
