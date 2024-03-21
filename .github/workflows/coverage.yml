@@ -105,7 +105,7 @@ jobs:
             --features experimental-widgets,testing
         env:
           CARGO_PROFILE_COV_INHERITS: 'dev'
-          CARGO_PROFILE_COV_DEBUG: 'false'
+          CARGO_PROFILE_COV_DEBUG: 1
           HOMESERVER_URL: "http://localhost:8008"
           HOMESERVER_DOMAIN: "synapse"
           SLIDING_SYNC_PROXY_URL: "http://localhost:8118"
