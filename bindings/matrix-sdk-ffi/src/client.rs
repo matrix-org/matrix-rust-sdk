@@ -32,7 +32,7 @@ use matrix_sdk::{
             AnyInitialStateEvent, AnyToDeviceEvent, InitialStateEvent,
         },
         serde::Raw,
-        EventEncryptionAlgorithm, TransactionId, UInt, UserId,
+        EventEncryptionAlgorithm, RoomId, TransactionId, UInt, UserId,
     },
     AuthApi, AuthSession, Client as MatrixClient, SessionChange, SessionTokens,
 };
@@ -753,7 +753,8 @@ impl Client {
     }
 
     pub async fn join_room_by_id(&self, room_id: String) -> Result<Arc<Room>, ClientError> {
-        let room = self.inner.join_room_by_id(room_id.into()).await?;
+        let room_id = RoomId::parse(room_id)?;
+        let room = self.inner.join_room_by_id(room_id.as_ref()).await?;
         Ok(Arc::new(Room::new(room)))
     }
 }
