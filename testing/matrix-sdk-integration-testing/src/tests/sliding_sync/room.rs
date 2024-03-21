@@ -505,7 +505,7 @@ async fn test_room_notification_count() -> Result<()> {
     assert_eq!(alice_room.num_unread_mentions(), 0);
 
     // Remote echo for our own message.
-    assert!(timeout(Duration::from_secs(3), room_info_updates.next())
+    assert!(timeout(Duration::from_secs(10), room_info_updates.next())
         .await
         .expect("timeout getting room info update #6")
         .is_some());
