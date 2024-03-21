@@ -10,6 +10,7 @@ Breaking changes:
 - Replace `impl MediaEventContent` with `&impl MediaEventContent` in
   `Media::get_file`/`Media::remove_file`/`Media::get_thumbnail`/`Media::remove_thumbnail`
 - A custom sliding sync proxy set with `ClientBuilder::sliding_sync_proxy` now takes precedence over a discovered proxy.
+- `Client::get_profile` was moved to `Account` and renamed to `Account::fetch_user_profile_of`. `Account::get_profile` was renamed to `Account::fetch_user_profile`.
 
 Additions:
 

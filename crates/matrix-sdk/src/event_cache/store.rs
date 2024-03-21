@@ -21,8 +21,8 @@ use tokio::sync::RwLock;
 
 use super::{
     linked_chunk::{
-        Chunk, ChunkIdentifier, ItemPosition, LinkedChunk, LinkedChunkError, LinkedChunkIter,
-        LinkedChunkIterBackward,
+        Chunk, ChunkIdentifier, LinkedChunk, LinkedChunkError, LinkedChunkIter,
+        LinkedChunkIterBackward, Position,
     },
     Result,
 };
@@ -255,7 +255,7 @@ impl RoomEvents {
     pub fn insert_events_at<I>(
         &mut self,
         events: I,
-        position: ItemPosition,
+        position: Position,
     ) -> StdResult<(), LinkedChunkError>
     where
         I: IntoIterator<Item = SyncTimelineEvent>,
@@ -267,10 +267,10 @@ impl RoomEvents {
     /// Insert a gap at a specified position.
     pub fn insert_gap_at(
         &mut self,
-        position: ItemPosition,
         gap: Gap,
+        position: Position,
     ) -> StdResult<(), LinkedChunkError> {
-        self.chunks.insert_gap_at(position, gap)
+        self.chunks.insert_gap_at(gap, position)
     }
 
     /// Search for a chunk, and return its identifier.
@@ -282,7 +282,7 @@ impl RoomEvents {
     }
 
     /// Search for an item, and return its position.
-    pub fn event_position<'a, P>(&'a self, predicate: P) -> Option<ItemPosition>
+    pub fn event_position<'a, P>(&'a self, predicate: P) -> Option<Position>
     where
         P: FnMut(&'a SyncTimelineEvent) -> bool,
     {
@@ -324,15 +324,15 @@ impl RoomEvents {
     /// Iterate over the events, backward.
     ///
     /// The most recent event comes first.
-    pub fn revents(&self) -> impl Iterator<Item = (ItemPosition, &SyncTimelineEvent)> {
+    pub fn revents(&self) -> impl Iterator<Item = (Position, &SyncTimelineEvent)> {
         self.chunks.ritems()
     }
 
     /// Iterate over the events, starting from `position`, backward.
     pub fn revents_from(
         &self,
-        position: ItemPosition,
-    ) -> StdResult<impl Iterator<Item = (ItemPosition, &SyncTimelineEvent)>, LinkedChunkError> {
+        position: Position,
+    ) -> StdResult<impl Iterator<Item = (Position, &SyncTimelineEvent)>, LinkedChunkError> {
         self.chunks.ritems_from(position)
     }
 
@@ -340,8 +340,8 @@ impl RoomEvents {
     /// to the latest event.
     pub fn events_from(
         &self,
-        position: ItemPosition,
-    ) -> StdResult<impl Iterator<Item = (ItemPosition, &SyncTimelineEvent)>, LinkedChunkError> {
+        position: Position,
+    ) -> StdResult<impl Iterator<Item = (Position, &SyncTimelineEvent)>, LinkedChunkError> {
         self.chunks.items_from(position)
     }
 }

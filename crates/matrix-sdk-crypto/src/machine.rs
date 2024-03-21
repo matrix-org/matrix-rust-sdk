@@ -2305,7 +2305,7 @@ pub(crate) mod tests {
             .store()
             .with_transaction(|mut tr| async {
                 let account = tr.account().await.unwrap();
-                account.generate_fallback_key_helper();
+                account.generate_fallback_key_if_needed();
                 account.update_uploaded_key_count(0);
                 account.generate_one_time_keys_if_needed();
                 let request = machine

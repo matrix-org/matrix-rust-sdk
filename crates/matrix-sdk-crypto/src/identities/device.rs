@@ -14,7 +14,6 @@
 
 use std::{
     collections::{BTreeMap, HashMap},
-    convert::{TryFrom, TryInto},
     ops::Deref,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -480,6 +479,11 @@ impl Device {
             .await?;
 
         Ok(raw_encrypted)
+    }
+
+    /// Whether or not the device is a dehydrated device.
+    pub fn is_dehydrated(&self) -> bool {
+        self.inner.inner.dehydrated.unwrap_or(false)
     }
 }
 

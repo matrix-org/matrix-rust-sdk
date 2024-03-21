@@ -48,8 +48,6 @@ use ruma::{
             },
             filter::{create_filter::v3::Request as FilterUploadRequest, FilterDefinition},
             membership::{join_room_by_id, join_room_by_id_or_alias},
-            profile::get_profile,
-            push::{set_pusher, Pusher},
             room::create_room,
             session::login::v3::DiscoveryInfo,
             sync::sync_events,
@@ -85,7 +83,7 @@ use crate::{
     matrix_auth::MatrixAuth,
     notification_settings::NotificationSettings,
     sync::{RoomUpdate, SyncResponse},
-    Account, AuthApi, AuthSession, Error, Media, RefreshTokenError, Result, Room,
+    Account, AuthApi, AuthSession, Error, Media, Pusher, RefreshTokenError, Result, Room,
     TransmissionProgress,
 };
 #[cfg(feature = "e2e-encryption")]
@@ -560,6 +558,11 @@ impl Client {
     /// Get the media manager of the client.
     pub fn media(&self) -> Media {
         Media::new(self.clone())
+    }
+
+    /// Get the pusher manager of the client.
+    pub fn pusher(&self) -> Pusher {
+        Pusher::new(self.clone())
     }
 
     /// Access the OpenID Connect API of the client.
@@ -2040,22 +2043,6 @@ impl Client {
             .map_err(|_| Error::MultipleSessionCallbacks)?;
 
         Ok(())
-    }
-
-    /// Sets a given pusher
-    pub async fn set_pusher(&self, pusher: Pusher) -> HttpResult<set_pusher::v3::Response> {
-        let request = set_pusher::v3::Request::post(pusher);
-        self.send(request, None).await
-    }
-
-    /// Get the profile for a given user id
-    ///
-    /// # Arguments
-    ///
-    /// * `user_id` the matrix id this function downloads the profile for
-    pub async fn get_profile(&self, user_id: &UserId) -> Result<get_profile::v3::Response> {
-        let request = get_profile::v3::Request::new(user_id.to_owned());
-        Ok(self.send(request, Some(RequestConfig::short_retry())).await?)
     }
 
     /// Get the notification settings of the current owner of the client.

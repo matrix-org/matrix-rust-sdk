@@ -55,6 +55,8 @@ pub struct MemoryStore {
     sessions: SessionStore,
     inbound_group_sessions: GroupSessionStore,
     outbound_group_sessions: StdRwLock<BTreeMap<OwnedRoomId, OutboundGroupSession>>,
+    private_identity: StdRwLock<Option<PrivateCrossSigningIdentity>>,
+    tracked_users: StdRwLock<Vec<TrackedUser>>,
     olm_hashes: StdRwLock<HashMap<String, HashSet<String>>>,
     devices: DeviceStore,
     identities: StdRwLock<HashMap<OwnedUserId, ReadOnlyUserIdentities>>,
@@ -76,6 +78,8 @@ impl Default for MemoryStore {
             sessions: SessionStore::new(),
             inbound_group_sessions: GroupSessionStore::new(),
             outbound_group_sessions: Default::default(),
+            private_identity: Default::default(),
+            tracked_users: Default::default(),
             olm_hashes: Default::default(),
             devices: DeviceStore::new(),
             identities: Default::default(),
@@ -128,6 +132,10 @@ impl MemoryStore {
             .unwrap()
             .extend(sessions.into_iter().map(|s| (s.room_id().to_owned(), s)));
     }
+
+    fn save_private_identity(&self, private_identity: Option<PrivateCrossSigningIdentity>) {
+        *self.private_identity.write().unwrap() = private_identity;
+    }
 }
 
 type Result<T> = std::result::Result<T, Infallible>;
@@ -142,7 +150,7 @@ impl CryptoStore for MemoryStore {
     }
 
     async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>> {
-        Ok(None)
+        Ok(self.private_identity.read().unwrap().clone())
     }
 
     async fn next_batch_token(&self) -> Result<Option<String>> {
@@ -161,6 +169,7 @@ impl CryptoStore for MemoryStore {
         self.save_sessions(changes.sessions).await;
         self.save_inbound_group_sessions(changes.inbound_group_sessions);
         self.save_outbound_group_sessions(changes.outbound_group_sessions);
+        self.save_private_identity(changes.private_identity);
 
         self.save_devices(changes.devices.new);
         self.save_devices(changes.devices.changed);
@@ -315,10 +324,13 @@ impl CryptoStore for MemoryStore {
     }
 
     async fn load_tracked_users(&self) -> Result<Vec<TrackedUser>> {
-        Ok(Vec::new())
+        Ok(self.tracked_users.read().unwrap().clone())
     }
 
-    async fn save_tracked_users(&self, _: &[(&UserId, bool)]) -> Result<()> {
+    async fn save_tracked_users(&self, tracked_users: &[(&UserId, bool)]) -> Result<()> {
+        self.tracked_users.write().unwrap().extend(tracked_users.iter().map(|(user_id, dirty)| {
+            TrackedUser { user_id: user_id.to_owned().into(), dirty: *dirty }
+        }));
         Ok(())
     }
 
@@ -472,12 +484,15 @@ impl CryptoStore for MemoryStore {
 #[cfg(test)]
 mod tests {
     use matrix_sdk_test::async_test;
-    use ruma::room_id;
+    use ruma::{room_id, user_id};
     use vodozemac::{Curve25519PublicKey, Ed25519PublicKey};
 
     use crate::{
         identities::device::testing::get_device,
-        olm::{tests::get_account_and_session_test_helper, InboundGroupSession, OlmMessageHash},
+        olm::{
+            tests::get_account_and_session_test_helper, InboundGroupSession, OlmMessageHash,
+            PrivateCrossSigningIdentity,
+        },
         store::{memorystore::MemoryStore, Changes, CryptoStore, PendingChanges},
     };
 
@@ -526,7 +541,7 @@ mod tests {
 
     #[async_test]
     async fn test_outbound_group_session_store() {
-        // Given an outbound sessions
+        // Given an outbound session
         let (account, _) = get_account_and_session_test_helper();
         let room_id = room_id!("!test:localhost");
         let (outbound, _) = account.create_group_session_pair_with_defaults(room_id).await;
@@ -541,6 +556,42 @@ mod tests {
             serde_json::to_string(&outbound.pickle().await).unwrap(),
             serde_json::to_string(&loaded_session.pickle().await).unwrap()
         );
+    }
+
+    #[async_test]
+    async fn test_tracked_users_store() {
+        // Given some tracked users
+        let tracked_users =
+            &[(user_id!("@dirty_user:s"), true), (user_id!("@clean_user:t"), false)];
+
+        // When we save them to the store
+        let store = MemoryStore::new();
+        store.save_tracked_users(tracked_users).await.unwrap();
+
+        // Then we can get them out again
+        let loaded_tracked_users =
+            store.load_tracked_users().await.expect("failed to load tracked users");
+        assert_eq!(loaded_tracked_users[0].user_id, user_id!("@dirty_user:s"));
+        assert!(loaded_tracked_users[0].dirty);
+        assert_eq!(loaded_tracked_users[1].user_id, user_id!("@clean_user:t"));
+        assert!(!loaded_tracked_users[1].dirty);
+        assert_eq!(loaded_tracked_users.len(), 2);
+    }
+
+    #[async_test]
+    async fn test_private_identity_store() {
+        // Given a private identity
+        let private_identity = PrivateCrossSigningIdentity::empty(user_id!("@u:s"));
+
+        // When we save it to the store
+        let store = MemoryStore::new();
+        store.save_private_identity(Some(private_identity.clone()));
+
+        // Then we can get it out again
+        let loaded_identity =
+            store.load_identity().await.expect("failed to load private identity").unwrap();
+
+        assert_eq!(loaded_identity.user_id(), user_id!("@u:s"));
     }
 
     #[async_test]

@@ -187,26 +187,32 @@ macro_rules! cryptostore_integration_tests {
             #[async_test]
             async fn add_and_save_session() {
                 let store_name = "add_and_save_session";
+
+                // Given we created a session and saved it in the store
+                let (session_id, account, sender_key) = {
+                    let store = get_store(store_name, None).await;
+                    let (account, session) = get_account_and_session().await;
+                    let sender_key = session.sender_key.to_base64();
+                    let session_id = session.session_id().to_owned();
+
+                    store.save_pending_changes(PendingChanges { account: Some(account.deep_clone()), }).await.expect("Can't save account");
+
+                    let changes = Changes { sessions: vec![session.clone()], ..Default::default() };
+                    store.save_changes(changes).await.unwrap();
+
+                    let sessions = store.get_sessions(&sender_key).await.unwrap().unwrap();
+                    let sessions_lock = sessions.lock().await;
+                    let session = &sessions_lock[0];
+
+                    assert_eq!(session_id, session.session_id());
+
+                    (session_id, account, sender_key)
+                };
+
+                // When we reload the store
                 let store = get_store(store_name, None).await;
-                let (account, session) = get_account_and_session().await;
-                let sender_key = session.sender_key.to_base64();
-                let session_id = session.session_id().to_owned();
 
-                store.save_pending_changes(PendingChanges { account: Some(account.deep_clone()), }).await.expect("Can't save account");
-
-                let changes = Changes { sessions: vec![session.clone()], ..Default::default() };
-                store.save_changes(changes).await.unwrap();
-
-                let sessions = store.get_sessions(&sender_key).await.unwrap().unwrap();
-                let sessions_lock = sessions.lock().await;
-                let session = &sessions_lock[0];
-
-                assert_eq!(session_id, session.session_id());
-
-                drop(store);
-
-                let store = get_store(store_name, None).await;
-
+                // Then the same account and session info was reloaded
                 let loaded_account = store.load_account().await.unwrap().unwrap();
                 assert_eq!(account, loaded_account);
 
@@ -220,36 +226,49 @@ macro_rules! cryptostore_integration_tests {
             #[async_test]
             async fn load_outbound_group_session() {
                 let dir = "load_outbound_group_session";
-                let (account, store) = get_loaded_store(dir.clone()).await;
                 let room_id = room_id!("!test:localhost");
-                assert!(store.get_outbound_group_session(&room_id).await.unwrap().is_none());
 
-                let (session, _) = account.create_group_session_pair_with_defaults(&room_id).await;
+                // Given we saved an outbound group session
+                {
+                    let (account, store) = get_loaded_store(dir.clone()).await;
+                    assert!(
+                        store.get_outbound_group_session(&room_id).await.unwrap().is_none(),
+                        "Initially there should be no outbound group session"
+                    );
 
-                let user_id = user_id!("@example:localhost");
-                let request = ToDeviceRequest::new(
-                    user_id,
-                    DeviceIdOrAllDevices::AllDevices,
-                    "m.dummy",
-                    Raw::from_json(to_raw_value(&DummyEventContent::new()).unwrap()),
-                );
+                    let (session, _) = account.create_group_session_pair_with_defaults(&room_id).await;
 
-                session.add_request(TransactionId::new(), request.into(), Default::default());
+                    let user_id = user_id!("@example:localhost");
+                    let request = ToDeviceRequest::new(
+                        user_id,
+                        DeviceIdOrAllDevices::AllDevices,
+                        "m.dummy",
+                        Raw::from_json(to_raw_value(&DummyEventContent::new()).unwrap()),
+                    );
 
-                let changes = Changes {
-                    outbound_group_sessions: vec![session.clone()],
-                    ..Default::default()
-                };
+                    session.add_request(TransactionId::new(), request.into(), Default::default());
 
-                store.save_changes(changes).await.expect("Can't save group session");
+                    let changes = Changes {
+                        outbound_group_sessions: vec![session.clone()],
+                        ..Default::default()
+                    };
 
-                drop(store);
+                    store.save_changes(changes).await.expect("Can't save group session");
+                    assert!(
+                        store.get_outbound_group_session(&room_id).await.unwrap().is_some(),
+                        "Sanity: after we've saved one, there should be an outbound_group_session"
+                    );
+                }
 
+                // When we reload the account
                 let store = get_store(dir, None).await;
-
                 store.load_account().await.unwrap();
 
-                assert!(store.get_outbound_group_session(&room_id).await.unwrap().is_some());
+                // Then the saved session is restored
+                assert!(
+                    store.get_outbound_group_session(&room_id).await.unwrap().is_some(),
+                    "The outbound_group_session should have been loaded"
+                );
             }
 
             #[async_test]

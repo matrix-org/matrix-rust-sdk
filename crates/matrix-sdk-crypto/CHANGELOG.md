@@ -1,5 +1,11 @@
 # UNRELEASED
 
+Changed:
+
+- Fallback keys are rotated in a time-based manner, instead of waiting for the
+  server to tell us that a fallback key got used.
+  ([#3151](https://github.com/matrix-org/matrix-rust-sdk/pull/3151))
+
 Breaking changes:
 
 - Rename the `OlmMachine::invalidate_group_session` method to
@@ -7,6 +13,9 @@ Breaking changes:
 
 - Move `OlmMachine::export_room_keys` to `matrix_sdk_crypto::store::Store`.
   (Call it with `olm_machine.store().export_room_keys(...)`.)
+
+- Add new `dehydrated` property to `olm::account::PickledAccount`.
+  ([#3164](https://github.com/matrix-org/matrix-rust-sdk/pull/3164))
 
 Additions:
 
