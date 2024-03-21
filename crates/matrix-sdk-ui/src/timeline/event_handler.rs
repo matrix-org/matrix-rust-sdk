@@ -45,7 +45,7 @@ use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
     RoomVersionId,
 };
-use tracing::{debug, error, field::debug, info, instrument, trace, warn};
+use tracing::{debug, error, event_enabled, field::debug, info, instrument, trace, warn, Level};
 
 use super::{
     event_item::{
@@ -970,7 +970,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 trace!("Adding new remote timeline item after all non-pending events");
                 let new_item = TimelineItem::new(item, id);
 
-                // Keep push semantics, if we're inserting at the end or at the front.
+                // Keep push semantics, if we're inserting at the front or the back.
                 if insert_idx == self.items.len() {
                     self.items.push_back(new_item);
                 } else if insert_idx == 0 {
@@ -1047,23 +1047,20 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
 /// Algorithm ensuring that day dividers are adjusted correctly, according to
 /// new items that have been inserted.
-pub(super) struct DayDividerAdjuster<'a, 'o> {
-    pub items: &'a mut ObservableVectorTransaction<'o, Arc<TimelineItem>>,
-    pub meta: &'a mut TimelineInnerMetadata,
+#[derive(Default)]
+pub(super) struct DayDividerAdjuster {
+    ops: Vec<DayDividerOperation>,
 }
 
-#[derive(Debug)]
-enum DayDividerOperation {
-    Insert(usize, MilliSecondsSinceUnixEpoch),
-    Replace(usize, MilliSecondsSinceUnixEpoch),
-    Remove(usize),
-}
-
-impl<'a, 'o> DayDividerAdjuster<'a, 'o> {
+impl DayDividerAdjuster {
     /// Ensures that date separators are properly inserted/removed when needs
     /// be.
     #[instrument(skip(self))]
-    pub fn maybe_adjust_day_dividers(&mut self) {
+    pub fn maybe_adjust_day_dividers(
+        mut self,
+        items: &mut ObservableVectorTransaction<'_, Arc<TimelineItem>>,
+        meta: &mut TimelineInnerMetadata,
+    ) {
         // We're going to record vector operations like inserting, replacing and
         // removing day dividers. Since we may remove or insert new items,
         // recorded offsets will change as we're iterating over the array. The
@@ -1075,116 +1072,177 @@ impl<'a, 'o> DayDividerAdjuster<'a, 'o> {
         // `Remove(i)` followed by a `Replace((i+1) -1)`, which wouldn't do what
         // we want, if running in reverse order.
 
-        let mut ops = vec![];
+        let mut prev_item: Option<&Arc<TimelineItem>> = None;
+        let mut latest_event_ts = None;
 
-        let mut prev_item: Option<(&Arc<TimelineItem>, MilliSecondsSinceUnixEpoch)> = None;
-        let mut last_event_ts = None;
+        for (i, item) in items.iter().enumerate() {
+            match item.kind() {
+                TimelineItemKind::Virtual(VirtualTimelineItem::DayDivider(ts)) => {
+                    self.handle_day_divider(i, *ts, prev_item);
 
-        for (i, item) in self.items.iter().enumerate() {
-            if let TimelineItemKind::Virtual(VirtualTimelineItem::DayDivider(ts)) = item.kind() {
-                // It's a day divider.
-
-                if let Some((prev_item, prev_ts)) = prev_item {
-                    if prev_item.is_day_divider() {
-                        trace!("removing duplicate day divider @ {i}");
-                        // This day divider is preceded by another one: remove the current one.
-                        ops.push(DayDividerOperation::Remove(i));
-                    } else if prev_item.is_event() {
-                        // This day divider is preceded by an event.
-                        if timestamp_to_date(prev_ts) == timestamp_to_date(*ts) {
-                            // The event has the same date as the day divider: remove the day
-                            // divider.
-                            trace!(
-                                "removing day divider following event with same timestamp @ {i}"
-                            );
-                            ops.push(DayDividerOperation::Remove(i));
-                        }
-                    }
-                } else {
-                    // No interesting item prior to the day divider: it must be
-                    // the first one, nothing to do.
+                    prev_item = Some(item);
                 }
 
-                prev_item = Some((item, *ts));
-            }
+                TimelineItemKind::Event(event) => {
+                    let ts = event.timestamp();
 
-            if let Some(event) = item.as_event() {
-                // It's an event.
-                let ts = event.timestamp();
-                let event_date = timestamp_to_date(ts);
+                    self.handle_event(i, ts, prev_item, latest_event_ts);
 
-                if let Some((prev_item, prev_ts)) = prev_item {
-                    if prev_item.is_day_divider() {
-                        // The event is preceded by a day divider.
-                        if timestamp_to_date(prev_ts) != event_date {
-                            // The day divider is wrong. Should we replace it with the correct
-                            // value, or remove it entirely?
-                            if last_event_ts.map_or(
-                                false,
-                                |last_event_ts: MilliSecondsSinceUnixEpoch| {
-                                    timestamp_to_date(last_event_ts) == event_date
-                                },
-                            ) {
-                                // There's a previous event with the same date: remove the divider.
-                                trace!("removed day divider @ {i} between two events that have the same date");
-                                ops.push(DayDividerOperation::Remove(i - 1));
-                            } else {
-                                // There's no previous event or there's one with a different date:
-                                // replace the current divider.
-                                trace!("replacing day divider @ {i} with new timestamp from event");
-                                ops.push(DayDividerOperation::Replace(i - 1, ts));
-                            }
-                        }
-                    } else if let Some(prev_event) = prev_item.as_event() {
-                        // The event is preceded by another event. If they're not the same date,
-                        // insert a date divider.
-                        let prev_ts = prev_event.timestamp();
-                        if timestamp_to_date(prev_ts) != timestamp_to_date(ts) {
-                            trace!("inserting day divider @ {} between two events with different dates", i);
-                            ops.push(DayDividerOperation::Insert(i, ts));
-                        }
-                    }
-                } else {
-                    // The event was the first item, so there wasn't any day divider before it:
-                    // insert one.
-                    trace!("inserting the first day divider @ {}", i);
-                    ops.push(DayDividerOperation::Insert(i, ts));
+                    prev_item = Some(item);
+                    latest_event_ts = Some(ts);
                 }
 
-                prev_item = Some((item, ts));
-                last_event_ts = Some(ts);
+                TimelineItemKind::Virtual(VirtualTimelineItem::ReadMarker) => {
+                    // Nothing to do.
+                }
             }
         }
 
-        //#[cfg(debug)]
-        // TODO: in non-debug mode, set to `None` instead.
-        let initial_state = Some(self.items.iter().cloned().collect());
+        // Only record the initial state if we've enabled the trace log level, and not
+        // otherwise.
+        let initial_state =
+            if event_enabled!(Level::TRACE) { Some(items.iter().cloned().collect()) } else { None };
 
+        self.process_ops(items, meta);
+
+        // Then check invariants.
+        if let Some(report) = self.check_invariants(items, initial_state) {
+            warn!("Errors encountered when checking invariants.");
+            #[cfg(debug)]
+            panic!("{report}");
+            #[cfg(not(debug))]
+            warn!("{report}");
+        }
+    }
+
+    #[inline]
+    fn handle_day_divider(
+        &mut self,
+        i: usize,
+        ts: MilliSecondsSinceUnixEpoch,
+        prev_item: Option<&Arc<TimelineItem>>,
+    ) {
+        let Some(prev_item) = prev_item else {
+            // No interesting item prior to the day divider: it must be the first one,
+            // nothing to do.
+            return;
+        };
+
+        match prev_item.kind() {
+            TimelineItemKind::Event(event) => {
+                // This day divider is preceded by an event.
+                if is_same_date_as(event.timestamp(), ts) {
+                    // The event has the same date as the day divider: remove the day
+                    // divider.
+                    trace!("removing day divider following event with same timestamp @ {i}");
+                    self.ops.push(DayDividerOperation::Remove(i));
+                }
+            }
+
+            TimelineItemKind::Virtual(VirtualTimelineItem::DayDivider(_)) => {
+                trace!("removing duplicate day divider @ {i}");
+                // This day divider is preceded by another one: remove the current one.
+                self.ops.push(DayDividerOperation::Remove(i));
+            }
+
+            TimelineItemKind::Virtual(VirtualTimelineItem::ReadMarker) => {
+                // Nothing to do for read markers.
+            }
+        }
+    }
+
+    #[inline]
+    fn handle_event(
+        &mut self,
+        i: usize,
+        ts: MilliSecondsSinceUnixEpoch,
+        prev_item: Option<&Arc<TimelineItem>>,
+        latest_event_ts: Option<MilliSecondsSinceUnixEpoch>,
+    ) {
+        let Some(prev_item) = prev_item else {
+            // The event was the first item, so there wasn't any day divider before it:
+            // insert one.
+            trace!("inserting the first day divider @ {}", i);
+            self.ops.push(DayDividerOperation::Insert(i, ts));
+            return;
+        };
+
+        match prev_item.kind() {
+            TimelineItemKind::Event(prev_event) => {
+                // The event is preceded by another event. If they're not the same date,
+                // insert a date divider.
+                let prev_ts = prev_event.timestamp();
+
+                if !is_same_date_as(prev_ts, ts) {
+                    trace!("inserting day divider @ {} between two events with different dates", i);
+                    self.ops.push(DayDividerOperation::Insert(i, ts));
+                }
+            }
+
+            TimelineItemKind::Virtual(VirtualTimelineItem::DayDivider(prev_ts)) => {
+                let event_date = timestamp_to_date(ts);
+
+                // The event is preceded by a day divider.
+                if timestamp_to_date(*prev_ts) != event_date {
+                    // The day divider is wrong. Should we replace it with the correct value, or
+                    // remove it entirely?
+                    let mut removed = false;
+
+                    if let Some(last_event_ts) = latest_event_ts {
+                        if timestamp_to_date(last_event_ts) == event_date {
+                            // There's a previous event with the same date: remove the divider.
+                            trace!("removed day divider @ {i} between two events that have the same date");
+                            self.ops.push(DayDividerOperation::Remove(i - 1));
+                            removed = true;
+                        }
+                    }
+
+                    if !removed {
+                        // There's no previous event or there's one with a different
+                        // date: replace the current
+                        // divider.
+                        trace!("replacing day divider @ {i} with new timestamp from event");
+                        self.ops.push(DayDividerOperation::Replace(i - 1, ts));
+                    }
+                }
+            }
+
+            TimelineItemKind::Virtual(VirtualTimelineItem::ReadMarker) => {
+                // Nothing to do.
+            }
+        }
+    }
+
+    fn process_ops(
+        &self,
+        items: &mut ObservableVectorTransaction<'_, Arc<TimelineItem>>,
+        meta: &mut TimelineInnerMetadata,
+    ) {
         // Record the deletion offset.
         let mut offset = 0i64;
         // Remember what the maximum index was, so we can assert that it's
         // non-decreasing.
         let mut max_i = 0;
 
-        for op in &ops {
+        for op in &self.ops {
             match *op {
                 DayDividerOperation::Insert(i, ts) => {
                     assert!(i >= max_i);
 
-                    // Keep push semantics, if we're inserting at the front or the back.
                     let at = (i64::try_from(i).unwrap() + offset)
-                        .min(i64::try_from(self.items.len()).unwrap());
+                        .min(i64::try_from(items.len()).unwrap());
                     assert!(at >= 0);
                     let at = at as usize;
 
-                    let item = self.meta.new_timeline_item(VirtualTimelineItem::DayDivider(ts));
+                    let item = meta.new_timeline_item(VirtualTimelineItem::DayDivider(ts));
 
-                    if at == 0 {
-                        self.items.push_front(item);
-                    } else if at == self.items.len() {
-                        self.items.push_back(item);
+                    // Keep push semantics, if we're inserting at the front or the back.
+                    if at == items.len() {
+                        items.push_back(item);
+                    } else if at == 0 {
+                        items.push_front(item);
                     } else {
-                        self.items.insert(at, item);
+                        items.insert(at, item);
                     }
 
                     offset += 1;
@@ -1198,13 +1256,13 @@ impl<'a, 'o> DayDividerAdjuster<'a, 'o> {
                     assert!(at >= 0);
                     let at = at as usize;
 
-                    let prev = &self.items[at];
-                    assert!(prev.is_day_divider(), "we replaced a non day-divider");
+                    let replaced = &items[at];
+                    assert!(replaced.is_day_divider(), "we replaced a non day-divider");
 
-                    let unique_id = prev.unique_id();
+                    let unique_id = replaced.unique_id();
                     let item = TimelineItem::new(VirtualTimelineItem::DayDivider(ts), unique_id);
 
-                    self.items.set(at, item);
+                    items.set(at, item);
                     max_i = i;
                 }
 
@@ -1214,22 +1272,13 @@ impl<'a, 'o> DayDividerAdjuster<'a, 'o> {
                     let at = i64::try_from(i).unwrap() + offset;
                     assert!(at >= 0);
 
-                    let prev = self.items.remove(at as usize);
-                    assert!(prev.is_day_divider(), "we removed a non day-divider");
+                    let removed = items.remove(at as usize);
+                    assert!(removed.is_day_divider(), "we removed a non day-divider");
 
                     offset -= 1;
                     max_i = i;
                 }
             }
-        }
-
-        // Then check invariants.
-        if let Some(report) = self.check_invariants(initial_state, ops) {
-            warn!("Errors encountered when checking invariants.");
-            #[cfg(debug)]
-            panic!("{report}");
-            #[cfg(not(debug))]
-            warn!("{}", report);
         }
     }
 
@@ -1237,21 +1286,21 @@ impl<'a, 'o> DayDividerAdjuster<'a, 'o> {
     /// dividers.
     ///
     /// Returns a report if and only if there was at least one error.
-    fn check_invariants<'this>(
-        &'this self,
+    fn check_invariants<'a, 'o>(
+        self,
+        items: &'a ObservableVectorTransaction<'o, Arc<TimelineItem>>,
         initial_state: Option<Vec<Arc<TimelineItem>>>,
-        operations: Vec<DayDividerOperation>,
-    ) -> Option<DayDividerInvariantsReport<'this, 'o>> {
+    ) -> Option<DayDividerInvariantsReport<'a, 'o>> {
         let mut report = DayDividerInvariantsReport {
             initial_state,
             errors: Vec::new(),
-            operations,
-            final_state: self.items,
+            operations: self.ops,
+            final_state: items,
         };
 
         // Assert invariants.
         // 1. The timeline starts with a date separator.
-        if let Some(item) = self.items.get(0) {
+        if let Some(item) = items.get(0) {
             if !item.is_day_divider() {
                 report.errors.push(DayDividerInsertError::FirstItemNotDayDivider)
             }
@@ -1260,7 +1309,7 @@ impl<'a, 'o> DayDividerAdjuster<'a, 'o> {
         // 2. There are no two date dividers following each other.
         {
             let mut prev_was_day_divider = false;
-            for (i, item) in self.items.iter().enumerate() {
+            for (i, item) in items.iter().enumerate() {
                 if item.is_day_divider() {
                     if prev_was_day_divider {
                         report.errors.push(DayDividerInsertError::DuplicateDayDivider { at: i });
@@ -1273,7 +1322,7 @@ impl<'a, 'o> DayDividerAdjuster<'a, 'o> {
         };
 
         // 3. There's no trailing day divider.
-        if let Some(last) = self.items.last() {
+        if let Some(last) = items.last() {
             if last.is_day_divider() {
                 report.errors.push(DayDividerInsertError::TrailingDayDivider);
             }
@@ -1284,13 +1333,13 @@ impl<'a, 'o> DayDividerAdjuster<'a, 'o> {
             let mut prev_event_ts = None;
             let mut prev_day_divider_ts = None;
 
-            for (i, item) in self.items.iter().enumerate() {
+            for (i, item) in items.iter().enumerate() {
                 if let Some(ev) = item.as_event() {
                     let ts = ev.timestamp();
 
                     // We have the same date as the previous event we've seen.
                     if let Some(prev_ts) = prev_event_ts {
-                        if timestamp_to_date(prev_ts) != timestamp_to_date(ts) {
+                        if !is_same_date_as(prev_ts, ts) {
                             report.errors.push(
                                 DayDividerInsertError::MissingDayDividerBetweenEvents { at: i },
                             );
@@ -1299,7 +1348,7 @@ impl<'a, 'o> DayDividerAdjuster<'a, 'o> {
 
                     // There is a day divider before us, and it's the same date as our timestamp.
                     if let Some(prev_ts) = prev_day_divider_ts {
-                        if timestamp_to_date(prev_ts) != timestamp_to_date(ts) {
+                        if !is_same_date_as(prev_ts, ts) {
                             report.errors.push(
                                 DayDividerInsertError::InconsistentDateAfterPreviousDayDivider {
                                     at: i,
@@ -1318,7 +1367,7 @@ impl<'a, 'o> DayDividerAdjuster<'a, 'o> {
                 {
                     // The previous day divider is for a different date.
                     if let Some(prev_ts) = prev_day_divider_ts {
-                        if timestamp_to_date(prev_ts) == timestamp_to_date(*ts) {
+                        if is_same_date_as(prev_ts, *ts) {
                             report
                                 .errors
                                 .push(DayDividerInsertError::DuplicateDayDivider { at: i });
@@ -1337,6 +1386,19 @@ impl<'a, 'o> DayDividerAdjuster<'a, 'o> {
             Some(report)
         }
     }
+}
+
+#[derive(Debug)]
+enum DayDividerOperation {
+    Insert(usize, MilliSecondsSinceUnixEpoch),
+    Replace(usize, MilliSecondsSinceUnixEpoch),
+    Remove(usize),
+}
+
+/// Returns whether the two dates for the given timestamps are the same or not.
+#[inline]
+fn is_same_date_as(lhs: MilliSecondsSinceUnixEpoch, rhs: MilliSecondsSinceUnixEpoch) -> bool {
+    timestamp_to_date(lhs) == timestamp_to_date(rhs)
 }
 
 /// A report returned by [`DayDividerAdjuster::check_invariants`].

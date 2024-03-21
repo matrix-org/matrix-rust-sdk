@@ -112,8 +112,9 @@ async fn test_retry_message_decryption() {
     );
     assert_eq!(session_id, SESSION_ID);
 
-    let day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
-    assert!(day_divider.is_day_divider());
+    assert_next_matches!(stream, VectorDiff::PushFront { value } => {
+        assert!(value.is_day_divider());
+    });
 
     {
         let utds = hook.utds.lock().unwrap();
