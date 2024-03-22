@@ -51,7 +51,8 @@ use as_variant::as_variant;
 use futures_core::Stream;
 use futures_util::StreamExt;
 use ruma::{
-    events::secret::request::SecretName, DeviceId, OwnedDeviceId, OwnedRoomId, OwnedUserId, UserId,
+    encryption::KeyUsage, events::secret::request::SecretName, DeviceId, OwnedDeviceId,
+    OwnedRoomId, OwnedUserId, UserId,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use thiserror::Error;
@@ -818,6 +819,27 @@ pub enum SecretImportError {
     Store(#[from] CryptoStoreError),
 }
 
+/// Error describing what went wrong when exporting a [`SecretsBundle`].
+///
+/// The [`SecretsBundle`] can only be exported if we have all cross-signing
+/// private keys in the store.
+#[derive(Debug, Error)]
+pub enum SecretsBundleExportError {
+    /// The store itself had an error.
+    #[error(transparent)]
+    Store(#[from] CryptoStoreError),
+    /// We're missing one or multiple cross-signing keys.
+    #[error("The store is missing one or multiple cross-signing keys")]
+    MissingCrossSigningKey(KeyUsage),
+    /// We're missing all cross-signing keys..
+    #[error("The store doesn't contain any cross-signing keys")]
+    MissingCrossSigningKeys,
+    /// We have a backup key stored, but we don't know the version of the
+    /// backup.
+    #[error("The store contains a backup key, but no backup version")]
+    MissingBackupVersion,
+}
+
 /// Result type telling us if a `/keys/query` response was expected for a given
 /// user.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1240,21 +1262,21 @@ impl Store {
         Ok(self.inner.identity.lock().await.status().await)
     }
 
-    pub async fn export_secrets_bundle(&self) -> Result<SecretsBundle, CryptoStoreError> {
+    pub async fn export_secrets_bundle(&self) -> Result<SecretsBundle, SecretsBundleExportError> {
         let Some(cross_signing) = self.export_cross_signing_keys().await? else {
-            todo!();
+            return Err(SecretsBundleExportError::MissingCrossSigningKeys);
         };
 
         let Some(master_key) = cross_signing.master_key.clone() else {
-            todo!();
+            return Err(SecretsBundleExportError::MissingCrossSigningKey(KeyUsage::Master));
         };
 
         let Some(user_signing_key) = cross_signing.user_signing_key.clone() else {
-            todo!();
+            return Err(SecretsBundleExportError::MissingCrossSigningKey(KeyUsage::UserSigning));
         };
 
         let Some(self_signing_key) = cross_signing.self_signing_key.clone() else {
-            todo!();
+            return Err(SecretsBundleExportError::MissingCrossSigningKey(KeyUsage::SelfSigning));
         };
 
         let backup_keys = self.load_backup_keys().await?;
@@ -1265,7 +1287,7 @@ impl Store {
                     MegolmBackupV1Curve25519AesSha2Secrets { key, backup_version },
                 ))
             } else {
-                None
+                return Err(SecretsBundleExportError::MissingBackupVersion);
             }
         } else {
             None
@@ -1808,9 +1830,17 @@ mod tests {
 
     use futures_util::StreamExt;
     use matrix_sdk_test::async_test;
-    use ruma::{room_id, user_id};
+    use ruma::{
+        api::{client::keys::get_keys::v3::Response, IncomingResponse},
+        room_id, user_id, TransactionId,
+    };
+    use serde_json::json;
 
-    use crate::{machine::tests::get_machine_pair, types::EventEncryptionAlgorithm};
+    use crate::{
+        machine::{testing::response_from_file, tests::get_machine_pair},
+        types::EventEncryptionAlgorithm,
+        CrossSigningBootstrapRequests,
+    };
 
     #[async_test]
     async fn export_room_keys_provides_selected_keys() {
@@ -1892,5 +1922,52 @@ mod tests {
         assert_eq!(collected[0].algorithm, EventEncryptionAlgorithm::MegolmV1AesSha2);
         assert_eq!(collected[0].room_id, "!room1:localhost");
         assert_eq!(collected[0].session_key.to_base64().len(), 220);
+    }
+
+    #[async_test]
+    async fn export_secrets_bundle() {
+        let user_id = user_id!("@alice:example.com");
+        let (first, second, _) = get_machine_pair(user_id, user_id, false).await;
+
+        let CrossSigningBootstrapRequests { upload_signing_keys_req, .. } = first
+            .bootstrap_cross_signing(false)
+            .await
+            .expect("We should be able to bootstrap cross-signing");
+
+        let json = json!({
+            "failures": {},
+            "master_keys": {
+                first.user_id() : upload_signing_keys_req.master_key.unwrap()
+            },
+            "user_signing_keys": {
+                first.user_id() : upload_signing_keys_req.user_signing_key.unwrap()
+            },
+            "self_signing_keys": {
+                first.user_id() : upload_signing_keys_req.self_signing_key.unwrap()
+            },
+          }
+        );
+
+        let response = Response::try_from_http_response(response_from_file(&json))
+            .expect("Can't parse the `/keys/upload` response");
+
+        second.mark_request_as_sent(&TransactionId::new(), &response).await.unwrap();
+
+        let bundle = first.store().export_secrets_bundle().await.expect(
+            "We should be able to export the secrets bundle, now that we \
+             have the cross-signing keys",
+        );
+
+        assert!(bundle.backup.is_none(), "The bundle should not contain a backup key");
+
+        second
+            .store()
+            .import_secrets_bundle(&bundle)
+            .await
+            .expect("We should be able to import the secrets bundle");
+
+        let status = second.cross_signing_status().await;
+
+        assert!(status.is_complete(), "We should have imported all the cross-signing keys");
     }
 }
