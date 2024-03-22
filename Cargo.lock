@@ -1301,6 +1301,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "difflib"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6184e33543162437515c2e2b48714794e37845ec9851711914eec9d308f6ebe8"
+
+[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2627,6 +2633,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "json-structural-diff"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "25c7940d3c84d2079306c176c7b2b37622b6bc5e43fbd1541b1e4a4e1fd02045"
+dependencies = [
+ "difflib",
+ "regex",
+ "serde_json",
+]
+
+[[package]]
 name = "k256"
 version = "0.13.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3249,11 +3266,13 @@ dependencies = [
  "assert_matches",
  "assert_matches2",
  "assign",
+ "eyeball",
  "eyeball-im",
  "futures",
  "futures-core",
  "futures-util",
  "http",
+ "json-structural-diff",
  "matrix-sdk",
  "matrix-sdk-test",
  "matrix-sdk-ui",

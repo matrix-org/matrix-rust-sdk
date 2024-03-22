@@ -10,6 +10,7 @@ assert_matches = { workspace = true }
 assert_matches2 = { workspace = true }
 anyhow = { workspace = true }
 assign = "1"
+eyeball = { workspace = true }
 eyeball-im = { workspace = true }
 futures = { version = "0.3.29", features = ["executor"] }
 futures-core = { workspace = true }
@@ -27,3 +28,4 @@ tempfile = "3.3.0"
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }
 tracing = { workspace = true }
 wiremock = { workspace = true }
+json-structural-diff = "0.1.0"
