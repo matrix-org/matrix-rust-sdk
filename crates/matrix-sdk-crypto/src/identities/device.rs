@@ -790,7 +790,6 @@ impl ReadOnlyDevice {
             recipient_device = ?self.device_id(),
             recipient_key = ?self.curve25519_key(),
             event_type,
-            session,
             message_id,
         ))
     ]
@@ -818,7 +817,6 @@ impl ReadOnlyDevice {
 
         if let Some(mut session) = session {
             let message = session.encrypt(self, event_type, content, message_id).await?;
-            trace!("Successfully encrypted an event");
             Ok((session, message))
         } else {
             trace!("Trying to encrypt an event for a device, but no Olm session is found.");

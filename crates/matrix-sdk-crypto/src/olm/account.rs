@@ -1026,15 +1026,13 @@ impl Account {
         message: &PreKeyMessage,
     ) -> Result<InboundCreationResult, SessionCreationError> {
         Span::current().record("session_id", debug(message.session_id()));
-        debug!("Creating a new Olm session from a pre-key message");
+        trace!("Creating a new Olm session from a pre-key message");
 
         let result = self.inner.create_inbound_session(their_identity_key, message)?;
         let now = SecondsSinceUnixEpoch::now();
         let session_id = result.session.session_id();
 
-        Span::current().record("session", debug(&result.session));
-
-        trace!("Olm session created successfully");
+        debug!(session=?result.session, "Decrypted an Olm message from a new Olm session");
 
         let session = Session {
             user_id: self.static_data.user_id.clone(),

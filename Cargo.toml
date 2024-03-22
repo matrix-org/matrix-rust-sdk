@@ -62,7 +62,7 @@ tracing = { version = "0.1.40", default-features = false, features = ["std"] }
 tracing-core = "0.1.32"
 uniffi = { git = "https://github.com/mozilla/uniffi-rs", rev = "789a9023b522562a95618443cee5a0d4f111c4c7" }
 uniffi_bindgen = { git = "https://github.com/mozilla/uniffi-rs", rev = "789a9023b522562a95618443cee5a0d4f111c4c7" }
-vodozemac = "0.5.1"
+vodozemac = { git="https://github.com/matrix-org/vodozemac", rev = "0c75746fc8a5eda4a0e490d345d1798b4c6cbd67" }
 wiremock = "0.5.21"
 zeroize = "1.6.0"
 

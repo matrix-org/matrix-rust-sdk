@@ -19,6 +19,9 @@ Breaking changes:
 
 Additions:
 
+- Log more details about the Olm session after encryption and decryption.
+  ([#3242](https://github.com/matrix-org/matrix-rust-sdk/pull/3242))
+
 - When Olm message decryption fails, report the error code(s) from the failure.
   ([#3212](https://github.com/matrix-org/matrix-rust-sdk/pull/3212))
 
