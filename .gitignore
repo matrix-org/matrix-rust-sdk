@@ -7,6 +7,8 @@ emsdk-*
 .build
 .swiftpm
 /Package.swift
+# code coverage report
+cobertura.xml
 
 ## User settings
 xcuserdata/
