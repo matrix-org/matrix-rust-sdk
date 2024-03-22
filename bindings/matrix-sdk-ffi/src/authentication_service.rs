@@ -187,6 +187,7 @@ impl OidcAuthenticationData {
 #[derive(uniffi::Object)]
 pub struct HomeserverLoginDetails {
     url: String,
+    sliding_sync_proxy: Option<String>,
     supports_oidc_login: bool,
     supports_password_login: bool,
 }
@@ -196,6 +197,12 @@ impl HomeserverLoginDetails {
     /// The URL of the currently configured homeserver.
     pub fn url(&self) -> String {
         self.url.clone()
+    }
+
+    /// The URL of the discovered or manually set sliding sync proxy,
+    /// if any.
+    pub fn sliding_sync_proxy(&self) -> Option<String> {
+        self.sliding_sync_proxy.clone()
     }
 
     /// Whether the current homeserver supports login using OIDC.
@@ -261,7 +268,7 @@ impl AuthenticationService {
 
         // Make sure there's a sliding sync proxy available.
         if self.custom_sliding_sync_proxy.read().unwrap().is_none()
-            && client.discovered_sliding_sync_proxy().is_none()
+            && details.sliding_sync_proxy().is_none()
         {
             return Err(AuthenticationError::SlidingSyncNotAvailable);
         }
@@ -411,9 +418,15 @@ impl AuthenticationService {
     ) -> Result<HomeserverLoginDetails, AuthenticationError> {
         let supports_oidc_login = client.discovered_authentication_server().is_some();
         let supports_password_login = client.supports_password_login().await.ok().unwrap_or(false);
+        let sliding_sync_proxy = client.sliding_sync_proxy().map(|proxy_url| proxy_url.to_string());
         let url = client.homeserver();
 
-        Ok(HomeserverLoginDetails { url, supports_oidc_login, supports_password_login })
+        Ok(HomeserverLoginDetails {
+            url,
+            sliding_sync_proxy,
+            supports_oidc_login,
+            supports_password_login,
+        })
     }
 
     /// Handle any necessary configuration in order for login via OIDC to
@@ -591,7 +604,7 @@ impl AuthenticationService {
             .read()
             .unwrap()
             .clone()
-            .or_else(|| client.discovered_sliding_sync_proxy().map(|url| url.to_string()));
+            .or_else(|| client.sliding_sync_proxy().map(|url| url.to_string()));
 
         // Wait for the parent client to finish running its initialization tasks.
         RUNTIME.block_on(client.inner.encryption().wait_for_e2ee_initialization_tasks());
