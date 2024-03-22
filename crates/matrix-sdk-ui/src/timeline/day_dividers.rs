@@ -30,7 +30,6 @@ use super::{
 
 /// Algorithm ensuring that day dividers are adjusted correctly, according to
 /// new items that have been inserted.
-#[derive(Default)]
 pub(super) struct DayDividerAdjuster {
     /// The list of recorded operations to apply, after analyzing the latest
     /// items.
@@ -38,14 +37,34 @@ pub(super) struct DayDividerAdjuster {
 
     /// A boolean indicating whether the struct has been used and thus must be
     /// mark unused manually by calling [`Self::maybe_adjust_day_dividers`].
-    used: bool,
+    consumed: bool,
+}
+
+impl Drop for DayDividerAdjuster {
+    fn drop(&mut self) {
+        assert!(
+            self.consumed,
+            "the DayDividerAdjuster must be consumed with maybe_adjust_day_dividers"
+        );
+    }
+}
+
+impl Default for DayDividerAdjuster {
+    fn default() -> Self {
+        Self {
+            ops: Default::default(),
+            // The adjuster starts as consumed, and it will be marked no consumed iff it's used
+            // with `mark_used`.
+            consumed: true,
+        }
+    }
 }
 
 impl DayDividerAdjuster {
     /// Returns a [`DayDividerToken`] ready for consumption.
     pub fn mark_used(&mut self) {
         // Mark the adjuster as needing to be consumed.
-        self.used = false;
+        self.consumed = false;
     }
 
     /// Ensures that date separators are properly inserted/removed when needs
@@ -109,7 +128,7 @@ impl DayDividerAdjuster {
             warn!("{report}");
         }
 
-        self.used = true;
+        self.consumed = true;
     }
 
     #[inline]
