@@ -1303,29 +1303,34 @@ impl Store {
         &self,
         bundle: &SecretsBundle,
     ) -> Result<(), SecretImportError> {
+        let mut changes = Changes::default();
+
         if let Some(backup_bundle) = &bundle.backup {
             match backup_bundle {
                 BackupSecrets::MegolmBackupV1Curve25519AesSha2(bundle) => {
-                    let changes = Changes {
-                        backup_decryption_key: Some(bundle.key.clone()),
-                        backup_version: Some(bundle.backup_version.clone()),
-                        ..Default::default()
-                    };
-
-                    self.save_changes(changes).await?;
+                    changes.backup_decryption_key = Some(bundle.key.clone());
+                    changes.backup_version = Some(bundle.backup_version.clone());
                 }
             }
         }
 
-        let secrets = CrossSigningKeyExport {
-            master_key: Some(bundle.cross_signing.master_key.clone()),
-            self_signing_key: Some(bundle.cross_signing.self_signing_key.clone()),
-            user_signing_key: Some(bundle.cross_signing.user_signing_key.clone()),
-        };
+        let identity = self.inner.identity.lock().await;
 
-        self.import_cross_signing_keys(secrets).await?;
+        identity
+            .import_secrets_unchecked(
+                Some(&bundle.cross_signing.master_key),
+                Some(&bundle.cross_signing.self_signing_key),
+                Some(&bundle.cross_signing.user_signing_key),
+            )
+            .await?;
 
-        Ok(())
+        let public_identity = identity.to_public_identity().await.expect("TODO");
+        public_identity.mark_as_verified();
+
+        changes.private_identity = Some(identity.clone());
+        changes.identities.new.push(ReadOnlyUserIdentities::Own(public_identity));
+
+        Ok(self.save_changes(changes).await?)
     }
 
     /// Import the given `secret` named `secret_name` into the keystore.
@@ -1922,29 +1927,10 @@ mod tests {
         let user_id = user_id!("@alice:example.com");
         let (first, second, _) = get_machine_pair(user_id, user_id, false).await;
 
-        let CrossSigningBootstrapRequests { upload_signing_keys_req, .. } = first
+        let _ = first
             .bootstrap_cross_signing(false)
             .await
             .expect("We should be able to bootstrap cross-signing");
-
-        let json = json!({
-            "failures": {},
-            "master_keys": {
-                first.user_id() : upload_signing_keys_req.master_key.unwrap()
-            },
-            "user_signing_keys": {
-                first.user_id() : upload_signing_keys_req.user_signing_key.unwrap()
-            },
-            "self_signing_keys": {
-                first.user_id() : upload_signing_keys_req.self_signing_key.unwrap()
-            },
-          }
-        );
-
-        let response = Response::try_from_http_response(response_from_file(&json))
-            .expect("Can't parse the `/keys/upload` response");
-
-        second.mark_request_as_sent(&TransactionId::new(), &response).await.unwrap();
 
         let bundle = first.store().export_secrets_bundle().await.expect(
             "We should be able to export the secrets bundle, now that we \
@@ -1960,6 +1946,9 @@ mod tests {
             .expect("We should be able to import the secrets bundle");
 
         let status = second.cross_signing_status().await;
+        let identity = second.get_identity(user_id, None).await.unwrap().unwrap().own().unwrap();
+
+        assert!(identity.is_verified(), "The public identity should be marked as verified.");
 
         assert!(status.is_complete(), "We should have imported all the cross-signing keys");
     }

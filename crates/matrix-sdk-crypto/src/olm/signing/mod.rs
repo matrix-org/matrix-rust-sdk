@@ -401,7 +401,7 @@ impl PrivateCrossSigningIdentity {
             .public_key()
             .clone();
 
-        let self_signing = self
+        let mut self_signing = self
             .self_signing_key
             .lock()
             .await
@@ -410,7 +410,14 @@ impl PrivateCrossSigningIdentity {
             .public_key()
             .clone();
 
-        let user_signing = self
+        self.master_key
+            .lock()
+            .await
+            .as_ref()
+            .ok_or(SignatureError::MissingSigningKey)?
+            .sign_subkey(self_signing.as_mut());
+
+        let mut user_signing = self
             .user_signing_key
             .lock()
             .await
@@ -418,6 +425,13 @@ impl PrivateCrossSigningIdentity {
             .ok_or(SignatureError::MissingSigningKey)?
             .public_key()
             .clone();
+
+        self.master_key
+            .lock()
+            .await
+            .as_ref()
+            .ok_or(SignatureError::MissingSigningKey)?
+            .sign_subkey(user_signing.as_mut());
 
         let identity = ReadOnlyOwnUserIdentity::new(master, self_signing, user_signing)?;
         identity.mark_as_verified();
