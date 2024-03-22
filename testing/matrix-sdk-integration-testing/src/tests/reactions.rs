@@ -32,6 +32,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_ui::timeline::{EventTimelineItem, RoomExt, TimelineItem};
 use tokio::time::timeout;
+use tracing::debug;
 
 use crate::helpers::TestClientBuilder;
 
@@ -56,6 +57,7 @@ async fn test_toggling_reaction() -> Result<()> {
     // Set up sync for user Alice, and create a room.
     let alice = TestClientBuilder::new("alice".to_owned()).use_sqlite().build().await?;
 
+    debug!("Creating room…");
     let user_id = alice.user_id().unwrap().to_owned();
     let room = alice
         .create_room(assign!(CreateRoomRequest::new(), {
@@ -66,15 +68,20 @@ async fn test_toggling_reaction() -> Result<()> {
     let room_id = room.room_id();
 
     // Create a timeline for this room.
+    debug!("Creating timeline…");
     let timeline = room.timeline().await.unwrap();
     let (_items, mut stream) = timeline.subscribe().await;
 
     // Send message.
+    debug!("Sending initial message…");
     timeline.send(RoomMessageEventContent::text_plain("hi!").into()).await;
 
     // Sync until the remote echo arrives.
     let mut num_attempts = 0;
+
     let event_id = loop {
+        debug!(attempt = num_attempts + 1, "Syncing until the remote echo arrives…");
+
         // We expect a quick update from sync, so timeout after 10 seconds, and ignore
         // timeouts; they might just indicate we received the necessary
         // information on the previous attempt, but racily tried to read the
@@ -101,6 +108,7 @@ async fn test_toggling_reaction() -> Result<()> {
     };
 
     // Skip all stream updates that have happened so far.
+    debug!("Skipping all other stream updates…");
     while stream.next().now_or_never().is_some() {}
 
     let message_position = timeline.items().await.len() - 1;
@@ -111,6 +119,8 @@ async fn test_toggling_reaction() -> Result<()> {
     // Toggle reaction multiple times.
     let all_tests = async move {
         for _ in 0..3 {
+            debug!("Starting the toggle reaction tests…");
+
             // Add
             timeline.toggle_reaction(&reaction).await.expect("toggling reaction");
             assert_local_added(&mut stream, &user_id, &event_id, &reaction, message_position).await;
