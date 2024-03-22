@@ -476,8 +476,7 @@ impl Media {
                     thumbnail_info,
                 });
                 let mut image_message_event_content =
-                    ImageMessageEventContent::plain(body.to_owned(), url)
-                        .info(Box::new(info));
+                    ImageMessageEventContent::plain(body.to_owned(), url).info(Box::new(info));
                 image_message_event_content.filename = filename;
                 image_message_event_content.formatted = config.formatted_caption;
                 MessageType::Image(image_message_event_content)
@@ -500,8 +499,7 @@ impl Media {
                     thumbnail_info
                 });
                 let mut video_message_event_content =
-                    VideoMessageEventContent::plain(body.to_owned(), url)
-                        .info(Box::new(info));
+                    VideoMessageEventContent::plain(body.to_owned(), url).info(Box::new(info));
                 video_message_event_content.filename = filename;
                 video_message_event_content.formatted = config.formatted_caption;
                 MessageType::Video(video_message_event_content)
@@ -513,8 +511,7 @@ impl Media {
                     thumbnail_info
                 });
                 let mut file_message_event_content =
-                    FileMessageEventContent::plain(body.to_owned(), url)
-                        .info(Box::new(info));
+                    FileMessageEventContent::plain(body.to_owned(), url).info(Box::new(info));
                 file_message_event_content.filename = filename;
                 file_message_event_content.formatted = config.formatted_caption;
                 MessageType::File(file_message_event_content)
