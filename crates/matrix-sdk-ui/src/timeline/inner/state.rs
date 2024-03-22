@@ -36,7 +36,7 @@ use super::{HandleManyEventsResult, ReactionState, TimelineInnerSettings};
 use crate::{
     events::SyncTimelineEventWithoutContent,
     timeline::{
-        day_dividers::{DayDividerAdjuster, DayDividerToken},
+        day_dividers::DayDividerAdjuster,
         event_handler::{
             Flow, HandleEventResult, TimelineEventContext, TimelineEventHandler, TimelineEventKind,
             TimelineItemPosition,
@@ -186,10 +186,9 @@ impl TimelineInnerState {
         let mut txn = self.transaction();
 
         let mut day_divider_adjuster = DayDividerAdjuster::default();
-        let day_divider_token = day_divider_adjuster.make_token();
 
         TimelineEventHandler::new(&mut txn, ctx).handle_event(
-            &day_divider_token,
+            &mut day_divider_adjuster,
             TimelineEventKind::Message { content, relations: Default::default() },
         );
 
@@ -225,18 +224,17 @@ impl TimelineInnerState {
         let timeline_event_handler = TimelineEventHandler::new(&mut txn, ctx);
 
         let mut day_divider_adjuster = DayDividerAdjuster::default();
-        let day_divider_token = day_divider_adjuster.make_token();
 
         match to_redact {
             EventItemIdentifier::TransactionId(txn_id) => {
                 timeline_event_handler.handle_event(
-                    &day_divider_token,
+                    &mut day_divider_adjuster,
                     TimelineEventKind::LocalRedaction { redacts: txn_id, content: content.clone() },
                 );
             }
             EventItemIdentifier::EventId(event_id) => {
                 timeline_event_handler.handle_event(
-                    &day_divider_token,
+                    &mut day_divider_adjuster,
                     TimelineEventKind::Redaction { redacts: event_id, content },
                 );
             }
@@ -261,7 +259,6 @@ impl TimelineInnerState {
         let mut txn = self.transaction();
 
         let mut day_divider_adjuster = DayDividerAdjuster::default();
-        let day_divider_token = day_divider_adjuster.make_token();
 
         // Loop through all the indices, in order so we don't decrypt edits
         // before the event being edited, if both were UTD. Keep track of
@@ -283,7 +280,7 @@ impl TimelineInnerState {
                     TimelineItemPosition::Update(idx),
                     room_data_provider,
                     settings,
-                    &day_divider_token,
+                    &mut day_divider_adjuster,
                 )
                 .await;
 
@@ -459,7 +456,6 @@ impl TimelineInnerStateTransaction<'_> {
         };
 
         let mut day_divider_adjuster = DayDividerAdjuster::default();
-        let day_divider_token = day_divider_adjuster.make_token();
 
         for event in events {
             let handle_one_res = self
@@ -468,7 +464,7 @@ impl TimelineInnerStateTransaction<'_> {
                     position,
                     room_data_provider,
                     settings,
-                    &day_divider_token,
+                    &mut day_divider_adjuster,
                 )
                 .await;
 
@@ -490,7 +486,7 @@ impl TimelineInnerStateTransaction<'_> {
         position: TimelineItemPosition,
         room_data_provider: &P,
         settings: &TimelineInnerSettings,
-        day_divider_token: &DayDividerToken,
+        day_divider_adjuster: &mut DayDividerAdjuster,
     ) -> HandleEventResult {
         let raw = event.event;
         let (event_id, sender, timestamp, txn_id, event_kind, should_add) = match raw.deserialize()
@@ -601,7 +597,7 @@ impl TimelineInnerStateTransaction<'_> {
             },
         };
 
-        TimelineEventHandler::new(self, ctx).handle_event(day_divider_token, event_kind)
+        TimelineEventHandler::new(self, ctx).handle_event(day_divider_adjuster, event_kind)
     }
 
     fn clear(&mut self) {

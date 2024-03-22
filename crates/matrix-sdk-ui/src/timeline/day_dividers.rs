@@ -28,52 +28,24 @@ use super::{
     VirtualTimelineItem,
 };
 
-/// An empty struct to make sure that callers of
-/// [`TimelineEventHandler::handle_event`] don't forget about calling the day
-/// divider algorithm once they're done.
-///
-/// The field must absolutely remain private.
-pub(super) struct DayDividerToken(());
-
 /// Algorithm ensuring that day dividers are adjusted correctly, according to
 /// new items that have been inserted.
+#[derive(Default)]
 pub(super) struct DayDividerAdjuster {
     /// The list of recorded operations to apply, after analyzing the latest
     /// items.
     ops: Vec<DayDividerOperation>,
 
-    /// A boolean indicating whether the struct has been consumed manually or
-    /// not.
-    consumed: bool,
-}
-
-impl Default for DayDividerAdjuster {
-    fn default() -> Self {
-        Self {
-            ops: Default::default(),
-            // Only creating a token with `make_token` implies that we must call
-            // `maybe_adjust_day_dividers`.
-            consumed: true,
-        }
-    }
-}
-
-impl Drop for DayDividerAdjuster {
-    fn drop(&mut self) {
-        assert!(
-            self.consumed,
-            "DayDividerAdjuster::maybe_adjust_day_dividers() must be called manually."
-        );
-    }
+    /// A boolean indicating whether the struct has been used and thus must be
+    /// mark unused manually by calling [`Self::maybe_adjust_day_dividers`].
+    used: bool,
 }
 
 impl DayDividerAdjuster {
     /// Returns a [`DayDividerToken`] ready for consumption.
-    pub fn make_token(&mut self) -> DayDividerToken {
+    pub fn mark_used(&mut self) {
         // Mark the adjuster as needing to be consumed.
-        self.consumed = false;
-
-        DayDividerToken(())
+        self.used = false;
     }
 
     /// Ensures that date separators are properly inserted/removed when needs
@@ -137,7 +109,7 @@ impl DayDividerAdjuster {
             warn!("{report}");
         }
 
-        self.consumed = true;
+        self.used = true;
     }
 
     #[inline]
