@@ -329,9 +329,10 @@ impl Client {
         self.inner.oidc().authentication_server_info().cloned()
     }
 
-    /// The sliding sync proxy that is trusted by the homeserver. `None` when
-    /// not configured.
-    pub fn discovered_sliding_sync_proxy(&self) -> Option<Url> {
+    /// The sliding sync proxy of the homeserver. It is either set automatically
+    /// during discovery or manually via `set_sliding_sync_proxy` or `None`
+    /// when not configured.
+    pub fn sliding_sync_proxy(&self) -> Option<Url> {
         self.inner.sliding_sync_proxy()
     }
 
