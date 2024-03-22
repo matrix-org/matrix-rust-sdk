@@ -199,7 +199,8 @@ impl HomeserverLoginDetails {
         self.url.clone()
     }
 
-    /// The URL of the discovered sliding sync proxy, if any
+    /// The URL of the discovered or manually set sliding sync proxy,
+    /// if any.
     pub fn sliding_sync_proxy(&self) -> Option<String> {
         self.sliding_sync_proxy.clone()
     }
