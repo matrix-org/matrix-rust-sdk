@@ -70,8 +70,8 @@ use crate::{
     session_manager::{GroupSessionManager, SessionManager},
     store::{
         Changes, CryptoStoreWrapper, DeviceChanges, IdentityChanges, IntoCryptoStore, MemoryStore,
-        PendingChanges, Result as StoreResult, RoomKeyInfo, RoomSettings, SecretImportError, Store,
-        StoreCache, StoreTransaction,
+        PendingChanges, Result as StoreResult, RoomKeyInfo, RoomSettings, Store, StoreCache,
+        StoreTransaction,
     },
     types::{
         events::{
@@ -90,8 +90,8 @@ use crate::{
     },
     utilities::timestamp_to_iso8601,
     verification::{Verification, VerificationMachine, VerificationRequest},
-    CrossSigningKeyExport, CryptoStoreError, KeysQueryRequest, LocalTrust, ReadOnlyDevice,
-    RoomKeyImportResult, SignatureError, ToDeviceRequest,
+    CryptoStoreError, KeysQueryRequest, LocalTrust, ReadOnlyDevice, RoomKeyImportResult,
+    SignatureError, ToDeviceRequest,
 };
 
 /// State machine implementation of the Olm/Megolm encryption protocol used for
@@ -1819,38 +1819,6 @@ impl OlmMachine {
     /// stored locally.
     pub async fn cross_signing_status(&self) -> CrossSigningStatus {
         self.inner.user_identity.lock().await.status().await
-    }
-
-    /// Export all the private cross signing keys we have.
-    ///
-    /// The export will contain the seed for the ed25519 keys as a unpadded
-    /// base64 encoded string.
-    ///
-    /// This method returns `None` if we don't have any private cross signing
-    /// keys.
-    pub async fn export_cross_signing_keys(&self) -> StoreResult<Option<CrossSigningKeyExport>> {
-        let master_key = self.store().export_secret(&SecretName::CrossSigningMasterKey).await?;
-        let self_signing_key =
-            self.store().export_secret(&SecretName::CrossSigningSelfSigningKey).await?;
-        let user_signing_key =
-            self.store().export_secret(&SecretName::CrossSigningUserSigningKey).await?;
-
-        Ok(if master_key.is_none() && self_signing_key.is_none() && user_signing_key.is_none() {
-            None
-        } else {
-            Some(CrossSigningKeyExport { master_key, self_signing_key, user_signing_key })
-        })
-    }
-
-    /// Import our private cross signing keys.
-    ///
-    /// The export needs to contain the seed for the ed25519 keys as an unpadded
-    /// base64 encoded string.
-    pub async fn import_cross_signing_keys(
-        &self,
-        export: CrossSigningKeyExport,
-    ) -> Result<CrossSigningStatus, SecretImportError> {
-        self.store().import_cross_signing_keys(export).await
     }
 
     async fn sign_with_master_key(
@@ -4027,6 +3995,7 @@ pub(crate) mod tests {
         let second_alice = create_additional_machine(&alice).await;
 
         let export = alice
+            .store()
             .export_cross_signing_keys()
             .await
             .unwrap()
@@ -4043,6 +4012,7 @@ pub(crate) mod tests {
         assert!(!identity.is_verified(), "Initially our identity should not be verified");
 
         second_alice
+            .store()
             .import_cross_signing_keys(export)
             .await
             .expect("We should be able to import our cross-signing keys");
@@ -4063,12 +4033,13 @@ pub(crate) mod tests {
         let second_bob = create_additional_machine(&bob).await;
 
         let export = second_alice
+            .store()
             .export_cross_signing_keys()
             .await
             .unwrap()
             .expect("The machine should now be able to export cross-signing keys as well");
 
-        second_bob.import_cross_signing_keys(export).await.expect_err(
+        second_bob.store().import_cross_signing_keys(export).await.expect_err(
             "Importing cross-signing keys that don't match our public identity should fail",
         );
 

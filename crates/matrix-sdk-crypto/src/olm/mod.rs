@@ -32,7 +32,10 @@ pub use group_sessions::{
     SessionCreationError, SessionExportError, SessionKey, ShareInfo,
 };
 pub use session::{PickledSession, Session};
-pub use signing::{CrossSigningStatus, PickledCrossSigningIdentity, PrivateCrossSigningIdentity};
+pub use signing::{
+    CrossSigningStatus, MasterSigning, PickledCrossSigningIdentity, PrivateCrossSigningIdentity,
+    SelfSigning, UserSigning,
+};
 pub(crate) use utility::{SignedJsonObject, VerifyJson};
 pub use vodozemac::{olm::IdentityKeys, Curve25519PublicKey};
 

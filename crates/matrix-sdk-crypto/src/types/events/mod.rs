@@ -49,7 +49,7 @@ impl<T: EventType> EventType for Raw<T> {
     const EVENT_TYPE: &'static str = T::EVENT_TYPE;
 }
 
-fn from_str<'a, T, E>(string: &'a str) -> Result<T, E>
+pub(super) fn from_str<'a, T, E>(string: &'a str) -> Result<T, E>
 where
     T: serde::Deserialize<'a>,
     E: serde::de::Error,

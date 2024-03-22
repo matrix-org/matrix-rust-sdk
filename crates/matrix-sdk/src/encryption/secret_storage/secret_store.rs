@@ -387,7 +387,7 @@ impl SecretStore {
         self.client.keys_query(&request_id, request.device_keys).await?;
 
         // Let's now try to import our private cross-signing keys.
-        let status = olm_machine.import_cross_signing_keys(export).await?;
+        let status = olm_machine.store().import_cross_signing_keys(export).await?;
 
         Span::current().record("cross_signing_status", debug(&status));
 
@@ -423,7 +423,7 @@ impl SecretStore {
         let olm_machine = self.client.olm_machine().await;
         let olm_machine = olm_machine.as_ref().ok_or(crate::Error::NoOlmMachine)?;
 
-        if let Some(cross_signing_keys) = olm_machine.export_cross_signing_keys().await? {
+        if let Some(cross_signing_keys) = olm_machine.store().export_cross_signing_keys().await? {
             self.put_cross_signing_keys(cross_signing_keys).await?;
         }
 

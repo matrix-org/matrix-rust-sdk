@@ -23,6 +23,8 @@
 //!    way, meaning the white-space and field order won't be preserved but the
 //!    data will.
 
+#![allow(missing_docs)]
+
 use std::{
     borrow::Borrow,
     collections::{
@@ -35,8 +37,10 @@ use as_variant::as_variant;
 use ruma::{
     serde::StringEnum, DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceKeyId, OwnedUserId, UserId,
 };
-use serde::{Deserialize, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde_json::value::RawValue;
 use vodozemac::{Curve25519PublicKey, Ed25519PublicKey, Ed25519Signature, KeyError};
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 mod backup;
 mod cross_signing;
@@ -45,6 +49,142 @@ pub mod events;
 mod one_time_keys;
 
 pub use self::{backup::*, cross_signing::*, device_keys::*, one_time_keys::*};
+use crate::store::BackupDecryptionKey;
+
+#[derive(Debug, Deserialize, Serialize, ZeroizeOnDrop)]
+pub struct SecretsBundle {
+    pub cross_signing: CrossSigningSecrets,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backup: Option<BackupSecrets>,
+}
+
+#[derive(Debug, Deserialize, Serialize, ZeroizeOnDrop)]
+pub struct CrossSigningSecrets {
+    pub master_key: String,
+    pub user_signing_key: String,
+    pub self_signing_key: String,
+}
+
+#[derive(Debug, Deserialize, ZeroizeOnDrop)]
+pub struct MegolmBackupV1Curve25519AesSha2Secrets {
+    #[serde(deserialize_with = "backup_key_from_base64")]
+    pub key: BackupDecryptionKey,
+    pub backup_version: String,
+}
+
+macro_rules! from_base64 {
+    ($foo:ident, $name:ident) => {
+        pub fn $name<'de, D>(deserializer: D) -> Result<$foo, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            let mut string = String::deserialize(deserializer)?;
+
+            let result = $foo::from_base64(&string);
+            string.zeroize();
+
+            result.map_err(serde::de::Error::custom)
+        }
+    };
+}
+
+macro_rules! to_base64 {
+    ($foo:ident, $name:ident) => {
+        fn $name<S>(v: &$foo, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            let mut string = v.to_base64();
+            let ret = string.serialize(serializer);
+
+            string.zeroize();
+
+            ret
+        }
+    };
+}
+
+from_base64!(BackupDecryptionKey, backup_key_from_base64);
+to_base64!(BackupDecryptionKey, backup_key_to_base64);
+
+#[derive(Debug, ZeroizeOnDrop)]
+pub enum BackupSecrets {
+    MegolmBackupV1Curve25519AesSha2(MegolmBackupV1Curve25519AesSha2Secrets),
+    #[zeroize(skip)]
+    Unknown {
+        algorithm: String,
+        content: Box<RawValue>,
+    },
+}
+
+impl BackupSecrets {
+    pub fn algorithm(&self) -> &str {
+        match &self {
+            BackupSecrets::MegolmBackupV1Curve25519AesSha2(_) => {
+                "m.megolm_backup.v1.curve25519-aes-sha2"
+            }
+            BackupSecrets::Unknown { algorithm, .. } => algorithm,
+        }
+    }
+}
+
+impl Serialize for BackupSecrets {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        #[derive(Serialize)]
+        struct Helper<'a> {
+            algorithm: &'a str,
+            #[serde(
+                serialize_with = "backup_key_to_base64",
+                deserialize_with = "backup_key_from_base64"
+            )]
+            key: &'a BackupDecryptionKey,
+            backup_version: &'a str,
+        }
+
+        match self {
+            BackupSecrets::MegolmBackupV1Curve25519AesSha2(s) => {
+                let helper = Helper {
+                    algorithm: self.algorithm(),
+                    key: &s.key,
+                    backup_version: &s.backup_version,
+                };
+
+                helper.serialize(serializer)
+            }
+            BackupSecrets::Unknown { content, .. } => content.serialize(serializer),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for BackupSecrets {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Helper<'a> {
+            algorithm: &'a str,
+        }
+
+        let json = Box::<RawValue>::deserialize(deserializer)?;
+        let helper: Helper<'_> =
+            serde_json::from_str(json.get()).map_err(serde::de::Error::custom)?;
+
+        let json_string = json.get();
+
+        if helper.algorithm == "m.megolm_backup.v1.curve25519-aes-sha2" {
+            Ok(BackupSecrets::MegolmBackupV1Curve25519AesSha2(self::events::from_str::<
+                MegolmBackupV1Curve25519AesSha2Secrets,
+                _,
+            >(json_string)?))
+        } else {
+            Ok(Self::Unknown { algorithm: helper.algorithm.to_owned(), content: json })
+        }
+    }
+}
 
 /// Represents a potentially decoded signature (but *not* a validated one).
 ///
@@ -169,7 +309,7 @@ impl IntoIterator for Signatures {
 impl<'de> Deserialize<'de> for Signatures {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
-        D: serde::Deserializer<'de>,
+        D: Deserializer<'de>,
     {
         let map: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, String>> =
             serde::Deserialize::deserialize(deserializer)?;
@@ -371,7 +511,7 @@ impl<T: Ord + Serialize> Serialize for SigningKeys<T> {
 impl<'de, T: Algorithm + Ord + Deserialize<'de>> Deserialize<'de> for SigningKeys<T> {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
-        D: serde::Deserializer<'de>,
+        D: Deserializer<'de>,
     {
         let map: BTreeMap<T, String> = serde::Deserialize::deserialize(deserializer)?;
 
@@ -395,7 +535,7 @@ impl<'de, T: Algorithm + Ord + Deserialize<'de>> Deserialize<'de> for SigningKey
 // This ensures that we serialize/deserialize in a Matrix-compatible way.
 pub(crate) fn deserialize_curve_key<'de, D>(de: D) -> Result<Curve25519PublicKey, D::Error>
 where
-    D: serde::Deserializer<'de>,
+    D: Deserializer<'de>,
 {
     let key: String = Deserialize::deserialize(de)?;
     Curve25519PublicKey::from_base64(&key).map_err(serde::de::Error::custom)
@@ -411,7 +551,7 @@ where
 
 pub(crate) fn deserialize_ed25519_key<'de, D>(de: D) -> Result<Ed25519PublicKey, D::Error>
 where
-    D: serde::Deserializer<'de>,
+    D: Deserializer<'de>,
 {
     let key: String = Deserialize::deserialize(de)?;
     Ed25519PublicKey::from_base64(&key).map_err(serde::de::Error::custom)
@@ -427,7 +567,7 @@ where
 
 pub(crate) fn deserialize_curve_key_vec<'de, D>(de: D) -> Result<Vec<Curve25519PublicKey>, D::Error>
 where
-    D: serde::Deserializer<'de>,
+    D: Deserializer<'de>,
 {
     let keys: Vec<String> = Deserialize::deserialize(de)?;
     let keys: Result<Vec<Curve25519PublicKey>, KeyError> =
@@ -445,4 +585,36 @@ where
 {
     let keys: Vec<String> = keys.iter().map(|k| k.to_base64()).collect();
     keys.serialize(s)
+}
+
+#[cfg(test)]
+mod test {
+    use serde_json::json;
+    use similar_asserts::assert_eq;
+
+    use super::*;
+
+    #[test]
+    fn serialize_secrets_bundle() {
+        let json = json!({
+            "cross_signing": {
+                "master_key": "rTtSv67XGS6k/rg6/yTG/m573cyFTPFRqluFhQY+hSw",
+                "self_signing_key": "4jbPt7jh5D2iyM4U+3IDa+WthgJB87IQN1ATdkau+xk",
+                "user_signing_key": "YkFKtkjcsTxF6UAzIIG/l6Nog/G2RigCRfWj3cjNWeM",
+            },
+            "backup": {
+                "algorithm": "m.megolm_backup.v1.curve25519-aes-sha2",
+                "backup_version": "2",
+                "key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+            },
+        });
+
+        let deserialized: SecretsBundle = serde_json::from_value(json.clone())
+            .expect("We should be able to deserialize the secrets bundle");
+
+        let serialized = serde_json::to_value(&deserialized)
+            .expect("We should be able to serialize a secrets bundle");
+
+        assert_eq!(json, serialized, "A serialization cycle should yield the same result");
+    }
 }
