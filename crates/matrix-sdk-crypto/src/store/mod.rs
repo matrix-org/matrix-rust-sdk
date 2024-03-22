@@ -1314,13 +1314,6 @@ impl Store {
 
                     self.save_changes(changes).await?;
                 }
-                BackupSecrets::Unknown { algorithm, .. } => {
-                    warn!(
-                        algorithm,
-                        "Received a secrets bundle with a unsupported backup key algorithm"
-                    );
-                    todo!()
-                }
             }
         }
 

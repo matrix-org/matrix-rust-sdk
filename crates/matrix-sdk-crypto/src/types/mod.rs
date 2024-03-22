@@ -38,7 +38,6 @@ use ruma::{
     serde::StringEnum, DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceKeyId, OwnedUserId, UserId,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use serde_json::value::RawValue;
 use vodozemac::{Curve25519PublicKey, Ed25519PublicKey, Ed25519Signature, KeyError};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
@@ -88,9 +87,9 @@ pub struct CrossSigningSecrets {
     pub self_signing_key: String,
 }
 
-#[derive(Debug, Deserialize, ZeroizeOnDrop)]
+#[derive(Debug, Deserialize, Serialize, ZeroizeOnDrop)]
 pub struct MegolmBackupV1Curve25519AesSha2Secrets {
-    #[serde(deserialize_with = "backup_key_from_base64")]
+    #[serde(serialize_with = "backup_key_to_base64", deserialize_with = "backup_key_from_base64")]
     pub key: BackupDecryptionKey,
     pub backup_version: String,
 }
@@ -130,14 +129,11 @@ macro_rules! to_base64 {
 from_base64!(BackupDecryptionKey, backup_key_from_base64);
 to_base64!(BackupDecryptionKey, backup_key_to_base64);
 
-#[derive(Debug, ZeroizeOnDrop)]
+#[derive(Debug, ZeroizeOnDrop, Serialize, Deserialize)]
+#[serde(tag = "algorithm")]
 pub enum BackupSecrets {
+    #[serde(rename = "m.megolm_backup.v1.curve25519-aes-sha2")]
     MegolmBackupV1Curve25519AesSha2(MegolmBackupV1Curve25519AesSha2Secrets),
-    #[zeroize(skip)]
-    Unknown {
-        algorithm: String,
-        content: Box<RawValue>,
-    },
 }
 
 impl BackupSecrets {
@@ -146,65 +142,6 @@ impl BackupSecrets {
             BackupSecrets::MegolmBackupV1Curve25519AesSha2(_) => {
                 "m.megolm_backup.v1.curve25519-aes-sha2"
             }
-            BackupSecrets::Unknown { algorithm, .. } => algorithm,
-        }
-    }
-}
-
-impl Serialize for BackupSecrets {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        #[derive(Serialize)]
-        struct Helper<'a> {
-            algorithm: &'a str,
-            #[serde(
-                serialize_with = "backup_key_to_base64",
-                deserialize_with = "backup_key_from_base64"
-            )]
-            key: &'a BackupDecryptionKey,
-            backup_version: &'a str,
-        }
-
-        match self {
-            BackupSecrets::MegolmBackupV1Curve25519AesSha2(s) => {
-                let helper = Helper {
-                    algorithm: self.algorithm(),
-                    key: &s.key,
-                    backup_version: &s.backup_version,
-                };
-
-                helper.serialize(serializer)
-            }
-            BackupSecrets::Unknown { content, .. } => content.serialize(serializer),
-        }
-    }
-}
-
-impl<'de> Deserialize<'de> for BackupSecrets {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        #[derive(Deserialize)]
-        struct Helper<'a> {
-            algorithm: &'a str,
-        }
-
-        let json = Box::<RawValue>::deserialize(deserializer)?;
-        let helper: Helper<'_> =
-            serde_json::from_str(json.get()).map_err(serde::de::Error::custom)?;
-
-        let json_string = json.get();
-
-        if helper.algorithm == "m.megolm_backup.v1.curve25519-aes-sha2" {
-            Ok(BackupSecrets::MegolmBackupV1Curve25519AesSha2(self::events::from_str::<
-                MegolmBackupV1Curve25519AesSha2Secrets,
-                _,
-            >(json_string)?))
-        } else {
-            Ok(Self::Unknown { algorithm: helper.algorithm.to_owned(), content: json })
         }
     }
 }
