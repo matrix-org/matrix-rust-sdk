@@ -184,10 +184,15 @@ impl TimelineInnerState {
         };
 
         let mut txn = self.transaction();
-        TimelineEventHandler::new(&mut txn, ctx)
-            .handle_event(TimelineEventKind::Message { content, relations: Default::default() });
 
-        txn.maybe_adjust_day_dividers();
+        let mut day_divider_adjuster = DayDividerAdjuster::default();
+
+        TimelineEventHandler::new(&mut txn, ctx).handle_event(
+            &mut day_divider_adjuster,
+            TimelineEventKind::Message { content, relations: Default::default() },
+        );
+
+        txn.adjust_day_dividers(day_divider_adjuster);
 
         txn.commit();
     }
@@ -218,20 +223,24 @@ impl TimelineInnerState {
         let mut txn = self.transaction();
         let timeline_event_handler = TimelineEventHandler::new(&mut txn, ctx);
 
+        let mut day_divider_adjuster = DayDividerAdjuster::default();
+
         match to_redact {
             EventItemIdentifier::TransactionId(txn_id) => {
-                timeline_event_handler.handle_event(TimelineEventKind::LocalRedaction {
-                    redacts: txn_id,
-                    content: content.clone(),
-                });
+                timeline_event_handler.handle_event(
+                    &mut day_divider_adjuster,
+                    TimelineEventKind::LocalRedaction { redacts: txn_id, content: content.clone() },
+                );
             }
             EventItemIdentifier::EventId(event_id) => {
-                timeline_event_handler
-                    .handle_event(TimelineEventKind::Redaction { redacts: event_id, content });
+                timeline_event_handler.handle_event(
+                    &mut day_divider_adjuster,
+                    TimelineEventKind::Redaction { redacts: event_id, content },
+                );
             }
         }
 
-        txn.maybe_adjust_day_dividers();
+        txn.adjust_day_dividers(day_divider_adjuster);
 
         txn.commit();
     }
@@ -248,6 +257,8 @@ impl TimelineInnerState {
         Fut: Future<Output = Option<TimelineEvent>>,
     {
         let mut txn = self.transaction();
+
+        let mut day_divider_adjuster = DayDividerAdjuster::default();
 
         // Loop through all the indices, in order so we don't decrypt edits
         // before the event being edited, if both were UTD. Keep track of
@@ -269,6 +280,7 @@ impl TimelineInnerState {
                     TimelineItemPosition::Update(idx),
                     room_data_provider,
                     settings,
+                    &mut day_divider_adjuster,
                 )
                 .await;
 
@@ -279,7 +291,7 @@ impl TimelineInnerState {
             }
         }
 
-        txn.maybe_adjust_day_dividers();
+        txn.adjust_day_dividers(day_divider_adjuster);
 
         txn.commit();
     }
@@ -443,16 +455,24 @@ impl TimelineInnerStateTransaction<'_> {
             TimelineEnd::Back { from_cache } => TimelineItemPosition::End { from_cache },
         };
 
+        let mut day_divider_adjuster = DayDividerAdjuster::default();
+
         for event in events {
             let handle_one_res = self
-                .handle_remote_event(event.into(), position, room_data_provider, settings)
+                .handle_remote_event(
+                    event.into(),
+                    position,
+                    room_data_provider,
+                    settings,
+                    &mut day_divider_adjuster,
+                )
                 .await;
 
             total.items_added += handle_one_res.item_added as u64;
             total.items_updated += handle_one_res.items_updated as u64;
         }
 
-        self.maybe_adjust_day_dividers();
+        self.adjust_day_dividers(day_divider_adjuster);
 
         total
     }
@@ -466,6 +486,7 @@ impl TimelineInnerStateTransaction<'_> {
         position: TimelineItemPosition,
         room_data_provider: &P,
         settings: &TimelineInnerSettings,
+        day_divider_adjuster: &mut DayDividerAdjuster,
     ) -> HandleEventResult {
         let raw = event.event;
         let (event_id, sender, timestamp, txn_id, event_kind, should_add) = match raw.deserialize()
@@ -576,7 +597,7 @@ impl TimelineInnerStateTransaction<'_> {
             },
         };
 
-        TimelineEventHandler::new(self, ctx).handle_event(event_kind)
+        TimelineEventHandler::new(self, ctx).handle_event(day_divider_adjuster, event_kind)
     }
 
     fn clear(&mut self) {
@@ -686,10 +707,8 @@ impl TimelineInnerStateTransaction<'_> {
         }
     }
 
-    /// Inserts/removes any day dividers that might be missing or superfluous,
-    /// according to the events we just handled.
-    fn maybe_adjust_day_dividers(&mut self) {
-        DayDividerAdjuster::default().maybe_adjust_day_dividers(&mut self.items, &mut self.meta);
+    fn adjust_day_dividers(&mut self, mut adjuster: DayDividerAdjuster) {
+        adjuster.maybe_adjust_day_dividers(&mut self.items, &mut self.meta);
     }
 }
 
