@@ -708,7 +708,7 @@ impl TimelineInnerStateTransaction<'_> {
     }
 
     fn adjust_day_dividers(&mut self, mut adjuster: DayDividerAdjuster) {
-        adjuster.maybe_adjust_day_dividers(&mut self.items, &mut self.meta);
+        adjuster.run(&mut self.items, &mut self.meta);
     }
 }
 

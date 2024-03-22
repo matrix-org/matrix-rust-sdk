@@ -21,8 +21,6 @@ use eyeball_im::ObservableVectorTransaction;
 use ruma::MilliSecondsSinceUnixEpoch;
 use tracing::{event_enabled, instrument, trace, warn, Level};
 
-#[cfg(doc)]
-use super::event_handler::TimelineEventHandler;
 use super::{
     inner::TimelineInnerMetadata, util::timestamp_to_date, TimelineItem, TimelineItemKind,
     VirtualTimelineItem,
@@ -36,16 +34,13 @@ pub(super) struct DayDividerAdjuster {
     ops: Vec<DayDividerOperation>,
 
     /// A boolean indicating whether the struct has been used and thus must be
-    /// mark unused manually by calling [`Self::maybe_adjust_day_dividers`].
+    /// mark unused manually by calling [`Self::run`].
     consumed: bool,
 }
 
 impl Drop for DayDividerAdjuster {
     fn drop(&mut self) {
-        assert!(
-            self.consumed,
-            "the DayDividerAdjuster must be consumed with maybe_adjust_day_dividers"
-        );
+        assert!(self.consumed, "the DayDividerAdjuster must be consumed with run()");
     }
 }
 
@@ -61,7 +56,8 @@ impl Default for DayDividerAdjuster {
 }
 
 impl DayDividerAdjuster {
-    /// Returns a [`DayDividerToken`] ready for consumption.
+    /// Marks this [`DayDividerAdjuster`] as used, which means it'll require a
+    /// call to [`DayDividerAdjuster::run`] before getting dropped.
     pub fn mark_used(&mut self) {
         // Mark the adjuster as needing to be consumed.
         self.consumed = false;
@@ -70,7 +66,7 @@ impl DayDividerAdjuster {
     /// Ensures that date separators are properly inserted/removed when needs
     /// be.
     #[instrument(skip_all)]
-    pub fn maybe_adjust_day_dividers(
+    pub fn run(
         &mut self,
         items: &mut ObservableVectorTransaction<'_, Arc<TimelineItem>>,
         meta: &mut TimelineInnerMetadata,
@@ -431,20 +427,36 @@ struct DayDividerInvariantsReport<'a, 'o> {
 
 impl<'a, 'o> Display for DayDividerInvariantsReport<'a, 'o> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some(initial_state) = &self.initial_state {
-            writeln!(f, "Initial state:")?;
-
-            for (i, item) in initial_state.iter().enumerate() {
+        // Write all the items of a slice of timeline items.
+        fn write_items(
+            f: &mut std::fmt::Formatter<'_>,
+            items: &[Arc<TimelineItem>],
+        ) -> std::fmt::Result {
+            for (i, item) in items.iter().enumerate() {
                 if let TimelineItemKind::Virtual(VirtualTimelineItem::DayDivider(ts)) = item.kind()
                 {
                     writeln!(f, "#{i} --- {}", ts.0)?;
                 } else if let Some(event) = item.as_event() {
                     // id: timestamp
-                    writeln!(f, "#{i} {}: {}", event.event_id().unwrap(), event.timestamp().0)?;
+                    writeln!(
+                        f,
+                        "#{i} {}: {}",
+                        event
+                            .event_id()
+                            .map_or_else(|| "(no event id)".to_string(), |id| id.to_string()),
+                        event.timestamp().0
+                    )?;
                 } else {
                     writeln!(f, "#{i} (other virtual item)")?;
                 }
             }
+
+            Ok(())
+        }
+
+        if let Some(initial_state) = &self.initial_state {
+            writeln!(f, "Initial state:")?;
+            write_items(f, initial_state)?;
 
             writeln!(f, "\nOperations to apply:")?;
             for op in &self.operations {
@@ -456,17 +468,7 @@ impl<'a, 'o> Display for DayDividerInvariantsReport<'a, 'o> {
             }
 
             writeln!(f, "\nFinal state:")?;
-            for (i, item) in self.final_state.iter().enumerate() {
-                if let TimelineItemKind::Virtual(VirtualTimelineItem::DayDivider(ts)) = item.kind()
-                {
-                    writeln!(f, "#{i} --- {}", ts.0)?;
-                } else if let Some(event) = item.as_event() {
-                    // id: timestamp
-                    writeln!(f, "#{i} {}: {}", event.event_id().unwrap(), event.timestamp().0)?;
-                } else {
-                    writeln!(f, "#{i} (other virtual item)")?;
-                }
-            }
+            write_items(f, self.final_state.iter().cloned().collect::<Vec<_>>().as_slice())?;
 
             writeln!(f)?;
         }
