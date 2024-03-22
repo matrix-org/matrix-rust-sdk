@@ -4,6 +4,7 @@ use std::{
 };
 
 use anyhow::Result;
+use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, FutureExt, StreamExt as _};
 use matrix_sdk::{
@@ -25,19 +26,20 @@ use matrix_sdk::{
         },
         mxc_uri,
     },
-    Client, RoomListEntry, RoomMemberships, RoomState, SlidingSyncList, SlidingSyncMode,
+    Client, RoomInfo, RoomListEntry, RoomMemberships, RoomState, SlidingSyncList, SlidingSyncMode,
 };
 use matrix_sdk_ui::{
     room_list_service::filters::new_filter_all, sync_service::SyncService, RoomListService,
 };
 use once_cell::sync::Lazy;
+use serde_json::Value;
 use stream_assert::{assert_next_eq, assert_pending};
 use tokio::{
     spawn,
     sync::Mutex,
     time::{sleep, timeout},
 };
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 use wiremock::{matchers::AnyMatcher, Mock, MockServer};
 
 use crate::helpers::TestClientBuilder;
@@ -330,6 +332,47 @@ async fn test_joined_user_can_create_push_context_with_room_list_service() -> Re
     Ok(())
 }
 
+struct UpdateObserver {
+    subscriber: eyeball::Subscriber<RoomInfo>,
+    prev_update_json: Value,
+}
+
+impl UpdateObserver {
+    fn new(subscriber: eyeball::Subscriber<RoomInfo>) -> Self {
+        Self { subscriber, prev_update_json: Value::Null }
+    }
+
+    /// Retrieves the next update, and shows the (JSON) diff with the previous
+    /// one, if any.
+    ///
+    /// Returns `None` when the diff was empty, aka it was a spurious update.
+    async fn next(&mut self) -> Option<RoomInfo> {
+        assert_let!(
+            Ok(Some(update)) = timeout(Duration::from_secs(3), self.subscriber.next()).await
+        );
+
+        let update_json = serde_json::to_value(&update).unwrap();
+        let update_diff = json_structural_diff::JsonDiff::diff_string(
+            &self.prev_update_json,
+            &update_json,
+            false,
+        );
+        if let Some(update_diff) = update_diff {
+            debug!("Received update:\n{update_diff}");
+            self.prev_update_json = update_json;
+            Some(update)
+        } else {
+            debug!("Update was spurious (diff is empty)");
+            None
+        }
+    }
+
+    #[track_caller]
+    fn assert_is_pending(&mut self) {
+        assert_pending!(self.subscriber);
+    }
+}
+
 #[tokio::test]
 async fn test_room_notification_count() -> Result<()> {
     use tokio::time::timeout;
@@ -376,7 +419,7 @@ async fn test_room_notification_count() -> Result<()> {
             let stream = sync.sync();
             pin_mut!(stream);
             while let Some(up) = stream.next().await {
-                warn!("received update: {up:?}");
+                warn!("alice sliding sync received an update: {up:?}");
             }
         }
     });
@@ -412,45 +455,69 @@ async fn test_room_notification_count() -> Result<()> {
 
     alice_room.enable_encryption().await?;
 
-    let mut room_info_updates = alice_room.subscribe_info();
+    let mut update_observer = UpdateObserver::new(alice_room.subscribe_info());
 
-    // At first, nothing has happened, so we shouldn't have any notifications.
-    assert_eq!(alice_room.num_unread_messages(), 0);
-    assert_eq!(alice_room.num_unread_mentions(), 0);
-    assert_eq!(alice_room.num_unread_notifications(), 0);
+    {
+        // At first, nothing has happened, so we shouldn't have any notifications.
+        assert_eq!(alice_room.num_unread_messages(), 0);
+        assert_eq!(alice_room.num_unread_mentions(), 0);
+        assert_eq!(alice_room.num_unread_notifications(), 0);
 
-    assert_pending!(room_info_updates);
+        update_observer.assert_is_pending();
+    }
 
     // Bob joins, nothing happens.
     bob.join_room_by_id(&room_id).await?;
 
-    assert!(timeout(Duration::from_secs(3), room_info_updates.next())
-        .await
-        .expect("timeout getting room info update #1")
-        .is_some());
+    {
+        debug!("Bob joined the room");
+        let update =
+            update_observer.next().await.expect("we should get an update when Bob joins the room");
 
-    assert_eq!(alice_room.num_unread_messages(), 0);
-    assert_eq!(alice_room.num_unread_mentions(), 0);
-    assert_eq!(alice_room.num_unread_notifications(), 0);
-    assert!(alice_room.latest_event().is_none());
+        assert_eq!(update.joined_members_count(), 2);
+        assert!(update.latest_event().is_none());
 
-    assert_pending!(room_info_updates);
+        assert_eq!(alice_room.num_unread_messages(), 0);
+        assert_eq!(alice_room.num_unread_mentions(), 0);
+        assert_eq!(alice_room.num_unread_notifications(), 0);
+        assert!(alice_room.latest_event().is_none());
+
+        update_observer.assert_is_pending();
+    }
 
     // Bob sends a non-mention message.
     let bob_room = bob.get_room(&room_id).expect("bob knows about alice's room");
-
     bob_room.send(RoomMessageEventContent::text_plain("hello world")).await?;
 
-    assert!(timeout(Duration::from_secs(3), room_info_updates.next())
-        .await
-        .expect("timeout getting room info update #2")
-        .is_some());
+    {
+        debug!("Bob sent a non-mention message");
+        let update = update_observer
+            .next()
+            .await
+            .expect("we should get an update when Bob sent a non-mention message");
 
-    assert_eq!(alice_room.num_unread_messages(), 1);
-    assert_eq!(alice_room.num_unread_notifications(), 1);
-    assert_eq!(alice_room.num_unread_mentions(), 0);
+        assert!(update.latest_event().is_some());
 
-    assert_pending!(room_info_updates);
+        assert_eq!(alice_room.num_unread_messages(), 1);
+        assert_eq!(alice_room.num_unread_notifications(), 1);
+        assert_eq!(alice_room.num_unread_mentions(), 0);
+
+        // If the server hasn't updated the server-side notification count yet, wait for
+        // it and reassert.
+        if alice_room.unread_notification_counts().notification_count != 1 {
+            update_observer
+                .next()
+                .await
+                .expect("server should update server-side notification count");
+            assert_eq!(alice_room.unread_notification_counts().notification_count, 1);
+
+            assert_eq!(alice_room.num_unread_messages(), 1);
+            assert_eq!(alice_room.num_unread_notifications(), 1);
+            assert_eq!(alice_room.num_unread_mentions(), 0);
+        }
+
+        update_observer.assert_is_pending();
+    }
 
     // Bob sends a mention message.
     bob_room
@@ -460,61 +527,93 @@ async fn test_room_notification_count() -> Result<()> {
         )
         .await?;
 
-    assert!(timeout(Duration::from_secs(3), room_info_updates.next())
-        .await
-        .expect("timeout getting room info update #3")
-        .is_some());
+    {
+        debug!("Bob sent a mention message");
+        update_observer
+            .next()
+            .await
+            .expect("we should get an update when Bob sent a mention message");
 
-    // The highlight also counts as a notification.
-    assert_eq!(alice_room.num_unread_messages(), 2);
-    assert_eq!(alice_room.num_unread_notifications(), 2);
-    assert_eq!(alice_room.num_unread_mentions(), 1);
+        // The highlight also counts as a notification.
+        assert_eq!(alice_room.num_unread_messages(), 2);
+        assert_eq!(alice_room.num_unread_notifications(), 2);
+        assert_eq!(alice_room.num_unread_mentions(), 1);
 
-    assert_pending!(room_info_updates);
+        // If the server hasn't updated the server-side notification count yet, wait for
+        // it and reassert.
+        if alice_room.unread_notification_counts().notification_count != 2 {
+            update_observer
+                .next()
+                .await
+                .expect("server should update server-side notification count");
+            assert_eq!(alice_room.unread_notification_counts().notification_count, 2);
+
+            assert_eq!(alice_room.num_unread_messages(), 2);
+            assert_eq!(alice_room.num_unread_notifications(), 2);
+            assert_eq!(alice_room.num_unread_mentions(), 1);
+        }
+
+        update_observer.assert_is_pending();
+    }
 
     // Alice marks the room as read.
     let event_id = latest_event.lock().await.take().unwrap().event_id().to_owned();
     alice_room.send_single_receipt(ReceiptType::Read, ReceiptThread::Unthreaded, event_id).await?;
 
-    // Remote echo of marking the room as read.
-    assert!(timeout(Duration::from_secs(3), room_info_updates.next())
-        .await
-        .expect("timeout getting room info update #4")
-        .is_some());
+    {
+        debug!("Remote echo of marking the room as read");
+        let update = update_observer.next().await;
 
-    // Sometimes, we get a spurious update quickly.
-    let _ = timeout(Duration::from_secs(2), room_info_updates.next()).await;
+        if update.is_none() {
+            debug!("Previous update was spurious, actual update now");
+            update_observer.next().await.expect("there should be a non-empty update at some point");
+        }
 
-    assert_eq!(alice_room.num_unread_messages(), 0);
-    assert_eq!(alice_room.num_unread_notifications(), 0);
-    assert_eq!(alice_room.num_unread_mentions(), 0);
+        assert!(!alice_room.are_members_synced());
 
-    assert_pending!(room_info_updates);
+        assert_eq!(alice_room.num_unread_messages(), 0);
+        assert_eq!(alice_room.num_unread_notifications(), 0);
+        assert_eq!(alice_room.num_unread_mentions(), 0);
+
+        // Sometimes the server is slow at realizing that the room has been marked as
+        // read, and zeroing the server-side notification_count.
+        if alice_room.unread_notification_counts().notification_count == 2 {
+            update_observer
+                .next()
+                .await
+                .expect("server should fix the server-side notification count");
+            assert_eq!(alice_room.unread_notification_counts().notification_count, 0);
+        }
+
+        update_observer.assert_is_pending();
+    }
 
     // Alice sends a message.
     alice_room.send(RoomMessageEventContent::text_plain("hello bob")).await?;
 
-    // Local echo for our own message.
-    assert!(timeout(Duration::from_secs(3), room_info_updates.next())
-        .await
-        .expect("timeout getting room info update #5")
-        .is_some());
+    {
+        debug!("Room members got synced.");
+        update_observer.next().await.expect("syncing room members should update room info");
 
-    assert_eq!(alice_room.num_unread_messages(), 0);
-    assert_eq!(alice_room.num_unread_notifications(), 0);
-    assert_eq!(alice_room.num_unread_mentions(), 0);
+        assert!(alice_room.are_members_synced());
 
-    // Remote echo for our own message.
-    assert!(timeout(Duration::from_secs(10), room_info_updates.next())
-        .await
-        .expect("timeout getting room info update #6")
-        .is_some());
+        assert_eq!(alice_room.num_unread_messages(), 0);
+        assert_eq!(alice_room.num_unread_notifications(), 0);
+        assert_eq!(alice_room.num_unread_mentions(), 0);
 
-    assert_eq!(alice_room.num_unread_messages(), 0);
-    assert_eq!(alice_room.num_unread_notifications(), 0);
-    assert_eq!(alice_room.num_unread_mentions(), 0);
+        update_observer.assert_is_pending();
+    }
 
-    assert_pending!(room_info_updates);
+    {
+        debug!("Remote echo for hello bob");
+        update_observer.next().await.expect("we should receive a remote echo for our own message");
+
+        assert_eq!(alice_room.num_unread_messages(), 0);
+        assert_eq!(alice_room.num_unread_notifications(), 0);
+        assert_eq!(alice_room.num_unread_mentions(), 0);
+
+        update_observer.assert_is_pending();
+    }
 
     // Now Alice is only interesting in mentions of their name.
     let settings = alice.notification_settings().await;
@@ -538,18 +637,14 @@ async fn test_room_notification_count() -> Result<()> {
 
     bob_room.send(RoomMessageEventContent::text_plain("I said hello!")).await?;
 
-    assert!(timeout(Duration::from_secs(3), room_info_updates.next())
-        .await
-        .expect("timeout getting room info update #7")
-        .is_some());
+    debug!("Bob sent 'I said hello!'");
+    assert!(update_observer.next().await.is_some());
 
     // The message doesn't contain a mention, so it doesn't notify Alice. But it
     // exists.
     assert_eq!(alice_room.num_unread_messages(), 1);
     assert_eq!(alice_room.num_unread_notifications(), 0);
     assert_eq!(alice_room.num_unread_mentions(), 0);
-
-    assert_pending!(room_info_updates);
 
     // Bob sends a mention message.
     bob_room
@@ -559,17 +654,15 @@ async fn test_room_notification_count() -> Result<()> {
         )
         .await?;
 
-    assert!(timeout(Duration::from_secs(3), room_info_updates.next())
-        .await
-        .expect("timeout getting room info update #8")
-        .is_some());
+    debug!("Bob sent 'Why, hello there Alice!'");
+    assert!(update_observer.next().await.is_some());
 
     // The highlight also counts as a notification.
     assert_eq!(alice_room.num_unread_messages(), 2);
     assert_eq!(alice_room.num_unread_notifications(), 1);
     assert_eq!(alice_room.num_unread_mentions(), 1);
 
-    assert_pending!(room_info_updates);
+    update_observer.assert_is_pending();
 
     Ok(())
 }
@@ -579,7 +672,7 @@ fn drop_todevice_events(response: &mut Bytes) {
     // Looks for a json payload containing "extensions" with a "to_device" part.
     // This should only match the sliding sync response. In all other cases, it
     // makes no changes.
-    let Ok(mut json) = serde_json::from_slice::<serde_json::Value>(response) else {
+    let Ok(mut json) = serde_json::from_slice::<Value>(response) else {
         return;
     };
     let Some(extensions) = json.get_mut("extensions").and_then(|e| e.as_object_mut()) else {

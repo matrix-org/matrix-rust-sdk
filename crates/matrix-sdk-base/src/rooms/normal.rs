@@ -1211,6 +1211,12 @@ impl RoomInfo {
     pub fn active_room_call_participants(&self) -> Vec<OwnedUserId> {
         self.active_room_call_memberships().iter().map(|(user_id, _)| user_id.clone()).collect()
     }
+
+    /// Returns the latest (decrypted) event recorded for this room.
+    #[cfg(feature = "experimental-sliding-sync")]
+    pub fn latest_event(&self) -> Option<&LatestEvent> {
+        self.latest_event.as_deref()
+    }
 }
 
 #[cfg(feature = "experimental-sliding-sync")]
