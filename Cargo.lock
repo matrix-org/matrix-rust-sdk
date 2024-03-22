@@ -3063,6 +3063,7 @@ dependencies = [
  "tracing",
  "uniffi",
  "wasm-bindgen-test",
+ "web-time",
 ]
 
 [[package]]

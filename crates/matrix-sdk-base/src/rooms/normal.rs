@@ -1304,7 +1304,6 @@ mod tests {
         ops::{Not, Sub},
         str::FromStr,
         sync::Arc,
-        time::{Duration, SystemTime},
     };
 
     use assign::assign;
@@ -1334,6 +1333,7 @@ mod tests {
     };
     use serde_json::json;
     use stream_assert::{assert_pending, assert_ready};
+    use web_time::{Duration, SystemTime};
 
     #[cfg(feature = "experimental-sliding-sync")]
     use super::SyncInfo;
