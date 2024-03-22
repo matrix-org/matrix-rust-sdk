@@ -137,7 +137,10 @@ impl HttpClient {
 
             let auth_scheme = R::METADATA.authentication;
             match auth_scheme {
-                AuthScheme::AccessToken | AuthScheme::AccessTokenOptional | AuthScheme::None => {}
+                AuthScheme::AccessToken
+                | AuthScheme::AccessTokenOptional
+                | AuthScheme::AppserviceToken
+                | AuthScheme::None => {}
                 AuthScheme::ServerSignatures => {
                     return Err(HttpError::NotClientRequest);
                 }

@@ -172,30 +172,38 @@ impl TryFrom<MessageType> for RumaMessageType {
                     formatted: content.formatted.map(Into::into),
                 }))
             }
-            MessageType::Image { content } => Self::Image(
-                RumaImageMessageEventContent::new(content.body, (*content.source).clone())
-                    .formatted(content.formatted.map(Into::into))
-                    .filename(content.filename)
-                    .info(content.info.map(Into::into).map(Box::new)),
-            ),
-            MessageType::Audio { content } => Self::Audio(
-                RumaAudioMessageEventContent::new(content.body, (*content.source).clone())
-                    .formatted(content.formatted.map(Into::into))
-                    .filename(content.filename)
-                    .info(content.info.map(Into::into).map(Box::new)),
-            ),
-            MessageType::Video { content } => Self::Video(
-                RumaVideoMessageEventContent::new(content.body, (*content.source).clone())
-                    .formatted(content.formatted.map(Into::into))
-                    .filename(content.filename)
-                    .info(content.info.map(Into::into).map(Box::new)),
-            ),
-            MessageType::File { content } => Self::File(
-                RumaFileMessageEventContent::new(content.body, (*content.source).clone())
-                    .formatted(content.formatted.map(Into::into))
-                    .filename(content.filename)
-                    .info(content.info.map(Into::into).map(Box::new)),
-            ),
+            MessageType::Image { content } => {
+                let mut event_content =
+                    RumaImageMessageEventContent::new(content.body, (*content.source).clone())
+                        .info(content.info.map(Into::into).map(Box::new));
+                event_content.formatted = content.formatted.map(Into::into);
+                event_content.filename = content.filename;
+                Self::Image(event_content)
+            }
+            MessageType::Audio { content } => {
+                let mut event_content =
+                    RumaAudioMessageEventContent::new(content.body, (*content.source).clone())
+                        .info(content.info.map(Into::into).map(Box::new));
+                event_content.formatted = content.formatted.map(Into::into);
+                event_content.filename = content.filename;
+                Self::Audio(event_content)
+            }
+            MessageType::Video { content } => {
+                let mut event_content =
+                    RumaVideoMessageEventContent::new(content.body, (*content.source).clone())
+                        .info(content.info.map(Into::into).map(Box::new));
+                event_content.formatted = content.formatted.map(Into::into);
+                event_content.filename = content.filename;
+                Self::Video(event_content)
+            }
+            MessageType::File { content } => {
+                let mut event_content =
+                    RumaFileMessageEventContent::new(content.body, (*content.source).clone())
+                        .info(content.info.map(Into::into).map(Box::new));
+                event_content.formatted = content.formatted.map(Into::into);
+                event_content.filename = content.filename;
+                Self::File(event_content)
+            }
             MessageType::Notice { content } => {
                 Self::Notice(assign!(RumaNoticeMessageEventContent::plain(content.body), {
                     formatted: content.formatted.map(Into::into),

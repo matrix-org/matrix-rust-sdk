@@ -3060,6 +3060,7 @@ dependencies = [
  "tracing",
  "uniffi",
  "wasm-bindgen-test",
+ "web-time",
 ]
 
 [[package]]
@@ -4739,7 +4740,7 @@ dependencies = [
 [[package]]
 name = "ruma"
 version = "0.9.4"
-source = "git+https://github.com/ruma/ruma?rev=b2542df2bbbdf09af0612c9f28bcfa5620e1911c#b2542df2bbbdf09af0612c9f28bcfa5620e1911c"
+source = "git+https://github.com/ruma/ruma?rev=4c00bd010dbdca6005bd599b52e90a0b7015d056#4c00bd010dbdca6005bd599b52e90a0b7015d056"
 dependencies = [
  "assign",
  "js_int",
@@ -4755,7 +4756,7 @@ dependencies = [
 [[package]]
 name = "ruma-client-api"
 version = "0.17.4"
-source = "git+https://github.com/ruma/ruma?rev=b2542df2bbbdf09af0612c9f28bcfa5620e1911c#b2542df2bbbdf09af0612c9f28bcfa5620e1911c"
+source = "git+https://github.com/ruma/ruma?rev=4c00bd010dbdca6005bd599b52e90a0b7015d056#4c00bd010dbdca6005bd599b52e90a0b7015d056"
 dependencies = [
  "as_variant",
  "assign",
@@ -4774,7 +4775,7 @@ dependencies = [
 [[package]]
 name = "ruma-common"
 version = "0.12.1"
-source = "git+https://github.com/ruma/ruma?rev=b2542df2bbbdf09af0612c9f28bcfa5620e1911c#b2542df2bbbdf09af0612c9f28bcfa5620e1911c"
+source = "git+https://github.com/ruma/ruma?rev=4c00bd010dbdca6005bd599b52e90a0b7015d056#4c00bd010dbdca6005bd599b52e90a0b7015d056"
 dependencies = [
  "as_variant",
  "base64 0.21.7",
@@ -4795,16 +4796,18 @@ dependencies = [
  "serde_html_form",
  "serde_json",
  "thiserror",
+ "time",
  "tracing",
  "url",
  "uuid",
+ "web-time",
  "wildmatch",
 ]
 
 [[package]]
 name = "ruma-events"
 version = "0.27.11"
-source = "git+https://github.com/ruma/ruma?rev=b2542df2bbbdf09af0612c9f28bcfa5620e1911c#b2542df2bbbdf09af0612c9f28bcfa5620e1911c"
+source = "git+https://github.com/ruma/ruma?rev=4c00bd010dbdca6005bd599b52e90a0b7015d056#4c00bd010dbdca6005bd599b52e90a0b7015d056"
 dependencies = [
  "as_variant",
  "indexmap 2.2.2",
@@ -4828,7 +4831,7 @@ dependencies = [
 [[package]]
 name = "ruma-federation-api"
 version = "0.8.0"
-source = "git+https://github.com/ruma/ruma?rev=b2542df2bbbdf09af0612c9f28bcfa5620e1911c#b2542df2bbbdf09af0612c9f28bcfa5620e1911c"
+source = "git+https://github.com/ruma/ruma?rev=4c00bd010dbdca6005bd599b52e90a0b7015d056#4c00bd010dbdca6005bd599b52e90a0b7015d056"
 dependencies = [
  "js_int",
  "ruma-common",
@@ -4840,7 +4843,7 @@ dependencies = [
 [[package]]
 name = "ruma-html"
 version = "0.1.0"
-source = "git+https://github.com/ruma/ruma?rev=b2542df2bbbdf09af0612c9f28bcfa5620e1911c#b2542df2bbbdf09af0612c9f28bcfa5620e1911c"
+source = "git+https://github.com/ruma/ruma?rev=4c00bd010dbdca6005bd599b52e90a0b7015d056#4c00bd010dbdca6005bd599b52e90a0b7015d056"
 dependencies = [
  "as_variant",
  "html5ever",
@@ -4852,7 +4855,7 @@ dependencies = [
 [[package]]
 name = "ruma-identifiers-validation"
 version = "0.9.3"
-source = "git+https://github.com/ruma/ruma?rev=b2542df2bbbdf09af0612c9f28bcfa5620e1911c#b2542df2bbbdf09af0612c9f28bcfa5620e1911c"
+source = "git+https://github.com/ruma/ruma?rev=4c00bd010dbdca6005bd599b52e90a0b7015d056#4c00bd010dbdca6005bd599b52e90a0b7015d056"
 dependencies = [
  "js_int",
  "thiserror",
@@ -4861,7 +4864,7 @@ dependencies = [
 [[package]]
 name = "ruma-macros"
 version = "0.12.0"
-source = "git+https://github.com/ruma/ruma?rev=b2542df2bbbdf09af0612c9f28bcfa5620e1911c#b2542df2bbbdf09af0612c9f28bcfa5620e1911c"
+source = "git+https://github.com/ruma/ruma?rev=4c00bd010dbdca6005bd599b52e90a0b7015d056#4c00bd010dbdca6005bd599b52e90a0b7015d056"
 dependencies = [
  "once_cell",
  "proc-macro-crate 2.0.2",
@@ -4876,7 +4879,7 @@ dependencies = [
 [[package]]
 name = "ruma-push-gateway-api"
 version = "0.8.0"
-source = "git+https://github.com/ruma/ruma?rev=b2542df2bbbdf09af0612c9f28bcfa5620e1911c#b2542df2bbbdf09af0612c9f28bcfa5620e1911c"
+source = "git+https://github.com/ruma/ruma?rev=4c00bd010dbdca6005bd599b52e90a0b7015d056#4c00bd010dbdca6005bd599b52e90a0b7015d056"
 dependencies = [
  "js_int",
  "ruma-common",
@@ -6520,9 +6523,9 @@ dependencies = [
 
 [[package]]
 name = "web-time"
-version = "1.0.0"
+version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2ee269d72cc29bf77a2c4bc689cc750fb39f5cbd493d2205bbb3f5c7779cf7b0"
+checksum = "5a6580f308b1fad9207618087a65c04e7a10bc77e02c8e84e9b00dd4b12fa0bb"
 dependencies = [
  "js-sys",
  "wasm-bindgen",

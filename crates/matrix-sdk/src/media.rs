@@ -475,18 +475,17 @@ impl Media {
                     thumbnail_source,
                     thumbnail_info,
                 });
-                MessageType::Image(
-                    ImageMessageEventContent::plain(body.to_owned(), url)
-                        .info(Box::new(info))
-                        .filename(filename)
-                        .formatted(config.formatted_caption),
-                )
+                let mut image_message_event_content =
+                    ImageMessageEventContent::plain(body.to_owned(), url).info(Box::new(info));
+                image_message_event_content.filename = filename;
+                image_message_event_content.formatted = config.formatted_caption;
+                MessageType::Image(image_message_event_content)
             }
             mime::AUDIO => {
-                let audio_message_event_content =
-                    message::AudioMessageEventContent::plain(body.to_owned(), url)
-                        .filename(filename)
-                        .formatted(config.formatted_caption);
+                let mut audio_message_event_content =
+                    message::AudioMessageEventContent::plain(body.to_owned(), url);
+                audio_message_event_content.filename = filename;
+                audio_message_event_content.formatted = config.formatted_caption;
                 MessageType::Audio(update_audio_message_event(
                     audio_message_event_content,
                     content_type,
@@ -499,12 +498,11 @@ impl Media {
                     thumbnail_source,
                     thumbnail_info
                 });
-                MessageType::Video(
-                    VideoMessageEventContent::plain(body.to_owned(), url)
-                        .info(Box::new(info))
-                        .filename(filename)
-                        .formatted(config.formatted_caption),
-                )
+                let mut video_message_event_content =
+                    VideoMessageEventContent::plain(body.to_owned(), url).info(Box::new(info));
+                video_message_event_content.filename = filename;
+                video_message_event_content.formatted = config.formatted_caption;
+                MessageType::Video(video_message_event_content)
             }
             _ => {
                 let info = assign!(config.info.map(FileInfo::from).unwrap_or_default(), {
@@ -512,12 +510,11 @@ impl Media {
                     thumbnail_source,
                     thumbnail_info
                 });
-                MessageType::File(
-                    FileMessageEventContent::plain(body.to_owned(), url)
-                        .info(Box::new(info))
-                        .filename(filename)
-                        .formatted(config.formatted_caption),
-                )
+                let mut file_message_event_content =
+                    FileMessageEventContent::plain(body.to_owned(), url).info(Box::new(info));
+                file_message_event_content.filename = filename;
+                file_message_event_content.formatted = config.formatted_caption;
+                MessageType::File(file_message_event_content)
             }
         })
     }
