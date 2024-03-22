@@ -48,6 +48,7 @@ use ruma::{
 use tracing::{debug, error, field::debug, info, instrument, trace, warn};
 
 use super::{
+    day_dividers::DayDividerToken,
     event_item::{
         AnyOtherFullStateEventContent, BundledReactions, EventItemIdentifier, EventSendState,
         EventTimelineItemKind, LocalEventTimelineItem, Profile, RemoteEventOrigin,
@@ -271,9 +272,16 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
     /// Handle an event.
     ///
+    /// The [`DayDividerToken`] is unused, but it statically ensures that
+    /// callers make sure to adjust day dividers once this has been called.
+    ///
     /// Returns the number of timeline updates that were made.
     #[instrument(skip_all, fields(txn_id, event_id, position))]
-    pub(super) fn handle_event(mut self, event_kind: TimelineEventKind) -> HandleEventResult {
+    pub(super) fn handle_event(
+        mut self,
+        _day_divider_token: &DayDividerToken,
+        event_kind: TimelineEventKind,
+    ) -> HandleEventResult {
         let span = tracing::Span::current();
 
         let should_add = match &self.ctx.flow {

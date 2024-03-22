@@ -21,24 +21,66 @@ use eyeball_im::ObservableVectorTransaction;
 use ruma::MilliSecondsSinceUnixEpoch;
 use tracing::{event_enabled, instrument, trace, warn, Level};
 
+#[cfg(doc)]
+use super::event_handler::TimelineEventHandler;
 use super::{
     inner::TimelineInnerMetadata, util::timestamp_to_date, TimelineItem, TimelineItemKind,
     VirtualTimelineItem,
 };
 
+/// An empty struct to make sure that callers of
+/// [`TimelineEventHandler::handle_event`] don't forget about calling the day
+/// divider algorithm once they're done.
+///
+/// The field must absolutely remain private.
+pub(super) struct DayDividerToken(());
+
 /// Algorithm ensuring that day dividers are adjusted correctly, according to
 /// new items that have been inserted.
-#[derive(Default)]
 pub(super) struct DayDividerAdjuster {
+    /// The list of recorded operations to apply, after analyzing the latest
+    /// items.
     ops: Vec<DayDividerOperation>,
+
+    /// A boolean indicating whether the struct has been consumed manually or
+    /// not.
+    consumed: bool,
+}
+
+impl Default for DayDividerAdjuster {
+    fn default() -> Self {
+        Self {
+            ops: Default::default(),
+            // Only creating a token with `make_token` implies that we must call
+            // `maybe_adjust_day_dividers`.
+            consumed: true,
+        }
+    }
+}
+
+impl Drop for DayDividerAdjuster {
+    fn drop(&mut self) {
+        assert!(
+            self.consumed,
+            "DayDividerAdjuster::maybe_adjust_day_dividers() must be called manually."
+        );
+    }
 }
 
 impl DayDividerAdjuster {
+    /// Returns a [`DayDividerToken`] ready for consumption.
+    pub fn make_token(&mut self) -> DayDividerToken {
+        // Mark the adjuster as needing to be consumed.
+        self.consumed = false;
+
+        DayDividerToken(())
+    }
+
     /// Ensures that date separators are properly inserted/removed when needs
     /// be.
     #[instrument(skip_all)]
     pub fn maybe_adjust_day_dividers(
-        mut self,
+        &mut self,
         items: &mut ObservableVectorTransaction<'_, Arc<TimelineItem>>,
         meta: &mut TimelineInnerMetadata,
     ) {
@@ -94,6 +136,8 @@ impl DayDividerAdjuster {
             #[cfg(not(debug))]
             warn!("{report}");
         }
+
+        self.consumed = true;
     }
 
     #[inline]
@@ -268,14 +312,14 @@ impl DayDividerAdjuster {
     ///
     /// Returns a report if and only if there was at least one error.
     fn check_invariants<'a, 'o>(
-        self,
+        &mut self,
         items: &'a ObservableVectorTransaction<'o, Arc<TimelineItem>>,
         initial_state: Option<Vec<Arc<TimelineItem>>>,
     ) -> Option<DayDividerInvariantsReport<'a, 'o>> {
         let mut report = DayDividerInvariantsReport {
             initial_state,
             errors: Vec::new(),
-            operations: self.ops,
+            operations: std::mem::take(&mut self.ops),
             final_state: items,
         };
 
