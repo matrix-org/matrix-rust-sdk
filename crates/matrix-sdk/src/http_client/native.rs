@@ -153,8 +153,10 @@ impl HttpSettings {
     /// Build a client with the specified configuration.
     pub(crate) fn make_client(&self) -> Result<reqwest::Client, HttpError> {
         let user_agent = self.user_agent.clone().unwrap_or_else(|| "matrix-rust-sdk".to_owned());
-        let mut http_client =
-            reqwest::Client::builder().user_agent(user_agent).timeout(self.timeout);
+        let mut http_client = reqwest::Client::builder()
+            .pool_max_idle_per_host(0)
+            .user_agent(user_agent)
+            .timeout(self.timeout);
 
         if self.disable_ssl_verification {
             warn!("SSL verification disabled in the HTTP client!");
