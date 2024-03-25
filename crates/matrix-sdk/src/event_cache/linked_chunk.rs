@@ -975,6 +975,18 @@ mod tests {
         LinkedChunkError, Position,
     };
 
+    /// A macro to test the items and the gap of a `LinkedChunk`.
+    /// A chunk is delimited by `[` and `]`. An item chunk has the form `[a, b,
+    /// c]` where `a`, `b` and `c` are items. A gap chunk has the form `[-]`.
+    ///
+    /// For example, here is an assertion of 7 chunks: 1 items chunk, 1 gap
+    /// chunk, 2 items chunks, 1 gap chunk, 2 items chunk. `a` is the oldest
+    /// item of the oldest chunk (the first chunk), and `i` is the oldest (and
+    /// newest) item of the newest chunk (the last chunk).
+    ///
+    /// ```rust,no_run
+    /// assert_items_eq!(linked_chunk, ['a'] [-] ['b', 'c', 'd'] ['e'] [-] ['f', 'g', 'h'] ['i']);
+    /// ```
     macro_rules! assert_items_eq {
         ( @_ [ $iterator:ident ] { [-] $( $rest:tt )* } { $( $accumulator:tt )* } ) => {
             assert_items_eq!(
