@@ -82,23 +82,23 @@ impl DayDividerAdjuster {
         // `Remove(i)` followed by a `Replace((i+1) -1)`, which wouldn't do what
         // we want, if running in reverse order.
 
-        let mut prev_item: Option<&Arc<TimelineItem>> = None;
+        let mut prev_item_pair: Option<(usize, &Arc<TimelineItem>)> = None;
         let mut latest_event_ts = None;
 
         for (i, item) in items.iter().enumerate() {
             match item.kind() {
                 TimelineItemKind::Virtual(VirtualTimelineItem::DayDivider(ts)) => {
-                    self.handle_day_divider(i, *ts, prev_item);
+                    self.handle_day_divider(i, *ts, prev_item_pair.as_ref().map(|pair| pair.1));
 
-                    prev_item = Some(item);
+                    prev_item_pair = Some((i, item));
                 }
 
                 TimelineItemKind::Event(event) => {
                     let ts = event.timestamp();
 
-                    self.handle_event(i, ts, prev_item, latest_event_ts);
+                    self.handle_event(i, ts, prev_item_pair, latest_event_ts);
 
-                    prev_item = Some(item);
+                    prev_item_pair = Some((i, item));
                     latest_event_ts = Some(ts);
                 }
 
@@ -144,7 +144,7 @@ impl DayDividerAdjuster {
             TimelineItemKind::Event(event) => {
                 // This day divider is preceded by an event.
                 if is_same_date_as(event.timestamp(), ts) {
-                    // The event has the same date as the day divider: remove the day
+                    // The event has the same date as the day divider: remove the current day
                     // divider.
                     trace!("removing day divider following event with same timestamp @ {i}");
                     self.ops.push(DayDividerOperation::Remove(i));
@@ -168,10 +168,10 @@ impl DayDividerAdjuster {
         &mut self,
         i: usize,
         ts: MilliSecondsSinceUnixEpoch,
-        prev_item: Option<&Arc<TimelineItem>>,
+        prev_item_pair: Option<(usize, &Arc<TimelineItem>)>,
         latest_event_ts: Option<MilliSecondsSinceUnixEpoch>,
     ) {
-        let Some(prev_item) = prev_item else {
+        let Some((prev_index, prev_item)) = prev_item_pair else {
             // The event was the first item, so there wasn't any day divider before it:
             // insert one.
             trace!("inserting the first day divider @ {}", i);
@@ -203,8 +203,8 @@ impl DayDividerAdjuster {
                     if let Some(last_event_ts) = latest_event_ts {
                         if timestamp_to_date(last_event_ts) == event_date {
                             // There's a previous event with the same date: remove the divider.
-                            trace!("removed day divider @ {i} between two events that have the same date");
-                            self.ops.push(DayDividerOperation::Remove(i - 1));
+                            trace!("removed day divider @ {prev_index} between two events that have the same date");
+                            self.ops.push(DayDividerOperation::Remove(prev_index));
                             removed = true;
                         }
                     }
@@ -213,8 +213,10 @@ impl DayDividerAdjuster {
                         // There's no previous event or there's one with a different
                         // date: replace the current
                         // divider.
-                        trace!("replacing day divider @ {i} with new timestamp from event");
-                        self.ops.push(DayDividerOperation::Replace(i - 1, ts));
+                        trace!(
+                            "replacing day divider @ {prev_index} with new timestamp from event"
+                        );
+                        self.ops.push(DayDividerOperation::Replace(prev_index, ts));
                     }
                 }
             }
