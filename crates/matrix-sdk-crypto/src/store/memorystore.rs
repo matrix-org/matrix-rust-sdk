@@ -634,3 +634,265 @@ mod tests {
         assert!(store.is_message_known(&hash).await.unwrap());
     }
 }
+
+#[cfg(test)]
+mod integration_tests {
+    use std::{
+        collections::HashMap,
+        sync::{Arc, Mutex, OnceLock},
+    };
+
+    use async_trait::async_trait;
+    use ruma::{
+        events::secret::request::SecretName, DeviceId, OwnedDeviceId, RoomId, TransactionId, UserId,
+    };
+
+    use super::MemoryStore;
+    use crate::{
+        cryptostore_integration_tests, cryptostore_integration_tests_time,
+        olm::{
+            InboundGroupSession, OlmMessageHash, OutboundGroupSession, PrivateCrossSigningIdentity,
+            StaticAccountData,
+        },
+        store::{BackupKeys, Changes, CryptoStore, PendingChanges, RoomKeyCounts, RoomSettings},
+        types::events::room_key_withheld::RoomKeyWithheldEvent,
+        Account, GossipRequest, GossippedSecret, ReadOnlyDevice, ReadOnlyUserIdentities,
+        SecretInfo, Session, TrackedUser,
+    };
+
+    /// Holds on to a MemoryStore during a test, and moves it back into STORES
+    /// when this is dropped
+    #[derive(Clone, Debug)]
+    struct PersistentMemoryStore(Arc<MemoryStore>);
+
+    impl PersistentMemoryStore {
+        fn new() -> Self {
+            Self(Arc::new(MemoryStore::new()))
+        }
+
+        fn get_static_account(&self) -> Option<StaticAccountData> {
+            self.0.get_static_account()
+        }
+    }
+
+    impl MemoryStore {
+        fn get_static_account(&self) -> Option<StaticAccountData> {
+            self.account.read().unwrap().as_ref().map(|acc| acc.static_data().clone())
+        }
+    }
+
+    /// Return a clone of the store for the test with the supplied name. Note:
+    /// dropping this store won't destroy its data, since
+    /// [PersistentMemoryStore] is a reference-counted smart pointer
+    /// to an underlying [MemoryStore].
+    async fn get_store(name: &str, _passphrase: Option<&str>) -> PersistentMemoryStore {
+        // Holds on to one [PersistentMemoryStore] per test, so even if the test drops
+        // the store, we keep its data alive. This simulates the behaviour of
+        // the other stores, which keep their data in a real DB, allowing us to
+        // test MemoryStore using the same code.
+        static STORES: OnceLock<Mutex<HashMap<String, PersistentMemoryStore>>> = OnceLock::new();
+        let stores = STORES.get_or_init(|| Mutex::new(HashMap::new()));
+
+        stores
+            .lock()
+            .unwrap()
+            .entry(name.to_owned())
+            .or_insert_with(PersistentMemoryStore::new)
+            .clone()
+    }
+
+    /// Forwards all methods to the underlying [MemoryStore].
+    #[async_trait]
+    impl CryptoStore for PersistentMemoryStore {
+        type Error = <MemoryStore as CryptoStore>::Error;
+
+        async fn load_account(&self) -> Result<Option<Account>, Self::Error> {
+            self.0.load_account().await
+        }
+
+        async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>, Self::Error> {
+            self.0.load_identity().await
+        }
+
+        async fn save_changes(&self, changes: Changes) -> Result<(), Self::Error> {
+            self.0.save_changes(changes).await
+        }
+
+        async fn save_pending_changes(&self, changes: PendingChanges) -> Result<(), Self::Error> {
+            self.0.save_pending_changes(changes).await
+        }
+
+        async fn get_sessions(
+            &self,
+            sender_key: &str,
+        ) -> Result<Option<Arc<tokio::sync::Mutex<Vec<Session>>>>, Self::Error> {
+            self.0.get_sessions(sender_key).await
+        }
+
+        async fn get_inbound_group_session(
+            &self,
+            room_id: &RoomId,
+            session_id: &str,
+        ) -> Result<Option<InboundGroupSession>, Self::Error> {
+            self.0.get_inbound_group_session(room_id, session_id).await
+        }
+
+        async fn get_withheld_info(
+            &self,
+            room_id: &RoomId,
+            session_id: &str,
+        ) -> Result<Option<RoomKeyWithheldEvent>, Self::Error> {
+            self.0.get_withheld_info(room_id, session_id).await
+        }
+
+        async fn get_inbound_group_sessions(
+            &self,
+        ) -> Result<Vec<InboundGroupSession>, Self::Error> {
+            self.0.get_inbound_group_sessions().await
+        }
+
+        async fn inbound_group_session_counts(&self) -> Result<RoomKeyCounts, Self::Error> {
+            self.0.inbound_group_session_counts().await
+        }
+
+        async fn inbound_group_sessions_for_backup(
+            &self,
+            limit: usize,
+        ) -> Result<Vec<InboundGroupSession>, Self::Error> {
+            self.0.inbound_group_sessions_for_backup(limit).await
+        }
+
+        async fn mark_inbound_group_sessions_as_backed_up(
+            &self,
+            room_and_session_ids: &[(&RoomId, &str)],
+        ) -> Result<(), Self::Error> {
+            self.0.mark_inbound_group_sessions_as_backed_up(room_and_session_ids).await
+        }
+
+        async fn reset_backup_state(&self) -> Result<(), Self::Error> {
+            self.0.reset_backup_state().await
+        }
+
+        async fn load_backup_keys(&self) -> Result<BackupKeys, Self::Error> {
+            self.0.load_backup_keys().await
+        }
+
+        async fn get_outbound_group_session(
+            &self,
+            room_id: &RoomId,
+        ) -> Result<Option<OutboundGroupSession>, Self::Error> {
+            self.0.get_outbound_group_session(room_id).await
+        }
+
+        async fn load_tracked_users(&self) -> Result<Vec<TrackedUser>, Self::Error> {
+            self.0.load_tracked_users().await
+        }
+
+        async fn save_tracked_users(&self, users: &[(&UserId, bool)]) -> Result<(), Self::Error> {
+            self.0.save_tracked_users(users).await
+        }
+
+        async fn get_device(
+            &self,
+            user_id: &UserId,
+            device_id: &DeviceId,
+        ) -> Result<Option<ReadOnlyDevice>, Self::Error> {
+            self.0.get_device(user_id, device_id).await
+        }
+
+        async fn get_user_devices(
+            &self,
+            user_id: &UserId,
+        ) -> Result<HashMap<OwnedDeviceId, ReadOnlyDevice>, Self::Error> {
+            self.0.get_user_devices(user_id).await
+        }
+
+        async fn get_user_identity(
+            &self,
+            user_id: &UserId,
+        ) -> Result<Option<ReadOnlyUserIdentities>, Self::Error> {
+            self.0.get_user_identity(user_id).await
+        }
+
+        async fn is_message_known(
+            &self,
+            message_hash: &OlmMessageHash,
+        ) -> Result<bool, Self::Error> {
+            self.0.is_message_known(message_hash).await
+        }
+
+        async fn get_outgoing_secret_requests(
+            &self,
+            request_id: &TransactionId,
+        ) -> Result<Option<GossipRequest>, Self::Error> {
+            self.0.get_outgoing_secret_requests(request_id).await
+        }
+
+        async fn get_secret_request_by_info(
+            &self,
+            secret_info: &SecretInfo,
+        ) -> Result<Option<GossipRequest>, Self::Error> {
+            self.0.get_secret_request_by_info(secret_info).await
+        }
+
+        async fn get_unsent_secret_requests(&self) -> Result<Vec<GossipRequest>, Self::Error> {
+            self.0.get_unsent_secret_requests().await
+        }
+
+        async fn delete_outgoing_secret_requests(
+            &self,
+            request_id: &TransactionId,
+        ) -> Result<(), Self::Error> {
+            self.0.delete_outgoing_secret_requests(request_id).await
+        }
+
+        async fn get_secrets_from_inbox(
+            &self,
+            secret_name: &SecretName,
+        ) -> Result<Vec<GossippedSecret>, Self::Error> {
+            self.0.get_secrets_from_inbox(secret_name).await
+        }
+
+        async fn delete_secrets_from_inbox(
+            &self,
+            secret_name: &SecretName,
+        ) -> Result<(), Self::Error> {
+            self.0.delete_secrets_from_inbox(secret_name).await
+        }
+
+        async fn get_room_settings(
+            &self,
+            room_id: &RoomId,
+        ) -> Result<Option<RoomSettings>, Self::Error> {
+            self.0.get_room_settings(room_id).await
+        }
+
+        async fn get_custom_value(&self, key: &str) -> Result<Option<Vec<u8>>, Self::Error> {
+            self.0.get_custom_value(key).await
+        }
+
+        async fn set_custom_value(&self, key: &str, value: Vec<u8>) -> Result<(), Self::Error> {
+            self.0.set_custom_value(key, value).await
+        }
+
+        async fn remove_custom_value(&self, key: &str) -> Result<(), Self::Error> {
+            self.0.remove_custom_value(key).await
+        }
+
+        async fn try_take_leased_lock(
+            &self,
+            lease_duration_ms: u32,
+            key: &str,
+            holder: &str,
+        ) -> Result<bool, Self::Error> {
+            self.0.try_take_leased_lock(lease_duration_ms, key, holder).await
+        }
+
+        async fn next_batch_token(&self) -> Result<Option<String>, Self::Error> {
+            self.0.next_batch_token().await
+        }
+    }
+
+    cryptostore_integration_tests!();
+    cryptostore_integration_tests_time!();
+}
