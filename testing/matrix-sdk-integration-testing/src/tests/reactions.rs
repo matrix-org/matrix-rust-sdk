@@ -31,7 +31,7 @@ use matrix_sdk::{
     Client, LoopCtrl,
 };
 use matrix_sdk_ui::timeline::{EventTimelineItem, RoomExt, TimelineItem};
-use tokio::time::timeout;
+use tokio::{spawn, task::JoinHandle, time::timeout};
 use tracing::debug;
 
 use crate::helpers::TestClientBuilder;
@@ -65,7 +65,48 @@ async fn test_toggling_reaction() -> Result<()> {
         }))
         .await?;
 
-    let room_id = room.room_id();
+    // Send a first message and then wait for the remote echo.
+    //
+    // First, spawn the task waiting for the remote echo, before sending the
+    // message. Otherwise, we might get the remote echo before we started
+    // waiting for it.
+
+    let room_clone = room.clone();
+    let event_id_task: JoinHandle<Result<_>> = spawn(async move {
+        let mut num_attempts = 0;
+        let room = room_clone;
+        let timeline = room.timeline().await.unwrap();
+        let (_items, mut stream) = timeline.subscribe().await;
+
+        loop {
+            debug!(attempt = num_attempts + 1, "Syncing until the remote echo arrives…");
+
+            // We expect a quick update from sync, so timeout after 10 seconds, and ignore
+            // timeouts; they might just indicate we received the necessary
+            // information on the previous attempt, but racily tried to read the
+            // timeline items.
+            if let Ok(sync_result) =
+                timeout(Duration::from_secs(10), sync_until_update_for_room(&alice, room.room_id()))
+                    .await
+            {
+                sync_result?;
+            }
+
+            // Let time to the timeline for processing the update, at most 1 second.
+            let _ = timeout(Duration::from_secs(1), stream.next()).await;
+
+            let items = timeline.items().await;
+            let last_item = items.last().unwrap().as_event().unwrap();
+            if !last_item.is_local_echo() {
+                return Ok(last_item.event_id().unwrap().to_owned());
+            }
+
+            if num_attempts == 2 {
+                panic!("had 3 sync responses and no echo of our own event");
+            }
+            num_attempts += 1;
+        }
+    });
 
     // Create a timeline for this room.
     debug!("Creating timeline…");
@@ -76,36 +117,8 @@ async fn test_toggling_reaction() -> Result<()> {
     debug!("Sending initial message…");
     timeline.send(RoomMessageEventContent::text_plain("hi!").into()).await;
 
-    // Sync until the remote echo arrives.
-    let mut num_attempts = 0;
-
-    let event_id = loop {
-        debug!(attempt = num_attempts + 1, "Syncing until the remote echo arrives…");
-
-        // We expect a quick update from sync, so timeout after 10 seconds, and ignore
-        // timeouts; they might just indicate we received the necessary
-        // information on the previous attempt, but racily tried to read the
-        // timeline items.
-        if let Ok(sync_result) =
-            timeout(Duration::from_secs(10), sync_until_update_for_room(&alice, room_id)).await
-        {
-            sync_result?;
-        }
-
-        // Let time to the timeline for processing the update, at most 1 second.
-        let _ = timeout(Duration::from_secs(1), stream.next()).await;
-
-        let items = timeline.items().await;
-        let last_item = items.last().unwrap().as_event().unwrap();
-        if !last_item.is_local_echo() {
-            break last_item.event_id().unwrap().to_owned();
-        }
-
-        if num_attempts == 2 {
-            panic!("had 3 sync responses and no echo of our own event");
-        }
-        num_attempts += 1;
-    };
+    let event_id =
+        event_id_task.await.expect("failed to join").expect("Waiting for the event id failed");
 
     // Skip all stream updates that have happened so far.
     debug!("Skipping all other stream updates…");
