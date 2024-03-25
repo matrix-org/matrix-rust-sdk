@@ -19,7 +19,7 @@ use std::{fmt::Display, sync::Arc};
 
 use eyeball_im::ObservableVectorTransaction;
 use ruma::MilliSecondsSinceUnixEpoch;
-use tracing::{event_enabled, instrument, trace, warn, Level};
+use tracing::{error, event_enabled, instrument, trace, warn, Level};
 
 use super::{
     inner::TimelineInnerMetadata, util::timestamp_to_date, TimelineItem, TimelineItemKind,
@@ -271,7 +271,9 @@ impl DayDividerAdjuster {
                     let at = at as usize;
 
                     let replaced = &items[at];
-                    assert!(replaced.is_day_divider(), "we replaced a non day-divider");
+                    if !replaced.is_day_divider() {
+                        error!("we replaced a non day-divider @ {i}: {:?}", replaced.kind());
+                    }
 
                     let unique_id = replaced.unique_id();
                     let item = TimelineItem::new(VirtualTimelineItem::DayDivider(ts), unique_id);
@@ -287,7 +289,9 @@ impl DayDividerAdjuster {
                     assert!(at >= 0);
 
                     let removed = items.remove(at as usize);
-                    assert!(removed.is_day_divider(), "we removed a non day-divider");
+                    if !removed.is_day_divider() {
+                        error!("we removed a non day-divider @ {i}: {:?}", removed.kind());
+                    }
 
                     offset -= 1;
                     max_i = i;
