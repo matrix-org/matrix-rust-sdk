@@ -40,20 +40,20 @@ pub enum LinkedChunkError {
 /// instead of a single one. A chunk has a maximum capacity of `CHUNK_CAPACITY`.
 /// Once a chunk is full, a new chunk is created. Not all chunks are necessarily
 /// entirely full. A chunk can represents a `Gap` between other chunks.
-pub struct LinkedChunk<Item, Gap, const CHUNK_CAPACITY: usize> {
+pub struct LinkedChunk<const CHUNK_CAPACITY: usize, Item, Gap> {
     /// The first chunk.
-    first: NonNull<Chunk<Item, Gap, CHUNK_CAPACITY>>,
+    first: NonNull<Chunk<CHUNK_CAPACITY, Item, Gap>>,
     /// The last chunk.
-    last: Option<NonNull<Chunk<Item, Gap, CHUNK_CAPACITY>>>,
+    last: Option<NonNull<Chunk<CHUNK_CAPACITY, Item, Gap>>>,
     /// The number of items hold by this linked chunk.
     length: usize,
     /// The generator of chunk identifiers.
     chunk_identifier_generator: ChunkIdentifierGenerator,
     /// Marker.
-    marker: PhantomData<Box<Chunk<Item, Gap, CHUNK_CAPACITY>>>,
+    marker: PhantomData<Box<Chunk<CHUNK_CAPACITY, Item, Gap>>>,
 }
 
-impl<Item, Gap, const CAP: usize> LinkedChunk<Item, Gap, CAP> {
+impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
     /// Create a new [`Self`].
     pub fn new() -> Self {
         Self {
@@ -276,7 +276,7 @@ impl<Item, Gap, const CAP: usize> LinkedChunk<Item, Gap, CAP> {
         &mut self,
         items: I,
         chunk_identifier: ChunkIdentifier,
-    ) -> Result<&Chunk<Item, Gap, CAP>, LinkedChunkError>
+    ) -> Result<&Chunk<CAP, Item, Gap>, LinkedChunkError>
     where
         I: IntoIterator<Item = Item>,
         I::IntoIter: ExactSizeIterator,
@@ -349,7 +349,7 @@ impl<Item, Gap, const CAP: usize> LinkedChunk<Item, Gap, CAP> {
     }
 
     /// Get the chunk as a reference, from its identifier, if it exists.
-    fn chunk(&self, identifier: ChunkIdentifier) -> Option<&Chunk<Item, Gap, CAP>> {
+    fn chunk(&self, identifier: ChunkIdentifier) -> Option<&Chunk<CAP, Item, Gap>> {
         let mut chunk = self.latest_chunk();
 
         loop {
@@ -362,7 +362,7 @@ impl<Item, Gap, const CAP: usize> LinkedChunk<Item, Gap, CAP> {
     }
 
     /// Get the chunk as a mutable reference, from its identifier, if it exists.
-    fn chunk_mut(&mut self, identifier: ChunkIdentifier) -> Option<&mut Chunk<Item, Gap, CAP>> {
+    fn chunk_mut(&mut self, identifier: ChunkIdentifier) -> Option<&mut Chunk<CAP, Item, Gap>> {
         let mut chunk = self.latest_chunk_mut();
 
         loop {
@@ -377,7 +377,7 @@ impl<Item, Gap, const CAP: usize> LinkedChunk<Item, Gap, CAP> {
     /// Search backwards for a chunk, and return its identifier.
     pub fn chunk_identifier<'a, P>(&'a self, mut predicate: P) -> Option<ChunkIdentifier>
     where
-        P: FnMut(&'a Chunk<Item, Gap, CAP>) -> bool,
+        P: FnMut(&'a Chunk<CAP, Item, Gap>) -> bool,
     {
         self.rchunks().find_map(|chunk| predicate(chunk).then(|| chunk.identifier()))
     }
@@ -393,14 +393,14 @@ impl<Item, Gap, const CAP: usize> LinkedChunk<Item, Gap, CAP> {
     /// Iterate over the chunks, backwards.
     ///
     /// It iterates from the last to the first chunk.
-    pub fn rchunks(&self) -> LinkedChunkIterBackward<'_, Item, Gap, CAP> {
+    pub fn rchunks(&self) -> LinkedChunkIterBackward<'_, CAP, Item, Gap> {
         LinkedChunkIterBackward::new(self.latest_chunk())
     }
 
     /// Iterate over the chunks, forward.
     ///
     /// It iterates from the first to the last chunk.
-    pub fn chunks(&self) -> LinkedChunkIter<'_, Item, Gap, CAP> {
+    pub fn chunks(&self) -> LinkedChunkIter<'_, CAP, Item, Gap> {
         LinkedChunkIter::new(self.first_chunk())
     }
 
@@ -411,7 +411,7 @@ impl<Item, Gap, const CAP: usize> LinkedChunk<Item, Gap, CAP> {
     pub fn rchunks_from(
         &self,
         identifier: ChunkIdentifier,
-    ) -> Result<LinkedChunkIterBackward<'_, Item, Gap, CAP>, LinkedChunkError> {
+    ) -> Result<LinkedChunkIterBackward<'_, CAP, Item, Gap>, LinkedChunkError> {
         Ok(LinkedChunkIterBackward::new(
             self.chunk(identifier)
                 .ok_or(LinkedChunkError::InvalidChunkIdentifier { identifier })?,
@@ -425,7 +425,7 @@ impl<Item, Gap, const CAP: usize> LinkedChunk<Item, Gap, CAP> {
     pub fn chunks_from(
         &self,
         identifier: ChunkIdentifier,
-    ) -> Result<LinkedChunkIter<'_, Item, Gap, CAP>, LinkedChunkError> {
+    ) -> Result<LinkedChunkIter<'_, CAP, Item, Gap>, LinkedChunkError> {
         Ok(LinkedChunkIter::new(
             self.chunk(identifier)
                 .ok_or(LinkedChunkError::InvalidChunkIdentifier { identifier })?,
@@ -507,22 +507,22 @@ impl<Item, Gap, const CAP: usize> LinkedChunk<Item, Gap, CAP> {
     }
 
     /// Get the first chunk, as an immutable reference.
-    fn first_chunk(&self) -> &Chunk<Item, Gap, CAP> {
+    fn first_chunk(&self) -> &Chunk<CAP, Item, Gap> {
         unsafe { self.first.as_ref() }
     }
 
     /// Get the latest chunk, as an immutable reference.
-    fn latest_chunk(&self) -> &Chunk<Item, Gap, CAP> {
+    fn latest_chunk(&self) -> &Chunk<CAP, Item, Gap> {
         unsafe { self.last.unwrap_or(self.first).as_ref() }
     }
 
     /// Get the latest chunk, as a mutable reference.
-    fn latest_chunk_mut(&mut self) -> &mut Chunk<Item, Gap, CAP> {
+    fn latest_chunk_mut(&mut self) -> &mut Chunk<CAP, Item, Gap> {
         unsafe { self.last.as_mut().unwrap_or(&mut self.first).as_mut() }
     }
 }
 
-impl<Item, Gap, const C: usize> Drop for LinkedChunk<Item, Gap, C> {
+impl<const CAP: usize, Item, Gap> Drop for LinkedChunk<CAP, Item, Gap> {
     fn drop(&mut self) {
         // Take the latest chunk.
         let mut current_chunk_ptr = self.last.or(Some(self.first));
@@ -551,12 +551,12 @@ impl<Item, Gap, const C: usize> Drop for LinkedChunk<Item, Gap, C> {
 /// A [`LinkedChunk`] can be safely sent over thread boundaries if `Item: Send`
 /// and `Gap: Send`. The only unsafe part if around the `NonNull`, but the API
 /// and the lifetimes to deref them are designed safely.
-unsafe impl<Item: Send, Ugap: Send, const CAP: usize> Send for LinkedChunk<Item, Ugap, CAP> {}
+unsafe impl<const CAP: usize, Item: Send, Gap: Send> Send for LinkedChunk<CAP, Item, Gap> {}
 
 /// A [`LinkedChunk`] can be safely share between threads if `Item: Sync` and
 /// `Gap: Sync`. The only unsafe part if around the `NonNull`, but the API and
 /// the lifetimes to deref them are designed safely.
-unsafe impl<Item: Sync, Gap: Sync, const CAP: usize> Sync for LinkedChunk<Item, Gap, CAP> {}
+unsafe impl<const CAP: usize, Item: Sync, Gap: Sync> Sync for LinkedChunk<CAP, Item, Gap> {}
 
 /// Generator for [`Chunk`]'s identifier.
 ///
@@ -636,19 +636,19 @@ impl Position {
 
 /// An iterator over a [`LinkedChunk`] that traverses the chunk in backward
 /// direction (i.e. it calls `previous` on each chunk to make progress).
-pub struct LinkedChunkIterBackward<'a, Item, Gap, const CAP: usize> {
-    chunk: Option<&'a Chunk<Item, Gap, CAP>>,
+pub struct LinkedChunkIterBackward<'a, const CAP: usize, Item, Gap> {
+    chunk: Option<&'a Chunk<CAP, Item, Gap>>,
 }
 
-impl<'a, Item, Gap, const CAP: usize> LinkedChunkIterBackward<'a, Item, Gap, CAP> {
+impl<'a, const CAP: usize, Item, Gap> LinkedChunkIterBackward<'a, CAP, Item, Gap> {
     /// Create a new [`LinkedChunkIter`] from a particular [`Chunk`].
-    fn new(from_chunk: &'a Chunk<Item, Gap, CAP>) -> Self {
+    fn new(from_chunk: &'a Chunk<CAP, Item, Gap>) -> Self {
         Self { chunk: Some(from_chunk) }
     }
 }
 
-impl<'a, Item, Gap, const CAP: usize> Iterator for LinkedChunkIterBackward<'a, Item, Gap, CAP> {
-    type Item = &'a Chunk<Item, Gap, CAP>;
+impl<'a, const CAP: usize, Item, Gap> Iterator for LinkedChunkIterBackward<'a, CAP, Item, Gap> {
+    type Item = &'a Chunk<CAP, Item, Gap>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.chunk.map(|chunk| {
@@ -661,19 +661,19 @@ impl<'a, Item, Gap, const CAP: usize> Iterator for LinkedChunkIterBackward<'a, I
 
 /// An iterator over a [`LinkedChunk`] that traverses the chunk in forward
 /// direction (i.e. it calls `next` on each chunk to make progress).
-pub struct LinkedChunkIter<'a, Item, Gap, const CAP: usize> {
-    chunk: Option<&'a Chunk<Item, Gap, CAP>>,
+pub struct LinkedChunkIter<'a, const CAP: usize, Item, Gap> {
+    chunk: Option<&'a Chunk<CAP, Item, Gap>>,
 }
 
-impl<'a, Item, Gap, const CAP: usize> LinkedChunkIter<'a, Item, Gap, CAP> {
+impl<'a, const CAP: usize, Item, Gap> LinkedChunkIter<'a, CAP, Item, Gap> {
     /// Create a new [`LinkedChunkIter`] from a particular [`Chunk`].
-    fn new(from_chunk: &'a Chunk<Item, Gap, CAP>) -> Self {
+    fn new(from_chunk: &'a Chunk<CAP, Item, Gap>) -> Self {
         Self { chunk: Some(from_chunk) }
     }
 }
 
-impl<'a, Item, Gap, const CAP: usize> Iterator for LinkedChunkIter<'a, Item, Gap, CAP> {
-    type Item = &'a Chunk<Item, Gap, CAP>;
+impl<'a, const CAP: usize, Item, Gap> Iterator for LinkedChunkIter<'a, CAP, Item, Gap> {
+    type Item = &'a Chunk<CAP, Item, Gap>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.chunk.map(|chunk| {
@@ -696,12 +696,12 @@ pub enum ChunkContent<Item, Gap> {
 }
 
 /// A chunk is a node in the [`LinkedChunk`].
-pub struct Chunk<Item, Gap, const CAPACITY: usize> {
+pub struct Chunk<const CAPACITY: usize, Item, Gap> {
     /// The previous chunk.
-    previous: Option<NonNull<Chunk<Item, Gap, CAPACITY>>>,
+    previous: Option<NonNull<Chunk<CAPACITY, Item, Gap>>>,
 
     /// The next chunk.
-    next: Option<NonNull<Chunk<Item, Gap, CAPACITY>>>,
+    next: Option<NonNull<Chunk<CAPACITY, Item, Gap>>>,
 
     /// Unique identifier.
     identifier: ChunkIdentifier,
@@ -710,7 +710,7 @@ pub struct Chunk<Item, Gap, const CAPACITY: usize> {
     content: ChunkContent<Item, Gap>,
 }
 
-impl<Item, Gap, const CAPACITY: usize> Chunk<Item, Gap, CAPACITY> {
+impl<const CAPACITY: usize, Item, Gap> Chunk<CAPACITY, Item, Gap> {
     /// Create a new gap chunk.
     fn new_gap(identifier: ChunkIdentifier, content: Gap) -> Self {
         Self::new(identifier, ChunkContent::Gap(content))
@@ -767,7 +767,7 @@ impl<Item, Gap, const CAPACITY: usize> Chunk<Item, Gap, CAPACITY> {
     }
 
     /// Get the unique identifier of the chunk.
-    fn identifier(&self) -> ChunkIdentifier {
+    pub fn identifier(&self) -> ChunkIdentifier {
         self.identifier
     }
 
@@ -933,7 +933,7 @@ impl<Item, Gap, const CAPACITY: usize> Chunk<Item, Gap, CAPACITY> {
     }
 }
 
-impl<Item, Gap, const CAP: usize> fmt::Debug for LinkedChunk<Item, Gap, CAP>
+impl<const CAP: usize, Item, Gap> fmt::Debug for LinkedChunk<CAP, Item, Gap>
 where
     Item: fmt::Debug,
     Gap: fmt::Debug,
@@ -948,7 +948,7 @@ where
     }
 }
 
-impl<Item, Gap, const CAP: usize> fmt::Debug for Chunk<Item, Gap, CAP>
+impl<const CAP: usize, Item, Gap> fmt::Debug for Chunk<CAP, Item, Gap>
 where
     Item: fmt::Debug,
     Gap: fmt::Debug,
@@ -1055,7 +1055,7 @@ mod tests {
 
     #[test]
     fn test_empty() {
-        let items = LinkedChunk::<char, (), 3>::new();
+        let items = LinkedChunk::<3, char, ()>::new();
 
         assert_eq!(items.len(), 0);
 
@@ -1065,7 +1065,7 @@ mod tests {
 
     #[test]
     fn test_push_items() {
-        let mut linked_chunk = LinkedChunk::<char, (), 3>::new();
+        let mut linked_chunk = LinkedChunk::<3, char, ()>::new();
         linked_chunk.push_items_back(['a']);
 
         assert_items_eq!(linked_chunk, ['a']);
@@ -1084,7 +1084,7 @@ mod tests {
 
     #[test]
     fn test_push_gap() {
-        let mut linked_chunk = LinkedChunk::<char, (), 3>::new();
+        let mut linked_chunk = LinkedChunk::<3, char, ()>::new();
         linked_chunk.push_items_back(['a']);
         assert_items_eq!(linked_chunk, ['a']);
 
@@ -1106,7 +1106,7 @@ mod tests {
 
     #[test]
     fn test_identifiers_and_positions() {
-        let mut linked_chunk = LinkedChunk::<char, (), 3>::new();
+        let mut linked_chunk = LinkedChunk::<3, char, ()>::new();
         linked_chunk.push_items_back(['a', 'b', 'c', 'd', 'e', 'f']);
         linked_chunk.push_gap_back(());
         linked_chunk.push_items_back(['g', 'h', 'i', 'j']);
@@ -1121,7 +1121,7 @@ mod tests {
 
     #[test]
     fn test_rchunks() {
-        let mut linked_chunk = LinkedChunk::<char, (), 2>::new();
+        let mut linked_chunk = LinkedChunk::<2, char, ()>::new();
         linked_chunk.push_items_back(['a', 'b']);
         linked_chunk.push_gap_back(());
         linked_chunk.push_items_back(['c', 'd', 'e']);
@@ -1155,7 +1155,7 @@ mod tests {
 
     #[test]
     fn test_chunks() {
-        let mut linked_chunk = LinkedChunk::<char, (), 2>::new();
+        let mut linked_chunk = LinkedChunk::<2, char, ()>::new();
         linked_chunk.push_items_back(['a', 'b']);
         linked_chunk.push_gap_back(());
         linked_chunk.push_items_back(['c', 'd', 'e']);
@@ -1189,7 +1189,7 @@ mod tests {
 
     #[test]
     fn test_rchunks_from() -> Result<(), LinkedChunkError> {
-        let mut linked_chunk = LinkedChunk::<char, (), 2>::new();
+        let mut linked_chunk = LinkedChunk::<2, char, ()>::new();
         linked_chunk.push_items_back(['a', 'b']);
         linked_chunk.push_gap_back(());
         linked_chunk.push_items_back(['c', 'd', 'e']);
@@ -1221,7 +1221,7 @@ mod tests {
 
     #[test]
     fn test_chunks_from() -> Result<(), LinkedChunkError> {
-        let mut linked_chunk = LinkedChunk::<char, (), 2>::new();
+        let mut linked_chunk = LinkedChunk::<2, char, ()>::new();
         linked_chunk.push_items_back(['a', 'b']);
         linked_chunk.push_gap_back(());
         linked_chunk.push_items_back(['c', 'd', 'e']);
@@ -1249,7 +1249,7 @@ mod tests {
 
     #[test]
     fn test_ritems() {
-        let mut linked_chunk = LinkedChunk::<char, (), 2>::new();
+        let mut linked_chunk = LinkedChunk::<2, char, ()>::new();
         linked_chunk.push_items_back(['a', 'b']);
         linked_chunk.push_gap_back(());
         linked_chunk.push_items_back(['c', 'd', 'e']);
@@ -1266,7 +1266,7 @@ mod tests {
 
     #[test]
     fn test_items() {
-        let mut linked_chunk = LinkedChunk::<char, (), 2>::new();
+        let mut linked_chunk = LinkedChunk::<2, char, ()>::new();
         linked_chunk.push_items_back(['a', 'b']);
         linked_chunk.push_gap_back(());
         linked_chunk.push_items_back(['c', 'd', 'e']);
@@ -1283,7 +1283,7 @@ mod tests {
 
     #[test]
     fn test_ritems_from() -> Result<(), LinkedChunkError> {
-        let mut linked_chunk = LinkedChunk::<char, (), 2>::new();
+        let mut linked_chunk = LinkedChunk::<2, char, ()>::new();
         linked_chunk.push_items_back(['a', 'b']);
         linked_chunk.push_gap_back(());
         linked_chunk.push_items_back(['c', 'd', 'e']);
@@ -1301,7 +1301,7 @@ mod tests {
 
     #[test]
     fn test_items_from() -> Result<(), LinkedChunkError> {
-        let mut linked_chunk = LinkedChunk::<char, (), 2>::new();
+        let mut linked_chunk = LinkedChunk::<2, char, ()>::new();
         linked_chunk.push_items_back(['a', 'b']);
         linked_chunk.push_gap_back(());
         linked_chunk.push_items_back(['c', 'd', 'e']);
@@ -1319,7 +1319,7 @@ mod tests {
 
     #[test]
     fn test_insert_items_at() -> Result<(), LinkedChunkError> {
-        let mut linked_chunk = LinkedChunk::<char, (), 3>::new();
+        let mut linked_chunk = LinkedChunk::<3, char, ()>::new();
         linked_chunk.push_items_back(['a', 'b', 'c', 'd', 'e', 'f']);
         assert_items_eq!(linked_chunk, ['a', 'b', 'c'] ['d', 'e', 'f']);
 
@@ -1414,7 +1414,7 @@ mod tests {
 
     #[test]
     fn test_insert_gap_at() -> Result<(), LinkedChunkError> {
-        let mut linked_chunk = LinkedChunk::<char, (), 3>::new();
+        let mut linked_chunk = LinkedChunk::<3, char, ()>::new();
         linked_chunk.push_items_back(['a', 'b', 'c', 'd', 'e', 'f']);
         assert_items_eq!(linked_chunk, ['a', 'b', 'c'] ['d', 'e', 'f']);
 
@@ -1502,7 +1502,7 @@ mod tests {
 
     #[test]
     fn test_replace_gap_at() -> Result<(), LinkedChunkError> {
-        let mut linked_chunk = LinkedChunk::<char, (), 3>::new();
+        let mut linked_chunk = LinkedChunk::<3, char, ()>::new();
         linked_chunk.push_items_back(['a', 'b']);
         linked_chunk.push_gap_back(());
         linked_chunk.push_items_back(['l', 'm']);
@@ -1548,7 +1548,7 @@ mod tests {
 
     #[test]
     fn test_chunk_item_positions() {
-        let mut linked_chunk = LinkedChunk::<char, (), 3>::new();
+        let mut linked_chunk = LinkedChunk::<3, char, ()>::new();
         linked_chunk.push_items_back(['a', 'b', 'c', 'd', 'e']);
         linked_chunk.push_gap_back(());
         linked_chunk.push_items_back(['f']);
