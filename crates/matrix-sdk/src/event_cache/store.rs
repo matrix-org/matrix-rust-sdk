@@ -104,8 +104,8 @@ impl RoomEvents {
     /// Because the `gap_identifier` can represent non-gap chunk, this method
     /// returns a `Result`.
     ///
-    /// The returned `Chunk` represents the newly created `Chunk` that contains
-    /// the first events.
+    /// This method returns a reference to the (first if many) newly created
+    /// `Chunk` that contains the `items`.
     pub fn replace_gap_at<I>(
         &mut self,
         events: I,
