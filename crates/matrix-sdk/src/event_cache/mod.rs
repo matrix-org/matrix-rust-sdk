@@ -270,6 +270,12 @@ struct EventCacheInner {
     /// on the owning client.
     client: Weak<ClientInner>,
 
+    /// A lock used when many rooms must be updated at once.
+    ///
+    /// [`Mutex`] is “fair”, as it is implemented as a FIFO. It is important to
+    /// ensure that multiple updates will be applied in the correct order, which
+    /// is enforced by taking this lock when handling an update.
+    // TODO: that's the place to add a cross-process lock!
     multiple_room_updates_lock: Mutex<()>,
 
     /// Lazily-filled cache of live [`RoomEventCache`], once per room.
@@ -277,7 +283,6 @@ struct EventCacheInner {
 
     /// Handles to keep alive the task listening to updates.
     drop_handles: OnceLock<Arc<EventCacheDropHandles>>,
-    // TODO: that's the place to add a cross-process lock!
 }
 
 impl EventCacheInner {
