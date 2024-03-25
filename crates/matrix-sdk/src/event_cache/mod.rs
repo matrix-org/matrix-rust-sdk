@@ -249,10 +249,6 @@ impl EventCache {
         // We could have received events during a previous sync; remove them all, since
         // we can't know where to insert the "initial events" with respect to
         // them.
-        // let mut room_events = room_cache.inner.events.write().await;
-        // room_events.reset();
-
-        // let _ = room_cache.inner.sender.send(RoomEventCacheUpdate::Clear);
 
         room_cache
             .inner
