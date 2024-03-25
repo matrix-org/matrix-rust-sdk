@@ -694,8 +694,8 @@ impl RoomEventCacheInner {
                 let new_chunk = room_events
                     .replace_gap_at(sync_events, gap_identifier)
                     // SAFETY: we are sure that `gap_identifier` represents a valid
-                    // `ChunkIdentifier` for a gap.
-                    .unwrap();
+                    // `ChunkIdentifier` for a `Gap` chunk.
+                    .expect("The `gap_identifier` must represent a `Gap`");
 
                 new_chunk.first_position()
             };
@@ -704,9 +704,9 @@ impl RoomEventCacheInner {
             if let Some(prev_token_gap) = prev_token {
                 room_events
                     .insert_gap_at(prev_token_gap, new_position)
-                    // SAFETY: we are sure that `gap_identifier` represents a valid
-                    // `ChunkIdentifier` for a gap.
-                    .unwrap();
+                    // SAFETY: we are sure that `new_position` represents a valid
+                    // `ChunkIdentifier` for an `Item` chunk.
+                    .expect("The `new_position` must represent an `Item`");
             }
 
             trace!("replaced gap with new events from backpagination");
@@ -715,20 +715,30 @@ impl RoomEventCacheInner {
             //let _ = self.sender.send(RoomEventCacheUpdate::Prepend { events });
 
             Ok(BackPaginationOutcome::Success { events, reached_start })
-        }
-        // There is no `token`/gap identifier. Let's assume we must prepend the new events.
-        else {
+        } else {
+            // There is no `token`/gap identifier. Let's assume we must prepend the new
+            // events.
             let first_item_position =
-                room_events.events().nth(0).map(|(item_position, _)| item_position);
+                room_events.events().next().map(|(item_position, _)| item_position);
 
             match first_item_position {
                 // Is there a first item? Insert at this position.
-                Some(item_position) => {
+                Some(first_item_position) => {
                     if let Some(prev_token_gap) = prev_token {
-                        room_events.insert_gap_at(prev_token_gap, item_position).unwrap();
+                        room_events
+                            .insert_gap_at(prev_token_gap, first_item_position)
+                            // SAFETY: The `first_item_position` can only be an `Item` chunk, it's
+                            // an invariant of `LinkedChunk`. Also, it can only represent a valid
+                            // `ChunkIdentifier` as the data structure isn't modified yet.
+                            .expect("The `first_item_position` must represent a valid `Item`");
                     }
 
-                    room_events.insert_events_at(sync_events, item_position).unwrap();
+                    room_events
+                        .insert_events_at(sync_events, first_item_position)
+                        // SAFETY: The `first_item_position` can only be an `Item` chunk, it's
+                        // an invariant of `LinkedChunk`. The chunk it points to has not been
+                        // removed.
+                        .expect("The `first_item_position` must represent an `Item`");
                 }
 
                 // There is no first item. Let's simply push.
@@ -1031,8 +1041,7 @@ mod tests {
 
             event_cache.subscribe().unwrap();
 
-            let (room_event_cache, _drop_handles) =
-                client.event_cache().for_room(room_id).await.unwrap();
+            let (room_event_cache, _drop_handles) = event_cache.for_room(room_id).await.unwrap();
             let room_event_cache = room_event_cache.unwrap();
 
             let expected_token = PaginationToken("old".to_owned());
