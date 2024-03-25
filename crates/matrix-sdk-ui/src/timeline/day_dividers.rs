@@ -514,3 +514,76 @@ enum DayDividerInsertError {
     #[error("Event @ {at} and the previous day divider aren't targeting the same date")]
     InconsistentDateAfterPreviousDayDivider { at: usize },
 }
+
+#[cfg(test)]
+mod tests {
+    use assert_matches2::assert_let;
+    use eyeball_im::ObservableVector;
+    use ruma::{owned_event_id, owned_user_id, uint, MilliSecondsSinceUnixEpoch};
+
+    use super::DayDividerAdjuster;
+    use crate::timeline::{
+        event_item::{EventTimelineItemKind, RemoteEventTimelineItem},
+        inner::TimelineInnerMetadata,
+        util::timestamp_to_date,
+        EventTimelineItem, TimelineItemContent, VirtualTimelineItem,
+    };
+
+    #[test]
+    fn test_read_marker_in_between_event_and_day_divider() {
+        let mut items = ObservableVector::new();
+        let mut txn = items.transaction();
+
+        let mut meta = TimelineInnerMetadata::new(ruma::RoomVersionId::V11, None);
+
+        let timestamp = MilliSecondsSinceUnixEpoch(uint!(42));
+        let timestamp_next_day =
+            MilliSecondsSinceUnixEpoch((42 + 3600 * 24 * 1000).try_into().unwrap());
+        assert_ne!(timestamp_to_date(timestamp), timestamp_to_date(timestamp_next_day));
+
+        let event_kind = EventTimelineItemKind::Remote(RemoteEventTimelineItem {
+            event_id: owned_event_id!("$1"),
+            reactions: Default::default(),
+            read_receipts: Default::default(),
+            is_own: false,
+            is_highlighted: false,
+            encryption_info: None,
+            original_json: None,
+            latest_edit_json: None,
+            origin: crate::timeline::event_item::RemoteEventOrigin::Sync,
+        });
+        let event = EventTimelineItem::new(
+            owned_user_id!("@alice:example.org"),
+            crate::timeline::TimelineDetails::Pending,
+            timestamp,
+            TimelineItemContent::RedactedMessage,
+            event_kind,
+        );
+
+        txn.push_back(meta.new_timeline_item(event.clone()));
+        txn.push_back(meta.new_timeline_item(VirtualTimelineItem::DayDivider(timestamp_next_day)));
+        txn.push_back(meta.new_timeline_item(VirtualTimelineItem::ReadMarker));
+        txn.push_back(meta.new_timeline_item(event));
+
+        let mut adjuster = DayDividerAdjuster::default();
+        adjuster.run(&mut txn, &mut meta);
+
+        txn.commit();
+
+        let mut iter = items.iter();
+
+        assert_let!(Some(item) = iter.next());
+        assert!(item.is_day_divider());
+
+        assert_let!(Some(item) = iter.next());
+        assert!(item.is_remote_event());
+
+        assert_let!(Some(item) = iter.next());
+        assert!(item.is_read_marker());
+
+        assert_let!(Some(item) = iter.next());
+        assert!(item.is_remote_event());
+
+        assert!(iter.next().is_none());
+    }
+}
