@@ -749,7 +749,7 @@ pub(in crate::timeline) struct TimelineInnerMetadata {
 }
 
 impl TimelineInnerMetadata {
-    fn new(
+    pub(crate) fn new(
         room_version: RoomVersionId,
         unable_to_decrypt_hook: Option<Arc<UtdHookManager>>,
     ) -> Self {
