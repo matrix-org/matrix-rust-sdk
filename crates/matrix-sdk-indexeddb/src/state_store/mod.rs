@@ -25,13 +25,14 @@ use matrix_sdk_base::{
     deserialized_responses::RawAnySyncOrStrippedState,
     media::{MediaRequest, UniqueKey},
     store::{StateChanges, StateStore, StoreError},
-    MinimalRoomMemberEvent, RoomInfo, RoomMemberships, RoomState, StateStoreDataKey,
+    MinimalRoomMemberEvent, RawRoomInfo, RoomInfo, RoomMemberships, RoomState, StateStoreDataKey,
     StateStoreDataValue,
 };
 use matrix_sdk_store_encryption::{Error as EncryptionError, StoreCipher};
 use ruma::{
-    canonical_json::{redact, RedactedBecause},
+    canonical_json::{redact, redact_in_place, RedactedBecause},
     events::{
+        call::member::CallMemberEvent,
         presence::PresenceEvent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
         room::member::{
@@ -623,10 +624,23 @@ impl_state_store!({
 
         if !changes.room_infos.is_empty() {
             let room_infos = tx.object_store(keys::ROOM_INFOS)?;
+
             for (room_id, room_info) in &changes.room_infos {
+                // Load raw room info from db, add our updates and then save the raw version again.
+
+                let mut raw_room_info = room_infos
+                    .get(&self.encode_key(keys::ROOM_INFOS, room_id))?
+                    .await?
+                    .and_then(|v| self.deserialize_event::<RawRoomInfo>(&v).ok())
+                    .unwrap_or_else(|| room_info.clone().into_raw_lossy());
+
+                if let Some(room_state_changes) = changes.state.get(room_id) {
+                    raw_room_info.base_info.extend_with_changes(&room_state_changes);
+                }
+
                 room_infos.put_key_val(
                     &self.encode_key(keys::ROOM_INFOS, room_id),
-                    &self.serialize_event(&room_info)?,
+                    &self.serialize_event(&raw_room_info)?,
                 )?;
             }
         }
@@ -740,38 +754,55 @@ impl_state_store!({
 
         if !changes.redactions.is_empty() {
             let state = tx.object_store(keys::ROOM_STATE)?;
-            let room_info = tx.object_store(keys::ROOM_INFOS)?;
+            let room_infos = tx.object_store(keys::ROOM_INFOS)?;
 
             for (room_id, redactions) in &changes.redactions {
+                // TODO: Load room version lazily, only if it is necessary
+                let room_version = room_infos
+                    .get(&self.encode_key(keys::ROOM_INFOS, room_id))?
+                    .await?
+                    .and_then(|f| self.deserialize_event::<RoomInfo>(&f).ok())
+                    .and_then(|info| info.room_version().cloned())
+                    .unwrap_or_else(|| {
+                        warn!(?room_id, "Unable to find the room version, assume version 9");
+                        RoomVersionId::V9
+                    });
+
+                // Clean up raw events we saved for roominfo
+                if changes.room_infos.get(room_id).is_some() {
+                    // This roominfo has changed, so let's update the raw events
+
+                    let Some(mut raw_room_info) = room_infos
+                        .get(&self.encode_key(keys::ROOM_INFOS, room_id))?
+                        .await?
+                        .and_then(|v| self.deserialize_event::<RawRoomInfo>(&v).ok())
+                    else {
+                        continue;
+                    };
+
+                    for (event_id, _redaction_raw) in redactions {
+                        raw_room_info.base_info.handle_redaction(event_id, &room_version);
+                    }
+
+                    room_infos.put_key_val(
+                        &self.encode_key(keys::ROOM_INFOS, room_id),
+                        &self.serialize_event(&raw_room_info)?,
+                    )?;
+                }
+
+                // Cleanup events in room state. TODO: Make this more efficient
+
                 let range = self.encode_to_range(keys::ROOM_STATE, room_id)?;
                 let Some(cursor) = state.open_cursor_with_range(&range)?.await? else { continue };
-
-                let mut room_version = None;
 
                 while let Some(key) = cursor.key() {
                     let raw_evt =
                         self.deserialize_event::<Raw<AnySyncStateEvent>>(&cursor.value())?;
                     if let Ok(Some(event_id)) = raw_evt.get_field::<OwnedEventId>("event_id") {
                         if let Some(redaction) = redactions.get(&event_id) {
-                            let version = {
-                                if room_version.is_none() {
-                                    room_version.replace(room_info
-                                        .get(&self.encode_key(keys::ROOM_INFOS, room_id))?
-                                        .await?
-                                        .and_then(|f| self.deserialize_event::<RoomInfo>(&f).ok())
-                                        .and_then(|info| info.room_version().cloned())
-                                        .unwrap_or_else(|| {
-                                            warn!(?room_id, "Unable to find the room version, assume version 9");
-                                            RoomVersionId::V9
-                                        })
-                                    );
-                                }
-                                room_version.as_ref().unwrap()
-                            };
-
                             let redacted = redact(
                                 raw_evt.deserialize_as::<CanonicalJsonObject>()?,
-                                version,
+                                &room_version,
                                 Some(RedactedBecause::from_raw_event(redaction)?),
                             )
                             .map_err(StoreError::Redaction)?;
@@ -977,7 +1008,7 @@ impl_state_store!({
     }
 
     async fn get_room_infos(&self) -> Result<Vec<RoomInfo>> {
-        let entries: Vec<_> = self
+        Ok(self
             .inner
             .transaction_on_one_with_mode(keys::ROOM_INFOS, IdbTransactionMode::Readonly)?
             .object_store(keys::ROOM_INFOS)?
@@ -985,9 +1016,7 @@ impl_state_store!({
             .await?
             .iter()
             .filter_map(|f| self.deserialize_event::<RoomInfo>(&f).ok())
-            .collect();
-
-        Ok(entries)
+            .collect::<Vec<_>>())
     }
 
     async fn get_stripped_room_infos(&self) -> Result<Vec<RoomInfo>> {

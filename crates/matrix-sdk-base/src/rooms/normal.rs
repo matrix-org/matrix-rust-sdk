@@ -59,7 +59,8 @@ use tracing::{debug, field::debug, info, instrument, trace, warn};
 
 use super::{
     members::{MemberInfo, MemberRoomInfo},
-    BaseRoomInfo, DisplayName, RoomCreateWithCreatorEventContent, RoomMember, RoomNotableTags,
+    BaseRoomInfo, DisplayName, RawBaseRoomInfo, RoomCreateWithCreatorEventContent, RoomMember,
+    RoomNotableTags,
 };
 #[cfg(feature = "experimental-sliding-sync")]
 use crate::latest_event::LatestEvent;
@@ -808,7 +809,7 @@ impl Room {
 /// The underlying pure data structure for joined and left rooms.
 ///
 /// Holds all the info needed to persist a room into the state store.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct RoomInfo {
     /// The unique room id of the room.
     pub(crate) room_id: OwnedRoomId,
@@ -850,8 +851,51 @@ pub struct RoomInfo {
     pub(crate) base_info: Box<BaseRoomInfo>,
 }
 
+/// This is the same as RoomInfo, except it contains RawBaseRoomInfo and implements Serialize.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RawRoomInfo {
+    /// The unique room id of the room.
+    pub room_id: OwnedRoomId,
+
+    /// The state of the room.
+    pub room_state: RoomState,
+
+    /// The unread notifications counts, as returned by the server.
+    ///
+    /// These might be incorrect for encrypted rooms, since the server doesn't
+    /// have access to the content of the encrypted events.
+    pub notification_counts: UnreadNotificationsCount,
+
+    /// The summary of this room.
+    pub summary: RoomSummary,
+
+    /// Flag remembering if the room members are synced.
+    pub members_synced: bool,
+
+    /// The prev batch of this room we received during the last sync.
+    pub last_prev_batch: Option<String>,
+
+    /// How much we know about this room.
+    pub sync_info: SyncInfo,
+
+    /// Whether or not the encryption info was been synced.
+    pub encryption_state_synced: bool,
+
+    /// The last event send by sliding sync
+    #[cfg(feature = "experimental-sliding-sync")]
+    pub latest_event: Option<Box<LatestEvent>>,
+
+    /// Information about read receipts for this room.
+    #[serde(default)]
+    pub read_receipts: RoomReadReceipts,
+
+    /// Base room info which holds some basic event contents important for the
+    /// room state.
+    pub base_info: Box<RawBaseRoomInfo>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub(crate) enum SyncInfo {
+pub enum SyncInfo {
     /// We only know the room exists and whether it is in invite / joined / left
     /// state.
     ///
@@ -883,6 +927,23 @@ impl RoomInfo {
             latest_event: None,
             read_receipts: Default::default(),
             base_info: Box::new(BaseRoomInfo::new()),
+        }
+    }
+
+    /// Converts RoomInfo into RawRoomInfo, potentially losing information about some events.
+    pub fn into_raw_lossy(self) -> RawRoomInfo {
+        RawRoomInfo {
+            room_id: self.room_id,
+            room_state: self.room_state,
+            notification_counts: self.notification_counts,
+            summary: self.summary,
+            members_synced: self.members_synced,
+            last_prev_batch: self.last_prev_batch,
+            sync_info: self.sync_info,
+            encryption_state_synced: self.encryption_state_synced,
+            latest_event: self.latest_event,
+            read_receipts: self.read_receipts,
+            base_info: Box::new(self.base_info.into_raw_lossy()),
         }
     }
 
@@ -1127,21 +1188,24 @@ impl RoomInfo {
     fn guest_access(&self) -> &GuestAccess {
         match &self.base_info.guest_access {
             Some(MinimalStateEvent::Original(ev)) => &ev.content.guest_access,
-            _ => &GuestAccess::Forbidden,
+            Some(MinimalStateEvent::Redacted(_)) => &GuestAccess::Forbidden, /* Redaction does not keep field */
+            None => &GuestAccess::Forbidden,
         }
     }
 
     fn history_visibility(&self) -> &HistoryVisibility {
         match &self.base_info.history_visibility {
             Some(MinimalStateEvent::Original(ev)) => &ev.content.history_visibility,
-            _ => &HistoryVisibility::WorldReadable,
+            Some(MinimalStateEvent::Redacted(ev)) => &ev.content.history_visibility,
+            None => &HistoryVisibility::WorldReadable,
         }
     }
 
     fn join_rule(&self) -> &JoinRule {
         match &self.base_info.join_rules {
             Some(MinimalStateEvent::Original(ev)) => &ev.content.join_rule,
-            _ => &JoinRule::Public,
+            Some(MinimalStateEvent::Redacted(ev)) => &ev.content.join_rule,
+            None => &JoinRule::Public,
         }
     }
 
@@ -1318,6 +1382,7 @@ mod tests {
     use matrix_sdk_test::{async_test, ALICE, BOB, CAROL};
     use ruma::{
         api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
+        event_id,
         events::{
             call::member::{
                 Application, CallApplicationContent, CallMemberEventContent, Focus, LivekitFocus,
@@ -1325,6 +1390,7 @@ mod tests {
             },
             room::{
                 canonical_alias::RoomCanonicalAliasEventContent,
+                join_rules::{RoomJoinRulesEvent, RoomJoinRulesEventContent},
                 member::{
                     MembershipState, RoomMemberEventContent, StrippedRoomMemberEvent,
                     SyncRoomMemberEvent,
@@ -1337,7 +1403,7 @@ mod tests {
         serde::Raw,
         user_id, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId, UserId,
     };
-    use serde_json::json;
+    use serde_json::{json, value::to_raw_value};
     use stream_assert::{assert_pending, assert_ready};
     use web_time::{Duration, SystemTime};
 
@@ -1348,6 +1414,7 @@ mod tests {
     use crate::latest_event::LatestEvent;
     use crate::{
         store::{MemoryStore, StateChanges, StateStore},
+        sync::UnreadNotificationsCount,
         BaseClient, DisplayName, MinimalStateEvent, OriginalMinimalStateEvent, SessionMeta,
     };
 
@@ -1358,9 +1425,13 @@ mod tests {
         // serialized format for `RoomInfo`.
 
         use super::RoomSummary;
-        use crate::{rooms::BaseRoomInfo, sync::UnreadNotificationsCount};
+        use crate::{
+            rooms::{BaseRoomInfo, RawBaseRoomInfo},
+            sync::UnreadNotificationsCount,
+            RawRoomInfo,
+        };
 
-        let info = RoomInfo {
+        let info = RawRoomInfo {
             room_id: room_id!("!gda78o:server.tld").into(),
             room_state: RoomState::Invited,
             notification_counts: UnreadNotificationsCount {
@@ -1379,7 +1450,7 @@ mod tests {
             latest_event: Some(Box::new(LatestEvent::new(
                 Raw::from_json_string(json!({"sender": "@u:i.uk"}).to_string()).unwrap().into(),
             ))),
-            base_info: Box::new(BaseRoomInfo::new()),
+            base_info: Box::new(RawBaseRoomInfo::default()),
             read_receipts: Default::default(),
         };
 
@@ -1781,6 +1852,65 @@ mod tests {
         assert_eq!(
             room.display_name().await.unwrap(),
             DisplayName::Calculated("Matthew".to_owned())
+        );
+    }
+
+    #[async_test]
+    async fn test_save_bad_joinrules() {
+        let (store, room) = make_room(RoomState::Invited);
+        let room_id = room_id!("!test:localhost");
+        let matthew = user_id!("@matthew:example.org");
+        let me = user_id!("@me:example.org");
+        let mut changes = StateChanges::new("".to_owned());
+        let summary = assign!(RumaSummary::new(), {
+            heroes: vec![me.to_string(), matthew.to_string()],
+        });
+
+        let raw_join_rules_content = Raw::<MinimalStateEvent<RoomJoinRulesEventContent>>::from_json(
+            to_raw_value(&json!({ "join_rule": "test!" })).unwrap(),
+        );
+        let raw_join_rules = Raw::from_json(
+            to_raw_value(&json!({
+                "event_id": "$test",
+                "type": "m.room.join_rules",
+                "content": raw_join_rules_content,
+                "origin_server_ts": 0,
+                "sender": matthew,
+                "state_key": "",
+            }))
+            .unwrap(),
+        );
+        let join_rules_content =
+            raw_join_rules_content.deserialize_as::<RoomJoinRulesEventContent>().unwrap();
+        assert_eq!(
+            to_raw_value(&join_rules_content).unwrap_err().to_string(),
+            "the enum variant JoinRule::_Custom cannot be serialized"
+        );
+
+        let mut room_info = RoomInfo::new(room_id, RoomState::Joined);
+        room_info.base_info.join_rules =
+            Some(MinimalStateEvent::Original(raw_join_rules.deserialize().unwrap()));
+        changes.add_room(room_info);
+
+        changes.add_state_event(
+            room_id,
+            raw_join_rules.deserialize_as().unwrap(),
+            raw_join_rules.clone().cast(),
+        );
+        store.save_changes(&changes).await.unwrap();
+
+        let read_room_info = &store.get_room_infos().await.unwrap()[0];
+        assert_eq!(
+            read_room_info
+                .base_info
+                .join_rules
+                .as_ref()
+                .unwrap()
+                .as_original()
+                .unwrap()
+                .content
+                .join_rule,
+            raw_join_rules.deserialize().unwrap().content.join_rule
         );
     }
 

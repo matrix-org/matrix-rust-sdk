@@ -718,7 +718,7 @@ async fn migrate_to_v8(db: IdbDatabase, store_cipher: Option<&StoreCipher>) -> R
         let room_info = room_info_v1.migrate(create.as_ref());
         room_infos_store.put_key_val(
             &encode_key(store_cipher, keys::ROOM_INFOS, room_info.room_id()),
-            &serialize_event(store_cipher, &room_info)?,
+            &serialize_event(store_cipher, &room_info.into_raw_lossy())?,
         )?;
     }
 
