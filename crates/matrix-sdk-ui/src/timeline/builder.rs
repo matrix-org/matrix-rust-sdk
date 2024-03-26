@@ -185,18 +185,17 @@ impl TimelineBuilder {
                             inner.clear().await;
                         }
 
-                        RoomEventCacheUpdate::Append {
-                            events,
-                            account_data,
-                            ephemeral,
-                            ambiguity_changes,
-                        } => {
+                        RoomEventCacheUpdate::UpdateReadMarker { event_id } => {
+                            trace!(target = %event_id, "Handling fully read marker.");
+                            inner.handle_fully_read_marker(event_id).await;
+                        }
+
+                        RoomEventCacheUpdate::Append { events, ephemeral, ambiguity_changes } => {
                             trace!("Received new events");
 
-                            // TODO: (bnjbvr) account_data and ephemeral should be handled by the
-                            // event cache, and we should replace this with a simple
-                            // `handle_add_events`.
-                            inner.handle_sync_events(events, account_data, ephemeral).await;
+                            // TODO: (bnjbvr) ephemeral should be handled by the event cache, and
+                            // we should replace this with a simple `add_events_at`.
+                            inner.handle_sync_events(events, ephemeral).await;
 
                             let member_ambiguity_changes = ambiguity_changes
                                 .values()
