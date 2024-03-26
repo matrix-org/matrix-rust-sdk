@@ -252,13 +252,7 @@ impl EventCache {
 
         room_cache
             .inner
-            .replace_all_events_by(
-                events,
-                prev_batch,
-                Default::default(),
-                Default::default(),
-                Default::default(),
-            )
+            .replace_all_events_by(events, prev_batch, Default::default(), Default::default())
             .await?;
 
         Ok(())
@@ -462,14 +456,40 @@ impl RoomEventCacheInner {
         }
     }
 
+    fn handle_account_data(&self, account_data: Vec<Raw<AnyRoomAccountDataEvent>>) {
+        trace!("Handling account data");
+        for raw_event in account_data {
+            match raw_event.deserialize() {
+                Ok(AnyRoomAccountDataEvent::FullyRead(ev)) => {
+                    // Propagate to observers. (We ignore the error if there aren't any.)
+                    let _ = self.sender.send(RoomEventCacheUpdate::UpdateReadMarker {
+                        event_id: ev.content.event_id,
+                    });
+                }
+
+                Ok(_) => {
+                    // We're not interested in other room account data updates,
+                    // at this point.
+                }
+
+                Err(e) => {
+                    let event_type = raw_event.get_field::<String>("type").ok().flatten();
+                    warn!(event_type, "Failed to deserialize account data: {e}");
+                }
+            }
+        }
+    }
+
     async fn handle_joined_room_update(&self, updates: JoinedRoomUpdate) -> Result<()> {
         self.handle_timeline(
             updates.timeline,
             updates.ephemeral.clone(),
-            updates.account_data,
             updates.ambiguity_changes,
         )
         .await?;
+
+        self.handle_account_data(updates.account_data);
+
         Ok(())
     }
 
@@ -477,7 +497,6 @@ impl RoomEventCacheInner {
         &self,
         timeline: Timeline,
         ephemeral: Vec<Raw<AnySyncEphemeralRoomEvent>>,
-        account_data: Vec<Raw<AnyRoomAccountDataEvent>>,
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
     ) -> Result<()> {
         if timeline.limited {
@@ -489,7 +508,6 @@ impl RoomEventCacheInner {
             self.replace_all_events_by(
                 timeline.events,
                 timeline.prev_batch,
-                account_data,
                 ephemeral,
                 ambiguity_changes,
             )
@@ -501,7 +519,6 @@ impl RoomEventCacheInner {
             self.append_new_events(
                 timeline.events,
                 timeline.prev_batch,
-                account_data,
                 ephemeral,
                 ambiguity_changes,
             )
@@ -512,8 +529,7 @@ impl RoomEventCacheInner {
     }
 
     async fn handle_left_room_update(&self, updates: LeftRoomUpdate) -> Result<()> {
-        self.handle_timeline(updates.timeline, Vec::new(), Vec::new(), updates.ambiguity_changes)
-            .await?;
+        self.handle_timeline(updates.timeline, Vec::new(), updates.ambiguity_changes).await?;
         Ok(())
     }
 
@@ -523,7 +539,6 @@ impl RoomEventCacheInner {
         &self,
         events: Vec<SyncTimelineEvent>,
         prev_batch: Option<String>,
-        account_data: Vec<Raw<AnyRoomAccountDataEvent>>,
         ephemeral: Vec<Raw<AnySyncEphemeralRoomEvent>>,
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
     ) -> Result<()> {
@@ -541,7 +556,6 @@ impl RoomEventCacheInner {
             room_events,
             events,
             prev_batch,
-            account_data,
             ephemeral,
             ambiguity_changes,
         )
@@ -554,7 +568,6 @@ impl RoomEventCacheInner {
         &self,
         events: Vec<SyncTimelineEvent>,
         prev_batch: Option<String>,
-        account_data: Vec<Raw<AnyRoomAccountDataEvent>>,
         ephemeral: Vec<Raw<AnySyncEphemeralRoomEvent>>,
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
     ) -> Result<()> {
@@ -562,7 +575,6 @@ impl RoomEventCacheInner {
             self.events.write().await,
             events,
             prev_batch,
-            account_data,
             ephemeral,
             ambiguity_changes,
         )
@@ -579,14 +591,12 @@ impl RoomEventCacheInner {
         mut room_events: RwLockWriteGuard<'_, RoomEvents>,
         events: Vec<SyncTimelineEvent>,
         prev_batch: Option<String>,
-        account_data: Vec<Raw<AnyRoomAccountDataEvent>>,
         ephemeral: Vec<Raw<AnySyncEphemeralRoomEvent>>,
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
     ) -> Result<()> {
         if events.is_empty()
             && prev_batch.is_none()
             && ephemeral.is_empty()
-            && account_data.is_empty()
             && ambiguity_changes.is_empty()
         {
             return Ok(());
@@ -608,12 +618,8 @@ impl RoomEventCacheInner {
             self.pagination_token_notifier.notify_one();
         }
 
-        let _ = self.sender.send(RoomEventCacheUpdate::Append {
-            events,
-            account_data,
-            ephemeral,
-            ambiguity_changes,
-        });
+        let _ =
+            self.sender.send(RoomEventCacheUpdate::Append { events, ephemeral, ambiguity_changes });
 
         Ok(())
     }
@@ -819,13 +825,16 @@ pub enum RoomEventCacheUpdate {
     /// The room has been cleared from events.
     Clear,
 
+    /// The fully read marker has moved to a different event.
+    UpdateReadMarker {
+        /// Event at which the read marker is now pointing.
+        event_id: OwnedEventId,
+    },
+
     /// The room has new events.
     Append {
         /// All the new events that have been added to the room's timeline.
         events: Vec<SyncTimelineEvent>,
-        /// XXX: this is temporary, until account data lives in the event cache
-        /// — or will it live there?
-        account_data: Vec<Raw<AnyRoomAccountDataEvent>>,
         /// XXX: this is temporary, until read receipts are handled in the event
         /// cache
         ephemeral: Vec<Raw<AnySyncEphemeralRoomEvent>>,

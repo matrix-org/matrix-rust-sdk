@@ -41,8 +41,8 @@ use ruma::{
             message::{MessageType, Relation},
             redaction::RoomRedactionEventContent,
         },
-        AnyMessageLikeEventContent, AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent,
-        AnySyncMessageLikeEvent, AnySyncTimelineEvent, MessageLikeEventType,
+        AnyMessageLikeEventContent, AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent,
+        AnySyncTimelineEvent, MessageLikeEventType,
     },
     serde::Raw,
     EventId, OwnedEventId, OwnedTransactionId, RoomVersionId, TransactionId, UserId,
@@ -426,22 +426,17 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         self.state.write().await.clear();
     }
 
+    pub(super) async fn handle_fully_read_marker(&self, fully_read_event_id: OwnedEventId) {
+        self.state.write().await.handle_fully_read_marker(fully_read_event_id);
+    }
+
     pub(super) async fn handle_sync_events(
         &self,
         events: Vec<SyncTimelineEvent>,
-        account_data: Vec<Raw<AnyRoomAccountDataEvent>>,
         ephemeral: Vec<Raw<AnySyncEphemeralRoomEvent>>,
     ) {
         let mut state = self.state.write().await;
-        state
-            .handle_sync_events(
-                events,
-                account_data,
-                ephemeral,
-                &self.room_data_provider,
-                &self.settings,
-            )
-            .await;
+        state.handle_sync_events(events, ephemeral, &self.room_data_provider, &self.settings).await;
     }
 
     #[cfg(test)]
