@@ -263,6 +263,29 @@ impl Client {
         })
     }
 
+    /// Login using a custom method such as "org.matrix.login.jwt"
+    pub fn login_custom(
+        &self,
+        login_type: String,
+        data: String,
+        initial_device_name: Option<String>,
+        device_id: Option<String>,
+    ) -> Result<(), ClientError> {
+        RUNTIME.block_on(async move {
+            let data = Raw::from_json_string(data)?;
+            let mut builder =
+                self.inner.matrix_auth().login_custom(&login_type, data.deserialize()?)?;
+            if let Some(initial_device_name) = initial_device_name.as_ref() {
+                builder = builder.initial_device_display_name(initial_device_name);
+            }
+            if let Some(device_id) = device_id.as_ref() {
+                builder = builder.device_id(device_id);
+            }
+            builder.send().await?;
+            Ok(())
+        })
+    }
+
     pub async fn get_media_file(
         &self,
         media_source: Arc<MediaSource>,
