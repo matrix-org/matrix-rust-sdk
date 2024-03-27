@@ -517,8 +517,8 @@ impl RoomEventCacheInner {
         Ok(())
     }
 
-    // Remove existing events, and append a set of events to the room cache and
-    // storage, notifying observers.
+    /// Remove existing events, and append a set of events to the room cache and
+    /// storage, notifying observers.
     async fn replace_all_events_by(
         &self,
         events: Vec<SyncTimelineEvent>,

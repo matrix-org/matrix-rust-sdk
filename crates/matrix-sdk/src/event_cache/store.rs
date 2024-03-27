@@ -65,7 +65,7 @@ impl RoomEvents {
         self.push_events(once(event))
     }
 
-    /// Push events after existing events.
+    /// Push events after all events or gaps.
     ///
     /// The last event in `events` is the most recent one.
     pub fn push_events<I>(&mut self, events: I)
@@ -76,7 +76,7 @@ impl RoomEvents {
         self.chunks.push_items_back(events)
     }
 
-    /// Push a gap after existing events.
+    /// Push a gap after all events or gaps.
     pub fn push_gap(&mut self, gap: Gap) {
         self.chunks.push_gap_back(gap)
     }
