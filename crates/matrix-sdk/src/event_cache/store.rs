@@ -61,14 +61,14 @@ impl RoomEvents {
     }
 
     /// Push one event after existing events.
-    pub fn push_event(&mut self, event: SyncTimelineEvent) {
+    pub fn push_event(&mut self, event: SyncTimelineEvent) -> Result<(), LinkedChunkError> {
         self.push_events(once(event))
     }
 
     /// Push events after all events or gaps.
     ///
     /// The last event in `events` is the most recent one.
-    pub fn push_events<I>(&mut self, events: I)
+    pub fn push_events<I>(&mut self, events: I) -> Result<(), LinkedChunkError>
     where
         I: IntoIterator<Item = SyncTimelineEvent>,
         I::IntoIter: ExactSizeIterator,
@@ -77,7 +77,7 @@ impl RoomEvents {
     }
 
     /// Push a gap after all events or gaps.
-    pub fn push_gap(&mut self, gap: Gap) {
+    pub fn push_gap(&mut self, gap: Gap) -> Result<(), LinkedChunkError> {
         self.chunks.push_gap_back(gap)
     }
 

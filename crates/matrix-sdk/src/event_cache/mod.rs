@@ -69,7 +69,7 @@ use tokio::{
 use tracing::{error, instrument, trace, warn};
 
 use self::{
-    linked_chunk::ChunkContent,
+    linked_chunk::{ChunkContent, LinkedChunkError},
     store::{Gap, PaginationToken, RoomEvents},
 };
 use crate::{client::ClientInner, room::MessagesOptions, Client, Room};
@@ -108,6 +108,10 @@ pub enum EventCacheError {
     /// the caller.
     #[error("SDK error: {0}")]
     SdkError(#[source] crate::Error),
+
+    /// Another error from the [`LinkedChunk`].
+    #[error("LinkedChunk error: {0}")]
+    LinkedChunk(#[source] LinkedChunkError),
 }
 
 /// A result using the [`EventCacheError`].
@@ -596,10 +600,14 @@ impl RoomEventCacheInner {
         // events themselves.
         {
             if let Some(prev_token) = &prev_batch {
-                room_events.push_gap(Gap { prev_token: PaginationToken(prev_token.clone()) });
+                room_events
+                    .push_gap(Gap { prev_token: PaginationToken(prev_token.clone()) })
+                    .map_err(EventCacheError::LinkedChunk)?;
             }
 
-            room_events.push_events(events.clone().into_iter());
+            room_events
+                .push_events(events.clone().into_iter())
+                .map_err(EventCacheError::LinkedChunk)?;
         }
 
         // Now that all events have been added, we can trigger the
@@ -744,10 +752,12 @@ impl RoomEventCacheInner {
                 // There is no first item. Let's simply push.
                 None => {
                     if let Some(prev_token_gap) = prev_token {
-                        room_events.push_gap(prev_token_gap);
+                        room_events
+                            .push_gap(prev_token_gap)
+                            .map_err(EventCacheError::LinkedChunk)?;
                     }
 
-                    room_events.push_events(sync_events);
+                    room_events.push_events(sync_events).map_err(EventCacheError::LinkedChunk)?;
                 }
             }
 
@@ -931,14 +941,16 @@ mod tests {
             // When I only have events in a room,
             {
                 let mut room_events = room_event_cache.inner.events.write().await;
-                room_events.push_events([sync_timeline_event!({
-                    "sender": "b@z.h",
-                    "type": "m.room.message",
-                    "event_id": "$ida",
-                    "origin_server_ts": 12344446,
-                    "content": { "body":"yolo", "msgtype": "m.text" },
-                })
-                .into()]);
+                room_events
+                    .push_events([sync_timeline_event!({
+                        "sender": "b@z.h",
+                        "type": "m.room.message",
+                        "event_id": "$ida",
+                        "origin_server_ts": 12344446,
+                        "content": { "body":"yolo", "msgtype": "m.text" },
+                    })
+                    .into()])
+                    .unwrap();
             }
 
             // If I don't wait for the backpagination token,
@@ -990,15 +1002,17 @@ mod tests {
             // When I have events and multiple gaps, in a room,
             {
                 let mut room_events = room_event_cache.inner.events.write().await;
-                room_events.push_gap(Gap { prev_token: expected_token.clone() });
-                room_events.push_events([sync_timeline_event!({
-                    "sender": "b@z.h",
-                    "type": "m.room.message",
-                    "event_id": "$ida",
-                    "origin_server_ts": 12344446,
-                    "content": { "body":"yolo", "msgtype": "m.text" },
-                })
-                .into()]);
+                room_events.push_gap(Gap { prev_token: expected_token.clone() }).unwrap();
+                room_events
+                    .push_events([sync_timeline_event!({
+                        "sender": "b@z.h",
+                        "type": "m.room.message",
+                        "event_id": "$ida",
+                        "origin_server_ts": 12344446,
+                        "content": { "body":"yolo", "msgtype": "m.text" },
+                    })
+                    .into()])
+                    .unwrap();
             }
 
             // If I don't wait for a back-pagination token,
@@ -1055,7 +1069,7 @@ mod tests {
 
                 {
                     let mut room_events = cloned_room_event_cache.inner.events.write().await;
-                    room_events.push_gap(Gap { prev_token: cloned_expected_token });
+                    room_events.push_gap(Gap { prev_token: cloned_expected_token }).unwrap();
                 }
             });
 
