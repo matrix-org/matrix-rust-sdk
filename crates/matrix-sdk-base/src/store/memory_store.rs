@@ -48,6 +48,7 @@ use crate::{
 #[allow(clippy::type_complexity)]
 #[derive(Debug)]
 pub struct MemoryStore {
+    breadcrumbs: StdRwLock<HashMap<String, Vec<String>>>,
     user_avatar_url: StdRwLock<HashMap<String, String>>,
     sync_token: StdRwLock<Option<String>>,
     filters: StdRwLock<HashMap<String, String>>,
@@ -89,6 +90,7 @@ const NUMBER_OF_MEDIAS: NonZeroUsize = unsafe { NonZeroUsize::new_unchecked(20) 
 impl Default for MemoryStore {
     fn default() -> Self {
         Self {
+            breadcrumbs: Default::default(),
             user_avatar_url: Default::default(),
             sync_token: Default::default(),
             filters: Default::default(),
@@ -177,6 +179,13 @@ impl StateStore for MemoryStore {
                 .get(user_id.as_str())
                 .cloned()
                 .map(StateStoreDataValue::UserAvatarUrl),
+            StateStoreDataKey::Breadcrumbs(user_id) => self
+                .breadcrumbs
+                .read()
+                .unwrap()
+                .get(user_id.as_str())
+                .cloned()
+                .map(StateStoreDataValue::Breadcrumbs),
         })
     }
 
@@ -202,6 +211,12 @@ impl StateStore for MemoryStore {
                     value.into_user_avatar_url().expect("Session data not a user avatar url"),
                 );
             }
+            StateStoreDataKey::Breadcrumbs(user_id) => {
+                self.breadcrumbs.write().unwrap().insert(
+                    user_id.to_string(),
+                    value.into_breadcrumbs().expect("Session data not breadcrumbs"),
+                );
+            }
         }
 
         Ok(())
@@ -215,6 +230,9 @@ impl StateStore for MemoryStore {
             }
             StateStoreDataKey::UserAvatarUrl(user_id) => {
                 self.filters.write().unwrap().remove(user_id.as_str());
+            }
+            StateStoreDataKey::Breadcrumbs(user_id) => {
+                self.breadcrumbs.write().unwrap().remove(user_id.as_str());
             }
         }
         Ok(())

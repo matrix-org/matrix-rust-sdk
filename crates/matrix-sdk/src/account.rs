@@ -921,6 +921,32 @@ impl Account {
                 )
             }))
     }
+
+    // Retrieves the current user's recently visited room list
+    pub async fn get_breadcrumbs(&self) -> Result<Vec<String>> {
+        let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
+        let data = self.client.store().get_kv_data(StateStoreDataKey::Breadcrumbs(user_id)).await?;
+
+        Ok(data
+            .map(|v| v.into_breadcrumbs().expect("Session data is not a list of breadcrumbs"))
+            .unwrap_or_default())
+    }
+
+    // Updates the current user's recently visited room list
+    pub async fn set_breadcrumbs(&self, breadcrumbs: Vec<String>) -> Result<(), Error> {
+        let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
+
+        for breadcrumb in &breadcrumbs {
+            if let Err(error) = RoomId::parse(breadcrumb) {
+                error!("Invalid room id in breadcrumbs: {}", error);
+                return Err(Error::Identifier(error));
+            }
+        }
+
+        let data = StateStoreDataValue::Breadcrumbs(breadcrumbs);
+        self.client.store().set_kv_data(StateStoreDataKey::Breadcrumbs(user_id), data).await?;
+        Ok(())
+    }
 }
 
 fn get_raw_content<Ev, C>(raw: Option<Raw<Ev>>) -> Result<Option<Raw<C>>> {

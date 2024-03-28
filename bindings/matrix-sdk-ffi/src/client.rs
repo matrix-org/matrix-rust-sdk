@@ -758,6 +758,15 @@ impl Client {
         let room = self.inner.join_room_by_id(room_id.as_ref()).await?;
         Ok(Arc::new(Room::new(room)))
     }
+
+    pub async fn get_breadcrumbs(&self) -> Result<Vec<String>, ClientError> {
+        Ok(self.inner.account().get_breadcrumbs().await?)
+    }
+
+    pub async fn set_breadcrumbs(&self, breadcrumbs: Vec<String>) -> Result<(), ClientError> {
+        self.inner.account().set_breadcrumbs(breadcrumbs).await?;
+        Ok(())
+    }
 }
 
 #[uniffi::export(callback_interface)]

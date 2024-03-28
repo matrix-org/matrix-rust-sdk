@@ -275,6 +275,9 @@ impl SqliteStateStore {
             StateStoreDataKey::UserAvatarUrl(u) => {
                 Cow::Owned(format!("{}:{u}", StateStoreDataKey::USER_AVATAR_URL))
             }
+            StateStoreDataKey::Breadcrumbs(b) => {
+                Cow::Owned(format!("{}:{b}", StateStoreDataKey::BREADCRUMBS))
+            }
         };
 
         self.encode_key(keys::KV_BLOB, &*key_s)
@@ -880,6 +883,10 @@ impl StateStore for SqliteStateStore {
                     StateStoreDataKey::UserAvatarUrl(_) => {
                         StateStoreDataValue::UserAvatarUrl(string)
                     }
+                    StateStoreDataKey::Breadcrumbs(_) => {
+                        let crap = self.deserialize_value(&data)?;
+                        StateStoreDataValue::Breadcrumbs(crap)
+                    }
                 })
             })
             .transpose()
@@ -890,20 +897,50 @@ impl StateStore for SqliteStateStore {
         key: StateStoreDataKey<'_>,
         value: StateStoreDataValue,
     ) -> Result<()> {
-        let value = match key {
+        match key {
             StateStoreDataKey::SyncToken => {
-                value.into_sync_token().expect("Session data not a sync token")
+                let value = value.into_sync_token().expect("Session data not a sync token");
+                self.acquire()
+                    .await?
+                    .set_kv_blob(
+                        self.encode_state_store_data_key(key),
+                        self.serialize_value(&value)?,
+                    )
+                    .await
             }
-            StateStoreDataKey::Filter(_) => value.into_filter().expect("Session data not a filter"),
-            StateStoreDataKey::UserAvatarUrl(_) => {
-                value.into_user_avatar_url().expect("Session data not an user avatar url")
-            }
-        };
+            StateStoreDataKey::Filter(_) => {
+                let value = value.into_filter().expect("Session data not a filter");
 
-        self.acquire()
-            .await?
-            .set_kv_blob(self.encode_state_store_data_key(key), self.serialize_value(&value)?)
-            .await
+                self.acquire()
+                    .await?
+                    .set_kv_blob(
+                        self.encode_state_store_data_key(key),
+                        self.serialize_value(&value)?,
+                    )
+                    .await
+            }
+            StateStoreDataKey::UserAvatarUrl(_) => {
+                let value =
+                    value.into_user_avatar_url().expect("Session data not an user avatar url");
+                self.acquire()
+                    .await?
+                    .set_kv_blob(
+                        self.encode_state_store_data_key(key),
+                        self.serialize_value(&value)?,
+                    )
+                    .await
+            }
+            StateStoreDataKey::Breadcrumbs(_) => {
+                let value = value.into_breadcrumbs().expect("Session data not breadcrumbs");
+                self.acquire()
+                    .await?
+                    .set_kv_blob(
+                        self.encode_state_store_data_key(key),
+                        self.serialize_value(&value)?,
+                    )
+                    .await
+            }
+        }
     }
 
     async fn remove_kv_data(&self, key: StateStoreDataKey<'_>) -> Result<()> {

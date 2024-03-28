@@ -805,6 +805,9 @@ pub enum StateStoreDataValue {
 
     /// The user avatar url
     UserAvatarUrl(String),
+
+    /// A list of recently visited room identifiers for the current user
+    Breadcrumbs(Vec<String>),
 }
 
 impl StateStoreDataValue {
@@ -822,6 +825,11 @@ impl StateStoreDataValue {
     pub fn into_user_avatar_url(self) -> Option<String> {
         as_variant!(self, Self::UserAvatarUrl)
     }
+
+    /// Get this value if it is a list of breadcrumbs.
+    pub fn into_breadcrumbs(self) -> Option<Vec<String>> {
+        as_variant!(self, Self::Breadcrumbs)
+    }
 }
 
 /// A key for key-value data.
@@ -835,6 +843,9 @@ pub enum StateStoreDataKey<'a> {
 
     /// Avatar URL
     UserAvatarUrl(&'a UserId),
+
+    /// Recently visited room identifiers
+    Breadcrumbs(&'a UserId),
 }
 
 impl StateStoreDataKey<'_> {
@@ -845,4 +856,7 @@ impl StateStoreDataKey<'_> {
     /// Key prefix to use for the [`UserAvatarUrl`][Self::UserAvatarUrl]
     /// variant.
     pub const USER_AVATAR_URL: &'static str = "user_avatar_url";
+
+    /// Key prefix to use for the [`Breadcrumbs`][Self::Breadcrumbs] variant.
+    pub const BREADCRUMBS: &'static str = "breadcrumbs";
 }
