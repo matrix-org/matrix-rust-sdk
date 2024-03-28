@@ -55,7 +55,7 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
-use tracing::{debug, field::debug, info, instrument, trace, warn};
+use tracing::{debug, field::debug, info, instrument, warn};
 
 use super::{
     members::{MemberInfo, MemberRoomInfo},
@@ -681,28 +681,22 @@ impl Room {
     /// Returns `None` if the member was never part of this room, otherwise
     /// return a `RoomMember` that can be in a joined, invited, left, banned
     /// state.
-    #[instrument(skip(self))]
     pub async fn get_member(&self, user_id: &UserId) -> StoreResult<Option<RoomMember>> {
-        trace!("Fetching member event");
         let Some(raw_event) = self.store.get_member_event(self.room_id(), user_id).await? else {
-            debug!("Member event not found in state store");
+            debug!(%user_id, "Member event not found in state store");
             return Ok(None);
         };
 
-        trace!("Deserializing member event");
         let event = raw_event.deserialize()?;
 
-        trace!("Fetching presence event");
         let presence =
             self.store.get_presence_event(user_id).await?.and_then(|e| e.deserialize().ok());
 
-        trace!("Fetching profile");
         let profile = self.store.get_profile(self.room_id(), user_id).await?;
 
         let display_names = [event.display_name().to_owned()];
         let room_info = self.member_room_info(&display_names).await?;
 
-        trace!("Got all member information");
         let member_info = MemberInfo { event, profile, presence };
         Ok(Some(RoomMember::from_parts(member_info, &room_info)))
     }
@@ -715,18 +709,15 @@ impl Room {
         let max_power_level = self.max_power_level();
         let room_creator = self.inner.read().creator().map(ToOwned::to_owned);
 
-        trace!("Fetching power levels");
         let power_levels = self
             .store
             .get_state_event_static(self.room_id())
             .await?
             .and_then(|e| e.deserialize().ok());
 
-        trace!("Fetching users based on display names");
         let users_display_names =
             self.store.get_users_with_display_names(self.room_id(), display_names).await?;
 
-        trace!("Fetching ignored users");
         let ignored_users = self
             .store
             .get_account_data_event_static::<IgnoredUserListEventContent>()
@@ -999,7 +990,7 @@ impl RoomInfo {
 
         #[cfg(feature = "experimental-sliding-sync")]
         if let Some(latest_event) = &mut self.latest_event {
-            trace!("Checking if redaction applies to latest event");
+            tracing::trace!("Checking if redaction applies to latest event");
             if latest_event.event_id().as_deref() == Some(redacts) {
                 match apply_redaction(&latest_event.event().event, _raw, room_version) {
                     Some(redacted) => {
