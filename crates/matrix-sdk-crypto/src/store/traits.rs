@@ -133,11 +133,14 @@ pub trait CryptoStore: AsyncTraitDeps {
         room_id: &RoomId,
     ) -> Result<Option<OutboundGroupSession>, Self::Error>;
 
-    /// Load the list of users whose devices we are keeping track of.
+    /// Provide the list of users whose devices we are keeping track of, and
+    /// whether they are considered dirty/outdated.
     async fn load_tracked_users(&self) -> Result<Vec<TrackedUser>, Self::Error>;
 
-    /// Save a list of users and their respective dirty/outdated flags to the
-    /// store.
+    /// Update the list of users whose devices we are keeping track of, and
+    /// whether they are considered dirty/outdated.
+    ///
+    /// Replaces any existing entry with a matching user ID.
     async fn save_tracked_users(&self, users: &[(&UserId, bool)]) -> Result<(), Self::Error>;
 
     /// Get the device for the given user with the given device ID.
