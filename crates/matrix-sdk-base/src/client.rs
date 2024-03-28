@@ -69,7 +69,7 @@ use crate::{
         StateChanges, StateStoreDataKey, StateStoreDataValue, StateStoreExt, Store, StoreConfig,
     },
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Notification, RoomUpdates, SyncResponse, Timeline},
-    MinimalRoomMemberEvent, RoomStateFilter, SessionMeta,
+    RoomStateFilter, SessionMeta,
 };
 
 /// A no IO Client implementation.
@@ -1170,13 +1170,14 @@ impl BaseClient {
             }
 
             let sync_member: SyncRoomMemberEvent = member.clone().into();
-            let profile = MinimalRoomMemberEvent::from(sync_member);
 
-            changes
-                .profiles
-                .entry(room_id.to_owned())
-                .or_default()
-                .insert(member.state_key().to_owned(), profile);
+            if member.state_key() == member.sender() {
+                changes
+                    .profiles
+                    .entry(room_id.to_owned())
+                    .or_default()
+                    .insert(member.sender().to_owned(), sync_member.into());
+            }
 
             changes
                 .state
