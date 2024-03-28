@@ -52,8 +52,12 @@ pub struct RoomMember {
 }
 
 impl RoomMember {
-    pub(crate) fn from_parts(member_info: MemberInfo, room_info: &MemberRoomInfo<'_>) -> Self {
-        let MemberInfo { event, profile, presence } = member_info;
+    pub(crate) fn from_parts(
+        event: MemberEvent,
+        profile: Option<MinimalRoomMemberEvent>,
+        presence: Option<PresenceEvent>,
+        room_info: &MemberRoomInfo<'_>,
+    ) -> Self {
         let MemberRoomInfo {
             power_levels,
             max_power_level,
@@ -229,13 +233,6 @@ impl RoomMember {
     pub fn is_ignored(&self) -> bool {
         self.is_ignored
     }
-}
-
-// Information about a room member.
-pub(crate) struct MemberInfo {
-    pub event: MemberEvent,
-    pub(crate) profile: Option<MinimalRoomMemberEvent>,
-    pub(crate) presence: Option<PresenceEvent>,
 }
 
 // Information about a the room a member is in.
