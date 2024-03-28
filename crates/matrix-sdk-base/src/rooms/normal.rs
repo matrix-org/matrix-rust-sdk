@@ -58,8 +58,8 @@ use tokio::sync::broadcast;
 use tracing::{debug, field::debug, info, instrument, warn};
 
 use super::{
-    members::{MemberInfo, MemberRoomInfo},
-    BaseRoomInfo, DisplayName, RoomCreateWithCreatorEventContent, RoomMember, RoomNotableTags,
+    members::MemberRoomInfo, BaseRoomInfo, DisplayName, RoomCreateWithCreatorEventContent,
+    RoomMember, RoomNotableTags,
 };
 #[cfg(feature = "experimental-sliding-sync")]
 use crate::latest_event::LatestEvent;
@@ -547,10 +547,7 @@ impl Room {
         for event in member_events {
             let profile = profiles.remove(event.user_id());
             let presence = presences.remove(event.user_id());
-
-            let member_info = MemberInfo { event, profile, presence };
-
-            members.push(RoomMember::from_parts(member_info, &room_info))
+            members.push(RoomMember::from_parts(event, profile, presence, &room_info))
         }
 
         Ok(members)
@@ -697,8 +694,7 @@ impl Room {
         let display_names = [event.display_name().to_owned()];
         let room_info = self.member_room_info(&display_names).await?;
 
-        let member_info = MemberInfo { event, profile, presence };
-        Ok(Some(RoomMember::from_parts(member_info, &room_info)))
+        Ok(Some(RoomMember::from_parts(event, profile, presence, &room_info)))
     }
 
     /// The current `MemberRoomInfo` for this room.
