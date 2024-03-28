@@ -793,14 +793,10 @@ impl GroupSessionManager {
             .await?;
 
         // Filter out the devices that already received this room key or have a
-        // to-device message already queued up.
-        let devices: Vec<_> = devices
-            .into_iter()
-            .flat_map(|(_, d)| {
-                d.into_iter()
-                    .filter(|d| matches!(outbound.is_shared_with(d), ShareState::NotShared))
-            })
-            .collect();
+        // to-device message already queued up. Also collect devices that already got
+        // the key for logging.
+        let (devices, already_shared_devices) =
+            self.split_devices_by_shared_with(devices, &outbound);
 
         // The `encrypt_for_devices()` method adds the to-device requests that will send
         // out the room key to the `OutboundGroupSession`. It doesn't do that
@@ -809,6 +805,13 @@ impl GroupSessionManager {
         // returned by the method.
         let unable_to_encrypt_devices =
             self.encrypt_for_devices(devices, &outbound, &mut changes).await?;
+
+        // This could be verbose, but usefull to debug why a room key wasn't shared.
+        // Will log the devices that already got the key and at what index, as well as
+        // the devices that couldn't get the key with a withheld reason.
+        let sharing_full_log =
+            self.not_distributed_to_log_list(&already_shared_devices, &unable_to_encrypt_devices);
+        debug!(?sharing_full_log, "Keys already shared or withheld to the following devices.");
 
         // Merge the withheld recipients.
         withheld_devices.extend(unable_to_encrypt_devices);
@@ -846,6 +849,52 @@ impl GroupSessionManager {
         }
 
         Ok(requests)
+    }
+
+    /// Split the devices into two groups, one group for devices that we need to
+    /// share the room key with, and one group for devices that we don't
+    /// need to share the room key with.
+    fn split_devices_by_shared_with(
+        &self,
+        devices: BTreeMap<OwnedUserId, Vec<ReadOnlyDevice>>,
+        outbound: &OutboundGroupSession,
+    ) -> (Vec<ReadOnlyDevice>, Vec<(ReadOnlyDevice, ShareState)>) {
+        let split: (Vec<(ReadOnlyDevice, ShareState)>, Vec<(ReadOnlyDevice, ShareState)>) = devices
+            .into_iter()
+            .flat_map(|(_, d)| {
+                d.into_iter().map(|d| {
+                    let is_shared = outbound.is_shared_with(&d);
+                    (d, is_shared)
+                })
+            })
+            .partition(|(_, state)| matches!(state, ShareState::NotShared));
+
+        (split.0.into_iter().map(|(d, _)| d).collect(), split.1)
+    }
+
+    fn not_distributed_to_log_list(
+        &self,
+        already_shared_devices: &Vec<(ReadOnlyDevice, ShareState)>,
+        withthelds: &Vec<(ReadOnlyDevice, WithheldCode)>,
+    ) -> Vec<(String, String, String)> {
+        let mut result: Vec<(String, String, String)> = Vec::new();
+
+        already_shared_devices.iter().for_each(|(d, share_state)| {
+            result.push((
+                d.user_id().to_string(),
+                d.device_id().to_string(),
+                format!("{:?}", share_state),
+            ));
+        });
+
+        withthelds.iter().for_each(|(d, code)| {
+            result.push((
+                d.user_id().to_string(),
+                d.device_id().to_string(),
+                format!(" withheld: {}", code.as_str()),
+            ));
+        });
+        result
     }
 }
 
