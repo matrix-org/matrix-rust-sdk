@@ -35,7 +35,7 @@ pub struct Gap {
 const DEFAULT_CHUNK_CAPACITY: usize = 128;
 
 pub struct RoomEvents {
-    chunks: LinkedChunk<SyncTimelineEvent, Gap, DEFAULT_CHUNK_CAPACITY>,
+    chunks: LinkedChunk<DEFAULT_CHUNK_CAPACITY, SyncTimelineEvent, Gap>,
 }
 
 impl Default for RoomEvents {
@@ -61,14 +61,14 @@ impl RoomEvents {
     }
 
     /// Push one event after existing events.
-    pub fn push_event(&mut self, event: SyncTimelineEvent) {
+    pub fn push_event(&mut self, event: SyncTimelineEvent) -> Result<(), LinkedChunkError> {
         self.push_events(once(event))
     }
 
     /// Push events after all events or gaps.
     ///
     /// The last event in `events` is the most recent one.
-    pub fn push_events<I>(&mut self, events: I)
+    pub fn push_events<I>(&mut self, events: I) -> Result<(), LinkedChunkError>
     where
         I: IntoIterator<Item = SyncTimelineEvent>,
         I::IntoIter: ExactSizeIterator,
@@ -77,7 +77,7 @@ impl RoomEvents {
     }
 
     /// Push a gap after all events or gaps.
-    pub fn push_gap(&mut self, gap: Gap) {
+    pub fn push_gap(&mut self, gap: Gap) -> Result<(), LinkedChunkError> {
         self.chunks.push_gap_back(gap)
     }
 
@@ -110,7 +110,7 @@ impl RoomEvents {
         &mut self,
         events: I,
         gap_identifier: ChunkIdentifier,
-    ) -> Result<&Chunk<SyncTimelineEvent, Gap, DEFAULT_CHUNK_CAPACITY>, LinkedChunkError>
+    ) -> Result<&Chunk<DEFAULT_CHUNK_CAPACITY, SyncTimelineEvent, Gap>, LinkedChunkError>
     where
         I: IntoIterator<Item = SyncTimelineEvent>,
         I::IntoIter: ExactSizeIterator,
@@ -121,7 +121,7 @@ impl RoomEvents {
     /// Search for a chunk, and return its identifier.
     pub fn chunk_identifier<'a, P>(&'a self, predicate: P) -> Option<ChunkIdentifier>
     where
-        P: FnMut(&'a Chunk<SyncTimelineEvent, Gap, DEFAULT_CHUNK_CAPACITY>) -> bool,
+        P: FnMut(&'a Chunk<DEFAULT_CHUNK_CAPACITY, SyncTimelineEvent, Gap>) -> bool,
     {
         self.chunks.chunk_identifier(predicate)
     }
@@ -139,14 +139,14 @@ impl RoomEvents {
     /// The most recent chunk comes first.
     pub fn rchunks(
         &self,
-    ) -> LinkedChunkIterBackward<'_, SyncTimelineEvent, Gap, DEFAULT_CHUNK_CAPACITY> {
+    ) -> LinkedChunkIterBackward<'_, DEFAULT_CHUNK_CAPACITY, SyncTimelineEvent, Gap> {
         self.chunks.rchunks()
     }
 
     /// Iterate over the chunks, forward.
     ///
     /// The oldest chunk comes first.
-    pub fn chunks(&self) -> LinkedChunkIter<'_, SyncTimelineEvent, Gap, DEFAULT_CHUNK_CAPACITY> {
+    pub fn chunks(&self) -> LinkedChunkIter<'_, DEFAULT_CHUNK_CAPACITY, SyncTimelineEvent, Gap> {
         self.chunks.chunks()
     }
 
@@ -155,7 +155,7 @@ impl RoomEvents {
         &self,
         identifier: ChunkIdentifier,
     ) -> Result<
-        LinkedChunkIterBackward<'_, SyncTimelineEvent, Gap, DEFAULT_CHUNK_CAPACITY>,
+        LinkedChunkIterBackward<'_, DEFAULT_CHUNK_CAPACITY, SyncTimelineEvent, Gap>,
         LinkedChunkError,
     > {
         self.chunks.rchunks_from(identifier)
@@ -166,7 +166,7 @@ impl RoomEvents {
     pub fn chunks_from(
         &self,
         identifier: ChunkIdentifier,
-    ) -> Result<LinkedChunkIter<'_, SyncTimelineEvent, Gap, DEFAULT_CHUNK_CAPACITY>, LinkedChunkError>
+    ) -> Result<LinkedChunkIter<'_, DEFAULT_CHUNK_CAPACITY, SyncTimelineEvent, Gap>, LinkedChunkError>
     {
         self.chunks.chunks_from(identifier)
     }
