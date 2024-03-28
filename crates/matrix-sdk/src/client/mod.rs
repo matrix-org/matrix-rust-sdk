@@ -2100,6 +2100,7 @@ impl Client {
 pub(crate) mod tests {
     use std::time::Duration;
 
+    use assert_matches::assert_matches;
     use matrix_sdk_base::RoomState;
     use matrix_sdk_test::{
         async_test, test_json, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder,
@@ -2119,6 +2120,7 @@ pub(crate) mod tests {
     use crate::{
         config::{RequestConfig, SyncSettings},
         test_utils::{logged_in_client, no_retry_test_client, test_client_builder},
+        Error,
     };
 
     #[async_test]
@@ -2363,5 +2365,75 @@ pub(crate) mod tests {
 
         let msc4028_enabled = client.can_homeserver_push_encrypted_event_to_device().await.unwrap();
         assert!(msc4028_enabled);
+    }
+
+    #[async_test]
+    async fn test_recently_visited_rooms() {
+        // Tracking recently visited rooms requires authentication
+        let client = no_retry_test_client(Some("http://localhost".to_owned())).await;
+        assert_matches!(
+            client.account().track_recently_visited_room("!alpha:localhost".to_owned()).await,
+            Err(Error::AuthenticationRequired)
+        );
+
+        let client = logged_in_client(None).await;
+        let account = client.account();
+
+        // We should start off with an empty list
+        assert_eq!(account.get_recently_visited_rooms().await.unwrap().len(), 0);
+
+        // Tracking a valid room id should add it to the list
+        account.track_recently_visited_room("!alpha:localhost".to_owned()).await.unwrap();
+        assert_eq!(account.get_recently_visited_rooms().await.unwrap().len(), 1);
+        assert_eq!(account.get_recently_visited_rooms().await.unwrap(), ["!alpha:localhost"]);
+
+        // Trying to track an invalid room id should return an error
+        assert_matches!(
+            account.track_recently_visited_room("this_is_not_a_valid_room_id".to_owned()).await,
+            Err(Error::Identifier { .. })
+        );
+
+        // And the existing list shouldn't be changed
+        assert_eq!(account.get_recently_visited_rooms().await.unwrap().len(), 1);
+        assert_eq!(account.get_recently_visited_rooms().await.unwrap(), ["!alpha:localhost"]);
+
+        // Tracking the same room again shouldn't change the list
+        account.track_recently_visited_room("!alpha:localhost".to_owned()).await.unwrap();
+        assert_eq!(account.get_recently_visited_rooms().await.unwrap().len(), 1);
+        assert_eq!(account.get_recently_visited_rooms().await.unwrap(), ["!alpha:localhost"]);
+
+        // Tracking a second room should add it to the front of the list
+        account.track_recently_visited_room("!beta:localhost".to_owned()).await.unwrap();
+        assert_eq!(account.get_recently_visited_rooms().await.unwrap().len(), 2);
+        assert_eq!(
+            account.get_recently_visited_rooms().await.unwrap(),
+            ["!beta:localhost", "!alpha:localhost"]
+        );
+
+        // Tracking the first room yet again should move it to the front of the list
+        account.track_recently_visited_room("!alpha:localhost".to_owned()).await.unwrap();
+        assert_eq!(account.get_recently_visited_rooms().await.unwrap().len(), 2);
+        assert_eq!(
+            account.get_recently_visited_rooms().await.unwrap(),
+            ["!alpha:localhost", "!beta:localhost"]
+        );
+
+        // Tracking should be capped at 20
+        for n in 0..20 {
+            account
+                .track_recently_visited_room(format!("!{n}:localhost").to_owned())
+                .await
+                .unwrap();
+        }
+
+        assert_eq!(account.get_recently_visited_rooms().await.unwrap().len(), 20);
+
+        // And the initial rooms should've been pushed out
+        let rooms = account.get_recently_visited_rooms().await.unwrap();
+        assert!(!rooms.contains(&"!alpha:localhost".to_owned()));
+        assert!(!rooms.contains(&"!beta:localhost".to_owned()));
+
+        // And the last tracked room should be the first
+        assert_eq!(rooms.first().unwrap(), "!19:localhost");
     }
 }

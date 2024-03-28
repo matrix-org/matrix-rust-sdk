@@ -758,6 +758,15 @@ impl Client {
         let room = self.inner.join_room_by_id(room_id.as_ref()).await?;
         Ok(Arc::new(Room::new(room)))
     }
+
+    pub async fn get_recently_visited_rooms(&self) -> Result<Vec<String>, ClientError> {
+        Ok(self.inner.account().get_recently_visited_rooms().await?)
+    }
+
+    pub async fn track_recently_visited_room(&self, room: String) -> Result<(), ClientError> {
+        self.inner.account().track_recently_visited_room(room).await?;
+        Ok(())
+    }
 }
 
 #[uniffi::export(callback_interface)]

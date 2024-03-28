@@ -61,6 +61,10 @@ pub struct Account {
 }
 
 impl Account {
+    /// The maximum number of visited room identifiers to keep in the state
+    /// store.
+    const VISITED_ROOMS_LIMIT: usize = 20;
+
     pub(crate) fn new(client: Client) -> Self {
         Self { client }
     }
@@ -920,6 +924,52 @@ impl Account {
                     self.client.user_id().expect("The client should be logged in"),
                 )
             }))
+    }
+
+    /// Retrieves the user's recently visited room list
+    pub async fn get_recently_visited_rooms(&self) -> Result<Vec<String>> {
+        let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
+        let data = self
+            .client
+            .store()
+            .get_kv_data(StateStoreDataKey::RecentlyVisitedRooms(user_id))
+            .await?;
+
+        Ok(data
+            .map(|v| {
+                v.into_recently_visited_rooms()
+                    .expect("Session data is not a list of recently visited rooms")
+            })
+            .unwrap_or_default())
+    }
+
+    /// Moves/inserts the given room to the front of the recently visited list
+    pub async fn track_recently_visited_room(&self, room_id: String) -> Result<(), Error> {
+        let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
+
+        if let Err(error) = RoomId::parse(&room_id) {
+            error!("Invalid room id: {}", error);
+            return Err(Error::Identifier(error));
+        }
+
+        // Get the previously stored recently visited rooms
+        let mut recently_visited_rooms = self.get_recently_visited_rooms().await?;
+
+        // Remove all other occurrences of the new room_id
+        recently_visited_rooms.retain(|r| r != &room_id);
+
+        // And insert it as the most recent
+        recently_visited_rooms.insert(0, room_id);
+
+        // Cap the whole list to the VISITED_ROOMS_LIMIT
+        recently_visited_rooms.truncate(Self::VISITED_ROOMS_LIMIT);
+
+        let data = StateStoreDataValue::RecentlyVisitedRooms(recently_visited_rooms);
+        self.client
+            .store()
+            .set_kv_data(StateStoreDataKey::RecentlyVisitedRooms(user_id), data)
+            .await?;
+        Ok(())
     }
 }
 

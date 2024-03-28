@@ -385,6 +385,9 @@ impl IndexeddbStateStore {
             StateStoreDataKey::UserAvatarUrl(user_id) => {
                 self.encode_key(keys::KV, (StateStoreDataKey::USER_AVATAR_URL, user_id))
             }
+            StateStoreDataKey::RecentlyVisitedRooms(user_id) => {
+                self.encode_key(keys::KV, (StateStoreDataKey::RECENTLY_VISITED_ROOMS, user_id))
+            }
         }
     }
 }
@@ -427,14 +430,25 @@ impl_state_store!({
             .transaction_on_one_with_mode(keys::KV, IdbTransactionMode::Readonly)?
             .object_store(keys::KV)?
             .get(&encoded_key)?
-            .await?
-            .map(|f| self.deserialize_event::<String>(&f))
-            .transpose()?;
+            .await?;
 
         let value = match key {
-            StateStoreDataKey::SyncToken => value.map(StateStoreDataValue::SyncToken),
-            StateStoreDataKey::Filter(_) => value.map(StateStoreDataValue::Filter),
-            StateStoreDataKey::UserAvatarUrl(_) => value.map(StateStoreDataValue::UserAvatarUrl),
+            StateStoreDataKey::SyncToken => value
+                .map(|f| self.deserialize_event::<String>(&f))
+                .transpose()?
+                .map(StateStoreDataValue::SyncToken),
+            StateStoreDataKey::Filter(_) => value
+                .map(|f| self.deserialize_event::<String>(&f))
+                .transpose()?
+                .map(StateStoreDataValue::Filter),
+            StateStoreDataKey::UserAvatarUrl(_) => value
+                .map(|f| self.deserialize_event::<String>(&f))
+                .transpose()?
+                .map(StateStoreDataValue::UserAvatarUrl),
+            StateStoreDataKey::RecentlyVisitedRooms(_) => value
+                .map(|f| self.deserialize_event::<Vec<String>>(&f))
+                .transpose()?
+                .map(StateStoreDataValue::RecentlyVisitedRooms),
         };
 
         Ok(value)
@@ -447,14 +461,20 @@ impl_state_store!({
     ) -> Result<()> {
         let encoded_key = self.encode_kv_data_key(key);
 
-        let value = match key {
-            StateStoreDataKey::SyncToken => {
-                value.into_sync_token().expect("Session data not a sync token")
+        let serialized_value = match key {
+            StateStoreDataKey::SyncToken => self
+                .serialize_event(&value.into_sync_token().expect("Session data not a sync token")),
+            StateStoreDataKey::Filter(_) => {
+                self.serialize_event(&value.into_filter().expect("Session data not a filter"))
             }
-            StateStoreDataKey::Filter(_) => value.into_filter().expect("Session data not a filter"),
-            StateStoreDataKey::UserAvatarUrl(_) => {
-                value.into_user_avatar_url().expect("Session data not an user avatar url")
-            }
+            StateStoreDataKey::UserAvatarUrl(_) => self.serialize_event(
+                &value.into_user_avatar_url().expect("Session data not an user avatar url"),
+            ),
+            StateStoreDataKey::RecentlyVisitedRooms(_) => self.serialize_event(
+                &value
+                    .into_recently_visited_rooms()
+                    .expect("Session data not a recently visited room list"),
+            ),
         };
 
         let tx =
@@ -462,7 +482,7 @@ impl_state_store!({
 
         let obj = tx.object_store(keys::KV)?;
 
-        obj.put_key_val(&encoded_key, &self.serialize_event(&value)?)?;
+        obj.put_key_val(&encoded_key, &serialized_value?)?;
 
         tx.await.into_result()?;
 
