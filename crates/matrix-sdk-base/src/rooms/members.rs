@@ -235,7 +235,7 @@ impl RoomMember {
     }
 }
 
-// Information about a the room a member is in.
+// Information about the room a member is in.
 pub(crate) struct MemberRoomInfo<'a> {
     pub(crate) power_levels: Arc<Option<SyncOrStrippedState<RoomPowerLevelsEventContent>>>,
     pub(crate) max_power_level: i64,
