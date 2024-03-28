@@ -25,66 +25,6 @@ use std::{
     },
 };
 
-pub trait LinkedChunkListener<Item, Gap>: Send + Sync {
-    type Error: fmt::Debug;
-
-    fn new_chunk_items(
-        &self,
-        previous: Option<ChunkIdentifier>,
-        new: ChunkIdentifier,
-        next: Option<ChunkIdentifier>,
-    ) -> Result<(), Self::Error>;
-
-    fn new_chunk_gap(
-        &self,
-        previous: Option<ChunkIdentifier>,
-        new: ChunkIdentifier,
-        next: Option<ChunkIdentifier>,
-        gap: &Gap,
-    ) -> Result<(), Self::Error>;
-
-    fn remove_chunk(&self, chunk: ChunkIdentifier) -> Result<(), Self::Error>;
-
-    fn insert_items(&self, at: Position, items: &[Item]) -> Result<(), Self::Error>;
-
-    fn truncate_items(&self, chunk: ChunkIdentifier, length: usize) -> Result<(), Self::Error>;
-}
-
-impl<Item, Gap> LinkedChunkListener<Item, Gap> for () {
-    type Error = ();
-
-    fn new_chunk_items(
-        &self,
-        _previous: Option<ChunkIdentifier>,
-        _new: ChunkIdentifier,
-        _next: Option<ChunkIdentifier>,
-    ) -> Result<(), Self::Error> {
-        Ok(())
-    }
-
-    fn new_chunk_gap(
-        &self,
-        _previous: Option<ChunkIdentifier>,
-        _new: ChunkIdentifier,
-        _next: Option<ChunkIdentifier>,
-        _gap: &Gap,
-    ) -> Result<(), Self::Error> {
-        Ok(())
-    }
-
-    fn remove_chunk(&self, _chunk: ChunkIdentifier) -> Result<(), Self::Error> {
-        Ok(())
-    }
-
-    fn insert_items(&self, _at: Position, _items: &[Item]) -> Result<(), Self::Error> {
-        Ok(())
-    }
-
-    fn truncate_items(&self, _chunk: ChunkIdentifier, _length: usize) -> Result<(), Self::Error> {
-        Ok(())
-    }
-}
-
 /// Errors of [`LinkedChunk`].
 #[derive(Debug)]
 pub enum LinkedChunkError {
@@ -127,7 +67,7 @@ impl<const CAP: usize, Item, Gap, Listener> LinkedChunk<CAP, Item, Gap, Listener
 where
     Listener: LinkedChunkListener<Item, Gap>,
 {
-    /// Create a new [`Self`] with a listener.
+    /// Create a new [`Self`] with a [`LinkedChunkListener`].
     pub fn new_with_listener(listener: Listener) -> Self {
         Self {
             // INVARIANT: The first chunk must always be an Items, not a Gap.
@@ -1095,6 +1035,76 @@ where
             .field("next", &self.next)
             .field("next (deref)", &self.next.as_ref().map(|non_null| unsafe { non_null.as_ref() }))
             .finish()
+    }
+}
+
+/// A type to listen to what's happening inside a [`LinkedChunk`].
+pub trait LinkedChunkListener<Item, Gap>: Send + Sync {
+    /// The error.
+    type Error: Error + fmt::Debug + 'static;
+
+    /// A new chunk of type `ChunkContent::Items` has been inserted.
+    fn new_chunk_items(
+        &self,
+        previous: Option<ChunkIdentifier>,
+        new: ChunkIdentifier,
+        next: Option<ChunkIdentifier>,
+    ) -> Result<(), Self::Error>;
+
+    /// A new chunk of type `ChunkContent::Gap` has been inserted.
+    fn new_chunk_gap(
+        &self,
+        previous: Option<ChunkIdentifier>,
+        new: ChunkIdentifier,
+        next: Option<ChunkIdentifier>,
+        gap: &Gap,
+    ) -> Result<(), Self::Error>;
+
+    /// A chunk has been removed.
+    fn remove_chunk(&self, chunk: ChunkIdentifier) -> Result<(), Self::Error>;
+
+    /// Items have been added.
+    fn insert_items(&self, at: Position, items: &[Item]) -> Result<(), Self::Error>;
+
+    /// A chunk of type `ChunkContent::Items` has been truncated to a certain
+    /// length.
+    fn truncate_items(&self, chunk: ChunkIdentifier, length: usize) -> Result<(), Self::Error>;
+}
+
+// Implementation of `LinkedChunkListener` for `()`, the default listener type.
+// It does nothing.
+impl<Item, Gap> LinkedChunkListener<Item, Gap> for () {
+    type Error = Infallible;
+
+    fn new_chunk_items(
+        &self,
+        _previous: Option<ChunkIdentifier>,
+        _new: ChunkIdentifier,
+        _next: Option<ChunkIdentifier>,
+    ) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    fn new_chunk_gap(
+        &self,
+        _previous: Option<ChunkIdentifier>,
+        _new: ChunkIdentifier,
+        _next: Option<ChunkIdentifier>,
+        _gap: &Gap,
+    ) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    fn remove_chunk(&self, _chunk: ChunkIdentifier) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    fn insert_items(&self, _at: Position, _items: &[Item]) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    fn truncate_items(&self, _chunk: ChunkIdentifier, _length: usize) -> Result<(), Self::Error> {
+        Ok(())
     }
 }
 
