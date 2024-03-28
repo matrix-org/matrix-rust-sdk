@@ -275,6 +275,9 @@ impl SqliteStateStore {
             StateStoreDataKey::UserAvatarUrl(u) => {
                 Cow::Owned(format!("{}:{u}", StateStoreDataKey::USER_AVATAR_URL))
             }
+            StateStoreDataKey::RecentlyVisitedRooms(b) => {
+                Cow::Owned(format!("{}:{b}", StateStoreDataKey::RECENTLY_VISITED_ROOMS))
+            }
         };
 
         self.encode_key(keys::KV_BLOB, &*key_s)
@@ -880,12 +883,18 @@ impl StateStore for SqliteStateStore {
             .get_kv_blob(self.encode_state_store_data_key(key))
             .await?
             .map(|data| {
-                let string = self.deserialize_value(&data)?;
                 Ok(match key {
-                    StateStoreDataKey::SyncToken => StateStoreDataValue::SyncToken(string),
-                    StateStoreDataKey::Filter(_) => StateStoreDataValue::Filter(string),
+                    StateStoreDataKey::SyncToken => {
+                        StateStoreDataValue::SyncToken(self.deserialize_value(&data)?)
+                    }
+                    StateStoreDataKey::Filter(_) => {
+                        StateStoreDataValue::Filter(self.deserialize_value(&data)?)
+                    }
                     StateStoreDataKey::UserAvatarUrl(_) => {
-                        StateStoreDataValue::UserAvatarUrl(string)
+                        StateStoreDataValue::UserAvatarUrl(self.deserialize_value(&data)?)
+                    }
+                    StateStoreDataKey::RecentlyVisitedRooms(_) => {
+                        StateStoreDataValue::RecentlyVisitedRooms(self.deserialize_value(&data)?)
                     }
                 })
             })
@@ -897,19 +906,24 @@ impl StateStore for SqliteStateStore {
         key: StateStoreDataKey<'_>,
         value: StateStoreDataValue,
     ) -> Result<()> {
-        let value = match key {
-            StateStoreDataKey::SyncToken => {
-                value.into_sync_token().expect("Session data not a sync token")
+        let serialized_value = match key {
+            StateStoreDataKey::SyncToken => self.serialize_value(
+                &value.into_sync_token().expect("Session data not a sync token"),
+            )?,
+            StateStoreDataKey::Filter(_) => {
+                self.serialize_value(&value.into_filter().expect("Session data not a filter"))?
             }
-            StateStoreDataKey::Filter(_) => value.into_filter().expect("Session data not a filter"),
-            StateStoreDataKey::UserAvatarUrl(_) => {
-                value.into_user_avatar_url().expect("Session data not an user avatar url")
-            }
+            StateStoreDataKey::UserAvatarUrl(_) => self.serialize_value(
+                &value.into_user_avatar_url().expect("Session data not an user avatar url"),
+            )?,
+            StateStoreDataKey::RecentlyVisitedRooms(_) => self.serialize_value(
+                &value.into_recently_visited_rooms().expect("Session data not breadcrumbs"),
+            )?,
         };
 
         self.acquire()
             .await?
-            .set_kv_blob(self.encode_state_store_data_key(key), self.serialize_value(&value)?)
+            .set_kv_blob(self.encode_state_store_data_key(key), serialized_value)
             .await
     }
 

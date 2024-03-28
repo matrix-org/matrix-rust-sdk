@@ -48,6 +48,7 @@ use crate::{
 #[allow(clippy::type_complexity)]
 #[derive(Debug)]
 pub struct MemoryStore {
+    recently_visited_rooms: StdRwLock<HashMap<String, Vec<String>>>,
     user_avatar_url: StdRwLock<HashMap<String, String>>,
     sync_token: StdRwLock<Option<String>>,
     filters: StdRwLock<HashMap<String, String>>,
@@ -89,6 +90,7 @@ const NUMBER_OF_MEDIAS: NonZeroUsize = unsafe { NonZeroUsize::new_unchecked(20) 
 impl Default for MemoryStore {
     fn default() -> Self {
         Self {
+            recently_visited_rooms: Default::default(),
             user_avatar_url: Default::default(),
             sync_token: Default::default(),
             filters: Default::default(),
@@ -177,6 +179,13 @@ impl StateStore for MemoryStore {
                 .get(user_id.as_str())
                 .cloned()
                 .map(StateStoreDataValue::UserAvatarUrl),
+            StateStoreDataKey::RecentlyVisitedRooms(user_id) => self
+                .recently_visited_rooms
+                .read()
+                .unwrap()
+                .get(user_id.as_str())
+                .cloned()
+                .map(StateStoreDataValue::RecentlyVisitedRooms),
         })
     }
 
@@ -202,6 +211,14 @@ impl StateStore for MemoryStore {
                     value.into_user_avatar_url().expect("Session data not a user avatar url"),
                 );
             }
+            StateStoreDataKey::RecentlyVisitedRooms(user_id) => {
+                self.recently_visited_rooms.write().unwrap().insert(
+                    user_id.to_string(),
+                    value
+                        .into_recently_visited_rooms()
+                        .expect("Session data not a list of recently visited rooms"),
+                );
+            }
         }
 
         Ok(())
@@ -215,6 +232,9 @@ impl StateStore for MemoryStore {
             }
             StateStoreDataKey::UserAvatarUrl(user_id) => {
                 self.filters.write().unwrap().remove(user_id.as_str());
+            }
+            StateStoreDataKey::RecentlyVisitedRooms(user_id) => {
+                self.recently_visited_rooms.write().unwrap().remove(user_id.as_str());
             }
         }
         Ok(())

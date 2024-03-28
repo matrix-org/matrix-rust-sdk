@@ -20,6 +20,7 @@ Additions:
 - Add new method `discard_room_key` on `Room` that allows to discard the current
   outbound session for that room. Can be used by clients as a dev tool like the `/discardsession` command.
 - Add a new `LinkedChunk` data structure to represents all events per room ([#3166](https://github.com/matrix-org/matrix-rust-sdk/pull/3166)).
+- Add new methods for tracking (on device only) the user's recently visited rooms called `Account::track_recently_visited_room(roomId)` and `Account::get_recently_visited_rooms()`
 
 # 0.7.0
 
