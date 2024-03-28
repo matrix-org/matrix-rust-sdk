@@ -1171,6 +1171,9 @@ impl BaseClient {
 
             let sync_member: SyncRoomMemberEvent = member.clone().into();
 
+            // Senders can fake the profile easily so we keep track of profiles that the
+            // member set themselves to avoid having confusing profile changes
+            // when a member gets kicked/banned.
             if member.state_key() == member.sender() {
                 changes
                     .profiles
