@@ -1486,9 +1486,11 @@ mod tests {
     };
     use ruma::{
         api::{client as api, IncomingResponse},
-        room_id, user_id, UserId,
+        room_id,
+        serde::Raw,
+        user_id, UserId,
     };
-    use serde_json::json;
+    use serde_json::{json, value::to_raw_value};
 
     use super::BaseClient;
     use crate::{
@@ -1742,5 +1744,64 @@ mod tests {
             .expect("State event not found")
             .deserialize()
             .expect("Failed to deserialize state event");
+    }
+
+    #[async_test]
+    async fn test_invited_members_arent_ignored() {
+        let user_id = user_id!("@alice:example.org");
+        let inviter_user_id = user_id!("@bob:example.org");
+        let room_id = room_id!("!ithpyNKDtmhneaTQja:example.org");
+
+        let client = BaseClient::new();
+        client
+            .set_session_meta(SessionMeta {
+                user_id: user_id.to_owned(),
+                device_id: "FOOBAR".into(),
+            })
+            .await
+            .unwrap();
+
+        // Preamble: let the SDK know about the room.
+        let mut ev_builder = SyncResponseBuilder::new();
+        let response = ev_builder
+            .add_joined_room(matrix_sdk_test::JoinedRoomBuilder::new(room_id))
+            .build_sync_response();
+        client.receive_sync_response(response).await.unwrap();
+
+        // When I process the result of a /members request that only contains an invited
+        // member,
+        let request = api::membership::get_member_events::v3::Request::new(room_id.to_owned());
+
+        let raw_member_event = json!({
+            "content": {
+                "avatar_url": "mxc://localhost/fewjilfewjil42",
+                "displayname": "Invited Alice",
+                "membership": "invite"
+            },
+            "event_id": "$151800140517rfvjc:localhost",
+            "origin_server_ts": 151800140,
+            "room_id": room_id,
+            "sender": inviter_user_id,
+            "state_key": user_id,
+            "type": "m.room.member",
+            "unsigned": {
+                "age": 13374242,
+            }
+        });
+        let response = api::membership::get_member_events::v3::Response::new(vec![Raw::from_json(
+            to_raw_value(&raw_member_event).unwrap(),
+        )]);
+
+        // It's correctly processed,
+        client.receive_all_members(room_id, &request, &response).await.unwrap();
+
+        let room = client.get_room(room_id).unwrap();
+
+        // And I can get the invited member display name and avatar.
+        let member = room.get_member(user_id).await.expect("ok").expect("exists");
+
+        assert_eq!(member.user_id(), user_id);
+        assert_eq!(member.display_name().unwrap(), "Invited Alice");
+        assert_eq!(member.avatar_url().unwrap().to_string(), "mxc://localhost/fewjilfewjil42");
     }
 }
