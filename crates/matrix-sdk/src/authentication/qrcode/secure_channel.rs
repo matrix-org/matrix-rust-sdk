@@ -41,9 +41,11 @@ const LOGIN_OK_MESSAGE: &str = "MATRIX_QR_CODE_LOGIN_OK";
 const TEXT_PLAIN_CONTENT_TYPE: &str = "text/plain";
 
 impl SecureChannel {
-    async fn new_helper(rendezvous_server: Url, mode: QrCodeModeData) -> Result<Self, Error> {
-        let client = HttpClient::new(reqwest::Client::new(), RequestConfig::short_retry());
-
+    async fn new_helper(
+        client: HttpClient,
+        rendezvous_server: Url,
+        mode: QrCodeModeData,
+    ) -> Result<Self, Error> {
         let channel = RendezvousChannel::create_outbound(client, &rendezvous_server).await?;
         let rendezvous_url = channel.rendezvous_url();
 
@@ -55,14 +57,18 @@ impl SecureChannel {
         Ok(Self { channel, qr_code_data, ecies })
     }
 
-    pub async fn login(rendzevous_url: Url) -> Result<Self, Error> {
+    pub async fn login(client: reqwest::Client, rendezvous_url: Url) -> Result<Self, Error> {
+        let client = HttpClient::new(client, RequestConfig::short_retry());
         let mode = QrCodeModeData::Login;
-        Self::new_helper(rendzevous_url, mode).await
+        Self::new_helper(client, rendezvous_url, mode).await
     }
 
-    pub async fn reciprocate(homeserver_url: &Url) -> Result<Self, Error> {
+    pub(crate) async fn reciprocate(
+        http_client: HttpClient,
+        homeserver_url: &Url,
+    ) -> Result<Self, Error> {
         let mode = QrCodeModeData::Reciprocate { homeserver_url: homeserver_url.clone() };
-        Self::new_helper(homeserver_url.clone(), mode).await
+        Self::new_helper(http_client, homeserver_url.clone(), mode).await
     }
 
     pub fn qr_code_data(&self) -> &QrCodeData {
@@ -215,6 +221,7 @@ mod test {
     };
 
     use super::{EstablishedSecureChannel, SecureChannel};
+    use crate::http_client::HttpClient;
 
     #[async_test]
     async fn creation() {
@@ -254,7 +261,8 @@ mod test {
         let homeserver =
             Url::parse(&server.uri()).expect("We should be able to parse the example homeserver");
 
-        let alice = SecureChannel::reciprocate(&homeserver)
+        let client = HttpClient::new(reqwest::Client::new(), Default::default());
+        let alice = SecureChannel::reciprocate(client, &homeserver)
             .await
             .expect("We should be able to create a QR auth object");
 

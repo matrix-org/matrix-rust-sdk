@@ -128,7 +128,8 @@ pub mod create_rendezvous {
         rate_limited: true,
         authentication: None,
         history: {
-            unstable => "/_matrix/client/unstable/org.matrix.msc4108/rendezvous",
+            // unstable => "/_matrix/client/unstable/org.matrix.msc4108/rendezvous",
+            unstable => "/_matrix/client/unstable/org.matrix.msc3886/rendezvous",
         }
     };
 

@@ -1,6 +1,9 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use matrix_sdk::authentication::qrcode::secure_channel::SecureChannel;
+use matrix_sdk::{
+    authentication::qrcode::secure_channel::SecureChannel,
+    reqwest::{self, Proxy},
+};
 use qrcode::{
     render::unicode::{self, Dense1x2},
     QrCode,
@@ -37,9 +40,20 @@ enum Mode {
     ReciprocateAndScan {},
 }
 
-async fn login(rendezvous_url: Url) -> Result<()> {
-    let channel =
-        SecureChannel::login(rendezvous_url).await.context("Could not create a secure channel")?;
+async fn login(proxy: Option<Url>, rendezvous_url: Url) -> Result<()> {
+    let mut builder = reqwest::Client::builder();
+
+    if let Some(proxy) = proxy {
+        builder = builder
+            .proxy(Proxy::all(proxy).context("Couldn't configure the proxy")?)
+            .danger_accept_invalid_certs(true);
+    }
+
+    let http_client = builder.build().context("Couldn't create a HTTP client")?;
+
+    let channel = SecureChannel::login(http_client, rendezvous_url)
+        .await
+        .context("Could not create a secure channel")?;
 
     let data = channel.qr_code_data();
 
@@ -69,7 +83,9 @@ async fn login(rendezvous_url: Url) -> Result<()> {
 
     let input: u8 = input.parse().context("Could not parse the check code")?;
 
-    let established = almost.confirm(check_code);
+    let established = almost.confirm(input).context("The check code did not match")?;
+
+    println!("TODO WE HAVE A CHANNEL");
 
     Ok(())
 }
@@ -83,7 +99,7 @@ async fn main() -> Result<()> {
     }
 
     match cli.mode {
-        Mode::Login { rendezvous_url } => login(rendezvous_url).await?,
+        Mode::Login { rendezvous_url } => login(cli.proxy, rendezvous_url).await?,
         _ => todo!(),
     }
 
