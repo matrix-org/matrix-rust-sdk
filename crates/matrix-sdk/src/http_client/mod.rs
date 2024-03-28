@@ -25,7 +25,7 @@ use std::{
 use bytes::{Bytes, BytesMut};
 use bytesize::ByteSize;
 use eyeball::SharedObservable;
-use http::Method;
+use http::{Method, StatusCode};
 use ruma::api::{
     error::{FromHttpResponseError, IntoHttpError},
     AuthScheme, MatrixVersion, OutgoingRequest, SendAccessToken,
@@ -92,8 +92,36 @@ impl HttpClient {
         Ok(request)
     }
 
+    pub async fn send<R>(
+        &self,
+        request: R,
+        config: Option<RequestConfig>,
+        homeserver: String,
+        access_token: Option<&str>,
+        server_versions: &[MatrixVersion],
+        send_progress: SharedObservable<TransmissionProgress>,
+    ) -> Result<R::IncomingResponse, HttpError>
+    where
+        R: OutgoingRequest + Debug,
+        HttpError: From<FromHttpResponseError<R::EndpointError>>,
+    {
+        let (_, response) = self
+            .send_with_status_code(
+                request,
+                config,
+                homeserver,
+                access_token,
+                server_versions,
+                send_progress,
+            )
+            .await?;
+
+        Ok(response)
+    }
+
     #[allow(clippy::too_many_arguments)]
     #[instrument(
+        name = "send",
         skip(self, request, config, homeserver, access_token, send_progress),
         fields(
             config,
@@ -107,7 +135,7 @@ impl HttpClient {
             sentry_event_id,
         )
     )]
-    pub async fn send<R>(
+    pub async fn send_with_status_code<R>(
         &self,
         request: R,
         config: Option<RequestConfig>,
@@ -115,7 +143,7 @@ impl HttpClient {
         access_token: Option<&str>,
         server_versions: &[MatrixVersion],
         send_progress: SharedObservable<TransmissionProgress>,
-    ) -> Result<R::IncomingResponse, HttpError>
+    ) -> Result<(StatusCode, R::IncomingResponse), HttpError>
     where
         R: OutgoingRequest + Debug,
         HttpError: From<FromHttpResponseError<R::EndpointError>>,
@@ -181,9 +209,9 @@ impl HttpClient {
         // There's a bunch of state in send_request, factor out a pinned inner
         // future to reduce this size of futures that await this function.
         match Box::pin(self.send_request::<R>(request, config, send_progress)).await {
-            Ok(response) => {
+            Ok(ret) => {
                 debug!("Got response");
-                Ok(response)
+                Ok(ret)
             }
             Err(e) => {
                 debug!("Error while sending request: {e:?}");

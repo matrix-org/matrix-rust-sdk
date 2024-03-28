@@ -23,7 +23,7 @@ use backoff::{future::retry, Error as RetryError, ExponentialBackoff};
 use bytes::Bytes;
 use bytesize::ByteSize;
 use eyeball::SharedObservable;
-use http::header::CONTENT_LENGTH;
+use http::{header::CONTENT_LENGTH, StatusCode};
 use reqwest::Certificate;
 use ruma::api::{
     client::error::{ErrorBody as ClientApiErrorBody, ErrorKind as ClientApiErrorKind},
@@ -41,7 +41,7 @@ impl HttpClient {
         request: http::Request<Bytes>,
         config: RequestConfig,
         send_progress: SharedObservable<TransmissionProgress>,
-    ) -> Result<R::IncomingResponse, HttpError>
+    ) -> Result<(StatusCode, R::IncomingResponse), HttpError>
     where
         R: OutgoingRequest + Debug,
         HttpError: From<FromHttpResponseError<R::EndpointError>>,
@@ -116,8 +116,11 @@ impl HttpClient {
                     }
                 }
 
-                R::IncomingResponse::try_from_http_response(response)
-                    .map_err(|e| error_type(HttpError::from(e)))
+                Ok((
+                    status_code,
+                    R::IncomingResponse::try_from_http_response(response)
+                        .map_err(|e| error_type(HttpError::from(e)))?,
+                ))
             }
         };
 

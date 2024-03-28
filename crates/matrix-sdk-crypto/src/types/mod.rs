@@ -50,34 +50,10 @@ mod one_time_keys;
 pub use self::{backup::*, cross_signing::*, device_keys::*, one_time_keys::*};
 use crate::store::BackupDecryptionKey;
 
-#[derive(Debug, Deserialize, ZeroizeOnDrop)]
+#[derive(Debug, Deserialize, Serialize, ZeroizeOnDrop)]
 pub struct SecretsBundle {
     pub cross_signing: CrossSigningSecrets,
     pub backup: Option<BackupSecrets>,
-}
-
-impl Serialize for SecretsBundle {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        #[derive(Serialize)]
-        struct Helper<'a> {
-            #[serde(rename = "type")]
-            message_type: &'a str,
-            cross_signing: &'a CrossSigningSecrets,
-            #[serde(skip_serializing_if = "Option::is_none")]
-            backup: Option<&'a BackupSecrets>,
-        }
-
-        let helper = Helper {
-            message_type: "m.login.secrets",
-            cross_signing: &self.cross_signing,
-            backup: self.backup.as_ref(),
-        };
-
-        helper.serialize(serializer)
-    }
 }
 
 #[derive(Debug, Deserialize, Serialize, ZeroizeOnDrop)]

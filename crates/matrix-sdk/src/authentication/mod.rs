@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// TODO(pixlwave) Move AuthenticationService from the FFI into this module.
+// TODO:(pixlwave) Move AuthenticationService from the FFI into this module.
 
 use std::pin::Pin;
 
@@ -27,6 +27,8 @@ use crate::{
     matrix_auth::{self, MatrixAuth, MatrixAuthData},
     Client, RefreshTokenError, SessionChange,
 };
+
+pub mod qrcode;
 
 /// Session tokens, for any kind of authentication.
 #[allow(missing_debug_implementations, clippy::large_enum_variant)]

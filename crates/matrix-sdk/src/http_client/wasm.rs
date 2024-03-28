@@ -28,7 +28,7 @@ impl HttpClient {
         request: http::Request<Bytes>,
         _config: RequestConfig,
         _send_progress: SharedObservable<TransmissionProgress>,
-    ) -> Result<R::IncomingResponse, HttpError>
+    ) -> Result<(StatusCode, R::IncomingResponse), HttpError>
     where
         R: OutgoingRequest + Debug,
         HttpError: From<FromHttpResponseError<R::EndpointError>>,
@@ -42,6 +42,6 @@ impl HttpClient {
             .record("status", status_code.as_u16())
             .record("response_size", response_size.to_string_as(true));
 
-        Ok(R::IncomingResponse::try_from_http_response(response)?)
+        Ok((status_code, R::IncomingResponse::try_from_http_response(response)?))
     }
 }

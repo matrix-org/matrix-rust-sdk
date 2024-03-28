@@ -44,27 +44,27 @@ pub enum QrCodeDecodeError {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum QrCodeMode {
+pub enum QrCodeModeData {
     Login,
     Reciprocate { homeserver_url: Url },
 }
 
-impl QrCodeMode {
-    pub fn mode_identifier(&self) -> QrCodeModeNum {
+impl QrCodeModeData {
+    pub fn mode_identifier(&self) -> QrCodeMode {
         match self {
-            QrCodeMode::Login => QrCodeModeNum::Login,
-            QrCodeMode::Reciprocate { .. } => QrCodeModeNum::Reciprocate,
+            QrCodeModeData::Login => QrCodeMode::Login,
+            QrCodeModeData::Reciprocate { .. } => QrCodeMode::Reciprocate,
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum QrCodeModeNum {
+pub enum QrCodeMode {
     Login = 0x03,
     Reciprocate = 0x04,
 }
 
-impl TryFrom<u8> for QrCodeModeNum {
+impl TryFrom<u8> for QrCodeMode {
     type Error = ();
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
@@ -79,8 +79,8 @@ impl TryFrom<u8> for QrCodeModeNum {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct QrCodeData {
     pub public_key: Curve25519PublicKey,
-    pub rendevouz_url: Url,
-    pub mode: QrCodeMode,
+    pub rendezvous_url: Url,
+    pub mode: QrCodeModeData,
 }
 
 impl QrCodeData {
@@ -105,17 +105,17 @@ impl QrCodeData {
             let mode = reader.read_u8()?;
             reader.read_exact(&mut public_key)?;
 
-            let rendevouz_url_len = reader.read_u16::<BigEndian>()?;
-            let mut rendevouz_url = vec![0u8; rendevouz_url_len.into()];
+            let rendezvouz_url_len = reader.read_u16::<BigEndian>()?;
+            let mut rendezvouz_url = vec![0u8; rendezvouz_url_len.into()];
 
-            reader.read_exact(&mut rendevouz_url)?;
+            reader.read_exact(&mut rendezvouz_url)?;
 
             let mode =
-                QrCodeModeNum::try_from(mode).map_err(|_| QrCodeDecodeError::InvalidMode(mode))?;
+                QrCodeMode::try_from(mode).map_err(|_| QrCodeDecodeError::InvalidMode(mode))?;
 
             let mode = match mode {
-                QrCodeModeNum::Login => QrCodeMode::Login,
-                QrCodeModeNum::Reciprocate => {
+                QrCodeMode::Login => QrCodeModeData::Login,
+                QrCodeMode::Reciprocate => {
                     let homeserver_url_len = reader.read_u16::<BigEndian>()?;
                     let mut homeserver_url = vec![0u8; homeserver_url_len.into()];
                     reader.read_exact(&mut homeserver_url)?;
@@ -123,21 +123,21 @@ impl QrCodeData {
 
                     let homeserver_url = Url::parse(&homeserver_url)?;
 
-                    QrCodeMode::Reciprocate { homeserver_url }
+                    QrCodeModeData::Reciprocate { homeserver_url }
                 }
             };
 
             let public_key = Curve25519PublicKey::from_bytes(public_key);
-            let rendevouz_url = Url::parse(&String::from_utf8(rendevouz_url)?)?;
+            let rendezvouz_url = Url::parse(&String::from_utf8(rendezvouz_url)?)?;
 
-            Ok(Self { public_key, rendevouz_url, mode })
+            Ok(Self { public_key, rendezvous_url: rendezvouz_url, mode })
         } else {
             Err(QrCodeDecodeError::InvalidVersion(version))
         }
     }
 
     pub fn to_bytes(&self) -> Vec<u8> {
-        let rendevouz_url_len = (self.rendevouz_url.as_str().len() as u16).to_be_bytes();
+        let rendevouz_url_len = (self.rendezvous_url.as_str().len() as u16).to_be_bytes();
 
         let encoded = [
             PREFIX,
@@ -145,11 +145,11 @@ impl QrCodeData {
             &[self.mode.mode_identifier() as u8],
             self.public_key.as_bytes().as_slice(),
             &rendevouz_url_len,
-            self.rendevouz_url.as_str().as_bytes(),
+            self.rendezvous_url.as_str().as_bytes(),
         ]
         .concat();
 
-        if let QrCodeMode::Reciprocate { homeserver_url } = &self.mode {
+        if let QrCodeModeData::Reciprocate { homeserver_url } = &self.mode {
             let homeserver_url_len = (homeserver_url.as_str().len() as u16).to_be_bytes();
 
             [encoded.as_slice(), &homeserver_url_len, homeserver_url.as_str().as_bytes()].concat()
@@ -195,12 +195,12 @@ mod test {
         );
 
         assert_eq!(
-            expected_rendevouz, data.rendevouz_url,
+            expected_rendevouz, data.rendezvous_url,
             "The parsed rendevouz URL should match to the expected one",
         );
 
         assert_eq!(
-            QrCodeMode::Login,
+            QrCodeModeData::Login,
             data.mode,
             "The parsed QR code mode should match to the expected one",
         );

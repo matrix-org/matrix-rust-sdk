@@ -1639,6 +1639,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "example-qr-login"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "futures-util",
+ "matrix-sdk",
+ "qrcode 0.13.0 (git+https://github.com/kennytm/qrcode-rust/)",
+ "tokio",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
 name = "example-secret-storage"
 version = "0.1.0"
 dependencies = [
@@ -2439,6 +2453,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "image"
+version = "0.25.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a9b4f005360d32e9325029b38ba47ebd7a56f3316df09249368939562d518645"
+dependencies = [
+ "bytemuck",
+ "byteorder",
+ "num-traits",
+]
+
+[[package]]
 name = "imbl"
 version = "2.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3104,7 +3129,7 @@ dependencies = [
  "gloo-timers",
  "http",
  "hyper",
- "image",
+ "image 0.24.8",
  "imbl",
  "indexmap 2.2.2",
  "js_int",
@@ -3126,6 +3151,7 @@ dependencies = [
  "serde_json",
  "serde_urlencoded",
  "sha2",
+ "similar-asserts",
  "stream_assert",
  "tempfile",
  "thiserror",
@@ -3139,6 +3165,7 @@ dependencies = [
  "url",
  "urlencoding",
  "uuid",
+ "vodozemac",
  "wasm-bindgen-test",
  "wiremock",
  "zeroize",
@@ -3386,8 +3413,8 @@ name = "matrix-sdk-qrcode"
 version = "0.7.0"
 dependencies = [
  "byteorder",
- "image",
- "qrcode",
+ "image 0.24.8",
+ "qrcode 0.13.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "ruma-common",
  "thiserror",
  "vodozemac",
@@ -4528,7 +4555,15 @@ version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "166f136dfdb199f98186f3649cf7a0536534a61417a1a30221b492b4fb60ce3f"
 dependencies = [
- "image",
+ "image 0.24.8",
+]
+
+[[package]]
+name = "qrcode"
+version = "0.13.0"
+source = "git+https://github.com/kennytm/qrcode-rust/#7aaa476e179d5bdc57df245530a7f97b0a79cd54"
+dependencies = [
+ "image 0.25.0",
 ]
 
 [[package]]
@@ -6561,7 +6596,6 @@ checksum = "49874b5167b65d7193b8aba1567f5c7d93d001cafc34600cee003eda787e483f"
 [[package]]
 name = "vodozemac"
 version = "0.5.1"
-source = "git+https://github.com/matrix-org/vodozemac/?rev=b60f5db06d07d22f54891ac566ba61a3df669c3b#b60f5db06d07d22f54891ac566ba61a3df669c3b"
 dependencies = [
  "aes",
  "arrayvec",

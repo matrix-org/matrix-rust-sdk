@@ -53,7 +53,7 @@ tracing = { version = "0.1.40", default-features = false, features = ["std"] }
 tracing-core = "0.1.32"
 uniffi = { git = "https://github.com/mozilla/uniffi-rs", rev = "0a5e2eb5760b4ce5549021ec91de546716de8db1" }
 uniffi_bindgen = { git = "https://github.com/mozilla/uniffi-rs", rev = "0a5e2eb5760b4ce5549021ec91de546716de8db1" }
-vodozemac = { git = "https://github.com/matrix-org/vodozemac/", rev = "b60f5db06d07d22f54891ac566ba61a3df669c3b" }
+vodozemac = { path = "../vodozemac/" }
 zeroize = "1.6.0"
 
 matrix-sdk = { path = "crates/matrix-sdk", version = "0.7.0", default-features = false }

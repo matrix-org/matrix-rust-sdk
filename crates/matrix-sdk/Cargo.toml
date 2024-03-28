@@ -16,7 +16,9 @@ features = ["docsrs"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
-default = ["e2e-encryption", "automatic-room-key-forwarding", "sqlite", "native-tls"]
+client = []
+server = []
+default = ["e2e-encryption", "automatic-room-key-forwarding", "sqlite", "native-tls", "client"]
 testing = ["matrix-sdk-sqlite?/testing", "matrix-sdk-indexeddb?/testing", "matrix-sdk-base/testing", "wiremock"]
 
 e2e-encryption = [
@@ -105,9 +107,10 @@ tokio-stream = { workspace = true, features = ["sync"] }
 tower = { version = "0.4.13", features = ["make"], optional = true }
 tracing = { workspace = true, features = ["attributes"] }
 uniffi = { workspace = true, optional = true }
-url = "2.2.2"
+url = { version = "2.2.2", features = ["serde"] }
 urlencoding = "2.1.3"
 uuid = { version = "1.4.1", features = ["serde", "v4"], optional = true }
+vodozemac = { workspace = true }
 zeroize = { workspace = true }
 
 [dependencies.image]
@@ -155,6 +158,7 @@ matrix-sdk-base = { workspace = true, features = ["testing"] }
 matrix-sdk-test = { workspace = true }
 once_cell = { workspace = true }
 serde_urlencoded = "0.7.1"
+similar-asserts = "1.5.0"
 stream_assert = { workspace = true }
 tracing-subscriber = { version = "0.3.11", features = ["env-filter"] }
 
