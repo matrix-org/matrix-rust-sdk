@@ -160,12 +160,9 @@ impl AmbiguityCache {
     ) -> Result<(Option<AmbiguityMap>, Option<AmbiguityMap>)> {
         use MembershipState::*;
 
-        let old_event = if let Some(m) = changes
-            .state
-            .get(room_id)
-            .and_then(|events| events.get(&StateEventType::RoomMember))
-            .and_then(|m| m.get(member_event.state_key().as_str()))
-        {
+        let old_event = if let Some(m) = changes.state.get(room_id).and_then(|events| {
+            events.get(&StateEventType::RoomMember)?.get(member_event.state_key().as_str())
+        }) {
             Some(RawMemberEvent::Sync(m.clone().cast()))
         } else {
             self.store.get_member_event(room_id, member_event.state_key()).await?
@@ -174,20 +171,15 @@ impl AmbiguityCache {
         // FIXME: Use let chains once stable
         let old_display_name = if let Some(Ok(event)) = old_event.map(|r| r.deserialize()) {
             if matches!(event.membership(), Join | Invite) {
-                let display_name = if let Some(d) = changes
-                    .profiles
-                    .get(room_id)
-                    .and_then(|p| p.get(member_event.state_key()))
-                    .and_then(|p| p.as_original())
-                    .and_then(|p| p.content.displayname.as_deref())
-                {
+                let display_name = if let Some(d) = changes.profiles.get(room_id).and_then(|p| {
+                    p.get(member_event.state_key())?.as_original()?.content.displayname.as_deref()
+                }) {
                     Some(d.to_owned())
                 } else if let Some(d) = self
                     .store
                     .get_profile(room_id, member_event.state_key())
                     .await?
-                    .and_then(|p| p.into_original())
-                    .and_then(|p| p.content.displayname)
+                    .and_then(|p| p.into_original()?.content.displayname)
                 {
                     Some(d)
                 } else {

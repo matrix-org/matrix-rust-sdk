@@ -55,11 +55,11 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
-use tracing::{debug, field::debug, info, instrument, trace, warn};
+use tracing::{debug, field::debug, info, instrument, warn};
 
 use super::{
-    members::{MemberInfo, MemberRoomInfo},
-    BaseRoomInfo, DisplayName, RoomCreateWithCreatorEventContent, RoomMember, RoomNotableTags,
+    members::MemberRoomInfo, BaseRoomInfo, DisplayName, RoomCreateWithCreatorEventContent,
+    RoomMember, RoomNotableTags,
 };
 #[cfg(feature = "experimental-sliding-sync")]
 use crate::latest_event::LatestEvent;
@@ -547,10 +547,7 @@ impl Room {
         for event in member_events {
             let profile = profiles.remove(event.user_id());
             let presence = presences.remove(event.user_id());
-
-            let member_info = MemberInfo { event, profile, presence };
-
-            members.push(RoomMember::from_parts(member_info, &room_info))
+            members.push(RoomMember::from_parts(event, profile, presence, &room_info))
         }
 
         Ok(members)
@@ -681,30 +678,23 @@ impl Room {
     /// Returns `None` if the member was never part of this room, otherwise
     /// return a `RoomMember` that can be in a joined, invited, left, banned
     /// state.
-    #[instrument(skip(self))]
     pub async fn get_member(&self, user_id: &UserId) -> StoreResult<Option<RoomMember>> {
-        trace!("Fetching member event");
         let Some(raw_event) = self.store.get_member_event(self.room_id(), user_id).await? else {
-            debug!("Member event not found in state store");
+            debug!(%user_id, "Member event not found in state store");
             return Ok(None);
         };
 
-        trace!("Deserializing member event");
         let event = raw_event.deserialize()?;
 
-        trace!("Fetching presence event");
         let presence =
             self.store.get_presence_event(user_id).await?.and_then(|e| e.deserialize().ok());
 
-        trace!("Fetching profile");
         let profile = self.store.get_profile(self.room_id(), user_id).await?;
 
         let display_names = [event.display_name().to_owned()];
         let room_info = self.member_room_info(&display_names).await?;
 
-        trace!("Got all member information");
-        let member_info = MemberInfo { event, profile, presence };
-        Ok(Some(RoomMember::from_parts(member_info, &room_info)))
+        Ok(Some(RoomMember::from_parts(event, profile, presence, &room_info)))
     }
 
     /// The current `MemberRoomInfo` for this room.
@@ -715,18 +705,15 @@ impl Room {
         let max_power_level = self.max_power_level();
         let room_creator = self.inner.read().creator().map(ToOwned::to_owned);
 
-        trace!("Fetching power levels");
         let power_levels = self
             .store
             .get_state_event_static(self.room_id())
             .await?
             .and_then(|e| e.deserialize().ok());
 
-        trace!("Fetching users based on display names");
         let users_display_names =
             self.store.get_users_with_display_names(self.room_id(), display_names).await?;
 
-        trace!("Fetching ignored users");
         let ignored_users = self
             .store
             .get_account_data_event_static::<IgnoredUserListEventContent>()
@@ -999,7 +986,7 @@ impl RoomInfo {
 
         #[cfg(feature = "experimental-sliding-sync")]
         if let Some(latest_event) = &mut self.latest_event {
-            trace!("Checking if redaction applies to latest event");
+            tracing::trace!("Checking if redaction applies to latest event");
             if latest_event.event_id().as_deref() == Some(redacts) {
                 match apply_redaction(&latest_event.event().event, _raw, room_version) {
                     Some(redacted) => {
@@ -1353,7 +1340,7 @@ mod tests {
 
     #[test]
     #[cfg(feature = "experimental-sliding-sync")]
-    fn room_info_serialization() {
+    fn test_room_info_serialization() {
         // This test exists to make sure we don't accidentally change the
         // serialized format for `RoomInfo`.
 
@@ -1436,7 +1423,7 @@ mod tests {
 
     #[test]
     #[cfg(feature = "experimental-sliding-sync")]
-    fn room_info_deserialization_without_optional_items() {
+    fn test_room_info_deserialization_without_optional_items() {
         // Ensure we can still deserialize RoomInfos before we added things to its
         // schema
 
@@ -1680,13 +1667,13 @@ mod tests {
     }
 
     #[async_test]
-    async fn display_name_for_joined_room_is_empty_if_no_info() {
+    async fn test_display_name_for_joined_room_is_empty_if_no_info() {
         let (_, room) = make_room(RoomState::Joined);
         assert_eq!(room.display_name().await.unwrap(), DisplayName::Empty);
     }
 
     #[async_test]
-    async fn display_name_for_joined_room_uses_canonical_alias_if_available() {
+    async fn test_display_name_for_joined_room_uses_canonical_alias_if_available() {
         let (_, room) = make_room(RoomState::Joined);
         room.inner
             .update(|info| info.base_info.canonical_alias = Some(make_canonical_alias_event()));
@@ -1694,7 +1681,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn display_name_for_joined_room_prefers_name_over_alias() {
+    async fn test_display_name_for_joined_room_prefers_name_over_alias() {
         let (_, room) = make_room(RoomState::Joined);
         room.inner
             .update(|info| info.base_info.canonical_alias = Some(make_canonical_alias_event()));
@@ -1705,13 +1692,13 @@ mod tests {
     }
 
     #[async_test]
-    async fn display_name_for_invited_room_is_empty_if_no_info() {
+    async fn test_display_name_for_invited_room_is_empty_if_no_info() {
         let (_, room) = make_room(RoomState::Invited);
         assert_eq!(room.display_name().await.unwrap(), DisplayName::Empty);
     }
 
     #[async_test]
-    async fn display_name_for_invited_room_is_empty_if_room_name_empty() {
+    async fn test_display_name_for_invited_room_is_empty_if_room_name_empty() {
         let (_, room) = make_room(RoomState::Invited);
 
         let room_name = MinimalStateEvent::Original(OriginalMinimalStateEvent {
@@ -1724,7 +1711,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn display_name_for_invited_room_uses_canonical_alias_if_available() {
+    async fn test_display_name_for_invited_room_uses_canonical_alias_if_available() {
         let (_, room) = make_room(RoomState::Invited);
         room.inner
             .update(|info| info.base_info.canonical_alias = Some(make_canonical_alias_event()));
@@ -1732,7 +1719,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn display_name_for_invited_room_prefers_name_over_alias() {
+    async fn test_display_name_for_invited_room_prefers_name_over_alias() {
         let (_, room) = make_room(RoomState::Invited);
         room.inner
             .update(|info| info.base_info.canonical_alias = Some(make_canonical_alias_event()));
@@ -1889,7 +1876,7 @@ mod tests {
     }
 
     #[test]
-    fn setting_the_name_on_room_info_creates_a_fake_event() {
+    fn test_setting_the_name_on_room_info_creates_a_fake_event() {
         // Given a room
         let mut room_info = RoomInfo::new(room_id!("!r:e.uk"), RoomState::Joined);
 
@@ -1952,7 +1939,7 @@ mod tests {
 
     #[test]
     #[cfg(feature = "experimental-sliding-sync")]
-    fn when_we_provide_a_newly_decrypted_event_it_replaces_latest_event() {
+    fn test_when_we_provide_a_newly_decrypted_event_it_replaces_latest_event() {
         // Given a room with an encrypted event
         let (_store, room) = make_room(RoomState::Joined);
         add_encrypted_event(&room, "$A");
@@ -1971,7 +1958,7 @@ mod tests {
 
     #[test]
     #[cfg(feature = "experimental-sliding-sync")]
-    fn when_a_newly_decrypted_event_appears_we_delete_all_older_encrypted_events() {
+    fn test_when_a_newly_decrypted_event_appears_we_delete_all_older_encrypted_events() {
         // Given a room with some encrypted events and a latest event
         let (_store, room) = make_room(RoomState::Joined);
         room.inner.update(|info| info.latest_event = Some(make_latest_event("$A")));
@@ -1999,7 +1986,7 @@ mod tests {
 
     #[test]
     #[cfg(feature = "experimental-sliding-sync")]
-    fn replacing_the_newest_event_leaves_none_left() {
+    fn test_replacing_the_newest_event_leaves_none_left() {
         // Given a room with some encrypted events
         let (_store, room) = make_room(RoomState::Joined);
         add_encrypted_event(&room, "$0");
@@ -2121,7 +2108,7 @@ mod tests {
     }
 
     #[test]
-    fn show_correct_active_call_state() {
+    fn test_show_correct_active_call_state() {
         let room = create_call_with_member_events_for_user(&ALICE, &BOB, &CAROL);
 
         // This check also tests the ordering.
@@ -2135,7 +2122,7 @@ mod tests {
     }
 
     #[test]
-    fn active_call_is_false_when_everyone_left() {
+    fn test_active_call_is_false_when_everyone_left() {
         let room = create_call_with_member_events_for_user(&ALICE, &BOB, &CAROL);
 
         let b_empty_membership = call_member_state_event(Vec::new(), "$1234_1", &BOB);
