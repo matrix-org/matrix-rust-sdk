@@ -489,7 +489,10 @@ impl_state_store!({
             (!changes.ambiguity_maps.is_empty(), keys::DISPLAY_NAMES),
             (!changes.account_data.is_empty(), keys::ACCOUNT_DATA),
             (!changes.presence.is_empty(), keys::PRESENCE),
-            (!changes.profiles.is_empty(), keys::PROFILES),
+            (
+                !changes.profiles.is_empty() || !changes.profiles_to_delete.is_empty(),
+                keys::PROFILES,
+            ),
             (!changes.room_account_data.is_empty(), keys::ROOM_ACCOUNT_DATA),
             (!changes.receipts.is_empty(), keys::ROOM_EVENT_RECEIPTS),
         ]
@@ -576,6 +579,13 @@ impl_state_store!({
             let user_ids = tx.object_store(keys::USER_IDS)?;
             let stripped_state = tx.object_store(keys::STRIPPED_ROOM_STATE)?;
             let stripped_user_ids = tx.object_store(keys::STRIPPED_USER_IDS)?;
+
+            for (room, user_ids) in &changes.profiles_to_delete {
+                for user_id in user_ids {
+                    let key = self.encode_key(keys::PROFILES, (room, user_id));
+                    profiles.delete(&key)?;
+                }
+            }
 
             for (room, event_types) in &changes.state {
                 let profile_changes = changes.profiles.get(room);

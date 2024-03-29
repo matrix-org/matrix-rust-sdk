@@ -41,8 +41,8 @@ use crate::{
 
 /// `StateStore` integration tests.
 ///
-/// This trait is not meant to be used directly, but will be used with the [``]
-/// macro.
+/// This trait is not meant to be used directly, but will be used with the
+/// [`statestore_integration_tests!`] macro.
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait StateStoreIntegrationTests {
@@ -74,6 +74,8 @@ pub trait StateStoreIntegrationTests {
     async fn test_stripped_non_stripped(&self) -> Result<()>;
     /// Test room removal.
     async fn test_room_removal(&self) -> Result<()>;
+    /// Test profile removal.
+    async fn test_profile_removal(&self) -> Result<()>;
     /// Test presence saving.
     async fn test_presence_saving(&self);
     /// Test display names saving.
@@ -1058,6 +1060,77 @@ impl StateStoreIntegrationTests for DynStateStore {
         Ok(())
     }
 
+    async fn test_profile_removal(&self) -> Result<()> {
+        let room_id = room_id();
+
+        // Both the user id and invited user id get a profile in populate().
+        let user_id = user_id();
+        let invited_user_id = invited_user_id();
+
+        self.populate().await?;
+
+        let new_invite_member_json = json!({
+            "content": {
+                "avatar_url": "mxc://localhost/SEsfnsuifSDFSSEG",
+                "displayname": "example after update",
+                "membership": "invite",
+                "reason": "Looking for support"
+            },
+            "event_id": "$143273582443PhrSm:localhost",
+            "origin_server_ts": 1432735824,
+            "room_id": room_id,
+            "sender": user_id,
+            "state_key": invited_user_id,
+            "type": "m.room.member",
+        });
+        let new_invite_member_event: SyncRoomMemberEvent =
+            serde_json::from_value(new_invite_member_json.clone()).unwrap();
+
+        let mut changes = StateChanges {
+            // Both get their profiles deleted…
+            profiles_to_delete: [(
+                room_id.to_owned(),
+                vec![user_id.to_owned(), invited_user_id.to_owned()],
+            )]
+            .into(),
+
+            // …but the invited user get a new profile.
+            profiles: {
+                let mut map = BTreeMap::default();
+                map.insert(
+                    room_id.to_owned(),
+                    [(invited_user_id.to_owned(), new_invite_member_event.into())]
+                        .into_iter()
+                        .collect(),
+                );
+                map
+            },
+
+            ..StateChanges::default()
+        };
+
+        let raw = serde_json::from_value::<Raw<AnySyncStateEvent>>(new_invite_member_json)
+            .expect("can create sync-state-event for topic");
+        let event = raw.deserialize().unwrap();
+        changes.add_state_event(room_id, event, raw);
+
+        self.save_changes(&changes).await.unwrap();
+
+        // The profile for user has been removed.
+        assert!(self.get_profile(room_id, user_id).await?.is_none());
+        assert!(self.get_member_event(room_id, user_id).await?.is_some());
+
+        // The profile for the invited user has been updated.
+        let invited_member_event = self.get_profile(room_id, invited_user_id).await?.unwrap();
+        assert_eq!(
+            invited_member_event.as_original().unwrap().content.displayname.as_deref(),
+            Some("example after update")
+        );
+        assert!(self.get_member_event(room_id, invited_user_id).await?.is_some());
+
+        Ok(())
+    }
+
     async fn test_presence_saving(&self) {
         let user_id = user_id();
         let second_user_id = user_id!("@second:localhost");
@@ -1286,6 +1359,12 @@ macro_rules! statestore_integration_tests {
         async fn test_room_removal() -> StoreResult<()> {
             let store = get_store().await?.into_state_store();
             store.test_room_removal().await
+        }
+
+        #[async_test]
+        async fn test_profile_removal() -> StoreResult<()> {
+            let store = get_store().await?.into_state_store();
+            store.test_profile_removal().await
         }
 
         #[async_test]

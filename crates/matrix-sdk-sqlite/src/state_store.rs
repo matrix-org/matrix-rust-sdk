@@ -378,6 +378,7 @@ trait SqliteConnectionStateStoreExt {
 
     fn set_profile(&self, room_id: &[u8], user_id: &[u8], data: &[u8]) -> rusqlite::Result<()>;
     fn remove_room_profiles(&self, room_id: &[u8]) -> rusqlite::Result<()>;
+    fn remove_room_profile(&self, room_id: &[u8], user_id: &[u8]) -> rusqlite::Result<()>;
 
     fn set_receipt(
         &self,
@@ -547,6 +548,12 @@ impl SqliteConnectionStateStoreExt for rusqlite::Connection {
 
     fn remove_room_profiles(&self, room_id: &[u8]) -> rusqlite::Result<()> {
         self.prepare("DELETE FROM profile WHERE room_id = ?")?.execute((room_id,))?;
+        Ok(())
+    }
+
+    fn remove_room_profile(&self, room_id: &[u8], user_id: &[u8]) -> rusqlite::Result<()> {
+        self.prepare("DELETE FROM profile WHERE room_id = ? AND user_id = ?")?
+            .execute((room_id, user_id))?;
         Ok(())
     }
 
@@ -921,6 +928,7 @@ impl StateStore for SqliteStateStore {
                     account_data,
                     presence,
                     profiles,
+                    profiles_to_delete,
                     state,
                     room_account_data,
                     room_infos,
@@ -969,6 +977,14 @@ impl StateStore for SqliteStateStore {
                         .encode_key(keys::ROOM_INFO, serde_json::to_string(&room_info.state())?);
                     let data = this.serialize_json(&room_info)?;
                     txn.set_room_info(&room_id, &state, &data)?;
+                }
+
+                for (room_id, user_ids) in profiles_to_delete {
+                    let room_id = this.encode_key(keys::PROFILE, room_id);
+                    for user_id in user_ids {
+                        let user_id = this.encode_key(keys::PROFILE, user_id);
+                        txn.remove_room_profile(&room_id, &user_id)?;
+                    }
                 }
 
                 for (room_id, state_event_types) in state {

@@ -277,6 +277,11 @@ pub struct StateChanges {
     /// `MinimalRoomMemberEvent`.
     pub profiles: BTreeMap<OwnedRoomId, BTreeMap<OwnedUserId, MinimalRoomMemberEvent>>,
 
+    /// A mapping of room profiles to delete.
+    ///
+    /// These are deleted *before* other room profiles are inserted.
+    pub profiles_to_delete: BTreeMap<OwnedRoomId, Vec<OwnedUserId>>,
+
     /// A mapping of `RoomId` to a map of event type string to a state key and
     /// `AnySyncStateEvent`.
     pub state:
