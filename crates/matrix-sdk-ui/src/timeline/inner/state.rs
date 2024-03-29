@@ -410,7 +410,7 @@ impl TimelineInnerState {
         txn.commit();
     }
 
-    fn transaction(&mut self) -> TimelineInnerStateTransaction<'_> {
+    pub(super) fn transaction(&mut self) -> TimelineInnerStateTransaction<'_> {
         let items = self.items.transaction();
         let meta = self.meta.clone();
         TimelineInnerStateTransaction { items, previous_meta: &mut self.meta, meta }
@@ -645,7 +645,7 @@ impl TimelineInnerStateTransaction<'_> {
         self.meta.update_read_marker(&mut self.items);
     }
 
-    fn commit(self) {
+    pub(super) fn commit(self) {
         let Self { items, previous_meta, meta } = self;
 
         // Replace the pointer to the previous meta with the new one.
