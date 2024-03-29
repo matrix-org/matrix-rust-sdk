@@ -338,6 +338,16 @@ impl BaseClient {
                                             .or_default()
                                             .insert(member.sender().to_owned(), member.into());
                                     }
+
+                                    if *member.membership() == MembershipState::Invite {
+                                        // Remove any profile previously stored for the invited
+                                        // user.
+                                        changes
+                                            .profiles_to_delete
+                                            .entry(room.room_id().to_owned())
+                                            .or_default()
+                                            .push(member.state_key().clone());
+                                    }
                                 }
                                 _ => {
                                     room_info.handle_state_event(s);
@@ -502,6 +512,7 @@ impl BaseClient {
         let mut state_events = BTreeMap::new();
         let mut user_ids = BTreeSet::new();
         let mut profiles = BTreeMap::new();
+        let mut profiles_to_delete = Vec::new();
 
         assert_eq!(raw_events.len(), events.len());
 
@@ -525,6 +536,11 @@ impl BaseClient {
                 if member.state_key() == member.sender() {
                     profiles.insert(member.sender().to_owned(), member.into());
                 }
+
+                if *member.membership() == MembershipState::Invite {
+                    // Remove any profile previously stored for the invited user.
+                    profiles_to_delete.push(member.state_key().clone());
+                }
             }
 
             state_events
@@ -533,8 +549,10 @@ impl BaseClient {
                 .insert(event.state_key().to_owned(), raw_event.clone());
         }
 
-        changes.profiles.insert((*room_info.room_id).to_owned(), profiles);
-        changes.state.insert((*room_info.room_id).to_owned(), state_events);
+        let room_id = (*room_info.room_id).to_owned();
+        changes.profiles.insert(room_id.clone(), profiles);
+        changes.profiles_to_delete.insert(room_id.clone(), profiles_to_delete);
+        changes.state.insert(room_id, state_events);
 
         Ok(user_ids)
     }
@@ -1180,6 +1198,15 @@ impl BaseClient {
                     .entry(room_id.to_owned())
                     .or_default()
                     .insert(member.sender().to_owned(), sync_member.into());
+            }
+
+            if *member.membership() == MembershipState::Invite {
+                // Remove any profile previously stored for the invited user.
+                changes
+                    .profiles_to_delete
+                    .entry(room_id.to_owned())
+                    .or_default()
+                    .push(member.state_key().clone());
             }
 
             changes
