@@ -144,23 +144,32 @@ impl<Item, Gap, const CAP: usize> LinkedChunk<Item, Gap, CAP> {
             ChunkContent::Items(current_items) => {
                 let current_items_length = current_items.len();
 
-                if item_index >= current_items_length {
+                if item_index > current_items_length {
                     return Err(LinkedChunkError::InvalidItemIndex { index: item_index });
                 }
-
-                // Split the items.
-                let detached_items = current_items.split_off(item_index);
 
                 // Prepare the items to be pushed.
                 let items = items.into_iter();
                 let number_of_items = items.len();
 
                 (
-                    chunk
-                        // Push the new items.
-                        .push_items(items, &chunk_identifier_generator)
-                        // Finally, push the items that have been detached.
-                        .push_items(detached_items.into_iter(), &chunk_identifier_generator),
+                    // Push at the end of the current items.
+                    if item_index == current_items_length {
+                        chunk
+                            // Push the new items.
+                            .push_items(items, &chunk_identifier_generator)
+                    }
+                    // Insert inside the current items.
+                    else {
+                        // Split the items.
+                        let detached_items = current_items.split_off(item_index);
+
+                        chunk
+                            // Push the new items.
+                            .push_items(items, &chunk_identifier_generator)
+                            // Finally, push the items that have been detached.
+                            .push_items(detached_items.into_iter(), &chunk_identifier_generator)
+                    },
                     number_of_items,
                 )
             }
@@ -1351,6 +1360,20 @@ mod tests {
             assert_eq!(linked_chunk.len(), 16);
         }
 
+        // Insert at the end of a chunk.
+        {
+            let position_of_f = linked_chunk.item_position(|item| *item == 'f').unwrap();
+            let position_after_f =
+                Position(position_of_f.chunk_identifier(), position_of_f.index() + 1);
+
+            linked_chunk.insert_items_at(['p', 'q'], position_after_f)?;
+            assert_items_eq!(
+                linked_chunk,
+                ['l', 'm', 'n'] ['o', 'a', 'b'] ['r', 's', 'c'] ['d', 'w', 'x'] ['y', 'z', 'e'] ['f', 'p', 'q']
+            );
+            assert_eq!(linked_chunk.len(), 18);
+        }
+
         // Insert in a chunk that does not exist.
         {
             assert_matches!(
@@ -1373,7 +1396,7 @@ mod tests {
             linked_chunk.push_gap_back(());
             assert_items_eq!(
                 linked_chunk,
-                ['l', 'm', 'n'] ['o', 'a', 'b'] ['r', 's', 'c'] ['d', 'w', 'x'] ['y', 'z', 'e'] ['f'] [-]
+                ['l', 'm', 'n'] ['o', 'a', 'b'] ['r', 's', 'c'] ['d', 'w', 'x'] ['y', 'z', 'e'] ['f', 'p', 'q'] [-]
             );
 
             assert_matches!(
@@ -1382,7 +1405,7 @@ mod tests {
             );
         }
 
-        assert_eq!(linked_chunk.len(), 16);
+        assert_eq!(linked_chunk.len(), 18);
 
         Ok(())
     }
