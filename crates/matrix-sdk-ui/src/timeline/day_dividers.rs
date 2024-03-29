@@ -108,6 +108,21 @@ impl DayDividerAdjuster {
             }
         }
 
+        // Also chase trailing day dividers explicitly, by iterating from the end to the
+        // start. Since they wouldn't be the prev_item of anything, we wouldn't
+        // analyze them in the previous loop.
+        for (i, item) in items.iter().enumerate().rev() {
+            if item.is_day_divider() {
+                // The item is a trailing day divider: remove it.
+                self.ops.push(DayDividerOperation::Remove(i));
+                break;
+            }
+            if item.is_event() {
+                // Stop as soon as we run into the first (trailing) event.
+                break;
+            }
+        }
+
         // Only record the initial state if we've enabled the trace log level, and not
         // otherwise.
         let initial_state =
@@ -118,9 +133,9 @@ impl DayDividerAdjuster {
         // Then check invariants.
         if let Some(report) = self.check_invariants(items, initial_state) {
             warn!("Errors encountered when checking invariants.");
-            #[cfg(debug)]
+            #[cfg(any(debug, test))]
             panic!("{report}");
-            #[cfg(not(debug))]
+            #[cfg(not(any(debug, test)))]
             warn!("{report}");
         }
 
@@ -449,7 +464,7 @@ impl<'a, 'o> Display for DayDividerInvariantsReport<'a, 'o> {
                         "#{i} {}: {}",
                         event
                             .event_id()
-                            .map_or_else(|| "(no event id)".to_string(), |id| id.to_string()),
+                            .map_or_else(|| "(no event id)".to_owned(), |id| id.to_string()),
                         event.timestamp().0
                     )?;
                 } else {
@@ -529,6 +544,61 @@ mod tests {
         EventTimelineItem, TimelineItemContent, VirtualTimelineItem,
     };
 
+    fn event_with_ts(timestamp: MilliSecondsSinceUnixEpoch) -> EventTimelineItem {
+        let event_kind = EventTimelineItemKind::Remote(RemoteEventTimelineItem {
+            event_id: owned_event_id!("$1"),
+            reactions: Default::default(),
+            read_receipts: Default::default(),
+            is_own: false,
+            is_highlighted: false,
+            encryption_info: None,
+            original_json: None,
+            latest_edit_json: None,
+            origin: crate::timeline::event_item::RemoteEventOrigin::Sync,
+        });
+        EventTimelineItem::new(
+            owned_user_id!("@alice:example.org"),
+            crate::timeline::TimelineDetails::Pending,
+            timestamp,
+            TimelineItemContent::RedactedMessage,
+            event_kind,
+        )
+    }
+
+    #[test]
+    fn test_no_trailing_day_divider() {
+        let mut items = ObservableVector::new();
+        let mut txn = items.transaction();
+
+        let mut meta = TimelineInnerMetadata::new(ruma::RoomVersionId::V11, None);
+
+        let timestamp = MilliSecondsSinceUnixEpoch(uint!(42));
+        let timestamp_next_day =
+            MilliSecondsSinceUnixEpoch((42 + 3600 * 24 * 1000).try_into().unwrap());
+
+        txn.push_back(meta.new_timeline_item(event_with_ts(timestamp)));
+        txn.push_back(meta.new_timeline_item(VirtualTimelineItem::DayDivider(timestamp_next_day)));
+        txn.push_back(meta.new_timeline_item(VirtualTimelineItem::ReadMarker));
+
+        let mut adjuster = DayDividerAdjuster::default();
+        adjuster.run(&mut txn, &mut meta);
+
+        txn.commit();
+
+        let mut iter = items.iter();
+
+        assert_let!(Some(item) = iter.next());
+        assert!(item.is_day_divider());
+
+        assert_let!(Some(item) = iter.next());
+        assert!(item.is_remote_event());
+
+        assert_let!(Some(item) = iter.next());
+        assert!(item.is_read_marker());
+
+        assert!(iter.next().is_none());
+    }
+
     #[test]
     fn test_read_marker_in_between_event_and_day_divider() {
         let mut items = ObservableVector::new();
@@ -541,25 +611,7 @@ mod tests {
             MilliSecondsSinceUnixEpoch((42 + 3600 * 24 * 1000).try_into().unwrap());
         assert_ne!(timestamp_to_date(timestamp), timestamp_to_date(timestamp_next_day));
 
-        let event_kind = EventTimelineItemKind::Remote(RemoteEventTimelineItem {
-            event_id: owned_event_id!("$1"),
-            reactions: Default::default(),
-            read_receipts: Default::default(),
-            is_own: false,
-            is_highlighted: false,
-            encryption_info: None,
-            original_json: None,
-            latest_edit_json: None,
-            origin: crate::timeline::event_item::RemoteEventOrigin::Sync,
-        });
-        let event = EventTimelineItem::new(
-            owned_user_id!("@alice:example.org"),
-            crate::timeline::TimelineDetails::Pending,
-            timestamp,
-            TimelineItemContent::RedactedMessage,
-            event_kind,
-        );
-
+        let event = event_with_ts(timestamp);
         txn.push_back(meta.new_timeline_item(event.clone()));
         txn.push_back(meta.new_timeline_item(VirtualTimelineItem::DayDivider(timestamp_next_day)));
         txn.push_back(meta.new_timeline_item(VirtualTimelineItem::ReadMarker));
