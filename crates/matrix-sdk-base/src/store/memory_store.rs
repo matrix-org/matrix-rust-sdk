@@ -227,14 +227,25 @@ impl StateStore for MemoryStore {
             *self.sync_token.write().unwrap() = Some(s.to_owned());
         }
 
-        for (room, users) in &changes.profiles {
-            for (user_id, profile) in users {
-                self.profiles
-                    .write()
-                    .unwrap()
-                    .entry(room.clone())
-                    .or_default()
-                    .insert(user_id.clone(), profile.clone());
+        {
+            let mut profiles = self.profiles.write().unwrap();
+
+            for (room, users) in &changes.profiles_to_delete {
+                let Some(room_profiles) = profiles.get_mut(room) else {
+                    continue;
+                };
+                for user in users {
+                    room_profiles.remove(user);
+                }
+            }
+
+            for (room, users) in &changes.profiles {
+                for (user_id, profile) in users {
+                    profiles
+                        .entry(room.clone())
+                        .or_default()
+                        .insert(user_id.clone(), profile.clone());
+                }
             }
         }
 
