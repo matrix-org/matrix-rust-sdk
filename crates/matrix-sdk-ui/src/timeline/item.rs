@@ -89,6 +89,10 @@ impl TimelineItem {
         matches!(&self.kind, TimelineItemKind::Event(ev) if ev.is_remote_event())
     }
 
+    pub(crate) fn is_event(&self) -> bool {
+        matches!(&self.kind, TimelineItemKind::Event(_))
+    }
+
     /// Check whether this item is a day divider.
     #[must_use]
     pub fn is_day_divider(&self) -> bool {
