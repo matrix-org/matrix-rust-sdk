@@ -1509,7 +1509,7 @@ impl Default for BaseClient {
 mod tests {
     use matrix_sdk_test::{
         async_test, response_from_file, sync_timeline_event, InvitedRoomBuilder, LeftRoomBuilder,
-        StrippedStateTestEvent, SyncResponseBuilder,
+        StateTestEvent, StrippedStateTestEvent, SyncResponseBuilder,
     };
     use ruma::{
         api::{client as api, IncomingResponse},
@@ -1797,6 +1797,78 @@ mod tests {
 
         // When I process the result of a /members request that only contains an invited
         // member,
+        let request = api::membership::get_member_events::v3::Request::new(room_id.to_owned());
+
+        let raw_member_event = json!({
+            "content": {
+                "avatar_url": "mxc://localhost/fewjilfewjil42",
+                "displayname": "Invited Alice",
+                "membership": "invite"
+            },
+            "event_id": "$151800140517rfvjc:localhost",
+            "origin_server_ts": 151800140,
+            "room_id": room_id,
+            "sender": inviter_user_id,
+            "state_key": user_id,
+            "type": "m.room.member",
+            "unsigned": {
+                "age": 13374242,
+            }
+        });
+        let response = api::membership::get_member_events::v3::Response::new(vec![Raw::from_json(
+            to_raw_value(&raw_member_event).unwrap(),
+        )]);
+
+        // It's correctly processed,
+        client.receive_all_members(room_id, &request, &response).await.unwrap();
+
+        let room = client.get_room(room_id).unwrap();
+
+        // And I can get the invited member display name and avatar.
+        let member = room.get_member(user_id).await.expect("ok").expect("exists");
+
+        assert_eq!(member.user_id(), user_id);
+        assert_eq!(member.display_name().unwrap(), "Invited Alice");
+        assert_eq!(member.avatar_url().unwrap().to_string(), "mxc://localhost/fewjilfewjil42");
+    }
+
+    #[async_test]
+    async fn test_reinvited_members_get_a_display_name() {
+        let user_id = user_id!("@alice:example.org");
+        let inviter_user_id = user_id!("@bob:example.org");
+        let room_id = room_id!("!ithpyNKDtmhneaTQja:example.org");
+
+        let client = BaseClient::new();
+        client
+            .set_session_meta(SessionMeta {
+                user_id: user_id.to_owned(),
+                device_id: "FOOBAR".into(),
+            })
+            .await
+            .unwrap();
+
+        // Preamble: let the SDK know about the room, and that the invited user left it.
+        let mut ev_builder = SyncResponseBuilder::new();
+        let response = ev_builder
+            .add_joined_room(matrix_sdk_test::JoinedRoomBuilder::new(room_id).add_state_event(
+                StateTestEvent::Custom(json!({
+                    "content": {
+                        "avatar_url": null,
+                        "displayname": null,
+                        "membership": "leave"
+                    },
+                    "event_id": "$151803140217rkvjc:localhost",
+                    "origin_server_ts": 151800139,
+                    "room_id": room_id,
+                    "sender": user_id,
+                    "state_key": user_id,
+                    "type": "m.room.member",
+                })),
+            ))
+            .build_sync_response();
+        client.receive_sync_response(response).await.unwrap();
+
+        // Now, say that the user has been re-invited.
         let request = api::membership::get_member_events::v3::Request::new(room_id.to_owned());
 
         let raw_member_event = json!({
