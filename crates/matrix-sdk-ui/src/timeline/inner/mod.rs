@@ -62,7 +62,10 @@ use super::{
     AnnotationKey, EventSendState, EventTimelineItem, InReplyToDetails, Message, Profile,
     RepliedToEvent, TimelineDetails, TimelineItem, TimelineItemContent, TimelineItemKind,
 };
-use crate::{timeline::TimelineEventFilterFn, unable_to_decrypt_hook::UtdHookManager};
+use crate::{
+    timeline::{day_dividers::DayDividerAdjuster, TimelineEventFilterFn},
+    unable_to_decrypt_hook::UtdHookManager,
+};
 
 mod state;
 
@@ -491,14 +494,14 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         send_state: EventSendState,
     ) {
         let mut state = self.state.write().await;
-        let mut items_txn = state.items.transaction();
+        let mut txn = state.transaction();
 
         let new_event_id: Option<&EventId> =
             as_variant!(&send_state, EventSendState::Sent { event_id } => event_id);
 
         // The local echoes are always at the end of the timeline, we must first make
         // sure the remote echo hasn't showed up yet.
-        if rfind_event_item(&items_txn, |it| {
+        if rfind_event_item(&txn.items, |it| {
             new_event_id.is_some() && it.event_id() == new_event_id && it.as_remote().is_some()
         })
         .is_some()
@@ -506,33 +509,26 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             // Remote echo already received. This is very unlikely.
             trace!("Remote echo received before send-event response");
 
-            let local_echo = rfind_event_item(&items_txn, |it| it.transaction_id() == Some(txn_id));
+            let local_echo = rfind_event_item(&txn.items, |it| it.transaction_id() == Some(txn_id));
 
             // If there's both the remote echo and a local echo, that means the
             // remote echo was received before the response *and* contained no
             // transaction ID (and thus duplicated the local echo).
             if let Some((idx, _)) = local_echo {
                 warn!("Message echo got duplicated, removing the local one");
-                items_txn.remove(idx);
+                txn.items.remove(idx);
 
-                if idx == 0 {
-                    error!("Inconsistent state: Local echo was not preceded by day divider");
-                    return;
-                }
-
-                if idx == items_txn.len() && items_txn[idx - 1].is_day_divider() {
-                    // The day divider may have been added for this local echo, remove it and let
-                    // the next message decide whether it's required or not.
-                    items_txn.remove(idx - 1);
-                }
+                // Adjust the day dividers, if needs be.
+                let mut adjuster = DayDividerAdjuster::default();
+                adjuster.run(&mut txn.items, &mut txn.meta);
             }
 
-            items_txn.commit();
+            txn.commit();
             return;
         }
 
         // Look for the local event by the transaction ID or event ID.
-        let result = rfind_event_item(&items_txn, |it| {
+        let result = rfind_event_item(&txn.items, |it| {
             it.transaction_id() == Some(txn_id)
                 || new_event_id.is_some()
                     && it.event_id() == new_event_id
@@ -560,26 +556,27 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         let is_error = matches!(send_state, EventSendState::SendingFailed { .. });
 
         let new_item = item.with_inner_kind(local_item.with_send_state(send_state));
-        items_txn.set(idx, new_item);
+        txn.items.set(idx, new_item);
 
         if is_error {
             // When there is an error, sending further messages is paused. This
             // should be reflected in the timeline, so we set all other pending
             // events to cancelled.
-            let num_items = items_txn.len();
+            let items = &mut txn.items;
+            let num_items = items.len();
             for idx in 0..num_items {
-                let item = items_txn[idx].clone();
+                let item = &items[idx];
                 let Some(event_item) = item.as_event() else { continue };
                 let Some(local_item) = event_item.as_local() else { continue };
                 if matches!(&local_item.send_state, EventSendState::NotSentYet) {
                     let new_event_item =
                         event_item.with_kind(local_item.with_send_state(EventSendState::Cancelled));
-                    items_txn.set(idx, item.with_kind(new_event_item));
+                    items.set(idx, item.with_kind(new_event_item));
                 }
             }
         }
 
-        items_txn.commit();
+        txn.commit();
     }
 
     /// Reconcile the timeline with the result of a request to toggle a
