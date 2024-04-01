@@ -611,6 +611,15 @@ impl Room {
     pub async fn reset_power_levels(&self) -> Result<RoomPowerLevels, ClientError> {
         Ok(RoomPowerLevels::from(self.inner.reset_power_levels().await?))
     }
+
+    pub async fn matrix_to_permalink(&self) -> Result<String, ClientError> {
+        Ok(self.inner.matrix_to_permalink().await?.to_string())
+    }
+
+    pub async fn matrix_to_event_permalink(&self, event_id: String) -> Result<String, ClientError> {
+        let event_id = EventId::parse(event_id)?;
+        Ok(self.inner.matrix_to_event_permalink(event_id).await?.to_string())
+    }
 }
 
 #[derive(uniffi::Record)]
