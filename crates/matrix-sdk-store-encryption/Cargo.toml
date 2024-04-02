@@ -31,3 +31,6 @@ zeroize = { workspace = true, features = ["zeroize_derive"] }
 
 [dev-dependencies]
 anyhow = { workspace = true }
+
+[lints]
+workspace = true

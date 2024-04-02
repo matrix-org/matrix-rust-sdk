@@ -16,3 +16,6 @@ url = "2.2.2"
 # when copy-pasting this, please use a git dependency or make sure that you
 # have copied the example as it was at the time of the release you use.
 matrix-sdk = { path = "../../crates/matrix-sdk", features = ["sso-login"] }
+
+[lints]
+workspace = true

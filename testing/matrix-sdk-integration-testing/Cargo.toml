@@ -29,3 +29,6 @@ tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }
 tracing = { workspace = true }
 wiremock = { workspace = true }
 json-structural-diff = "0.1.0"
+
+[lints]
+workspace = true

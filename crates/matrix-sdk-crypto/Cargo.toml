@@ -83,3 +83,6 @@ proptest = { version = "1.0.0", default-features = false, features = ["std"] }
 # required for async_test macro
 stream_assert = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[lints]
+workspace = true

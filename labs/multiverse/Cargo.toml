@@ -24,3 +24,6 @@ tracing = { workspace = true }
 tracing-appender = { version = "0.2.2" }
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 url = "2.2.2"
+
+[lints]
+workspace = true
