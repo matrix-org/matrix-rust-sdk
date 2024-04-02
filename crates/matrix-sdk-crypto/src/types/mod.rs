@@ -246,10 +246,10 @@ impl<T: Ord> SigningKeys<T> {
     }
 
     /// Get a `SigningKey` with the given `DeviceKeyId`.
-    pub fn get<Q: ?Sized>(&self, key_id: &Q) -> Option<&SigningKey>
+    pub fn get<Q>(&self, key_id: &Q) -> Option<&SigningKey>
     where
         T: Borrow<Q>,
-        Q: Ord,
+        Q: Ord + ?Sized,
     {
         self.0.get(key_id)
     }
