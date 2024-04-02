@@ -24,6 +24,7 @@ mod authentication_service;
 mod chunk_iterator;
 mod client;
 mod client_builder;
+mod client_login_builder;
 mod encryption;
 mod error;
 mod event;

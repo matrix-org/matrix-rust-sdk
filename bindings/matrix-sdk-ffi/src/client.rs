@@ -39,7 +39,7 @@ use matrix_sdk::{
 use matrix_sdk_ui::notification_client::NotificationProcessSetup as MatrixNotificationProcessSetup;
 use mime::Mime;
 use ruma::{
-    api::client::discovery::discover_homeserver::AuthenticationServerInfo,
+    api::client::{discovery::discover_homeserver::AuthenticationServerInfo, uiaa::UserIdentifier},
     events::{
         ignored_user_list::IgnoredUserListEventContent,
         room::power_levels::RoomPowerLevelsEventContent, GlobalAccountDataEventType,
@@ -55,6 +55,7 @@ use url::Url;
 use super::{room::Room, session_verification::SessionVerificationController, RUNTIME};
 use crate::{
     client,
+    client_login_builder::ClientLoginBuilder,
     encryption::Encryption,
     notification::NotificationClientBuilder,
     notification_settings::NotificationSettings,
@@ -243,6 +244,12 @@ impl Client {
 #[uniffi::export(async_runtime = "tokio")]
 impl Client {
     /// Login using a username and password.
+
+    /// # Deprecated
+    /// This method has been replaced by the methods [Client::login_token],
+    /// [Client::login_username], [Client::login_email],
+    /// [Client::login_phone_msisdn], [Client::login_phone], or
+    /// [Client::login_custom].
     pub fn login(
         &self,
         username: String,
@@ -261,6 +268,116 @@ impl Client {
             builder.send().await?;
             Ok(())
         })
+    }
+
+    /// Get the URL to use to log in via Single Sign-On.
+    ///
+    /// Returns a URL that should be opened in a web browser to let the user
+    /// log in.
+    ///
+    /// After a successful login, the loginToken received at the redirect URL
+    /// should be used to log in with [`login_token`].
+    ///
+    /// # Arguments
+    ///
+    /// * `redirect_url` - The URL that will receive a `loginToken` after a
+    ///   successful SSO login.
+    ///
+    /// * `idp_id` - The optional ID of the identity provider to log in with.
+    ///
+    /// [`login_token`]: #method.login_token
+    pub async fn get_sso_login_url(
+        &self,
+        redirect_url: String,
+        idp_id: Option<String>,
+    ) -> Result<String, ClientError> {
+        Ok(self.inner.matrix_auth().get_sso_login_url(&redirect_url, idp_id.as_deref()).await?)
+    }
+
+    /// Creates a [ClientLoginBuilder] that can log into the server with a
+    /// token.
+    ///
+    /// This token is usually received in the SSO flow after following the URL
+    /// provided by [`get_sso_login_url`], note that this is not the access
+    /// token of a session.
+    ///
+    /// This should only be used for the first login.
+    ///
+    /// The [`restore_session`] method should be used to restore a logged-in
+    /// client after the first login.
+    pub fn login_token(&self, token: String) -> Result<ClientLoginBuilder, ClientError> {
+        Ok(ClientLoginBuilder::new(self.inner.matrix_auth().login_token(&token)))
+    }
+
+    /// Creates a [ClientLoginBuilder] that can log into the server by username
+    /// and password.
+    pub fn login_username(
+        &self,
+        username: String,
+        password: String,
+    ) -> Result<ClientLoginBuilder, ClientError> {
+        Ok(ClientLoginBuilder::new(self.inner.matrix_auth().login_username(username, &password)))
+    }
+
+    /// Creates a [ClientLoginBuilder] that can log into the server by email and
+    /// password.
+    pub fn login_email(
+        &self,
+        email: String,
+        password: String,
+    ) -> Result<ClientLoginBuilder, ClientError> {
+        Ok(ClientLoginBuilder::new(
+            self.inner
+                .matrix_auth()
+                .login_identifier(UserIdentifier::Email { address: email }, &password),
+        ))
+    }
+
+    /// Creates a [ClientLoginBuilder] that can log into the server by a MSISDN
+    /// phone number and password.
+    pub fn login_phone_msisdn(
+        &self,
+        number: String,
+        password: String,
+    ) -> Result<ClientLoginBuilder, ClientError> {
+        Ok(ClientLoginBuilder::new(
+            self.inner.matrix_auth().login_identifier(UserIdentifier::Msisdn { number }, &password),
+        ))
+    }
+
+    /// Creates a [ClientLoginBuilder] that can log into the server by phone
+    /// number and password.
+    pub fn login_phone(
+        &self,
+        country: String,
+        phone: String,
+        password: String,
+    ) -> Result<ClientLoginBuilder, ClientError> {
+        Ok(ClientLoginBuilder::new(
+            self.inner
+                .matrix_auth()
+                .login_identifier(UserIdentifier::PhoneNumber { country, phone }, &password),
+        ))
+    }
+
+    /// Creates a [ClientLoginBuilder] that can log in to the server with a
+    /// custom login type.
+    ///
+    /// The `login_type` argument is an identifier of the custom login type. The
+    /// `data` argument is an encoded json object with the additional data
+    /// required by the specified login type.
+    ///
+    /// For example, if `login_type` is `org.matrix.login.jwt`, the data would
+    /// be `{"token": "<jwt>"}`
+    pub fn login_custom(
+        &self,
+        login_type: String,
+        data: String,
+    ) -> Result<ClientLoginBuilder, ClientError> {
+        let data = Raw::from_json_string(data)?;
+        Ok(ClientLoginBuilder::new(
+            self.inner.matrix_auth().login_custom(&login_type, data.deserialize()?)?,
+        ))
     }
 
     pub async fn get_media_file(
