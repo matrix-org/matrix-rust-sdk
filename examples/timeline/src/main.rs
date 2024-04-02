@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::Parser;
 use futures_util::StreamExt;
-use matrix_sdk::{self, config::SyncSettings, ruma::OwnedRoomId, Client};
+use matrix_sdk::{config::SyncSettings, ruma::OwnedRoomId, Client};
 use matrix_sdk_ui::timeline::RoomExt;
 use url::Url;
 

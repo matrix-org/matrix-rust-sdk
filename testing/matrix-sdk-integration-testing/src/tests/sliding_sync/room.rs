@@ -10,7 +10,6 @@ use futures_util::{pin_mut, FutureExt, StreamExt as _};
 use matrix_sdk::{
     bytes::Bytes,
     config::SyncSettings,
-    reqwest,
     ruma::{
         api::client::{
             receipt::create_receipt::v3::ReceiptType,

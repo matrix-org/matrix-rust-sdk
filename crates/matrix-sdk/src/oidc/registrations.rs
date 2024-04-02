@@ -202,11 +202,8 @@ impl OidcRegistrations {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, default::Default};
-
-    use mas_oidc_client::types::registration::{ClientMetadata, Localized};
+    use mas_oidc_client::types::registration::Localized;
     use tempfile::tempdir;
-    use wiremock::http::Url;
 
     use super::*;
 
