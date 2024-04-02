@@ -19,7 +19,7 @@ use vodozemac::secure_channel;
 
 mod types;
 
-pub use types::{QrCodeData, QrCodeDecodeError, QrCodeModeData, QrCodeMode};
+pub use types::{QrCodeData, QrCodeDecodeError, QrCodeMode, QrCodeModeData};
 
 #[derive(Debug, Error)]
 pub enum SecureChannelError {}

@@ -17,6 +17,7 @@ use std::time::Duration;
 use http::StatusCode;
 use matrix_sdk_base::crypto::qr_login::{QrCodeData, QrCodeMode, QrCodeModeData};
 use ruma::api::client::error::ErrorKind;
+use tracing::debug;
 use url::Url;
 use vodozemac::secure_channel::{
     CheckCode, EstablishedSecureChannel as EstablishedEcies, InitialMessage, Message,
@@ -67,8 +68,9 @@ impl SecureChannel {
         http_client: HttpClient,
         homeserver_url: &Url,
     ) -> Result<Self, Error> {
+        let rendezvous_url = Url::parse("https://synapse-oidc.lab.element.dev").unwrap();
         let mode = QrCodeModeData::Reciprocate { homeserver_url: homeserver_url.clone() };
-        Self::new_helper(http_client, homeserver_url.clone(), mode).await
+        Self::new_helper(http_client, rendezvous_url, mode).await
     }
 
     pub fn qr_code_data(&self) -> &QrCodeData {
@@ -79,13 +81,18 @@ impl SecureChannel {
         loop {
             match self.channel.receive_data().await {
                 Ok(response) => {
+                    debug!(body = ?response.body, "Received data from the rendezvous channel");
+
                     if response.status_code == StatusCode::OK
                         && &response.content_type == TEXT_PLAIN_CONTENT_TYPE
+                        && response.body.len() != 0
                     {
                         return Ok(response.body);
                     }
                 }
                 Err(e) => {
+                    debug!("Error while receiving data from the rendezvous channel {e:?}");
+
                     // If it's a permanent error, return an error, if it's a not changed error,
                     // sleep and try again.
                     //
@@ -153,9 +160,40 @@ impl EstablishedSecureChannel {
             .await?)
     }
 
+    async fn receive_data(&mut self) -> Result<Vec<u8>, Error> {
+        loop {
+            match self.channel.receive_data().await {
+                Ok(response) => {
+                    debug!(body = ?response.body, "Received data from the rendezvous channel");
+
+                    if response.status_code == StatusCode::OK
+                        && &response.content_type == TEXT_PLAIN_CONTENT_TYPE
+                        && response.body.len() != 0
+                    {
+                        return Ok(response.body);
+                    }
+                }
+                Err(e) => {
+                    debug!("Error while receiving data from the rendezvous channel {e:?}");
+
+                    // If it's a permanent error, return an error, if it's a not changed error,
+                    // sleep and try again.
+                    //
+                    if let Some(kind) = e.client_api_error_kind() {
+                        if *kind == ErrorKind::NotFound {
+                            return Err(e.into());
+                        }
+                    }
+                }
+            }
+
+            tokio::time::sleep(RECEIVE_TIMEOUT).await;
+        }
+    }
+
     pub async fn receive(&mut self) -> Result<String, Error> {
-        let response = self.channel.receive_data().await?;
-        let ciphertext = String::from_utf8(response.body).unwrap();
+        let message = self.receive_data().await?;
+        let ciphertext = String::from_utf8(message).unwrap();
         let message = Message::decode(&ciphertext).unwrap();
 
         let decrypted = self.ecies.decrypt(&message).unwrap();
@@ -168,6 +206,7 @@ impl EstablishedSecureChannel {
     }
 
     pub async fn from_qr_code(
+        client: reqwest::Client,
         qr_code_data: &QrCodeData,
         expected_mode: QrCodeMode,
     ) -> Result<Self, Error> {
@@ -175,7 +214,7 @@ impl EstablishedSecureChannel {
             todo!("Same intent, throw error");
         }
 
-        let client = HttpClient::new(reqwest::Client::new(), RequestConfig::short_retry());
+        let client = HttpClient::new(client, RequestConfig::short_retry());
         let ecies = Ecies::new();
         let ecies = ecies.create_outbound_channel(qr_code_data.public_key)?;
 
@@ -266,9 +305,13 @@ mod test {
             .await
             .expect("We should be able to create a QR auth object");
 
-        let bob = EstablishedSecureChannel::from_qr_code(alice.qr_code_data(), QrCodeMode::Login)
-            .await
-            .expect("We should be able to create a Qr auth object from QR code data");
+        let bob = EstablishedSecureChannel::from_qr_code(
+            reqwest::Client::new(),
+            alice.qr_code_data(),
+            QrCodeMode::Login,
+        )
+        .await
+        .expect("We should be able to create a Qr auth object from QR code data");
 
         assert_eq!(bob.channel.rendezvous_server(), &homeserver);
     }

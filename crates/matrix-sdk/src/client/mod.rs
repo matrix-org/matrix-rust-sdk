@@ -73,7 +73,10 @@ use self::futures::SendRequest;
 #[cfg(feature = "experimental-oidc")]
 use crate::oidc::Oidc;
 use crate::{
-    authentication::{AuthCtx, AuthData, ReloadSessionCallback, SaveSessionCallback},
+    authentication::{
+        qrcode::secure_channel::SecureChannel, AuthCtx, AuthData, ReloadSessionCallback,
+        SaveSessionCallback,
+    },
     config::RequestConfig,
     deduplicating_handler::DeduplicatingHandler,
     error::{HttpError, HttpResult},
@@ -566,6 +569,13 @@ impl Client {
     #[cfg(feature = "experimental-oidc")]
     pub fn oidc(&self) -> Oidc {
         Oidc::new(self.clone())
+    }
+
+    pub async fn qr_code_foo(&self) -> Result<SecureChannel> {
+        let http_client = self.inner.http_client.clone();
+        let homeserver_url = self.inner.homeserver.read().unwrap().clone();
+
+        Ok(SecureChannel::reciprocate(http_client, &homeserver_url).await.unwrap())
     }
 
     /// Register a handler for a specific event type.
