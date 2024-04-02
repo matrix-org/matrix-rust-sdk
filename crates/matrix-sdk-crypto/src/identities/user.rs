@@ -699,10 +699,10 @@ impl ReadOnlyOwnUserIdentity {
     }
 }
 
+/// Testing Facilities
 #[cfg(any(test, feature = "testing"))]
+#[allow(dead_code)]
 pub(crate) mod testing {
-    //! Testing Facilities
-    #![allow(dead_code)]
     use ruma::{api::client::keys::get_keys::v3::Response as KeyQueryResponse, user_id};
 
     use super::{ReadOnlyOwnUserIdentity, ReadOnlyUserIdentity};
