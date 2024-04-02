@@ -41,3 +41,6 @@ matrix-sdk-test = { workspace = true }
 once_cell = { workspace = true }
 tempfile = "3.3.0"
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+
+[lints]
+workspace = true

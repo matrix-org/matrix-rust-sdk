@@ -72,3 +72,6 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test = "0.3.33"
+
+[lints]
+workspace = true

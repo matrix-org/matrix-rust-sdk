@@ -63,3 +63,6 @@ matrix-sdk-test = { workspace = true }
 stream_assert = { workspace = true }
 tempfile = "3.3.0"
 wiremock = { workspace = true }
+
+[lints]
+workspace = true
