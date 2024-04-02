@@ -811,9 +811,9 @@ mod tests {
         assert_eq!(client_room.state(), RoomState::Joined);
 
         // And it is added to the list of joined rooms only.
-        assert!(sync_resp.rooms.join.get(room_id).is_some());
-        assert!(sync_resp.rooms.leave.get(room_id).is_none());
-        assert!(sync_resp.rooms.invite.get(room_id).is_none());
+        assert!(sync_resp.rooms.join.contains_key(room_id));
+        assert!(!sync_resp.rooms.leave.contains_key(room_id));
+        assert!(!sync_resp.rooms.invite.contains_key(room_id));
     }
 
     #[async_test]
@@ -835,9 +835,9 @@ mod tests {
         assert_eq!(client_room.state(), RoomState::Joined);
 
         // And it is added to the list of joined rooms only.
-        assert!(sync_resp.rooms.join.get(room_id).is_some());
-        assert!(sync_resp.rooms.leave.get(room_id).is_none());
-        assert!(sync_resp.rooms.invite.get(room_id).is_none());
+        assert!(sync_resp.rooms.join.contains_key(room_id));
+        assert!(!sync_resp.rooms.leave.contains_key(room_id));
+        assert!(!sync_resp.rooms.invite.contains_key(room_id));
     }
 
     #[async_test]
@@ -861,9 +861,9 @@ mod tests {
         assert_eq!(client_room.state(), RoomState::Invited);
 
         // And it is added to the list of invited rooms only.
-        assert!(sync_resp.rooms.join.get(room_id).is_none());
-        assert!(sync_resp.rooms.leave.get(room_id).is_none());
-        assert!(sync_resp.rooms.invite.get(room_id).is_some());
+        assert!(!sync_resp.rooms.join.contains_key(room_id));
+        assert!(!sync_resp.rooms.leave.contains_key(room_id));
+        assert!(sync_resp.rooms.invite.contains_key(room_id));
     }
 
     #[async_test]
@@ -890,10 +890,10 @@ mod tests {
         // The room is left.
         assert_eq!(client.get_room(room_id).unwrap().state(), RoomState::Left);
 
-        // And it is added to the list of invited rooms only.
-        assert!(sync_resp.rooms.join.get(room_id).is_none());
-        assert!(sync_resp.rooms.leave.get(room_id).is_some());
-        assert!(sync_resp.rooms.invite.get(room_id).is_none());
+        // And it is added to the list of left rooms only.
+        assert!(!sync_resp.rooms.join.contains_key(room_id));
+        assert!(sync_resp.rooms.leave.contains_key(room_id));
+        assert!(!sync_resp.rooms.invite.contains_key(room_id));
     }
 
     #[async_test]
@@ -1173,7 +1173,7 @@ mod tests {
 
         // And it is added to the list of invited rooms, not the joined ones
         assert!(!sync_resp.rooms.invite[room_id].invite_state.is_empty());
-        assert!(sync_resp.rooms.join.get(room_id).is_none());
+        assert!(!sync_resp.rooms.join.contains_key(room_id));
     }
 
     #[async_test]
