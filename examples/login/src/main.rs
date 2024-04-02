@@ -6,7 +6,6 @@ use std::{
 
 use anyhow::anyhow;
 use matrix_sdk::{
-    self,
     config::SyncSettings,
     ruma::{
         api::client::session::get_login_types::v3::{IdentityProvider, LoginType},

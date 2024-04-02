@@ -1,7 +1,6 @@
 use std::{env, fs, process::exit};
 
 use matrix_sdk::{
-    self,
     attachment::AttachmentConfig,
     config::SyncSettings,
     ruma::events::room::message::{MessageType, OriginalSyncRoomMessageEvent},
