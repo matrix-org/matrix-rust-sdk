@@ -38,7 +38,7 @@ use ruma::{
         ignored_user_list::IgnoredUserListEvent,
         push_rules::{PushRulesEvent, PushRulesEventContent},
         room::{
-            member::{MembershipState, SyncRoomMemberEvent},
+            member::{MembershipState, RoomMemberEventContent, SyncRoomMemberEvent},
             power_levels::{
                 RoomPowerLevelsEvent, RoomPowerLevelsEventContent, StrippedRoomPowerLevelsEvent,
             },
@@ -46,6 +46,7 @@ use ruma::{
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
         AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent, AnySyncStateEvent,
         AnySyncTimelineEvent, GlobalAccountDataEventType, StateEvent, StateEventType,
+        SyncStateEvent,
     },
     push::{Action, PushConditionRoomCtx, Ruleset},
     serde::Raw,
@@ -327,27 +328,11 @@ impl BaseClient {
                                         }
                                     }
 
-                                    // Senders can fake the profile easily so we keep track
-                                    // of profiles that the member set themselves to avoid
-                                    // having confusing profile changes when a member gets
-                                    // kicked/banned.
-                                    if member.state_key() == member.sender() {
-                                        changes
-                                            .profiles
-                                            .entry(room.room_id().to_owned())
-                                            .or_default()
-                                            .insert(member.sender().to_owned(), member.into());
-                                    }
-
-                                    if *member.membership() == MembershipState::Invite {
-                                        // Remove any profile previously stored for the invited
-                                        // user.
-                                        changes
-                                            .profiles_to_delete
-                                            .entry(room.room_id().to_owned())
-                                            .or_default()
-                                            .push(member.state_key().clone());
-                                    }
+                                    handle_room_member_event_for_profiles(
+                                        room.room_id(),
+                                        member,
+                                        changes,
+                                    );
                                 }
                                 _ => {
                                     room_info.handle_state_event(s);
@@ -511,8 +496,6 @@ impl BaseClient {
     ) -> StoreResult<BTreeSet<OwnedUserId>> {
         let mut state_events = BTreeMap::new();
         let mut user_ids = BTreeSet::new();
-        let mut profiles = BTreeMap::new();
-        let mut profiles_to_delete = Vec::new();
 
         assert_eq!(raw_events.len(), events.len());
 
@@ -529,18 +512,7 @@ impl BaseClient {
                     _ => (),
                 }
 
-                // Senders can fake the profile easily so we keep track
-                // of profiles that the member set themselves to avoid
-                // having confusing profile changes when a member gets
-                // kicked/banned.
-                if member.state_key() == member.sender() {
-                    profiles.insert(member.sender().to_owned(), member.into());
-                }
-
-                if *member.membership() == MembershipState::Invite {
-                    // Remove any profile previously stored for the invited user.
-                    profiles_to_delete.push(member.state_key().clone());
-                }
+                handle_room_member_event_for_profiles(&room_info.room_id, member, changes);
             }
 
             state_events
@@ -549,10 +521,7 @@ impl BaseClient {
                 .insert(event.state_key().to_owned(), raw_event.clone());
         }
 
-        let room_id = (*room_info.room_id).to_owned();
-        changes.profiles.insert(room_id.clone(), profiles);
-        changes.profiles_to_delete.insert(room_id.clone(), profiles_to_delete);
-        changes.state.insert(room_id, state_events);
+        changes.state.insert((*room_info.room_id).to_owned(), state_events);
 
         Ok(user_ids)
     }
@@ -1188,26 +1157,7 @@ impl BaseClient {
             }
 
             let sync_member: SyncRoomMemberEvent = member.clone().into();
-
-            // Senders can fake the profile easily so we keep track of profiles that the
-            // member set themselves to avoid having confusing profile changes
-            // when a member gets kicked/banned.
-            if member.state_key() == member.sender() {
-                changes
-                    .profiles
-                    .entry(room_id.to_owned())
-                    .or_default()
-                    .insert(member.sender().to_owned(), sync_member.into());
-            }
-
-            if *member.membership() == MembershipState::Invite {
-                // Remove any profile previously stored for the invited user.
-                changes
-                    .profiles_to_delete
-                    .entry(room_id.to_owned())
-                    .or_default()
-                    .push(member.state_key().clone());
-            }
+            handle_room_member_event_for_profiles(room_id, &sync_member, &mut changes);
 
             changes
                 .state
@@ -1502,6 +1452,37 @@ impl BaseClient {
 impl Default for BaseClient {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+fn handle_room_member_event_for_profiles(
+    room_id: &RoomId,
+    event: &SyncStateEvent<RoomMemberEventContent>,
+    changes: &mut StateChanges,
+) {
+    // Senders can fake the profile easily so we keep track of profiles that the
+    // member set themselves to avoid having confusing profile changes when a
+    // member gets kicked/banned.
+    if event.state_key() == event.sender() {
+        changes
+            .profiles
+            .entry(room_id.to_owned())
+            .or_default()
+            .insert(event.sender().to_owned(), event.into());
+    }
+
+    if *event.membership() == MembershipState::Invite {
+        // Remove any profile previously stored for the invited user.
+        //
+        // A room member could have joined the room and left it later; in that case, the
+        // server may return a dummy, empty profile along the `leave` event. We
+        // don't want to reuse that empty profile when the member has been
+        // re-invited, so we remove it from the database.
+        changes
+            .profiles_to_delete
+            .entry(room_id.to_owned())
+            .or_default()
+            .push(event.state_key().clone());
     }
 }
 
