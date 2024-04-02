@@ -1289,7 +1289,7 @@ mod tests {
 
         assert!(request.txn_id.is_some());
         assert_eq!(request.room_subscriptions.len(), 1);
-        assert!(request.room_subscriptions.get(r0).is_some());
+        assert!(request.room_subscriptions.contains_key(r0));
 
         let tid = request.txn_id.unwrap();
 
