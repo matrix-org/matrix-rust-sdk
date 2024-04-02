@@ -977,10 +977,10 @@ impl PartialEq for ReadOnlyDevice {
     }
 }
 
+/// Testing Facilities for Device Management
 #[cfg(any(test, feature = "testing"))]
+#[allow(dead_code)]
 pub(crate) mod testing {
-    //! Testing Facilities for Device Management
-    #![allow(dead_code)]
     use serde_json::json;
 
     use crate::{identities::ReadOnlyDevice, types::DeviceKeys};

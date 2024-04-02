@@ -2179,8 +2179,8 @@ pub struct EncryptionSyncChanges<'a> {
 }
 
 #[cfg(any(feature = "testing", test))]
+#[allow(dead_code)]
 pub(crate) mod testing {
-    #![allow(dead_code)]
     use http::Response;
 
     pub fn response_from_file(json: &serde_json::Value) -> Response<Vec<u8>> {
