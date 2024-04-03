@@ -216,7 +216,7 @@ impl HomeserverLoginDetails {
     }
 }
 
-#[uniffi::export]
+#[uniffi::export(async_runtime = "tokio")]
 impl AuthenticationService {
     /// Creates a new service to authenticate a user with.
     #[uniffi::constructor]

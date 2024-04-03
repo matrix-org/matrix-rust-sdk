@@ -78,7 +78,7 @@ pub struct ClientBuilder {
     additional_root_certificates: Vec<Vec<u8>>,
 }
 
-#[uniffi::export]
+#[uniffi::export(async_runtime = "tokio")]
 impl ClientBuilder {
     #[uniffi::constructor]
     pub fn new() -> Arc<Self> {
