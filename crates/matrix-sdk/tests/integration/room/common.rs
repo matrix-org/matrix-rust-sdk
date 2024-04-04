@@ -181,7 +181,7 @@ async fn room_route() {
     let mut ev_builder = SyncResponseBuilder::new();
     let room_id = &*DEFAULT_TEST_ROOM_ID;
 
-    // Without elligible server
+    // Without eligible server
     ev_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
             .add_timeline_event(sync_timeline_event!({
@@ -214,7 +214,7 @@ async fn room_route() {
     let route = room.route().await.unwrap();
     assert_eq!(route.len(), 0);
 
-    // With a single elligible server
+    // With a single eligible server
     let mut batch = 0;
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_state_bulk(
         bulk_room_members(batch, 0..1, "localhost", &MembershipState::Join),
@@ -227,7 +227,7 @@ async fn room_route() {
     assert_eq!(route.len(), 1);
     assert_eq!(route[0], "localhost");
 
-    // With two elligible servers
+    // With two eligible servers
     batch += 1;
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_state_bulk(
         bulk_room_members(batch, 0..15, "notarealhs", &MembershipState::Join),
@@ -241,7 +241,7 @@ async fn room_route() {
     assert_eq!(route[0], "notarealhs");
     assert_eq!(route[1], "localhost");
 
-    // With three elligible servers
+    // With three eligible servers
     batch += 1;
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_state_bulk(
         bulk_room_members(batch, 0..5, "mymatrix", &MembershipState::Join),
@@ -256,7 +256,7 @@ async fn room_route() {
     assert_eq!(route[1], "mymatrix");
     assert_eq!(route[2], "localhost");
 
-    // With four elligible servers
+    // With four eligible servers
     batch += 1;
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_state_bulk(
         bulk_room_members(batch, 0..10, "yourmatrix", &MembershipState::Join),
