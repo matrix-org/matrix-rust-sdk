@@ -243,24 +243,22 @@ impl Client {
 #[uniffi::export(async_runtime = "tokio")]
 impl Client {
     /// Login using a username and password.
-    pub fn login(
+    pub async fn login(
         &self,
         username: String,
         password: String,
         initial_device_name: Option<String>,
         device_id: Option<String>,
     ) -> Result<(), ClientError> {
-        RUNTIME.block_on(async move {
-            let mut builder = self.inner.matrix_auth().login_username(&username, &password);
-            if let Some(initial_device_name) = initial_device_name.as_ref() {
-                builder = builder.initial_device_display_name(initial_device_name);
-            }
-            if let Some(device_id) = device_id.as_ref() {
-                builder = builder.device_id(device_id);
-            }
-            builder.send().await?;
-            Ok(())
-        })
+        let mut builder = self.inner.matrix_auth().login_username(&username, &password);
+        if let Some(initial_device_name) = initial_device_name.as_ref() {
+            builder = builder.initial_device_display_name(initial_device_name);
+        }
+        if let Some(device_id) = device_id.as_ref() {
+            builder = builder.device_id(device_id);
+        }
+        builder.send().await?;
+        Ok(())
     }
 
     pub async fn get_media_file(
@@ -347,9 +345,8 @@ impl Client {
     }
 
     /// Gets information about the owner of a given access token.
-    pub(crate) fn whoami(&self) -> anyhow::Result<whoami::v3::Response> {
-        RUNTIME
-            .block_on(async move { self.inner.whoami().await.map_err(|e| anyhow!(e.to_string())) })
+    pub(crate) async fn whoami(&self) -> anyhow::Result<whoami::v3::Response> {
+        Ok(self.inner.whoami().await?)
     }
 }
 

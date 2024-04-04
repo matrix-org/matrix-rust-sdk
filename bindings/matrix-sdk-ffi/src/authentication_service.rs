@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    sync::{Arc, RwLock},
+    sync::{Arc, RwLock as StdRwLock},
 };
 
 use matrix_sdk::{
@@ -25,10 +25,11 @@ use ruma::{
     },
     OwnedUserId,
 };
+use tokio::sync::RwLock as AsyncRwLock;
 use url::Url;
 use zeroize::Zeroize;
 
-use super::{client::Client, client_builder::ClientBuilder, RUNTIME};
+use super::{client::Client, client_builder::ClientBuilder};
 use crate::{
     client::ClientSessionDelegate,
     client_builder::{CertificateBytes, ClientBuildError},
@@ -40,10 +41,10 @@ pub struct AuthenticationService {
     base_path: String,
     passphrase: Option<String>,
     user_agent: Option<String>,
-    client: RwLock<Option<Client>>,
-    homeserver_details: RwLock<Option<Arc<HomeserverLoginDetails>>>,
+    client: AsyncRwLock<Option<Client>>,
+    homeserver_details: StdRwLock<Option<Arc<HomeserverLoginDetails>>>,
     oidc_configuration: Option<OidcConfiguration>,
-    custom_sliding_sync_proxy: RwLock<Option<String>>,
+    custom_sliding_sync_proxy: StdRwLock<Option<String>>,
     cross_process_refresh_lock_id: Option<String>,
     session_delegate: Option<Arc<dyn ClientSessionDelegate>>,
     additional_root_certificates: Vec<CertificateBytes>,
@@ -216,7 +217,7 @@ impl HomeserverLoginDetails {
     }
 }
 
-#[uniffi::export]
+#[uniffi::export(async_runtime = "tokio")]
 impl AuthenticationService {
     /// Creates a new service to authenticate a user with.
     #[uniffi::constructor]
@@ -239,10 +240,10 @@ impl AuthenticationService {
             base_path,
             passphrase,
             user_agent,
-            client: RwLock::new(None),
-            homeserver_details: RwLock::new(None),
+            client: AsyncRwLock::new(None),
+            homeserver_details: StdRwLock::new(None),
             oidc_configuration,
-            custom_sliding_sync_proxy: RwLock::new(custom_sliding_sync_proxy),
+            custom_sliding_sync_proxy: StdRwLock::new(custom_sliding_sync_proxy),
             session_delegate: session_delegate.map(Into::into),
             cross_process_refresh_lock_id,
             additional_root_certificates,
@@ -256,15 +257,15 @@ impl AuthenticationService {
 
     /// Updates the service to authenticate with the homeserver for the
     /// specified address.
-    pub fn configure_homeserver(
+    pub async fn configure_homeserver(
         &self,
         server_name_or_homeserver_url: String,
     ) -> Result<(), AuthenticationError> {
         let mut builder = self.new_client_builder();
         builder = builder.server_name_or_homeserver_url(server_name_or_homeserver_url);
 
-        let client = builder.build_inner()?;
-        let details = RUNTIME.block_on(self.details_from_client(&client))?;
+        let client = builder.build_inner().await?;
+        let details = self.details_from_client(&client).await?;
 
         // Make sure there's a sliding sync proxy available.
         if self.custom_sliding_sync_proxy.read().unwrap().is_none()
@@ -273,43 +274,47 @@ impl AuthenticationService {
             return Err(AuthenticationError::SlidingSyncNotAvailable);
         }
 
-        *self.client.write().unwrap() = Some(client);
+        *self.client.write().await = Some(client);
         *self.homeserver_details.write().unwrap() = Some(Arc::new(details));
 
         Ok(())
     }
 
     /// Performs a password login using the current homeserver.
-    pub fn login(
+    pub async fn login(
         &self,
         username: String,
         password: String,
         initial_device_name: Option<String>,
         device_id: Option<String>,
     ) -> Result<Arc<Client>, AuthenticationError> {
-        let client_guard = self.client.read().unwrap();
+        let client_guard = self.client.read().await;
         let Some(client) = client_guard.as_ref() else {
             return Err(AuthenticationError::ClientMissing);
         };
 
         // Login and ask the server for the full user ID as this could be different from
         // the username that was entered.
-        client.login(username, password, initial_device_name, device_id).map_err(|e| match e {
-            ClientError::Generic { msg } => AuthenticationError::Generic { message: msg },
-        })?;
-        let whoami = client.whoami()?;
+        client.login(username, password, initial_device_name, device_id).await.map_err(
+            |e| match e {
+                ClientError::Generic { msg } => AuthenticationError::Generic { message: msg },
+            },
+        )?;
+        let whoami = client.whoami().await?;
         let session =
             client.inner.matrix_auth().session().ok_or(AuthenticationError::SessionMissing)?;
 
         drop(client_guard);
-        self.finalize_client(session, whoami.user_id)
+        self.finalize_client(session, whoami.user_id).await
     }
 
     /// Requests the URL needed for login in a web view using OIDC. Once the web
     /// view has succeeded, call `login_with_oidc_callback` with the callback it
     /// returns.
-    pub fn url_for_oidc_login(&self) -> Result<Arc<OidcAuthenticationData>, AuthenticationError> {
-        let client_guard = self.client.read().unwrap();
+    pub async fn url_for_oidc_login(
+        &self,
+    ) -> Result<Arc<OidcAuthenticationData>, AuthenticationError> {
+        let client_guard = self.client.read().await;
         let Some(client) = client_guard.as_ref() else {
             return Err(AuthenticationError::ClientMissing);
         };
@@ -327,25 +332,23 @@ impl AuthenticationService {
 
         let oidc = client.inner.oidc();
 
-        RUNTIME.block_on(async {
-            self.configure_oidc(&oidc, authentication_server, oidc_configuration).await?;
+        self.configure_oidc(&oidc, authentication_server, oidc_configuration).await?;
 
-            let mut data_builder = oidc.login(redirect_url, None)?;
-            // TODO: Add a check for the Consent prompt when MAS is updated.
-            data_builder = data_builder.prompt(vec![Prompt::Consent]);
-            let data = data_builder.build().await?;
+        let mut data_builder = oidc.login(redirect_url, None)?;
+        // TODO: Add a check for the Consent prompt when MAS is updated.
+        data_builder = data_builder.prompt(vec![Prompt::Consent]);
+        let data = data_builder.build().await?;
 
-            Ok(Arc::new(OidcAuthenticationData { url: data.url, state: data.state }))
-        })
+        Ok(Arc::new(OidcAuthenticationData { url: data.url, state: data.state }))
     }
 
     /// Completes the OIDC login process.
-    pub fn login_with_oidc_callback(
+    pub async fn login_with_oidc_callback(
         &self,
         authentication_data: Arc<OidcAuthenticationData>,
         callback_url: String,
     ) -> Result<Arc<Client>, AuthenticationError> {
-        let client_guard = self.client.read().unwrap();
+        let client_guard = self.client.read().await;
         let Some(client) = client_guard.as_ref() else {
             return Err(AuthenticationError::ClientMissing);
         };
@@ -375,20 +378,18 @@ impl AuthenticationService {
             return Err(AuthenticationError::OidcCallbackUrlInvalid);
         };
 
-        RUNTIME.block_on(async move {
-            oidc.finish_authorization(code).await?;
+        oidc.finish_authorization(code).await?;
 
-            oidc.finish_login()
-                .await
-                .map_err(|e| AuthenticationError::OidcError { message: e.to_string() })
-        })?;
+        oidc.finish_login()
+            .await
+            .map_err(|e| AuthenticationError::OidcError { message: e.to_string() })?;
 
         let user_id = client.inner.user_id().unwrap().to_owned();
         let session =
             client.inner.oidc().full_session().ok_or(AuthenticationError::SessionMissing)?;
 
         drop(client_guard);
-        self.finalize_client(session, user_id)
+        self.finalize_client(session, user_id).await
     }
 }
 
@@ -585,7 +586,7 @@ impl AuthenticationService {
     }
 
     /// Creates a new client to setup the store path now the user ID is known.
-    fn finalize_client(
+    async fn finalize_client(
         &self,
         session: impl Into<AuthSession>,
         user_id: OwnedUserId,
@@ -593,7 +594,7 @@ impl AuthenticationService {
         // Take ownership of the client. This means that further attempts to
         // `finalize_client` may fail, but we want to make sure that there
         // aren't two clients at any point later.
-        let Some(client) = self.client.write().unwrap().take() else {
+        let Some(client) = self.client.write().await.take() else {
             return Err(AuthenticationError::ClientMissing);
         };
 
@@ -607,7 +608,7 @@ impl AuthenticationService {
             .or_else(|| client.sliding_sync_proxy().map(|url| url.to_string()));
 
         // Wait for the parent client to finish running its initialization tasks.
-        RUNTIME.block_on(client.inner.encryption().wait_for_e2ee_initialization_tasks());
+        client.inner.encryption().wait_for_e2ee_initialization_tasks().await;
 
         // Drop the parent client. Both clients shouldn't be alive at the same time, or
         // it may cause issues (when trying to initialize encryption-related tasks at
@@ -644,7 +645,7 @@ impl AuthenticationService {
             client = client.set_session_delegate_inner(session_delegate.clone());
         }
 
-        let client = client.build_inner()?;
+        let client = client.build_inner().await?;
 
         // Restore the client using the session from the login request.
         client.restore_session_inner(session)?;

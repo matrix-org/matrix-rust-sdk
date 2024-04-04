@@ -14,7 +14,7 @@ use sanitize_filename_reader_friendly::sanitize;
 use url::Url;
 use zeroize::Zeroizing;
 
-use super::{client::Client, RUNTIME};
+use super::client::Client;
 use crate::{client::ClientSessionDelegate, error::ClientError, helpers::unwrap_or_clone_arc};
 
 /// A list of bytes containing a certificate in DER or PEM form.
@@ -78,7 +78,7 @@ pub struct ClientBuilder {
     additional_root_certificates: Vec<Vec<u8>>,
 }
 
-#[uniffi::export]
+#[uniffi::export(async_runtime = "tokio")]
 impl ClientBuilder {
     #[uniffi::constructor]
     pub fn new() -> Arc<Self> {
@@ -203,8 +203,8 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
-    pub fn build(self: Arc<Self>) -> Result<Arc<Client>, ClientBuildError> {
-        Ok(Arc::new(self.build_inner()?))
+    pub async fn build(self: Arc<Self>) -> Result<Arc<Client>, ClientBuildError> {
+        Ok(Arc::new(self.build_inner().await?))
     }
 }
 
@@ -238,7 +238,7 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
-    pub(crate) fn build_inner(self: Arc<Self>) -> Result<Client, ClientBuildError> {
+    pub(crate) async fn build_inner(self: Arc<Self>) -> Result<Client, ClientBuildError> {
         let builder = unwrap_or_clone_arc(self);
         let mut inner_builder = builder.inner;
 
@@ -316,7 +316,7 @@ impl ClientBuilder {
             );
         }
 
-        let sdk_client = RUNTIME.block_on(async move { inner_builder.build().await })?;
+        let sdk_client = inner_builder.build().await?;
 
         // At this point, `sdk_client` might contain a `sliding_sync_proxy` that has
         // been configured by the homeserver (if it's a `ServerName` and the
