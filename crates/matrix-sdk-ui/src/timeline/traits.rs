@@ -25,7 +25,7 @@ use ruma::{
 };
 #[cfg(feature = "e2e-encryption")]
 use ruma::{events::AnySyncTimelineEvent, serde::Raw};
-use tracing::{debug, error, warn};
+use tracing::{debug, error};
 
 use super::{Profile, TimelineBuilder};
 use crate::timeline::Timeline;
@@ -91,10 +91,7 @@ impl RoomDataProvider for Room {
     }
 
     fn room_version(&self) -> RoomVersionId {
-        (**self).clone_info().room_version().cloned().unwrap_or_else(|| {
-            warn!("Unknown room version, falling back to v10");
-            RoomVersionId::V10
-        })
+        (**self).clone_info().room_version_or_default()
     }
 
     async fn profile_from_user_id(&self, user_id: &UserId) -> Option<Profile> {
