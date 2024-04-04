@@ -375,38 +375,42 @@ macro_rules! cryptostore_integration_tests {
 
             #[async_test]
             async fn reset_inbound_group_session_for_backup() {
+                // Given a store exists where all sessions are backed up to backup_1
                 let (account, store) =
                     get_loaded_store("reset_inbound_group_session_for_backup").await;
-                assert_eq!(store.inbound_group_session_counts(None).await.unwrap().total, 0);
-
                 let room_id = &room_id!("!test:localhost");
-                let (_, session) = account.create_group_session_pair_with_defaults(room_id).await;
-
-                let changes =
-                    Changes { inbound_group_sessions: vec![session.clone()], ..Default::default() };
-
+                let mut sessions: Vec<InboundGroupSession> = Vec::with_capacity(10);
+                for _ in 0..10 {
+                    sessions.push(account.create_group_session_pair_with_defaults(room_id).await.1);
+                }
+                let changes = Changes { inbound_group_sessions: sessions.clone(), ..Default::default() };
                 store.save_changes(changes).await.expect("Can't save group session");
+                assert_eq!(store.inbound_group_sessions_for_backup("backup_1", 100).await.unwrap().len(), 10);
+                store.mark_inbound_group_sessions_as_backed_up(
+                    "backup_1",
+                    &(0..10).map(|i| session_info(&sessions[i])).collect::<Vec<_>>(),
+                ).await.expect("Failed to mark sessions as backed up");
 
-                // Given we have backed up our session
-                store
-                    .mark_inbound_group_sessions_as_backed_up("bkpver1", &[session_info(&session)])
-                    .await
-                    .expect("Failed to mark_inbound_group_sessions_as_backed_up.");
+                // Sanity: none need backing up to the same backup
+                {
+                    let to_back_up_old = store.inbound_group_sessions_for_backup("backup_1", 10).await.unwrap();
+                    assert_eq!(to_back_up_old.len(), 0);
+                }
 
-                assert_eq!(store.inbound_group_session_counts(Some("bkpver1")).await.unwrap().total, 1);
-                assert_eq!(store.inbound_group_session_counts(Some("bkpver1")).await.unwrap().backed_up, 1);
+                // Some stores ignore backup_version and just reset when you tell them to. Tell
+                // them here.
+                store.reset_backup_state().await.expect("reset failed");
 
-                // Sanity: before resetting, we have nothing to back up
-                let to_back_up = store.inbound_group_sessions_for_backup("bkpver1", 1).await.unwrap();
-                assert_eq!(to_back_up, vec![]);
+                // When we ask what needs backing up to a different backup version
+                let to_back_up = store.inbound_group_sessions_for_backup("backup_02", 10).await.unwrap();
 
-                // When we reset the backup
-                store.reset_backup_state().await.unwrap();
-
-                // Then after resetting, even if we supply the same backup version number, we need
-                // to back up the session
-                let to_back_up = store.inbound_group_sessions_for_backup("bkpver1", 1).await.unwrap();
-                assert_eq!(to_back_up, vec![session]);
+                // Then the answer is everything
+                let needs_backing_up = |i: usize| to_back_up.iter().any(|s| s.session_id() == sessions[i].session_id());
+                assert!(needs_backing_up(0));
+                assert!(needs_backing_up(1));
+                assert!(needs_backing_up(8));
+                assert!(needs_backing_up(9));
+                assert_eq!(to_back_up.len(), 10);
             }
 
             #[async_test]
