@@ -44,7 +44,7 @@ pub enum DecodeError {
     /// The recovery key has an invalid length.
     #[error("The decoded recovery key has a invalid length: expected {0}, got {1}")]
     Length(usize, usize),
-    /// The recovry key isn't valid base58.
+    /// The recovery key isn't valid base58.
     #[error(transparent)]
     Base58(#[from] bs58::decode::Error),
     /// The  recovery key isn't valid base64.
