@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    sync::{Arc, RwLock},
+    sync::{Arc, RwLock as StdRwLock},
 };
 
 use matrix_sdk::{
@@ -25,6 +25,7 @@ use ruma::{
     },
     OwnedUserId,
 };
+use tokio::sync::RwLock as AsyncRwLock;
 use url::Url;
 use zeroize::Zeroize;
 
@@ -40,10 +41,10 @@ pub struct AuthenticationService {
     base_path: String,
     passphrase: Option<String>,
     user_agent: Option<String>,
-    client: tokio::sync::RwLock<Option<Client>>,
-    homeserver_details: RwLock<Option<Arc<HomeserverLoginDetails>>>,
+    client: AsyncRwLock<Option<Client>>,
+    homeserver_details: StdRwLock<Option<Arc<HomeserverLoginDetails>>>,
     oidc_configuration: Option<OidcConfiguration>,
-    custom_sliding_sync_proxy: RwLock<Option<String>>,
+    custom_sliding_sync_proxy: StdRwLock<Option<String>>,
     cross_process_refresh_lock_id: Option<String>,
     session_delegate: Option<Arc<dyn ClientSessionDelegate>>,
     additional_root_certificates: Vec<CertificateBytes>,
@@ -239,10 +240,10 @@ impl AuthenticationService {
             base_path,
             passphrase,
             user_agent,
-            client: tokio::sync::RwLock::new(None),
-            homeserver_details: RwLock::new(None),
+            client: AsyncRwLock::new(None),
+            homeserver_details: StdRwLock::new(None),
             oidc_configuration,
-            custom_sliding_sync_proxy: RwLock::new(custom_sliding_sync_proxy),
+            custom_sliding_sync_proxy: StdRwLock::new(custom_sliding_sync_proxy),
             session_delegate: session_delegate.map(Into::into),
             cross_process_refresh_lock_id,
             additional_root_certificates,
