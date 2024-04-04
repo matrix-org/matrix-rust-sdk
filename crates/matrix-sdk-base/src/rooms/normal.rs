@@ -17,7 +17,7 @@ use std::sync::RwLock as SyncRwLock;
 use std::{
     collections::{BTreeMap, HashSet},
     mem,
-    sync::Arc,
+    sync::{atomic::AtomicBool, Arc},
 };
 
 use bitflags::bitflags;
@@ -835,6 +835,12 @@ pub struct RoomInfo {
     /// Base room info which holds some basic event contents important for the
     /// room state.
     pub(crate) base_info: Box<BaseRoomInfo>,
+
+    /// Did we already warn about an unknown room version in
+    /// [`RoomInfo::room_version_or_default`]? This is done to avoid
+    /// spamming about unknown room versions in the log for the same room.
+    #[serde(skip)]
+    pub(crate) warned_about_unknown_room_version: Arc<AtomicBool>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -870,6 +876,7 @@ impl RoomInfo {
             latest_event: None,
             read_receipts: Default::default(),
             base_info: Box::new(BaseRoomInfo::new()),
+            warned_about_unknown_room_version: Arc::new(false.into()),
         }
     }
 
@@ -1093,6 +1100,26 @@ impl RoomInfo {
     /// Get the room version of this room.
     pub fn room_version(&self) -> Option<&RoomVersionId> {
         self.base_info.room_version()
+    }
+
+    /// Get the room version of this room, or a sensible default.
+    ///
+    /// Will warn (at most once) if the room creation event is missing from this
+    /// [`RoomInfo`].
+    pub fn room_version_or_default(&self) -> RoomVersionId {
+        use std::sync::atomic::Ordering;
+
+        self.base_info.room_version().cloned().unwrap_or_else(|| {
+            if self
+                .warned_about_unknown_room_version
+                .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
+                .is_ok()
+            {
+                warn!("Unknown room version, falling back to v10");
+            }
+
+            RoomVersionId::V10
+        })
     }
 
     /// Get the room type of this room.
@@ -1368,6 +1395,7 @@ mod tests {
             ))),
             base_info: Box::new(BaseRoomInfo::new()),
             read_receipts: Default::default(),
+            warned_about_unknown_room_version: Arc::new(false.into()),
         };
 
         let info_json = json!({

@@ -14,7 +14,10 @@
 
 //! Data migration helpers for StateStore implementations.
 
-use std::collections::{BTreeMap, HashSet};
+use std::{
+    collections::{BTreeMap, HashSet},
+    sync::Arc,
+};
 
 #[cfg(feature = "experimental-sliding-sync")]
 use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
@@ -120,6 +123,7 @@ impl RoomInfoV1 {
             latest_event: latest_event.map(|ev| Box::new(LatestEvent::new(ev))),
             read_receipts: Default::default(),
             base_info: base_info.migrate(create),
+            warned_about_unknown_room_version: Arc::new(false.into()),
         }
     }
 }
