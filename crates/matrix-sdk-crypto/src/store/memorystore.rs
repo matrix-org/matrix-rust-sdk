@@ -69,6 +69,10 @@ pub struct MemoryStore {
     backup_keys: RwLock<BackupKeys>,
     next_batch_token: RwLock<Option<String>>,
     room_settings: StdRwLock<HashMap<OwnedRoomId, RoomSettings>>,
+
+    /// Mapping from the backup version as supplied by the server to an order
+    /// number, so we know which backup is the latest.
+    backup_versions: StdRwLock<HashMap<String, u64>>,
 }
 
 impl Default for MemoryStore {
@@ -92,6 +96,7 @@ impl Default for MemoryStore {
             secret_inbox: Default::default(),
             next_batch_token: Default::default(),
             room_settings: Default::default(),
+            backup_versions: Default::default(),
         }
     }
 }
