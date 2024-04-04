@@ -197,11 +197,13 @@ impl TimelineBuilder {
                             // we should replace this with a simple `add_events_at`.
                             inner.handle_sync_events(events, ephemeral).await;
 
-                            let member_ambiguity_changes = ambiguity_changes
-                                .values()
-                                .flat_map(|change| change.user_ids())
-                                .collect::<BTreeSet<_>>();
-                            inner.force_update_sender_profiles(&member_ambiguity_changes).await;
+                            if !ambiguity_changes.is_empty() {
+                                let member_ambiguity_changes = ambiguity_changes
+                                    .values()
+                                    .flat_map(|change| change.user_ids())
+                                    .collect::<BTreeSet<_>>();
+                                inner.force_update_sender_profiles(&member_ambiguity_changes).await;
+                            }
                         }
                     }
                 }
