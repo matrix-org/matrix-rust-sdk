@@ -720,45 +720,44 @@ impl RoomEventCacheInner {
             // TODO: implement smarter reconciliation later
             //let _ = self.sender.send(RoomEventCacheUpdate::Prepend { events });
 
-            Ok(BackPaginationOutcome::Success { events, reached_start })
-        } else {
-            // There is no `token`/gap identifier. Let's assume we must prepend the new
-            // events.
-            let first_item_position =
-                room_events.events().next().map(|(item_position, _)| item_position);
+            return Ok(BackPaginationOutcome::Success { events, reached_start });
+        }
 
-            match first_item_position {
-                // Is there a first item? Insert at this position.
-                Some(first_item_position) => {
-                    if let Some(prev_token_gap) = prev_token {
-                        room_events
-                            .insert_gap_at(prev_token_gap, first_item_position)
-                            // SAFETY: The `first_item_position` can only be an `Item` chunk, it's
+        // There is no `token`/gap identifier. Let's assume we must prepend the new
+        // events.
+        let first_event_pos = room_events.events().next().map(|(item_pos, _)| item_pos);
+
+        match first_event_pos {
+            // Is there a first item? Insert at this position.
+            Some(first_event_pos) => {
+                if let Some(prev_token_gap) = prev_token {
+                    room_events
+                            .insert_gap_at(prev_token_gap, first_event_pos)
+                            // SAFETY: The `first_event_pos` can only be an `Item` chunk, it's
                             // an invariant of `LinkedChunk`. Also, it can only represent a valid
                             // `ChunkIdentifier` as the data structure isn't modified yet.
-                            .expect("The `first_item_position` must represent a valid `Item`");
-                    }
+                            .expect("`first_event_pos` must point to a valid `Item` chunk when inserting a gap");
+                }
 
-                    room_events
-                        .insert_events_at(sync_events, first_item_position)
-                        // SAFETY: The `first_item_position` can only be an `Item` chunk, it's
+                room_events
+                        .insert_events_at(sync_events, first_event_pos)
+                        // SAFETY: The `first_event_pos` can only be an `Item` chunk, it's
                         // an invariant of `LinkedChunk`. The chunk it points to has not been
                         // removed.
-                        .expect("The `first_item_position` must represent an `Item`");
-                }
-
-                // There is no first item. Let's simply push.
-                None => {
-                    if let Some(prev_token_gap) = prev_token {
-                        room_events.push_gap(prev_token_gap);
-                    }
-
-                    room_events.push_events(sync_events);
-                }
+                        .expect("The `first_event_pos` must point to a valid `Item` chunk when inserting events");
             }
 
-            Ok(BackPaginationOutcome::Success { events, reached_start })
+            // There is no first item. Let's simply push.
+            None => {
+                if let Some(prev_token_gap) = prev_token {
+                    room_events.push_gap(prev_token_gap);
+                }
+
+                room_events.push_events(sync_events);
+            }
         }
+
+        Ok(BackPaginationOutcome::Success { events, reached_start })
     }
 
     /// Returns the oldest back-pagination token, that is, the one closest to
