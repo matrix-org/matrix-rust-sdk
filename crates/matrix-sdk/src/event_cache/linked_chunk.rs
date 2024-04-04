@@ -141,6 +141,7 @@ impl<Item, Gap, const CAP: usize> LinkedChunk<Item, Gap, CAP> {
             ChunkContent::Gap(..) => {
                 return Err(LinkedChunkError::ChunkIsAGap { identifier: chunk_identifier })
             }
+
             ChunkContent::Items(current_items) => {
                 let current_items_length = current_items.len();
 
@@ -232,6 +233,7 @@ impl<Item, Gap, const CAP: usize> LinkedChunk<Item, Gap, CAP> {
             ChunkContent::Gap(..) => {
                 return Err(LinkedChunkError::ChunkIsAGap { identifier: chunk_identifier });
             }
+
             ChunkContent::Items(current_items) => {
                 let current_items_length = current_items.len();
 
@@ -983,7 +985,7 @@ mod tests {
                     $( $accumulator )*
                     {
                         let chunk = $iterator .next().expect("next chunk (expect gap)");
-                        assert!(chunk.is_gap(), "chunk ");
+                        assert!(chunk.is_gap(), "chunk should be a gap");
                     }
                 }
             )
@@ -998,7 +1000,7 @@ mod tests {
                     $( $accumulator )*
                     {
                         let chunk = $iterator .next().expect("next chunk (expect items)");
-                        assert!(chunk.is_items());
+                        assert!(chunk.is_items(), "chunk should contain items");
 
                         let ChunkContent::Items(items) = chunk.content() else { unreachable!() };
 

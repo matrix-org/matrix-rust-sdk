@@ -418,7 +418,7 @@ impl BaseClient {
                     }
                 }
                 Err(e) => {
-                    warn!("Error deserializing event {e:?}");
+                    warn!("Error deserializing event: {e}");
                 }
             }
 
