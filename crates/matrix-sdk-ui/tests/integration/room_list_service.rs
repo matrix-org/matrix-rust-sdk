@@ -2411,6 +2411,7 @@ async fn test_room_subscription() -> Result<(), Error> {
                         ["m.room.topic", ""],
                         ["m.room.avatar", ""],
                         ["m.room.canonical_alias", ""],
+                        ["m.room.create", ""], // Added even when it's not specified
                     ],
                     "timeline_limit": 30,
                 },
