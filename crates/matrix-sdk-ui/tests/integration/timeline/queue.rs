@@ -273,10 +273,10 @@ async fn test_clear_with_echoes() {
     let event_items: Vec<_> = timeline_items.iter().filter_map(|item| item.as_event()).collect();
 
     assert_eq!(event_items.len(), 3);
-    // The message that failed to send.
-    assert_matches!(event_items[0].send_state(), Some(EventSendState::SendingFailed { .. }));
     // The message that came in from sync.
-    assert_matches!(event_items[1].origin(), Some(EventItemOrigin::Sync));
+    assert_matches!(event_items[0].origin(), Some(EventItemOrigin::Sync));
+    // The message that failed to send.
+    assert_matches!(event_items[1].send_state(), Some(EventSendState::SendingFailed { .. }));
     // The message that is still pending.
     assert_matches!(event_items[2].send_state(), Some(EventSendState::NotSentYet));
 

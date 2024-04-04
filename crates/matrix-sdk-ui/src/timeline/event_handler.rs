@@ -951,15 +951,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     .iter()
                     .enumerate()
                     .rev()
-                    .filter_map(|(idx, item)| Some((idx, item.as_event()?)))
-                    .find(|(_, item)| {
-                        !matches!(
-                            item.send_state(),
-                            Some(EventSendState::NotSentYet | EventSendState::Sent { .. })
-                        )
-                    })
-                    .unzip()
-                    .0;
+                    .find_map(|(idx, item)| (!item.as_event()?.is_local_echo()).then_some(idx));
 
                 // Insert the next item after the latest event item that's not a
                 // pending local echo, or at the start if there is no such item.
