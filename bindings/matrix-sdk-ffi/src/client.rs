@@ -346,7 +346,7 @@ impl Client {
 
     /// Gets information about the owner of a given access token.
     pub(crate) async fn whoami(&self) -> anyhow::Result<whoami::v3::Response> {
-        self.inner.whoami().await.map_err(|e| anyhow!(e.to_string()))
+        Ok(self.inner.whoami().await?)
     }
 }
 
