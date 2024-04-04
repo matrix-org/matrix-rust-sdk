@@ -172,8 +172,11 @@ impl TimelineBuilder {
                     let update = match event_subscriber.recv().await {
                         Ok(up) => up,
                         Err(broadcast::error::RecvError::Closed) => break,
-                        Err(broadcast::error::RecvError::Lagged(_)) => {
-                            warn!("Lagged behind sync responses, resetting timeline");
+                        Err(broadcast::error::RecvError::Lagged(num_skipped)) => {
+                            warn!(
+                                num_skipped,
+                                "Lagged behind event cache updates, resetting timeline"
+                            );
                             inner.clear().await;
                             continue;
                         }

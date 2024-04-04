@@ -203,11 +203,11 @@ impl EventCache {
                     }
                 }
 
-                Err(RecvError::Lagged(_)) => {
+                Err(RecvError::Lagged(num_skipped)) => {
                     // Forget everything we know; we could have missed events, and we have
                     // no way to reconcile at the moment!
                     // TODO: implement Smart Matching™,
-                    warn!("Lagged behind room updates, clearing all rooms");
+                    warn!(num_skipped, "Lagged behind room updates, clearing all rooms");
 
                     // Note: one must NOT clear the `by_room` map, because if something subscribed
                     // to a room update, they would never get any new update for that room, since
@@ -460,7 +460,7 @@ impl RoomEventCacheInner {
     /// Creates a new cache for a room, and subscribes to room updates, so as
     /// to handle new timeline events.
     fn new(room: Room) -> Self {
-        let sender = Sender::new(32);
+        let sender = Sender::new(128);
 
         Self {
             room,
