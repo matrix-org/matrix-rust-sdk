@@ -115,6 +115,7 @@ pub type Result<T> = std::result::Result<T, EventCacheError>;
 
 /// Hold handles to the tasks spawn by a [`RoomEventCache`].
 pub struct EventCacheDropHandles {
+    /// Task that listens to room updates.
     listen_updates_task: JoinHandle<()>,
 }
 
@@ -180,6 +181,7 @@ impl EventCache {
         Ok(())
     }
 
+    #[instrument(skip_all)]
     async fn listen_task(
         inner: Arc<EventCacheInner>,
         mut room_updates_feed: Receiver<RoomUpdates>,
@@ -205,7 +207,20 @@ impl EventCache {
                     // Forget everything we know; we could have missed events, and we have
                     // no way to reconcile at the moment!
                     // TODO: implement Smart Matching™,
-                    inner.by_room.write().await.clear();
+                    warn!("Lagged behind room updates, clearing all rooms");
+
+                    // Note: one must NOT clear the `by_room` map, because if something subscribed
+                    // to a room update, they would never get any new update for that room, since
+                    // re-creating the `RoomEventCache` would create a new unrelated sender.
+
+                    let rooms = inner.by_room.write().await;
+                    for room in rooms.values() {
+                        // Notify all the observers that we've lost track of state. (We ignore the
+                        // error if there aren't any.)
+                        let _ = room.inner.sender.send(RoomEventCacheUpdate::Clear);
+                        // Clear all the events in memory.
+                        room.inner.events.write().await.reset();
+                    }
                 }
 
                 Err(RecvError::Closed) => {
