@@ -10,7 +10,10 @@ use std::{
 
 use eyeball::SharedObservable;
 use futures_core::Stream;
-use futures_util::stream::FuturesUnordered;
+use futures_util::{
+    future::{try_join, try_join_all},
+    stream::FuturesUnordered,
+};
 use matrix_sdk_base::{
     deserialized_responses::{
         RawAnySyncOrStrippedState, RawSyncOrStrippedState, SyncOrStrippedState, TimelineEvent,
@@ -65,14 +68,14 @@ use ruma::{
         space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
         tag::{TagInfo, TagName},
         typing::SyncTypingEvent,
-        AnyRoomAccountDataEvent, AnyStateEvent, EmptyStateKey, MessageLikeEventContent,
+        AnyRoomAccountDataEvent, AnyTimelineEvent, EmptyStateKey, MessageLikeEventContent,
         MessageLikeEventType, RedactContent, RedactedStateEventContent, RoomAccountDataEvent,
         RoomAccountDataEventContent, RoomAccountDataEventType, StateEventContent, StateEventType,
         StaticEventContent, StaticStateEventContent, SyncStateEvent,
     },
     push::{Action, PushConditionRoomCtx},
     serde::Raw,
-    uint, EventId, Int, MatrixToUri, MatrixUri, MxcUri, OwnedEventId, OwnedRoomId, OwnedServerName,
+    EventId, Int, MatrixToUri, MatrixUri, MxcUri, OwnedEventId, OwnedRoomId, OwnedServerName,
     OwnedTransactionId, OwnedUserId, TransactionId, UInt, UserId,
 };
 use serde::de::DeserializeOwned;
@@ -80,7 +83,10 @@ use thiserror::Error;
 use tokio::sync::broadcast;
 use tracing::{debug, info, instrument, warn};
 
-use self::futures::{SendAttachment, SendMessageLikeEvent, SendRawMessageLikeEvent};
+use self::{
+    futures::{SendAttachment, SendMessageLikeEvent, SendRawMessageLikeEvent},
+    messages::EventWithContextResponse,
+};
 pub use self::{
     member::{RoomMember, RoomMemberRole},
     messages::{Messages, MessagesOptions},
@@ -382,11 +388,12 @@ impl Room {
         &self,
         event_id: &EventId,
         lazy_load_members: bool,
-    ) -> Result<Option<(TimelineEvent, Vec<Raw<AnyStateEvent>>)>> {
+        context_size: UInt,
+    ) -> Result<EventWithContextResponse> {
         let mut request =
             context::get_context::v3::Request::new(self.room_id().to_owned(), event_id.to_owned());
 
-        request.limit = uint!(0);
+        request.limit = context_size;
 
         if lazy_load_members {
             request.filter.lazy_load_options =
@@ -395,23 +402,44 @@ impl Room {
 
         let response = self.client.send(request, None).await?;
 
-        let Some(event) = response.event else {
-            return Ok(None);
+        // Decrypts one event, if needs be.
+        let try_decrypt = |event: Raw<AnyTimelineEvent>| async move {
+            #[cfg(feature = "e2e-encryption")]
+            if let Ok(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
+                SyncMessageLikeEvent::Original(_),
+            ))) = event.deserialize_as::<AnySyncTimelineEvent>()
+            {
+                if let Ok(event) = self.decrypt_event(event.cast_ref()).await {
+                    return Result::<_, Error>::Ok(event);
+                }
+            }
+
+            let push_actions = self.event_push_actions(&event).await?;
+
+            Result::<_, Error>::Ok(TimelineEvent {
+                event: event.clone(),
+                encryption_info: None,
+                push_actions,
+            })
         };
 
-        #[cfg(feature = "e2e-encryption")]
-        if let Ok(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
-            SyncMessageLikeEvent::Original(_),
-        ))) = event.deserialize_as::<AnySyncTimelineEvent>()
-        {
-            if let Ok(event) = self.decrypt_event(event.cast_ref()).await {
-                return Ok(Some((event, response.state)));
-            }
-        }
+        let target_event =
+            if let Some(event) = response.event { Some(try_decrypt(event).await?) } else { None };
 
-        let push_actions = self.event_push_actions(&event).await?;
+        let (events_before, events_after) = try_join(
+            try_join_all(response.events_before.into_iter().map(try_decrypt)),
+            try_join_all(response.events_after.into_iter().map(try_decrypt)),
+        )
+        .await?;
 
-        Ok(Some((TimelineEvent { event, encryption_info: None, push_actions }, response.state)))
+        Ok(EventWithContextResponse {
+            event: target_event,
+            events_before,
+            events_after,
+            state: response.state,
+            prev_batch_token: response.start,
+            next_batch_token: response.end,
+        })
     }
 
     pub(crate) async fn request_members(&self) -> Result<()> {

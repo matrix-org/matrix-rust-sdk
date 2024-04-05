@@ -480,8 +480,10 @@ impl NotificationClient {
             return Err(Error::UnknownRoom);
         };
 
-        let (mut timeline_event, state_events) =
-            room.event_with_context(event_id, true).await?.ok_or(Error::ContextMissingEvent)?;
+        let response = room.event_with_context(event_id, true, uint!(0)).await?;
+
+        let mut timeline_event = response.event.ok_or(Error::ContextMissingEvent)?;
+        let state_events = response.state;
 
         if let Some(decrypted_event) =
             self.retry_decryption(&room, timeline_event.event.cast_ref()).await?
