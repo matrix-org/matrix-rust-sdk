@@ -41,7 +41,7 @@ sso-login = ["dep:hyper", "dep:rand", "dep:tower"]
 image-proc = ["dep:image"]
 image-rayon = ["image-proc", "image?/jpeg_rayon"]
 
-uniffi = ["dep:uniffi"]
+uniffi = ["dep:uniffi", "matrix-sdk-base/uniffi"]
 
 experimental-oidc = [
     "ruma/unstable-msc2967",
@@ -87,7 +87,7 @@ indexmap = "2.0.2"
 js_int = "0.2.2"
 language-tags = { version = "0.3.2", optional = true }
 mas-oidc-client = { git = "https://github.com/matrix-org/matrix-authentication-service", rev = "099eabd1371d2840a2f025a6372d6428039eb511", default-features = false, optional = true }
-matrix-sdk-base = { workspace = true, features = ["uniffi"] }
+matrix-sdk-base = { workspace = true }
 matrix-sdk-common = { workspace = true }
 matrix-sdk-indexeddb = { workspace = true, optional = true }
 matrix-sdk-sqlite = { workspace = true, optional = true }
