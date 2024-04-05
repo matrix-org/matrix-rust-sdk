@@ -87,7 +87,7 @@ imbl = { workspace = true, features = ["serde"] }
 indexmap = "2.0.2"
 js_int = "0.2.2"
 language-tags = { version = "0.3.2", optional = true }
-mas-oidc-client = { git = "https://github.com/matrix-org/matrix-authentication-service", rev = "099eabd1371d2840a2f025a6372d6428039eb511", default-features = false, optional = true }
+mas-oidc-client = { git = "https://github.com/matrix-org/matrix-authentication-service", rev = "d3d11594f3d00dd1f0dace17538883e93e1bc50f", default-features = false, optional = true }
 matrix-sdk-base = { workspace = true }
 matrix-sdk-common = { workspace = true }
 matrix-sdk-indexeddb = { workspace = true, optional = true }

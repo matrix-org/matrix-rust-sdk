@@ -12,14 +12,8 @@ use mas_oidc_client::{
     },
 };
 use matrix_sdk_base::SessionMeta;
-#[cfg(test)]
-use matrix_sdk_test::async_test;
-use matrix_sdk_test::test_json;
-use ruma::{
-    api::client::discovery::discover_homeserver::AuthenticationServerInfo, owned_user_id,
-    ServerName,
-};
-use serde_json::json;
+use matrix_sdk_test::{async_test, test_json};
+use ruma::ServerName;
 use stream_assert::{assert_next_matches, assert_pending};
 use url::Url;
 use wiremock::{
@@ -29,9 +23,8 @@ use wiremock::{
 
 use super::{
     backend::mock::{MockImpl, AUTHORIZATION_URL, ISSUER_URL},
-    AuthorizationCode, AuthorizationError, AuthorizationResponse, Oidc,
-    OidcAccountManagementAction, OidcError, OidcSession, OidcSessionTokens,
-    RedirectUriQueryParseError, UserSession,
+    AuthorizationCode, AuthorizationError, AuthorizationResponse, Oidc, OidcError, OidcSession,
+    OidcSessionTokens, RedirectUriQueryParseError, UserSession,
 };
 use crate::{test_utils::test_client_builder, Client};
 
@@ -61,89 +54,9 @@ pub fn mock_session(tokens: OidcSessionTokens) -> OidcSession {
                 device_id: ruma::device_id!("XYZ").to_owned(),
             },
             tokens,
-            issuer_info: AuthenticationServerInfo::new(ISSUER_URL.to_owned(), None),
+            issuer: ISSUER_URL.to_owned(),
         },
     }
-}
-
-#[async_test]
-async fn test_account_management_url() {
-    let builder = test_client_builder(Some("https://example.com".to_owned()));
-    let client = builder.build().await.unwrap();
-
-    client
-        .restore_session(OidcSession {
-            credentials: ClientCredentials::None { client_id: "client_id".to_owned() },
-
-            metadata: ClientMetadata {
-                redirect_uris: Some(vec![Url::parse("https://example.com/login").unwrap()]),
-                ..Default::default()
-            }
-            .validate()
-            .unwrap(),
-
-            user: UserSession {
-                meta: SessionMeta {
-                    user_id: owned_user_id!("@user:example.com"),
-                    device_id: "device_id".into(),
-                },
-                tokens: OidcSessionTokens {
-                    access_token: "access_token".to_owned(),
-                    refresh_token: None,
-                    latest_id_token: None,
-                },
-                issuer_info: AuthenticationServerInfo::new(
-                    "https://example.com".to_owned(),
-                    Some("https://example.com/account".to_owned()),
-                ),
-            },
-        })
-        .await
-        .unwrap();
-
-    assert_eq!(
-        client.oidc().account_management_url(None).unwrap(),
-        Some(Url::parse("https://example.com/account").unwrap())
-    );
-
-    assert_eq!(
-        client.oidc().account_management_url(Some(OidcAccountManagementAction::Profile)).unwrap(),
-        Some(Url::parse("https://example.com/account?action=profile").unwrap())
-    );
-
-    assert_eq!(
-        client
-            .oidc()
-            .account_management_url(Some(OidcAccountManagementAction::SessionsList))
-            .unwrap(),
-        Some(Url::parse("https://example.com/account?action=sessions_list").unwrap())
-    );
-
-    assert_eq!(
-        client
-            .oidc()
-            .account_management_url(Some(OidcAccountManagementAction::SessionView {
-                device_id: "my_phone".into()
-            }))
-            .unwrap(),
-        Some(
-            Url::parse("https://example.com/account?action=session_view&device_id=my_phone")
-                .unwrap()
-        )
-    );
-
-    assert_eq!(
-        client
-            .oidc()
-            .account_management_url(Some(OidcAccountManagementAction::SessionEnd {
-                device_id: "my_old_phone".into()
-            }))
-            .unwrap(),
-        Some(
-            Url::parse("https://example.com/account?action=session_end&device_id=my_old_phone")
-                .unwrap()
-        )
-    );
 }
 
 #[async_test]
@@ -154,9 +67,8 @@ async fn test_login() -> anyhow::Result<()> {
 
     let oidc = Oidc { client: client.clone(), backend: Arc::new(MockImpl::new()) };
 
-    let issuer_info = AuthenticationServerInfo::new(ISSUER_URL.to_owned(), None);
     let (client_credentials, client_metadata) = mock_registered_client_data();
-    oidc.restore_registered_client(issuer_info, client_metadata, client_credentials);
+    oidc.restore_registered_client(ISSUER_URL.to_owned(), client_metadata, client_credentials);
 
     let redirect_uri_str = "http://matrix.example.com/oidc/callback";
     let redirect_uri = Url::parse(redirect_uri_str)?;
@@ -256,9 +168,8 @@ async fn test_finish_authorization() -> anyhow::Result<()> {
         backend: Arc::new(MockImpl::new().next_session_tokens(session_tokens.clone())),
     };
 
-    let issuer_info = AuthenticationServerInfo::new(ISSUER_URL.to_owned(), None);
     let (client_credentials, client_metadata) = mock_registered_client_data();
-    oidc.restore_registered_client(issuer_info, client_metadata, client_credentials);
+    oidc.restore_registered_client(ISSUER_URL.to_owned(), client_metadata, client_credentials);
 
     // If the state is missing, then any attempt to finish authorizing will fail.
     let res = oidc
@@ -309,41 +220,11 @@ async fn test_finish_authorization() -> anyhow::Result<()> {
 }
 
 #[async_test]
-async fn test_getters() -> anyhow::Result<()> {
-    let server = MockServer::start().await;
-    let server_url = server.uri();
+async fn test_oidc_session() -> anyhow::Result<()> {
+    let client = test_client_builder(Some("https://example.org".to_owned())).build().await?;
 
-    Mock::given(method("GET"))
-        .and(path("/.well-known/matrix/client"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_raw(
-                json!({
-                    "m.homeserver": {
-                        "base_url": server_url
-                    },
-                    "org.matrix.msc2965.authentication": {
-                        "issuer": ISSUER_URL
-                    }
-                })
-                .to_string(),
-                "application/json",
-            ),
-        )
-        .mount(&server)
-        .await;
-
-    // Create an insecure client with the homeserver_url method.
-    let client = Client::builder()
-        .insecure_server_name_no_tls(&ServerName::parse(server_url.replace("http://", ""))?)
-        .build()
-        .await?;
     let backend = Arc::new(MockImpl::new());
     let oidc = Oidc { client: client.clone(), backend: backend.clone() };
-
-    // Test the authentication_server_info getter.
-    let discovered_info = oidc.authentication_server_info().expect("discovered homeserver info");
-    assert_eq!(discovered_info.issuer, ISSUER_URL);
-    assert_eq!(discovered_info.account, None);
 
     let tokens = OidcSessionTokens {
         access_token: "4cc3ss".to_owned(),
@@ -362,7 +243,7 @@ async fn test_getters() -> anyhow::Result<()> {
     let user_session = oidc.user_session().unwrap();
     assert_eq!(user_session.meta, session.user.meta);
     assert_eq!(user_session.tokens, tokens);
-    assert_eq!(user_session.issuer_info.issuer, ISSUER_URL);
+    assert_eq!(user_session.issuer, ISSUER_URL);
 
     let full_session = oidc.full_session().unwrap();
 
@@ -372,7 +253,7 @@ async fn test_getters() -> anyhow::Result<()> {
     assert_eq!(full_session.metadata, session.metadata);
     assert_eq!(full_session.user.meta, session.user.meta);
     assert_eq!(full_session.user.tokens, tokens);
-    assert_eq!(full_session.user.issuer_info.issuer, ISSUER_URL);
+    assert_eq!(full_session.user.issuer, ISSUER_URL);
 
     Ok(())
 }

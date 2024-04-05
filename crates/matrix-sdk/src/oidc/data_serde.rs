@@ -12,9 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use matrix_sdk_base::SessionMeta;
+use ruma::api::client::discovery::discover_homeserver::AuthenticationServerInfo;
 use serde::{de, ser::SerializeStruct, Deserialize, Serialize};
 
-use super::OidcSessionTokens;
+use super::{OidcSessionTokens, UserSession};
 
 impl Serialize for OidcSessionTokens {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -60,4 +62,32 @@ struct SessionTokensDeHelper {
     pub access_token: String,
     pub refresh_token: Option<String>,
     pub latest_id_token: Option<String>,
+}
+
+/// Type used to deserialize `UserSession` with backwards compatibility for
+/// `issuer_info` field.
+#[derive(Deserialize)]
+struct UserSessionDeHelper {
+    #[serde(flatten)]
+    meta: SessionMeta,
+    #[serde(flatten)]
+    tokens: OidcSessionTokens,
+    issuer_info: Option<AuthenticationServerInfo>,
+    issuer: Option<String>,
+}
+
+impl<'de> Deserialize<'de> for UserSession {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let UserSessionDeHelper { meta, tokens, issuer_info, issuer } =
+            UserSessionDeHelper::deserialize(deserializer)?;
+
+        let issuer = issuer
+            .or(issuer_info.map(|info| info.issuer))
+            .ok_or_else(|| de::Error::missing_field("issuer"))?;
+
+        Ok(Self { meta, tokens, issuer })
+    }
 }

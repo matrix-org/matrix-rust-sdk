@@ -2386,9 +2386,9 @@ dependencies = [
 
 [[package]]
 name = "http"
-version = "0.2.11"
+version = "0.2.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8947b1a6fad4393052c7ba1f4cd97bed3e953a95c79c92ad9b051a04611d9fbb"
+checksum = "601cbb57e577e2f5ef5be8e7b83f0f63994f25aa94d673e54a92d5c516d101f1"
 dependencies = [
  "bytes",
  "fnv",
@@ -3134,8 +3134,8 @@ dependencies = [
 
 [[package]]
 name = "mas-http"
-version = "0.8.0"
-source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=099eabd1371d2840a2f025a6372d6428039eb511#099eabd1371d2840a2f025a6372d6428039eb511"
+version = "0.9.0-rc.1"
+source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=d3d11594f3d00dd1f0dace17538883e93e1bc50f#d3d11594f3d00dd1f0dace17538883e93e1bc50f"
 dependencies = [
  "bytes",
  "futures-util",
@@ -3144,6 +3144,7 @@ dependencies = [
  "http-body 0.4.6",
  "hyper 0.14.28",
  "opentelemetry",
+ "opentelemetry-semantic-conventions",
  "serde",
  "serde_json",
  "serde_urlencoded",
@@ -3156,8 +3157,8 @@ dependencies = [
 
 [[package]]
 name = "mas-iana"
-version = "0.8.0"
-source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=099eabd1371d2840a2f025a6372d6428039eb511#099eabd1371d2840a2f025a6372d6428039eb511"
+version = "0.9.0-rc.1"
+source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=d3d11594f3d00dd1f0dace17538883e93e1bc50f#d3d11594f3d00dd1f0dace17538883e93e1bc50f"
 dependencies = [
  "schemars",
  "serde",
@@ -3165,8 +3166,8 @@ dependencies = [
 
 [[package]]
 name = "mas-jose"
-version = "0.8.0"
-source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=099eabd1371d2840a2f025a6372d6428039eb511#099eabd1371d2840a2f025a6372d6428039eb511"
+version = "0.9.0-rc.1"
+source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=d3d11594f3d00dd1f0dace17538883e93e1bc50f#d3d11594f3d00dd1f0dace17538883e93e1bc50f"
 dependencies = [
  "base64ct",
  "chrono",
@@ -3195,8 +3196,8 @@ dependencies = [
 
 [[package]]
 name = "mas-oidc-client"
-version = "0.8.0"
-source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=099eabd1371d2840a2f025a6372d6428039eb511#099eabd1371d2840a2f025a6372d6428039eb511"
+version = "0.9.0-rc.1"
+source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=d3d11594f3d00dd1f0dace17538883e93e1bc50f#d3d11594f3d00dd1f0dace17538883e93e1bc50f"
 dependencies = [
  "base64ct",
  "bytes",
@@ -3983,8 +3984,8 @@ dependencies = [
 
 [[package]]
 name = "oauth2-types"
-version = "0.8.0"
-source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=099eabd1371d2840a2f025a6372d6428039eb511#099eabd1371d2840a2f025a6372d6428039eb511"
+version = "0.9.0-rc.1"
+source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=d3d11594f3d00dd1f0dace17538883e93e1bc50f#d3d11594f3d00dd1f0dace17538883e93e1bc50f"
 dependencies = [
  "chrono",
  "data-encoding",
@@ -3992,7 +3993,6 @@ dependencies = [
  "language-tags",
  "mas-iana",
  "mas-jose",
- "parse-display",
  "serde",
  "serde_json",
  "serde_with",
@@ -4282,31 +4282,6 @@ dependencies = [
  "redox_syscall",
  "smallvec",
  "windows-targets 0.48.5",
-]
-
-[[package]]
-name = "parse-display"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "06af5f9333eb47bd9ba8462d612e37a8328a5cb80b13f0af4de4c3b89f52dee5"
-dependencies = [
- "parse-display-derive",
- "regex",
- "regex-syntax 0.8.2",
-]
-
-[[package]]
-name = "parse-display-derive"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc9252f259500ee570c75adcc4e317fa6f57a1e47747d622e0bf838002a7b790"
-dependencies = [
- "proc-macro2",
- "quote",
- "regex",
- "regex-syntax 0.8.2",
- "structmeta",
- "syn 2.0.48",
 ]
 
 [[package]]
@@ -5901,29 +5876,6 @@ name = "strsim"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "73473c0e59e6d5812c5dfe2a064a6444949f089e20eec9a2e5506596494e4623"
-
-[[package]]
-name = "structmeta"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e1575d8d40908d70f6fd05537266b90ae71b15dbbe7a8b7dffa2b759306d329"
-dependencies = [
- "proc-macro2",
- "quote",
- "structmeta-derive",
- "syn 2.0.48",
-]
-
-[[package]]
-name = "structmeta-derive"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "152a0b65a590ff6c3da95cabe2353ee04e6167c896b28e3b14478c2636c922fc"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.48",
-]
 
 [[package]]
 name = "strum"

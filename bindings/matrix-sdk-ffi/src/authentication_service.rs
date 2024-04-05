@@ -17,13 +17,11 @@ use matrix_sdk::{
         },
         AuthorizationResponse, Oidc, OidcError,
     },
+    reqwest::StatusCode,
     AuthSession, ClientBuildError as MatrixClientBuildError, HttpError, RumaApiError,
 };
 use ruma::{
-    api::{
-        client::discovery::discover_homeserver::AuthenticationServerInfo,
-        error::{DeserializationError, FromHttpResponseError},
-    },
+    api::error::{DeserializationError, FromHttpResponseError},
     OwnedUserId,
 };
 use tokio::sync::RwLock as AsyncRwLock;
@@ -320,8 +318,20 @@ impl AuthenticationService {
             return Err(AuthenticationError::ClientMissing);
         };
 
-        let Some(authentication_server) = client.discovered_authentication_server() else {
-            return Err(AuthenticationError::OidcNotSupported);
+        let oidc = client.inner.oidc();
+
+        let issuer = match oidc.fetch_authentication_issuer().await {
+            Ok(issuer) => issuer,
+            Err(error) => {
+                if error
+                    .as_client_api_error()
+                    .is_some_and(|err| err.status_code == StatusCode::NOT_FOUND)
+                {
+                    return Err(AuthenticationError::OidcNotSupported);
+                } else {
+                    return Err(AuthenticationError::ServerUnreachable(error));
+                }
+            }
         };
 
         let Some(oidc_configuration) = &self.oidc_configuration else {
@@ -331,9 +341,7 @@ impl AuthenticationService {
         let redirect_url = Url::parse(&oidc_configuration.redirect_uri)
             .map_err(|_e| AuthenticationError::OidcMetadataInvalid)?;
 
-        let oidc = client.inner.oidc();
-
-        self.configure_oidc(&oidc, authentication_server, oidc_configuration).await?;
+        self.configure_oidc(&oidc, issuer, oidc_configuration).await?;
 
         let mut data_builder = oidc.login(redirect_url, None)?;
         // TODO: Add a check for the Consent prompt when MAS is updated.
@@ -418,7 +426,7 @@ impl AuthenticationService {
         &self,
         client: &Client,
     ) -> Result<HomeserverLoginDetails, AuthenticationError> {
-        let supports_oidc_login = client.discovered_authentication_server().is_some();
+        let supports_oidc_login = client.inner.oidc().fetch_authentication_issuer().await.is_ok();
         let supports_password_login = client.supports_password_login().await.ok().unwrap_or(false);
         let sliding_sync_proxy = client.sliding_sync_proxy().map(|proxy_url| proxy_url.to_string());
         let url = client.homeserver();
@@ -438,7 +446,7 @@ impl AuthenticationService {
     async fn configure_oidc(
         &self,
         oidc: &Oidc,
-        authentication_server: AuthenticationServerInfo,
+        issuer: String,
         configuration: &OidcConfiguration,
     ) -> Result<(), AuthenticationError> {
         if oidc.client_credentials().is_some() {
@@ -448,22 +456,20 @@ impl AuthenticationService {
 
         let oidc_metadata = self.oidc_metadata(configuration)?;
 
-        if self.load_client_registration(oidc, &authentication_server, oidc_metadata.clone()).await
-        {
+        if self.load_client_registration(oidc, issuer.clone(), oidc_metadata.clone()).await {
             tracing::info!("OIDC configuration loaded from disk.");
             return Ok(());
         }
 
         tracing::info!("Registering this client for OIDC.");
-        let registration_response = oidc
-            .register_client(&authentication_server.issuer, oidc_metadata.clone(), None)
-            .await?;
+        let registration_response =
+            oidc.register_client(&issuer, oidc_metadata.clone(), None).await?;
 
         // The format of the credentials changes according to the client metadata that
         // was sent. Public clients only get a client ID.
         let credentials =
             ClientCredentials::None { client_id: registration_response.client_id.clone() };
-        oidc.restore_registered_client(authentication_server, oidc_metadata, credentials);
+        oidc.restore_registered_client(issuer, oidc_metadata, credentials);
 
         tracing::info!("Persisting OIDC registration data.");
         self.store_client_registration(oidc).await?;
@@ -505,11 +511,11 @@ impl AuthenticationService {
     async fn load_client_registration(
         &self,
         oidc: &Oidc,
-        authentication_server: &AuthenticationServerInfo,
+        issuer: String,
         oidc_metadata: VerifiedClientMetadata,
     ) -> bool {
-        let Ok(issuer) = Url::parse(&authentication_server.issuer) else {
-            tracing::error!("Failed to parse {:?}", authentication_server.issuer);
+        let Ok(issuer_url) = Url::parse(&issuer) else {
+            tracing::error!("Failed to parse {issuer:?}");
             return false;
         };
         let Some(registrations) = OidcRegistrations::new(
@@ -520,12 +526,12 @@ impl AuthenticationService {
         .ok() else {
             return false;
         };
-        let Some(client_id) = registrations.client_id(&issuer) else {
+        let Some(client_id) = registrations.client_id(&issuer_url) else {
             return false;
         };
 
         oidc.restore_registered_client(
-            authentication_server.clone(),
+            issuer,
             oidc_metadata,
             ClientCredentials::None { client_id: client_id.0 },
         );
