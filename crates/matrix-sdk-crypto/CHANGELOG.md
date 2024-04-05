@@ -8,6 +8,12 @@ Changed:
 
 Breaking changes:
 
+- Add a `backup_version` argument to `CryptoStore`'s
+  `inbound_group_sessions_for_backup`,
+  `mark_inbound_group_sessions_as_backed_up` and
+  `inbound_group_session_counts` methods.
+  ([#3253](https://github.com/matrix-org/matrix-rust-sdk/pull/3253))
+
 - Rename the `OlmMachine::invalidate_group_session` method to
   `OlmMachine::discard_room_key`
 
@@ -16,10 +22,6 @@ Breaking changes:
 
 - Add new `dehydrated` property to `olm::account::PickledAccount`.
   ([#3164](https://github.com/matrix-org/matrix-rust-sdk/pull/3164))
-
-- Add a `backup_version` argument to `CryptoStore`'s
-  `inbound_group_sessions_for_backup` and
-  `mark_inbound_group_sessions_as_backed_up` methods.
 
 Additions:
 

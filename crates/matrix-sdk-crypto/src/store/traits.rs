@@ -105,7 +105,10 @@ pub trait CryptoStore: AsyncTraitDeps {
 
     /// Get the number inbound group sessions we have and how many of them are
     /// backed up.
-    async fn inbound_group_session_counts(&self) -> Result<RoomKeyCounts, Self::Error>;
+    async fn inbound_group_session_counts(
+        &self,
+        backup_version: Option<&str>,
+    ) -> Result<RoomKeyCounts, Self::Error>;
 
     /// Return a batch of ['InboundGroupSession'] ("room keys") that have not
     /// yet been backed up in the supplied backup version.
@@ -349,8 +352,11 @@ impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
         self.0.get_inbound_group_sessions().await.map_err(Into::into)
     }
 
-    async fn inbound_group_session_counts(&self) -> Result<RoomKeyCounts> {
-        self.0.inbound_group_session_counts().await.map_err(Into::into)
+    async fn inbound_group_session_counts(
+        &self,
+        backup_version: Option<&str>,
+    ) -> Result<RoomKeyCounts> {
+        self.0.inbound_group_session_counts(backup_version).await.map_err(Into::into)
     }
     async fn inbound_group_sessions_for_backup(
         &self,

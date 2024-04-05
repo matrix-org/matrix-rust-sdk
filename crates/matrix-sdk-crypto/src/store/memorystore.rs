@@ -270,7 +270,10 @@ impl CryptoStore for MemoryStore {
         Ok(self.inbound_group_sessions.get_all())
     }
 
-    async fn inbound_group_session_counts(&self) -> Result<RoomKeyCounts> {
+    async fn inbound_group_session_counts(
+        &self,
+        _backup_version: Option<&str>,
+    ) -> Result<RoomKeyCounts> {
         let backed_up =
             self.get_inbound_group_sessions().await?.into_iter().filter(|s| s.backed_up()).count();
 
@@ -760,8 +763,11 @@ mod integration_tests {
             self.0.get_inbound_group_sessions().await
         }
 
-        async fn inbound_group_session_counts(&self) -> Result<RoomKeyCounts, Self::Error> {
-            self.0.inbound_group_session_counts().await
+        async fn inbound_group_session_counts(
+            &self,
+            backup_version: Option<&str>,
+        ) -> Result<RoomKeyCounts, Self::Error> {
+            self.0.inbound_group_session_counts(backup_version).await
         }
 
         async fn inbound_group_sessions_for_backup(

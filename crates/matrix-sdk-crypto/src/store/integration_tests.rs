@@ -323,8 +323,8 @@ macro_rules! cryptostore_integration_tests {
                     .unwrap();
                 assert_eq!(session, loaded_session);
                 assert_eq!(store.get_inbound_group_sessions().await.unwrap().len(), 1);
-                assert_eq!(store.inbound_group_session_counts().await.unwrap().total, 1);
-                assert_eq!(store.inbound_group_session_counts().await.unwrap().backed_up, 0);
+                assert_eq!(store.inbound_group_session_counts(None).await.unwrap().total, 1);
+                assert_eq!(store.inbound_group_session_counts(None).await.unwrap().backed_up, 0);
 
                 let to_back_up = store.inbound_group_sessions_for_backup("bkpver", 1).await.unwrap();
                 assert_eq!(to_back_up, vec![session])
@@ -377,7 +377,7 @@ macro_rules! cryptostore_integration_tests {
             async fn reset_inbound_group_session_for_backup() {
                 let (account, store) =
                     get_loaded_store("reset_inbound_group_session_for_backup").await;
-                assert_eq!(store.inbound_group_session_counts().await.unwrap().total, 0);
+                assert_eq!(store.inbound_group_session_counts(None).await.unwrap().total, 0);
 
                 let room_id = &room_id!("!test:localhost");
                 let (_, session) = account.create_group_session_pair_with_defaults(room_id).await;
@@ -393,8 +393,8 @@ macro_rules! cryptostore_integration_tests {
                     .await
                     .expect("Failed to mark_inbound_group_sessions_as_backed_up.");
 
-                assert_eq!(store.inbound_group_session_counts().await.unwrap().total, 1);
-                assert_eq!(store.inbound_group_session_counts().await.unwrap().backed_up, 1);
+                assert_eq!(store.inbound_group_session_counts(Some("bkpver1")).await.unwrap().total, 1);
+                assert_eq!(store.inbound_group_session_counts(Some("bkpver1")).await.unwrap().backed_up, 1);
 
                 // Sanity: before resetting, we have nothing to back up
                 let to_back_up = store.inbound_group_sessions_for_backup("bkpver1", 1).await.unwrap();
@@ -442,7 +442,7 @@ macro_rules! cryptostore_integration_tests {
                 loaded_session.export().await;
 
                 assert_eq!(store.get_inbound_group_sessions().await.unwrap().len(), 1);
-                assert_eq!(store.inbound_group_session_counts().await.unwrap().total, 1);
+                assert_eq!(store.inbound_group_session_counts(Some("bkpver1")).await.unwrap().total, 1);
             }
 
             #[async_test]

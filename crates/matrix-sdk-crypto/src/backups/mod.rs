@@ -397,7 +397,8 @@ impl BackupMachine {
 
     /// Get the number of backed up room keys and the total number of room keys.
     pub async fn room_key_counts(&self) -> Result<RoomKeyCounts, CryptoStoreError> {
-        self.store.inbound_group_session_counts().await
+        let backup_version = self.backup_key.read().await.as_ref().and_then(|k| k.backup_version());
+        self.store.inbound_group_session_counts(backup_version.as_deref()).await
     }
 
     /// Disable and reset our backup state.
@@ -663,7 +664,11 @@ mod tests {
 
     async fn backup_flow(machine: OlmMachine) -> Result<(), OlmError> {
         let backup_machine = machine.backup_machine();
-        let counts = backup_machine.store.inbound_group_session_counts().await?;
+        let backup_version =
+            backup_machine.backup_key.read().await.as_ref().and_then(|k| k.backup_version());
+        let backup_version = backup_version.as_deref();
+
+        let counts = backup_machine.store.inbound_group_session_counts(backup_version).await?;
 
         assert_eq!(counts.total, 0, "Initially no keys exist");
         assert_eq!(counts.backed_up, 0, "Initially no backed up keys exist");
@@ -671,7 +676,7 @@ mod tests {
         machine.create_outbound_group_session_with_defaults_test_helper(room_id()).await?;
         machine.create_outbound_group_session_with_defaults_test_helper(room_id2()).await?;
 
-        let counts = backup_machine.store.inbound_group_session_counts().await?;
+        let counts = backup_machine.store.inbound_group_session_counts(backup_version).await?;
         assert_eq!(counts.total, 2, "Two room keys need to exist in the store");
         assert_eq!(counts.backed_up, 0, "No room keys have been backed up yet");
 
@@ -691,7 +696,7 @@ mod tests {
 
         backup_machine.mark_request_as_sent(&request_id).await?;
 
-        let counts = backup_machine.store.inbound_group_session_counts().await?;
+        let counts = backup_machine.store.inbound_group_session_counts(backup_version).await?;
         assert_eq!(counts.total, 2);
         assert_eq!(counts.backed_up, 2, "All room keys have been backed up");
 
@@ -702,7 +707,7 @@ mod tests {
 
         backup_machine.disable_backup().await?;
 
-        let counts = backup_machine.store.inbound_group_session_counts().await?;
+        let counts = backup_machine.store.inbound_group_session_counts(backup_version).await?;
         assert_eq!(counts.total, 2);
         assert_eq!(
             counts.backed_up, 0,

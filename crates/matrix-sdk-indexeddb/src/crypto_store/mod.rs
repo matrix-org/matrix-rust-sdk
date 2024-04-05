@@ -873,7 +873,7 @@ impl_crypto_store! {
         ).await
     }
 
-    async fn inbound_group_session_counts(&self) -> Result<RoomKeyCounts> {
+    async fn inbound_group_session_counts(&self, _backup_version: Option<&str>) -> Result<RoomKeyCounts> {
         let tx = self
             .inner
             .transaction_on_one_with_mode(
