@@ -54,6 +54,12 @@ pub struct MemoryStore {
     account: StdRwLock<Option<Account>>,
     sessions: SessionStore,
     inbound_group_sessions: GroupSessionStore,
+
+    /// Map room id -> session id -> backup order number
+    /// The latest backup in which this session is stored. Equivalent to
+    /// `backed_up_to` in [`IndexedDbCryptoStore`]
+    inbound_group_sessions_backed_up_to: StdRwLock<HashMap<OwnedRoomId, HashMap<String, u64>>>,
+
     outbound_group_sessions: StdRwLock<BTreeMap<OwnedRoomId, OutboundGroupSession>>,
     private_identity: StdRwLock<Option<PrivateCrossSigningIdentity>>,
     tracked_users: StdRwLock<HashMap<OwnedUserId, TrackedUser>>,
@@ -81,6 +87,7 @@ impl Default for MemoryStore {
             account: Default::default(),
             sessions: SessionStore::new(),
             inbound_group_sessions: GroupSessionStore::new(),
+            inbound_group_sessions_backed_up_to: Default::default(),
             outbound_group_sessions: Default::default(),
             private_identity: Default::default(),
             tracked_users: Default::default(),
@@ -140,6 +147,62 @@ impl MemoryStore {
 
     fn save_private_identity(&self, private_identity: Option<PrivateCrossSigningIdentity>) {
         *self.private_identity.write().unwrap() = private_identity;
+    }
+
+    /// Look up the supplied backup version and provide the order number for
+    /// this backup, if we've seen it before. If not, return None.
+    fn get_backup_order(&self, backup_version: &str) -> Option<u64> {
+        self.backup_versions.read().unwrap().get(backup_version).copied()
+    }
+
+    /// Look up the supplied backup version and provide its order number. If
+    /// we've not seen it before, add it as a new order, larger than any
+    /// others that exist. If none exist, set its order to 1.
+    fn get_or_create_backup_order(&self, backup_version: &str) -> u64 {
+        let backup_versions = self.backup_versions.read().unwrap();
+        let stored = backup_versions.get(backup_version);
+        if let Some(stored) = stored {
+            *stored
+        } else {
+            drop(backup_versions);
+            // Take the write lock, then re-check whether the version exists, in case of a
+            // race where it was created in the meantime.
+            let mut backup_versions = self.backup_versions.write().unwrap();
+            let stored = backup_versions.get(backup_version);
+            if let Some(stored) = stored {
+                *stored
+            } else {
+                let new_order = backup_versions.values().max().cloned().unwrap_or(0) + 1;
+                backup_versions.insert(backup_version.to_owned(), new_order);
+                new_order
+            }
+        }
+    }
+
+    /// Return all the ['InboundGroupSession']s we have, paired with the
+    /// `backed_up_to` value for each one (or zero where it is missing).
+    async fn get_inbound_group_sessions_and_backup_order(
+        &self,
+    ) -> Result<Vec<(InboundGroupSession, u64)>> {
+        // Find which backup order this session is backed up to, or -1 if we don't know
+        let lookup = |s: &InboundGroupSession| {
+            self.inbound_group_sessions_backed_up_to
+                .read()
+                .unwrap()
+                .get(&s.room_id)?
+                .get(s.session_id())
+                .copied()
+        };
+
+        Ok(self
+            .get_inbound_group_sessions()
+            .await?
+            .into_iter()
+            .map(|s| {
+                let b = lookup(&s).unwrap_or(0);
+                (s, b)
+            })
+            .collect())
     }
 }
 
@@ -277,37 +340,78 @@ impl CryptoStore for MemoryStore {
 
     async fn inbound_group_session_counts(
         &self,
-        _backup_version: Option<&str>,
+        backup_version: Option<&str>,
     ) -> Result<RoomKeyCounts> {
         let backed_up =
-            self.get_inbound_group_sessions().await?.into_iter().filter(|s| s.backed_up()).count();
+            if let Some(backup_order) = backup_version.and_then(|v| self.get_backup_order(v)) {
+                self.get_inbound_group_sessions_and_backup_order()
+                    .await?
+                    .into_iter()
+                    .filter(|(_, o)| *o == backup_order)
+                    .count()
+            } else {
+                0
+            };
 
         Ok(RoomKeyCounts { total: self.inbound_group_sessions.count(), backed_up })
     }
 
     async fn inbound_group_sessions_for_backup(
         &self,
-        _backup_version: &str,
+        backup_version: &str,
         limit: usize,
     ) -> Result<Vec<InboundGroupSession>> {
-        Ok(self
-            .get_inbound_group_sessions()
-            .await?
-            .into_iter()
-            .filter(|s| !s.backed_up())
-            .take(limit)
-            .collect())
+        // Given an iterator, limit it, collect it into a `Vec` and wrap it in `Ok`.
+        // The two branches of the `if` below both result in iterators, but because they
+        // are different types it is difficult to collect them into an
+        // intermediate variable, so we share code using this function instead.
+        fn take_and_collect<T: Iterator<Item = InboundGroupSession>>(
+            limit: usize,
+            it: T,
+        ) -> Result<Vec<InboundGroupSession>> {
+            Ok(it.take(limit).collect())
+        }
+
+        if let Some(requested_order) = self.get_backup_order(backup_version) {
+            // We were asked for a known backup version - only return sessions that are not
+            // already backed up in that session or a later one
+            let it =
+                self.get_inbound_group_sessions_and_backup_order().await?.into_iter().filter_map(
+                    |(session, order)| if order >= requested_order { None } else { Some(session) },
+                );
+            take_and_collect(limit, it)
+        } else {
+            // We are being asked about a new backup version - all sessions need backing up
+            let it = self.get_inbound_group_sessions().await?.into_iter();
+            take_and_collect(limit, it)
+        }
     }
 
     async fn mark_inbound_group_sessions_as_backed_up(
         &self,
-        _backup_version: &str,
+        backup_version: &str,
         room_and_session_ids: &[(&RoomId, &str)],
     ) -> Result<()> {
         for (room_id, session_id) in room_and_session_ids {
             let session = self.inbound_group_sessions.get(room_id, session_id);
             if let Some(session) = session {
                 session.mark_as_backed_up();
+
+                // Update this session's `backed_up_to` value, if the requested backup is later
+                // than the current value (or missing).
+                let requested_order = self.get_or_create_backup_order(backup_version);
+                self.inbound_group_sessions_backed_up_to
+                    .write()
+                    .unwrap()
+                    .entry((*room_id).to_owned())
+                    .or_default()
+                    .entry((*session_id).to_owned())
+                    .and_modify(|s| {
+                        if *s < requested_order {
+                            *s = requested_order
+                        }
+                    })
+                    .or_insert_with(|| requested_order);
                 self.inbound_group_sessions.add(session);
             }
         }
@@ -315,9 +419,11 @@ impl CryptoStore for MemoryStore {
     }
 
     async fn reset_backup_state(&self) -> Result<()> {
-        for session in self.get_inbound_group_sessions().await? {
-            session.reset_backup_state();
-        }
+        // Nothing to do here, because we remember which backup versions we backed up to
+        // in `mark_inbound_group_sessions_as_backed_up`, so we don't need to
+        // reset anything here because the required version is passed in to
+        // `inbound_group_sessions_for_backup`, and we can compare against the
+        // version we stored.
 
         Ok(())
     }
@@ -494,15 +600,17 @@ impl CryptoStore for MemoryStore {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use matrix_sdk_test::async_test;
-    use ruma::{room_id, user_id};
+    use ruma::{room_id, user_id, RoomId};
     use vodozemac::{Curve25519PublicKey, Ed25519PublicKey};
 
     use crate::{
         identities::device::testing::get_device,
         olm::{
-            tests::get_account_and_session_test_helper, InboundGroupSession, OlmMessageHash,
-            PrivateCrossSigningIdentity,
+            tests::get_account_and_session_test_helper, Account, InboundGroupSession,
+            OlmMessageHash, PrivateCrossSigningIdentity,
         },
         store::{memorystore::MemoryStore, Changes, CryptoStore, PendingChanges},
     };
@@ -548,6 +656,172 @@ mod tests {
         let loaded_session =
             store.get_inbound_group_session(room_id, outbound.session_id()).await.unwrap().unwrap();
         assert_eq!(inbound, loaded_session);
+    }
+
+    #[async_test]
+    async fn test_if_no_backups_are_known_the_first_gets_order_1() {
+        // Given there are 2 sessions
+        let room_id = room_id!("!test:localhost");
+        let (store, sessions) = store_with_sessions(2, room_id).await;
+
+        // When I mark them as backed up
+        mark_backed_up(&store, room_id, "bkp1", &sessions).await;
+
+        // Then their orders are set to 1, because the backup version was previously
+        // unknown and there are no others.
+        let but = backed_up_tos(&store).await;
+        assert_eq!(but[sessions[0].session_id()], 1);
+        assert_eq!(but[sessions[1].session_id()], 1);
+    }
+
+    #[async_test]
+    async fn test_backing_up_a_second_set_of_sessions_updates_their_backup_order() {
+        // Given there are 3 sessions
+        let room_id = room_id!("!test:localhost");
+        let (store, sessions) = store_with_sessions(3, room_id).await;
+
+        // When I mark 0 and 1 as backed up in bkp1
+        mark_backed_up(&store, room_id, "bkp1", &sessions[..2]).await;
+
+        // And 1 and 2 as backed up in bkp2
+        mark_backed_up(&store, room_id, "bkp2", &sessions[1..]).await;
+
+        // Then 0 is backed up in bkp1 and the 1 and 2 are backed up in bkp2
+        let but = backed_up_tos(&store).await;
+        assert_eq!(but[sessions[0].session_id()], 1);
+        assert_eq!(but[sessions[1].session_id()], 2);
+        assert_eq!(but[sessions[2].session_id()], 2);
+    }
+
+    #[async_test]
+    async fn test_backing_up_again_to_the_same_version_does_not_increase_backup_order() {
+        // Given there are 3 sessions
+        let room_id = room_id!("!test:localhost");
+        let (store, sessions) = store_with_sessions(3, room_id).await;
+
+        // When I mark the first two as backed up in the first backup
+        mark_backed_up(&store, room_id, "bkp1", &sessions[..2]).await;
+
+        // And the last 2 as backed up in the same backup version
+        mark_backed_up(&store, room_id, "bkp1", &sessions[1..]).await;
+
+        // Then they all get the same backed_up_to value - we didn't create a new one
+        let but = backed_up_tos(&store).await;
+        assert_eq!(but[sessions[0].session_id()], 1);
+        assert_eq!(but[sessions[1].session_id()], 1);
+        assert_eq!(but[sessions[2].session_id()], 1);
+    }
+
+    #[async_test]
+    async fn test_backing_up_to_an_old_backup_version_can_increase_backed_up_to() {
+        // Given we have backed up some sessions to 2 backup versions, an older and a
+        // newer
+        let room_id = room_id!("!test:localhost");
+        let (store, sessions) = store_with_sessions(4, room_id).await;
+        mark_backed_up(&store, room_id, "older_bkp", &sessions[..2]).await;
+        mark_backed_up(&store, room_id, "newer_bkp", &sessions[1..2]).await;
+
+        // When I ask to back up the un-backed-up ones to the older backup
+        mark_backed_up(&store, room_id, "older_bkp", &sessions[2..]).await;
+
+        // Then each session lists the latest backup it was included in
+        let but = backed_up_tos(&store).await;
+        assert_eq!(but[sessions[0].session_id()], 1);
+        assert_eq!(but[sessions[1].session_id()], 2);
+        assert_eq!(but[sessions[2].session_id()], 1);
+        assert_eq!(but[sessions[3].session_id()], 1);
+    }
+
+    #[async_test]
+    async fn test_backing_up_to_an_old_backup_version_does_not_overwrite_a_newer_one() {
+        // Given we have backed up to 2 backup versions, an older and a newer
+        let room_id = room_id!("!test:localhost");
+        let (store, sessions) = store_with_sessions(4, room_id).await;
+        mark_backed_up(&store, room_id, "older_bkp", &sessions).await;
+        // Sanity: they are backed up in order number 1
+        assert_eq!(backed_up_tos(&store).await[sessions[0].session_id()], 1);
+        mark_backed_up(&store, room_id, "newer_bkp", &sessions).await;
+        // Sanity: they are backed up in order number 2
+        assert_eq!(backed_up_tos(&store).await[sessions[0].session_id()], 2);
+
+        // When I ask to back up some to the older version
+        mark_backed_up(&store, room_id, "older_bkp", &sessions[..2]).await;
+
+        // Then all the sessions are still marked as backed up in the newer version
+        let but = backed_up_tos(&store).await;
+        assert_eq!(but[sessions[0].session_id()], 2);
+        assert_eq!(but[sessions[1].session_id()], 2);
+        assert_eq!(but[sessions[2].session_id()], 2);
+        assert_eq!(but[sessions[3].session_id()], 2);
+    }
+
+    #[async_test]
+    async fn test_not_backed_up_sessions_are_eligible_for_backup() {
+        // Given there are 4 sessions, 2 of which are already backed up
+        let room_id = room_id!("!test:localhost");
+        let (store, sessions) = store_with_sessions(4, room_id).await;
+        mark_backed_up(&store, room_id, "bkp1", &sessions[..2]).await;
+
+        // When I ask which to back up
+        let mut to_backup = store
+            .inbound_group_sessions_for_backup("bkp1", 10)
+            .await
+            .expect("Failed to ask for sessions to backup");
+        to_backup.sort_by_key(|s| s.session_id().to_owned());
+
+        // Then I am told the last 2 only
+        assert_eq!(to_backup, &[sessions[2].clone(), sessions[3].clone()]);
+    }
+
+    #[async_test]
+    async fn test_all_sessions_are_eligible_for_backup_if_version_is_unknown() {
+        // Given there are 4 sessions, 2 of which are already backed up in bkp1
+        let room_id = room_id!("!test:localhost");
+        let (store, sessions) = store_with_sessions(4, room_id).await;
+        mark_backed_up(&store, room_id, "bkp1", &sessions[..2]).await;
+
+        // When I ask which to back up in an unknown version
+        let mut to_backup = store
+            .inbound_group_sessions_for_backup("unknown_bkp", 10)
+            .await
+            .expect("Failed to ask for sessions to backup");
+        to_backup.sort_by_key(|s| s.session_id().to_owned());
+
+        // Then I am told to back up all of them
+        assert_eq!(
+            to_backup,
+            &[sessions[0].clone(), sessions[1].clone(), sessions[2].clone(), sessions[3].clone()]
+        );
+    }
+
+    #[async_test]
+    async fn test_sessions_backed_up_to_a_later_version_are_not_eligible_for_backup() {
+        // Given there are 4 sessions, some backed up to three different versions
+        let room_id = room_id!("!test:localhost");
+        let (store, sessions) = store_with_sessions(4, room_id).await;
+        mark_backed_up(&store, room_id, "bkp0", &sessions[..1]).await;
+        mark_backed_up(&store, room_id, "bkp1", &sessions[1..2]).await;
+        mark_backed_up(&store, room_id, "bkp2", &sessions[2..3]).await;
+
+        // When I ask which to back up in the middle version
+        let mut to_backup = store
+            .inbound_group_sessions_for_backup("bkp1", 10)
+            .await
+            .expect("Failed to ask for sessions to backup");
+        to_backup.sort_by_key(|s| s.session_id().to_owned());
+
+        // Then I am told to back up only those backed up to an older version, or no
+        // version. I am not told to back up the one already backed up in a
+        // newer or same version.
+        assert_eq!(
+            to_backup,
+            &[
+                sessions[0].clone(), // Backed up in bkp0 only
+                // sessions[1] is backed up in bkp1 already, which we asked for
+                // sessions[2] is backed up in bkp2 already, which is later than bkp1
+                sessions[3].clone(), // Not backed up
+            ]
+        );
     }
 
     #[async_test]
@@ -649,6 +923,70 @@ mod tests {
         assert!(!store.is_message_known(&hash).await.unwrap());
         store.save_changes(changes).await.unwrap();
         assert!(store.is_message_known(&hash).await.unwrap());
+    }
+
+    /// Mark the supplied sessions as backed up in the supplied backup version
+    async fn mark_backed_up(
+        store: &MemoryStore,
+        room_id: &RoomId,
+        backup_version: &str,
+        sessions: &[InboundGroupSession],
+    ) {
+        let rooms_and_ids: Vec<_> = sessions.iter().map(|s| (room_id, s.session_id())).collect();
+
+        store
+            .mark_inbound_group_sessions_as_backed_up(backup_version, &rooms_and_ids)
+            .await
+            .expect("Failed to mark sessions as backed up");
+    }
+
+    // Create a MemoryStore containing the supplied number of sessions.
+    //
+    // Sessions are returned in alphabetical order of session id.
+    async fn store_with_sessions(
+        num_sessions: usize,
+        room_id: &RoomId,
+    ) -> (MemoryStore, Vec<InboundGroupSession>) {
+        let (account, _) = get_account_and_session_test_helper();
+
+        let mut sessions = Vec::with_capacity(num_sessions);
+        for _ in 0..num_sessions {
+            sessions.push(new_session(&account, room_id).await);
+        }
+        sessions.sort_by_key(|s| s.session_id().to_owned());
+
+        let store = MemoryStore::new();
+        store.save_inbound_group_sessions(sessions.clone());
+
+        (store, sessions)
+    }
+
+    // Create a new InboundGroupSession
+    async fn new_session(account: &Account, room_id: &RoomId) -> InboundGroupSession {
+        let curve_key = "Nn0L2hkcCMFKqynTjyGsJbth7QrVmX3lbrksMkrGOAw";
+        let (outbound, _) = account.create_group_session_pair_with_defaults(room_id).await;
+
+        InboundGroupSession::new(
+            Curve25519PublicKey::from_base64(curve_key).unwrap(),
+            Ed25519PublicKey::from_base64("ee3Ek+J2LkkPmjGPGLhMxiKnhiX//xcqaVL4RP6EypE").unwrap(),
+            room_id,
+            &outbound.session_key().await,
+            outbound.settings().algorithm.to_owned(),
+            None,
+        )
+        .unwrap()
+    }
+
+    /// Find the session_id and backed_up_to value for each of the sessions in
+    /// the store.
+    async fn backed_up_tos(store: &MemoryStore) -> HashMap<String, u64> {
+        store
+            .get_inbound_group_sessions_and_backup_order()
+            .await
+            .expect("Unable to get inbound group sessions and backup order")
+            .iter()
+            .map(|(s, o)| (s.session_id().to_owned(), *o))
+            .collect()
     }
 }
 
