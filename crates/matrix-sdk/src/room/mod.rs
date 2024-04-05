@@ -361,12 +361,12 @@ impl Room {
         (drop_guard, receiver)
     }
 
-    /// Fetch the event with the given `EventId` in this room.
-    pub async fn event(&self, event_id: &EventId) -> Result<TimelineEvent> {
-        let request =
-            get_room_event::v3::Request::new(self.room_id().to_owned(), event_id.to_owned());
-        let event = self.client.send(request, None).await?.event;
-
+    /// Returns a wrapping `TimelineEvent` for the input `AnyTimelineEvent`,
+    /// decrypted if needs be.
+    ///
+    /// Doesn't return an error `Result` when decryption failed; only logs from
+    /// the crypto crate will indicate so.
+    async fn try_decrypt_event(&self, event: Raw<AnyTimelineEvent>) -> Result<TimelineEvent> {
         #[cfg(feature = "e2e-encryption")]
         if let Ok(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
             SyncMessageLikeEvent::Original(_),
@@ -380,6 +380,14 @@ impl Room {
         let push_actions = self.event_push_actions(&event).await?;
 
         Ok(TimelineEvent { event, encryption_info: None, push_actions })
+    }
+
+    /// Fetch the event with the given `EventId` in this room.
+    pub async fn event(&self, event_id: &EventId) -> Result<TimelineEvent> {
+        let request =
+            get_room_event::v3::Request::new(self.room_id().to_owned(), event_id.to_owned());
+        let event = self.client.send(request, None).await?.event;
+        self.try_decrypt_event(event).await
     }
 
     /// Fetch the event with the given `EventId` in this room, using the
@@ -402,33 +410,18 @@ impl Room {
 
         let response = self.client.send(request, None).await?;
 
-        // Decrypts one event, if needs be.
-        let try_decrypt = |event: Raw<AnyTimelineEvent>| async move {
-            #[cfg(feature = "e2e-encryption")]
-            if let Ok(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
-                SyncMessageLikeEvent::Original(_),
-            ))) = event.deserialize_as::<AnySyncTimelineEvent>()
-            {
-                if let Ok(event) = self.decrypt_event(event.cast_ref()).await {
-                    return Result::<_, Error>::Ok(event);
-                }
-            }
-
-            let push_actions = self.event_push_actions(&event).await?;
-
-            Result::<_, Error>::Ok(TimelineEvent {
-                event: event.clone(),
-                encryption_info: None,
-                push_actions,
-            })
+        let target_event = if let Some(event) = response.event {
+            Some(self.try_decrypt_event(event).await?)
+        } else {
+            None
         };
 
-        let target_event =
-            if let Some(event) = response.event { Some(try_decrypt(event).await?) } else { None };
-
+        // Note: the joined future will fail if any future failed, but
+        // [`Self::try_decrypt_event`] doesn't hard-fail when there's a
+        // decryption error, so we should prevent against most bad cases here.
         let (events_before, events_after) = try_join(
-            try_join_all(response.events_before.into_iter().map(try_decrypt)),
-            try_join_all(response.events_after.into_iter().map(try_decrypt)),
+            try_join_all(response.events_before.into_iter().map(|ev| self.try_decrypt_event(ev))),
+            try_join_all(response.events_after.into_iter().map(|ev| self.try_decrypt_event(ev))),
         )
         .await?;
 
