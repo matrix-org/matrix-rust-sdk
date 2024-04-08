@@ -75,6 +75,7 @@ use self::{
 use crate::{client::ClientInner, room::MessagesOptions, Client, Room};
 
 mod linked_chunk;
+pub mod paginator;
 mod store;
 
 /// An error observed in the [`EventCache`].

@@ -83,13 +83,10 @@ use thiserror::Error;
 use tokio::sync::broadcast;
 use tracing::{debug, info, instrument, warn};
 
-use self::{
-    futures::{SendAttachment, SendMessageLikeEvent, SendRawMessageLikeEvent},
-    messages::EventWithContextResponse,
-};
+use self::futures::{SendAttachment, SendMessageLikeEvent, SendRawMessageLikeEvent};
 pub use self::{
     member::{RoomMember, RoomMemberRole},
-    messages::{Messages, MessagesOptions},
+    messages::{EventWithContextResponse, Messages, MessagesOptions},
 };
 #[cfg(doc)]
 use crate::event_cache::EventCache;
