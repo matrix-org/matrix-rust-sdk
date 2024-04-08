@@ -13,20 +13,30 @@
 // limitations under the License.
 
 use matrix_sdk_base::crypto::types::SecretsBundle;
+use openidconnect::{EndUserVerificationUrl, VerificationUriComplete};
 use ruma::OwnedDeviceId;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use url::Url;
+use vodozemac::Curve25519PublicKey;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum QrAuthMessage {
     #[serde(rename = "m.login.protocols")]
     LoginProtocols { protocols: Vec<u8>, homeserver: Url },
     #[serde(rename = "m.login.protocol")]
-    LoginProtocol { device_authorization_grant: AuthorizationGrant, protocol: u8 },
+    LoginProtocol {
+        device_authorization_grant: AuthorizationGrant,
+        protocol: u8,
+        #[serde(
+            deserialize_with = "deserialize_curve_key",
+            serialize_with = "serialize_curve_key"
+        )]
+        device_id: Curve25519PublicKey,
+    },
     #[serde(rename = "m.login.protocol_accepted")]
     LoginProtocolAccepted(),
     #[serde(rename = "m.login.success")]
-    LoginSuccess { device_id: OwnedDeviceId },
+    LoginSuccess(),
     #[serde(rename = "m.login.declined")]
     LoginDeclined(),
     #[serde(rename = "m.login.secrets")]
@@ -35,6 +45,26 @@ pub enum QrAuthMessage {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AuthorizationGrant {
-    pub verification_uri: Url,
-    pub verification_uri_complete: Url,
+    pub verification_uri: EndUserVerificationUrl,
+    pub verification_uri_complete: Option<VerificationUriComplete>,
+}
+
+// Vodozemac serializes Curve25519 keys directly as a byteslice, while Matrix
+// likes to base64 encode all byte slices.
+//
+// This ensures that we serialize/deserialize in a Matrix-compatible way.
+pub(crate) fn deserialize_curve_key<'de, D>(de: D) -> Result<Curve25519PublicKey, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let key: String = Deserialize::deserialize(de)?;
+    Curve25519PublicKey::from_base64(&key).map_err(serde::de::Error::custom)
+}
+
+pub(crate) fn serialize_curve_key<S>(key: &Curve25519PublicKey, s: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let key = key.to_base64();
+    s.serialize_str(&key)
 }

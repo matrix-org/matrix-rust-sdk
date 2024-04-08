@@ -354,6 +354,10 @@ impl Oidc {
         self.client.inner.auth_ctx.oidc.authentication_server_info.as_ref()
     }
 
+    pub async fn fetch_authentication_issuer(&self) -> Result<Option<Url>> {
+        todo!()
+    }
+
     /// The OpenID Connect Provider used for authorization.
     ///
     /// Returns `None` if the client registration was not restored with

@@ -12,6 +12,43 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+pub mod create_rendezvous {
+    use http::header::{CONTENT_TYPE, ETAG, EXPIRES, LAST_MODIFIED, LOCATION};
+    use ruma::{
+        api::{request, response, Metadata},
+        metadata,
+    };
+
+    pub const METADATA: Metadata = metadata! {
+        method: POST,
+        rate_limited: true,
+        authentication: None,
+        history: {
+            // TODO: Once we have a working rendezvous server, switch to the correct MSC.
+            // unstable => "/_matrix/client/unstable/org.matrix.msc4108/rendezvous",
+            unstable => "/_matrix/client/unstable/org.matrix.msc3886/rendezvous",
+        }
+    };
+
+    #[request]
+    #[derive(Default)]
+    pub struct Request {}
+
+    #[response]
+    pub struct Response {
+        #[ruma_api(header = LOCATION)]
+        pub location: String,
+        #[ruma_api(header = ETAG)]
+        pub etag: String,
+        #[ruma_api(header = EXPIRES)]
+        pub expires: String,
+        #[ruma_api(header = LAST_MODIFIED)]
+        pub last_modified: String,
+        #[ruma_api(header = CONTENT_TYPE)]
+        pub content_type: Option<String>,
+    }
+}
+
 pub mod send_rendezvous {
     use http::header::{CONTENT_TYPE, ETAG, EXPIRES, IF_MATCH, LAST_MODIFIED};
     use ruma::{
@@ -24,7 +61,7 @@ pub mod send_rendezvous {
         rate_limited: true,
         authentication: None,
         history: {
-            unstable => "/_matrix/client/unstable/org.matrix.msc4108/rendezvous/:rendezvous_session",
+            unstable => "/",
         }
     };
 
@@ -63,7 +100,7 @@ pub mod receive_rendezvous {
         rate_limited: true,
         authentication: None,
         history: {
-            unstable => "/_matrix/client/unstable/org.matrix.msc4108/rendezvous/:rendezvous_session",
+            unstable => "/",
         }
     };
 
@@ -101,7 +138,7 @@ pub mod delete_rendezvous {
         rate_limited: true,
         authentication: None,
         history: {
-            unstable => "/_matrix/client/unstable/org.matrix.msc4108/rendezvous/:rendezvous_session",
+            unstable => "/",
         }
     };
 
@@ -114,40 +151,4 @@ pub mod delete_rendezvous {
 
     #[response]
     pub struct Response {}
-}
-
-pub mod create_rendezvous {
-    use http::header::{CONTENT_TYPE, ETAG, EXPIRES, LAST_MODIFIED, LOCATION};
-    use ruma::{
-        api::{request, response, Metadata},
-        metadata,
-    };
-
-    pub const METADATA: Metadata = metadata! {
-        method: POST,
-        rate_limited: true,
-        authentication: None,
-        history: {
-            // unstable => "/_matrix/client/unstable/org.matrix.msc4108/rendezvous",
-            unstable => "/_matrix/client/unstable/org.matrix.msc3886/rendezvous",
-        }
-    };
-
-    #[request]
-    #[derive(Default)]
-    pub struct Request {}
-
-    #[response]
-    pub struct Response {
-        #[ruma_api(header = LOCATION)]
-        pub location: String,
-        #[ruma_api(header = ETAG)]
-        pub etag: String,
-        #[ruma_api(header = EXPIRES)]
-        pub expires: String,
-        #[ruma_api(header = LAST_MODIFIED)]
-        pub last_modified: String,
-        #[ruma_api(header = CONTENT_TYPE)]
-        pub content_type: Option<String>,
-    }
 }

@@ -31,7 +31,8 @@ use futures_util::{
     stream::{self, StreamExt},
 };
 use matrix_sdk_base::crypto::{
-    CrossSigningBootstrapRequests, OlmMachine, OutgoingRequest, RoomMessageRequest, ToDeviceRequest,
+    types::SecretsBundle, CrossSigningBootstrapRequests, OlmMachine, OutgoingRequest,
+    RoomMessageRequest, ToDeviceRequest,
 };
 use matrix_sdk_common::executor::spawn;
 use ruma::{
@@ -58,6 +59,7 @@ use ruma::{
 };
 use tokio::sync::RwLockReadGuard;
 use tracing::{debug, error, instrument, trace, warn};
+use vodozemac::Curve25519PublicKey;
 
 use self::{
     backups::{types::BackupClientState, Backups},
@@ -616,6 +618,22 @@ impl Encryption {
     /// called the fingerprint of the device.
     pub async fn ed25519_key(&self) -> Option<String> {
         self.client.olm_machine().await.as_ref().map(|o| o.identity_keys().ed25519.to_base64())
+    }
+
+    /// Get the public Curve25519 key of our own device.
+    pub async fn curve25519_key(&self) -> Option<Curve25519PublicKey> {
+        self.client.olm_machine().await.as_ref().map(|o| o.identity_keys().curve25519)
+    }
+
+    pub(crate) async fn import_secrets_bundle(
+        &self,
+        bundle: &SecretsBundle,
+    ) -> Result<(), SecretImportError> {
+        let olm_machine = self.client.olm_machine().await;
+        let olm_machine =
+            olm_machine.as_ref().expect("This should only be called once we have an OlmMachine");
+
+        olm_machine.store().import_secrets_bundle(bundle).await
     }
 
     /// Get the status of the private cross signing keys.
