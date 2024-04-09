@@ -270,7 +270,10 @@ impl CryptoStore for MemoryStore {
         Ok(self.inbound_group_sessions.get_all())
     }
 
-    async fn inbound_group_session_counts(&self) -> Result<RoomKeyCounts> {
+    async fn inbound_group_session_counts(
+        &self,
+        _backup_version: Option<&str>,
+    ) -> Result<RoomKeyCounts> {
         let backed_up =
             self.get_inbound_group_sessions().await?.into_iter().filter(|s| s.backed_up()).count();
 
@@ -279,6 +282,7 @@ impl CryptoStore for MemoryStore {
 
     async fn inbound_group_sessions_for_backup(
         &self,
+        _backup_version: &str,
         limit: usize,
     ) -> Result<Vec<InboundGroupSession>> {
         Ok(self
@@ -292,6 +296,7 @@ impl CryptoStore for MemoryStore {
 
     async fn mark_inbound_group_sessions_as_backed_up(
         &self,
+        _backup_version: &str,
         room_and_session_ids: &[(&RoomId, &str)],
     ) -> Result<()> {
         for (room_id, session_id) in room_and_session_ids {
@@ -758,22 +763,29 @@ mod integration_tests {
             self.0.get_inbound_group_sessions().await
         }
 
-        async fn inbound_group_session_counts(&self) -> Result<RoomKeyCounts, Self::Error> {
-            self.0.inbound_group_session_counts().await
+        async fn inbound_group_session_counts(
+            &self,
+            backup_version: Option<&str>,
+        ) -> Result<RoomKeyCounts, Self::Error> {
+            self.0.inbound_group_session_counts(backup_version).await
         }
 
         async fn inbound_group_sessions_for_backup(
             &self,
+            backup_version: &str,
             limit: usize,
         ) -> Result<Vec<InboundGroupSession>, Self::Error> {
-            self.0.inbound_group_sessions_for_backup(limit).await
+            self.0.inbound_group_sessions_for_backup(backup_version, limit).await
         }
 
         async fn mark_inbound_group_sessions_as_backed_up(
             &self,
+            backup_version: &str,
             room_and_session_ids: &[(&RoomId, &str)],
         ) -> Result<(), Self::Error> {
-            self.0.mark_inbound_group_sessions_as_backed_up(room_and_session_ids).await
+            self.0
+                .mark_inbound_group_sessions_as_backed_up(backup_version, room_and_session_ids)
+                .await
         }
 
         async fn reset_backup_state(&self) -> Result<(), Self::Error> {
