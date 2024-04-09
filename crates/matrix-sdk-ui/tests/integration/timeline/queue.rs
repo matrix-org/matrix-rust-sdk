@@ -283,13 +283,15 @@ async fn test_clear_with_echoes() {
     // When we clear the timeline now,
     timeline.clear().await;
 
-    // … the two local messages should remain.
+    // … the two local messages should remain, after the original event from the
+    // cache.
     let timeline_items = timeline.items().await;
     let event_items: Vec<_> = timeline_items.iter().filter_map(|item| item.as_event()).collect();
 
-    assert_eq!(event_items.len(), 2);
-    assert_matches!(event_items[0].send_state(), Some(EventSendState::SendingFailed { .. }));
-    assert_matches!(event_items[1].send_state(), Some(EventSendState::NotSentYet));
+    assert_eq!(event_items.len(), 3);
+    assert_matches!(event_items[0].origin(), Some(EventItemOrigin::Sync));
+    assert_matches!(event_items[1].send_state(), Some(EventSendState::SendingFailed { .. }));
+    assert_matches!(event_items[2].send_state(), Some(EventSendState::NotSentYet));
 }
 
 #[async_test]

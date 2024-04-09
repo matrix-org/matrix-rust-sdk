@@ -158,6 +158,7 @@ impl TimelineBuilder {
 
         let room_update_join_handle = spawn({
             let inner = inner.clone();
+            let room_event_cache = room_event_cache.clone();
 
             let span =
                 info_span!(parent: Span::none(), "room_update_handler", room_id = ?room.room_id());
@@ -177,7 +178,7 @@ impl TimelineBuilder {
                                 num_skipped,
                                 "Lagged behind event cache updates, resetting timeline"
                             );
-                            inner.clear().await;
+                            inner.clear_and_replace(Some(&room_event_cache)).await;
                             continue;
                         }
                     };
@@ -185,7 +186,7 @@ impl TimelineBuilder {
                     match update {
                         RoomEventCacheUpdate::Clear => {
                             trace!("Clearing the timeline.");
-                            inner.clear().await;
+                            inner.clear_and_replace(Some(&room_event_cache)).await;
                         }
 
                         RoomEventCacheUpdate::UpdateReadMarker { event_id } => {
@@ -217,13 +218,14 @@ impl TimelineBuilder {
         let mut ignore_user_list_stream = client.subscribe_to_ignore_user_list_changes();
         let ignore_user_list_update_join_handle = spawn({
             let inner = inner.clone();
+            let room_event_cache = room_event_cache.clone();
 
             let span = info_span!(parent: Span::none(), "ignore_user_list_update_handler", room_id = ?room.room_id());
             span.follows_from(Span::current());
 
             async move {
                 while ignore_user_list_stream.next().await.is_some() {
-                    inner.clear().await;
+                    inner.clear_and_replace(Some(&room_event_cache)).await;
                 }
             }
             .instrument(span)

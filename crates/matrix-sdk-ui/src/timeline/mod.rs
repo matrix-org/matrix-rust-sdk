@@ -161,7 +161,7 @@ impl Timeline {
 
     /// Clear all timeline items.
     pub async fn clear(&self) {
-        self.inner.clear().await;
+        self.inner.clear_and_replace(Some(&self.event_cache)).await;
     }
 
     /// Subscribe to the back-pagination status of the timeline.

@@ -594,7 +594,7 @@ async fn test_clear_read_receipts() {
     assert!(event_a.read_receipts().get(*BOB).is_some());
 
     // We received a limited timeline.
-    timeline.inner.clear().await;
+    timeline.inner.clear_and_replace(None).await;
 
     // New message via sync.
     timeline

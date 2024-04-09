@@ -24,7 +24,9 @@ use imbl::Vector;
 use itertools::Itertools;
 #[cfg(all(test, feature = "e2e-encryption"))]
 use matrix_sdk::crypto::OlmMachine;
-use matrix_sdk::{deserialized_responses::SyncTimelineEvent, Error, Result, Room};
+use matrix_sdk::{
+    deserialized_responses::SyncTimelineEvent, event_cache::RoomEventCache, Error, Result, Room,
+};
 #[cfg(test)]
 use ruma::events::receipt::ReceiptEventContent;
 #[cfg(all(test, feature = "e2e-encryption"))]
@@ -425,8 +427,25 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         state.add_events_at(events, position, &self.room_data_provider, &self.settings).await
     }
 
-    pub(super) async fn clear(&self) {
-        self.state.write().await.clear();
+    pub(super) async fn clear_and_replace(&self, event_cache: Option<&RoomEventCache>) {
+        let events = if let Some(event_cache) = event_cache {
+            match event_cache.subscribe().await {
+                Ok((events, _)) => events,
+
+                Err(err) => {
+                    warn!("unable to retrieve previous events after a clear: {err}");
+                    Default::default()
+                }
+            }
+        } else {
+            Default::default()
+        };
+
+        self.state
+            .write()
+            .await
+            .clear_and_replace_with(events, &self.room_data_provider, &self.settings)
+            .await;
     }
 
     pub(super) async fn handle_fully_read_marker(&self, fully_read_event_id: OwnedEventId) {

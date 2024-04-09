@@ -404,9 +404,23 @@ impl TimelineInnerState {
         txn.commit();
     }
 
-    pub(super) fn clear(&mut self) {
+    pub(super) async fn clear_and_replace_with<P: RoomDataProvider>(
+        &mut self,
+        events: Vec<SyncTimelineEvent>,
+        room_data_provider: &P,
+        settings: &TimelineInnerSettings,
+    ) {
         let mut txn = self.transaction();
+
         txn.clear();
+        txn.add_events_at(
+            events,
+            TimelineEnd::Back { from_cache: false },
+            room_data_provider,
+            settings,
+        )
+        .await;
+
         txn.commit();
     }
 
