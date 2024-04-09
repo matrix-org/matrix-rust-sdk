@@ -419,6 +419,13 @@ impl BackupMachine {
         Ok(())
     }
 
+    /// Provide the `backup_version` of the current `backup_key`, or None if
+    /// there is no current key, or the key is not used with any backup
+    /// version.
+    pub async fn backup_version(&self) -> Option<String> {
+        self.backup_key.read().await.as_ref().and_then(|k| k.backup_version())
+    }
+
     /// Store the backup decryption key in the crypto store.
     ///
     /// This is useful if the client wants to support gossiping of the backup
