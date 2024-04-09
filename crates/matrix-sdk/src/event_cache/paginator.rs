@@ -344,44 +344,94 @@ impl PaginableRoom for Room {
 mod tests {
     use std::sync::Arc;
 
-    use assert_matches2::{assert_let, assert_matches};
+    use assert_matches2::assert_let;
     use futures_core::Future;
     use futures_util::FutureExt as _;
     use matrix_sdk_test::async_test;
-    use ruma::event_id;
-    use tokio::spawn;
+    use once_cell::sync::Lazy;
+    use ruma::{event_id, room_id, user_id, RoomId, UserId};
+    use tokio::{spawn, sync::Notify};
 
     use super::*;
+    use crate::test_utils::{assert_event_matches_msg, events::EventFactory};
 
-    #[derive(Clone)]
-    struct DummyRoom;
+    #[derive(Default, Clone)]
+    struct DummyRoom {
+        room_ready: Arc<Notify>,
+    }
 
     impl DummyRoom {
         /// Unblocks the next request.
         fn mark_ready(&self) {
-            todo!();
+            self.room_ready.notify_one();
         }
     }
+
+    static ROOM_ID: Lazy<&RoomId> = Lazy::new(|| room_id!("!dune:herbert.org"));
+    static USER_ID: Lazy<&UserId> = Lazy::new(|| user_id!("@paul:atreid.es"));
 
     #[async_trait]
     impl PaginableRoom for DummyRoom {
         async fn event_with_context(
             &self,
             event_id: &EventId,
-            lazy_load_members: bool,
+            _lazy_load_members: bool,
         ) -> Result<EventWithContextResponse, PaginatorError> {
+            // Wait for the room to be marked as ready first.
+            self.room_ready.notified().await;
+
+            let event_factory = EventFactory::new().room(*ROOM_ID).sender(*USER_ID);
+
+            let event = event_factory.text_msg("hello!").event_id(event_id).into_raw_timeline();
+
+            let before = (0..10)
+                .rev()
+                .map(|i| {
+                    TimelineEvent::new(event_factory.text_msg(format!("{i}")).into_raw_timeline())
+                })
+                .collect();
+
+            let after = (10..20)
+                .map(|i| {
+                    TimelineEvent::new(event_factory.text_msg(format!("{i}")).into_raw_timeline())
+                })
+                .collect();
+
             return Ok(EventWithContextResponse {
-                event: todo!(),
-                events_before: todo!(),
-                events_after: todo!(),
-                prev_batch_token: todo!(),
-                next_batch_token: todo!(),
-                state: todo!(),
+                event: Some(TimelineEvent::new(event)),
+                events_before: before,
+                events_after: after,
+                prev_batch_token: Some("prev".to_owned()),
+                next_batch_token: Some("next".to_owned()),
+                state: Vec::new(),
             });
         }
 
         async fn messages(&self, opts: MessagesOptions) -> Result<Messages, PaginatorError> {
-            return Ok(Messages { start: todo!(), end: todo!(), chunk: todo!(), state: todo!() });
+            assert_eq!(
+                opts.from.as_deref(),
+                Some("prev"),
+                "we must receive a single back-pagination"
+            );
+            assert_eq!(opts.dir, Direction::Backward, "we must receive a single back-pagination");
+
+            self.room_ready.notified().await;
+
+            let event_factory = EventFactory::new().room(*ROOM_ID).sender(*USER_ID);
+
+            let chunk = (20..30)
+                .rev()
+                .map(|i| {
+                    TimelineEvent::new(event_factory.text_msg(format!("{i}")).into_raw_timeline())
+                })
+                .collect();
+
+            return Ok(Messages {
+                start: opts.from.unwrap().to_owned(),
+                end: None,
+                chunk,
+                state: Vec::new(),
+            });
         }
     }
 
@@ -402,7 +452,7 @@ mod tests {
 
     #[async_test]
     async fn test_state() {
-        let room = Box::new(DummyRoom);
+        let room = Box::<DummyRoom>::default();
 
         let paginator = Arc::new(Paginator::new(room.clone()));
 
@@ -454,7 +504,16 @@ mod tests {
         assert_eq!(state.next().await, Some(PaginatorState::Idle));
 
         let context = join_handle.await.expect("joined failed").expect("/context failed");
-        // TODO: run checks on the result
+        assert!(context.has_prev);
+        assert!(context.has_next);
+        assert_eq!(context.events.len(), 21);
+        for i in 0..10 {
+            assert_event_matches_msg(&context.events[i], &format!("{i}"));
+        }
+        assert_event_matches_msg(&context.events[10], "hello!");
+        for i in 0..10 {
+            assert_event_matches_msg(&context.events[i + 11], &format!("{}", i + 10));
+        }
 
         assert!(state.next().now_or_never().is_none());
 
@@ -492,7 +551,11 @@ mod tests {
         assert_eq!(state.next().await, Some(PaginatorState::Idle));
 
         let messages = join_handle.await.expect("joined failed").expect("/messages failed");
-        // TODO: run checks on the result
+        assert!(messages.hit_end_of_timeline);
+        for i in 0..10 {
+            // It's a backward pagination, so messages are in reverse topological order.
+            assert_event_matches_msg(&messages.events[i], &format!("{}", 29 - i));
+        }
 
         assert!(state.next().now_or_never().is_none());
     }

@@ -3,7 +3,7 @@ use std::time::Duration;
 use assert_matches2::{assert_let, assert_matches};
 use matrix_sdk::{
     event_cache::{BackPaginationOutcome, EventCacheError, RoomEventCacheUpdate},
-    test_utils::logged_in_client_with_server,
+    test_utils::{assert_event_matches_msg, logged_in_client_with_server},
 };
 use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
 use matrix_sdk_test::{
@@ -11,10 +11,7 @@ use matrix_sdk_test::{
 };
 use ruma::{
     event_id,
-    events::{
-        room::message::{MessageType, RoomMessageEventContent},
-        AnySyncMessageLikeEvent, AnySyncTimelineEvent, AnyTimelineEvent,
-    },
+    events::{room::message::RoomMessageEventContent, AnyTimelineEvent},
     room_id,
     serde::Raw,
     user_id,
@@ -27,17 +24,6 @@ use wiremock::{
 };
 
 use crate::mock_sync;
-
-#[track_caller]
-fn assert_event_matches_msg(event: &SyncTimelineEvent, expected: &str) {
-    let event = event.event.deserialize().unwrap();
-    assert_let!(
-        AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(message)) = event
-    );
-    let message = message.as_original().unwrap();
-    assert_let!(MessageType::Text(text) = &message.content.msgtype);
-    assert_eq!(text.body, expected);
-}
 
 #[async_test]
 async fn test_must_explicitly_subscribe() {
@@ -290,8 +276,8 @@ async fn test_backpaginate_once() {
     assert_let!(BackPaginationOutcome::Success { events, reached_start } = outcome);
     assert!(reached_start);
 
-    assert_event_matches_msg(&events[0].clone().into(), "world");
-    assert_event_matches_msg(&events[1].clone().into(), "hello");
+    assert_event_matches_msg(&events[0], "world");
+    assert_event_matches_msg(&events[1], "hello");
     assert_eq!(events.len(), 2);
 
     assert!(room_stream.is_empty());
@@ -390,9 +376,9 @@ async fn test_backpaginate_multiple_iterations() {
     assert_eq!(num_iterations, 2);
     assert!(global_reached_start);
 
-    assert_event_matches_msg(&global_events[0].clone().into(), "world");
-    assert_event_matches_msg(&global_events[1].clone().into(), "hello");
-    assert_event_matches_msg(&global_events[2].clone().into(), "oh well");
+    assert_event_matches_msg(&global_events[0], "world");
+    assert_event_matches_msg(&global_events[1], "hello");
+    assert_event_matches_msg(&global_events[2], "oh well");
     assert_eq!(global_events.len(), 3);
 
     // And next time I'll open the room, I'll get the events in the right order.
@@ -581,7 +567,7 @@ async fn test_backpaginating_without_token() {
     assert!(reached_start);
 
     // And we get notified about the new event.
-    assert_event_matches_msg(&events[0].clone().into(), "hi");
+    assert_event_matches_msg(&events[0], "hi");
     assert_eq!(events.len(), 1);
 
     assert!(room_stream.is_empty());
