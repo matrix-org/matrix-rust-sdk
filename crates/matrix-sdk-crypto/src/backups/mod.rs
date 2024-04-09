@@ -625,6 +625,7 @@ mod tests {
     use ruma::{device_id, room_id, user_id, CanonicalJsonValue, DeviceId, RoomId, UserId};
     use serde_json::json;
 
+    use super::BackupMachine;
     use crate::{
         olm::BackedUpRoomKey, store::BackupDecryptionKey, types::RoomKeyBackupInfo, OlmError,
         OlmMachine,
@@ -664,11 +665,10 @@ mod tests {
 
     async fn backup_flow(machine: OlmMachine) -> Result<(), OlmError> {
         let backup_machine = machine.backup_machine();
-        let backup_version =
-            backup_machine.backup_key.read().await.as_ref().and_then(|k| k.backup_version());
-        let backup_version = backup_version.as_deref();
+        let backup_version = current_backup_version(backup_machine).await;
 
-        let counts = backup_machine.store.inbound_group_session_counts(backup_version).await?;
+        let counts =
+            backup_machine.store.inbound_group_session_counts(backup_version.as_deref()).await?;
 
         assert_eq!(counts.total, 0, "Initially no keys exist");
         assert_eq!(counts.backed_up, 0, "Initially no backed up keys exist");
@@ -676,7 +676,8 @@ mod tests {
         machine.create_outbound_group_session_with_defaults_test_helper(room_id()).await?;
         machine.create_outbound_group_session_with_defaults_test_helper(room_id2()).await?;
 
-        let counts = backup_machine.store.inbound_group_session_counts(backup_version).await?;
+        let counts =
+            backup_machine.store.inbound_group_session_counts(backup_version.as_deref()).await?;
         assert_eq!(counts.total, 2, "Two room keys need to exist in the store");
         assert_eq!(counts.backed_up, 0, "No room keys have been backed up yet");
 
@@ -695,8 +696,10 @@ mod tests {
         );
 
         backup_machine.mark_request_as_sent(&request_id).await?;
+        let backup_version = current_backup_version(backup_machine).await;
 
-        let counts = backup_machine.store.inbound_group_session_counts(backup_version).await?;
+        let counts =
+            backup_machine.store.inbound_group_session_counts(backup_version.as_deref()).await?;
         assert_eq!(counts.total, 2);
         assert_eq!(counts.backed_up, 2, "All room keys have been backed up");
 
@@ -706,8 +709,10 @@ mod tests {
         );
 
         backup_machine.disable_backup().await?;
+        let backup_version = current_backup_version(backup_machine).await;
 
-        let counts = backup_machine.store.inbound_group_session_counts(backup_version).await?;
+        let counts =
+            backup_machine.store.inbound_group_session_counts(backup_version.as_deref()).await?;
         assert_eq!(counts.total, 2);
         assert_eq!(
             counts.backed_up, 0,
@@ -715,6 +720,10 @@ mod tests {
         );
 
         Ok(())
+    }
+
+    async fn current_backup_version(backup_machine: &BackupMachine) -> Option<String> {
+        backup_machine.backup_key.read().await.as_ref().and_then(|k| k.backup_version())
     }
 
     #[async_test]

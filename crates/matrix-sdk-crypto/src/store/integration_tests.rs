@@ -442,7 +442,7 @@ macro_rules! cryptostore_integration_tests {
                 loaded_session.export().await;
 
                 assert_eq!(store.get_inbound_group_sessions().await.unwrap().len(), 1);
-                assert_eq!(store.inbound_group_session_counts(Some("bkpver1")).await.unwrap().total, 1);
+                assert_eq!(store.inbound_group_session_counts(None).await.unwrap().total, 1);
             }
 
             #[async_test]
