@@ -341,11 +341,12 @@ impl PaginableRoom for Room {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(not(target_arch = "wasm32"), test))]
 mod tests {
     use std::sync::Arc;
 
     use assert_matches2::assert_let;
+    use async_trait::async_trait;
     use futures_core::Future;
     use futures_util::FutureExt as _;
     use matrix_sdk_test::async_test;
@@ -371,8 +372,7 @@ mod tests {
     static ROOM_ID: Lazy<&RoomId> = Lazy::new(|| room_id!("!dune:herbert.org"));
     static USER_ID: Lazy<&UserId> = Lazy::new(|| user_id!("@paul:atreid.es"));
 
-    #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-    #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+    #[async_trait]
     impl PaginableRoom for DummyRoom {
         async fn event_with_context(
             &self,
