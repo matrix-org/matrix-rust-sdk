@@ -460,7 +460,7 @@ impl RoomEventCacheInner {
     /// Creates a new cache for a room, and subscribes to room updates, so as
     /// to handle new timeline events.
     fn new(room: Room) -> Self {
-        let sender = Sender::new(128);
+        let sender = Sender::new(32);
 
         Self {
             room,
@@ -472,10 +472,23 @@ impl RoomEventCacheInner {
     }
 
     fn handle_account_data(&self, account_data: Vec<Raw<AnyRoomAccountDataEvent>>) {
+        let mut handled_read_marker = false;
+
         trace!("Handling account data");
         for raw_event in account_data {
             match raw_event.deserialize() {
                 Ok(AnyRoomAccountDataEvent::FullyRead(ev)) => {
+                    // Sometimes the sliding sync proxy sends many duplicates of the read marker
+                    // event. Don't forward it multiple times to avoid clutter
+                    // the update channel.
+                    //
+                    // NOTE: SS proxy workaround.
+                    if handled_read_marker {
+                        continue;
+                    }
+
+                    handled_read_marker = true;
+
                     // Propagate to observers. (We ignore the error if there aren't any.)
                     let _ = self.sender.send(RoomEventCacheUpdate::UpdateReadMarker {
                         event_id: ev.content.event_id,
@@ -863,11 +876,14 @@ pub enum RoomEventCacheUpdate {
 #[cfg(test)]
 mod tests {
     use assert_matches2::assert_matches;
+    use futures_util::FutureExt as _;
+    use matrix_sdk_base::sync::JoinedRoomUpdate;
     use matrix_sdk_common::executor::spawn;
     use matrix_sdk_test::{async_test, sync_timeline_event};
-    use ruma::room_id;
+    use ruma::{room_id, serde::Raw};
+    use serde_json::json;
 
-    use super::{BackPaginationOutcome, EventCacheError};
+    use super::{BackPaginationOutcome, EventCacheError, RoomEventCacheUpdate};
     use crate::{event_cache::store::PaginationToken, test_utils::logged_in_client};
 
     #[async_test]
@@ -1102,5 +1118,51 @@ mod tests {
             // The task succeeded.
             insert_token_task.await.unwrap();
         }
+    }
+
+    #[async_test]
+    async fn test_uniq_read_marker() {
+        let client = logged_in_client(None).await;
+        let room_id = room_id!("!galette:saucisse.bzh");
+        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+
+        let event_cache = client.event_cache();
+
+        event_cache.subscribe().unwrap();
+
+        let (room_event_cache, _drop_handles) = event_cache.for_room(room_id).await.unwrap();
+        let room_event_cache = room_event_cache.unwrap();
+
+        let (events, mut stream) = room_event_cache.subscribe().await.unwrap();
+
+        assert!(events.is_empty());
+
+        // When sending multiple times the same read marker event,…
+        let read_marker_event = Raw::from_json_string(
+            json!({
+                "content": {
+                    "event_id": "$crepe:saucisse.bzh"
+                },
+                "room_id": "!galette:saucisse.bzh",
+                "type": "m.fully_read"
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let account_data = vec![read_marker_event; 100];
+
+        room_event_cache
+            .inner
+            .handle_joined_room_update(JoinedRoomUpdate { account_data, ..Default::default() })
+            .await
+            .unwrap();
+
+        // … there's only one read marker update.
+        assert_matches!(
+            stream.recv().await.unwrap(),
+            RoomEventCacheUpdate::UpdateReadMarker { .. }
+        );
+
+        assert!(stream.recv().now_or_never().is_none());
     }
 }
