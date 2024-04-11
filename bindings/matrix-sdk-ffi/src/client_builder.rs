@@ -45,14 +45,22 @@ impl QrCodeData {
     }
 }
 
+/// Enum describing the progress of the QR-code login.
 #[derive(Debug, Default, Clone, uniffi::Enum)]
 pub enum QrLoginProgress {
+    /// The login process is starting.
     #[default]
     Starting,
+    /// We established a secure channel with the other device.
     EstablishingSecureChannel {
+        /// The check code that the device should display so the other device
+        /// can confirm that the channel is secure as well.
         check_code: u8,
     },
+    /// We are waiting for the login and for the OIDC provider to give us an
+    /// access token.
     WaitingForToken,
+    /// The login has successfully finished.
     Done,
 }
 
@@ -255,6 +263,8 @@ impl ClientBuilder {
         Ok(Arc::new(self.build_inner()?))
     }
 
+    /// Finish the building of the client and attempt to log in using the
+    /// provided [`QrCodeData`].
     pub async fn build_with_qr_code(
         self: Arc<Self>,
         qr_code_data: &QrCodeData,
