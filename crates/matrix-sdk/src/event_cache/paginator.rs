@@ -146,9 +146,10 @@ impl Paginator {
     fn check_state(&self, expected: PaginatorState) -> Result<(), PaginatorError> {
         let actual = self.state.get();
         if actual != expected {
-            return Err(PaginatorError::InvalidPreviousState { expected, actual });
+            Err(PaginatorError::InvalidPreviousState { expected, actual })
+        } else {
+            Ok(())
         }
-        Ok(())
     }
 
     /// Returns a subscriber to the internal [`PaginatorState`] machine.
@@ -164,7 +165,7 @@ impl Paginator {
         self.check_state(PaginatorState::Initial)?;
 
         // Note: it's possible two callers have checked the state and both figured it's
-        // initial. This check makes sure there's at most one which can set the
+        // initial. This check below makes sure there's at most one which can set the
         // state to FetchingTargetEvent, preventing a race condition.
         if self.state.set_if_not_eq(PaginatorState::FetchingTargetEvent).is_none() {
             return Err(PaginatorError::InvalidPreviousState {
@@ -204,7 +205,8 @@ impl Paginator {
 
     /// Runs a backward pagination, from the current state of the object.
     ///
-    /// Will return immediately if we did hit the start of the timeline before.
+    /// Will return immediately if we have already hit the start of the
+    /// timeline.
     ///
     /// May return an error if it's already paginating, or if the call to
     /// /messages failed.
@@ -214,7 +216,7 @@ impl Paginator {
 
     /// Runs a forward pagination, from the current state of the object.
     ///
-    /// Will return immediately if we did hit the end of the timeline before.
+    /// Will return immediately if we have already hit the end of the timeline.
     ///
     /// May return an error if it's already paginating, or if the call to
     /// /messages failed.
@@ -244,7 +246,7 @@ impl Paginator {
         };
 
         // Note: it's possible two callers have checked the state and both figured it's
-        // idle. This check makes sure there's at most one which can set the
+        // idle. This check below makes sure there's at most one which can set the
         // state to paginating, preventing a race condition.
         if self.state.set_if_not_eq(PaginatorState::Paginating).is_none() {
             return Err(PaginatorError::InvalidPreviousState {
