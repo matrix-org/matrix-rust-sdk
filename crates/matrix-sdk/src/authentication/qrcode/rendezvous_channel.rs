@@ -48,7 +48,8 @@ impl RendezvousChannel {
             .send(request, None, rendezvous_server.to_string(), None, &[], Default::default())
             .await?;
 
-        let rendezvous_server = rendezvous_server.to_owned();
+        // TODO: FIX THE DISCOVERY HERE.
+        let rendezvous_server = Url::parse("https://rendezvous.lab.element.dev").unwrap();
         let rendezvous_location = response.location;
         let etag = response.etag;
 

@@ -20,12 +20,13 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use anyhow::{anyhow, bail};
+use anyhow::{anyhow, bail, Context};
 use futures_util::StreamExt;
 use http::{Method, StatusCode};
 use hyper::{server::conn::AddrIncoming, service::service_fn, Body, Server};
 use matrix_sdk::{
     config::SyncSettings,
+    encryption::EncryptionSettings,
     oidc::{
         types::{
             client_credentials::ClientCredentials,
@@ -46,6 +47,10 @@ use matrix_sdk::{
     Client, ClientBuildError, Result, RoomState, ServerName,
 };
 use matrix_sdk_ui::sync_service::SyncService;
+use qrcode::{
+    render::unicode::{self, Dense1x2},
+    QrCode,
+};
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use serde::{Deserialize, Serialize};
 use tokio::{fs, io::AsyncBufReadExt as _, net::TcpListener, sync::oneshot};
@@ -311,6 +316,12 @@ impl OidcCli {
         let client = client
             .handle_refresh_tokens()
             .sqlite_store(client_session.db_path, Some(&client_session.passphrase))
+            .proxy("http://localhost:8010")
+            .with_encryption_settings(EncryptionSettings {
+                auto_enable_cross_signing: true,
+                ..Default::default()
+            })
+            .disable_ssl_verification()
             .build()
             .await?;
 
@@ -390,6 +401,9 @@ impl OidcCli {
                 Some("help") => {
                     help();
                 }
+                Some("qrcode") => {
+                    self.qrcode().await?;
+                }
                 Some(cmd) => {
                     println!("Error: unknown command '{cmd}'\n");
                     help();
@@ -400,6 +414,44 @@ impl OidcCli {
                 }
             };
         }
+
+        Ok(())
+    }
+
+    async fn qrcode(&self) -> anyhow::Result<()> {
+        let client = &self.client;
+        let mut dings = client.oidc().grant_login_with_qr_code().await?;
+
+        let data = dings.qr_code_data();
+        let qr_code = QrCode::new(data.to_bytes()).context("Failed to render the QR code")?;
+        let data_base64 = data.to_base64();
+
+        let image = qr_code
+            .render::<Dense1x2>()
+            .dark_color(unicode::Dense1x2::Light)
+            .light_color(unicode::Dense1x2::Dark)
+            .build();
+
+        println!("{image}");
+        println!("Please scan this QR code on an existing device, or paste the following base64 string {data_base64}");
+
+        dings
+            .wait_for_scan()
+            .await
+            .context("The secure channel could not have been connected to the other side")?;
+
+        println!("Please enter the check code the other device is displaying: ");
+
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input).expect("error: unable to read user input");
+
+        let input = input.trim().to_lowercase();
+
+        let input: u8 = input.parse().context("Could not parse the check code")?;
+
+        dings.confirm_check_code(input).await.context("The check code did not match")?;
+
+        println!("Successfully established the secure channel.");
 
         Ok(())
     }
@@ -714,6 +766,12 @@ async fn build_client(
             // persist the encryption setup.
             // Note that other store backends are available and you can even implement your own.
             .sqlite_store(&db_path, Some(&passphrase))
+            .proxy("http://localhost:8010")
+            .disable_ssl_verification()
+            .with_encryption_settings(EncryptionSettings {
+                auto_enable_cross_signing: true,
+                ..Default::default()
+            })
             .build()
             .await
         {

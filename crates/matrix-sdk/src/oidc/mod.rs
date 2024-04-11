@@ -183,9 +183,14 @@ use mas_oidc_client::{
         IdToken,
     },
 };
-use matrix_sdk_base::{once_cell::sync::OnceCell, SessionMeta};
+use matrix_sdk_base::{crypto::qr_login::QrCodeData, once_cell::sync::OnceCell, SessionMeta};
 use rand::{rngs::StdRng, Rng, SeedableRng};
-use ruma::{api::client::discovery::discover_homeserver::AuthenticationServerInfo, OwnedDeviceId};
+use ruma::{
+    api::client::discovery::{
+        discover_homeserver::AuthenticationServerInfo, get_authentication_issuer,
+    },
+    OwnedDeviceId,
+};
 use serde::{Deserialize, Serialize};
 use sha2::Digest as _;
 use thiserror::Error;
@@ -212,7 +217,14 @@ use self::{
         CrossProcessRefreshLockError, CrossProcessRefreshLockGuard, CrossProcessRefreshManager,
     },
 };
-use crate::{authentication::AuthData, client::SessionChange, Client, RefreshTokenError, Result};
+use crate::{
+    authentication::{
+        qrcode::{ExistingAuthGrantDings, LoginWithQrCode},
+        AuthData,
+    },
+    client::SessionChange,
+    Client, HttpError, RefreshTokenError, Result,
+};
 
 pub(crate) struct OidcCtx {
     /// The authentication server info discovered from the homeserver.
@@ -354,8 +366,23 @@ impl Oidc {
         self.client.inner.auth_ctx.oidc.authentication_server_info.as_ref()
     }
 
-    pub async fn fetch_authentication_issuer(&self) -> Result<Option<Url>> {
-        todo!()
+    pub async fn fetch_authentication_issuer(&self) -> Result<String, HttpError> {
+        let response =
+            self.client.send(get_authentication_issuer::msc2965::Request::new(), None).await?;
+
+        Ok(response.issuer)
+    }
+
+    pub async fn grant_login_with_qr_code(&self) -> Result<ExistingAuthGrantDings> {
+        Ok(ExistingAuthGrantDings::new(self.client.clone()).await.unwrap())
+    }
+
+    pub fn login_with_qr_code<'a>(
+        &'a self,
+        data: &'a QrCodeData,
+        client_metadata: VerifiedClientMetadata,
+    ) -> LoginWithQrCode<'a> {
+        LoginWithQrCode::new(&self.client, client_metadata, data)
     }
 
     /// The OpenID Connect Provider used for authorization.
@@ -456,7 +483,7 @@ impl Oidc {
     /// # Panics
     ///
     /// Will panic if no OIDC client has been configured yet.
-    fn set_session_tokens(&self, session_tokens: OidcSessionTokens) {
+    pub(crate) fn set_session_tokens(&self, session_tokens: OidcSessionTokens) {
         let data =
             self.data().expect("Cannot call OpenID Connect API after logging in with another API");
         if let Some(tokens) = data.tokens.get() {

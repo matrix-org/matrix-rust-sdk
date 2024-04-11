@@ -50,20 +50,20 @@ mod one_time_keys;
 pub use self::{backup::*, cross_signing::*, device_keys::*, one_time_keys::*};
 use crate::store::BackupDecryptionKey;
 
-#[derive(Debug, Deserialize, Serialize, ZeroizeOnDrop)]
+#[derive(Debug, Deserialize, Clone, Serialize, ZeroizeOnDrop)]
 pub struct SecretsBundle {
     pub cross_signing: CrossSigningSecrets,
     pub backup: Option<BackupSecrets>,
 }
 
-#[derive(Debug, Deserialize, Serialize, ZeroizeOnDrop)]
+#[derive(Debug, Deserialize, Clone, Serialize, ZeroizeOnDrop)]
 pub struct CrossSigningSecrets {
     pub master_key: String,
     pub user_signing_key: String,
     pub self_signing_key: String,
 }
 
-#[derive(Debug, Deserialize, Serialize, ZeroizeOnDrop)]
+#[derive(Debug, Deserialize, Clone, Serialize, ZeroizeOnDrop)]
 pub struct MegolmBackupV1Curve25519AesSha2Secrets {
     #[serde(serialize_with = "backup_key_to_base64", deserialize_with = "backup_key_from_base64")]
     pub key: BackupDecryptionKey,
@@ -105,7 +105,7 @@ macro_rules! to_base64 {
 from_base64!(BackupDecryptionKey, backup_key_from_base64);
 to_base64!(BackupDecryptionKey, backup_key_to_base64);
 
-#[derive(Debug, ZeroizeOnDrop, Serialize, Deserialize)]
+#[derive(Debug, Clone, ZeroizeOnDrop, Serialize, Deserialize)]
 #[serde(tag = "algorithm")]
 pub enum BackupSecrets {
     #[serde(rename = "m.megolm_backup.v1.curve25519-aes-sha2")]

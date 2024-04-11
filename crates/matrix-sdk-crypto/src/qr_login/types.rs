@@ -26,6 +26,7 @@ const VERSION: u8 = 0x02;
 const PREFIX: &[u8] = b"MATRIX";
 
 #[derive(Debug, Error)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Error), uniffi(flat_error))]
 pub enum QrCodeDecodeError {
     #[error("The QR code data is missing some fields.")]
     NotEnoughData(#[from] std::io::Error),

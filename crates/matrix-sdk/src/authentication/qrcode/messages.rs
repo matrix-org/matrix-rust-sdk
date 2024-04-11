@@ -13,8 +13,9 @@
 // limitations under the License.
 
 use matrix_sdk_base::crypto::types::SecretsBundle;
-use openidconnect::{EndUserVerificationUrl, VerificationUriComplete};
-use ruma::OwnedDeviceId;
+use openidconnect::{
+    core::CoreDeviceAuthorizationResponse, EndUserVerificationUrl, VerificationUriComplete,
+};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use url::Url;
 use vodozemac::Curve25519PublicKey;
@@ -26,7 +27,8 @@ pub enum QrAuthMessage {
     #[serde(rename = "m.login.protocol")]
     LoginProtocol {
         device_authorization_grant: AuthorizationGrant,
-        protocol: u8,
+        // TODO: This should be an enum.
+        protocol: String,
         #[serde(
             deserialize_with = "deserialize_curve_key",
             serialize_with = "serialize_curve_key"
@@ -43,10 +45,32 @@ pub enum QrAuthMessage {
     LoginSecrets(SecretsBundle),
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthorizationGrant {
     pub verification_uri: EndUserVerificationUrl,
     pub verification_uri_complete: Option<VerificationUriComplete>,
+}
+
+impl QrAuthMessage {
+    pub fn login_protocols(
+        device_authorization_grant: AuthorizationGrant,
+        device_id: Curve25519PublicKey,
+    ) -> QrAuthMessage {
+        QrAuthMessage::LoginProtocol {
+            device_id,
+            device_authorization_grant,
+            protocol: "device_authorization_grant".to_owned(),
+        }
+    }
+}
+
+impl From<&CoreDeviceAuthorizationResponse> for AuthorizationGrant {
+    fn from(value: &CoreDeviceAuthorizationResponse) -> Self {
+        Self {
+            verification_uri: value.verification_uri().clone(),
+            verification_uri_complete: value.verification_uri_complete().cloned(),
+        }
+    }
 }
 
 // Vodozemac serializes Curve25519 keys directly as a byteslice, while Matrix

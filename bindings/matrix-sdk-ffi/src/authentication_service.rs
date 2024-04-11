@@ -431,7 +431,7 @@ impl AuthenticationService {
             return Ok(());
         };
 
-        let oidc_metadata = self.oidc_metadata(configuration)?;
+        let oidc_metadata: VerifiedClientMetadata = configuration.try_into()?;
 
         if self.load_client_registration(oidc, &authentication_server, oidc_metadata.clone()).await
         {
@@ -518,41 +518,6 @@ impl AuthenticationService {
         true
     }
 
-    /// Creates and verifies OIDC client metadata for the supplied OIDC
-    /// configuration.
-    fn oidc_metadata(
-        &self,
-        configuration: &OidcConfiguration,
-    ) -> Result<VerifiedClientMetadata, AuthenticationError> {
-        let redirect_uri = Url::parse(&configuration.redirect_uri)
-            .map_err(|_| AuthenticationError::OidcCallbackUrlInvalid)?;
-        let client_name =
-            configuration.client_name.as_ref().map(|n| Localized::new(n.to_owned(), []));
-        let client_uri = configuration.client_uri.localized_url()?;
-        let logo_uri = configuration.logo_uri.localized_url()?;
-        let policy_uri = configuration.policy_uri.localized_url()?;
-        let tos_uri = configuration.tos_uri.localized_url()?;
-        let contacts = configuration.contacts.clone();
-
-        ClientMetadata {
-            application_type: Some(ApplicationType::Native),
-            redirect_uris: Some(vec![redirect_uri]),
-            grant_types: Some(vec![GrantType::RefreshToken, GrantType::AuthorizationCode]),
-            // A native client shouldn't use authentication as the credentials could be intercepted.
-            token_endpoint_auth_method: Some(OAuthClientAuthenticationMethod::None),
-            // The server should display the following fields when getting the user's consent.
-            client_name,
-            contacts,
-            client_uri,
-            logo_uri,
-            policy_uri,
-            tos_uri,
-            ..Default::default()
-        }
-        .validate()
-        .map_err(|_| AuthenticationError::OidcMetadataInvalid)
-    }
-
     fn oidc_static_registrations(&self) -> HashMap<Url, ClientId> {
         let registrations = self
             .oidc_configuration
@@ -637,6 +602,39 @@ impl AuthenticationService {
         client.restore_session_inner(session)?;
 
         Ok(Arc::new(client))
+    }
+}
+
+impl TryInto<VerifiedClientMetadata> for &OidcConfiguration {
+    type Error = AuthenticationError;
+
+    fn try_into(self) -> Result<VerifiedClientMetadata, Self::Error> {
+        let redirect_uri = Url::parse(&self.redirect_uri)
+            .map_err(|_| AuthenticationError::OidcCallbackUrlInvalid)?;
+        let client_name = self.client_name.as_ref().map(|n| Localized::new(n.to_owned(), []));
+        let client_uri = self.client_uri.localized_url()?;
+        let logo_uri = self.logo_uri.localized_url()?;
+        let policy_uri = self.policy_uri.localized_url()?;
+        let tos_uri = self.tos_uri.localized_url()?;
+        let contacts = self.contacts.clone();
+
+        ClientMetadata {
+            application_type: Some(ApplicationType::Native),
+            redirect_uris: Some(vec![redirect_uri]),
+            grant_types: Some(vec![GrantType::RefreshToken, GrantType::AuthorizationCode]),
+            // A native client shouldn't use authentication as the credentials could be intercepted.
+            token_endpoint_auth_method: Some(OAuthClientAuthenticationMethod::None),
+            // The server should display the following fields when getting the user's consent.
+            client_name,
+            contacts,
+            client_uri,
+            logo_uri,
+            policy_uri,
+            tos_uri,
+            ..Default::default()
+        }
+        .validate()
+        .map_err(|_| AuthenticationError::OidcMetadataInvalid)
     }
 }
 

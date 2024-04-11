@@ -1,14 +1,18 @@
+use std::io::Write;
+
 use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand};
+use futures_util::StreamExt;
 use matrix_sdk::{
-    authentication::qrcode::secure_channel::{EstablishedSecureChannel, SecureChannel},
-    crypto::qr_login::{QrCodeData, QrCodeMode},
-    reqwest::{self, Proxy},
+    authentication::qrcode::LoginProgress,
+    crypto::qr_login::QrCodeData,
+    oidc::types::{
+        iana::oauth::OAuthClientAuthenticationMethod,
+        oidc::ApplicationType,
+        registration::{ClientMetadata, Localized, VerifiedClientMetadata},
+        requests::GrantType,
+    },
     Client,
-};
-use qrcode::{
-    render::unicode::{self, Dense1x2},
-    QrCode,
 };
 use url::Url;
 
@@ -57,36 +61,47 @@ pub struct ReciprocateSettings {
     password: String,
 }
 
-fn build_http_client(proxy: Option<Url>) -> Result<reqwest::Client> {
-    let mut builder = reqwest::Client::builder();
+/// Generate the OIDC client metadata.
+///
+/// For simplicity, we use most of the default values here, but usually this
+/// should be adapted to the provider metadata to make interactions as secure as
+/// possible, for example by using the most secure signing algorithms supported
+/// by the provider.
+fn client_metadata() -> VerifiedClientMetadata {
+    let client_uri = Url::parse("https://github.com/matrix-org/matrix-rust-sdk")
+        .expect("Couldn't parse client URI");
 
-    if let Some(proxy) = proxy {
-        builder = builder
-            .proxy(Proxy::all(proxy).context("Couldn't configure the proxy")?)
-            .danger_accept_invalid_certs(true);
+    ClientMetadata {
+        // This is a native application (in contrast to a web application, that runs in a browser).
+        application_type: Some(ApplicationType::Native),
+        // Native clients should be able to register the loopback interface and then point to any
+        // port when needing a redirect URI. An alternative is to use a custom URI scheme registered
+        // with the OS.
+        redirect_uris: None,
+        // We are going to use the Authorization Code flow, and of course we want to be able to
+        // refresh our access token.
+        grant_types: Some(vec![GrantType::RefreshToken, GrantType::DeviceCode]),
+
+        // A native client shouldn't use authentication as the credentials could be intercepted.
+        // Other protections are in place for the different requests.
+        token_endpoint_auth_method: Some(OAuthClientAuthenticationMethod::None),
+        // The following fields should be displayed in the OIDC provider interface as part of the
+        // process to get the user's consent. It means that these should contain real data so the
+        // user can make sure that they allow the proper application.
+        // We are cheating here because this is an example.
+        client_name: Some(Localized::new("matrix-rust-sdk-qrlogin".to_owned(), [])),
+        contacts: Some(vec!["root@127.0.0.1".to_owned()]),
+        client_uri: Some(Localized::new(client_uri.clone(), [])),
+        policy_uri: Some(Localized::new(client_uri.clone(), [])),
+        tos_uri: Some(Localized::new(client_uri, [])),
+        ..Default::default()
     }
-
-    let http_client = builder.build().context("Couldn't create a HTTP client")?;
-
-    Ok(http_client)
-}
-
-async fn login(proxy: Option<Url>, rendezvous_url: Url) -> Result<()> {
-    let http_client = build_http_client(proxy)?;
-
-    let channel = SecureChannel::login(http_client, rendezvous_url)
-        .await
-        .context("Could not create a secure channel")?;
-
-    let channel = create_outobund_channel(channel).await?;
-
-    Ok(())
+    .validate()
+    .unwrap()
 }
 
 async fn login_and_scan(proxy: Option<Url>) -> Result<()> {
-    let http_client = build_http_client(proxy)?;
-
-    println!("Please ender the base64 string other device is displaying: ");
+    println!("Please enter the base64 string other device is displaying: ");
 
     let mut input = String::new();
     std::io::stdin().read_line(&mut input).expect("error: unable to read user input");
@@ -95,74 +110,48 @@ async fn login_and_scan(proxy: Option<Url>) -> Result<()> {
 
     let data = QrCodeData::from_base64(input).context("Couldn't parse the base64 QR code data")?;
 
-    let channel = EstablishedSecureChannel::from_qr_code(http_client, &data, QrCodeMode::Login)
-        .await
-        .context("Couldn't establish the secure channel")?;
+    // TODO: Get the homeserver from the QR code.
+    let mut client = Client::builder().homeserver_url("https://synapse-oidc.lab.element.dev/");
 
-    let code = channel.check_code().to_digit();
+    if let Some(proxy) = proxy {
+        client = client.proxy(proxy).disable_ssl_verification();
+    }
 
-    println!("Successfully established the secure channel.");
-    println!("Please enter the following code into the other device {code:02}");
+    let client = client.build().await?;
+    let metadata = client_metadata();
+    let oidc = client.oidc();
 
-    Ok(())
-}
+    let login_client = oidc.login_with_qr_code(data, metadata);
+    let mut subscriber = login_client.subscribe_to_progress();
 
-async fn create_outobund_channel(channel: SecureChannel) -> Result<EstablishedSecureChannel> {
-    let data = channel.qr_code_data();
+    let task = tokio::spawn(async move {
+        while let Some(state) = subscriber.next().await {
+            match state {
+                LoginProgress::Starting => (),
+                LoginProgress::EstablishingSecureChannel { check_code } => {
+                    let code = check_code.to_digit();
+                    println!("Please enter the following code into the other device {code:02}");
+                }
+                LoginProgress::WaitingForToken => {
+                    println!("Please use your other device to confirm the log in")
+                }
+                LoginProgress::Done => break,
+            }
+        }
 
-    let qr_code = QrCode::new(data.to_bytes()).context("Failed to render the QR code")?;
-    let data_base64 = data.to_base64();
+        std::io::stdout().flush().expect("Unable to write to stdout");
+    });
 
-    let image = qr_code
-        .render::<Dense1x2>()
-        .dark_color(unicode::Dense1x2::Light)
-        .light_color(unicode::Dense1x2::Dark)
-        .build();
+    let result = login_client.await;
+    task.abort();
 
-    println!("{image}");
-    println!("Please scan this QR code on an existing device, or paste the following base64 string {data_base64}");
+    result?;
 
-    let almost = channel
-        .connect()
-        .await
-        .context("The secure channel could not have been connected to the other side")?;
-
-    println!("Please enter the check code the other device is displaying: ");
-
-    let mut input = String::new();
-    std::io::stdin().read_line(&mut input).expect("error: unable to read user input");
-
-    let input = input.trim().to_lowercase();
-
-    let input: u8 = input.parse().context("Could not parse the check code")?;
-
-    let established = almost.confirm(input).context("The check code did not match")?;
-
-    println!("Successfully established the secure channel.");
-
-    Ok(established)
-}
-
-async fn reciprocate(proxy: Option<Url>, settings: ReciprocateSettings) -> Result<()> {
-    let builder = Client::builder().homeserver_url(settings.homeserver);
-
-    let builder = if let Some(proxy) = proxy {
-        builder.proxy(proxy).disable_ssl_verification()
-    } else {
-        builder
-    };
-
-    let client = builder.build().await?;
-
-    // TODO this needs to be OIDC instead.
-    client
-        .matrix_auth()
-        .login_username(&settings.user_name, &settings.password)
-        .initial_device_display_name("rust-sdk")
-        .await?;
-
-    let channel = client.qr_code_foo().await?;
-    let channel = create_outobund_channel(channel).await?;
+    let status = client.encryption().cross_signing_status().await.unwrap();
+    let user_id = client.user_id().unwrap();
+    println!(
+        "Successfully logged in as {user_id} using the qr code, cross-signing status: {status:?}"
+    );
 
     Ok(())
 }
@@ -176,9 +165,7 @@ async fn main() -> Result<()> {
     }
 
     match cli.mode {
-        Mode::Login { rendezvous_url } => login(cli.proxy, rendezvous_url).await?,
         Mode::LoginAndScan {} => login_and_scan(cli.proxy).await?,
-        Mode::Reciprocate(settings) => reciprocate(cli.proxy, settings).await?,
         _ => todo!(),
     }
 

@@ -17,6 +17,7 @@ use std::time::Duration;
 use http::StatusCode;
 use matrix_sdk_base::crypto::qr_login::{QrCodeData, QrCodeMode, QrCodeModeData};
 use ruma::api::client::error::ErrorKind;
+use serde::{de::DeserializeOwned, Serialize};
 use tracing::debug;
 use url::Url;
 use vodozemac::secure_channel::{
@@ -68,9 +69,8 @@ impl SecureChannel {
         http_client: HttpClient,
         homeserver_url: &Url,
     ) -> Result<Self, Error> {
-        let rendezvous_url = Url::parse("https://synapse-oidc.lab.element.dev").unwrap();
         let mode = QrCodeModeData::Reciprocate { homeserver_url: homeserver_url.clone() };
-        Self::new_helper(http_client, rendezvous_url, mode).await
+        Self::new_helper(http_client, homeserver_url.clone(), mode).await
     }
 
     pub fn qr_code_data(&self) -> &QrCodeData {
@@ -150,6 +150,11 @@ pub struct EstablishedSecureChannel {
 }
 
 impl EstablishedSecureChannel {
+    pub async fn send_json(&mut self, message: impl Serialize) -> Result<(), Error> {
+        let message = serde_json::to_string(&message)?;
+        self.send(&message).await
+    }
+
     pub async fn send(&mut self, message: &str) -> Result<(), Error> {
         let message = self.ecies.encrypt(message.as_bytes());
         let message = message.encode();
@@ -189,6 +194,11 @@ impl EstablishedSecureChannel {
 
             tokio::time::sleep(RECEIVE_TIMEOUT).await;
         }
+    }
+
+    pub async fn receive_json<D: DeserializeOwned>(&mut self) -> Result<D, Error> {
+        let message = self.receive().await?;
+        Ok(serde_json::from_str(&message)?)
     }
 
     pub async fn receive(&mut self) -> Result<String, Error> {

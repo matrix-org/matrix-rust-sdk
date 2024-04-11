@@ -95,7 +95,7 @@ matrix-sdk-indexeddb = { workspace = true, optional = true }
 matrix-sdk-sqlite = { workspace = true, optional = true }
 mime = "0.3.16"
 mime2ext = "0.1.52"
-openidconnect = "3.5.0"
+openidconnect = { git = "https://github.com/ramosbugs/openidconnect-rs", rev = "fcada1718118cfebfaa874e8b1920cd1dbc2b358" }
 rand = { workspace = true , optional = true }
 ruma = { workspace = true, features = ["rand", "unstable-msc2448", "unstable-msc2965", "unstable-msc3930", "unstable-msc3245-v1-compat", "unstable-msc2867"] }
 serde = { workspace = true }

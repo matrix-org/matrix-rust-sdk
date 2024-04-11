@@ -61,7 +61,7 @@ pub mod send_rendezvous {
         rate_limited: true,
         authentication: None,
         history: {
-            unstable => "/",
+            unstable => "/:rendezvous_session",
         }
     };
 
@@ -100,7 +100,7 @@ pub mod receive_rendezvous {
         rate_limited: true,
         authentication: None,
         history: {
-            unstable => "/",
+            unstable => "/:rendezvous_session",
         }
     };
 
@@ -138,7 +138,7 @@ pub mod delete_rendezvous {
         rate_limited: true,
         authentication: None,
         history: {
-            unstable => "/",
+            unstable => "/:rendezvous_session",
         }
     };
 

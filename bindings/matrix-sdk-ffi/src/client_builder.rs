@@ -1,6 +1,8 @@
 use std::{fs, path::PathBuf, sync::Arc};
 
+use futures_util::StreamExt;
 use matrix_sdk::{
+    crypto::qr_login::{QrCodeDecodeError, QrCodeModeData},
     encryption::{BackupDownloadStrategy, EncryptionSettings},
     reqwest::Certificate,
     ruma::{
@@ -15,7 +17,10 @@ use url::Url;
 use zeroize::Zeroizing;
 
 use super::{client::Client, RUNTIME};
-use crate::{client::ClientSessionDelegate, error::ClientError, helpers::unwrap_or_clone_arc};
+use crate::{
+    authentication_service::OidcConfiguration, client::ClientSessionDelegate, error::ClientError,
+    helpers::unwrap_or_clone_arc, task_handle::TaskHandle,
+};
 
 /// A list of bytes containing a certificate in DER or PEM form.
 pub type CertificateBytes = Vec<u8>;
@@ -25,6 +30,49 @@ enum HomeserverConfig {
     Url(String),
     ServerName(String),
     ServerNameOrUrl(String),
+}
+
+#[derive(Debug, uniffi::Object)]
+pub struct QrCodeData {
+    inner: matrix_sdk::crypto::qr_login::QrCodeData,
+}
+
+#[uniffi::export]
+impl QrCodeData {
+    #[uniffi::constructor]
+    pub fn from_bytes(bytes: &[u8]) -> Result<Arc<Self>, QrCodeDecodeError> {
+        Ok(Self { inner: matrix_sdk::crypto::qr_login::QrCodeData::from_bytes(bytes)? }.into())
+    }
+}
+
+#[derive(Debug, Default, Clone, uniffi::Enum)]
+pub enum QrLoginProgress {
+    #[default]
+    Starting,
+    EstablishingSecureChannel {
+        check_code: u8,
+    },
+    WaitingForToken,
+    Done,
+}
+
+#[uniffi::export(callback_interface)]
+pub trait QrLoginProgressListener: Sync + Send {
+    fn on_update(&self, state: QrLoginProgress);
+}
+
+impl From<matrix_sdk::authentication::qrcode::LoginProgress> for QrLoginProgress {
+    fn from(value: matrix_sdk::authentication::qrcode::LoginProgress) -> Self {
+        use matrix_sdk::authentication::qrcode::LoginProgress;
+        match value {
+            LoginProgress::Starting => Self::Starting,
+            LoginProgress::EstablishingSecureChannel { check_code } => {
+                Self::EstablishingSecureChannel { check_code: check_code.to_digit() }
+            }
+            LoginProgress::WaitingForToken => Self::WaitingForToken,
+            LoginProgress::Done => Self::Done,
+        }
+    }
 }
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
@@ -205,6 +253,37 @@ impl ClientBuilder {
 
     pub fn build(self: Arc<Self>) -> Result<Arc<Client>, ClientBuildError> {
         Ok(Arc::new(self.build_inner()?))
+    }
+
+    pub async fn build_with_qr_code(
+        self: Arc<Self>,
+        qr_code_data: &QrCodeData,
+        oidc_configuration: &OidcConfiguration,
+        progress_listener: Box<dyn QrLoginProgressListener>,
+    ) -> Result<Arc<Client>, ClientBuildError> {
+        if let QrCodeModeData::Reciprocate { homeserver_url } = &qr_code_data.inner.mode {
+            let builder = self.homeserver_url(homeserver_url.to_string());
+            let client = builder.build()?;
+            let client_metadata = oidc_configuration.try_into().unwrap();
+
+            let oidc = client.inner.oidc();
+            let login = oidc.login_with_qr_code(&qr_code_data.inner, client_metadata);
+
+            let mut progress = login.subscribe_to_progress();
+
+            let _progress_task = TaskHandle::new(RUNTIME.spawn(async move {
+                while let Some(state) = progress.next().await {
+                    progress_listener.on_update(state.into());
+                }
+            }));
+
+            // TODO: This is not `Send` and uniffi wants it to be.
+            // login.await.unwrap();
+
+            Ok(client)
+        } else {
+            todo!()
+        }
     }
 }
 

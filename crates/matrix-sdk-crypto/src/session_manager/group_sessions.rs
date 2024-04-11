@@ -393,10 +393,9 @@ impl GroupSessionManager {
                 None
             };
 
-            // From all the devices a user has, we're splitting them into two
-            // buckets, a bucket of devices that should receive the
-            // room key and a bucket of devices that should receive
-            // a withheld code.
+            // From all the devices a user has, we're splitting them into two buckets, a
+            // bucket of devices that should receive the room key and a bucket of devices
+            // that should receive a withheld code.
             let (recipients, withheld_recipients): (
                 Vec<ReadOnlyDevice>,
                 Vec<(ReadOnlyDevice, WithheldCode)>,

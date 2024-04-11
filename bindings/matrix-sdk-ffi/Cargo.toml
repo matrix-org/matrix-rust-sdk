@@ -61,6 +61,7 @@ paranoid-android = "0.2.1"
 workspace = true
 features = [
     "anyhow",
+    "client",
     "e2e-encryption",
     "experimental-oidc",
     "experimental-sliding-sync",
@@ -76,6 +77,7 @@ features = [
 workspace = true
 features = [
     "anyhow",
+    "client",
     "e2e-encryption",
     "experimental-oidc",
     "experimental-sliding-sync",
