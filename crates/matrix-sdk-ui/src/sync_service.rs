@@ -161,7 +161,7 @@ impl SyncService {
 
             if stop_room_list {
                 if let Err(err) = room_list_service.stop_sync() {
-                    error!("unable to stop room list service: {err:#}");
+                    warn!(?report, "unable to stop room list service: {err:#}");
                 }
             }
 
@@ -176,7 +176,7 @@ impl SyncService {
 
             if stop_encryption {
                 if let Err(err) = encryption_sync.stop_sync() {
-                    warn!("unable to stop encryption sync: {err:#}");
+                    warn!(?report, "unable to stop encryption sync: {err:#}");
                 }
             }
 
@@ -406,12 +406,14 @@ impl SyncService {
     }
 }
 
+#[derive(Debug)]
 enum TerminationOrigin {
     EncryptionSync,
     RoomList,
     Scheduler,
 }
 
+#[derive(Debug)]
 struct TerminationReport {
     is_error: bool,
     has_expired: bool,
