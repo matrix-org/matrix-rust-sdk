@@ -209,97 +209,89 @@ impl SyncService {
         .instrument(tracing::span!(Level::WARN, "scheduler task"))
     }
 
-    fn spawn_encryption_sync(
-        &self,
+    async fn encryption_sync_task(
         encryption_sync: Arc<EncryptionSyncService>,
         sender: Sender<TerminationReport>,
         sync_permit_guard: OwnedMutexGuard<EncryptionSyncPermit>,
-    ) -> impl Future<Output = ()> {
-        async move {
-            let encryption_sync_stream = encryption_sync.sync(sync_permit_guard);
-            pin_mut!(encryption_sync_stream);
+    ) {
+        let encryption_sync_stream = encryption_sync.sync(sync_permit_guard);
+        pin_mut!(encryption_sync_stream);
 
-            let (is_error, has_expired) = loop {
-                let res = encryption_sync_stream.next().await;
-                match res {
-                    Some(Ok(())) => {
-                        // Carry on.
-                    }
-                    Some(Err(err)) => {
-                        // If the encryption sync error was an expired session, also expire the
-                        // room list sync.
-                        let has_expired =
-                            if let encryption_sync_service::Error::SlidingSync(err) = &err {
-                                err.client_api_error_kind()
-                                    == Some(&ruma::api::client::error::ErrorKind::UnknownPos)
-                            } else {
-                                false
-                            };
-                        error!("Error while processing encryption in sync service: {err:#}");
-                        break (true, has_expired);
-                    }
-                    None => {
-                        // The stream has ended.
-                        break (false, false);
-                    }
+        let (is_error, has_expired) = loop {
+            let res = encryption_sync_stream.next().await;
+            match res {
+                Some(Ok(())) => {
+                    // Carry on.
                 }
-            };
-
-            if let Err(err) = sender
-                .send(TerminationReport {
-                    is_error,
-                    has_expired,
-                    origin: TerminationOrigin::EncryptionSync,
-                })
-                .await
-            {
-                error!("Error while sending termination report: {err:#}");
+                Some(Err(err)) => {
+                    // If the encryption sync error was an expired session, also expire the
+                    // room list sync.
+                    let has_expired = if let encryption_sync_service::Error::SlidingSync(err) = &err
+                    {
+                        err.client_api_error_kind()
+                            == Some(&ruma::api::client::error::ErrorKind::UnknownPos)
+                    } else {
+                        false
+                    };
+                    error!("Error while processing encryption in sync service: {err:#}");
+                    break (true, has_expired);
+                }
+                None => {
+                    // The stream has ended.
+                    break (false, false);
+                }
             }
+        };
+
+        if let Err(err) = sender
+            .send(TerminationReport {
+                is_error,
+                has_expired,
+                origin: TerminationOrigin::EncryptionSync,
+            })
+            .await
+        {
+            error!("Error while sending termination report: {err:#}");
         }
     }
 
-    fn spawn_room_list_sync(&self, sender: Sender<TerminationReport>) -> impl Future<Output = ()> {
-        let room_list_service = self.room_list_service.clone();
+    async fn room_list_sync_task(
+        room_list_service: Arc<RoomListService>,
+        sender: Sender<TerminationReport>,
+    ) {
+        let room_list_stream = room_list_service.sync();
+        pin_mut!(room_list_stream);
 
-        async move {
-            let room_list_stream = room_list_service.sync();
-            pin_mut!(room_list_stream);
-
-            let (is_error, has_expired) = loop {
-                let res = room_list_stream.next().await;
-                match res {
-                    Some(Ok(())) => {
-                        // Carry on.
-                    }
-                    Some(Err(err)) => {
-                        // If the room list error was an expired session, also expire the
-                        // encryption sync.
-                        let has_expired = if let room_list_service::Error::SlidingSync(err) = &err {
-                            err.client_api_error_kind()
-                                == Some(&ruma::api::client::error::ErrorKind::UnknownPos)
-                        } else {
-                            false
-                        };
-                        error!("Error while processing room list in sync service: {err:#}");
-                        break (true, has_expired);
-                    }
-                    None => {
-                        // The stream has ended.
-                        break (false, false);
-                    }
+        let (is_error, has_expired) = loop {
+            let res = room_list_stream.next().await;
+            match res {
+                Some(Ok(())) => {
+                    // Carry on.
                 }
-            };
-
-            if let Err(err) = sender
-                .send(TerminationReport {
-                    is_error,
-                    has_expired,
-                    origin: TerminationOrigin::RoomList,
-                })
-                .await
-            {
-                error!("Error while sending termination report: {err:#}");
+                Some(Err(err)) => {
+                    // If the room list error was an expired session, also expire the
+                    // encryption sync.
+                    let has_expired = if let room_list_service::Error::SlidingSync(err) = &err {
+                        err.client_api_error_kind()
+                            == Some(&ruma::api::client::error::ErrorKind::UnknownPos)
+                    } else {
+                        false
+                    };
+                    error!("Error while processing room list in sync service: {err:#}");
+                    break (true, has_expired);
+                }
+                None => {
+                    // The stream has ended.
+                    break (false, false);
+                }
             }
+        };
+
+        if let Err(err) = sender
+            .send(TerminationReport { is_error, has_expired, origin: TerminationOrigin::RoomList })
+            .await
+        {
+            error!("Error while sending termination report: {err:#}");
         }
     }
 
@@ -324,11 +316,11 @@ impl SyncService {
 
         // First, take care of the room list.
         *self.room_list_task.lock().unwrap() =
-            Some(spawn(self.spawn_room_list_sync(sender.clone())));
+            Some(spawn(Self::room_list_sync_task(self.room_list_service.clone(), sender.clone())));
 
         // Then, take care of the encryption sync.
         let sync_permit_guard = self.encryption_sync_permit.clone().lock_owned().await;
-        *self.encryption_sync_task.lock().unwrap() = Some(spawn(self.spawn_encryption_sync(
+        *self.encryption_sync_task.lock().unwrap() = Some(spawn(Self::encryption_sync_task(
             self.encryption_sync_service.clone(),
             sender.clone(),
             sync_permit_guard,
