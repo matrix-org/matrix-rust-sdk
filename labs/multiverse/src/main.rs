@@ -792,7 +792,7 @@ async fn configure_client(server_name: String, config_path: String) -> anyhow::R
     let server_name = ServerName::parse(&server_name)?;
 
     let config_path = PathBuf::from(config_path);
-    let client = Client::builder()
+    let mut client_builder = Client::builder()
         .store_config(
             StoreConfig::default()
                 .crypto_store(
@@ -805,9 +805,13 @@ async fn configure_client(server_name: String, config_path: String) -> anyhow::R
             auto_enable_cross_signing: true,
             backup_download_strategy: BackupDownloadStrategy::AfterDecryptionFailure,
             auto_enable_backups: true,
-        })
-        .build()
-        .await?;
+        });
+
+    if let Ok(proxy_url) = std::env::var("PROXY") {
+        client_builder = client_builder.proxy(proxy_url).disable_ssl_verification();
+    }
+
+    let client = client_builder.build().await?;
 
     // Try reading a session, otherwise create a new one.
     let session_path = config_path.join("session.json");
