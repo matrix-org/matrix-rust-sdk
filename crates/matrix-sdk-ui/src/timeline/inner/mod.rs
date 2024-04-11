@@ -411,6 +411,10 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
     /// Handle a list of events at the given end of the timeline.
     ///
+    /// Note: when the `position` is [`TimelineEnd::Front`], prepended events
+    /// should be ordered in *reverse* topological order, that is, `events[0]`
+    /// is the most recent.
+    ///
     /// Returns the number of timeline updates that were made.
     pub(super) async fn add_events_at(
         &self,

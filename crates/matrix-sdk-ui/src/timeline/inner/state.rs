@@ -89,6 +89,10 @@ impl TimelineInnerState {
     }
 
     /// Add the given events at the given end of the timeline.
+    ///
+    /// Note: when the `position` is [`TimelineEnd::Front`], prepended events
+    /// should be ordered in *reverse* topological order, that is, `events[0]`
+    /// is the most recent.
     #[tracing::instrument(skip(self, events, room_data_provider, settings))]
     pub(super) async fn add_events_at<P: RoomDataProvider>(
         &mut self,
@@ -433,6 +437,10 @@ pub(in crate::timeline) struct TimelineInnerStateTransaction<'a> {
 
 impl TimelineInnerStateTransaction<'_> {
     /// Add the given events at the given end of the timeline.
+    ///
+    /// Note: when the `position` is [`TimelineEnd::Front`], prepended events
+    /// should be ordered in *reverse* topological order, that is, `events[0]`
+    /// is the most recent.
     #[tracing::instrument(skip(self, events, room_data_provider, settings))]
     pub(super) async fn add_events_at<P: RoomDataProvider>(
         &mut self,
@@ -449,6 +457,14 @@ impl TimelineInnerStateTransaction<'_> {
         };
 
         let mut day_divider_adjuster = DayDividerAdjuster::default();
+
+        // Implementation note: when `position` is `TimelineEnd::Front`, events are in
+        // the reverse topological order. Prepending them one by one in the order they
+        // appear in the vector will thus result in the correct order.
+        //
+        // For instance, if the new events are : [C, B, A], where C is the most recent
+        // and A is the oldest: we prepend C, then prepend B, then prepend A,
+        // resulting in [A, B, C, (previous events)], which is what we want.
 
         for event in events {
             let handle_one_res = self
