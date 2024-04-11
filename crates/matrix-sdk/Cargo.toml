@@ -39,7 +39,7 @@ rustls-tls = ["reqwest/rustls-tls"]
 socks = ["reqwest/socks"]
 sso-login = ["dep:hyper", "dep:rand", "dep:tower"]
 image-proc = ["dep:image"]
-image-rayon = ["image-proc", "image?/jpeg_rayon"]
+image-rayon = ["image-proc", "image?/rayon"]
 
 uniffi = ["dep:uniffi", "matrix-sdk-base/uniffi"]
 
@@ -111,23 +111,9 @@ uuid = { version = "1.4.1", features = ["serde", "v4"], optional = true }
 zeroize = { workspace = true }
 
 [dependencies.image]
-version = "0.24.2"
+version = "0.25.1"
 default-features = false
-features = [
-    "gif",
-    "jpeg",
-    "ico",
-    "png",
-    "pnm",
-    "tga",
-    "tiff",
-    "webp",
-    "bmp",
-    "hdr",
-    "dxt",
-    "dds",
-    "farbfeld",
-]
+features = ["default-formats"]
 optional = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
