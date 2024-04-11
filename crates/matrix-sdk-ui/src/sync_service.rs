@@ -233,7 +233,9 @@ impl SyncService {
                     } else {
                         false
                     };
-                    error!("Error while processing encryption in sync service: {err:#}");
+                    if !has_expired {
+                        error!("Error while processing encryption in sync service: {err:#}");
+                    }
                     break (true, has_expired);
                 }
                 None => {
@@ -277,7 +279,9 @@ impl SyncService {
                     } else {
                         false
                     };
-                    error!("Error while processing room list in sync service: {err:#}");
+                    if !has_expired {
+                        error!("Error while processing room list in sync service: {err:#}");
+                    }
                     break (true, has_expired);
                 }
                 None => {
