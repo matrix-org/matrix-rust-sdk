@@ -131,6 +131,58 @@ pub struct StartFromResult {
     pub has_next: bool,
 }
 
+enum DirThing {
+    Forward,
+    Backward,
+}
+
+impl From<Direction> for DirThing {
+    fn from(dir: Direction) -> Self {
+        match dir {
+            Direction::Forward => Self::Forward,
+            Direction::Backward => Self::Backward,
+        }
+    }
+}
+
+impl DirThing {
+    async fn token(&self, paginator: &Paginator) -> Result<Option<String>, ()> {
+        match self {
+            DirThing::Backward => {
+                let prev_batch_token = paginator.prev_batch_token.lock().await;
+                if prev_batch_token.is_none() {
+                    return Err(());
+                };
+                Ok(prev_batch_token.clone())
+            }
+            DirThing::Forward => {
+                let next_batch_token = paginator.next_batch_token.lock().await;
+                if next_batch_token.is_none() {
+                    return Err(());
+                };
+                Ok(next_batch_token.clone())
+            }
+        }
+    }
+
+    async fn hit_end_of_timeline(
+        &self,
+        paginator: &Paginator,
+        response_end: Option<String>,
+    ) -> bool {
+        let hit = response_end.is_none();
+        match self {
+            DirThing::Backward => {
+                *paginator.prev_batch_token.lock().await = response_end;
+            }
+            DirThing::Forward => {
+                *paginator.next_batch_token.lock().await = response_end;
+            }
+        }
+        hit
+    }
+}
+
 impl Paginator {
     /// Create a new [`Paginator`], given a room implementation.
     pub fn new(room: Box<dyn PaginableRoom>) -> Self {
@@ -227,22 +279,10 @@ impl Paginator {
     async fn paginate(&self, dir: Direction) -> Result<PaginationResult, PaginatorError> {
         self.check_state(PaginatorState::Idle)?;
 
-        let token = match dir {
-            Direction::Backward => {
-                let prev_batch_token = self.prev_batch_token.lock().await;
-                if prev_batch_token.is_none() {
-                    return Ok(PaginationResult { events: Vec::new(), hit_end_of_timeline: true });
-                };
-                prev_batch_token.clone()
-            }
+        let thing = DirThing::from(dir);
 
-            Direction::Forward => {
-                let next_batch_token = self.next_batch_token.lock().await;
-                if next_batch_token.is_none() {
-                    return Ok(PaginationResult { events: Vec::new(), hit_end_of_timeline: true });
-                };
-                next_batch_token.clone()
-            }
+        let Ok(token) = thing.token(self).await else {
+            return Ok(PaginationResult { events: Vec::new(), hit_end_of_timeline: true });
         };
 
         // Note: it's possible two callers have checked the state and both figured it's
@@ -267,24 +307,14 @@ impl Paginator {
             }
         };
 
-        let hit_end_of_timeline = match dir {
-            Direction::Backward => {
-                let hit = response.end.is_none();
-                *self.prev_batch_token.lock().await = response.end;
-                hit
-            }
-            Direction::Forward => {
-                let hit = response.end.is_none();
-                *self.next_batch_token.lock().await = response.end;
-                hit
-            }
-        };
+        let events = response.chunk;
+        let hit_end_of_timeline = thing.hit_end_of_timeline(self, response.end).await;
 
         // TODO: what to do with state events?
 
         self.state.set(PaginatorState::Idle);
 
-        Ok(PaginationResult { events: response.chunk, hit_end_of_timeline })
+        Ok(PaginationResult { events, hit_end_of_timeline })
     }
 }
 
