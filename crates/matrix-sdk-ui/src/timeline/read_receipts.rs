@@ -24,7 +24,7 @@ use ruma::{
     events::receipt::{Receipt, ReceiptEventContent, ReceiptThread, ReceiptType},
     EventId, OwnedEventId, OwnedUserId, UserId,
 };
-use tracing::{error, warn};
+use tracing::{debug, error, warn};
 
 use super::{
     inner::{
@@ -282,7 +282,7 @@ impl ReadReceiptTimelineUpdate {
         };
 
         let Some((receipt_pos, event_item)) = rfind_event_by_id(items, event_id) else {
-            error!(%event_id, %user_id, "inconsistent state: old event item for read receipt was not found");
+            debug!(%event_id, %user_id, "inconsistent state: old event item for read receipt was not found");
             return;
         };
 
@@ -291,7 +291,7 @@ impl ReadReceiptTimelineUpdate {
 
         if let Some(remote_event_item) = event_item.as_remote_mut() {
             if remote_event_item.read_receipts.swap_remove(user_id).is_none() {
-                error!(
+                debug!(
                     %event_id, %user_id,
                     "inconsistent state: old event item for user's read \
                      receipt doesn't have a receipt for the user"
