@@ -375,13 +375,17 @@ mod tests {
             let before = (0..10)
                 .rev()
                 .map(|i| {
-                    TimelineEvent::new(event_factory.text_msg(format!("{i}")).into_raw_timeline())
+                    TimelineEvent::new(
+                        event_factory.text_msg(format!("before-{i}")).into_raw_timeline(),
+                    )
                 })
                 .collect();
 
-            let after = (10..20)
+            let after = (0..10)
                 .map(|i| {
-                    TimelineEvent::new(event_factory.text_msg(format!("{i}")).into_raw_timeline())
+                    TimelineEvent::new(
+                        event_factory.text_msg(format!("after-{i}")).into_raw_timeline(),
+                    )
                 })
                 .collect();
 
@@ -496,11 +500,11 @@ mod tests {
         assert!(context.has_next);
         assert_eq!(context.events.len(), 21);
         for i in 0..10 {
-            assert_event_matches_msg(&context.events[i], &format!("{i}"));
+            assert_event_matches_msg(&context.events[i], &format!("before-{i}"));
         }
         assert_event_matches_msg(&context.events[10], "hello!");
         for i in 0..10 {
-            assert_event_matches_msg(&context.events[i + 11], &format!("{}", i + 10));
+            assert_event_matches_msg(&context.events[i + 11], &format!("after-{i}"));
         }
 
         assert!(state.next().now_or_never().is_none());
