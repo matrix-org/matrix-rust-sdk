@@ -17,7 +17,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = ["e2e-encryption", "automatic-room-key-forwarding", "sqlite", "native-tls"]
-testing = ["matrix-sdk-sqlite?/testing", "matrix-sdk-indexeddb?/testing", "matrix-sdk-base/testing", "wiremock"]
+testing = ["matrix-sdk-sqlite?/testing", "matrix-sdk-indexeddb?/testing", "matrix-sdk-base/testing", "wiremock", "matrix-sdk-test", "assert_matches2"]
 
 e2e-encryption = [
     "matrix-sdk-base/e2e-encryption",
@@ -65,6 +65,7 @@ docsrs = ["e2e-encryption", "sqlite", "indexeddb", "sso-login", "qrcode", "image
 anyhow = { workspace = true, optional = true }
 anymap2 = "0.13.0"
 aquamarine = "0.5.0"
+assert_matches2 = { workspace = true, optional = true }
 as_variant = { workspace = true }
 async-channel = "2.1.0"
 async-stream = { workspace = true }
@@ -91,6 +92,7 @@ matrix-sdk-base = { workspace = true }
 matrix-sdk-common = { workspace = true }
 matrix-sdk-indexeddb = { workspace = true, optional = true }
 matrix-sdk-sqlite = { workspace = true, optional = true }
+matrix-sdk-test = { workspace = true, optional = true }
 mime = "0.3.16"
 mime2ext = "0.1.52"
 rand = { workspace = true , optional = true }

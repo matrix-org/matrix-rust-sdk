@@ -3,17 +3,14 @@ use std::time::Duration;
 use anyhow::Result;
 use assert_matches2::{assert_let, assert_matches};
 use matrix_sdk::{
-    deserialized_responses::TimelineEvent,
     room::MessagesOptions,
     ruma::{
         api::client::room::create_room::v3::Request as CreateRoomRequest,
         assign, event_id,
-        events::{
-            room::message::{MessageType, RoomMessageEventContent},
-            AnyMessageLikeEvent, AnyStateEvent, AnyTimelineEvent,
-        },
+        events::{room::message::RoomMessageEventContent, AnyStateEvent, AnyTimelineEvent},
         uint,
     },
+    test_utils::assert_event_matches_msg,
     RoomState,
 };
 use tokio::{spawn, time::sleep};
@@ -198,16 +195,4 @@ async fn test_event_with_context() -> Result<()> {
     }
 
     Ok(())
-}
-
-// TODO: Try to avoid duplication with the other (almost) copy of this function?
-// This can't go straight into `matrix-sdk-test` because it needs to depend on
-// `matrix-sdk` first.
-#[track_caller]
-fn assert_event_matches_msg(event: &TimelineEvent, expected: &str) {
-    let event = event.event.deserialize().unwrap();
-    assert_let!(AnyTimelineEvent::MessageLike(AnyMessageLikeEvent::RoomMessage(message)) = event);
-    let message = message.as_original().unwrap();
-    assert_let!(MessageType::Text(text) = &message.content.msgtype);
-    assert_eq!(text.body, expected);
 }

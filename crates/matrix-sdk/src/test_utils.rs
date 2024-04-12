@@ -2,15 +2,36 @@
 
 #![allow(dead_code)]
 
-use matrix_sdk_base::SessionMeta;
-use ruma::{api::MatrixVersion, device_id, user_id};
+use assert_matches2::assert_let;
+use matrix_sdk_base::{deserialized_responses::SyncTimelineEvent, SessionMeta};
+use ruma::{
+    api::MatrixVersion,
+    device_id,
+    events::{room::message::MessageType, AnySyncMessageLikeEvent, AnySyncTimelineEvent},
+    user_id,
+};
 use url::Url;
+
+pub mod events;
 
 use crate::{
     config::RequestConfig,
     matrix_auth::{MatrixSession, MatrixSessionTokens},
     Client, ClientBuilder,
 };
+
+/// Checks that an event is a message-like text event with the given text.
+#[track_caller]
+pub fn assert_event_matches_msg<E: Clone + Into<SyncTimelineEvent>>(event: &E, expected: &str) {
+    let event: SyncTimelineEvent = event.clone().into();
+    let event = event.event.deserialize().unwrap();
+    assert_let!(
+        AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(message)) = event
+    );
+    let message = message.as_original().unwrap();
+    assert_let!(MessageType::Text(text) = &message.content.msgtype);
+    assert_eq!(text.body, expected);
+}
 
 /// A [`ClientBuilder`] fit for testing, using the given `homeserver_url` (or
 /// localhost:1234).
