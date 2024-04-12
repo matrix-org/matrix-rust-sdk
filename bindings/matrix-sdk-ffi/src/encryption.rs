@@ -367,4 +367,10 @@ impl Encryption {
             }
         })))
     }
+
+    /// Waits for end-to-end encryption initialization tasks to finish, if any
+    /// was running in the background.
+    pub async fn wait_for_e2ee_initialization_tasks(&self) {
+        self.inner.wait_for_e2ee_initialization_tasks().await;
+    }
 }
