@@ -343,12 +343,37 @@ mod tests {
     use super::*;
     use crate::test_utils::{assert_event_matches_msg, events::EventFactory};
 
-    #[derive(Default, Clone)]
-    struct DummyRoom {
+    #[derive(Clone)]
+    struct TestRoom {
+        event_factory: Arc<EventFactory>,
+        wait_for_ready: bool,
+
+        target_event_text: Arc<Mutex<String>>,
+        next_events: Arc<Mutex<Vec<TimelineEvent>>>,
+        prev_events: Arc<Mutex<Vec<TimelineEvent>>>,
+        prev_batch_token: Arc<Mutex<Option<String>>>,
+        next_batch_token: Arc<Mutex<Option<String>>>,
+
         room_ready: Arc<Notify>,
     }
 
-    impl DummyRoom {
+    impl TestRoom {
+        fn new(wait_for_ready: bool, room_id: &RoomId, sender: &UserId) -> Self {
+            let event_factory = Arc::new(EventFactory::default().sender(sender).room(room_id));
+
+            Self {
+                event_factory,
+                wait_for_ready,
+
+                room_ready: Default::default(),
+                target_event_text: Default::default(),
+                next_events: Default::default(),
+                prev_events: Default::default(),
+                prev_batch_token: Default::default(),
+                next_batch_token: Default::default(),
+            }
+        }
+
         /// Unblocks the next request.
         fn mark_ready(&self) {
             self.room_ready.notify_one();
@@ -359,69 +384,53 @@ mod tests {
     static USER_ID: Lazy<&UserId> = Lazy::new(|| user_id!("@paul:atreid.es"));
 
     #[async_trait]
-    impl PaginableRoom for DummyRoom {
+    impl PaginableRoom for TestRoom {
         async fn event_with_context(
             &self,
             event_id: &EventId,
             _lazy_load_members: bool,
         ) -> Result<EventWithContextResponse, PaginatorError> {
             // Wait for the room to be marked as ready first.
-            self.room_ready.notified().await;
+            if self.wait_for_ready {
+                self.room_ready.notified().await;
+            }
 
-            let event_factory = EventFactory::new().room(*ROOM_ID).sender(*USER_ID);
-
-            let event = event_factory.text_msg("hello!").event_id(event_id).into_raw_timeline();
-
-            let before = (0..10)
-                .rev()
-                .map(|i| {
-                    TimelineEvent::new(
-                        event_factory.text_msg(format!("before-{i}")).into_raw_timeline(),
-                    )
-                })
-                .collect();
-
-            let after = (0..10)
-                .map(|i| {
-                    TimelineEvent::new(
-                        event_factory.text_msg(format!("after-{i}")).into_raw_timeline(),
-                    )
-                })
-                .collect();
+            let event = self
+                .event_factory
+                .text_msg(self.target_event_text.lock().await.clone())
+                .event_id(event_id)
+                .into_timeline();
 
             return Ok(EventWithContextResponse {
-                event: Some(TimelineEvent::new(event)),
-                events_before: before,
-                events_after: after,
-                prev_batch_token: Some("prev".to_owned()),
-                next_batch_token: Some("next".to_owned()),
+                event: Some(event),
+                events_before: self.prev_events.lock().await.clone(),
+                events_after: self.next_events.lock().await.clone(),
+                prev_batch_token: self.prev_batch_token.lock().await.clone(),
+                next_batch_token: self.next_batch_token.lock().await.clone(),
                 state: Vec::new(),
             });
         }
 
         async fn messages(&self, opts: MessagesOptions) -> Result<Messages, PaginatorError> {
-            assert_eq!(
-                opts.from.as_deref(),
-                Some("prev"),
-                "we must receive a single back-pagination"
-            );
-            assert_eq!(opts.dir, Direction::Backward, "we must receive a single back-pagination");
+            if self.wait_for_ready {
+                self.room_ready.notified().await;
+            }
 
-            self.room_ready.notified().await;
-
-            let event_factory = EventFactory::new().room(*ROOM_ID).sender(*USER_ID);
-
-            let chunk = (20..30)
-                .rev()
-                .map(|i| {
-                    TimelineEvent::new(event_factory.text_msg(format!("{i}")).into_raw_timeline())
-                })
-                .collect();
+            let (end, events) = match opts.dir {
+                Direction::Backward => (
+                    self.prev_batch_token.lock().await.clone(),
+                    self.prev_events.lock().await.clone(),
+                ),
+                Direction::Forward => (
+                    self.next_batch_token.lock().await.clone(),
+                    self.next_events.lock().await.clone(),
+                ),
+            };
 
             return Ok(Messages {
                 start: opts.from.unwrap().to_owned(),
-                end: None,
-                chunk,
+                end,
+                chunk: events,
                 state: Vec::new(),
             });
         }
@@ -443,8 +452,172 @@ mod tests {
     }
 
     #[async_test]
+    async fn test_start_from() {
+        // Prepare test data.
+        let room = Box::new(TestRoom::new(false, *ROOM_ID, *USER_ID));
+
+        let event_id = event_id!("$yoyoyo");
+        let event_factory = &room.event_factory;
+
+        *room.target_event_text.lock().await = "fetch_from".to_owned();
+        *room.prev_events.lock().await = (0..10)
+            .rev()
+            .map(|i| {
+                TimelineEvent::new(
+                    event_factory.text_msg(format!("before-{i}")).into_raw_timeline(),
+                )
+            })
+            .collect();
+        *room.next_events.lock().await = (0..10)
+            .map(|i| {
+                TimelineEvent::new(event_factory.text_msg(format!("after-{i}")).into_raw_timeline())
+            })
+            .collect();
+
+        // When I call `Paginator::start_from`, it works,
+        let paginator = Arc::new(Paginator::new(room.clone()));
+        let context = paginator.start_from(event_id).await.expect("start_from should work");
+
+        assert!(!context.has_prev);
+        assert!(!context.has_next);
+
+        // And I get the events I expected.
+
+        // 10 events before, the target event, 10 events after.
+        assert_eq!(context.events.len(), 21);
+
+        for i in 0..10 {
+            assert_event_matches_msg(&context.events[i], &format!("before-{i}"));
+        }
+
+        assert_event_matches_msg(&context.events[10], "fetch_from");
+        assert_eq!(context.events[10].event.deserialize().unwrap().event_id(), event_id);
+
+        for i in 0..10 {
+            assert_event_matches_msg(&context.events[i + 11], &format!("after-{i}"));
+        }
+    }
+
+    #[async_test]
+    async fn test_paginate_backward() {
+        // Prepare test data.
+        let room = Box::new(TestRoom::new(false, *ROOM_ID, *USER_ID));
+
+        let event_id = event_id!("$yoyoyo");
+        let event_factory = &room.event_factory;
+
+        *room.target_event_text.lock().await = "initial".to_owned();
+        *room.prev_batch_token.lock().await = Some("prev".to_owned());
+
+        // When I call `Paginator::start_from`, it works,
+        let paginator = Arc::new(Paginator::new(room.clone()));
+        let context = paginator.start_from(event_id).await.expect("start_from should work");
+
+        // And I get the events I expected.
+        assert_eq!(context.events.len(), 1);
+        assert_event_matches_msg(&context.events[0], "initial");
+        assert_eq!(context.events[0].event.deserialize().unwrap().event_id(), event_id);
+
+        // There's a previous batch.
+        assert!(context.has_prev);
+        assert!(!context.has_next);
+
+        // Preparing data for the next back-pagination.
+        *room.prev_events.lock().await = vec![event_factory.text_msg("previous").into_timeline()];
+        *room.prev_batch_token.lock().await = Some("prev2".to_owned());
+
+        // When I backpaginate, I get the events I expect.
+        let prev = paginator.paginate_backward().await.expect("paginate backward should work");
+        assert!(!prev.hit_end_of_timeline);
+        assert_eq!(prev.events.len(), 1);
+        assert_event_matches_msg(&prev.events[0], "previous");
+
+        // And I can backpaginate again, because there's a prev batch token
+        // still.
+        *room.prev_events.lock().await = vec![event_factory.text_msg("oldest").into_timeline()];
+        *room.prev_batch_token.lock().await = None;
+
+        let prev = paginator
+            .paginate_backward()
+            .await
+            .expect("paginate backward the second time should work");
+        assert!(prev.hit_end_of_timeline);
+        assert_eq!(prev.events.len(), 1);
+        assert_event_matches_msg(&prev.events[0], "oldest");
+
+        // I've hit the start of the timeline, but back-paginating again will
+        // return immediately.
+        let prev = paginator
+            .paginate_backward()
+            .await
+            .expect("paginate backward the third time should work");
+        assert!(prev.hit_end_of_timeline);
+        assert!(prev.events.is_empty());
+    }
+
+    #[async_test]
+    async fn test_paginate_forward() {
+        // Prepare test data.
+        let room = Box::new(TestRoom::new(false, *ROOM_ID, *USER_ID));
+
+        let event_id = event_id!("$yoyoyo");
+        let event_factory = &room.event_factory;
+
+        *room.target_event_text.lock().await = "initial".to_owned();
+        *room.next_batch_token.lock().await = Some("next".to_owned());
+
+        // When I call `Paginator::start_from`, it works,
+        let paginator = Arc::new(Paginator::new(room.clone()));
+        let context = paginator.start_from(event_id).await.expect("start_from should work");
+
+        // And I get the events I expected.
+        assert_eq!(context.events.len(), 1);
+        assert_event_matches_msg(&context.events[0], "initial");
+        assert_eq!(context.events[0].event.deserialize().unwrap().event_id(), event_id);
+
+        // There's a next batch.
+        assert!(!context.has_prev);
+        assert!(context.has_next);
+
+        // Preparing data for the next forward-pagination.
+        *room.next_events.lock().await = vec![event_factory.text_msg("next").into_timeline()];
+        *room.next_batch_token.lock().await = Some("next2".to_owned());
+
+        // When I forward-paginate, I get the events I expect.
+        let next = paginator.paginate_forward().await.expect("paginate forward should work");
+        assert!(!next.hit_end_of_timeline);
+        assert_eq!(next.events.len(), 1);
+        assert_event_matches_msg(&next.events[0], "next");
+
+        // And I can forward-paginate again, because there's a prev batch token
+        // still.
+        *room.next_events.lock().await = vec![event_factory.text_msg("latest").into_timeline()];
+        *room.next_batch_token.lock().await = None;
+
+        let next = paginator
+            .paginate_forward()
+            .await
+            .expect("paginate forward the second time should work");
+        assert!(next.hit_end_of_timeline);
+        assert_eq!(next.events.len(), 1);
+        assert_event_matches_msg(&next.events[0], "latest");
+
+        // I've hit the start of the timeline, but back-paginating again will
+        // return immediately.
+        let next = paginator
+            .paginate_forward()
+            .await
+            .expect("paginate forward the third time should work");
+        assert!(next.hit_end_of_timeline);
+        assert!(next.events.is_empty());
+    }
+
+    #[async_test]
     async fn test_state() {
-        let room = Box::<DummyRoom>::default();
+        let room = Box::new(TestRoom::new(true, *ROOM_ID, *USER_ID));
+
+        *room.prev_batch_token.lock().await = Some("prev".to_owned());
+        *room.next_batch_token.lock().await = Some("next".to_owned());
 
         let paginator = Arc::new(Paginator::new(room.clone()));
 
@@ -495,17 +668,7 @@ mod tests {
         // After fetching the initial event data, the paginator switches to `Idle`.
         assert_eq!(state.next().await, Some(PaginatorState::Idle));
 
-        let context = join_handle.await.expect("joined failed").expect("/context failed");
-        assert!(context.has_prev);
-        assert!(context.has_next);
-        assert_eq!(context.events.len(), 21);
-        for i in 0..10 {
-            assert_event_matches_msg(&context.events[i], &format!("before-{i}"));
-        }
-        assert_event_matches_msg(&context.events[10], "hello!");
-        for i in 0..10 {
-            assert_event_matches_msg(&context.events[i + 11], &format!("after-{i}"));
-        }
+        join_handle.await.expect("joined failed").expect("/context failed");
 
         assert!(state.next().now_or_never().is_none());
 
@@ -542,12 +705,7 @@ mod tests {
 
         assert_eq!(state.next().await, Some(PaginatorState::Idle));
 
-        let messages = join_handle.await.expect("joined failed").expect("/messages failed");
-        assert!(messages.hit_end_of_timeline);
-        for i in 0..10 {
-            // It's a backward pagination, so messages are in reverse topological order.
-            assert_event_matches_msg(&messages.events[i], &format!("{}", 29 - i));
-        }
+        join_handle.await.expect("joined failed").expect("/messages failed");
 
         assert!(state.next().now_or_never().is_none());
     }
