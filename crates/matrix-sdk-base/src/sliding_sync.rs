@@ -528,7 +528,7 @@ impl BaseClient {
             if let AnySyncStateEvent::RoomMember(member) = &event {
                 // If this event updates the current user's membership, record that in the
                 // room_info.
-                if member.sender() == meta.user_id && member.state_key() == meta.user_id.as_str() {
+                if member.state_key() == meta.user_id.as_str() {
                     room_info.set_state(member.membership().into());
                     break;
                 }
