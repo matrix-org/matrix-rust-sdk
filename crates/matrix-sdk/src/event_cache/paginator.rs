@@ -211,7 +211,7 @@ impl Paginator {
     /// May return an error if it's already paginating, or if the call to
     /// /messages failed.
     pub async fn paginate_backward(&self) -> Result<PaginationResult, PaginatorError> {
-        self.paginate(Direction::Backward).await
+        self.paginate(Direction::Backward, &self.prev_batch_token).await
     }
 
     /// Runs a forward pagination, from the current state of the object.
@@ -221,28 +221,22 @@ impl Paginator {
     /// May return an error if it's already paginating, or if the call to
     /// /messages failed.
     pub async fn paginate_forward(&self) -> Result<PaginationResult, PaginatorError> {
-        self.paginate(Direction::Forward).await
+        self.paginate(Direction::Forward, &self.next_batch_token).await
     }
 
-    async fn paginate(&self, dir: Direction) -> Result<PaginationResult, PaginatorError> {
+    async fn paginate(
+        &self,
+        dir: Direction,
+        token_lock: &Mutex<Option<String>>,
+    ) -> Result<PaginationResult, PaginatorError> {
         self.check_state(PaginatorState::Idle)?;
 
-        let token = match dir {
-            Direction::Backward => {
-                let prev_batch_token = self.prev_batch_token.lock().await;
-                if prev_batch_token.is_none() {
-                    return Ok(PaginationResult { events: Vec::new(), hit_end_of_timeline: true });
-                };
-                prev_batch_token.clone()
-            }
-
-            Direction::Forward => {
-                let next_batch_token = self.next_batch_token.lock().await;
-                if next_batch_token.is_none() {
-                    return Ok(PaginationResult { events: Vec::new(), hit_end_of_timeline: true });
-                };
-                next_batch_token.clone()
-            }
+        let token = {
+            let token = token_lock.lock().await;
+            if token.is_none() {
+                return Ok(PaginationResult { events: Vec::new(), hit_end_of_timeline: true });
+            };
+            token.clone()
         };
 
         // Note: it's possible two callers have checked the state and both figured it's
@@ -267,18 +261,8 @@ impl Paginator {
             }
         };
 
-        let hit_end_of_timeline = match dir {
-            Direction::Backward => {
-                let hit = response.end.is_none();
-                *self.prev_batch_token.lock().await = response.end;
-                hit
-            }
-            Direction::Forward => {
-                let hit = response.end.is_none();
-                *self.next_batch_token.lock().await = response.end;
-                hit
-            }
-        };
+        let hit_end_of_timeline = response.end.is_none();
+        *token_lock.lock().await = response.end;
 
         // TODO: what to do with state events?
 
