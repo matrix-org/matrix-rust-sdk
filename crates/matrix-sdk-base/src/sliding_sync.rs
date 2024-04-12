@@ -897,6 +897,43 @@ mod tests {
     }
 
     #[async_test]
+    async fn test_kick_or_ban_updates_room_to_left() {
+        for membership in [MembershipState::Leave, MembershipState::Ban] {
+            let room_id = room_id!("!r:e.uk");
+            let user_a_id = user_id!("@a:e.uk");
+            let user_b_id = user_id!("@b:e.uk");
+            let client = logged_in_base_client(Some(user_a_id)).await;
+
+            // When I join…
+            let mut room = v4::SlidingSyncRoom::new();
+            set_room_joined(&mut room, user_a_id);
+            let response = response_with_room(room_id, room).await;
+            client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
+            assert_eq!(client.get_room(room_id).unwrap().state(), RoomState::Joined);
+
+            // And then get kicked/banned with a `required_state` state event…
+            let mut room = v4::SlidingSyncRoom::new();
+            room.required_state.push(make_state_event(
+                user_b_id,
+                user_a_id.as_str(),
+                RoomMemberEventContent::new(membership),
+                None,
+            ));
+            let response = response_with_room(room_id, room).await;
+            let sync_resp =
+                client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
+
+            // The room is left.
+            assert_eq!(client.get_room(room_id).unwrap().state(), RoomState::Left);
+
+            // And it is added to the list of left rooms only.
+            assert!(!sync_resp.rooms.join.contains_key(room_id));
+            assert!(sync_resp.rooms.leave.contains_key(room_id));
+            assert!(!sync_resp.rooms.invite.contains_key(room_id));
+        }
+    }
+
+    #[async_test]
     async fn test_left_a_room_from_timeline_state_event() {
         // Given a logged-in client
         let client = logged_in_base_client(None).await;
