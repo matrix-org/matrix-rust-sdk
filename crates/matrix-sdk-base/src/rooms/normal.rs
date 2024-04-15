@@ -50,8 +50,8 @@ use ruma::{
     },
     room::RoomType,
     serde::Raw,
-    EventId, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId, OwnedUserId, RoomAliasId,
-    RoomId, RoomVersionId, UserId,
+    EventId, MxcUri, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId, OwnedUserId,
+    RoomAliasId, RoomId, RoomVersionId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
@@ -205,6 +205,12 @@ impl Room {
         self.inner.read().room_type().is_some_and(|t| *t == RoomType::Space)
     }
 
+    /// Returns the room's type as defined in its creation event
+    /// (`m.room.create`).
+    pub fn room_type(&self) -> Option<RoomType> {
+        self.inner.read().room_type().map(ToOwned::to_owned)
+    }
+
     /// Get the unread notification counts.
     pub fn unread_notification_counts(&self) -> UnreadNotificationsCount {
         self.inner.read().notification_counts
@@ -287,12 +293,7 @@ impl Room {
 
     /// Get the avatar url of this room.
     pub fn avatar_url(&self) -> Option<OwnedMxcUri> {
-        self.inner
-            .read()
-            .base_info
-            .avatar
-            .as_ref()
-            .and_then(|e| e.as_original().and_then(|e| e.content.url.clone()))
+        self.inner.read().avatar_url().map(ToOwned::to_owned)
     }
 
     /// Get the canonical alias of this room.
@@ -1011,7 +1012,7 @@ impl RoomInfo {
         self.base_info.handle_redaction(redacts);
     }
 
-    /// Update the room name
+    /// Update the room name.
     pub fn update_name(&mut self, name: String) {
         self.base_info.name = Some(MinimalStateEvent::Original(OriginalMinimalStateEvent {
             content: RoomNameEventContent::new(name),
@@ -1019,7 +1020,15 @@ impl RoomInfo {
         }));
     }
 
-    /// Update the room avatar
+    /// Returns the current room avatar.
+    pub fn avatar_url(&self) -> Option<&MxcUri> {
+        self.base_info
+            .avatar
+            .as_ref()
+            .and_then(|e| e.as_original().and_then(|e| e.content.url.as_deref()))
+    }
+
+    /// Update the room avatar.
     pub fn update_avatar(&mut self, url: Option<OwnedMxcUri>) {
         self.base_info.avatar = url.map(|url| {
             let mut content = RoomAvatarEventContent::new();
@@ -1029,12 +1038,12 @@ impl RoomInfo {
         });
     }
 
-    /// Update the notifications count
+    /// Update the notifications count.
     pub fn update_notification_count(&mut self, notification_counts: UnreadNotificationsCount) {
         self.notification_counts = notification_counts;
     }
 
-    /// Update the RoomSummary
+    /// Update the RoomSummary.
     ///
     /// Returns true if the Summary modified the info, false otherwise.
     pub fn update_summary(&mut self, summary: &RumaSummary) -> bool {
@@ -1145,14 +1154,20 @@ impl RoomInfo {
         }
     }
 
-    fn history_visibility(&self) -> &HistoryVisibility {
+    /// Returns the history visibility for this room.
+    ///
+    /// Defaults to `WorldReadable`, if missing.
+    pub fn history_visibility(&self) -> &HistoryVisibility {
         match &self.base_info.history_visibility {
             Some(MinimalStateEvent::Original(ev)) => &ev.content.history_visibility,
             _ => &HistoryVisibility::WorldReadable,
         }
     }
 
-    fn join_rule(&self) -> &JoinRule {
+    /// Returns the join rule for this room.
+    ///
+    /// Defaults to `Public`, if missing.
+    pub fn join_rule(&self) -> &JoinRule {
         match &self.base_info.join_rules {
             Some(MinimalStateEvent::Original(ev)) => &ev.content.join_rule,
             _ => &JoinRule::Public,
@@ -1169,7 +1184,8 @@ impl RoomInfo {
         Some(&self.base_info.tombstone.as_ref()?.as_original()?.content)
     }
 
-    fn topic(&self) -> Option<&str> {
+    /// Returns the topic for this room, if set.
+    pub fn topic(&self) -> Option<&str> {
         Some(&self.base_info.topic.as_ref()?.as_original()?.content.topic)
     }
 
