@@ -45,6 +45,7 @@ use ruma::{
         room::power_levels::RoomPowerLevelsEventContent, GlobalAccountDataEventType,
     },
     push::{HttpPusherData as RumaHttpPusherData, PushFormat as RumaPushFormat},
+    RoomAliasId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -59,6 +60,7 @@ use crate::{
     notification::NotificationClientBuilder,
     notification_settings::NotificationSettings,
     room_directory_search::RoomDirectorySearch,
+    room_preview::RoomPreview,
     sync_service::{SyncService, SyncServiceBuilder},
     task_handle::TaskHandle,
     ClientError,
@@ -763,6 +765,34 @@ impl Client {
     pub async fn track_recently_visited_room(&self, room: String) -> Result<(), ClientError> {
         self.inner.account().track_recently_visited_room(room).await?;
         Ok(())
+    }
+
+    /// Resolves the given room alias to a room id, if possible.
+    pub async fn resolve_room_alias(&self, room_alias: String) -> Result<String, ClientError> {
+        let room_alias = RoomAliasId::parse(&room_alias)?;
+        let response = self.inner.resolve_room_alias(&room_alias).await?;
+        Ok(response.room_id.to_string())
+    }
+
+    /// Get the preview of a room, to interact with it.
+    pub async fn get_room_preview(
+        &self,
+        room_id_or_alias: String,
+    ) -> Result<RoomPreview, ClientError> {
+        let room_id = if let Ok(parsed_room_id) = RoomId::parse(&room_id_or_alias) {
+            parsed_room_id
+        } else {
+            // Try to resolve it as an alias.
+            let Ok(room_alias) = RoomAliasId::parse(&room_id_or_alias) else {
+                return Err(anyhow!("room_id_or_alias is neither a room id or an alias").into());
+            };
+            let response = self.inner.resolve_room_alias(&room_alias).await?;
+            response.room_id
+        };
+
+        let sdk_room_preview = self.inner.get_room_preview(&room_id).await?;
+
+        Ok(RoomPreview::from_sdk(room_id, sdk_room_preview))
     }
 }
 

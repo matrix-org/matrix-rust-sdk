@@ -82,6 +82,7 @@ use crate::{
     http_client::HttpClient,
     matrix_auth::MatrixAuth,
     notification_settings::NotificationSettings,
+    room_preview::RoomPreview,
     sync::{RoomUpdate, SyncResponse},
     Account, AuthApi, AuthSession, Error, Media, Pusher, RefreshTokenError, Result, Room,
     TransmissionProgress,
@@ -939,6 +940,15 @@ impl Client {
     /// `room_id` - The unique id of the room that should be fetched.
     pub fn get_room(&self, room_id: &RoomId) -> Option<Room> {
         self.base_client().get_room(room_id).map(|room| Room::new(self.clone(), room))
+    }
+
+    /// Gets the preview of a room, whether the current user knows it (because
+    /// they've joined/left/been invited to it) or not.
+    pub async fn get_room_preview(&self, room_id: &RoomId) -> Result<RoomPreview> {
+        if let Some(room) = self.get_room(room_id) {
+            return Ok(RoomPreview::from_known(&room));
+        }
+        RoomPreview::from_unknown(self, room_id).await
     }
 
     /// Resolve a room alias to a room id and a list of servers which know

@@ -36,6 +36,7 @@ mod room_directory_search;
 mod room_info;
 mod room_list;
 mod room_member;
+mod room_preview;
 mod ruma;
 mod session_verification;
 mod sync_service;
