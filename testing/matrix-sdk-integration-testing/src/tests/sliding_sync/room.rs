@@ -20,8 +20,13 @@ use matrix_sdk::{
         },
         assign,
         events::{
-            receipt::ReceiptThread, room::message::RoomMessageEventContent,
-            AnySyncMessageLikeEvent, Mentions, StateEventType,
+            receipt::ReceiptThread,
+            room::{
+                history_visibility::{HistoryVisibility, RoomHistoryVisibilityEventContent},
+                join_rules::{JoinRule, RoomJoinRulesEventContent},
+                message::RoomMessageEventContent,
+            },
+            AnySyncMessageLikeEvent, InitialStateEvent, Mentions, StateEventType,
         },
         mxc_uri,
     },
@@ -31,6 +36,7 @@ use matrix_sdk_ui::{
     room_list_service::filters::new_filter_all, sync_service::SyncService, RoomListService,
 };
 use once_cell::sync::Lazy;
+use rand::Rng as _;
 use serde_json::Value;
 use stream_assert::{assert_next_eq, assert_pending};
 use tokio::{
@@ -1029,17 +1035,139 @@ async fn test_roominfo_update_deduplication() -> Result<()> {
                     }
                 ]
     );
-    /*
-    assert_eq!(
-        updated_rooms,
-        vec![VectorDiff::Set {
-            index: 0,
-            value: RoomListEntry::Filled(alice_room.room_id().to_owned())
-        }]
-    );
-    */
 
     assert_pending!(stream);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_room_preview() -> Result<()> {
+    let alice = TestClientBuilder::new("alice".to_owned())
+        .randomize_username()
+        .use_sqlite()
+        .build()
+        .await?;
+    let bob =
+        TestClientBuilder::new("bob".to_owned()).randomize_username().use_sqlite().build().await?;
+
+    let alice_sync_service = SyncService::builder(alice.clone()).build().await.unwrap();
+    alice_sync_service.start().await;
+
+    // Set up sliding sync for alice.
+    let sliding_alice = alice
+        .sliding_sync("main")?
+        .with_all_extensions()
+        .poll_timeout(Duration::from_secs(2))
+        .network_timeout(Duration::from_secs(2))
+        .add_list(
+            SlidingSyncList::builder("all")
+                .sync_mode(SlidingSyncMode::new_selective().add_range(0..=20)),
+        )
+        .build()
+        .await?;
+
+    // Set up sliding sync for bob.
+    let sliding_bob = bob
+        .sliding_sync("main")?
+        .with_all_extensions()
+        .poll_timeout(Duration::from_secs(2))
+        .network_timeout(Duration::from_secs(2))
+        .add_list(
+            SlidingSyncList::builder("all")
+                .sync_mode(SlidingSyncMode::new_selective().add_range(0..=20)),
+        )
+        .build()
+        .await?;
+
+    let s = sliding_alice.clone();
+    spawn(async move {
+        let stream = s.sync();
+        pin_mut!(stream);
+        while let Some(up) = stream.next().await {
+            warn!("alice received update: {up:?}");
+        }
+    });
+
+    let s = sliding_bob.clone();
+    spawn(async move {
+        let stream = s.sync();
+        pin_mut!(stream);
+        while let Some(up) = stream.next().await {
+            warn!("bob received update: {up:?}");
+        }
+    });
+
+    // Alice creates a room in which they're alone, to start with.
+    let suffix: u128 = rand::thread_rng().gen();
+    let room_alias = format!("aliasy_mac_alias{suffix}");
+
+    let room = alice
+        .create_room(assign!(CreateRoomRequest::new(), {
+            invite: vec![],
+            is_direct: false,
+            name: Some("Alice's Room".to_owned()),
+            topic: Some("Discussing Alice's Topic".to_owned()),
+            room_alias_name: Some(room_alias.clone()),
+            initial_state: vec![
+                InitialStateEvent::new(RoomHistoryVisibilityEventContent::new(HistoryVisibility::WorldReadable)).to_raw_any(),
+                InitialStateEvent::new(RoomJoinRulesEventContent::new(JoinRule::Invite)).to_raw_any(),
+            ],
+            //TODO: this doesn't allow preview => could be tested!
+            //preset: Some(RoomPreset::PrivateChat),
+        }))
+        .await?;
+
+    room.set_avatar_url(mxc_uri!("mxc://localhost/alice"), None).await?;
+
+    let room_id = room.room_id();
+
+    // Wait for sliding sync to return the result of the newly created room.
+    sleep(Duration::from_secs(1)).await;
+
+    let preview = alice.get_room_preview(room_id).await?;
+    assert_eq!(preview.canonical_alias.unwrap().alias(), room_alias);
+    assert_eq!(preview.name.unwrap(), "Alice's Room");
+    assert_eq!(preview.topic.unwrap(), "Discussing Alice's Topic");
+    assert_eq!(preview.avatar_url.unwrap(), mxc_uri!("mxc://localhost/alice"));
+    assert_eq!(preview.num_joined_members, 1);
+    assert!(preview.room_type.is_none());
+    // Because of the preset:
+    assert_eq!(preview.join_rule, JoinRule::Invite);
+    assert_eq!(preview.history_visibility, HistoryVisibility::WorldReadable);
+    assert_eq!(preview.state, Some(RoomState::Joined));
+
+    // Bob definitely doesn't know about the room, but they can get a preview of the
+    // room too.
+    let preview = bob.get_room_preview(room_id).await?;
+
+    assert_eq!(preview.canonical_alias.unwrap().alias(), room_alias);
+    assert_eq!(preview.name.unwrap(), "Alice's Room");
+    assert_eq!(preview.topic.unwrap(), "Discussing Alice's Topic");
+    assert_eq!(preview.avatar_url.unwrap(), mxc_uri!("mxc://localhost/alice"));
+    assert_eq!(preview.num_joined_members, 1);
+    assert!(preview.room_type.is_none());
+    assert_eq!(preview.join_rule, JoinRule::Invite);
+    assert_eq!(preview.history_visibility, HistoryVisibility::WorldReadable);
+
+    // Only difference with Alice's room is here: since Bob hasn't joined the room,
+    // they don't have any associated room state.
+    assert_eq!(preview.state, None);
+
+    // Now Alice creates another room, with a private preset, and still doesn't
+    // invite Bob.
+    let room = alice
+        .create_room(assign!(CreateRoomRequest::new(), {
+            initial_state: vec![
+                InitialStateEvent::new(RoomHistoryVisibilityEventContent::new(HistoryVisibility::Shared)).to_raw_any(),
+                InitialStateEvent::new(RoomJoinRulesEventContent::new(JoinRule::Invite)).to_raw_any(),
+            ],
+        }))
+        .await?;
+
+    // So Bob can't preview it.
+    let preview_result = bob.get_room_preview(room.room_id()).await;
+    assert_eq!(preview_result.unwrap_err().as_client_api_error().unwrap().status_code, 403);
 
     Ok(())
 }
