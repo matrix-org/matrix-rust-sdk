@@ -106,10 +106,10 @@ impl QrCodeData {
             let mode = reader.read_u8()?;
             reader.read_exact(&mut public_key)?;
 
-            let rendezvouz_url_len = reader.read_u16::<BigEndian>()?;
-            let mut rendezvouz_url = vec![0u8; rendezvouz_url_len.into()];
+            let rendezvous_url_len = reader.read_u16::<BigEndian>()?;
+            let mut rendezvous_url = vec![0u8; rendezvous_url_len.into()];
 
-            reader.read_exact(&mut rendezvouz_url)?;
+            reader.read_exact(&mut rendezvous_url)?;
 
             let mode =
                 QrCodeMode::try_from(mode).map_err(|_| QrCodeDecodeError::InvalidMode(mode))?;
@@ -129,23 +129,23 @@ impl QrCodeData {
             };
 
             let public_key = Curve25519PublicKey::from_bytes(public_key);
-            let rendezvouz_url = Url::parse(&String::from_utf8(rendezvouz_url)?)?;
+            let rendezvous_url = Url::parse(&String::from_utf8(rendezvous_url)?)?;
 
-            Ok(Self { public_key, rendezvous_url: rendezvouz_url, mode })
+            Ok(Self { public_key, rendezvous_url: rendezvous_url, mode })
         } else {
             Err(QrCodeDecodeError::InvalidVersion(version))
         }
     }
 
     pub fn to_bytes(&self) -> Vec<u8> {
-        let rendevouz_url_len = (self.rendezvous_url.as_str().len() as u16).to_be_bytes();
+        let rendezvous_url_len = (self.rendezvous_url.as_str().len() as u16).to_be_bytes();
 
         let encoded = [
             PREFIX,
             &[VERSION],
             &[self.mode.mode_identifier() as u8],
             self.public_key.as_bytes().as_slice(),
-            &rendevouz_url_len,
+            &rendezvous_url_len,
             self.rendezvous_url.as_str().as_bytes(),
         ]
         .concat();
@@ -183,7 +183,7 @@ mod test {
             Curve25519PublicKey::from_base64("2IZoarIZe3gOMAqdSiFHSAcA15KfOasxueUUNwJI7Ws")
                 .unwrap();
 
-        let expected_rendevouz =
+        let expected_rendezvous =
             Url::parse("https://rendezvous.lab.element.dev/e8da6355-550b-4a32-a193-1619d9830668")
                 .unwrap();
 
@@ -196,8 +196,8 @@ mod test {
         );
 
         assert_eq!(
-            expected_rendevouz, data.rendezvous_url,
-            "The parsed rendevouz URL should match to the expected one",
+            expected_rendezvous, data.rendezvous_url,
+            "The parsed rendezvous URL should match to the expected one",
         );
 
         assert_eq!(
