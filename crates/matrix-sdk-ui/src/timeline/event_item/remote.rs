@@ -29,8 +29,10 @@ use super::BundledReactions;
 pub(in crate::timeline) struct RemoteEventTimelineItem {
     /// The event ID.
     pub event_id: OwnedEventId,
+
     /// All bundled reactions about the event.
     pub reactions: BundledReactions,
+
     /// All read receipts for the event.
     ///
     /// The key is the ID of a room member and the value are details about the
@@ -38,12 +40,16 @@ pub(in crate::timeline) struct RemoteEventTimelineItem {
     ///
     /// Note that currently this ignores threads.
     pub read_receipts: IndexMap<OwnedUserId, Receipt>,
+
     /// Whether the event has been sent by the the logged-in user themselves.
     pub is_own: bool,
+
     /// Whether the item should be highlighted in the timeline.
     pub is_highlighted: bool,
+
     /// Encryption information.
     pub encryption_info: Option<EncryptionInfo>,
+
     /// JSON of the original event.
     ///
     /// If the event is edited, this *won't* change, instead `latest_edit_json`
@@ -55,8 +61,10 @@ pub(in crate::timeline) struct RemoteEventTimelineItem {
     /// thus the whole event is available), but it's not clear whether there is
     /// a clear need for that.
     pub original_json: Option<Raw<AnySyncTimelineEvent>>,
+
     /// JSON of the latest edit to this item.
     pub latest_edit_json: Option<Raw<AnySyncTimelineEvent>>,
+
     /// Where we got this event from: A sync response or pagination.
     pub origin: RemoteEventOrigin,
 }

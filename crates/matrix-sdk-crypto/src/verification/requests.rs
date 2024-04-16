@@ -1621,10 +1621,7 @@ struct Done {}
 #[cfg(test)]
 mod tests {
 
-    use std::{
-        convert::{TryFrom, TryInto},
-        time::Duration,
-    };
+    use std::time::Duration;
 
     use assert_matches::assert_matches;
     use assert_matches2::assert_let;

@@ -25,8 +25,8 @@ pub struct Device {
     /// Is our cross signing identity trusted and does the identity trust the
     /// device.
     pub cross_signing_trusted: bool,
-    /// The first time this device was seen in local timestamp, seconds since
-    /// epoch.
+    /// The first time this device was seen in local timestamp, milliseconds
+    /// since epoch.
     pub first_time_seen_ts: u64,
 }
 

@@ -1014,8 +1014,8 @@ impl IdentityManager {
 }
 
 #[cfg(any(test, feature = "testing"))]
+#[allow(dead_code)]
 pub(crate) mod testing {
-    #![allow(dead_code)]
     use std::sync::Arc;
 
     use ruma::{

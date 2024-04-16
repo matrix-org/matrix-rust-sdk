@@ -75,7 +75,10 @@ pub(super) enum EventTimelineItemKind {
 /// A wrapper that can contain either a transaction id, or an event id.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum EventItemIdentifier {
+    /// The item is local, identified by its transaction id (to be used in
+    /// subsequent requests).
     TransactionId(OwnedTransactionId),
+    /// The item is remote, identified by its event id.
     EventId(OwnedEventId),
 }
 
@@ -90,9 +93,8 @@ impl EventTimelineItem {
         Self { sender, sender_profile, timestamp, content, kind }
     }
 
-    /// If the supplied low-level `SyncTimelineEventy` is suitable for use as
-    /// the `latest_event` in a message preview, wrap it as an
-    /// `EventTimelineItem`.
+    /// If the supplied low-level `SyncTimelineEvent` is suitable for use as the
+    /// `latest_event` in a message preview, wrap it as an `EventTimelineItem`.
     pub async fn from_latest_event(
         client: Client,
         room_id: &RoomId,
@@ -347,7 +349,7 @@ impl EventTimelineItem {
     /// yet.
     pub fn original_json(&self) -> Option<&Raw<AnySyncTimelineEvent>> {
         match &self.kind {
-            EventTimelineItemKind::Local(_local_event) => None,
+            EventTimelineItemKind::Local(_) => None,
             EventTimelineItemKind::Remote(remote_event) => remote_event.original_json.as_ref(),
         }
     }
@@ -355,7 +357,7 @@ impl EventTimelineItem {
     /// Get the raw JSON representation of the latest edit, if any.
     pub fn latest_edit_json(&self) -> Option<&Raw<AnySyncTimelineEvent>> {
         match &self.kind {
-            EventTimelineItemKind::Local(_local_event) => None,
+            EventTimelineItemKind::Local(_) => None,
             EventTimelineItemKind::Remote(remote_event) => remote_event.latest_edit_json.as_ref(),
         }
     }
@@ -445,12 +447,14 @@ impl From<RemoteEventTimelineItem> for EventTimelineItemKind {
 pub struct Profile {
     /// The display name, if set.
     pub display_name: Option<String>,
+
     /// Whether the display name is ambiguous.
     ///
     /// Note that in rooms with lazy-loading enabled, this could be `false` even
     /// though the display name is actually ambiguous if not all member events
     /// have been seen yet.
     pub display_name_ambiguous: bool,
+
     /// The avatar URL, if set.
     pub avatar_url: Option<OwnedMxcUri>,
 }
@@ -531,7 +535,7 @@ mod tests {
     use crate::timeline::TimelineDetails;
 
     #[async_test]
-    async fn latest_message_event_can_be_wrapped_as_a_timeline_item() {
+    async fn test_latest_message_event_can_be_wrapped_as_a_timeline_item() {
         // Given a sync event that is suitable to be used as a latest_event
 
         let room_id = room_id!("!q:x.uk");

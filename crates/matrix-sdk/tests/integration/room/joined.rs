@@ -418,15 +418,17 @@ async fn room_attachment_send_info() {
 
     let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
 
-    let config = AttachmentConfig::new().info(AttachmentInfo::Image(BaseImageInfo {
-        height: Some(uint!(600)),
-        width: Some(uint!(800)),
-        size: None,
-        blurhash: None,
-    }));
+    let config = AttachmentConfig::new()
+        .info(AttachmentInfo::Image(BaseImageInfo {
+            height: Some(uint!(600)),
+            width: Some(uint!(800)),
+            size: None,
+            blurhash: None,
+        }))
+        .caption(Some("image caption".to_owned()));
 
     let response = room
-        .send_attachment("image", &mime::IMAGE_JPEG, b"Hello world".to_vec(), config)
+        .send_attachment("image.jpg", &mime::IMAGE_JPEG, b"Hello world".to_vec(), config)
         .await
         .unwrap();
 
@@ -470,16 +472,18 @@ async fn room_attachment_send_wrong_info() {
 
     let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
 
-    let config = AttachmentConfig::new().info(AttachmentInfo::Video(BaseVideoInfo {
-        height: Some(uint!(600)),
-        width: Some(uint!(800)),
-        duration: Some(Duration::from_millis(3600)),
-        size: None,
-        blurhash: None,
-    }));
+    let config = AttachmentConfig::new()
+        .info(AttachmentInfo::Video(BaseVideoInfo {
+            height: Some(uint!(600)),
+            width: Some(uint!(800)),
+            duration: Some(Duration::from_millis(3600)),
+            size: None,
+            blurhash: None,
+        }))
+        .caption(Some("image caption".to_owned()));
 
     let response =
-        room.send_attachment("image", &mime::IMAGE_JPEG, b"Hello world".to_vec(), config).await;
+        room.send_attachment("image.jpg", &mime::IMAGE_JPEG, b"Hello world".to_vec(), config).await;
 
     response.unwrap_err();
 }

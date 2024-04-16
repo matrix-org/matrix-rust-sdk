@@ -127,9 +127,6 @@ async fn test_read_receipts_updates() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    assert_let!(Some(VectorDiff::PushBack { value: day_divider }) = timeline_stream.next().await);
-    assert!(day_divider.is_day_divider());
-
     // We don't list the read receipt of our own user on events.
     assert_let!(Some(VectorDiff::PushBack { value: first_item }) = timeline_stream.next().await);
     let first_event = first_item.as_event().unwrap();
@@ -145,7 +142,7 @@ async fn test_read_receipts_updates() {
 
     // Read receipt of @alice:localhost is moved to third event.
     assert_let!(
-        Some(VectorDiff::Set { index: 2, value: second_item }) = timeline_stream.next().await
+        Some(VectorDiff::Set { index: 1, value: second_item }) = timeline_stream.next().await
     );
     let second_event = second_item.as_event().unwrap();
     assert!(second_event.read_receipts().is_empty());
@@ -156,6 +153,9 @@ async fn test_read_receipts_updates() {
 
     let (alice_receipt_event_id, _) = timeline.latest_user_read_receipt(alice).await.unwrap();
     assert_eq!(alice_receipt_event_id, third_event_id);
+
+    assert_let!(Some(VectorDiff::PushFront { value: day_divider }) = timeline_stream.next().await);
+    assert!(day_divider.is_day_divider());
 
     // Read receipt on unknown event is ignored.
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
@@ -362,9 +362,6 @@ async fn test_read_receipts_updates_on_filtered_events() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    assert_let!(Some(VectorDiff::PushBack { value: day_divider }) = timeline_stream.next().await);
-    assert!(day_divider.is_day_divider());
-
     // We don't list the read receipt of our own user on events.
     assert_let!(Some(VectorDiff::PushBack { value: item_a }) = timeline_stream.next().await);
     let event_a = item_a.as_event().unwrap();
@@ -377,7 +374,7 @@ async fn test_read_receipts_updates_on_filtered_events() {
     assert_eq!(own_receipt_timeline_event, event_a_id);
 
     // Implicit read receipt of @bob:localhost.
-    assert_let!(Some(VectorDiff::Set { index: 1, value: item_a }) = timeline_stream.next().await);
+    assert_let!(Some(VectorDiff::Set { index: 0, value: item_a }) = timeline_stream.next().await);
     let event_a = item_a.as_event().unwrap();
     assert_eq!(event_a.read_receipts().len(), 1);
 
@@ -399,6 +396,9 @@ async fn test_read_receipts_updates_on_filtered_events() {
     let alice_receipt_timeline_event =
         timeline.latest_user_read_receipt_timeline_event_id(*ALICE).await.unwrap();
     assert_eq!(alice_receipt_timeline_event, event_c_id);
+
+    assert_let!(Some(VectorDiff::PushFront { value: day_divider }) = timeline_stream.next().await);
+    assert!(day_divider.is_day_divider());
 
     // Read receipt on filtered event.
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(

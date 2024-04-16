@@ -120,6 +120,30 @@ macro_rules! assert_timeline_stream {
         )
     };
 
+    // `prepend --- day divider ---`
+    ( @_ [ $stream:ident ] [ prepend --- day divider --- ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
+        assert_timeline_stream!(
+            @_
+            [ $stream ]
+            [ $( $rest )* ]
+            [
+                $( $accumulator )*
+                {
+                    assert_matches!(
+                        $stream.next().now_or_never(),
+                        Some(Some(VectorDiff::PushFront { value })) => {
+                            assert_matches!(
+                                &**value,
+                                TimelineItemKind::Virtual(VirtualTimelineItem::DayDivider(_)) => {}
+                            );
+                        }
+                    );
+                }
+            ]
+        )
+    };
+
+
     // `insert [$nth] "$event_id"`
     ( @_ [ $stream:ident ] [ insert [$index:literal] $event_id:literal ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
         assert_timeline_stream!(
@@ -316,10 +340,10 @@ async fn test_timeline_basic() -> Result<()> {
 
         assert_timeline_stream! {
             [timeline_stream]
-            --- day divider ---;
             append    "$x1:bar.org";
-            update[1] "$x1:bar.org";
+            update[0] "$x1:bar.org";
             append    "$x2:bar.org";
+            prepend   --- day divider ---;
         };
     }
 
@@ -362,12 +386,12 @@ async fn test_timeline_duplicated_events() -> Result<()> {
 
         assert_timeline_stream! {
             [timeline_stream]
-            --- day divider ---;
             append    "$x1:bar.org";
-            update[1] "$x1:bar.org";
+            update[0] "$x1:bar.org";
             append    "$x2:bar.org";
-            update[2] "$x2:bar.org";
+            update[1] "$x2:bar.org";
             append    "$x3:bar.org";
+            prepend    --- day divider ---;
         };
     }
 
@@ -440,10 +464,10 @@ async fn test_timeline_read_receipts_are_updated_live() -> Result<()> {
 
         assert_timeline_stream! {
             [timeline_stream]
-            --- day divider ---;
             append    "$x1:bar.org";
-            update[1] "$x1:bar.org";
+            update[0] "$x1:bar.org";
             append    "$x2:bar.org";
+            prepend   --- day divider ---;
         };
     }
 

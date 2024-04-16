@@ -87,10 +87,6 @@ async fn test_reaction() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    // The day divider.
-    assert_let!(Some(VectorDiff::PushBack { value: day_divider }) = timeline_stream.next().await);
-    assert!(day_divider.is_day_divider());
-
     // The new message starts with their author's read receipt.
     assert_let!(Some(VectorDiff::PushBack { value: message }) = timeline_stream.next().await);
     let event_item = message.as_event().unwrap();
@@ -100,7 +96,7 @@ async fn test_reaction() {
     // The new message is getting the reaction, which implies an implicit read
     // receipt that's obtained first.
     assert_let!(
-        Some(VectorDiff::Set { index: 1, value: updated_message }) = timeline_stream.next().await
+        Some(VectorDiff::Set { index: 0, value: updated_message }) = timeline_stream.next().await
     );
     let event_item = updated_message.as_event().unwrap();
     assert_let!(TimelineItemContent::Message(msg) = event_item.content());
@@ -110,7 +106,7 @@ async fn test_reaction() {
 
     // Then the reaction is taken into account.
     assert_let!(
-        Some(VectorDiff::Set { index: 1, value: updated_message }) = timeline_stream.next().await
+        Some(VectorDiff::Set { index: 0, value: updated_message }) = timeline_stream.next().await
     );
     let event_item = updated_message.as_event().unwrap();
     assert_let!(TimelineItemContent::Message(msg) = event_item.content());
@@ -121,6 +117,10 @@ async fn test_reaction() {
     assert_eq!(group.len(), 1);
     let senders: Vec<_> = group.senders().map(|v| &v.sender_id).collect();
     assert_eq!(senders.as_slice(), [user_id!("@bob:example.org")]);
+
+    // The day divider.
+    assert_let!(Some(VectorDiff::PushFront { value: day_divider }) = timeline_stream.next().await);
+    assert!(day_divider.is_day_divider());
 
     // TODO: After adding raw timeline items, check for one here
 
@@ -198,10 +198,11 @@ async fn test_redacted_message() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    assert_let!(Some(VectorDiff::PushBack { value: day_divider }) = timeline_stream.next().await);
-    assert!(day_divider.is_day_divider());
     assert_let!(Some(VectorDiff::PushBack { value: first }) = timeline_stream.next().await);
     assert_matches!(first.as_event().unwrap().content(), TimelineItemContent::RedactedMessage);
+
+    assert_let!(Some(VectorDiff::PushFront { value: day_divider }) = timeline_stream.next().await);
+    assert!(day_divider.is_day_divider());
 
     // TODO: After adding raw timeline items, check for one here
 }
@@ -240,10 +241,11 @@ async fn test_read_marker() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    assert_let!(Some(VectorDiff::PushBack { value: day_divider }) = timeline_stream.next().await);
-    assert!(day_divider.is_day_divider());
     assert_let!(Some(VectorDiff::PushBack { value: message }) = timeline_stream.next().await);
     assert_matches!(message.as_event().unwrap().content(), TimelineItemContent::Message(_));
+
+    assert_let!(Some(VectorDiff::PushFront { value: day_divider }) = timeline_stream.next().await);
+    assert!(day_divider.is_day_divider());
 
     ev_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id).add_account_data(RoomAccountDataTestEvent::FullyRead),
@@ -321,12 +323,13 @@ async fn test_sync_highlighted() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    assert_let!(Some(VectorDiff::PushBack { value: day_divider }) = timeline_stream.next().await);
-    assert!(day_divider.is_day_divider());
     assert_let!(Some(VectorDiff::PushBack { value: first }) = timeline_stream.next().await);
     let remote_event = first.as_event().unwrap();
     // Own events don't trigger push rules.
     assert!(!remote_event.is_highlighted());
+
+    assert_let!(Some(VectorDiff::PushFront { value: day_divider }) = timeline_stream.next().await);
+    assert!(day_divider.is_day_divider());
 
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
         sync_timeline_event!({

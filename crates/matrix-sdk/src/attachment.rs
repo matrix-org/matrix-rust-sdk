@@ -23,7 +23,7 @@ use image::GenericImageView;
 use ruma::{
     assign,
     events::room::{
-        message::{AudioInfo, FileInfo, VideoInfo},
+        message::{AudioInfo, FileInfo, FormattedBody, VideoInfo},
         ImageInfo, ThumbnailInfo,
     },
     OwnedTransactionId, TransactionId, UInt,
@@ -190,6 +190,8 @@ pub struct AttachmentConfig {
     pub(crate) txn_id: Option<OwnedTransactionId>,
     pub(crate) info: Option<AttachmentInfo>,
     pub(crate) thumbnail: Option<Thumbnail>,
+    pub(crate) caption: Option<String>,
+    pub(crate) formatted_caption: Option<FormattedBody>,
     #[cfg(feature = "image-proc")]
     pub(crate) generate_thumbnail: bool,
     #[cfg(feature = "image-proc")]
@@ -205,6 +207,8 @@ impl AttachmentConfig {
             txn_id: Default::default(),
             info: Default::default(),
             thumbnail: None,
+            caption: None,
+            formatted_caption: None,
             #[cfg(feature = "image-proc")]
             generate_thumbnail: Default::default(),
             #[cfg(feature = "image-proc")]
@@ -247,6 +251,8 @@ impl AttachmentConfig {
             txn_id: Default::default(),
             info: Default::default(),
             thumbnail: Some(thumbnail),
+            caption: None,
+            formatted_caption: None,
             #[cfg(feature = "image-proc")]
             generate_thumbnail: Default::default(),
             #[cfg(feature = "image-proc")]
@@ -276,6 +282,26 @@ impl AttachmentConfig {
     #[must_use]
     pub fn info(mut self, info: AttachmentInfo) -> Self {
         self.info = Some(info);
+        self
+    }
+
+    /// Set the optional caption
+    ///
+    /// # Arguments
+    ///
+    /// * `caption` - The optional caption
+    pub fn caption(mut self, caption: Option<String>) -> Self {
+        self.caption = caption;
+        self
+    }
+
+    /// Set the optional formatted caption
+    ///
+    /// # Arguments
+    ///
+    /// * `formatted_caption` - The optional formatted caption
+    pub fn formatted_caption(mut self, formatted_caption: Option<FormattedBody>) -> Self {
+        self.formatted_caption = formatted_caption;
         self
     }
 }
@@ -331,7 +357,7 @@ impl Default for AttachmentConfig {
 ///
 /// if let Some(room) = client.get_room(&room_id) {
 ///     room.send_attachment(
-///         "My favorite cat",
+///         "my_favorite_cat.jpg",
 ///         &mime::IMAGE_JPEG,
 ///         image,
 ///         config,

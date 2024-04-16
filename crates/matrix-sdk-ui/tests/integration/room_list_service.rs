@@ -2411,6 +2411,7 @@ async fn test_room_subscription() -> Result<(), Error> {
                         ["m.room.topic", ""],
                         ["m.room.avatar", ""],
                         ["m.room.canonical_alias", ""],
+                        ["m.room.create", ""], // Added even when it's not specified
                     ],
                     "timeline_limit": 30,
                 },
@@ -3012,6 +3013,107 @@ async fn test_sync_indicator() -> Result<(), Error> {
     };
 
     sync_indicator_task.await.unwrap();
+
+    Ok(())
+}
+
+#[cfg(feature = "experimental-room-list-with-unified-invites")]
+#[async_test]
+async fn test_unified_invites_enabled() -> Result<(), Error> {
+    let (client, server) = logged_in_client_with_server().await;
+    let room_list = RoomListService::new_with_unified_invites(client, true).await?;
+
+    let sync = room_list.sync();
+    pin_mut!(sync);
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        states = Init => SettingUp,
+        assert request = {
+            "conn_id": "room-list",
+            "lists": {
+                ALL_ROOMS: {
+                    "ranges": [[0, 19]],
+                    "required_state": [
+                        ["m.room.avatar", ""],
+                        ["m.room.encryption", ""],
+                        ["m.room.member", "$LAZY"],
+                        ["m.room.member", "$ME"],
+                        ["m.room.power_levels", ""],
+                    ],
+                    "filters": {
+                        // The `is_invite` field should be missing from the ALL_ROOMS filters
+                        "is_tombstoned": false,
+                        "not_room_types": ["m.space"],
+                    },
+                    "bump_event_types": [
+                        "m.room.message",
+                        "m.room.encrypted",
+                        "m.sticker",
+                    ],
+                    "sort": ["by_recency", "by_name"],
+                    "timeline_limit": 1,
+                },
+                INVITES: {
+                    "ranges": [[0, 0]],
+                    "required_state": [
+                        ["m.room.avatar", ""],
+                        ["m.room.encryption", ""],
+                        ["m.room.member", "$ME"],
+                        ["m.room.canonical_alias", ""],
+                    ],
+                    "filters": {
+                        "is_invite": true,
+                        "is_tombstoned": false,
+                        "not_room_types": ["m.space"],
+                    },
+                    "sort": ["by_recency", "by_name"],
+                    "timeline_limit": 0,
+                },
+            },
+            "extensions": {
+                "account_data": {
+                    "enabled": true
+                },
+                "receipts": {
+                    "enabled": true,
+                    "rooms": ["*"]
+                },
+                "typing": {
+                    "enabled": true,
+                },
+            },
+        },
+        respond with = { "pos": "1" },
+    };
+
+    Ok(())
+}
+
+#[cfg(feature = "experimental-room-list-with-unified-invites")]
+#[async_test]
+async fn test_unified_invites_disabled() -> Result<(), Error> {
+    let (client, server) = logged_in_client_with_server().await;
+    let room_list = RoomListService::new_with_unified_invites(client, false).await?;
+
+    let sync = room_list.sync();
+    pin_mut!(sync);
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        states = Init => SettingUp,
+        assert request >= {
+            "lists": {
+                ALL_ROOMS: {
+                    // `is_invite` should be present and `false`
+                    "filters": {
+                        "is_invite": false,
+                    },
+                },
+            },
+        },
+        respond with = { "pos": "1" },
+    };
 
     Ok(())
 }

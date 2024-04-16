@@ -17,8 +17,10 @@ use std::{
     fmt,
     ops::{Deref, Not as _},
     sync::Arc,
+    time::Duration,
 };
 
+use js_option::JsOption;
 use ruma::{
     api::client::{
         dehydrated_device::{DehydratedDeviceData, DehydratedDeviceV1},
@@ -161,6 +163,8 @@ pub struct StaticAccountData {
     pub device_id: OwnedDeviceId,
     /// The associated identity keys.
     pub identity_keys: Arc<IdentityKeys>,
+    /// Whether the account is for a dehydrated device.
+    pub dehydrated: bool,
     // The creation time of the account in milliseconds since epoch.
     creation_local_time: MilliSecondsSinceUnixEpoch,
 }
@@ -281,13 +285,17 @@ impl StaticAccountData {
             ),
         ]);
 
-        DeviceKeys::new(
+        let mut ret = DeviceKeys::new(
             (*self.user_id).to_owned(),
             (*self.device_id).to_owned(),
             Self::ALGORITHMS.iter().map(|a| (**a).clone()).collect(),
             keys,
             Default::default(),
-        )
+        );
+        if self.dehydrated {
+            ret.dehydrated = JsOption::Some(true);
+        }
+        ret
     }
 
     /// Get the user id of the owner of the account.
@@ -327,6 +335,14 @@ pub struct Account {
     /// needs to set this for us, depending on the count we will suggest the
     /// client to upload new keys.
     uploaded_signed_key_count: u64,
+    /// The timestamp of the last time we generated a fallback key. Fallback
+    /// keys are rotated in a time-based manner. This field records when we
+    /// either generated our first fallback key or rotated one.
+    ///
+    /// Will be `None` if we never created a fallback key, or if we're migrating
+    /// from a `AccountPickle` that didn't use time-based fallback key
+    /// rotation.
+    fallback_creation_timestamp: Option<MilliSecondsSinceUnixEpoch>,
 }
 
 impl Deref for Account {
@@ -352,12 +368,18 @@ pub struct PickledAccount {
     pub pickle: AccountPickle,
     /// Was the account shared.
     pub shared: bool,
+    /// Whether this is for a dehydrated device
+    #[serde(default)]
+    pub dehydrated: bool,
     /// The number of uploaded one-time keys we have on the server.
     pub uploaded_signed_key_count: u64,
     /// The local time creation of this account (milliseconds since epoch), used
     /// as creation time of own device
     #[serde(default = "default_account_creation_time")]
     pub creation_local_time: MilliSecondsSinceUnixEpoch,
+    /// The timestamp of the last time we generated a fallback key.
+    #[serde(default)]
+    pub fallback_key_creation_timestamp: Option<MilliSecondsSinceUnixEpoch>,
 }
 
 fn default_account_creation_time() -> MilliSecondsSinceUnixEpoch {
@@ -399,11 +421,13 @@ impl Account {
                 user_id: user_id.into(),
                 device_id: device_id.into(),
                 identity_keys: Arc::new(identity_keys),
+                dehydrated: false,
                 creation_local_time: MilliSecondsSinceUnixEpoch::now(),
             },
             inner: Box::new(account),
             shared: false,
             uploaded_signed_key_count: 0,
+            fallback_creation_timestamp: None,
         }
     }
 
@@ -422,6 +446,17 @@ impl Account {
             base64_encode(account.identity_keys().curve25519.as_bytes()).into();
 
         Self::new_helper(account, user_id, &device_id)
+    }
+
+    /// Create a new random Olm Account for a dehydrated device
+    pub fn new_dehydrated(user_id: &UserId) -> Self {
+        let account = InnerAccount::new();
+        let device_id: OwnedDeviceId =
+            base64_encode(account.identity_keys().curve25519.as_bytes()).into();
+
+        let mut ret = Self::new_helper(account, user_id, &device_id);
+        ret.static_data.dehydrated = true;
+        ret
     }
 
     /// Get the immutable data for this account.
@@ -496,11 +531,11 @@ impl Account {
             self.generate_one_time_keys_if_needed();
         }
 
-        if let Some(unused) = unused_fallback_keys {
-            if !unused.contains(&DeviceKeyAlgorithm::SignedCurve25519) {
-                // Generate a new fallback key if we don't have one.
-                self.generate_fallback_key_helper();
-            }
+        // If the server supports fallback keys or if it did so in the past, shown by
+        // the existence of a fallback creation timestamp, generate a new one if
+        // we don't have one, or if the current fallback key expired.
+        if unused_fallback_keys.is_some() || self.fallback_creation_timestamp.is_some() {
+            self.generate_fallback_key_if_needed();
         }
     }
 
@@ -543,14 +578,58 @@ impl Account {
         Some(key_count as u64)
     }
 
-    pub(crate) fn generate_fallback_key_helper(&mut self) {
-        if self.inner.fallback_key().is_empty() {
+    /// Generate a new fallback key iff a unpublished one isn't already inside
+    /// of vodozemac and if the currently active one expired.
+    ///
+    /// The former is checked using [`Account::fallback_key().is_empty()`],
+    /// which is a hashmap that gets cleared by the
+    /// [`Account::mark_keys_as_published()`] call.
+    pub(crate) fn generate_fallback_key_if_needed(&mut self) {
+        if self.inner.fallback_key().is_empty() && self.fallback_key_expired() {
             let removed_fallback_key = self.inner.generate_fallback_key();
+            self.fallback_creation_timestamp = Some(MilliSecondsSinceUnixEpoch::now());
 
             debug!(
                 ?removed_fallback_key,
-                "No unused fallback keys were found on the server, generated a new fallback key.",
+                "The fallback key either expired or we didn't have one: generated a new fallback key.",
             );
+        }
+    }
+
+    /// Check if our most recent fallback key has expired.
+    ///
+    /// We consider the fallback key to be expired if it's older than a week.
+    /// This is the lower bound for the recommended signed pre-key bundle
+    /// rotation interval in the X3DH spec[1].
+    ///
+    /// [1]: https://signal.org/docs/specifications/x3dh/#publishing-keys
+    fn fallback_key_expired(&self) -> bool {
+        const FALLBACK_KEY_MAX_AGE: Duration = Duration::from_secs(3600 * 24 * 7);
+
+        if let Some(time) = self.fallback_creation_timestamp {
+            // `to_system_time()` returns `None` if the the UNIX_EPOCH + `time` doesn't fit
+            // into a i64. This will likely never happen, but let's rotate the
+            // key in case the values are messed up for some other reason.
+            let Some(system_time) = time.to_system_time() else {
+                return true;
+            };
+
+            // `elapsed()` errors if the `system_time` is in the future, this should mean
+            // that our clock has changed to the past, let's rotate just in case
+            // and then we'll get to a normal time.
+            let Ok(elapsed) = system_time.elapsed() else {
+                return true;
+            };
+
+            // Alright, our times are normal and we know how much time elapsed since the
+            // last time we created/rotated a fallback key.
+            //
+            // If the key is older than a week, then we rotate it.
+            elapsed > FALLBACK_KEY_MAX_AGE
+        } else {
+            // We never created a fallback key, or we're migrating to the time-based
+            // fallback key rotation, so let's generate a new fallback key.
+            true
         }
     }
 
@@ -593,8 +672,10 @@ impl Account {
             device_id: self.device_id().to_owned(),
             pickle,
             shared: self.shared(),
+            dehydrated: self.static_data.dehydrated,
             uploaded_signed_key_count: self.uploaded_key_count(),
             creation_local_time: self.static_data.creation_local_time,
+            fallback_key_creation_timestamp: self.fallback_creation_timestamp,
         }
     }
 
@@ -646,11 +727,13 @@ impl Account {
                 user_id: (*pickle.user_id).into(),
                 device_id: (*pickle.device_id).into(),
                 identity_keys: Arc::new(identity_keys),
+                dehydrated: pickle.dehydrated,
                 creation_local_time: pickle.creation_local_time,
             },
             inner: Box::new(account),
             shared: pickle.shared,
             uploaded_signed_key_count: pickle.uploaded_signed_key_count,
+            fallback_creation_timestamp: pickle.fallback_key_creation_timestamp,
         })
     }
 
@@ -943,15 +1026,13 @@ impl Account {
         message: &PreKeyMessage,
     ) -> Result<InboundCreationResult, SessionCreationError> {
         Span::current().record("session_id", debug(message.session_id()));
-        debug!("Creating a new Olm session from a pre-key message");
+        trace!("Creating a new Olm session from a pre-key message");
 
         let result = self.inner.create_inbound_session(their_identity_key, message)?;
         let now = SecondsSinceUnixEpoch::now();
         let session_id = result.session.session_id();
 
-        Span::current().record("session", debug(&result.session));
-
-        trace!("Olm session created successfully");
+        debug!(session=?result.session, "Decrypted an Olm message from a new Olm session");
 
         let session = Session {
             user_id: self.static_data.user_id.clone(),
@@ -1372,6 +1453,7 @@ mod tests {
     use std::{
         collections::{BTreeMap, BTreeSet},
         ops::Deref,
+        time::Duration,
     };
 
     use anyhow::Result;
@@ -1443,7 +1525,10 @@ mod tests {
         // We don't create fallback keys since we don't know if the server
         // supports them, we need to receive a sync response to decide if we're
         // going to create them or not.
-        assert!(fallback_keys.is_empty());
+        assert!(
+            fallback_keys.is_empty(),
+            "We should not upload fallback keys until we know if the server supports them."
+        );
 
         let one_time_keys = BTreeMap::from([(DeviceKeyAlgorithm::SignedCurve25519, 50u8.into())]);
 
@@ -1451,7 +1536,11 @@ mod tests {
         // fallback key gets uploaded.
         account.update_key_counts(&one_time_keys, None);
         let (_, _, fallback_keys) = account.keys_for_upload();
-        assert!(fallback_keys.is_empty());
+        assert!(
+            fallback_keys.is_empty(),
+            "We should not upload a fallback key if we're certain that the server doesn't support \
+             them."
+        );
 
         // The empty array means that the server supports fallback keys but
         // there isn't a unused fallback key on the server. This time we upload
@@ -1459,14 +1548,36 @@ mod tests {
         let unused_fallback_keys = &[];
         account.update_key_counts(&one_time_keys, Some(unused_fallback_keys.as_ref()));
         let (_, _, fallback_keys) = account.keys_for_upload();
-        assert!(!fallback_keys.is_empty());
+        assert!(
+            !fallback_keys.is_empty(),
+            "We should upload the initial fallback key if the server supports them."
+        );
         account.mark_keys_as_published();
 
-        // There's an unused fallback key on the server, nothing to do here.
-        let unused_fallback_keys = &[DeviceKeyAlgorithm::SignedCurve25519];
+        // There's no unused fallback key on the server, but our initial fallback key
+        // did not yet expire.
+        let unused_fallback_keys = &[];
         account.update_key_counts(&one_time_keys, Some(unused_fallback_keys.as_ref()));
         let (_, _, fallback_keys) = account.keys_for_upload();
-        assert!(fallback_keys.is_empty());
+        assert!(
+            fallback_keys.is_empty(),
+            "We should not upload new fallback keys unless our current fallback key expires."
+        );
+
+        let fallback_key_timestamp =
+            account.fallback_creation_timestamp.unwrap().to_system_time().unwrap()
+                - Duration::from_secs(3600 * 24 * 30);
+
+        account.fallback_creation_timestamp =
+            Some(MilliSecondsSinceUnixEpoch::from_system_time(fallback_key_timestamp).unwrap());
+
+        account.update_key_counts(&one_time_keys, None);
+        let (_, _, fallback_keys) = account.keys_for_upload();
+        assert!(
+            !fallback_keys.is_empty(),
+            "Now that our fallback key has expired, we should try to upload a new one, even if the \
+             server supposedly doesn't support fallback keys anymore"
+        );
 
         Ok(())
     }

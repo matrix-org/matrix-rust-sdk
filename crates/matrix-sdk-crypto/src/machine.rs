@@ -40,8 +40,8 @@ use ruma::{
         AnyToDeviceEvent, MessageLikeEventContent,
     },
     serde::Raw,
-    DeviceId, DeviceKeyAlgorithm, OwnedDeviceId, OwnedDeviceKeyId, OwnedTransactionId, OwnedUserId,
-    RoomId, TransactionId, UInt, UserId,
+    DeviceId, DeviceKeyAlgorithm, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedDeviceKeyId,
+    OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UInt, UserId,
 };
 use serde_json::value::to_raw_value;
 use tokio::sync::Mutex;
@@ -344,6 +344,16 @@ impl OlmMachine {
     /// The unique device ID that identifies this `OlmMachine`.
     pub fn device_id(&self) -> &DeviceId {
         &self.inner.device_id
+    }
+
+    /// The time at which the `Account` backing this `OlmMachine` was created.
+    ///
+    /// An [`Account`] is created when an `OlmMachine` is first instantiated
+    /// against a given [`Store`], at which point it creates identity keys etc.
+    /// This method returns the timestamp, according to the local clock, at
+    /// which that happened.
+    pub fn device_creation_time(&self) -> MilliSecondsSinceUnixEpoch {
+        self.inner.store.static_account().creation_local_time()
     }
 
     /// Get the public parts of our Olm identity keys.
@@ -2137,8 +2147,8 @@ pub struct EncryptionSyncChanges<'a> {
 }
 
 #[cfg(any(feature = "testing", test))]
+#[allow(dead_code)]
 pub(crate) mod testing {
-    #![allow(dead_code)]
     use http::Response;
 
     pub fn response_from_file(json: &serde_json::Value) -> Response<Vec<u8>> {
@@ -2273,7 +2283,7 @@ pub(crate) mod tests {
             .store()
             .with_transaction(|mut tr| async {
                 let account = tr.account().await.unwrap();
-                account.generate_fallback_key_helper();
+                account.generate_fallback_key_if_needed();
                 account.update_uploaded_key_count(0);
                 account.generate_one_time_keys_if_needed();
                 let request = machine
@@ -2378,7 +2388,12 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_create_olm_machine() {
+        let test_start_ts = MilliSecondsSinceUnixEpoch::now();
         let machine = OlmMachine::new(user_id(), alice_device_id()).await;
+
+        let device_creation_time = machine.device_creation_time();
+        assert!(device_creation_time <= MilliSecondsSinceUnixEpoch::now());
+        assert!(device_creation_time >= test_start_ts);
 
         let cache = machine.store().cache().await.unwrap();
         let account = cache.account().await.unwrap();

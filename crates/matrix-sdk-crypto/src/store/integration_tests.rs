@@ -3,46 +3,41 @@
 macro_rules! cryptostore_integration_tests {
     () => {
         mod cryptostore_integration_tests {
-            use std::time::Duration;
             use std::collections::{BTreeMap, HashMap};
+            use std::time::Duration;
 
             use assert_matches::assert_matches;
             use matrix_sdk_test::async_test;
             use ruma::{
-                device_id,
-                encryption::SignedKey,
-                events::secret::request::SecretName,
-                room_id,
-                serde::{Base64, Raw},
-                to_device::DeviceIdOrAllDevices,
-                user_id, DeviceId, JsOption, OwnedDeviceId, OwnedUserId, RoomId, TransactionId, UserId
+                device_id, events::secret::request::SecretName, room_id, serde::Raw,
+                to_device::DeviceIdOrAllDevices, user_id, DeviceId, RoomId, TransactionId, UserId,
             };
             use serde_json::value::to_raw_value;
             use $crate::{
                 olm::{
-                    Curve25519PublicKey, InboundGroupSession, OlmMessageHash,
-                    PrivateCrossSigningIdentity, Account, Session,
+                    Account, Curve25519PublicKey, InboundGroupSession, OlmMessageHash,
+                    PrivateCrossSigningIdentity, Session,
                 },
                 store::{
-                    BackupKeys, Changes, CryptoStore, DeviceChanges,
-                    GossipRequest, IdentityChanges, BackupDecryptionKey, RoomSettings, PendingChanges,
+                    BackupDecryptionKey, Changes, CryptoStore, DeviceChanges, GossipRequest,
+                    IdentityChanges, PendingChanges, RoomSettings,
                 },
                 testing::{get_device, get_other_identity, get_own_identity},
                 types::{
                     events::{
                         dummy::DummyEventContent,
+                        olm_v1::{DecryptedSecretSendEvent, OlmV1Keys},
                         room_key_request::MegolmV1AesSha2Content,
                         room_key_withheld::{
                             CommonWithheldCodeContent, MegolmV1AesSha2WithheldContent,
                             RoomKeyWithheldContent, WithheldCode,
                         },
-                        olm_v1::{DecryptedSecretSendEvent, OlmV1Keys},
                         secret_send::SecretSendContent,
                         ToDeviceEvent,
                     },
                     EventEncryptionAlgorithm,
                 },
-                ReadOnlyDevice, SecretInfo, ToDeviceRequest, TrackedUser, GossippedSecret,
+                GossippedSecret, ReadOnlyDevice, SecretInfo, ToDeviceRequest, TrackedUser,
             };
 
             use super::get_store;
@@ -83,13 +78,12 @@ macro_rules! cryptostore_integration_tests {
                 bob.generate_one_time_keys(1);
                 let one_time_key = *bob.one_time_keys().values().next().unwrap();
                 let sender_key = bob.identity_keys().curve25519;
-                let session = alice
-                    .create_outbound_session_helper(
-                        Default::default(),
-                        sender_key,
-                        one_time_key,
-                        false,
-                    );
+                let session = alice.create_outbound_session_helper(
+                    Default::default(),
+                    sender_key,
+                    one_time_key,
+                    false,
+                );
 
                 (alice, session)
             }
@@ -102,7 +96,7 @@ macro_rules! cryptostore_integration_tests {
                 let account = get_account();
 
                 store
-                    .save_pending_changes(PendingChanges { account: Some(account), })
+                    .save_pending_changes(PendingChanges { account: Some(account) })
                     .await
                     .expect("Can't save account");
                 assert!(store.get_static_account().is_some());
@@ -115,7 +109,10 @@ macro_rules! cryptostore_integration_tests {
                 assert!(store.load_account().await.unwrap().is_none());
                 let account = get_account();
 
-                store.save_pending_changes(PendingChanges { account: Some(account), }).await.expect("Can't save account");
+                store
+                    .save_pending_changes(PendingChanges { account: Some(account) })
+                    .await
+                    .expect("Can't save account");
                 assert!(store.get_static_account().is_some());
             }
 
@@ -124,7 +121,10 @@ macro_rules! cryptostore_integration_tests {
                 let store = get_store("load_account", None).await;
                 let account = get_account();
 
-                store.save_pending_changes(PendingChanges { account: Some(account.deep_clone()), }).await.expect("Can't save account");
+                store
+                    .save_pending_changes(PendingChanges { account: Some(account.deep_clone()) })
+                    .await
+                    .expect("Can't save account");
 
                 let loaded_account = store.load_account().await.expect("Can't load account");
                 let loaded_account = loaded_account.unwrap();
@@ -138,7 +138,10 @@ macro_rules! cryptostore_integration_tests {
                     get_store("load_account_with_passphrase", Some("secret_passphrase")).await;
                 let account = get_account();
 
-                store.save_pending_changes(PendingChanges { account: Some(account.deep_clone()), }).await.expect("Can't save account");
+                store
+                    .save_pending_changes(PendingChanges { account: Some(account.deep_clone()) })
+                    .await
+                    .expect("Can't save account");
 
                 let loaded_account = store.load_account().await.expect("Can't load account");
                 let loaded_account = loaded_account.unwrap();
@@ -151,12 +154,18 @@ macro_rules! cryptostore_integration_tests {
                 let store = get_store("save_and_share_account", None).await;
                 let mut account = get_account();
 
-                store.save_pending_changes(PendingChanges { account: Some(account.deep_clone()), }).await.expect("Can't save account");
+                store
+                    .save_pending_changes(PendingChanges { account: Some(account.deep_clone()) })
+                    .await
+                    .expect("Can't save account");
 
                 account.mark_as_shared();
                 account.update_uploaded_key_count(50);
 
-                store.save_pending_changes(PendingChanges { account: Some(account.deep_clone()), }).await.expect("Can't save account");
+                store
+                    .save_pending_changes(PendingChanges { account: Some(account.deep_clone()) })
+                    .await
+                    .expect("Can't save account");
 
                 let loaded_account = store.load_account().await.expect("Can't load account");
                 let loaded_account = loaded_account.unwrap();
@@ -169,7 +178,10 @@ macro_rules! cryptostore_integration_tests {
             async fn load_sessions() {
                 let store = get_store("load_sessions", None).await;
                 let (account, session) = get_account_and_session().await;
-                store.save_pending_changes(PendingChanges { account: Some(account.deep_clone()), }).await.expect("Can't save account");
+                store
+                    .save_pending_changes(PendingChanges { account: Some(account.deep_clone()) })
+                    .await
+                    .expect("Can't save account");
 
                 let changes = Changes { sessions: vec![session.clone()], ..Default::default() };
 
@@ -188,26 +200,37 @@ macro_rules! cryptostore_integration_tests {
             #[async_test]
             async fn add_and_save_session() {
                 let store_name = "add_and_save_session";
+
+                // Given we created a session and saved it in the store
+                let (session_id, account, sender_key) = {
+                    let store = get_store(store_name, None).await;
+                    let (account, session) = get_account_and_session().await;
+                    let sender_key = session.sender_key.to_base64();
+                    let session_id = session.session_id().to_owned();
+
+                    store
+                        .save_pending_changes(PendingChanges {
+                            account: Some(account.deep_clone()),
+                        })
+                        .await
+                        .expect("Can't save account");
+
+                    let changes = Changes { sessions: vec![session.clone()], ..Default::default() };
+                    store.save_changes(changes).await.unwrap();
+
+                    let sessions = store.get_sessions(&sender_key).await.unwrap().unwrap();
+                    let sessions_lock = sessions.lock().await;
+                    let session = &sessions_lock[0];
+
+                    assert_eq!(session_id, session.session_id());
+
+                    (session_id, account, sender_key)
+                };
+
+                // When we reload the store
                 let store = get_store(store_name, None).await;
-                let (account, session) = get_account_and_session().await;
-                let sender_key = session.sender_key.to_base64();
-                let session_id = session.session_id().to_owned();
 
-                store.save_pending_changes(PendingChanges { account: Some(account.deep_clone()), }).await.expect("Can't save account");
-
-                let changes = Changes { sessions: vec![session.clone()], ..Default::default() };
-                store.save_changes(changes).await.unwrap();
-
-                let sessions = store.get_sessions(&sender_key).await.unwrap().unwrap();
-                let sessions_lock = sessions.lock().await;
-                let session = &sessions_lock[0];
-
-                assert_eq!(session_id, session.session_id());
-
-                drop(store);
-
-                let store = get_store(store_name, None).await;
-
+                // Then the same account and session info was reloaded
                 let loaded_account = store.load_account().await.unwrap().unwrap();
                 assert_eq!(account, loaded_account);
 
@@ -221,36 +244,50 @@ macro_rules! cryptostore_integration_tests {
             #[async_test]
             async fn load_outbound_group_session() {
                 let dir = "load_outbound_group_session";
-                let (account, store) = get_loaded_store(dir.clone()).await;
                 let room_id = room_id!("!test:localhost");
-                assert!(store.get_outbound_group_session(&room_id).await.unwrap().is_none());
 
-                let (session, _) = account.create_group_session_pair_with_defaults(&room_id).await;
+                // Given we saved an outbound group session
+                {
+                    let (account, store) = get_loaded_store(dir.clone()).await;
+                    assert!(
+                        store.get_outbound_group_session(&room_id).await.unwrap().is_none(),
+                        "Initially there should be no outbound group session"
+                    );
 
-                let user_id = user_id!("@example:localhost");
-                let request = ToDeviceRequest::new(
-                    user_id,
-                    DeviceIdOrAllDevices::AllDevices,
-                    "m.dummy",
-                    Raw::from_json(to_raw_value(&DummyEventContent::new()).unwrap()),
-                );
+                    let (session, _) =
+                        account.create_group_session_pair_with_defaults(&room_id).await;
 
-                session.add_request(TransactionId::new(), request.into(), Default::default());
+                    let user_id = user_id!("@example:localhost");
+                    let request = ToDeviceRequest::new(
+                        user_id,
+                        DeviceIdOrAllDevices::AllDevices,
+                        "m.dummy",
+                        Raw::from_json(to_raw_value(&DummyEventContent::new()).unwrap()),
+                    );
 
-                let changes = Changes {
-                    outbound_group_sessions: vec![session.clone()],
-                    ..Default::default()
-                };
+                    session.add_request(TransactionId::new(), request.into(), Default::default());
 
-                store.save_changes(changes).await.expect("Can't save group session");
+                    let changes = Changes {
+                        outbound_group_sessions: vec![session.clone()],
+                        ..Default::default()
+                    };
 
-                drop(store);
+                    store.save_changes(changes).await.expect("Can't save group session");
+                    assert!(
+                        store.get_outbound_group_session(&room_id).await.unwrap().is_some(),
+                        "Sanity: after we've saved one, there should be an outbound_group_session"
+                    );
+                }
 
+                // When we reload the account
                 let store = get_store(dir, None).await;
-
                 store.load_account().await.unwrap();
 
-                assert!(store.get_outbound_group_session(&room_id).await.unwrap().is_some());
+                // Then the saved session is restored
+                assert!(
+                    store.get_outbound_group_session(&room_id).await.unwrap().is_some(),
+                    "The outbound_group_session should have been loaded"
+                );
             }
 
             #[async_test]
@@ -286,10 +323,10 @@ macro_rules! cryptostore_integration_tests {
                     .unwrap();
                 assert_eq!(session, loaded_session);
                 assert_eq!(store.get_inbound_group_sessions().await.unwrap().len(), 1);
-                assert_eq!(store.inbound_group_session_counts().await.unwrap().total, 1);
-                assert_eq!(store.inbound_group_session_counts().await.unwrap().backed_up, 0);
+                assert_eq!(store.inbound_group_session_counts(None).await.unwrap().total, 1);
+                assert_eq!(store.inbound_group_session_counts(None).await.unwrap().backed_up, 0);
 
-                let to_back_up = store.inbound_group_sessions_for_backup(1).await.unwrap();
+                let to_back_up = store.inbound_group_sessions_for_backup("bkpver", 1).await.unwrap();
                 assert_eq!(to_back_up, vec![session])
             }
 
@@ -300,19 +337,15 @@ macro_rules! cryptostore_integration_tests {
                     get_loaded_store("mark_inbound_group_sessions_as_backed_up").await;
                 let room_id = &room_id!("!test:localhost");
                 let mut sessions: Vec<InboundGroupSession> = Vec::with_capacity(10);
-                for i in 0..10 {
+                for _i in 0..10 {
                     sessions.push(account.create_group_session_pair_with_defaults(room_id).await.1);
                 }
                 let changes = Changes { inbound_group_sessions: sessions.clone(), ..Default::default() };
                 store.save_changes(changes).await.expect("Can't save group session");
-                assert_eq!(store.inbound_group_sessions_for_backup(100).await.unwrap().len(), 10);
-
-                fn session_info(session: &InboundGroupSession) -> (&RoomId, &str) {
-                    (&session.room_id(), &session.session_id())
-                }
+                assert_eq!(store.inbound_group_sessions_for_backup("bkpver", 100).await.unwrap().len(), 10);
 
                 // When I mark some as backed up
-                let x = store.mark_inbound_group_sessions_as_backed_up(&[
+                store.mark_inbound_group_sessions_as_backed_up("bkpver", &[
                     session_info(&sessions[1]),
                     session_info(&sessions[3]),
                     session_info(&sessions[5]),
@@ -320,9 +353,8 @@ macro_rules! cryptostore_integration_tests {
                     session_info(&sessions[9]),
                 ]).await.expect("Failed to mark sessions as backed up");
 
-
                 // And ask which still need backing up
-                let to_back_up = store.inbound_group_sessions_for_backup(10).await.unwrap();
+                let to_back_up = store.inbound_group_sessions_for_backup("bkpver", 10).await.unwrap();
                 let needs_backing_up = |i: usize| to_back_up.iter().any(|s| s.session_id() == sessions[i].session_id());
 
                 // Then the sessions we said were backed up no longer need backing up
@@ -345,27 +377,35 @@ macro_rules! cryptostore_integration_tests {
             async fn reset_inbound_group_session_for_backup() {
                 let (account, store) =
                     get_loaded_store("reset_inbound_group_session_for_backup").await;
-                assert_eq!(store.inbound_group_session_counts().await.unwrap().total, 0);
+                assert_eq!(store.inbound_group_session_counts(None).await.unwrap().total, 0);
 
                 let room_id = &room_id!("!test:localhost");
                 let (_, session) = account.create_group_session_pair_with_defaults(room_id).await;
-
-                session.mark_as_backed_up();
 
                 let changes =
                     Changes { inbound_group_sessions: vec![session.clone()], ..Default::default() };
 
                 store.save_changes(changes).await.expect("Can't save group session");
 
-                assert_eq!(store.inbound_group_session_counts().await.unwrap().total, 1);
-                assert_eq!(store.inbound_group_session_counts().await.unwrap().backed_up, 1);
+                // Given we have backed up our session
+                store
+                    .mark_inbound_group_sessions_as_backed_up("bkpver1", &[session_info(&session)])
+                    .await
+                    .expect("Failed to mark_inbound_group_sessions_as_backed_up.");
 
-                let to_back_up = store.inbound_group_sessions_for_backup(1).await.unwrap();
+                assert_eq!(store.inbound_group_session_counts(Some("bkpver1")).await.unwrap().total, 1);
+                assert_eq!(store.inbound_group_session_counts(Some("bkpver1")).await.unwrap().backed_up, 1);
+
+                // Sanity: before resetting, we have nothing to back up
+                let to_back_up = store.inbound_group_sessions_for_backup("bkpver1", 1).await.unwrap();
                 assert_eq!(to_back_up, vec![]);
 
+                // When we reset the backup
                 store.reset_backup_state().await.unwrap();
 
-                let to_back_up = store.inbound_group_sessions_for_backup(1).await.unwrap();
+                // Then after resetting, even if we supply the same backup version number, we need
+                // to back up the session
+                let to_back_up = store.inbound_group_sessions_for_backup("bkpver1", 1).await.unwrap();
                 assert_eq!(to_back_up, vec![session]);
             }
 
@@ -378,7 +418,7 @@ macro_rules! cryptostore_integration_tests {
                 let room_id = &room_id!("!test:localhost");
                 let (_, session) = account.create_group_session_pair_with_defaults(room_id).await;
 
-                let mut export = session.export().await;
+                let export = session.export().await;
 
                 let session = InboundGroupSession::from_export(&export).unwrap();
 
@@ -399,10 +439,10 @@ macro_rules! cryptostore_integration_tests {
                     .unwrap()
                     .unwrap();
                 assert_eq!(session, loaded_session);
-                let export = loaded_session.export().await;
+                loaded_session.export().await;
 
                 assert_eq!(store.get_inbound_group_sessions().await.unwrap().len(), 1);
-                assert_eq!(store.inbound_group_session_counts().await.unwrap().total, 1);
+                assert_eq!(store.inbound_group_session_counts(None).await.unwrap().total, 1);
             }
 
             #[async_test]
@@ -427,13 +467,13 @@ macro_rules! cryptostore_integration_tests {
                     let loaded_alice =
                         loaded.get(alice).expect("Alice should be in the store as a tracked user");
                     let loaded_bob =
-                        loaded.get(alice).expect("Bob should be in the store as as tracked user");
+                        loaded.get(bob).expect("Bob should be in the store as as tracked user");
 
                     assert!(!loaded.contains_key(candy), "Candy shouldn't be part of the store");
                     assert_eq!(loaded.len(), 2, "Candy shouldn't be part of the store");
 
                     assert!(loaded_alice.dirty, "Alice should be considered to be dirty");
-                    assert!(loaded_alice.dirty, "Bob should not be considered to be dirty");
+                    assert!(!loaded_bob.dirty, "Bob should not be considered to be dirty");
                 };
 
                 let loaded = store.load_tracked_users().await.unwrap();
@@ -850,7 +890,7 @@ macro_rules! cryptostore_integration_tests {
 
             #[async_test]
             async fn room_settings_saving() {
-                let (account, store) = get_loaded_store("room_settings_saving").await;
+                let (_, store) = get_loaded_store("room_settings_saving").await;
 
                 let room_1 = room_id!("!test_1:localhost");
                 let settings_1 = RoomSettings {
@@ -891,7 +931,7 @@ macro_rules! cryptostore_integration_tests {
 
             #[async_test]
             async fn backup_keys_saving() {
-                let (account, store) = get_loaded_store("backup_keys_saving").await;
+                let (_account, store) = get_loaded_store("backup_keys_saving").await;
 
                 let restored = store.load_backup_keys().await.unwrap();
                 assert!(restored.decryption_key.is_none(), "Initially no backup decryption key should be present");
@@ -915,7 +955,7 @@ macro_rules! cryptostore_integration_tests {
 
             #[async_test]
             async fn custom_value_saving() {
-                let (account, store) = get_loaded_store("custom_value_saving").await;
+                let (_, store) = get_loaded_store("custom_value_saving").await;
                 store.set_custom_value("A", "Hello".as_bytes().to_vec()).await.unwrap();
 
                 let loaded_1 = store.get_custom_value("A").await.unwrap();
@@ -923,6 +963,10 @@ macro_rules! cryptostore_integration_tests {
 
                 let loaded_2 = store.get_custom_value("B").await.unwrap();
                 assert_eq!(None, loaded_2);
+            }
+
+            fn session_info(session: &InboundGroupSession) -> (&RoomId, &str) {
+                (&session.room_id(), &session.session_id())
             }
         }
     };

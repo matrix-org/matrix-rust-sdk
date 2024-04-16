@@ -44,8 +44,9 @@ use ruma::{
             ImageInfo as RumaImageInfo, MediaSource, ThumbnailInfo as RumaThumbnailInfo,
         },
     },
+    matrix_uri::MatrixId as RumaMatrixId,
     serde::JsonObject,
-    OwnedUserId, UInt, UserId,
+    MatrixToUri, MatrixUri as RumaMatrixUri, OwnedUserId, UInt, UserId,
 };
 use tracing::info;
 
@@ -54,6 +55,72 @@ use crate::{
     helpers::unwrap_or_clone_arc,
     utils::u64_to_uint,
 };
+
+/// Parse a matrix entity from a given URI, be it either
+/// a `matrix.to` link or a `matrix:` URI
+#[uniffi::export]
+pub fn parse_matrix_entity_from(uri: String) -> Option<MatrixEntity> {
+    if let Ok(matrix_uri) = RumaMatrixUri::parse(&uri) {
+        return Some(MatrixEntity {
+            id: matrix_uri.id().into(),
+            via: matrix_uri.via().iter().map(|via| via.to_string()).collect(),
+        });
+    }
+
+    if let Ok(matrix_to_uri) = MatrixToUri::parse(&uri) {
+        return Some(MatrixEntity {
+            id: matrix_to_uri.id().into(),
+            via: matrix_to_uri.via().iter().map(|via| via.to_string()).collect(),
+        });
+    }
+
+    None
+}
+
+/// A Matrix entity that can be a room, room alias, user, or event, and a list
+/// of via servers.
+#[derive(uniffi::Record)]
+pub struct MatrixEntity {
+    id: MatrixId,
+    via: Vec<String>,
+}
+
+/// A Matrix ID that can be a room, room alias, user, or event.
+#[derive(Clone, uniffi::Enum)]
+pub enum MatrixId {
+    Room { id: String },
+    RoomAlias { alias: String },
+    User { id: String },
+    EventOnRoomId { room_id: String, event_id: String },
+    EventOnRoomAlias { alias: String, event_id: String },
+}
+
+impl From<&RumaMatrixId> for MatrixId {
+    fn from(value: &RumaMatrixId) -> Self {
+        match value {
+            RumaMatrixId::User(id) => MatrixId::User { id: id.to_string() },
+            RumaMatrixId::Room(id) => MatrixId::Room { id: id.to_string() },
+            RumaMatrixId::RoomAlias(id) => MatrixId::RoomAlias { alias: id.to_string() },
+
+            RumaMatrixId::Event(room_id_or_alias, event_id) => {
+                if room_id_or_alias.is_room_id() {
+                    MatrixId::EventOnRoomId {
+                        room_id: room_id_or_alias.to_string(),
+                        event_id: event_id.to_string(),
+                    }
+                } else if room_id_or_alias.is_room_alias_id() {
+                    MatrixId::EventOnRoomAlias {
+                        alias: room_id_or_alias.to_string(),
+                        event_id: event_id.to_string(),
+                    }
+                } else {
+                    panic!("Unexpected MatrixId type: {:?}", room_id_or_alias)
+                }
+            }
+            _ => panic!("Unexpected MatrixId type: {:?}", value),
+        }
+    }
+}
 
 #[uniffi::export]
 pub fn media_source_from_url(url: String) -> Arc<MediaSource> {
@@ -172,30 +239,38 @@ impl TryFrom<MessageType> for RumaMessageType {
                     formatted: content.formatted.map(Into::into),
                 }))
             }
-            MessageType::Image { content } => Self::Image(
-                RumaImageMessageEventContent::new(content.body, (*content.source).clone())
-                    .formatted(content.formatted.map(Into::into))
-                    .filename(content.filename)
-                    .info(content.info.map(Into::into).map(Box::new)),
-            ),
-            MessageType::Audio { content } => Self::Audio(
-                RumaAudioMessageEventContent::new(content.body, (*content.source).clone())
-                    .formatted(content.formatted.map(Into::into))
-                    .filename(content.filename)
-                    .info(content.info.map(Into::into).map(Box::new)),
-            ),
-            MessageType::Video { content } => Self::Video(
-                RumaVideoMessageEventContent::new(content.body, (*content.source).clone())
-                    .formatted(content.formatted.map(Into::into))
-                    .filename(content.filename)
-                    .info(content.info.map(Into::into).map(Box::new)),
-            ),
-            MessageType::File { content } => Self::File(
-                RumaFileMessageEventContent::new(content.body, (*content.source).clone())
-                    .formatted(content.formatted.map(Into::into))
-                    .filename(content.filename)
-                    .info(content.info.map(Into::into).map(Box::new)),
-            ),
+            MessageType::Image { content } => {
+                let mut event_content =
+                    RumaImageMessageEventContent::new(content.body, (*content.source).clone())
+                        .info(content.info.map(Into::into).map(Box::new));
+                event_content.formatted = content.formatted.map(Into::into);
+                event_content.filename = content.filename;
+                Self::Image(event_content)
+            }
+            MessageType::Audio { content } => {
+                let mut event_content =
+                    RumaAudioMessageEventContent::new(content.body, (*content.source).clone())
+                        .info(content.info.map(Into::into).map(Box::new));
+                event_content.formatted = content.formatted.map(Into::into);
+                event_content.filename = content.filename;
+                Self::Audio(event_content)
+            }
+            MessageType::Video { content } => {
+                let mut event_content =
+                    RumaVideoMessageEventContent::new(content.body, (*content.source).clone())
+                        .info(content.info.map(Into::into).map(Box::new));
+                event_content.formatted = content.formatted.map(Into::into);
+                event_content.filename = content.filename;
+                Self::Video(event_content)
+            }
+            MessageType::File { content } => {
+                let mut event_content =
+                    RumaFileMessageEventContent::new(content.body, (*content.source).clone())
+                        .info(content.info.map(Into::into).map(Box::new));
+                event_content.formatted = content.formatted.map(Into::into);
+                event_content.filename = content.filename;
+                Self::File(event_content)
+            }
             MessageType::Notice { content } => {
                 Self::Notice(assign!(RumaNoticeMessageEventContent::plain(content.body), {
                     formatted: content.formatted.map(Into::into),

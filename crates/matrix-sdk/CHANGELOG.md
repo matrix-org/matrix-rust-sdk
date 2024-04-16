@@ -10,6 +10,7 @@ Breaking changes:
 - Replace `impl MediaEventContent` with `&impl MediaEventContent` in
   `Media::get_file`/`Media::remove_file`/`Media::get_thumbnail`/`Media::remove_thumbnail`
 - A custom sliding sync proxy set with `ClientBuilder::sliding_sync_proxy` now takes precedence over a discovered proxy.
+- `Client::get_profile` was moved to `Account` and renamed to `Account::fetch_user_profile_of`. `Account::get_profile` was renamed to `Account::fetch_user_profile`.
 
 Additions:
 
@@ -19,6 +20,7 @@ Additions:
 - Add new method `discard_room_key` on `Room` that allows to discard the current
   outbound session for that room. Can be used by clients as a dev tool like the `/discardsession` command.
 - Add a new `LinkedChunk` data structure to represents all events per room ([#3166](https://github.com/matrix-org/matrix-rust-sdk/pull/3166)).
+- Add new methods for tracking (on device only) the user's recently visited rooms called `Account::track_recently_visited_room(roomId)` and `Account::get_recently_visited_rooms()`
 
 # 0.7.0
 

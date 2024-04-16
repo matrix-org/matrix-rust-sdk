@@ -2,9 +2,9 @@ import XCTest
 @testable import MatrixRustSDK
 
 final class ClientTests: XCTestCase {
-    func testBuildingWithHomeserverURL() {
+    func testBuildingWithHomeserverURL() async {
         do {
-            _ = try ClientBuilder()
+            _ = try await ClientBuilder()
                 .homeserverUrl(url: "https://localhost:8008")
                 .build()
         } catch {
@@ -12,9 +12,9 @@ final class ClientTests: XCTestCase {
         }
     }
 
-    func testBuildingWithHomeserverURLAndUserAgent() {
+    func testBuildingWithHomeserverURLAndUserAgent() async {
         do {
-            _ = try ClientBuilder()
+            _ = try await ClientBuilder()
                 .homeserverUrl(url: "https://localhost:8008")
                 .userAgent(userAgent: "golden-eye/007")
                 .build()
@@ -23,9 +23,9 @@ final class ClientTests: XCTestCase {
         }
     }
     
-    func testBuildingWithInvalidUsername() {
+    func testBuildingWithInvalidUsername() async {
         do {
-            _ = try ClientBuilder()
+            _ = try await ClientBuilder()
                 .username(username: "@test:invalid")
                 .build()
             

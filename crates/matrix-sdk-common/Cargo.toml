@@ -45,3 +45,6 @@ wasm-bindgen-test = "0.3.33"
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 js-sys = "0.3.64"
+
+[lints]
+workspace = true

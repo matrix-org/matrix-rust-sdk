@@ -60,7 +60,7 @@ impl EventHandlerContext for Room {
 /// Used as a context argument for event handlers (see
 /// [`Client::add_event_handler`]).
 #[derive(Clone, Debug)]
-pub struct RawEvent(Box<RawJsonValue>);
+pub struct RawEvent(pub Box<RawJsonValue>);
 
 impl Deref for RawEvent {
     type Target = RawJsonValue;

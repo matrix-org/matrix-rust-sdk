@@ -121,7 +121,7 @@ impl fmt::Debug for MessagesOptions {
     }
 }
 
-/// The result of a `Room::messages` call.
+/// The result of a [`super::Room::messages`] call.
 ///
 /// In short, this is a possibly decrypted version of the response of a
 /// `room/messages` api call.
@@ -137,5 +137,40 @@ pub struct Messages {
     pub chunk: Vec<TimelineEvent>,
 
     /// A list of state events relevant to showing the `chunk`.
+    pub state: Vec<Raw<AnyStateEvent>>,
+}
+
+/// The result of a [`super::Room::event_with_context`] query.
+///
+/// This is a wrapper around
+/// [`ruma::api::client::context::get_context::v3::Response`], with events
+/// decrypted if needs be.
+#[derive(Debug)]
+pub struct EventWithContextResponse {
+    /// The event targeted by the /context query.
+    pub event: Option<TimelineEvent>,
+
+    /// Events before the target event, if a non-zero context size was
+    /// requested.
+    ///
+    /// Like the corresponding Ruma response, these are in reverse chronological
+    /// order.
+    pub events_before: Vec<TimelineEvent>,
+
+    /// Events after the target event, if a non-zero context size was requested.
+    ///
+    /// Like the corresponding Ruma response, these are in chronological order.
+    pub events_after: Vec<TimelineEvent>,
+
+    /// Token to paginate backwards, aka "start" token.
+    pub prev_batch_token: Option<String>,
+
+    /// Token to paginate forwards, aka "end" token.
+    pub next_batch_token: Option<String>,
+
+    /// State events related to the request.
+    ///
+    /// If lazy-loading of members was requested, this may contain room
+    /// membership events.
     pub state: Vec<Raw<AnyStateEvent>>,
 }

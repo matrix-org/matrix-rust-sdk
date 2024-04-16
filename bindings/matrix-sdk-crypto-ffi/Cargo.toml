@@ -58,3 +58,6 @@ vergen = { version = "8.2.5", features = ["build", "git", "gitcl"] }
 [dev-dependencies]
 tempfile = "3.8.0"
 assert_matches2 = { workspace = true }
+
+[lints]
+workspace = true

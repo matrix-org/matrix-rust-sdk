@@ -43,7 +43,7 @@ use crate::timeline::{
 };
 
 #[async_test]
-async fn default_filter() {
+async fn test_default_filter() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe().await;
 
@@ -51,8 +51,8 @@ async fn default_filter() {
     timeline
         .handle_live_message_event(&ALICE, RoomMessageEventContent::text_plain("The first message"))
         .await;
-    let _day_divider = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    let _day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
     let first_event_id = item.as_event().unwrap().event_id().unwrap();
 
     let edit = assign!(RoomMessageEventContent::text_plain(" * The _edited_ first message"), {
@@ -106,7 +106,7 @@ async fn default_filter() {
 }
 
 #[async_test]
-async fn filter_always_false() {
+async fn test_filter_always_false() {
     let timeline = TestTimeline::new().with_settings(TimelineInnerSettings {
         event_filter: Arc::new(|_, _| false),
         ..Default::default()
@@ -137,7 +137,7 @@ async fn filter_always_false() {
 }
 
 #[async_test]
-async fn custom_filter() {
+async fn test_custom_filter() {
     // Filter out all state events.
     let timeline = TestTimeline::new().with_settings(TimelineInnerSettings {
         event_filter: Arc::new(|ev, _| matches!(ev, AnySyncTimelineEvent::MessageLike(_))),
@@ -148,8 +148,8 @@ async fn custom_filter() {
     timeline
         .handle_live_message_event(&ALICE, RoomMessageEventContent::text_plain("The first message"))
         .await;
-    let _day_divider = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let _item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    let _day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
 
     timeline
         .handle_live_redacted_message_event(&ALICE, RedactedRoomMessageEventContent::new())
@@ -173,7 +173,7 @@ async fn custom_filter() {
 }
 
 #[async_test]
-async fn hide_failed_to_parse() {
+async fn test_hide_failed_to_parse() {
     let timeline = TestTimeline::new()
         .with_settings(TimelineInnerSettings { add_failed_to_parse: false, ..Default::default() });
 
@@ -206,7 +206,7 @@ async fn hide_failed_to_parse() {
 }
 
 #[async_test]
-async fn event_type_filter_include_only_room_names() {
+async fn test_event_type_filter_include_only_room_names() {
     // Only return room name events
     let event_filter = TimelineEventTypeFilter::Include(vec![TimelineEventType::RoomName]);
 
@@ -255,7 +255,7 @@ async fn event_type_filter_include_only_room_names() {
 }
 
 #[async_test]
-async fn event_type_filter_exclude_messages() {
+async fn test_event_type_filter_exclude_messages() {
     // Don't return any messages
     let event_filter = TimelineEventTypeFilter::Exclude(vec![TimelineEventType::RoomMessage]);
 
@@ -292,7 +292,7 @@ async fn event_type_filter_exclude_messages() {
         )
         .await;
 
-    // The timeline should contain everything except for the message event
+    // The timeline should contain everything except for the message event.
     let event_items: Vec<Arc<TimelineItem>> = timeline.get_event_items().await;
     let text_message_items_count = event_items.iter().filter(is_text_message_item).count();
     let room_name_items_count = event_items.iter().filter(is_room_name_item).count();

@@ -38,7 +38,7 @@ use super::TestTimeline;
 use crate::timeline::{AnyOtherFullStateEventContent, TimelineDetails, TimelineItemContent};
 
 #[async_test]
-async fn redact_state_event() {
+async fn test_redact_state_event() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe_events().await;
 
@@ -68,7 +68,7 @@ async fn redact_state_event() {
 }
 
 #[async_test]
-async fn redact_replied_to_event() {
+async fn test_redact_replied_to_event() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe_events().await;
 
@@ -114,7 +114,7 @@ async fn redact_replied_to_event() {
 }
 
 #[async_test]
-async fn reaction_redaction() {
+async fn test_reaction_redaction() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe_events().await;
 
@@ -139,18 +139,21 @@ async fn reaction_redaction() {
 }
 
 #[async_test]
-async fn reaction_redaction_timeline_filter() {
-    let mut timeline = TestTimeline::new();
+async fn test_reaction_redaction_timeline_filter() {
+    let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe_events().await;
 
     // Initialise a timeline with a redacted reaction.
     timeline
         .inner
-        .add_initial_events(vec![SyncTimelineEvent::new(
-            timeline
-                .event_builder
-                .make_sync_redacted_message_event(*ALICE, RedactedReactionEventContent::new()),
-        )])
+        .add_events_at(
+            vec![SyncTimelineEvent::new(
+                timeline
+                    .event_builder
+                    .make_sync_redacted_message_event(*ALICE, RedactedReactionEventContent::new()),
+            )],
+            crate::timeline::inner::TimelineEnd::Back { from_cache: false },
+        )
         .await;
     // Timeline items are actually empty.
     assert_eq!(timeline.inner.items().await.len(), 0);
@@ -180,7 +183,7 @@ async fn reaction_redaction_timeline_filter() {
 }
 
 #[async_test]
-async fn receive_unredacted() {
+async fn test_receive_unredacted() {
     let timeline = TestTimeline::new();
 
     // send two events, second one redacted

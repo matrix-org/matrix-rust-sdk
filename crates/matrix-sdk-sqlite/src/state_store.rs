@@ -275,6 +275,9 @@ impl SqliteStateStore {
             StateStoreDataKey::UserAvatarUrl(u) => {
                 Cow::Owned(format!("{}:{u}", StateStoreDataKey::USER_AVATAR_URL))
             }
+            StateStoreDataKey::RecentlyVisitedRooms(b) => {
+                Cow::Owned(format!("{}:{b}", StateStoreDataKey::RECENTLY_VISITED_ROOMS))
+            }
         };
 
         self.encode_key(keys::KV_BLOB, &*key_s)
@@ -378,6 +381,7 @@ trait SqliteConnectionStateStoreExt {
 
     fn set_profile(&self, room_id: &[u8], user_id: &[u8], data: &[u8]) -> rusqlite::Result<()>;
     fn remove_room_profiles(&self, room_id: &[u8]) -> rusqlite::Result<()>;
+    fn remove_room_profile(&self, room_id: &[u8], user_id: &[u8]) -> rusqlite::Result<()>;
 
     fn set_receipt(
         &self,
@@ -547,6 +551,12 @@ impl SqliteConnectionStateStoreExt for rusqlite::Connection {
 
     fn remove_room_profiles(&self, room_id: &[u8]) -> rusqlite::Result<()> {
         self.prepare("DELETE FROM profile WHERE room_id = ?")?.execute((room_id,))?;
+        Ok(())
+    }
+
+    fn remove_room_profile(&self, room_id: &[u8], user_id: &[u8]) -> rusqlite::Result<()> {
+        self.prepare("DELETE FROM profile WHERE room_id = ? AND user_id = ?")?
+            .execute((room_id, user_id))?;
         Ok(())
     }
 
@@ -873,12 +883,18 @@ impl StateStore for SqliteStateStore {
             .get_kv_blob(self.encode_state_store_data_key(key))
             .await?
             .map(|data| {
-                let string = self.deserialize_value(&data)?;
                 Ok(match key {
-                    StateStoreDataKey::SyncToken => StateStoreDataValue::SyncToken(string),
-                    StateStoreDataKey::Filter(_) => StateStoreDataValue::Filter(string),
+                    StateStoreDataKey::SyncToken => {
+                        StateStoreDataValue::SyncToken(self.deserialize_value(&data)?)
+                    }
+                    StateStoreDataKey::Filter(_) => {
+                        StateStoreDataValue::Filter(self.deserialize_value(&data)?)
+                    }
                     StateStoreDataKey::UserAvatarUrl(_) => {
-                        StateStoreDataValue::UserAvatarUrl(string)
+                        StateStoreDataValue::UserAvatarUrl(self.deserialize_value(&data)?)
+                    }
+                    StateStoreDataKey::RecentlyVisitedRooms(_) => {
+                        StateStoreDataValue::RecentlyVisitedRooms(self.deserialize_value(&data)?)
                     }
                 })
             })
@@ -890,19 +906,24 @@ impl StateStore for SqliteStateStore {
         key: StateStoreDataKey<'_>,
         value: StateStoreDataValue,
     ) -> Result<()> {
-        let value = match key {
-            StateStoreDataKey::SyncToken => {
-                value.into_sync_token().expect("Session data not a sync token")
+        let serialized_value = match key {
+            StateStoreDataKey::SyncToken => self.serialize_value(
+                &value.into_sync_token().expect("Session data not a sync token"),
+            )?,
+            StateStoreDataKey::Filter(_) => {
+                self.serialize_value(&value.into_filter().expect("Session data not a filter"))?
             }
-            StateStoreDataKey::Filter(_) => value.into_filter().expect("Session data not a filter"),
-            StateStoreDataKey::UserAvatarUrl(_) => {
-                value.into_user_avatar_url().expect("Session data not an user avatar url")
-            }
+            StateStoreDataKey::UserAvatarUrl(_) => self.serialize_value(
+                &value.into_user_avatar_url().expect("Session data not an user avatar url"),
+            )?,
+            StateStoreDataKey::RecentlyVisitedRooms(_) => self.serialize_value(
+                &value.into_recently_visited_rooms().expect("Session data not breadcrumbs"),
+            )?,
         };
 
         self.acquire()
             .await?
-            .set_kv_blob(self.encode_state_store_data_key(key), self.serialize_value(&value)?)
+            .set_kv_blob(self.encode_state_store_data_key(key), serialized_value)
             .await
     }
 
@@ -921,6 +942,7 @@ impl StateStore for SqliteStateStore {
                     account_data,
                     presence,
                     profiles,
+                    profiles_to_delete,
                     state,
                     room_account_data,
                     room_infos,
@@ -969,6 +991,14 @@ impl StateStore for SqliteStateStore {
                         .encode_key(keys::ROOM_INFO, serde_json::to_string(&room_info.state())?);
                     let data = this.serialize_json(&room_info)?;
                     txn.set_room_info(&room_id, &state, &data)?;
+                }
+
+                for (room_id, user_ids) in profiles_to_delete {
+                    let room_id = this.encode_key(keys::PROFILE, room_id);
+                    for user_id in user_ids {
+                        let user_id = this.encode_key(keys::PROFILE, user_id);
+                        txn.remove_room_profile(&room_id, &user_id)?;
+                    }
                 }
 
                 for (room_id, state_event_types) in state {

@@ -14,7 +14,6 @@
 
 use std::{
     collections::{BTreeMap, HashMap},
-    convert::{TryFrom, TryInto},
     ops::Deref,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -481,6 +480,11 @@ impl Device {
 
         Ok(raw_encrypted)
     }
+
+    /// Whether or not the device is a dehydrated device.
+    pub fn is_dehydrated(&self) -> bool {
+        self.inner.inner.dehydrated.unwrap_or(false)
+    }
 }
 
 /// A read only view over all devices belonging to a user.
@@ -786,7 +790,6 @@ impl ReadOnlyDevice {
             recipient_device = ?self.device_id(),
             recipient_key = ?self.curve25519_key(),
             event_type,
-            session,
             message_id,
         ))
     ]
@@ -814,7 +817,6 @@ impl ReadOnlyDevice {
 
         if let Some(mut session) = session {
             let message = session.encrypt(self, event_type, content, message_id).await?;
-            trace!("Successfully encrypted an event");
             Ok((session, message))
         } else {
             trace!("Trying to encrypt an event for a device, but no Olm session is found.");
@@ -975,10 +977,10 @@ impl PartialEq for ReadOnlyDevice {
     }
 }
 
+/// Testing Facilities for Device Management
 #[cfg(any(test, feature = "testing"))]
+#[allow(dead_code)]
 pub(crate) mod testing {
-    //! Testing Facilities for Device Management
-    #![allow(dead_code)]
     use serde_json::json;
 
     use crate::{identities::ReadOnlyDevice, types::DeviceKeys};

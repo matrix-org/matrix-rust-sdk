@@ -48,12 +48,12 @@ async fn test_read_receipts_updates_on_live_events() {
     timeline.handle_live_message_event(*ALICE, RoomMessageEventContent::text_plain("A")).await;
     timeline.handle_live_message_event(*BOB, RoomMessageEventContent::text_plain("B")).await;
 
-    let _day_divider = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-
     // No read receipt for our own user.
     let item_a = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let event_a = item_a.as_event().unwrap();
     assert!(event_a.read_receipts().is_empty());
+
+    let _day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
 
     // Implicit read receipt of Bob.
     let item_b = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
@@ -100,7 +100,7 @@ async fn test_read_receipts_updates_on_live_events() {
 }
 
 #[async_test]
-async fn read_receipts_updates_on_back_paginated_events() {
+async fn test_read_receipts_updates_on_back_paginated_events() {
     let timeline = TestTimeline::new()
         .with_settings(TimelineInnerSettings { track_read_receipts: true, ..Default::default() });
     let room_id = room_id!("!room:localhost");
@@ -149,12 +149,12 @@ async fn test_read_receipts_updates_on_filtered_events() {
     timeline.handle_live_message_event(*ALICE, RoomMessageEventContent::text_plain("A")).await;
     timeline.handle_live_message_event(*BOB, RoomMessageEventContent::notice_plain("B")).await;
 
-    let _day_divider = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-
     // No read receipt for our own user.
     let item_a = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let event_a = item_a.as_event().unwrap();
     assert!(event_a.read_receipts().is_empty());
+
+    let _day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
 
     // Implicit read receipt of Bob.
     let item_a = assert_next_matches!(stream, VectorDiff::Set { index: 1, value } => value);
@@ -223,7 +223,7 @@ async fn test_read_receipts_updates_on_filtered_events() {
 }
 
 #[async_test]
-async fn read_receipts_updates_on_filtered_events_with_stored() {
+async fn test_read_receipts_updates_on_filtered_events_with_stored() {
     let timeline = TestTimeline::new().with_settings(TimelineInnerSettings {
         track_read_receipts: true,
         event_filter: Arc::new(filter_notice),
@@ -240,12 +240,12 @@ async fn read_receipts_updates_on_filtered_events_with_stored() {
         )
         .await;
 
-    let _day_divider = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-
     // No read receipt for our own user.
     let item_a = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let event_a = item_a.as_event().unwrap();
     assert!(event_a.read_receipts().is_empty());
+
+    let _day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
 
     // Stored read receipt of Bob.
     let item_a = assert_next_matches!(stream, VectorDiff::Set { index: 1, value } => value);
@@ -276,7 +276,7 @@ async fn read_receipts_updates_on_filtered_events_with_stored() {
 }
 
 #[async_test]
-async fn read_receipts_updates_on_back_paginated_filtered_events() {
+async fn test_read_receipts_updates_on_back_paginated_filtered_events() {
     let timeline = TestTimeline::new().with_settings(TimelineInnerSettings {
         track_read_receipts: true,
         event_filter: Arc::new(filter_notice),
@@ -302,12 +302,13 @@ async fn read_receipts_updates_on_back_paginated_filtered_events() {
         )
         .await;
 
-    let _day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
-
     // No read receipt for our own user.
-    let item_a = assert_next_matches!(stream, VectorDiff::Insert { index: 1, value } => value);
+    let item_a = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
     let event_a = item_a.as_event().unwrap();
     assert!(event_a.read_receipts().is_empty());
+
+    let day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
+    assert!(day_divider.is_day_divider());
 
     // Add non-filtered event to show read receipts.
     timeline
@@ -320,18 +321,25 @@ async fn read_receipts_updates_on_back_paginated_filtered_events() {
         .await;
 
     // Implicit read receipt of Carol.
-    let item_c = assert_next_matches!(stream, VectorDiff::Insert { index: 1, value } => value);
+    let item_c = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
     let event_c = item_c.as_event().unwrap();
     assert_eq!(event_c.read_receipts().len(), 2);
     assert!(event_c.read_receipts().get(*BOB).is_some());
     assert!(event_c.read_receipts().get(*CAROL).is_some());
+
+    // Reinsert a new day divider before the first back-paginated event.
+    let day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
+    assert!(day_divider.is_day_divider());
+
+    // Remove the last day divider.
+    assert_next_matches!(stream, VectorDiff::Remove { index: 2 });
 
     assert_pending!(stream);
 }
 
 #[cfg(feature = "e2e-encryption")]
 #[async_test]
-async fn read_receipts_updates_on_message_decryption() {
+async fn test_read_receipts_updates_on_message_decryption() {
     use std::{io::Cursor, iter};
 
     use assert_matches::assert_matches;
@@ -411,14 +419,14 @@ async fn read_receipts_updates_on_message_decryption() {
 
     assert_eq!(timeline.inner.items().await.len(), 3);
 
-    let _day_divider = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-
     // The first event only has Carol's receipt.
     let clear_item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let clear_event = clear_item.as_event().unwrap();
     assert_matches!(clear_event.content(), TimelineItemContent::Message(_));
     assert_eq!(clear_event.read_receipts().len(), 1);
     assert!(clear_event.read_receipts().get(*CAROL).is_some());
+
+    let _day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
 
     // The second event is encrypted and only has Bob's receipt.
     let encrypted_item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
@@ -466,7 +474,7 @@ async fn read_receipts_updates_on_message_decryption() {
 }
 
 #[async_test]
-async fn initial_public_unthreaded_receipt() {
+async fn test_initial_public_unthreaded_receipt() {
     let event_id = owned_event_id!("$event_with_receipt");
 
     // Add initial unthreaded public receipt.
@@ -491,7 +499,7 @@ async fn initial_public_unthreaded_receipt() {
 }
 
 #[async_test]
-async fn initial_public_main_thread_receipt() {
+async fn test_initial_public_main_thread_receipt() {
     let event_id = owned_event_id!("$event_with_receipt");
 
     // Add initial public receipt on the main thread.
@@ -516,7 +524,7 @@ async fn initial_public_main_thread_receipt() {
 }
 
 #[async_test]
-async fn initial_private_unthreaded_receipt() {
+async fn test_initial_private_unthreaded_receipt() {
     let event_id = owned_event_id!("$event_with_receipt");
 
     // Add initial unthreaded private receipt.
@@ -541,7 +549,7 @@ async fn initial_private_unthreaded_receipt() {
 }
 
 #[async_test]
-async fn initial_private_main_thread_receipt() {
+async fn test_initial_private_main_thread_receipt() {
     let event_id = owned_event_id!("$event_with_receipt");
 
     // Add initial private receipt on the main thread.
@@ -566,7 +574,7 @@ async fn initial_private_main_thread_receipt() {
 }
 
 #[async_test]
-async fn clear_read_receipts() {
+async fn test_clear_read_receipts() {
     let room_id = room_id!("!room:localhost");
     let event_a_id = event_id!("$event_a");
     let event_b_id = event_id!("$event_b");

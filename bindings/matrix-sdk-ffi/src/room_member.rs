@@ -1,4 +1,7 @@
 use matrix_sdk::room::{RoomMember as SdkRoomMember, RoomMemberRole};
+use ruma::UserId;
+
+use crate::error::ClientError;
 
 #[derive(Clone, uniffi::Enum)]
 pub enum MembershipState {
@@ -49,6 +52,13 @@ pub fn suggested_role_for_power_level(power_level: i64) -> RoomMemberRole {
 pub fn suggested_power_level_for_role(role: RoomMemberRole) -> i64 {
     // It's not possible to expose methods on an Enum through Uniffi ☹️
     role.suggested_power_level()
+}
+
+/// Generates a `matrix.to` permalink from to the given userID.
+#[uniffi::export]
+pub fn matrix_to_user_permalink(user_id: String) -> Result<String, ClientError> {
+    let user_id = UserId::parse(user_id)?;
+    Ok(user_id.matrix_to_uri().to_string())
 }
 
 #[derive(uniffi::Record)]

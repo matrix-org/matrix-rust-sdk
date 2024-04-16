@@ -105,22 +105,43 @@ pub trait CryptoStore: AsyncTraitDeps {
 
     /// Get the number inbound group sessions we have and how many of them are
     /// backed up.
-    async fn inbound_group_session_counts(&self) -> Result<RoomKeyCounts, Self::Error>;
+    async fn inbound_group_session_counts(
+        &self,
+        backup_version: Option<&str>,
+    ) -> Result<RoomKeyCounts, Self::Error>;
 
-    /// Get all the inbound group sessions we have not backed up yet.
+    /// Return a batch of ['InboundGroupSession'] ("room keys") that have not
+    /// yet been backed up in the supplied backup version.
+    ///
+    /// The size of the returned `Vec` is <= `limit`.
+    ///
+    /// Note: some implementations ignore `backup_version` and assume the
+    /// current backup version, which is normally the same.
     async fn inbound_group_sessions_for_backup(
         &self,
+        backup_version: &str,
         limit: usize,
     ) -> Result<Vec<InboundGroupSession>, Self::Error>;
 
-    /// Mark the inbound group sessions with the supplied room and session IDs
-    /// as backed up
+    /// Store the fact that the supplied sessions were backed up into the backup
+    /// with version `backup_version`.
+    ///
+    /// Note: some implementations ignore `backup_version` and assume the
+    /// current backup version, which is normally the same.
     async fn mark_inbound_group_sessions_as_backed_up(
         &self,
+        backup_version: &str,
         room_and_session_ids: &[(&RoomId, &str)],
     ) -> Result<(), Self::Error>;
 
     /// Reset the backup state of all the stored inbound group sessions.
+    ///
+    /// Note: this is mostly implemented by stores that ignore the
+    /// `backup_version` argument on `inbound_group_sessions_for_backup` and
+    /// `mark_inbound_group_sessions_as_backed_up`. Implementations that
+    /// pay attention to the supplied backup version probably don't need to
+    /// update their storage when the current backup version changes, so have
+    /// empty implementations of this method.
     async fn reset_backup_state(&self) -> Result<(), Self::Error>;
 
     /// Get the backup keys we have stored.
@@ -133,11 +154,14 @@ pub trait CryptoStore: AsyncTraitDeps {
         room_id: &RoomId,
     ) -> Result<Option<OutboundGroupSession>, Self::Error>;
 
-    /// Load the list of users whose devices we are keeping track of.
+    /// Provide the list of users whose devices we are keeping track of, and
+    /// whether they are considered dirty/outdated.
     async fn load_tracked_users(&self) -> Result<Vec<TrackedUser>, Self::Error>;
 
-    /// Save a list of users and their respective dirty/outdated flags to the
-    /// store.
+    /// Update the list of users whose devices we are keeping track of, and
+    /// whether they are considered dirty/outdated.
+    ///
+    /// Replaces any existing entry with a matching user ID.
     async fn save_tracked_users(&self, users: &[(&UserId, bool)]) -> Result<(), Self::Error>;
 
     /// Get the device for the given user with the given device ID.
@@ -328,23 +352,27 @@ impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
         self.0.get_inbound_group_sessions().await.map_err(Into::into)
     }
 
-    async fn inbound_group_session_counts(&self) -> Result<RoomKeyCounts> {
-        self.0.inbound_group_session_counts().await.map_err(Into::into)
+    async fn inbound_group_session_counts(
+        &self,
+        backup_version: Option<&str>,
+    ) -> Result<RoomKeyCounts> {
+        self.0.inbound_group_session_counts(backup_version).await.map_err(Into::into)
     }
-
     async fn inbound_group_sessions_for_backup(
         &self,
+        backup_version: &str,
         limit: usize,
     ) -> Result<Vec<InboundGroupSession>> {
-        self.0.inbound_group_sessions_for_backup(limit).await.map_err(Into::into)
+        self.0.inbound_group_sessions_for_backup(backup_version, limit).await.map_err(Into::into)
     }
 
     async fn mark_inbound_group_sessions_as_backed_up(
         &self,
+        backup_version: &str,
         room_and_session_ids: &[(&RoomId, &str)],
     ) -> Result<()> {
         self.0
-            .mark_inbound_group_sessions_as_backed_up(room_and_session_ids)
+            .mark_inbound_group_sessions_as_backed_up(backup_version, room_and_session_ids)
             .await
             .map_err(Into::into)
     }

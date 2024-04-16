@@ -1,6 +1,18 @@
 # UNRELEASED
 
+Changed:
+
+- Fallback keys are rotated in a time-based manner, instead of waiting for the
+  server to tell us that a fallback key got used.
+  ([#3151](https://github.com/matrix-org/matrix-rust-sdk/pull/3151))
+
 Breaking changes:
+
+- Add a `backup_version` argument to `CryptoStore`'s
+  `inbound_group_sessions_for_backup`,
+  `mark_inbound_group_sessions_as_backed_up` and
+  `inbound_group_session_counts` methods.
+  ([#3253](https://github.com/matrix-org/matrix-rust-sdk/pull/3253))
 
 - Rename the `OlmMachine::invalidate_group_session` method to
   `OlmMachine::discard_room_key`
@@ -8,7 +20,16 @@ Breaking changes:
 - Move `OlmMachine::export_room_keys` to `matrix_sdk_crypto::store::Store`.
   (Call it with `olm_machine.store().export_room_keys(...)`.)
 
+- Add new `dehydrated` property to `olm::account::PickledAccount`.
+  ([#3164](https://github.com/matrix-org/matrix-rust-sdk/pull/3164))
+
 Additions:
+
+- Expose new method `OlmMachine::device_creation_time`.
+  ([#3275](https://github.com/matrix-org/matrix-rust-sdk/pull/3275))
+
+- Log more details about the Olm session after encryption and decryption.
+  ([#3242](https://github.com/matrix-org/matrix-rust-sdk/pull/3242))
 
 - When Olm message decryption fails, report the error code(s) from the failure.
   ([#3212](https://github.com/matrix-org/matrix-rust-sdk/pull/3212))

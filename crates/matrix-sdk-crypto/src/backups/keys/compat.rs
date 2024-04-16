@@ -106,11 +106,11 @@ impl PkDecryption {
 
         let keys = Keys::new(shared_secret);
 
-        let cipher = Aes256CbcDec::new(keys.aes_key(), keys.iv());
-        let decrypted = cipher.decrypt_padded_vec_mut::<Pkcs7>(&message.ciphertext)?;
-
         let hmac = keys.hmac();
         hmac.verify_truncated_left(&message.mac)?;
+
+        let cipher = Aes256CbcDec::new(keys.aes_key(), keys.iv());
+        let decrypted = cipher.decrypt_padded_vec_mut::<Pkcs7>(&message.ciphertext)?;
 
         Ok(decrypted)
     }

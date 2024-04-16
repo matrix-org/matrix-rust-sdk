@@ -31,14 +31,13 @@ use super::TestTimeline;
 use crate::timeline::TimelineItemContent;
 
 #[async_test]
-async fn live_redacted() {
+async fn test_live_redacted() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe().await;
 
     timeline
         .handle_live_redacted_message_event(*ALICE, RedactedRoomMessageEventContent::new())
         .await;
-    let _day_divider = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
 
     let redacted_event_id = item.as_event().unwrap().event_id().unwrap();
@@ -52,10 +51,13 @@ async fn live_redacted() {
     timeline.handle_live_message_event(&ALICE, edit).await;
 
     assert_eq!(timeline.inner.items().await.len(), 2);
+
+    let day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
+    assert!(day_divider.is_day_divider());
 }
 
 #[async_test]
-async fn live_sanitized() {
+async fn test_live_sanitized() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe().await;
 
@@ -69,14 +71,15 @@ async fn live_sanitized() {
         )
         .await;
 
-    let _day_divider = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let first_event = item.as_event().unwrap();
     assert_let!(TimelineItemContent::Message(message) = first_event.content());
     assert_let!(MessageType::Text(text) = message.msgtype());
     assert_eq!(text.body, "**original** message");
     assert_eq!(text.formatted.as_ref().unwrap().body, "<strong>original</strong> message");
+
+    let day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
+    assert!(day_divider.is_day_divider());
 
     let first_event_id = first_event.event_id().unwrap();
 
@@ -105,7 +108,7 @@ async fn live_sanitized() {
 }
 
 #[async_test]
-async fn aggregated_sanitized() {
+async fn test_aggregated_sanitized() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe().await;
 
@@ -150,11 +153,13 @@ async fn aggregated_sanitized() {
     });
     timeline.handle_live_event(ev).await;
 
-    let _day_divider = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let first_event = item.as_event().unwrap();
     assert_let!(TimelineItemContent::Message(message) = first_event.content());
     assert_let!(MessageType::Text(text) = message.msgtype());
     assert_eq!(text.body, "!!edited!! **better** message");
     assert_eq!(text.formatted.as_ref().unwrap().body, " <strong>better</strong> message");
+
+    let day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
+    assert!(day_divider.is_day_divider());
 }

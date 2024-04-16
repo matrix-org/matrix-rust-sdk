@@ -10,7 +10,7 @@ use super::{Error, Timeline};
 
 pub struct SendAttachment<'a> {
     timeline: &'a Timeline,
-    url: String,
+    filename: String,
     mime_type: Mime,
     config: AttachmentConfig,
     tracing_span: Span,
@@ -20,13 +20,13 @@ pub struct SendAttachment<'a> {
 impl<'a> SendAttachment<'a> {
     pub(crate) fn new(
         timeline: &'a Timeline,
-        url: String,
+        filename: String,
         mime_type: Mime,
         config: AttachmentConfig,
     ) -> Self {
         Self {
             timeline,
-            url,
+            filename,
             mime_type,
             config,
             tracing_span: Span::current(),
@@ -47,14 +47,14 @@ impl<'a> IntoFuture for SendAttachment<'a> {
     boxed_into_future!(extra_bounds: 'a);
 
     fn into_future(self) -> Self::IntoFuture {
-        let Self { timeline, url, mime_type, config, tracing_span, send_progress } = self;
+        let Self { timeline, filename, mime_type, config, tracing_span, send_progress } = self;
         let fut = async move {
-            let body = Path::new(&url)
+            let body = Path::new(&filename)
                 .file_name()
                 .ok_or(Error::InvalidAttachmentFileName)?
                 .to_str()
                 .expect("path was created from UTF-8 string, hence filename part is UTF-8 too");
-            let data = fs::read(&url).map_err(|_| Error::InvalidAttachmentData)?;
+            let data = fs::read(&filename).map_err(|_| Error::InvalidAttachmentData)?;
 
             timeline
                 .room()

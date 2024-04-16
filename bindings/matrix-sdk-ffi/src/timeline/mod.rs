@@ -52,18 +52,20 @@ use tokio::{
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
+use self::content::{Reaction, ReactionSenderData, TimelineItemContent};
 use crate::{
     client::ProgressWatcher,
     error::{ClientError, RoomError},
     helpers::unwrap_or_clone_arc,
-    ruma::{AssetType, AudioInfo, FileInfo, ImageInfo, PollKind, ThumbnailInfo, VideoInfo},
+    ruma::{
+        AssetType, AudioInfo, FileInfo, FormattedBody, ImageInfo, PollKind, ThumbnailInfo,
+        VideoInfo,
+    },
     task_handle::TaskHandle,
     RUNTIME,
 };
 
 mod content;
-
-pub use self::content::{Reaction, ReactionSenderData, TimelineItemContent};
 
 #[derive(uniffi::Object)]
 #[repr(transparent)]
@@ -106,12 +108,12 @@ impl Timeline {
 
     async fn send_attachment(
         &self,
-        url: String,
+        filename: String,
         mime_type: Mime,
         attachment_config: AttachmentConfig,
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
     ) -> Result<(), RoomError> {
-        let request = self.inner.send_attachment(url, mime_type, attachment_config);
+        let request = self.inner.send_attachment(filename, mime_type, attachment_config);
         if let Some(progress_watcher) = progress_watcher {
             let mut subscriber = request.subscribe_to_send_progress();
             RUNTIME.spawn(async move {
@@ -218,6 +220,8 @@ impl Timeline {
         url: String,
         thumbnail_url: Option<String>,
         image_info: ImageInfo,
+        caption: Option<String>,
+        formatted_caption: Option<FormattedBody>,
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
     ) -> Arc<SendAttachmentJoinHandle> {
         SendAttachmentJoinHandle::new(RUNTIME.spawn(async move {
@@ -238,7 +242,9 @@ impl Timeline {
                     AttachmentConfig::with_thumbnail(thumbnail).info(attachment_info)
                 }
                 _ => AttachmentConfig::new().info(attachment_info),
-            };
+            }
+            .caption(caption)
+            .formatted_caption(formatted_caption.map(Into::into));
 
             self.send_attachment(url, mime_type, attachment_config, progress_watcher).await
         }))
@@ -249,6 +255,8 @@ impl Timeline {
         url: String,
         thumbnail_url: Option<String>,
         video_info: VideoInfo,
+        caption: Option<String>,
+        formatted_caption: Option<FormattedBody>,
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
     ) -> Arc<SendAttachmentJoinHandle> {
         SendAttachmentJoinHandle::new(RUNTIME.spawn(async move {
@@ -269,7 +277,9 @@ impl Timeline {
                     AttachmentConfig::with_thumbnail(thumbnail).info(attachment_info)
                 }
                 _ => AttachmentConfig::new().info(attachment_info),
-            };
+            }
+            .caption(caption)
+            .formatted_caption(formatted_caption.map(Into::into));
 
             self.send_attachment(url, mime_type, attachment_config, progress_watcher).await
         }))
@@ -279,6 +289,8 @@ impl Timeline {
         self: Arc<Self>,
         url: String,
         audio_info: AudioInfo,
+        caption: Option<String>,
+        formatted_caption: Option<FormattedBody>,
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
     ) -> Arc<SendAttachmentJoinHandle> {
         SendAttachmentJoinHandle::new(RUNTIME.spawn(async move {
@@ -291,7 +303,10 @@ impl Timeline {
                 .map_err(|_| RoomError::InvalidAttachmentData)?;
 
             let attachment_info = AttachmentInfo::Audio(base_audio_info);
-            let attachment_config = AttachmentConfig::new().info(attachment_info);
+            let attachment_config = AttachmentConfig::new()
+                .info(attachment_info)
+                .caption(caption)
+                .formatted_caption(formatted_caption.map(Into::into));
 
             self.send_attachment(url, mime_type, attachment_config, progress_watcher).await
         }))
@@ -302,6 +317,8 @@ impl Timeline {
         url: String,
         audio_info: AudioInfo,
         waveform: Vec<u16>,
+        caption: Option<String>,
+        formatted_caption: Option<FormattedBody>,
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
     ) -> Arc<SendAttachmentJoinHandle> {
         SendAttachmentJoinHandle::new(RUNTIME.spawn(async move {
@@ -315,7 +332,10 @@ impl Timeline {
 
             let attachment_info =
                 AttachmentInfo::Voice { audio_info: base_audio_info, waveform: Some(waveform) };
-            let attachment_config = AttachmentConfig::new().info(attachment_info);
+            let attachment_config = AttachmentConfig::new()
+                .info(attachment_info)
+                .caption(caption)
+                .formatted_caption(formatted_caption.map(Into::into));
 
             self.send_attachment(url, mime_type, attachment_config, progress_watcher).await
         }))

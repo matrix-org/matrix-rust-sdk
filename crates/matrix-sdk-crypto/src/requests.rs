@@ -218,8 +218,6 @@ pub enum OutgoingRequests {
     /// A room message request, usually for sending in-room interactive
     /// verification events.
     RoomMessage(RoomMessageRequest),
-    /// A request that will back up a batch of room keys to the server.
-    KeysBackup(KeysBackupRequest),
 }
 
 #[cfg(test)]
@@ -232,12 +230,6 @@ impl OutgoingRequests {
 impl From<KeysQueryRequest> for OutgoingRequests {
     fn from(request: KeysQueryRequest) -> Self {
         Self::KeysQuery(request)
-    }
-}
-
-impl From<KeysBackupRequest> for OutgoingRequests {
-    fn from(r: KeysBackupRequest) -> Self {
-        Self::KeysBackup(r)
     }
 }
 

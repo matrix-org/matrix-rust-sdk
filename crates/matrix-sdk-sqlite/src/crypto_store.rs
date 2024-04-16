@@ -477,7 +477,10 @@ trait SqliteObjectCryptoStoreExt: SqliteObjectExt {
             .await?)
     }
 
-    async fn get_inbound_group_session_counts(&self) -> Result<RoomKeyCounts> {
+    async fn get_inbound_group_session_counts(
+        &self,
+        _backup_version: Option<&str>,
+    ) -> Result<RoomKeyCounts> {
         let total = self
             .query_row("SELECT count(*) FROM inbound_group_session", (), |row| row.get(0))
             .await?;
@@ -940,12 +943,16 @@ impl CryptoStore for SqliteCryptoStore {
             .collect()
     }
 
-    async fn inbound_group_session_counts(&self) -> Result<RoomKeyCounts> {
-        Ok(self.acquire().await?.get_inbound_group_session_counts().await?)
+    async fn inbound_group_session_counts(
+        &self,
+        backup_version: Option<&str>,
+    ) -> Result<RoomKeyCounts> {
+        Ok(self.acquire().await?.get_inbound_group_session_counts(backup_version).await?)
     }
 
     async fn inbound_group_sessions_for_backup(
         &self,
+        _backup_version: &str,
         limit: usize,
     ) -> Result<Vec<InboundGroupSession>> {
         self.acquire()
@@ -962,6 +969,7 @@ impl CryptoStore for SqliteCryptoStore {
 
     async fn mark_inbound_group_sessions_as_backed_up(
         &self,
+        _backup_version: &str,
         session_ids: &[(&RoomId, &str)],
     ) -> Result<()> {
         Ok(self

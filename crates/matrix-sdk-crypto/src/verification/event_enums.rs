@@ -12,10 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    collections::BTreeMap,
-    convert::{TryFrom, TryInto},
-};
+use std::collections::BTreeMap;
 
 use as_variant::as_variant;
 use ruma::{
@@ -771,7 +768,6 @@ impl TryFrom<OutgoingRequest> for OutgoingContent {
         match value.request() {
             crate::OutgoingRequests::KeysUpload(_)
             | crate::OutgoingRequests::KeysQuery(_)
-            | crate::OutgoingRequests::KeysBackup(_)
             | crate::OutgoingRequests::SignatureUpload(_)
             | crate::OutgoingRequests::KeysClaim(_) => Err("Invalid request type".to_owned()),
             crate::OutgoingRequests::ToDeviceRequest(r) => Self::try_from(r.clone()),

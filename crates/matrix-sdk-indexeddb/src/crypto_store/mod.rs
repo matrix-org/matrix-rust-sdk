@@ -873,7 +873,7 @@ impl_crypto_store! {
         ).await
     }
 
-    async fn inbound_group_session_counts(&self) -> Result<RoomKeyCounts> {
+    async fn inbound_group_session_counts(&self, _backup_version: Option<&str>) -> Result<RoomKeyCounts> {
         let tx = self
             .inner
             .transaction_on_one_with_mode(
@@ -889,6 +889,7 @@ impl_crypto_store! {
 
     async fn inbound_group_sessions_for_backup(
         &self,
+        _backup_version: &str,
         limit: usize,
     ) -> Result<Vec<InboundGroupSession>> {
         let tx = self
@@ -933,7 +934,10 @@ impl_crypto_store! {
         Ok(result)
     }
 
-    async fn mark_inbound_group_sessions_as_backed_up(&self, room_and_session_ids: &[(&RoomId, &str)]) -> Result<()> {
+    async fn mark_inbound_group_sessions_as_backed_up(&self,
+        _backup_version: &str,
+        room_and_session_ids: &[(&RoomId, &str)]
+    ) -> Result<()> {
         let tx = self
             .inner
             .transaction_on_one_with_mode(

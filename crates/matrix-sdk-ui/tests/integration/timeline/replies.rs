@@ -34,7 +34,7 @@ use wiremock::{
 use crate::{mock_encryption_state, mock_sync};
 
 #[async_test]
-async fn in_reply_to_details() {
+async fn test_in_reply_to_details() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client_with_server().await;
     let event_builder = EventBuilder::new();
@@ -80,16 +80,18 @@ async fn in_reply_to_details() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    assert_let!(Some(VectorDiff::PushBack { value: day_divider }) = timeline_stream.next().await);
-    assert!(day_divider.is_day_divider());
     assert_let!(Some(VectorDiff::PushBack { value: first }) = timeline_stream.next().await);
     assert_matches!(first.as_event().unwrap().content(), TimelineItemContent::Message(_));
+
     assert_let!(Some(VectorDiff::PushBack { value: second }) = timeline_stream.next().await);
     let second_event = second.as_event().unwrap();
     assert_let!(TimelineItemContent::Message(message) = second_event.content());
     let in_reply_to = message.in_reply_to().unwrap();
     assert_eq!(in_reply_to.event_id, event_id!("$event1"));
     assert_matches!(in_reply_to.event, TimelineDetails::Ready(_));
+
+    assert_let!(Some(VectorDiff::PushFront { value: day_divider }) = timeline_stream.next().await);
+    assert!(day_divider.is_day_divider());
 
     // Add an reply to an unknown event to the timeline
     let event_id_2 = event_id!("$event2");
@@ -171,7 +173,7 @@ async fn in_reply_to_details() {
 }
 
 #[async_test]
-async fn transfer_in_reply_to_details_to_re_received_item() {
+async fn test_transfer_in_reply_to_details_to_re_received_item() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client_with_server().await;
     let event_builder = EventBuilder::new();
@@ -253,7 +255,7 @@ async fn transfer_in_reply_to_details_to_re_received_item() {
 }
 
 #[async_test]
-async fn send_reply() {
+async fn test_send_reply() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client_with_server().await;
     let event_builder = EventBuilder::new();
@@ -344,7 +346,7 @@ async fn send_reply() {
 }
 
 #[async_test]
-async fn send_reply_to_threaded() {
+async fn test_send_reply_to_threaded() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client_with_server().await;
     let event_builder = EventBuilder::new();

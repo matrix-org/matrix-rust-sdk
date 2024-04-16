@@ -21,7 +21,6 @@ use matrix_sdk::{
     executor::spawn,
     Room,
 };
-use matrix_sdk_base::sync::JoinedRoomUpdate;
 use ruma::{
     events::{receipt::ReceiptType, AnySyncTimelineEvent},
     RoomVersionId,
@@ -36,7 +35,7 @@ use super::{
     queue::send_queued_messages,
     BackPaginationStatus, Timeline, TimelineDropHandle,
 };
-use crate::unable_to_decrypt_hook::UtdHookManager;
+use crate::{timeline::inner::TimelineEnd, unable_to_decrypt_hook::UtdHookManager};
 
 /// Builder that allows creating and configuring various parts of a
 /// [`Timeline`].
@@ -148,7 +147,7 @@ impl TimelineBuilder {
         }
 
         if has_events {
-            inner.add_initial_events(events).await;
+            inner.add_events_at(events, TimelineEnd::Back { from_cache: true }).await;
         }
         if track_read_marker_and_receipts {
             inner.load_fully_read_event().await;
@@ -173,8 +172,11 @@ impl TimelineBuilder {
                     let update = match event_subscriber.recv().await {
                         Ok(up) => up,
                         Err(broadcast::error::RecvError::Closed) => break,
-                        Err(broadcast::error::RecvError::Lagged(_)) => {
-                            warn!("Lagged behind sync responses, resetting timeline");
+                        Err(broadcast::error::RecvError::Lagged(num_skipped)) => {
+                            warn!(
+                                num_skipped,
+                                "Lagged behind event cache updates, resetting timeline"
+                            );
                             inner.clear().await;
                             continue;
                         }
@@ -186,39 +188,25 @@ impl TimelineBuilder {
                             inner.clear().await;
                         }
 
-                        RoomEventCacheUpdate::Append {
-                            events,
-                            prev_batch,
-                            account_data,
-                            ephemeral,
-                            ambiguity_changes,
-                        } => {
+                        RoomEventCacheUpdate::UpdateReadMarker { event_id } => {
+                            trace!(target = %event_id, "Handling fully read marker.");
+                            inner.handle_fully_read_marker(event_id).await;
+                        }
+
+                        RoomEventCacheUpdate::Append { events, ephemeral, ambiguity_changes } => {
                             trace!("Received new events");
 
-                            // XXX this timeline and the joined room updates are synthetic, until
-                            // we get rid of `handle_joined_room_update` by adding all functionality
-                            // back in the event cache, and replacing it with a simple
-                            // `handle_add_events`.
-                            let timeline = matrix_sdk_base::sync::Timeline {
-                                limited: false,
-                                prev_batch,
-                                events,
-                            };
-                            let update = JoinedRoomUpdate {
-                                unread_notifications: Default::default(),
-                                timeline,
-                                state: Default::default(),
-                                account_data,
-                                ephemeral,
-                                ambiguity_changes: Default::default(),
-                            };
-                            inner.handle_joined_room_update(update).await;
+                            // TODO: (bnjbvr) ephemeral should be handled by the event cache, and
+                            // we should replace this with a simple `add_events_at`.
+                            inner.handle_sync_events(events, ephemeral).await;
 
-                            let member_ambiguity_changes = ambiguity_changes
-                                .values()
-                                .flat_map(|change| change.user_ids())
-                                .collect::<BTreeSet<_>>();
-                            inner.force_update_sender_profiles(&member_ambiguity_changes).await;
+                            if !ambiguity_changes.is_empty() {
+                                let member_ambiguity_changes = ambiguity_changes
+                                    .values()
+                                    .flat_map(|change| change.user_ids())
+                                    .collect::<BTreeSet<_>>();
+                                inner.force_update_sender_profiles(&member_ambiguity_changes).await;
+                            }
                         }
                     }
                 }

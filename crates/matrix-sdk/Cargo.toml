@@ -41,9 +41,9 @@ rustls-tls = ["reqwest/rustls-tls"]
 socks = ["reqwest/socks"]
 sso-login = ["dep:hyper", "dep:rand", "dep:tower"]
 image-proc = ["dep:image"]
-image-rayon = ["image-proc", "image?/jpeg_rayon"]
+image-rayon = ["image-proc", "image?/rayon"]
 
-uniffi = ["dep:uniffi"]
+uniffi = ["dep:uniffi", "matrix-sdk-base/uniffi"]
 
 experimental-oidc = [
     "ruma/unstable-msc2967",
@@ -67,6 +67,7 @@ docsrs = ["e2e-encryption", "sqlite", "indexeddb", "sso-login", "qrcode", "image
 anyhow = { workspace = true, optional = true }
 anymap2 = "0.13.0"
 aquamarine = "0.5.0"
+assert_matches2 = { workspace = true, optional = true }
 as_variant = { workspace = true }
 async-channel = "2.1.0"
 async-stream = { workspace = true }
@@ -88,11 +89,12 @@ imbl = { workspace = true, features = ["serde"] }
 indexmap = "2.0.2"
 js_int = "0.2.2"
 language-tags = { version = "0.3.2", optional = true }
-mas-oidc-client = { version = "0.7.0", optional = true }
-matrix-sdk-base = { workspace = true, features = ["uniffi"] }
+mas-oidc-client = { git = "https://github.com/matrix-org/matrix-authentication-service", rev = "099eabd1371d2840a2f025a6372d6428039eb511", default-features = false, optional = true }
+matrix-sdk-base = { workspace = true }
 matrix-sdk-common = { workspace = true }
 matrix-sdk-indexeddb = { workspace = true, optional = true }
 matrix-sdk-sqlite = { workspace = true, optional = true }
+matrix-sdk-test = { workspace = true, optional = true }
 mime = "0.3.16"
 mime2ext = "0.1.52"
 openidconnect = { git = "https://github.com/ramosbugs/openidconnect-rs", rev = "fcada1718118cfebfaa874e8b1920cd1dbc2b358" }
@@ -115,23 +117,9 @@ vodozemac = { workspace = true }
 zeroize = { workspace = true }
 
 [dependencies.image]
-version = "0.24.2"
+version = "0.25.1"
 default-features = false
-features = [
-    "gif",
-    "jpeg",
-    "ico",
-    "png",
-    "pnm",
-    "tga",
-    "tiff",
-    "webp",
-    "bmp",
-    "hdr",
-    "dxt",
-    "dds",
-    "farbfeld",
-]
+features = ["default-formats"]
 optional = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -146,7 +134,7 @@ backoff = { version = "0.4.0", features = ["tokio"] }
 reqwest = { version = "0.11.10", default_features = false, features = ["stream"] }
 tokio = { workspace = true, features = ["fs", "rt", "macros"] }
 tokio-util = "0.7.9"
-wiremock = { version = "0.5.13", optional = true }
+wiremock = { workspace = true, optional = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }
@@ -168,7 +156,11 @@ wasm-bindgen-test = "0.3.33"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+wiremock = { version = "0.5.13" }
 
 [[test]]
 name = "integration"
 required-features = ["testing"]
+
+[lints]
+workspace = true

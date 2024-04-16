@@ -15,7 +15,9 @@
 use std::{fmt, ops::ControlFlow, sync::Arc, time::Duration};
 
 use matrix_sdk::event_cache::{self, BackPaginationOutcome};
-use tracing::{debug, instrument, trace, warn};
+use tracing::{instrument, trace, warn};
+
+use crate::timeline::inner::TimelineEnd;
 
 impl super::Timeline {
     /// Add more events to the start of the timeline.
@@ -46,26 +48,13 @@ impl super::Timeline {
 
         while let Some(batch_size) = options.next_event_limit(outcome) {
             loop {
-                match self.event_cache.backpaginate_with_token(batch_size, token).await? {
+                match self.event_cache.backpaginate(batch_size, token).await? {
                     BackPaginationOutcome::Success { events, reached_start } => {
                         let num_events = events.len();
                         trace!("Back-pagination succeeded with {num_events} events");
 
-                        let handle_many_events_result =
-                            match self.inner.handle_back_paginated_events(events).await {
-                                Some(res) => res,
-
-                                None => {
-                                    // The number of touched timeline items has overflowed. Oh well,
-                                    // stop here and exit.
-                                    warn!(
-                                "Hit overflow, stopping back-pagination and getting back to idle."
-                            );
-                                    self.back_pagination_status
-                                        .set_if_not_eq(BackPaginationStatus::Idle);
-                                    return Ok(());
-                                }
-                            };
+                        let handle_many_res =
+                            self.inner.add_events_at(events, TimelineEnd::Front).await;
 
                         if reached_start {
                             self.back_pagination_status
@@ -73,30 +62,13 @@ impl super::Timeline {
                             return Ok(());
                         }
 
-                        let mut update_outcome = || {
-                            outcome.events_received = num_events.try_into().ok()?;
-                            outcome.total_events_received = outcome
-                                .total_events_received
-                                .checked_add(outcome.events_received)?;
+                        outcome.events_received = num_events as u64;
+                        outcome.total_events_received += outcome.events_received;
 
-                            outcome.items_added = handle_many_events_result.items_added;
-                            outcome.items_updated = handle_many_events_result.items_updated;
-                            outcome.total_items_added =
-                                outcome.total_items_added.checked_add(outcome.items_added)?;
-                            outcome.total_items_updated =
-                                outcome.total_items_updated.checked_add(outcome.items_updated)?;
-
-                            Some(())
-                        };
-
-                        if update_outcome().is_none() {
-                            // Overflow: stop here and exit.
-                            debug!(
-                                "Hit overflow, stopping back-paginating and getting back to idle."
-                            );
-                            self.back_pagination_status.set_if_not_eq(BackPaginationStatus::Idle);
-                            return Ok(());
-                        }
+                        outcome.items_added = handle_many_res.items_added;
+                        outcome.items_updated = handle_many_res.items_updated;
+                        outcome.total_items_added += outcome.items_added;
+                        outcome.total_items_updated += outcome.items_updated;
 
                         if num_events == 0 {
                             // As an exceptional contract: if there were no events in the response,
@@ -198,7 +170,7 @@ impl<'a> PaginationOptions<'a> {
                 event_limit_if_first.take()
             }
             PaginationOptionsInner::UntilNumItems { items, event_limit } => {
-                (pagination_outcome.total_items_added < *items).then_some(*event_limit)
+                (pagination_outcome.total_items_added < *items as u64).then_some(*event_limit)
             }
             PaginationOptionsInner::Custom { event_limit_if_first, strategy } => {
                 event_limit_if_first.take().or_else(|| match strategy(pagination_outcome) {
@@ -255,25 +227,25 @@ impl<'a> fmt::Debug for PaginationOptions<'a> {
 #[non_exhaustive]
 pub struct PaginationOutcome {
     /// The number of events received in last pagination response.
-    pub events_received: u16,
+    pub events_received: u64,
 
     /// The number of timeline items added by the last pagination response.
-    pub items_added: u16,
+    pub items_added: u64,
 
     /// The number of timeline items updated by the last pagination
     /// response.
-    pub items_updated: u16,
+    pub items_updated: u64,
 
     /// The number of events received by a `paginate_backwards` call so far.
-    pub total_events_received: u16,
+    pub total_events_received: u64,
 
     /// The total number of items added by a `paginate_backwards` call so
     /// far.
-    pub total_items_added: u16,
+    pub total_items_added: u64,
 
     /// The total number of items updated by a `paginate_backwards` call so
     /// far.
-    pub total_items_updated: u16,
+    pub total_items_updated: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -303,7 +275,7 @@ mod tests {
     }
 
     #[test]
-    fn simple_request_limits() {
+    fn test_simple_request_limits() {
         let mut opts = PaginationOptions::simple_request(10);
         let mut outcome = PaginationOutcome::default();
         assert_eq!(opts.next_event_limit(outcome), Some(10));
@@ -313,7 +285,7 @@ mod tests {
     }
 
     #[test]
-    fn until_num_items_limits() {
+    fn test_until_num_items_limits() {
         let mut opts = PaginationOptions::until_num_items(10, 10);
         let mut outcome = PaginationOutcome::default();
         assert_eq!(opts.next_event_limit(outcome), Some(10));
@@ -326,7 +298,7 @@ mod tests {
     }
 
     #[test]
-    fn custom_limits() {
+    fn test_custom_limits() {
         let num_calls = AtomicU8::new(0);
         let mut opts = PaginationOptions::custom(8, |outcome| {
             num_calls.fetch_add(1, Ordering::AcqRel);
