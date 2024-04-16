@@ -10,6 +10,7 @@ use futures_util::{pin_mut, FutureExt, StreamExt as _};
 use matrix_sdk::{
     bytes::Bytes,
     config::SyncSettings,
+    room_preview::RoomPreview,
     ruma::{
         api::client::{
             receipt::create_receipt::v3::ReceiptType,
@@ -29,6 +30,8 @@ use matrix_sdk::{
             AnySyncMessageLikeEvent, InitialStateEvent, Mentions, StateEventType,
         },
         mxc_uri,
+        space::SpaceRoomJoinRule,
+        RoomId,
     },
     Client, RoomInfo, RoomListEntry, RoomMemberships, RoomState, SlidingSyncList, SlidingSyncMode,
 };
@@ -1082,14 +1085,24 @@ async fn test_room_preview() -> Result<()> {
                 InitialStateEvent::new(RoomHistoryVisibilityEventContent::new(HistoryVisibility::WorldReadable)).to_raw_any(),
                 InitialStateEvent::new(RoomJoinRulesEventContent::new(JoinRule::Invite)).to_raw_any(),
             ],
-            //TODO: this doesn't allow preview => could be tested!
-            //preset: Some(RoomPreset::PrivateChat),
         }))
         .await?;
 
     room.set_avatar_url(mxc_uri!("mxc://localhost/alice"), None).await?;
 
+    // Alice creates another room, and still doesn't invite Bob.
+    let private_room = alice
+        .create_room(assign!(CreateRoomRequest::new(), {
+            name: Some("Alice's Room 2".to_owned()),
+            initial_state: vec![
+                InitialStateEvent::new(RoomHistoryVisibilityEventContent::new(HistoryVisibility::Shared)).to_raw_any(),
+                InitialStateEvent::new(RoomJoinRulesEventContent::new(JoinRule::Public)).to_raw_any(),
+            ],
+        }))
+        .await?;
+
     let room_id = room.room_id();
+    let private_room_id = private_room.room_id();
 
     // Wait for Alice's stream to stabilize (stop updating when we haven't received
     // successful updates for more than 2 seconds).
@@ -1104,49 +1117,76 @@ async fn test_room_preview() -> Result<()> {
         }
     }
 
-    let preview = alice.get_room_preview(room_id).await?;
-    assert_eq!(preview.canonical_alias.unwrap().alias(), room_alias);
-    assert_eq!(preview.name.unwrap(), "Alice's Room");
-    assert_eq!(preview.topic.unwrap(), "Discussing Alice's Topic");
-    assert_eq!(preview.avatar_url.unwrap(), mxc_uri!("mxc://localhost/alice"));
+    get_room_preview_with_room_state(&alice, &bob, &room_alias, room_id, private_room_id).await;
+    get_room_preview_with_room_summary(&alice, &bob, &room_alias, room_id, private_room_id).await;
+
+    {
+        // Dummy test for `Client::get_room_preview` which may call one or the other
+        // methods.
+        let preview = alice.get_room_preview(room_id).await.unwrap();
+        assert_room_preview(&preview, &room_alias);
+        assert_eq!(preview.state, Some(RoomState::Joined));
+    }
+
+    Ok(())
+}
+
+fn assert_room_preview(preview: &RoomPreview, room_alias: &str) {
+    assert_eq!(preview.canonical_alias.as_ref().unwrap().alias(), room_alias);
+    assert_eq!(preview.name.as_ref().unwrap(), "Alice's Room");
+    assert_eq!(preview.topic.as_ref().unwrap(), "Discussing Alice's Topic");
+    assert_eq!(preview.avatar_url.as_ref().unwrap(), mxc_uri!("mxc://localhost/alice"));
     assert_eq!(preview.num_joined_members, 1);
     assert!(preview.room_type.is_none());
-    // Because of the preset:
-    assert_eq!(preview.join_rule, JoinRule::Invite);
-    assert_eq!(preview.history_visibility, HistoryVisibility::WorldReadable);
+    assert_eq!(preview.join_rule, SpaceRoomJoinRule::Invite);
+    assert!(preview.is_world_readable);
+}
+
+async fn get_room_preview_with_room_state(
+    alice: &Client,
+    bob: &Client,
+    room_alias: &str,
+    room_id: &RoomId,
+    public_no_history_room_id: &RoomId,
+) {
+    // Alice has joined the room, so they get the full details.
+    let preview = RoomPreview::from_state_events(alice, room_id).await.unwrap();
+    assert_room_preview(&preview, room_alias);
     assert_eq!(preview.state, Some(RoomState::Joined));
 
     // Bob definitely doesn't know about the room, but they can get a preview of the
     // room too.
-    let preview = bob.get_room_preview(room_id).await?;
+    let preview = RoomPreview::from_state_events(bob, room_id).await.unwrap();
+    assert_room_preview(&preview, room_alias);
+    assert!(preview.state.is_none());
 
-    assert_eq!(preview.canonical_alias.unwrap().alias(), room_alias);
-    assert_eq!(preview.name.unwrap(), "Alice's Room");
-    assert_eq!(preview.topic.unwrap(), "Discussing Alice's Topic");
-    assert_eq!(preview.avatar_url.unwrap(), mxc_uri!("mxc://localhost/alice"));
-    assert_eq!(preview.num_joined_members, 1);
-    assert!(preview.room_type.is_none());
-    assert_eq!(preview.join_rule, JoinRule::Invite);
-    assert_eq!(preview.history_visibility, HistoryVisibility::WorldReadable);
-
-    // Only difference with Alice's room is here: since Bob hasn't joined the room,
-    // they don't have any associated room state.
-    assert_eq!(preview.state, None);
-
-    // Now Alice creates another room, with a private preset, and still doesn't
-    // invite Bob.
-    let room = alice
-        .create_room(assign!(CreateRoomRequest::new(), {
-            initial_state: vec![
-                InitialStateEvent::new(RoomHistoryVisibilityEventContent::new(HistoryVisibility::Shared)).to_raw_any(),
-                InitialStateEvent::new(RoomJoinRulesEventContent::new(JoinRule::Invite)).to_raw_any(),
-            ],
-        }))
-        .await?;
-
-    // So Bob can't preview it.
-    let preview_result = bob.get_room_preview(room.room_id()).await;
+    // Bob can't preview the second room, because its history visibility is neither
+    // world-readable, nor have they joined the room before.
+    let preview_result = RoomPreview::from_state_events(bob, public_no_history_room_id).await;
     assert_eq!(preview_result.unwrap_err().as_client_api_error().unwrap().status_code, 403);
+}
 
-    Ok(())
+async fn get_room_preview_with_room_summary(
+    alice: &Client,
+    bob: &Client,
+    room_alias: &str,
+    room_id: &RoomId,
+    public_no_history_room_id: &RoomId,
+) {
+    // Alice has joined the room, so they get the full details.
+    let preview = RoomPreview::from_room_summary(alice, room_id).await.unwrap();
+    assert_room_preview(&preview, room_alias);
+    assert_eq!(preview.state, Some(RoomState::Joined));
+
+    // Bob definitely doesn't know about the room, but they can get a preview of the
+    // room too.
+    let preview = RoomPreview::from_room_summary(bob, room_id).await.unwrap();
+    assert_room_preview(&preview, room_alias);
+    assert!(preview.state.is_none());
+
+    // Bob can preview the second room with the room summary (because its join rule
+    // is set to public, or because Alice is a member of that room).
+    let preview = RoomPreview::from_room_summary(bob, public_no_history_room_id).await.unwrap();
+    assert_eq!(preview.name.unwrap(), "Alice's Room 2");
+    assert!(preview.state.is_none());
 }

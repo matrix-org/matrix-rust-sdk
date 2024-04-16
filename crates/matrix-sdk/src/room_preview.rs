@@ -23,6 +23,7 @@ use ruma::{
     api::client::{membership::joined_members, state::get_state_events},
     events::room::{history_visibility::HistoryVisibility, join_rules::JoinRule},
     room::RoomType,
+    space::SpaceRoomJoinRule,
     OwnedMxcUri, OwnedRoomAliasId, RoomId,
 };
 use tokio::try_join;
@@ -52,10 +53,11 @@ pub struct RoomPreview {
     pub room_type: Option<RoomType>,
 
     /// What's the join rule for this room?
-    pub join_rule: JoinRule,
+    pub join_rule: SpaceRoomJoinRule,
 
-    /// What's the history visibility for this room?
-    pub history_visibility: HistoryVisibility,
+    /// Is the room world-readable (i.e. is its history_visibility set to
+    /// world_readable)?
+    pub is_world_readable: bool,
 
     /// Has the current user been invited/joined/left this room?
     ///
@@ -79,8 +81,20 @@ impl RoomPreview {
             topic: room_info.topic().map(ToOwned::to_owned),
             avatar_url: room_info.avatar_url().map(ToOwned::to_owned),
             room_type: room_info.room_type().cloned(),
-            join_rule: room_info.join_rule().clone(),
-            history_visibility: room_info.history_visibility().clone(),
+            join_rule: match room_info.join_rule() {
+                JoinRule::Invite => SpaceRoomJoinRule::Invite,
+                JoinRule::Knock => SpaceRoomJoinRule::Knock,
+                JoinRule::Private => SpaceRoomJoinRule::Private,
+                JoinRule::Restricted(_) => SpaceRoomJoinRule::Restricted,
+                JoinRule::KnockRestricted(_) => SpaceRoomJoinRule::KnockRestricted,
+                JoinRule::Public => SpaceRoomJoinRule::Public,
+                _ => {
+                    // The JoinRule enum is non-exhaustive. Let's do a white lie and pretend it's
+                    // private (a cautious choice).
+                    SpaceRoomJoinRule::Private
+                }
+            },
+            is_world_readable: *room_info.history_visibility() == HistoryVisibility::WorldReadable,
 
             num_joined_members,
             state,
@@ -95,14 +109,72 @@ impl RoomPreview {
 
     #[instrument(skip(client))]
     pub(crate) async fn from_unknown(client: &Client, room_id: &RoomId) -> crate::Result<Self> {
-        // TODO: (optimization) Use the room summary endpoint, if available, as
-        // described in https://github.com/deepbluev7/matrix-doc/blob/room-summaries/proposals/3266-room-summary.md
+        // Use the room summary endpoint, if available, as described in
+        // https://github.com/deepbluev7/matrix-doc/blob/room-summaries/proposals/3266-room-summary.md
+        match Self::from_room_summary(client, room_id).await {
+            Ok(res) => return Ok(res),
+            Err(err) => {
+                warn!("error when previewing room from the room summary endpoint: {err}");
+            }
+        }
 
         // TODO: (optimization) Use the room search directory, if available:
         // - if the room directory visibility is public,
         // - then use a public room filter set to this room id
 
         // Resort to using the room state endpoint, as well as the joined members one.
+        Self::from_state_events(client, room_id).await
+    }
+
+    /// Get a [`RoomPreview`] using MSC3266, if available on the remote server.
+    ///
+    /// Will fail with a 404 if the API is not available.
+    ///
+    /// This method is exposed for testing purposes; clients should prefer
+    /// `Client::get_room_preview` in general over this.
+    pub async fn from_room_summary(client: &Client, room_id: &RoomId) -> crate::Result<Self> {
+        let request = ruma::api::client::room::get_summary::msc3266::Request::new(
+            room_id.to_owned().into(),
+            Vec::new(),
+        );
+
+        let response = client.send(request, None).await?;
+
+        // The server returns a `Left` room state for rooms the user has not joined. Be
+        // more precise than that, and set it to `None` if we haven't joined
+        // that room.
+        let state = if client.get_room(room_id).is_none() {
+            None
+        } else {
+            response.membership.map(|membership| RoomState::from(&membership))
+        };
+
+        Ok(RoomPreview {
+            canonical_alias: response.canonical_alias,
+            name: response.name,
+            topic: response.topic,
+            avatar_url: response.avatar_url,
+            num_joined_members: response.num_joined_members.into(),
+            room_type: response.room_type,
+            join_rule: response.join_rule,
+            is_world_readable: response.world_readable,
+            state,
+        })
+    }
+
+    /// Get a [`RoomPreview`] using the room state endpoint.
+    ///
+    /// This is always available on a remote server, but will only work if one
+    /// of these two conditions is true:
+    ///
+    /// - the user has joined the room at some point (i.e. they're still joined
+    ///   or they've joined
+    /// it and left it later).
+    /// - the room has an history visibility set to world-readable.
+    ///
+    /// This method is exposed for testing purposes; clients should prefer
+    /// `Client::get_room_preview` in general over this.
+    pub async fn from_state_events(client: &Client, room_id: &RoomId) -> crate::Result<Self> {
         let state_request = get_state_events::v3::Request::new(room_id.to_owned());
         let joined_members_request = joined_members::v3::Request::new(room_id.to_owned());
 
@@ -128,6 +200,8 @@ impl RoomPreview {
             room_info.handle_state_event(&ev.into());
         }
 
-        Ok(Self::from_room_info(room_info, num_joined_members, None))
+        let state = client.get_room(room_id).map(|room| room.state());
+
+        Ok(Self::from_room_info(room_info, num_joined_members, state))
     }
 }
