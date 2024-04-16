@@ -57,7 +57,7 @@ lipo -create \
 cd ../matrix-sdk-crypto-ffi && cargo run --bin matrix_sdk_crypto_ffi generate \
   --language swift \
   --library "${TARGET_DIR}/aarch64-apple-ios-sim/${REL_TYPE_DIR}/libmatrix_sdk_crypto_ffi.a" \
-  --out-dir ${GENERATED_DIR} \
+  --out-dir ${GENERATED_DIR}
 
 # Move headers to the right place
 HEADERS_DIR=${GENERATED_DIR}/headers
