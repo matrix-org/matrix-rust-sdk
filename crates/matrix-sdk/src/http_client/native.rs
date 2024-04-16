@@ -26,7 +26,7 @@ use eyeball::SharedObservable;
 use http::header::CONTENT_LENGTH;
 use reqwest::Certificate;
 use ruma::api::{
-    client::error::{ErrorBody as ClientApiErrorBody, ErrorKind as ClientApiErrorKind},
+    client::error::{ErrorBody as ClientApiErrorBody, ErrorKind as ClientApiErrorKind, RetryAfter},
     error::FromHttpResponseError,
     IncomingResponse, OutgoingRequest,
 };
@@ -68,13 +68,15 @@ impl HttpClient {
                             let status_code = match api_error {
                                 RumaApiError::ClientApi(e) => match e.body {
                                     ClientApiErrorBody::Standard {
-                                        kind: ClientApiErrorKind::LimitExceeded { retry_after_ms },
+                                        kind: ClientApiErrorKind::LimitExceeded { retry_after },
                                         ..
                                     } => {
-                                        return RetryError::Transient {
-                                            err,
-                                            retry_after: retry_after_ms,
-                                        };
+                                        let retry_after =
+                                            retry_after.and_then(|retry_after| match retry_after {
+                                                RetryAfter::Delay(d) => Some(d),
+                                                RetryAfter::DateTime(_) => None,
+                                            });
+                                        return RetryError::Transient { err, retry_after };
                                     }
                                     _ => Some(e.status_code),
                                 },

@@ -206,7 +206,7 @@ async fn test_login_error() {
             assert_eq!(api_err.status_code, http::StatusCode::from_u16(403).unwrap());
 
             if let client_api::error::ErrorBody::Standard { kind, message } = &api_err.body {
-                if *kind != client_api::error::ErrorKind::Forbidden {
+                if !matches!(*kind, client_api::error::ErrorKind::Forbidden { .. }) {
                     panic!("found the wrong `ErrorKind` {kind:?}, expected `Forbidden");
                 }
 
@@ -247,7 +247,7 @@ async fn test_register_error() {
         if let Some(api_err) = err.as_client_api_error() {
             assert_eq!(api_err.status_code, http::StatusCode::from_u16(403).unwrap());
             if let client_api::error::ErrorBody::Standard { kind, message } = &api_err.body {
-                if *kind != client_api::error::ErrorKind::Forbidden {
+                if !matches!(*kind, client_api::error::ErrorKind::Forbidden { .. }) {
                     panic!("found the wrong `ErrorKind` {kind:?}, expected `Forbidden");
                 }
 
