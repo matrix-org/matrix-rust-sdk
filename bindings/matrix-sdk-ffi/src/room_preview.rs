@@ -1,8 +1,5 @@
 use matrix_sdk::{room_preview::RoomPreview as SdkRoomPreview, RoomState};
-use ruma::{
-    events::room::{history_visibility::HistoryVisibility, join_rules::JoinRule},
-    OwnedRoomId,
-};
+use ruma::{space::SpaceRoomJoinRule, OwnedRoomId};
 
 /// The preview of a room, be it invited/joined/left, or not.
 #[derive(uniffi::Record)]
@@ -43,12 +40,14 @@ impl RoomPreview {
             avatar_url: preview.avatar_url.map(|url| url.to_string()),
             num_joined_members: preview.num_joined_members,
             room_type: preview.room_type.map(|room_type| room_type.to_string()),
-            is_history_world_readable: preview.history_visibility
-                == HistoryVisibility::WorldReadable,
+            is_history_world_readable: preview.is_world_readable,
             is_joined: preview.state.map_or(false, |state| state == RoomState::Joined),
             is_invited: preview.state.map_or(false, |state| state == RoomState::Invited),
-            is_public: preview.join_rule == JoinRule::Public,
-            can_knock: matches!(preview.join_rule, JoinRule::KnockRestricted(_) | JoinRule::Knock),
+            is_public: preview.join_rule == SpaceRoomJoinRule::Public,
+            can_knock: matches!(
+                preview.join_rule,
+                SpaceRoomJoinRule::KnockRestricted | SpaceRoomJoinRule::Knock
+            ),
         }
     }
 }

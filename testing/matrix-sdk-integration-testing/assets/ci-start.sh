@@ -56,6 +56,9 @@ rc_invites:
  per_issuer:
   per_second: 1000
   burst_count: 1000
+
+experimental_features:
+ msc3266_enabled: true
 """ >>  /data/homeserver.yaml
 
 echo " ====== Starting server with:  ====== "
