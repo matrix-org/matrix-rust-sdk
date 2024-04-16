@@ -54,20 +54,19 @@ lipo -create \
   -output "${GENERATED_DIR}/simulator/libmatrix_sdk_crypto_ffi.a"
 
 # Generate uniffi files
-cargo uniffi-bindgen generate \
+cd ../matrix-sdk-crypto-ffi && cargo run --bin matrix_sdk_crypto_ffi generate \
   --language swift \
-  --lib-file "${TARGET_DIR}/aarch64-apple-ios-sim/${REL_TYPE_DIR}/libmatrix_sdk_crypto_ffi.a" \
-  --config "${SRC_ROOT}/bindings/${TARGET_CRATE}/uniffi.toml" \
+  --library "${TARGET_DIR}/aarch64-apple-ios-sim/${REL_TYPE_DIR}/libmatrix_sdk_crypto_ffi.a" \
   --out-dir ${GENERATED_DIR} \
-  "${SRC_ROOT}/bindings/${TARGET_CRATE}/src/olm.udl"
 
 # Move headers to the right place
 HEADERS_DIR=${GENERATED_DIR}/headers
 mkdir -p ${HEADERS_DIR}
 mv ${GENERATED_DIR}/*.h ${HEADERS_DIR}
 
-# Rename and move modulemap to the right place
-mv ${GENERATED_DIR}/*.modulemap ${HEADERS_DIR}/module.modulemap
+# Rename and merge the modulemap files into a single file to the right place
+for f in ${GENERATED_DIR}/*.modulemap; do cat $f; echo; done > ${HEADERS_DIR}/module.modulemap
+rm ${GENERATED_DIR}/*.modulemap
 
 # Move source files to the right place
 SWIFT_DIR="${GENERATED_DIR}/Sources"
