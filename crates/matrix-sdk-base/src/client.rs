@@ -220,7 +220,9 @@ impl BaseClient {
         tracing::debug!("regenerating OlmMachine");
         let session_meta = self.session_meta().ok_or(Error::OlmError(OlmError::MissingSession))?;
 
-        // Recreate it.
+        // Recreate the `OlmMachine` and wipe the in-memory cache in the store
+        // because we suspect it has stale data.
+        self.crypto_store.clear_caches().await;
         let olm_machine = OlmMachine::with_store(
             &session_meta.user_id,
             &session_meta.device_id,

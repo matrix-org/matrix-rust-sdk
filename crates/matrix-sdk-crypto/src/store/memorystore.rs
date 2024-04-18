@@ -145,6 +145,14 @@ type Result<T> = std::result::Result<T, Infallible>;
 impl CryptoStore for MemoryStore {
     type Error = Infallible;
 
+    async fn clear_caches(&self) {
+        // no-op: it makes no sense to delete fields here as we would forget our
+        // identity, etc Effectively we have no caches as the fields
+        // *are* the underlying store. Calling this method only makes
+        // sense if there is some other layer (e.g disk) persistence
+        // happening.
+    }
+
     async fn load_account(&self) -> Result<Option<Account>> {
         Ok(self.account.read().unwrap().as_ref().map(|acc| acc.deep_clone()))
     }
@@ -717,6 +725,10 @@ mod integration_tests {
     #[async_trait]
     impl CryptoStore for PersistentMemoryStore {
         type Error = <MemoryStore as CryptoStore>::Error;
+
+        async fn clear_caches(&self) {
+            self.0.clear_caches().await
+        }
 
         async fn load_account(&self) -> Result<Option<Account>, Self::Error> {
             self.0.load_account().await
