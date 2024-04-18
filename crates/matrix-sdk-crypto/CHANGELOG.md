@@ -25,6 +25,9 @@ Breaking changes:
 
 Additions:
 
+- Expose new method `CryptoStore::clear_caches`.
+  ([#3338](https://github.com/matrix-org/matrix-rust-sdk/pull/3338))
+
 - Expose new method `OlmMachine::device_creation_time`.
   ([#3275](https://github.com/matrix-org/matrix-rust-sdk/pull/3275))
 
