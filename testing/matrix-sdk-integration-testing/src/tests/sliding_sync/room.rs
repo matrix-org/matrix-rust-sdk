@@ -1058,45 +1058,14 @@ async fn test_room_preview() -> Result<()> {
     let sliding_alice = alice
         .sliding_sync("main")?
         .with_all_extensions()
-        .poll_timeout(Duration::from_secs(2))
-        .network_timeout(Duration::from_secs(2))
+        .poll_timeout(Duration::from_secs(5))
+        .network_timeout(Duration::from_secs(5))
         .add_list(
             SlidingSyncList::builder("all")
                 .sync_mode(SlidingSyncMode::new_selective().add_range(0..=20)),
         )
         .build()
         .await?;
-
-    // Set up sliding sync for bob.
-    let sliding_bob = bob
-        .sliding_sync("main")?
-        .with_all_extensions()
-        .poll_timeout(Duration::from_secs(2))
-        .network_timeout(Duration::from_secs(2))
-        .add_list(
-            SlidingSyncList::builder("all")
-                .sync_mode(SlidingSyncMode::new_selective().add_range(0..=20)),
-        )
-        .build()
-        .await?;
-
-    let s = sliding_alice.clone();
-    spawn(async move {
-        let stream = s.sync();
-        pin_mut!(stream);
-        while let Some(up) = stream.next().await {
-            warn!("alice received update: {up:?}");
-        }
-    });
-
-    let s = sliding_bob.clone();
-    spawn(async move {
-        let stream = s.sync();
-        pin_mut!(stream);
-        while let Some(up) = stream.next().await {
-            warn!("bob received update: {up:?}");
-        }
-    });
 
     // Alice creates a room in which they're alone, to start with.
     let suffix: u128 = rand::thread_rng().gen();
@@ -1122,8 +1091,18 @@ async fn test_room_preview() -> Result<()> {
 
     let room_id = room.room_id();
 
-    // Wait for sliding sync to return the result of the newly created room.
-    sleep(Duration::from_secs(1)).await;
+    // Wait for Alice's stream to stabilize (stop updating when we haven't received
+    // successful updates for more than 2 seconds).
+    let stream = sliding_alice.sync();
+    pin_mut!(stream);
+    loop {
+        match timeout(Duration::from_secs(2), stream.next()).await {
+            Ok(None) | Err(_) => break,
+            Ok(Some(up)) => {
+                warn!("alice got an update: {up:?}");
+            }
+        }
+    }
 
     let preview = alice.get_room_preview(room_id).await?;
     assert_eq!(preview.canonical_alias.unwrap().alias(), room_alias);
