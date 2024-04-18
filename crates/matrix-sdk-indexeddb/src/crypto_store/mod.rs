@@ -1276,7 +1276,7 @@ impl_crypto_store! {
 
     async fn clear_caches(&self) {
         self.session_cache.clear()
-        // We don't need to clear static_account as it only contains immutable data
+        // We don't need to clear `static_account` as it only contains immutable data
         // therefore cannot get out of sync with the underlying store.
     }
 }
