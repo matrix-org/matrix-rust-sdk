@@ -52,6 +52,7 @@ use tracing::{field, info_span, Instrument as _};
 #[cfg(feature = "e2e-encryption")]
 use super::traits::Decryptor;
 use super::{
+    event_handler::TimelineEventKind,
     event_item::EventItemIdentifier,
     reactions::ReactionToggleResult,
     traits::RoomDataProvider,
@@ -316,7 +317,10 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                     sender,
                     sender_profile,
                     txn_id.clone(),
-                    event_content.clone(),
+                    TimelineEventKind::Message {
+                        content: event_content.clone(),
+                        relations: Default::default(),
+                    },
                 );
                 ReactionState::Sending(txn_id)
             }
@@ -468,7 +472,12 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         let profile = self.room_data_provider.profile_from_user_id(&sender).await;
 
         let mut state = self.state.write().await;
-        state.handle_local_event(sender, profile, txn_id, content);
+        state.handle_local_event(
+            sender,
+            profile,
+            txn_id,
+            TimelineEventKind::Message { content, relations: Default::default() },
+        );
     }
 
     /// Handle the redaction of a local event.
