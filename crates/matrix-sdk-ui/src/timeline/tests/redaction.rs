@@ -35,7 +35,10 @@ use ruma::{
 use stream_assert::assert_next_matches;
 
 use super::TestTimeline;
-use crate::timeline::{AnyOtherFullStateEventContent, TimelineDetails, TimelineItemContent};
+use crate::timeline::{
+    event_item::RemoteEventOrigin, inner::TimelineEnd, AnyOtherFullStateEventContent,
+    TimelineDetails, TimelineItemContent,
+};
 
 #[async_test]
 async fn test_redact_state_event() {
@@ -152,7 +155,8 @@ async fn test_reaction_redaction_timeline_filter() {
                     .event_builder
                     .make_sync_redacted_message_event(*ALICE, RedactedReactionEventContent::new()),
             )],
-            crate::timeline::inner::TimelineEnd::Back { from_cache: false },
+            TimelineEnd::Back,
+            RemoteEventOrigin::Sync,
         )
         .await;
     // Timeline items are actually empty.

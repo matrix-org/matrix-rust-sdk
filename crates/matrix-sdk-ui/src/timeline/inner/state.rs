@@ -38,7 +38,7 @@ use crate::{
             Flow, HandleEventResult, TimelineEventContext, TimelineEventHandler, TimelineEventKind,
             TimelineItemPosition,
         },
-        event_item::EventItemIdentifier,
+        event_item::{EventItemIdentifier, RemoteEventOrigin},
         polls::PollPendingEvents,
         reactions::{ReactionToggleResult, Reactions},
         read_receipts::ReadReceipts,
@@ -59,10 +59,7 @@ pub(crate) enum TimelineEnd {
     /// Event should be prepended to the front of the timeline.
     Front,
     /// Event should appended to the back of the timeline.
-    Back {
-        /// Did the event come from the cache?
-        from_cache: bool,
-    },
+    Back,
 }
 
 #[derive(Debug)]
@@ -100,6 +97,7 @@ impl TimelineInnerState {
         &mut self,
         events: Vec<impl Into<SyncTimelineEvent>>,
         position: TimelineEnd,
+        origin: RemoteEventOrigin,
         room_data_provider: &P,
         settings: &TimelineInnerSettings,
     ) -> HandleManyEventsResult {
@@ -109,7 +107,7 @@ impl TimelineInnerState {
 
         let mut txn = self.transaction();
         let handle_many_res =
-            txn.add_events_at(events, position, room_data_provider, settings).await;
+            txn.add_events_at(events, position, origin, room_data_provider, settings).await;
         txn.commit();
 
         handle_many_res
@@ -135,7 +133,8 @@ impl TimelineInnerState {
 
         txn.add_events_at(
             events,
-            TimelineEnd::Back { from_cache: false },
+            TimelineEnd::Back,
+            RemoteEventOrigin::Sync,
             room_data_provider,
             settings,
         )
@@ -398,14 +397,15 @@ impl TimelineInnerStateTransaction<'_> {
         &mut self,
         events: Vec<impl Into<SyncTimelineEvent>>,
         position: TimelineEnd,
+        origin: RemoteEventOrigin,
         room_data_provider: &P,
         settings: &TimelineInnerSettings,
     ) -> HandleManyEventsResult {
         let mut total = HandleManyEventsResult::default();
 
         let position = match position {
-            TimelineEnd::Front => TimelineItemPosition::Start,
-            TimelineEnd::Back { from_cache } => TimelineItemPosition::End { from_cache },
+            TimelineEnd::Front => TimelineItemPosition::Start { origin },
+            TimelineEnd::Back => TimelineItemPosition::End { origin },
         };
 
         let mut day_divider_adjuster = DayDividerAdjuster::default();
@@ -630,7 +630,9 @@ impl TimelineInnerStateTransaction<'_> {
         settings: &TimelineInnerSettings,
     ) {
         match position {
-            TimelineItemPosition::Start => self.meta.all_events.push_front(event_meta.base_meta()),
+            TimelineItemPosition::Start { .. } => {
+                self.meta.all_events.push_front(event_meta.base_meta())
+            }
             TimelineItemPosition::End { .. } => {
                 // Handle duplicated event.
                 if let Some(pos) =
@@ -660,7 +662,10 @@ impl TimelineInnerStateTransaction<'_> {
         }
 
         if settings.track_read_receipts
-            && matches!(position, TimelineItemPosition::Start | TimelineItemPosition::End { .. })
+            && matches!(
+                position,
+                TimelineItemPosition::Start { .. } | TimelineItemPosition::End { .. }
+            )
         {
             self.load_read_receipts_for_event(event_meta.event_id, room_data_provider).await;
 

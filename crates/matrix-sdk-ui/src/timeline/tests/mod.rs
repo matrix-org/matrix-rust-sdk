@@ -48,6 +48,7 @@ use ruma::{
 
 use super::{
     event_handler::TimelineEventKind,
+    event_item::RemoteEventOrigin,
     inner::{ReactionAction, TimelineEnd, TimelineInnerSettings},
     reactions::ReactionToggleResult,
     traits::RoomDataProvider,
@@ -255,7 +256,9 @@ impl TestTimeline {
 
     async fn handle_back_paginated_custom_event(&self, event: Raw<AnyTimelineEvent>) {
         let timeline_event = TimelineEvent::new(event.cast());
-        self.inner.add_events_at(vec![timeline_event], TimelineEnd::Front).await;
+        self.inner
+            .add_events_at(vec![timeline_event], TimelineEnd::Front, RemoteEventOrigin::Pagination)
+            .await;
     }
 
     async fn handle_read_receipts(
