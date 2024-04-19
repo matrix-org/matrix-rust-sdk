@@ -21,10 +21,7 @@ use matrix_sdk::{
     executor::spawn,
     Room,
 };
-use ruma::{
-    events::{receipt::ReceiptType, AnySyncTimelineEvent},
-    RoomVersionId,
-};
+use ruma::{events::AnySyncTimelineEvent, RoomVersionId};
 use tokio::sync::{broadcast, mpsc};
 use tracing::{info, info_span, trace, warn, Instrument, Span};
 
@@ -35,7 +32,7 @@ use super::{
     queue::send_queued_messages,
     BackPaginationStatus, Timeline, TimelineDropHandle,
 };
-use crate::{timeline::inner::TimelineEnd, unable_to_decrypt_hook::UtdHookManager};
+use crate::unable_to_decrypt_hook::UtdHookManager;
 
 /// Builder that allows creating and configuring various parts of a
 /// [`Timeline`].
@@ -137,26 +134,16 @@ impl TimelineBuilder {
         let (events, mut event_subscriber) = room_event_cache.subscribe().await?;
 
         let has_events = !events.is_empty();
-        let track_read_marker_and_receipts = settings.track_read_receipts;
 
-        let mut inner = TimelineInner::new(room, unable_to_decrypt_hook).with_settings(settings);
+        let inner = TimelineInner::new(room, unable_to_decrypt_hook).with_settings(settings);
 
-        if track_read_marker_and_receipts {
-            inner.populate_initial_user_receipt(ReceiptType::Read).await;
-            inner.populate_initial_user_receipt(ReceiptType::ReadPrivate).await;
-        }
-
-        if has_events {
-            inner.add_events_at(events, TimelineEnd::Back { from_cache: true }).await;
-        }
-        if track_read_marker_and_receipts {
-            inner.load_fully_read_event().await;
-        }
+        inner.replace_with_initial_events(events).await;
 
         let room = inner.room();
         let client = room.client();
 
         let room_update_join_handle = spawn({
+            let room_event_cache = room_event_cache.clone();
             let inner = inner.clone();
 
             let span =
@@ -177,7 +164,23 @@ impl TimelineBuilder {
                                 num_skipped,
                                 "Lagged behind event cache updates, resetting timeline"
                             );
-                            inner.clear().await;
+
+                            // The updates might have lagged, but the room event cache might have
+                            // events, so retrieve them and add them back again to the timeline,
+                            // after clearing it.
+                            //
+                            // If we can't get a handle on the room cache's events, just clear the
+                            // current timeline.
+                            match room_event_cache.subscribe().await {
+                                Ok((events, _)) => {
+                                    inner.replace_with_initial_events(events).await;
+                                }
+                                Err(err) => {
+                                    warn!("Error when re-inserting initial events into the timeline: {err}");
+                                    inner.clear().await;
+                                }
+                            }
+
                             continue;
                         }
                     };
