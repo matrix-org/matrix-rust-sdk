@@ -107,12 +107,13 @@ pub(super) enum TimelineEventKind {
         relations: BundledMessageLikeRelations<AnySyncMessageLikeEvent>,
     },
 
-    /// Some event that was redacted a priori, i.e. we never had the original
-    /// content, so we'll just display a dummy redacted timeline item.
+    /// Some remote event that was redacted a priori, i.e. we never had the
+    /// original content, so we'll just display a dummy redacted timeline
+    /// item.
     RedactedMessage { event_type: MessageLikeEventType },
 
-    /// We're redacting an event that we may or may not know about (i.e. the
-    /// redacted event *may* have a corresponding timeline item).
+    /// We're redacting a remote event that we may or may not know about (i.e.
+    /// the redacted event *may* have a corresponding timeline item).
     Redaction { redacts: OwnedEventId },
 
     /// A redaction of a local echo.

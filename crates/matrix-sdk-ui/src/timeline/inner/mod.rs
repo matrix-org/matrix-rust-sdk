@@ -92,7 +92,13 @@ pub(super) enum ReactionAction {
 
 #[derive(Debug, Clone)]
 pub(super) enum ReactionState {
+    /// We're redacting a reaction.
+    ///
+    /// The optional event id is defined if, and only if, there already was a
+    /// remote echo for this reaction.
     Redacting(Option<OwnedEventId>),
+    /// We're sending the reaction with the given transaction id, which we'll
+    /// use to match against the response in the sync event.
     Sending(OwnedTransactionId),
 }
 
@@ -277,7 +283,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             item.to_owned()
         };
 
-        let (to_redact_local, to_redact_remote) = {
+        let (local_echo_txn_id, remote_echo_event_id) = {
             let reactions = related_event.reactions();
 
             let user_reactions =
@@ -295,10 +301,9 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
         let sender = self.room_data_provider.own_user_id().to_owned();
         let sender_profile = self.room_data_provider.profile_from_user_id(&sender).await;
-        let reaction_state = match (to_redact_local, to_redact_remote) {
+        let reaction_state = match (local_echo_txn_id, remote_echo_event_id) {
             (None, None) => {
                 // No previous record of the reaction, create a local echo.
-
                 let in_flight =
                     state.meta.in_flight_reaction.get::<AnnotationKey>(&annotation.into());
                 let txn_id = match in_flight {
@@ -321,24 +326,24 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                         relations: Default::default(),
                     },
                 );
+
                 ReactionState::Sending(txn_id)
             }
 
-            (to_redact_local, to_redact_remote) => {
-                // The reaction exists, redact local echo and/or remote echo
-
-                let content = if let Some(to_redact_local) = to_redact_local {
-                    TimelineEventKind::LocalRedaction { redacts: to_redact_local.clone() }
-                } else if let Some(to_redact_remote) = to_redact_remote {
-                    TimelineEventKind::Redaction { redacts: to_redact_remote.clone() }
+            (local_echo_txn_id, remote_echo_event_id) => {
+                // The reaction exists, redact local echo and/or remote echo.
+                let content = if let Some(txn_id) = local_echo_txn_id {
+                    TimelineEventKind::LocalRedaction { redacts: txn_id.clone() }
+                } else if let Some(event_id) = remote_echo_event_id {
+                    TimelineEventKind::Redaction { redacts: event_id.clone() }
                 } else {
                     unreachable!("the None/None case has been handled above")
                 };
 
                 state.handle_local_event(sender, sender_profile, TransactionId::new(), content);
 
-                // Remember the remote echo to redact on the homeserver
-                ReactionState::Redacting(to_redact_remote.cloned())
+                // Remember the remote echo to redact on the homeserver.
+                ReactionState::Redacting(remote_echo_event_id.cloned())
             }
         };
 
