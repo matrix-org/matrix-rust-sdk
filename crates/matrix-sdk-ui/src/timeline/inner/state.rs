@@ -21,10 +21,7 @@ use matrix_sdk_base::deserialized_responses::TimelineEvent;
 #[cfg(test)]
 use ruma::events::receipt::ReceiptEventContent;
 use ruma::{
-    events::{
-        relation::Annotation, room::redaction::RoomRedactionEventContent,
-        AnyMessageLikeEventContent, AnySyncEphemeralRoomEvent,
-    },
+    events::{relation::Annotation, AnyMessageLikeEventContent, AnySyncEphemeralRoomEvent},
     push::Action,
     serde::Raw,
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
@@ -159,7 +156,7 @@ impl TimelineInnerState {
         txn.commit();
     }
 
-    /// Handle the creation of a new local event.
+    /// Adds a local echo (for an event) to the timeline.
     pub(super) fn handle_local_event(
         &mut self,
         own_user_id: OwnedUserId,
@@ -194,7 +191,9 @@ impl TimelineInnerState {
         txn.commit();
     }
 
-    /// Handle the local redaction of an event.
+    /// Locally handle the redaction of an event, be it a local echo
+    /// (`LocalRedaction`) or something that already had a remote echo
+    /// (`Redaction`).
     #[instrument(skip_all)]
     pub(super) fn handle_local_redaction(
         &mut self,
@@ -202,7 +201,6 @@ impl TimelineInnerState {
         own_profile: Option<Profile>,
         txn_id: OwnedTransactionId,
         to_redact: EventItemIdentifier,
-        content: RoomRedactionEventContent,
     ) {
         let ctx = TimelineEventContext {
             sender: own_user_id,
@@ -214,7 +212,7 @@ impl TimelineInnerState {
             read_receipts: Default::default(),
             // An event sent by ourself is never matched against push rules.
             is_highlighted: false,
-            flow: Flow::Local { txn_id: txn_id.clone() },
+            flow: Flow::Local { txn_id },
         };
 
         let mut txn = self.transaction();
@@ -222,20 +220,16 @@ impl TimelineInnerState {
 
         let mut day_divider_adjuster = DayDividerAdjuster::default();
 
-        match to_redact {
+        let event_kind = match to_redact {
             EventItemIdentifier::TransactionId(txn_id) => {
-                timeline_event_handler.handle_event(
-                    &mut day_divider_adjuster,
-                    TimelineEventKind::LocalRedaction { redacts: txn_id, content: content.clone() },
-                );
+                TimelineEventKind::LocalRedaction { redacts: txn_id }
             }
             EventItemIdentifier::EventId(event_id) => {
-                timeline_event_handler.handle_event(
-                    &mut day_divider_adjuster,
-                    TimelineEventKind::Redaction { redacts: event_id, content },
-                );
+                TimelineEventKind::Redaction { redacts: event_id }
             }
-        }
+        };
+
+        timeline_event_handler.handle_event(&mut day_divider_adjuster, event_kind);
 
         txn.adjust_day_dividers(day_divider_adjuster);
 
