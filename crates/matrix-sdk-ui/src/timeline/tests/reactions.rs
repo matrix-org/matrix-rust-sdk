@@ -27,7 +27,6 @@ use ruma::{
 use stream_assert::assert_next_matches;
 
 use crate::timeline::{
-    event_item::EventItemIdentifier,
     inner::ReactionAction,
     reactions::ReactionToggleResult,
     tests::{assert_event_is_updated, assert_no_more_updates, TestTimeline},
@@ -146,7 +145,7 @@ async fn test_redact_reaction_from_non_existing_event() {
     let mut stream = timeline.subscribe().await;
     let reaction_id = EventId::new(server_name!("example.org")); // non existent event
 
-    timeline.handle_local_redaction_event(EventItemIdentifier::EventId(reaction_id)).await;
+    timeline.handle_local_redaction_event(&reaction_id).await;
 
     assert_no_more_updates(&mut stream).await;
 }

@@ -189,27 +189,6 @@ impl TimelineInnerState {
         txn.commit();
     }
 
-    /// Locally handle the redaction of an event, be it a local echo
-    /// (`LocalRedaction`) or something that already had a remote echo
-    /// (`Redaction`).
-    pub(super) fn handle_local_redaction(
-        &mut self,
-        own_user_id: OwnedUserId,
-        own_profile: Option<Profile>,
-        txn_id: OwnedTransactionId,
-        to_redact: EventItemIdentifier,
-    ) {
-        let content = match to_redact {
-            EventItemIdentifier::TransactionId(txn_id) => {
-                TimelineEventKind::LocalRedaction { redacts: txn_id }
-            }
-            EventItemIdentifier::EventId(event_id) => {
-                TimelineEventKind::Redaction { redacts: event_id }
-            }
-        };
-        self.handle_local_event(own_user_id, own_profile, txn_id, content);
-    }
-
     #[cfg(feature = "e2e-encryption")]
     pub(super) async fn retry_event_decryption<P: RoomDataProvider, Fut>(
         &mut self,
