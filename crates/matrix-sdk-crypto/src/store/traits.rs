@@ -303,6 +303,13 @@ pub trait CryptoStore: AsyncTraitDeps {
 
     /// Load the next-batch token for a to-device query, if any.
     async fn next_batch_token(&self) -> Result<Option<String>, Self::Error>;
+
+    /// Clear any in-memory caches because they may be out of sync with the
+    /// underlying data store.
+    ///
+    /// If the store does not have any underlying persistence (e.g in-memory
+    /// store) then this should be a no-op.
+    async fn clear_caches(&self);
 }
 
 #[repr(transparent)]
@@ -319,6 +326,10 @@ impl<T: fmt::Debug> fmt::Debug for EraseCryptoStoreError<T> {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
     type Error = CryptoStoreError;
+
+    async fn clear_caches(&self) {
+        self.0.clear_caches().await
+    }
 
     async fn load_account(&self) -> Result<Option<Account>> {
         self.0.load_account().await.map_err(Into::into)

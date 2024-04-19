@@ -682,6 +682,13 @@ impl SqliteObjectCryptoStoreExt for deadpool_sqlite::Object {}
 impl CryptoStore for SqliteCryptoStore {
     type Error = Error;
 
+    async fn clear_caches(&self) {
+        self.session_cache.clear()
+        // We don't need to clear `static_account` as it only contains immutable
+        // data therefore cannot get out of sync with the underlying
+        // store.
+    }
+
     async fn load_account(&self) -> Result<Option<Account>> {
         let conn = self.acquire().await?;
         if let Some(pickle) = conn.get_kv("account").await? {
@@ -1304,7 +1311,11 @@ mod tests {
 
 #[cfg(test)]
 mod encrypted_tests {
-    use matrix_sdk_crypto::{cryptostore_integration_tests, cryptostore_integration_tests_time};
+    use matrix_sdk_crypto::{
+        cryptostore_integration_tests, cryptostore_integration_tests_time,
+        store::{Changes, CryptoStore as _, PendingChanges},
+    };
+    use matrix_sdk_test::async_test;
     use once_cell::sync::Lazy;
     use tempfile::{tempdir, TempDir};
 
@@ -1319,6 +1330,33 @@ mod encrypted_tests {
         SqliteCryptoStore::open(tmpdir_path.to_str().unwrap(), Some(pass))
             .await
             .expect("Can't create a passphrase protected store")
+    }
+
+    #[async_test]
+    async fn cache_cleared() {
+        let store = get_store("cache_cleared", None).await;
+        // Given we created a session and saved it in the store
+        let (account, session) = cryptostore_integration_tests::get_account_and_session().await;
+        let sender_key = session.sender_key.to_base64();
+
+        store
+            .save_pending_changes(PendingChanges { account: Some(account.deep_clone()) })
+            .await
+            .expect("Can't save account");
+
+        let changes = Changes { sessions: vec![session.clone()], ..Default::default() };
+        store.save_changes(changes).await.unwrap();
+
+        store.session_cache.get(&sender_key).expect("We should have a session");
+
+        // When we clear the caches
+        store.clear_caches().await;
+
+        // Then the session is no longer in the cache
+        assert!(
+            store.session_cache.get(&sender_key).is_none(),
+            "Session should not be in the cache!"
+        );
     }
 
     cryptostore_integration_tests!();

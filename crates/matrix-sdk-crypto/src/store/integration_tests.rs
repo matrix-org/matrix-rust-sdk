@@ -71,7 +71,7 @@ macro_rules! cryptostore_integration_tests {
                 Account::with_device_id(alice_id(), alice_device_id())
             }
 
-            async fn get_account_and_session() -> (Account, Session) {
+            pub(crate) async fn get_account_and_session() -> (Account, Session) {
                 let alice = Account::with_device_id(alice_id(), alice_device_id());
                 let mut bob = Account::with_device_id(bob_id(), bob_device_id());
 

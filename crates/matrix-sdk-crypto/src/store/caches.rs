@@ -48,6 +48,13 @@ impl SessionStore {
         Self::default()
     }
 
+    /// Clear all entries in the session store.
+    ///
+    /// This is intended to be used when regenerating olm machines.
+    pub fn clear(&self) {
+        self.entries.write().unwrap().clear()
+    }
+
     /// Add a session to the store.
     ///
     /// Returns true if the session was added, false if the session was
