@@ -21,7 +21,7 @@ use matrix_sdk_base::deserialized_responses::TimelineEvent;
 #[cfg(test)]
 use ruma::events::receipt::ReceiptEventContent;
 use ruma::{
-    events::{relation::Annotation, AnyMessageLikeEventContent, AnySyncEphemeralRoomEvent},
+    events::{relation::Annotation, AnySyncEphemeralRoomEvent},
     push::Action,
     serde::Raw,
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
@@ -157,12 +157,13 @@ impl TimelineInnerState {
     }
 
     /// Adds a local echo (for an event) to the timeline.
+    #[instrument(skip_all)]
     pub(super) fn handle_local_event(
         &mut self,
         own_user_id: OwnedUserId,
         own_profile: Option<Profile>,
         txn_id: OwnedTransactionId,
-        content: AnyMessageLikeEventContent,
+        content: TimelineEventKind,
     ) {
         let ctx = TimelineEventContext {
             sender: own_user_id,
@@ -181,10 +182,7 @@ impl TimelineInnerState {
 
         let mut day_divider_adjuster = DayDividerAdjuster::default();
 
-        TimelineEventHandler::new(&mut txn, ctx).handle_event(
-            &mut day_divider_adjuster,
-            TimelineEventKind::Message { content, relations: Default::default() },
-        );
+        TimelineEventHandler::new(&mut txn, ctx).handle_event(&mut day_divider_adjuster, content);
 
         txn.adjust_day_dividers(day_divider_adjuster);
 
@@ -194,7 +192,6 @@ impl TimelineInnerState {
     /// Locally handle the redaction of an event, be it a local echo
     /// (`LocalRedaction`) or something that already had a remote echo
     /// (`Redaction`).
-    #[instrument(skip_all)]
     pub(super) fn handle_local_redaction(
         &mut self,
         own_user_id: OwnedUserId,
@@ -202,25 +199,7 @@ impl TimelineInnerState {
         txn_id: OwnedTransactionId,
         to_redact: EventItemIdentifier,
     ) {
-        let ctx = TimelineEventContext {
-            sender: own_user_id,
-            sender_profile: own_profile,
-            timestamp: MilliSecondsSinceUnixEpoch::now(),
-            is_own_event: true,
-            // FIXME: Should we supply something here for encrypted rooms?
-            encryption_info: None,
-            read_receipts: Default::default(),
-            // An event sent by ourself is never matched against push rules.
-            is_highlighted: false,
-            flow: Flow::Local { txn_id },
-        };
-
-        let mut txn = self.transaction();
-        let timeline_event_handler = TimelineEventHandler::new(&mut txn, ctx);
-
-        let mut day_divider_adjuster = DayDividerAdjuster::default();
-
-        let event_kind = match to_redact {
+        let content = match to_redact {
             EventItemIdentifier::TransactionId(txn_id) => {
                 TimelineEventKind::LocalRedaction { redacts: txn_id }
             }
@@ -228,12 +207,7 @@ impl TimelineInnerState {
                 TimelineEventKind::Redaction { redacts: event_id }
             }
         };
-
-        timeline_event_handler.handle_event(&mut day_divider_adjuster, event_kind);
-
-        txn.adjust_day_dividers(day_divider_adjuster);
-
-        txn.commit();
+        self.handle_local_event(own_user_id, own_profile, txn_id, content);
     }
 
     #[cfg(feature = "e2e-encryption")]
