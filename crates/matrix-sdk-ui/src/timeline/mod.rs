@@ -59,7 +59,7 @@ use thiserror::Error;
 use tokio::sync::mpsc::Sender;
 use tracing::{debug, error, instrument, trace, warn};
 
-use self::futures::SendAttachment;
+use self::{event_handler::TimelineEventKind, futures::SendAttachment};
 
 mod builder;
 mod day_dividers;
@@ -273,7 +273,15 @@ impl Timeline {
     #[instrument(skip(self, content), fields(room_id = ?self.room().room_id()))]
     pub async fn send(&self, content: AnyMessageLikeEventContent) {
         let txn_id = TransactionId::new();
-        self.inner.handle_local_event(txn_id.clone(), content.clone()).await;
+        self.inner
+            .handle_local_event(
+                txn_id.clone(),
+                TimelineEventKind::Message {
+                    content: content.clone(),
+                    relations: Default::default(),
+                },
+            )
+            .await;
         if self.msg_sender.send(LocalMessage { content, txn_id }).await.is_err() {
             error!("Internal error: timeline message receiver is closed");
         }

@@ -47,7 +47,7 @@ use ruma::{
 };
 
 use super::{
-    event_item::EventItemIdentifier,
+    event_handler::TimelineEventKind,
     inner::{ReactionAction, TimelineEnd, TimelineInnerSettings},
     reactions::ReactionToggleResult,
     traits::RoomDataProvider,
@@ -213,16 +213,23 @@ impl TestTimeline {
 
     async fn handle_local_event(&self, content: AnyMessageLikeEventContent) -> OwnedTransactionId {
         let txn_id = TransactionId::new();
-        self.inner.handle_local_event(txn_id.clone(), content).await;
+        self.inner
+            .handle_local_event(
+                txn_id.clone(),
+                TimelineEventKind::Message { content, relations: Default::default() },
+            )
+            .await;
         txn_id
     }
 
-    async fn handle_local_redaction_event(
-        &self,
-        redacts: EventItemIdentifier,
-    ) -> OwnedTransactionId {
+    async fn handle_local_redaction_event(&self, redacts: &EventId) -> OwnedTransactionId {
         let txn_id = TransactionId::new();
-        self.inner.handle_local_redaction(txn_id.clone(), redacts).await;
+        self.inner
+            .handle_local_event(
+                txn_id.clone(),
+                TimelineEventKind::Redaction { redacts: redacts.to_owned() },
+            )
+            .await;
         txn_id
     }
 

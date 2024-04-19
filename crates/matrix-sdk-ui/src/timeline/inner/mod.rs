@@ -53,7 +53,6 @@ use tracing::{field, info_span, Instrument as _};
 use super::traits::Decryptor;
 use super::{
     event_handler::TimelineEventKind,
-    event_item::EventItemIdentifier,
     reactions::ReactionToggleResult,
     traits::RoomDataProvider,
     util::{rfind_event_by_id, rfind_event_item, RelativePosition},
@@ -328,21 +327,15 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             (to_redact_local, to_redact_remote) => {
                 // The reaction exists, redact local echo and/or remote echo
 
-                let to_redact = if let Some(to_redact_local) = to_redact_local {
-                    EventItemIdentifier::TransactionId(to_redact_local.clone())
+                let content = if let Some(to_redact_local) = to_redact_local {
+                    TimelineEventKind::LocalRedaction { redacts: to_redact_local.clone() }
                 } else if let Some(to_redact_remote) = to_redact_remote {
-                    EventItemIdentifier::EventId(to_redact_remote.clone())
+                    TimelineEventKind::Redaction { redacts: to_redact_remote.clone() }
                 } else {
-                    error!("Transaction id and event id are both missing");
-                    return Err(super::Error::FailedToToggleReaction);
+                    unreachable!("the None/None case has been handled above")
                 };
 
-                state.handle_local_redaction(
-                    sender,
-                    sender_profile,
-                    TransactionId::new(),
-                    to_redact,
-                );
+                state.handle_local_event(sender, sender_profile, TransactionId::new(), content);
 
                 // Remember the remote echo to redact on the homeserver
                 ReactionState::Redacting(to_redact_remote.cloned())
@@ -461,37 +454,18 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             .await;
     }
 
-    /// Handle the creation of a new local event.
+    /// Creates the local echo for an event we're sending.
     #[instrument(skip_all)]
     pub(super) async fn handle_local_event(
         &self,
         txn_id: OwnedTransactionId,
-        content: AnyMessageLikeEventContent,
+        content: TimelineEventKind,
     ) {
         let sender = self.room_data_provider.own_user_id().to_owned();
         let profile = self.room_data_provider.profile_from_user_id(&sender).await;
 
         let mut state = self.state.write().await;
-        state.handle_local_event(
-            sender,
-            profile,
-            txn_id,
-            TimelineEventKind::Message { content, relations: Default::default() },
-        );
-    }
-
-    /// Handle the redaction of a local event.
-    #[cfg(test)]
-    pub(super) async fn handle_local_redaction(
-        &self,
-        txn_id: OwnedTransactionId,
-        to_redact: EventItemIdentifier,
-    ) {
-        let sender = self.room_data_provider.own_user_id().to_owned();
-        let profile = self.room_data_provider.profile_from_user_id(&sender).await;
-
-        let mut state = self.state.write().await;
-        state.handle_local_redaction(sender, profile, txn_id, to_redact);
+        state.handle_local_event(sender, profile, txn_id, content);
     }
 
     /// Update the send state of a local event represented by a transaction ID.
