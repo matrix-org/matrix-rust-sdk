@@ -33,7 +33,6 @@ use ruma::{
     events::{
         receipt::{Receipt, ReceiptThread, ReceiptType},
         relation::Annotation,
-        room::redaction::RoomRedactionEventContent,
         AnyMessageLikeEventContent, AnySyncTimelineEvent, AnyTimelineEvent, EmptyStateKey,
         MessageLikeEventContent, RedactedMessageLikeEventContent, RedactedStateEventContent,
         StaticStateEventContent,
@@ -221,10 +220,9 @@ impl TestTimeline {
     async fn handle_local_redaction_event(
         &self,
         redacts: EventItemIdentifier,
-        content: RoomRedactionEventContent,
     ) -> OwnedTransactionId {
         let txn_id = TransactionId::new();
-        self.inner.handle_local_redaction(txn_id.clone(), redacts, content).await;
+        self.inner.handle_local_redaction(txn_id.clone(), redacts).await;
         txn_id
     }
 

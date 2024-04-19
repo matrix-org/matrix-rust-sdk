@@ -141,14 +141,12 @@ async fn test_redact_reaction_failure() {
 }
 
 #[async_test]
-async fn test_redact_reaction_from_non_existent_event() {
+async fn test_redact_reaction_from_non_existing_event() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe().await;
     let reaction_id = EventId::new(server_name!("example.org")); // non existent event
 
-    timeline
-        .handle_local_redaction_event(EventItemIdentifier::EventId(reaction_id), Default::default())
-        .await;
+    timeline.handle_local_redaction_event(EventItemIdentifier::EventId(reaction_id)).await;
 
     assert_no_more_updates(&mut stream).await;
 }

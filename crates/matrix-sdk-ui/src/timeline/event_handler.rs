@@ -34,7 +34,6 @@ use ruma::{
         room::{
             member::RoomMemberEventContent,
             message::{self, RoomMessageEventContent, RoomMessageEventContentWithoutRelation},
-            redaction::{RoomRedactionEventContent, SyncRoomRedactionEvent},
         },
         AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncStateEvent,
         AnySyncTimelineEvent, BundledMessageLikeRelations, EventContent, FullStateEventContent,
@@ -102,34 +101,40 @@ pub(super) struct TimelineEventContext {
 
 #[derive(Clone, Debug)]
 pub(super) enum TimelineEventKind {
+    /// The common case: a message-like item.
     Message {
         content: AnyMessageLikeEventContent,
         relations: BundledMessageLikeRelations<AnySyncMessageLikeEvent>,
     },
-    RedactedMessage {
-        event_type: MessageLikeEventType,
-    },
-    Redaction {
-        redacts: OwnedEventId,
-        content: RoomRedactionEventContent,
-    },
-    LocalRedaction {
-        redacts: OwnedTransactionId,
-        content: RoomRedactionEventContent,
-    },
+
+    /// Some event that was redacted a priori, i.e. we never had the original
+    /// content, so we'll just display a dummy redacted timeline item.
+    RedactedMessage { event_type: MessageLikeEventType },
+
+    /// We're redacting an event that we may or may not know about (i.e. the
+    /// redacted event *may* have a corresponding timeline item).
+    Redaction { redacts: OwnedEventId },
+
+    /// A redaction of a local echo.
+    LocalRedaction { redacts: OwnedTransactionId },
+
+    /// A timeline event for a room membership update.
     RoomMember {
         user_id: OwnedUserId,
         content: FullStateEventContent<RoomMemberEventContent>,
         sender: OwnedUserId,
     },
-    OtherState {
-        state_key: String,
-        content: AnyOtherFullStateEventContent,
-    },
-    FailedToParseMessageLike {
-        event_type: MessageLikeEventType,
-        error: Arc<serde_json::Error>,
-    },
+
+    /// A state update that's not a [`Self::RoomMember`] event.
+    OtherState { state_key: String, content: AnyOtherFullStateEventContent },
+
+    /// If the timeline is configured to display events that failed to parse, a
+    /// special item indicating a message-like event that couldn't be
+    /// deserialized.
+    FailedToParseMessageLike { event_type: MessageLikeEventType, error: Arc<serde_json::Error> },
+
+    /// If the timeline is configured to display events that failed to parse, a
+    /// special item indicating a state event that couldn't be deserialized.
     FailedToParseState {
         event_type: StateEventType,
         state_key: String,
@@ -143,12 +148,7 @@ impl TimelineEventKind {
         match event {
             AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomRedaction(ev)) => {
                 if let Some(redacts) = ev.redacts(room_version).map(ToOwned::to_owned) {
-                    let content = match ev {
-                        SyncRoomRedactionEvent::Original(e) => e.content,
-                        SyncRoomRedactionEvent::Redacted(_) => Default::default(),
-                    };
-
-                    Self::Redaction { redacts, content }
+                    Self::Redaction { redacts }
                 } else {
                     Self::RedactedMessage { event_type: ev.event_type() }
                 }
@@ -359,11 +359,11 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 }
             }
 
-            TimelineEventKind::Redaction { redacts, content } => {
-                self.handle_redaction(redacts, content);
+            TimelineEventKind::Redaction { redacts } => {
+                self.handle_redaction(redacts);
             }
-            TimelineEventKind::LocalRedaction { redacts, content } => {
-                self.handle_local_redaction(redacts, content);
+            TimelineEventKind::LocalRedaction { redacts } => {
+                self.handle_local_redaction(redacts);
             }
 
             TimelineEventKind::RoomMember { user_id, content, sender } => {
@@ -637,15 +637,22 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         }
     }
 
-    // Redacted redactions are no-ops (unfortunately)
+    /// Looks for the redacted event in all the timeline event items, and
+    /// redacts it.
+    ///
+    /// This only applies to *remote* events; for local items being redacted,
+    /// use [`Self::handle_local_redaction`].
+    ///
+    /// This assumes the redacted event was present in the timeline in the first
+    /// place; it will warn if the redacted event has not been found.
     #[instrument(skip_all, fields(redacts_event_id = ?redacts))]
-    fn handle_redaction(&mut self, redacts: OwnedEventId, _content: RoomRedactionEventContent) {
+    fn handle_redaction(&mut self, redacts: OwnedEventId) {
         // TODO: Apply local redaction of PollResponse and PollEnd events.
         // https://github.com/matrix-org/matrix-rust-sdk/pull/2381#issuecomment-1689647825
 
         let id = EventItemIdentifier::EventId(redacts.clone());
 
-        // Redact the reaction, if any.
+        // If it's a reaction that's being redacted, handle it here.
         if let Some((_, rel)) = self.meta.reactions.map.remove(&id) {
             let found_reacted_to = self.update_timeline_item(&rel.event_id, |_this, event_item| {
                 let Some(remote_event_item) = event_item.as_remote() else {
@@ -703,6 +710,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             // implemented) => no early return here.
         }
 
+        // General path: redact another kind of (non-reaction) event.
         let found_redacted_event = self.update_timeline_item(&redacts, |this, event_item| {
             if event_item.as_remote().is_none() {
                 error!("inconsistent state: redaction received on a non-remote event item");
@@ -726,6 +734,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             debug!("redaction affected no event");
         }
 
+        // Look for any timeline event that's a reply to the redacted event, and redact
+        // the replied-to event there as well.
         self.items.for_each(|mut entry| {
             let Some(event_item) = entry.as_event() else { return };
             let Some(message) = event_item.content.as_message() else { return };
@@ -747,11 +757,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
     // Redacted redactions are no-ops (unfortunately)
     #[instrument(skip_all, fields(redacts_event_id = ?redacts))]
-    fn handle_local_redaction(
-        &mut self,
-        redacts: OwnedTransactionId,
-        _content: RoomRedactionEventContent,
-    ) {
+    fn handle_local_redaction(&mut self, redacts: OwnedTransactionId) {
         let id = EventItemIdentifier::TransactionId(redacts);
 
         // Redact the reaction, if any.

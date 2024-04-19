@@ -414,6 +414,7 @@ impl EventTimelineItem {
         Self { sender_profile, ..self.clone() }
     }
 
+    /// Create a clone of the current item, with content that's been redacted.
     pub(super) fn redact(&self, room_version: &RoomVersionId) -> Self {
         let content = self.content.redact(room_version);
         let kind = match &self.kind {
