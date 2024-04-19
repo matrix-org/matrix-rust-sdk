@@ -213,16 +213,11 @@ impl TimelineEventKind {
 pub(super) enum TimelineItemPosition {
     /// One or more items are prepended to the timeline (i.e. they're the
     /// oldest).
-    ///
-    /// Usually this means items coming from back-pagination.
-    Start,
+    Start { origin: RemoteEventOrigin },
 
     /// One or more items are appended to the timeline (i.e. they're the most
     /// recent).
-    End {
-        /// Whether this event is coming from a local cache.
-        from_cache: bool,
-    },
+    End { origin: RemoteEventOrigin },
 
     /// A single item is updated.
     ///
@@ -832,16 +827,13 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     }
                 }
 
-                let origin = match position {
-                    TimelineItemPosition::Start => RemoteEventOrigin::Pagination,
+                let origin = match *position {
+                    TimelineItemPosition::Start { origin }
+                    | TimelineItemPosition::End { origin } => origin,
 
-                    // We only paginate backwards for now, so End only happens for syncs
-                    TimelineItemPosition::End { from_cache: true } => RemoteEventOrigin::Cache,
-
-                    TimelineItemPosition::End { from_cache: false } => RemoteEventOrigin::Sync,
-
+                    // For updates, reuse the origin of the encrypted event.
                     #[cfg(feature = "e2e-encryption")]
-                    TimelineItemPosition::Update(idx) => self.items[*idx]
+                    TimelineItemPosition::Update(idx) => self.items[idx]
                         .as_event()
                         .and_then(|ev| Some(ev.as_remote()?.origin))
                         .unwrap_or_else(|| {
@@ -875,7 +867,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 self.items.push_back(item);
             }
 
-            Flow::Remote { position: TimelineItemPosition::Start, event_id, .. } => {
+            Flow::Remote { position: TimelineItemPosition::Start { .. }, event_id, .. } => {
                 if self
                     .items
                     .iter()

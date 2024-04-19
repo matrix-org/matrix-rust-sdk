@@ -17,7 +17,7 @@ use std::{fmt, ops::ControlFlow, sync::Arc, time::Duration};
 use matrix_sdk::event_cache::{self, BackPaginationOutcome};
 use tracing::{instrument, trace, warn};
 
-use crate::timeline::inner::TimelineEnd;
+use crate::timeline::{event_item::RemoteEventOrigin, inner::TimelineEnd};
 
 impl super::Timeline {
     /// Add more events to the start of the timeline.
@@ -53,8 +53,14 @@ impl super::Timeline {
                         let num_events = events.len();
                         trace!("Back-pagination succeeded with {num_events} events");
 
-                        let handle_many_res =
-                            self.inner.add_events_at(events, TimelineEnd::Front).await;
+                        let handle_many_res = self
+                            .inner
+                            .add_events_at(
+                                events,
+                                TimelineEnd::Front,
+                                RemoteEventOrigin::Pagination,
+                            )
+                            .await;
 
                         if reached_start {
                             self.back_pagination_status

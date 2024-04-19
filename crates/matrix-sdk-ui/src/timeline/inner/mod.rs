@@ -52,6 +52,7 @@ use tracing::{field, info_span, Instrument as _};
 use super::traits::Decryptor;
 use super::{
     event_handler::TimelineEventKind,
+    event_item::RemoteEventOrigin,
     reactions::ReactionToggleResult,
     traits::RoomDataProvider,
     util::{rfind_event_by_id, rfind_event_item, RelativePosition},
@@ -396,13 +397,16 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         &self,
         events: Vec<impl Into<SyncTimelineEvent>>,
         position: TimelineEnd,
+        origin: RemoteEventOrigin,
     ) -> HandleManyEventsResult {
         if events.is_empty() {
             return Default::default();
         }
 
         let mut state = self.state.write().await;
-        state.add_events_at(events, position, &self.room_data_provider, &self.settings).await
+        state
+            .add_events_at(events, position, origin, &self.room_data_provider, &self.settings)
+            .await
     }
 
     pub(super) async fn clear(&self) {
@@ -433,7 +437,8 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             state
                 .add_events_at(
                     events,
-                    TimelineEnd::Back { from_cache: true },
+                    TimelineEnd::Back,
+                    RemoteEventOrigin::Cache,
                     &self.room_data_provider,
                     &self.settings,
                 )
@@ -468,7 +473,8 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         state
             .add_events_at(
                 vec![event],
-                TimelineEnd::Back { from_cache: false },
+                TimelineEnd::Back,
+                RemoteEventOrigin::Sync,
                 &self.room_data_provider,
                 &self.settings,
             )
