@@ -384,7 +384,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
     /// Populates our own latest read receipt in the in-memory by-user read
     /// receipt cache.
-    pub(super) async fn populate_initial_user_receipt(&mut self, receipt_type: ReceiptType) {
+    pub(super) async fn populate_initial_user_receipt(&self, receipt_type: ReceiptType) {
         let own_user_id = self.room_data_provider.own_user_id().to_owned();
 
         let mut read_receipt = self
@@ -948,6 +948,40 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 impl TimelineInner {
     pub(super) fn room(&self) -> &Room {
         &self.room_data_provider
+    }
+
+    /// Replaces the content of the current timeline with initial events.
+    ///
+    /// Also sets up read receipts and the read marker for a live timeline of a
+    /// room.
+    ///
+    /// This is all done with a single lock guard, since we don't want the state
+    /// to be modified between the clear and re-insertion of new events.
+    pub(super) async fn replace_with_initial_events(&self, events: Vec<SyncTimelineEvent>) {
+        let mut state = self.state.write().await;
+
+        state.clear();
+
+        let track_read_markers = self.settings.track_read_receipts;
+        if track_read_markers {
+            self.populate_initial_user_receipt(ReceiptType::Read).await;
+            self.populate_initial_user_receipt(ReceiptType::ReadPrivate).await;
+        }
+
+        if !events.is_empty() {
+            state
+                .add_events_at(
+                    events,
+                    TimelineEnd::Back { from_cache: true },
+                    &self.room_data_provider,
+                    &self.settings,
+                )
+                .await;
+        }
+
+        if track_read_markers {
+            self.load_fully_read_event().await;
+        }
     }
 
     /// Get the current fully-read event, from storage.
