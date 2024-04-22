@@ -23,6 +23,11 @@ pub struct RoomInfo {
     alternative_aliases: Vec<String>,
     membership: Membership,
     latest_event: Option<Arc<EventTimelineItem>>,
+    /// Member who invited the current user to a room that's in the invited
+    /// state.
+    ///
+    /// Can be missing if the room membership invite event is missing from the
+    /// store.
     inviter: Option<RoomMember>,
     active_members_count: u64,
     invited_members_count: u64,
@@ -75,7 +80,12 @@ impl RoomInfo {
             membership: room.state().into(),
             latest_event,
             inviter: match room.state() {
-                RoomState::Invited => room.invite_details().await?.inviter.map(|m| m.into()),
+                RoomState::Invited => room
+                    .invite_details()
+                    .await
+                    .ok()
+                    .and_then(|details| details.inviter)
+                    .map(Into::into),
                 _ => None,
             },
             active_members_count: room.active_members_count(),
