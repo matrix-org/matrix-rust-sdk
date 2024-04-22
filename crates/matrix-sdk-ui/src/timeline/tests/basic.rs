@@ -316,10 +316,10 @@ async fn test_dedup_initial() {
     assert_eq!(event3.as_event().unwrap().sender(), *CAROL);
 
     // Make sure we reused IDs when deduplicating events
-    assert_eq!(event1.unique_id(), 0);
-    assert_eq!(event2.unique_id(), 1);
-    assert_eq!(event3.unique_id(), 2);
-    assert_eq!(timeline_items[0].unique_id(), 3);
+    assert_eq!(event1.unique_id(), "0");
+    assert_eq!(event2.unique_id(), "1");
+    assert_eq!(event3.unique_id(), "2");
+    assert_eq!(timeline_items[0].unique_id(), "3");
 }
 
 #[async_test]

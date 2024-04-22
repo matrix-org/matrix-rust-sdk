@@ -286,7 +286,7 @@ impl ReadReceiptTimelineUpdate {
             return;
         };
 
-        let event_item_id = event_item.internal_id;
+        let event_item_id = event_item.internal_id.to_owned();
         let mut event_item = event_item.clone();
 
         if let Some(remote_event_item) = event_item.as_remote_mut() {
@@ -321,7 +321,7 @@ impl ReadReceiptTimelineUpdate {
             return;
         };
 
-        let event_item_id = event_item.internal_id;
+        let event_item_id = event_item.internal_id.to_owned();
         let mut event_item = event_item.clone();
 
         if let Some(remote_event_item) = event_item.as_remote_mut() {
@@ -468,7 +468,7 @@ impl TimelineInnerStateTransaction<'_> {
             return;
         };
 
-        let prev_event_item_id = prev_event_item.internal_id;
+        let prev_event_item_id = prev_event_item.internal_id.to_owned();
         let mut prev_event_item = prev_event_item.clone();
 
         let Some(remote_prev_event_item) = prev_event_item.as_remote_mut() else {

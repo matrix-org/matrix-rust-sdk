@@ -1019,7 +1019,7 @@ impl TimelineInner {
         };
 
         trace!("Updating in-reply-to details");
-        let internal_id = item.internal_id;
+        let internal_id = item.internal_id.to_owned();
         let mut item = item.clone();
         item.set_content(TimelineItemContent::Message(
             message.with_in_reply_to(InReplyToDetails {

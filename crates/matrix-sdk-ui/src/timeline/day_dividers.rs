@@ -291,7 +291,10 @@ impl DayDividerAdjuster {
                     }
 
                     let unique_id = replaced.unique_id();
-                    let item = TimelineItem::new(VirtualTimelineItem::DayDivider(ts), unique_id);
+                    let item = TimelineItem::new(
+                        VirtualTimelineItem::DayDivider(ts),
+                        unique_id.to_owned(),
+                    );
 
                     items.set(at, item);
                     max_i = i;

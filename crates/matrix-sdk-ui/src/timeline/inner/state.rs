@@ -332,7 +332,7 @@ impl TimelineInnerState {
             }
         }
 
-        let item = TimelineItem::new(new_related, related.internal_id);
+        let item = TimelineItem::new(new_related, related.internal_id.to_owned());
         self.items.set(idx, item);
 
         Ok(())
@@ -757,10 +757,10 @@ impl TimelineInnerMetadata {
 
     /// Returns the next internal id for a timeline item (and increment our
     /// internal counter).
-    pub fn next_internal_id(&mut self) -> u64 {
+    pub fn next_internal_id(&mut self) -> String {
         let val = self.next_internal_id;
         self.next_internal_id += 1;
-        val
+        format!("{val}")
     }
 
     /// Returns a new timeline item with a fresh internal id.

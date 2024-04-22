@@ -46,7 +46,7 @@ async fn test_remote_echo_full_trip() {
         assert!(event_item.is_local_echo());
         assert_matches!(event_item.send_state(), Some(EventSendState::NotSentYet));
         assert!(!event_item.can_be_replied_to());
-        item.unique_id()
+        item.unique_id().to_owned()
     };
 
     {
