@@ -74,6 +74,7 @@ pub(in crate::timeline) struct TimelineInnerState {
 impl TimelineInnerState {
     pub(super) fn new(
         room_version: RoomVersionId,
+        internal_id_prefix: Option<String>,
         unable_to_decrypt_hook: Option<Arc<UtdHookManager>>,
     ) -> Self {
         Self {
@@ -81,7 +82,11 @@ impl TimelineInnerState {
             // sliding-sync tests with 20 events lag. This should still be
             // small enough.
             items: ObservableVector::with_capacity(32),
-            meta: TimelineInnerMetadata::new(room_version, unable_to_decrypt_hook),
+            meta: TimelineInnerMetadata::new(
+                room_version,
+                internal_id_prefix,
+                unable_to_decrypt_hook,
+            ),
         }
     }
 
@@ -678,6 +683,10 @@ pub(in crate::timeline) struct TimelineInnerMetadata {
     /// remote echoes.
     next_internal_id: u64,
 
+    /// An optional prefix for internal IDs, defined during construction of the
+    /// timeline.
+    internal_id_prefix: Option<String>,
+
     pub reactions: Reactions,
     pub poll_pending_events: PollPendingEvents,
     pub fully_read_event: Option<OwnedEventId>,
@@ -707,6 +716,7 @@ pub(in crate::timeline) struct TimelineInnerMetadata {
 impl TimelineInnerMetadata {
     pub(crate) fn new(
         room_version: RoomVersionId,
+        internal_id_prefix: Option<String>,
         unable_to_decrypt_hook: Option<Arc<UtdHookManager>>,
     ) -> Self {
         Self {
@@ -723,6 +733,7 @@ impl TimelineInnerMetadata {
             in_flight_reaction: Default::default(),
             room_version,
             unable_to_decrypt_hook,
+            internal_id_prefix,
         }
     }
 
@@ -760,7 +771,8 @@ impl TimelineInnerMetadata {
     pub fn next_internal_id(&mut self) -> String {
         let val = self.next_internal_id;
         self.next_internal_id += 1;
-        format!("{val}")
+        let prefix = self.internal_id_prefix.as_deref().unwrap_or("");
+        format!("{prefix}{val}")
     }
 
     /// Returns a new timeline item with a fresh internal id.

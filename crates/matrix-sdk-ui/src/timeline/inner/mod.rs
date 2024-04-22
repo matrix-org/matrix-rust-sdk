@@ -213,10 +213,14 @@ pub fn default_event_filter(event: &AnySyncTimelineEvent, room_version: &RoomVer
 impl<P: RoomDataProvider> TimelineInner<P> {
     pub(super) fn new(
         room_data_provider: P,
+        internal_id_prefix: Option<String>,
         unable_to_decrypt_hook: Option<Arc<UtdHookManager>>,
     ) -> Self {
-        let state =
-            TimelineInnerState::new(room_data_provider.room_version(), unable_to_decrypt_hook);
+        let state = TimelineInnerState::new(
+            room_data_provider.room_version(),
+            internal_id_prefix,
+            unable_to_decrypt_hook,
+        );
         Self {
             state: Arc::new(RwLock::new(state)),
             room_data_provider,

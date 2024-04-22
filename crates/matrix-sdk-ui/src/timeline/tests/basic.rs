@@ -268,21 +268,10 @@ async fn test_dedup_pagination() {
 async fn test_dedup_initial() {
     let timeline = TestTimeline::new();
 
-    let event_a = SyncTimelineEvent::new(
-        timeline
-            .event_builder
-            .make_sync_message_event(*ALICE, RoomMessageEventContent::text_plain("A")),
-    );
-    let event_b = SyncTimelineEvent::new(
-        timeline
-            .event_builder
-            .make_sync_message_event(*BOB, RoomMessageEventContent::text_plain("B")),
-    );
-    let event_c = SyncTimelineEvent::new(
-        timeline
-            .event_builder
-            .make_sync_message_event(*CAROL, RoomMessageEventContent::text_plain("C")),
-    );
+    let factory = EventFactory::new();
+    let event_a = factory.text_msg("A").sender(*ALICE).into_sync();
+    let event_b = factory.text_msg("B").sender(*BOB).into_sync();
+    let event_c = factory.text_msg("C").sender(*CAROL).into_sync();
 
     timeline
         .inner
@@ -320,6 +309,39 @@ async fn test_dedup_initial() {
     assert_eq!(event2.unique_id(), "1");
     assert_eq!(event3.unique_id(), "2");
     assert_eq!(timeline_items[0].unique_id(), "3");
+}
+
+#[async_test]
+async fn test_internal_id_prefix() {
+    let timeline = TestTimeline::with_internal_id_prefix("le_prefix_".to_owned());
+
+    let factory = EventFactory::new();
+    let ev_a = factory.text_msg("A").sender(*ALICE).into_sync();
+    let ev_b = factory.text_msg("B").sender(*BOB).into_sync();
+    let ev_c = factory.text_msg("C").sender(*CAROL).into_sync();
+
+    timeline
+        .inner
+        .add_events_at(vec![ev_a, ev_b, ev_c], TimelineEnd::Back { from_cache: false })
+        .await;
+
+    let timeline_items = timeline.inner.items().await;
+    assert_eq!(timeline_items.len(), 4);
+
+    assert!(timeline_items[0].is_day_divider());
+    assert_eq!(timeline_items[0].unique_id(), "le_prefix_3");
+
+    let event1 = &timeline_items[1];
+    assert_eq!(event1.as_event().unwrap().sender(), *ALICE);
+    assert_eq!(event1.unique_id(), "le_prefix_0");
+
+    let event2 = &timeline_items[2];
+    assert_eq!(event2.as_event().unwrap().sender(), *BOB);
+    assert_eq!(event2.unique_id(), "le_prefix_1");
+
+    let event3 = &timeline_items[3];
+    assert_eq!(event3.as_event().unwrap().sender(), *CAROL);
+    assert_eq!(event3.unique_id(), "le_prefix_2");
 }
 
 #[async_test]
