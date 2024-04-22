@@ -15,6 +15,7 @@
 use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
+use matrix_sdk::test_utils::events::EventFactory;
 use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
 use matrix_sdk_test::{async_test, sync_timeline_event, ALICE, BOB, CAROL};
 use ruma::{
@@ -29,13 +30,16 @@ use ruma::{
         },
         FullStateEventContent,
     },
+    owned_event_id,
 };
 use stream_assert::assert_next_matches;
 
 use super::TestTimeline;
 use crate::timeline::{
-    event_item::AnyOtherFullStateEventContent, inner::TimelineEnd, MembershipChange,
-    TimelineDetails, TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
+    event_item::AnyOtherFullStateEventContent,
+    inner::{TimelineEnd, TimelineInnerSettings},
+    tests::TestRoomDataProvider,
+    MembershipChange, TimelineDetails, TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
 };
 
 #[async_test]
@@ -70,6 +74,33 @@ async fn test_initial_events() {
 
     let item = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
     assert_matches!(&item.kind, TimelineItemKind::Virtual(VirtualTimelineItem::DayDivider(_)));
+}
+
+#[async_test]
+async fn test_replace_with_initial_events_and_read_marker() {
+    let event_id = owned_event_id!("$1");
+    let timeline = TestTimeline::with_room_data_provider(
+        TestRoomDataProvider::default().with_fully_read_marker(event_id),
+    )
+    .with_settings(TimelineInnerSettings { track_read_receipts: true, ..Default::default() });
+
+    let factory = EventFactory::new();
+    let ev = factory.text_msg("hey").sender(*ALICE).into_sync();
+
+    timeline.inner.add_events_at(vec![ev], TimelineEnd::Back { from_cache: false }).await;
+
+    let items = timeline.inner.items().await;
+    assert_eq!(items.len(), 2);
+    assert!(items[0].is_day_divider());
+    assert_eq!(items[1].as_event().unwrap().content().as_message().unwrap().body(), "hey");
+
+    let ev = factory.text_msg("yo").sender(*BOB).into_sync();
+    timeline.inner.replace_with_initial_events(vec![ev]).await;
+
+    let items = timeline.inner.items().await;
+    assert_eq!(items.len(), 2);
+    assert!(items[0].is_day_divider());
+    assert_eq!(items[1].as_event().unwrap().content().as_message().unwrap().body(), "yo");
 }
 
 #[async_test]

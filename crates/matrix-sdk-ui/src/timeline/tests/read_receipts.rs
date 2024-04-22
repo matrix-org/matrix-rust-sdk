@@ -490,7 +490,7 @@ async fn test_initial_public_unthreaded_receipt() {
         );
 
     let timeline = TestTimeline::with_room_data_provider(
-        TestRoomDataProvider::with_initial_user_receipts(initial_user_receipts),
+        TestRoomDataProvider::default().with_initial_user_receipts(initial_user_receipts),
     )
     .with_settings(TimelineInnerSettings { track_read_receipts: true, ..Default::default() });
 
@@ -515,7 +515,7 @@ async fn test_initial_public_main_thread_receipt() {
         );
 
     let timeline = TestTimeline::with_room_data_provider(
-        TestRoomDataProvider::with_initial_user_receipts(initial_user_receipts),
+        TestRoomDataProvider::default().with_initial_user_receipts(initial_user_receipts),
     )
     .with_settings(TimelineInnerSettings { track_read_receipts: true, ..Default::default() });
 
@@ -540,7 +540,7 @@ async fn test_initial_private_unthreaded_receipt() {
         );
 
     let timeline = TestTimeline::with_room_data_provider(
-        TestRoomDataProvider::with_initial_user_receipts(initial_user_receipts),
+        TestRoomDataProvider::default().with_initial_user_receipts(initial_user_receipts),
     )
     .with_settings(TimelineInnerSettings { track_read_receipts: true, ..Default::default() });
 
@@ -565,7 +565,7 @@ async fn test_initial_private_main_thread_receipt() {
         );
 
     let timeline = TestTimeline::with_room_data_provider(
-        TestRoomDataProvider::with_initial_user_receipts(initial_user_receipts),
+        TestRoomDataProvider::default().with_initial_user_receipts(initial_user_receipts),
     )
     .with_settings(TimelineInnerSettings { track_read_receipts: true, ..Default::default() });
 
