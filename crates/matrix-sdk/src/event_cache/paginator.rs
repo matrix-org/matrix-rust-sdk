@@ -19,7 +19,7 @@
 
 use eyeball::{SharedObservable, Subscriber};
 use matrix_sdk_base::{deserialized_responses::TimelineEvent, SendOutsideWasm, SyncOutsideWasm};
-use ruma::{api::Direction, uint, EventId, OwnedEventId};
+use ruma::{api::Direction, EventId, OwnedEventId, UInt};
 use tokio::sync::Mutex;
 
 use crate::{
@@ -157,11 +157,16 @@ impl Paginator {
         self.state.subscribe()
     }
 
-    /// Starts the pagination from the initial event.
+    /// Starts the pagination from the initial event, requesting `num_events`
+    /// additional context events.
     ///
     /// Only works for fresh [`Paginator`] objects, which are in the
     /// [`PaginatorState::Initial`] state.
-    pub async fn start_from(&self, event_id: &EventId) -> Result<StartFromResult, PaginatorError> {
+    pub async fn start_from(
+        &self,
+        event_id: &EventId,
+        num_events: UInt,
+    ) -> Result<StartFromResult, PaginatorError> {
         self.check_state(PaginatorState::Initial)?;
 
         // Note: it's possible two callers have checked the state and both figured it's
@@ -177,7 +182,8 @@ impl Paginator {
         // TODO: do we want to lazy load members?
         let lazy_load_members = true;
 
-        let response = self.room.event_with_context(event_id, lazy_load_members).await?;
+        let response =
+            self.room.event_with_context(event_id, lazy_load_members, num_events).await?;
 
         let has_prev = response.prev_batch_token.is_some();
         let has_next = response.next_batch_token.is_some();
@@ -281,12 +287,24 @@ impl Paginator {
 pub trait PaginableRoom: SendOutsideWasm + SyncOutsideWasm {
     /// Runs a /context query for the given room.
     ///
+    /// ## Parameters
+    ///
+    /// - `event_id` is the identifier of the target event.
+    /// - `lazy_load_members` controls whether room membership events are lazily
+    ///   loaded as context
+    /// state events.
+    /// - `num_events` is the number of events (including the fetched event) to
+    /// return as context.
+    ///
+    /// ## Returns
+    ///
     /// Must return [`PaginatorError::EventNotFound`] whenever the target event
     /// could not be found, instead of causing an http `Err` result.
     async fn event_with_context(
         &self,
         event_id: &EventId,
         lazy_load_members: bool,
+        num_events: UInt,
     ) -> Result<EventWithContextResponse, PaginatorError>;
 
     /// Runs a /messages query for the given room.
@@ -300,8 +318,10 @@ impl PaginableRoom for Room {
         &self,
         event_id: &EventId,
         lazy_load_members: bool,
+        num_events: UInt,
     ) -> Result<EventWithContextResponse, PaginatorError> {
-        let response = match self.event_with_context(event_id, lazy_load_members, uint!(20)).await {
+        let response = match self.event_with_context(event_id, lazy_load_members, num_events).await
+        {
             Ok(result) => result,
 
             Err(err) => {
@@ -337,7 +357,7 @@ mod tests {
     use futures_util::FutureExt as _;
     use matrix_sdk_test::async_test;
     use once_cell::sync::Lazy;
-    use ruma::{event_id, room_id, user_id, RoomId, UserId};
+    use ruma::{event_id, room_id, uint, user_id, RoomId, UserId};
     use tokio::{spawn, sync::Notify};
 
     use super::*;
@@ -389,6 +409,7 @@ mod tests {
             &self,
             event_id: &EventId,
             _lazy_load_members: bool,
+            num_events: UInt,
         ) -> Result<EventWithContextResponse, PaginatorError> {
             // Wait for the room to be marked as ready first.
             if self.wait_for_ready {
@@ -401,10 +422,34 @@ mod tests {
                 .event_id(event_id)
                 .into_timeline();
 
+            // Properly simulate `num_events`: take either the closest num_events events
+            // before, or use all of the before events and then consume after events.
+            let mut num_events = u64::from(num_events) as usize;
+
+            let prev_events = self.prev_events.lock().await;
+
+            let events_before = if prev_events.is_empty() {
+                Vec::new()
+            } else {
+                let len = prev_events.len();
+                let take_before = num_events.min(len);
+                // Subtract is safe because take_before <= num_events.
+                num_events -= take_before;
+                // Subtract is safe because take_before <= len
+                prev_events[len - take_before..len].to_vec()
+            };
+
+            let events_after = self.next_events.lock().await;
+            let events_after = if events_after.is_empty() {
+                Vec::new()
+            } else {
+                events_after[0..num_events.min(events_after.len())].to_vec()
+            };
+
             return Ok(EventWithContextResponse {
                 event: Some(event),
-                events_before: self.prev_events.lock().await.clone(),
-                events_after: self.next_events.lock().await.clone(),
+                events_before,
+                events_after,
                 prev_batch_token: self.prev_batch_token.lock().await.clone(),
                 next_batch_token: self.next_batch_token.lock().await.clone(),
                 state: Vec::new(),
@@ -476,7 +521,8 @@ mod tests {
 
         // When I call `Paginator::start_from`, it works,
         let paginator = Arc::new(Paginator::new(room.clone()));
-        let context = paginator.start_from(event_id).await.expect("start_from should work");
+        let context =
+            paginator.start_from(event_id, uint!(100)).await.expect("start_from should work");
 
         assert!(!context.has_prev);
         assert!(!context.has_next);
@@ -499,6 +545,37 @@ mod tests {
     }
 
     #[async_test]
+    async fn test_start_from_with_num_events() {
+        // Prepare test data.
+        let room = Box::new(TestRoom::new(false, *ROOM_ID, *USER_ID));
+
+        let event_id = event_id!("$yoyoyo");
+        let event_factory = &room.event_factory;
+
+        *room.target_event_text.lock().await = "fetch_from".to_owned();
+        *room.prev_events.lock().await = (0..100)
+            .rev()
+            .map(|i| {
+                TimelineEvent::new(event_factory.text_msg(format!("ev{i}")).into_raw_timeline())
+            })
+            .collect();
+
+        // When I call `Paginator::start_from`, it works,
+        let paginator = Arc::new(Paginator::new(room.clone()));
+        let context =
+            paginator.start_from(event_id, uint!(10)).await.expect("start_from should work");
+
+        // Then I only get 10 events + the target event, even if there was more than 10
+        // events in the room.
+        assert_eq!(context.events.len(), 11);
+
+        for i in 0..10 {
+            assert_event_matches_msg(&context.events[i], &format!("ev{i}"));
+        }
+        assert_event_matches_msg(&context.events[10], "fetch_from");
+    }
+
+    #[async_test]
     async fn test_paginate_backward() {
         // Prepare test data.
         let room = Box::new(TestRoom::new(false, *ROOM_ID, *USER_ID));
@@ -511,7 +588,8 @@ mod tests {
 
         // When I call `Paginator::start_from`, it works,
         let paginator = Arc::new(Paginator::new(room.clone()));
-        let context = paginator.start_from(event_id).await.expect("start_from should work");
+        let context =
+            paginator.start_from(event_id, uint!(100)).await.expect("start_from should work");
 
         // And I get the events I expected.
         assert_eq!(context.events.len(), 1);
@@ -568,7 +646,8 @@ mod tests {
 
         // When I call `Paginator::start_from`, it works,
         let paginator = Arc::new(Paginator::new(room.clone()));
-        let context = paginator.start_from(event_id).await.expect("start_from should work");
+        let context =
+            paginator.start_from(event_id, uint!(100)).await.expect("start_from should work");
 
         // And I get the events I expected.
         assert_eq!(context.events.len(), 1);
@@ -640,14 +719,14 @@ mod tests {
 
         // Running the initial query must work.
         let p = paginator.clone();
-        let join_handle = spawn(async move { p.start_from(event_id).await });
+        let join_handle = spawn(async move { p.start_from(event_id, uint!(100)).await });
 
         assert_eq!(state.next().await, Some(PaginatorState::FetchingTargetEvent));
         assert!(state.next().now_or_never().is_none());
 
         // The query is pending. Running other operations must fail.
         assert_invalid_state(
-            paginator.start_from(event_id),
+            paginator.start_from(event_id, uint!(100)),
             PaginatorState::Initial,
             PaginatorState::FetchingTargetEvent,
         )
@@ -679,7 +758,7 @@ mod tests {
 
         // The query is pending. Running other operations must fail.
         assert_invalid_state(
-            paginator.start_from(event_id),
+            paginator.start_from(event_id, uint!(100)),
             PaginatorState::Initial,
             PaginatorState::Paginating,
         )
