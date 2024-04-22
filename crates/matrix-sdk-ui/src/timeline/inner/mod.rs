@@ -32,7 +32,6 @@ use ruma::RoomId;
 use ruma::{
     api::client::receipt::create_receipt::v3::ReceiptType as SendReceiptType,
     events::{
-        fully_read::FullyReadEvent,
         poll::unstable_start::UnstablePollStartEventContent,
         reaction::ReactionEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
@@ -433,6 +432,44 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         self.state.write().await.clear();
     }
 
+    /// Replaces the content of the current timeline with initial events.
+    ///
+    /// Also sets up read receipts and the read marker for a live timeline of a
+    /// room.
+    ///
+    /// This is all done with a single lock guard, since we don't want the state
+    /// to be modified between the clear and re-insertion of new events.
+    pub(super) async fn replace_with_initial_events(&self, events: Vec<SyncTimelineEvent>) {
+        let mut state = self.state.write().await;
+
+        state.clear();
+
+        let track_read_markers = self.settings.track_read_receipts;
+        if track_read_markers {
+            self.populate_initial_user_receipt(ReceiptType::Read).await;
+            self.populate_initial_user_receipt(ReceiptType::ReadPrivate).await;
+        }
+
+        if !events.is_empty() {
+            state
+                .add_events_at(
+                    events,
+                    TimelineEnd::Back { from_cache: true },
+                    &self.room_data_provider,
+                    &self.settings,
+                )
+                .await;
+        }
+
+        if track_read_markers {
+            if let Some(fully_read_event_id) =
+                self.room_data_provider.load_fully_read_marker().await
+            {
+                state.set_fully_read_event(fully_read_event_id);
+            }
+        }
+    }
+
     pub(super) async fn handle_fully_read_marker(&self, fully_read_event_id: OwnedEventId) {
         self.state.write().await.handle_fully_read_marker(fully_read_event_id);
     }
@@ -674,6 +711,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         }
     }
 
+    #[cfg(any(test, feature = "testing"))]
     pub(super) async fn set_fully_read_event(&self, fully_read_event_id: OwnedEventId) {
         self.state.write().await.set_fully_read_event(fully_read_event_id);
     }
@@ -950,65 +988,6 @@ impl TimelineInner {
         &self.room_data_provider
     }
 
-    /// Replaces the content of the current timeline with initial events.
-    ///
-    /// Also sets up read receipts and the read marker for a live timeline of a
-    /// room.
-    ///
-    /// This is all done with a single lock guard, since we don't want the state
-    /// to be modified between the clear and re-insertion of new events.
-    pub(super) async fn replace_with_initial_events(&self, events: Vec<SyncTimelineEvent>) {
-        let mut state = self.state.write().await;
-
-        state.clear();
-
-        let track_read_markers = self.settings.track_read_receipts;
-        if track_read_markers {
-            self.populate_initial_user_receipt(ReceiptType::Read).await;
-            self.populate_initial_user_receipt(ReceiptType::ReadPrivate).await;
-        }
-
-        if !events.is_empty() {
-            state
-                .add_events_at(
-                    events,
-                    TimelineEnd::Back { from_cache: true },
-                    &self.room_data_provider,
-                    &self.settings,
-                )
-                .await;
-        }
-
-        if track_read_markers {
-            self.load_fully_read_event().await;
-        }
-    }
-
-    /// Get the current fully-read event, from storage.
-    pub(super) async fn fully_read_event(&self) -> Option<FullyReadEvent> {
-        match self.room().account_data_static().await {
-            Ok(Some(fully_read)) => match fully_read.deserialize() {
-                Ok(fully_read) => Some(fully_read),
-                Err(e) => {
-                    error!("Failed to deserialize fully-read account data: {e}");
-                    None
-                }
-            },
-            Err(e) => {
-                error!("Failed to get fully-read account data from the store: {e}");
-                None
-            }
-            _ => None,
-        }
-    }
-
-    /// Load the current fully-read event in this inner timeline from storage.
-    pub(super) async fn load_fully_read_event(&self) {
-        if let Some(fully_read) = self.fully_read_event().await {
-            self.set_fully_read_event(fully_read.content.event_id).await;
-        }
-    }
-
     #[instrument(skip(self))]
     pub(super) async fn fetch_in_reply_to_details(
         &self,
@@ -1126,10 +1105,10 @@ impl TimelineInner {
                 }
             }
             SendReceiptType::FullyRead => {
-                if let Some(old_fully_read) = self.fully_read_event().await {
-                    if let Some(relative_pos) = state
-                        .meta
-                        .compare_events_positions(&old_fully_read.content.event_id, event_id)
+                if let Some(prev_event_id) = self.room_data_provider.load_fully_read_marker().await
+                {
+                    if let Some(relative_pos) =
+                        state.meta.compare_events_positions(&prev_event_id, event_id)
                     {
                         return relative_pos == RelativePosition::After;
                     }

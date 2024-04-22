@@ -281,11 +281,17 @@ type ReadReceiptMap =
 #[derive(Clone, Default)]
 struct TestRoomDataProvider {
     initial_user_receipts: ReadReceiptMap,
+    fully_read_marker: Option<OwnedEventId>,
 }
 
 impl TestRoomDataProvider {
-    fn with_initial_user_receipts(initial_user_receipts: ReadReceiptMap) -> Self {
-        Self { initial_user_receipts }
+    fn with_initial_user_receipts(mut self, initial_user_receipts: ReadReceiptMap) -> Self {
+        self.initial_user_receipts = initial_user_receipts;
+        self
+    }
+    fn with_fully_read_marker(mut self, event_id: OwnedEventId) -> Self {
+        self.fully_read_marker = Some(event_id);
+        self
     }
 }
 
@@ -344,6 +350,10 @@ impl RoomDataProvider for TestRoomDataProvider {
         };
 
         Some((push_rules, push_context))
+    }
+
+    async fn load_fully_read_marker(&self) -> Option<OwnedEventId> {
+        self.fully_read_marker.clone()
     }
 }
 
