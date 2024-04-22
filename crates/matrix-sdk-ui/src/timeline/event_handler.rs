@@ -934,13 +934,13 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                         // If the old item is the last one and no day divider
                         // changes need to happen, replace and return early.
                         trace!(idx, "Replacing existing event");
-                        self.items.set(idx, TimelineItem::new(item, old_item_id));
+                        self.items.set(idx, TimelineItem::new(item, old_item_id.to_owned()));
                         return;
                     }
 
                     // In more complex cases, remove the item before re-adding the item.
                     trace!("Removing local echo or duplicate timeline item");
-                    removed_event_item_id = Some(self.items.remove(idx).internal_id);
+                    removed_event_item_id = Some(self.items.remove(idx).internal_id.clone());
 
                     // no return here, below code for adding a new event
                     // will run to re-add the removed item
@@ -988,7 +988,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             #[cfg(feature = "e2e-encryption")]
             Flow::Remote { position: TimelineItemPosition::Update(idx), .. } => {
                 trace!("Updating timeline item at position {idx}");
-                let id = self.items[*idx].internal_id;
+                let id = self.items[*idx].internal_id.clone();
                 self.items.set(*idx, TimelineItem::new(item, id));
             }
         }
@@ -1040,7 +1040,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             trace!("Found timeline item to update");
             if let Some(new_item) = update(self, item.inner) {
                 trace!("Updating item");
-                self.items.set(idx, TimelineItem::new(new_item, item.internal_id));
+                self.items.set(idx, TimelineItem::new(new_item, item.internal_id.to_owned()));
                 self.result.items_updated += 1;
             }
             true

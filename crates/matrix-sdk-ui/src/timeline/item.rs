@@ -32,17 +32,18 @@ pub enum TimelineItemKind {
 #[derive(Clone, Debug)]
 pub struct TimelineItem {
     pub(crate) kind: TimelineItemKind,
-    pub(crate) internal_id: u64,
+    pub(crate) internal_id: String,
 }
 
 impl TimelineItem {
     /// Create a new `TimelineItem` with the given kind and internal id.
-    pub(crate) fn new(kind: impl Into<TimelineItemKind>, internal_id: u64) -> Arc<Self> {
+    pub(crate) fn new(kind: impl Into<TimelineItemKind>, internal_id: String) -> Arc<Self> {
         Arc::new(TimelineItem { kind: kind.into(), internal_id })
     }
 
+    /// Create a clone of the current `TimelineItem` with the given kind.
     pub(crate) fn with_kind(&self, kind: impl Into<TimelineItemKind>) -> Arc<Self> {
-        Arc::new(Self { kind: kind.into(), internal_id: self.internal_id })
+        Arc::new(Self { kind: kind.into(), internal_id: self.internal_id.clone() })
     }
 
     /// Get the [`TimelineItemKind`] of this item.
@@ -70,14 +71,14 @@ impl TimelineItem {
     /// dividers, identity isn't easy to define though and you might
     /// see a new ID getting generated for a day divider that you
     /// perceive to be "the same" as a previous one.
-    pub fn unique_id(&self) -> u64 {
-        self.internal_id
+    pub fn unique_id(&self) -> &str {
+        &self.internal_id
     }
 
     pub(crate) fn read_marker() -> Arc<TimelineItem> {
         Arc::new(Self {
             kind: TimelineItemKind::Virtual(VirtualTimelineItem::ReadMarker),
-            internal_id: u64::MAX,
+            internal_id: "__read_marker".to_owned(),
         })
     }
 

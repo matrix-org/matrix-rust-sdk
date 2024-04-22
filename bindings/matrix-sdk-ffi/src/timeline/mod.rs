@@ -746,8 +746,8 @@ impl TimelineItem {
         }
     }
 
-    pub fn unique_id(&self) -> u64 {
-        self.0.unique_id()
+    pub fn unique_id(&self) -> String {
+        self.0.unique_id().to_owned()
     }
 
     pub fn fmt_debug(&self) -> String {
