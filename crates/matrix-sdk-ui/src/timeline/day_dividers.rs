@@ -573,7 +573,7 @@ mod tests {
         let mut items = ObservableVector::new();
         let mut txn = items.transaction();
 
-        let mut meta = TimelineInnerMetadata::new(ruma::RoomVersionId::V11, None);
+        let mut meta = TimelineInnerMetadata::new(ruma::RoomVersionId::V11, None, None);
 
         let timestamp = MilliSecondsSinceUnixEpoch(uint!(42));
         let timestamp_next_day =
@@ -607,7 +607,7 @@ mod tests {
         let mut items = ObservableVector::new();
         let mut txn = items.transaction();
 
-        let mut meta = TimelineInnerMetadata::new(ruma::RoomVersionId::V11, None);
+        let mut meta = TimelineInnerMetadata::new(ruma::RoomVersionId::V11, None, None);
 
         let timestamp = MilliSecondsSinceUnixEpoch(uint!(42));
         let timestamp_next_day =

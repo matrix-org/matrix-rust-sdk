@@ -537,9 +537,13 @@ impl RoomListItem {
     /// * `event_type_filter` - An optional [`TimelineEventTypeFilter`] to be
     ///   used to filter timeline events besides the default timeline filter. If
     ///   `None` is passed, only the default timeline filter will be used.
+    /// * `internal_id_prefix` - An optional String that will be prepended to
+    ///   all the timeline item's internal IDs, making it possible to
+    ///   distinguish different timeline instances from each other.
     async fn init_timeline(
         &self,
         event_type_filter: Option<Arc<TimelineEventTypeFilter>>,
+        internal_id_prefix: Option<String>,
     ) -> Result<(), RoomListError> {
         let mut timeline_builder = self
             .inner
@@ -552,6 +556,10 @@ impl RoomListItem {
                 // Always perform the default filter first
                 default_event_filter(event, room_version_id) && event_type_filter.filter(event)
             });
+        }
+
+        if let Some(internal_id_prefix) = internal_id_prefix {
+            timeline_builder = timeline_builder.with_internal_id_prefix(internal_id_prefix);
         }
 
         if let Some(utd_hook) = self.utd_hook.clone() {

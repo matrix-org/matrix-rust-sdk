@@ -45,6 +45,9 @@ pub struct TimelineBuilder {
     /// An optional hook to call whenever we run into an unable-to-decrypt or a
     /// late-decryption event.
     unable_to_decrypt_hook: Option<Arc<UtdHookManager>>,
+
+    /// An optional prefix for internal IDs.
+    internal_id_prefix: Option<String>,
 }
 
 impl TimelineBuilder {
@@ -53,6 +56,7 @@ impl TimelineBuilder {
             room: room.clone(),
             settings: TimelineInnerSettings::default(),
             unable_to_decrypt_hook: None,
+            internal_id_prefix: None,
         }
     }
 
@@ -62,6 +66,15 @@ impl TimelineBuilder {
     /// If it was previously set before, will overwrite the previous one.
     pub fn with_unable_to_decrypt_hook(mut self, hook: Arc<UtdHookManager>) -> Self {
         self.unable_to_decrypt_hook = Some(hook);
+        self
+    }
+
+    /// Sets the internal id prefix for this timeline.
+    ///
+    /// The prefix will be prepended to any internal ID using when generating
+    /// timeline IDs for this timeline.
+    pub fn with_internal_id_prefix(mut self, prefix: String) -> Self {
+        self.internal_id_prefix = Some(prefix);
         self
     }
 
@@ -122,7 +135,7 @@ impl TimelineBuilder {
         )
     )]
     pub async fn build(self) -> event_cache::Result<Timeline> {
-        let Self { room, settings, unable_to_decrypt_hook } = self;
+        let Self { room, settings, unable_to_decrypt_hook, internal_id_prefix } = self;
 
         let client = room.client();
         let event_cache = client.event_cache();
@@ -135,7 +148,8 @@ impl TimelineBuilder {
 
         let has_events = !events.is_empty();
 
-        let inner = TimelineInner::new(room, unable_to_decrypt_hook).with_settings(settings);
+        let inner = TimelineInner::new(room, internal_id_prefix, unable_to_decrypt_hook)
+            .with_settings(settings);
 
         inner.replace_with_initial_events(events).await;
 

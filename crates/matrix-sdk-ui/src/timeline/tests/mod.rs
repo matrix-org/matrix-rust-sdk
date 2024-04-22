@@ -79,16 +79,23 @@ impl TestTimeline {
         Self::with_room_data_provider(TestRoomDataProvider::default())
     }
 
+    fn with_internal_id_prefix(prefix: String) -> Self {
+        Self {
+            inner: TimelineInner::new(TestRoomDataProvider::default(), Some(prefix), None),
+            event_builder: EventBuilder::new(),
+        }
+    }
+
     fn with_room_data_provider(room_data_provider: TestRoomDataProvider) -> Self {
         Self {
-            inner: TimelineInner::new(room_data_provider, None),
+            inner: TimelineInner::new(room_data_provider, None, None),
             event_builder: EventBuilder::new(),
         }
     }
 
     fn with_unable_to_decrypt_hook(hook: Arc<UtdHookManager>) -> Self {
         Self {
-            inner: TimelineInner::new(TestRoomDataProvider::default(), Some(hook)),
+            inner: TimelineInner::new(TestRoomDataProvider::default(), None, Some(hook)),
             event_builder: EventBuilder::new(),
         }
     }
