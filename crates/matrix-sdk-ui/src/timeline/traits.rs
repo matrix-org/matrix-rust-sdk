@@ -16,7 +16,7 @@ use async_trait::async_trait;
 use indexmap::IndexMap;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk::{deserialized_responses::TimelineEvent, Result};
-use matrix_sdk::{event_cache, Room};
+use matrix_sdk::{event_cache::paginator::PaginableRoom, Room};
 use matrix_sdk_base::latest_event::LatestEvent;
 #[cfg(feature = "e2e-encryption")]
 use ruma::{events::AnySyncTimelineEvent, serde::Raw};
@@ -31,7 +31,7 @@ use ruma::{
 use tracing::{debug, error};
 
 use super::{Profile, TimelineBuilder};
-use crate::timeline::Timeline;
+use crate::timeline::{self, Timeline};
 
 #[async_trait]
 pub trait RoomExt {
@@ -42,7 +42,7 @@ pub trait RoomExt {
     /// independent events.
     ///
     /// This is the same as using `room.timeline_builder().build()`.
-    async fn timeline(&self) -> event_cache::Result<Timeline>;
+    async fn timeline(&self) -> Result<Timeline, timeline::Error>;
 
     /// Get a [`TimelineBuilder`] for this room.
     ///
@@ -57,7 +57,7 @@ pub trait RoomExt {
 
 #[async_trait]
 impl RoomExt for Room {
-    async fn timeline(&self) -> event_cache::Result<Timeline> {
+    async fn timeline(&self) -> Result<Timeline, timeline::Error> {
         self.timeline_builder().build().await
     }
 
@@ -67,7 +67,7 @@ impl RoomExt for Room {
 }
 
 #[async_trait]
-pub(super) trait RoomDataProvider: Clone + Send + Sync + 'static {
+pub(super) trait RoomDataProvider: Clone + Send + Sync + 'static + PaginableRoom {
     fn own_user_id(&self) -> &UserId;
     fn room_version(&self) -> RoomVersionId;
     async fn profile_from_user_id(&self, user_id: &UserId) -> Option<Profile>;

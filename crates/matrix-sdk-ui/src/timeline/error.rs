@@ -14,6 +14,7 @@
 
 use std::fmt;
 
+use matrix_sdk::event_cache::{paginator::PaginatorError, EventCacheError};
 use thiserror::Error;
 
 /// Errors specific to the timeline.
@@ -28,23 +29,23 @@ pub enum Error {
     #[error("Event not found, can't retry sending")]
     RetryEventNotInTimeline,
 
-    /// The event is currently unsupported for this use case.
+    /// The event is currently unsupported for this use case..
     #[error("Unsupported event")]
     UnsupportedEvent,
 
-    /// Couldn't read the attachment data from the given URL
+    /// Couldn't read the attachment data from the given URL.
     #[error("Invalid attachment data")]
     InvalidAttachmentData,
 
-    /// The attachment file name used as a body is invalid
+    /// The attachment file name used as a body is invalid.
     #[error("Invalid attachment file name")]
     InvalidAttachmentFileName,
 
-    /// The attachment could not be sent
+    /// The attachment could not be sent.
     #[error("Failed sending attachment")]
     FailedSendingAttachment,
 
-    /// The reaction could not be toggled
+    /// The reaction could not be toggled.
     #[error("Failed toggling reaction")]
     FailedToToggleReaction,
 
@@ -52,9 +53,28 @@ pub enum Error {
     #[error("Room is not joined")]
     RoomNotJoined,
 
-    /// Could not get user
+    /// Could not get user.
     #[error("User ID is not available")]
     UserIdNotAvailable,
+
+    /// Something went wrong with the room event cache.
+    #[error("Something went wrong with the room event cache.")]
+    EventCacheError(#[from] EventCacheError),
+
+    /// An error happened during pagination.
+    #[error("An error happened during pagination.")]
+    PaginationError(#[from] PaginationError),
+}
+
+#[derive(Error, Debug)]
+pub enum PaginationError {
+    /// The timeline isn't in the event focus mode.
+    #[error("The timeline isn't in the event focus mode")]
+    NotEventFocusMode,
+
+    /// An error occurred while paginating.
+    #[error("Error when paginating.")]
+    Paginator(#[source] PaginatorError),
 }
 
 #[derive(Error)]

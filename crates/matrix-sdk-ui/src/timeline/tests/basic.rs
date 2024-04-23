@@ -111,7 +111,7 @@ async fn test_replace_with_initial_events_and_read_marker() {
     assert_eq!(items[1].as_event().unwrap().content().as_message().unwrap().body(), "hey");
 
     let ev = factory.text_msg("yo").sender(*BOB).into_sync();
-    timeline.inner.replace_with_initial_events(vec![ev]).await;
+    timeline.inner.replace_with_initial_events(vec![ev], RemoteEventOrigin::Sync).await;
 
     let items = timeline.inner.items().await;
     assert_eq!(items.len(), 2);
