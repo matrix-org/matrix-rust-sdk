@@ -22,7 +22,7 @@ use matrix_sdk::attachment::{
     AttachmentConfig, AttachmentInfo, BaseAudioInfo, BaseFileInfo, BaseImageInfo,
     BaseThumbnailInfo, BaseVideoInfo, Thumbnail,
 };
-use matrix_sdk_ui::timeline::{BackPaginationStatus, EventItemOrigin, Profile, TimelineDetails};
+use matrix_sdk_ui::timeline::{EventItemOrigin, PaginationStatus, Profile, TimelineDetails};
 use mime::Mime;
 use ruma::{
     events::{
@@ -162,7 +162,7 @@ impl Timeline {
 
     pub fn subscribe_to_back_pagination_status(
         &self,
-        listener: Box<dyn BackPaginationStatusListener>,
+        listener: Box<dyn PaginationStatusListener>,
     ) -> Result<Arc<TaskHandle>, ClientError> {
         let mut subscriber = self.inner.back_pagination_status();
 
@@ -176,11 +176,18 @@ impl Timeline {
         }))))
     }
 
-    /// Loads older messages into the timeline.
+    /// Paginate backwards, whether we are in focused mode or in live mode.
     ///
-    /// Raises an exception if there are no timeline listeners.
-    pub fn paginate_backwards(&self, opts: PaginationOptions) -> Result<(), ClientError> {
-        RUNTIME.block_on(async { Ok(self.inner.paginate_backwards(opts.into()).await?) })
+    /// Returns whether we hit the end of the timeline or not.
+    pub async fn paginate_backwards(&self, num_events: u16) -> Result<bool, ClientError> {
+        Ok(self.inner.paginate_backwards(num_events).await?)
+    }
+
+    /// Paginate forwards, when in focused mode.
+    ///
+    /// Returns whether we hit the end of the timeline or not.
+    pub async fn paginate_forwards(&self, num_events: u16) -> Result<bool, ClientError> {
+        Ok(self.inner.focused_paginate_forwards(num_events).await?)
     }
 
     pub fn send_read_receipt(
@@ -573,6 +580,18 @@ impl Timeline {
     }
 }
 
+#[derive(Debug, thiserror::Error, uniffi::Error)]
+pub enum FocusEventError {
+    #[error("the event id parameter {event_id} is incorrect: {err}")]
+    InvalidEventId { event_id: String, err: String },
+
+    #[error("the event {event_id} could not be found")]
+    EventNotFound { event_id: String },
+
+    #[error("error when trying to focus on an event: {msg}")]
+    Other { msg: String },
+}
+
 #[derive(uniffi::Record)]
 pub struct RoomTimelineListenerResult {
     pub items: Vec<Arc<TimelineItem>>,
@@ -585,8 +604,8 @@ pub trait TimelineListener: Sync + Send {
 }
 
 #[uniffi::export(callback_interface)]
-pub trait BackPaginationStatusListener: Sync + Send {
-    fn on_update(&self, status: BackPaginationStatus);
+pub trait PaginationStatusListener: Sync + Send {
+    fn on_update(&self, status: PaginationStatus);
 }
 
 #[derive(Clone, uniffi::Object)]
