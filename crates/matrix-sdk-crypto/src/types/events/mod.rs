@@ -27,9 +27,11 @@ pub mod room_key_request;
 pub mod room_key_withheld;
 pub mod secret_send;
 mod to_device;
+mod utd_cause;
 
 use ruma::serde::Raw;
 pub use to_device::{ToDeviceCustomEvent, ToDeviceEvent, ToDeviceEvents};
+pub use utd_cause::UtdCause;
 
 /// A trait for event contents to define their event type.
 pub trait EventType {
