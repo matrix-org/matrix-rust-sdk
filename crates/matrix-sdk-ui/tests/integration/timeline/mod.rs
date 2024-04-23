@@ -30,6 +30,7 @@ use crate::mock_sync;
 
 mod echo;
 mod edit;
+mod focus_event;
 mod pagination;
 mod profiles;
 mod queue;
