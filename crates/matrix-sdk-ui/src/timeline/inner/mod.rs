@@ -381,33 +381,6 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         Ok(result)
     }
 
-    /// Populates our own latest read receipt in the in-memory by-user read
-    /// receipt cache.
-    pub(super) async fn populate_initial_user_receipt(
-        &self,
-        state: &mut TimelineInnerState,
-        receipt_type: ReceiptType,
-    ) {
-        let own_user_id = self.room_data_provider.own_user_id().to_owned();
-
-        let mut read_receipt = self
-            .room_data_provider
-            .load_user_receipt(receipt_type.clone(), ReceiptThread::Unthreaded, &own_user_id)
-            .await;
-
-        // Fallback to the one in the main thread.
-        if read_receipt.is_none() {
-            read_receipt = self
-                .room_data_provider
-                .load_user_receipt(receipt_type.clone(), ReceiptThread::Main, &own_user_id)
-                .await;
-        }
-
-        if let Some(read_receipt) = read_receipt {
-            state.meta.read_receipts.upsert_latest(own_user_id, receipt_type, read_receipt);
-        }
-    }
-
     /// Handle a list of events at the given end of the timeline.
     ///
     /// Note: when the `position` is [`TimelineEnd::Front`], prepended events
@@ -446,8 +419,10 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
         let track_read_markers = self.settings.track_read_receipts;
         if track_read_markers {
-            self.populate_initial_user_receipt(&mut *state, ReceiptType::Read).await;
-            self.populate_initial_user_receipt(&mut *state, ReceiptType::ReadPrivate).await;
+            state.populate_initial_user_receipt(&self.room_data_provider, ReceiptType::Read).await;
+            state
+                .populate_initial_user_receipt(&self.room_data_provider, ReceiptType::ReadPrivate)
+                .await;
         }
 
         if !events.is_empty() {
