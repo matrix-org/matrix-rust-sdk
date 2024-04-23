@@ -383,7 +383,11 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
     /// Populates our own latest read receipt in the in-memory by-user read
     /// receipt cache.
-    pub(super) async fn populate_initial_user_receipt(&self, receipt_type: ReceiptType) {
+    pub(super) async fn populate_initial_user_receipt(
+        &self,
+        state: &mut TimelineInnerState,
+        receipt_type: ReceiptType,
+    ) {
         let own_user_id = self.room_data_provider.own_user_id().to_owned();
 
         let mut read_receipt = self
@@ -400,11 +404,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         }
 
         if let Some(read_receipt) = read_receipt {
-            self.state.write().await.meta.read_receipts.upsert_latest(
-                own_user_id,
-                receipt_type,
-                read_receipt,
-            );
+            state.meta.read_receipts.upsert_latest(own_user_id, receipt_type, read_receipt);
         }
     }
 
@@ -446,8 +446,8 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
         let track_read_markers = self.settings.track_read_receipts;
         if track_read_markers {
-            self.populate_initial_user_receipt(ReceiptType::Read).await;
-            self.populate_initial_user_receipt(ReceiptType::ReadPrivate).await;
+            self.populate_initial_user_receipt(&mut *state, ReceiptType::Read).await;
+            self.populate_initial_user_receipt(&mut *state, ReceiptType::ReadPrivate).await;
         }
 
         if !events.is_empty() {

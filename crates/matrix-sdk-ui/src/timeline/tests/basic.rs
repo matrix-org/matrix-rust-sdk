@@ -21,6 +21,7 @@ use matrix_sdk_test::{async_test, sync_timeline_event, ALICE, BOB, CAROL};
 use ruma::{
     assign,
     events::{
+        receipt::{Receipt, ReceiptThread, ReceiptType},
         relation::{InReplyTo, Thread},
         room::{
             member::{MembershipState, RedactedRoomMemberEventContent, RoomMemberEventContent},
@@ -30,7 +31,7 @@ use ruma::{
         },
         FullStateEventContent,
     },
-    owned_event_id,
+    owned_event_id, MilliSecondsSinceUnixEpoch,
 };
 use stream_assert::assert_next_matches;
 
@@ -38,7 +39,7 @@ use super::TestTimeline;
 use crate::timeline::{
     event_item::AnyOtherFullStateEventContent,
     inner::{TimelineEnd, TimelineInnerSettings},
-    tests::TestRoomDataProvider,
+    tests::{ReadReceiptMap, TestRoomDataProvider},
     MembershipChange, TimelineDetails, TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
 };
 
@@ -79,8 +80,22 @@ async fn test_initial_events() {
 #[async_test]
 async fn test_replace_with_initial_events_and_read_marker() {
     let event_id = owned_event_id!("$1");
+
+    // Add a read receipt for the logged in user (Alice).
+    let mut receipts = ReadReceiptMap::default();
+    receipts
+        .entry(ReceiptType::Read)
+        .or_default()
+        .entry(ReceiptThread::Unthreaded)
+        .or_default()
+        .entry(ALICE.to_owned())
+        .or_insert_with(|| (event_id.to_owned(), Receipt::new(MilliSecondsSinceUnixEpoch::now())));
+
     let timeline = TestTimeline::with_room_data_provider(
-        TestRoomDataProvider::default().with_fully_read_marker(event_id),
+        TestRoomDataProvider::default()
+            // Also add a fully read marker.
+            .with_fully_read_marker(event_id)
+            .with_initial_user_receipts(receipts),
     )
     .with_settings(TimelineInnerSettings { track_read_receipts: true, ..Default::default() });
 
