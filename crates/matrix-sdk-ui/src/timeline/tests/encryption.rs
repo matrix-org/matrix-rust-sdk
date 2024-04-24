@@ -482,6 +482,29 @@ async fn test_utd_cause_for_nonmember_event_is_found() {
 }
 
 #[async_test]
+async fn test_utd_cause_for_nonmember_event_is_found_unstable_prefix() {
+    // Given a timline
+    let timeline = TestTimeline::new();
+    let mut stream = timeline.subscribe().await;
+
+    // When we add an event with "io.element.msc4115.membership: leave"
+    timeline
+        .handle_live_event(raw_event_with_unsigned(
+            json!({ "io.element.msc4115.membership": "leave" }),
+        ))
+        .await;
+
+    // Then its UTD cause is membership
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    let event = item.as_event().unwrap();
+    assert_let!(
+        TimelineItemContent::UnableToDecrypt(EncryptedMessage::MegolmV1AesSha2 { cause, .. }) =
+            event.content()
+    );
+    assert_eq!(*cause, UtdCause::Membership);
+}
+
+#[async_test]
 async fn test_utd_cause_for_member_event_is_unknown() {
     // Given a timline
     let timeline = TestTimeline::new();

@@ -39,6 +39,7 @@ pub enum UtdCause {
 /// MSC4115 membership info in the unsigned area.
 #[derive(Deserialize)]
 struct UnsignedWithMembership {
+    #[serde(alias = "io.element.msc4115.membership")]
     membership: Membership,
 }
 
@@ -131,6 +132,17 @@ mod tests {
         // until we have MSC3061.
         assert_eq!(
             UtdCause::determine(Some(&raw_event(json!({ "unsigned": { "membership": "leave" } })))),
+            UtdCause::Membership
+        );
+    }
+
+    #[test]
+    fn if_unstable_prefix_membership_is_leave_we_guess_membership() {
+        // Before MSC4115 is merged, we support the unstable prefix too.
+        assert_eq!(
+            UtdCause::determine(Some(&raw_event(
+                json!({ "unsigned": { "io.element.msc4115.membership": "leave" } })
+            ))),
             UtdCause::Membership
         );
     }
