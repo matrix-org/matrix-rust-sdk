@@ -110,8 +110,8 @@ struct StatefulList<T> {
 
 #[derive(Default, PartialEq)]
 enum DetailsMode {
-    #[default]
     ReadReceipts,
+    #[default]
     TimelineItems,
     // Events // TODO: Soon™
 }
@@ -343,8 +343,9 @@ impl App {
         // Start a new one, request batches of 20 events, stop after 10 timeline items
         // have been added.
         *pagination = Some(spawn(async move {
-            if let Err(err) =
-                sdk_timeline.paginate_backwards(PaginationOptions::until_num_items(20, 10)).await
+            if let Err(err) = sdk_timeline
+                .live_paginate_backwards(PaginationOptions::until_num_items(20, 10))
+                .await
             {
                 // TODO: would be nice to be able to set the status
                 // message remotely?

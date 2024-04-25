@@ -16,11 +16,7 @@ use std::{collections::BTreeSet, sync::Arc};
 
 use eyeball::SharedObservable;
 use futures_util::{pin_mut, StreamExt};
-use matrix_sdk::{
-    event_cache::{self, RoomEventCacheUpdate},
-    executor::spawn,
-    Room,
-};
+use matrix_sdk::{event_cache::RoomEventCacheUpdate, executor::spawn, Room};
 use ruma::{events::AnySyncTimelineEvent, RoomVersionId};
 use tokio::sync::{broadcast, mpsc};
 use tracing::{info, info_span, trace, warn, Instrument, Span};
@@ -30,9 +26,12 @@ use super::to_device::{handle_forwarded_room_key_event, handle_room_key_event};
 use super::{
     inner::{TimelineInner, TimelineInnerSettings},
     queue::send_queued_messages,
-    BackPaginationStatus, Timeline, TimelineDropHandle,
+    Error, Timeline, TimelineDropHandle, TimelineFocus,
 };
-use crate::unable_to_decrypt_hook::UtdHookManager;
+use crate::{
+    timeline::{event_item::RemoteEventOrigin, PaginationStatus},
+    unable_to_decrypt_hook::UtdHookManager,
+};
 
 /// Builder that allows creating and configuring various parts of a
 /// [`Timeline`].
@@ -41,6 +40,7 @@ use crate::unable_to_decrypt_hook::UtdHookManager;
 pub struct TimelineBuilder {
     room: Room,
     settings: TimelineInnerSettings,
+    focus: TimelineFocus,
 
     /// An optional hook to call whenever we run into an unable-to-decrypt or a
     /// late-decryption event.
@@ -56,8 +56,17 @@ impl TimelineBuilder {
             room: room.clone(),
             settings: TimelineInnerSettings::default(),
             unable_to_decrypt_hook: None,
+            focus: TimelineFocus::Live,
             internal_id_prefix: None,
         }
+    }
+
+    /// Sets up the initial focus for this timeline.
+    ///
+    /// This can be changed later on while the timeline is alive.
+    pub fn with_focus(mut self, focus: TimelineFocus) -> Self {
+        self.focus = focus;
+        self
     }
 
     /// Sets up a hook to catch unable-to-decrypt (UTD) events for the timeline
@@ -134,8 +143,8 @@ impl TimelineBuilder {
             track_read_receipts = self.settings.track_read_receipts,
         )
     )]
-    pub async fn build(self) -> event_cache::Result<Timeline> {
-        let Self { room, settings, unable_to_decrypt_hook, internal_id_prefix } = self;
+    pub async fn build(self) -> Result<Timeline, Error> {
+        let Self { room, settings, unable_to_decrypt_hook, focus, internal_id_prefix } = self;
 
         let client = room.client();
         let event_cache = client.event_cache();
@@ -144,14 +153,12 @@ impl TimelineBuilder {
         event_cache.subscribe()?;
 
         let (room_event_cache, event_cache_drop) = room.event_cache().await?;
-        let (events, mut event_subscriber) = room_event_cache.subscribe().await?;
+        let (_, mut event_subscriber) = room_event_cache.subscribe().await?;
 
-        let has_events = !events.is_empty();
-
-        let inner = TimelineInner::new(room, internal_id_prefix, unable_to_decrypt_hook)
+        let inner = TimelineInner::new(room, focus, internal_id_prefix, unable_to_decrypt_hook)
             .with_settings(settings);
 
-        inner.replace_with_initial_events(events).await;
+        let has_events = inner.init_focus(&room_event_cache).await?;
 
         let room = inner.room();
         let client = room.client();
@@ -165,10 +172,10 @@ impl TimelineBuilder {
             span.follows_from(Span::current());
 
             async move {
-                trace!("Spawned the event subscriber task");
+                trace!("Spawned the event subscriber task.");
 
                 loop {
-                    trace!("Waiting for an event");
+                    trace!("Waiting for an event.");
 
                     let update = match event_subscriber.recv().await {
                         Ok(up) => up,
@@ -187,7 +194,7 @@ impl TimelineBuilder {
                             // current timeline.
                             match room_event_cache.subscribe().await {
                                 Ok((events, _)) => {
-                                    inner.replace_with_initial_events(events).await;
+                                    inner.replace_with_initial_events(events, RemoteEventOrigin::Sync).await;
                                 }
                                 Err(err) => {
                                     warn!("Error when re-inserting initial events into the timeline: {err}");
@@ -200,18 +207,25 @@ impl TimelineBuilder {
                     };
 
                     match update {
-                        RoomEventCacheUpdate::Clear => {
-                            trace!("Clearing the timeline.");
-                            inner.clear().await;
-                        }
-
                         RoomEventCacheUpdate::UpdateReadMarker { event_id } => {
                             trace!(target = %event_id, "Handling fully read marker.");
                             inner.handle_fully_read_marker(event_id).await;
                         }
 
+                        RoomEventCacheUpdate::Clear => {
+                            if !inner.is_live().await {
+                                // Ignore a clear for a timeline not in the live mode; the
+                                // focused-on-event mode doesn't add any new items to the timeline
+                                // anyways.
+                                continue;
+                            }
+
+                            trace!("Clearing the timeline.");
+                            inner.clear().await;
+                        }
+
                         RoomEventCacheUpdate::Append { events, ephemeral, ambiguity_changes } => {
-                            trace!("Received new events");
+                            trace!("Received new events from sync.");
 
                             // TODO: (bnjbvr) ephemeral should be handled by the event cache, and
                             // we should replace this with a simple `add_events_at`.
@@ -300,7 +314,7 @@ impl TimelineBuilder {
 
         let timeline = Timeline {
             inner,
-            back_pagination_status: SharedObservable::new(BackPaginationStatus::Idle),
+            back_pagination_status: SharedObservable::new(PaginationStatus::Idle),
             msg_sender,
             event_cache: room_event_cache,
             drop_handle: Arc::new(TimelineDropHandle {

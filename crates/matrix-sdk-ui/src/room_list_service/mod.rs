@@ -95,6 +95,8 @@ use tokio::{
     time::timeout,
 };
 
+use crate::timeline;
+
 /// The [`RoomListService`] type. See the module's documentation to learn more.
 #[derive(Debug)]
 pub struct RoomListService {
@@ -553,7 +555,7 @@ pub enum Error {
     TimelineAlreadyExists(OwnedRoomId),
 
     #[error("An error occurred while initializing the timeline")]
-    InitializingTimeline(#[source] EventCacheError),
+    InitializingTimeline(#[source] timeline::Error),
 
     #[error("The attached event cache ran into an error")]
     EventCache(#[from] EventCacheError),

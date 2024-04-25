@@ -24,7 +24,11 @@ use imbl::Vector;
 use itertools::Itertools;
 #[cfg(all(test, feature = "e2e-encryption"))]
 use matrix_sdk::crypto::OlmMachine;
-use matrix_sdk::{deserialized_responses::SyncTimelineEvent, Error, Result, Room};
+use matrix_sdk::{
+    deserialized_responses::SyncTimelineEvent,
+    event_cache::{paginator::Paginator, RoomEventCache},
+    Result, Room,
+};
 #[cfg(test)]
 use ruma::events::receipt::ReceiptEventContent;
 #[cfg(all(test, feature = "e2e-encryption"))]
@@ -56,8 +60,9 @@ use super::{
     reactions::ReactionToggleResult,
     traits::RoomDataProvider,
     util::{rfind_event_by_id, rfind_event_item, RelativePosition},
-    AnnotationKey, EventSendState, EventTimelineItem, InReplyToDetails, Message, Profile,
-    RepliedToEvent, TimelineDetails, TimelineItem, TimelineItemContent, TimelineItemKind,
+    AnnotationKey, Error, EventSendState, EventTimelineItem, InReplyToDetails, Message,
+    PaginationError, Profile, RepliedToEvent, TimelineDetails, TimelineFocus, TimelineItem,
+    TimelineItemContent, TimelineItemKind,
 };
 use crate::{
     timeline::{day_dividers::DayDividerAdjuster, TimelineEventFilterFn},
@@ -71,10 +76,38 @@ pub(super) use self::state::{
     TimelineInnerStateTransaction,
 };
 
+/// Data associated to the current timeline focus.
+#[derive(Debug)]
+enum TimelineFocusData {
+    /// The timeline receives live events from the sync.
+    Live,
+
+    /// The timeline is focused on a single event, and it can expand in one
+    /// direction or another.
+    Event {
+        /// The event id we've started to focus on.
+        event_id: OwnedEventId,
+        /// The paginator instance.
+        paginator: Paginator,
+        /// Number of context events to request for the first request.
+        num_context_events: u16,
+    },
+}
+
 #[derive(Clone, Debug)]
 pub(super) struct TimelineInner<P: RoomDataProvider = Room> {
+    /// Inner mutable state.
     state: Arc<RwLock<TimelineInnerState>>,
+
+    /// Inner mutable focus state.
+    focus: Arc<RwLock<TimelineFocusData>>,
+
+    /// A [`RoomDataProvider`] implementation, providing data.
+    ///
+    /// Useful for testing only; in the real world, it's just a [`Room`].
     room_data_provider: P,
+
+    /// Settings applied to this timeline.
     settings: TimelineInnerSettings,
 }
 
@@ -214,19 +247,130 @@ pub fn default_event_filter(event: &AnySyncTimelineEvent, room_version: &RoomVer
 impl<P: RoomDataProvider> TimelineInner<P> {
     pub(super) fn new(
         room_data_provider: P,
+        focus: TimelineFocus,
         internal_id_prefix: Option<String>,
         unable_to_decrypt_hook: Option<Arc<UtdHookManager>>,
     ) -> Self {
+        let (focus_data, is_live) = match focus {
+            TimelineFocus::Live => (TimelineFocusData::Live, true),
+            TimelineFocus::Event { target, num_context_events } => {
+                let paginator = Paginator::new(Box::new(room_data_provider.clone()));
+                (
+                    TimelineFocusData::Event { paginator, event_id: target, num_context_events },
+                    false,
+                )
+            }
+        };
+
         let state = TimelineInnerState::new(
             room_data_provider.room_version(),
+            is_live,
             internal_id_prefix,
             unable_to_decrypt_hook,
         );
+
         Self {
             state: Arc::new(RwLock::new(state)),
+            focus: Arc::new(RwLock::new(focus_data)),
             room_data_provider,
-            settings: TimelineInnerSettings::default(),
+            settings: Default::default(),
         }
+    }
+
+    /// Initializes the configured focus with appropriate data.
+    ///
+    /// Should be called only once after creation of the [`TimelineInner`], with
+    /// all its fields set.
+    ///
+    /// Returns whether there were any events added to the timeline.
+    pub(super) async fn init_focus(
+        &self,
+        room_event_cache: &RoomEventCache,
+    ) -> Result<bool, Error> {
+        let focus_guard = self.focus.read().await;
+
+        match &*focus_guard {
+            TimelineFocusData::Live => {
+                // Retrieve the cached events, and add them to the timeline.
+                let (events, _) =
+                    room_event_cache.subscribe().await.map_err(Error::EventCacheError)?;
+
+                let has_events = !events.is_empty();
+
+                self.replace_with_initial_events(events, RemoteEventOrigin::Cache).await;
+
+                Ok(has_events)
+            }
+
+            TimelineFocusData::Event { event_id, paginator, num_context_events } => {
+                // Start a /context request, and append the results (in order) to the timeline.
+                let start_from_result = paginator
+                    .start_from(event_id, (*num_context_events).into())
+                    .await
+                    .map_err(PaginationError::Paginator)?;
+
+                drop(focus_guard);
+
+                let has_events = !start_from_result.events.is_empty();
+
+                self.replace_with_initial_events(
+                    start_from_result.events.into_iter().map(Into::into).collect(),
+                    RemoteEventOrigin::Pagination,
+                )
+                .await;
+
+                Ok(has_events)
+            }
+        }
+    }
+
+    /// Run a backward pagination (in focused mode) and append the results to
+    /// the timeline.
+    ///
+    /// Returns whether we hit the start of the timeline.
+    pub(super) async fn focused_paginate_backwards(
+        &self,
+        num_events: u16,
+    ) -> Result<bool, PaginationError> {
+        let pagination = match &*self.focus.read().await {
+            TimelineFocusData::Live => return Err(PaginationError::NotEventFocusMode),
+            TimelineFocusData::Event { paginator, .. } => paginator
+                .paginate_backward(num_events.into())
+                .await
+                .map_err(PaginationError::Paginator)?,
+        };
+
+        self.add_events_at(pagination.events, TimelineEnd::Front, RemoteEventOrigin::Pagination)
+            .await;
+
+        Ok(pagination.hit_end_of_timeline)
+    }
+
+    /// Run a forward pagination (in focused mode) and append the results to
+    /// the timeline.
+    ///
+    /// Returns whether we hit the end of the timeline.
+    pub(super) async fn focused_paginate_forwards(
+        &self,
+        num_events: u16,
+    ) -> Result<bool, PaginationError> {
+        let pagination = match &*self.focus.read().await {
+            TimelineFocusData::Live => return Err(PaginationError::NotEventFocusMode),
+            TimelineFocusData::Event { paginator, .. } => paginator
+                .paginate_forward(num_events.into())
+                .await
+                .map_err(PaginationError::Paginator)?,
+        };
+
+        self.add_events_at(pagination.events, TimelineEnd::Back, RemoteEventOrigin::Pagination)
+            .await;
+
+        Ok(pagination.hit_end_of_timeline)
+    }
+
+    /// Is this timeline receiving events from sync (aka has a live focus)?
+    pub(super) async fn is_live(&self) -> bool {
+        matches!(&*self.focus.read().await, TimelineFocusData::Live)
     }
 
     pub(super) fn with_settings(mut self, settings: TimelineInnerSettings) -> Self {
@@ -273,7 +417,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
     pub(super) async fn toggle_reaction_local(
         &self,
         annotation: &Annotation,
-    ) -> Result<ReactionAction, super::Error> {
+    ) -> Result<ReactionAction, Error> {
         let mut state = self.state.write().await;
 
         let user_id = self.room_data_provider.own_user_id();
@@ -420,7 +564,11 @@ impl<P: RoomDataProvider> TimelineInner<P> {
     ///
     /// This is all done with a single lock guard, since we don't want the state
     /// to be modified between the clear and re-insertion of new events.
-    pub(super) async fn replace_with_initial_events(&self, events: Vec<SyncTimelineEvent>) {
+    pub(super) async fn replace_with_initial_events(
+        &self,
+        events: Vec<SyncTimelineEvent>,
+        origin: RemoteEventOrigin,
+    ) {
         let mut state = self.state.write().await;
 
         state.clear();
@@ -438,7 +586,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                 .add_events_at(
                     events,
                     TimelineEnd::Back,
-                    RemoteEventOrigin::Cache,
+                    origin,
                     &self.room_data_provider,
                     &self.settings,
                 )
@@ -600,7 +748,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         &self,
         annotation: &Annotation,
         result: &ReactionToggleResult,
-    ) -> Result<ReactionAction, super::Error> {
+    ) -> Result<ReactionAction, Error> {
         let mut state = self.state.write().await;
         let user_id = self.room_data_provider.own_user_id();
         let annotation_key: AnnotationKey = annotation.into();
@@ -845,7 +993,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         self.set_non_ready_sender_profiles(TimelineDetails::Pending).await;
     }
 
-    pub(super) async fn set_sender_profiles_error(&self, error: Arc<Error>) {
+    pub(super) async fn set_sender_profiles_error(&self, error: Arc<matrix_sdk::Error>) {
         self.set_non_ready_sender_profiles(TimelineDetails::Error(error)).await;
     }
 
@@ -978,10 +1126,7 @@ impl TimelineInner {
     }
 
     #[instrument(skip(self))]
-    pub(super) async fn fetch_in_reply_to_details(
-        &self,
-        event_id: &EventId,
-    ) -> Result<(), super::Error> {
+    pub(super) async fn fetch_in_reply_to_details(&self, event_id: &EventId) -> Result<(), Error> {
         let state = self.state.write().await;
         let (index, item) = rfind_event_by_id(&state.items, event_id)
             .ok_or(super::Error::RemoteEventNotInTimeline)?;
@@ -1137,7 +1282,7 @@ async fn fetch_replied_to_event(
     message: &Message,
     in_reply_to: &EventId,
     room: &Room,
-) -> Result<TimelineDetails<Box<RepliedToEvent>>, super::Error> {
+) -> Result<TimelineDetails<Box<RepliedToEvent>>, Error> {
     if let Some((_, item)) = rfind_event_by_id(&state.items, in_reply_to) {
         let details = TimelineDetails::Ready(Box::new(RepliedToEvent {
             content: item.content.clone(),

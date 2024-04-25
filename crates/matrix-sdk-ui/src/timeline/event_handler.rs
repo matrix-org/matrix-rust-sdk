@@ -255,6 +255,7 @@ pub(super) struct TimelineEventHandler<'a, 'o> {
     meta: &'a mut TimelineInnerMetadata,
     ctx: TimelineEventContext,
     result: HandleEventResult,
+    is_live_timeline: bool,
 }
 
 impl<'a, 'o> TimelineEventHandler<'a, 'o> {
@@ -262,8 +263,14 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         state: &'a mut TimelineInnerStateTransaction<'o>,
         ctx: TimelineEventContext,
     ) -> Self {
-        let TimelineInnerStateTransaction { items, meta, .. } = state;
-        Self { items, meta, ctx, result: HandleEventResult::default() }
+        let TimelineInnerStateTransaction { items, meta, is_live_timeline, .. } = state;
+        Self {
+            items,
+            meta,
+            ctx,
+            is_live_timeline: *is_live_timeline,
+            result: HandleEventResult::default(),
+        }
     }
 
     /// Handle an event.
@@ -288,7 +295,9 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 span.record("txn_id", debug(txn_id));
                 debug!("Handling local event");
 
-                true
+                // Only add new timeline items if we're in the live mode, i.e. not in the
+                // event-focused mode.
+                self.is_live_timeline
             }
 
             Flow::Remote { event_id, txn_id, position, should_add, .. } => {
@@ -299,7 +308,31 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 }
                 trace!("Handling remote event");
 
-                *should_add
+                // Retrieve the origin of the event.
+                let origin = match position {
+                    TimelineItemPosition::End { origin }
+                    | TimelineItemPosition::Start { origin } => *origin,
+
+                    TimelineItemPosition::Update(idx) => self
+                        .items
+                        .get(*idx)
+                        .and_then(|item| item.as_event())
+                        .and_then(|item| item.as_remote())
+                        .map_or(RemoteEventOrigin::Unknown, |item| item.origin),
+                };
+
+                match origin {
+                    RemoteEventOrigin::Sync | RemoteEventOrigin::Unknown => {
+                        // If the event comes the sync (or is unknown), consider adding it only if
+                        // the timeline is in live mode; we don't want to display arbitrary sync
+                        // events in an event-focused timeline.
+                        self.is_live_timeline && *should_add
+                    }
+                    RemoteEventOrigin::Pagination | RemoteEventOrigin::Cache => {
+                        // Otherwise, forward the previous decision to add it.
+                        *should_add
+                    }
+                }
             }
         };
 

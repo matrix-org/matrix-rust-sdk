@@ -18,7 +18,7 @@
 
 use std::{pin::Pin, sync::Arc, task::Poll};
 
-use eyeball::{SharedObservable, Subscriber};
+use eyeball::SharedObservable;
 use eyeball_im::VectorDiff;
 use futures_core::Stream;
 use imbl::Vector;
@@ -86,7 +86,7 @@ mod virtual_item;
 
 pub use self::{
     builder::TimelineBuilder,
-    error::{Error, UnsupportedEditItem, UnsupportedReplyItem},
+    error::{Error, PaginationError, UnsupportedEditItem, UnsupportedReplyItem},
     event_item::{
         AnyOtherFullStateEventContent, BundledReactions, EncryptedMessage, EventItemOrigin,
         EventSendState, EventTimelineItem, InReplyToDetails, MemberProfileChange, MembershipChange,
@@ -96,7 +96,7 @@ pub use self::{
     event_type_filter::TimelineEventTypeFilter,
     inner::default_event_filter,
     item::{TimelineItem, TimelineItemKind},
-    pagination::{BackPaginationStatus, PaginationOptions, PaginationOutcome},
+    pagination::{PaginationOptions, PaginationOutcome, PaginationStatus},
     polls::PollResult,
     reactions::ReactionSenderData,
     sliding_sync_ext::SlidingSyncRoomExt,
@@ -124,15 +124,15 @@ pub struct Timeline {
     /// The event cache specialized for this room's view.
     event_cache: RoomEventCache,
 
-    /// Observable for whether a pagination is currently running
-    back_pagination_status: SharedObservable<BackPaginationStatus>,
-
     /// A sender to the task which responsibility is to send messages to the
     /// current room.
     msg_sender: Sender<LocalMessage>,
 
     /// References to long-running tasks held by the timeline.
     drop_handle: Arc<TimelineDropHandle>,
+
+    /// Observable for whether a backward pagination is currently running.
+    pub(crate) back_pagination_status: SharedObservable<PaginationStatus>,
 }
 
 // Implements hash etc
@@ -146,6 +146,17 @@ impl From<&Annotation> for AnnotationKey {
     fn from(annotation: &Annotation) -> Self {
         Self { event_id: annotation.event_id.clone(), key: annotation.key.clone() }
     }
+}
+
+/// What should the timeline focus on?
+#[derive(Clone, Debug, PartialEq)]
+pub enum TimelineFocus {
+    /// Focus on live events, i.e. receive events from sync and append them in
+    /// real-time.
+    Live,
+
+    /// Focus on a specific event, e.g. after clicking a permalink.
+    Event { target: OwnedEventId, num_context_events: u16 },
 }
 
 impl Timeline {
@@ -162,11 +173,6 @@ impl Timeline {
     /// Clear all timeline items.
     pub async fn clear(&self) {
         self.inner.clear().await;
-    }
-
-    /// Subscribe to the back-pagination status of the timeline.
-    pub fn back_pagination_status(&self) -> Subscriber<BackPaginationStatus> {
-        self.back_pagination_status.subscribe()
     }
 
     /// Retry decryption of previously un-decryptable events given a list of
@@ -225,7 +231,11 @@ impl Timeline {
 
     /// Get the latest of the timeline's event items.
     pub async fn latest_event(&self) -> Option<EventTimelineItem> {
-        self.inner.items().await.last()?.as_event().cloned()
+        if self.inner.is_live().await {
+            self.inner.items().await.last()?.as_event().cloned()
+        } else {
+            None
+        }
     }
 
     /// Get the current timeline items, and a stream of changes.

@@ -66,11 +66,15 @@ pub(crate) enum TimelineEnd {
 pub(in crate::timeline) struct TimelineInnerState {
     pub items: ObservableVector<Arc<TimelineItem>>,
     pub meta: TimelineInnerMetadata,
+
+    /// Is the timeline focused on a live view?
+    pub is_live_timeline: bool,
 }
 
 impl TimelineInnerState {
     pub(super) fn new(
         room_version: RoomVersionId,
+        is_live_timeline: bool,
         internal_id_prefix: Option<String>,
         unable_to_decrypt_hook: Option<Arc<UtdHookManager>>,
     ) -> Self {
@@ -84,6 +88,7 @@ impl TimelineInnerState {
                 internal_id_prefix,
                 unable_to_decrypt_hook,
             ),
+            is_live_timeline,
         }
     }
 
@@ -374,7 +379,12 @@ impl TimelineInnerState {
     pub(super) fn transaction(&mut self) -> TimelineInnerStateTransaction<'_> {
         let items = self.items.transaction();
         let meta = self.meta.clone();
-        TimelineInnerStateTransaction { items, previous_meta: &mut self.meta, meta }
+        TimelineInnerStateTransaction {
+            items,
+            previous_meta: &mut self.meta,
+            meta,
+            is_live_timeline: self.is_live_timeline,
+        }
     }
 }
 
@@ -387,6 +397,9 @@ pub(in crate::timeline) struct TimelineInnerStateTransaction<'a> {
     /// transaction, and that will be committed to the previous meta location in
     /// [`Self::commit`].
     pub meta: TimelineInnerMetadata,
+
+    /// Is the timeline focused on a live view?
+    pub is_live_timeline: bool,
 
     /// Pointer to the previous meta, only used during [`Self::commit`].
     previous_meta: &'a mut TimelineInnerMetadata,
@@ -624,7 +637,7 @@ impl TimelineInnerStateTransaction<'_> {
     }
 
     pub(super) fn commit(self) {
-        let Self { items, previous_meta, meta } = self;
+        let Self { items, previous_meta, meta, .. } = self;
 
         // Replace the pointer to the previous meta with the new one.
         *previous_meta = meta;
