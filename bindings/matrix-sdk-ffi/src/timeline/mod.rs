@@ -186,7 +186,7 @@ impl Timeline {
     /// Paginate forwards, when in focused mode.
     ///
     /// Returns whether we hit the end of the timeline or not.
-    pub async fn paginate_forwards(&self, num_events: u16) -> Result<bool, ClientError> {
+    pub async fn focused_paginate_forwards(&self, num_events: u16) -> Result<bool, ClientError> {
         Ok(self.inner.focused_paginate_forwards(num_events).await?)
     }
 

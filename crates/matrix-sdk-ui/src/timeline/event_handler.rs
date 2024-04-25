@@ -17,7 +17,7 @@ use std::sync::Arc;
 use as_variant::as_variant;
 use eyeball_im::{ObservableVectorTransaction, ObservableVectorTransactionEntry};
 use indexmap::{map::Entry, IndexMap};
-use matrix_sdk::deserialized_responses::EncryptionInfo;
+use matrix_sdk::{crypto::types::events::UtdCause, deserialized_responses::EncryptionInfo};
 use ruma::{
     events::{
         poll::{
@@ -276,11 +276,15 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     /// Handle an event.
     ///
     /// Returns the number of timeline updates that were made.
+    ///
+    /// `raw_event` is only needed to determine the cause of any UTDs,
+    /// so if we know this is not a UTD it can be None.
     #[instrument(skip_all, fields(txn_id, event_id, position))]
     pub(super) fn handle_event(
         mut self,
         day_divider_adjuster: &mut DayDividerAdjuster,
         event_kind: TimelineEventKind,
+        raw_event: Option<&Raw<AnySyncTimelineEvent>>,
     ) -> HandleEventResult {
         let span = tracing::Span::current();
 
@@ -348,13 +352,14 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 }
                 AnyMessageLikeEventContent::RoomEncrypted(c) => {
                     // TODO: Handle replacements if the replaced event is also UTD
-                    self.add(should_add, TimelineItemContent::unable_to_decrypt(c));
+                    let cause = UtdCause::determine(raw_event);
+                    self.add(true, TimelineItemContent::unable_to_decrypt(c, cause));
 
                     // Let the hook know that we ran into an unable-to-decrypt that is added to the
                     // timeline.
                     if let Some(hook) = self.meta.unable_to_decrypt_hook.as_ref() {
                         if let Flow::Remote { event_id, .. } = &self.ctx.flow {
-                            hook.on_utd(event_id);
+                            hook.on_utd(event_id, cause);
                         }
                     }
                 }

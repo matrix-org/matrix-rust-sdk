@@ -18,7 +18,7 @@ experimental-room-list-with-unified-invites = []
 native-tls = ["matrix-sdk/native-tls"]
 rustls-tls = ["matrix-sdk/rustls-tls"]
 
-uniffi = ["dep:uniffi"]
+uniffi = ["dep:uniffi", "matrix-sdk/uniffi", "matrix-sdk-base/uniffi"]
 
 [dependencies]
 as_variant = { workspace = true }

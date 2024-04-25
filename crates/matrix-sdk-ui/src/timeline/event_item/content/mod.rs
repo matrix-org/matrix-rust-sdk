@@ -16,6 +16,7 @@ use std::sync::Arc;
 
 use as_variant::as_variant;
 use imbl::Vector;
+use matrix_sdk::crypto::types::events::UtdCause;
 use matrix_sdk_base::latest_event::{is_suitable_for_latest_event, PossibleLatestEvent};
 use ruma::{
     events::{
@@ -248,8 +249,8 @@ impl TimelineItemContent {
         }
     }
 
-    pub(crate) fn unable_to_decrypt(content: RoomEncryptedEventContent) -> Self {
-        Self::UnableToDecrypt(content.into())
+    pub(crate) fn unable_to_decrypt(content: RoomEncryptedEventContent, cause: UtdCause) -> Self {
+        Self::UnableToDecrypt(EncryptedMessage::from_content(content, cause))
     }
 
     pub(crate) fn room_member(
@@ -356,21 +357,26 @@ pub enum EncryptedMessage {
 
         /// The ID of the session used to encrypt the message.
         session_id: String,
+
+        /// What we know about what caused this UTD. E.g. was this event sent
+        /// when we were not a member of this room?
+        cause: UtdCause,
     },
     /// No metadata because the event uses an unknown algorithm.
     Unknown,
 }
 
-impl From<RoomEncryptedEventContent> for EncryptedMessage {
-    fn from(c: RoomEncryptedEventContent) -> Self {
-        match c.scheme {
+impl EncryptedMessage {
+    fn from_content(content: RoomEncryptedEventContent, cause: UtdCause) -> Self {
+        match content.scheme {
             EncryptedEventScheme::OlmV1Curve25519AesSha2(s) => {
                 Self::OlmV1Curve25519AesSha2 { sender_key: s.sender_key }
             }
             #[allow(deprecated)]
             EncryptedEventScheme::MegolmV1AesSha2(s) => {
                 let MegolmV1AesSha2Content { sender_key, device_id, session_id, .. } = s;
-                Self::MegolmV1AesSha2 { sender_key, device_id, session_id }
+
+                Self::MegolmV1AesSha2 { sender_key, device_id, session_id, cause }
             }
             _ => Self::Unknown,
         }

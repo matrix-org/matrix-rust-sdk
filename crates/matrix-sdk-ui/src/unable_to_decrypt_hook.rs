@@ -24,6 +24,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use matrix_sdk::crypto::types::events::UtdCause;
 use ruma::{EventId, OwnedEventId};
 use tokio::{spawn, task::JoinHandle, time::sleep};
 
@@ -50,6 +51,10 @@ pub struct UnableToDecryptInfo {
     /// time it took to decrypt the event. If it is not set, this is
     /// considered a definite UTD.
     pub time_to_decrypt: Option<Duration>,
+
+    /// What we know about what caused this UTD. E.g. was this event sent when
+    /// we were not a member of this room?
+    pub cause: UtdCause,
 }
 
 type PendingUtdReports = Vec<(OwnedEventId, JoinHandle<()>)>;
@@ -111,7 +116,7 @@ impl UtdHookManager {
     /// The function to call whenever a UTD is seen for the first time.
     ///
     /// Pipe in any information that needs to be included in the final report.
-    pub(crate) fn on_utd(&self, event_id: &EventId) {
+    pub(crate) fn on_utd(&self, event_id: &EventId, cause: UtdCause) {
         // Only let the parent hook know if the event wasn't already handled.
         {
             let mut known_utds = self.known_utds.lock().unwrap();
@@ -123,7 +128,8 @@ impl UtdHookManager {
             known_utds.insert(event_id.to_owned(), Instant::now());
         }
 
-        let info = UnableToDecryptInfo { event_id: event_id.to_owned(), time_to_decrypt: None };
+        let info =
+            UnableToDecryptInfo { event_id: event_id.to_owned(), time_to_decrypt: None, cause };
 
         let Some(max_delay) = self.max_delay else {
             // No delay: immediately report the event to the parent hook.
@@ -163,7 +169,7 @@ impl UtdHookManager {
     ///
     /// Note: if this is called for an event that was never marked as a UTD
     /// before, it has no effect.
-    pub(crate) fn on_late_decrypt(&self, event_id: &EventId) {
+    pub(crate) fn on_late_decrypt(&self, event_id: &EventId, cause: UtdCause) {
         // Only let the parent hook know if the event was known to be a UTDs.
         let Some(marked_utd_at) = self.known_utds.lock().unwrap().remove(event_id) else {
             return;
@@ -172,6 +178,7 @@ impl UtdHookManager {
         let info = UnableToDecryptInfo {
             event_id: event_id.to_owned(),
             time_to_decrypt: Some(marked_utd_at.elapsed()),
+            cause,
         };
 
         // Cancel and remove the task from the outstanding set immediately.
@@ -226,12 +233,12 @@ mod tests {
         let wrapper = UtdHookManager::new(hook.clone());
 
         // And I call the `on_utd` method multiple times, sometimes on the same event,
-        wrapper.on_utd(event_id!("$1"));
-        wrapper.on_utd(event_id!("$1"));
-        wrapper.on_utd(event_id!("$2"));
-        wrapper.on_utd(event_id!("$1"));
-        wrapper.on_utd(event_id!("$2"));
-        wrapper.on_utd(event_id!("$3"));
+        wrapper.on_utd(event_id!("$1"), UtdCause::Unknown);
+        wrapper.on_utd(event_id!("$1"), UtdCause::Unknown);
+        wrapper.on_utd(event_id!("$2"), UtdCause::Unknown);
+        wrapper.on_utd(event_id!("$1"), UtdCause::Unknown);
+        wrapper.on_utd(event_id!("$2"), UtdCause::Unknown);
+        wrapper.on_utd(event_id!("$3"), UtdCause::Unknown);
 
         // Then the event ids have been deduplicated,
         {
@@ -258,7 +265,7 @@ mod tests {
 
         // And I call the `on_late_decrypt` method before the event had been marked as
         // utd,
-        wrapper.on_late_decrypt(event_id!("$1"));
+        wrapper.on_late_decrypt(event_id!("$1"), UtdCause::Unknown);
 
         // Then nothing is registered in the parent hook.
         assert!(hook.utds.lock().unwrap().is_empty());
@@ -273,7 +280,7 @@ mod tests {
         let wrapper = UtdHookManager::new(hook.clone());
 
         // And I call the `on_utd` method for an event,
-        wrapper.on_utd(event_id!("$1"));
+        wrapper.on_utd(event_id!("$1"), UtdCause::Unknown);
 
         // Then the UTD has been notified, but not as late-decrypted event.
         {
@@ -284,7 +291,7 @@ mod tests {
         }
 
         // And when I call the `on_late_decrypt` method,
-        wrapper.on_late_decrypt(event_id!("$1"));
+        wrapper.on_late_decrypt(event_id!("$1"), UtdCause::Unknown);
 
         // Then the event is now reported as a late-decryption too.
         {
@@ -312,7 +319,7 @@ mod tests {
         let wrapper = UtdHookManager::new(hook.clone()).with_max_delay(Duration::from_secs(2));
 
         // And I call the `on_utd` method for an event,
-        wrapper.on_utd(event_id!("$1"));
+        wrapper.on_utd(event_id!("$1"), UtdCause::Unknown);
 
         // Then the UTD is not being reported immediately.
         assert!(hook.utds.lock().unwrap().is_empty());
@@ -348,7 +355,7 @@ mod tests {
         let wrapper = UtdHookManager::new(hook.clone()).with_max_delay(Duration::from_secs(2));
 
         // And I call the `on_utd` method for an event,
-        wrapper.on_utd(event_id!("$1"));
+        wrapper.on_utd(event_id!("$1"), UtdCause::Unknown);
 
         // Then the UTD has not been notified quite yet.
         assert!(hook.utds.lock().unwrap().is_empty());
@@ -357,7 +364,7 @@ mod tests {
         // If I wait for 1 second, and mark the event as late-decrypted,
         sleep(Duration::from_secs(1)).await;
 
-        wrapper.on_late_decrypt(event_id!("$1"));
+        wrapper.on_late_decrypt(event_id!("$1"), UtdCause::Unknown);
 
         // Then it's being immediately reported as a late-decryption UTD.
         {

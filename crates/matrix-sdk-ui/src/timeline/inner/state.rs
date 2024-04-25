@@ -191,7 +191,13 @@ impl TimelineInnerState {
 
         let mut day_divider_adjuster = DayDividerAdjuster::default();
 
-        TimelineEventHandler::new(&mut txn, ctx).handle_event(&mut day_divider_adjuster, content);
+        TimelineEventHandler::new(&mut txn, ctx).handle_event(
+            &mut day_divider_adjuster,
+            content,
+            // Local events are never UTD, so no need to pass in a raw_event - this is only used to
+            // determine the type of UTD if there is one.
+            None,
+        );
 
         txn.adjust_day_dividers(day_divider_adjuster);
 
@@ -564,14 +570,18 @@ impl TimelineInnerStateTransaction<'_> {
             is_highlighted: event.push_actions.iter().any(Action::is_highlight),
             flow: Flow::Remote {
                 event_id: event_id.clone(),
-                raw_event: raw,
+                raw_event: raw.clone(),
                 txn_id,
                 position,
                 should_add,
             },
         };
 
-        TimelineEventHandler::new(self, ctx).handle_event(day_divider_adjuster, event_kind)
+        TimelineEventHandler::new(self, ctx).handle_event(
+            day_divider_adjuster,
+            event_kind,
+            Some(&raw),
+        )
     }
 
     fn clear(&mut self) {
