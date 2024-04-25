@@ -15,7 +15,7 @@
 use std::{fmt::Debug, sync::Arc, time::Duration};
 
 use futures_util::pin_mut;
-use matrix_sdk::Client;
+use matrix_sdk::{crypto::types::events::UtdCause, Client};
 use matrix_sdk_ui::{
     sync_service::{
         State as MatrixSyncServiceState, SyncService as MatrixSyncService,
@@ -187,6 +187,10 @@ pub struct UnableToDecryptInfo {
     ///
     /// If set, this is in milliseconds.
     pub time_to_decrypt_ms: Option<u64>,
+
+    /// What we know about what caused this UTD. E.g. was this event sent when
+    /// we were not a member of this room?
+    pub cause: UtdCause,
 }
 
 impl From<SdkUnableToDecryptInfo> for UnableToDecryptInfo {
@@ -194,6 +198,7 @@ impl From<SdkUnableToDecryptInfo> for UnableToDecryptInfo {
         Self {
             event_id: value.event_id.to_string(),
             time_to_decrypt_ms: value.time_to_decrypt.map(|ttd| ttd.as_millis() as u64),
+            cause: value.cause,
         }
     }
 }
