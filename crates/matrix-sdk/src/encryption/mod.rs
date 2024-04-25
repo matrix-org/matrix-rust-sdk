@@ -161,6 +161,7 @@ pub struct EncryptionSettings {
 
 /// Settings for end-to-end encryption features.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum BackupDownloadStrategy {
     /// Automatically download all room keys from the backup when the backup
     /// recovery key has been received. The backup recovery key can be received

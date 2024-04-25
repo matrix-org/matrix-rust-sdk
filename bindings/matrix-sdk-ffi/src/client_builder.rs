@@ -76,6 +76,7 @@ pub struct ClientBuilder {
     cross_process_refresh_lock_id: Option<String>,
     session_delegate: Option<Arc<dyn ClientSessionDelegate>>,
     additional_root_certificates: Vec<Vec<u8>>,
+    encryption_settings: EncryptionSettings,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -93,14 +94,16 @@ impl ClientBuilder {
             proxy: None,
             disable_ssl_verification: false,
             disable_automatic_token_refresh: false,
-            inner: MatrixClient::builder().with_encryption_settings(EncryptionSettings {
-                auto_enable_cross_signing: false,
-                backup_download_strategy: BackupDownloadStrategy::AfterDecryptionFailure,
-                auto_enable_backups: false,
-            }),
+            inner: MatrixClient::builder(),
             cross_process_refresh_lock_id: None,
             session_delegate: None,
             additional_root_certificates: Default::default(),
+            encryption_settings: EncryptionSettings {
+                auto_enable_cross_signing: false,
+                backup_download_strategy:
+                    matrix_sdk::encryption::BackupDownloadStrategy::AfterDecryptionFailure,
+                auto_enable_backups: false,
+            },
         })
     }
 
@@ -203,21 +206,41 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
+    pub fn auto_enable_cross_signing(
+        self: Arc<Self>,
+        auto_enable_cross_signing: bool,
+    ) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.encryption_settings.auto_enable_cross_signing = auto_enable_cross_signing;
+        Arc::new(builder)
+    }
+
+    /// Select a strategy to download room keys from the backup. By default
+    /// we download after a decryption failure.
+    ///
+    /// Take a look at the [`BackupDownloadStrategy`] enum for more options.
+    pub fn backup_download_strategy(
+        self: Arc<Self>,
+        backup_download_strategy: BackupDownloadStrategy,
+    ) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.encryption_settings.backup_download_strategy = backup_download_strategy;
+        Arc::new(builder)
+    }
+
+    /// Automatically create a backup version if no backup exists.
+    pub fn auto_enable_backups(self: Arc<Self>, auto_enable_backups: bool) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.encryption_settings.auto_enable_backups = auto_enable_backups;
+        Arc::new(builder)
+    }
+
     pub async fn build(self: Arc<Self>) -> Result<Arc<Client>, ClientBuildError> {
         Ok(Arc::new(self.build_inner().await?))
     }
 }
 
 impl ClientBuilder {
-    pub(crate) fn with_encryption_settings(
-        self: Arc<Self>,
-        settings: EncryptionSettings,
-    ) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.inner = builder.inner.with_encryption_settings(settings);
-        Arc::new(builder)
-    }
-
     pub(crate) fn enable_cross_process_refresh_lock_inner(
         self: Arc<Self>,
         process_id: String,
@@ -315,6 +338,8 @@ impl ClientBuilder {
                     .map_err(|e| ClientBuildError::Generic { message: e.to_string() })?,
             );
         }
+
+        inner_builder = inner_builder.with_encryption_settings(builder.encryption_settings);
 
         let sdk_client = inner_builder.build().await?;
 
