@@ -70,7 +70,7 @@ as_variant = { workspace = true }
 async-channel = "2.1.0"
 async-stream = { workspace = true }
 async-trait = { workspace = true }
-axum = { version = "0.7.5", optional = true }
+axum = { version = "0.7.4", optional = true }
 bytes = "1.1.0"
 bytesize = "1.1"
 cfg-vis = "0.3.0"
