@@ -1722,10 +1722,10 @@ name = "example-oidc-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "axum 0.7.4",
  "dirs",
  "futures-util",
- "http 0.2.11",
- "hyper 0.14.28",
+ "http 1.1.0",
  "matrix-sdk",
  "matrix-sdk-ui",
  "rand 0.8.5",

@@ -10,10 +10,10 @@ test = false
 
 [dependencies]
 anyhow = "1"
+axum = "0.7.4"
 dirs = "5.0.1"
 futures-util = { version = "0.3.21", default-features = false }
-http = { workspace = true }
-hyper = { version = "0.14.20", features = ["http1", "http2", "server"] }
+http = "1.1.0"
 matrix-sdk-ui = { path = "../../crates/matrix-sdk-ui" }
 rand = { workspace = true }
 serde = { workspace = true }
