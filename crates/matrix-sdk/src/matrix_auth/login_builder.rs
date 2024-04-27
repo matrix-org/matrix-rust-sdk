@@ -324,11 +324,15 @@ where
             sync::{Arc, Mutex},
         };
 
-        use http::{Method, StatusCode};
-        use hyper::{server::conn::AddrIncoming, service::service_fn};
+        use axum::{
+            http::{self, Method, StatusCode},
+            response::IntoResponse,
+            routing::any_service,
+        };
         use rand::{thread_rng, Rng};
         use serde::Deserialize;
         use tokio::{net::TcpListener, sync::oneshot};
+        use tower::service_fn;
         use tracing::debug;
         use url::Url;
 
@@ -381,7 +385,7 @@ where
                 data_tx.send(query.login_token).unwrap();
             }
 
-            Ok(http::Response::new(response.clone()))
+            Ok(response.clone())
         };
 
         let listener = {
@@ -411,24 +415,21 @@ where
             }
         };
 
-        let incoming = AddrIncoming::from_listener(listener).unwrap();
-        let server = hyper::Server::builder(incoming)
-            .serve(tower::make::Shared::new(service_fn(move |request| {
-                let handle_request = handle_request.clone();
-                async move {
-                    match handle_request(request) {
-                        Ok(res) => Ok::<_, Infallible>(res.map(hyper::Body::from)),
-                        Err(status_code) => {
-                            let mut res = http::Response::new(hyper::Body::default());
-                            *res.status_mut() = status_code;
-                            Ok(res)
-                        }
-                    }
+        let router = any_service(service_fn(move |request| {
+            let handle_request = handle_request.clone();
+            async move {
+                match handle_request(request) {
+                    Ok(res) => Ok::<_, Infallible>(res.into_response()),
+                    Err(status_code) => Ok(status_code.into_response()),
                 }
-            })))
+            }
+        }));
+
+        let server = axum::serve(listener, router)
             .with_graceful_shutdown(async {
                 signal_rx.await.ok();
-            });
+            })
+            .into_future();
 
         tokio::spawn(server);
 
