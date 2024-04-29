@@ -13,6 +13,8 @@
 // limitations under the License.
 
 use std::{
+    convert::Infallible,
+    future::IntoFuture,
     io::{self, Write},
     ops::Range,
     path::{Path, PathBuf},
@@ -21,9 +23,9 @@ use std::{
 };
 
 use anyhow::{anyhow, bail};
+use axum::{response::IntoResponse, routing::any_service};
 use futures_util::StreamExt;
 use http::{Method, StatusCode};
-use hyper::{server::conn::AddrIncoming, service::service_fn, Body, Server};
 use matrix_sdk::{
     config::SyncSettings,
     oidc::{
@@ -49,7 +51,7 @@ use matrix_sdk_ui::sync_service::SyncService;
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use serde::{Deserialize, Serialize};
 use tokio::{fs, io::AsyncBufReadExt as _, net::TcpListener, sync::oneshot};
-use tower::make::Shared;
+use tower::service_fn;
 use url::Url;
 
 /// A command-line tool to demonstrate the steps requiring an interaction with
@@ -875,29 +877,31 @@ async fn spawn_local_server(
     };
 
     // Set up the server.
-    let incoming = AddrIncoming::from_listener(listener)?;
-    let server = Server::builder(incoming)
-            .serve(Shared::new(service_fn(move |request| {
-                let data_tx_mutex = data_tx_mutex.clone();
-                async move {
-                    // Reject methods others than HEAD or GET.
-                    if request.method() != Method::HEAD && request.method() != Method::GET {
-                        return http::Response::builder().status(StatusCode::METHOD_NOT_ALLOWED).body(Body::default());
-                    }
+    let router = any_service(service_fn(move |request: http::Request<_>| {
+        let data_tx_mutex = data_tx_mutex.clone();
+        async move {
+            // Reject methods others than HEAD or GET.
+            if request.method() != Method::HEAD && request.method() != Method::GET {
+                return Ok::<_, Infallible>(StatusCode::METHOD_NOT_ALLOWED.into_response());
+            }
 
-                    // We only need to get the first response so we consume the transmitter the first time.
-                    if let Some(data_tx) = data_tx_mutex.lock().unwrap().take() {
-                        let query_string = request.uri().query().unwrap_or_default();
+            // We only need to get the first response so we consume the transmitter the
+            // first time.
+            if let Some(data_tx) = data_tx_mutex.lock().unwrap().take() {
+                let query_string = request.uri().query().unwrap_or_default();
 
-                        data_tx.send(query_string.to_owned()).expect("The receiver is still alive");
-                    }
+                data_tx.send(query_string.to_owned()).expect("The receiver is still alive");
+            }
 
-                    Ok(http::Response::new(Body::from("The authorization step is complete. You can close this page and go back to the oidc-cli.")))
-                }
-            })))
-            .with_graceful_shutdown(async {
-                signal_rx.await.ok();
-            });
+            Ok("The authorization step is complete. You can close this page and go back to the oidc-cli.".into_response())
+        }
+    }));
+
+    let server = axum::serve(listener, router)
+        .with_graceful_shutdown(async {
+            signal_rx.await.ok();
+        })
+        .into_future();
 
     tokio::spawn(server);
 
