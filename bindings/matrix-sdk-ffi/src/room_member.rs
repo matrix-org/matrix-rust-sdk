@@ -54,7 +54,7 @@ pub fn suggested_power_level_for_role(role: RoomMemberRole) -> i64 {
     role.suggested_power_level()
 }
 
-/// Generates a `matrix.to` permalink from to the given userID.
+/// Generates a `matrix.to` permalink to the given userID.
 #[uniffi::export]
 pub fn matrix_to_user_permalink(user_id: String) -> Result<String, ClientError> {
     let user_id = UserId::parse(user_id)?;
