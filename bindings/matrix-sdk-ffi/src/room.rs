@@ -18,7 +18,7 @@ use ruma::{
         },
         TimelineEventType,
     },
-    EventId, Int, UserId,
+    EventId, Int, RoomAliasId, UserId,
 };
 use tokio::sync::RwLock;
 use tracing::error;
@@ -665,6 +665,15 @@ impl Room {
         let event_id = EventId::parse(event_id)?;
         Ok(self.inner.matrix_to_event_permalink(event_id).await?.to_string())
     }
+}
+
+/// Generates a `matrix.to` permalink to the given room alias.
+#[uniffi::export]
+pub fn matrix_to_room_alias_permalink(
+    room_alias: String,
+) -> std::result::Result<String, ClientError> {
+    let room_alias = RoomAliasId::parse(room_alias)?;
+    Ok(room_alias.matrix_to_uri().to_string())
 }
 
 #[derive(uniffi::Record)]
