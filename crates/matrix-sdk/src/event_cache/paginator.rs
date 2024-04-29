@@ -17,10 +17,11 @@
 //! makes it possible to paginate forward or backward, from that event, until
 //! one end of the timeline (front or back) is reached.
 
+use std::{mem, sync::Mutex};
+
 use eyeball::{SharedObservable, Subscriber};
 use matrix_sdk_base::{deserialized_responses::TimelineEvent, SendOutsideWasm, SyncOutsideWasm};
 use ruma::{api::Direction, EventId, OwnedEventId, UInt};
-use tokio::sync::Mutex;
 
 use crate::{
     room::{EventWithContextResponse, Messages, MessagesOptions},
@@ -77,9 +78,13 @@ pub struct Paginator {
     state: SharedObservable<PaginatorState>,
 
     /// The token to run the next backward pagination.
+    ///
+    /// This mutex is only taken for short periods of time, so it's sync.
     prev_batch_token: Mutex<Option<String>>,
 
     /// The token to run the next forward pagination.
+    ///
+    /// This mutex is only taken for short periods of time, so it's sync.
     next_batch_token: Mutex<Option<String>>,
 }
 
@@ -131,6 +136,18 @@ pub struct StartFromResult {
     pub has_next: bool,
 }
 
+/// Reset the state to a given target on drop.
+struct ResetStateGuard {
+    target: PaginatorState,
+    state: SharedObservable<PaginatorState>,
+}
+
+impl Drop for ResetStateGuard {
+    fn drop(&mut self) {
+        self.state.set_if_not_eq(self.target);
+    }
+}
+
 impl Paginator {
     /// Create a new [`Paginator`], given a room implementation.
     pub fn new(room: Box<dyn PaginableRoom>) -> Self {
@@ -179,17 +196,27 @@ impl Paginator {
             });
         }
 
+        let reset_state_guard =
+            ResetStateGuard { target: PaginatorState::Initial, state: self.state.clone() };
+
         // TODO: do we want to lazy load members?
         let lazy_load_members = true;
 
         let response =
             self.room.event_with_context(event_id, lazy_load_members, num_events).await?;
 
+        // NOTE: it's super important to not have any `await` after this point, since we
+        // don't want the task to be interrupted anymore, or the internal state
+        // may become incorrect.
+
         let has_prev = response.prev_batch_token.is_some();
         let has_next = response.next_batch_token.is_some();
-        *self.prev_batch_token.lock().await = response.prev_batch_token;
-        *self.next_batch_token.lock().await = response.next_batch_token;
+        *self.prev_batch_token.lock().unwrap() = response.prev_batch_token;
+        *self.next_batch_token.lock().unwrap() = response.next_batch_token;
 
+        // Forget the reset state guard, so its Drop method is not called.
+        mem::forget(reset_state_guard);
+        // And set the final state.
         self.state.set(PaginatorState::Idle);
 
         // Consolidate the events into a linear timeline, topologically ordered.
@@ -250,7 +277,7 @@ impl Paginator {
         self.check_state(PaginatorState::Idle)?;
 
         let token = {
-            let token = token_lock.lock().await;
+            let token = token_lock.lock().unwrap();
             if token.is_none() {
                 return Ok(PaginationResult { events: Vec::new(), hit_end_of_timeline: true });
             };
@@ -267,25 +294,28 @@ impl Paginator {
             });
         }
 
+        let reset_state_guard =
+            ResetStateGuard { target: PaginatorState::Idle, state: self.state.clone() };
+
         let mut options = MessagesOptions::new(dir).from(token.as_deref());
         options.limit = num_events;
 
-        let response_result = self.room.messages(options).await;
+        // In case of error, the state is reset to idle automatically thanks to
+        // reset_state_guard.
+        let response = self.room.messages(options).await?;
 
-        // In case of error, reset the state to idle.
-        let response = match response_result {
-            Ok(res) => res,
-            Err(err) => {
-                self.state.set(PaginatorState::Idle);
-                return Err(err);
-            }
-        };
+        // NOTE: it's super important to not have any `await` after this point, since we
+        // don't want the task to be interrupted anymore, or the internal state
+        // may be incorrect.
 
         let hit_end_of_timeline = response.end.is_none();
-        *token_lock.lock().await = response.end;
+        *token_lock.lock().unwrap() = response.end;
 
         // TODO: what to do with state events?
 
+        // Forget the reset state guard, so its Drop method is not called.
+        mem::forget(reset_state_guard);
+        // And set the final state.
         self.state.set(PaginatorState::Idle);
 
         Ok(PaginationResult { events: response.chunk, hit_end_of_timeline })
@@ -369,13 +399,22 @@ mod tests {
     use async_trait::async_trait;
     use futures_core::Future;
     use futures_util::FutureExt as _;
+    use matrix_sdk_base::deserialized_responses::TimelineEvent;
     use matrix_sdk_test::async_test;
     use once_cell::sync::Lazy;
-    use ruma::{event_id, room_id, uint, user_id, RoomId, UserId};
-    use tokio::{spawn, sync::Notify};
+    use ruma::{api::Direction, event_id, room_id, uint, user_id, EventId, RoomId, UInt, UserId};
+    use tokio::{
+        spawn,
+        sync::{Mutex, Notify},
+        task::AbortHandle,
+    };
 
-    use super::*;
-    use crate::test_utils::{assert_event_matches_msg, events::EventFactory};
+    use super::{PaginableRoom, PaginatorError, PaginatorState};
+    use crate::{
+        event_cache::paginator::Paginator,
+        room::{EventWithContextResponse, Messages, MessagesOptions},
+        test_utils::{assert_event_matches_msg, events::EventFactory},
+    };
 
     #[derive(Clone)]
     struct TestRoom {
@@ -863,5 +902,139 @@ mod tests {
         join_handle.await.expect("joined failed").expect("/messages failed");
 
         assert!(state.next().now_or_never().is_none());
+    }
+
+    mod aborts {
+        use super::*;
+
+        #[derive(Clone, Default)]
+        struct AbortingRoom {
+            abort_handle: Arc<Mutex<Option<AbortHandle>>>,
+            room_ready: Arc<Notify>,
+        }
+
+        impl AbortingRoom {
+            async fn wait_abort_and_yield(&self) -> ! {
+                // Wait for the controller to tell us we're ready.
+                self.room_ready.notified().await;
+
+                // Abort the given handle.
+                let mut guard = self.abort_handle.lock().await;
+                let handle = guard.take().expect("only call me when i'm initialized");
+                handle.abort();
+
+                // Enter an endless loop of yielding.
+                loop {
+                    tokio::task::yield_now().await;
+                }
+            }
+        }
+
+        #[async_trait]
+        impl PaginableRoom for AbortingRoom {
+            async fn event_with_context(
+                &self,
+                _event_id: &EventId,
+                _lazy_load_members: bool,
+                _num_events: UInt,
+            ) -> Result<EventWithContextResponse, PaginatorError> {
+                self.wait_abort_and_yield().await
+            }
+
+            async fn messages(&self, _opts: MessagesOptions) -> Result<Messages, PaginatorError> {
+                self.wait_abort_and_yield().await
+            }
+        }
+
+        #[async_test]
+        async fn test_abort_while_starting_from() {
+            let room = Box::new(AbortingRoom::default());
+
+            let paginator = Arc::new(Paginator::new(room.clone()));
+
+            let mut state = paginator.state();
+
+            assert_eq!(state.get(), PaginatorState::Initial);
+            assert!(state.next().now_or_never().is_none());
+
+            // When I try to start the initial query…
+            let p = paginator.clone();
+            let join_handle = spawn(async move {
+                let _ = p.start_from(event_id!("$yoyoyo"), uint!(100)).await;
+            });
+
+            *room.abort_handle.lock().await = Some(join_handle.abort_handle());
+
+            assert_eq!(state.next().await, Some(PaginatorState::FetchingTargetEvent));
+            assert!(state.next().now_or_never().is_none());
+
+            room.room_ready.notify_one();
+
+            // But it's aborted when awaiting the task.
+            let join_result = join_handle.await;
+            assert!(join_result.unwrap_err().is_cancelled());
+
+            // Then the state is reset to initial.
+            assert_eq!(state.next().await, Some(PaginatorState::Initial));
+            assert!(state.next().now_or_never().is_none());
+        }
+
+        #[async_test]
+        async fn test_abort_while_paginating() {
+            let room = Box::new(AbortingRoom::default());
+
+            // Assuming a paginator ready to back- or forward- paginate,
+            let paginator = Paginator::new(room.clone());
+            paginator.state.set(PaginatorState::Idle);
+            *paginator.prev_batch_token.lock().unwrap() = Some("prev".to_owned());
+            *paginator.next_batch_token.lock().unwrap() = Some("next".to_owned());
+
+            let paginator = Arc::new(paginator);
+
+            let mut state = paginator.state();
+
+            assert_eq!(state.get(), PaginatorState::Idle);
+            assert!(state.next().now_or_never().is_none());
+
+            // When I try to back-paginate…
+            let p = paginator.clone();
+            let join_handle = spawn(async move {
+                let _ = p.paginate_backward(uint!(100)).await;
+            });
+
+            *room.abort_handle.lock().await = Some(join_handle.abort_handle());
+
+            assert_eq!(state.next().await, Some(PaginatorState::Paginating));
+            assert!(state.next().now_or_never().is_none());
+
+            room.room_ready.notify_one();
+
+            // But it's aborted when awaiting the task.
+            let join_result = join_handle.await;
+            assert!(join_result.unwrap_err().is_cancelled());
+
+            // Then the state is reset to idle.
+            assert_eq!(state.next().await, Some(PaginatorState::Idle));
+            assert!(state.next().now_or_never().is_none());
+
+            // And ditto for forward pagination.
+            let p = paginator.clone();
+            let join_handle = spawn(async move {
+                let _ = p.paginate_forward(uint!(100)).await;
+            });
+
+            *room.abort_handle.lock().await = Some(join_handle.abort_handle());
+
+            assert_eq!(state.next().await, Some(PaginatorState::Paginating));
+            assert!(state.next().now_or_never().is_none());
+
+            room.room_ready.notify_one();
+
+            let join_result = join_handle.await;
+            assert!(join_result.unwrap_err().is_cancelled());
+
+            assert_eq!(state.next().await, Some(PaginatorState::Idle));
+            assert!(state.next().now_or_never().is_none());
+        }
     }
 }
