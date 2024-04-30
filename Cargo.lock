@@ -419,7 +419,7 @@ dependencies = [
  "bitflags 1.3.2",
  "bytes",
  "futures-util",
- "http 0.2.11",
+ "http 0.2.12",
  "http-body 0.4.6",
  "hyper 0.14.28",
  "itoa",
@@ -479,7 +479,7 @@ dependencies = [
  "async-trait",
  "bytes",
  "futures-util",
- "http 0.2.11",
+ "http 0.2.12",
  "http-body 0.4.6",
  "mime",
  "rustversion",
@@ -2165,7 +2165,7 @@ dependencies = [
  "futures-core",
  "futures-sink",
  "futures-util",
- "http 0.2.11",
+ "http 0.2.12",
  "indexmap 2.2.2",
  "slab",
  "tokio",
@@ -2236,7 +2236,7 @@ dependencies = [
  "base64 0.21.7",
  "bytes",
  "headers-core",
- "http 0.2.11",
+ "http 0.2.12",
  "httpdate",
  "mime",
  "sha1",
@@ -2248,7 +2248,7 @@ version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e7f66481bfee273957b1f20485a4ff3362987f85b2c236580d81b4eb7a326429"
 dependencies = [
- "http 0.2.11",
+ "http 0.2.12",
 ]
 
 [[package]]
@@ -2309,9 +2309,9 @@ dependencies = [
 
 [[package]]
 name = "http"
-version = "0.2.11"
+version = "0.2.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8947b1a6fad4393052c7ba1f4cd97bed3e953a95c79c92ad9b051a04611d9fbb"
+checksum = "601cbb57e577e2f5ef5be8e7b83f0f63994f25aa94d673e54a92d5c516d101f1"
 dependencies = [
  "bytes",
  "fnv",
@@ -2336,7 +2336,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7ceab25649e9960c0311ea418d17bee82c0dcec1bd053b5f9a66e265a693bed2"
 dependencies = [
  "bytes",
- "http 0.2.11",
+ "http 0.2.12",
  "pin-project-lite",
 ]
 
@@ -2392,7 +2392,7 @@ dependencies = [
  "futures-core",
  "futures-util",
  "h2 0.3.26",
- "http 0.2.11",
+ "http 0.2.12",
  "http-body 0.4.6",
  "httparse",
  "httpdate",
@@ -3041,16 +3041,17 @@ dependencies = [
 
 [[package]]
 name = "mas-http"
-version = "0.8.0"
-source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=099eabd1371d2840a2f025a6372d6428039eb511#099eabd1371d2840a2f025a6372d6428039eb511"
+version = "0.9.0-rc.1"
+source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=d3d11594f3d00dd1f0dace17538883e93e1bc50f#d3d11594f3d00dd1f0dace17538883e93e1bc50f"
 dependencies = [
  "bytes",
  "futures-util",
  "headers",
- "http 0.2.11",
+ "http 0.2.12",
  "http-body 0.4.6",
  "hyper 0.14.28",
  "opentelemetry",
+ "opentelemetry-semantic-conventions",
  "serde",
  "serde_json",
  "serde_urlencoded",
@@ -3063,8 +3064,8 @@ dependencies = [
 
 [[package]]
 name = "mas-iana"
-version = "0.8.0"
-source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=099eabd1371d2840a2f025a6372d6428039eb511#099eabd1371d2840a2f025a6372d6428039eb511"
+version = "0.9.0-rc.1"
+source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=d3d11594f3d00dd1f0dace17538883e93e1bc50f#d3d11594f3d00dd1f0dace17538883e93e1bc50f"
 dependencies = [
  "schemars",
  "serde",
@@ -3072,8 +3073,8 @@ dependencies = [
 
 [[package]]
 name = "mas-jose"
-version = "0.8.0"
-source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=099eabd1371d2840a2f025a6372d6428039eb511#099eabd1371d2840a2f025a6372d6428039eb511"
+version = "0.9.0-rc.1"
+source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=d3d11594f3d00dd1f0dace17538883e93e1bc50f#d3d11594f3d00dd1f0dace17538883e93e1bc50f"
 dependencies = [
  "base64ct",
  "chrono",
@@ -3102,8 +3103,8 @@ dependencies = [
 
 [[package]]
 name = "mas-oidc-client"
-version = "0.8.0"
-source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=099eabd1371d2840a2f025a6372d6428039eb511#099eabd1371d2840a2f025a6372d6428039eb511"
+version = "0.9.0-rc.1"
+source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=d3d11594f3d00dd1f0dace17538883e93e1bc50f#d3d11594f3d00dd1f0dace17538883e93e1bc50f"
 dependencies = [
  "base64ct",
  "bytes",
@@ -3111,7 +3112,7 @@ dependencies = [
  "form_urlencoded",
  "futures-util",
  "headers",
- "http 0.2.11",
+ "http 0.2.12",
  "language-tags",
  "mas-http",
  "mas-iana",
@@ -3197,7 +3198,7 @@ dependencies = [
  "futures-executor",
  "futures-util",
  "gloo-timers",
- "http 0.2.11",
+ "http 0.2.12",
  "http 1.1.0",
  "image",
  "imbl",
@@ -3891,16 +3892,15 @@ dependencies = [
 
 [[package]]
 name = "oauth2-types"
-version = "0.8.0"
-source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=099eabd1371d2840a2f025a6372d6428039eb511#099eabd1371d2840a2f025a6372d6428039eb511"
+version = "0.9.0-rc.1"
+source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=d3d11594f3d00dd1f0dace17538883e93e1bc50f#d3d11594f3d00dd1f0dace17538883e93e1bc50f"
 dependencies = [
  "chrono",
  "data-encoding",
- "http 0.2.11",
+ "http 0.2.12",
  "language-tags",
  "mas-iana",
  "mas-jose",
- "parse-display",
  "serde",
  "serde_json",
  "serde_with",
@@ -4032,7 +4032,7 @@ checksum = "7cbfa5308166ca861434f0b0913569579b8e587430a3d6bcd7fd671921ec145a"
 dependencies = [
  "async-trait",
  "bytes",
- "http 0.2.11",
+ "http 0.2.12",
  "opentelemetry",
  "reqwest 0.11.20",
 ]
@@ -4045,7 +4045,7 @@ checksum = "1a016b8d9495c639af2145ac22387dcb88e44118e45320d9238fbf4e7889abcb"
 dependencies = [
  "async-trait",
  "futures-core",
- "http 0.2.11",
+ "http 0.2.12",
  "opentelemetry",
  "opentelemetry-http",
  "opentelemetry-proto",
@@ -4190,31 +4190,6 @@ dependencies = [
  "redox_syscall",
  "smallvec",
  "windows-targets 0.48.5",
-]
-
-[[package]]
-name = "parse-display"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "06af5f9333eb47bd9ba8462d612e37a8328a5cb80b13f0af4de4c3b89f52dee5"
-dependencies = [
- "parse-display-derive",
- "regex",
- "regex-syntax 0.8.2",
-]
-
-[[package]]
-name = "parse-display-derive"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc9252f259500ee570c75adcc4e317fa6f57a1e47747d622e0bf838002a7b790"
-dependencies = [
- "proc-macro2",
- "quote",
- "regex",
- "regex-syntax 0.8.2",
- "structmeta",
- "syn 2.0.60",
 ]
 
 [[package]]
@@ -4892,7 +4867,7 @@ dependencies = [
  "futures-core",
  "futures-util",
  "h2 0.3.26",
- "http 0.2.11",
+ "http 0.2.12",
  "http-body 0.4.6",
  "hyper 0.14.28",
  "ipnet",
@@ -5798,29 +5773,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "73473c0e59e6d5812c5dfe2a064a6444949f089e20eec9a2e5506596494e4623"
 
 [[package]]
-name = "structmeta"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e1575d8d40908d70f6fd05537266b90ae71b15dbbe7a8b7dffa2b759306d329"
-dependencies = [
- "proc-macro2",
- "quote",
- "structmeta-derive",
- "syn 2.0.60",
-]
-
-[[package]]
-name = "structmeta-derive"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "152a0b65a590ff6c3da95cabe2353ee04e6167c896b28e3b14478c2636c922fc"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.60",
-]
-
-[[package]]
 name = "strum"
 version = "0.26.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6246,7 +6198,7 @@ dependencies = [
  "base64 0.21.7",
  "bytes",
  "h2 0.3.26",
- "http 0.2.11",
+ "http 0.2.12",
  "http-body 0.4.6",
  "hyper 0.14.28",
  "hyper-timeout",
@@ -6291,7 +6243,7 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-util",
- "http 0.2.11",
+ "http 0.2.12",
  "http-body 0.4.6",
  "http-range-header",
  "pin-project-lite",

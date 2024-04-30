@@ -8,13 +8,14 @@ use anyhow::{anyhow, Context as _};
 use matrix_sdk::{
     media::{MediaFileHandle as SdkMediaFileHandle, MediaFormat, MediaRequest, MediaThumbnailSize},
     oidc::{
+        requests::account_management::AccountManagementActionFull,
         types::{
             client_credentials::ClientCredentials,
             registration::{
                 ClientMetadata, ClientMetadataVerificationError, VerifiedClientMetadata,
             },
         },
-        OidcAccountManagementAction, OidcSession,
+        OidcSession,
     },
     ruma::{
         api::client::{
@@ -319,16 +320,6 @@ impl Client {
         })
     }
 
-    /// The homeserver's trusted OIDC Provider that was discovered in the
-    /// well-known.
-    ///
-    /// This will only be set if the homeserver supports authenticating via
-    /// OpenID Connect and this `Client` was constructed using auto-discovery by
-    /// setting the homeserver with [`ClientBuilder::server_name()`].
-    pub(crate) fn discovered_authentication_server(&self) -> Option<AuthenticationServerInfo> {
-        self.inner.oidc().authentication_server_info().cloned()
-    }
-
     /// The sliding sync proxy of the homeserver. It is either set automatically
     /// during discovery or manually via `set_sliding_sync_proxy` or `None`
     /// when not configured.
@@ -383,11 +374,11 @@ impl Client {
         RUNTIME.block_on(async move { Self::session_inner((*self.inner).clone()).await })
     }
 
-    pub fn account_url(
+    pub async fn account_url(
         &self,
         action: Option<AccountManagementAction>,
     ) -> Result<Option<String>, ClientError> {
-        match self.inner.oidc().account_management_url(action.map(Into::into)) {
+        match self.inner.oidc().account_management_url(action.map(Into::into)).await {
             Ok(url) => Ok(url.map(|u| u.to_string())),
             Err(e) => {
                 tracing::error!("Failed retrieving account management URL: {e}");
@@ -1156,7 +1147,7 @@ impl Session {
                             refresh_token,
                             latest_id_token,
                         },
-                    issuer_info,
+                    issuer,
                 } = api.user_session().context("Missing session")?;
                 let client_id = api
                     .client_credentials()
@@ -1169,7 +1160,7 @@ impl Session {
                     client_id,
                     client_metadata,
                     latest_id_token: latest_id_token.map(|t| t.to_string()),
-                    issuer_info,
+                    issuer,
                 };
 
                 let oidc_data = serde_json::to_string(&oidc_data).ok();
@@ -1222,7 +1213,7 @@ impl TryFrom<Session> for AuthSession {
                     refresh_token,
                     latest_id_token,
                 },
-                issuer_info: oidc_data.issuer_info,
+                issuer: oidc_data.issuer,
             };
 
             let session = OidcSession {
@@ -1257,17 +1248,18 @@ pub(crate) struct OidcSessionData {
     client_id: String,
     client_metadata: VerifiedClientMetadata,
     latest_id_token: Option<String>,
-    issuer_info: AuthenticationServerInfo,
+    issuer: String,
 }
 
 /// Represents an unverified client registration against an OpenID Connect
 /// authentication issuer. Call `validate` on this to use it for restoration.
 #[derive(Deserialize)]
+#[serde(try_from = "OidcUnvalidatedSessionDataDeHelper")]
 pub(crate) struct OidcUnvalidatedSessionData {
     client_id: String,
     client_metadata: ClientMetadata,
     latest_id_token: Option<String>,
-    issuer_info: AuthenticationServerInfo,
+    issuer: String,
 }
 
 impl OidcUnvalidatedSessionData {
@@ -1277,8 +1269,37 @@ impl OidcUnvalidatedSessionData {
             client_id: self.client_id,
             client_metadata: self.client_metadata.validate()?,
             latest_id_token: self.latest_id_token,
-            issuer_info: self.issuer_info,
+            issuer: self.issuer,
         })
+    }
+}
+
+#[derive(Deserialize)]
+struct OidcUnvalidatedSessionDataDeHelper {
+    client_id: String,
+    client_metadata: ClientMetadata,
+    latest_id_token: Option<String>,
+    issuer_info: Option<AuthenticationServerInfo>,
+    issuer: Option<String>,
+}
+
+impl TryFrom<OidcUnvalidatedSessionDataDeHelper> for OidcUnvalidatedSessionData {
+    type Error = String;
+
+    fn try_from(value: OidcUnvalidatedSessionDataDeHelper) -> Result<Self, Self::Error> {
+        let OidcUnvalidatedSessionDataDeHelper {
+            client_id,
+            client_metadata,
+            latest_id_token,
+            issuer_info,
+            issuer,
+        } = value;
+
+        let issuer = issuer
+            .or(issuer_info.map(|info| info.issuer))
+            .ok_or_else(|| "missing field `issuer`".to_owned())?;
+
+        Ok(Self { client_id, client_metadata, latest_id_token, issuer })
     }
 }
 
@@ -1288,19 +1309,19 @@ pub enum AccountManagementAction {
     SessionsList,
     SessionView { device_id: String },
     SessionEnd { device_id: String },
+    AccountDeactivate,
+    CrossSigningReset,
 }
 
-impl From<AccountManagementAction> for OidcAccountManagementAction {
+impl From<AccountManagementAction> for AccountManagementActionFull {
     fn from(value: AccountManagementAction) -> Self {
         match value {
             AccountManagementAction::Profile => Self::Profile,
             AccountManagementAction::SessionsList => Self::SessionsList,
-            AccountManagementAction::SessionView { device_id } => {
-                Self::SessionView { device_id: device_id.into() }
-            }
-            AccountManagementAction::SessionEnd { device_id } => {
-                Self::SessionEnd { device_id: device_id.into() }
-            }
+            AccountManagementAction::SessionView { device_id } => Self::SessionView { device_id },
+            AccountManagementAction::SessionEnd { device_id } => Self::SessionEnd { device_id },
+            AccountManagementAction::AccountDeactivate => Self::AccountDeactivate,
+            AccountManagementAction::CrossSigningReset => Self::CrossSigningReset,
         }
     }
 }

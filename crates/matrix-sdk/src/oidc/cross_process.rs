@@ -256,10 +256,7 @@ mod tests {
     use futures_util::future::join_all;
     use matrix_sdk_base::SessionMeta;
     use matrix_sdk_test::async_test;
-    use ruma::{
-        api::client::discovery::discover_homeserver::AuthenticationServerInfo, owned_device_id,
-        owned_user_id,
-    };
+    use ruma::{owned_device_id, owned_user_id};
     use wiremock::{
         matchers::{method, path},
         Mock, MockServer, ResponseTemplate,
@@ -349,9 +346,8 @@ mod tests {
         let oidc = Oidc { client: client.clone(), backend: Arc::new(MockImpl::new()) };
 
         // Restore registered client.
-        let issuer_info = AuthenticationServerInfo::new(ISSUER_URL.to_owned(), None);
         let (client_credentials, client_metadata) = mock_registered_client_data();
-        oidc.restore_registered_client(issuer_info, client_metadata, client_credentials);
+        oidc.restore_registered_client(ISSUER_URL.to_owned(), client_metadata, client_credentials);
 
         // Enable cross-process lock.
         oidc.enable_cross_process_refresh_lock("lock".to_owned()).await?;
