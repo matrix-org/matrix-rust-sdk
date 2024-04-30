@@ -713,16 +713,11 @@ impl CustomResponder {
 impl wiremock::Respond for &CustomResponder {
     fn respond(&self, request: &wiremock::Request) -> wiremock::ResponseTemplate {
         // Convert the mocked request to an actual server request.
-        let mut req = self.client.request(
-            request.method.to_string().parse().expect("All methods exist"),
-            request.url.clone(),
-        );
-        for header in &request.headers {
-            for value in header.1 {
-                req = req.header(header.0.to_string(), value.to_string());
-            }
-        }
-        req = req.body(request.body.clone());
+        let req = self
+            .client
+            .request(request.method.clone(), request.url.clone())
+            .headers(request.headers.clone())
+            .body(request.body.clone());
 
         // Run await inside of non-async fn by spawning a new thread and creating a new
         // runtime. We need to do this because the current runtime can't run blocking

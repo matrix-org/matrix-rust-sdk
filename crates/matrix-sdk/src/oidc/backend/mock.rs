@@ -16,7 +16,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use http::StatusCode;
+use http_old::StatusCode;
 use mas_oidc_client::{
     error::{
         DiscoveryError,
