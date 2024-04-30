@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use matrix_sdk::{
     event_handler::EventHandlerHandle,
@@ -13,9 +13,8 @@ use ruma::{
     push::{PredefinedOverrideRuleId, PredefinedUnderrideRuleId, RuleKind},
     RoomId,
 };
-use tokio::sync::RwLock;
+use tokio::sync::RwLock as AsyncRwLock;
 
-use super::RUNTIME;
 use crate::error::NotificationSettingsError;
 
 /// Enum representing the push notification modes for a room.
@@ -73,7 +72,7 @@ impl RoomNotificationSettings {
 #[derive(Clone, uniffi::Object)]
 pub struct NotificationSettings {
     sdk_client: MatrixClient,
-    sdk_notification_settings: Arc<RwLock<SdkNotificationSettings>>,
+    sdk_notification_settings: Arc<AsyncRwLock<SdkNotificationSettings>>,
     pushrules_event_handler: Arc<RwLock<Option<EventHandlerHandle>>>,
 }
 
@@ -82,10 +81,9 @@ impl NotificationSettings {
         sdk_client: MatrixClient,
         sdk_notification_settings: SdkNotificationSettings,
     ) -> Self {
-        let sdk_notification_settings = Arc::new(RwLock::new(sdk_notification_settings));
         Self {
             sdk_client,
-            sdk_notification_settings,
+            sdk_notification_settings: Arc::new(AsyncRwLock::new(sdk_notification_settings)),
             pushrules_event_handler: Arc::new(RwLock::new(None)),
         }
     }
@@ -94,11 +92,9 @@ impl NotificationSettings {
 impl Drop for NotificationSettings {
     fn drop(&mut self) {
         // Remove the event handler on the sdk_client.
-        RUNTIME.block_on(async move {
-            if let Some(event_handler) = self.pushrules_event_handler.read().await.as_ref() {
-                self.sdk_client.remove_event_handler(event_handler.clone());
-            }
-        });
+        if let Some(event_handler) = self.pushrules_event_handler.read().unwrap().as_ref() {
+            self.sdk_client.remove_event_handler(event_handler.clone());
+        }
     }
 }
 
@@ -114,18 +110,14 @@ impl NotificationSettings {
                     delegate.settings_did_change();
                 });
 
-            RUNTIME.block_on(async move {
-                *self.pushrules_event_handler.write().await = Some(event_handler);
-            });
+            *self.pushrules_event_handler.write().unwrap() = Some(event_handler);
         } else {
             // Remove the event handler if there is no delegate
-            RUNTIME.block_on(async move {
-                let event_handler = &mut *self.pushrules_event_handler.write().await;
-                if let Some(event_handler) = event_handler {
-                    self.sdk_client.remove_event_handler(event_handler.clone());
-                }
-                *event_handler = None;
-            });
+            let event_handler = &mut *self.pushrules_event_handler.write().unwrap();
+            if let Some(event_handler) = event_handler {
+                self.sdk_client.remove_event_handler(event_handler.clone());
+            }
+            *event_handler = None;
         }
     }
 
@@ -143,9 +135,11 @@ impl NotificationSettings {
         is_encrypted: bool,
         is_one_to_one: bool,
     ) -> Result<RoomNotificationSettings, NotificationSettingsError> {
-        let notification_settings = self.sdk_notification_settings.read().await;
         let parsed_room_id = RoomId::parse(&room_id)
             .map_err(|_e| NotificationSettingsError::InvalidRoomId { room_id })?;
+
+        let notification_settings = self.sdk_notification_settings.read().await;
+
         // Get the current user defined mode for this room
         if let Some(mode) =
             notification_settings.get_user_defined_room_notification_mode(&parsed_room_id).await
@@ -158,6 +152,7 @@ impl NotificationSettings {
         let mode = notification_settings
             .get_default_room_notification_mode(is_encrypted.into(), is_one_to_one.into())
             .await;
+
         Ok(RoomNotificationSettings::new(mode.into(), true))
     }
 
@@ -167,10 +162,15 @@ impl NotificationSettings {
         room_id: String,
         mode: RoomNotificationMode,
     ) -> Result<(), NotificationSettingsError> {
-        let notification_settings = self.sdk_notification_settings.read().await;
         let parsed_room_id = RoomId::parse(&room_id)
             .map_err(|_e| NotificationSettingsError::InvalidRoomId { room_id })?;
-        notification_settings.set_room_notification_mode(&parsed_room_id, mode.into()).await?;
+
+        self.sdk_notification_settings
+            .read()
+            .await
+            .set_room_notification_mode(&parsed_room_id, mode.into())
+            .await?;
+
         Ok(())
     }
 
