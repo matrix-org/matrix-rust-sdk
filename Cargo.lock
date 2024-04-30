@@ -3383,7 +3383,7 @@ dependencies = [
  "anyhow",
  "as_variant",
  "async-compat",
- "base64 0.21.7",
+ "base64 0.22.0",
  "extension-trait",
  "eyeball-im",
  "futures-core",
@@ -3425,7 +3425,7 @@ dependencies = [
  "assert_matches",
  "assert_matches2",
  "async-trait",
- "base64 0.21.7",
+ "base64 0.22.0",
  "getrandom",
  "gloo-utils",
  "indexed_db_futures",
@@ -3521,7 +3521,7 @@ name = "matrix-sdk-store-encryption"
 version = "0.7.0"
 dependencies = [
  "anyhow",
- "base64 0.21.7",
+ "base64 0.22.0",
  "blake3",
  "chacha20poly1305",
  "displaydoc",
