@@ -15,14 +15,14 @@ eyeball-im = { workspace = true }
 futures = { version = "0.3.29", features = ["executor"] }
 futures-core = { workspace = true }
 futures-util = { workspace = true }
-http = "0.2.11"
+http = { workspace = true }
 matrix-sdk = { workspace = true, default-features = true, features = ["testing", "qrcode"] }
 matrix-sdk-ui = { workspace = true, default-features = true }
 matrix-sdk-test = { workspace = true }
 once_cell = { workspace = true }
 rand = { workspace = true }
 stream_assert = "0.1.1"
-reqwest = "0.11.20"
+reqwest = "0.12.4"
 serde_json = "1.0.108"
 tempfile = "3.3.0"
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }

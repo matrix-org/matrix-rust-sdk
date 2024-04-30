@@ -46,6 +46,7 @@ uniffi = ["dep:uniffi", "matrix-sdk-base/uniffi"]
 experimental-oidc = [
     "ruma/unstable-msc2967",
     "dep:chrono",
+    "dep:http_old",
     "dep:language-tags",
     "dep:mas-oidc-client",
     "dep:rand",
@@ -83,6 +84,7 @@ eyre = { version = "0.6.8", optional = true }
 futures-core = { workspace = true }
 futures-util = { workspace = true }
 http = { workspace = true }
+http_old = { package = "http", version = "0.2", optional = true }
 imbl = { workspace = true, features = ["serde"] }
 indexmap = "2.0.2"
 js_int = "0.2.2"
@@ -120,14 +122,14 @@ optional = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 gloo-timers = { version = "0.3.0", features = ["futures"] }
-reqwest = { version = "0.11.10", default_features = false }
+reqwest = { version = "0.12.4", default_features = false }
 tokio = { workspace = true, features = ["macros"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 backoff = { version = "0.4.0", features = ["tokio"] }
 # only activate reqwest's stream feature on non-wasm, the wasm part seems to not
 # support *sending* streams, which makes it useless for us.
-reqwest = { version = "0.11.10", default_features = false, features = ["stream"] }
+reqwest = { version = "0.12.4", default_features = false, features = ["stream"] }
 tokio = { workspace = true, features = ["fs", "rt", "macros"] }
 tokio-util = "0.7.9"
 wiremock = { workspace = true, optional = true }
@@ -151,7 +153,7 @@ wasm-bindgen-test = "0.3.33"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
-wiremock = { version = "0.5.13" }
+wiremock = { workspace = true }
 
 [[test]]
 name = "integration"

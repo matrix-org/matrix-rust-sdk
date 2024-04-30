@@ -66,11 +66,9 @@ pub fn create_otlp_tracer(
 
     let auth = STANDARD.encode(format!("{user}:{password}"));
     let headers = HashMap::from([("Authorization".to_owned(), format!("Basic {auth}"))]);
-    let http_client = matrix_sdk::reqwest::ClientBuilder::new().build()?;
 
     let exporter = opentelemetry_otlp::new_exporter()
         .http()
-        .with_http_client(http_client)
         .with_protocol(Protocol::HttpBinary)
         .with_endpoint(otlp_endpoint)
         .with_headers(headers);

@@ -48,7 +48,7 @@ pub(crate) struct PartialSlidingSyncRequest {
 impl Match for SlidingSyncMatcher {
     fn matches(&self, request: &Request) -> bool {
         request.url.path() == "/_matrix/client/unstable/org.matrix.msc3575/sync"
-            && request.method == Method::Post
+            && request.method == Method::POST
     }
 }
 
