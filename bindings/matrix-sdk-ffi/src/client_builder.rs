@@ -360,10 +360,7 @@ impl ClientBuilder {
             sdk_client.set_sliding_sync_proxy(Some(Url::parse(&sliding_sync_proxy)?));
         }
 
-        Ok(Client::new(
-            sdk_client,
-            builder.cross_process_refresh_lock_id,
-            builder.session_delegate,
-        )?)
+        Ok(Client::new(sdk_client, builder.cross_process_refresh_lock_id, builder.session_delegate)
+            .await?)
     }
 }

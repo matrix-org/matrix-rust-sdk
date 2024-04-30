@@ -8,7 +8,7 @@ use matrix_sdk_ui::notification_client::{
 use ruma::{EventId, RoomId};
 
 use crate::{
-    client::Client, error::ClientError, event::TimelineEvent, helpers::unwrap_or_clone_arc, RUNTIME,
+    client::Client, error::ClientError, event::TimelineEvent, helpers::unwrap_or_clone_arc,
 };
 
 #[derive(uniffi::Enum)]
@@ -87,13 +87,12 @@ pub struct NotificationClientBuilder {
 }
 
 impl NotificationClientBuilder {
-    pub(crate) fn new(
+    pub(crate) async fn new(
         client: Arc<Client>,
         process_setup: NotificationProcessSetup,
     ) -> Result<Arc<Self>, ClientError> {
-        let builder = RUNTIME.block_on(async {
-            MatrixNotificationClient::builder((*client.inner).clone(), process_setup).await
-        })?;
+        let builder =
+            MatrixNotificationClient::builder((*client.inner).clone(), process_setup).await?;
         Ok(Arc::new(Self { builder, client }))
     }
 }
@@ -126,28 +125,25 @@ pub struct NotificationClient {
     _client: Arc<Client>,
 }
 
-#[uniffi::export]
+#[uniffi::export(async_runtime = "tokio")]
 impl NotificationClient {
     /// See also documentation of
     /// `MatrixNotificationClient::get_notification`.
-    pub fn get_notification(
+    pub async fn get_notification(
         &self,
         room_id: String,
         event_id: String,
     ) -> Result<Option<NotificationItem>, ClientError> {
         let room_id = RoomId::parse(room_id)?;
         let event_id = EventId::parse(event_id)?;
-        RUNTIME.block_on(async move {
-            let item = self
-                .inner
-                .get_notification(&room_id, &event_id)
-                .await
-                .map_err(ClientError::from)?;
-            if let Some(item) = item {
-                Ok(Some(NotificationItem::from_inner(item)))
-            } else {
-                Ok(None)
-            }
-        })
+
+        let item =
+            self.inner.get_notification(&room_id, &event_id).await.map_err(ClientError::from)?;
+
+        if let Some(item) = item {
+            Ok(Some(NotificationItem::from_inner(item)))
+        } else {
+            Ok(None)
+        }
     }
 }

@@ -182,7 +182,7 @@ impl Drop for Client {
 }
 
 impl Client {
-    pub fn new(
+    pub async fn new(
         sdk_client: MatrixClient,
         cross_process_refresh_lock_id: Option<String>,
         session_delegate: Option<Arc<dyn ClientSessionDelegate>>,
@@ -212,9 +212,7 @@ impl Client {
                     "missing session delegates when enabling the cross-process lock"
                 ))?;
             }
-            RUNTIME.block_on(async {
-                client.inner.oidc().enable_cross_process_refresh_lock(process_id.clone()).await
-            })?;
+            client.inner.oidc().enable_cross_process_refresh_lock(process_id.clone()).await?;
         }
 
         if let Some(session_delegate) = session_delegate {
@@ -291,11 +289,11 @@ impl Client {
     }
 
     /// Restores the client from a `Session`.
-    pub fn restore_session(&self, session: Session) -> Result<(), ClientError> {
+    pub async fn restore_session(&self, session: Session) -> Result<(), ClientError> {
         let sliding_sync_proxy = session.sliding_sync_proxy.clone();
         let auth_session: AuthSession = session.try_into()?;
 
-        self.restore_session_inner(auth_session)?;
+        self.restore_session_inner(auth_session).await?;
 
         if let Some(sliding_sync_proxy) = sliding_sync_proxy {
             let sliding_sync_proxy = Url::parse(&sliding_sync_proxy)
@@ -310,14 +308,12 @@ impl Client {
 
 impl Client {
     /// Restores the client from an `AuthSession`.
-    pub(crate) fn restore_session_inner(
+    pub(crate) async fn restore_session_inner(
         &self,
         session: impl Into<AuthSession>,
     ) -> anyhow::Result<()> {
-        RUNTIME.block_on(async move {
-            self.inner.restore_session(session).await?;
-            Ok(())
-        })
+        self.inner.restore_session(session).await?;
+        Ok(())
     }
 
     /// The sliding sync proxy of the homeserver. It is either set automatically
@@ -370,8 +366,8 @@ impl Client {
         })
     }
 
-    pub fn session(&self) -> Result<Session, ClientError> {
-        RUNTIME.block_on(async move { Self::session_inner((*self.inner).clone()).await })
+    pub async fn session(&self) -> Result<Session, ClientError> {
+        Self::session_inner((*self.inner).clone()).await
     }
 
     pub async fn account_url(
@@ -392,57 +388,40 @@ impl Client {
         Ok(user_id.to_string())
     }
 
-    pub fn display_name(&self) -> Result<String, ClientError> {
-        let l = self.inner.clone();
-        RUNTIME.block_on(async move {
-            let display_name = l.account().get_display_name().await?.context("No User ID found")?;
-            Ok(display_name)
-        })
+    pub async fn display_name(&self) -> Result<String, ClientError> {
+        let display_name =
+            self.inner.account().get_display_name().await?.context("No User ID found")?;
+        Ok(display_name)
     }
 
-    pub fn set_display_name(&self, name: String) -> Result<(), ClientError> {
-        let client = self.inner.clone();
-        RUNTIME.block_on(async move {
-            client
-                .account()
-                .set_display_name(Some(name.as_str()))
-                .await
-                .context("Unable to set display name")?;
-            Ok(())
-        })
+    pub async fn set_display_name(&self, name: String) -> Result<(), ClientError> {
+        self.inner
+            .account()
+            .set_display_name(Some(name.as_str()))
+            .await
+            .context("Unable to set display name")?;
+        Ok(())
     }
 
-    pub fn upload_avatar(&self, mime_type: String, data: Vec<u8>) -> Result<(), ClientError> {
-        let client = self.inner.clone();
-        RUNTIME.block_on(async move {
-            let mime: Mime = mime_type.parse()?;
-            client.account().upload_avatar(&mime, data).await?;
-            Ok(())
-        })
+    pub async fn upload_avatar(&self, mime_type: String, data: Vec<u8>) -> Result<(), ClientError> {
+        let mime: Mime = mime_type.parse()?;
+        self.inner.account().upload_avatar(&mime, data).await?;
+        Ok(())
     }
 
-    pub fn remove_avatar(&self) -> Result<(), ClientError> {
-        let client = self.inner.clone();
-        RUNTIME.block_on(async move {
-            client.account().set_avatar_url(None).await?;
-            Ok(())
-        })
+    pub async fn remove_avatar(&self) -> Result<(), ClientError> {
+        self.inner.account().set_avatar_url(None).await?;
+        Ok(())
     }
 
-    pub fn avatar_url(&self) -> Result<Option<String>, ClientError> {
-        let l = self.inner.clone();
-        RUNTIME.block_on(async move {
-            let avatar_url = l.account().get_avatar_url().await?;
-            Ok(avatar_url.map(|u| u.to_string()))
-        })
+    pub async fn avatar_url(&self) -> Result<Option<String>, ClientError> {
+        let avatar_url = self.inner.account().get_avatar_url().await?;
+        Ok(avatar_url.map(|u| u.to_string()))
     }
 
-    pub fn cached_avatar_url(&self) -> Result<Option<String>, ClientError> {
-        let l = self.inner.clone();
-        RUNTIME.block_on(async move {
-            let url = l.account().get_cached_avatar_url().await?;
-            Ok(url)
-        })
+    pub async fn cached_avatar_url(&self) -> Result<Option<String>, ClientError> {
+        let url = self.inner.account().get_cached_avatar_url().await?;
+        Ok(url)
     }
 
     pub fn device_id(&self) -> Result<String, ClientError> {
@@ -450,35 +429,31 @@ impl Client {
         Ok(device_id.to_string())
     }
 
-    pub fn create_room(&self, request: CreateRoomParameters) -> Result<String, ClientError> {
-        let client = self.inner.clone();
-
-        RUNTIME.block_on(async move {
-            let response = client.create_room(request.into()).await?;
-            Ok(String::from(response.room_id()))
-        })
+    pub async fn create_room(&self, request: CreateRoomParameters) -> Result<String, ClientError> {
+        let response = self.inner.create_room(request.into()).await?;
+        Ok(String::from(response.room_id()))
     }
 
     /// Get the content of the event of the given type out of the account data
     /// store.
     ///
     /// It will be returned as a JSON string.
-    pub fn account_data(&self, event_type: String) -> Result<Option<String>, ClientError> {
-        RUNTIME.block_on(async move {
-            let event = self.inner.account().account_data_raw(event_type.into()).await?;
-            Ok(event.map(|e| e.json().get().to_owned()))
-        })
+    pub async fn account_data(&self, event_type: String) -> Result<Option<String>, ClientError> {
+        let event = self.inner.account().account_data_raw(event_type.into()).await?;
+        Ok(event.map(|e| e.json().get().to_owned()))
     }
 
     /// Set the given account data content for the given event type.
     ///
     /// It should be supplied as a JSON string.
-    pub fn set_account_data(&self, event_type: String, content: String) -> Result<(), ClientError> {
-        RUNTIME.block_on(async move {
-            let raw_content = Raw::from_json_string(content)?;
-            self.inner.account().set_account_data_raw(event_type.into(), raw_content).await?;
-            Ok(())
-        })
+    pub async fn set_account_data(
+        &self,
+        event_type: String,
+        content: String,
+    ) -> Result<(), ClientError> {
+        let raw_content = Raw::from_json_string(content)?;
+        self.inner.account().set_account_data_raw(event_type.into(), raw_content).await?;
+        Ok(())
     }
 
     pub async fn upload_media(
@@ -542,37 +517,35 @@ impl Client {
             .await?)
     }
 
-    pub fn get_session_verification_controller(
+    pub async fn get_session_verification_controller(
         &self,
     ) -> Result<Arc<SessionVerificationController>, ClientError> {
-        RUNTIME.block_on(async move {
-            if let Some(session_verification_controller) =
-                &*self.session_verification_controller.read().await
-            {
-                return Ok(Arc::new(session_verification_controller.clone()));
-            }
-            let user_id = self.inner.user_id().context("Failed retrieving current user_id")?;
-            let user_identity = self
-                .inner
-                .encryption()
-                .get_user_identity(user_id)
-                .await?
-                .context("Failed retrieving user identity")?;
+        if let Some(session_verification_controller) =
+            &*self.session_verification_controller.read().await
+        {
+            return Ok(Arc::new(session_verification_controller.clone()));
+        }
+        let user_id = self.inner.user_id().context("Failed retrieving current user_id")?;
+        let user_identity = self
+            .inner
+            .encryption()
+            .get_user_identity(user_id)
+            .await?
+            .context("Failed retrieving user identity")?;
 
-            let session_verification_controller =
-                SessionVerificationController::new(self.inner.encryption(), user_identity);
+        let session_verification_controller =
+            SessionVerificationController::new(self.inner.encryption(), user_identity);
 
-            *self.session_verification_controller.write().await =
-                Some(session_verification_controller.clone());
+        *self.session_verification_controller.write().await =
+            Some(session_verification_controller.clone());
 
-            Ok(Arc::new(session_verification_controller))
-        })
+        Ok(Arc::new(session_verification_controller))
     }
 
     /// Log out the current user. This method returns an optional URL that
     /// should be presented to the user to complete logout (in the case of
     /// Session having been authenticated using OIDC).
-    pub fn logout(&self) -> Result<Option<String>, ClientError> {
+    pub async fn logout(&self) -> Result<Option<String>, ClientError> {
         let Some(auth_api) = self.inner.auth_api() else {
             return Err(anyhow!("Missing authentication API").into());
         };
@@ -580,12 +553,13 @@ impl Client {
         match auth_api {
             AuthApi::Matrix(a) => {
                 tracing::info!("Logging out via the homeserver.");
-                RUNTIME.block_on(a.logout())?;
+                a.logout().await?;
                 Ok(None)
             }
+
             AuthApi::Oidc(api) => {
                 tracing::info!("Logging out via OIDC.");
-                let end_session_builder = RUNTIME.block_on(api.logout())?;
+                let end_session_builder = api.logout().await?;
 
                 if let Some(builder) = end_session_builder {
                     let url = builder.build()?.url;
@@ -644,50 +618,43 @@ impl Client {
         Ok(dm)
     }
 
-    pub fn search_users(
+    pub async fn search_users(
         &self,
         search_term: String,
         limit: u64,
     ) -> Result<SearchUsersResults, ClientError> {
-        RUNTIME.block_on(async move {
-            let response = self.inner.search_users(&search_term, limit).await?;
-            Ok(SearchUsersResults::from(response))
+        let response = self.inner.search_users(&search_term, limit).await?;
+        Ok(SearchUsersResults::from(response))
+    }
+
+    pub async fn get_profile(&self, user_id: String) -> Result<UserProfile, ClientError> {
+        let owned_user_id = UserId::parse(user_id.clone())?;
+
+        let response = self.inner.account().fetch_user_profile_of(&owned_user_id).await?;
+
+        Ok(UserProfile {
+            user_id,
+            display_name: response.displayname.clone(),
+            avatar_url: response.avatar_url.as_ref().map(|url| url.to_string()),
         })
     }
 
-    pub fn get_profile(&self, user_id: String) -> Result<UserProfile, ClientError> {
-        RUNTIME.block_on(async move {
-            let owned_user_id = UserId::parse(user_id.clone())?;
-            let response = self.inner.account().fetch_user_profile_of(&owned_user_id).await?;
-
-            let user_profile = UserProfile {
-                user_id,
-                display_name: response.displayname.clone(),
-                avatar_url: response.avatar_url.as_ref().map(|url| url.to_string()),
-            };
-
-            Ok(user_profile)
-        })
-    }
-
-    pub fn notification_client(
+    pub async fn notification_client(
         self: Arc<Self>,
         process_setup: NotificationProcessSetup,
     ) -> Result<Arc<NotificationClientBuilder>, ClientError> {
-        NotificationClientBuilder::new(self.clone(), process_setup.into())
+        NotificationClientBuilder::new(self.clone(), process_setup.into()).await
     }
 
     pub fn sync_service(&self) -> Arc<SyncServiceBuilder> {
         SyncServiceBuilder::new((*self.inner).clone())
     }
 
-    pub fn get_notification_settings(&self) -> Arc<NotificationSettings> {
-        RUNTIME.block_on(async move {
-            Arc::new(NotificationSettings::new(
-                (*self.inner).clone(),
-                self.inner.notification_settings().await,
-            ))
-        })
+    pub async fn get_notification_settings(&self) -> Arc<NotificationSettings> {
+        Arc::new(NotificationSettings::new(
+            (*self.inner).clone(),
+            self.inner.notification_settings().await,
+        ))
     }
 
     pub fn encryption(&self) -> Arc<Encryption> {
