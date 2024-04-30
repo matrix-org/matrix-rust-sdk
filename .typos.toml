@@ -21,8 +21,10 @@ WeeChat = "WeeChat"
 sing = "sign"
 singed = "signed"
 singing = "signing"
-Nd = "Nd"
 ratatui = "ratatui"
+# base64 false positives
+Nd = "Nd"
+Abl = "Abl"
 
 [files]
 extend-exclude = [
