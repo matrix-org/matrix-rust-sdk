@@ -37,7 +37,10 @@ use matrix_sdk::{
     },
     AuthApi, AuthSession, Client as MatrixClient, SessionChange, SessionTokens,
 };
-use matrix_sdk_ui::notification_client::NotificationProcessSetup as MatrixNotificationProcessSetup;
+use matrix_sdk_ui::notification_client::{
+    NotificationClient as MatrixNotificationClient,
+    NotificationProcessSetup as MatrixNotificationProcessSetup,
+};
 use mime::Mime;
 use ruma::{
     api::client::discovery::discover_homeserver::AuthenticationServerInfo,
@@ -58,7 +61,7 @@ use super::{room::Room, session_verification::SessionVerificationController, RUN
 use crate::{
     client,
     encryption::Encryption,
-    notification::NotificationClientBuilder,
+    notification::NotificationClient,
     notification_settings::NotificationSettings,
     room_directory_search::RoomDirectorySearch,
     room_preview::RoomPreview,
@@ -642,8 +645,12 @@ impl Client {
     pub async fn notification_client(
         self: Arc<Self>,
         process_setup: NotificationProcessSetup,
-    ) -> Result<Arc<NotificationClientBuilder>, ClientError> {
-        NotificationClientBuilder::new(self.clone(), process_setup.into()).await
+    ) -> Result<Arc<NotificationClient>, ClientError> {
+        Ok(Arc::new(NotificationClient {
+            inner: MatrixNotificationClient::new((*self.inner).clone(), process_setup.into())
+                .await?,
+            _client: self.clone(),
+        }))
     }
 
     pub fn sync_service(&self) -> Arc<SyncServiceBuilder> {
