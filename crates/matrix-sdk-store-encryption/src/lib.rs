@@ -786,7 +786,7 @@ pub struct EncryptedValue {
 #[derive(Debug)]
 pub enum EncryptedValueBase64DecodeError {
     /// Base64 decoding failed because the string was not valid base64
-    DecodeError(base64::DecodeError),
+    DecodeError(base64::DecodeSliceError),
 
     /// Decoding the nonce failed because it was not the expected length
     IncorrectNonceLength(usize),
@@ -805,9 +805,15 @@ impl std::fmt::Display for EncryptedValueBase64DecodeError {
     }
 }
 
+impl From<base64::DecodeSliceError> for EncryptedValueBase64DecodeError {
+    fn from(value: base64::DecodeSliceError) -> Self {
+        Self::DecodeError(value)
+    }
+}
+
 impl From<base64::DecodeError> for EncryptedValueBase64DecodeError {
     fn from(value: base64::DecodeError) -> Self {
-        Self::DecodeError(value)
+        Self::DecodeError(value.into())
     }
 }
 
@@ -827,11 +833,10 @@ impl TryFrom<EncryptedValueBase64> for EncryptedValue {
     type Error = EncryptedValueBase64DecodeError;
 
     fn try_from(value: EncryptedValueBase64) -> Result<Self, Self::Error> {
-        Ok(Self {
-            version: value.version,
-            ciphertext: BASE64.decode(value.ciphertext)?,
-            nonce: BASE64.decode(value.nonce)?.try_into()?,
-        })
+        let mut nonce = [0; XNONCE_SIZE];
+        BASE64.decode_slice(value.nonce, &mut nonce)?;
+
+        Ok(Self { version: value.version, ciphertext: BASE64.decode(value.ciphertext)?, nonce })
     }
 }
 
@@ -1158,7 +1163,7 @@ mod tests {
             panic!("Should be an error!");
         };
 
-        assert_eq!(err.to_string(), "Encoded text cannot have a 6-bit remainder.");
+        assert_eq!(err.to_string(), "DecodeError: Invalid input length: 1");
     }
 
     fn make_nonce() -> [u8; 24] {
