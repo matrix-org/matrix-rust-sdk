@@ -37,7 +37,7 @@ fuzzy-matcher = "0.3.7"
 imbl = { workspace = true, features = ["serde"] }
 indexmap = "2.0.0"
 itertools = { workspace = true }
-matrix-sdk = { workspace = true, features = ["experimental-oidc", "experimental-sliding-sync"] }
+matrix-sdk = { workspace = true, features = ["experimental-sliding-sync"] }
 matrix-sdk-base = { workspace = true }
 mime = "0.3.16"
 once_cell = { workspace = true }
