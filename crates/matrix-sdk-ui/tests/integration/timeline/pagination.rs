@@ -16,17 +16,16 @@ use std::{sync::Arc, time::Duration};
 
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
-use futures_util::{
-    future::{join, join3},
-    FutureExt,
+use futures_util::future::{join, join3};
+use matrix_sdk::{
+    config::SyncSettings, event_cache::paginator::PaginatorState,
+    test_utils::logged_in_client_with_server,
 };
-use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server};
 use matrix_sdk_test::{
     async_test, EventBuilder, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder, ALICE, BOB,
 };
 use matrix_sdk_ui::timeline::{
-    AnyOtherFullStateEventContent, PaginationOptions, PaginationStatus, RoomExt,
-    TimelineItemContent,
+    AnyOtherFullStateEventContent, PaginationOptions, RoomExt, TimelineItemContent,
 };
 use once_cell::sync::Lazy;
 use ruma::{
@@ -81,7 +80,7 @@ async fn test_back_pagination() {
         server.reset().await;
     };
     let observe_paginating = async {
-        assert_eq!(back_pagination_status.next().await, Some(PaginationStatus::Paginating));
+        assert_eq!(back_pagination_status.next().await, Some(PaginatorState::Paginating));
     };
     join(paginate, observe_paginating).await;
 
@@ -136,8 +135,10 @@ async fn test_back_pagination() {
         .mount(&server)
         .await;
 
-    timeline.live_paginate_backwards(PaginationOptions::simple_request(10)).await.unwrap();
-    assert_next_eq!(back_pagination_status, PaginationStatus::TimelineEndReached);
+    let hit_start =
+        timeline.live_paginate_backwards(PaginationOptions::simple_request(10)).await.unwrap();
+    assert!(hit_start);
+    assert_next_eq!(back_pagination_status, PaginatorState::Idle);
 }
 
 #[async_test]
@@ -274,8 +275,8 @@ async fn test_wait_for_token() {
             .unwrap();
     };
     let observe_paginating = async {
-        assert_eq!(back_pagination_status.next().await, Some(PaginationStatus::Paginating));
-        assert_eq!(back_pagination_status.next().await, Some(PaginationStatus::Idle));
+        assert_eq!(back_pagination_status.next().await, Some(PaginatorState::Paginating));
+        assert_eq!(back_pagination_status.next().await, Some(PaginatorState::Idle));
     };
     let sync = async {
         // Make sure syncing starts a little bit later than pagination
@@ -430,18 +431,41 @@ async fn test_timeline_reset_while_paginating() {
         timeline
             .live_paginate_backwards(PaginationOptions::simple_request(10).wait_for_token())
             .await
-            .unwrap();
+            .unwrap()
     };
+
     let observe_paginating = async {
-        assert_eq!(back_pagination_status.next().await, Some(PaginationStatus::Paginating));
-        // timeline start reached because second pagination response contains
-        // no end field
-        assert_eq!(back_pagination_status.next().await, Some(PaginationStatus::TimelineEndReached));
+        let mut seen_paginating = false;
+
+        // Observe paginating updates: we want to make sure we see at least once
+        // Paginating, and that it settles with Idle.
+        while let Ok(update) =
+            timeout(Duration::from_millis(500), back_pagination_status.next()).await
+        {
+            match update {
+                Some(state) => {
+                    if state == PaginatorState::Paginating {
+                        seen_paginating = true;
+                    }
+                }
+                None => break,
+            }
+        }
+
+        assert!(seen_paginating);
+        assert_eq!(back_pagination_status.next_now(), PaginatorState::Idle);
     };
+
     let sync = async {
         client.sync_once(sync_settings.clone()).await.unwrap();
     };
-    timeout(Duration::from_secs(2), join3(paginate, observe_paginating, sync)).await.unwrap();
+
+    let (hit_start, _, _) =
+        timeout(Duration::from_secs(5), join3(paginate, observe_paginating, sync)).await.unwrap();
+
+    // timeline start reached because second pagination response contains no end
+    // field.
+    assert!(hit_start);
 
     // No events in back-pagination responses, day divider + event from latest
     // sync is present
@@ -570,7 +594,7 @@ async fn test_empty_chunk() {
         server.reset().await;
     };
     let observe_paginating = async {
-        assert_eq!(back_pagination_status.next().await, Some(PaginationStatus::Paginating));
+        assert_eq!(back_pagination_status.next().await, Some(PaginatorState::Paginating));
     };
     join(paginate, observe_paginating).await;
 
@@ -669,7 +693,7 @@ async fn test_until_num_items_with_empty_chunk() {
         server.reset().await;
     };
     let observe_paginating = async {
-        assert_eq!(back_pagination_status.next().await, Some(PaginationStatus::Paginating));
+        assert_eq!(back_pagination_status.next().await, Some(PaginatorState::Paginating));
     };
     join(paginate, observe_paginating).await;
 

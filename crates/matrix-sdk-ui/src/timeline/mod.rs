@@ -18,7 +18,6 @@
 
 use std::{pin::Pin, sync::Arc, task::Poll};
 
-use eyeball::SharedObservable;
 use eyeball_im::VectorDiff;
 use futures_core::Stream;
 use imbl::Vector;
@@ -96,7 +95,7 @@ pub use self::{
     event_type_filter::TimelineEventTypeFilter,
     inner::default_event_filter,
     item::{TimelineItem, TimelineItemKind},
-    pagination::{PaginationOptions, PaginationOutcome, PaginationStatus},
+    pagination::{PaginationOptions, PaginationOutcome},
     polls::PollResult,
     reactions::ReactionSenderData,
     sliding_sync_ext::SlidingSyncRoomExt,
@@ -130,9 +129,6 @@ pub struct Timeline {
 
     /// References to long-running tasks held by the timeline.
     drop_handle: Arc<TimelineDropHandle>,
-
-    /// Observable for whether a backward pagination is currently running.
-    pub(crate) back_pagination_status: SharedObservable<PaginationStatus>,
 }
 
 // Implements hash etc

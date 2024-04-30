@@ -18,11 +18,14 @@ use anyhow::{Context, Result};
 use as_variant::as_variant;
 use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, StreamExt};
-use matrix_sdk::attachment::{
-    AttachmentConfig, AttachmentInfo, BaseAudioInfo, BaseFileInfo, BaseImageInfo,
-    BaseThumbnailInfo, BaseVideoInfo, Thumbnail,
+use matrix_sdk::{
+    attachment::{
+        AttachmentConfig, AttachmentInfo, BaseAudioInfo, BaseFileInfo, BaseImageInfo,
+        BaseThumbnailInfo, BaseVideoInfo, Thumbnail,
+    },
+    event_cache::paginator::PaginatorState,
 };
-use matrix_sdk_ui::timeline::{EventItemOrigin, PaginationStatus, Profile, TimelineDetails};
+use matrix_sdk_ui::timeline::{EventItemOrigin, Profile, TimelineDetails};
 use mime::Mime;
 use ruma::{
     events::{
@@ -160,7 +163,7 @@ impl Timeline {
         self.inner.fetch_members().await
     }
 
-    pub fn subscribe_to_back_pagination_status(
+    pub async fn subscribe_to_back_pagination_status(
         &self,
         listener: Box<dyn PaginationStatusListener>,
     ) -> Result<Arc<TaskHandle>, ClientError> {
@@ -588,7 +591,7 @@ pub trait TimelineListener: Sync + Send {
 
 #[uniffi::export(callback_interface)]
 pub trait PaginationStatusListener: Sync + Send {
-    fn on_update(&self, status: PaginationStatus);
+    fn on_update(&self, status: PaginatorState);
 }
 
 #[derive(Clone, uniffi::Object)]

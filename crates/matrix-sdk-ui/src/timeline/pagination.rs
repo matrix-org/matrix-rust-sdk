@@ -12,37 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{fmt, ops::ControlFlow, sync::Arc, time::Duration};
+use std::{fmt, ops::ControlFlow, sync::Arc};
 
-use eyeball::{SharedObservable, Subscriber};
-use matrix_sdk::event_cache::{self, BackPaginationOutcome};
+use eyeball::Subscriber;
+use matrix_sdk::event_cache::{
+    self,
+    paginator::{PaginatorError, PaginatorState},
+    BackPaginationOutcome, EventCacheError,
+};
 use tracing::{instrument, trace, warn};
 
 use super::Error;
 use crate::timeline::{event_item::RemoteEventOrigin, inner::TimelineEnd};
-
-struct ResetStatusGuard {
-    status: SharedObservable<PaginationStatus>,
-    target: Option<PaginationStatus>,
-}
-
-impl ResetStatusGuard {
-    fn new(status: SharedObservable<PaginationStatus>, target: PaginationStatus) -> Self {
-        Self { status, target: Some(target) }
-    }
-
-    fn disarm(mut self) {
-        self.target = None;
-    }
-}
-
-impl Drop for ResetStatusGuard {
-    fn drop(&mut self) {
-        if let Some(target) = self.target.take() {
-            self.status.set_if_not_eq(target);
-        }
-    }
-}
 
 impl super::Timeline {
     /// Add more events to the start of the timeline.
@@ -88,34 +69,27 @@ impl super::Timeline {
         &self,
         mut options: PaginationOptions<'_>,
     ) -> event_cache::Result<bool> {
-        let back_pagination_status = &self.back_pagination_status;
-
-        if back_pagination_status.get() == PaginationStatus::TimelineEndReached {
-            warn!("Start of timeline reached, ignoring backwards-pagination request");
-            return Ok(true);
-        }
-
-        if back_pagination_status.set_if_not_eq(PaginationStatus::Paginating).is_none() {
-            warn!("Another back-pagination is already running in the background");
-            return Ok(false);
-        }
-
-        let reset_status_guard =
-            ResetStatusGuard::new(back_pagination_status.clone(), PaginationStatus::Idle);
-
-        // The first time, we allow to wait a bit for *a* back-pagination token to come
-        // over via sync.
-        const WAIT_FOR_TOKEN_TIMEOUT: Duration = Duration::from_secs(3);
-
-        let mut token =
-            self.event_cache.oldest_backpagination_token(Some(WAIT_FOR_TOKEN_TIMEOUT)).await?;
-
         let initial_options = options.clone();
         let mut outcome = PaginationOutcome::default();
 
         while let Some(batch_size) = options.next_event_limit(outcome) {
             loop {
-                match self.event_cache.backpaginate(batch_size, token).await? {
+                let result = self.event_cache.paginate_backwards(batch_size).await;
+
+                let event_cache_outcome = match result {
+                    Ok(outcome) => outcome,
+
+                    Err(EventCacheError::BackpaginationError(
+                        PaginatorError::InvalidPreviousState { actual, .. },
+                    )) if actual == PaginatorState::Paginating => {
+                        warn!("Another pagination request is already happening, returning early");
+                        return Ok(false);
+                    }
+
+                    Err(err) => return Err(err),
+                };
+
+                match event_cache_outcome {
                     BackPaginationOutcome::Success { events, reached_start } => {
                         let num_events = events.len();
                         trace!("Back-pagination succeeded with {num_events} events");
@@ -130,11 +104,6 @@ impl super::Timeline {
                             .await;
 
                         if reached_start {
-                            // Don't reset the status to `Idle`…
-                            reset_status_guard.disarm();
-                            // …and set it to `TimelineEndReached` instead.
-                            back_pagination_status
-                                .set_if_not_eq(PaginationStatus::TimelineEndReached);
                             return Ok(true);
                         }
 
@@ -148,8 +117,8 @@ impl super::Timeline {
 
                         if num_events == 0 {
                             // As an exceptional contract: if there were no events in the response,
-                            // see if we had another back-pagination token, and retry the request.
-                            token = self.event_cache.oldest_backpagination_token(None).await?;
+                            // and we've not hit the start of the timeline, so retry until we get
+                            // some events.
                             continue;
                         }
                     }
@@ -163,22 +132,20 @@ impl super::Timeline {
                     }
                 }
 
-                // Retrieve the next earliest back-pagination token.
-                token = self.event_cache.oldest_backpagination_token(None).await?;
-
                 // Exit the inner loop, and ask for another limit.
                 break;
             }
         }
 
-        // The status is automatically reset to idle by `reset_status_guard`.
-
         Ok(false)
     }
 
     /// Subscribe to the back-pagination status of the timeline.
-    pub fn back_pagination_status(&self) -> Subscriber<PaginationStatus> {
-        self.back_pagination_status.subscribe()
+    ///
+    /// Note: this may send multiple Paginating/Idle sequences during a single
+    /// call to [`Self::paginate_backwards()`].
+    pub fn back_pagination_status(&self) -> Subscriber<PaginatorState> {
+        self.event_cache.pagination_status()
     }
 }
 
@@ -328,19 +295,6 @@ pub struct PaginationOutcome {
     /// The total number of items updated by a `paginate_backwards` call so
     /// far.
     pub total_items_updated: u64,
-}
-
-/// The status of a pagination.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
-pub enum PaginationStatus {
-    /// No pagination happening.
-    Idle,
-    /// Timeline is paginating for this end.
-    Paginating,
-    /// An end of the timeline (front or back) has been reached by this
-    /// pagination.
-    TimelineEndReached,
 }
 
 #[cfg(test)]

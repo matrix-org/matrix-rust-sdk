@@ -263,13 +263,9 @@ async fn test_backpaginate_once() {
         .await;
 
         // Then if I backpaginate,
-        let token = room_event_cache
-            .oldest_backpagination_token(Some(Duration::from_secs(1)))
-            .await
-            .unwrap();
-        assert!(token.is_some());
+        assert!(room_event_cache.get_or_wait_for_pagination_token().await.is_some());
 
-        room_event_cache.backpaginate(20, token).await.unwrap()
+        room_event_cache.paginate_backwards(20).await.unwrap()
     };
 
     // I'll get all the previous events, in "reverse" order (same as the response).
@@ -354,10 +350,8 @@ async fn test_backpaginate_multiple_iterations() {
     .await;
 
     // Then if I backpaginate in a loop,
-    while let Some(token) =
-        room_event_cache.oldest_backpagination_token(Some(Duration::from_secs(1))).await.unwrap()
-    {
-        match room_event_cache.backpaginate(20, Some(token)).await.unwrap() {
+    while room_event_cache.get_or_wait_for_pagination_token().await.is_some() {
+        match room_event_cache.paginate_backwards(20).await.unwrap() {
             BackPaginationOutcome::Success { reached_start, events } => {
                 if !global_reached_start {
                     global_reached_start = reached_start;
@@ -486,13 +480,13 @@ async fn test_reset_while_backpaginating() {
         .mount(&server)
         .await;
 
-    let first_token =
-        room_event_cache.oldest_backpagination_token(Some(Duration::from_secs(1))).await.unwrap();
+    let first_token = room_event_cache.get_or_wait_for_pagination_token().await;
     assert!(first_token.is_some());
 
-    let rec = room_event_cache.clone();
-    let first_token_clone = first_token.clone();
-    let backpagination = spawn(async move { rec.backpaginate(20, first_token_clone).await });
+    let backpagination = spawn({
+        let room_event_cache = room_event_cache.clone();
+        async move { room_event_cache.paginate_backwards(20).await }
+    });
 
     // Receive the sync response (which clears the timeline).
     mock_sync(&server, sync_response_body, None).await;
@@ -505,9 +499,9 @@ async fn test_reset_while_backpaginating() {
     assert_matches!(outcome, BackPaginationOutcome::UnknownBackpaginationToken);
 
     // Now if we retrieve the earliest token, it's not the one we had before.
-    let second_token = room_event_cache.oldest_backpagination_token(None).await.unwrap().unwrap();
+    let second_token = room_event_cache.get_or_wait_for_pagination_token().await.unwrap();
     assert!(first_token.unwrap() != second_token);
-    assert_eq!(second_token.0, "second_backpagination");
+    assert_eq!(second_token, "second_backpagination");
 }
 
 #[async_test]
@@ -555,13 +549,11 @@ async fn test_backpaginating_without_token() {
         .await;
 
     // We don't have a token.
-    let token =
-        room_event_cache.oldest_backpagination_token(Some(Duration::from_secs(1))).await.unwrap();
-    assert!(token.is_none());
+    assert!(room_event_cache.get_or_wait_for_pagination_token().await.is_none());
 
     // If we try to back-paginate with a token, it will hit the end of the timeline
     // and give us the resulting event.
-    let outcome = room_event_cache.backpaginate(20, token).await.unwrap();
+    let outcome = room_event_cache.paginate_backwards(20).await.unwrap();
     assert_let!(BackPaginationOutcome::Success { events, reached_start } = outcome);
 
     assert!(reached_start);
