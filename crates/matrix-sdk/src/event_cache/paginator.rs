@@ -17,7 +17,7 @@
 //! makes it possible to paginate forward or backward, from that event, until
 //! one end of the timeline (front or back) is reached.
 
-use std::{mem, sync::Mutex};
+use std::sync::Mutex;
 
 use eyeball::{SharedObservable, Subscriber};
 use matrix_sdk_base::{deserialized_responses::TimelineEvent, SendOutsideWasm, SyncOutsideWasm};
@@ -138,13 +138,27 @@ pub struct StartFromResult {
 
 /// Reset the state to a given target on drop.
 struct ResetStateGuard {
-    target: PaginatorState,
+    target: Option<PaginatorState>,
     state: SharedObservable<PaginatorState>,
+}
+
+impl ResetStateGuard {
+    /// Create a new reset state guard.
+    fn new(target: PaginatorState, state: SharedObservable<PaginatorState>) -> Self {
+        Self { target: Some(target), state }
+    }
+
+    /// Render the guard effectless, and consume it.
+    fn disarm(mut self) {
+        self.target = None;
+    }
 }
 
 impl Drop for ResetStateGuard {
     fn drop(&mut self) {
-        self.state.set_if_not_eq(self.target);
+        if let Some(target) = self.target.take() {
+            self.state.set_if_not_eq(target);
+        }
     }
 }
 
@@ -196,8 +210,7 @@ impl Paginator {
             });
         }
 
-        let reset_state_guard =
-            ResetStateGuard { target: PaginatorState::Initial, state: self.state.clone() };
+        let reset_state_guard = ResetStateGuard::new(PaginatorState::Initial, self.state.clone());
 
         // TODO: do we want to lazy load members?
         let lazy_load_members = true;
@@ -215,7 +228,7 @@ impl Paginator {
         *self.next_batch_token.lock().unwrap() = response.next_batch_token;
 
         // Forget the reset state guard, so its Drop method is not called.
-        mem::forget(reset_state_guard);
+        reset_state_guard.disarm();
         // And set the final state.
         self.state.set(PaginatorState::Idle);
 
@@ -294,8 +307,7 @@ impl Paginator {
             });
         }
 
-        let reset_state_guard =
-            ResetStateGuard { target: PaginatorState::Idle, state: self.state.clone() };
+        let reset_state_guard = ResetStateGuard::new(PaginatorState::Idle, self.state.clone());
 
         let mut options = MessagesOptions::new(dir).from(token.as_deref());
         options.limit = num_events;
@@ -314,7 +326,7 @@ impl Paginator {
         // TODO: what to do with state events?
 
         // Forget the reset state guard, so its Drop method is not called.
-        mem::forget(reset_state_guard);
+        reset_state_guard.disarm();
         // And set the final state.
         self.state.set(PaginatorState::Idle);
 
