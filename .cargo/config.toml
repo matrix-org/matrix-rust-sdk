@@ -38,7 +38,6 @@ rustflags = [
     "-Wclippy::nonstandard_macro_braces",
     "-Wclippy::str_to_string",
     "-Wclippy::todo",
-    "-Aclippy::box_default"
 ]
 
 [target.'cfg(target_arch = "wasm32")']
