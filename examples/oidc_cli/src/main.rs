@@ -23,9 +23,12 @@ use std::{
 };
 
 use anyhow::{anyhow, bail};
-use axum::{response::IntoResponse, routing::any_service};
+use axum::{
+    http::{Method, StatusCode},
+    response::IntoResponse,
+    routing::any_service,
+};
 use futures_util::StreamExt;
-use http::{Method, StatusCode};
 use matrix_sdk::{
     config::SyncSettings,
     oidc::{
@@ -681,10 +684,9 @@ async fn build_client(data_dir: &Path) -> anyhow::Result<(Client, ClientSession,
                         ));
                     }
                     Err(error) => {
-                        if error
-                            .as_client_api_error()
-                            .is_some_and(|err| err.status_code == StatusCode::NOT_FOUND)
-                        {
+                        if error.as_client_api_error().is_some_and(|err| {
+                            err.status_code == matrix_sdk::reqwest::StatusCode::NOT_FOUND
+                        }) {
                             println!("This homeserver doesn't advertise an authentication issuer.");
                         } else {
                             println!("Error fetching the authentication issuer: {error:?}");
