@@ -1707,7 +1707,6 @@ dependencies = [
  "axum 0.7.5",
  "dirs",
  "futures-util",
- "http 1.1.0",
  "matrix-sdk",
  "matrix-sdk-ui",
  "rand",
