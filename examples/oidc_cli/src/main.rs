@@ -24,7 +24,7 @@ use std::{
 
 use anyhow::{anyhow, bail};
 use axum::{
-    http::{Method, StatusCode},
+    http::{Method, Request, StatusCode},
     response::IntoResponse,
     routing::any_service,
 };
@@ -841,7 +841,7 @@ async fn spawn_local_server(
     };
 
     // Set up the server.
-    let router = any_service(service_fn(move |request: http::Request<_>| {
+    let router = any_service(service_fn(move |request: Request<_>| {
         let data_tx_mutex = data_tx_mutex.clone();
         async move {
             // Reject methods others than HEAD or GET.
