@@ -190,19 +190,16 @@ impl Timeline {
         Ok(self.inner.focused_paginate_forwards(num_events).await?)
     }
 
-    pub fn send_read_receipt(
+    pub async fn send_read_receipt(
         &self,
         receipt_type: ReceiptType,
         event_id: String,
     ) -> Result<(), ClientError> {
         let event_id = EventId::parse(event_id)?;
-
-        RUNTIME.block_on(async {
-            self.inner
-                .send_single_receipt(receipt_type.into(), ReceiptThread::Unthreaded, event_id)
-                .await?;
-            Ok(())
-        })
+        self.inner
+            .send_single_receipt(receipt_type.into(), ReceiptThread::Unthreaded, event_id)
+            .await?;
+        Ok(())
     }
 
     /// Mark the room as read by trying to attach an *unthreaded* read receipt
@@ -429,29 +426,27 @@ impl Timeline {
         Ok(())
     }
 
-    pub fn send_reply(
+    pub async fn send_reply(
         &self,
         msg: Arc<RoomMessageEventContentWithoutRelation>,
         reply_item: Arc<EventTimelineItem>,
     ) -> Result<(), ClientError> {
-        RUNTIME.block_on(async {
-            self.inner.send_reply((*msg).clone(), &reply_item.0, ForwardThread::Yes).await?;
-            anyhow::Ok(())
-        })?;
-
+        self.inner
+            .send_reply((*msg).clone(), &reply_item.0, ForwardThread::Yes)
+            .await
+            .map_err(|err| anyhow::anyhow!(err))?;
         Ok(())
     }
 
-    pub fn edit(
+    pub async fn edit(
         &self,
         new_content: Arc<RoomMessageEventContentWithoutRelation>,
         edit_item: Arc<EventTimelineItem>,
     ) -> Result<(), ClientError> {
-        RUNTIME.block_on(async {
-            self.inner.edit((*new_content).clone().with_relation(None), &edit_item.0).await?;
-            anyhow::Ok(())
-        })?;
-
+        self.inner
+            .edit((*new_content).clone().with_relation(None), &edit_item.0)
+            .await
+            .map_err(|err| anyhow::anyhow!(err))?;
         Ok(())
     }
 
@@ -464,14 +459,10 @@ impl Timeline {
         edit_item: Arc<EventTimelineItem>,
     ) -> Result<(), ClientError> {
         let poll_data = PollData { question, answers, max_selections, poll_kind };
-
-        RUNTIME.block_on(async {
-            self.inner
-                .edit_poll(poll_data.fallback_text(), poll_data.try_into()?, &edit_item.0)
-                .await?;
-            anyhow::Ok(())
-        })?;
-
+        self.inner
+            .edit_poll(poll_data.fallback_text(), poll_data.try_into()?, &edit_item.0)
+            .await
+            .map_err(|err| anyhow::anyhow!(err))?;
         Ok(())
     }
 
@@ -502,20 +493,16 @@ impl Timeline {
         self.send(Arc::new(room_message_event_content))
     }
 
-    pub fn toggle_reaction(&self, event_id: String, key: String) -> Result<(), ClientError> {
+    pub async fn toggle_reaction(&self, event_id: String, key: String) -> Result<(), ClientError> {
         let event_id = EventId::parse(event_id)?;
-        RUNTIME.block_on(async {
-            self.inner.toggle_reaction(&Annotation::new(event_id, key)).await?;
-            Ok(())
-        })
+        self.inner.toggle_reaction(&Annotation::new(event_id, key)).await?;
+        Ok(())
     }
 
-    pub fn fetch_details_for_event(&self, event_id: String) -> Result<(), ClientError> {
+    pub async fn fetch_details_for_event(&self, event_id: String) -> Result<(), ClientError> {
         let event_id = <&EventId>::try_from(event_id.as_str())?;
-        RUNTIME.block_on(async {
-            self.inner.fetch_details_for_event(event_id).await.context("Fetching event details")?;
-            Ok(())
-        })
+        self.inner.fetch_details_for_event(event_id).await.context("Fetching event details")?;
+        Ok(())
     }
 
     pub fn retry_send(self: Arc<Self>, txn_id: String) {
@@ -534,43 +521,39 @@ impl Timeline {
         });
     }
 
-    pub fn get_event_timeline_item_by_event_id(
+    pub async fn get_event_timeline_item_by_event_id(
         &self,
         event_id: String,
     ) -> Result<Arc<EventTimelineItem>, ClientError> {
         let event_id = EventId::parse(event_id)?;
-        RUNTIME.block_on(async {
-            let item = self
-                .inner
-                .item_by_event_id(&event_id)
-                .await
-                .context("Item with given event ID not found")?;
-
-            Ok(Arc::new(EventTimelineItem(item)))
-        })
+        let item = self
+            .inner
+            .item_by_event_id(&event_id)
+            .await
+            .context("Item with given event ID not found")?;
+        Ok(Arc::new(EventTimelineItem(item)))
     }
 
-    pub fn get_timeline_event_content_by_event_id(
+    pub async fn get_timeline_event_content_by_event_id(
         &self,
         event_id: String,
     ) -> Result<Arc<RoomMessageEventContentWithoutRelation>, ClientError> {
         let event_id = EventId::parse(event_id)?;
-        RUNTIME.block_on(async {
-            let item = self
-                .inner
-                .item_by_event_id(&event_id)
-                .await
-                .context("Item with given event ID not found")?;
 
-            let msgtype = item
-                .content()
-                .as_message()
-                .context("Item with given event ID is not a message")?
-                .msgtype()
-                .to_owned();
+        let item = self
+            .inner
+            .item_by_event_id(&event_id)
+            .await
+            .context("Item with given event ID not found")?;
 
-            Ok(Arc::new(RoomMessageEventContentWithoutRelation::new(msgtype)))
-        })
+        let msgtype = item
+            .content()
+            .as_message()
+            .context("Item with given event ID is not a message")?
+            .msgtype()
+            .to_owned();
+
+        Ok(Arc::new(RoomMessageEventContentWithoutRelation::new(msgtype)))
     }
 
     pub async fn latest_event(&self) -> Option<Arc<EventTimelineItem>> {

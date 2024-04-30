@@ -89,8 +89,8 @@ impl Room {
         self.inner.avatar_url().map(|m| m.to_string())
     }
 
-    pub fn is_direct(&self) -> bool {
-        RUNTIME.block_on(async move { self.inner.is_direct().await.unwrap_or(false) })
+    pub async fn is_direct(&self) -> bool {
+        self.inner.is_direct().await.unwrap_or(false)
     }
 
     pub fn is_public(&self) -> bool {
@@ -210,17 +210,12 @@ impl Room {
         Ok(Timeline::new(timeline))
     }
 
-    pub fn display_name(&self) -> Result<String, ClientError> {
-        let r = self.inner.clone();
-        RUNTIME.block_on(async move { Ok(r.display_name().await?.to_string()) })
+    pub async fn display_name(&self) -> Result<String, ClientError> {
+        Ok(self.inner.display_name().await?.to_string())
     }
 
-    pub fn is_encrypted(&self) -> Result<bool, ClientError> {
-        let room = self.inner.clone();
-        RUNTIME.block_on(async move {
-            let is_encrypted = room.is_encrypted().await?;
-            Ok(is_encrypted)
-        })
+    pub async fn is_encrypted(&self) -> Result<bool, ClientError> {
+        Ok(self.inner.is_encrypted().await?)
     }
 
     pub async fn members(&self) -> Result<Arc<RoomMembersIterator>, ClientError> {
@@ -235,28 +230,25 @@ impl Room {
 
     pub async fn member(&self, user_id: String) -> Result<RoomMember, ClientError> {
         let user_id = UserId::parse(&*user_id).context("Invalid user id.")?;
-        let member = self.inner.get_member(&user_id).await?.context("No user found")?;
+        let member = self.inner.get_member(&user_id).await?.context("User not found")?;
         Ok(member.into())
     }
 
-    pub fn member_avatar_url(&self, user_id: String) -> Result<Option<String>, ClientError> {
-        let room = self.inner.clone();
-        RUNTIME.block_on(async move {
-            let user_id = UserId::parse(&*user_id).context("Invalid user id.")?;
-            let member = room.get_member(&user_id).await?.context("No user found")?;
-            let avatar_url_string = member.avatar_url().map(|m| m.to_string());
-            Ok(avatar_url_string)
-        })
+    pub async fn member_avatar_url(&self, user_id: String) -> Result<Option<String>, ClientError> {
+        let user_id = UserId::parse(&*user_id).context("Invalid user id.")?;
+        let member = self.inner.get_member(&user_id).await?.context("User not found")?;
+        let avatar_url_string = member.avatar_url().map(|m| m.to_string());
+        Ok(avatar_url_string)
     }
 
-    pub fn member_display_name(&self, user_id: String) -> Result<Option<String>, ClientError> {
-        let room = self.inner.clone();
-        RUNTIME.block_on(async move {
-            let user_id = UserId::parse(&*user_id).context("Invalid user id.")?;
-            let member = room.get_member(&user_id).await?.context("No user found")?;
-            let avatar_url_string = member.display_name().map(|m| m.to_owned());
-            Ok(avatar_url_string)
-        })
+    pub async fn member_display_name(
+        &self,
+        user_id: String,
+    ) -> Result<Option<String>, ClientError> {
+        let user_id = UserId::parse(&*user_id).context("Invalid user id.")?;
+        let member = self.inner.get_member(&user_id).await?.context("User not found")?;
+        let avatar_url_string = member.display_name().map(|m| m.to_owned());
+        Ok(avatar_url_string)
     }
 
     pub async fn room_info(&self) -> Result<RoomInfo, ClientError> {
@@ -340,12 +332,14 @@ impl Room {
     ///
     /// * `reason` - The reason for the event being redacted (optional).
     /// its transaction ID (optional). If not given one is created.
-    pub fn redact(&self, event_id: String, reason: Option<String>) -> Result<(), ClientError> {
-        RUNTIME.block_on(async move {
-            let event_id = EventId::parse(event_id)?;
-            self.inner.redact(&event_id, reason.as_deref(), None).await?;
-            Ok(())
-        })
+    pub async fn redact(
+        &self,
+        event_id: String,
+        reason: Option<String>,
+    ) -> Result<(), ClientError> {
+        let event_id = EventId::parse(event_id)?;
+        self.inner.redact(&event_id, reason.as_deref(), None).await?;
+        Ok(())
     }
 
     pub fn active_members_count(&self) -> u64 {
@@ -370,29 +364,27 @@ impl Room {
     ///
     /// * `score` - The score to rate this content as where -100 is most
     ///   offensive and 0 is inoffensive (optional).
-    pub fn report_content(
+    pub async fn report_content(
         &self,
         event_id: String,
         score: Option<i32>,
         reason: Option<String>,
     ) -> Result<(), ClientError> {
+        let event_id = EventId::parse(event_id)?;
         let int_score = score.map(|value| value.into());
-        RUNTIME.block_on(async move {
-            let event_id = EventId::parse(event_id)?;
-            self.inner
-                .client()
-                .send(
-                    report_content::v3::Request::new(
-                        self.inner.room_id().into(),
-                        event_id,
-                        int_score,
-                        reason,
-                    ),
-                    None,
-                )
-                .await?;
-            Ok(())
-        })
+        self.inner
+            .client()
+            .send(
+                report_content::v3::Request::new(
+                    self.inner.room_id().into(),
+                    event_id,
+                    int_score,
+                    reason,
+                ),
+                None,
+            )
+            .await?;
+        Ok(())
     }
 
     /// Ignores a user.
@@ -409,37 +401,29 @@ impl Room {
     /// Leave this room.
     ///
     /// Only invited and joined rooms can be left.
-    pub fn leave(&self) -> Result<(), ClientError> {
-        RUNTIME.block_on(async {
-            self.inner.leave().await?;
-            Ok(())
-        })
+    pub async fn leave(&self) -> Result<(), ClientError> {
+        self.inner.leave().await?;
+        Ok(())
     }
 
     /// Join this room.
     ///
     /// Only invited and left rooms can be joined via this method.
-    pub fn join(&self) -> Result<(), ClientError> {
-        RUNTIME.block_on(async {
-            self.inner.join().await?;
-            Ok(())
-        })
+    pub async fn join(&self) -> Result<(), ClientError> {
+        self.inner.join().await?;
+        Ok(())
     }
 
     /// Sets a new name to the room.
-    pub fn set_name(&self, name: String) -> Result<(), ClientError> {
-        RUNTIME.block_on(async move {
-            self.inner.set_name(name).await?;
-            Ok(())
-        })
+    pub async fn set_name(&self, name: String) -> Result<(), ClientError> {
+        self.inner.set_name(name).await?;
+        Ok(())
     }
 
     /// Sets a new topic in the room.
-    pub fn set_topic(&self, topic: String) -> Result<(), ClientError> {
-        RUNTIME.block_on(async move {
-            self.inner.set_room_topic(&topic).await?;
-            Ok(())
-        })
+    pub async fn set_topic(&self, topic: String) -> Result<(), ClientError> {
+        self.inner.set_room_topic(&topic).await?;
+        Ok(())
     }
 
     /// Upload and set the room's avatar.
@@ -455,43 +439,37 @@ impl Room {
     /// * `data` - The raw data that will be uploaded to the homeserver's
     ///   content repository
     /// * `media_info` - The media info used as avatar image info.
-    pub fn upload_avatar(
+    pub async fn upload_avatar(
         &self,
         mime_type: String,
         data: Vec<u8>,
         media_info: Option<ImageInfo>,
     ) -> Result<(), ClientError> {
-        RUNTIME.block_on(async move {
-            let mime: Mime = mime_type.parse()?;
-            self.inner
-                .upload_avatar(
-                    &mime,
-                    data,
-                    media_info
-                        .map(TryInto::try_into)
-                        .transpose()
-                        .map_err(|_| RoomError::InvalidMediaInfo)?,
-                )
-                .await?;
-            Ok(())
-        })
+        let mime: Mime = mime_type.parse()?;
+        self.inner
+            .upload_avatar(
+                &mime,
+                data,
+                media_info
+                    .map(TryInto::try_into)
+                    .transpose()
+                    .map_err(|_| RoomError::InvalidMediaInfo)?,
+            )
+            .await?;
+        Ok(())
     }
 
     /// Removes the current room avatar
-    pub fn remove_avatar(&self) -> Result<(), ClientError> {
-        RUNTIME.block_on(async move {
-            self.inner.remove_avatar().await?;
-            Ok(())
-        })
+    pub async fn remove_avatar(&self) -> Result<(), ClientError> {
+        self.inner.remove_avatar().await?;
+        Ok(())
     }
 
-    pub fn invite_user_by_id(&self, user_id: String) -> Result<(), ClientError> {
-        RUNTIME.block_on(async move {
-            let user = <&UserId>::try_from(user_id.as_str())
-                .context("Could not create user from string")?;
-            self.inner.invite_user_by_id(user).await?;
-            Ok(())
-        })
+    pub async fn invite_user_by_id(&self, user_id: String) -> Result<(), ClientError> {
+        let user =
+            <&UserId>::try_from(user_id.as_str()).context("Could not create user from string")?;
+        self.inner.invite_user_by_id(user).await?;
+        Ok(())
     }
 
     pub async fn can_user_redact_own(&self, user_id: String) -> Result<bool, ClientError> {

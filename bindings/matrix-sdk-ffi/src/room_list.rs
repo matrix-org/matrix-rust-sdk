@@ -125,11 +125,11 @@ impl RoomListService {
         })))
     }
 
-    fn room(&self, room_id: String) -> Result<Arc<RoomListItem>, RoomListError> {
+    async fn room(&self, room_id: String) -> Result<Arc<RoomListItem>, RoomListError> {
         let room_id = <&RoomId>::try_from(room_id.as_str()).map_err(RoomListError::from)?;
 
         Ok(Arc::new(RoomListItem {
-            inner: Arc::new(RUNTIME.block_on(async { self.inner.room(room_id).await })?),
+            inner: Arc::new(self.inner.room(room_id).await?),
             utd_hook: self.utd_hook.clone(),
         }))
     }
@@ -179,7 +179,7 @@ pub struct RoomList {
     inner: Arc<matrix_sdk_ui::room_list_service::RoomList>,
 }
 
-#[uniffi::export]
+#[uniffi::export(async_runtime = "tokio")]
 impl RoomList {
     fn loading_state(
         &self,
@@ -240,8 +240,8 @@ impl RoomList {
         }
     }
 
-    fn room(&self, room_id: String) -> Result<Arc<RoomListItem>, RoomListError> {
-        self.room_list_service.room(room_id)
+    async fn room(&self, room_id: String) -> Result<Arc<RoomListItem>, RoomListError> {
+        self.room_list_service.room(room_id).await
     }
 }
 
@@ -490,16 +490,16 @@ impl RoomListItem {
         self.inner.id().to_string()
     }
 
-    fn name(&self) -> Option<String> {
-        RUNTIME.block_on(async { self.inner.name().await })
+    async fn name(&self) -> Option<String> {
+        self.inner.name().await
     }
 
     fn avatar_url(&self) -> Option<String> {
         self.inner.avatar_url().map(|uri| uri.to_string())
     }
 
-    fn is_direct(&self) -> bool {
-        RUNTIME.block_on(async { self.inner.inner_room().is_direct().await.unwrap_or(false) })
+    async fn is_direct(&self) -> bool {
+        self.inner.inner_room().is_direct().await.unwrap_or(false)
     }
 
     fn canonical_alias(&self) -> Option<String> {

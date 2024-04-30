@@ -652,7 +652,7 @@ impl AuthenticationService {
         let client = client.build_inner().await?;
 
         // Restore the client using the session from the login request.
-        client.restore_session_inner(session)?;
+        client.restore_session_inner(session).await?;
 
         Ok(Arc::new(client))
     }
