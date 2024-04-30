@@ -14,12 +14,35 @@
 
 use std::{fmt, ops::ControlFlow, sync::Arc, time::Duration};
 
-use eyeball::Subscriber;
+use eyeball::{SharedObservable, Subscriber};
 use matrix_sdk::event_cache::{self, BackPaginationOutcome};
 use tracing::{instrument, trace, warn};
 
 use super::Error;
 use crate::timeline::{event_item::RemoteEventOrigin, inner::TimelineEnd};
+
+struct ResetStatusGuard {
+    status: SharedObservable<PaginationStatus>,
+    target: Option<PaginationStatus>,
+}
+
+impl ResetStatusGuard {
+    fn new(status: SharedObservable<PaginationStatus>, target: PaginationStatus) -> Self {
+        Self { status, target: Some(target) }
+    }
+
+    fn disarm(mut self) {
+        self.target = None;
+    }
+}
+
+impl Drop for ResetStatusGuard {
+    fn drop(&mut self) {
+        if let Some(target) = self.target.take() {
+            self.status.set_if_not_eq(target);
+        }
+    }
+}
 
 impl super::Timeline {
     /// Add more events to the start of the timeline.
@@ -77,6 +100,9 @@ impl super::Timeline {
             return Ok(false);
         }
 
+        let reset_status_guard =
+            ResetStatusGuard::new(back_pagination_status.clone(), PaginationStatus::Idle);
+
         // The first time, we allow to wait a bit for *a* back-pagination token to come
         // over via sync.
         const WAIT_FOR_TOKEN_TIMEOUT: Duration = Duration::from_secs(3);
@@ -104,6 +130,9 @@ impl super::Timeline {
                             .await;
 
                         if reached_start {
+                            // Don't reset the status to `Idle`…
+                            reset_status_guard.disarm();
+                            // …and set it to `TimelineEndReached` instead.
                             back_pagination_status
                                 .set_if_not_eq(PaginationStatus::TimelineEndReached);
                             return Ok(true);
@@ -142,7 +171,8 @@ impl super::Timeline {
             }
         }
 
-        back_pagination_status.set_if_not_eq(PaginationStatus::Idle);
+        // The status is automatically reset to idle by `reset_status_guard`.
+
         Ok(false)
     }
 

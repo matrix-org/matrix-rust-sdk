@@ -144,7 +144,7 @@ struct ResetStateGuard {
 
 impl ResetStateGuard {
     /// Create a new reset state guard.
-    fn new(target: PaginatorState, state: SharedObservable<PaginatorState>) -> Self {
+    fn new(state: SharedObservable<PaginatorState>, target: PaginatorState) -> Self {
         Self { target: Some(target), state }
     }
 
@@ -210,7 +210,7 @@ impl Paginator {
             });
         }
 
-        let reset_state_guard = ResetStateGuard::new(PaginatorState::Initial, self.state.clone());
+        let reset_state_guard = ResetStateGuard::new(self.state.clone(), PaginatorState::Initial);
 
         // TODO: do we want to lazy load members?
         let lazy_load_members = true;
@@ -307,7 +307,7 @@ impl Paginator {
             });
         }
 
-        let reset_state_guard = ResetStateGuard::new(PaginatorState::Idle, self.state.clone());
+        let reset_state_guard = ResetStateGuard::new(self.state.clone(), PaginatorState::Idle);
 
         let mut options = MessagesOptions::new(dir).from(token.as_deref());
         options.limit = num_events;

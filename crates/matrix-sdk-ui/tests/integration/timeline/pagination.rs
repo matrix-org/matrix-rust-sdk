@@ -16,7 +16,10 @@ use std::{sync::Arc, time::Duration};
 
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
-use futures_util::future::{join, join3};
+use futures_util::{
+    future::{join, join3},
+    FutureExt,
+};
 use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server};
 use matrix_sdk_test::{
     async_test, EventBuilder, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder, ALICE, BOB,
@@ -35,7 +38,10 @@ use ruma::{
 };
 use serde_json::{json, Value as JsonValue};
 use stream_assert::{assert_next_eq, assert_next_matches};
-use tokio::time::{sleep, timeout};
+use tokio::{
+    spawn,
+    time::{sleep, timeout},
+};
 use wiremock::{
     matchers::{header, method, path_regex, query_param, query_param_is_missing},
     Mock, ResponseTemplate,
@@ -49,10 +55,10 @@ async fn test_back_pagination() {
     let (client, server) = logged_in_client_with_server().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let mut ev_builder = SyncResponseBuilder::new();
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    let mut sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -140,8 +146,8 @@ async fn test_back_pagination_highlighted() {
     let (client, server) = logged_in_client_with_server().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let mut ev_builder = SyncResponseBuilder::new();
-    ev_builder
+    let mut sync_builder = SyncResponseBuilder::new();
+    sync_builder
         // We need the member event and power levels locally so the push rules processor works.
         .add_joined_room(
             JoinedRoomBuilder::new(room_id)
@@ -149,7 +155,7 @@ async fn test_back_pagination_highlighted() {
                 .add_state_event(StateTestEvent::PowerLevels),
         );
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -522,10 +528,10 @@ async fn test_empty_chunk() {
     let (client, server) = logged_in_client_with_server().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let mut ev_builder = SyncResponseBuilder::new();
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    let mut sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -612,10 +618,10 @@ async fn test_until_num_items_with_empty_chunk() {
     let (client, server) = logged_in_client_with_server().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let mut ev_builder = SyncResponseBuilder::new();
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    let mut sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -718,4 +724,55 @@ async fn test_until_num_items_with_empty_chunk() {
     );
     assert!(day_divider.is_day_divider());
     assert_next_matches!(timeline_stream, VectorDiff::Remove { index: 2 });
+}
+
+#[async_test]
+async fn test_back_pagination_aborted() {
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let (client, server) = logged_in_client_with_server().await;
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+    let mut sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    let room = client.get_room(room_id).unwrap();
+    let timeline = Arc::new(room.timeline().await.unwrap());
+    let mut back_pagination_status = timeline.back_pagination_status();
+
+    // Delay the server response, so we have time to abort the request.
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(&*ROOM_MESSAGES_BATCH_1)
+                .set_delay(Duration::from_secs(5)),
+        )
+        .mount(&server)
+        .await;
+
+    let paginate = spawn({
+        let timeline = timeline.clone();
+        async move {
+            timeline.live_paginate_backwards(PaginationOptions::simple_request(10)).await.unwrap();
+        }
+    });
+
+    assert_eq!(back_pagination_status.next().await, Some(PaginationStatus::Paginating));
+
+    // Abort the pagination!
+    paginate.abort();
+
+    // The task should finish with a cancellation.
+    assert!(paginate.await.unwrap_err().is_cancelled());
+
+    // The timeline should automatically reset to idle.
+    assert_next_eq!(back_pagination_status, PaginationStatus::Idle);
+
+    // And there should be no other pending pagination status updates.
+    assert!(back_pagination_status.next().now_or_never().is_none());
 }
