@@ -448,6 +448,9 @@ impl RoomEventCache {
 
 #[derive(Debug)]
 struct RoomPaginationData {
+    /// A notifier that we received a new pagination token.
+    token_notifier: Notify,
+
     /// The stateful paginator instance used for the integrated pagination.
     paginator: Paginator,
 
@@ -464,9 +467,6 @@ struct RoomEventCacheInner {
 
     /// The events of the room.
     events: RwLock<RoomEvents>,
-
-    /// A notifier that we received a new pagination token.
-    pagination_token_notifier: Notify,
 
     /// A paginator instance, that's configured to run back-pagination on our
     /// behalf.
@@ -488,8 +488,8 @@ impl RoomEventCacheInner {
             pagination: RoomPaginationData {
                 paginator: Paginator::new(Box::new(room)),
                 waited_for_initial_prev_token: Mutex::new(false),
+                token_notifier: Default::default(),
             },
-            pagination_token_notifier: Default::default(),
         }
     }
 
@@ -672,7 +672,7 @@ impl RoomEventCacheInner {
         // Now that all events have been added, we can trigger the
         // `pagination_token_notifier`.
         if prev_batch.is_some() {
-            self.pagination_token_notifier.notify_one();
+            self.pagination.token_notifier.notify_one();
         }
 
         let _ =
@@ -843,7 +843,7 @@ impl RoomEventCacheInner {
 
         // Otherwise wait for a notification that we received a token.
         // Timeouts are fine, per this function's contract.
-        let _ = timeout(max_wait, self.pagination_token_notifier.notified()).await;
+        let _ = timeout(max_wait, self.pagination.token_notifier.notified()).await;
 
         get_oldest(self.events.read().await)
     }
