@@ -494,12 +494,10 @@ impl NotificationClient {
             timeline_event = decrypted_event;
         }
 
-        if !timeline_event
-            .push_actions
-            .as_ref()
-            .is_some_and(|actions| actions.iter().any(|a| a.should_notify()))
-        {
-            return Ok(None);
+        if let Some(actions) = timeline_event.push_actions.as_ref() {
+            if !actions.iter().any(|a| a.should_notify()) {
+                return Ok(None);
+            }
         }
 
         Ok(Some(
