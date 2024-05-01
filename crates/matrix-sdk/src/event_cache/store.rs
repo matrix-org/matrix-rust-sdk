@@ -25,7 +25,7 @@ use super::linked_chunk::{
 #[derive(Clone, Debug, PartialEq)]
 pub struct PaginationToken(pub String);
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Gap {
     /// The token to use in the query, extracted from a previous "from" /
     /// "end" field of a `/messages` response.
