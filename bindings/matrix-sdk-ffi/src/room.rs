@@ -92,8 +92,8 @@ impl Room {
         self.inner.avatar_url().map(|m| m.to_string())
     }
 
-    pub async fn is_direct(&self) -> bool {
-        self.inner.is_direct().await.unwrap_or(false)
+    pub fn is_direct(&self) -> bool {
+        RUNTIME.block_on(self.inner.is_direct()).unwrap_or(false)
     }
 
     pub fn is_public(&self) -> bool {
@@ -213,8 +213,8 @@ impl Room {
         Ok(Timeline::new(timeline))
     }
 
-    pub async fn is_encrypted(&self) -> Result<bool, ClientError> {
-        Ok(self.inner.is_encrypted().await?)
+    pub fn is_encrypted(&self) -> Result<bool, ClientError> {
+        Ok(RUNTIME.block_on(self.inner.is_encrypted())?)
     }
 
     pub async fn members(&self) -> Result<Arc<RoomMembersIterator>, ClientError> {
