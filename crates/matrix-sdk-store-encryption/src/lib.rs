@@ -28,7 +28,6 @@ use chacha20poly1305::{
     aead::{Aead, Error as EncryptionError},
     Key as ChachaKey, KeyInit, XChaCha20Poly1305, XNonce,
 };
-use displaydoc::Display;
 use hmac::Hmac;
 use pbkdf2::pbkdf2;
 use rand::{thread_rng, Error as RandomError, Fill};
@@ -46,26 +45,39 @@ const BASE64: GeneralPurpose = GeneralPurpose::new(&alphabet::STANDARD, general_
 type MacKeySeed = [u8; 32];
 
 /// Error type for the `StoreCipher` operations.
-#[derive(Debug, Display, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
-    /// Failed to serialize a value {0}
+    /// Failed to serialize a value.
+    #[error("Failed to serialize a value: `{0}`")]
     Serialization(#[from] rmp_serde::encode::Error),
-    /// Failed to deserialize a value {0}
+
+    /// Failed to deserialize a value.
+    #[error("Failed to deserialize a value: `{0}`")]
     Deserialization(#[from] rmp_serde::decode::Error),
-    /// Failed to deserialize or serialize a JSON value {0}
+
+    /// Failed to deserialize or serialize a JSON value.
+    #[error("Failed to deserialize or serialize a JSON value: `{0}`")]
     Json(#[from] serde_json::Error),
-    /// Error encrypting or decrypting a value {0}
+
+    /// Error encrypting or decrypting a value.
+    #[error("Error encrypting or decrypting a value: `{0}`")]
     Encryption(#[from] EncryptionError),
-    /// Couldn't generate enough randomness for a cryptographic operation: {0}
+
+    /// Could not generate enough randomness for a cryptographic operation: {0}
+    #[error("Could not generate enough randomness for a cryptographic operation: `{0}`")]
     Random(#[from] RandomError),
-    /// Unsupported ciphertext version, expected {0}, got {1}
+
+    /// Unsupported ciphertext version.
+    #[error("Unsupported ciphertext version, expected `{0}`, got `{1}`")]
     Version(u8, u8),
-    /// The ciphertext had an invalid length, expected {0}, got {1}
+
+    /// The ciphertext had an invalid length.
+    #[error("The ciphertext had an invalid length, expected `{0}`, got `{1}`")]
     Length(usize, usize),
-    /**
-     * Failed to import a store cipher, the export used a passphrase while
-     * we're trying to import it using a key or vice-versa.
-     */
+
+    /// Failed to import a store cipher, the export used a passphrase while
+    /// we are trying to import it using a key or vice-versa.
+    #[error("Failed to import a store cipher, the export used a passphrase while we are trying to import it using a key or vice-versa")]
     KdfMismatch,
 }
 
