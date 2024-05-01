@@ -29,9 +29,7 @@ use matrix_sdk::{
 use matrix_sdk_ui::{
     room_list_service,
     sync_service::{self, SyncService},
-    timeline::{
-        PaginationOptions, TimelineItem, TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
-    },
+    timeline::{TimelineItem, TimelineItemContent, TimelineItemKind, VirtualTimelineItem},
     Timeline as SdkTimeline,
 };
 use ratatui::{prelude::*, style::palette::tailwind, widgets::*};
@@ -343,10 +341,7 @@ impl App {
         // Start a new one, request batches of 20 events, stop after 10 timeline items
         // have been added.
         *pagination = Some(spawn(async move {
-            if let Err(err) = sdk_timeline
-                .live_paginate_backwards(PaginationOptions::until_num_items(20, 10))
-                .await
-            {
+            if let Err(err) = sdk_timeline.live_paginate_backwards(20).await {
                 // TODO: would be nice to be able to set the status
                 // message remotely?
                 //self.set_status_message(format!(

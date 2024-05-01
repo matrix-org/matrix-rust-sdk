@@ -22,7 +22,7 @@ use tokio::{
     sync::{Mutex, Notify, RwLockReadGuard},
     time::timeout,
 };
-use tracing::{instrument, trace};
+use tracing::{debug, instrument, trace};
 
 use super::{
     paginator::{PaginationResult, Paginator, PaginatorState},
@@ -64,9 +64,17 @@ impl RoomPagination {
     /// It may return an error if the pagination token used during
     /// back-pagination has disappeared while we started the pagination. In
     /// that case, it's desirable to call the method again.
-    // TODO(bnjbvr): that's bad API, this API should restart for us!
     #[instrument(skip(self))]
     pub async fn run_backwards(&self, batch_size: u16) -> Result<BackPaginationOutcome> {
+        loop {
+            if let Some(result) = self.run_backwards_impl(batch_size).await? {
+                return Ok(result);
+            }
+            debug!("back-pagination has been internally restarted because of a timeline reset.");
+        }
+    }
+
+    async fn run_backwards_impl(&self, batch_size: u16) -> Result<Option<BackPaginationOutcome>> {
         // Make sure there's at most one back-pagination request.
         let prev_token = self.get_or_wait_for_token().await;
 
@@ -92,7 +100,7 @@ impl RoomPagination {
             // The method has been called with `token` but it doesn't exist in `RoomEvents`,
             // it's an error.
             if gap_identifier.is_none() {
-                return Ok(BackPaginationOutcome::UnknownBackpaginationToken);
+                return Ok(None);
             }
 
             gap_identifier
@@ -142,7 +150,7 @@ impl RoomPagination {
             // TODO: implement smarter reconciliation later
             //let _ = self.sender.send(RoomEventCacheUpdate::Prepend { events });
 
-            return Ok(BackPaginationOutcome::Success { events, reached_start });
+            return Ok(Some(BackPaginationOutcome { events, reached_start }));
         }
 
         // There is no `token`/gap identifier. Let's assume we must prepend the new
@@ -179,7 +187,7 @@ impl RoomPagination {
             }
         }
 
-        Ok(BackPaginationOutcome::Success { events, reached_start })
+        Ok(Some(BackPaginationOutcome { events, reached_start }))
     }
 
     /// Test-only function to get the latest pagination token, as stored in the

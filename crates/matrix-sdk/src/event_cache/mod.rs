@@ -644,26 +644,19 @@ impl RoomEventCacheInner {
 
 /// The result of a single back-pagination request.
 #[derive(Debug)]
-pub enum BackPaginationOutcome {
-    /// The back-pagination succeeded, and new events have been found.
-    Success {
-        /// Did the back-pagination reach the start of the timeline?
-        reached_start: bool,
+pub struct BackPaginationOutcome {
+    /// Did the back-pagination reach the start of the timeline?
+    pub reached_start: bool,
 
-        /// All the events that have been returned in the back-pagination
-        /// request.
-        ///
-        /// Events are presented in reverse order: the first element of the vec,
-        /// if present, is the most "recent" event from the chunk (or
-        /// technically, the last one in the topological ordering).
-        ///
-        /// Note: they're not deduplicated (TODO: smart reconciliation).
-        events: Vec<TimelineEvent>,
-    },
-
-    /// The back-pagination token was unknown to the event cache, and the caller
-    /// must retry after obtaining a new back-pagination token.
-    UnknownBackpaginationToken,
+    /// All the events that have been returned in the back-pagination
+    /// request.
+    ///
+    /// Events are presented in reverse order: the first element of the vec,
+    /// if present, is the most "recent" event from the chunk (or
+    /// technically, the last one in the topological ordering).
+    ///
+    /// Note: they're not deduplicated (TODO: smart reconciliation).
+    pub events: Vec<TimelineEvent>,
 }
 
 /// An update related to events happened in a room.

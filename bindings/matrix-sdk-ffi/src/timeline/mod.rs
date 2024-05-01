@@ -981,32 +981,6 @@ impl SendAttachmentJoinHandle {
     }
 }
 
-#[derive(uniffi::Enum)]
-pub enum PaginationOptions {
-    SimpleRequest { event_limit: u16, wait_for_token: bool },
-    UntilNumItems { event_limit: u16, items: u16, wait_for_token: bool },
-}
-
-impl From<PaginationOptions> for matrix_sdk_ui::timeline::PaginationOptions<'static> {
-    fn from(value: PaginationOptions) -> Self {
-        use matrix_sdk_ui::timeline::PaginationOptions as Opts;
-        let (wait_for_token, mut opts) = match value {
-            PaginationOptions::SimpleRequest { event_limit, wait_for_token } => {
-                (wait_for_token, Opts::simple_request(event_limit))
-            }
-            PaginationOptions::UntilNumItems { event_limit, items, wait_for_token } => {
-                (wait_for_token, Opts::until_num_items(event_limit, items))
-            }
-        };
-
-        if wait_for_token {
-            opts = opts.wait_for_token();
-        }
-
-        opts
-    }
-}
-
 /// A [`TimelineItem`](super::TimelineItem) that doesn't correspond to an event.
 #[derive(uniffi::Enum)]
 pub enum VirtualTimelineItem {
