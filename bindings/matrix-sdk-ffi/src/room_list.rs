@@ -493,7 +493,7 @@ impl RoomListItem {
     /// Returns the room's name from the state event if available, otherwise
     /// compute a room name based on the room's nature (DM or not) and number of
     /// members.
-    fn computed_display_name(&self) -> Option<String> {
+    fn name(&self) -> Option<String> {
         RUNTIME.block_on(self.inner.computed_display_name())
     }
 
