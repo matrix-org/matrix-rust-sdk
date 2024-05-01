@@ -413,7 +413,8 @@ impl Room {
 
     /// Get the `m.room.name` of this room.
     ///
-    /// The returned string is guaranteed not to be empty.
+    /// The returned string may be empty if the event has been redacted, or it's
+    /// missing from storage.
     pub fn name(&self) -> Option<String> {
         self.inner.read().name().map(ToOwned::to_owned)
     }
