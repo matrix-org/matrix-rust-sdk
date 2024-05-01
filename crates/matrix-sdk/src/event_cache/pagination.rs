@@ -66,9 +66,9 @@ impl RoomPagination {
     /// that case, it's desirable to call the method again.
     // TODO(bnjbvr): that's bad API, this API should restart for us!
     #[instrument(skip(self))]
-    pub async fn paginate_backwards(&self, batch_size: u16) -> Result<BackPaginationOutcome> {
+    pub async fn run_backwards(&self, batch_size: u16) -> Result<BackPaginationOutcome> {
         // Make sure there's at most one back-pagination request.
-        let prev_token = self.get_or_wait_for_pagination_token().await;
+        let prev_token = self.get_or_wait_for_token().await;
 
         let paginator = &self.inner.pagination.paginator;
 
@@ -185,14 +185,14 @@ impl RoomPagination {
     /// Test-only function to get the latest pagination token, as stored in the
     /// room events linked list.
     #[doc(hidden)]
-    pub async fn get_or_wait_for_pagination_token(&self) -> Option<String> {
+    pub async fn get_or_wait_for_token(&self) -> Option<String> {
         const DEFAULT_INITIAL_WAIT_DURATION: Duration = Duration::from_secs(3);
 
         let mut waited = self.inner.pagination.waited_for_initial_prev_token.lock().await;
         if *waited {
-            self.oldest_backpagination_token(None).await
+            self.oldest_token(None).await
         } else {
-            let token = self.oldest_backpagination_token(Some(DEFAULT_INITIAL_WAIT_DURATION)).await;
+            let token = self.oldest_token(Some(DEFAULT_INITIAL_WAIT_DURATION)).await;
             *waited = true;
             token
         }
@@ -203,7 +203,7 @@ impl RoomPagination {
     ///
     /// Optionally, wait at most for the given duration for a back-pagination
     /// token to be returned by a sync.
-    async fn oldest_backpagination_token(&self, max_wait: Option<Duration>) -> Option<String> {
+    async fn oldest_token(&self, max_wait: Option<Duration>) -> Option<String> {
         // Optimistically try to return the backpagination token immediately.
         fn get_oldest(room_events: RwLockReadGuard<'_, RoomEvents>) -> Option<String> {
             room_events.chunks().find_map(|chunk| match chunk.content() {
@@ -230,7 +230,7 @@ impl RoomPagination {
 
     /// Returns a subscriber to the pagination status used for the
     /// back-pagination integrated to the event cache.
-    pub fn pagination_status(&self) -> Subscriber<PaginatorState> {
+    pub fn status(&self) -> Subscriber<PaginatorState> {
         self.inner.pagination.paginator.state()
     }
 }
@@ -278,13 +278,13 @@ mod tests {
             let pagination = room_event_cache.pagination();
 
             // If I don't wait for the backpagination token,
-            let found = pagination.oldest_backpagination_token(None).await;
+            let found = pagination.oldest_token(None).await;
             // Then I don't find it.
             assert!(found.is_none());
 
             // If I wait for a back-pagination token for 0 seconds,
             let before = Instant::now();
-            let found = pagination.oldest_backpagination_token(Some(Duration::default())).await;
+            let found = pagination.oldest_token(Some(Duration::default())).await;
             let waited = before.elapsed();
             // then I don't get any,
             assert!(found.is_none());
@@ -293,7 +293,7 @@ mod tests {
 
             // If I wait for a back-pagination token for 1 second,
             let before = Instant::now();
-            let found = pagination.oldest_backpagination_token(Some(Duration::from_secs(1))).await;
+            let found = pagination.oldest_token(Some(Duration::from_secs(1))).await;
             let waited = before.elapsed();
             // then I still don't get any.
             assert!(found.is_none());
@@ -334,13 +334,13 @@ mod tests {
             let paginator = room_event_cache.pagination();
 
             // If I don't wait for a back-pagination token,
-            let found = paginator.oldest_backpagination_token(None).await;
+            let found = paginator.oldest_token(None).await;
             // Then I get it.
             assert_eq!(found.as_ref(), Some(&expected_token));
 
             // If I wait for a back-pagination token for 0 seconds,
             let before = Instant::now();
-            let found = paginator.oldest_backpagination_token(Some(Duration::default())).await;
+            let found = paginator.oldest_token(Some(Duration::default())).await;
             let waited = before.elapsed();
             // then I do get one.
             assert_eq!(found.as_ref(), Some(&expected_token));
@@ -349,7 +349,7 @@ mod tests {
 
             // If I wait for a back-pagination token for 1 second,
             let before = Instant::now();
-            let found = paginator.oldest_backpagination_token(Some(Duration::from_secs(1))).await;
+            let found = paginator.oldest_token(Some(Duration::from_secs(1))).await;
             let waited = before.elapsed();
             // then I do get one.
             assert_eq!(found, Some(expected_token));
@@ -388,12 +388,11 @@ mod tests {
             let pagination = room_event_cache.pagination();
 
             // Then first I don't get it (if I'm not waiting,)
-            let found = pagination.oldest_backpagination_token(None).await;
+            let found = pagination.oldest_token(None).await;
             assert!(found.is_none());
 
             // And if I wait for the back-pagination token for 600ms,
-            let found =
-                pagination.oldest_backpagination_token(Some(Duration::from_millis(600))).await;
+            let found = pagination.oldest_token(Some(Duration::from_millis(600))).await;
             let waited = before.elapsed();
 
             // then I do get one eventually.

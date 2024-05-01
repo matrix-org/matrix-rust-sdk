@@ -76,7 +76,7 @@ impl super::Timeline {
 
         while let Some(batch_size) = options.next_event_limit(outcome) {
             loop {
-                let result = pagination.paginate_backwards(batch_size).await;
+                let result = pagination.run_backwards(batch_size).await;
 
                 let event_cache_outcome = match result {
                     Ok(outcome) => outcome,
@@ -147,7 +147,7 @@ impl super::Timeline {
     /// Note: this may send multiple Paginating/Idle sequences during a single
     /// call to [`Self::paginate_backwards()`].
     pub fn back_pagination_status(&self) -> Subscriber<PaginatorState> {
-        self.event_cache.pagination().pagination_status()
+        self.event_cache.pagination().status()
     }
 }
 
