@@ -80,8 +80,13 @@ impl Room {
     /// Returns the room's name from the state event if available, otherwise
     /// compute a room name based on the room's nature (DM or not) and number of
     /// members.
-    pub fn name(&self) -> Result<String, ClientError> {
+    pub fn display_name(&self) -> Result<String, ClientError> {
         Ok(RUNTIME.block_on(self.inner.computed_display_name())?.to_string())
+    }
+
+    /// The raw name as present in the room state event.
+    pub fn raw_name(&self) -> Option<String> {
+        self.inner.name()
     }
 
     pub fn topic(&self) -> Option<String> {

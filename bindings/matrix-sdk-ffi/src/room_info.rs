@@ -12,7 +12,9 @@ pub struct RoomInfo {
     id: String,
     /// The room's name from the room state event if received from sync, or one
     /// that's been computed otherwise.
-    name: Option<String>,
+    display_name: Option<String>,
+    /// Room name as defined by the room state event only.
+    raw_name: Option<String>,
     topic: Option<String>,
     avatar_url: Option<String>,
     is_direct: bool,
@@ -67,7 +69,8 @@ impl RoomInfo {
 
         Ok(Self {
             id: room.room_id().to_string(),
-            name: room.computed_display_name().await.ok().map(|name| name.to_string()),
+            display_name: room.computed_display_name().await.ok().map(|name| name.to_string()),
+            raw_name: room.name(),
             topic: room.topic(),
             avatar_url: room.avatar_url().map(Into::into),
             is_direct: room.is_direct().await?,
