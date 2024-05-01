@@ -498,8 +498,8 @@ impl RoomListItem {
         self.inner.avatar_url().map(|uri| uri.to_string())
     }
 
-    async fn is_direct(&self) -> bool {
-        self.inner.inner_room().is_direct().await.unwrap_or(false)
+    fn is_direct(&self) -> bool {
+        RUNTIME.block_on(self.inner.inner_room().is_direct()).unwrap_or(false)
     }
 
     fn canonical_alias(&self) -> Option<String> {
