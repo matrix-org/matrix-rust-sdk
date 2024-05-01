@@ -15,6 +15,8 @@
 #![allow(dead_code)]
 
 use std::{
+    convert::Infallible,
+    error::Error,
     fmt,
     marker::PhantomData,
     ops::Not,
@@ -26,11 +28,18 @@ use std::{
 };
 
 /// Errors of [`LinkedChunk`].
-#[derive(Debug)]
+#[derive(thiserror::Error, Debug)]
 pub enum LinkedChunkError {
+    #[error("The chunk identifier is invalid: `{identifier:?}`")]
     InvalidChunkIdentifier { identifier: ChunkIdentifier },
+
+    #[error("The chunk is a gap: `{identifier:?}`")]
     ChunkIsAGap { identifier: ChunkIdentifier },
+
+    #[error("The chunk is an item: `{identifier:?}`")]
     ChunkIsItems { identifier: ChunkIdentifier },
+
+    #[error("The item index is invalid: `{index}`")]
     InvalidItemIndex { index: usize },
 }
 
@@ -1120,7 +1129,7 @@ impl<Item, Gap> LinkedChunkListener<Item, Gap> for () {
 
 #[cfg(test)]
 mod tests {
-    use std::fmt::Debug;
+    use std::{convert::Infallible, fmt::Debug};
 
     use assert_matches::assert_matches;
 
@@ -1256,7 +1265,7 @@ mod tests {
         Item: Clone + Debug + Send + Sync,
         Gap: Clone + Debug + Send + Sync,
     {
-        type Error = ();
+        type Error = Infallible;
 
         fn new_chunk_items(
             &self,
@@ -1808,7 +1817,7 @@ mod tests {
             let position_after_f =
                 Position(position_of_f.chunk_identifier(), position_of_f.index() + 1);
 
-            linked_chunk.insert_items_at(['p', 'q'], position_after_f).await?;
+            linked_chunk.insert_items_at(['p', 'q'], position_after_f)?;
             assert_items_eq!(
                 linked_chunk,
                 ['l', 'm', 'n'] ['o', 'a', 'b'] ['r', 's', 'c'] ['d', 'w', 'x'] ['y', 'z', 'e'] ['f', 'p', 'q']
