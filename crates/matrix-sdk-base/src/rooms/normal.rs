@@ -323,12 +323,15 @@ impl Room {
     }
 
     /// Is this room considered a direct message.
+    ///
+    /// Async because it can read room info from storage.
     #[instrument(skip_all, fields(room_id = ?self.room_id))]
     pub async fn is_direct(&self) -> StoreResult<bool> {
         match self.state() {
             RoomState::Joined | RoomState::Left => {
                 Ok(!self.inner.read().base_info.dm_targets.is_empty())
             }
+
             RoomState::Invited => {
                 let member = self.get_member(self.own_user_id()).await?;
 
@@ -679,6 +682,8 @@ impl Room {
     /// Returns `None` if the member was never part of this room, otherwise
     /// return a `RoomMember` that can be in a joined, invited, left, banned
     /// state.
+    ///
+    /// Async because it can read from storage.
     pub async fn get_member(&self, user_id: &UserId) -> StoreResult<Option<RoomMember>> {
         let Some(raw_event) = self.store.get_member_event(self.room_id(), user_id).await? else {
             debug!(%user_id, "Member event not found in state store");
@@ -699,6 +704,8 @@ impl Room {
     }
 
     /// The current `MemberRoomInfo` for this room.
+    ///
+    /// Async because it can read from storage.
     async fn member_room_info<'a>(
         &self,
         display_names: &'a [String],
