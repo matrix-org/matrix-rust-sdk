@@ -32,7 +32,7 @@
 //!   `RoomInfo`, and that may update a `RoomListService`.
 //! - [ ] provide read receipts for each message.
 //! - [x] backwards pagination
-//! - [ ] forward pagination
+//! - [~] forward pagination
 //! - [ ] reconcile results with cached timelines.
 //! - [ ] retry decryption upon receiving new keys (from an encryption sync
 //!   service or from a key backup).
@@ -45,10 +45,8 @@ use std::{
     collections::BTreeMap,
     fmt::Debug,
     sync::{Arc, OnceLock, Weak},
-    time::Duration,
 };
 
-use eyeball::Subscriber;
 use matrix_sdk_base::{
     deserialized_responses::{AmbiguityChange, SyncTimelineEvent, TimelineEvent},
     sync::{JoinedRoomUpdate, LeftRoomUpdate, RoomUpdates, Timeline},
@@ -59,25 +57,25 @@ use ruma::{
     serde::Raw,
     OwnedEventId, OwnedRoomId, RoomId,
 };
-use tokio::{
-    sync::{
-        broadcast::{error::RecvError, Receiver, Sender},
-        Mutex, Notify, RwLock, RwLockReadGuard, RwLockWriteGuard,
-    },
-    time::timeout,
+use tokio::sync::{
+    broadcast::{error::RecvError, Receiver, Sender},
+    Mutex, RwLock, RwLockWriteGuard,
 };
 use tracing::{error, instrument, trace, warn};
 
 use self::{
-    linked_chunk::ChunkContent,
-    paginator::{PaginationResult, Paginator, PaginatorError, PaginatorState},
+    pagination::RoomPaginationData,
+    paginator::{Paginator, PaginatorError},
     store::{Gap, RoomEvents},
 };
 use crate::{client::ClientInner, Client, Room};
 
 mod linked_chunk;
-pub mod paginator;
+mod pagination;
 mod store;
+
+pub mod paginator;
+pub use pagination::RoomPagination;
 
 /// An error observed in the [`EventCache`].
 #[derive(thiserror::Error, Debug)]
@@ -415,49 +413,11 @@ impl RoomEventCache {
         Ok((events, self.inner.sender.subscribe()))
     }
 
-    /// Starts a back-pagination for the requested number of events.
-    ///
-    /// This automatically takes care of waiting for a pagination token from
-    /// sync, if we haven't done that before.
-    ///
-    /// # Errors
-    ///
-    /// It may return an error if the pagination token used during
-    /// back-pagination has disappeared while we started the pagination. In
-    /// that case, it's desirable to call the method again.
-    ///
-    /// TODO(bnjbvr): that's bad API, this API should restart for us!
-    pub async fn paginate_backwards(&self, batch_size: u16) -> Result<BackPaginationOutcome> {
-        self.inner.paginate_backwards(batch_size).await
+    /// Return a [`RoomPagination`] API object useful for running
+    /// back-pagination queries in the current room.
+    pub fn pagination(&self) -> RoomPagination {
+        RoomPagination { inner: self.inner.clone() }
     }
-
-    /// Test-only function to get the latest pagination token, as stored in the
-    /// room events linked list.
-    #[cfg(any(test, feature = "testing"))]
-    #[doc(hidden)]
-    pub async fn get_or_wait_for_pagination_token(&self) -> Option<String> {
-        self.inner.get_or_wait_for_pagination_token().await
-    }
-
-    /// Returns a subscriber to the pagination status used for the
-    /// back-pagination integrated to the event cache.
-    pub fn pagination_status(&self) -> Subscriber<PaginatorState> {
-        self.inner.pagination.paginator.state()
-    }
-}
-
-#[derive(Debug)]
-struct RoomPaginationData {
-    /// A notifier that we received a new pagination token.
-    token_notifier: Notify,
-
-    /// The stateful paginator instance used for the integrated pagination.
-    paginator: Paginator,
-
-    /// Have we ever waited for a previous-batch-token from the sync? We do this
-    /// at most once per room, and we reset that upon clearing the timeline
-    /// events.
-    waited_for_initial_prev_token: Mutex<bool>,
 }
 
 /// The (non-clonable) details of the `RoomEventCache`.
@@ -680,173 +640,6 @@ impl RoomEventCacheInner {
 
         Ok(())
     }
-
-    /// Run a single back-pagination `/messages` request.
-    ///
-    /// This will only run one request; since a backpagination may need to
-    /// continue, it's preferable to use [`Self::backpaginate_until`].
-    ///
-    /// # Errors
-    ///
-    /// This can throw an error if we're already back-paginating.
-    #[instrument(skip(self))]
-    async fn paginate_backwards(&self, batch_size: u16) -> Result<BackPaginationOutcome> {
-        // Make sure there's at most one back-pagination request.
-        let prev_token = self.get_or_wait_for_pagination_token().await;
-
-        self.pagination.paginator.set_idle_state(prev_token.clone(), None).await?;
-
-        // Run the actual pagination.
-        let PaginationResult { events, hit_end_of_timeline: reached_start } =
-            self.pagination.paginator.paginate_backward(batch_size.into()).await?;
-
-        // Make sure the `RoomEvents` isn't updated while we are saving events from
-        // backpagination.
-        let mut room_events = self.events.write().await;
-
-        // Check that the previous token still exists; otherwise it's a sign that the
-        // timeline has been cleared..
-        let gap_identifier = if let Some(token) = prev_token {
-            let gap_identifier = room_events.chunk_identifier(|chunk| {
-                matches!(chunk.content(), ChunkContent::Gap(Gap { ref prev_token }) if *prev_token == token)
-            });
-
-            // The method has been called with `token` but it doesn't exist in `RoomEvents`,
-            // it's an error.
-            if gap_identifier.is_none() {
-                return Ok(BackPaginationOutcome::UnknownBackpaginationToken);
-            }
-
-            gap_identifier
-        } else {
-            None
-        };
-
-        let prev_token =
-            self.pagination.paginator.prev_batch_token().map(|prev_token| Gap { prev_token });
-
-        // Note: The chunk could be empty.
-        //
-        // If there's any event, they are presented in reverse order (i.e. the first one
-        // should be prepended first).
-
-        let sync_events = events
-            .iter()
-            // Reverse the order of the events as `/messages` has been called with `dir=b`
-            // (backward). The `RoomEvents` API expects the first event to be the oldest.
-            .rev()
-            .cloned()
-            .map(SyncTimelineEvent::from);
-
-        // There is a `token`/gap, let's replace it by new events!
-        if let Some(gap_identifier) = gap_identifier {
-            let new_position = {
-                // Replace the gap by new events.
-                let new_chunk = room_events
-                    .replace_gap_at(sync_events, gap_identifier)
-                    // SAFETY: we are sure that `gap_identifier` represents a valid
-                    // `ChunkIdentifier` for a `Gap` chunk.
-                    .expect("The `gap_identifier` must represent a `Gap`");
-
-                new_chunk.first_position()
-            };
-
-            // And insert a new gap if there is any `prev_token`.
-            if let Some(prev_token_gap) = prev_token {
-                room_events
-                    .insert_gap_at(prev_token_gap, new_position)
-                    // SAFETY: we are sure that `new_position` represents a valid
-                    // `ChunkIdentifier` for an `Item` chunk.
-                    .expect("The `new_position` must represent an `Item`");
-            }
-
-            trace!("replaced gap with new events from backpagination");
-
-            // TODO: implement smarter reconciliation later
-            //let _ = self.sender.send(RoomEventCacheUpdate::Prepend { events });
-
-            return Ok(BackPaginationOutcome::Success { events, reached_start });
-        }
-
-        // There is no `token`/gap identifier. Let's assume we must prepend the new
-        // events.
-        let first_event_pos = room_events.events().next().map(|(item_pos, _)| item_pos);
-
-        match first_event_pos {
-            // Is there a first item? Insert at this position.
-            Some(first_event_pos) => {
-                if let Some(prev_token_gap) = prev_token {
-                    room_events
-                            .insert_gap_at(prev_token_gap, first_event_pos)
-                            // SAFETY: The `first_event_pos` can only be an `Item` chunk, it's
-                            // an invariant of `LinkedChunk`. Also, it can only represent a valid
-                            // `ChunkIdentifier` as the data structure isn't modified yet.
-                            .expect("`first_event_pos` must point to a valid `Item` chunk when inserting a gap");
-                }
-
-                room_events
-                        .insert_events_at(sync_events, first_event_pos)
-                        // SAFETY: The `first_event_pos` can only be an `Item` chunk, it's
-                        // an invariant of `LinkedChunk`. The chunk it points to has not been
-                        // removed.
-                        .expect("The `first_event_pos` must point to a valid `Item` chunk when inserting events");
-            }
-
-            // There is no first item. Let's simply push.
-            None => {
-                if let Some(prev_token_gap) = prev_token {
-                    room_events.push_gap(prev_token_gap);
-                }
-
-                room_events.push_events(sync_events);
-            }
-        }
-
-        Ok(BackPaginationOutcome::Success { events, reached_start })
-    }
-
-    async fn get_or_wait_for_pagination_token(&self) -> Option<String> {
-        const DEFAULT_INITIAL_WAIT_DURATION: Duration = Duration::from_secs(3);
-
-        let mut waited = self.pagination.waited_for_initial_prev_token.lock().await;
-        if *waited {
-            self.oldest_backpagination_token(None).await
-        } else {
-            let token = self.oldest_backpagination_token(Some(DEFAULT_INITIAL_WAIT_DURATION)).await;
-            *waited = true;
-            token
-        }
-    }
-
-    /// Returns the oldest back-pagination token, that is, the one closest to
-    /// the start of the timeline as we know it.
-    ///
-    /// Optionally, wait at most for the given duration for a back-pagination
-    /// token to be returned by a sync.
-    async fn oldest_backpagination_token(&self, max_wait: Option<Duration>) -> Option<String> {
-        // Optimistically try to return the backpagination token immediately.
-        fn get_oldest(room_events: RwLockReadGuard<'_, RoomEvents>) -> Option<String> {
-            room_events.chunks().find_map(|chunk| match chunk.content() {
-                ChunkContent::Gap(gap) => Some(gap.prev_token.clone()),
-                ChunkContent::Items(..) => None,
-            })
-        }
-
-        if let Some(token) = get_oldest(self.events.read().await) {
-            return Some(token);
-        }
-
-        let Some(max_wait) = max_wait else {
-            // We had no token and no time to wait, so… no tokens.
-            return None;
-        };
-
-        // Otherwise wait for a notification that we received a token.
-        // Timeouts are fine, per this function's contract.
-        let _ = timeout(max_wait, self.pagination.token_notifier.notified()).await;
-
-        get_oldest(self.events.read().await)
-    }
 }
 
 /// The result of a single back-pagination request.
@@ -905,8 +698,7 @@ mod tests {
     use assert_matches2::assert_matches;
     use futures_util::FutureExt as _;
     use matrix_sdk_base::sync::JoinedRoomUpdate;
-    use matrix_sdk_common::executor::spawn;
-    use matrix_sdk_test::{async_test, sync_timeline_event};
+    use matrix_sdk_test::async_test;
     use ruma::{room_id, serde::Raw};
     use serde_json::json;
 
@@ -927,178 +719,6 @@ mod tests {
         // Then it fails, because one must explicitly call `.subscribe()` on the event
         // cache.
         assert_matches!(result, Err(EventCacheError::NotSubscribedYet));
-    }
-
-    // Those tests require time to work, and it does not on wasm32.
-    #[cfg(not(target_arch = "wasm32"))]
-    mod time_tests {
-        use std::time::{Duration, Instant};
-
-        use matrix_sdk_base::RoomState;
-        use tokio::time::sleep;
-
-        use super::{super::store::Gap, *};
-
-        #[async_test]
-        async fn test_wait_no_pagination_token() {
-            let client = logged_in_client(None).await;
-            let room_id = room_id!("!galette:saucisse.bzh");
-            client.base_client().get_or_create_room(room_id, RoomState::Joined);
-
-            let event_cache = client.event_cache();
-
-            event_cache.subscribe().unwrap();
-
-            let (room_event_cache, _drop_handlers) = event_cache.for_room(room_id).await.unwrap();
-            let room_event_cache = room_event_cache.unwrap();
-
-            // When I only have events in a room,
-            {
-                let mut room_events = room_event_cache.inner.events.write().await;
-                room_events.push_events([sync_timeline_event!({
-                    "sender": "b@z.h",
-                    "type": "m.room.message",
-                    "event_id": "$ida",
-                    "origin_server_ts": 12344446,
-                    "content": { "body":"yolo", "msgtype": "m.text" },
-                })
-                .into()]);
-            }
-
-            // If I don't wait for the backpagination token,
-            let found = room_event_cache.inner.oldest_backpagination_token(None).await;
-            // Then I don't find it.
-            assert!(found.is_none());
-
-            // If I wait for a back-pagination token for 0 seconds,
-            let before = Instant::now();
-            let found =
-                room_event_cache.inner.oldest_backpagination_token(Some(Duration::default())).await;
-            let waited = before.elapsed();
-            // then I don't get any,
-            assert!(found.is_none());
-            // and I haven't waited long.
-            assert!(waited.as_secs() < 1);
-
-            // If I wait for a back-pagination token for 1 second,
-            let before = Instant::now();
-            let found = room_event_cache
-                .inner
-                .oldest_backpagination_token(Some(Duration::from_secs(1)))
-                .await;
-            let waited = before.elapsed();
-            // then I still don't get any.
-            assert!(found.is_none());
-            // and I've waited a bit.
-            assert!(waited.as_secs() < 2);
-            assert!(waited.as_secs() >= 1);
-        }
-
-        #[async_test]
-        async fn test_wait_for_pagination_token_already_present() {
-            let client = logged_in_client(None).await;
-            let room_id = room_id!("!galette:saucisse.bzh");
-            client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
-
-            let event_cache = client.event_cache();
-
-            event_cache.subscribe().unwrap();
-
-            let (room_event_cache, _drop_handlers) = event_cache.for_room(room_id).await.unwrap();
-            let room_event_cache = room_event_cache.unwrap();
-
-            let expected_token = "old".to_owned();
-
-            // When I have events and multiple gaps, in a room,
-            {
-                let mut room_events = room_event_cache.inner.events.write().await;
-                room_events.push_gap(Gap { prev_token: expected_token.clone() });
-                room_events.push_events([sync_timeline_event!({
-                    "sender": "b@z.h",
-                    "type": "m.room.message",
-                    "event_id": "$ida",
-                    "origin_server_ts": 12344446,
-                    "content": { "body":"yolo", "msgtype": "m.text" },
-                })
-                .into()]);
-            }
-
-            // If I don't wait for a back-pagination token,
-            let found = room_event_cache.inner.oldest_backpagination_token(None).await;
-            // Then I get it.
-            assert_eq!(found.as_ref(), Some(&expected_token));
-
-            // If I wait for a back-pagination token for 0 seconds,
-            let before = Instant::now();
-            let found =
-                room_event_cache.inner.oldest_backpagination_token(Some(Duration::default())).await;
-            let waited = before.elapsed();
-            // then I do get one.
-            assert_eq!(found.as_ref(), Some(&expected_token));
-            // and I haven't waited long.
-            assert!(waited.as_millis() < 100);
-
-            // If I wait for a back-pagination token for 1 second,
-            let before = Instant::now();
-            let found = room_event_cache
-                .inner
-                .oldest_backpagination_token(Some(Duration::from_secs(1)))
-                .await;
-            let waited = before.elapsed();
-            // then I do get one.
-            assert_eq!(found, Some(expected_token));
-            // and I haven't waited long.
-            assert!(waited.as_millis() < 100);
-        }
-
-        #[async_test]
-        async fn test_wait_for_late_pagination_token() {
-            let client = logged_in_client(None).await;
-            let room_id = room_id!("!galette:saucisse.bzh");
-            client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
-
-            let event_cache = client.event_cache();
-
-            event_cache.subscribe().unwrap();
-
-            let (room_event_cache, _drop_handles) = event_cache.for_room(room_id).await.unwrap();
-            let room_event_cache = room_event_cache.unwrap();
-
-            let expected_token = "old".to_owned();
-
-            let before = Instant::now();
-            let cloned_expected_token = expected_token.clone();
-            let cloned_room_event_cache = room_event_cache.clone();
-            let insert_token_task = spawn(async move {
-                // If a backpagination token is inserted after 400 milliseconds,
-                sleep(Duration::from_millis(400)).await;
-
-                {
-                    let mut room_events = cloned_room_event_cache.inner.events.write().await;
-                    room_events.push_gap(Gap { prev_token: cloned_expected_token });
-                }
-            });
-
-            // Then first I don't get it (if I'm not waiting,)
-            let found = room_event_cache.inner.oldest_backpagination_token(None).await;
-            assert!(found.is_none());
-
-            // And if I wait for the back-pagination token for 600ms,
-            let found = room_event_cache
-                .inner
-                .oldest_backpagination_token(Some(Duration::from_millis(600)))
-                .await;
-            let waited = before.elapsed();
-
-            // then I do get one eventually.
-            assert_eq!(found, Some(expected_token));
-            // and I have waited between ~400 and ~1000 milliseconds.
-            assert!(waited.as_secs() < 1);
-            assert!(waited.as_millis() >= 400);
-
-            // The task succeeded.
-            insert_token_task.await.unwrap();
-        }
     }
 
     #[async_test]
