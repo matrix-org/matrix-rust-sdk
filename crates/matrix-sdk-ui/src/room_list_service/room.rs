@@ -83,9 +83,9 @@ impl Room {
         self.inner.room.room_id()
     }
 
-    /// Get the name of the room if it exists.
-    pub async fn name(&self) -> Option<String> {
-        Some(self.inner.room.display_name().await.ok()?.to_string())
+    /// Get a computed room name for the room.
+    pub async fn computed_display_name(&self) -> Option<String> {
+        Some(self.inner.room.computed_display_name().await.ok()?.to_string())
     }
 
     /// Get the underlying [`matrix_sdk::Room`].

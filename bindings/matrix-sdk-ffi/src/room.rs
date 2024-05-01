@@ -210,8 +210,11 @@ impl Room {
         Ok(Timeline::new(timeline))
     }
 
-    pub async fn display_name(&self) -> Result<String, ClientError> {
-        Ok(self.inner.display_name().await?.to_string())
+    /// Returns the room's name from the state event if available, otherwise
+    /// compute a room name based on the room's nature (DM or not) and number of
+    /// members.
+    pub fn computed_display_name(&self) -> Result<String, ClientError> {
+        Ok(RUNTIME.block_on(self.inner.computed_display_name())?.to_string())
     }
 
     pub async fn is_encrypted(&self) -> Result<bool, ClientError> {

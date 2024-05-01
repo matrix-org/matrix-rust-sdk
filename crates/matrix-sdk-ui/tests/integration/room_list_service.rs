@@ -2260,7 +2260,7 @@ async fn test_room() -> Result<(), Error> {
     let room0 = room_list.room(room_id_0).await?;
 
     // Room has received a name from sliding sync.
-    assert_eq!(room0.name().await, Some("Room #0".to_owned()));
+    assert_eq!(room0.computed_display_name().await, Some("Room #0".to_owned()));
 
     // Room has received an avatar from sliding sync.
     assert_eq!(room0.avatar_url(), Some(mxc_uri!("mxc://homeserver/media").to_owned()));
@@ -2268,7 +2268,7 @@ async fn test_room() -> Result<(), Error> {
     let room1 = room_list.room(room_id_1).await?;
 
     // Room has not received a name from sliding sync, then it's calculated.
-    assert_eq!(room1.name().await, Some("Empty Room".to_owned()));
+    assert_eq!(room1.computed_display_name().await, Some("Empty Room".to_owned()));
 
     // Room has not received an avatar from sliding sync, then it's calculated, but
     // there is nothing to calculate from, so there is no URL.
@@ -2303,7 +2303,7 @@ async fn test_room() -> Result<(), Error> {
     };
 
     // Room has _now_ received a name from sliding sync!
-    assert_eq!(room1.name().await, Some("Room #1".to_owned()));
+    assert_eq!(room1.computed_display_name().await, Some("Room #1".to_owned()));
 
     // Room has _now_ received an avatar URL from sliding sync!
     assert_eq!(room1.avatar_url(), Some(mxc_uri!("mxc://homeserver/other-media").to_owned()));
