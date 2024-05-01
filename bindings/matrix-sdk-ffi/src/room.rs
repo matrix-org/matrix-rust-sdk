@@ -251,8 +251,6 @@ impl Room {
     }
 
     pub async fn room_info(&self) -> Result<RoomInfo, ClientError> {
-        let avatar_url = self.inner.avatar_url();
-
         // Look for a local event in the `Timeline`.
         //
         // First off, let's see if a `Timeline` exists…
@@ -263,7 +261,6 @@ impl Room {
                 if timeline_last_event.is_local_echo() {
                     return Ok(RoomInfo::new(
                         &self.inner,
-                        avatar_url,
                         Some(Arc::new(EventTimelineItem(timeline_last_event))),
                     )
                     .await?);
@@ -285,7 +282,7 @@ impl Room {
             None => None,
         };
 
-        Ok(RoomInfo::new(&self.inner, avatar_url, latest_event).await?)
+        Ok(RoomInfo::new(&self.inner, latest_event).await?)
     }
 
     pub fn subscribe_to_room_info_updates(
