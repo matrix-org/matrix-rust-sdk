@@ -179,10 +179,10 @@ async fn test_transfer_in_reply_to_details_to_re_received_item() {
     let event_builder = EventBuilder::new();
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let mut ev_builder = SyncResponseBuilder::new();
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    let mut sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -199,10 +199,10 @@ async fn test_transfer_in_reply_to_details_to_re_received_item() {
             }),
         }),
     );
-    ev_builder
+    sync_builder
         .add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(reply_event.clone()));
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -240,9 +240,9 @@ async fn test_transfer_in_reply_to_details_to_re_received_item() {
     assert_matches!(in_reply_to.event, TimelineDetails::Ready(_));
 
     // ... and then we re-receive the reply event
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(reply_event));
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(reply_event));
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
 
     // ... the replied-to event details should remain from when we fetched them
