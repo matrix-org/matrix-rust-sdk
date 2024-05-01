@@ -715,7 +715,7 @@ impl NotificationItem {
             sender_display_name,
             sender_avatar_url,
             is_sender_name_ambiguous,
-            room_display_name: room.display_name().await?.to_string(),
+            room_display_name: room.computed_display_name().await?.to_string(),
             room_avatar_url: room.avatar_url().map(|s| s.to_string()),
             room_canonical_alias: room.canonical_alias().map(|c| c.to_string()),
             is_direct_message_room: room.is_direct().await?,

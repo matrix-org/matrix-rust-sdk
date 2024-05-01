@@ -1272,7 +1272,7 @@ mod tests {
         // Then the room's name is just exactly what the server supplied
         let client_room = client.get_room(room_id).expect("No room found");
         assert_eq!(
-            client_room.display_name().await.unwrap().to_string(),
+            client_room.computed_display_name().await.unwrap().to_string(),
             "This came from the server"
         );
     }

@@ -490,8 +490,11 @@ impl RoomListItem {
         self.inner.id().to_string()
     }
 
-    async fn name(&self) -> Option<String> {
-        self.inner.name().await
+    /// Returns the room's name from the state event if available, otherwise
+    /// compute a room name based on the room's nature (DM or not) and number of
+    /// members.
+    fn computed_display_name(&self) -> Option<String> {
+        RUNTIME.block_on(self.inner.computed_display_name())
     }
 
     fn avatar_url(&self) -> Option<String> {

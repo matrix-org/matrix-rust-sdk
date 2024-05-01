@@ -56,7 +56,10 @@ async fn calculate_room_names_from_summary() {
     let _response = client.sync_once(sync_settings).await.unwrap();
     let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
 
-    assert_eq!(DisplayName::Calculated("example2".to_owned()), room.display_name().await.unwrap());
+    assert_eq!(
+        DisplayName::Calculated("example2".to_owned()),
+        room.computed_display_name().await.unwrap()
+    );
 }
 
 #[async_test]
@@ -72,7 +75,10 @@ async fn room_names() {
     assert_eq!(client.rooms().len(), 1);
     let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
 
-    assert_eq!(DisplayName::Aliased("tutorial".to_owned()), room.display_name().await.unwrap());
+    assert_eq!(
+        DisplayName::Aliased("tutorial".to_owned()),
+        room.computed_display_name().await.unwrap()
+    );
 
     mock_sync(&server, &*test_json::INVITE_SYNC, Some(sync_token.clone())).await;
 
@@ -83,7 +89,7 @@ async fn room_names() {
 
     assert_eq!(
         DisplayName::Named("My Room Name".to_owned()),
-        invited_room.display_name().await.unwrap()
+        invited_room.computed_display_name().await.unwrap()
     );
 }
 
