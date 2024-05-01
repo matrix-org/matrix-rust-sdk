@@ -121,6 +121,10 @@ impl Account {
 
     /// Get the MXC URI of the account's avatar, if set.
     ///
+    /// This always sends a request to the server to retrieve this information.
+    /// If successful, this fills the cache, and makes it so that
+    /// [`Self::get_cached_avatar_url`] will always return something.
+    ///
     /// # Examples
     ///
     /// ```no_run
@@ -902,7 +906,7 @@ impl Account {
         Ok(ignored_user_list)
     }
 
-    /// Get the current push rules.
+    /// Get the current push rules from storage.
     ///
     /// If no push rules event was found, or it fails to deserialize, a ruleset
     /// with the server-default push rules is returned.

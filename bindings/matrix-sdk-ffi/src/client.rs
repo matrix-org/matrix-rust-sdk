@@ -414,14 +414,17 @@ impl Client {
         Ok(())
     }
 
+    /// Sends a request to retrieve the avatar URL. Will fill the cache used by
+    /// [`Self::cached_avatar_url`] on success.
     pub async fn avatar_url(&self) -> Result<Option<String>, ClientError> {
         let avatar_url = self.inner.account().get_avatar_url().await?;
+
         Ok(avatar_url.map(|u| u.to_string()))
     }
 
-    pub async fn cached_avatar_url(&self) -> Result<Option<String>, ClientError> {
-        let url = self.inner.account().get_cached_avatar_url().await?;
-        Ok(url)
+    /// Retrieves an avatar cached from a previous call to [`Self::avatar_url`].
+    pub fn cached_avatar_url(&self) -> Result<Option<String>, ClientError> {
+        Ok(RUNTIME.block_on(self.inner.account().get_cached_avatar_url())?)
     }
 
     pub fn device_id(&self) -> Result<String, ClientError> {
@@ -650,11 +653,10 @@ impl Client {
         SyncServiceBuilder::new((*self.inner).clone())
     }
 
-    pub async fn get_notification_settings(&self) -> Arc<NotificationSettings> {
-        Arc::new(NotificationSettings::new(
-            (*self.inner).clone(),
-            self.inner.notification_settings().await,
-        ))
+    pub fn get_notification_settings(&self) -> Arc<NotificationSettings> {
+        let inner = RUNTIME.block_on(self.inner.notification_settings());
+
+        Arc::new(NotificationSettings::new((*self.inner).clone(), inner))
     }
 
     pub fn encryption(&self) -> Arc<Encryption> {
