@@ -3029,8 +3029,9 @@ dependencies = [
 
 [[package]]
 name = "mas-http"
-version = "0.9.0-rc.1"
-source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=d3d11594f3d00dd1f0dace17538883e93e1bc50f#d3d11594f3d00dd1f0dace17538883e93e1bc50f"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "db389039cbea755421aacc555833d49f94ae0d849f663f6e3c9713d2aec495f1"
 dependencies = [
  "bytes",
  "futures-util",
@@ -3052,8 +3053,9 @@ dependencies = [
 
 [[package]]
 name = "mas-iana"
-version = "0.9.0-rc.1"
-source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=d3d11594f3d00dd1f0dace17538883e93e1bc50f#d3d11594f3d00dd1f0dace17538883e93e1bc50f"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f31706be49ce36e62f32d1714aa1e42dcbc41694076f003bef6291a0717872b"
 dependencies = [
  "schemars",
  "serde",
@@ -3061,8 +3063,9 @@ dependencies = [
 
 [[package]]
 name = "mas-jose"
-version = "0.9.0-rc.1"
-source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=d3d11594f3d00dd1f0dace17538883e93e1bc50f#d3d11594f3d00dd1f0dace17538883e93e1bc50f"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7641099bd39f1b6a62a672adec7dfe27d56b2cd98dd56817099b01771147ff07"
 dependencies = [
  "base64ct",
  "chrono",
@@ -3091,8 +3094,9 @@ dependencies = [
 
 [[package]]
 name = "mas-oidc-client"
-version = "0.9.0-rc.1"
-source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=d3d11594f3d00dd1f0dace17538883e93e1bc50f#d3d11594f3d00dd1f0dace17538883e93e1bc50f"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8a4fbc4cd3bf82a32940a5c0b8306176aece9bf64e46f0956a584111b9b01a77"
 dependencies = [
  "base64ct",
  "bytes",
@@ -3879,8 +3883,9 @@ dependencies = [
 
 [[package]]
 name = "oauth2-types"
-version = "0.9.0-rc.1"
-source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=d3d11594f3d00dd1f0dace17538883e93e1bc50f#d3d11594f3d00dd1f0dace17538883e93e1bc50f"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5b87a399bd6e38bbf46b5edccea4afa40628d075245ace845f6318fb976b64a7"
 dependencies = [
  "chrono",
  "data-encoding",
