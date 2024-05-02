@@ -1,15 +1,11 @@
 use std::sync::Arc;
 
 use matrix_sdk_ui::notification_client::{
-    NotificationClient as MatrixNotificationClient,
-    NotificationClientBuilder as MatrixNotificationClientBuilder,
-    NotificationItem as MatrixNotificationItem, NotificationProcessSetup,
+    NotificationClient as MatrixNotificationClient, NotificationItem as MatrixNotificationItem,
 };
 use ruma::{EventId, RoomId};
 
-use crate::{
-    client::Client, error::ClientError, event::TimelineEvent, helpers::unwrap_or_clone_arc,
-};
+use crate::{client::Client, error::ClientError, event::TimelineEvent};
 
 #[derive(uniffi::Enum)]
 pub enum NotificationEvent {
@@ -80,49 +76,16 @@ impl NotificationItem {
     }
 }
 
-#[derive(Clone, uniffi::Object)]
-pub struct NotificationClientBuilder {
-    client: Arc<Client>,
-    builder: MatrixNotificationClientBuilder,
-}
-
-impl NotificationClientBuilder {
-    pub(crate) async fn new(
-        client: Arc<Client>,
-        process_setup: NotificationProcessSetup,
-    ) -> Result<Arc<Self>, ClientError> {
-        let builder =
-            MatrixNotificationClient::builder((*client.inner).clone(), process_setup).await?;
-        Ok(Arc::new(Self { builder, client }))
-    }
-}
-
-#[uniffi::export]
-impl NotificationClientBuilder {
-    /// Filter out the notification event according to the push rules present in
-    /// the event.
-    pub fn filter_by_push_rules(self: Arc<Self>) -> Arc<Self> {
-        let this = unwrap_or_clone_arc(self);
-        let builder = this.builder.filter_by_push_rules();
-        Arc::new(Self { builder, client: this.client })
-    }
-
-    pub fn finish(self: Arc<Self>) -> Arc<NotificationClient> {
-        let this = unwrap_or_clone_arc(self);
-        Arc::new(NotificationClient { inner: this.builder.build(), _client: this.client })
-    }
-}
-
 #[derive(uniffi::Object)]
 pub struct NotificationClient {
-    inner: MatrixNotificationClient,
+    pub(crate) inner: MatrixNotificationClient,
 
     /// A reference to the FFI client.
     ///
     /// Note: we do this to make it so that the FFI `NotificationClient` keeps
     /// the FFI `Client` and thus the SDK `Client` alive. Otherwise, we
     /// would need to repeat the hack done in the FFI `Client::drop` method.
-    _client: Arc<Client>,
+    pub(crate) _client: Arc<Client>,
 }
 
 #[uniffi::export(async_runtime = "tokio")]

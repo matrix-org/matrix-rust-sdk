@@ -85,7 +85,7 @@ async fn test_notification() -> Result<()> {
 
         // Try with sliding sync first.
         let notification_client =
-            NotificationClient::builder(bob.clone(), process_setup.clone()).await.unwrap().build();
+            NotificationClient::new(bob.clone(), process_setup.clone()).await.unwrap();
         assert_let!(
             NotificationStatus::Event(notification) =
                 notification_client.get_notification_with_sliding_sync(&room_id, &event_id).await?
@@ -112,7 +112,7 @@ async fn test_notification() -> Result<()> {
 
         // Then with /context.
         let notification_client =
-            NotificationClient::builder(bob.clone(), process_setup.clone()).await.unwrap().build();
+            NotificationClient::new(bob.clone(), process_setup.clone()).await.unwrap();
         let notification =
             notification_client.get_notification_with_context(&room_id, &event_id).await;
         // We aren't authorized to inspect events from rooms we were not invited to.
@@ -198,15 +198,14 @@ async fn test_notification() -> Result<()> {
     };
 
     let notification_client =
-        NotificationClient::builder(bob.clone(), process_setup.clone()).await.unwrap().build();
+        NotificationClient::new(bob.clone(), process_setup.clone()).await.unwrap();
     assert_let!(
         NotificationStatus::Event(notification) =
             notification_client.get_notification_with_sliding_sync(&room_id, &event_id).await?
     );
     check_notification(true, notification);
 
-    let notification_client =
-        NotificationClient::builder(bob.clone(), process_setup).await.unwrap().build();
+    let notification_client = NotificationClient::new(bob.clone(), process_setup).await.unwrap();
     let notification = notification_client
         .get_notification_with_context(&room_id, &event_id)
         .await?

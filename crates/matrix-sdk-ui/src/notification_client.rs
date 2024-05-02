@@ -87,10 +87,6 @@ pub struct NotificationClient {
     /// Is the notification client running on its own process or not?
     process_setup: NotificationProcessSetup,
 
-    /// Should we try to filter out the notification event according to the push
-    /// rules?
-    filter_by_push_rules: bool,
-
     /// A mutex to serialize requests to the notifications sliding sync.
     ///
     /// If several notifications come in at the same time (e.g. network was
@@ -111,12 +107,19 @@ impl NotificationClient {
     const CONNECTION_ID: &'static str = "notifications";
     const LOCK_ID: &'static str = "notifications";
 
-    /// Create a new builder for a notification client.
-    pub async fn builder(
-        client: Client,
+    /// Create a new notification client.
+    pub async fn new(
+        parent_client: Client,
         process_setup: NotificationProcessSetup,
-    ) -> Result<NotificationClientBuilder, Error> {
-        NotificationClientBuilder::new(client, process_setup).await
+    ) -> Result<Self, Error> {
+        let client = parent_client.notification_client().await?;
+        Ok(NotificationClient {
+            client,
+            parent_client,
+            notification_sync_mutex: AsyncMutex::new(()),
+            encryption_sync_mutex: AsyncMutex::new(()),
+            process_setup,
+        })
     }
 
     /// Fetches the content of a notification.
@@ -446,7 +449,7 @@ impl NotificationClient {
         };
 
         if let Some(push_actions) = &push_actions {
-            if self.filter_by_push_rules && !push_actions.iter().any(|a| a.should_notify()) {
+            if !push_actions.iter().any(|a| a.should_notify()) {
                 return Ok(NotificationStatus::EventFilteredOut);
             }
         }
@@ -491,13 +494,10 @@ impl NotificationClient {
             timeline_event = decrypted_event;
         }
 
-        if self.filter_by_push_rules
-            && !timeline_event
-                .push_actions
-                .as_ref()
-                .is_some_and(|actions| actions.iter().any(|a| a.should_notify()))
-        {
-            return Ok(None);
+        if let Some(actions) = timeline_event.push_actions.as_ref() {
+            if !actions.iter().any(|a| a.should_notify()) {
+                return Ok(None);
+            }
         }
 
         Ok(Some(
@@ -527,52 +527,6 @@ pub enum NotificationStatus {
     Event(NotificationItem),
     EventNotFound,
     EventFilteredOut,
-}
-
-/// Builder for a `NotificationClient`.
-///
-/// Fields have the same meaning as in `NotificationClient`.
-#[derive(Clone)]
-pub struct NotificationClientBuilder {
-    /// SDK client that uses an in-memory state store, to be used with the
-    /// sliding sync method.
-    client: Client,
-    /// SDK client that uses the same state store as the caller's context.
-    parent_client: Client,
-    filter_by_push_rules: bool,
-
-    /// Is the notification client running on its own process or not?
-    process_setup: NotificationProcessSetup,
-}
-
-impl NotificationClientBuilder {
-    async fn new(
-        parent_client: Client,
-        process_setup: NotificationProcessSetup,
-    ) -> Result<Self, Error> {
-        let client = parent_client.notification_client().await?;
-
-        Ok(Self { client, parent_client, filter_by_push_rules: false, process_setup })
-    }
-
-    /// Filter out the notification event according to the push rules present in
-    /// the event.
-    pub fn filter_by_push_rules(mut self) -> Self {
-        self.filter_by_push_rules = true;
-        self
-    }
-
-    /// Finishes configuring the `NotificationClient`.
-    pub fn build(self) -> NotificationClient {
-        NotificationClient {
-            client: self.client,
-            parent_client: self.parent_client,
-            filter_by_push_rules: self.filter_by_push_rules,
-            notification_sync_mutex: AsyncMutex::new(()),
-            encryption_sync_mutex: AsyncMutex::new(()),
-            process_setup: self.process_setup,
-        }
-    }
 }
 
 /// The Notification event as it was fetched from remote for the
