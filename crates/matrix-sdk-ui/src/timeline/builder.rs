@@ -245,21 +245,6 @@ impl TimelineBuilder {
             .instrument(span)
         });
 
-        let mut ignore_user_list_stream = client.subscribe_to_ignore_user_list_changes();
-        let ignore_user_list_update_join_handle = spawn({
-            let inner = inner.clone();
-
-            let span = info_span!(parent: Span::none(), "ignore_user_list_update_handler", room_id = ?room.room_id());
-            span.follows_from(Span::current());
-
-            async move {
-                while ignore_user_list_stream.next().await.is_some() {
-                    inner.clear().await;
-                }
-            }
-            .instrument(span)
-        });
-
         // Not using room.add_event_handler here because RoomKey events are
         // to-device events that are not received in the context of a room.
 
@@ -321,7 +306,6 @@ impl TimelineBuilder {
                 client,
                 event_handler_handles: handles,
                 room_update_join_handle,
-                ignore_user_list_update_join_handle,
                 room_key_from_backups_join_handle,
                 _event_cache_drop_handle: event_cache_drop,
             }),
