@@ -229,7 +229,7 @@ async fn test_focused_timeline_reacts() {
     // to the $1 event.
     sync_response_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_bulk([
         // This event must be ignored.
-        f.text_msg("this is a sync event").sender(*ALICE).into_raw_sync(),
+        f.text_msg("this is a sync event").sender(*ALICE).into(),
         // This event must not be ignored.
         sync_timeline_event!({
             "content": {
