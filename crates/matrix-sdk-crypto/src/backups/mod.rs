@@ -153,7 +153,7 @@ impl BackupMachine {
         match self.store.static_account().has_signed_raw(signatures, auth_data) {
             Ok(_) => SignatureState::ValidAndTrusted,
             Err(e) => match e {
-                crate::SignatureError::NoSignatureFound => SignatureState::Missing,
+                SignatureError::NoSignatureFound => SignatureState::Missing,
                 _ => SignatureState::Invalid,
             },
         }
@@ -179,7 +179,7 @@ impl BackupMachine {
                     }
                 }
                 Err(e) => match e {
-                    crate::SignatureError::NoSignatureFound => SignatureState::Missing,
+                    SignatureError::NoSignatureFound => SignatureState::Missing,
                     _ => SignatureState::Invalid,
                 },
             }

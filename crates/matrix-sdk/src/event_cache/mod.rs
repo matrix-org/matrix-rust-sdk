@@ -880,13 +880,12 @@ mod tests {
     use assert_matches2::assert_matches;
     use futures_util::FutureExt as _;
     use matrix_sdk_base::sync::JoinedRoomUpdate;
-    use matrix_sdk_common::executor::spawn;
-    use matrix_sdk_test::{async_test, sync_timeline_event};
+    use matrix_sdk_test::async_test;
     use ruma::{room_id, serde::Raw};
     use serde_json::json;
 
-    use super::{BackPaginationOutcome, EventCacheError, RoomEventCacheUpdate};
-    use crate::{event_cache::store::PaginationToken, test_utils::logged_in_client};
+    use super::{EventCacheError, RoomEventCacheUpdate};
+    use crate::test_utils::logged_in_client;
 
     #[async_test]
     async fn test_must_explicitly_subscribe() {
@@ -910,22 +909,26 @@ mod tests {
         use std::time::{Duration, Instant};
 
         use matrix_sdk_base::RoomState;
+        use matrix_sdk_test::sync_timeline_event;
         use serde_json::json;
-        use tokio::time::sleep;
+        use tokio::{spawn, time::sleep};
         use wiremock::{
             matchers::{header, method, path_regex, query_param},
             Mock, ResponseTemplate,
         };
 
         use super::{super::store::Gap, *};
-        use crate::test_utils::logged_in_client_with_server;
+        use crate::{
+            event_cache::{store::PaginationToken, BackPaginationOutcome},
+            test_utils::logged_in_client_with_server,
+        };
 
         #[async_test]
         async fn test_unknown_pagination_token() {
             let (client, server) = logged_in_client_with_server().await;
 
             let room_id = room_id!("!galette:saucisse.bzh");
-            client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+            client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
             client.event_cache().subscribe().unwrap();
 
@@ -1017,7 +1020,7 @@ mod tests {
         async fn test_wait_for_pagination_token_already_present() {
             let client = logged_in_client(None).await;
             let room_id = room_id!("!galette:saucisse.bzh");
-            client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+            client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
             let event_cache = client.event_cache();
 
@@ -1076,7 +1079,7 @@ mod tests {
         async fn test_wait_for_late_pagination_token() {
             let client = logged_in_client(None).await;
             let room_id = room_id!("!galette:saucisse.bzh");
-            client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+            client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
             let event_cache = client.event_cache();
 

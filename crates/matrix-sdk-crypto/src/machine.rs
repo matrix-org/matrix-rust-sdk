@@ -760,7 +760,7 @@ impl OlmMachine {
 
         match session {
             Ok(session) => {
-                tracing::Span::current().record("session_id", session.session_id());
+                Span::current().record("session_id", session.session_id());
 
                 if self.store().compare_group_session(&session).await? == SessionOrdering::Better {
                     info!("Received a new megolm room key");
@@ -776,7 +776,7 @@ impl OlmMachine {
                 }
             }
             Err(e) => {
-                tracing::Span::current().record("session_id", &content.session_id);
+                Span::current().record("session_id", &content.session_id);
                 warn!("Received a room key event which contained an invalid session key: {e}");
 
                 Ok(None)
@@ -1105,9 +1105,9 @@ impl OlmMachine {
         }
 
         if let Ok(event) = event.deserialize_as::<ToDeviceStub<'_>>() {
-            tracing::Span::current().record("sender", event.sender);
-            tracing::Span::current().record("event_type", event.event_type);
-            tracing::Span::current().record("message_id", event.content.message_id);
+            Span::current().record("sender", event.sender);
+            Span::current().record("event_type", event.event_type);
+            Span::current().record("message_id", event.content.message_id);
         }
     }
 
@@ -1481,7 +1481,7 @@ impl OlmMachine {
         //
         // While we already record the sender key in some cases from the event, the
         // sender key in the event is deprecated, so let's record it now.
-        tracing::Span::current().record("sender_key", debug(session.sender_key()));
+        Span::current().record("sender_key", debug(session.sender_key()));
 
         let result = session.decrypt(event).await;
         match result {
@@ -1553,7 +1553,7 @@ impl OlmMachine {
     ) -> MegolmResult<TimelineEvent> {
         let event = event.deserialize()?;
 
-        tracing::Span::current()
+        Span::current()
             .record("sender", debug(&event.sender))
             .record("event_id", debug(&event.event_id))
             .record(
@@ -1565,7 +1565,7 @@ impl OlmMachine {
 
         let content: SupportedEventEncryptionSchemes<'_> = match &event.content.scheme {
             RoomEventEncryptionScheme::MegolmV1AesSha2(c) => {
-                tracing::Span::current().record("sender_key", debug(c.sender_key));
+                Span::current().record("sender_key", debug(c.sender_key));
                 c.into()
             }
             #[cfg(feature = "experimental-algorithms")]
@@ -1576,7 +1576,7 @@ impl OlmMachine {
             }
         };
 
-        tracing::Span::current().record("session_id", content.session_id());
+        Span::current().record("session_id", content.session_id());
         let result = self.decrypt_megolm_events(room_id, &event, &content).await;
 
         if let Err(e) = &result {
@@ -3579,7 +3579,7 @@ pub(crate) mod tests {
             .await
             .unwrap()
             .expect("should exist")
-            .set_trust_state(crate::LocalTrust::Verified);
+            .set_trust_state(LocalTrust::Verified);
 
         alice.create_outbound_group_session_with_defaults_test_helper(room_id).await.unwrap();
 
@@ -3627,7 +3627,7 @@ pub(crate) mod tests {
 
         let decrypt_error = bob.decrypt_room_event(&room_event, room_id).await.unwrap_err();
 
-        if let crate::MegolmError::Decryption(vodo_error) = decrypt_error {
+        if let MegolmError::Decryption(vodo_error) = decrypt_error {
             if let vodozemac::megolm::DecryptionError::UnknownMessageIndex(_, _) = vodo_error {
                 // check that key has been requested
                 let outgoing_to_devices =

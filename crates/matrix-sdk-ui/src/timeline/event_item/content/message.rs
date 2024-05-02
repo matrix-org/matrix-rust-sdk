@@ -22,12 +22,9 @@ use ruma::{
     assign,
     events::{
         relation::{InReplyTo, Thread},
-        room::{
-            message,
-            message::{
-                MessageType, Relation, RoomMessageEventContent,
-                RoomMessageEventContentWithoutRelation, SyncRoomMessageEvent,
-            },
+        room::message::{
+            MessageType, Relation, RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
+            SyncRoomMessageEvent,
         },
         AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnyTimelineEvent,
         BundledMessageLikeRelations,
@@ -85,10 +82,10 @@ impl Message {
 
         let mut thread_root = None;
         let in_reply_to = c.relates_to.and_then(|relation| match relation {
-            message::Relation::Reply { in_reply_to } => {
+            Relation::Reply { in_reply_to } => {
                 Some(InReplyToDetails::new(in_reply_to.event_id, timeline_items))
             }
-            message::Relation::Thread(thread) => {
+            Relation::Thread(thread) => {
                 thread_root = Some(thread.event_id);
                 thread
                     .in_reply_to

@@ -124,8 +124,7 @@ impl BaseClient {
     /// * `config` - An optional session if the user already has one from a
     /// previous login call.
     pub fn with_store_config(config: StoreConfig) -> Self {
-        let (roominfo_update_sender, _roominfo_update_receiver) =
-            tokio::sync::broadcast::channel(100);
+        let (roominfo_update_sender, _roominfo_update_receiver) = broadcast::channel(100);
 
         BaseClient {
             store: Store::new(config.state_store),
