@@ -215,6 +215,7 @@ impl EventCache {
                     // re-creating the `RoomEventCache` would create a new unrelated sender.
 
                     let rooms = inner.by_room.write().await;
+
                     for room in rooms.values() {
                         // Notify all the observers that we've lost track of state. (We ignore the
                         // error if there aren't any.)
@@ -761,19 +762,19 @@ impl RoomEventCacheInner {
             Some(first_event_pos) => {
                 if let Some(prev_token_gap) = prev_token {
                     room_events
-                            .insert_gap_at(prev_token_gap, first_event_pos)
-                            // SAFETY: The `first_event_pos` can only be an `Item` chunk, it's
-                            // an invariant of `LinkedChunk`. Also, it can only represent a valid
-                            // `ChunkIdentifier` as the data structure isn't modified yet.
-                            .expect("`first_event_pos` must point to a valid `Item` chunk when inserting a gap");
+                        .insert_gap_at(prev_token_gap, first_event_pos)
+                        // SAFETY: The `first_event_pos` can only be an `Item` chunk, it's
+                        // an invariant of `LinkedChunk`. Also, it can only represent a valid
+                        // `ChunkIdentifier` as the data structure isn't modified yet.
+                        .expect("`first_event_pos` must point to a valid `Item` chunk when inserting a gap");
                 }
 
                 room_events
-                        .insert_events_at(sync_events, first_event_pos)
-                        // SAFETY: The `first_event_pos` can only be an `Item` chunk, it's
-                        // an invariant of `LinkedChunk`. The chunk it points to has not been
-                        // removed.
-                        .expect("The `first_event_pos` must point to a valid `Item` chunk when inserting events");
+                    .insert_events_at(sync_events, first_event_pos)
+                    // SAFETY: The `first_event_pos` can only be an `Item` chunk, it's
+                    // an invariant of `LinkedChunk`. The chunk it points to has not been
+                    // removed.
+                    .expect("The `first_event_pos` must point to a valid `Item` chunk when inserting events");
             }
 
             // There is no first item. Let's simply push.
