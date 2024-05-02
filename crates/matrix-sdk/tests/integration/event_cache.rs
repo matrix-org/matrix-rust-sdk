@@ -5,7 +5,9 @@ use matrix_sdk::{
     event_cache::{BackPaginationOutcome, EventCacheError, RoomEventCacheUpdate},
     test_utils::{assert_event_matches_msg, events::EventFactory, logged_in_client_with_server},
 };
-use matrix_sdk_test::{async_test, EventBuilder, JoinedRoomBuilder, SyncResponseBuilder};
+use matrix_sdk_test::{
+    async_test, EventBuilder, GlobalAccountDataTestEvent, JoinedRoomBuilder, SyncResponseBuilder,
+};
 use ruma::{
     event_id,
     events::{room::message::RoomMessageEventContent, AnyTimelineEvent},
@@ -131,6 +133,117 @@ async fn test_add_initial_events() {
     assert_let!(RoomEventCacheUpdate::Append { events, .. } = update);
     assert_eq!(events.len(), 1);
     assert_event_matches_msg(&events[0], "new choice!");
+
+    // That's all, folks!
+    assert!(subscriber.is_empty());
+}
+
+#[async_test]
+async fn test_ignored_unignored() {
+    let (client, server) = logged_in_client_with_server().await;
+
+    // Immediately subscribe the event cache to sync updates.
+    client.event_cache().subscribe().unwrap();
+
+    // If I sync and get informed I've joined The Room, but with no events,
+    let room_id = room_id!("!omelette:fromage.fr");
+    let other_room_id = room_id!("!galette:saucisse.bzh");
+
+    let mut sync_builder = SyncResponseBuilder::new();
+    sync_builder
+        .add_joined_room(JoinedRoomBuilder::new(room_id))
+        .add_joined_room(JoinedRoomBuilder::new(other_room_id));
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    client.sync_once(Default::default()).await.unwrap();
+    server.reset().await;
+
+    let dexter = user_id!("@dexter:lab.org");
+    let ivan = user_id!("@ivan:lab.ch");
+    let ev_factory = EventFactory::new();
+
+    // If I add initial events to a few rooms,
+    client
+        .event_cache()
+        .add_initial_events(
+            room_id,
+            vec![
+                ev_factory.text_msg("hey there").sender(dexter).into_sync(),
+                ev_factory.text_msg("hoy!").sender(ivan).into_sync(),
+            ],
+            None,
+        )
+        .await
+        .unwrap();
+
+    client
+        .event_cache()
+        .add_initial_events(
+            other_room_id,
+            vec![ev_factory.text_msg("demat!").sender(ivan).into_sync()],
+            None,
+        )
+        .await
+        .unwrap();
+
+    // And subscribe to the room,
+    let room = client.get_room(room_id).unwrap();
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (events, mut subscriber) = room_event_cache.subscribe().await.unwrap();
+
+    // Then at first it contains the two initial events.
+    assert_eq!(events.len(), 2);
+    assert_event_matches_msg(&events[0], "hey there");
+    assert_event_matches_msg(&events[1], "hoy!");
+
+    // And after receiving a new ignored list,
+    sync_builder.add_global_account_data_event(GlobalAccountDataTestEvent::Custom(json!({
+        "content": {
+            "ignored_users": {
+                dexter: {}
+            }
+        },
+        "type": "m.ignored_user_list",
+    })));
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    client.sync_once(Default::default()).await.unwrap();
+    server.reset().await;
+
+    // It does receive one update,
+    let update = timeout(Duration::from_secs(2), subscriber.recv())
+        .await
+        .expect("timeout after receiving a sync update")
+        .expect("should've received a room event cache update");
+
+    // Which notifies about the clear.
+    assert_matches!(update, RoomEventCacheUpdate::Clear);
+
+    // Receiving new events still works.
+    sync_builder.add_joined_room(
+        JoinedRoomBuilder::new(room_id)
+            .add_timeline_event(ev_factory.text_msg("i don't like this dexter").sender(ivan)),
+    );
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    client.sync_once(Default::default()).await.unwrap();
+    server.reset().await;
+
+    // We do receive one update,
+    let update = timeout(Duration::from_secs(2), subscriber.recv())
+        .await
+        .expect("timeout after receiving a sync update")
+        .expect("should've received a room event cache update");
+
+    assert_let!(RoomEventCacheUpdate::Append { events, .. } = update);
+    assert_eq!(events.len(), 1);
+    assert_event_matches_msg(&events[0], "i don't like this dexter");
+
+    // The other room has been cleared too.
+    {
+        let room = client.get_room(other_room_id).unwrap();
+        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+        let (events, _) = room_event_cache.subscribe().await.unwrap();
+        assert!(events.is_empty());
+    }
 
     // That's all, folks!
     assert!(subscriber.is_empty());
