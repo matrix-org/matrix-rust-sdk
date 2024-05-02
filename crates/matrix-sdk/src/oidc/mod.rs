@@ -1388,7 +1388,7 @@ pub enum RedirectUriQueryParseError {
 pub enum OidcError {
     /// An error occurred when interacting with the provider.
     #[error(transparent)]
-    Oidc(mas_oidc_client::error::Error),
+    Oidc(error::Error),
 
     /// No authentication issuer was provided by the homeserver or by the user.
     #[error("client missing authentication issuer")]
@@ -1441,7 +1441,7 @@ pub enum OidcError {
 
 impl<E> From<E> for OidcError
 where
-    E: Into<mas_oidc_client::error::Error>,
+    E: Into<error::Error>,
 {
     fn from(value: E) -> Self {
         Self::Oidc(value.into())
@@ -1452,6 +1452,6 @@ fn rng() -> Result<StdRng, OidcError> {
     StdRng::from_rng(rand::thread_rng()).map_err(OidcError::Rand)
 }
 
-fn hash_str(x: &str) -> impl std::fmt::LowerHex {
+fn hash_str(x: &str) -> impl fmt::LowerHex {
     sha2::Sha256::new().chain_update(x).finalize()
 }

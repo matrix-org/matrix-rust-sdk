@@ -426,7 +426,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             let items = state.items.clone();
             let Some((_, item)) = rfind_event_by_id(&items, &annotation.event_id) else {
                 warn!("Timeline item not found, can't update reaction ID");
-                return Err(super::Error::FailedToToggleReaction);
+                return Err(Error::FailedToToggleReaction);
             };
             item.to_owned()
         };
@@ -791,7 +791,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             result,
             ReactionToggleResult::AddFailure { .. } | ReactionToggleResult::RedactFailure { .. }
         ) {
-            return Err(super::Error::FailedToToggleReaction);
+            return Err(Error::FailedToToggleReaction);
         }
 
         Ok(follow_up_action)
@@ -1128,9 +1128,9 @@ impl TimelineInner {
     #[instrument(skip(self))]
     pub(super) async fn fetch_in_reply_to_details(&self, event_id: &EventId) -> Result<(), Error> {
         let state = self.state.write().await;
-        let (index, item) = rfind_event_by_id(&state.items, event_id)
-            .ok_or(super::Error::RemoteEventNotInTimeline)?;
-        let remote_item = item.as_remote().ok_or(super::Error::RemoteEventNotInTimeline)?.clone();
+        let (index, item) =
+            rfind_event_by_id(&state.items, event_id).ok_or(Error::RemoteEventNotInTimeline)?;
+        let remote_item = item.as_remote().ok_or(Error::RemoteEventNotInTimeline)?.clone();
 
         let TimelineItemContent::Message(message) = item.content().clone() else {
             info!("Event is not a message");
@@ -1164,7 +1164,7 @@ impl TimelineInner {
         // changed while waiting for the request.
         let mut state = self.state.write().await;
         let (index, item) = rfind_event_by_id(&state.items, &remote_item.event_id)
-            .ok_or(super::Error::RemoteEventNotInTimeline)?;
+            .ok_or(Error::RemoteEventNotInTimeline)?;
 
         // Check the state of the event again, it might have been redacted while
         // the request was in-flight.

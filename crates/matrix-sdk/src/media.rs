@@ -19,7 +19,7 @@
 use std::io::Read;
 use std::time::Duration;
 #[cfg(not(target_arch = "wasm32"))]
-use std::{fmt, fs::File, io, path::Path};
+use std::{fmt, fs::File, path::Path};
 
 use eyeball::SharedObservable;
 use futures_util::future::try_join;
@@ -30,7 +30,7 @@ use ruma::{
     assign,
     events::room::{
         message::{
-            self, AudioInfo, AudioMessageEventContent, FileInfo, FileMessageEventContent,
+            AudioInfo, AudioMessageEventContent, FileInfo, FileMessageEventContent,
             ImageMessageEventContent, MessageType, UnstableAudioDetailsContentBlock,
             UnstableVoiceContentBlock, VideoInfo, VideoMessageEventContent,
         },
@@ -94,7 +94,7 @@ impl MediaFileHandle {
 #[cfg(not(target_arch = "wasm32"))]
 pub struct PersistError {
     /// The underlying IO error.
-    pub error: io::Error,
+    pub error: std::io::Error,
     /// The temporary file that couldn't be persisted.
     pub file: MediaFileHandle,
 }
@@ -483,7 +483,7 @@ impl Media {
             }
             mime::AUDIO => {
                 let mut audio_message_event_content =
-                    message::AudioMessageEventContent::plain(body.to_owned(), url);
+                    AudioMessageEventContent::plain(body.to_owned(), url);
                 audio_message_event_content.filename = filename;
                 audio_message_event_content.formatted = config.formatted_caption;
                 MessageType::Audio(update_audio_message_event(

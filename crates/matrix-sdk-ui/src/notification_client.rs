@@ -513,7 +513,7 @@ impl NotificationClient {
 }
 
 fn is_event_encrypted(event_type: TimelineEventType) -> bool {
-    let is_still_encrypted = matches!(event_type, ruma::events::TimelineEventType::RoomEncrypted);
+    let is_still_encrypted = matches!(event_type, TimelineEventType::RoomEncrypted);
 
     #[cfg(feature = "unstable-msc3956")]
     let is_still_encrypted =

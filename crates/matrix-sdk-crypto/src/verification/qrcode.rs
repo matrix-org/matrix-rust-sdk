@@ -30,7 +30,7 @@ use ruma::{
             cancel::CancelCode,
             done::{KeyVerificationDoneEventContent, ToDeviceKeyVerificationDoneEventContent},
             start::{
-                self, KeyVerificationStartEventContent, ReciprocateV1Content, StartMethod,
+                KeyVerificationStartEventContent, ReciprocateV1Content, StartMethod,
                 ToDeviceKeyVerificationStartEventContent,
             },
         },
@@ -804,7 +804,7 @@ impl QrState<Created> {
         content: &StartContent<'_>,
     ) -> Result<QrState<Scanned>, QrState<Cancelled>> {
         match content.method() {
-            start::StartMethod::ReciprocateV1(m) => {
+            StartMethod::ReciprocateV1(m) => {
                 // TODO use constant time eq here.
                 if self.state.secret == m.secret {
                     Ok(QrState { state: Scanned {} })

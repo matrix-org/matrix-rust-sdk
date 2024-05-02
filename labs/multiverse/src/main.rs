@@ -52,7 +52,7 @@ async fn main() -> anyhow::Result<()> {
         .with_writer(tracing_appender::rolling::hourly("/tmp/", "logs-"));
 
     tracing_subscriber::registry()
-        .with(EnvFilter::new(std::env::var("RUST_LOG").unwrap_or("".into())))
+        .with(EnvFilter::new(env::var("RUST_LOG").unwrap_or("".into())))
         .with(file_layer)
         .init();
 
@@ -390,7 +390,7 @@ impl App {
         loop {
             terminal.draw(|f| f.render_widget(&mut *self, f.size()))?;
 
-            if crossterm::event::poll(Duration::from_millis(16))? {
+            if event::poll(Duration::from_millis(16))? {
                 if let Event::Key(key) = event::read()? {
                     if key.kind == KeyEventKind::Press {
                         use KeyCode::*;
@@ -808,7 +808,7 @@ async fn configure_client(server_name: String, config_path: String) -> anyhow::R
             auto_enable_backups: true,
         });
 
-    if let Ok(proxy_url) = std::env::var("PROXY") {
+    if let Ok(proxy_url) = env::var("PROXY") {
         client_builder = client_builder.proxy(proxy_url).disable_ssl_verification();
     }
 

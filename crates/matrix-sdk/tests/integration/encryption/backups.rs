@@ -357,7 +357,7 @@ async fn backup_resumption() {
 
     drop(client);
 
-    let builder = matrix_sdk::Client::builder()
+    let builder = Client::builder()
         .homeserver_url(server.uri())
         .server_versions([ruma::api::MatrixVersion::V1_0]);
 
