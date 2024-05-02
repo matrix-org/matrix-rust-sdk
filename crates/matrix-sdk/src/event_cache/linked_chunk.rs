@@ -86,26 +86,16 @@ pub enum LinkedChunkUpdate<Item, Gap> {
 
 /// Links of a `LinkedChunk`, i.e. the first and last [`Chunk`].
 ///
-/// That's an internal type to make the borrow checker happy. Indeed, to add
-/// safety around these `NonNull`s, we want to use the borrow checker as much as
-/// possible. For example, `Self::latest_chunk_mut` takes `&mut self` and
-/// returns `&mut Chunk`, which is great and safe and all. Except that, if the
-/// `first` and `last` fields are used directly inside [`LinkedChunk`], the
-/// borrow checker considers that `self` is entirely used mutably. Thus, when we
-/// use another field of `LinkedChunk` mutably or immutably, it violates the
-/// mutability rules. The borrow checker is smart though: If we extract some
-/// values in a particular type, which are placed in a single field, the borrow
-/// checker knows that the other fields are safe to use mutably or immutably.
-/// The checks are per-field, not per-struct. That's why `first` and `last` have
-/// been extracted in a separate type, this type.
-struct LinkedChunkLinks<const CHUNK_CAPACITY: usize, Item, Gap> {
+/// This type was introduced to avoid borrow checking errors when mutably
+/// referencing a subset of fields of a `LinkedChunk`.
+struct LinkedChunkEnds<const CHUNK_CAPACITY: usize, Item, Gap> {
     /// The first chunk.
     first: NonNull<Chunk<CHUNK_CAPACITY, Item, Gap>>,
     /// The last chunk.
     last: Option<NonNull<Chunk<CHUNK_CAPACITY, Item, Gap>>>,
 }
 
-impl<const CAP: usize, Item, Gap> LinkedChunkLinks<CAP, Item, Gap> {
+impl<const CAP: usize, Item, Gap> LinkedChunkEnds<CAP, Item, Gap> {
     /// Get the first chunk, as an immutable reference.
     fn first_chunk(&self) -> &Chunk<CAP, Item, Gap> {
         unsafe { self.first.as_ref() }
@@ -164,7 +154,7 @@ impl<const CAP: usize, Item, Gap> LinkedChunkLinks<CAP, Item, Gap> {
 /// otherwise it will grow in memory for the eternity.
 pub struct LinkedChunk<const CHUNK_CAPACITY: usize, Item, Gap> {
     /// The links to the chunks, i.e. the first and the last chunk.
-    links: LinkedChunkLinks<CHUNK_CAPACITY, Item, Gap>,
+    links: LinkedChunkEnds<CHUNK_CAPACITY, Item, Gap>,
     /// The number of items hold by this linked chunk.
     length: usize,
     /// The generator of chunk identifiers.
