@@ -47,7 +47,7 @@ pub enum LinkedChunkError {
 #[derive(Debug, PartialEq)]
 pub enum LinkedChunkUpdate<Item, Gap> {
     /// A new chunk of kind Items has been created.
-    NewChunkItems {
+    NewItemsChunk {
         /// The identifier of the previous chunk of this new chunk.
         previous: Option<ChunkIdentifier>,
         /// The identifier of the new chunk.
@@ -56,7 +56,7 @@ pub enum LinkedChunkUpdate<Item, Gap> {
         next: Option<ChunkIdentifier>,
     },
     /// A new chunk of kind Gap has been created.
-    NewChunkGap {
+    NewGapChunk {
         /// The identifier of the previous chunk of this new chunk.
         previous: Option<ChunkIdentifier>,
         /// The identifier of the new chunk.
@@ -144,14 +144,6 @@ impl<const CAP: usize, Item, Gap> LinkedChunkEnds<CAP, Item, Gap> {
 /// instead of a single one. A chunk has a maximum capacity of `CHUNK_CAPACITY`.
 /// Once a chunk is full, a new chunk is created. Not all chunks are necessarily
 /// entirely full. A chunk can represents a `Gap` between other chunks.
-///
-/// ⚠️ When the `LinkedChunk` is manipulated, all updates (i.e. operations) are
-/// kept in memory. It's like a history of all `LinkedChunk`'s updates. This is
-/// useful when one wants to replicate the `LinkedChunk` in another kind of
-/// storage, like a database. Every time one calls `LinkedChunk::updates()` to
-/// read the updates, it's mandatory to clean, to drain, to empty it. Even if
-/// one doesn't care about the updates, it's necessary to empty the updates,
-/// otherwise it will grow in memory for the eternity.
 pub struct LinkedChunk<const CHUNK_CAPACITY: usize, Item, Gap> {
     /// The links to the chunks, i.e. the first and the last chunk.
     links: LinkedChunkEnds<CHUNK_CAPACITY, Item, Gap>,
@@ -159,9 +151,10 @@ pub struct LinkedChunk<const CHUNK_CAPACITY: usize, Item, Gap> {
     length: usize,
     /// The generator of chunk identifiers.
     chunk_identifier_generator: ChunkIdentifierGenerator,
-    /// All updates that have been made on this `LinkedChunk`. Note that it can
-    /// be drained, so it doesn't contain all updates since it exists.
-    update_history: Vec<LinkedChunkUpdate<Item, Gap>>,
+    /// All updates that have been made on this `LinkedChunk`. If this field is
+    /// `Some(…)`, update history is enabled, otherwise, if it's `None`, update
+    /// history is disabled.
+    update_history: Option<Vec<LinkedChunkUpdate<Item, Gap>>>,
     /// Marker.
     marker: PhantomData<Box<Chunk<CHUNK_CAPACITY, Item, Gap>>>,
 }
@@ -170,14 +163,29 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
     /// Create a new [`Self`].
     pub fn new() -> Self {
         Self {
-            links: LinkedChunkLinks {
+            links: LinkedChunkEnds {
                 // INVARIANT: The first chunk must always be an Items, not a Gap.
                 first: Chunk::new_items_leaked(ChunkIdentifierGenerator::FIRST_IDENTIFIER),
                 last: None,
             },
             length: 0,
             chunk_identifier_generator: ChunkIdentifierGenerator::new_from_scratch(),
-            update_history: Vec::new(),
+            update_history: None,
+            marker: PhantomData,
+        }
+    }
+
+    /// Create a new [`Self`] with a history of updates.
+    pub fn new_with_update_history() -> Self {
+        Self {
+            links: LinkedChunkEnds {
+                // INVARIANT: The first chunk must always be an Items, not a Gap.
+                first: Chunk::new_items_leaked(ChunkIdentifierGenerator::FIRST_IDENTIFIER),
+                last: None,
+            },
+            length: 0,
+            chunk_identifier_generator: ChunkIdentifierGenerator::new_from_scratch(),
+            update_history: Some(Vec::new()),
             marker: PhantomData,
         }
     }
@@ -292,10 +300,12 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
                     }
                     // Insert inside the current items.
                     else {
-                        self.update_history.push(LinkedChunkUpdate::TruncateItems {
-                            chunk: chunk_identifier,
-                            length: item_index,
-                        });
+                        if let Some(updates) = self.update_history.as_mut() {
+                            updates.push(LinkedChunkUpdate::TruncateItems {
+                                chunk: chunk_identifier,
+                                length: item_index,
+                            });
+                        }
 
                         // Split the items.
                         let detached_items = current_items.split_off(item_index);
@@ -389,10 +399,12 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
                     return Err(LinkedChunkError::InvalidItemIndex { index: item_index });
                 }
 
-                self.update_history.push(LinkedChunkUpdate::TruncateItems {
-                    chunk: chunk_identifier,
-                    length: item_index,
-                });
+                if let Some(updates) = self.update_history.as_mut() {
+                    updates.push(LinkedChunkUpdate::TruncateItems {
+                        chunk: chunk_identifier,
+                        length: item_index,
+                    });
+                }
 
                 // Split the items.
                 let detached_items = current_items.split_off(item_index);
@@ -657,8 +669,12 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
     /// Get a mutable reference to the `LinkedChunk` updates.
     ///
     /// The caller is responsible to drain/empty these updates.
-    pub fn updates(&mut self) -> &mut Vec<LinkedChunkUpdate<Item, Gap>> {
-        &mut self.update_history
+    ///
+    /// If the `Option` becomes `None`, it will disable update history. Thus, be
+    /// careful when you want to empty the update history: do not use
+    /// `Option::take()` directly but rather `Vec::drain` for example.
+    pub fn updates(&mut self) -> Option<&mut Vec<LinkedChunkUpdate<Item, Gap>>> {
+        self.update_history.as_mut()
     }
 }
 
@@ -957,7 +973,7 @@ impl<const CAPACITY: usize, Item, Gap> Chunk<CAPACITY, Item, Gap> {
         &mut self,
         mut new_items: I,
         chunk_identifier_generator: &ChunkIdentifierGenerator,
-        updates: &mut Vec<LinkedChunkUpdate<Item, Gap>>,
+        updates: &mut Option<Vec<LinkedChunkUpdate<Item, Gap>>>,
     ) -> &mut Self
     where
         I: Iterator<Item = Item> + ExactSizeIterator,
@@ -994,10 +1010,13 @@ impl<const CAPACITY: usize, Item, Gap> Chunk<CAPACITY, Item, Gap> {
                 if number_of_new_items <= free_space {
                     let start = items.len();
                     items.extend(new_items);
-                    updates.push(LinkedChunkUpdate::InsertItems {
-                        at: Position(identifier, start),
-                        items: items[start..].to_vec(),
-                    });
+
+                    if let Some(updates) = updates.as_mut() {
+                        updates.push(LinkedChunkUpdate::InsertItems {
+                            at: Position(identifier, start),
+                            items: items[start..].to_vec(),
+                        });
+                    }
 
                     // Return the current chunk.
                     self
@@ -1006,10 +1025,13 @@ impl<const CAPACITY: usize, Item, Gap> Chunk<CAPACITY, Item, Gap> {
                         // Take all possible items to fill the free space.
                         let start = items.len();
                         items.extend(new_items.by_ref().take(free_space));
-                        updates.push(LinkedChunkUpdate::InsertItems {
-                            at: Position(identifier, start),
-                            items: items[start..].to_vec(),
-                        });
+
+                        if let Some(updates) = updates.as_mut() {
+                            updates.push(LinkedChunkUpdate::InsertItems {
+                                at: Position(identifier, start),
+                                items: items[start..].to_vec(),
+                            });
+                        }
                     }
 
                     self
@@ -1033,7 +1055,7 @@ impl<const CAPACITY: usize, Item, Gap> Chunk<CAPACITY, Item, Gap> {
     fn insert_next(
         &mut self,
         mut new_chunk_ptr: NonNull<Self>,
-        updates: &mut Vec<LinkedChunkUpdate<Item, Gap>>,
+        updates: &mut Option<Vec<LinkedChunkUpdate<Item, Gap>>>,
     ) -> &mut Self
     where
         Gap: Clone,
@@ -1054,13 +1076,13 @@ impl<const CAPACITY: usize, Item, Gap> Chunk<CAPACITY, Item, Gap> {
         // Link the new chunk to this one.
         new_chunk.previous = Some(self.as_ptr());
 
-        {
+        if let Some(updates) = updates.as_mut() {
             let previous = new_chunk.previous().map(Chunk::identifier);
             let new = new_chunk.identifier();
             let next = new_chunk.next().map(Chunk::identifier);
 
             match new_chunk.content() {
-                ChunkContent::Gap(gap) => updates.push(LinkedChunkUpdate::NewChunkGap {
+                ChunkContent::Gap(gap) => updates.push(LinkedChunkUpdate::NewGapChunk {
                     previous,
                     new,
                     next,
@@ -1068,7 +1090,7 @@ impl<const CAPACITY: usize, Item, Gap> Chunk<CAPACITY, Item, Gap> {
                 }),
 
                 ChunkContent::Items(..) => {
-                    updates.push(LinkedChunkUpdate::NewChunkItems { previous, new, next })
+                    updates.push(LinkedChunkUpdate::NewItemsChunk { previous, new, next })
                 }
             }
         }
@@ -1080,7 +1102,7 @@ impl<const CAPACITY: usize, Item, Gap> Chunk<CAPACITY, Item, Gap> {
     ///
     /// Be careful: `self` won't belong to `LinkedChunk` anymore, and should be
     /// dropped appropriately.
-    fn unlink(&mut self, updates: &mut Vec<LinkedChunkUpdate<Item, Gap>>) {
+    fn unlink(&mut self, updates: &mut Option<Vec<LinkedChunkUpdate<Item, Gap>>>) {
         let previous_ptr = self.previous;
         let next_ptr = self.next;
 
@@ -1092,7 +1114,9 @@ impl<const CAPACITY: usize, Item, Gap> Chunk<CAPACITY, Item, Gap> {
             next.previous = previous_ptr;
         }
 
-        updates.push(LinkedChunkUpdate::RemoveChunk(self.identifier()));
+        if let Some(updates) = updates.as_mut() {
+            updates.push(LinkedChunkUpdate::RemoveChunk(self.identifier()));
+        }
     }
 
     /// Get a reference to the previous chunk if any.
@@ -1259,31 +1283,37 @@ mod tests {
     }
 
     #[test]
+    fn test_update_history() {
+        assert!(LinkedChunk::<3, char, ()>::new().updates().is_none());
+        assert!(LinkedChunk::<3, char, ()>::new_with_update_history().updates().is_some());
+    }
+
+    #[test]
     fn test_push_items() {
         use super::LinkedChunkUpdate::*;
 
-        let mut linked_chunk = LinkedChunk::<3, char, ()>::new();
+        let mut linked_chunk = LinkedChunk::<3, char, ()>::new_with_update_history();
         linked_chunk.push_items_back(['a']);
 
         assert_items_eq!(linked_chunk, ['a']);
         assert_eq!(
-            linked_chunk.updates().drain(..).collect::<Vec<_>>(),
+            linked_chunk.updates().unwrap().drain(..).collect::<Vec<_>>(),
             &[InsertItems { at: Position(ChunkIdentifier(0), 0), items: vec!['a'] }]
         );
 
         linked_chunk.push_items_back(['b', 'c']);
         assert_items_eq!(linked_chunk, ['a', 'b', 'c']);
         assert_eq!(
-            linked_chunk.updates().drain(..).collect::<Vec<_>>(),
+            linked_chunk.updates().unwrap().drain(..).collect::<Vec<_>>(),
             &[InsertItems { at: Position(ChunkIdentifier(0), 1), items: vec!['b', 'c'] }]
         );
 
         linked_chunk.push_items_back(['d', 'e']);
         assert_items_eq!(linked_chunk, ['a', 'b', 'c'] ['d', 'e']);
         assert_eq!(
-            linked_chunk.updates().drain(..).collect::<Vec<_>>(),
+            linked_chunk.updates().unwrap().drain(..).collect::<Vec<_>>(),
             &[
-                NewChunkItems {
+                NewItemsChunk {
                     previous: Some(ChunkIdentifier(0)),
                     new: ChunkIdentifier(1),
                     next: None
@@ -1295,16 +1325,16 @@ mod tests {
         linked_chunk.push_items_back(['f', 'g', 'h', 'i', 'j']);
         assert_items_eq!(linked_chunk, ['a', 'b', 'c'] ['d', 'e', 'f'] ['g', 'h', 'i'] ['j']);
         assert_eq!(
-            linked_chunk.updates().drain(..).collect::<Vec<_>>(),
+            linked_chunk.updates().unwrap().drain(..).collect::<Vec<_>>(),
             &[
                 InsertItems { at: Position(ChunkIdentifier(1), 2), items: vec!['f'] },
-                NewChunkItems {
+                NewItemsChunk {
                     previous: Some(ChunkIdentifier(1)),
                     new: ChunkIdentifier(2),
                     next: None,
                 },
                 InsertItems { at: Position(ChunkIdentifier(2), 0), items: vec!['g', 'h', 'i'] },
-                NewChunkItems {
+                NewItemsChunk {
                     previous: Some(ChunkIdentifier(2)),
                     new: ChunkIdentifier(3),
                     next: None,
@@ -1320,19 +1350,19 @@ mod tests {
     fn test_push_gap() {
         use super::LinkedChunkUpdate::*;
 
-        let mut linked_chunk = LinkedChunk::<3, char, ()>::new();
+        let mut linked_chunk = LinkedChunk::<3, char, ()>::new_with_update_history();
         linked_chunk.push_items_back(['a']);
         assert_items_eq!(linked_chunk, ['a']);
         assert_eq!(
-            linked_chunk.updates().drain(..).collect::<Vec<_>>(),
+            linked_chunk.updates().unwrap().drain(..).collect::<Vec<_>>(),
             &[InsertItems { at: Position(ChunkIdentifier(0), 0), items: vec!['a'] }]
         );
 
         linked_chunk.push_gap_back(());
         assert_items_eq!(linked_chunk, ['a'] [-]);
         assert_eq!(
-            linked_chunk.updates().drain(..).collect::<Vec<_>>(),
-            &[NewChunkGap {
+            linked_chunk.updates().unwrap().drain(..).collect::<Vec<_>>(),
+            &[NewGapChunk {
                 previous: Some(ChunkIdentifier(0)),
                 new: ChunkIdentifier(1),
                 next: None,
@@ -1343,15 +1373,15 @@ mod tests {
         linked_chunk.push_items_back(['b', 'c', 'd', 'e']);
         assert_items_eq!(linked_chunk, ['a'] [-] ['b', 'c', 'd'] ['e']);
         assert_eq!(
-            linked_chunk.updates().drain(..).collect::<Vec<_>>(),
+            linked_chunk.updates().unwrap().drain(..).collect::<Vec<_>>(),
             &[
-                NewChunkItems {
+                NewItemsChunk {
                     previous: Some(ChunkIdentifier(1)),
                     new: ChunkIdentifier(2),
                     next: None,
                 },
                 InsertItems { at: Position(ChunkIdentifier(2), 0), items: vec!['b', 'c', 'd'] },
-                NewChunkItems {
+                NewItemsChunk {
                     previous: Some(ChunkIdentifier(2)),
                     new: ChunkIdentifier(3),
                     next: None,
@@ -1364,15 +1394,15 @@ mod tests {
         linked_chunk.push_gap_back(()); // why not
         assert_items_eq!(linked_chunk, ['a'] [-] ['b', 'c', 'd'] ['e'] [-] [-]);
         assert_eq!(
-            linked_chunk.updates().drain(..).collect::<Vec<_>>(),
+            linked_chunk.updates().unwrap().drain(..).collect::<Vec<_>>(),
             &[
-                NewChunkGap {
+                NewGapChunk {
                     previous: Some(ChunkIdentifier(3)),
                     new: ChunkIdentifier(4),
                     next: None,
                     gap: (),
                 },
-                NewChunkGap {
+                NewGapChunk {
                     previous: Some(ChunkIdentifier(4)),
                     new: ChunkIdentifier(5),
                     next: None,
@@ -1384,15 +1414,15 @@ mod tests {
         linked_chunk.push_items_back(['f', 'g', 'h', 'i']);
         assert_items_eq!(linked_chunk, ['a'] [-] ['b', 'c', 'd'] ['e'] [-] [-] ['f', 'g', 'h'] ['i']);
         assert_eq!(
-            linked_chunk.updates().drain(..).collect::<Vec<_>>(),
+            linked_chunk.updates().unwrap().drain(..).collect::<Vec<_>>(),
             &[
-                NewChunkItems {
+                NewItemsChunk {
                     previous: Some(ChunkIdentifier(5)),
                     new: ChunkIdentifier(6),
                     next: None,
                 },
                 InsertItems { at: Position(ChunkIdentifier(6), 0), items: vec!['f', 'g', 'h'] },
-                NewChunkItems {
+                NewItemsChunk {
                     previous: Some(ChunkIdentifier(6)),
                     new: ChunkIdentifier(7),
                     next: None,
@@ -1621,14 +1651,14 @@ mod tests {
     fn test_insert_items_at() -> Result<(), LinkedChunkError> {
         use super::LinkedChunkUpdate::*;
 
-        let mut linked_chunk = LinkedChunk::<3, char, ()>::new();
+        let mut linked_chunk = LinkedChunk::<3, char, ()>::new_with_update_history();
         linked_chunk.push_items_back(['a', 'b', 'c', 'd', 'e', 'f']);
         assert_items_eq!(linked_chunk, ['a', 'b', 'c'] ['d', 'e', 'f']);
         assert_eq!(
-            linked_chunk.updates().drain(..).collect::<Vec<_>>(),
+            linked_chunk.updates().unwrap().drain(..).collect::<Vec<_>>(),
             &[
                 InsertItems { at: Position(ChunkIdentifier(0), 0), items: vec!['a', 'b', 'c'] },
-                NewChunkItems {
+                NewItemsChunk {
                     previous: Some(ChunkIdentifier(0)),
                     new: ChunkIdentifier(1),
                     next: None,
@@ -1651,18 +1681,18 @@ mod tests {
             );
             assert_eq!(linked_chunk.len(), 10);
             assert_eq!(
-                linked_chunk.updates().drain(..).collect::<Vec<_>>(),
+                linked_chunk.updates().unwrap().drain(..).collect::<Vec<_>>(),
                 &[
                     TruncateItems { chunk: ChunkIdentifier(1), length: 1 },
                     InsertItems { at: Position(ChunkIdentifier(1), 1), items: vec!['w', 'x'] },
-                    NewChunkItems {
+                    NewItemsChunk {
                         previous: Some(ChunkIdentifier(1)),
                         new: ChunkIdentifier(2),
                         next: None,
                     },
                     InsertItems { at: Position(ChunkIdentifier(2), 0), items: vec!['y', 'z'] },
                     InsertItems { at: Position(ChunkIdentifier(2), 2), items: vec!['e'] },
-                    NewChunkItems {
+                    NewItemsChunk {
                         previous: Some(ChunkIdentifier(2)),
                         new: ChunkIdentifier(3),
                         next: None,
@@ -1683,18 +1713,18 @@ mod tests {
             );
             assert_eq!(linked_chunk.len(), 14);
             assert_eq!(
-                linked_chunk.updates().drain(..).collect::<Vec<_>>(),
+                linked_chunk.updates().unwrap().drain(..).collect::<Vec<_>>(),
                 &[
                     TruncateItems { chunk: ChunkIdentifier(0), length: 0 },
                     InsertItems { at: Position(ChunkIdentifier(0), 0), items: vec!['l', 'm', 'n'] },
-                    NewChunkItems {
+                    NewItemsChunk {
                         previous: Some(ChunkIdentifier(0)),
                         new: ChunkIdentifier(4),
                         next: Some(ChunkIdentifier(1)),
                     },
                     InsertItems { at: Position(ChunkIdentifier(4), 0), items: vec!['o'] },
                     InsertItems { at: Position(ChunkIdentifier(4), 1), items: vec!['a', 'b'] },
-                    NewChunkItems {
+                    NewItemsChunk {
                         previous: Some(ChunkIdentifier(4)),
                         new: ChunkIdentifier(5),
                         next: Some(ChunkIdentifier(1)),
@@ -1715,7 +1745,7 @@ mod tests {
             );
             assert_eq!(linked_chunk.len(), 16);
             assert_eq!(
-                linked_chunk.updates().drain(..).collect::<Vec<_>>(),
+                linked_chunk.updates().unwrap().drain(..).collect::<Vec<_>>(),
                 &[
                     TruncateItems { chunk: ChunkIdentifier(5), length: 0 },
                     InsertItems { at: Position(ChunkIdentifier(5), 0), items: vec!['r', 's'] },
@@ -1736,7 +1766,7 @@ mod tests {
                 ['l', 'm', 'n'] ['o', 'a', 'b'] ['r', 's', 'c'] ['d', 'w', 'x'] ['y', 'z', 'e'] ['f', 'p', 'q']
             );
             assert_eq!(
-                linked_chunk.updates().drain(..).collect::<Vec<_>>(),
+                linked_chunk.updates().unwrap().drain(..).collect::<Vec<_>>(),
                 &[InsertItems { at: Position(ChunkIdentifier(3), 1), items: vec!['p', 'q'] },]
             );
             assert_eq!(linked_chunk.len(), 18);
@@ -1748,7 +1778,7 @@ mod tests {
                 linked_chunk.insert_items_at(['u', 'v'], Position(ChunkIdentifier(128), 0)),
                 Err(LinkedChunkError::InvalidChunkIdentifier { identifier: ChunkIdentifier(128) })
             );
-            assert!(linked_chunk.updates().drain(..).collect::<Vec<_>>().is_empty());
+            assert!(linked_chunk.updates().unwrap().drain(..).collect::<Vec<_>>().is_empty());
         }
 
         // Insert in a chunk that exists, but at an item that does not exist.
@@ -1757,7 +1787,7 @@ mod tests {
                 linked_chunk.insert_items_at(['u', 'v'], Position(ChunkIdentifier(0), 128)),
                 Err(LinkedChunkError::InvalidItemIndex { index: 128 })
             );
-            assert!(linked_chunk.updates().drain(..).collect::<Vec<_>>().is_empty());
+            assert!(linked_chunk.updates().unwrap().drain(..).collect::<Vec<_>>().is_empty());
         }
 
         // Insert in a gap.
@@ -1769,8 +1799,8 @@ mod tests {
                 ['l', 'm', 'n'] ['o', 'a', 'b'] ['r', 's', 'c'] ['d', 'w', 'x'] ['y', 'z', 'e'] ['f', 'p', 'q'] [-]
             );
             assert_eq!(
-                linked_chunk.updates().drain(..).collect::<Vec<_>>(),
-                &[NewChunkGap {
+                linked_chunk.updates().unwrap().drain(..).collect::<Vec<_>>(),
+                &[NewGapChunk {
                     previous: Some(ChunkIdentifier(3)),
                     new: ChunkIdentifier(6),
                     next: None,
@@ -1793,14 +1823,14 @@ mod tests {
     fn test_insert_gap_at() -> Result<(), LinkedChunkError> {
         use super::LinkedChunkUpdate::*;
 
-        let mut linked_chunk = LinkedChunk::<3, char, ()>::new();
+        let mut linked_chunk = LinkedChunk::<3, char, ()>::new_with_update_history();
         linked_chunk.push_items_back(['a', 'b', 'c', 'd', 'e', 'f']);
         assert_items_eq!(linked_chunk, ['a', 'b', 'c'] ['d', 'e', 'f']);
         assert_eq!(
-            linked_chunk.updates().drain(..).collect::<Vec<_>>(),
+            linked_chunk.updates().unwrap().drain(..).collect::<Vec<_>>(),
             &[
                 InsertItems { at: Position(ChunkIdentifier(0), 0), items: vec!['a', 'b', 'c'] },
-                NewChunkItems {
+                NewItemsChunk {
                     previous: Some(ChunkIdentifier(0)),
                     new: ChunkIdentifier(1),
                     next: None
@@ -1816,16 +1846,16 @@ mod tests {
 
             assert_items_eq!(linked_chunk, ['a'] [-] ['b', 'c'] ['d', 'e', 'f']);
             assert_eq!(
-                linked_chunk.updates().drain(..).collect::<Vec<_>>(),
+                linked_chunk.updates().unwrap().drain(..).collect::<Vec<_>>(),
                 &[
                     TruncateItems { chunk: ChunkIdentifier(0), length: 1 },
-                    NewChunkGap {
+                    NewGapChunk {
                         previous: Some(ChunkIdentifier(0)),
                         new: ChunkIdentifier(2),
                         next: Some(ChunkIdentifier(1)),
                         gap: (),
                     },
-                    NewChunkItems {
+                    NewItemsChunk {
                         previous: Some(ChunkIdentifier(2)),
                         new: ChunkIdentifier(3),
                         next: Some(ChunkIdentifier(1)),
@@ -1843,16 +1873,16 @@ mod tests {
             // A new empty chunk is created as the first chunk.
             assert_items_eq!(linked_chunk, [] [-] ['a'] [-] ['b', 'c'] ['d', 'e', 'f']);
             assert_eq!(
-                linked_chunk.updates().drain(..).collect::<Vec<_>>(),
+                linked_chunk.updates().unwrap().drain(..).collect::<Vec<_>>(),
                 &[
                     TruncateItems { chunk: ChunkIdentifier(0), length: 0 },
-                    NewChunkGap {
+                    NewGapChunk {
                         previous: Some(ChunkIdentifier(0)),
                         new: ChunkIdentifier(4),
                         next: Some(ChunkIdentifier(2)),
                         gap: (),
                     },
-                    NewChunkItems {
+                    NewItemsChunk {
                         previous: Some(ChunkIdentifier(4)),
                         new: ChunkIdentifier(5),
                         next: Some(ChunkIdentifier(2)),
@@ -1872,8 +1902,8 @@ mod tests {
             // space.
             assert_items_eq!(linked_chunk, [] [-] ['a'] [-] ['b', 'c'] [-] ['d', 'e', 'f']);
             assert_eq!(
-                linked_chunk.updates().drain(..).collect::<Vec<_>>(),
-                &[NewChunkGap {
+                linked_chunk.updates().unwrap().drain(..).collect::<Vec<_>>(),
+                &[NewGapChunk {
                     previous: Some(ChunkIdentifier(3)),
                     new: ChunkIdentifier(6),
                     next: Some(ChunkIdentifier(1)),
@@ -1889,7 +1919,7 @@ mod tests {
                 linked_chunk.insert_gap_at((), position_of_first_empty_chunk),
                 Err(LinkedChunkError::InvalidItemIndex { index: 0 })
             );
-            assert!(linked_chunk.updates().drain(..).collect::<Vec<_>>().is_empty());
+            assert!(linked_chunk.updates().unwrap().drain(..).collect::<Vec<_>>().is_empty());
         }
 
         // Insert in an empty chunk.
@@ -1900,9 +1930,9 @@ mod tests {
 
             assert_items_eq!(linked_chunk, [] [-] ['a'] [-] ['b', 'c'] [] ['d', 'e', 'f']);
             assert_eq!(
-                linked_chunk.updates().drain(..).collect::<Vec<_>>(),
+                linked_chunk.updates().unwrap().drain(..).collect::<Vec<_>>(),
                 &[
-                    NewChunkItems {
+                    NewItemsChunk {
                         previous: Some(ChunkIdentifier(6)),
                         new: ChunkIdentifier(7),
                         next: Some(ChunkIdentifier(1)),
@@ -1915,8 +1945,8 @@ mod tests {
 
             assert_items_eq!(linked_chunk, [] [-] ['a'] [-] ['b', 'c'] [-] [] ['d', 'e', 'f']);
             assert_eq!(
-                linked_chunk.updates().drain(..).collect::<Vec<_>>(),
-                &[NewChunkGap {
+                linked_chunk.updates().unwrap().drain(..).collect::<Vec<_>>(),
+                &[NewGapChunk {
                     previous: Some(ChunkIdentifier(3)),
                     new: ChunkIdentifier(8),
                     next: Some(ChunkIdentifier(7)),
@@ -1931,7 +1961,7 @@ mod tests {
                 linked_chunk.insert_items_at(['u', 'v'], Position(ChunkIdentifier(128), 0)),
                 Err(LinkedChunkError::InvalidChunkIdentifier { identifier: ChunkIdentifier(128) })
             );
-            assert!(linked_chunk.updates().drain(..).collect::<Vec<_>>().is_empty());
+            assert!(linked_chunk.updates().unwrap().drain(..).collect::<Vec<_>>().is_empty());
         }
 
         // Insert in a chunk that exists, but at an item that does not exist.
@@ -1940,7 +1970,7 @@ mod tests {
                 linked_chunk.insert_items_at(['u', 'v'], Position(ChunkIdentifier(0), 128)),
                 Err(LinkedChunkError::InvalidItemIndex { index: 128 })
             );
-            assert!(linked_chunk.updates().drain(..).collect::<Vec<_>>().is_empty());
+            assert!(linked_chunk.updates().unwrap().drain(..).collect::<Vec<_>>().is_empty());
         }
 
         // Insert in an existing gap.
@@ -1952,7 +1982,7 @@ mod tests {
                 linked_chunk.insert_gap_at((), position_of_a_gap),
                 Err(LinkedChunkError::ChunkIsAGap { identifier: ChunkIdentifier(4) })
             );
-            assert!(linked_chunk.updates().drain(..).collect::<Vec<_>>().is_empty());
+            assert!(linked_chunk.updates().unwrap().drain(..).collect::<Vec<_>>().is_empty());
         }
 
         assert_eq!(linked_chunk.len(), 6);
@@ -1964,22 +1994,22 @@ mod tests {
     fn test_replace_gap_at() -> Result<(), LinkedChunkError> {
         use super::LinkedChunkUpdate::*;
 
-        let mut linked_chunk = LinkedChunk::<3, char, ()>::new();
+        let mut linked_chunk = LinkedChunk::<3, char, ()>::new_with_update_history();
         linked_chunk.push_items_back(['a', 'b']);
         linked_chunk.push_gap_back(());
         linked_chunk.push_items_back(['l', 'm']);
         assert_items_eq!(linked_chunk, ['a', 'b'] [-] ['l', 'm']);
         assert_eq!(
-            linked_chunk.updates().drain(..).collect::<Vec<_>>(),
+            linked_chunk.updates().unwrap().drain(..).collect::<Vec<_>>(),
             &[
                 InsertItems { at: Position(ChunkIdentifier(0), 0), items: vec!['a', 'b'] },
-                NewChunkGap {
+                NewGapChunk {
                     previous: Some(ChunkIdentifier(0)),
                     new: ChunkIdentifier(1),
                     next: None,
                     gap: (),
                 },
-                NewChunkItems {
+                NewItemsChunk {
                     previous: Some(ChunkIdentifier(1)),
                     new: ChunkIdentifier(2),
                     next: None,
@@ -2001,15 +2031,15 @@ mod tests {
                 ['a', 'b'] ['d', 'e', 'f'] ['g', 'h'] ['l', 'm']
             );
             assert_eq!(
-                linked_chunk.updates().drain(..).collect::<Vec<_>>(),
+                linked_chunk.updates().unwrap().drain(..).collect::<Vec<_>>(),
                 &[
-                    NewChunkItems {
+                    NewItemsChunk {
                         previous: Some(ChunkIdentifier(1)),
                         new: ChunkIdentifier(3),
                         next: Some(ChunkIdentifier(2)),
                     },
                     InsertItems { at: Position(ChunkIdentifier(3), 0), items: vec!['d', 'e', 'f'] },
-                    NewChunkItems {
+                    NewItemsChunk {
                         previous: Some(ChunkIdentifier(3)),
                         new: ChunkIdentifier(4),
                         next: Some(ChunkIdentifier(2)),
@@ -2028,8 +2058,8 @@ mod tests {
                 ['a', 'b'] ['d', 'e', 'f'] ['g', 'h'] ['l', 'm'] [-]
             );
             assert_eq!(
-                linked_chunk.updates().drain(..).collect::<Vec<_>>(),
-                &[NewChunkGap {
+                linked_chunk.updates().unwrap().drain(..).collect::<Vec<_>>(),
+                &[NewGapChunk {
                     previous: Some(ChunkIdentifier(2)),
                     new: ChunkIdentifier(5),
                     next: None,
@@ -2047,15 +2077,15 @@ mod tests {
                 ['a', 'b'] ['d', 'e', 'f'] ['g', 'h'] ['l', 'm'] ['w', 'x', 'y'] ['z']
             );
             assert_eq!(
-                linked_chunk.updates().drain(..).collect::<Vec<_>>(),
+                linked_chunk.updates().unwrap().drain(..).collect::<Vec<_>>(),
                 &[
-                    NewChunkItems {
+                    NewItemsChunk {
                         previous: Some(ChunkIdentifier(5)),
                         new: ChunkIdentifier(6),
                         next: None,
                     },
                     InsertItems { at: Position(ChunkIdentifier(6), 0), items: vec!['w', 'x', 'y'] },
-                    NewChunkItems {
+                    NewItemsChunk {
                         previous: Some(ChunkIdentifier(6)),
                         new: ChunkIdentifier(7),
                         next: None,
