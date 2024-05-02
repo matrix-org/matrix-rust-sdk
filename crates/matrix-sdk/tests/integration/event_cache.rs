@@ -3,12 +3,9 @@ use std::time::Duration;
 use assert_matches2::{assert_let, assert_matches};
 use matrix_sdk::{
     event_cache::{BackPaginationOutcome, EventCacheError, RoomEventCacheUpdate},
-    test_utils::{assert_event_matches_msg, logged_in_client_with_server},
+    test_utils::{assert_event_matches_msg, events::EventFactory, logged_in_client_with_server},
 };
-use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
-use matrix_sdk_test::{
-    async_test, sync_timeline_event, EventBuilder, JoinedRoomBuilder, SyncResponseBuilder,
-};
+use matrix_sdk_test::{async_test, EventBuilder, JoinedRoomBuilder, SyncResponseBuilder};
 use ruma::{
     event_id,
     events::{room::message::RoomMessageEventContent, AnyTimelineEvent},
@@ -80,21 +77,16 @@ async fn test_add_initial_events() {
     assert!(events.is_empty());
     assert!(subscriber.is_empty());
 
+    let ev_factory = EventFactory::new().sender(user_id!("@dexter:lab.org"));
+
     // And after a sync, yielding updates to two rooms,
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
-        EventBuilder::new().make_sync_message_event(
-            user_id!("@dexter:lab.org"),
-            RoomMessageEventContent::text_plain("bonjour monde"),
-        ),
-    ));
+    sync_builder.add_joined_room(
+        JoinedRoomBuilder::new(room_id).add_timeline_event(ev_factory.text_msg("bonjour monde")),
+    );
 
     sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(room_id!("!parallel:universe.uk")).add_timeline_event(
-            EventBuilder::new().make_sync_message_event(
-                user_id!("@dexter:lab.org"),
-                RoomMessageEventContent::text_plain("hi i'm learning French"),
-            ),
-        ),
+        JoinedRoomBuilder::new(room_id!("!parallel:universe.uk"))
+            .add_timeline_event(ev_factory.text_msg("hi i'm learning French")),
     );
 
     let response_body = sync_builder.build_json_sync_response();
@@ -120,17 +112,7 @@ async fn test_add_initial_events() {
     // smoke test for the event cache.
     client
         .event_cache()
-        .add_initial_events(
-            room_id,
-            vec![SyncTimelineEvent::new(sync_timeline_event!({
-                "sender": "@dexter:lab.org",
-                "type": "m.room.message",
-                "event_id": "$ida",
-                "origin_server_ts": 12344446,
-                "content": { "body":"new choice!", "msgtype": "m.text" },
-            }))],
-            None,
-        )
+        .add_initial_events(room_id, vec![ev_factory.text_msg("new choice!").into_sync()], None)
         .await
         .unwrap();
 
