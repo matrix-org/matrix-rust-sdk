@@ -23,7 +23,7 @@ use wiremock::{
 use crate::{logged_in_client_with_server, mock_sync};
 
 #[async_test]
-async fn user_presence() {
+async fn test_user_presence() {
     let (client, server) = logged_in_client_with_server().await;
 
     mock_sync(&server, &*test_json::SYNC, None).await;
@@ -47,7 +47,7 @@ async fn user_presence() {
 }
 
 #[async_test]
-async fn calculate_room_names_from_summary() {
+async fn test_calculate_room_names_from_summary() {
     let (client, server) = logged_in_client_with_server().await;
 
     mock_sync(&server, &*test_json::DEFAULT_SYNC_SUMMARY, None).await;
@@ -63,7 +63,7 @@ async fn calculate_room_names_from_summary() {
 }
 
 #[async_test]
-async fn room_names() {
+async fn test_room_names() {
     let (client, server) = logged_in_client_with_server().await;
 
     mock_sync(&server, &*test_json::SYNC, None).await;
@@ -182,13 +182,13 @@ async fn test_state_event_getting() {
 }
 
 #[async_test]
-async fn room_route() {
+async fn test_room_route() {
     let (client, server) = logged_in_client_with_server().await;
-    let mut ev_builder = SyncResponseBuilder::new();
+    let mut sync_builder = SyncResponseBuilder::new();
     let room_id = &*DEFAULT_TEST_ROOM_ID;
 
     // Without eligible server
-    ev_builder.add_joined_room(
+    sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
             .add_timeline_event(sync_timeline_event!({
                 "content": {
@@ -213,7 +213,7 @@ async fn room_route() {
             })),
     );
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let sync_token = client.sync_once(SyncSettings::new()).await.unwrap().next_batch;
     let room = client.get_room(room_id).unwrap();
 
@@ -222,10 +222,10 @@ async fn room_route() {
 
     // With a single eligible server
     let mut batch = 0;
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_state_bulk(
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_state_bulk(
         bulk_room_members(batch, 0..1, "localhost", &MembershipState::Join),
     ));
-    mock_sync(&server, ev_builder.build_json_sync_response(), Some(sync_token.clone())).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), Some(sync_token.clone())).await;
     let sync_token =
         client.sync_once(SyncSettings::new().token(sync_token)).await.unwrap().next_batch;
 
@@ -235,10 +235,10 @@ async fn room_route() {
 
     // With two eligible servers
     batch += 1;
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_state_bulk(
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_state_bulk(
         bulk_room_members(batch, 0..15, "notarealhs", &MembershipState::Join),
     ));
-    mock_sync(&server, ev_builder.build_json_sync_response(), Some(sync_token.clone())).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), Some(sync_token.clone())).await;
     let sync_token =
         client.sync_once(SyncSettings::new().token(sync_token)).await.unwrap().next_batch;
 
@@ -249,10 +249,10 @@ async fn room_route() {
 
     // With three eligible servers
     batch += 1;
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_state_bulk(
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_state_bulk(
         bulk_room_members(batch, 0..5, "mymatrix", &MembershipState::Join),
     ));
-    mock_sync(&server, ev_builder.build_json_sync_response(), Some(sync_token.clone())).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), Some(sync_token.clone())).await;
     let sync_token =
         client.sync_once(SyncSettings::new().token(sync_token)).await.unwrap().next_batch;
 
@@ -264,10 +264,10 @@ async fn room_route() {
 
     // With four eligible servers
     batch += 1;
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_state_bulk(
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_state_bulk(
         bulk_room_members(batch, 0..10, "yourmatrix", &MembershipState::Join),
     ));
-    mock_sync(&server, ev_builder.build_json_sync_response(), Some(sync_token.clone())).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), Some(sync_token.clone())).await;
     let sync_token =
         client.sync_once(SyncSettings::new().token(sync_token)).await.unwrap().next_batch;
 
@@ -278,7 +278,7 @@ async fn room_route() {
     assert_eq!(route[2], "mymatrix");
 
     // With power levels
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
         sync_timeline_event!({
             "content": {
                 "users": {
@@ -292,7 +292,7 @@ async fn room_route() {
             "type": "m.room.power_levels",
         }),
     ));
-    mock_sync(&server, ev_builder.build_json_sync_response(), Some(sync_token.clone())).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), Some(sync_token.clone())).await;
     let sync_token =
         client.sync_once(SyncSettings::new().token(sync_token)).await.unwrap().next_batch;
 
@@ -303,7 +303,7 @@ async fn room_route() {
     assert_eq!(route[2], "yourmatrix");
 
     // With higher power levels
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
         sync_timeline_event!({
             "content": {
                 "users": {
@@ -318,7 +318,7 @@ async fn room_route() {
             "type": "m.room.power_levels",
         }),
     ));
-    mock_sync(&server, ev_builder.build_json_sync_response(), Some(sync_token.clone())).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), Some(sync_token.clone())).await;
     let sync_token =
         client.sync_once(SyncSettings::new().token(sync_token)).await.unwrap().next_batch;
 
@@ -329,7 +329,7 @@ async fn room_route() {
     assert_eq!(route[2], "yourmatrix");
 
     // With server ACLs
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
         sync_timeline_event!({
             "content": {
                 "allow": ["*"],
@@ -343,7 +343,7 @@ async fn room_route() {
             "type": "m.room.server_acl",
         }),
     ));
-    mock_sync(&server, ev_builder.build_json_sync_response(), Some(sync_token.clone())).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), Some(sync_token.clone())).await;
     client.sync_once(SyncSettings::new().token(sync_token)).await.unwrap();
 
     let route = room.route().await.unwrap();
@@ -354,13 +354,13 @@ async fn room_route() {
 }
 
 #[async_test]
-async fn room_permalink() {
+async fn test_room_permalink() {
     let (client, server) = logged_in_client_with_server().await;
-    let mut ev_builder = SyncResponseBuilder::new();
+    let mut sync_builder = SyncResponseBuilder::new();
     let room_id = room_id!("!test_room:127.0.0.1");
 
     // Without aliases
-    ev_builder.add_joined_room(
+    sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
             .add_timeline_state_bulk(bulk_room_members(
                 0,
@@ -375,7 +375,7 @@ async fn room_permalink() {
                 &MembershipState::Join,
             )),
     );
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let sync_token = client.sync_once(SyncSettings::new()).await.unwrap().next_batch;
     let room = client.get_room(room_id).unwrap();
 
@@ -389,7 +389,7 @@ async fn room_permalink() {
     );
 
     // With an alternative alias
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
         sync_timeline_event!({
             "content": {
                 "alt_aliases": ["#alias:localhost"],
@@ -401,7 +401,7 @@ async fn room_permalink() {
             "type": "m.room.canonical_alias",
         }),
     ));
-    mock_sync(&server, ev_builder.build_json_sync_response(), Some(sync_token.clone())).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), Some(sync_token.clone())).await;
     let sync_token =
         client.sync_once(SyncSettings::new().token(sync_token)).await.unwrap().next_batch;
 
@@ -412,7 +412,7 @@ async fn room_permalink() {
     assert_eq!(room.matrix_permalink(false).await.unwrap().to_string(), "matrix:r/alias:localhost");
 
     // With a canonical alias
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
         sync_timeline_event!({
             "content": {
                 "alias": "#canonical:localhost",
@@ -425,7 +425,7 @@ async fn room_permalink() {
             "type": "m.room.canonical_alias",
         }),
     ));
-    mock_sync(&server, ev_builder.build_json_sync_response(), Some(sync_token.clone())).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), Some(sync_token.clone())).await;
     client.sync_once(SyncSettings::new().token(sync_token)).await.unwrap();
 
     assert_eq!(
@@ -443,14 +443,14 @@ async fn room_permalink() {
 }
 
 #[async_test]
-async fn room_event_permalink() {
+async fn test_room_event_permalink() {
     let (client, server) = logged_in_client_with_server().await;
-    let mut ev_builder = SyncResponseBuilder::new();
+    let mut sync_builder = SyncResponseBuilder::new();
     let room_id = room_id!("!test_room:127.0.0.1");
     let event_id = event_id!("$15139375512JaHAW");
 
     // Without aliases
-    ev_builder.add_joined_room(
+    sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
             .add_timeline_state_bulk(bulk_room_members(
                 0,
@@ -465,7 +465,7 @@ async fn room_event_permalink() {
                 &MembershipState::Join,
             )),
     );
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let sync_token = client.sync_once(SyncSettings::new()).await.unwrap().next_batch;
     let room = client.get_room(room_id).unwrap();
 
@@ -479,7 +479,7 @@ async fn room_event_permalink() {
     );
 
     // Adding an alias doesn't change anything
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
         sync_timeline_event!({
             "content": {
                 "alias": "#canonical:localhost",
@@ -492,7 +492,7 @@ async fn room_event_permalink() {
             "type": "m.room.canonical_alias",
         }),
     ));
-    mock_sync(&server, ev_builder.build_json_sync_response(), Some(sync_token.clone())).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), Some(sync_token.clone())).await;
     client.sync_once(SyncSettings::new().token(sync_token)).await.unwrap();
 
     assert_eq!(
@@ -506,14 +506,14 @@ async fn room_event_permalink() {
 }
 
 #[async_test]
-async fn event() {
+async fn test_event() {
     let event_id = event_id!("$foun39djjod0f");
 
     let (client, server) = logged_in_client_with_server().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let mut ev_builder = SyncResponseBuilder::new();
-    ev_builder
+    let mut sync_builder = SyncResponseBuilder::new();
+    sync_builder
         // We need the member event and power levels locally so the push rules processor works.
         .add_joined_room(
             JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)
@@ -521,7 +521,7 @@ async fn event() {
                 .add_state_event(StateTestEvent::PowerLevels),
         );
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 

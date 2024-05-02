@@ -92,10 +92,10 @@ async fn test_event_filter() {
     let (client, server) = logged_in_client_with_server().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let mut ev_builder = SyncResponseBuilder::new();
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    let mut sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -104,7 +104,7 @@ async fn test_event_filter() {
     let (_, mut timeline_stream) = timeline.subscribe().await;
 
     let first_event_id = event_id!("$YTQwYl2ply");
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
         sync_timeline_event!({
             "content": {
                 "body": "hello",
@@ -117,7 +117,7 @@ async fn test_event_filter() {
         }),
     ));
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -134,7 +134,7 @@ async fn test_event_filter() {
 
     let second_event_id = event_id!("$Ga6Y2l0gKY");
     let edit_event_id = event_id!("$7i9In0gEmB");
-    ev_builder.add_joined_room(
+    sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
             .add_timeline_event(sync_timeline_event!({
                 "content": {
@@ -168,7 +168,7 @@ async fn test_event_filter() {
             })),
     );
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -198,10 +198,10 @@ async fn test_timeline_is_reset_when_a_user_is_ignored_or_unignored() {
     let (client, server) = logged_in_client_with_server().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let mut ev_builder = SyncResponseBuilder::new();
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    let mut sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -217,7 +217,7 @@ async fn test_timeline_is_reset_when_a_user_is_ignored_or_unignored() {
     let second_event_id = event_id!("$YTQwYl2pl2");
     let third_event_id = event_id!("$YTQwYl2pl3");
 
-    ev_builder.add_joined_room(
+    sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
             .add_timeline_event(sync_timeline_event!({
                 "content": {
@@ -251,7 +251,7 @@ async fn test_timeline_is_reset_when_a_user_is_ignored_or_unignored() {
             })),
     );
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -275,7 +275,7 @@ async fn test_timeline_is_reset_when_a_user_is_ignored_or_unignored() {
     let fourth_event_id = event_id!("$YTQwYl2pl4");
     let fiveth_event_id = event_id!("$YTQwYl2pl5");
 
-    ev_builder.add_global_account_data_event(GlobalAccountDataTestEvent::Custom(json!({
+    sync_builder.add_global_account_data_event(GlobalAccountDataTestEvent::Custom(json!({
         "content": {
             "ignored_users": {
                 bob: {}
@@ -284,7 +284,7 @@ async fn test_timeline_is_reset_when_a_user_is_ignored_or_unignored() {
         "type": "m.ignored_user_list",
     })));
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -292,7 +292,7 @@ async fn test_timeline_is_reset_when_a_user_is_ignored_or_unignored() {
     assert_next_matches!(timeline_stream, VectorDiff::Clear);
     assert_pending!(timeline_stream);
 
-    ev_builder.add_joined_room(
+    sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
             .add_timeline_event(sync_timeline_event!({
                 "content": {
@@ -316,7 +316,7 @@ async fn test_timeline_is_reset_when_a_user_is_ignored_or_unignored() {
             })),
     );
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -342,10 +342,10 @@ async fn test_profile_updates() {
     let (client, server) = logged_in_client_with_server().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let mut ev_builder = SyncResponseBuilder::new();
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    let mut sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -361,7 +361,7 @@ async fn test_profile_updates() {
     let event_1_id = event_id!("$YTQwYl2pl1");
     let event_2_id = event_id!("$YTQwYl2pl2");
 
-    ev_builder.add_joined_room(
+    sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
             .add_timeline_event(sync_timeline_event!({
                 "content": {
@@ -385,7 +385,7 @@ async fn test_profile_updates() {
             })),
     );
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -410,7 +410,7 @@ async fn test_profile_updates() {
     let event_4_id = event_id!("$YTQwYl2pl4");
     let event_5_id = event_id!("$YTQwYl2pl5");
 
-    ev_builder.add_joined_room(
+    sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
             .add_timeline_event(sync_timeline_event!({
                 "content": {
@@ -446,7 +446,7 @@ async fn test_profile_updates() {
             })),
     );
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -514,7 +514,7 @@ async fn test_profile_updates() {
     // Change name to be ambiguous.
     let event_6_id = event_id!("$YTQwYl2pl6");
 
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
         sync_timeline_event!({
             "content": {
                 "displayname": "Member",
@@ -528,7 +528,7 @@ async fn test_profile_updates() {
         }),
     ));
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 

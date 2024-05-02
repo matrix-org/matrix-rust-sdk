@@ -64,10 +64,10 @@ async fn test_read_receipts_updates() {
     let second_event_id = event_id!("$e32037280er453l:localhost");
     let third_event_id = event_id!("$Sg2037280074GZr34:localhost");
 
-    let mut ev_builder = SyncResponseBuilder::new();
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    let mut sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -84,7 +84,7 @@ async fn test_read_receipts_updates() {
     let bob_receipt = timeline.latest_user_read_receipt(bob).await;
     assert_matches!(bob_receipt, None);
 
-    ev_builder.add_joined_room(
+    sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
             .add_timeline_event(sync_timeline_event!({
                 "content": {
@@ -123,7 +123,7 @@ async fn test_read_receipts_updates() {
             })),
     );
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -158,7 +158,7 @@ async fn test_read_receipts_updates() {
     assert!(day_divider.is_day_divider());
 
     // Read receipt on unknown event is ignored.
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
         EphemeralTestEvent::Custom(json!({
             "content": {
                 "$unknowneventid": {
@@ -173,7 +173,7 @@ async fn test_read_receipts_updates() {
         })),
     ));
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -181,7 +181,7 @@ async fn test_read_receipts_updates() {
     assert_eq!(alice_receipt_event_id, third_event.event_id().unwrap());
 
     // Read receipt on older event is ignored.
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
         EphemeralTestEvent::Custom(json!({
             "content": {
                 second_event_id: {
@@ -200,7 +200,7 @@ async fn test_read_receipts_updates() {
     assert_eq!(alice_receipt_event_id, third_event_id);
 
     // Read receipt on same event is ignored.
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
         EphemeralTestEvent::Custom(json!({
             "content": {
                 third_event_id: {
@@ -219,7 +219,7 @@ async fn test_read_receipts_updates() {
     assert_eq!(alice_receipt_event_id, third_event_id);
 
     // New user with explicit threaded and unthreaded read receipts.
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
         EphemeralTestEvent::Custom(json!({
             "content": {
                 second_event_id: {
@@ -242,7 +242,7 @@ async fn test_read_receipts_updates() {
         })),
     ));
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -256,7 +256,7 @@ async fn test_read_receipts_updates() {
     assert_eq!(bob_receipt_event_id, third_event_id);
 
     // Private read receipt is updated.
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
         EphemeralTestEvent::Custom(json!({
             "content": {
                 second_event_id: {
@@ -271,7 +271,7 @@ async fn test_read_receipts_updates() {
         })),
     ));
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -292,10 +292,10 @@ async fn test_read_receipts_updates_on_filtered_events() {
     let event_b_id = event_id!("$e32037280er453l:localhost");
     let event_c_id = event_id!("$Sg2037280074GZr34:localhost");
 
-    let mut ev_builder = SyncResponseBuilder::new();
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    let mut sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -321,7 +321,7 @@ async fn test_read_receipts_updates_on_filtered_events() {
         timeline.latest_user_read_receipt_timeline_event_id(*BOB).await;
     assert_matches!(bob_receipt_timeline_event, None);
 
-    ev_builder.add_joined_room(
+    sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
             // Event A
             .add_timeline_event(sync_timeline_event!({
@@ -358,7 +358,7 @@ async fn test_read_receipts_updates_on_filtered_events() {
             })),
     );
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -401,7 +401,7 @@ async fn test_read_receipts_updates_on_filtered_events() {
     assert!(day_divider.is_day_divider());
 
     // Read receipt on filtered event.
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
         EphemeralTestEvent::Custom(json!({
             "content": {
                 event_b_id: {
@@ -416,7 +416,7 @@ async fn test_read_receipts_updates_on_filtered_events() {
         })),
     ));
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -429,7 +429,7 @@ async fn test_read_receipts_updates_on_filtered_events() {
     assert_eq!(own_receipt_timeline_event, event_a.event_id().unwrap());
 
     // Update with explicit read receipt.
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
         EphemeralTestEvent::Custom(json!({
             "content": {
                 event_c_id: {
@@ -444,7 +444,7 @@ async fn test_read_receipts_updates_on_filtered_events() {
         })),
     ));
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -464,7 +464,7 @@ async fn test_read_receipts_updates_on_filtered_events() {
     assert_eq!(bob_receipt_timeline_event, event_c_id);
 
     // Private read receipt is updated.
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
         EphemeralTestEvent::Custom(json!({
             "content": {
                 event_c_id: {
@@ -479,7 +479,7 @@ async fn test_read_receipts_updates_on_filtered_events() {
         })),
     ));
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -500,10 +500,10 @@ async fn test_send_single_receipt() {
 
     let own_user_id = client.user_id().unwrap();
 
-    let mut ev_builder = SyncResponseBuilder::new();
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    let mut sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -565,7 +565,7 @@ async fn test_send_single_receipt() {
     server.reset().await;
 
     // Unchanged receipts are not sent.
-    ev_builder.add_joined_room(
+    sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
             .add_ephemeral_event(EphemeralTestEvent::Custom(json!({
                 "content": {
@@ -592,7 +592,7 @@ async fn test_send_single_receipt() {
             }))),
     );
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -679,7 +679,7 @@ async fn test_send_single_receipt() {
     // Newer receipts in the timeline are sent.
     let third_receipts_event_id = event_id!("$third_receipts_event_id");
 
-    ev_builder.add_joined_room(
+    sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
             .add_timeline_event(sync_timeline_event!({
                 "content": {
@@ -726,7 +726,7 @@ async fn test_send_single_receipt() {
             }))),
     );
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -782,7 +782,7 @@ async fn test_send_single_receipt() {
     server.reset().await;
 
     // Older receipts in the timeline are not sent.
-    ev_builder.add_joined_room(
+    sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
             .add_ephemeral_event(EphemeralTestEvent::Custom(json!({
                 "content": {
@@ -809,7 +809,7 @@ async fn test_send_single_receipt() {
             }))),
     );
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -847,10 +847,10 @@ async fn test_mark_as_read() {
 
     let own_user_id = client.user_id().unwrap();
 
-    let mut ev_builder = SyncResponseBuilder::new();
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    let mut sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -861,7 +861,7 @@ async fn test_mark_as_read() {
     let reaction_event_id = event_id!("$reaction_event_id");
 
     // When I receive an event with a reaction on it,
-    ev_builder.add_joined_room(
+    sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
             .add_timeline_event(sync_timeline_event!({
                 "content": {
@@ -900,7 +900,7 @@ async fn test_mark_as_read() {
             })),
     );
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -950,10 +950,10 @@ async fn test_send_multiple_receipts() {
 
     let own_user_id = client.user_id().unwrap();
 
-    let mut ev_builder = SyncResponseBuilder::new();
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    let mut sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -984,7 +984,7 @@ async fn test_send_multiple_receipts() {
     server.reset().await;
 
     // Unchanged receipts are not sent.
-    ev_builder.add_joined_room(
+    sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
             .add_ephemeral_event(EphemeralTestEvent::Custom(json!({
                 "content": {
@@ -1011,7 +1011,7 @@ async fn test_send_multiple_receipts() {
             }))),
     );
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -1048,7 +1048,7 @@ async fn test_send_multiple_receipts() {
         .public_read_receipt(Some(third_receipts_event_id.to_owned()))
         .private_read_receipt(Some(third_receipts_event_id.to_owned()));
 
-    ev_builder.add_joined_room(
+    sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
             .add_timeline_event(sync_timeline_event!({
                 "content": {
@@ -1095,7 +1095,7 @@ async fn test_send_multiple_receipts() {
             }))),
     );
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -1116,7 +1116,7 @@ async fn test_send_multiple_receipts() {
     server.reset().await;
 
     // Older receipts in the timeline are not sent.
-    ev_builder.add_joined_room(
+    sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
             .add_ephemeral_event(EphemeralTestEvent::Custom(json!({
                 "content": {
@@ -1143,7 +1143,7 @@ async fn test_send_multiple_receipts() {
             }))),
     );
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -1164,10 +1164,10 @@ async fn test_latest_user_read_receipt() {
     let event_d_id = event_id!("$event_d");
     let event_e_id = event_id!("$event_e");
 
-    let mut ev_builder = SyncResponseBuilder::new();
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    let mut sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -1181,7 +1181,7 @@ async fn test_latest_user_read_receipt() {
     assert_matches!(user_receipt, None);
 
     // Only private receipt.
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
         EphemeralTestEvent::Custom(json!({
             "content": {
                 event_a_id: {
@@ -1194,7 +1194,7 @@ async fn test_latest_user_read_receipt() {
         })),
     ));
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -1203,7 +1203,7 @@ async fn test_latest_user_read_receipt() {
 
     // Private and public receipts without timestamp should return private
     // receipt.
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
         EphemeralTestEvent::Custom(json!({
             "content": {
                 event_b_id: {
@@ -1216,7 +1216,7 @@ async fn test_latest_user_read_receipt() {
         })),
     ));
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -1224,7 +1224,7 @@ async fn test_latest_user_read_receipt() {
     assert_eq!(user_receipt_id, event_a_id);
 
     // Public receipt with bigger timestamp.
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
         EphemeralTestEvent::Custom(json!({
             "content": {
                 event_c_id: {
@@ -1246,7 +1246,7 @@ async fn test_latest_user_read_receipt() {
         })),
     ));
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -1254,7 +1254,7 @@ async fn test_latest_user_read_receipt() {
     assert_eq!(user_receipt_id, event_d_id);
 
     // Private receipt with bigger timestamp.
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
         EphemeralTestEvent::Custom(json!({
             "content": {
                 event_e_id: {
@@ -1269,7 +1269,7 @@ async fn test_latest_user_read_receipt() {
         })),
     ));
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 

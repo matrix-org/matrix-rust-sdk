@@ -1515,9 +1515,9 @@ mod tests {
 
         let client = logged_in_base_client(Some(user_id)).await;
 
-        let mut ev_builder = SyncResponseBuilder::new();
+        let mut sync_builder = SyncResponseBuilder::new();
 
-        let response = ev_builder
+        let response = sync_builder
             .add_left_room(LeftRoomBuilder::new(room_id).add_timeline_event(sync_timeline_event!({
                 "content": {
                     "displayname": "Alice",
@@ -1533,7 +1533,7 @@ mod tests {
         client.receive_sync_response(response).await.unwrap();
         assert_eq!(client.get_room(room_id).unwrap().state(), RoomState::Left);
 
-        let response = ev_builder
+        let response = sync_builder
             .add_invited_room(InvitedRoomBuilder::new(room_id).add_state_event(
                 StrippedStateTestEvent::Custom(json!({
                     "content": {
@@ -1675,8 +1675,8 @@ mod tests {
         event_id: &str,
         user_id: &UserId,
     ) -> crate::Room {
-        let mut ev_builder = SyncResponseBuilder::new();
-        let response = ev_builder
+        let mut sync_builder = SyncResponseBuilder::new();
+        let response = sync_builder
             .add_joined_room(matrix_sdk_test::JoinedRoomBuilder::new(room_id).add_timeline_event(
                 sync_timeline_event!({
                     "content": {
@@ -1802,8 +1802,8 @@ mod tests {
             .unwrap();
 
         // Preamble: let the SDK know about the room.
-        let mut ev_builder = SyncResponseBuilder::new();
-        let response = ev_builder
+        let mut sync_builder = SyncResponseBuilder::new();
+        let response = sync_builder
             .add_joined_room(matrix_sdk_test::JoinedRoomBuilder::new(room_id))
             .build_sync_response();
         client.receive_sync_response(response).await.unwrap();
@@ -1861,8 +1861,8 @@ mod tests {
             .unwrap();
 
         // Preamble: let the SDK know about the room, and that the invited user left it.
-        let mut ev_builder = SyncResponseBuilder::new();
-        let response = ev_builder
+        let mut sync_builder = SyncResponseBuilder::new();
+        let response = sync_builder
             .add_joined_room(matrix_sdk_test::JoinedRoomBuilder::new(room_id).add_state_event(
                 StateTestEvent::Custom(json!({
                     "content": {

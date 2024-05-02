@@ -17,7 +17,7 @@ use wiremock::{
 use crate::{logged_in_client_with_server, mock_sync};
 
 #[async_test]
-async fn get_notification_mode() {
+async fn test_get_notification_mode() {
     let room_no_rules_id = room_id!("!jEsUZKDJdhlrceRyVU:localhost");
     let room_not_joined_id = room_id!("!aBfUOMDJhmtucfVzGa:localhost");
     let (client, server) = logged_in_client_with_server().await;
@@ -25,13 +25,13 @@ async fn get_notification_mode() {
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
     // Add the rooms for the tests
-    let mut ev_builder = SyncResponseBuilder::new();
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID));
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_no_rules_id));
-    ev_builder.add_invited_room(InvitedRoomBuilder::new(room_not_joined_id));
-    ev_builder.add_global_account_data_event(GlobalAccountDataTestEvent::PushRules);
+    let mut sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID));
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_no_rules_id));
+    sync_builder.add_invited_room(InvitedRoomBuilder::new(room_not_joined_id));
+    sync_builder.add_global_account_data_event(GlobalAccountDataTestEvent::PushRules);
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
