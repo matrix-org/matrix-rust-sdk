@@ -148,6 +148,14 @@ impl From<&MembershipState> for RoomState {
     }
 }
 
+/// The number of heroes chosen to compute a room's name, if the room didn't
+/// have a name set by the users themselves.
+///
+/// A server must return at most 5 heroes, according to the paragraph below
+/// https://spec.matrix.org/v1.10/client-server-api/#get_matrixclientv3sync (grep for "heroes"). We
+/// try to behave similarly here.
+const NUM_HEROES: usize = 5;
+
 impl Room {
     /// The size of the latest_encrypted_events RingBuffer
     // SAFETY: `new_unchecked` is safe because 10 is not zero.
@@ -596,24 +604,42 @@ impl Room {
                 let name = name.trim();
                 return Ok(DisplayName::Named(name.to_owned()));
             }
+
             if let Some(alias) = inner.canonical_alias() {
                 let alias = alias.alias().trim();
                 return Ok(DisplayName::Aliased(alias.to_owned()));
             }
+
             inner.summary.clone()
         };
 
         let own_user_id = self.own_user_id().as_str();
 
-        let members: Vec<RoomMember> = if summary.heroes.is_empty() {
-            self.members(RoomMemberships::ACTIVE)
-                .await?
-                .into_iter()
-                .filter(|u| u.user_id() != own_user_id)
-                .take(5)
-                .collect()
+        let (heroes, guessed_num_members): (Vec<RoomMember>, _) = if summary.heroes.is_empty() {
+            let mut members = self.members(RoomMemberships::ACTIVE).await?;
+
+            // Make the ordering deterministic.
+            members.sort_unstable_by(|lhs, rhs| lhs.name().cmp(rhs.name()));
+
+            // We can make a good prediction of the total number of members here. This might
+            // be incorrect if the database info is outdated.
+            let guessed_num_members = Some(members.len());
+
+            (
+                members
+                    .into_iter()
+                    .take(NUM_HEROES)
+                    .filter(|u| u.user_id() != own_user_id)
+                    .collect(),
+                guessed_num_members,
+            )
         } else {
-            let members: Vec<_> = stream::iter(summary.heroes.iter())
+            let mut heroes = summary.heroes;
+
+            // Make the ordering deterministic.
+            heroes.sort_unstable();
+
+            let members: Vec<_> = stream::iter(heroes.iter())
                 .filter_map(|u| async move {
                     let user_id = UserId::parse(u.as_str()).ok()?;
                     if user_id == own_user_id {
@@ -626,34 +652,39 @@ impl Room {
 
             let members: StoreResult<Vec<_>> = members.into_iter().collect();
 
-            members?
+            (members?, None)
         };
 
-        let (joined, invited) = match self.state() {
+        let (num_joined, num_invited) = match self.state() {
             RoomState::Invited => {
                 // when we were invited we don't have a proper summary, we have to do best
                 // guessing
-                (members.len() as u64, 1u64)
+                (heroes.len() as u64, 1u64)
             }
+
             RoomState::Joined if summary.joined_member_count == 0 => {
+                let num_members = if let Some(guessed_num_members) = guessed_num_members {
+                    guessed_num_members
+                } else {
+                    self.members(RoomMemberships::ACTIVE).await?.len()
+                };
+
                 // joined but the summary is not completed yet
-                (
-                    (members.len() as u64) + 1, // we've taken ourselves out of the count
-                    summary.invited_member_count,
-                )
+                (num_members as u64, summary.invited_member_count)
             }
+
             _ => (summary.joined_member_count, summary.invited_member_count),
         };
 
         debug!(
             room_id = ?self.room_id(),
             own_user = ?self.own_user_id,
-            joined, invited,
-            heroes = ?members,
+            num_joined, num_invited,
+            heroes = ?heroes,
             "Calculating name for a room",
         );
 
-        Ok(self.inner.read().base_info.calculate_room_name(joined, invited, members))
+        Ok(self.inner.read().base_info.calculate_room_name(num_joined, num_invited, heroes))
     }
 
     /// Subscribe to the inner `RoomInfo`.
@@ -1916,6 +1947,110 @@ mod tests {
         assert_eq!(
             room.computed_display_name().await.unwrap(),
             DisplayName::Calculated("Matthew".to_owned())
+        );
+    }
+
+    #[async_test]
+    async fn test_display_name_deterministic() {
+        let (store, room) = make_room(RoomState::Joined);
+
+        let alice = user_id!("@alice:example.org");
+        let bob = user_id!("@bob:example.org");
+        let carol = user_id!("@carol:example.org");
+        let denis = user_id!("@denis:example.org");
+        let erica = user_id!("@erica:example.org");
+        let fred = user_id!("@fred:example.org");
+        let me = user_id!("@me:example.org");
+
+        let mut changes = StateChanges::new("".to_owned());
+
+        // Save members in two batches, so that there's no implied ordering in the
+        // store.
+        {
+            let members = changes
+                .state
+                .entry(room.room_id().to_owned())
+                .or_default()
+                .entry(StateEventType::RoomMember)
+                .or_default();
+            members.insert(carol.into(), make_member_event(carol, "Carol").cast());
+            members.insert(bob.into(), make_member_event(bob, "Bob").cast());
+            members.insert(fred.into(), make_member_event(fred, "Fred").cast());
+            members.insert(me.into(), make_member_event(me, "Me").cast());
+            store.save_changes(&changes).await.unwrap();
+        }
+
+        {
+            let members = changes
+                .state
+                .entry(room.room_id().to_owned())
+                .or_default()
+                .entry(StateEventType::RoomMember)
+                .or_default();
+            members.insert(alice.into(), make_member_event(alice, "Alice").cast());
+            members.insert(erica.into(), make_member_event(erica, "Erica").cast());
+            members.insert(denis.into(), make_member_event(denis, "Denis").cast());
+            store.save_changes(&changes).await.unwrap();
+        }
+
+        let summary = assign!(RumaSummary::new(), {
+            joined_member_count: Some(7u32.into()),
+            heroes: vec![denis.to_string(), carol.to_string(), bob.to_string(), erica.to_string()],
+        });
+        room.inner.update_if(|info| info.update_summary(&summary));
+
+        assert_eq!(
+            room.computed_display_name().await.unwrap(),
+            DisplayName::Calculated("Bob, Carol, Denis, Erica, and 3 others".to_owned())
+        );
+    }
+
+    #[async_test]
+    async fn test_display_name_deterministic_no_heroes() {
+        let (store, room) = make_room(RoomState::Joined);
+
+        let alice = user_id!("@alice:example.org");
+        let bob = user_id!("@bob:example.org");
+        let carol = user_id!("@carol:example.org");
+        let denis = user_id!("@denis:example.org");
+        let erica = user_id!("@erica:example.org");
+        let fred = user_id!("@fred:example.org");
+        let me = user_id!("@me:example.org");
+
+        let mut changes = StateChanges::new("".to_owned());
+
+        // Save members in two batches, so that there's no implied ordering in the
+        // store.
+        {
+            let members = changes
+                .state
+                .entry(room.room_id().to_owned())
+                .or_default()
+                .entry(StateEventType::RoomMember)
+                .or_default();
+            members.insert(carol.into(), make_member_event(carol, "Carol").cast());
+            members.insert(bob.into(), make_member_event(bob, "Bob").cast());
+            members.insert(fred.into(), make_member_event(fred, "Fred").cast());
+            members.insert(me.into(), make_member_event(me, "Me").cast());
+            store.save_changes(&changes).await.unwrap();
+        }
+
+        {
+            let members = changes
+                .state
+                .entry(room.room_id().to_owned())
+                .or_default()
+                .entry(StateEventType::RoomMember)
+                .or_default();
+            members.insert(alice.into(), make_member_event(alice, "Alice").cast());
+            members.insert(erica.into(), make_member_event(erica, "Erica").cast());
+            members.insert(denis.into(), make_member_event(denis, "Denis").cast());
+            store.save_changes(&changes).await.unwrap();
+        }
+
+        assert_eq!(
+            room.computed_display_name().await.unwrap(),
+            DisplayName::Calculated("Alice, Bob, Carol, Denis, Erica, and 2 others".to_owned())
         );
     }
 
