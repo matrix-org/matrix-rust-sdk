@@ -61,8 +61,8 @@ tokio = { version = "1.30.0", default-features = false, features = ["sync"] }
 tokio-stream = "0.1.14"
 tracing = { version = "0.1.40", default-features = false, features = ["std"] }
 tracing-core = "0.1.32"
-uniffi = { git = "https://github.com/mozilla/uniffi-rs", rev = "789a9023b522562a95618443cee5a0d4f111c4c7" }
-uniffi_bindgen = { git = "https://github.com/mozilla/uniffi-rs", rev = "789a9023b522562a95618443cee5a0d4f111c4c7" }
+uniffi = { version = "0.27.1" }
+uniffi_bindgen = { version = "0.27.1" }
 vodozemac = { git="https://github.com/matrix-org/vodozemac", rev = "2722fb9518059ccd2ad55470f4c4d3ba5e447bd9" }
 wiremock = "0.6.0"
 zeroize = "1.6.0"
