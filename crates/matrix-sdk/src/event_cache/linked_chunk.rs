@@ -19,9 +19,16 @@ use std::{
     fmt,
     marker::PhantomData,
     ops::Not,
+    pin::Pin,
     ptr::NonNull,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, RwLock, Weak,
+    },
+    task::{Context, Poll, Waker},
 };
+
+use futures_core::Stream;
 
 /// Errors of [`LinkedChunk`].
 #[derive(thiserror::Error, Debug)]
@@ -129,6 +136,10 @@ where
 ///
 /// Get a value for this type with [`LinkedChunk::updates`].
 pub struct LinkedChunkUpdates<Item, Gap> {
+    inner: Arc<RwLock<LinkedChunkUpdatesInner<Item, Gap>>>,
+}
+
+struct LinkedChunkUpdatesInner<Item, Gap> {
     /// All the updates that have not been peeked nor taken.
     updates: Vec<LinkedChunkUpdate<Item, Gap>>,
 
@@ -137,23 +148,26 @@ pub struct LinkedChunkUpdates<Item, Gap> {
 
     /// The last index used by the last call of [`Self::peek`].
     last_peeked_index: usize,
+
+    /// Pending wakers for [`LinkedChunkUpdateSubscriber`]s.
+    wakers: Vec<Waker>,
 }
 
-impl<Item, Gap> LinkedChunkUpdates<Item, Gap> {
-    /// Create a new [`Self`].
-    fn new() -> Self {
-        Self { updates: Vec::new(), last_taken_index: 0, last_peeked_index: 0 }
-    }
-
+impl<Item, Gap> LinkedChunkUpdatesInner<Item, Gap> {
     /// Push a new update.
     fn push(&mut self, update: LinkedChunkUpdate<Item, Gap>) {
         self.updates.push(update);
+
+        // Wake them up \o/.
+        for waker in self.wakers.drain(..) {
+            waker.wake();
+        }
     }
 
     /// Take new updates.
     ///
     /// Updates that have been taken will not be read again.
-    pub fn take(&mut self) -> &[LinkedChunkUpdate<Item, Gap>] {
+    fn take(&mut self) -> &[LinkedChunkUpdate<Item, Gap>] {
         // Let's garbage collect unused updates.
         self.garbage_collect();
 
@@ -184,16 +198,15 @@ impl<Item, Gap> LinkedChunkUpdates<Item, Gap> {
         slice
     }
 
-    /// Return `true` if there is new updates that can be read with
-    /// [`Self::take`].
-    fn has_new_takable_updates(&self) -> bool {
-        self.last_taken_index < self.updates.len()
-    }
-
     /// Return `true` if there is new update that can be read with
     /// [`Self::peek`].
     fn has_new_peekable_updates(&self) -> bool {
         self.last_peeked_index < self.updates.len()
+    }
+
+    /// Return the number of updates in the buffer.
+    fn len(&self) -> usize {
+        self.updates.len()
     }
 
     /// Garbage collect unused updates. An update is considered unused when it's
@@ -212,10 +225,91 @@ impl<Item, Gap> LinkedChunkUpdates<Item, Gap> {
             self.last_peeked_index -= min_index;
         }
     }
+}
 
-    /// Return the number of updates in the buffer.
-    fn len(&self) -> usize {
-        self.updates.len()
+impl<Item, Gap> LinkedChunkUpdates<Item, Gap> {
+    /// Create a new [`Self`].
+    fn new() -> Self {
+        Self {
+            inner: Arc::new(RwLock::new(LinkedChunkUpdatesInner {
+                updates: Vec::new(),
+                last_taken_index: 0,
+                last_peeked_index: 0,
+                wakers: Vec::new(),
+            })),
+        }
+    }
+
+    /// Push a new update.
+    fn push(&mut self, update: LinkedChunkUpdate<Item, Gap>) {
+        self.inner.write().unwrap().push(update);
+    }
+
+    /// Take new updates.
+    ///
+    /// Updates that have been taken will not be read again.
+    pub fn take(&mut self) -> Vec<LinkedChunkUpdate<Item, Gap>>
+    where
+        Item: Clone,
+        Gap: Clone,
+    {
+        self.inner.write().unwrap().take().to_owned()
+    }
+
+    /// Return `true` if there is new updates that can be read with
+    /// [`Self::take`].
+    pub fn has_new_takable_updates(&self) -> bool {
+        let inner = self.inner.read().unwrap();
+
+        inner.last_taken_index < inner.updates.len()
+    }
+
+    /// Subscribe to updates by using a [`Stream`].
+    ///
+    /// TODO: only one subscriber must exist so far because multiple concurrent
+    /// subscriber would conflict on the garbage collector. It's not complex to
+    /// fix, I will do it.
+    fn subscribe(&self) -> LinkedChunkUpdatesSubscriber<Item, Gap> {
+        LinkedChunkUpdatesSubscriber { updates: Arc::downgrade(&self.inner) }
+    }
+}
+
+/// A subscriber to [`LinkedChunkUpdates`]. It is helpful to receive updates via
+/// a [`Stream`].
+struct LinkedChunkUpdatesSubscriber<Item, Gap> {
+    /// Weak reference to [`LinkedChunkUpdatesInner`].
+    ///
+    /// Using a weak reference allows [`LinkedChunkUpdates`] to be dropped
+    /// freely even if a subscriber exists.
+    updates: Weak<RwLock<LinkedChunkUpdatesInner<Item, Gap>>>,
+}
+
+impl<Item, Gap> Stream for LinkedChunkUpdatesSubscriber<Item, Gap>
+where
+    Item: Clone,
+    Gap: Clone,
+{
+    type Item = Vec<LinkedChunkUpdate<Item, Gap>>;
+
+    fn poll_next(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let Some(updates) = self.updates.upgrade() else {
+            // The `LinkedChunkUpdates` has been dropped. It's time to close this stream.
+            return Poll::Ready(None);
+        };
+
+        let mut updates = updates.write().unwrap();
+
+        // No updates to peek.
+        if updates.has_new_peekable_updates().not() {
+            // Let's register the waker.
+            updates.wakers.push(context.waker().clone());
+
+            // The stream is pending.
+            return Poll::Pending;
+        }
+
+        // There is updates to peek! Let's forward them in this stream.
+        return Poll::Ready(Some(updates.peek().to_owned()));
     }
 }
 
@@ -1301,13 +1395,17 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::ops::Not;
+    use std::{
+        sync::{Arc, Mutex},
+        task::{Context, Poll, Wake},
+    };
 
     use assert_matches::assert_matches;
+    use futures_util::pin_mut;
 
     use super::{
         Chunk, ChunkContent, ChunkIdentifier, ChunkIdentifierGenerator, LinkedChunk,
-        LinkedChunkError, Position,
+        LinkedChunkError, Not, Position, Stream,
     };
 
     /// A macro to test the items and the gap of a `LinkedChunk`.
@@ -1426,9 +1524,9 @@ mod tests {
         {
             let updates = linked_chunk.updates().unwrap();
 
-            assert!(updates.has_new_peekable_updates().not());
+            assert!(updates.inner.read().unwrap().has_new_peekable_updates().not());
             assert!(updates.has_new_takable_updates().not());
-            assert!(updates.peek().is_empty());
+            assert!(updates.inner.write().unwrap().peek().is_empty());
             assert!(updates.take().is_empty());
         }
 
@@ -1440,25 +1538,25 @@ mod tests {
 
             {
                 // Inspect number of updates in memory.
-                assert_eq!(updates.len(), 1);
+                assert_eq!(updates.inner.read().unwrap().len(), 1);
             }
 
             // Peek the update.
             assert!(updates.has_new_takable_updates());
-            assert!(updates.has_new_peekable_updates());
+            assert!(updates.inner.read().unwrap().has_new_peekable_updates());
             assert_eq!(
-                updates.peek(),
+                updates.inner.write().unwrap().peek(),
                 &[InsertItems { at: Position(ChunkIdentifier(0), 0), items: vec!['a'] }]
             );
 
             // No more update to peek.
             assert!(updates.has_new_takable_updates());
-            assert!(updates.has_new_peekable_updates().not());
-            assert!(updates.peek().is_empty());
+            assert!(updates.inner.read().unwrap().has_new_peekable_updates().not());
+            assert!(updates.inner.write().unwrap().peek().is_empty());
 
             {
                 // Inspect number of updates in memory.
-                assert_eq!(updates.len(), 1);
+                assert_eq!(updates.inner.read().unwrap().len(), 1);
             }
         }
 
@@ -1469,19 +1567,19 @@ mod tests {
             let updates = linked_chunk.updates().unwrap();
 
             // Inspect number of updates in memory.
-            assert_eq!(updates.len(), 2);
+            assert_eq!(updates.inner.read().unwrap().len(), 2);
 
             // Peek the update…
             assert!(updates.has_new_takable_updates());
-            assert!(updates.has_new_peekable_updates());
+            assert!(updates.inner.read().unwrap().has_new_peekable_updates());
             assert_eq!(
-                updates.peek(),
+                updates.inner.write().unwrap().peek(),
                 &[InsertItems { at: Position(ChunkIdentifier(0), 1), items: vec!['b'] },]
             );
 
             {
                 // Inspect number of updates in memory.
-                assert_eq!(updates.len(), 2);
+                assert_eq!(updates.inner.read().unwrap().len(), 2);
             }
 
             // … and take the update.
@@ -1495,19 +1593,19 @@ mod tests {
 
             {
                 // Inspect number of updates in memory.
-                assert_eq!(updates.len(), 2);
+                assert_eq!(updates.inner.read().unwrap().len(), 2);
             }
 
             // No more update to peek or to take.
             assert!(updates.has_new_takable_updates().not());
-            assert!(updates.has_new_peekable_updates().not());
-            assert!(updates.peek().is_empty());
+            assert!(updates.inner.read().unwrap().has_new_peekable_updates().not());
+            assert!(updates.inner.write().unwrap().peek().is_empty());
             assert!(updates.take().is_empty());
 
             {
                 // Inspect number of updates in memory.
                 // The updates have been garbage collected.
-                assert_eq!(updates.len(), 0);
+                assert_eq!(updates.inner.read().unwrap().len(), 0);
             }
         }
 
@@ -1519,38 +1617,122 @@ mod tests {
 
             {
                 // Inspect number of updates in memory.
-                assert_eq!(updates.len(), 1);
+                assert_eq!(updates.inner.read().unwrap().len(), 1);
             }
 
             // Take and peek the update.
             assert!(updates.has_new_takable_updates());
-            assert!(updates.has_new_peekable_updates());
+            assert!(updates.inner.read().unwrap().has_new_peekable_updates());
             assert_eq!(
                 updates.take(),
                 &[InsertItems { at: Position(ChunkIdentifier(0), 2), items: vec!['c'] },]
             );
             assert_eq!(
-                updates.peek(),
+                updates.inner.write().unwrap().peek(),
                 &[InsertItems { at: Position(ChunkIdentifier(0), 2), items: vec!['c'] },]
             );
 
             {
                 // Inspect number of updates in memory.
-                assert_eq!(updates.len(), 1);
+                assert_eq!(updates.inner.read().unwrap().len(), 1);
             }
 
             // No more update to peek or to take.
             assert!(updates.has_new_takable_updates().not());
-            assert!(updates.has_new_peekable_updates().not());
-            assert!(updates.peek().is_empty());
+            assert!(updates.inner.read().unwrap().has_new_peekable_updates().not());
+            assert!(updates.inner.write().unwrap().peek().is_empty());
             assert!(updates.take().is_empty());
 
             {
                 // Inspect number of updates in memory.
                 // The update has been garbage collected.
-                assert_eq!(updates.len(), 0);
+                assert_eq!(updates.inner.read().unwrap().len(), 0);
             }
         }
+    }
+
+    #[test]
+    fn test_updates_stream() {
+        use super::LinkedChunkUpdate::*;
+
+        struct CounterWaker {
+            number_of_wakeup: Mutex<usize>,
+        }
+
+        impl Wake for CounterWaker {
+            fn wake(self: Arc<Self>) {
+                *self.number_of_wakeup.lock().unwrap() += 1;
+            }
+        }
+
+        let counter_waker = Arc::new(CounterWaker { number_of_wakeup: Mutex::new(0) });
+        let waker = counter_waker.clone().into();
+        let mut context = Context::from_waker(&waker);
+
+        let mut linked_chunk = LinkedChunk::<3, char, ()>::new_with_update_history();
+
+        let updates_subscriber = linked_chunk.updates().unwrap().subscribe();
+        pin_mut!(updates_subscriber);
+
+        // No update, stream is pending.
+        assert_matches!(updates_subscriber.as_mut().poll_next(&mut context), Poll::Pending);
+        assert_eq!(*counter_waker.number_of_wakeup.lock().unwrap(), 0);
+
+        // Let's generate an update.
+        linked_chunk.push_items_back(['a']);
+
+        // The waker must have been called.
+        assert_eq!(*counter_waker.number_of_wakeup.lock().unwrap(), 1);
+
+        // There is an update! Right after that, the stream is pending again.
+        assert_matches!(
+            updates_subscriber.as_mut().poll_next(&mut context),
+            Poll::Ready(Some(items)) => {
+                assert_eq!(
+                    items,
+                    &[InsertItems { at: Position(ChunkIdentifier(0), 0), items: vec!['a'] }]
+                );
+            }
+        );
+        assert_matches!(updates_subscriber.as_mut().poll_next(&mut context), Poll::Pending);
+
+        // Let's generate two other updates.
+        linked_chunk.push_items_back(['b']);
+        linked_chunk.push_items_back(['c']);
+
+        // The waker must have been called only once for the two updates.
+        assert_eq!(*counter_waker.number_of_wakeup.lock().unwrap(), 2);
+
+        // We can consume the updates without the stream, but the stream continues to
+        // know it has updates.
+        assert_eq!(
+            linked_chunk.updates().unwrap().take(),
+            &[
+                InsertItems { at: Position(ChunkIdentifier(0), 0), items: vec!['a'] },
+                InsertItems { at: Position(ChunkIdentifier(0), 1), items: vec!['b'] },
+                InsertItems { at: Position(ChunkIdentifier(0), 2), items: vec!['c'] },
+            ]
+        );
+        assert_matches!(
+            updates_subscriber.as_mut().poll_next(&mut context),
+            Poll::Ready(Some(items)) => {
+                assert_eq!(
+                    items,
+                    &[
+                        InsertItems { at: Position(ChunkIdentifier(0), 1), items: vec!['b'] },
+                        InsertItems { at: Position(ChunkIdentifier(0), 2), items: vec!['c'] },
+                    ]
+                );
+            }
+        );
+        assert_matches!(updates_subscriber.as_mut().poll_next(&mut context), Poll::Pending);
+
+        // When dropping the `LinkedChunk`, it closes the stream.
+        drop(linked_chunk);
+        assert_matches!(updates_subscriber.as_mut().poll_next(&mut context), Poll::Ready(None));
+
+        // Wakers calls have not changed.
+        assert_eq!(*counter_waker.number_of_wakeup.lock().unwrap(), 2);
     }
 
     #[test]
