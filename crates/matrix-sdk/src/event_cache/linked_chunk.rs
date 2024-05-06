@@ -51,35 +51,46 @@ pub enum LinkedChunkUpdate<Item, Gap> {
     NewItemsChunk {
         /// The identifier of the previous chunk of this new chunk.
         previous: Option<ChunkIdentifier>,
+
         /// The identifier of the new chunk.
         new: ChunkIdentifier,
+
         /// The identifier of the next chunk of this new chunk.
         next: Option<ChunkIdentifier>,
     },
+
     /// A new chunk of kind Gap has been created.
     NewGapChunk {
         /// The identifier of the previous chunk of this new chunk.
         previous: Option<ChunkIdentifier>,
+
         /// The identifier of the new chunk.
         new: ChunkIdentifier,
+
         /// The identifier of the next chunk of this new chunk.
         next: Option<ChunkIdentifier>,
+
         /// The content of the chunk.
         gap: Gap,
     },
+
     /// A chunk has been removed.
     RemoveChunk(ChunkIdentifier),
+
     /// Items are inserted inside a chunk of kind Items.
     InsertItems {
         /// [`Position`] of the items.
         at: Position,
+
         /// The items.
         items: Vec<Item>,
     },
+
     /// A chunk of kind Items has been truncated.
     TruncateItems {
         /// The identifier of the chunk.
         chunk: ChunkIdentifier,
+
         /// The new length of the chunk.
         length: usize,
     },
