@@ -96,6 +96,35 @@ pub enum LinkedChunkUpdate<Item, Gap> {
     },
 }
 
+impl<Item, Gap> Clone for LinkedChunkUpdate<Item, Gap>
+where
+    Item: Clone,
+    Gap: Clone,
+{
+    fn clone(&self) -> Self {
+        match self {
+            Self::NewItemsChunk { previous, new, next } => Self::NewItemsChunk {
+                previous: previous.clone(),
+                new: new.clone(),
+                next: next.clone(),
+            },
+            Self::NewGapChunk { previous, new, next, gap } => Self::NewGapChunk {
+                previous: previous.clone(),
+                new: new.clone(),
+                next: next.clone(),
+                gap: gap.clone(),
+            },
+            Self::RemoveChunk(identifier) => Self::RemoveChunk(identifier.clone()),
+            Self::InsertItems { at, items } => {
+                Self::InsertItems { at: at.clone(), items: items.clone() }
+            }
+            Self::TruncateItems { chunk, length } => {
+                Self::TruncateItems { chunk: chunk.clone(), length: length.clone() }
+            }
+        }
+    }
+}
+
 /// A collection of [`LinkedChunkUpdate`].
 ///
 /// Get a value for this type with [`LinkedChunk::updates`].
