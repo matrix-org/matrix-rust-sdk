@@ -2,7 +2,9 @@ use std::fs::create_dir_all;
 
 use camino::{Utf8Path, Utf8PathBuf};
 use clap::{Args, Subcommand, ValueEnum};
-use uniffi_bindgen::{bindings::TargetLanguage, library_mode::generate_bindings};
+use uniffi_bindgen::{
+    bindings::TargetLanguage, library_mode::generate_bindings, BindingGeneratorDefault,
+};
 use xshell::{cmd, pushd};
 
 use crate::{workspace, Result};
@@ -123,7 +125,10 @@ fn generate_uniffi_bindings(library_path: &Utf8Path, ffi_generated_dir: &Utf8Pat
     generate_bindings(
         library_path,
         None,
-        &[TargetLanguage::Kotlin],
+        &BindingGeneratorDefault {
+            target_languages: vec![TargetLanguage::Kotlin],
+            try_format_code: false,
+        },
         None,
         ffi_generated_dir,
         false,
