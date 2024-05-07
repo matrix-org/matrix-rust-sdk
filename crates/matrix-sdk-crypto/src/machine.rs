@@ -317,7 +317,7 @@ impl OlmMachine {
         // FIXME: This is a workaround due to `regenerate_olm` that was clearing backup
         // state. Backups shouldn't be automatically enabled.
         // The OlmMachine doesn't get enough info from the homeserver for this to work
-        // reliably. I don't belong here.
+        // reliably.
         let saved_keys = store.load_backup_keys().await?;
         let maybe_backup_key = saved_keys.decryption_key.and_then(|k| {
             if let Some(version) = saved_keys.backup_version {
