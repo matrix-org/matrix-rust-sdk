@@ -890,7 +890,8 @@ mod tests {
 
         assert_eq!(
             machine_backup_key.to_base64(),
-            backup_decryption_key.megolm_v1_public_key().to_base64()
+            backup_decryption_key.megolm_v1_public_key().to_base64(),
+            "The OlmMachine loaded the wrong backup key."
         );
     }
 }
