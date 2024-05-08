@@ -258,7 +258,7 @@ impl<Item, Gap> Updates<Item, Gap> {
     }
 
     /// Subscribe to updates by using a [`Stream`].
-    fn subscribe(&mut self) -> UpdatesSubscriber<Item, Gap> {
+    pub(super) fn subscribe(&mut self) -> UpdatesSubscriber<Item, Gap> {
         // A subscriber is a new update reader, it needs its own token.
         let token = {
             let mut inner = self.inner.write().unwrap();
@@ -276,7 +276,7 @@ impl<Item, Gap> Updates<Item, Gap> {
 
 /// A subscriber to [`Updates`]. It is helpful to receive updates via a
 /// [`Stream`].
-struct UpdatesSubscriber<Item, Gap> {
+pub(super) struct UpdatesSubscriber<Item, Gap> {
     /// Weak reference to [`UpdatesInner`].
     ///
     /// Using a weak reference allows [`Updates`] to be dropped

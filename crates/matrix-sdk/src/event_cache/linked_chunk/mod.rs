@@ -14,6 +14,7 @@
 
 #![allow(dead_code)]
 
+mod as_vector;
 mod updates;
 
 use std::{
@@ -24,6 +25,7 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
+use as_vector::*;
 use updates::*;
 
 /// Errors of [`LinkedChunk`].
@@ -611,8 +613,16 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
     /// If the `Option` becomes `None`, it will disable update history. Thus, be
     /// careful when you want to empty the update history: do not use
     /// `Option::take()` directly but rather [`Updates::take`] for example.
+    ///
+    /// It returns `None` if updates are disabled, i.e. if this linked chunk has
+    /// been constructed with [`Self::new`], otherwise, if it's been constructed
+    /// with [`Self::new_with_update_history`], it returns `Some(…)`.
     pub fn updates(&mut self) -> Option<&mut Updates<Item, Gap>> {
         self.updates.as_mut()
+    }
+
+    pub fn subscribe_as_vector(&mut self) -> Option<AsVectorSubscriber<Item, Gap>> {
+        self.updates.as_mut().map(|updates| AsVectorSubscriber::new(updates.subscribe()))
     }
 }
 
