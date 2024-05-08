@@ -81,10 +81,10 @@ indoc = "2.0.1"
 matrix-sdk-test = { workspace = true }
 olm-rs = { version = "2.2.0", features = ["serde"] }
 proptest = { version = "1.0.0", default-features = false, features = ["std"] }
+similar-asserts = "1.5.0"
 # required for async_test macro
 stream_assert = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
-similar-asserts = "1.5.0"
 
 [lints]
 workspace = true
