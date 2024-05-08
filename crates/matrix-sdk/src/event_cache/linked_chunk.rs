@@ -110,23 +110,16 @@ where
 {
     fn clone(&self) -> Self {
         match self {
-            Self::NewItemsChunk { previous, new, next } => Self::NewItemsChunk {
-                previous: previous.clone(),
-                new: new.clone(),
-                next: next.clone(),
-            },
-            Self::NewGapChunk { previous, new, next, gap } => Self::NewGapChunk {
-                previous: previous.clone(),
-                new: new.clone(),
-                next: next.clone(),
-                gap: gap.clone(),
-            },
-            Self::RemoveChunk(identifier) => Self::RemoveChunk(identifier.clone()),
-            Self::InsertItems { at, items } => {
-                Self::InsertItems { at: at.clone(), items: items.clone() }
+            Self::NewItemsChunk { previous, new, next } => {
+                Self::NewItemsChunk { previous: *previous, new: *new, next: *next }
             }
+            Self::NewGapChunk { previous, new, next, gap } => {
+                Self::NewGapChunk { previous: *previous, new: *new, next: *next, gap: gap.clone() }
+            }
+            Self::RemoveChunk(identifier) => Self::RemoveChunk(*identifier),
+            Self::InsertItems { at, items } => Self::InsertItems { at: *at, items: items.clone() },
             Self::TruncateItems { chunk, length } => {
-                Self::TruncateItems { chunk: chunk.clone(), length: length.clone() }
+                Self::TruncateItems { chunk: *chunk, length: *length }
             }
         }
     }
@@ -252,7 +245,7 @@ impl<Item, Gap> UpdatesInner<Item, Gap> {
     /// Basically, it reduces to finding the smallest last index for all
     /// readers, and clear from 0 to that index.
     fn garbage_collect(&mut self) {
-        let min_index = self.last_index_per_reader.values().min().map(|min| *min).unwrap_or(0);
+        let min_index = self.last_index_per_reader.values().min().copied().unwrap_or(0);
 
         if min_index > 0 {
             let _ = self.updates.drain(0..min_index);
