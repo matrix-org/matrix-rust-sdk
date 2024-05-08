@@ -3271,6 +3271,7 @@ dependencies = [
  "tracing",
  "ulid",
  "uniffi",
+ "url",
  "vodozemac",
  "zeroize",
 ]
