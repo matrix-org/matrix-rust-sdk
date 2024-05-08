@@ -70,7 +70,7 @@ impl TryFrom<CrossSigningKey> for SelfSigningPubkey {
 
     fn try_from(key: CrossSigningKey) -> Result<Self, Self::Error> {
         if key.usage.contains(&KeyUsage::SelfSigning) && key.usage.len() == 1 {
-            Ok(Self(key.into()))
+            Ok(Self(key))
         } else {
             Err(serde::de::Error::custom(format!(
                 "Expected cross signing key usage {} was not found",
