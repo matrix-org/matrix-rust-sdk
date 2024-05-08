@@ -51,7 +51,8 @@ use as_variant::as_variant;
 use futures_core::Stream;
 use futures_util::StreamExt;
 use ruma::{
-    events::secret::request::SecretName, DeviceId, OwnedDeviceId, OwnedRoomId, OwnedUserId, UserId,
+    encryption::KeyUsage, events::secret::request::SecretName, DeviceId, OwnedDeviceId,
+    OwnedRoomId, OwnedUserId, UserId,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use thiserror::Error;
@@ -60,6 +61,8 @@ use tracing::{info, warn};
 use vodozemac::{base64_encode, megolm::SessionOrdering, Curve25519PublicKey};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
+#[cfg(doc)]
+use crate::{backups::BackupMachine, identities::OwnUserIdentity};
 use crate::{
     gossiping::GossippedSecret,
     identities::{
@@ -69,7 +72,10 @@ use crate::{
         Account, ExportedRoomKey, InboundGroupSession, OlmMessageHash, OutboundGroupSession,
         PrivateCrossSigningIdentity, Session, StaticAccountData,
     },
-    types::{events::room_key_withheld::RoomKeyWithheldEvent, EventEncryptionAlgorithm},
+    types::{
+        events::room_key_withheld::RoomKeyWithheldEvent, BackupSecrets, CrossSigningSecrets,
+        EventEncryptionAlgorithm, MegolmBackupV1Curve25519AesSha2Secrets, SecretsBundle,
+    },
     verification::VerificationMachine,
     CrossSigningStatus, ReadOnlyOwnUserIdentity, RoomKeyImportResult,
 };
@@ -775,8 +781,7 @@ pub struct BackupKeys {
 
 /// A struct containing private cross signing keys that can be backed up or
 /// uploaded to the secret store.
-#[derive(Default, Zeroize)]
-#[zeroize(drop)]
+#[derive(Default, Zeroize, ZeroizeOnDrop)]
 pub struct CrossSigningKeyExport {
     /// The seed of the master key encoded as unpadded base64.
     pub master_key: Option<String>,
@@ -814,6 +819,27 @@ pub enum SecretImportError {
     /// The new version of the identity couldn't be stored.
     #[error(transparent)]
     Store(#[from] CryptoStoreError),
+}
+
+/// Error describing what went wrong when exporting a [`SecretsBundle`].
+///
+/// The [`SecretsBundle`] can only be exported if we have all cross-signing
+/// private keys in the store.
+#[derive(Debug, Error)]
+pub enum SecretsBundleExportError {
+    /// The store itself had an error.
+    #[error(transparent)]
+    Store(#[from] CryptoStoreError),
+    /// We're missing one or multiple cross-signing keys.
+    #[error("The store is missing one or multiple cross-signing keys")]
+    MissingCrossSigningKey(KeyUsage),
+    /// We're missing all cross-signing keys.
+    #[error("The store doesn't contain any cross-signing keys")]
+    MissingCrossSigningKeys,
+    /// We have a backup key stored, but we don't know the version of the
+    /// backup.
+    #[error("The store contains a backup key, but no backup version")]
+    MissingBackupVersion,
 }
 
 /// Result type telling us if a `/keys/query` response was expected for a given
@@ -1173,8 +1199,32 @@ impl Store {
         })
     }
 
-    /// Import the Cross Signing Keys
-    pub(crate) async fn import_cross_signing_keys(
+    /// Export all the private cross signing keys we have.
+    ///
+    /// The export will contain the seed for the ed25519 keys as a unpadded
+    /// base64 encoded string.
+    ///
+    /// This method returns `None` if we don't have any private cross signing
+    /// keys.
+    pub async fn export_cross_signing_keys(
+        &self,
+    ) -> Result<Option<CrossSigningKeyExport>, CryptoStoreError> {
+        let master_key = self.export_secret(&SecretName::CrossSigningMasterKey).await?;
+        let self_signing_key = self.export_secret(&SecretName::CrossSigningSelfSigningKey).await?;
+        let user_signing_key = self.export_secret(&SecretName::CrossSigningUserSigningKey).await?;
+
+        Ok(if master_key.is_none() && self_signing_key.is_none() && user_signing_key.is_none() {
+            None
+        } else {
+            Some(CrossSigningKeyExport { master_key, self_signing_key, user_signing_key })
+        })
+    }
+
+    /// Import our private cross signing keys.
+    ///
+    /// The export needs to contain the seed for the Ed25519 keys as an unpadded
+    /// base64 encoded string.
+    pub async fn import_cross_signing_keys(
         &self,
         export: CrossSigningKeyExport,
     ) -> Result<CrossSigningStatus, SecretImportError> {
@@ -1212,6 +1262,102 @@ impl Store {
         }
 
         Ok(self.inner.identity.lock().await.status().await)
+    }
+
+    /// Export all the secrets we have in the store into a [`SecretsBundle`].
+    ///
+    /// This method will export all the private cross-signing keys and, if
+    /// available, the private part of a backup key and its accompanying
+    /// version.
+    ///
+    /// The method will fail if we don't have all three private cross-signing
+    /// keys available.
+    ///
+    /// **Warning**: Only export this and share it with a trusted recipient,
+    /// i.e. if an existing device is sharing this with a new device.
+    pub async fn export_secrets_bundle(&self) -> Result<SecretsBundle, SecretsBundleExportError> {
+        let Some(cross_signing) = self.export_cross_signing_keys().await? else {
+            return Err(SecretsBundleExportError::MissingCrossSigningKeys);
+        };
+
+        let Some(master_key) = cross_signing.master_key.clone() else {
+            return Err(SecretsBundleExportError::MissingCrossSigningKey(KeyUsage::Master));
+        };
+
+        let Some(user_signing_key) = cross_signing.user_signing_key.clone() else {
+            return Err(SecretsBundleExportError::MissingCrossSigningKey(KeyUsage::UserSigning));
+        };
+
+        let Some(self_signing_key) = cross_signing.self_signing_key.clone() else {
+            return Err(SecretsBundleExportError::MissingCrossSigningKey(KeyUsage::SelfSigning));
+        };
+
+        let backup_keys = self.load_backup_keys().await?;
+
+        let backup = if let Some(key) = backup_keys.decryption_key {
+            if let Some(backup_version) = backup_keys.backup_version {
+                Some(BackupSecrets::MegolmBackupV1Curve25519AesSha2(
+                    MegolmBackupV1Curve25519AesSha2Secrets { key, backup_version },
+                ))
+            } else {
+                return Err(SecretsBundleExportError::MissingBackupVersion);
+            }
+        } else {
+            None
+        };
+
+        Ok(SecretsBundle {
+            cross_signing: CrossSigningSecrets { master_key, user_signing_key, self_signing_key },
+            backup,
+        })
+    }
+
+    /// Import and persists secrets from a [`SecretsBundle`].
+    ///
+    /// This method will import all the private cross-signing keys and, if
+    /// available, the private part of a backup key and its accompanying
+    /// version into the store.
+    ///
+    /// **Warning**: Only import this from a trusted source, i.e. if an existing
+    /// device is sharing this with a new device. The imported cross-signing
+    /// keys will create a [`OwnUserIdentity`] and mark it as verified.
+    ///
+    /// The backup key will be persisted in the store and can be enabled using
+    /// the [`BackupMachine`].
+    pub async fn import_secrets_bundle(
+        &self,
+        bundle: &SecretsBundle,
+    ) -> Result<(), SecretImportError> {
+        let mut changes = Changes::default();
+
+        if let Some(backup_bundle) = &bundle.backup {
+            match backup_bundle {
+                BackupSecrets::MegolmBackupV1Curve25519AesSha2(bundle) => {
+                    changes.backup_decryption_key = Some(bundle.key.clone());
+                    changes.backup_version = Some(bundle.backup_version.clone());
+                }
+            }
+        }
+
+        let identity = self.inner.identity.lock().await;
+
+        identity
+            .import_secrets_unchecked(
+                Some(&bundle.cross_signing.master_key),
+                Some(&bundle.cross_signing.self_signing_key),
+                Some(&bundle.cross_signing.user_signing_key),
+            )
+            .await?;
+
+        let public_identity = identity.to_public_identity().await.expect(
+            "We should be able to create a new public identity since we just imported \
+             all the private cross-signing keys",
+        );
+
+        changes.private_identity = Some(identity.clone());
+        changes.identities.new.push(ReadOnlyUserIdentities::Own(public_identity));
+
+        Ok(self.save_changes(changes).await?)
     }
 
     /// Import the given `secret` named `secret_name` into the keystore.
@@ -1793,5 +1939,36 @@ mod tests {
         assert_eq!(collected[0].algorithm, EventEncryptionAlgorithm::MegolmV1AesSha2);
         assert_eq!(collected[0].room_id, "!room1:localhost");
         assert_eq!(collected[0].session_key.to_base64().len(), 220);
+    }
+
+    #[async_test]
+    async fn export_secrets_bundle() {
+        let user_id = user_id!("@alice:example.com");
+        let (first, second, _) = get_machine_pair(user_id, user_id, false).await;
+
+        let _ = first
+            .bootstrap_cross_signing(false)
+            .await
+            .expect("We should be able to bootstrap cross-signing");
+
+        let bundle = first.store().export_secrets_bundle().await.expect(
+            "We should be able to export the secrets bundle, now that we \
+             have the cross-signing keys",
+        );
+
+        assert!(bundle.backup.is_none(), "The bundle should not contain a backup key");
+
+        second
+            .store()
+            .import_secrets_bundle(&bundle)
+            .await
+            .expect("We should be able to import the secrets bundle");
+
+        let status = second.cross_signing_status().await;
+        let identity = second.get_identity(user_id, None).await.unwrap().unwrap().own().unwrap();
+
+        assert!(identity.is_verified(), "The public identity should be marked as verified.");
+
+        assert!(status.is_complete(), "We should have imported all the cross-signing keys");
     }
 }
