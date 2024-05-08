@@ -72,8 +72,8 @@ impl SignJson for Signing {
 
 #[derive(PartialEq, Debug)]
 pub struct MasterSigning {
-    pub inner: Signing,
-    pub public_key: MasterPubkey,
+    inner: Signing,
+    public_key: MasterPubkey,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -113,6 +113,43 @@ impl MasterSigning {
             .expect("A freshly signed master key can be converted into a MasterPubkey");
 
         key
+    }
+
+    pub(crate) fn new_subkeys(&self) -> (UserSigning, SelfSigning) {
+        let user = Signing::new();
+        let mut public_key =
+            user.cross_signing_key(self.public_key.user_id().to_owned(), KeyUsage::UserSigning);
+
+        self.sign_subkey(&mut public_key);
+
+        let user = UserSigning {
+            inner: user,
+            public_key: public_key
+                .try_into()
+                .expect("We can always create a new random UserSigningPubkey"),
+        };
+
+        let self_signing = Signing::new();
+        let mut public_key = self_signing
+            .cross_signing_key(self.public_key.user_id().to_owned(), KeyUsage::SelfSigning);
+        self.sign_subkey(&mut public_key);
+
+        let self_signing = SelfSigning {
+            inner: self_signing,
+            public_key: public_key
+                .try_into()
+                .expect("We can always create a new random SelfSigningPubkey"),
+        };
+
+        (user, self_signing)
+    }
+
+    pub fn public_key(&self) -> &MasterPubkey {
+        &self.public_key
+    }
+
+    pub(crate) fn public_key_mut(&mut self) -> &mut MasterPubkey {
+        &mut self.public_key
     }
 
     pub fn pickle(&self) -> PickledMasterSigning {
@@ -166,6 +203,10 @@ impl UserSigning {
         let pickle = self.inner.pickle();
         let public_key = self.public_key.clone();
         PickledUserSigning { pickle, public_key }
+    }
+
+    pub fn public_key(&self) -> &UserSigningPubkey {
+        &self.public_key
     }
 
     pub fn export_seed(&self) -> String {
@@ -223,10 +264,14 @@ impl UserSigning {
 }
 
 impl SelfSigning {
-    pub fn pickle(&self) -> PickledSelfSigning {
+    pub(crate) fn pickle(&self) -> PickledSelfSigning {
         let pickle = self.inner.pickle();
         let public_key = self.public_key.clone();
         PickledSelfSigning { pickle, public_key }
+    }
+
+    pub fn public_key(&self) -> &SelfSigningPubkey {
+        &self.public_key
     }
 
     pub fn export_seed(&self) -> String {
@@ -243,7 +288,7 @@ impl SelfSigning {
         Ok(Self { inner, public_key })
     }
 
-    pub fn sign_device(&self, device_keys: &mut DeviceKeys) -> Result<(), SignatureError> {
+    pub(crate) fn sign_device(&self, device_keys: &mut DeviceKeys) -> Result<(), SignatureError> {
         let serialized = serde_json::to_value(&device_keys)?;
         let signature = self.inner.sign_json(serialized)?;
 
@@ -259,7 +304,7 @@ impl SelfSigning {
         Ok(())
     }
 
-    pub fn from_pickle(pickle: PickledSelfSigning) -> Result<Self, SigningError> {
+    pub(crate) fn from_pickle(pickle: PickledSelfSigning) -> Result<Self, SigningError> {
         let inner = Signing::from_pickle(pickle.pickle)?;
 
         Ok(Self { inner, public_key: pickle.public_key })
@@ -268,14 +313,14 @@ impl SelfSigning {
 
 #[derive(PartialEq, Debug)]
 pub struct SelfSigning {
-    pub inner: Signing,
-    pub public_key: SelfSigningPubkey,
+    inner: Signing,
+    public_key: SelfSigningPubkey,
 }
 
 #[derive(PartialEq, Debug)]
 pub struct UserSigning {
-    pub inner: Signing,
-    pub public_key: UserSigningPubkey,
+    inner: Signing,
+    public_key: UserSigningPubkey,
 }
 
 #[derive(Serialize, Deserialize)]

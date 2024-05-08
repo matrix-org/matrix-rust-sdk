@@ -421,9 +421,9 @@ impl ReadOnlyUserIdentity {
     #[cfg(test)]
     pub(crate) async fn from_private(identity: &crate::olm::PrivateCrossSigningIdentity) -> Self {
         let master_key =
-            identity.master_key.lock().await.as_ref().unwrap().public_key.clone().into();
+            identity.master_key.lock().await.as_ref().unwrap().public_key().clone().into();
         let self_signing_key =
-            identity.self_signing_key.lock().await.as_ref().unwrap().public_key.clone().into();
+            identity.self_signing_key.lock().await.as_ref().unwrap().public_key().clone().into();
 
         Self { user_id: identity.user_id().into(), master_key, self_signing_key }
     }
@@ -565,11 +565,11 @@ impl ReadOnlyOwnUserIdentity {
 
     #[cfg(test)]
     pub(crate) async fn from_private(identity: &crate::olm::PrivateCrossSigningIdentity) -> Self {
-        let master_key = identity.master_key.lock().await.as_ref().unwrap().public_key.clone();
+        let master_key = identity.master_key.lock().await.as_ref().unwrap().public_key().clone();
         let self_signing_key =
-            identity.self_signing_key.lock().await.as_ref().unwrap().public_key.clone();
+            identity.self_signing_key.lock().await.as_ref().unwrap().public_key().clone();
         let user_signing_key =
-            identity.user_signing_key.lock().await.as_ref().unwrap().public_key.clone();
+            identity.user_signing_key.lock().await.as_ref().unwrap().public_key().clone();
 
         Self {
             user_id: identity.user_id().into(),
