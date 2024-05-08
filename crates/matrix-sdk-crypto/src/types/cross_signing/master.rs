@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::btree_map::Iter, sync::Arc};
+use std::collections::btree_map::Iter;
 
 use ruma::{encryption::KeyUsage, DeviceKeyId, OwnedDeviceKeyId, UserId};
 use serde::{Deserialize, Serialize};
@@ -31,7 +31,7 @@ use crate::{
 /// user signing keys of an user will be signed by their master key.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(try_from = "CrossSigningKey")]
-pub struct MasterPubkey(pub(super) Arc<CrossSigningKey>);
+pub struct MasterPubkey(pub(super) CrossSigningKey);
 
 impl MasterPubkey {
     /// Get the user id of the master key's owner.
@@ -130,6 +130,12 @@ impl<'a> IntoIterator for &'a MasterPubkey {
 impl AsRef<CrossSigningKey> for MasterPubkey {
     fn as_ref(&self) -> &CrossSigningKey {
         &self.0
+    }
+}
+
+impl AsMut<CrossSigningKey> for MasterPubkey {
+    fn as_mut(&mut self) -> &mut CrossSigningKey {
+        &mut self.0
     }
 }
 

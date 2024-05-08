@@ -785,7 +785,7 @@ impl Account {
     /// Sign the given Master Key
     pub fn sign_master_key(
         &self,
-        master_key: MasterPubkey,
+        master_key: &MasterPubkey,
     ) -> Result<SignatureUploadRequest, SignatureError> {
         let public_key =
             master_key.get_first_key().ok_or(SignatureError::MissingSigningKey)?.to_base64().into();

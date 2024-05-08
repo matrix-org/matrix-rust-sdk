@@ -662,6 +662,8 @@ impl PrivateCrossSigningIdentity {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use matrix_sdk_test::async_test;
     use ruma::{device_id, user_id, CanonicalJsonValue, DeviceKeyAlgorithm, DeviceKeyId, UserId};
     use serde_json::json;
@@ -810,7 +812,7 @@ mod tests {
             "We're only uploading our own signature"
         );
 
-        bob_public.master_key = master.try_into().unwrap();
+        bob_public.master_key = Arc::new(master.try_into().unwrap());
 
         user_signing.public_key.verify_master_key(bob_public.master_key()).unwrap();
     }
