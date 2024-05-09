@@ -43,7 +43,7 @@ use matrix_sdk_ui::notification_client::{
 };
 use mime::Mime;
 use ruma::{
-    api::client::discovery::discover_homeserver::AuthenticationServerInfo,
+    api::client::{alias::get_alias, discovery::discover_homeserver::AuthenticationServerInfo},
     events::{
         ignored_user_list::IgnoredUserListEventContent,
         room::power_levels::RoomPowerLevelsEventContent, GlobalAccountDataEventType,
@@ -734,11 +734,15 @@ impl Client {
         Ok(())
     }
 
-    /// Resolves the given room alias to a room id, if possible.
-    pub async fn resolve_room_alias(&self, room_alias: String) -> Result<String, ClientError> {
+    /// Resolves the given room alias to a room ID (and a list of servers), if
+    /// possible.
+    pub async fn resolve_room_alias(
+        &self,
+        room_alias: String,
+    ) -> Result<ResolvedRoomAlias, ClientError> {
         let room_alias = RoomAliasId::parse(&room_alias)?;
         let response = self.inner.resolve_room_alias(&room_alias).await?;
-        Ok(response.room_id.to_string())
+        Ok(response.into())
     }
 
     /// Get the preview of a room, to interact with it.
@@ -785,6 +789,24 @@ impl From<NotificationProcessSetup> for MatrixNotificationProcessSetup {
                     sync_service: sync_service.inner.clone(),
                 }
             }
+        }
+    }
+}
+
+/// Information about a room, that was resolved from a room alias.
+#[derive(uniffi::Record)]
+pub struct ResolvedRoomAlias {
+    /// The room ID that the alias resolved to.
+    pub room_id: String,
+    /// A list of servers that can be used to find the room by its room ID.
+    pub servers: Vec<String>,
+}
+
+impl From<get_alias::v3::Response> for ResolvedRoomAlias {
+    fn from(value: get_alias::v3::Response) -> Self {
+        Self {
+            room_id: value.room_id.to_string(),
+            servers: value.servers.iter().map(ToString::to_string).collect(),
         }
     }
 }
