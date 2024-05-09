@@ -49,7 +49,7 @@ use ruma::{
         room::power_levels::RoomPowerLevelsEventContent, GlobalAccountDataEventType,
     },
     push::{HttpPusherData as RumaHttpPusherData, PushFormat as RumaPushFormat},
-    RoomAliasId,
+    OwnedServerName, RoomAliasId, RoomOrAliasId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -719,9 +719,35 @@ impl Client {
         ))
     }
 
+    /// Join a room by its ID.
+    ///
+    /// Use this method when the homeserver already knows of the given room ID.
+    /// Otherwise use `join_room_by_id_or_alias` so you can pass a list of
+    /// server names for the homeserver to find the room.
     pub async fn join_room_by_id(&self, room_id: String) -> Result<Arc<Room>, ClientError> {
         let room_id = RoomId::parse(room_id)?;
         let room = self.inner.join_room_by_id(room_id.as_ref()).await?;
+        Ok(Arc::new(Room::new(room)))
+    }
+
+    /// Join a room by its ID or alias.
+    ///
+    /// When supplying the room's ID, you can also supply a list of server names
+    /// for the homeserver to find the room. Typically these server names
+    /// come from a permalink's `via` parameters, or from resolving a room's
+    /// alias into an ID.
+    pub async fn join_room_by_id_or_alias(
+        &self,
+        room_id_or_alias: String,
+        server_names: Vec<String>,
+    ) -> Result<Arc<Room>, ClientError> {
+        let room_id = RoomOrAliasId::parse(&room_id_or_alias)?;
+        let server_names = server_names
+            .iter()
+            .map(|name| OwnedServerName::try_from(name.as_str()))
+            .collect::<Result<Vec<_>, _>>()?;
+        let room =
+            self.inner.join_room_by_id_or_alias(room_id.as_ref(), server_names.as_ref()).await?;
         Ok(Arc::new(Room::new(room)))
     }
 
