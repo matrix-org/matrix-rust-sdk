@@ -1,3 +1,8 @@
+# 0.7.1
+### Security Fixes
+
+- Don't log the private part of the backup key, introduced in [#71136e4](https://github.com/matrix-org/matrix-rust-sdk/commit/71136e44c03c79f80d6d1a2446673bc4d53a2067).
+
 # 0.7.0
 
 - Add method to mark a list of inbound group sessions as backed up:
