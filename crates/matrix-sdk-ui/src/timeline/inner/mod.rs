@@ -844,7 +844,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         }
     }
 
-    #[cfg(any(test, feature = "testing"))]
+    #[cfg(test)]
     pub(super) async fn set_fully_read_event(&self, fully_read_event_id: OwnedEventId) {
         self.state.write().await.set_fully_read_event(fully_read_event_id);
     }

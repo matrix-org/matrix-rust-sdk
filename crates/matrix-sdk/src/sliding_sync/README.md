@@ -131,13 +131,13 @@ in two additional full-sync-modes, which require additional configuration:
 ## Rooms
 
 Next to the room list, the details for rooms are the next important aspect.
-Each [list](#lists) only references the [`OwnedRoomId`][ruma::OwnedRoomId]
-of the room at the given position. The details (`required_state`s and
-timeline items) requested by all lists are bundled, together with the common
-details (e.g. whether it is a `dm` or its calculated name) and made
-available on the Sliding Sync session struct as a [reactive](#reactive-api)
-through [`.get_all_rooms`](SlidingSync::get_all_rooms), [`get_room`](SlidingSync::get_room)
-and [`get_rooms`](SlidingSync::get_rooms) APIs.
+Each [list](#lists) only references the [`OwnedRoomId`] of the room at the given
+position. The details (`required_state`s and timeline items) requested by all
+lists are bundled, together with the common details (e.g. whether it is a `dm`
+or its calculated name) and made available on the Sliding Sync session struct as
+a [reactive](#reactive-api) through [`.get_all_rooms`](SlidingSync::get_all_rooms),
+[`get_room`](SlidingSync::get_room) and [`get_rooms`](SlidingSync::get_rooms)
+APIs.
 
 Notably, this map only knows about the rooms that have come down [Sliding
 Sync protocol][MSC] and if the given room isn't in any active list range, it
