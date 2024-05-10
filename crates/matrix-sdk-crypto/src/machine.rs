@@ -4397,7 +4397,7 @@ pub(crate) mod tests {
         let ciphertext = key_backup_data.session_data.ciphertext.encode();
         let mac = key_backup_data.session_data.mac.encode();
 
-        // Without the fix would generate a Mac(MacError)
+        // Prior to the fix for GHSA-9ggc-845v-gcgv, this would produce a `Mac(MacError)`
         backup_decryption_key
             .decrypt_v1(&ephemeral, &mac, &ciphertext)
             .expect("The backed up key should be decrypted successfully");
