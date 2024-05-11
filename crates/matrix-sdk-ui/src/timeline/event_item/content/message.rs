@@ -27,7 +27,7 @@ use ruma::{
             SyncRoomMessageEvent,
         },
         AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnyTimelineEvent,
-        BundledMessageLikeRelations,
+        BundledMessageLikeRelations, Mentions,
     },
     html::RemoveReplyFallback,
     OwnedEventId, OwnedUserId, RoomVersionId, UserId,
@@ -52,6 +52,7 @@ pub struct Message {
     /// Event ID of the thread root, if this is a threaded message.
     pub(in crate::timeline) thread_root: Option<OwnedEventId>,
     pub(in crate::timeline) edited: bool,
+    pub(in crate::timeline) mentions: Option<Mentions>,
 }
 
 impl Message {
@@ -94,11 +95,11 @@ impl Message {
             _ => None,
         });
 
-        let msgtype = match edit {
+        let (msgtype, mentions) = match edit {
             Some(mut e) => {
                 // Edit's content is never supposed to contain the reply fallback.
                 e.new_content.msgtype.sanitize(DEFAULT_SANITIZER_MODE, RemoveReplyFallback::No);
-                e.new_content.msgtype
+                (e.new_content.msgtype, e.new_content.mentions)
             }
             None => {
                 let remove_reply_fallback = if in_reply_to.is_some() {
@@ -109,11 +110,11 @@ impl Message {
 
                 let mut msgtype = c.msgtype;
                 msgtype.sanitize(DEFAULT_SANITIZER_MODE, remove_reply_fallback);
-                msgtype
+                (msgtype, c.mentions)
             }
         };
 
-        Self { msgtype, in_reply_to, thread_root, edited }
+        Self { msgtype, in_reply_to, thread_root, edited, mentions }
     }
 
     /// Get the `msgtype`-specific data of this message.
@@ -142,6 +143,11 @@ impl Message {
     /// `false`).
     pub fn is_edited(&self) -> bool {
         self.edited
+    }
+
+    /// Get the mentions of this message.
+    pub fn mentions(&self) -> Option<&Mentions> {
+        self.mentions.as_ref()
     }
 
     pub(in crate::timeline) fn to_content(&self) -> RoomMessageEventContent {
@@ -192,7 +198,7 @@ fn make_relates_to(
 #[cfg(not(tarpaulin_include))]
 impl fmt::Debug for Message {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let Self { msgtype: _, in_reply_to, thread_root, edited } = self;
+        let Self { msgtype: _, in_reply_to, thread_root, edited, mentions: _ } = self;
         // since timeline items are logged, don't include all fields here so
         // people don't leak personal data in bug reports
         f.debug_struct("Message")

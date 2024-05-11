@@ -477,6 +477,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 in_reply_to: msg.in_reply_to.clone(),
                 thread_root: msg.thread_root.clone(),
                 edited: true,
+                mentions: replacement.new_content.mentions,
             });
 
             let edit_json = match &this.ctx.flow {
