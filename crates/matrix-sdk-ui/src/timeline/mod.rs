@@ -419,7 +419,7 @@ impl Timeline {
             });
 
         let content = new_content.make_replacement(
-            ReplacementMetadata::new(event_id.to_owned(), None),
+            ReplacementMetadata::new(event_id.to_owned(), original_content.mentions.clone()),
             replied_to_message.as_ref(),
         );
 
