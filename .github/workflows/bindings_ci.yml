@@ -114,4 +114,4 @@ jobs:
     name: "Run Complement Crypto tests"
     uses: matrix-org/complement-crypto/.github/workflows/single_sdk_tests.yml@main
     with:
-        use_rust_sdk: "."
+        use_rust_sdk: "." # use local checkout
