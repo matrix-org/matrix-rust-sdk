@@ -1125,6 +1125,8 @@ impl TimelineInner {
         &self.room_data_provider
     }
 
+    /// Given an event identifier, will fetch the details for the event it's
+    /// replying to, if applicable.
     #[instrument(skip(self))]
     pub(super) async fn fetch_in_reply_to_details(&self, event_id: &EventId) -> Result<(), Error> {
         let state = self.state.write().await;
@@ -1133,27 +1135,29 @@ impl TimelineInner {
         let remote_item = item.as_remote().ok_or(Error::RemoteEventNotInTimeline)?.clone();
 
         let TimelineItemContent::Message(message) = item.content().clone() else {
-            info!("Event is not a message");
+            debug!("Event is not a message");
             return Ok(());
         };
         let Some(in_reply_to) = message.in_reply_to() else {
-            info!("Event is not a reply");
+            debug!("Event is not a reply");
             return Ok(());
         };
         if let TimelineDetails::Pending = &in_reply_to.event {
-            info!("Replied-to event is already being fetched");
+            debug!("Replied-to event is already being fetched");
             return Ok(());
         }
         if let TimelineDetails::Ready(_) = &in_reply_to.event {
-            info!("Replied-to event has already been fetched");
+            debug!("Replied-to event has already been fetched");
             return Ok(());
         }
 
+        let internal_id = item.internal_id.to_owned();
         let item = item.clone();
         let event = fetch_replied_to_event(
             state,
             index,
             &item,
+            internal_id,
             &message,
             &in_reply_to.event_id,
             self.room(),
@@ -1177,6 +1181,8 @@ impl TimelineInner {
             return Ok(());
         };
 
+        // Now that we've received the content of the replied-to event, replace the
+        // replied-to content in the item with it.
         trace!("Updating in-reply-to details");
         let internal_id = item.internal_id.to_owned();
         let mut item = item.clone();
@@ -1279,6 +1285,7 @@ async fn fetch_replied_to_event(
     mut state: RwLockWriteGuard<'_, TimelineInnerState>,
     index: usize,
     item: &EventTimelineItem,
+    internal_id: String,
     message: &Message,
     in_reply_to: &EventId,
     room: &Room,
@@ -1290,10 +1297,12 @@ async fn fetch_replied_to_event(
             sender_profile: item.sender_profile().clone(),
         }));
 
-        debug!("Found replied-to event locally");
+        trace!("Found replied-to event locally");
         return Ok(details);
     };
 
+    // Replace the item with a new timeline item that has the fetching status of the
+    // replied-to event to pending.
     trace!("Setting in-reply-to details to pending");
     let reply = message.with_in_reply_to(InReplyToDetails {
         event_id: in_reply_to.to_owned(),
@@ -1301,7 +1310,7 @@ async fn fetch_replied_to_event(
     });
     let event_item = item.with_content(TimelineItemContent::Message(reply), None);
 
-    let new_timeline_item = state.meta.new_timeline_item(event_item);
+    let new_timeline_item = TimelineItem::new(event_item, internal_id);
     state.items.set(index, new_timeline_item);
 
     // Don't hold the state lock while the network request is made
