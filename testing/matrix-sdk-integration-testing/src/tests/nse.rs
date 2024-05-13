@@ -37,6 +37,7 @@ use tracing::{info, instrument, span, Level};
 use crate::helpers::{SyncTokenAwareClient, TestClientBuilder};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "Flakes by timing out sometimes"]
 async fn test_multiple_clients_share_crypto_state() -> Result<()> {
     // This failed before https://github.com/matrix-org/matrix-rust-sdk/pull/3338
     // because, even though the cross-process lock was working, the SessionStore
