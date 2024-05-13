@@ -122,14 +122,14 @@ optional = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 gloo-timers = { version = "0.3.0", features = ["futures"] }
-reqwest = { version = "0.12.4", default-features = false }
+reqwest = { workspace = true }
 tokio = { workspace = true, features = ["macros"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 backoff = { version = "0.4.0", features = ["tokio"] }
 # only activate reqwest's stream feature on non-wasm, the wasm part seems to not
 # support *sending* streams, which makes it useless for us.
-reqwest = { version = "0.12.4", default-features = false, features = ["stream"] }
+reqwest = { workspace = true, features = ["stream"] }
 tokio = { workspace = true, features = ["fs", "rt", "macros"] }
 tokio-util = "0.7.9"
 wiremock = { workspace = true, optional = true }
