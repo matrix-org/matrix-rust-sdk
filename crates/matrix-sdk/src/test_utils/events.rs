@@ -96,12 +96,12 @@ where
     }
 }
 
-impl<E: EventContent> Into<Raw<AnySyncTimelineEvent>> for EventBuilder<E>
+impl<E: EventContent> From<EventBuilder<E>> for Raw<AnySyncTimelineEvent>
 where
     E::EventType: Serialize,
 {
-    fn into(self) -> Raw<AnySyncTimelineEvent> {
-        self.into_raw_sync()
+    fn from(val: EventBuilder<E>) -> Self {
+        val.into_raw_sync()
     }
 }
 
