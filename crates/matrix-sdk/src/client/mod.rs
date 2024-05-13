@@ -944,11 +944,15 @@ impl Client {
 
     /// Gets the preview of a room, whether the current user knows it (because
     /// they've joined/left/been invited to it) or not.
-    pub async fn get_room_preview(&self, room_id: &RoomId) -> Result<RoomPreview> {
+    pub async fn get_room_preview(
+        &self,
+        room_id: &RoomId,
+        via: Vec<OwnedServerName>,
+    ) -> Result<RoomPreview> {
         if let Some(room) = self.get_room(room_id) {
             return Ok(RoomPreview::from_known(&room));
         }
-        RoomPreview::from_unknown(self, room_id).await
+        RoomPreview::from_unknown(self, room_id, via).await
     }
 
     /// Resolve a room alias to a room id and a list of servers which know

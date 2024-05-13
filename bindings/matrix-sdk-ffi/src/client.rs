@@ -49,7 +49,7 @@ use ruma::{
         room::power_levels::RoomPowerLevelsEventContent, GlobalAccountDataEventType,
     },
     push::{HttpPusherData as RumaHttpPusherData, PushFormat as RumaPushFormat},
-    OwnedServerName, RoomAliasId, RoomOrAliasId,
+    OwnedServerName, RoomAliasId, RoomOrAliasId, ServerName,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -772,9 +772,14 @@ impl Client {
     }
 
     /// Get the preview of a room, to interact with it.
+    ///
+    /// The (optional) list of `via_servers` must be a list of servers that know
+    /// about the room and can resolve it, and that may appear as a `via`
+    /// parameter in e.g. a permalink URL. It can be empty.
     pub async fn get_room_preview(
         &self,
         room_id_or_alias: String,
+        via_servers: Vec<String>,
     ) -> Result<RoomPreview, ClientError> {
         let room_id = if let Ok(parsed_room_id) = RoomId::parse(&room_id_or_alias) {
             parsed_room_id
@@ -787,7 +792,13 @@ impl Client {
             response.room_id
         };
 
-        let sdk_room_preview = self.inner.get_room_preview(&room_id).await?;
+        let via_servers = via_servers
+            .into_iter()
+            .map(ServerName::parse)
+            .collect::<Result<Vec<_>, _>>()
+            .context("invalid via server name")?;
+
+        let sdk_room_preview = self.inner.get_room_preview(&room_id, via_servers).await?;
 
         Ok(RoomPreview::from_sdk(room_id, sdk_room_preview))
     }
