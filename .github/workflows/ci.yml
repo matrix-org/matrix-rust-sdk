@@ -399,7 +399,7 @@ jobs:
 
       - name: Test
         env:
-          RUST_LOG: "hyper=trace"
+          RUST_LOG: "info,matrix_sdk=trace"
           HOMESERVER_URL: "http://localhost:8008"
           HOMESERVER_DOMAIN: "synapse"
           SLIDING_SYNC_PROXY_URL: "http://localhost:8118"
