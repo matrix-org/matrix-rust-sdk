@@ -314,13 +314,16 @@ impl OlmMachine {
             }
         };
 
+        // FIXME: This is a workaround for `regenerate_olm` clearing the backup
+        // state. Ideally, backups should not get automatically enabled since
+        // the `OlmMachine` doesn't get enough info from the homeserver for this
+        // to work reliably.
         let saved_keys = store.load_backup_keys().await?;
         let maybe_backup_key = saved_keys.decryption_key.and_then(|k| {
             if let Some(version) = saved_keys.backup_version {
-                MegolmV1BackupKey::from_base64(&k.to_base64()).ok().map(|k| {
-                    k.set_version(version);
-                    k
-                })
+                let megolm_v1_backup_key = k.megolm_v1_public_key();
+                megolm_v1_backup_key.set_version(version);
+                Some(megolm_v1_backup_key)
             } else {
                 None
             }
@@ -2241,8 +2244,10 @@ pub(crate) mod tests {
     use crate::{
         error::{EventError, SetRoomSettingsError},
         machine::{EncryptionSyncChanges, OlmMachine},
-        olm::{InboundGroupSession, OutboundGroupSession, VerifyJson},
-        store::{Changes, RoomSettings},
+        olm::{
+            BackedUpRoomKey, ExportedRoomKey, InboundGroupSession, OutboundGroupSession, VerifyJson,
+        },
+        store::{BackupDecryptionKey, Changes, CryptoStore, MemoryStore, RoomSettings},
         types::{
             events::{
                 room::encrypted::{EncryptedToDeviceEvent, ToDeviceEncryptedEventContent},
@@ -4335,5 +4340,66 @@ pub(crate) mod tests {
             .await;
 
         assert_matches!(encryption_result, Err(OlmError::MissingSession));
+    }
+
+    #[async_test]
+    async fn test_fix_incorrect_usage_of_backup_key_causing_decryption_errors() {
+        let store = MemoryStore::new();
+
+        let backup_decryption_key = BackupDecryptionKey::new().unwrap();
+
+        store
+            .save_changes(Changes {
+                backup_decryption_key: Some(backup_decryption_key.clone()),
+                backup_version: Some("1".to_owned()),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+
+        // Some valid key data
+        let data = json!({
+           "algorithm": "m.megolm.v1.aes-sha2",
+           "room_id": "!room:id",
+           "sender_key": "FOvlmz18LLI3k/llCpqRoKT90+gFF8YhuL+v1YBXHlw",
+           "session_id": "/2K+V777vipCxPZ0gpY9qcpz1DYaXwuMRIu0UEP0Wa0",
+           "session_key": "AQAAAAAclzWVMeWBKH+B/WMowa3rb4ma3jEl6n5W4GCs9ue65CruzD3ihX+85pZ9hsV9Bf6fvhjp76WNRajoJYX0UIt7aosjmu0i+H+07hEQ0zqTKpVoSH0ykJ6stAMhdr6Q4uW5crBmdTTBIsqmoWsNJZKKoE2+ldYrZ1lrFeaJbjBIY/9ivle++74qQsT2dIKWPanKc9Q2Gl8LjESLtFBD9Fmt",
+           "sender_claimed_keys": {
+               "ed25519": "F4P7f1Z0RjbiZMgHk1xBCG3KC4/Ng9PmxLJ4hQ13sHA"
+           },
+           "forwarding_curve25519_key_chain": ["DBPC2zr6c9qimo9YRFK3RVr0Two/I6ODb9mbsToZN3Q", "bBc/qzZFOOKshMMT+i4gjS/gWPDoKfGmETs9yfw9430"]
+        });
+
+        let backed_up_room_key: BackedUpRoomKey = serde_json::from_value(data).unwrap();
+
+        // Create the machine using `with_store` and without a call to enable_backup_v1,
+        // like regenerate_olm would do
+        let alice = OlmMachine::with_store(user_id(), alice_device_id(), store).await.unwrap();
+
+        let exported_key = ExportedRoomKey::from_backed_up_room_key(
+            room_id!("!room:id").to_owned(),
+            "/2K+V777vipCxPZ0gpY9qcpz1DYaXwuMRIu0UEP0Wa0".into(),
+            backed_up_room_key,
+        );
+
+        alice.store().import_exported_room_keys(vec![exported_key], |_, _| {}).await.unwrap();
+
+        let (_, request) = alice.backup_machine().backup().await.unwrap().unwrap();
+
+        let key_backup_data = request.rooms[&room_id!("!room:id").to_owned()]
+            .sessions
+            .get("/2K+V777vipCxPZ0gpY9qcpz1DYaXwuMRIu0UEP0Wa0")
+            .unwrap()
+            .deserialize()
+            .unwrap();
+
+        let ephemeral = key_backup_data.session_data.ephemeral.encode();
+        let ciphertext = key_backup_data.session_data.ciphertext.encode();
+        let mac = key_backup_data.session_data.mac.encode();
+
+        // Prior to the fix for GHSA-9ggc-845v-gcgv, this would produce a `Mac(MacError)`
+        backup_decryption_key
+            .decrypt_v1(&ephemeral, &mac, &ciphertext)
+            .expect("The backed up key should be decrypted successfully");
     }
 }
