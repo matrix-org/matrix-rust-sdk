@@ -20,8 +20,9 @@ use matrix_sdk_base::deserialized_responses::{SyncTimelineEvent, TimelineEvent};
 use matrix_sdk_test::{sync_timeline_event, timeline_event};
 use ruma::{
     events::{
-        room::message::RoomMessageEventContent, AnySyncTimelineEvent, AnyTimelineEvent,
-        EventContent,
+        relation::InReplyTo,
+        room::message::{Relation, RoomMessageEventContent},
+        AnySyncTimelineEvent, AnyTimelineEvent, EventContent,
     },
     serde::Raw,
     server_name, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedUserId,
@@ -93,6 +94,14 @@ where
 
     pub fn into_sync(self) -> SyncTimelineEvent {
         SyncTimelineEvent::new(self.into_raw_sync())
+    }
+}
+
+impl EventBuilder<RoomMessageEventContent> {
+    pub fn reply_to(mut self, event_id: &EventId) -> Self {
+        self.content.relates_to =
+            Some(Relation::Reply { in_reply_to: InReplyTo::new(event_id.to_owned()) });
+        self
     }
 }
 
