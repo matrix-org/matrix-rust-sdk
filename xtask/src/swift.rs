@@ -34,9 +34,11 @@ enum SwiftCommand {
         #[clap(long)]
         profile: Option<String>,
 
-        /// Build the given target only
+        /// Build the given target. This option can be specified multiple times
+        /// to build more than one. Omitting this option will build all
+        /// supported targets.
         #[clap(long)]
-        only_target: Option<String>,
+        target: Option<Vec<String>>,
 
         /// Move the generated xcframework and swift sources into the given
         /// components-folder
@@ -61,11 +63,11 @@ impl SwiftArgs {
                 release,
                 profile,
                 components_path,
-                only_target,
+                target: targets,
                 sequentially,
             } => {
                 let profile = profile.as_deref().unwrap_or(if release { "release" } else { "dev" });
-                build_xcframework(profile, only_target, components_path, sequentially)
+                build_xcframework(profile, targets, components_path, sequentially)
             }
         }
     }
@@ -169,7 +171,7 @@ fn generate_uniffi(library_path: &Utf8Path, ffi_directory: &Utf8Path) -> Result<
 
 fn build_xcframework(
     profile: &str,
-    only_target: Option<String>,
+    targets: Option<Vec<String>>,
     components_path: Option<Utf8PathBuf>,
     sequentially: bool,
 ) -> Result<()> {
@@ -186,9 +188,13 @@ fn build_xcframework(
     create_dir_all(headers_dir.clone())?;
     create_dir_all(swift_dir.clone())?;
 
-    let targets = if let Some(triple) = only_target {
-        let target = TARGETS.iter().find(|t| t.triple == triple).expect("Invalid target specified");
-        vec![target]
+    let targets = if let Some(triples) = targets {
+        triples
+            .iter()
+            .map(|t| {
+                TARGETS.iter().find(|target| target.triple == *t).expect("Invalid target specified")
+            })
+            .collect()
     } else {
         TARGETS.iter().collect()
     };

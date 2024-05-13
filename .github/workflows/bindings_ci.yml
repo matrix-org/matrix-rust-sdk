@@ -108,4 +108,4 @@ jobs:
         run: swift test
 
       - name: Build Framework
-        run: target/debug/xtask swift build-framework --only-target=aarch64-apple-ios
+        run: target/debug/xtask swift build-framework --target=aarch64-apple-ios
