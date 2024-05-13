@@ -14,8 +14,7 @@ use matrix_sdk_ui::{
     room_list_service::{
         filters::{new_filter_fuzzy_match_room_name, new_filter_non_left, new_filter_none},
         Error, Input, InputResult, RoomListEntry, RoomListLoadingState, State, SyncIndicator,
-        ALL_ROOMS_LIST_NAME as ALL_ROOMS, INVITES_LIST_NAME as INVITES,
-        VISIBLE_ROOMS_LIST_NAME as VISIBLE_ROOMS,
+        ALL_ROOMS_LIST_NAME as ALL_ROOMS, VISIBLE_ROOMS_LIST_NAME as VISIBLE_ROOMS,
     },
     timeline::{TimelineItemKind, VirtualTimelineItem},
     RoomListService,
@@ -277,7 +276,6 @@ async fn test_sync_all_states() -> Result<(), Error> {
                         ["m.room.power_levels", ""],
                     ],
                     "filters": {
-                        "is_invite": false,
                         "is_tombstoned": false,
                         "not_room_types": ["m.space"],
                     },
@@ -288,22 +286,6 @@ async fn test_sync_all_states() -> Result<(), Error> {
                     ],
                     "sort": ["by_recency", "by_name"],
                     "timeline_limit": 1,
-                },
-                INVITES: {
-                    "ranges": [[0, 0]],
-                    "required_state": [
-                        ["m.room.avatar", ""],
-                        ["m.room.encryption", ""],
-                        ["m.room.member", "$ME"],
-                        ["m.room.canonical_alias", ""],
-                    ],
-                    "filters": {
-                        "is_invite": true,
-                        "is_tombstoned": false,
-                        "not_room_types": ["m.space"],
-                    },
-                    "sort": ["by_recency", "by_name"],
-                    "timeline_limit": 0,
                 },
             },
             "extensions": {
@@ -327,10 +309,6 @@ async fn test_sync_all_states() -> Result<(), Error> {
                     "ops": [
                         // let's ignore them for now
                     ],
-                },
-                INVITES: {
-                    "count": 40,
-                    "ops": [],
                 },
             },
             "rooms": {
@@ -356,7 +334,6 @@ async fn test_sync_all_states() -> Result<(), Error> {
                         ["m.room.member", "$LAZY"],
                     ],
                     "filters": {
-                        "is_invite": false,
                         "is_tombstoned": false,
                         "not_room_types": ["m.space"],
                     },
@@ -367,9 +344,6 @@ async fn test_sync_all_states() -> Result<(), Error> {
                     ],
                     "sort": ["by_recency", "by_name"],
                     "timeline_limit": 20,
-                },
-                INVITES: {
-                    "ranges": [[0, 19]],
                 },
             },
         },
@@ -384,10 +358,6 @@ async fn test_sync_all_states() -> Result<(), Error> {
                 },
                 VISIBLE_ROOMS: {
                     "count": 0,
-                    "ops": [],
-                },
-                INVITES: {
-                    "count": 2,
                     "ops": [],
                 },
             },
@@ -409,9 +379,6 @@ async fn test_sync_all_states() -> Result<(), Error> {
                 VISIBLE_ROOMS: {
                     "ranges": [[0, 19]],
                 },
-                INVITES: {
-                    "ranges": [[0, 1]],
-                }
             },
         },
         respond with = {
@@ -425,10 +392,6 @@ async fn test_sync_all_states() -> Result<(), Error> {
                 },
                 VISIBLE_ROOMS: {
                     "count": 0,
-                    "ops": [],
-                },
-                INVITES: {
-                    "count": 3,
                     "ops": [],
                 },
             },
@@ -450,9 +413,6 @@ async fn test_sync_all_states() -> Result<(), Error> {
                 VISIBLE_ROOMS: {
                     "ranges": [[0, 19]],
                 },
-                INVITES: {
-                    "ranges": [[0, 2]],
-                },
             },
         },
         respond with = {
@@ -468,10 +428,6 @@ async fn test_sync_all_states() -> Result<(), Error> {
                     "count": 0,
                     "ops": [],
                 },
-                INVITES: {
-                    "count": 0,
-                    "ops": [],
-                }
             },
             "rooms": {
                 // let's ignore them for now
@@ -491,9 +447,6 @@ async fn test_sync_all_states() -> Result<(), Error> {
                 VISIBLE_ROOMS: {
                     "ranges": [[0, 19]],
                 },
-                INVITES: {
-                    "ranges": [[0, 0]],
-                },
             },
         },
         respond with = {
@@ -506,10 +459,6 @@ async fn test_sync_all_states() -> Result<(), Error> {
                     ],
                 },
                 VISIBLE_ROOMS: {
-                    "count": 0,
-                    "ops": [],
-                },
-                INVITES: {
                     "count": 0,
                     "ops": [],
                 },
@@ -571,9 +520,6 @@ async fn test_sync_resumes_from_previous_state() -> Result<(), Error> {
                     VISIBLE_ROOMS: {
                         "ranges": [[0, 19]],
                     },
-                    INVITES: {
-                        "ranges": [[0, 19]],
-                    },
                 },
             },
             respond with = {
@@ -584,10 +530,6 @@ async fn test_sync_resumes_from_previous_state() -> Result<(), Error> {
                         "ops": [],
                     },
                     VISIBLE_ROOMS: {
-                        "count": 0,
-                        "ops": [],
-                    },
-                    INVITES: {
                         "count": 0,
                         "ops": [],
                     },
@@ -613,9 +555,6 @@ async fn test_sync_resumes_from_previous_state() -> Result<(), Error> {
                     VISIBLE_ROOMS: {
                         "ranges": [[0, 19]],
                     },
-                    INVITES: {
-                        "ranges": [[0, 0]],
-                    },
                 },
             },
             respond with = {
@@ -626,10 +565,6 @@ async fn test_sync_resumes_from_previous_state() -> Result<(), Error> {
                         "ops": [],
                     },
                     VISIBLE_ROOMS: {
-                        "count": 0,
-                        "ops": [],
-                    },
-                    INVITES: {
                         "count": 0,
                         "ops": [],
                     },
@@ -659,10 +594,6 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
                     // The default range, in selective sync-mode.
                     "ranges": [[0, 19]],
                 },
-                INVITES: {
-                    // The default range, in selective sync-mode.
-                    "ranges": [[0, 0]],
-                },
             },
         },
         respond with = (code 400) {
@@ -686,10 +617,6 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
                 ALL_ROOMS: {
                     // Still the default range, in selective sync-mode.
                     "ranges": [[0, 19]],
-                },
-                INVITES: {
-                    // Stil the default range, in selective sync-mode.
-                    "ranges": [[0, 0]],
                 },
             },
         },
@@ -718,10 +645,6 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
                     // Hello new list.
                     "ranges": [[0, 19]],
                     "timeline_limit": 20,
-                },
-                INVITES: {
-                    // The sync-mode has changed to growing, with its initial range.
-                    "ranges": [[0, 19]],
                 },
             },
         },
@@ -756,10 +679,6 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
                     // The `timeline_limit` has been set to zero.
                     "timeline_limit": 0,
                 },
-                INVITES: {
-                    // Due to previous error, the sync-mode is back to selective, with its initial range.
-                    "ranges": [[0, 0]],
-                },
             },
         },
         respond with = {
@@ -768,9 +687,6 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
                 ALL_ROOMS: {
                     "count": 210,
                 },
-                INVITES: {
-                    "count": 30,
-                }
             },
             "rooms": {},
         },
@@ -791,10 +707,6 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
                     // The `timeline_limit` has been restored.
                     "timeline_limit": 20,
                 },
-                INVITES: {
-                    // Sync-mode is now growing.
-                    "ranges": [[0, 19]],
-                },
             },
         },
         respond with = {
@@ -803,9 +715,6 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
                 ALL_ROOMS: {
                     "count": 210,
                 },
-                INVITES: {
-                    "count": 30,
-                }
             },
             "rooms": {},
         },
@@ -825,10 +734,6 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
                     // The range is kept.
                     "ranges": [[5, 10]],
                     // `timeline_limit` is a sticky parameter, so it's absent now.
-                },
-                INVITES: {
-                    // The sync-mode is still growing, and the range has made progress.
-                    "ranges": [[0, 29]],
                 },
             },
         },
@@ -860,10 +765,6 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
                     // The `timeline_limit` has been set to 0.
                     "timeline_limit": 0,
                 },
-                INVITES: {
-                    // Due to previous error, the range has been reset.
-                    "ranges": [[0, 0]],
-                },
             },
         },
         respond with = {
@@ -872,9 +773,6 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
                 ALL_ROOMS: {
                     "count": 210,
                 },
-                INVITES: {
-                    "count": 4,
-                }
             },
             "rooms": {},
         },
@@ -895,10 +793,6 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
                     // The `timeline_limit` has been restored.
                     "timeline_limit": 20,
                 },
-                INVITES: {
-                    // The sync-mode is now growing, and has reached its maximum.
-                    "ranges": [[0, 3]],
-                },
             },
         },
         respond with = {
@@ -907,9 +801,6 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
                 ALL_ROOMS: {
                     "count": 210,
                 },
-                INVITES: {
-                    "count": 4,
-                }
             },
             "rooms": {},
         },
@@ -929,10 +820,6 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
                     "ranges": [[5, 10]],
                     // `timeline_limit` is a sticky parameter, so it's absent now.
                 },
-                INVITES: {
-                    // The range has reached its maximum.
-                    "ranges": [[0, 3]],
-                },
             },
         },
         respond with = {
@@ -941,9 +828,6 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
                 ALL_ROOMS: {
                     "count": 210,
                 },
-                INVITES: {
-                    "count": 7,
-                }
             },
             "rooms": {},
         },
@@ -965,10 +849,6 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
                     "ranges": [[5, 10]],
                     // `timeline_limit` is a sticky parameter, so it's absent now.
                 },
-                INVITES: {
-                    // The range has reached a new maximum.
-                    "ranges": [[0, 6]],
-                },
             },
         },
         respond with = (code 400) {
@@ -999,10 +879,6 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
                     // The `timeline_limit` has been set to 0.
                     "timeline_limit": 0,
                 },
-                INVITES: {
-                    // Due to previous error, the range is back to selective, with its initial range.
-                    "ranges": [[0, 0]],
-                },
             },
         },
         respond with = {
@@ -1011,9 +887,6 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
                 ALL_ROOMS: {
                     "count": 210,
                 },
-                INVITES: {
-                    "count": 4,
-                }
             },
             "rooms": {},
         },
@@ -1034,10 +907,6 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
                     // The `timeline_limit` has been restored.
                     "timeline_limit": 20,
                 },
-                INVITES: {
-                    // Sync-mode is now growing, and has reached its maximum.
-                    "ranges": [[0, 3]],
-                },
             },
         },
         respond with = {
@@ -1046,9 +915,6 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
                 ALL_ROOMS: {
                     "count": 210,
                 },
-                INVITES: {
-                    "count": 4,
-                }
             },
             "rooms": {},
         },
@@ -1079,10 +945,6 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
                     // The default range, in selective sync-mode.
                     "ranges": [[0, 19]],
                 },
-                INVITES: {
-                    // The default range, in selective sync-mode.
-                    "ranges": [[0, 0]],
-                }
             },
         },
         respond with = {
@@ -1119,10 +981,6 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
                     // `timeline_limit` has been set to zero.
                     "timeline_limit": 0,
                 },
-                INVITES: {
-                    // The sync-mode is still selective, with its initial range.
-                    "ranges": [[0, 0]],
-                },
             },
         },
         respond with = {
@@ -1130,9 +988,6 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
             "lists": {
                 ALL_ROOMS: {
                     "count": 150,
-                },
-                INVITES: {
-                    "count": 30,
                 },
             },
             "rooms": {},
@@ -1154,10 +1009,6 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
                     // `timeline_limit` has been restored.
                     "timeline_limit": 20,
                 },
-                INVITES: {
-                    // The sync-mode is now growing, with its initial range.
-                    "ranges": [[0, 19]],
-                },
             },
         },
         respond with = {
@@ -1166,9 +1017,6 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
                 ALL_ROOMS: {
                     "count": 150,
                 },
-                INVITES: {
-                    "count": 3,
-                }
             },
             "rooms": {},
         },
@@ -1201,10 +1049,6 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
                     // `timeline_limit` has been set to zero.
                     "timeline_limit": 0,
                 },
-                INVITES: {
-                    // The sync-mode is back to selective..
-                    "ranges": [[0, 0]],
-                },
             },
         },
         respond with = {
@@ -1213,9 +1057,6 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
                 ALL_ROOMS: {
                     "count": 150,
                 },
-                INVITES: {
-                    "count": 4,
-                }
             },
             "rooms": {},
         },
@@ -1237,10 +1078,6 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
                     // `timeline_limit` has been restored.
                     "timeline_limit": 20,
                 },
-                INVITES: {
-                    // Sync-mode is growing, and has reached its maximum.
-                    "ranges": [[0, 3]],
-                },
             },
         },
         respond with = {
@@ -1249,9 +1086,6 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
                 ALL_ROOMS: {
                     "count": 150,
                 },
-                INVITES: {
-                    "count": 4,
-                }
             },
             "rooms": {},
         },
@@ -1272,10 +1106,6 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
                     "ranges": [[5, 10]],
                     // `timeline_limit` is a sticky parameter, so it's absent now.
                 },
-                INVITES: {
-                    // Range has reached its maximum.
-                    "ranges": [[0, 3]],
-                },
             },
         },
         respond with = {
@@ -1284,9 +1114,6 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
                 ALL_ROOMS: {
                     "count": 150,
                 },
-                INVITES: {
-                    "count": 4,
-                }
             },
             "rooms": {},
         },
@@ -1533,9 +1360,6 @@ async fn test_entries_stream() -> Result<(), Error> {
                 VISIBLE_ROOMS: {
                     "ranges": [[0, 19]],
                 },
-                INVITES: {
-                    "ranges": [[0, 19]],
-                },
             },
         },
         respond with = {
@@ -1560,9 +1384,6 @@ async fn test_entries_stream() -> Result<(), Error> {
                     ],
                 },
                 VISIBLE_ROOMS: {
-                    "count": 0,
-                },
-                INVITES: {
                     "count": 0,
                 },
             },
@@ -1663,9 +1484,6 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
                 VISIBLE_ROOMS: {
                     "ranges": [[0, 19]],
                 },
-                INVITES: {
-                    "ranges": [[0, 19]],
-                },
             },
         },
         respond with = {
@@ -1687,9 +1505,6 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
                     ],
                 },
                 VISIBLE_ROOMS: {
-                    "count": 0,
-                },
-                INVITES: {
                     "count": 0,
                 },
             },
@@ -1738,9 +1553,6 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
                 VISIBLE_ROOMS: {
                     "ranges": [[0, 19]],
                 },
-                INVITES: {
-                    "ranges": [[0, 0]],
-                },
             },
         },
         respond with = {
@@ -1761,9 +1573,6 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
                     ],
                 },
                 VISIBLE_ROOMS: {
-                    "count": 0,
-                },
-                INVITES: {
                     "count": 0,
                 },
             },
@@ -1965,9 +1774,6 @@ async fn test_dynamic_entries_stream_manual_update() -> Result<(), Error> {
                 VISIBLE_ROOMS: {
                     "ranges": [[0, 19]],
                 },
-                INVITES: {
-                    "ranges": [[0, 19]],
-                },
             },
         },
         respond with = {
@@ -1987,9 +1793,6 @@ async fn test_dynamic_entries_stream_manual_update() -> Result<(), Error> {
                     ],
                 },
                 VISIBLE_ROOMS: {
-                    "count": 0,
-                },
-                INVITES: {
                     "count": 0,
                 },
             },
@@ -2035,9 +1838,6 @@ async fn test_dynamic_entries_stream_manual_update() -> Result<(), Error> {
                 VISIBLE_ROOMS: {
                     "ranges": [[0, 19]],
                 },
-                INVITES: {
-                    "ranges": [[0, 0]],
-                },
             },
         },
         respond with = {
@@ -2057,9 +1857,6 @@ async fn test_dynamic_entries_stream_manual_update() -> Result<(), Error> {
                     ],
                 },
                 VISIBLE_ROOMS: {
-                    "count": 0,
-                },
-                INVITES: {
                     "count": 0,
                 },
             },
@@ -2087,129 +1884,6 @@ async fn test_dynamic_entries_stream_manual_update() -> Result<(), Error> {
     };
 
     assert_pending!(dynamic_entries_stream);
-
-    Ok(())
-}
-
-#[async_test]
-async fn test_invites_stream() -> Result<(), Error> {
-    let (_, server, room_list) = new_room_list_service().await?;
-
-    let sync = room_list.sync();
-    pin_mut!(sync);
-
-    // The invites is accessible from the beginning.
-    assert!(room_list.invites().await.is_ok());
-
-    let room_id_0 = room_id!("!r0:bar.org");
-
-    sync_then_assert_request_and_fake_response! {
-        [server, room_list, sync]
-        states = Init => SettingUp,
-        assert request >= {
-            "lists": {
-                ALL_ROOMS: {
-                    "ranges": [[0, 19]],
-                },
-                INVITES: {
-                    "ranges": [[0, 0]],
-                },
-            },
-        },
-        respond with = {
-            "pos": "0",
-            "lists": {
-                ALL_ROOMS: {
-                    "count": 0,
-                },
-                INVITES: {
-                    "count": 1,
-                    "ops": [
-                        {
-                            "op": "SYNC",
-                            "range": [0, 0],
-                            "room_ids": [
-                                room_id_0,
-                            ],
-                        },
-                    ],
-                }
-            },
-            "rooms": {
-                room_id_0: {
-                    "name": "Invitation for Room #0",
-                    "initial": true,
-                },
-            },
-        },
-    };
-
-    let invites = room_list.invites().await?;
-
-    let (previous_invites, invites_stream) = invites.entries();
-    pin_mut!(invites_stream);
-
-    assert_eq!(previous_invites.len(), 1);
-    assert_matches!(&previous_invites[0], RoomListEntry::Filled(room_id) => {
-        assert_eq!(room_id, room_id_0);
-    });
-
-    sync_then_assert_request_and_fake_response! {
-        [server, room_list, sync]
-        states = SettingUp => Running,
-        assert request >= {
-            "lists": {
-                ALL_ROOMS: {
-                    "ranges": [[0, 0]],
-                },
-                VISIBLE_ROOMS: {
-                    "ranges": [[0, 19]],
-                },
-                INVITES: {
-                    "ranges": [[0, 0]],
-                },
-            },
-        },
-        respond with = {
-            "pos": "2",
-            "lists": {
-                ALL_ROOMS: {
-                    "count": 0,
-                },
-                VISIBLE_ROOMS: {
-                    "count": 0,
-                },
-                INVITES: {
-                    "count": 1,
-                    "ops": [
-                        {
-                            "op": "DELETE",
-                            "index": 0,
-                        },
-                        {
-
-                            "op": "INSERT",
-                            "index": 0,
-                            "room_id": "!r1:bar.org",
-                        },
-                    ],
-                },
-            },
-            "rooms": {
-                "!r1:bar.org": {
-                    "name": "Invitation for Room #1",
-                    "initial": true,
-                },
-            },
-        },
-    };
-
-    assert_entries_batch! {
-        [invites_stream]
-        remove[0];
-        insert[0] [ F("!r1:bar.org") ];
-        end;
-    };
 
     Ok(())
 }
@@ -2777,9 +2451,6 @@ async fn test_input_viewport() -> Result<(), Error> {
                     "ranges": [[0, 19]],
                     "timeline_limit": 20,
                 },
-                INVITES: {
-                    "ranges": [[0, 19]],
-                },
             },
         },
         respond with = {
@@ -2812,9 +2483,6 @@ async fn test_input_viewport() -> Result<(), Error> {
                 },
                 VISIBLE_ROOMS: {
                     "ranges": [[10, 15], [20, 25]],
-                },
-                INVITES: {
-                    "ranges": [[0, 19]],
                 },
             },
         },
@@ -3013,107 +2681,6 @@ async fn test_sync_indicator() -> Result<(), Error> {
     };
 
     sync_indicator_task.await.unwrap();
-
-    Ok(())
-}
-
-#[cfg(feature = "experimental-room-list-with-unified-invites")]
-#[async_test]
-async fn test_unified_invites_enabled() -> Result<(), Error> {
-    let (client, server) = logged_in_client_with_server().await;
-    let room_list = RoomListService::new_with_unified_invites(client, true).await?;
-
-    let sync = room_list.sync();
-    pin_mut!(sync);
-
-    sync_then_assert_request_and_fake_response! {
-        [server, room_list, sync]
-        states = Init => SettingUp,
-        assert request = {
-            "conn_id": "room-list",
-            "lists": {
-                ALL_ROOMS: {
-                    "ranges": [[0, 19]],
-                    "required_state": [
-                        ["m.room.avatar", ""],
-                        ["m.room.encryption", ""],
-                        ["m.room.member", "$LAZY"],
-                        ["m.room.member", "$ME"],
-                        ["m.room.power_levels", ""],
-                    ],
-                    "filters": {
-                        // The `is_invite` field should be missing from the ALL_ROOMS filters
-                        "is_tombstoned": false,
-                        "not_room_types": ["m.space"],
-                    },
-                    "bump_event_types": [
-                        "m.room.message",
-                        "m.room.encrypted",
-                        "m.sticker",
-                    ],
-                    "sort": ["by_recency", "by_name"],
-                    "timeline_limit": 1,
-                },
-                INVITES: {
-                    "ranges": [[0, 0]],
-                    "required_state": [
-                        ["m.room.avatar", ""],
-                        ["m.room.encryption", ""],
-                        ["m.room.member", "$ME"],
-                        ["m.room.canonical_alias", ""],
-                    ],
-                    "filters": {
-                        "is_invite": true,
-                        "is_tombstoned": false,
-                        "not_room_types": ["m.space"],
-                    },
-                    "sort": ["by_recency", "by_name"],
-                    "timeline_limit": 0,
-                },
-            },
-            "extensions": {
-                "account_data": {
-                    "enabled": true
-                },
-                "receipts": {
-                    "enabled": true,
-                    "rooms": ["*"]
-                },
-                "typing": {
-                    "enabled": true,
-                },
-            },
-        },
-        respond with = { "pos": "1" },
-    };
-
-    Ok(())
-}
-
-#[cfg(feature = "experimental-room-list-with-unified-invites")]
-#[async_test]
-async fn test_unified_invites_disabled() -> Result<(), Error> {
-    let (client, server) = logged_in_client_with_server().await;
-    let room_list = RoomListService::new_with_unified_invites(client, false).await?;
-
-    let sync = room_list.sync();
-    pin_mut!(sync);
-
-    sync_then_assert_request_and_fake_response! {
-        [server, room_list, sync]
-        states = Init => SettingUp,
-        assert request >= {
-            "lists": {
-                ALL_ROOMS: {
-                    // `is_invite` should be present and `false`
-                    "filters": {
-                        "is_invite": false,
-                    },
-                },
-            },
-        },
-        respond with = { "pos": "1" },
-    };
 
     Ok(())
 }

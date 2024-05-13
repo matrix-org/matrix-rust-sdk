@@ -433,10 +433,6 @@ pub struct SyncServiceBuilder {
     /// SDK client.
     client: Client,
 
-    /// Whether we want to unify `all_rooms` and `invites`.
-    #[cfg(feature = "experimental-room-list-with-unified-invites")]
-    with_unified_invites_in_room_list: bool,
-
     /// Is the cross-process lock for the crypto store enabled?
     with_cross_process_lock: bool,
 
@@ -447,20 +443,7 @@ pub struct SyncServiceBuilder {
 
 impl SyncServiceBuilder {
     fn new(client: Client) -> Self {
-        Self {
-            client,
-            #[cfg(feature = "experimental-room-list-with-unified-invites")]
-            with_unified_invites_in_room_list: false,
-            with_cross_process_lock: false,
-            identifier: "app".to_owned(),
-        }
-    }
-
-    #[cfg(feature = "experimental-room-list-with-unified-invites")]
-    pub fn with_unified_invites_in_room_list(mut self, with_unified_invites: bool) -> Self {
-        self.with_unified_invites_in_room_list = with_unified_invites;
-
-        self
+        Self { client, with_cross_process_lock: false, identifier: "app".to_owned() }
     }
 
     /// Enables the cross-process lock, if the sync service is being built in a
@@ -490,15 +473,7 @@ impl SyncServiceBuilder {
     pub async fn build(self) -> Result<SyncService, Error> {
         let encryption_sync_permit = Arc::new(AsyncMutex::new(EncryptionSyncPermit::new()));
 
-        #[cfg(not(feature = "experimental-room-list-with-unified-invites"))]
         let room_list = RoomListService::new(self.client.clone()).await?;
-
-        #[cfg(feature = "experimental-room-list-with-unified-invites")]
-        let room_list = RoomListService::new_with_unified_invites(
-            self.client.clone(),
-            self.with_unified_invites_in_room_list,
-        )
-        .await?;
 
         let encryption_sync = Arc::new(
             EncryptionSyncService::new(
