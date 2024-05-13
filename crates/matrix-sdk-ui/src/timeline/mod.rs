@@ -46,7 +46,7 @@ use ruma::{
         room::{
             message::{
                 AddMentions, ForwardThread, OriginalRoomMessageEvent, ReplacementMetadata,
-                RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
+                RoomMessageEventContentWithoutRelation,
             },
             redaction::RoomRedactionEventContent,
         },
@@ -386,7 +386,7 @@ impl Timeline {
     #[instrument(skip(self, new_content))]
     pub async fn edit(
         &self,
-        new_content: RoomMessageEventContent,
+        new_content: RoomMessageEventContentWithoutRelation,
         edit_item: &EventTimelineItem,
     ) -> Result<(), UnsupportedEditItem> {
         // Early returns here must be in sync with
