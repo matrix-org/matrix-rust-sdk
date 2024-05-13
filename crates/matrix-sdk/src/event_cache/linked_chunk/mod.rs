@@ -18,6 +18,7 @@ mod as_vector;
 mod updates;
 
 use std::{
+    collections::VecDeque,
     fmt,
     marker::PhantomData,
     ops::Not,
@@ -622,7 +623,21 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
     }
 
     pub fn subscribe_as_vector(&mut self) -> Option<AsVectorSubscriber<Item, Gap>> {
-        self.updates.as_mut().map(|updates| AsVectorSubscriber::new(updates.subscribe()))
+        let mut initial_chunk_lengths = VecDeque::new();
+
+        for chunk in self.chunks() {
+            initial_chunk_lengths.push_front((
+                chunk.identifier(),
+                match chunk.content() {
+                    ChunkContent::Gap(_) => 0,
+                    ChunkContent::Items(items) => items.len(),
+                },
+            ))
+        }
+
+        self.updates
+            .as_mut()
+            .map(|updates| AsVectorSubscriber::new(updates.subscribe(), initial_chunk_lengths))
     }
 }
 

@@ -25,7 +25,7 @@ use pin_project_lite::pin_project;
 
 use super::{
     updates::{Update, UpdatesSubscriber},
-    ChunkIdentifier, ChunkIdentifierGenerator,
+    ChunkIdentifier,
 };
 
 type Offset = usize;
@@ -41,16 +41,11 @@ pin_project! {
 }
 
 impl<Item, Gap> AsVectorSubscriber<Item, Gap> {
-    pub(super) fn new(updates_subscriber: UpdatesSubscriber<Item, Gap>) -> Self {
-        Self {
-            updates_subscriber,
-            chunks: {
-                let mut chunks = VecDeque::new();
-                chunks.insert(0, (ChunkIdentifierGenerator::FIRST_IDENTIFIER, 0));
-
-                chunks
-            },
-        }
+    pub(super) fn new(
+        updates_subscriber: UpdatesSubscriber<Item, Gap>,
+        initial_chunk_lengths: VecDeque<(ChunkIdentifier, ChunkLength)>,
+    ) -> Self {
+        Self { updates_subscriber, chunks: initial_chunk_lengths }
     }
 }
 
