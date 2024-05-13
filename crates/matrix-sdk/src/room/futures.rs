@@ -148,14 +148,14 @@ impl<'a> IntoFuture for SendRawMessageLikeEvent<'a> {
             room.ensure_room_joined()?;
 
             let txn_id = transaction_id.unwrap_or_else(TransactionId::new);
-            tracing::Span::current().record("transaction_id", tracing::field::debug(&txn_id));
+            Span::current().record("transaction_id", tracing::field::debug(&txn_id));
 
             #[cfg(not(feature = "e2e-encryption"))]
             debug!("Sending plaintext event to room because we don't have encryption support.");
 
             #[cfg(feature = "e2e-encryption")]
             if room.is_encrypted().await? {
-                tracing::Span::current().record("encrypted", true);
+                Span::current().record("encrypted", true);
                 // Reactions are currently famously not encrypted, skip encrypting
                 // them until they are.
                 if event_type == "m.reaction" {
@@ -189,7 +189,7 @@ impl<'a> IntoFuture for SendRawMessageLikeEvent<'a> {
                     event_type = "m.room.encrypted";
                 }
             } else {
-                tracing::Span::current().record("encrypted", false);
+                Span::current().record("encrypted", false);
                 debug!("Sending plaintext event because the room is NOT encrypted.",);
             };
 
@@ -202,7 +202,7 @@ impl<'a> IntoFuture for SendRawMessageLikeEvent<'a> {
 
             let response = room.client.send(request, None).await?;
 
-            tracing::Span::current().record("event_id", tracing::field::debug(&response.event_id));
+            Span::current().record("event_id", tracing::field::debug(&response.event_id));
             info!("Sent event in room");
 
             Ok(response)

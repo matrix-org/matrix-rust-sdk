@@ -134,8 +134,8 @@ pub enum IndexeddbCryptoStoreError {
     CryptoStoreError(#[from] CryptoStoreError),
 }
 
-impl From<indexed_db_futures::web_sys::DomException> for IndexeddbCryptoStoreError {
-    fn from(frm: indexed_db_futures::web_sys::DomException) -> IndexeddbCryptoStoreError {
+impl From<web_sys::DomException> for IndexeddbCryptoStoreError {
+    fn from(frm: web_sys::DomException) -> IndexeddbCryptoStoreError {
         IndexeddbCryptoStoreError::DomException {
             name: frm.name(),
             message: frm.message(),

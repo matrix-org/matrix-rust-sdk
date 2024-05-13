@@ -414,7 +414,7 @@ impl Timeline {
             });
 
         let content = new_content.make_replacement(
-            ReplacementMetadata::new(event_id.to_owned(), None),
+            ReplacementMetadata::new(event_id.to_owned(), original_content.mentions.clone()),
             replied_to_message.as_ref(),
         );
 
@@ -815,7 +815,6 @@ struct TimelineDropHandle {
     client: Client,
     event_handler_handles: Vec<EventHandlerHandle>,
     room_update_join_handle: JoinHandle<()>,
-    ignore_user_list_update_join_handle: JoinHandle<()>,
     room_key_from_backups_join_handle: JoinHandle<()>,
     _event_cache_drop_handle: Arc<EventCacheDropHandles>,
 }
@@ -826,7 +825,6 @@ impl Drop for TimelineDropHandle {
             self.client.remove_event_handler(handle);
         }
         self.room_update_join_handle.abort();
-        self.ignore_user_list_update_join_handle.abort();
         self.room_key_from_backups_join_handle.abort();
     }
 }

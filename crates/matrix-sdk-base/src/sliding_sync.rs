@@ -480,11 +480,7 @@ impl BaseClient {
             // no content at all.
             room_info.mark_as_invited();
 
-            (
-                room,
-                room_info,
-                Some(v3::InvitedRoom::from(v3::InviteState::from(invite_state.clone()))),
-            )
+            (room, room_info, Some(InvitedRoom::from(v3::InviteState::from(invite_state.clone()))))
         } else {
             let room = store.get_or_create_room(
                 room_id,

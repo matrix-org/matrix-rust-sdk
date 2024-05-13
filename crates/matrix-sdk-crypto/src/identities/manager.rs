@@ -232,7 +232,7 @@ impl IdentityManager {
                     user_id = ?device.user_id(),
                     device_id = ?device.device_id(),
                     error = ?e,
-                    "Failed to update device keys",
+                    "Rejecting device update",
                 );
 
                 Ok(DeviceChange::None)
@@ -279,7 +279,7 @@ impl IdentityManager {
                         user_id = ?device_keys.user_id,
                         device_id = ?device_keys.device_id,
                         error = ?e,
-                        "Failed to create a new device",
+                        "Rejecting a previously unseen device",
                     );
 
                     Ok(DeviceChange::None)

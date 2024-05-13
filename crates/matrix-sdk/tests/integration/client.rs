@@ -806,7 +806,7 @@ async fn test_encrypt_room_event() {
         .take()
         .expect("We should have intercepted an `m.room.encrypted` event content");
 
-    let event = ruma::serde::Raw::new(&json!({
+    let event = Raw::new(&json!({
         "room_id": room.room_id(),
         "event_id": "$foobar",
         "origin_server_ts": 1600000u64,

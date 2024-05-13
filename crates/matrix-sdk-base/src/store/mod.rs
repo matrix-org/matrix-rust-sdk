@@ -419,8 +419,8 @@ pub struct StoreConfig {
 }
 
 #[cfg(not(tarpaulin_include))]
-impl std::fmt::Debug for StoreConfig {
-    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> StdResult<(), std::fmt::Error> {
+impl fmt::Debug for StoreConfig {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> StdResult<(), fmt::Error> {
         fmt.debug_struct("StoreConfig").finish()
     }
 }

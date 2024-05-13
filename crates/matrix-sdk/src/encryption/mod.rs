@@ -819,7 +819,7 @@ impl Encryption {
     pub async fn get_user_identity(
         &self,
         user_id: &UserId,
-    ) -> Result<Option<crate::encryption::identities::UserIdentity>, CryptoStoreError> {
+    ) -> Result<Option<identities::UserIdentity>, CryptoStoreError> {
         use crate::encryption::identities::UserIdentity;
 
         let olm = self.client.olm_machine().await;
@@ -976,7 +976,7 @@ impl Encryption {
     /// identity in the first place.
     async fn ensure_initial_key_query(&self) -> Result<()> {
         let olm_machine = self.client.olm_machine().await;
-        let olm_machine = olm_machine.as_ref().ok_or(crate::Error::NoOlmMachine)?;
+        let olm_machine = olm_machine.as_ref().ok_or(Error::NoOlmMachine)?;
 
         let user_id = olm_machine.user_id();
 
@@ -1039,7 +1039,7 @@ impl Encryption {
         auth_data: Option<AuthData>,
     ) -> Result<()> {
         let olm_machine = self.client.olm_machine().await;
-        let olm_machine = olm_machine.as_ref().ok_or(crate::Error::NoOlmMachine)?;
+        let olm_machine = olm_machine.as_ref().ok_or(Error::NoOlmMachine)?;
         let user_id = olm_machine.user_id();
 
         self.ensure_initial_key_query().await?;

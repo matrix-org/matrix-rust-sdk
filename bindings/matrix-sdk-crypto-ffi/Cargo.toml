@@ -49,7 +49,7 @@ features = ["crypto-store"]
 
 [dependencies.tokio]
 version = "1.33.0"
-default_features = false
+default-features = false
 features = ["rt-multi-thread"]
 
 [build-dependencies]

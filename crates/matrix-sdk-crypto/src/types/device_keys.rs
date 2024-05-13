@@ -30,7 +30,15 @@ use vodozemac::{Curve25519PublicKey, Ed25519PublicKey};
 
 use super::{EventEncryptionAlgorithm, Signatures};
 
-/// Identity keys for a device.
+/// Represents a Matrix cryptographic device
+///
+/// This struct models a Matrix cryptographic device involved in end-to-end
+/// encrypted messaging, specifically for to-device communication. It aligns
+/// with the [`DeviceKeys` struct][device_keys_spec] in the Matrix
+/// Specification, encapsulating essential elements such as the public device
+/// identity keys.
+///
+/// [device_keys_spec]: https://spec.matrix.org/v1.10/client-server-api/#_matrixclientv3keysupload_devicekeys
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(try_from = "DeviceKeyHelper", into = "DeviceKeyHelper")]
 pub struct DeviceKeys {

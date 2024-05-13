@@ -590,9 +590,9 @@ impl VerificationRequest {
             self.verification_cache.get(self.other_user(), self.flow_id().as_str())
         {
             match verification {
-                crate::Verification::SasV1(s) => s.cancel_with_code(cancel_code),
+                Verification::SasV1(s) => s.cancel_with_code(cancel_code),
                 #[cfg(feature = "qrcode")]
-                crate::Verification::QrV1(q) => q.cancel_with_code(cancel_code),
+                Verification::QrV1(q) => q.cancel_with_code(cancel_code),
             };
         }
 

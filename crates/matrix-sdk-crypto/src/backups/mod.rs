@@ -153,7 +153,7 @@ impl BackupMachine {
         match self.store.static_account().has_signed_raw(signatures, auth_data) {
             Ok(_) => SignatureState::ValidAndTrusted,
             Err(e) => match e {
-                crate::SignatureError::NoSignatureFound => SignatureState::Missing,
+                SignatureError::NoSignatureFound => SignatureState::Missing,
                 _ => SignatureState::Invalid,
             },
         }
@@ -179,7 +179,7 @@ impl BackupMachine {
                     }
                 }
                 Err(e) => match e {
-                    crate::SignatureError::NoSignatureFound => SignatureState::Missing,
+                    SignatureError::NoSignatureFound => SignatureState::Missing,
                     _ => SignatureState::Invalid,
                 },
             }
@@ -627,8 +627,10 @@ mod tests {
 
     use super::BackupMachine;
     use crate::{
-        olm::BackedUpRoomKey, store::BackupDecryptionKey, types::RoomKeyBackupInfo, OlmError,
-        OlmMachine,
+        olm::BackedUpRoomKey,
+        store::{BackupDecryptionKey, Changes, CryptoStore, MemoryStore},
+        types::RoomKeyBackupInfo,
+        OlmError, OlmMachine,
     };
 
     fn room_key() -> BackedUpRoomKey {
@@ -862,5 +864,34 @@ mod tests {
         let result = backup_machine.verify_backup(backup_info, false).await.unwrap();
 
         assert!(result.trusted());
+    }
+
+    #[async_test]
+    async fn test_fix_backup_key_mismatch() {
+        let store = MemoryStore::new();
+
+        let backup_decryption_key = BackupDecryptionKey::new().unwrap();
+
+        store
+            .save_changes(Changes {
+                backup_decryption_key: Some(backup_decryption_key.clone()),
+                backup_version: Some("1".to_owned()),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+
+        // Create the machine using `with_store` and without a call to enable_backup_v1,
+        // like regenerate_olm would do
+        let alice = OlmMachine::with_store(alice_id(), alice_device_id(), store).await.unwrap();
+
+        let binding = alice.backup_machine().backup_key.read().await;
+        let machine_backup_key = binding.as_ref().unwrap();
+
+        assert_eq!(
+            machine_backup_key.to_base64(),
+            backup_decryption_key.megolm_v1_public_key().to_base64(),
+            "The OlmMachine loaded the wrong backup key."
+        );
     }
 }

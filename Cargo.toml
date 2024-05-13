@@ -39,7 +39,8 @@ futures-util = { version = "0.3.26", default-features = false, features = [
 http = "1.1.0"
 imbl = "2.0.0"
 itertools = "0.12.0"
-ruma = { git = "https://github.com/ruma/ruma", rev = "b6200c01a120120faf9f744ab4f171ff3beefd72", features = [
+reqwest = { version = "0.12.4", default-features = false }
+ruma = { version = "0.10.0", features = [
     "client-api-c",
     "compat-upload-signatures",
     "compat-user-id",
@@ -48,7 +49,7 @@ ruma = { git = "https://github.com/ruma/ruma", rev = "b6200c01a120120faf9f744ab4
     "unstable-msc3401",
     "unstable-msc3266",
 ] }
-ruma-common = { git = "https://github.com/ruma/ruma", rev = "b6200c01a120120faf9f744ab4f171ff3beefd72" }
+ruma-common = { version = "0.13.0" }
 once_cell = "1.16.0"
 rand = "0.8.5"
 serde = "1.0.151"
@@ -61,9 +62,9 @@ tokio = { version = "1.30.0", default-features = false, features = ["sync"] }
 tokio-stream = "0.1.14"
 tracing = { version = "0.1.40", default-features = false, features = ["std"] }
 tracing-core = "0.1.32"
-uniffi = { git = "https://github.com/mozilla/uniffi-rs", rev = "789a9023b522562a95618443cee5a0d4f111c4c7" }
-uniffi_bindgen = { git = "https://github.com/mozilla/uniffi-rs", rev = "789a9023b522562a95618443cee5a0d4f111c4c7" }
-vodozemac = { git="https://github.com/matrix-org/vodozemac", rev = "2722fb9518059ccd2ad55470f4c4d3ba5e447bd9" }
+uniffi = { version = "0.27.1" }
+uniffi_bindgen = { version = "0.27.1" }
+vodozemac = { version = "0.6.0" }
 wiremock = "0.6.0"
 zeroize = "1.6.0"
 

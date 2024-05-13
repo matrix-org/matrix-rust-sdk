@@ -133,9 +133,9 @@ impl DayDividerAdjuster {
         // Then check invariants.
         if let Some(report) = self.check_invariants(items, initial_state) {
             warn!("Errors encountered when checking invariants.");
-            #[cfg(any(debug, test))]
+            #[cfg(any(debug_assertions, test))]
             panic!("{report}");
-            #[cfg(not(any(debug, test)))]
+            #[cfg(not(any(debug_assertions, test)))]
             warn!("{report}");
         }
 

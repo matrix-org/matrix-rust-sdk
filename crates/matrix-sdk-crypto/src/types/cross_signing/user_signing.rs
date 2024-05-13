@@ -1,4 +1,4 @@
-use std::{collections::btree_map::Iter, sync::Arc};
+use std::collections::btree_map::Iter;
 
 use ruma::{encryption::KeyUsage, OwnedDeviceKeyId, UserId};
 use serde::{Deserialize, Serialize};
@@ -11,7 +11,7 @@ use crate::{olm::VerifyJson, types::SigningKeys, SignatureError};
 /// User signing keys are used to sign the master keys of other users.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(try_from = "CrossSigningKey")]
-pub struct UserSigningPubkey(pub(super) Arc<CrossSigningKey>);
+pub struct UserSigningPubkey(pub(super) CrossSigningKey);
 
 impl UserSigningPubkey {
     /// Get the user id of the user signing key's owner.
@@ -64,7 +64,7 @@ impl TryFrom<CrossSigningKey> for UserSigningPubkey {
 
     fn try_from(key: CrossSigningKey) -> Result<Self, Self::Error> {
         if key.usage.contains(&KeyUsage::UserSigning) && key.usage.len() == 1 {
-            Ok(Self(key.into()))
+            Ok(Self(key))
         } else {
             Err(serde::de::Error::custom(format!(
                 "Expected cross signing key usage {} was not found",
@@ -73,8 +73,15 @@ impl TryFrom<CrossSigningKey> for UserSigningPubkey {
         }
     }
 }
+
 impl AsRef<CrossSigningKey> for UserSigningPubkey {
     fn as_ref(&self) -> &CrossSigningKey {
         &self.0
+    }
+}
+
+impl AsMut<CrossSigningKey> for UserSigningPubkey {
+    fn as_mut(&mut self) -> &mut CrossSigningKey {
+        &mut self.0
     }
 }

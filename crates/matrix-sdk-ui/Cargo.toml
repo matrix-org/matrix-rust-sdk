@@ -12,13 +12,13 @@ default = ["e2e-encryption", "native-tls"]
 
 e2e-encryption = ["matrix-sdk/e2e-encryption"]
 
-# This feature will unify the `invites` list with the `all_rooms` list.
-experimental-room-list-with-unified-invites = []
-
 native-tls = ["matrix-sdk/native-tls"]
 rustls-tls = ["matrix-sdk/rustls-tls"]
 
 uniffi = ["dep:uniffi", "matrix-sdk/uniffi", "matrix-sdk-base/uniffi"]
+
+# Add support for encrypted extensible events.
+unstable-msc3956 = ["ruma/unstable-msc3956"]
 
 [dependencies]
 as_variant = { workspace = true }

@@ -1388,9 +1388,7 @@ mod tests {
         let sync = client
             .sliding_sync("test-slidingsync")?
             .add_list(SlidingSyncList::builder("new_list"))
-            .with_to_device_extension(
-                assign!(v4::ToDeviceConfig::default(), { enabled: Some(true)}),
-            )
+            .with_to_device_extension(assign!(ToDeviceConfig::default(), { enabled: Some(true)}))
             .with_e2ee_extension(assign!(v4::E2EEConfig::default(), { enabled: Some(true)}))
             .build()
             .await?;
@@ -2418,9 +2416,7 @@ mod tests {
 
         let sliding_sync = client
             .sliding_sync("test")?
-            .with_to_device_extension(
-                assign!(v4::ToDeviceConfig::default(), { enabled: Some(true)}),
-            )
+            .with_to_device_extension(assign!(ToDeviceConfig::default(), { enabled: Some(true)}))
             .with_e2ee_extension(assign!(v4::E2EEConfig::default(), { enabled: Some(true)}))
             .build()
             .await?;
@@ -2483,9 +2479,7 @@ mod tests {
         let sliding_sync = client
             .sliding_sync("test")?
             .add_list(SlidingSyncList::builder("thelist"))
-            .with_to_device_extension(
-                assign!(v4::ToDeviceConfig::default(), { enabled: Some(true)}),
-            )
+            .with_to_device_extension(assign!(ToDeviceConfig::default(), { enabled: Some(true)}))
             .with_e2ee_extension(assign!(v4::E2EEConfig::default(), { enabled: Some(true)}))
             .build()
             .await?;
@@ -2535,9 +2529,7 @@ mod tests {
 
         let sliding_sync = client
             .sliding_sync("test")?
-            .with_to_device_extension(
-                assign!(v4::ToDeviceConfig::default(), { enabled: Some(true)}),
-            )
+            .with_to_device_extension(assign!(ToDeviceConfig::default(), { enabled: Some(true)}))
             .with_e2ee_extension(assign!(v4::E2EEConfig::default(), { enabled: Some(true)}))
             .build()
             .await?;

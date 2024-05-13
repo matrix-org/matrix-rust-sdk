@@ -548,12 +548,10 @@ impl MatrixAuth {
 
         #[cfg(feature = "e2e-encryption")]
         let login_info = match (&request.username, &request.password) {
-            (Some(u), Some(p)) => Some(ruma::api::client::session::login::v3::LoginInfo::Password(
-                ruma::api::client::session::login::v3::Password::new(
-                    UserIdentifier::UserIdOrLocalpart(u.into()),
-                    p.clone(),
-                ),
-            )),
+            (Some(u), Some(p)) => Some(login::v3::LoginInfo::Password(login::v3::Password::new(
+                UserIdentifier::UserIdOrLocalpart(u.into()),
+                p.clone(),
+            ))),
             _ => None,
         };
 

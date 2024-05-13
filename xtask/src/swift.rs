@@ -5,7 +5,9 @@ use std::{
 
 use camino::{Utf8Path, Utf8PathBuf};
 use clap::{Args, Subcommand};
-use uniffi_bindgen::{bindings::TargetLanguage, library_mode::generate_bindings};
+use uniffi_bindgen::{
+    bindings::swift::gen_swift::SwiftBindingGenerator, library_mode::generate_bindings,
+};
 use xshell::{cmd, pushd};
 
 use crate::{workspace, Result};
@@ -161,7 +163,7 @@ fn build_library() -> Result<()> {
 }
 
 fn generate_uniffi(library_path: &Utf8Path, ffi_directory: &Utf8Path) -> Result<()> {
-    generate_bindings(library_path, None, &[TargetLanguage::Swift], None, ffi_directory, false)?;
+    generate_bindings(library_path, None, &SwiftBindingGenerator, None, ffi_directory, false)?;
     Ok(())
 }
 

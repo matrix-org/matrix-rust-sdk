@@ -237,7 +237,7 @@ async fn test_register_error() {
     let user = assign!(RegistrationRequest::new(), {
         username: Some("user".to_owned()),
         password: Some("password".to_owned()),
-        auth: Some(uiaa::AuthData::FallbackAcknowledgement(
+        auth: Some(AuthData::FallbackAcknowledgement(
             uiaa::FallbackAcknowledgement::new("foobar".to_owned()),
         )),
         kind: RegistrationKind::User,

@@ -96,6 +96,15 @@ where
     }
 }
 
+impl<E: EventContent> From<EventBuilder<E>> for Raw<AnySyncTimelineEvent>
+where
+    E::EventType: Serialize,
+{
+    fn from(val: EventBuilder<E>) -> Self {
+        val.into_raw_sync()
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct EventFactory {
     next_ts: AtomicU64,

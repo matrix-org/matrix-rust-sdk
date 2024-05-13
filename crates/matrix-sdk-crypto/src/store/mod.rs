@@ -58,7 +58,7 @@ use thiserror::Error;
 use tokio::sync::{Mutex, MutexGuard, Notify, OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
 use tracing::{info, warn};
 use vodozemac::{base64_encode, megolm::SessionOrdering, Curve25519PublicKey};
-use zeroize::Zeroize;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::{
     gossiping::GossippedSecret,
@@ -709,8 +709,7 @@ pub struct IdentityUpdates {
 /// secret storage (SSSS), whence it can be retrieved when it is needed for a
 /// recovery operation. Alternatively, the key can be "gossiped" between devices
 /// via "secret sharing".
-#[derive(Clone, Zeroize, Deserialize, Serialize)]
-#[zeroize(drop)]
+#[derive(Clone, Zeroize, ZeroizeOnDrop, Deserialize, Serialize)]
 #[serde(transparent)]
 pub struct BackupDecryptionKey {
     pub(crate) inner: Box<[u8; BackupDecryptionKey::KEY_SIZE]>,
@@ -739,7 +738,7 @@ impl BackupDecryptionKey {
 #[cfg(not(tarpaulin_include))]
 impl Debug for BackupDecryptionKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("BackupDecryptionKey").finish()
+        f.debug_tuple("BackupDecryptionKey").field(&"...").finish()
     }
 }
 

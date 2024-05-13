@@ -710,7 +710,7 @@ impl From<String> for OutboundGroupSessionPickle {
 }
 
 #[cfg(not(tarpaulin_include))]
-impl std::fmt::Debug for OutboundGroupSession {
+impl fmt::Debug for OutboundGroupSession {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("OutboundGroupSession")
             .field("session_id", &self.session_id)

@@ -68,8 +68,8 @@ pub enum IndexeddbStateStoreError {
     MigrationConflict { name: String, old_version: u32, new_version: u32 },
 }
 
-impl From<indexed_db_futures::web_sys::DomException> for IndexeddbStateStoreError {
-    fn from(frm: indexed_db_futures::web_sys::DomException) -> IndexeddbStateStoreError {
+impl From<web_sys::DomException> for IndexeddbStateStoreError {
+    fn from(frm: web_sys::DomException) -> IndexeddbStateStoreError {
         IndexeddbStateStoreError::DomException {
             name: frm.name(),
             message: frm.message(),
@@ -286,7 +286,7 @@ impl IndexeddbStateStore {
             .meta
             .transaction_on_one_with_mode(keys::BACKUPS_META, IdbTransactionMode::Readonly)?
             .object_store(keys::BACKUPS_META)?
-            .open_cursor_with_direction(indexed_db_futures::prelude::IdbCursorDirection::Prev)?
+            .open_cursor_with_direction(IdbCursorDirection::Prev)?
             .await?
             .and_then(|c| c.value().as_string()))
     }

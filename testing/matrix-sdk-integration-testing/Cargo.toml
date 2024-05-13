@@ -21,9 +21,9 @@ matrix-sdk-ui = { workspace = true, default-features = true }
 matrix-sdk-test = { workspace = true }
 once_cell = { workspace = true }
 rand = { workspace = true }
-stream_assert = "0.1.1"
-reqwest = "0.12.4"
-serde_json = "1.0.108"
+stream_assert = { workspace = true }
+reqwest = { workspace = true }
+serde_json = { workspace = true }
 tempfile = "3.3.0"
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }
 tracing = { workspace = true }

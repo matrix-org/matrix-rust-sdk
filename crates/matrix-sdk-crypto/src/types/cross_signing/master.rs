@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::btree_map::Iter, sync::Arc};
+use std::collections::btree_map::Iter;
 
 use ruma::{encryption::KeyUsage, DeviceKeyId, OwnedDeviceKeyId, UserId};
 use serde::{Deserialize, Serialize};
@@ -31,7 +31,7 @@ use crate::{
 /// user signing keys of an user will be signed by their master key.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(try_from = "CrossSigningKey")]
-pub struct MasterPubkey(pub(super) Arc<CrossSigningKey>);
+pub struct MasterPubkey(pub(super) CrossSigningKey);
 
 impl MasterPubkey {
     /// Get the user id of the master key's owner.
@@ -133,12 +133,18 @@ impl AsRef<CrossSigningKey> for MasterPubkey {
     }
 }
 
+impl AsMut<CrossSigningKey> for MasterPubkey {
+    fn as_mut(&mut self) -> &mut CrossSigningKey {
+        &mut self.0
+    }
+}
+
 impl TryFrom<CrossSigningKey> for MasterPubkey {
     type Error = serde_json::Error;
 
     fn try_from(key: CrossSigningKey) -> Result<Self, Self::Error> {
         if key.usage.contains(&KeyUsage::Master) && key.usage.len() == 1 {
-            Ok(Self(key.into()))
+            Ok(Self(key))
         } else {
             Err(serde::de::Error::custom(format!(
                 "Expected cross signing key usage {} was not found",
