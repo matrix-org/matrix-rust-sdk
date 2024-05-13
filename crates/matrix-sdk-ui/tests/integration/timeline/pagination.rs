@@ -18,7 +18,7 @@ use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::{
     future::{join, join3},
-    FutureExt as _,
+    FutureExt, StreamExt as _,
 };
 use matrix_sdk::{
     config::SyncSettings, event_cache::paginator::PaginatorState,
@@ -65,7 +65,7 @@ async fn test_back_pagination() {
     let room = client.get_room(room_id).unwrap();
     let timeline = Arc::new(room.timeline().await.unwrap());
     let (_, mut timeline_stream) = timeline.subscribe().await;
-    let mut back_pagination_status = timeline.back_pagination_status();
+    let (_, mut back_pagination_status) = timeline.back_pagination_status();
 
     Mock::given(method("GET"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
@@ -246,7 +246,7 @@ async fn test_wait_for_token() {
     let timeline = Arc::new(room.timeline().await.unwrap());
 
     let from = "t392-516_47314_0_7_1_1_1_11444_1";
-    let mut back_pagination_status = timeline.back_pagination_status();
+    let (_, mut back_pagination_status) = timeline.back_pagination_status();
 
     Mock::given(method("GET"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
@@ -422,7 +422,7 @@ async fn test_timeline_reset_while_paginating() {
         .mount(&server)
         .await;
 
-    let mut back_pagination_status = timeline.back_pagination_status();
+    let (_, mut back_pagination_status) = timeline.back_pagination_status();
 
     let paginate = async { timeline.live_paginate_backwards(10).await.unwrap() };
 
@@ -445,7 +445,9 @@ async fn test_timeline_reset_while_paginating() {
         }
 
         assert!(seen_paginating);
-        assert_eq!(back_pagination_status.next_now(), PaginatorState::Idle);
+
+        let (status, _) = timeline.back_pagination_status();
+        assert_eq!(status, PaginatorState::Idle);
     };
 
     let sync = async {
@@ -554,7 +556,7 @@ async fn test_empty_chunk() {
     let room = client.get_room(room_id).unwrap();
     let timeline = Arc::new(room.timeline().await.unwrap());
     let (_, mut timeline_stream) = timeline.subscribe().await;
-    let mut back_pagination_status = timeline.back_pagination_status();
+    let (_, mut back_pagination_status) = timeline.back_pagination_status();
 
     // It should try to do another request after the empty chunk.
     Mock::given(method("GET"))
@@ -644,7 +646,7 @@ async fn test_until_num_items_with_empty_chunk() {
     let room = client.get_room(room_id).unwrap();
     let timeline = Arc::new(room.timeline().await.unwrap());
     let (_, mut timeline_stream) = timeline.subscribe().await;
-    let mut back_pagination_status = timeline.back_pagination_status();
+    let (_, mut back_pagination_status) = timeline.back_pagination_status();
 
     Mock::given(method("GET"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
@@ -758,7 +760,7 @@ async fn test_back_pagination_aborted() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = Arc::new(room.timeline().await.unwrap());
-    let mut back_pagination_status = timeline.back_pagination_status();
+    let (_, mut back_pagination_status) = timeline.back_pagination_status();
 
     // Delay the server response, so we have time to abort the request.
     Mock::given(method("GET"))

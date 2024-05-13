@@ -39,9 +39,9 @@ pub(super) struct RoomPaginationData {
     /// The stateful paginator instance used for the integrated pagination.
     pub paginator: Paginator,
 
-    /// Have we ever waited for a previous-batch-token from the sync? We do this
-    /// at most once per room, and we reset that upon clearing the timeline
-    /// events.
+    /// Have we ever waited for a previous-batch-token to come from sync? We do
+    /// this at most once per room, the first time we try to run backward
+    /// pagination. We reset that upon clearing the timeline events.
     pub waited_for_initial_prev_token: Mutex<bool>,
 }
 
@@ -91,7 +91,7 @@ impl RoomPagination {
         let mut room_events = self.inner.events.write().await;
 
         // Check that the previous token still exists; otherwise it's a sign that the
-        // timeline has been cleared..
+        // room's timeline has been cleared.
         let gap_identifier = if let Some(token) = prev_token {
             let gap_identifier = room_events.chunk_identifier(|chunk| {
                 matches!(chunk.content(), ChunkContent::Gap(Gap { ref prev_token }) if *prev_token == token)
@@ -314,7 +314,7 @@ mod tests {
         async fn test_wait_for_pagination_token_already_present() {
             let client = logged_in_client(None).await;
             let room_id = room_id!("!galette:saucisse.bzh");
-            client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+            client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
             let event_cache = client.event_cache();
 
@@ -369,7 +369,7 @@ mod tests {
         async fn test_wait_for_late_pagination_token() {
             let client = logged_in_client(None).await;
             let room_id = room_id!("!galette:saucisse.bzh");
-            client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+            client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
             let event_cache = client.event_cache();
 

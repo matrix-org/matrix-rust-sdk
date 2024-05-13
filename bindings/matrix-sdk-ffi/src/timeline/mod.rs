@@ -17,7 +17,7 @@ use std::{collections::HashMap, fmt::Write as _, fs, sync::Arc};
 use anyhow::{Context, Result};
 use as_variant::as_variant;
 use eyeball_im::VectorDiff;
-use futures_util::{pin_mut, StreamExt};
+use futures_util::{pin_mut, StreamExt as _};
 use matrix_sdk::{
     attachment::{
         AttachmentConfig, AttachmentInfo, BaseAudioInfo, BaseFileInfo, BaseImageInfo,
@@ -163,15 +163,15 @@ impl Timeline {
         self.inner.fetch_members().await
     }
 
-    pub async fn subscribe_to_back_pagination_status(
+    pub fn subscribe_to_back_pagination_status(
         &self,
         listener: Box<dyn PaginationStatusListener>,
     ) -> Result<Arc<TaskHandle>, ClientError> {
-        let mut subscriber = self.inner.back_pagination_status();
+        let (initial, mut subscriber) = self.inner.back_pagination_status();
 
         Ok(Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
             // Send the current state even if it hasn't changed right away.
-            listener.on_update(subscriber.next_now());
+            listener.on_update(initial);
 
             while let Some(status) = subscriber.next().await {
                 listener.on_update(status);

@@ -12,7 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use eyeball::Subscriber;
+use async_rx::StreamExt as _;
+use futures_core::Stream;
 use matrix_sdk::event_cache::{
     self,
     paginator::{PaginatorError, PaginatorState},
@@ -113,7 +114,8 @@ impl super::Timeline {
     ///
     /// Note: this may send multiple Paginating/Idle sequences during a single
     /// call to [`Self::paginate_backwards()`].
-    pub fn back_pagination_status(&self) -> Subscriber<PaginatorState> {
-        self.event_cache.pagination().status()
+    pub fn back_pagination_status(&self) -> (PaginatorState, impl Stream<Item = PaginatorState>) {
+        let mut status = self.event_cache.pagination().status();
+        (status.next_now(), status.dedup())
     }
 }

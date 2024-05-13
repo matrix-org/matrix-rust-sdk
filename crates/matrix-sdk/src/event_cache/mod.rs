@@ -463,6 +463,12 @@ struct RoomEventCacheInner {
     /// A paginator instance, that's configured to run back-pagination on our
     /// behalf.
     ///
+    /// Note: forward-paginations are still run "out-of-band", that is,
+    /// disconnected from the event cache, as we don't implement matching
+    /// events received from those kinds of pagination with the cache. This
+    /// paginator is only used for queries that interact with the actual event
+    /// cache.
+    ///
     /// It's protected behind a lock to avoid multiple accesses to the paginator
     /// at the same time.
     pagination: RoomPaginationData,
