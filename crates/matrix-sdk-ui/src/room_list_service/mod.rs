@@ -138,24 +138,7 @@ impl RoomListService {
     /// This won't start an encryption sync, and it's the user's responsibility
     /// to create one in this case using `EncryptionSync`.
     pub async fn new(client: Client) -> Result<Self, Error> {
-        Self::new_internal(
-            client,
-            false,
-            #[cfg(feature = "experimental-room-list-with-unified-invites")]
-            false,
-        )
-        .await
-    }
-
-    /// Create a new `RoomList` that disables encryption, and enables the
-    /// unified invites (i.e. invites are part of the `all_rooms` list; side
-    /// note: the `invites` list is still present).
-    #[cfg(feature = "experimental-room-list-with-unified-invites")]
-    pub async fn new_with_unified_invites(
-        client: Client,
-        with_unified_invites: bool,
-    ) -> Result<Self, Error> {
-        Self::new_internal(client, false, with_unified_invites).await
+        Self::new_internal(client, false).await
     }
 
     /// Create a new `RoomList` that enables encryption.
@@ -163,20 +146,10 @@ impl RoomListService {
     /// This will include syncing the encryption information, so there must not
     /// be any instance of `EncryptionSync` running in the background.
     pub async fn new_with_encryption(client: Client) -> Result<Self, Error> {
-        Self::new_internal(
-            client,
-            true,
-            #[cfg(feature = "experimental-room-list-with-unified-invites")]
-            false,
-        )
-        .await
+        Self::new_internal(client, true).await
     }
 
-    async fn new_internal(
-        client: Client,
-        with_encryption: bool,
-        #[cfg(feature = "experimental-room-list-with-unified-invites")] with_unified_invites: bool,
-    ) -> Result<Self, Error> {
+    async fn new_internal(client: Client, with_encryption: bool) -> Result<Self, Error> {
         let mut builder = client
             .sliding_sync("room-list")
             .map_err(Error::SlidingSync)?
@@ -214,30 +187,9 @@ impl RoomListService {
                         (StateEventType::RoomMember, "$ME".to_owned()),
                         (StateEventType::RoomPowerLevels, "".to_owned()),
                     ]),
-                #[cfg(feature = "experimental-room-list-with-unified-invites")]
-                with_unified_invites,
             ))
             .await
             .map_err(Error::SlidingSync)?
-            .add_list(
-                SlidingSyncList::builder(INVITES_LIST_NAME)
-                    .sync_mode(
-                        SlidingSyncMode::new_selective().add_range(INVITES_DEFAULT_SELECTIVE_RANGE),
-                    )
-                    .timeline_limit(0)
-                    .required_state(vec![
-                        (StateEventType::RoomAvatar, "".to_owned()),
-                        (StateEventType::RoomEncryption, "".to_owned()),
-                        (StateEventType::RoomMember, "$ME".to_owned()),
-                        (StateEventType::RoomCanonicalAlias, "".to_owned()),
-                    ])
-                    .filters(Some(assign!(SyncRequestListFilters::default(), {
-                        is_invite: Some(true),
-                        is_tombstoned: Some(false),
-                        not_room_types: vec!["m.space".to_owned()],
-
-                    }))),
-            )
             .build()
             .await
             .map(Arc::new)
@@ -439,12 +391,6 @@ impl RoomListService {
         self.list_for(ALL_ROOMS_LIST_NAME).await
     }
 
-    /// Get a [`RoomList`] for invites, i.e. rooms where the user is invited to
-    /// join.
-    pub async fn invites(&self) -> Result<RoomList, Error> {
-        self.list_for(INVITES_LIST_NAME).await
-    }
-
     /// Pass an [`Input`] onto the state machine.
     pub async fn apply_input(&self, input: Input) -> Result<InputResult, Error> {
         use Input::*;
@@ -510,18 +456,14 @@ impl RoomListService {
 /// properties, so that they are exactly the same.
 fn configure_all_or_visible_rooms_list(
     list_builder: SlidingSyncListBuilder,
-    #[cfg(feature = "experimental-room-list-with-unified-invites")] with_invites: bool,
 ) -> SlidingSyncListBuilder {
-    #[cfg(not(feature = "experimental-room-list-with-unified-invites"))]
-    let with_invites = false;
-
     list_builder
         .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
         .filters(Some(assign!(SyncRequestListFilters::default(), {
             // As defined in the [SlidingSync MSC](https://github.com/matrix-org/matrix-spec-proposals/blob/9450ced7fb9cf5ea9077d029b3adf36aebfa8709/proposals/3575-sync.md?plain=1#L444)
             // If unset, both invited and joined rooms are returned. If false, no invited rooms are
             // returned. If true, only invited rooms are returned.
-            is_invite: if with_invites { None } else { Some(false) },
+            is_invite: None,
             is_tombstoned: Some(false),
             not_room_types: vec!["m.space".to_owned()],
         })))
