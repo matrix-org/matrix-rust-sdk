@@ -2175,7 +2175,7 @@ pub(crate) mod tests {
         olm::{
             BackedUpRoomKey, ExportedRoomKey, InboundGroupSession, OutboundGroupSession, VerifyJson,
         },
-        store::{BackupDecryptionKey, Changes, CryptoStore, MemoryStore, RoomSettings},
+        store::{BackupDecryptionKey, Changes, CryptoStore, MemoryStore},
         types::{
             events::{
                 room::encrypted::{EncryptedToDeviceEvent, ToDeviceEncryptedEventContent},
