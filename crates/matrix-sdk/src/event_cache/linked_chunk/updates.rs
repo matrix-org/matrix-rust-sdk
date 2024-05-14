@@ -61,10 +61,16 @@ pub enum Update<Item, Gap> {
     /// A chunk has been removed.
     RemoveChunk(ChunkIdentifier),
 
-    /// Items are inserted inside a chunk of kind Items.
-    InsertItems {
-        /// [`Position`] of the items.
-        at: Position,
+    /// Items are pushed inside a chunk of kind Items.
+    PushItems {
+        /// The [`Position`] of the items.
+        ///
+        /// This value is given to prevent the need for position computations by
+        /// the update readers. Items are pushed, so the positions should be
+        /// incrementally computed from the previous items, which requires the
+        /// reading of the last previous item. With `position_hint`, the update
+        /// readers no longer need to do so.
+        position_hint: Position,
 
         /// The items.
         items: Vec<Item>,
@@ -94,7 +100,9 @@ where
                 Self::NewGapChunk { previous: *previous, new: *new, next: *next, gap: gap.clone() }
             }
             Self::RemoveChunk(identifier) => Self::RemoveChunk(*identifier),
-            Self::InsertItems { at, items } => Self::InsertItems { at: *at, items: items.clone() },
+            Self::PushItems { position_hint: at, items } => {
+                Self::PushItems { position_hint: *at, items: items.clone() }
+            }
             Self::TruncateItems { chunk, length } => {
                 Self::TruncateItems { chunk: *chunk, length: *length }
             }
@@ -381,9 +389,9 @@ mod tests {
             assert_eq!(
                 updates.take(),
                 &[
-                    InsertItems { at: Position(ChunkIdentifier(0), 0), items: vec!['a'] },
-                    InsertItems { at: Position(ChunkIdentifier(0), 1), items: vec!['b'] },
-                    InsertItems { at: Position(ChunkIdentifier(0), 2), items: vec!['c'] },
+                    PushItems { position_hint: Position(ChunkIdentifier(0), 0), items: vec!['a'] },
+                    PushItems { position_hint: Position(ChunkIdentifier(0), 1), items: vec!['b'] },
+                    PushItems { position_hint: Position(ChunkIdentifier(0), 2), items: vec!['c'] },
                 ]
             );
 
@@ -423,12 +431,12 @@ mod tests {
             assert_eq!(
                 updates.inner.write().unwrap().take_with_token(other_token),
                 &[
-                    InsertItems { at: Position(ChunkIdentifier(0), 0), items: vec!['a'] },
-                    InsertItems { at: Position(ChunkIdentifier(0), 1), items: vec!['b'] },
-                    InsertItems { at: Position(ChunkIdentifier(0), 2), items: vec!['c'] },
-                    InsertItems { at: Position(ChunkIdentifier(0), 3), items: vec!['d'] },
-                    InsertItems { at: Position(ChunkIdentifier(0), 4), items: vec!['e'] },
-                    InsertItems { at: Position(ChunkIdentifier(0), 5), items: vec!['f'] },
+                    PushItems { position_hint: Position(ChunkIdentifier(0), 0), items: vec!['a'] },
+                    PushItems { position_hint: Position(ChunkIdentifier(0), 1), items: vec!['b'] },
+                    PushItems { position_hint: Position(ChunkIdentifier(0), 2), items: vec!['c'] },
+                    PushItems { position_hint: Position(ChunkIdentifier(0), 3), items: vec!['d'] },
+                    PushItems { position_hint: Position(ChunkIdentifier(0), 4), items: vec!['e'] },
+                    PushItems { position_hint: Position(ChunkIdentifier(0), 5), items: vec!['f'] },
                 ]
             );
 
@@ -498,20 +506,20 @@ mod tests {
             assert_eq!(
                 updates.take(),
                 &[
-                    InsertItems { at: Position(ChunkIdentifier(0), 3), items: vec!['d'] },
-                    InsertItems { at: Position(ChunkIdentifier(0), 4), items: vec!['e'] },
-                    InsertItems { at: Position(ChunkIdentifier(0), 5), items: vec!['f'] },
-                    InsertItems { at: Position(ChunkIdentifier(0), 6), items: vec!['g'] },
-                    InsertItems { at: Position(ChunkIdentifier(0), 7), items: vec!['h'] },
-                    InsertItems { at: Position(ChunkIdentifier(0), 8), items: vec!['i'] },
+                    PushItems { position_hint: Position(ChunkIdentifier(0), 3), items: vec!['d'] },
+                    PushItems { position_hint: Position(ChunkIdentifier(0), 4), items: vec!['e'] },
+                    PushItems { position_hint: Position(ChunkIdentifier(0), 5), items: vec!['f'] },
+                    PushItems { position_hint: Position(ChunkIdentifier(0), 6), items: vec!['g'] },
+                    PushItems { position_hint: Position(ChunkIdentifier(0), 7), items: vec!['h'] },
+                    PushItems { position_hint: Position(ChunkIdentifier(0), 8), items: vec!['i'] },
                 ]
             );
             assert_eq!(
                 updates.inner.write().unwrap().take_with_token(other_token),
                 &[
-                    InsertItems { at: Position(ChunkIdentifier(0), 6), items: vec!['g'] },
-                    InsertItems { at: Position(ChunkIdentifier(0), 7), items: vec!['h'] },
-                    InsertItems { at: Position(ChunkIdentifier(0), 8), items: vec!['i'] },
+                    PushItems { position_hint: Position(ChunkIdentifier(0), 6), items: vec!['g'] },
+                    PushItems { position_hint: Position(ChunkIdentifier(0), 7), items: vec!['h'] },
+                    PushItems { position_hint: Position(ChunkIdentifier(0), 8), items: vec!['i'] },
                 ]
             );
 
@@ -597,7 +605,7 @@ mod tests {
             Poll::Ready(Some(items)) => {
                 assert_eq!(
                     items,
-                    &[InsertItems { at: Position(ChunkIdentifier(0), 0), items: vec!['a'] }]
+                    &[PushItems { position_hint: Position(ChunkIdentifier(0), 0), items: vec!['a'] }]
                 );
             }
         );
@@ -615,9 +623,9 @@ mod tests {
         assert_eq!(
             linked_chunk.updates().unwrap().take(),
             &[
-                InsertItems { at: Position(ChunkIdentifier(0), 0), items: vec!['a'] },
-                InsertItems { at: Position(ChunkIdentifier(0), 1), items: vec!['b'] },
-                InsertItems { at: Position(ChunkIdentifier(0), 2), items: vec!['c'] },
+                PushItems { position_hint: Position(ChunkIdentifier(0), 0), items: vec!['a'] },
+                PushItems { position_hint: Position(ChunkIdentifier(0), 1), items: vec!['b'] },
+                PushItems { position_hint: Position(ChunkIdentifier(0), 2), items: vec!['c'] },
             ]
         );
         assert_matches!(
@@ -626,8 +634,8 @@ mod tests {
                 assert_eq!(
                     items,
                     &[
-                        InsertItems { at: Position(ChunkIdentifier(0), 1), items: vec!['b'] },
-                        InsertItems { at: Position(ChunkIdentifier(0), 2), items: vec!['c'] },
+                        PushItems { position_hint: Position(ChunkIdentifier(0), 1), items: vec!['b'] },
+                        PushItems { position_hint: Position(ChunkIdentifier(0), 2), items: vec!['c'] },
                     ]
                 );
             }

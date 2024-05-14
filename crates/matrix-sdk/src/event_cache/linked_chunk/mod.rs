@@ -975,8 +975,8 @@ impl<const CAPACITY: usize, Item, Gap> Chunk<CAPACITY, Item, Gap> {
                     items.extend(new_items);
 
                     if let Some(updates) = updates.as_mut() {
-                        updates.push(Update::InsertItems {
-                            at: Position(identifier, start),
+                        updates.push(Update::PushItems {
+                            position_hint: Position(identifier, start),
                             items: items[start..].to_vec(),
                         });
                     }
@@ -990,8 +990,8 @@ impl<const CAPACITY: usize, Item, Gap> Chunk<CAPACITY, Item, Gap> {
                         items.extend(new_items.by_ref().take(free_space));
 
                         if let Some(updates) = updates.as_mut() {
-                            updates.push(Update::InsertItems {
-                                at: Position(identifier, start),
+                            updates.push(Update::PushItems {
+                                position_hint: Position(identifier, start),
                                 items: items[start..].to_vec(),
                             });
                         }
@@ -1258,14 +1258,14 @@ mod tests {
         assert_items_eq!(linked_chunk, ['a']);
         assert_eq!(
             linked_chunk.updates().unwrap().take(),
-            &[InsertItems { at: Position(ChunkIdentifier(0), 0), items: vec!['a'] }]
+            &[PushItems { position_hint: Position(ChunkIdentifier(0), 0), items: vec!['a'] }]
         );
 
         linked_chunk.push_items_back(['b', 'c']);
         assert_items_eq!(linked_chunk, ['a', 'b', 'c']);
         assert_eq!(
             linked_chunk.updates().unwrap().take(),
-            &[InsertItems { at: Position(ChunkIdentifier(0), 1), items: vec!['b', 'c'] }]
+            &[PushItems { position_hint: Position(ChunkIdentifier(0), 1), items: vec!['b', 'c'] }]
         );
 
         linked_chunk.push_items_back(['d', 'e']);
@@ -1278,7 +1278,7 @@ mod tests {
                     new: ChunkIdentifier(1),
                     next: None
                 },
-                InsertItems { at: Position(ChunkIdentifier(1), 0), items: vec!['d', 'e'] }
+                PushItems { position_hint: Position(ChunkIdentifier(1), 0), items: vec!['d', 'e'] }
             ]
         );
 
@@ -1287,19 +1287,22 @@ mod tests {
         assert_eq!(
             linked_chunk.updates().unwrap().take(),
             &[
-                InsertItems { at: Position(ChunkIdentifier(1), 2), items: vec!['f'] },
+                PushItems { position_hint: Position(ChunkIdentifier(1), 2), items: vec!['f'] },
                 NewItemsChunk {
                     previous: Some(ChunkIdentifier(1)),
                     new: ChunkIdentifier(2),
                     next: None,
                 },
-                InsertItems { at: Position(ChunkIdentifier(2), 0), items: vec!['g', 'h', 'i'] },
+                PushItems {
+                    position_hint: Position(ChunkIdentifier(2), 0),
+                    items: vec!['g', 'h', 'i']
+                },
                 NewItemsChunk {
                     previous: Some(ChunkIdentifier(2)),
                     new: ChunkIdentifier(3),
                     next: None,
                 },
-                InsertItems { at: Position(ChunkIdentifier(3), 0), items: vec!['j'] },
+                PushItems { position_hint: Position(ChunkIdentifier(3), 0), items: vec!['j'] },
             ]
         );
 
@@ -1315,7 +1318,7 @@ mod tests {
         assert_items_eq!(linked_chunk, ['a']);
         assert_eq!(
             linked_chunk.updates().unwrap().take(),
-            &[InsertItems { at: Position(ChunkIdentifier(0), 0), items: vec!['a'] }]
+            &[PushItems { position_hint: Position(ChunkIdentifier(0), 0), items: vec!['a'] }]
         );
 
         linked_chunk.push_gap_back(());
@@ -1340,13 +1343,16 @@ mod tests {
                     new: ChunkIdentifier(2),
                     next: None,
                 },
-                InsertItems { at: Position(ChunkIdentifier(2), 0), items: vec!['b', 'c', 'd'] },
+                PushItems {
+                    position_hint: Position(ChunkIdentifier(2), 0),
+                    items: vec!['b', 'c', 'd']
+                },
                 NewItemsChunk {
                     previous: Some(ChunkIdentifier(2)),
                     new: ChunkIdentifier(3),
                     next: None,
                 },
-                InsertItems { at: Position(ChunkIdentifier(3), 0), items: vec!['e'] },
+                PushItems { position_hint: Position(ChunkIdentifier(3), 0), items: vec!['e'] },
             ]
         );
 
@@ -1381,13 +1387,16 @@ mod tests {
                     new: ChunkIdentifier(6),
                     next: None,
                 },
-                InsertItems { at: Position(ChunkIdentifier(6), 0), items: vec!['f', 'g', 'h'] },
+                PushItems {
+                    position_hint: Position(ChunkIdentifier(6), 0),
+                    items: vec!['f', 'g', 'h']
+                },
                 NewItemsChunk {
                     previous: Some(ChunkIdentifier(6)),
                     new: ChunkIdentifier(7),
                     next: None,
                 },
-                InsertItems { at: Position(ChunkIdentifier(7), 0), items: vec!['i'] },
+                PushItems { position_hint: Position(ChunkIdentifier(7), 0), items: vec!['i'] },
             ]
         );
 
@@ -1617,13 +1626,19 @@ mod tests {
         assert_eq!(
             linked_chunk.updates().unwrap().take(),
             &[
-                InsertItems { at: Position(ChunkIdentifier(0), 0), items: vec!['a', 'b', 'c'] },
+                PushItems {
+                    position_hint: Position(ChunkIdentifier(0), 0),
+                    items: vec!['a', 'b', 'c']
+                },
                 NewItemsChunk {
                     previous: Some(ChunkIdentifier(0)),
                     new: ChunkIdentifier(1),
                     next: None,
                 },
-                InsertItems { at: Position(ChunkIdentifier(1), 0), items: vec!['d', 'e', 'f'] },
+                PushItems {
+                    position_hint: Position(ChunkIdentifier(1), 0),
+                    items: vec!['d', 'e', 'f']
+                },
             ]
         );
 
@@ -1644,20 +1659,26 @@ mod tests {
                 linked_chunk.updates().unwrap().take(),
                 &[
                     TruncateItems { chunk: ChunkIdentifier(1), length: 1 },
-                    InsertItems { at: Position(ChunkIdentifier(1), 1), items: vec!['w', 'x'] },
+                    PushItems {
+                        position_hint: Position(ChunkIdentifier(1), 1),
+                        items: vec!['w', 'x']
+                    },
                     NewItemsChunk {
                         previous: Some(ChunkIdentifier(1)),
                         new: ChunkIdentifier(2),
                         next: None,
                     },
-                    InsertItems { at: Position(ChunkIdentifier(2), 0), items: vec!['y', 'z'] },
-                    InsertItems { at: Position(ChunkIdentifier(2), 2), items: vec!['e'] },
+                    PushItems {
+                        position_hint: Position(ChunkIdentifier(2), 0),
+                        items: vec!['y', 'z']
+                    },
+                    PushItems { position_hint: Position(ChunkIdentifier(2), 2), items: vec!['e'] },
                     NewItemsChunk {
                         previous: Some(ChunkIdentifier(2)),
                         new: ChunkIdentifier(3),
                         next: None,
                     },
-                    InsertItems { at: Position(ChunkIdentifier(3), 0), items: vec!['f'] },
+                    PushItems { position_hint: Position(ChunkIdentifier(3), 0), items: vec!['f'] },
                 ]
             );
         }
@@ -1676,20 +1697,26 @@ mod tests {
                 linked_chunk.updates().unwrap().take(),
                 &[
                     TruncateItems { chunk: ChunkIdentifier(0), length: 0 },
-                    InsertItems { at: Position(ChunkIdentifier(0), 0), items: vec!['l', 'm', 'n'] },
+                    PushItems {
+                        position_hint: Position(ChunkIdentifier(0), 0),
+                        items: vec!['l', 'm', 'n']
+                    },
                     NewItemsChunk {
                         previous: Some(ChunkIdentifier(0)),
                         new: ChunkIdentifier(4),
                         next: Some(ChunkIdentifier(1)),
                     },
-                    InsertItems { at: Position(ChunkIdentifier(4), 0), items: vec!['o'] },
-                    InsertItems { at: Position(ChunkIdentifier(4), 1), items: vec!['a', 'b'] },
+                    PushItems { position_hint: Position(ChunkIdentifier(4), 0), items: vec!['o'] },
+                    PushItems {
+                        position_hint: Position(ChunkIdentifier(4), 1),
+                        items: vec!['a', 'b']
+                    },
                     NewItemsChunk {
                         previous: Some(ChunkIdentifier(4)),
                         new: ChunkIdentifier(5),
                         next: Some(ChunkIdentifier(1)),
                     },
-                    InsertItems { at: Position(ChunkIdentifier(5), 0), items: vec!['c'] },
+                    PushItems { position_hint: Position(ChunkIdentifier(5), 0), items: vec!['c'] },
                 ]
             );
         }
@@ -1708,8 +1735,11 @@ mod tests {
                 linked_chunk.updates().unwrap().take(),
                 &[
                     TruncateItems { chunk: ChunkIdentifier(5), length: 0 },
-                    InsertItems { at: Position(ChunkIdentifier(5), 0), items: vec!['r', 's'] },
-                    InsertItems { at: Position(ChunkIdentifier(5), 2), items: vec!['c'] },
+                    PushItems {
+                        position_hint: Position(ChunkIdentifier(5), 0),
+                        items: vec!['r', 's']
+                    },
+                    PushItems { position_hint: Position(ChunkIdentifier(5), 2), items: vec!['c'] },
                 ]
             );
         }
@@ -1727,7 +1757,10 @@ mod tests {
             );
             assert_eq!(
                 linked_chunk.updates().unwrap().take(),
-                &[InsertItems { at: Position(ChunkIdentifier(3), 1), items: vec!['p', 'q'] },]
+                &[PushItems {
+                    position_hint: Position(ChunkIdentifier(3), 1),
+                    items: vec!['p', 'q']
+                },]
             );
             assert_eq!(linked_chunk.len(), 18);
         }
@@ -1789,13 +1822,19 @@ mod tests {
         assert_eq!(
             linked_chunk.updates().unwrap().take(),
             &[
-                InsertItems { at: Position(ChunkIdentifier(0), 0), items: vec!['a', 'b', 'c'] },
+                PushItems {
+                    position_hint: Position(ChunkIdentifier(0), 0),
+                    items: vec!['a', 'b', 'c']
+                },
                 NewItemsChunk {
                     previous: Some(ChunkIdentifier(0)),
                     new: ChunkIdentifier(1),
                     next: None
                 },
-                InsertItems { at: Position(ChunkIdentifier(1), 0), items: vec!['d', 'e', 'f'] }
+                PushItems {
+                    position_hint: Position(ChunkIdentifier(1), 0),
+                    items: vec!['d', 'e', 'f']
+                }
             ]
         );
 
@@ -1820,7 +1859,10 @@ mod tests {
                         new: ChunkIdentifier(3),
                         next: Some(ChunkIdentifier(1)),
                     },
-                    InsertItems { at: Position(ChunkIdentifier(3), 0), items: vec!['b', 'c'] }
+                    PushItems {
+                        position_hint: Position(ChunkIdentifier(3), 0),
+                        items: vec!['b', 'c']
+                    }
                 ]
             );
         }
@@ -1847,7 +1889,7 @@ mod tests {
                         new: ChunkIdentifier(5),
                         next: Some(ChunkIdentifier(2)),
                     },
-                    InsertItems { at: Position(ChunkIdentifier(5), 0), items: vec!['a'] }
+                    PushItems { position_hint: Position(ChunkIdentifier(5), 0), items: vec!['a'] }
                 ]
             );
         }
@@ -1962,7 +2004,7 @@ mod tests {
         assert_eq!(
             linked_chunk.updates().unwrap().take(),
             &[
-                InsertItems { at: Position(ChunkIdentifier(0), 0), items: vec!['a', 'b'] },
+                PushItems { position_hint: Position(ChunkIdentifier(0), 0), items: vec!['a', 'b'] },
                 NewGapChunk {
                     previous: Some(ChunkIdentifier(0)),
                     new: ChunkIdentifier(1),
@@ -1974,7 +2016,7 @@ mod tests {
                     new: ChunkIdentifier(2),
                     next: None,
                 },
-                InsertItems { at: Position(ChunkIdentifier(2), 0), items: vec!['l', 'm'] }
+                PushItems { position_hint: Position(ChunkIdentifier(2), 0), items: vec!['l', 'm'] }
             ]
         );
 
@@ -1998,13 +2040,19 @@ mod tests {
                         new: ChunkIdentifier(3),
                         next: Some(ChunkIdentifier(2)),
                     },
-                    InsertItems { at: Position(ChunkIdentifier(3), 0), items: vec!['d', 'e', 'f'] },
+                    PushItems {
+                        position_hint: Position(ChunkIdentifier(3), 0),
+                        items: vec!['d', 'e', 'f']
+                    },
                     NewItemsChunk {
                         previous: Some(ChunkIdentifier(3)),
                         new: ChunkIdentifier(4),
                         next: Some(ChunkIdentifier(2)),
                     },
-                    InsertItems { at: Position(ChunkIdentifier(4), 0), items: vec!['g', 'h'] },
+                    PushItems {
+                        position_hint: Position(ChunkIdentifier(4), 0),
+                        items: vec!['g', 'h']
+                    },
                     RemoveChunk(ChunkIdentifier(1)),
                 ]
             );
@@ -2044,13 +2092,16 @@ mod tests {
                         new: ChunkIdentifier(6),
                         next: None,
                     },
-                    InsertItems { at: Position(ChunkIdentifier(6), 0), items: vec!['w', 'x', 'y'] },
+                    PushItems {
+                        position_hint: Position(ChunkIdentifier(6), 0),
+                        items: vec!['w', 'x', 'y']
+                    },
                     NewItemsChunk {
                         previous: Some(ChunkIdentifier(6)),
                         new: ChunkIdentifier(7),
                         next: None,
                     },
-                    InsertItems { at: Position(ChunkIdentifier(7), 0), items: vec!['z'] },
+                    PushItems { position_hint: Position(ChunkIdentifier(7), 0), items: vec!['z'] },
                     RemoveChunk(ChunkIdentifier(5)),
                 ]
             );

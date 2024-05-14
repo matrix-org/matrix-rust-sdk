@@ -112,7 +112,7 @@ where
                     this.chunks.remove(chunk_index).unwrap();
                 }
 
-                Update::InsertItems { at: position, items } => {
+                Update::PushItems { position_hint: position, items } => {
                     let expected_chunk_identifier = position.chunk_identifier();
 
                     let (chunk_index, offset, chunk_length) = {
