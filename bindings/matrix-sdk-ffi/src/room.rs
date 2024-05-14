@@ -12,6 +12,7 @@ use ruma::{
     api::client::room::report_content,
     assign,
     events::{
+        call::notify,
         room::{
             avatar::ImageInfo as RumaAvatarImageInfo,
             power_levels::RoomPowerLevels as RumaPowerLevels, MediaSource,
@@ -30,7 +31,7 @@ use crate::{
     event::{MessageLikeEventType, StateEventType},
     room_info::RoomInfo,
     room_member::RoomMember,
-    ruma::ImageInfo,
+    ruma::{ImageInfo, Mentions, NotifyType},
     timeline::{EventTimelineItem, FocusEventError, ReceiptType, Timeline},
     utils::u64_to_uint,
     TaskHandle,
@@ -644,6 +645,48 @@ impl Room {
         let event_id = EventId::parse(event_id)?;
         Ok(self.inner.matrix_to_event_permalink(event_id).await?.to_string())
     }
+
+    /// This will only send a call notification event if appropriate.
+    ///
+    /// This function is supposed to be called whenever the user creates a room
+    /// call. It will send a `m.call.notify` event if:
+    ///  - there is not yet a running call.
+    /// It will configure the notify type: ring or notify based on:
+    ///  - is this a DM room -> ring
+    ///  - is this a group with more than one other member -> notify
+    pub async fn send_call_notification_if_needed(&self) -> Result<(), ClientError> {
+        self.inner.send_call_notification_if_needed().await?;
+        Ok(())
+    }
+
+    /// Send a call notification event in the current room.
+    ///
+    /// This is only supposed to be used in **custom** situations where the user
+    /// explicitly chooses to send a `m.call.notify` event to invite/notify
+    /// someone explicitly in unusual conditions. The default should be to
+    /// use `send_call_notification_if_necessary` just before a new room call is
+    /// created/joined.
+    ///
+    /// One example could be that the UI allows to start a call with a subset of
+    /// users of the room members first. And then later on the user can
+    /// invite more users to the call.
+    pub async fn send_call_notification(
+        &self,
+        call_id: String,
+        application: RtcApplicationType,
+        notify_type: NotifyType,
+        mentions: Mentions,
+    ) -> Result<(), ClientError> {
+        self.inner
+            .send_call_notification(
+                call_id,
+                application.into(),
+                notify_type.into(),
+                mentions.into(),
+            )
+            .await?;
+        Ok(())
+    }
 }
 
 /// Generates a `matrix.to` permalink to the given room alias.
@@ -768,5 +811,17 @@ impl TryFrom<ImageInfo> for RumaAvatarImageInfo {
             thumbnail_url: thumbnail_url,
             blurhash: value.blurhash,
         }))
+    }
+}
+
+#[derive(uniffi::Enum)]
+pub enum RtcApplicationType {
+    Call,
+}
+impl From<RtcApplicationType> for notify::ApplicationType {
+    fn from(value: RtcApplicationType) -> Self {
+        match value {
+            RtcApplicationType::Call => notify::ApplicationType::Call,
+        }
     }
 }

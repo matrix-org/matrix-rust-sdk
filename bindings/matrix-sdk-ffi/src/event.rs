@@ -5,7 +5,11 @@ use ruma::events::{
     RedactedStateEventContent, StaticStateEventContent, SyncMessageLikeEvent, SyncStateEvent,
 };
 
-use crate::{room_member::MembershipState, ruma::MessageType, ClientError};
+use crate::{
+    room_member::MembershipState,
+    ruma::{MessageType, NotifyType},
+    ClientError,
+};
 
 #[derive(uniffi::Object)]
 pub struct TimelineEvent(pub(crate) AnySyncTimelineEvent);
@@ -119,6 +123,7 @@ pub enum MessageLikeEventContent {
     CallInvite,
     CallHangup,
     CallCandidates,
+    CallNotify { notify_type: NotifyType },
     KeyVerificationReady,
     KeyVerificationStart,
     KeyVerificationCancel,
@@ -143,6 +148,12 @@ impl TryFrom<AnySyncMessageLikeEvent> for MessageLikeEventContent {
             AnySyncMessageLikeEvent::CallInvite(_) => MessageLikeEventContent::CallInvite,
             AnySyncMessageLikeEvent::CallHangup(_) => MessageLikeEventContent::CallHangup,
             AnySyncMessageLikeEvent::CallCandidates(_) => MessageLikeEventContent::CallCandidates,
+            AnySyncMessageLikeEvent::CallNotify(content) => {
+                let original_content = get_message_like_event_original_content(content)?;
+                MessageLikeEventContent::CallNotify {
+                    notify_type: original_content.notify_type.into(),
+                }
+            }
             AnySyncMessageLikeEvent::KeyVerificationReady(_) => {
                 MessageLikeEventContent::KeyVerificationReady
             }

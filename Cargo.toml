@@ -48,6 +48,7 @@ ruma = { version = "0.10.1", features = [
     "compat-tag-info",
     "unstable-msc3401",
     "unstable-msc3266",
+    "unstable-msc4075"
 ] }
 ruma-common = { version = "0.13.0" }
 once_cell = "1.16.0"

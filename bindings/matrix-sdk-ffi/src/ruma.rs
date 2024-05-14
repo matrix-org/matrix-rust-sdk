@@ -21,6 +21,7 @@ use matrix_sdk::attachment::{
 use ruma::{
     assign,
     events::{
+        call::notify::NotifyType as RumaNotifyType,
         location::AssetType as RumaAssetType,
         poll::start::PollKind as RumaPollKind,
         room::{
@@ -371,6 +372,30 @@ impl From<RumaMessageType> for MessageType {
                 msgtype: value.msgtype().to_owned(),
                 body: value.body().to_owned(),
             },
+        }
+    }
+}
+
+#[derive(Clone, uniffi::Enum)]
+pub enum NotifyType {
+    Ring,
+    Notify,
+}
+
+impl From<RumaNotifyType> for NotifyType {
+    fn from(val: RumaNotifyType) -> Self {
+        match val {
+            RumaNotifyType::Ring => Self::Ring,
+            _ => Self::Notify,
+        }
+    }
+}
+
+impl From<NotifyType> for RumaNotifyType {
+    fn from(value: NotifyType) -> Self {
+        match value {
+            NotifyType::Ring => RumaNotifyType::Ring,
+            NotifyType::Notify => RumaNotifyType::Notify,
         }
     }
 }
