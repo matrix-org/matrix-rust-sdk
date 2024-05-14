@@ -83,6 +83,9 @@ pub enum Update<Item, Gap> {
         /// position, items are detached.
         at: Position,
     },
+
+    ReattachItems,
+    ReattachItemsDone,
 }
 
 impl<Item, Gap> Clone for Update<Item, Gap>
@@ -103,6 +106,8 @@ where
                 Self::PushItems { position_hint: *position_hint, items: items.clone() }
             }
             Self::DetachLastItems { at } => Self::DetachLastItems { at: *at },
+            Self::ReattachItems => Self::ReattachItems,
+            Self::ReattachItemsDone => Self::ReattachItemsDone,
         }
     }
 }

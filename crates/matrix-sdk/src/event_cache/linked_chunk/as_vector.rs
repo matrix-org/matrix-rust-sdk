@@ -51,8 +51,8 @@ impl<Item, Gap> AsVectorSubscriber<Item, Gap> {
 
 impl<Item, Gap> Stream for AsVectorSubscriber<Item, Gap>
 where
-    Item: Clone + std::fmt::Debug,
-    Gap: Clone + std::fmt::Debug,
+    Item: Clone,
+    Gap: Clone,
 {
     type Item = Vec<VectorDiff<Item>>;
 
@@ -64,6 +64,8 @@ where
         };
 
         let mut diffs = Vec::with_capacity(updates.len());
+
+        let mut reattaching = false;
 
         for update in updates {
             match update {
@@ -136,6 +138,10 @@ where
 
                     *chunk_length += items.len();
 
+                    if reattaching {
+                        continue;
+                    }
+
                     // Optimisation: we can emit a `VectorDiff::Append` in this particular case.
                     if chunk_index == this.chunks.len() - 1 {
                         diffs.push(VectorDiff::Append { values: items.into() });
@@ -160,14 +166,15 @@ where
                         })
                         .expect("oops 3");
 
-                    let old_length = *length;
                     *length = new_length;
+                }
 
-                    diffs.extend(
-                        (new_length..old_length)
-                            .into_iter()
-                            .map(|index| VectorDiff::Remove { index }),
-                    );
+                Update::ReattachItems => {
+                    reattaching = true;
+                }
+
+                Update::ReattachItemsDone => {
+                    reattaching = false;
                 }
             }
         }
@@ -211,12 +218,8 @@ mod tests {
         assert_next_eq!(
             as_vector,
             &[
-                VectorDiff::Remove { index: 1 },
-                VectorDiff::Remove { index: 2 },
                 VectorDiff::Insert { index: 1, value: 'f' },
                 VectorDiff::Insert { index: 2, value: 'g' },
-                VectorDiff::Insert { index: 3, value: 'b' },
-                VectorDiff::Insert { index: 4, value: 'c' },
             ]
         );
 

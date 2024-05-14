@@ -266,15 +266,27 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
                         // Split the items.
                         let detached_items = current_items.split_off(item_index);
 
-                        chunk
+                        let chunk = chunk
                             // Push the new items.
-                            .push_items(items, &self.chunk_identifier_generator, &mut self.updates)
+                            .push_items(items, &self.chunk_identifier_generator, &mut self.updates);
+
+                        if let Some(updates) = self.updates.as_mut() {
+                            updates.push(Update::ReattachItems);
+                        }
+
+                        let chunk = chunk
                             // Finally, push the items that have been detached.
                             .push_items(
                                 detached_items.into_iter(),
                                 &self.chunk_identifier_generator,
                                 &mut self.updates,
-                            )
+                            );
+
+                        if let Some(updates) = self.updates.as_mut() {
+                            updates.push(Update::ReattachItemsDone);
+                        }
+
+                        chunk
                     },
                     number_of_items,
                 )
@@ -356,12 +368,18 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
                 // Split the items.
                 let detached_items = current_items.split_off(item_index);
 
-                chunk
+                let chunk = chunk
                     // Insert a new gap chunk.
                     .insert_next(
                         Chunk::new_gap_leaked(self.chunk_identifier_generator.next(), content),
                         &mut self.updates,
-                    )
+                    );
+
+                if let Some(updates) = self.updates.as_mut() {
+                    updates.push(Update::ReattachItems);
+                }
+
+                let chunk = chunk
                     // Insert a new items chunk.
                     .insert_next(
                         Chunk::new_items_leaked(self.chunk_identifier_generator.next()),
@@ -372,7 +390,13 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
                         detached_items.into_iter(),
                         &self.chunk_identifier_generator,
                         &mut self.updates,
-                    )
+                    );
+
+                if let Some(updates) = self.updates.as_mut() {
+                    updates.push(Update::ReattachItemsDone);
+                }
+
+                chunk
             }
         };
 
@@ -1670,6 +1694,7 @@ mod tests {
                         position_hint: Position(ChunkIdentifier(2), 0),
                         items: vec!['y', 'z']
                     },
+                    ReattachItems,
                     PushItems { position_hint: Position(ChunkIdentifier(2), 2), items: vec!['e'] },
                     NewItemsChunk {
                         previous: Some(ChunkIdentifier(2)),
@@ -1677,6 +1702,7 @@ mod tests {
                         next: None,
                     },
                     PushItems { position_hint: Position(ChunkIdentifier(3), 0), items: vec!['f'] },
+                    ReattachItemsDone,
                 ]
             );
         }
@@ -1705,6 +1731,7 @@ mod tests {
                         next: Some(ChunkIdentifier(1)),
                     },
                     PushItems { position_hint: Position(ChunkIdentifier(4), 0), items: vec!['o'] },
+                    ReattachItems,
                     PushItems {
                         position_hint: Position(ChunkIdentifier(4), 1),
                         items: vec!['a', 'b']
@@ -1715,6 +1742,7 @@ mod tests {
                         next: Some(ChunkIdentifier(1)),
                     },
                     PushItems { position_hint: Position(ChunkIdentifier(5), 0), items: vec!['c'] },
+                    ReattachItemsDone,
                 ]
             );
         }
@@ -1737,7 +1765,9 @@ mod tests {
                         position_hint: Position(ChunkIdentifier(5), 0),
                         items: vec!['r', 's']
                     },
+                    ReattachItems,
                     PushItems { position_hint: Position(ChunkIdentifier(5), 2), items: vec!['c'] },
+                    ReattachItemsDone,
                 ]
             );
         }
@@ -1758,7 +1788,7 @@ mod tests {
                 &[PushItems {
                     position_hint: Position(ChunkIdentifier(3), 1),
                     items: vec!['p', 'q']
-                },]
+                }]
             );
             assert_eq!(linked_chunk.len(), 18);
         }
@@ -1832,7 +1862,7 @@ mod tests {
                 PushItems {
                     position_hint: Position(ChunkIdentifier(1), 0),
                     items: vec!['d', 'e', 'f']
-                }
+                },
             ]
         );
 
@@ -1852,6 +1882,7 @@ mod tests {
                         next: Some(ChunkIdentifier(1)),
                         gap: (),
                     },
+                    ReattachItems,
                     NewItemsChunk {
                         previous: Some(ChunkIdentifier(2)),
                         new: ChunkIdentifier(3),
@@ -1860,7 +1891,8 @@ mod tests {
                     PushItems {
                         position_hint: Position(ChunkIdentifier(3), 0),
                         items: vec!['b', 'c']
-                    }
+                    },
+                    ReattachItemsDone,
                 ]
             );
         }
@@ -1882,12 +1914,14 @@ mod tests {
                         next: Some(ChunkIdentifier(2)),
                         gap: (),
                     },
+                    ReattachItems,
                     NewItemsChunk {
                         previous: Some(ChunkIdentifier(4)),
                         new: ChunkIdentifier(5),
                         next: Some(ChunkIdentifier(2)),
                     },
-                    PushItems { position_hint: Position(ChunkIdentifier(5), 0), items: vec!['a'] }
+                    PushItems { position_hint: Position(ChunkIdentifier(5), 0), items: vec!['a'] },
+                    ReattachItemsDone,
                 ]
             );
         }
@@ -1937,7 +1971,7 @@ mod tests {
                         new: ChunkIdentifier(7),
                         next: Some(ChunkIdentifier(1)),
                     },
-                    RemoveChunk(ChunkIdentifier(6))
+                    RemoveChunk(ChunkIdentifier(6)),
                 ]
             );
 
