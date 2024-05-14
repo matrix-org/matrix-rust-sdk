@@ -258,9 +258,8 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
                     // Insert inside the current items.
                     else {
                         if let Some(updates) = self.updates.as_mut() {
-                            updates.push(Update::TruncateItems {
-                                chunk: chunk_identifier,
-                                length: item_index,
+                            updates.push(Update::DetachLastItems {
+                                at: Position(chunk_identifier, item_index),
                             });
                         }
 
@@ -349,9 +348,8 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
                 }
 
                 if let Some(updates) = self.updates.as_mut() {
-                    updates.push(Update::TruncateItems {
-                        chunk: chunk_identifier,
-                        length: item_index,
+                    updates.push(Update::DetachLastItems {
+                        at: Position(chunk_identifier, item_index),
                     });
                 }
 
@@ -1658,7 +1656,7 @@ mod tests {
             assert_eq!(
                 linked_chunk.updates().unwrap().take(),
                 &[
-                    TruncateItems { chunk: ChunkIdentifier(1), length: 1 },
+                    DetachLastItems { at: Position(ChunkIdentifier(1), 1) },
                     PushItems {
                         position_hint: Position(ChunkIdentifier(1), 1),
                         items: vec!['w', 'x']
@@ -1696,7 +1694,7 @@ mod tests {
             assert_eq!(
                 linked_chunk.updates().unwrap().take(),
                 &[
-                    TruncateItems { chunk: ChunkIdentifier(0), length: 0 },
+                    DetachLastItems { at: Position(ChunkIdentifier(0), 0) },
                     PushItems {
                         position_hint: Position(ChunkIdentifier(0), 0),
                         items: vec!['l', 'm', 'n']
@@ -1734,7 +1732,7 @@ mod tests {
             assert_eq!(
                 linked_chunk.updates().unwrap().take(),
                 &[
-                    TruncateItems { chunk: ChunkIdentifier(5), length: 0 },
+                    DetachLastItems { at: Position(ChunkIdentifier(5), 0) },
                     PushItems {
                         position_hint: Position(ChunkIdentifier(5), 0),
                         items: vec!['r', 's']
@@ -1847,7 +1845,7 @@ mod tests {
             assert_eq!(
                 linked_chunk.updates().unwrap().take(),
                 &[
-                    TruncateItems { chunk: ChunkIdentifier(0), length: 1 },
+                    DetachLastItems { at: Position(ChunkIdentifier(0), 1) },
                     NewGapChunk {
                         previous: Some(ChunkIdentifier(0)),
                         new: ChunkIdentifier(2),
@@ -1877,7 +1875,7 @@ mod tests {
             assert_eq!(
                 linked_chunk.updates().unwrap().take(),
                 &[
-                    TruncateItems { chunk: ChunkIdentifier(0), length: 0 },
+                    DetachLastItems { at: Position(ChunkIdentifier(0), 0) },
                     NewGapChunk {
                         previous: Some(ChunkIdentifier(0)),
                         new: ChunkIdentifier(4),

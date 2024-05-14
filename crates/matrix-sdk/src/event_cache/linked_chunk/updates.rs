@@ -76,13 +76,12 @@ pub enum Update<Item, Gap> {
         items: Vec<Item>,
     },
 
-    /// A chunk of kind Items has been truncated.
-    TruncateItems {
-        /// The identifier of the chunk.
-        chunk: ChunkIdentifier,
-
-        /// The new length of the chunk.
-        length: usize,
+    /// The last items of a chunk have been detached, i.e. the chunk has been
+    /// truncated.
+    DetachLastItems {
+        /// The split position. Before this position, items are kept, after this
+        /// position, items are detached.
+        at: Position,
     },
 }
 
@@ -100,12 +99,10 @@ where
                 Self::NewGapChunk { previous: *previous, new: *new, next: *next, gap: gap.clone() }
             }
             Self::RemoveChunk(identifier) => Self::RemoveChunk(*identifier),
-            Self::PushItems { position_hint: at, items } => {
-                Self::PushItems { position_hint: *at, items: items.clone() }
+            Self::PushItems { position_hint, items } => {
+                Self::PushItems { position_hint: *position_hint, items: items.clone() }
             }
-            Self::TruncateItems { chunk, length } => {
-                Self::TruncateItems { chunk: *chunk, length: *length }
-            }
+            Self::DetachLastItems { at } => Self::DetachLastItems { at: *at },
         }
     }
 }

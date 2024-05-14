@@ -148,7 +148,10 @@ where
                     }
                 }
 
-                Update::TruncateItems { chunk: expected_chunk_identifier, length: new_length } => {
+                Update::DetachLastItems { at } => {
+                    let expected_chunk_identifier = at.chunk_identifier();
+                    let new_length = at.index();
+
                     let length = this
                         .chunks
                         .iter_mut()
