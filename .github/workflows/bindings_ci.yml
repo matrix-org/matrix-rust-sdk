@@ -154,7 +154,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Run the Build Framework script
-        run: ./bindings/apple/build_crypto_xcframework.sh
+        run: ./bindings/apple/build_crypto_xcframework.sh -i
 
       - name: Is XCFramework generated?
         if: ${{ hashFiles('generated/MatrixSDKCryptoFFI.zip') != '' }}
