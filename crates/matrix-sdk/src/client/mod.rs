@@ -946,13 +946,19 @@ impl Client {
     /// they've joined/left/been invited to it) or not.
     pub async fn get_room_preview(
         &self,
-        room_id: &RoomId,
+        room_or_alias_id: &RoomOrAliasId,
         via: Vec<OwnedServerName>,
     ) -> Result<RoomPreview> {
-        if let Some(room) = self.get_room(room_id) {
+        let room_id = match <&RoomId>::try_from(room_or_alias_id) {
+            Ok(room_id) => room_id.to_owned(),
+            Err(alias) => self.resolve_room_alias(alias).await?.room_id,
+        };
+
+        if let Some(room) = self.get_room(&room_id) {
             return Ok(RoomPreview::from_known(&room));
         }
-        RoomPreview::from_unknown(self, room_id, via).await
+
+        RoomPreview::from_unknown(self, room_id, room_or_alias_id, via).await
     }
 
     /// Resolve a room alias to a room id and a list of servers which know
