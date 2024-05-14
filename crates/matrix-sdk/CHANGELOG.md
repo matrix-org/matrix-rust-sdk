@@ -25,6 +25,7 @@ Additions:
   outbound session for that room. Can be used by clients as a dev tool like the `/discardsession` command.
 - Add a new `LinkedChunk` data structure to represents all events per room ([#3166](https://github.com/matrix-org/matrix-rust-sdk/pull/3166)).
 - Add new methods for tracking (on device only) the user's recently visited rooms called `Account::track_recently_visited_room(roomId)` and `Account::get_recently_visited_rooms()`
+- Add `send_call_notification` and `send_call_notification_if_needed` methods. This allows to implement sending ring events on call start.
 
 # 0.7.0
 
