@@ -63,7 +63,7 @@ fi
 echo -e "\nCreating XCFramework"
 # Lipo together the libraries for the same platform
 
-if [ !${only_ios} ]; then
+if ! ${only_ios}; then
   echo "Lipo together the libraries for the same platform"
   # MacOS
   lipo -create \
