@@ -280,6 +280,7 @@ impl<'a> IntoFuture for SendAttachment<'a> {
                             &content_type,
                             Cursor::new(&data),
                             config.thumbnail_size,
+                            config.thumbnail_format,
                         );
                         (data, res)
                     };
@@ -316,6 +317,8 @@ impl<'a> IntoFuture for SendAttachment<'a> {
                     generate_thumbnail: false,
                     #[cfg(feature = "image-proc")]
                     thumbnail_size: None,
+                    #[cfg(feature = "image-proc")]
+                    thumbnail_format: Default::default(),
                 };
 
                 room.prepare_and_send_attachment(
