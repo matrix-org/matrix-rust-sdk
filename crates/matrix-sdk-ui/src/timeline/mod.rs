@@ -16,7 +16,7 @@
 //!
 //! See [`Timeline`] for details.
 
-use std::{pin::Pin, sync::Arc, task::Poll};
+use std::{path::PathBuf, pin::Pin, sync::Arc, task::Poll};
 
 use eyeball::SharedObservable;
 use eyeball_im::VectorDiff;
@@ -542,7 +542,7 @@ impl Timeline {
     ///
     /// # Arguments
     ///
-    /// * `filename` - The filename of the file to be sent
+    /// * `path` - The path of the file to be sent
     ///
     /// * `mime_type` - The attachment's mime type
     ///
@@ -553,11 +553,11 @@ impl Timeline {
     #[instrument(skip_all)]
     pub fn send_attachment(
         &self,
-        filename: String,
+        path: impl Into<PathBuf>,
         mime_type: Mime,
         config: AttachmentConfig,
     ) -> SendAttachment<'_> {
-        SendAttachment::new(self, filename, mime_type, config)
+        SendAttachment::new(self, path.into(), mime_type, config)
     }
 
     /// Retry sending a message that previously failed to send.
