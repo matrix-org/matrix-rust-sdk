@@ -216,7 +216,7 @@ impl<'a> IntoFuture for SendRawMessageLikeEvent<'a> {
 #[allow(missing_debug_implementations)]
 pub struct SendAttachment<'a> {
     room: &'a Room,
-    url: &'a str,
+    filename: &'a str,
     content_type: &'a Mime,
     data: Vec<u8>,
     config: AttachmentConfig,
@@ -227,14 +227,14 @@ pub struct SendAttachment<'a> {
 impl<'a> SendAttachment<'a> {
     pub(crate) fn new(
         room: &'a Room,
-        url: &'a str,
+        filename: &'a str,
         content_type: &'a Mime,
         data: Vec<u8>,
         config: AttachmentConfig,
     ) -> Self {
         Self {
             room,
-            url,
+            filename,
             content_type,
             data,
             config,
@@ -260,11 +260,17 @@ impl<'a> IntoFuture for SendAttachment<'a> {
     boxed_into_future!(extra_bounds: 'a);
 
     fn into_future(self) -> Self::IntoFuture {
-        let Self { room, url, content_type, data, config, tracing_span, send_progress } = self;
+        let Self { room, filename, content_type, data, config, tracing_span, send_progress } = self;
         let fut = async move {
             if config.thumbnail.is_some() {
-                room.prepare_and_send_attachment(url, content_type, data, config, send_progress)
-                    .await
+                room.prepare_and_send_attachment(
+                    filename,
+                    content_type,
+                    data,
+                    config,
+                    send_progress,
+                )
+                .await
             } else {
                 #[cfg(not(feature = "image-proc"))]
                 let thumbnail = None;
@@ -324,8 +330,14 @@ impl<'a> IntoFuture for SendAttachment<'a> {
                     thumbnail_size: None,
                 };
 
-                room.prepare_and_send_attachment(url, content_type, data, config, send_progress)
-                    .await
+                room.prepare_and_send_attachment(
+                    filename,
+                    content_type,
+                    data,
+                    config,
+                    send_progress,
+                )
+                .await
             }
         };
 

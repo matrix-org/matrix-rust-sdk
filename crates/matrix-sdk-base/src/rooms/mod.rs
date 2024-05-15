@@ -131,7 +131,7 @@ impl BaseRoomInfo {
         calculate_room_name(
             joined_member_count,
             invited_member_count,
-            heroes.iter().take(3).map(|mem| mem.name()).collect::<Vec<&str>>(),
+            heroes.iter().map(|mem| mem.name()).collect::<Vec<&str>>(),
         )
     }
 
@@ -364,27 +364,26 @@ impl Default for BaseRoomInfo {
 }
 
 /// Calculate room name according to step 3 of the [naming algorithm.]
+///
+/// [naming algorithm]: https://spec.matrix.org/latest/client-server-api/#calculating-the-display-name-for-a-room
 fn calculate_room_name(
     joined_member_count: u64,
     invited_member_count: u64,
-    heroes: Vec<&str>,
+    mut heroes: Vec<&str>,
 ) -> DisplayName {
     let heroes_count = heroes.len() as u64;
     let invited_joined = invited_member_count + joined_member_count;
     let invited_joined_minus_one = invited_joined.saturating_sub(1);
 
-    let names = if heroes_count >= invited_joined_minus_one {
-        let mut names = heroes;
-        // stabilize ordering
-        names.sort_unstable();
-        names.join(", ")
-    } else if heroes_count < invited_joined_minus_one && invited_joined > 1 {
-        let mut names = heroes;
-        names.sort_unstable();
+    // Stabilize ordering.
+    heroes.sort_unstable();
 
+    let names = if heroes_count >= invited_joined_minus_one {
+        heroes.join(", ")
+    } else if heroes_count < invited_joined_minus_one && invited_joined > 1 {
         // TODO: What length does the spec want us to use here and in
         // the `else`?
-        format!("{}, and {} others", names.join(", "), (invited_joined - heroes_count))
+        format!("{}, and {} others", heroes.join(", "), (invited_joined - heroes_count))
     } else {
         "".to_owned()
     };

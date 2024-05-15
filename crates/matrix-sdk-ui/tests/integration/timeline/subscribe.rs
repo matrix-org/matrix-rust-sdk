@@ -18,7 +18,10 @@ use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, StreamExt};
-use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server};
+use matrix_sdk::{
+    config::SyncSettings,
+    test_utils::{events::EventFactory, logged_in_client_with_server},
+};
 use matrix_sdk_test::{
     async_test, sync_timeline_event, EventBuilder, GlobalAccountDataTestEvent, JoinedRoomBuilder,
     SyncResponseBuilder, ALICE, BOB,
@@ -30,7 +33,7 @@ use ruma::{
         member::{MembershipState, RoomMemberEventContent},
         message::{MessageType, RoomMessageEventContent},
     },
-    room_id,
+    room_id, user_id,
 };
 use serde_json::json;
 use stream_assert::{assert_next_matches, assert_pending};
@@ -210,45 +213,22 @@ async fn test_timeline_is_reset_when_a_user_is_ignored_or_unignored() {
     let (_, timeline_stream) = timeline.subscribe().await;
     pin_mut!(timeline_stream);
 
-    let alice = "@alice:example.org";
-    let bob = "@bob:example.org";
+    let alice = user_id!("@alice:example.org");
+    let bob = user_id!("@bob:example.org");
 
     let first_event_id = event_id!("$YTQwYl2pl1");
     let second_event_id = event_id!("$YTQwYl2pl2");
     let third_event_id = event_id!("$YTQwYl2pl3");
 
+    let mut ev_factory = EventFactory::new().room(room_id);
+
     sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(sync_timeline_event!({
-                "content": {
-                    "body": "hello",
-                    "msgtype": "m.text",
-                },
-                "event_id": first_event_id,
-                "origin_server_ts": 152037280,
-                "sender": alice,
-                "type": "m.room.message",
-            }))
-            .add_timeline_event(sync_timeline_event!({
-                "content": {
-                    "body": "hello",
-                    "msgtype": "m.text",
-                },
-                "event_id": second_event_id,
-                "origin_server_ts": 152037281,
-                "sender": bob,
-                "type": "m.room.message",
-            }))
-            .add_timeline_event(sync_timeline_event!({
-                "content": {
-                    "body": "hello",
-                    "msgtype": "m.text",
-                },
-                "event_id": third_event_id,
-                "origin_server_ts": 152037282,
-                "sender": alice,
-                "type": "m.room.message",
-            })),
+            .add_timeline_event(ev_factory.text_msg("hello").sender(alice).event_id(first_event_id))
+            .add_timeline_event(ev_factory.text_msg("hello").sender(bob).event_id(second_event_id))
+            .add_timeline_event(
+                ev_factory.text_msg("hello").sender(alice).event_id(third_event_id),
+            ),
     );
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
@@ -272,9 +252,6 @@ async fn test_timeline_is_reset_when_a_user_is_ignored_or_unignored() {
     });
     assert_pending!(timeline_stream);
 
-    let fourth_event_id = event_id!("$YTQwYl2pl4");
-    let fiveth_event_id = event_id!("$YTQwYl2pl5");
-
     sync_builder.add_global_account_data_event(GlobalAccountDataTestEvent::Custom(json!({
         "content": {
             "ignored_users": {
@@ -292,28 +269,16 @@ async fn test_timeline_is_reset_when_a_user_is_ignored_or_unignored() {
     assert_next_matches!(timeline_stream, VectorDiff::Clear);
     assert_pending!(timeline_stream);
 
+    let fourth_event_id = event_id!("$YTQwYl2pl4");
+    let fifth_event_id = event_id!("$YTQwYl2pl5");
+
+    // All the next events are sent by Alice now.
+    ev_factory = ev_factory.sender(alice);
+
     sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(sync_timeline_event!({
-                "content": {
-                    "body": "hello",
-                    "msgtype": "m.text",
-                },
-                "event_id": fourth_event_id,
-                "origin_server_ts": 152037283,
-                "sender": alice,
-                "type": "m.room.message",
-            }))
-            .add_timeline_event(sync_timeline_event!({
-                "content": {
-                    "body": "hello",
-                    "msgtype": "m.text",
-                },
-                "event_id": fiveth_event_id,
-                "origin_server_ts": 152037284,
-                "sender": alice,
-                "type": "m.room.message",
-            })),
+            .add_timeline_event(ev_factory.text_msg("hello").event_id(fourth_event_id))
+            .add_timeline_event(ev_factory.text_msg("hello").event_id(fifth_event_id)),
     );
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
@@ -328,7 +293,7 @@ async fn test_timeline_is_reset_when_a_user_is_ignored_or_unignored() {
         assert_eq!(value.as_event().unwrap().event_id(), Some(fourth_event_id));
     });
     assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
-        assert_eq!(value.as_event().unwrap().event_id(), Some(fiveth_event_id));
+        assert_eq!(value.as_event().unwrap().event_id(), Some(fifth_event_id));
     });
     assert_next_matches!(timeline_stream, VectorDiff::PushFront { value } => {
         assert!(value.is_day_divider());

@@ -16,7 +16,7 @@
 //!
 //! See [`Timeline`] for details.
 
-use std::{pin::Pin, sync::Arc, task::Poll};
+use std::{path::PathBuf, pin::Pin, sync::Arc, task::Poll};
 
 use eyeball::SharedObservable;
 use eyeball_im::VectorDiff;
@@ -46,7 +46,7 @@ use ruma::{
         room::{
             message::{
                 AddMentions, ForwardThread, OriginalRoomMessageEvent, ReplacementMetadata,
-                RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
+                RoomMessageEventContentWithoutRelation,
             },
             redaction::RoomRedactionEventContent,
         },
@@ -386,7 +386,7 @@ impl Timeline {
     #[instrument(skip(self, new_content))]
     pub async fn edit(
         &self,
-        new_content: RoomMessageEventContent,
+        new_content: RoomMessageEventContentWithoutRelation,
         edit_item: &EventTimelineItem,
     ) -> Result<(), UnsupportedEditItem> {
         // Early returns here must be in sync with
@@ -542,7 +542,7 @@ impl Timeline {
     ///
     /// # Arguments
     ///
-    /// * `filename` - The filename of the file to be sent
+    /// * `path` - The path of the file to be sent
     ///
     /// * `mime_type` - The attachment's mime type
     ///
@@ -553,11 +553,11 @@ impl Timeline {
     #[instrument(skip_all)]
     pub fn send_attachment(
         &self,
-        filename: String,
+        path: impl Into<PathBuf>,
         mime_type: Mime,
         config: AttachmentConfig,
     ) -> SendAttachment<'_> {
-        SendAttachment::new(self, filename, mime_type, config)
+        SendAttachment::new(self, path.into(), mime_type, config)
     }
 
     /// Retry sending a message that previously failed to send.
@@ -820,7 +820,6 @@ struct TimelineDropHandle {
     client: Client,
     event_handler_handles: Vec<EventHandlerHandle>,
     room_update_join_handle: JoinHandle<()>,
-    ignore_user_list_update_join_handle: JoinHandle<()>,
     room_key_from_backups_join_handle: JoinHandle<()>,
     _event_cache_drop_handle: Arc<EventCacheDropHandles>,
 }
@@ -831,7 +830,6 @@ impl Drop for TimelineDropHandle {
             self.client.remove_event_handler(handle);
         }
         self.room_update_join_handle.abort();
-        self.ignore_user_list_update_join_handle.abort();
         self.room_key_from_backups_join_handle.abort();
     }
 }

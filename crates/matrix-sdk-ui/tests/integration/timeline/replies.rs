@@ -4,7 +4,10 @@ use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
-use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server};
+use matrix_sdk::{
+    config::SyncSettings,
+    test_utils::{events::EventFactory, logged_in_client_with_server},
+};
 use matrix_sdk_base::timeout::timeout;
 use matrix_sdk_test::{
     async_test, EventBuilder, JoinedRoomBuilder, SyncResponseBuilder, ALICE, BOB, CAROL,
@@ -37,7 +40,6 @@ use crate::{mock_encryption_state, mock_sync};
 async fn test_in_reply_to_details() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client_with_server().await;
-    let event_builder = EventBuilder::new();
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
     let mut sync_builder = SyncResponseBuilder::new();
@@ -59,21 +61,11 @@ async fn test_in_reply_to_details() {
 
     // Add an event and a reply to that event to the timeline
     let event_id_1 = event_id!("$event1");
+    let f = EventFactory::new();
     sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(event_builder.make_sync_message_event_with_id(
-                &ALICE,
-                event_id_1,
-                RoomMessageEventContent::text_plain("hello"),
-            ))
-            .add_timeline_event(event_builder.make_sync_message_event(
-                &BOB,
-                assign!(RoomMessageEventContent::text_plain("hello to you too"), {
-                    relates_to: Some(Relation::Reply {
-                        in_reply_to: InReplyTo::new(event_id_1.to_owned()),
-                    }),
-                }),
-            )),
+            .add_timeline_event(f.text_msg("hello").sender(*ALICE).event_id(event_id_1))
+            .add_timeline_event(f.text_msg("hello to you too").reply_to(event_id_1).sender(*BOB)),
     );
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
@@ -95,16 +87,10 @@ async fn test_in_reply_to_details() {
 
     // Add an reply to an unknown event to the timeline
     let event_id_2 = event_id!("$event2");
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
-        event_builder.make_sync_message_event(
-            &BOB,
-            assign!(RoomMessageEventContent::text_plain("you were right"), {
-                relates_to: Some(Relation::Reply {
-                    in_reply_to: InReplyTo::new(event_id_2.to_owned()),
-                }),
-            }),
-        ),
-    ));
+    sync_builder.add_joined_room(
+        JoinedRoomBuilder::new(room_id)
+            .add_timeline_event(f.text_msg("you were right").reply_to(event_id_2).sender(*BOB)),
+    );
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
@@ -120,6 +106,8 @@ async fn test_in_reply_to_details() {
     let in_reply_to = message.in_reply_to().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_2);
     assert_matches!(in_reply_to.event, TimelineDetails::Unavailable);
+
+    let unique_id = third.unique_id().to_owned();
 
     // Set up fetching the replied-to event to fail
     Mock::given(method("GET"))
@@ -140,23 +128,26 @@ async fn test_in_reply_to_details() {
     assert_let!(Some(VectorDiff::Set { index: 3, value: third }) = timeline_stream.next().await);
     assert_let!(TimelineItemContent::Message(message) = third.as_event().unwrap().content());
     assert_matches!(message.in_reply_to().unwrap().event, TimelineDetails::Pending);
+    assert_eq!(third.unique_id(), unique_id);
 
     assert_let!(Some(VectorDiff::Set { index: 3, value: third }) = timeline_stream.next().await);
     assert_let!(TimelineItemContent::Message(message) = third.as_event().unwrap().content());
     assert_matches!(message.in_reply_to().unwrap().event, TimelineDetails::Error(_));
+    assert_eq!(third.unique_id(), unique_id);
 
     // Set up fetching the replied-to event to succeed
     Mock::given(method("GET"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/event/\$event2"))
         .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(
-            event_builder.make_message_event_with_id(
-                &CAROL,
-                room_id,
-                event_id_2,
-                RoomMessageEventContent::text_plain("Alice is gonna arrive soon"),
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(
+                f.text_msg("Alice is gonna arrive soon")
+                    .sender(*CAROL)
+                    .room(room_id)
+                    .event_id(event_id_2)
+                    .into_raw_timeline(),
             ),
-        ))
+        )
         .expect(1)
         .mount(&server)
         .await;
@@ -166,10 +157,12 @@ async fn test_in_reply_to_details() {
     assert_let!(Some(VectorDiff::Set { index: 3, value: third }) = timeline_stream.next().await);
     assert_let!(TimelineItemContent::Message(message) = third.as_event().unwrap().content());
     assert_matches!(message.in_reply_to().unwrap().event, TimelineDetails::Pending);
+    assert_eq!(third.unique_id(), unique_id);
 
     assert_let!(Some(VectorDiff::Set { index: 3, value: third }) = timeline_stream.next().await);
     assert_let!(TimelineItemContent::Message(message) = third.as_event().unwrap().content());
     assert_matches!(message.in_reply_to().unwrap().event, TimelineDetails::Ready(_));
+    assert_eq!(third.unique_id(), unique_id);
 }
 
 #[async_test]

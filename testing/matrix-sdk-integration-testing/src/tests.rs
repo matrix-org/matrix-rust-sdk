@@ -1,6 +1,7 @@
 mod auth;
 mod e2ee;
 mod invitations;
+mod nse;
 mod reactions;
 mod redaction;
 mod repeated_join;

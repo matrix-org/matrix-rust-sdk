@@ -531,7 +531,7 @@ async fn test_room_notification_count() -> Result<()> {
     bob_room
         .send(
             RoomMessageEventContent::text_plain("Hello my dear friend Alice!")
-                .set_mentions(Mentions::with_user_ids([alice.user_id().unwrap().to_owned()])),
+                .add_mentions(Mentions::with_user_ids([alice.user_id().unwrap().to_owned()])),
         )
         .await?;
 
@@ -658,7 +658,7 @@ async fn test_room_notification_count() -> Result<()> {
     bob_room
         .send(
             RoomMessageEventContent::text_plain("Why, hello there Alice!")
-                .set_mentions(Mentions::with_user_ids([alice.user_id().unwrap().to_owned()])),
+                .add_mentions(Mentions::with_user_ids([alice.user_id().unwrap().to_owned()])),
         )
         .await?;
 
@@ -1169,18 +1169,7 @@ async fn get_room_preview_with_room_summary(
     public_no_history_room_id: &RoomId,
 ) {
     // Alice has joined the room, so they get the full details.
-    let preview = match RoomPreview::from_room_summary(alice, room_id).await {
-        Ok(r) => r,
-        Err(err) => {
-            if let Some(client_api_error) = err.as_client_api_error() {
-                if client_api_error.status_code == 404 {
-                    warn!("Skipping the room summary test, because the server may not support it.");
-                    return;
-                }
-            }
-            panic!("{err}");
-        }
-    };
+    let preview = RoomPreview::from_room_summary(alice, room_id).await.unwrap();
 
     assert_room_preview(&preview, room_alias);
     assert_eq!(preview.state, Some(RoomState::Joined));

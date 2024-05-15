@@ -19,7 +19,6 @@
 
 use std::{future::IntoFuture, io::Read};
 
-use cfg_vis::cfg_vis;
 use eyeball::SharedObservable;
 #[cfg(not(target_arch = "wasm32"))]
 use eyeball::Subscriber;
@@ -48,7 +47,6 @@ impl<'a, R: ?Sized> PrepareEncryptedFile<'a, R> {
     /// Note that any subscribers obtained from
     /// [`subscribe_to_send_progress`][Self::subscribe_to_send_progress]
     /// will be invalidated by this.
-    #[cfg_vis(target_arch = "wasm32", pub(crate))]
     pub fn with_send_progress_observable(
         mut self,
         send_progress: SharedObservable<TransmissionProgress>,

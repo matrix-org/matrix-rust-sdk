@@ -39,7 +39,8 @@ futures-util = { version = "0.3.26", default-features = false, features = [
 http = "1.1.0"
 imbl = "2.0.0"
 itertools = "0.12.0"
-ruma = { version = "0.10.0", features = [
+reqwest = { version = "0.12.4", default-features = false }
+ruma = { version = "0.10.1", features = [
     "client-api-c",
     "compat-upload-signatures",
     "compat-user-id",
@@ -63,7 +64,8 @@ tracing = { version = "0.1.40", default-features = false, features = ["std"] }
 tracing-core = "0.1.32"
 uniffi = { version = "0.27.1" }
 uniffi_bindgen = { version = "0.27.1" }
-vodozemac = { version = "0.6.0" }
+url = "2.5.0"
+vodozemac = { git = "https://github.com/matrix-org/vodozemac/", rev = "826d0aa22a9b5405535927c7691492db4b92a43b" }
 wiremock = "0.6.0"
 zeroize = "1.6.0"
 

@@ -33,7 +33,7 @@ use ruma::{
         relation::InReplyTo,
         room::message::{
             MessageType, Relation, ReplacementMetadata, RoomMessageEventContent,
-            TextMessageEventContent,
+            RoomMessageEventContentWithoutRelation, TextMessageEventContent,
         },
     },
     room_id, user_id,
@@ -202,7 +202,7 @@ async fn test_send_edit() {
         .await;
 
     timeline
-        .edit(RoomMessageEventContent::text_plain("Hello, Room!"), &hello_world_item)
+        .edit(RoomMessageEventContentWithoutRelation::text_plain("Hello, Room!"), &hello_world_item)
         .await
         .unwrap();
 
@@ -288,7 +288,10 @@ async fn test_send_reply_edit() {
         .mount(&server)
         .await;
 
-    timeline.edit(RoomMessageEventContent::text_plain("Hello, Room!"), &reply_item).await.unwrap();
+    timeline
+        .edit(RoomMessageEventContentWithoutRelation::text_plain("Hello, Room!"), &reply_item)
+        .await
+        .unwrap();
 
     let edit_item =
         assert_next_matches!(timeline_stream, VectorDiff::Set { index: 1, value } => value);
