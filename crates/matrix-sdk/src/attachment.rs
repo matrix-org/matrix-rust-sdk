@@ -218,6 +218,9 @@ impl AttachmentConfig {
     /// more information, see the [image](https://github.com/image-rs/image)
     /// crate.
     ///
+    /// If generating the thumbnail failed, the error will be logged and sending
+    /// the attachment will proceed without a thumbnail.
+    ///
     /// # Arguments
     ///
     /// * `size` - The size of the thumbnail in pixels as a `(width, height)`

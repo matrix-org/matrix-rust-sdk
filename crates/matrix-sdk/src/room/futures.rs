@@ -299,7 +299,10 @@ impl<'a> IntoFuture for SendAttachment<'a> {
                             ImageError::ThumbnailBiggerThanOriginal
                             | ImageError::FormatNotSupported,
                         ) => None,
-                        Err(error) => return Err(error.into()),
+                        Err(error) => {
+                            tracing::error!("Failed to generate thumbnail: {error}");
+                            None
+                        }
                     };
 
                     (data, thumbnail)
