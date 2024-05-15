@@ -14,6 +14,81 @@
 
 #![allow(dead_code)]
 
+/// A macro to test the items and the gap of a `LinkedChunk`.
+/// A chunk is delimited by `[` and `]`. An item chunk has the form `[a, b,
+/// c]` where `a`, `b` and `c` are items. A gap chunk has the form `[-]`.
+///
+/// For example, here is an assertion of 7 chunks: 1 items chunk, 1 gap
+/// chunk, 2 items chunks, 1 gap chunk, 2 items chunk. `a` is the oldest
+/// item of the oldest chunk (the first chunk), and `i` is the oldest (and
+/// newest) item of the newest chunk (the last chunk).
+///
+/// ```rust,no_run
+/// assert_items_eq!(linked_chunk, ['a'] [-] ['b', 'c', 'd'] ['e'] [-] ['f', 'g', 'h'] ['i']);
+/// ```
+#[cfg(test)]
+macro_rules! assert_items_eq {
+    ( @_ [ $iterator:ident ] { [-] $( $rest:tt )* } { $( $accumulator:tt )* } ) => {
+        assert_items_eq!(
+            @_
+            [ $iterator ]
+            { $( $rest )* }
+            {
+                $( $accumulator )*
+                {
+                    let chunk = $iterator .next().expect("next chunk (expect gap)");
+                    assert!(chunk.is_gap(), "chunk should be a gap");
+                }
+            }
+        )
+    };
+
+    ( @_ [ $iterator:ident ] { [ $( $item:expr ),* ] $( $rest:tt )* } { $( $accumulator:tt )* } ) => {
+        assert_items_eq!(
+            @_
+            [ $iterator ]
+            { $( $rest )* }
+            {
+                $( $accumulator )*
+                {
+                    let chunk = $iterator .next().expect("next chunk (expect items)");
+                    assert!(chunk.is_items(), "chunk should contain items");
+
+                    let $crate::event_cache::linked_chunk::ChunkContent::Items(items) = chunk.content() else {
+                        unreachable!()
+                    };
+
+                    let mut items_iterator = items.iter();
+
+                    $(
+                        assert_eq!(items_iterator.next(), Some(& $item ));
+                    )*
+
+                    assert!(items_iterator.next().is_none(), "no more items");
+                }
+            }
+        )
+    };
+
+    ( @_ [ $iterator:ident ] {} { $( $accumulator:tt )* } ) => {
+        {
+            $( $accumulator )*
+            assert!( $iterator .next().is_none(), "no more chunks");
+        }
+    };
+
+    ( $linked_chunk:expr, $( $all:tt )* ) => {
+        assert_items_eq!(
+            @_
+            [ iterator ]
+            { $( $all )* }
+            {
+                let mut iterator = $linked_chunk.chunks();
+            }
+        )
+    }
+}
+
 mod as_vector;
 mod updates;
 
@@ -1163,78 +1238,6 @@ mod tests {
         Chunk, ChunkContent, ChunkIdentifier, ChunkIdentifierGenerator, Error, LinkedChunk,
         Position,
     };
-
-    /// A macro to test the items and the gap of a `LinkedChunk`.
-    /// A chunk is delimited by `[` and `]`. An item chunk has the form `[a, b,
-    /// c]` where `a`, `b` and `c` are items. A gap chunk has the form `[-]`.
-    ///
-    /// For example, here is an assertion of 7 chunks: 1 items chunk, 1 gap
-    /// chunk, 2 items chunks, 1 gap chunk, 2 items chunk. `a` is the oldest
-    /// item of the oldest chunk (the first chunk), and `i` is the oldest (and
-    /// newest) item of the newest chunk (the last chunk).
-    ///
-    /// ```rust,no_run
-    /// assert_items_eq!(linked_chunk, ['a'] [-] ['b', 'c', 'd'] ['e'] [-] ['f', 'g', 'h'] ['i']);
-    /// ```
-    macro_rules! assert_items_eq {
-        ( @_ [ $iterator:ident ] { [-] $( $rest:tt )* } { $( $accumulator:tt )* } ) => {
-            assert_items_eq!(
-                @_
-                [ $iterator ]
-                { $( $rest )* }
-                {
-                    $( $accumulator )*
-                    {
-                        let chunk = $iterator .next().expect("next chunk (expect gap)");
-                        assert!(chunk.is_gap(), "chunk should be a gap");
-                    }
-                }
-            )
-        };
-
-        ( @_ [ $iterator:ident ] { [ $( $item:expr ),* ] $( $rest:tt )* } { $( $accumulator:tt )* } ) => {
-            assert_items_eq!(
-                @_
-                [ $iterator ]
-                { $( $rest )* }
-                {
-                    $( $accumulator )*
-                    {
-                        let chunk = $iterator .next().expect("next chunk (expect items)");
-                        assert!(chunk.is_items(), "chunk should contain items");
-
-                        let ChunkContent::Items(items) = chunk.content() else { unreachable!() };
-
-                        let mut items_iterator = items.iter();
-
-                        $(
-                            assert_eq!(items_iterator.next(), Some(& $item ));
-                        )*
-
-                        assert!(items_iterator.next().is_none(), "no more items");
-                    }
-                }
-            )
-        };
-
-        ( @_ [ $iterator:ident ] {} { $( $accumulator:tt )* } ) => {
-            {
-                $( $accumulator )*
-                assert!( $iterator .next().is_none(), "no more chunks");
-            }
-        };
-
-        ( $linked_chunk:expr, $( $all:tt )* ) => {
-            assert_items_eq!(
-                @_
-                [ iterator ]
-                { $( $all )* }
-                {
-                    let mut iterator = $linked_chunk.chunks();
-                }
-            )
-        }
-    }
 
     #[test]
     fn test_chunk_identifier_generator() {
