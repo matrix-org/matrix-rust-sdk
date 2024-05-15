@@ -732,9 +732,11 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
             ))
         }
 
-        self.updates
-            .as_mut()
-            .map(|updates| AsVectorSubscriber::new(updates.subscribe(), initial_chunk_lengths))
+        self.updates.as_mut().map(|updates| {
+            // SAFETY: The order of chunk pairs inside `initial_chunk_lengths` is exactly
+            // the same as chunks in `Self`.
+            unsafe { AsVectorSubscriber::new(updates.subscribe(), initial_chunk_lengths) }
+        })
     }
 }
 
