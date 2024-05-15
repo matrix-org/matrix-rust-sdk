@@ -22,9 +22,12 @@ use std::time::Duration;
 use image::GenericImageView;
 use ruma::{
     assign,
-    events::room::{
-        message::{AudioInfo, FileInfo, FormattedBody, VideoInfo},
-        ImageInfo, ThumbnailInfo,
+    events::{
+        room::{
+            message::{AudioInfo, FileInfo, FormattedBody, VideoInfo},
+            ImageInfo, ThumbnailInfo,
+        },
+        Mentions,
     },
     OwnedTransactionId, TransactionId, UInt,
 };
@@ -192,6 +195,7 @@ pub struct AttachmentConfig {
     pub(crate) thumbnail: Option<Thumbnail>,
     pub(crate) caption: Option<String>,
     pub(crate) formatted_caption: Option<FormattedBody>,
+    pub(crate) mentions: Option<Mentions>,
     #[cfg(feature = "image-proc")]
     pub(crate) generate_thumbnail: bool,
     #[cfg(feature = "image-proc")]
@@ -209,6 +213,7 @@ impl AttachmentConfig {
             thumbnail: None,
             caption: None,
             formatted_caption: None,
+            mentions: Default::default(),
             #[cfg(feature = "image-proc")]
             generate_thumbnail: Default::default(),
             #[cfg(feature = "image-proc")]
@@ -253,6 +258,7 @@ impl AttachmentConfig {
             thumbnail: Some(thumbnail),
             caption: None,
             formatted_caption: None,
+            mentions: Default::default(),
             #[cfg(feature = "image-proc")]
             generate_thumbnail: Default::default(),
             #[cfg(feature = "image-proc")]
@@ -302,6 +308,16 @@ impl AttachmentConfig {
     /// * `formatted_caption` - The optional formatted caption
     pub fn formatted_caption(mut self, formatted_caption: Option<FormattedBody>) -> Self {
         self.formatted_caption = formatted_caption;
+        self
+    }
+
+    /// Set the mentions of the message.
+    ///
+    /// # Arguments
+    ///
+    /// * `mentions` - The mentions of the message
+    pub fn mentions(mut self, mentions: Option<Mentions>) -> Self {
+        self.mentions = mentions;
         self
     }
 }
