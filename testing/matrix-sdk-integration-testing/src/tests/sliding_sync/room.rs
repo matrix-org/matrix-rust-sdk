@@ -531,7 +531,7 @@ async fn test_room_notification_count() -> Result<()> {
     bob_room
         .send(
             RoomMessageEventContent::text_plain("Hello my dear friend Alice!")
-                .set_mentions(Mentions::with_user_ids([alice.user_id().unwrap().to_owned()])),
+                .add_mentions(Mentions::with_user_ids([alice.user_id().unwrap().to_owned()])),
         )
         .await?;
 
@@ -658,7 +658,7 @@ async fn test_room_notification_count() -> Result<()> {
     bob_room
         .send(
             RoomMessageEventContent::text_plain("Why, hello there Alice!")
-                .set_mentions(Mentions::with_user_ids([alice.user_id().unwrap().to_owned()])),
+                .add_mentions(Mentions::with_user_ids([alice.user_id().unwrap().to_owned()])),
         )
         .await?;
 

@@ -444,7 +444,7 @@ impl Timeline {
         edit_item: Arc<EventTimelineItem>,
     ) -> Result<(), ClientError> {
         self.inner
-            .edit((*new_content).clone().with_relation(None), &edit_item.0)
+            .edit((*new_content).clone(), &edit_item.0)
             .await
             .map_err(|err| anyhow::anyhow!(err))?;
         Ok(())
