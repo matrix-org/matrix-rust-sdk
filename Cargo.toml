@@ -65,7 +65,7 @@ tracing-core = "0.1.32"
 uniffi = { version = "0.27.1" }
 uniffi_bindgen = { version = "0.27.1" }
 url = "2.5.0"
-vodozemac = { version = "0.6.0" }
+vodozemac = { git = "https://github.com/matrix-org/vodozemac/", rev = "826d0aa22a9b5405535927c7691492db4b92a43b" }
 wiremock = "0.6.0"
 zeroize = "1.6.0"
 
