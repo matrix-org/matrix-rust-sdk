@@ -40,7 +40,7 @@ http = "1.1.0"
 imbl = "2.0.0"
 itertools = "0.12.0"
 reqwest = { version = "0.12.4", default-features = false }
-ruma = { version = "0.10.0", features = [
+ruma = { version = "0.10.1", features = [
     "client-api-c",
     "compat-upload-signatures",
     "compat-user-id",
@@ -64,6 +64,7 @@ tracing = { version = "0.1.40", default-features = false, features = ["std"] }
 tracing-core = "0.1.32"
 uniffi = { version = "0.27.1" }
 uniffi_bindgen = { version = "0.27.1" }
+url = "2.5.0"
 vodozemac = { version = "0.6.0" }
 wiremock = "0.6.0"
 zeroize = "1.6.0"

@@ -25,6 +25,9 @@ Breaking changes:
 
 Additions:
 
+- Add data types to parse the QR code data for the QR code login defined in
+  [MSC4108](https://github.com/matrix-org/matrix-spec-proposals/pull/4108)
+
 - Expose new method `CryptoStore::clear_caches`.
   ([#3338](https://github.com/matrix-org/matrix-rust-sdk/pull/3338))
 
