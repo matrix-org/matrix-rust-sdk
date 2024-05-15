@@ -309,19 +309,25 @@ impl ClientWrapper {
         self.sync_service.start().await;
 
         // Repeatedly call f until it returns Some
-        let end_time = Instant::now() + timeout();
-        while Instant::now() < end_time {
-            if let Some(ans) = f().await {
-                // We found what we were looking for
-                self.sync_service.stop().await.expect("Failed to stop sync service");
-                return Some(ans);
+        let ret = tokio::time::timeout(timeout(), async {
+            let ret;
+            loop {
+                if let Some(ans) = f().await {
+                    // We found what we were looking for
+                    ret = Some(ans);
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
             }
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }
+            ret
+        })
+        .await
+        .ok()
+        .flatten();
 
         // We timed out
         self.sync_service.stop().await.expect("Failed to stop sync service");
-        None
+        ret
     }
 }
 
