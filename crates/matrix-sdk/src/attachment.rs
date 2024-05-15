@@ -347,13 +347,8 @@ impl Default for AttachmentConfig {
 /// let image = tokio::fs::read(path).await?;
 ///
 /// let cursor = Cursor::new(&image);
-/// let (thumbnail_data, thumbnail_info) =
-///     generate_image_thumbnail(&mime::IMAGE_JPEG, cursor, None)?;
-/// let config = AttachmentConfig::with_thumbnail(Thumbnail {
-///     data: thumbnail_data,
-///     content_type: mime::IMAGE_JPEG,
-///     info: Some(thumbnail_info),
-/// });
+/// let thumbnail = generate_image_thumbnail(&mime::IMAGE_JPEG, cursor, None)?;
+/// let config = AttachmentConfig::with_thumbnail(thumbnail);
 ///
 /// if let Some(room) = client.get_room(&room_id) {
 ///     room.send_attachment(
@@ -371,7 +366,9 @@ pub fn generate_image_thumbnail<R: BufRead + Seek>(
     content_type: &mime::Mime,
     reader: R,
     size: Option<(u32, u32)>,
-) -> Result<(Vec<u8>, BaseThumbnailInfo), ImageError> {
+) -> Result<Thumbnail, ImageError> {
+    use std::str::FromStr;
+
     let image_format = image::ImageFormat::from_mime_type(content_type);
     if image_format.is_none() {
         return Err(ImageError::FormatNotSupported);
@@ -397,12 +394,14 @@ pub fn generate_image_thumbnail<R: BufRead + Seek>(
     thumbnail.write_to(&mut Cursor::new(&mut data), image_format)?;
     let data_size = data.len() as u32;
 
-    Ok((
-        data,
-        BaseThumbnailInfo {
-            width: Some(thumbnail_width.into()),
-            height: Some(thumbnail_height.into()),
-            size: Some(data_size.into()),
-        },
-    ))
+    let content_type = mime::Mime::from_str(image_format.to_mime_type())
+        .expect("image should give a valid mimetype");
+
+    let info = BaseThumbnailInfo {
+        width: Some(thumbnail_width.into()),
+        height: Some(thumbnail_height.into()),
+        size: Some(data_size.into()),
+    };
+
+    Ok(Thumbnail { data, content_type, info: Some(info) })
 }

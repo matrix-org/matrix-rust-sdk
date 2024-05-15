@@ -35,14 +35,11 @@ use ruma::{
 use tracing::{debug, info, Instrument, Span};
 
 use super::Room;
+#[cfg(feature = "image-proc")]
+use crate::{attachment::generate_image_thumbnail, error::ImageError};
 use crate::{
     attachment::AttachmentConfig, utils::IntoRawMessageLikeEventContent, Result,
     TransmissionProgress,
-};
-#[cfg(feature = "image-proc")]
-use crate::{
-    attachment::{generate_image_thumbnail, Thumbnail},
-    error::ImageError,
 };
 
 /// Future returned by [`Room::send`].
@@ -276,8 +273,6 @@ impl<'a> IntoFuture for SendAttachment<'a> {
                 let thumbnail = None;
 
                 #[cfg(feature = "image-proc")]
-                let data_slot;
-                #[cfg(feature = "image-proc")]
                 let (data, thumbnail) = if config.generate_thumbnail {
                     let content_type = content_type.clone();
                     let make_thumbnail = move |data| {
@@ -298,14 +293,7 @@ impl<'a> IntoFuture for SendAttachment<'a> {
                     let (data, res) = make_thumbnail(data);
 
                     let thumbnail = match res {
-                        Ok((thumbnail_data, thumbnail_info)) => {
-                            data_slot = thumbnail_data;
-                            Some(Thumbnail {
-                                data: data_slot,
-                                content_type: mime::IMAGE_JPEG,
-                                info: Some(thumbnail_info),
-                            })
-                        }
+                        Ok(thumbnail) => Some(thumbnail),
                         Err(
                             ImageError::ThumbnailBiggerThanOriginal
                             | ImageError::FormatNotSupported,
