@@ -32,9 +32,61 @@ use super::{
 type ChunkLength = usize;
 
 pin_project! {
-    /// A type used to transform a `Stream<Item = Vec<Update<Item, Gap>>>` into
-    /// a `Stream<Item = Vec<VectorDiff<Item>>>`. Basically, it helps to consume
-    // a [`LinkedChunk<CAP, Item, Gap>`] as if it was an [`ObservableVector<Item>`].
+    /// A type that transforms a `Stream<Item = Vec<Update<Item, Gap>>>` —given by
+    /// [`UpdateSubscriber`]— into a `Stream<Item = Vec<VectorDiff<Item>>>` —this
+    /// type—. Basically, it helps to consume a [`LinkedChunk<CAP, Item, Gap>`] as
+    /// if it was an [`eyeball::ObservableVector<Item>`].
+    ///
+    /// How this type transforms `Update` into `VectorDiff`? There is no internal
+    /// buffer of kind [`eyeball_im::ObservableVector<Item>`], which could have been
+    /// used to generate the `VectorDiff`s. They are computed manually.
+    ///
+    /// The only buffered data is pairs of [`ChunkIdentifier`] and [`ChunkLength`].
+    /// The following rules must be respected:
+    ///
+    /// * A chunk of kind [`ChunkContent::Gap`] has a length of 0,
+    /// * A chunk of kind [`ChunkContent::Items`] has a length equals to its number
+    ///   of items,
+    /// * The pairs must be ordered exactly like the chunks in [`LinkedChunk`], i.e.
+    ///   the first pair must represent the first chunk, the last pair must
+    ///   represent the last chunk.
+    ///
+    /// The only thing this algorithm does is maintaining the pairs:
+    ///
+    /// * [`Update::NewItemsChunk`] and [`Update::NewGapChunk`] are inserting a new
+    ///   pair with a chunk length of 0 at the appropriate index,
+    /// * [`Update::RemoveChunk`] is removing a pair,
+    /// * [`Update::PushItems`] is increasing the length of the appropriate pair by
+    ///   the number of new items, and is potentially emitting [`VectorDiff`],
+    /// * [`Update::DetachLastItems`] is decreasing the length of the appropriate pair
+    ///   by the number of items to be detached; no [`VectorDiff`] is emitted,
+    /// * [`Update::ReattachItems`] and [`Update::ReattachItemsDone`] are
+    ///   respectively muting or unmuting the emission of [`VectorDiff`] by
+    ///   [`Update::PushItems`].
+    ///
+    /// The only `VectorDiff` that are emitted are [`VectorDiff::Insert`] or
+    /// [`VectorDiff::Append`] because a [`LinkedChunk`] is append-only.
+    ///
+    /// `VectorDiff::Append` is an optimisation when numerous `VectorDiff::Insert`s
+    /// have to be emitted at the last position.
+    ///
+    /// `VectorDiff::Insert` need an index. To compute this index, the algorithm
+    /// will iterate over all pairs to accumulate each chunk length until it finds
+    /// the appropriate pair (given by [`Update::PushItems::position_hint`]). This
+    /// is _the offset_. To this offset, the algorithm adds the position's index of
+    /// the new items (still given by [`Update::PushItems::position_hint`]). This is
+    /// _the index_. This logic works for all cases as long as pairs are maintained
+    /// according to the rules hereinabove.
+    ///
+    /// That's a pretty memory compact and computation efficient way to map a
+    /// `Stream<Item = Vec<Update<Item, Gap>>>` into a `Stream<Item =
+    /// Vec<VectorDiff<Item>>>`. The larger the `LinkedChunk` capacity is, the fewer
+    /// pairs the algorithm will have to handle, e.g. for 1'000 items and a
+    /// `LinkedChunk` capacity of 128, it's only 8 pairs, be 256 bytes.
+    ///
+    /// [`LinkedChunk`]: super::LinkedChunk
+    /// [`ChunkContent::Gap`]: super::ChunkContent::Gap
+    /// [`ChunkContent::Content`]: super::ChunkContent::Content
     pub struct AsVectorSubscriber<Item, Gap> {
         // The inner `UpdatesSubscriber`.
         #[pin]

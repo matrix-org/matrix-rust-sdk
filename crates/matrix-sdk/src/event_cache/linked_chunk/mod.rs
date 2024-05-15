@@ -14,6 +14,8 @@
 
 #![allow(dead_code)]
 
+//! A linked chunk is the underlying data structure that holds all events.
+
 /// A macro to test the items and the gap of a `LinkedChunk`.
 /// A chunk is delimited by `[` and `]`. An item chunk has the form `[a, b,
 /// c]` where `a`, `b` and `c` are items. A gap chunk has the form `[-]`.
@@ -107,17 +109,33 @@ use updates::*;
 /// Errors of [`LinkedChunk`].
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
+    /// A chunk identifier is invalid.
     #[error("The chunk identifier is invalid: `{identifier:?}`")]
-    InvalidChunkIdentifier { identifier: ChunkIdentifier },
+    InvalidChunkIdentifier {
+        /// The chunk identifier.
+        identifier: ChunkIdentifier,
+    },
 
+    /// A chunk is a gap, and it was expected to be an items.
     #[error("The chunk is a gap: `{identifier:?}`")]
-    ChunkIsAGap { identifier: ChunkIdentifier },
+    ChunkIsAGap {
+        /// The chunk identifier.
+        identifier: ChunkIdentifier,
+    },
 
+    /// A chunk is an items, and it was expected to be a gap.
     #[error("The chunk is an item: `{identifier:?}`")]
-    ChunkIsItems { identifier: ChunkIdentifier },
+    ChunkIsItems {
+        /// The chunk identifier.
+        identifier: ChunkIdentifier,
+    },
 
+    /// An item index is invalid.
     #[error("The item index is invalid: `{index}`")]
-    InvalidItemIndex { index: usize },
+    InvalidItemIndex {
+        /// The index.
+        index: usize,
+    },
 }
 
 /// Links of a `LinkedChunk`, i.e. the first and last [`Chunk`].
@@ -719,6 +737,7 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
         self.updates.as_mut()
     }
 
+    /// Get a `Stream<Item = Vec<VectorDiff<Item>>>` of this `LinkedChunk`.
     pub fn subscribe_as_vector(&mut self) -> Option<AsVectorSubscriber<Item, Gap>> {
         let mut initial_chunk_lengths = VecDeque::new();
 
