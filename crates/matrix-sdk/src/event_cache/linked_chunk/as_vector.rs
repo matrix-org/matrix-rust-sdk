@@ -342,7 +342,7 @@ where
                         .chunks
                         .iter_mut()
                         .find_map(|(chunk_identifier, length)| {
-                            (*chunk_identifier == expected_chunk_identifier).then(|| length)
+                            (*chunk_identifier == expected_chunk_identifier).then_some(length)
                         })
                         // SAFETY: Assuming `LinkedChunk` and `Updates` are not buggy, and assuming
                         // `Self::chunks` is correctly initialized, it is not possible to detach
