@@ -273,6 +273,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
                         ["m.room.encryption", ""],
                         ["m.room.member", "$LAZY"],
                         ["m.room.member", "$ME"],
+                        ["m.room.name", ""],
                         ["m.room.power_levels", ""],
                     ],
                     "filters": {
@@ -1449,9 +1450,21 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
             },
             "rooms": {
                 "!r0:bar.org": {
-                    "name": "Matrix Foobar",
+                    "name": "This is ignored",
                     "initial": true,
                     "timeline": [],
+                    "required_state": [
+                        {
+                            "content": {
+                                "name": "Matrix Foobar"
+                            },
+                            "event_id": "$1",
+                            "origin_server_ts": 42,
+                            "sender": "@example:bar.org",
+                            "state_key": "",
+                            "type": "m.room.name"
+                        },
+                    ],
                 },
             },
         },
@@ -1510,24 +1523,72 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
             },
             "rooms": {
                 "!r1:bar.org": {
-                    "name": "Matrix Bar",
+                    "name": "Yop yop",
                     "initial": true,
                     "timeline": [],
+                    "required_state": [
+                        {
+                            "content": {
+                                "name": "Matrix Foobar"
+                            },
+                            "sender": "@example:bar.org",
+                            "state_key": "",
+                            "type": "m.room.name",
+                            "event_id": "$2",
+                            "origin_server_ts": 42,
+                        },
+                    ],
                 },
                 "!r2:bar.org": {
                     "name": "Hello",
                     "initial": true,
                     "timeline": [],
+                    "required_state": [
+                        {
+                            "content": {
+                                "name": "Hello"
+                            },
+                            "sender": "@example:bar.org",
+                            "state_key": "",
+                            "type": "m.room.name",
+                            "event_id": "$3",
+                            "origin_server_ts": 42,
+                        },
+                    ],
                 },
                 "!r3:bar.org": {
                     "name": "Helios live",
                     "initial": true,
                     "timeline": [],
+                    "required_state": [
+                        {
+                            "content": {
+                                "name": "Helios live"
+                            },
+                            "sender": "@example:bar.org",
+                            "state_key": "",
+                            "type": "m.room.name",
+                            "event_id": "$4",
+                            "origin_server_ts": 42,
+                        },
+                    ],
                 },
                 "!r4:bar.org": {
                     "name": "Matrix Baz",
                     "initial": true,
                     "timeline": [],
+                    "required_state": [
+                        {
+                            "content": {
+                                "name": "Matrix Baz"
+                            },
+                            "sender": "@example:bar.org",
+                            "state_key": "",
+                            "type": "m.room.name",
+                            "event_id": "$5",
+                            "origin_server_ts": 42,
+                        },
+                    ],
                 },
             },
         },
@@ -1581,16 +1642,52 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
                     "name": "Matrix Barracuda Room",
                     "initial": true,
                     "timeline": [],
+                    "required_state": [
+                        {
+                            "content": {
+                                "name": "Matrix Barracuda Room"
+                            },
+                            "sender": "@example:bar.org",
+                            "state_key": "",
+                            "type": "m.room.name",
+                            "event_id": "$6",
+                            "origin_server_ts": 42,
+                        },
+                    ],
                 },
                 "!r6:bar.org": {
                     "name": "Matrix is real as hell",
                     "initial": true,
                     "timeline": [],
+                    "required_state": [
+                        {
+                            "content": {
+                                "name": "Matrix is real as hell"
+                            },
+                            "sender": "@example:bar.org",
+                            "state_key": "",
+                            "type": "m.room.name",
+                            "event_id": "$7",
+                            "origin_server_ts": 42,
+                        },
+                    ],
                 },
                 "!r7:bar.org": {
                     "name": "Matrix Baraka",
                     "initial": true,
                     "timeline": [],
+                    "required_state": [
+                        {
+                            "content": {
+                                "name": "Matrix Baraka"
+                            },
+                            "sender": "@example:bar.org",
+                            "state_key": "",
+                            "type": "m.room.name",
+                            "event_id": "$8",
+                            "origin_server_ts": 42,
+                        },
+                    ],
                 },
             },
         },
@@ -1717,6 +1814,14 @@ async fn test_dynamic_entries_stream_manual_update() -> Result<(), Error> {
         assert request >= {
             "lists": {
                 ALL_ROOMS: {
+                    "required_state": [
+                        ["m.room.avatar", ""],
+                        ["m.room.encryption", ""],
+                        ["m.room.member", "$LAZY"],
+                        ["m.room.member", "$ME"],
+                        ["m.room.name", ""],
+                        ["m.room.power_levels", ""],
+                    ],
                     "ranges": [[0, 19]],
                 },
             },
@@ -1739,9 +1844,21 @@ async fn test_dynamic_entries_stream_manual_update() -> Result<(), Error> {
             },
             "rooms": {
                 "!r0:bar.org": {
-                    "name": "Matrix Foobar",
+                    "name": "This is ignored",
                     "initial": true,
                     "timeline": [],
+                    "required_state": [
+                        {
+                            "content": {
+                                "name": "Matrix Foobar"
+                            },
+                            "event_id": "$1",
+                            "origin_server_ts": 42,
+                            "sender": "@example:bar.org",
+                            "state_key": "",
+                            "type": "m.room.name"
+                        },
+                    ],
                 },
             },
         },
@@ -1801,6 +1918,18 @@ async fn test_dynamic_entries_stream_manual_update() -> Result<(), Error> {
                     "name": "Matrix Bar",
                     "initial": true,
                     "timeline": [],
+                    "required_state": [
+                        {
+                            "content": {
+                                "name": "Matrix Bar"
+                            },
+                            "event_id": "$2",
+                            "origin_server_ts": 42,
+                            "sender": "@example:bar.org",
+                            "state_key": "",
+                            "type": "m.room.name"
+                        },
+                    ],
                 },
             },
         },
@@ -1920,9 +2049,21 @@ async fn test_room() -> Result<(), Error> {
             },
             "rooms": {
                 room_id_0: {
-                    "name": "Room #0",
+                    "name": "This is ignored",
                     "avatar": "mxc://homeserver/media",
                     "initial": true,
+                    "required_state": [
+                        {
+                            "content": {
+                                "name": "Room #0"
+                            },
+                            "event_id": "$1",
+                            "origin_server_ts": 42,
+                            "sender": "@example:bar.org",
+                            "state_key": "",
+                            "type": "m.room.name"
+                        },
+                    ],
                 },
                 room_id_1: {
                     "initial": true,
@@ -1969,8 +2110,19 @@ async fn test_room() -> Result<(), Error> {
             },
             "rooms": {
                 room_id_1: {
-                    "name": "Room #1",
                     "avatar": "mxc://homeserver/other-media",
+                    "required_state": [
+                        {
+                            "content": {
+                                "name": "Room #1"
+                            },
+                            "event_id": "$1",
+                            "origin_server_ts": 42,
+                            "sender": "@example:bar.org",
+                            "state_key": "",
+                            "type": "m.room.name"
+                        },
+                    ],
                 },
             },
         },

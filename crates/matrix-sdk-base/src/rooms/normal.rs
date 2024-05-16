@@ -40,7 +40,6 @@ use ruma::{
             history_visibility::HistoryVisibility,
             join_rules::JoinRule,
             member::{MembershipState, RoomMemberEventContent},
-            name::RoomNameEventContent,
             redaction::SyncRoomRedactionEvent,
             tombstone::RoomTombstoneEventContent,
         },
@@ -1050,14 +1049,6 @@ impl RoomInfo {
         }
 
         self.base_info.handle_redaction(redacts);
-    }
-
-    /// Update the room name.
-    pub fn update_name(&mut self, name: String) {
-        self.base_info.name = Some(MinimalStateEvent::Original(OriginalMinimalStateEvent {
-            content: RoomNameEventContent::new(name),
-            event_id: None,
-        }));
     }
 
     /// Returns the current room avatar.
@@ -2081,24 +2072,6 @@ mod tests {
         assert_eq!(
             room.computed_display_name().await.unwrap(),
             DisplayName::EmptyWas("Matthew".to_owned())
-        );
-    }
-
-    #[test]
-    fn test_setting_the_name_on_room_info_creates_a_fake_event() {
-        // Given a room
-        let mut room_info = RoomInfo::new(room_id!("!r:e.uk"), RoomState::Joined);
-
-        // When I update its name
-        room_info.update_name("new name".to_owned());
-
-        // Then it reports the name I provided
-        assert_eq!(room_info.name(), Some("new name"));
-
-        // And that is implemented by making a fake event
-        assert_eq!(
-            room_info.base_info.name.as_ref().unwrap().as_original().unwrap().content.name,
-            "new name"
         );
     }
 

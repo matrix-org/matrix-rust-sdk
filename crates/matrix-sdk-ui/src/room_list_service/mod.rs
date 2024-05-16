@@ -185,6 +185,7 @@ impl RoomListService {
                         (StateEventType::RoomEncryption, "".to_owned()),
                         (StateEventType::RoomMember, "$LAZY".to_owned()),
                         (StateEventType::RoomMember, "$ME".to_owned()),
+                        (StateEventType::RoomName, "".to_owned()),
                         (StateEventType::RoomPowerLevels, "".to_owned()),
                     ]),
             ))
