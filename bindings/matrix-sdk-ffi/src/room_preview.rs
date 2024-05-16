@@ -1,5 +1,5 @@
 use matrix_sdk::{room_preview::RoomPreview as SdkRoomPreview, RoomState};
-use ruma::{space::SpaceRoomJoinRule, OwnedRoomId};
+use ruma::space::SpaceRoomJoinRule;
 
 /// The preview of a room, be it invited/joined/left, or not.
 #[derive(uniffi::Record)]
@@ -31,9 +31,9 @@ pub struct RoomPreview {
 }
 
 impl RoomPreview {
-    pub(crate) fn from_sdk(room_id: OwnedRoomId, preview: SdkRoomPreview) -> Self {
+    pub(crate) fn from_sdk(preview: SdkRoomPreview) -> Self {
         Self {
-            room_id: room_id.to_string(),
+            room_id: preview.room_id.to_string(),
             canonical_alias: preview.canonical_alias.map(|alias| alias.to_string()),
             name: preview.name,
             topic: preview.topic,

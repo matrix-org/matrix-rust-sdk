@@ -17,12 +17,15 @@ use std::{collections::HashMap, fmt::Write as _, fs, sync::Arc};
 use anyhow::{Context, Result};
 use as_variant::as_variant;
 use eyeball_im::VectorDiff;
-use futures_util::{pin_mut, StreamExt};
-use matrix_sdk::attachment::{
-    AttachmentConfig, AttachmentInfo, BaseAudioInfo, BaseFileInfo, BaseImageInfo,
-    BaseThumbnailInfo, BaseVideoInfo, Thumbnail,
+use futures_util::{pin_mut, StreamExt as _};
+use matrix_sdk::{
+    attachment::{
+        AttachmentConfig, AttachmentInfo, BaseAudioInfo, BaseFileInfo, BaseImageInfo,
+        BaseThumbnailInfo, BaseVideoInfo, Thumbnail,
+    },
+    event_cache::paginator::PaginatorState,
 };
-use matrix_sdk_ui::timeline::{EventItemOrigin, PaginationStatus, Profile, TimelineDetails};
+use matrix_sdk_ui::timeline::{EventItemOrigin, Profile, TimelineDetails};
 use mime::Mime;
 use ruma::{
     events::{
@@ -164,11 +167,11 @@ impl Timeline {
         &self,
         listener: Box<dyn PaginationStatusListener>,
     ) -> Result<Arc<TaskHandle>, ClientError> {
-        let mut subscriber = self.inner.back_pagination_status();
+        let (initial, mut subscriber) = self.inner.back_pagination_status();
 
         Ok(Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
             // Send the current state even if it hasn't changed right away.
-            listener.on_update(subscriber.next_now());
+            listener.on_update(initial);
 
             while let Some(status) = subscriber.next().await {
                 listener.on_update(status);
@@ -588,7 +591,7 @@ pub trait TimelineListener: Sync + Send {
 
 #[uniffi::export(callback_interface)]
 pub trait PaginationStatusListener: Sync + Send {
-    fn on_update(&self, status: PaginationStatus);
+    fn on_update(&self, status: PaginatorState);
 }
 
 #[derive(Clone, uniffi::Object)]
@@ -975,32 +978,6 @@ impl SendAttachmentJoinHandle {
 
     pub fn cancel(&self) {
         self.abort_hdl.abort();
-    }
-}
-
-#[derive(uniffi::Enum)]
-pub enum PaginationOptions {
-    SimpleRequest { event_limit: u16, wait_for_token: bool },
-    UntilNumItems { event_limit: u16, items: u16, wait_for_token: bool },
-}
-
-impl From<PaginationOptions> for matrix_sdk_ui::timeline::PaginationOptions<'static> {
-    fn from(value: PaginationOptions) -> Self {
-        use matrix_sdk_ui::timeline::PaginationOptions as Opts;
-        let (wait_for_token, mut opts) = match value {
-            PaginationOptions::SimpleRequest { event_limit, wait_for_token } => {
-                (wait_for_token, Opts::simple_request(event_limit))
-            }
-            PaginationOptions::UntilNumItems { event_limit, items, wait_for_token } => {
-                (wait_for_token, Opts::until_num_items(event_limit, items))
-            }
-        };
-
-        if wait_for_token {
-            opts = opts.wait_for_token();
-        }
-
-        opts
     }
 }
 

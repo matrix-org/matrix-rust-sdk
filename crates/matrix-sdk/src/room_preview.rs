@@ -24,7 +24,7 @@ use ruma::{
     events::room::{history_visibility::HistoryVisibility, join_rules::JoinRule},
     room::RoomType,
     space::SpaceRoomJoinRule,
-    OwnedMxcUri, OwnedRoomAliasId, RoomId,
+    OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId, OwnedServerName, RoomId, RoomOrAliasId,
 };
 use tokio::try_join;
 use tracing::{instrument, warn};
@@ -34,6 +34,12 @@ use crate::{Client, Room};
 /// The preview of a room, be it invited/joined/left, or not.
 #[derive(Debug)]
 pub struct RoomPreview {
+    /// The actual room id for this room.
+    ///
+    /// Remember the room preview can be fetched from a room alias id, so we
+    /// might not know ahead of time what the room id is.
+    pub room_id: OwnedRoomId,
+
     /// The canonical alias for the room.
     pub canonical_alias: Option<OwnedRoomAliasId>,
 
@@ -76,6 +82,7 @@ impl RoomPreview {
         state: Option<RoomState>,
     ) -> Self {
         RoomPreview {
+            room_id: room_info.room_id().to_owned(),
             canonical_alias: room_info.canonical_alias().map(ToOwned::to_owned),
             name: room_info.name().map(ToOwned::to_owned),
             topic: room_info.topic().map(ToOwned::to_owned),
@@ -108,10 +115,15 @@ impl RoomPreview {
     }
 
     #[instrument(skip(client))]
-    pub(crate) async fn from_unknown(client: &Client, room_id: &RoomId) -> crate::Result<Self> {
+    pub(crate) async fn from_unknown(
+        client: &Client,
+        room_id: OwnedRoomId,
+        room_or_alias_id: &RoomOrAliasId,
+        via: Vec<OwnedServerName>,
+    ) -> crate::Result<Self> {
         // Use the room summary endpoint, if available, as described in
         // https://github.com/deepbluev7/matrix-doc/blob/room-summaries/proposals/3266-room-summary.md
-        match Self::from_room_summary(client, room_id).await {
+        match Self::from_room_summary(client, room_id.clone(), room_or_alias_id, via).await {
             Ok(res) => return Ok(res),
             Err(err) => {
                 warn!("error when previewing room from the room summary endpoint: {err}");
@@ -123,7 +135,7 @@ impl RoomPreview {
         // - then use a public room filter set to this room id
 
         // Resort to using the room state endpoint, as well as the joined members one.
-        Self::from_state_events(client, room_id).await
+        Self::from_state_events(client, &room_id).await
     }
 
     /// Get a [`RoomPreview`] using MSC3266, if available on the remote server.
@@ -132,10 +144,15 @@ impl RoomPreview {
     ///
     /// This method is exposed for testing purposes; clients should prefer
     /// `Client::get_room_preview` in general over this.
-    pub async fn from_room_summary(client: &Client, room_id: &RoomId) -> crate::Result<Self> {
+    pub async fn from_room_summary(
+        client: &Client,
+        room_id: OwnedRoomId,
+        room_or_alias_id: &RoomOrAliasId,
+        via: Vec<OwnedServerName>,
+    ) -> crate::Result<Self> {
         let request = ruma::api::client::room::get_summary::msc3266::Request::new(
-            room_id.to_owned().into(),
-            Vec::new(),
+            room_or_alias_id.to_owned(),
+            via,
         );
 
         let response = client.send(request, None).await?;
@@ -143,13 +160,14 @@ impl RoomPreview {
         // The server returns a `Left` room state for rooms the user has not joined. Be
         // more precise than that, and set it to `None` if we haven't joined
         // that room.
-        let state = if client.get_room(room_id).is_none() {
+        let state = if client.get_room(&room_id).is_none() {
             None
         } else {
             response.membership.map(|membership| RoomState::from(&membership))
         };
 
         Ok(RoomPreview {
+            room_id,
             canonical_alias: response.canonical_alias,
             name: response.name,
             topic: response.topic,

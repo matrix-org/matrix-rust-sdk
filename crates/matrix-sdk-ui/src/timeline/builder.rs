@@ -14,7 +14,6 @@
 
 use std::{collections::BTreeSet, sync::Arc};
 
-use eyeball::SharedObservable;
 use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::{event_cache::RoomEventCacheUpdate, executor::spawn, Room};
 use ruma::{events::AnySyncTimelineEvent, RoomVersionId};
@@ -28,10 +27,7 @@ use super::{
     queue::send_queued_messages,
     Error, Timeline, TimelineDropHandle, TimelineFocus,
 };
-use crate::{
-    timeline::{event_item::RemoteEventOrigin, PaginationStatus},
-    unable_to_decrypt_hook::UtdHookManager,
-};
+use crate::{timeline::event_item::RemoteEventOrigin, unable_to_decrypt_hook::UtdHookManager};
 
 /// Builder that allows creating and configuring various parts of a
 /// [`Timeline`].
@@ -299,7 +295,6 @@ impl TimelineBuilder {
 
         let timeline = Timeline {
             inner,
-            back_pagination_status: SharedObservable::new(PaginationStatus::Idle),
             msg_sender,
             event_cache: room_event_cache,
             drop_handle: Arc::new(TimelineDropHandle {

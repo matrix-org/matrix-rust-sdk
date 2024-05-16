@@ -49,7 +49,7 @@ use ruma::{
         room::power_levels::RoomPowerLevelsEventContent, GlobalAccountDataEventType,
     },
     push::{HttpPusherData as RumaHttpPusherData, PushFormat as RumaPushFormat},
-    OwnedServerName, RoomAliasId, RoomOrAliasId,
+    OwnedServerName, RoomAliasId, RoomOrAliasId, ServerName,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -771,25 +771,48 @@ impl Client {
         Ok(response.into())
     }
 
-    /// Get the preview of a room, to interact with it.
-    pub async fn get_room_preview(
+    /// Given a room id, get the preview of a room, to interact with it.
+    ///
+    /// The list of `via_servers` must be a list of servers that know
+    /// about the room and can resolve it, and that may appear as a `via`
+    /// parameter in e.g. a permalink URL. This list can be empty.
+    pub async fn get_room_preview_from_room_id(
         &self,
-        room_id_or_alias: String,
+        room_id: String,
+        via_servers: Vec<String>,
     ) -> Result<RoomPreview, ClientError> {
-        let room_id = if let Ok(parsed_room_id) = RoomId::parse(&room_id_or_alias) {
-            parsed_room_id
-        } else {
-            // Try to resolve it as an alias.
-            let Ok(room_alias) = RoomAliasId::parse(&room_id_or_alias) else {
-                return Err(anyhow!("room_id_or_alias is neither a room id or an alias").into());
-            };
-            let response = self.inner.resolve_room_alias(&room_alias).await?;
-            response.room_id
-        };
+        let room_id = RoomId::parse(&room_id).context("room_id is not a valid room id")?;
 
-        let sdk_room_preview = self.inner.get_room_preview(&room_id).await?;
+        let via_servers = via_servers
+            .into_iter()
+            .map(ServerName::parse)
+            .collect::<Result<Vec<_>, _>>()
+            .context("at least one `via` server name is invalid")?;
 
-        Ok(RoomPreview::from_sdk(room_id, sdk_room_preview))
+        // The `into()` call below doesn't work if I do `(&room_id).into()`, so I let
+        // rustc win that one fight.
+        let room_id: &RoomId = &room_id;
+
+        let sdk_room_preview = self.inner.get_room_preview(room_id.into(), via_servers).await?;
+
+        Ok(RoomPreview::from_sdk(sdk_room_preview))
+    }
+
+    /// Given a room alias, get the preview of a room, to interact with it.
+    pub async fn get_room_preview_from_room_alias(
+        &self,
+        room_alias: String,
+    ) -> Result<RoomPreview, ClientError> {
+        let room_alias =
+            RoomAliasId::parse(&room_alias).context("room_alias is not a valid room alias")?;
+
+        // The `into()` call below doesn't work if I do `(&room_id).into()`, so I let
+        // rustc win that one fight.
+        let room_alias: &RoomAliasId = &room_alias;
+
+        let sdk_room_preview = self.inner.get_room_preview(room_alias.into(), Vec::new()).await?;
+
+        Ok(RoomPreview::from_sdk(sdk_room_preview))
     }
 }
 

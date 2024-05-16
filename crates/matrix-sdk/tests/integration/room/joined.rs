@@ -20,8 +20,11 @@ use matrix_sdk_test::{
 use ruma::{
     api::client::{membership::Invite3pidInit, receipt::create_receipt::v3::ReceiptType},
     assign, event_id,
-    events::{receipt::ReceiptThread, room::message::RoomMessageEventContent, TimelineEventType},
-    int, mxc_uri, owned_event_id, room_id, thirdparty, uint, user_id, OwnedUserId, TransactionId,
+    events::{
+        receipt::ReceiptThread, room::message::RoomMessageEventContent, Mentions, TimelineEventType,
+    },
+    int, mxc_uri, owned_event_id, owned_user_id, room_id, thirdparty, uint, user_id, OwnedUserId,
+    TransactionId,
 };
 use serde_json::json;
 use wiremock::{
@@ -551,6 +554,55 @@ async fn test_room_attachment_send_info_thumbnail() {
 
     let response = room
         .send_attachment("image", &mime::IMAGE_JPEG, b"Hello world".to_vec(), config)
+        .await
+        .unwrap();
+
+    assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id)
+}
+
+#[async_test]
+async fn test_room_attachment_send_mentions() {
+    let (client, server) = logged_in_client_with_server().await;
+
+    Mock::given(method("PUT"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
+        .and(header("authorization", "Bearer 1234"))
+        .and(body_partial_json(json!({
+            "m.mentions": {
+                "user_ids": ["@user:localhost"],
+            }
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EVENT_ID))
+        .mount(&server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/_matrix/media/r0/upload"))
+        .and(header("authorization", "Bearer 1234"))
+        .and(header("content-type", "image/jpeg"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+          "content_uri": "mxc://example.com/AQwafuaFswefuhsfAFAgsw"
+        })))
+        .mount(&server)
+        .await;
+
+    mock_sync(&server, &*test_json::SYNC, None).await;
+    mock_encryption_state(&server, false).await;
+
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+    let _response = client.sync_once(sync_settings).await.unwrap();
+
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
+
+    let response = room
+        .send_attachment(
+            "image",
+            &mime::IMAGE_JPEG,
+            b"Hello world".to_vec(),
+            AttachmentConfig::new()
+                .mentions(Some(Mentions::with_user_ids([owned_user_id!("@user:localhost")]))),
+        )
         .await
         .unwrap();
 

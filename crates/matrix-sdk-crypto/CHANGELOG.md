@@ -1,5 +1,9 @@
 # UNRELEASED
 
+Security fixes:
+
+- Don't log the private part of the backup key, introduced in [#71136e4](https://github.com/matrix-org/matrix-rust-sdk/commit/71136e44c03c79f80d6d1a2446673bc4d53a2067).
+
 Changed:
 
 - Fallback keys are rotated in a time-based manner, instead of waiting for the

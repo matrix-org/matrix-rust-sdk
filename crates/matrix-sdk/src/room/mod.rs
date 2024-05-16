@@ -1781,12 +1781,14 @@ impl Room {
         filename: &'a str,
         content_type: &'a Mime,
         data: Vec<u8>,
-        config: AttachmentConfig,
+        mut config: AttachmentConfig,
         send_progress: SharedObservable<TransmissionProgress>,
     ) -> Result<send_message_event::v3::Response> {
         self.ensure_room_joined()?;
 
-        let txn_id = config.txn_id.clone();
+        let txn_id = config.txn_id.take();
+        let mentions = config.mentions.take();
+
         #[cfg(feature = "e2e-encryption")]
         let content = if self.is_encrypted().await? {
             self.client
@@ -1812,7 +1814,13 @@ impl Room {
             .prepare_attachment_message(filename, content_type, data, config, send_progress)
             .await?;
 
-        let mut fut = self.send(RoomMessageEventContent::new(content));
+        let mut message = RoomMessageEventContent::new(content);
+
+        if let Some(mentions) = mentions {
+            message = message.add_mentions(mentions);
+        }
+
+        let mut fut = self.send(message);
         if let Some(txn_id) = &txn_id {
             fut = fut.with_transaction_id(txn_id);
         }

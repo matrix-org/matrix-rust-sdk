@@ -20,15 +20,11 @@ use super::linked_chunk::{
     Chunk, ChunkIdentifier, Error, Iter, IterBackward, LinkedChunk, Position,
 };
 
-/// A newtype wrapper for a pagination token returned by a /messages response.
-#[derive(Clone, Debug, PartialEq)]
-pub struct PaginationToken(pub String);
-
 #[derive(Clone, Debug)]
 pub struct Gap {
     /// The token to use in the query, extracted from a previous "from" /
     /// "end" field of a `/messages` response.
-    pub prev_token: PaginationToken,
+    pub prev_token: String,
 }
 
 const DEFAULT_CHUNK_CAPACITY: usize = 128;

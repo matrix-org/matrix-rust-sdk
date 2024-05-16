@@ -16,9 +16,8 @@
 //!
 //! See [`Timeline`] for details.
 
-use std::{pin::Pin, sync::Arc, task::Poll};
+use std::{path::PathBuf, pin::Pin, sync::Arc, task::Poll};
 
-use eyeball::SharedObservable;
 use eyeball_im::VectorDiff;
 use futures_core::Stream;
 use imbl::Vector;
@@ -96,7 +95,6 @@ pub use self::{
     event_type_filter::TimelineEventTypeFilter,
     inner::default_event_filter,
     item::{TimelineItem, TimelineItemKind},
-    pagination::{PaginationOptions, PaginationOutcome, PaginationStatus},
     polls::PollResult,
     reactions::ReactionSenderData,
     sliding_sync_ext::SlidingSyncRoomExt,
@@ -130,9 +128,6 @@ pub struct Timeline {
 
     /// References to long-running tasks held by the timeline.
     drop_handle: Arc<TimelineDropHandle>,
-
-    /// Observable for whether a backward pagination is currently running.
-    pub(crate) back_pagination_status: SharedObservable<PaginationStatus>,
 }
 
 // Implements hash etc
@@ -542,7 +537,7 @@ impl Timeline {
     ///
     /// # Arguments
     ///
-    /// * `filename` - The filename of the file to be sent
+    /// * `path` - The path of the file to be sent
     ///
     /// * `mime_type` - The attachment's mime type
     ///
@@ -553,11 +548,11 @@ impl Timeline {
     #[instrument(skip_all)]
     pub fn send_attachment(
         &self,
-        filename: String,
+        path: impl Into<PathBuf>,
         mime_type: Mime,
         config: AttachmentConfig,
     ) -> SendAttachment<'_> {
-        SendAttachment::new(self, filename, mime_type, config)
+        SendAttachment::new(self, path.into(), mime_type, config)
     }
 
     /// Retry sending a message that previously failed to send.
