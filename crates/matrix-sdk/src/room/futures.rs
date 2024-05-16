@@ -324,6 +324,7 @@ impl<'a> IntoFuture for SendAttachment<'a> {
                     thumbnail,
                     caption: config.caption,
                     formatted_caption: config.formatted_caption,
+                    mentions: config.mentions,
                     #[cfg(feature = "image-proc")]
                     generate_thumbnail: false,
                     #[cfg(feature = "image-proc")]
