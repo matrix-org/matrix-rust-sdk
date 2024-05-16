@@ -346,7 +346,6 @@ impl NotificationClient {
 
         // Room power levels are necessary to build the push context.
         let required_state = vec![
-            (StateEventType::RoomAvatar, "".to_owned()),
             (StateEventType::RoomEncryption, "".to_owned()),
             (StateEventType::RoomMember, "$LAZY".to_owned()),
             (StateEventType::RoomMember, "$ME".to_owned()),

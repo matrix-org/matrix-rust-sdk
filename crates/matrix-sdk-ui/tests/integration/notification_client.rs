@@ -255,7 +255,6 @@ async fn test_notification_client_sliding_sync() {
                         [0, 16]
                     ],
                     "required_state": [
-                        ["m.room.avatar", ""],
                         ["m.room.encryption", ""],
                         ["m.room.member", "$LAZY"],
                         ["m.room.member", "$ME"],
@@ -275,7 +274,6 @@ async fn test_notification_client_sliding_sync() {
             "room_subscriptions": {
                 "!a98sd12bjh:example.org": {
                     "required_state": [
-                        ["m.room.avatar", ""],
                         ["m.room.encryption", ""],
                         ["m.room.member", "$LAZY"],
                         ["m.room.member", "$ME"],
