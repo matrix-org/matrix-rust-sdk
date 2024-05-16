@@ -62,16 +62,26 @@ async fn test_multiple_clients_share_crypto_state() -> Result<()> {
     info!("bob's device: {}", bob.client.device_id().unwrap());
 
     // And given they are both in an encrypted room together
-    let room_id = create_encrypted_room(&alice_main, &bob).await;
+    let room_id = tokio::time::timeout(timeout(), create_encrypted_room(&alice_main, &bob))
+        .await
+        .expect("Timeout in create_encrypted_room");
 
     // And given both alices have an Olm session with bob (because they received a
     // message from him)
     {
         let _span = span!(Level::INFO, "msg1_from_bob").entered();
 
-        let msg1 = bob.send(&room_id, "msg1_from_bob").await;
-        alice_nse.nse_wait_until_received(&room_id, &msg1).await;
-        alice_main.wait_until_received(&msg1).await;
+        let msg1 = tokio::time::timeout(timeout(), bob.send(&room_id, "msg1_from_bob"))
+            .await
+            .expect("Timeout in bob.send");
+
+        tokio::time::timeout(timeout(), alice_nse.nse_wait_until_received(&room_id, &msg1))
+            .await
+            .expect("Timeout in nse_wait_until_received");
+
+        tokio::time::timeout(timeout(), alice_main.wait_until_received(&msg1))
+            .await
+            .expect("Timeout in nse_wait_until_received");
 
         info!("alice_nse received msg1 from bob");
     }
@@ -80,8 +90,13 @@ async fn test_multiple_clients_share_crypto_state() -> Result<()> {
     {
         let _span = span!(Level::INFO, "msg2_from_alice").entered();
 
-        let msg2 = alice_main.send(&room_id, "msg2_from_alice").await;
-        bob.wait_until_received(&msg2).await;
+        let msg2 = tokio::time::timeout(timeout(), alice_main.send(&room_id, "msg2_from_alice"))
+            .await
+            .expect("Timeout in nse_wait_until_received");
+
+        tokio::time::timeout(timeout(), bob.wait_until_received(&msg2))
+            .await
+            .expect("Timeout in nse_wait_until_received");
 
         info!("bob received msg2 from alice_main");
     }
@@ -92,8 +107,13 @@ async fn test_multiple_clients_share_crypto_state() -> Result<()> {
     {
         let _span = span!(Level::INFO, "msg3_from_bob").entered();
 
-        let msg3 = bob.send(&room_id, "msg3_from_bob").await;
-        alice_nse.nse_wait_until_received(&room_id, &msg3).await;
+        let msg3 = tokio::time::timeout(timeout(), bob.send(&room_id, "msg3_from_bob"))
+            .await
+            .expect("Timeout in nse_wait_until_received");
+
+        tokio::time::timeout(timeout(), alice_nse.nse_wait_until_received(&room_id, &msg3))
+            .await
+            .expect("Timeout in nse_wait_until_received");
 
         info!("alice_nse received msg3 from bob");
     }
@@ -306,6 +326,7 @@ impl ClientWrapper {
         F: Fn() -> R,
         R: Future<Output = Option<S>>,
     {
+        info!("sync_until start");
         self.sync_service.start().await;
 
         // Repeatedly call f until it returns Some
@@ -327,6 +348,9 @@ impl ClientWrapper {
 
         // We timed out
         self.sync_service.stop().await.expect("Failed to stop sync service");
+
+        info!("sync_until end");
+
         ret
     }
 }
@@ -463,10 +487,17 @@ async fn create_encrypted_room(alice_main: &ClientWrapper, bob: &ClientWrapper) 
 
     bob.join(&room_id).await;
 
+    info!("bob sent the join request");
+
     alice_main.wait_until_user_in_room(&room_id, bob).await;
+
+    info!("alice can see bob in the room");
 
     // Sanity: the room is encrypted
     assert!(bob.room_is_encrypted(&room_id).await);
+
+    info!("bob thinks the room is encrypted");
+
     assert!(alice_main.room_is_encrypted(&room_id).await);
 
     info!("alice_main and bob are both aware of each other in the e2ee room");
