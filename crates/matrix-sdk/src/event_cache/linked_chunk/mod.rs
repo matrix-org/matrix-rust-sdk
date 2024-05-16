@@ -1248,6 +1248,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::ops::Not;
+
     use assert_matches::assert_matches;
 
     use super::{
@@ -2150,5 +2152,24 @@ mod tests {
             assert_eq!(chunk.first_position(), Position(ChunkIdentifier(3), 0));
             assert_eq!(chunk.last_position(), Position(ChunkIdentifier(3), 0));
         }
+    }
+
+    #[test]
+    fn test_is_first_and_last_chunk() {
+        let mut linked_chunk = LinkedChunk::<3, char, ()>::new();
+
+        let mut chunks = linked_chunk.chunks().peekable();
+        assert!(chunks.peek().unwrap().is_first_chunk());
+        assert!(chunks.next().unwrap().is_last_chunk());
+        assert!(chunks.next().is_none());
+
+        linked_chunk.push_items_back(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']);
+
+        let mut chunks = linked_chunk.chunks().peekable();
+        assert!(chunks.next().unwrap().is_first_chunk());
+        assert!(chunks.peek().unwrap().is_first_chunk().not());
+        assert!(chunks.next().unwrap().is_last_chunk().not());
+        assert!(chunks.next().unwrap().is_last_chunk());
+        assert!(chunks.next().is_none());
     }
 }
