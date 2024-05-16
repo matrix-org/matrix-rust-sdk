@@ -30,6 +30,7 @@ use matrix_sdk_crypto::{
         RoomKeyCounts, RoomSettings,
     },
     types::events::room_key_withheld::RoomKeyWithheldEvent,
+    vodozemac::base64_encode,
     Account, GossipRequest, GossippedSecret, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
     TrackedUser,
 };
@@ -308,6 +309,46 @@ impl IndexeddbCryptoStore {
 
                 let export = export.map_err(CryptoStoreError::backend)?;
 
+                save_store_cipher(&db, &export).await?;
+                cipher
+            }
+        };
+
+        // Must release the database access manually as it's not done when
+        // dropping it.
+        db.close();
+
+        IndexeddbCryptoStore::open_with_store_cipher(prefix, Some(store_cipher.into())).await
+    }
+
+    /// Open an `IndexeddbCryptoStore` with given name and key.
+    ///
+    /// If the store previously existed, the encryption cipher is initialised
+    /// using the given key and the details from the meta store. If the store
+    /// did not previously exist, a new encryption cipher is derived from
+    /// the passphrase, and the details are stored to the metastore.
+    ///
+    /// The store is then opened, or a new one created, using the encryption
+    /// cipher.
+    ///
+    /// # Arguments
+    ///
+    /// * `prefix` - Common prefix for the names of the two IndexedDB stores.
+    /// * `key` - key with which to encrypt the key which is used to encrypt the
+    ///   store. Must be the same each time the store is opened.
+    pub async fn open_with_key(prefix: &str, key: &[u8; 32]) -> Result<Self> {
+        let db = open_meta_db(prefix).await?;
+        let store_cipher = load_store_cipher(&db).await?;
+
+        let store_cipher = match store_cipher {
+            Some(cipher) => {
+                debug!("IndexedDbCryptoStore: decrypting store cipher");
+                import_store_cipher_with_key(key, &cipher, &db).await?
+            }
+            None => {
+                debug!("IndexedDbCryptoStore: encrypting new store cipher");
+                let cipher = StoreCipher::new().map_err(CryptoStoreError::backend)?;
+                let export = cipher.export_with_key(key).map_err(CryptoStoreError::backend)?;
                 save_store_cipher(&db, &export).await?;
                 cipher
             }
@@ -1337,6 +1378,38 @@ async fn save_store_cipher(
     Ok(())
 }
 
+/// Given a serialised store cipher, try importing with the given key.
+///
+/// This is a helper for [`IndexeddbCryptoStore::open_with_key`].
+async fn import_store_cipher_with_key(
+    key: &[u8; 32],
+    serialised_cipher: &[u8],
+    db: &IdbDatabase,
+) -> Result<StoreCipher, IndexeddbCryptoStoreError> {
+    let cipher = match StoreCipher::import_with_key(key, serialised_cipher) {
+        Ok(cipher) => cipher,
+        Err(matrix_sdk_store_encryption::Error::KdfMismatch) => {
+            // Old versions of the matrix-js-sdk used to base64-encode their encryption
+            // key, and pass it into [`IndexeddbCryptoStore::open_with_passphrase`]. For
+            // backwards compatibility, we fall back to that if we discover we have a cipher
+            // encrypted with a KDF when we expected it to be encrypted directly with a key.
+            let cipher = StoreCipher::import(&base64_encode(key), serialised_cipher)
+                .map_err(|_| CryptoStoreError::UnpicklingError)?;
+
+            // Loading the cipher with the passphrase was successful. Let's update the
+            // stored version of the cipher so that it is encrypted with a key,
+            // to save doing this again.
+            debug!("IndexedDbCryptoStore: Migrating passphrase-encrypted store cipher to key-encryption");
+
+            let export = cipher.export_with_key(key).map_err(CryptoStoreError::backend)?;
+            save_store_cipher(db, &export).await?;
+            cipher
+        }
+        Err(_) => Err(CryptoStoreError::UnpicklingError)?,
+    };
+    Ok(cipher)
+}
+
 /// Fetch items from an object store in batches, transform each item using
 /// the supplied function, and stuff the transformed items into a single
 /// vector to return.
@@ -1594,7 +1667,14 @@ mod tests {
 
 #[cfg(all(test, target_arch = "wasm32"))]
 mod encrypted_tests {
-    use matrix_sdk_crypto::cryptostore_integration_tests;
+    use matrix_sdk_crypto::{
+        cryptostore_integration_tests,
+        olm::Account,
+        store::{CryptoStore, PendingChanges},
+        vodozemac::base64_encode,
+    };
+    use matrix_sdk_test::async_test;
+    use ruma::{device_id, user_id};
 
     use super::IndexeddbCryptoStore;
 
@@ -1609,4 +1689,36 @@ mod encrypted_tests {
             .expect("Can't create a passphrase protected store")
     }
     cryptostore_integration_tests!();
+
+    /// Test that we can migrate a store created with a passphrase, to being
+    /// encrypted with a key instead.
+    #[async_test]
+    async fn migrate_passphrase_to_key() {
+        let store_name = "test_migrate_passphrase_to_key";
+        let passdata: [u8; 32] = rand::random();
+        let b64_passdata = base64_encode(passdata);
+
+        // Initialise the store with some account data
+        let store = IndexeddbCryptoStore::open_with_passphrase(&store_name, &b64_passdata)
+            .await
+            .expect("Can't create a passphrase-protected store");
+
+        store
+            .save_pending_changes(PendingChanges {
+                account: Some(Account::with_device_id(
+                    user_id!("@alice:example.org"),
+                    device_id!("ALICEDEVICE"),
+                )),
+            })
+            .await
+            .expect("Can't save account");
+
+        // Now reopen the store, passing the key directly rather than as a b64 string.
+        let store = IndexeddbCryptoStore::open_with_key(&store_name, &passdata)
+            .await
+            .expect("Can't create a key-protected store");
+        let loaded_account =
+            store.load_account().await.expect("Can't load account").expect("Account was not saved");
+        assert_eq!(loaded_account.user_id, user_id!("@alice:example.org"));
+    }
 }
