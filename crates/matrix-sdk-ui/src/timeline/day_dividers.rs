@@ -212,26 +212,19 @@ impl DayDividerAdjuster {
                 if timestamp_to_date(*prev_ts) != event_date {
                     // The day divider is wrong. Should we replace it with the correct value, or
                     // remove it entirely?
-                    let mut removed = false;
-
                     if let Some(last_event_ts) = latest_event_ts {
                         if timestamp_to_date(last_event_ts) == event_date {
                             // There's a previous event with the same date: remove the divider.
                             trace!("removed day divider @ {prev_index} between two events that have the same date");
                             self.ops.push(DayDividerOperation::Remove(prev_index));
-                            removed = true;
+                            return;
                         }
                     }
 
-                    if !removed {
-                        // There's no previous event or there's one with a different
-                        // date: replace the current
-                        // divider.
-                        trace!(
-                            "replacing day divider @ {prev_index} with new timestamp from event"
-                        );
-                        self.ops.push(DayDividerOperation::Replace(prev_index, ts));
-                    }
+                    // There's no previous event or there's one with a different date: replace
+                    // the current divider.
+                    trace!("replacing day divider @ {prev_index} with new timestamp from event");
+                    self.ops.push(DayDividerOperation::Replace(prev_index, ts));
                 }
             }
 
