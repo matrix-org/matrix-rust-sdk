@@ -274,32 +274,8 @@ impl IndexeddbCryptoStore {
 
     /// Open a new `IndexeddbCryptoStore` with given name and passphrase
     pub async fn open_with_passphrase(prefix: &str, passphrase: &str) -> Result<Self> {
-        let name = format!("{prefix:0}::matrix-sdk-crypto-meta");
-
-        debug!("IndexedDbCryptoStore: Opening meta-store {name}");
-        let mut db_req: OpenDbRequest = IdbDatabase::open_u32(&name, 1)?;
-        db_req.set_on_upgrade_needed(Some(|evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
-            let old_version = evt.old_version() as u32;
-            if old_version < 1 {
-                // migrating to version 1
-                let db = evt.db();
-
-                db.create_object_store("matrix-sdk-crypto")?;
-            }
-            Ok(())
-        }));
-
-        let db: IdbDatabase = db_req.await?;
-
-        let tx: IdbTransaction<'_> =
-            db.transaction_on_one_with_mode("matrix-sdk-crypto", IdbTransactionMode::Readonly)?;
-        let ob = tx.object_store("matrix-sdk-crypto")?;
-
-        let store_cipher: Option<Vec<u8>> = ob
-            .get(&JsValue::from_str(keys::STORE_CIPHER))?
-            .await?
-            .map(|k| k.into_serde())
-            .transpose()?;
+        let db = open_meta_db(prefix).await?;
+        let store_cipher = load_store_cipher(&db).await?;
 
         let store_cipher = match store_cipher {
             Some(cipher) => {
@@ -315,17 +291,9 @@ impl IndexeddbCryptoStore {
                 #[cfg(test)]
                 let export = cipher._insecure_export_fast_for_testing(passphrase);
 
-                let tx: IdbTransaction<'_> = db.transaction_on_one_with_mode(
-                    "matrix-sdk-crypto",
-                    IdbTransactionMode::Readwrite,
-                )?;
-                let ob = tx.object_store("matrix-sdk-crypto")?;
+                let export = export.map_err(CryptoStoreError::backend)?;
 
-                ob.put_key_val(
-                    &JsValue::from_str(keys::STORE_CIPHER),
-                    &JsValue::from_serde(&export.map_err(CryptoStoreError::backend)?)?,
-                )?;
-                tx.await.into_result()?;
+                save_store_cipher(&db, &export).await?;
                 cipher
             }
         };
@@ -1287,6 +1255,71 @@ impl Drop for IndexeddbCryptoStore {
         // dropping it.
         self.inner.close();
     }
+}
+
+/// Open the meta store.
+///
+/// The meta store contains details about the encryption of the main store.
+async fn open_meta_db(prefix: &str) -> Result<IdbDatabase, IndexeddbCryptoStoreError> {
+    let name = format!("{prefix:0}::matrix-sdk-crypto-meta");
+
+    debug!("IndexedDbCryptoStore: Opening meta-store {name}");
+    let mut db_req: OpenDbRequest = IdbDatabase::open_u32(&name, 1)?;
+    db_req.set_on_upgrade_needed(Some(|evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
+        let old_version = evt.old_version() as u32;
+        if old_version < 1 {
+            // migrating to version 1
+            let db = evt.db();
+
+            db.create_object_store("matrix-sdk-crypto")?;
+        }
+        Ok(())
+    }));
+
+    Ok(db_req.await?)
+}
+
+/// Load the serialised store cipher from the meta store.
+///
+/// # Arguments:
+///
+/// * `meta_db`: Connection to the meta store, as returned by [`open_meta_db`].
+///
+/// # Returns:
+///
+/// The serialised `StoreCipher` object.
+async fn load_store_cipher(
+    meta_db: &IdbDatabase,
+) -> Result<Option<Vec<u8>>, IndexeddbCryptoStoreError> {
+    let tx: IdbTransaction<'_> =
+        meta_db.transaction_on_one_with_mode("matrix-sdk-crypto", IdbTransactionMode::Readonly)?;
+    let ob = tx.object_store("matrix-sdk-crypto")?;
+
+    let store_cipher: Option<Vec<u8>> = ob
+        .get(&JsValue::from_str(keys::STORE_CIPHER))?
+        .await?
+        .map(|k| k.into_serde())
+        .transpose()?;
+    Ok(store_cipher)
+}
+
+/// Save the serialised store cipher to the meta store.
+///
+/// # Arguments:
+///
+/// * `meta_db`: Connection to the meta store, as returned by [`open_meta_db`].
+/// * `store_cipher`: The serialised `StoreCipher` object.
+async fn save_store_cipher(
+    db: &IdbDatabase,
+    export: &Vec<u8>,
+) -> Result<(), IndexeddbCryptoStoreError> {
+    let tx: IdbTransaction<'_> =
+        db.transaction_on_one_with_mode("matrix-sdk-crypto", IdbTransactionMode::Readwrite)?;
+    let ob = tx.object_store("matrix-sdk-crypto")?;
+
+    ob.put_key_val(&JsValue::from_str(keys::STORE_CIPHER), &JsValue::from_serde(&export)?)?;
+    tx.await.into_result()?;
+    Ok(())
 }
 
 /// Fetch items from an object store in batches, transform each item using
