@@ -272,7 +272,22 @@ impl IndexeddbCryptoStore {
         IndexeddbCryptoStore::open_with_store_cipher("crypto", None).await
     }
 
-    /// Open a new `IndexeddbCryptoStore` with given name and passphrase
+    /// Open an `IndexeddbCryptoStore` with given name and passphrase.
+    ///
+    /// If the store previously existed, the encryption cipher is initialised
+    /// using the given passphrase and the details from the meta store. If the
+    /// store did not previously exist, a new encryption cipher is derived
+    /// from the passphrase, and the details are stored to the metastore.
+    ///
+    /// The store is then opened, or a new one created, using the encryption
+    /// cipher.
+    ///
+    /// # Arguments
+    ///
+    /// * `prefix` - Common prefix for the names of the two IndexedDB stores.
+    /// * `passphrase` - Passphrase which is used to derive a key to encrypt the
+    ///   key which is used to encrypt the store. Must be the same each time the
+    ///   store is opened.
     pub async fn open_with_passphrase(prefix: &str, passphrase: &str) -> Result<Self> {
         let db = open_meta_db(prefix).await?;
         let store_cipher = load_store_cipher(&db).await?;
