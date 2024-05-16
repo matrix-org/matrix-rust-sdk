@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     pin::Pin,
     sync::{Arc, RwLock, Weak},
     task::{Context, Poll, Waker},
@@ -21,7 +21,7 @@ use std::{
 
 use futures_core::Stream;
 
-use super::{ChunkIdentifier, Position};
+use super::{AsVector, ChunkIdentifier, ChunkLength, Position};
 
 /// Represent the updates that have happened inside a [`LinkedChunk`].
 ///
@@ -121,7 +121,7 @@ pub struct Updates<Item, Gap> {
 
 /// A token used to represent readers that read the updates in
 /// [`UpdatesInner`].
-type ReaderToken = usize;
+pub(super) type ReaderToken = usize;
 
 /// Inner type for [`Updates`].
 ///
@@ -139,7 +139,7 @@ type ReaderToken = usize;
 /// example with [`UpdatesSubscriber`]. Of course, they can be multiple
 /// `UpdatesSubscriber`s at the same time. Hence the need of supporting multiple
 /// readers.
-struct UpdatesInner<Item, Gap> {
+pub(super) struct UpdatesInner<Item, Gap> {
     /// All the updates that have not been read by all readers.
     updates: Vec<Update<Item, Gap>>,
 
@@ -205,7 +205,7 @@ impl<Item, Gap> UpdatesInner<Item, Gap> {
     /// take/read/consume each update only once. An internal index is stored
     /// per reader token to know where to start reading updates next time this
     /// method is called.
-    fn take_with_token(&mut self, token: ReaderToken) -> &[Update<Item, Gap>] {
+    pub(super) fn take_with_token(&mut self, token: ReaderToken) -> &[Update<Item, Gap>] {
         // Let's garbage collect unused updates.
         self.garbage_collect();
 
@@ -270,17 +270,29 @@ impl<Item, Gap> Updates<Item, Gap> {
     /// Subscribe to updates by using a [`Stream`].
     pub(super) fn subscribe(&mut self) -> UpdatesSubscriber<Item, Gap> {
         // A subscriber is a new update reader, it needs its own token.
-        let token = {
-            let mut inner = self.inner.write().unwrap();
-            inner.last_token += 1;
+        let token = self.new_reader_token();
 
-            let last_token = inner.last_token;
-            inner.last_index_per_reader.insert(last_token, 0);
+        UpdatesSubscriber::new(Arc::downgrade(&self.inner), token)
+    }
 
-            last_token
-        };
+    pub(super) unsafe fn as_vector(
+        &mut self,
+        initial_chunk_lengths: VecDeque<(ChunkIdentifier, ChunkLength)>,
+    ) -> AsVector<Item, Gap> {
+        // An `AsVector` is a new update reader, it needs its own token.
+        let token = self.new_reader_token();
 
-        UpdatesSubscriber { updates: Arc::downgrade(&self.inner), token }
+        AsVector::new(Arc::clone(&self.inner), token, initial_chunk_lengths)
+    }
+
+    pub(super) fn new_reader_token(&mut self) -> ReaderToken {
+        let mut inner = self.inner.write().unwrap();
+        inner.last_token += 1;
+
+        let last_token = inner.last_token;
+        inner.last_index_per_reader.insert(last_token, 0);
+
+        last_token
     }
 }
 
@@ -295,6 +307,13 @@ pub(super) struct UpdatesSubscriber<Item, Gap> {
 
     /// The token to read the updates.
     token: ReaderToken,
+}
+
+impl<Item, Gap> UpdatesSubscriber<Item, Gap> {
+    /// Create a new [`Self`].
+    fn new(updates: Weak<RwLock<UpdatesInner<Item, Gap>>>, token: ReaderToken) -> Self {
+        Self { updates, token }
+    }
 }
 
 impl<Item, Gap> Stream for UpdatesSubscriber<Item, Gap>

@@ -737,8 +737,7 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
         self.updates.as_mut()
     }
 
-    /// Get a `Stream<Item = Vec<VectorDiff<Item>>>` of this `LinkedChunk`.
-    pub fn subscribe_as_vector(&mut self) -> Option<AsVectorSubscriber<Item, Gap>> {
+    pub fn as_vector(&mut self) -> Option<AsVector<Item, Gap>> {
         let mut initial_chunk_lengths = VecDeque::new();
 
         for chunk in self.chunks() {
@@ -754,7 +753,7 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
         self.updates.as_mut().map(|updates| {
             // SAFETY: The order of chunk pairs inside `initial_chunk_lengths` is exactly
             // the same as chunks in `Self`.
-            unsafe { AsVectorSubscriber::new(updates.subscribe(), initial_chunk_lengths) }
+            unsafe { updates.as_vector(initial_chunk_lengths) }
         })
     }
 }
