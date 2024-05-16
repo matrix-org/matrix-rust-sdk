@@ -181,7 +181,6 @@ impl RoomListService {
                     )
                     .timeline_limit(1)
                     .required_state(vec![
-                        (StateEventType::RoomAvatar, "".to_owned()),
                         (StateEventType::RoomEncryption, "".to_owned()),
                         (StateEventType::RoomMember, "$LAZY".to_owned()),
                         (StateEventType::RoomMember, "$ME".to_owned()),

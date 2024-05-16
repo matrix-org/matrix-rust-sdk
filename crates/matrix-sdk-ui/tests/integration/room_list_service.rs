@@ -269,7 +269,6 @@ async fn test_sync_all_states() -> Result<(), Error> {
                 ALL_ROOMS: {
                     "ranges": [[0, 19]],
                     "required_state": [
-                        ["m.room.avatar", ""],
                         ["m.room.encryption", ""],
                         ["m.room.member", "$LAZY"],
                         ["m.room.member", "$ME"],
@@ -1815,7 +1814,6 @@ async fn test_dynamic_entries_stream_manual_update() -> Result<(), Error> {
             "lists": {
                 ALL_ROOMS: {
                     "required_state": [
-                        ["m.room.avatar", ""],
                         ["m.room.encryption", ""],
                         ["m.room.member", "$LAZY"],
                         ["m.room.member", "$ME"],
