@@ -133,10 +133,9 @@ impl DayDividerAdjuster {
         // Then check invariants.
         if let Some(report) = self.check_invariants(items, initial_state) {
             warn!("Errors encountered when checking invariants.");
-            #[cfg(any(debug_assertions, test))]
-            panic!("{report}");
-            #[cfg(not(any(debug_assertions, test)))]
             warn!("{report}");
+            #[cfg(any(debug_assertions, test))]
+            panic!("There was an error checking date separator invariants");
         }
 
         self.consumed = true;
@@ -416,6 +415,16 @@ impl DayDividerAdjuster {
             }
         }
 
+        // 5. If there was a read marker at the beginning, there should be one at the
+        //    end.
+        if let Some(state) = &report.initial_state {
+            if state.iter().any(|item| item.is_read_marker())
+                && !report.final_state.iter().any(|item| item.is_read_marker())
+            {
+                report.errors.push(DayDividerInsertError::ReadMarkerDisappeared);
+            }
+        }
+
         if report.errors.is_empty() {
             None
         } else {
@@ -531,6 +540,10 @@ enum DayDividerInsertError {
     /// An event and the previous day divider aren't focused on the same date.
     #[error("Event @ {at} and the previous day divider aren't targeting the same date")]
     InconsistentDateAfterPreviousDayDivider { at: usize },
+
+    /// The read marker has been removed.
+    #[error("The read marker has been removed")]
+    ReadMarkerDisappeared,
 }
 
 #[cfg(test)]
