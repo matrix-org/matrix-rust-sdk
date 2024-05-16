@@ -47,7 +47,7 @@ use std::{
 };
 
 use tokio::{sync::Mutex, time::sleep};
-use tracing::instrument;
+use tracing::{debug, error, info, instrument, trace};
 
 use crate::{
     executor::{spawn, JoinHandle},
@@ -180,7 +180,7 @@ impl<S: BackingStore + Clone + SendOutsideWasm + 'static> CrossProcessStoreLock<
             // decrement `num_holders`. That's fine because that means the lock
             // was taken by at least one thread, and after this call it will be
             // taken by at least one thread.
-            tracing::trace!("We already had the lock, incrementing holder count");
+            trace!("We already had the lock, incrementing holder count");
             self.num_holders.fetch_add(1, atomic::Ordering::SeqCst);
             let guard = CrossProcessStoreLockGuard { num_holders: self.num_holders.clone() };
             return Ok(Some(guard));
@@ -193,11 +193,11 @@ impl<S: BackingStore + Clone + SendOutsideWasm + 'static> CrossProcessStoreLock<
             .map_err(|err| LockStoreError::BackingStoreError(Box::new(err)))?;
 
         if !acquired {
-            tracing::trace!("Couldn't acquire the lock immediately.");
+            trace!("Couldn't acquire the lock immediately.");
             return Ok(None);
         }
 
-        tracing::trace!("Acquired the lock, spawning the lease extension task.");
+        trace!("Acquired the lock, spawning the lease extension task.");
 
         // This is the first time we've acquired the lock. We're going to spawn the task
         // that will renew the lease.
@@ -214,7 +214,10 @@ impl<S: BackingStore + Clone + SendOutsideWasm + 'static> CrossProcessStoreLock<
 
         if let Some(_prev) = renew_task.take() {
             #[cfg(not(target_arch = "wasm32"))]
-            _prev.abort();
+            if !_prev.is_finished() {
+                info!("aborting the previous renew task");
+                _prev.abort();
+            }
         }
 
         // Restart a new one.
@@ -234,7 +237,7 @@ impl<S: BackingStore + Clone + SendOutsideWasm + 'static> CrossProcessStoreLock<
 
                     // If there are no more users, we can quit.
                     if this.num_holders.load(atomic::Ordering::SeqCst) == 0 {
-                        tracing::info!("exiting the lease extension loop");
+                        info!("exiting the lease extension loop");
 
                         // Cancel the lease with another 0ms lease.
                         // If we don't get the lock, that's (weird but) fine.
@@ -250,7 +253,7 @@ impl<S: BackingStore + Clone + SendOutsideWasm + 'static> CrossProcessStoreLock<
 
                 let fut = this.store.try_lock(LEASE_DURATION_MS, &this.lock_key, &this.lock_holder);
                 if let Err(err) = fut.await {
-                    tracing::error!("error when extending lock lease: {err:#}");
+                    error!("error when extending lock lease: {err:#}");
                     // Exit the loop.
                     break;
                 }
@@ -307,7 +310,7 @@ impl<S: BackingStore + Clone + SendOutsideWasm + 'static> CrossProcessStoreLock<
                 }
             };
 
-            tracing::debug!("Waiting {wait} before re-attempting to take the lock");
+            debug!("Waiting {wait} before re-attempting to take the lock");
             sleep(Duration::from_millis(wait.into())).await;
         }
     }
