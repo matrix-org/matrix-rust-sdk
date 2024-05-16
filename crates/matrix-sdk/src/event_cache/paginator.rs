@@ -30,6 +30,7 @@ use crate::{
 
 /// Current state of a [`Paginator`].
 #[derive(Debug, PartialEq, Copy, Clone)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum PaginatorState {
     /// The initial state of the paginator.
     Initial,
@@ -66,6 +67,29 @@ pub enum PaginatorError {
     SdkError(#[source] crate::Error),
 }
 
+/// Pagination token data, indicating in which state is the current pagination.
+#[derive(Clone, Debug)]
+enum PaginationToken {
+    /// We never had a pagination token, so we'll start back-paginating from the
+    /// end, or forward-paginating from the start.
+    None,
+    /// We paginated once before, and we received a prev/next batch token that
+    /// we may reuse for the next query.
+    HasMore(String),
+    /// We've hit one end of the timeline (either the start or the actual end),
+    /// so there's no need to continue paginating.
+    HitEnd,
+}
+
+impl From<Option<String>> for PaginationToken {
+    fn from(token: Option<String>) -> Self {
+        match token {
+            Some(val) => Self::HasMore(val),
+            None => Self::None,
+        }
+    }
+}
+
 /// A stateful object to reach to an event, and then paginate backward and
 /// forward from it.
 ///
@@ -80,12 +104,12 @@ pub struct Paginator {
     /// The token to run the next backward pagination.
     ///
     /// This mutex is only taken for short periods of time, so it's sync.
-    prev_batch_token: Mutex<Option<String>>,
+    prev_batch_token: Mutex<PaginationToken>,
 
     /// The token to run the next forward pagination.
     ///
     /// This mutex is only taken for short periods of time, so it's sync.
-    next_batch_token: Mutex<Option<String>>,
+    next_batch_token: Mutex<PaginationToken>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -168,8 +192,8 @@ impl Paginator {
         Self {
             room,
             state: SharedObservable::new(PaginatorState::Initial),
-            prev_batch_token: Mutex::new(None),
-            next_batch_token: Mutex::new(None),
+            prev_batch_token: Mutex::new(None.into()),
+            next_batch_token: Mutex::new(None.into()),
         }
     }
 
@@ -186,6 +210,45 @@ impl Paginator {
     /// Returns a subscriber to the internal [`PaginatorState`] machine.
     pub fn state(&self) -> Subscriber<PaginatorState> {
         self.state.subscribe()
+    }
+
+    /// Prepares the paginator to be in the idle state, ready for backwards- and
+    /// forwards- pagination.
+    ///
+    /// Will return an `InvalidPreviousState` error if the paginator is busy
+    /// (running /context or /messages).
+    pub(super) async fn set_idle_state(
+        &self,
+        prev_batch_token: Option<String>,
+        next_batch_token: Option<String>,
+    ) -> Result<(), PaginatorError> {
+        let prev_state = self.state.get();
+
+        match prev_state {
+            PaginatorState::Initial | PaginatorState::Idle => {}
+            PaginatorState::FetchingTargetEvent | PaginatorState::Paginating => {
+                // The paginator was busy. Don't interrupt it.
+                return Err(PaginatorError::InvalidPreviousState {
+                    // Technically it's initial OR idle, but we don't really care here.
+                    expected: PaginatorState::Idle,
+                    actual: prev_state,
+                });
+            }
+        }
+
+        self.state.set_if_not_eq(PaginatorState::Idle);
+        *self.prev_batch_token.lock().unwrap() = prev_batch_token.into();
+        *self.next_batch_token.lock().unwrap() = next_batch_token.into();
+
+        Ok(())
+    }
+
+    /// Returns the current previous batch token, as stored in this paginator.
+    pub(super) fn prev_batch_token(&self) -> Option<String> {
+        match &*self.prev_batch_token.lock().unwrap() {
+            PaginationToken::HitEnd | PaginationToken::None => None,
+            PaginationToken::HasMore(token) => Some(token.clone()),
+        }
     }
 
     /// Starts the pagination from the initial event, requesting `num_events`
@@ -224,8 +287,15 @@ impl Paginator {
 
         let has_prev = response.prev_batch_token.is_some();
         let has_next = response.next_batch_token.is_some();
-        *self.prev_batch_token.lock().unwrap() = response.prev_batch_token;
-        *self.next_batch_token.lock().unwrap() = response.next_batch_token;
+
+        *self.prev_batch_token.lock().unwrap() = match response.prev_batch_token {
+            Some(token) => PaginationToken::HasMore(token),
+            None => PaginationToken::HitEnd,
+        };
+        *self.next_batch_token.lock().unwrap() = match response.next_batch_token {
+            Some(token) => PaginationToken::HasMore(token),
+            None => PaginationToken::HitEnd,
+        };
 
         // Forget the reset state guard, so its Drop method is not called.
         reset_state_guard.disarm();
@@ -285,16 +355,19 @@ impl Paginator {
         &self,
         dir: Direction,
         num_events: UInt,
-        token_lock: &Mutex<Option<String>>,
+        token_lock: &Mutex<PaginationToken>,
     ) -> Result<PaginationResult, PaginatorError> {
         self.check_state(PaginatorState::Idle)?;
 
         let token = {
             let token = token_lock.lock().unwrap();
-            if token.is_none() {
-                return Ok(PaginationResult { events: Vec::new(), hit_end_of_timeline: true });
-            };
-            token.clone()
+            match &*token {
+                PaginationToken::None => None,
+                PaginationToken::HasMore(val) => Some(val.clone()),
+                PaginationToken::HitEnd => {
+                    return Ok(PaginationResult { events: Vec::new(), hit_end_of_timeline: true });
+                }
+            }
         };
 
         // Note: it's possible two callers have checked the state and both figured it's
@@ -321,7 +394,11 @@ impl Paginator {
         // may be incorrect.
 
         let hit_end_of_timeline = response.end.is_none();
-        *token_lock.lock().unwrap() = response.end;
+
+        *token_lock.lock().unwrap() = match response.end {
+            Some(val) => PaginationToken::HasMore(val),
+            None => PaginationToken::HitEnd,
+        };
 
         // TODO: what to do with state events?
 
@@ -997,9 +1074,10 @@ mod tests {
 
             // Assuming a paginator ready to back- or forward- paginate,
             let paginator = Paginator::new(room.clone());
-            paginator.state.set(PaginatorState::Idle);
-            *paginator.prev_batch_token.lock().unwrap() = Some("prev".to_owned());
-            *paginator.next_batch_token.lock().unwrap() = Some("next".to_owned());
+            paginator
+                .set_idle_state(Some("prev".to_owned()), Some("next".to_owned()))
+                .await
+                .unwrap();
 
             let paginator = Arc::new(paginator);
 

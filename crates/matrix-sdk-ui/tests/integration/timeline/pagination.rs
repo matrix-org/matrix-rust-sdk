@@ -18,16 +18,16 @@ use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::{
     future::{join, join3},
-    FutureExt,
+    FutureExt, StreamExt as _,
 };
-use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server};
+use matrix_sdk::{
+    config::SyncSettings, event_cache::paginator::PaginatorState,
+    test_utils::logged_in_client_with_server,
+};
 use matrix_sdk_test::{
     async_test, EventBuilder, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder, ALICE, BOB,
 };
-use matrix_sdk_ui::timeline::{
-    AnyOtherFullStateEventContent, PaginationOptions, PaginationStatus, RoomExt,
-    TimelineItemContent,
-};
+use matrix_sdk_ui::timeline::{AnyOtherFullStateEventContent, RoomExt, TimelineItemContent};
 use once_cell::sync::Lazy;
 use ruma::{
     events::{
@@ -65,7 +65,7 @@ async fn test_back_pagination() {
     let room = client.get_room(room_id).unwrap();
     let timeline = Arc::new(room.timeline().await.unwrap());
     let (_, mut timeline_stream) = timeline.subscribe().await;
-    let mut back_pagination_status = timeline.back_pagination_status();
+    let (_, mut back_pagination_status) = timeline.back_pagination_status();
 
     Mock::given(method("GET"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
@@ -77,11 +77,11 @@ async fn test_back_pagination() {
         .await;
 
     let paginate = async {
-        timeline.live_paginate_backwards(PaginationOptions::simple_request(10)).await.unwrap();
+        timeline.live_paginate_backwards(10).await.unwrap();
         server.reset().await;
     };
     let observe_paginating = async {
-        assert_eq!(back_pagination_status.next().await, Some(PaginationStatus::Paginating));
+        assert_eq!(back_pagination_status.next().await, Some(PaginatorState::Paginating));
     };
     join(paginate, observe_paginating).await;
 
@@ -136,8 +136,9 @@ async fn test_back_pagination() {
         .mount(&server)
         .await;
 
-    timeline.live_paginate_backwards(PaginationOptions::simple_request(10)).await.unwrap();
-    assert_next_eq!(back_pagination_status, PaginationStatus::TimelineEndReached);
+    let hit_start = timeline.live_paginate_backwards(10).await.unwrap();
+    assert!(hit_start);
+    assert_next_eq!(back_pagination_status, PaginatorState::Idle);
 }
 
 #[async_test]
@@ -201,7 +202,7 @@ async fn test_back_pagination_highlighted() {
         .mount(&server)
         .await;
 
-    timeline.live_paginate_backwards(PaginationOptions::simple_request(10)).await.unwrap();
+    timeline.live_paginate_backwards(10).await.unwrap();
     server.reset().await;
 
     let first = assert_next_matches!(
@@ -245,7 +246,7 @@ async fn test_wait_for_token() {
     let timeline = Arc::new(room.timeline().await.unwrap());
 
     let from = "t392-516_47314_0_7_1_1_1_11444_1";
-    let mut back_pagination_status = timeline.back_pagination_status();
+    let (_, mut back_pagination_status) = timeline.back_pagination_status();
 
     Mock::given(method("GET"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
@@ -268,14 +269,11 @@ async fn test_wait_for_token() {
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
 
     let paginate = async {
-        timeline
-            .live_paginate_backwards(PaginationOptions::simple_request(10).wait_for_token())
-            .await
-            .unwrap();
+        timeline.live_paginate_backwards(10).await.unwrap();
     };
     let observe_paginating = async {
-        assert_eq!(back_pagination_status.next().await, Some(PaginationStatus::Paginating));
-        assert_eq!(back_pagination_status.next().await, Some(PaginationStatus::Idle));
+        assert_eq!(back_pagination_status.next().await, Some(PaginatorState::Paginating));
+        assert_eq!(back_pagination_status.next().await, Some(PaginatorState::Idle));
     };
     let sync = async {
         // Make sure syncing starts a little bit later than pagination
@@ -289,7 +287,7 @@ async fn test_wait_for_token() {
 }
 
 #[async_test]
-async fn test_dedup() {
+async fn test_dedup_pagination() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client_with_server().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
@@ -334,10 +332,10 @@ async fn test_dedup() {
 
     // If I try to paginate twice at the same time,
     let paginate_1 = async {
-        timeline.live_paginate_backwards(PaginationOptions::simple_request(10)).await.unwrap();
+        timeline.live_paginate_backwards(10).await.unwrap();
     };
     let paginate_2 = async {
-        timeline.live_paginate_backwards(PaginationOptions::simple_request(10)).await.unwrap();
+        timeline.live_paginate_backwards(10).await.unwrap();
     };
     timeout(Duration::from_secs(5), join(paginate_1, paginate_2)).await.unwrap();
 
@@ -424,24 +422,44 @@ async fn test_timeline_reset_while_paginating() {
         .mount(&server)
         .await;
 
-    let mut back_pagination_status = timeline.back_pagination_status();
+    let (_, mut back_pagination_status) = timeline.back_pagination_status();
 
-    let paginate = async {
-        timeline
-            .live_paginate_backwards(PaginationOptions::simple_request(10).wait_for_token())
-            .await
-            .unwrap();
-    };
+    let paginate = async { timeline.live_paginate_backwards(10).await.unwrap() };
+
     let observe_paginating = async {
-        assert_eq!(back_pagination_status.next().await, Some(PaginationStatus::Paginating));
-        // timeline start reached because second pagination response contains
-        // no end field
-        assert_eq!(back_pagination_status.next().await, Some(PaginationStatus::TimelineEndReached));
+        let mut seen_paginating = false;
+
+        // Observe paginating updates: we want to make sure we see at least once
+        // Paginating, and that it settles with Idle.
+        while let Ok(update) =
+            timeout(Duration::from_millis(500), back_pagination_status.next()).await
+        {
+            match update {
+                Some(state) => {
+                    if state == PaginatorState::Paginating {
+                        seen_paginating = true;
+                    }
+                }
+                None => break,
+            }
+        }
+
+        assert!(seen_paginating);
+
+        let (status, _) = timeline.back_pagination_status();
+        assert_eq!(status, PaginatorState::Idle);
     };
+
     let sync = async {
         client.sync_once(sync_settings.clone()).await.unwrap();
     };
-    timeout(Duration::from_secs(2), join3(paginate, observe_paginating, sync)).await.unwrap();
+
+    let (hit_start, _, _) =
+        timeout(Duration::from_secs(5), join3(paginate, observe_paginating, sync)).await.unwrap();
+
+    // timeline start reached because second pagination response contains no end
+    // field.
+    assert!(hit_start);
 
     // No events in back-pagination responses, day divider + event from latest
     // sync is present
@@ -538,7 +556,7 @@ async fn test_empty_chunk() {
     let room = client.get_room(room_id).unwrap();
     let timeline = Arc::new(room.timeline().await.unwrap());
     let (_, mut timeline_stream) = timeline.subscribe().await;
-    let mut back_pagination_status = timeline.back_pagination_status();
+    let (_, mut back_pagination_status) = timeline.back_pagination_status();
 
     // It should try to do another request after the empty chunk.
     Mock::given(method("GET"))
@@ -566,11 +584,11 @@ async fn test_empty_chunk() {
         .await;
 
     let paginate = async {
-        timeline.live_paginate_backwards(PaginationOptions::simple_request(10)).await.unwrap();
+        timeline.live_paginate_backwards(10).await.unwrap();
         server.reset().await;
     };
     let observe_paginating = async {
-        assert_eq!(back_pagination_status.next().await, Some(PaginationStatus::Paginating));
+        assert_eq!(back_pagination_status.next().await, Some(PaginatorState::Paginating));
     };
     join(paginate, observe_paginating).await;
 
@@ -628,7 +646,7 @@ async fn test_until_num_items_with_empty_chunk() {
     let room = client.get_room(room_id).unwrap();
     let timeline = Arc::new(room.timeline().await.unwrap());
     let (_, mut timeline_stream) = timeline.subscribe().await;
-    let mut back_pagination_status = timeline.back_pagination_status();
+    let (_, mut back_pagination_status) = timeline.back_pagination_status();
 
     Mock::given(method("GET"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
@@ -665,11 +683,10 @@ async fn test_until_num_items_with_empty_chunk() {
         .await;
 
     let paginate = async {
-        timeline.live_paginate_backwards(PaginationOptions::until_num_items(4, 4)).await.unwrap();
-        server.reset().await;
+        timeline.live_paginate_backwards(10).await.unwrap();
     };
     let observe_paginating = async {
-        assert_eq!(back_pagination_status.next().await, Some(PaginationStatus::Paginating));
+        assert_eq!(back_pagination_status.next().await, Some(PaginatorState::Paginating));
     };
     join(paginate, observe_paginating).await;
 
@@ -710,6 +727,8 @@ async fn test_until_num_items_with_empty_chunk() {
     );
     assert!(day_divider.is_day_divider());
 
+    timeline.live_paginate_backwards(10).await.unwrap();
+
     let message = assert_next_matches!(
         timeline_stream,
         VectorDiff::PushFront { value } => value
@@ -741,7 +760,7 @@ async fn test_back_pagination_aborted() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = Arc::new(room.timeline().await.unwrap());
-    let mut back_pagination_status = timeline.back_pagination_status();
+    let (_, mut back_pagination_status) = timeline.back_pagination_status();
 
     // Delay the server response, so we have time to abort the request.
     Mock::given(method("GET"))
@@ -758,11 +777,11 @@ async fn test_back_pagination_aborted() {
     let paginate = spawn({
         let timeline = timeline.clone();
         async move {
-            timeline.live_paginate_backwards(PaginationOptions::simple_request(10)).await.unwrap();
+            timeline.live_paginate_backwards(10).await.unwrap();
         }
     });
 
-    assert_eq!(back_pagination_status.next().await, Some(PaginationStatus::Paginating));
+    assert_eq!(back_pagination_status.next().await, Some(PaginatorState::Paginating));
 
     // Abort the pagination!
     paginate.abort();
@@ -771,7 +790,7 @@ async fn test_back_pagination_aborted() {
     assert!(paginate.await.unwrap_err().is_cancelled());
 
     // The timeline should automatically reset to idle.
-    assert_next_eq!(back_pagination_status, PaginationStatus::Idle);
+    assert_next_eq!(back_pagination_status, PaginatorState::Idle);
 
     // And there should be no other pending pagination status updates.
     assert!(back_pagination_status.next().now_or_never().is_none());
