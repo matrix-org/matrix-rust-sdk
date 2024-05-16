@@ -93,7 +93,7 @@ macro_rules! init_tracing_for_tests {
                     // Since tracing_subscriber does prefix matching, the `matrix_sdk=` directive
                     // takes effect for all the main crates (`matrix_sdk_base`, `matrix_sdk_crypto`
                     // and so on).
-                    "info,matrix_sdk=debug".into()
+                    "info,wiremock=debug,matrix_sdk=debug".into()
                 }))
                 .with(tracing_subscriber::fmt::layer().with_test_writer())
                 .init();
