@@ -88,9 +88,12 @@ impl DayDividerAdjuster {
         for (i, item) in items.iter().enumerate() {
             match item.kind() {
                 TimelineItemKind::Virtual(VirtualTimelineItem::DayDivider(ts)) => {
-                    self.handle_day_divider(i, *ts, prev_item_pair.as_ref().map(|pair| pair.1));
-
-                    prev_item_pair = Some((i, item));
+                    // Record what the last alive item pair is only if we haven't removed the day
+                    // divider.
+                    if !self.handle_day_divider(i, *ts, prev_item_pair.as_ref().map(|pair| pair.1))
+                    {
+                        prev_item_pair = Some((i, item));
+                    }
                 }
 
                 TimelineItemKind::Event(event) => {
@@ -141,17 +144,20 @@ impl DayDividerAdjuster {
         self.consumed = true;
     }
 
+    /// Decides what to do with a day divider.
+    ///
+    /// Returns whether it's been removed or not.
     #[inline]
     fn handle_day_divider(
         &mut self,
         i: usize,
         ts: MilliSecondsSinceUnixEpoch,
         prev_item: Option<&Arc<TimelineItem>>,
-    ) {
+    ) -> bool {
         let Some(prev_item) = prev_item else {
             // No interesting item prior to the day divider: it must be the first one,
             // nothing to do.
-            return;
+            return false;
         };
 
         match prev_item.kind() {
@@ -162,6 +168,7 @@ impl DayDividerAdjuster {
                     // divider.
                     trace!("removing day divider following event with same timestamp @ {i}");
                     self.ops.push(DayDividerOperation::Remove(i));
+                    return true;
                 }
             }
 
@@ -169,12 +176,15 @@ impl DayDividerAdjuster {
                 trace!("removing duplicate day divider @ {i}");
                 // This day divider is preceded by another one: remove the current one.
                 self.ops.push(DayDividerOperation::Remove(i));
+                return true;
             }
 
             TimelineItemKind::Virtual(VirtualTimelineItem::ReadMarker) => {
                 // Nothing to do for read markers.
             }
         }
+
+        false
     }
 
     #[inline]
@@ -633,18 +643,44 @@ mod tests {
 
         let mut iter = items.iter();
 
-        assert_let!(Some(item) = iter.next());
-        assert!(item.is_day_divider());
+        assert!(iter.next().unwrap().is_day_divider());
+        assert!(iter.next().unwrap().is_remote_event());
+        assert!(iter.next().unwrap().is_read_marker());
+        assert!(iter.next().unwrap().is_remote_event());
+        assert!(iter.next().is_none());
+    }
 
-        assert_let!(Some(item) = iter.next());
-        assert!(item.is_remote_event());
+    #[test]
+    fn test_read_marker_in_between_day_dividers() {
+        let mut items = ObservableVector::new();
+        let mut txn = items.transaction();
 
-        assert_let!(Some(item) = iter.next());
-        assert!(item.is_read_marker());
+        let mut meta = TimelineInnerMetadata::new(ruma::RoomVersionId::V11, None, None);
 
-        assert_let!(Some(item) = iter.next());
-        assert!(item.is_remote_event());
+        let timestamp = MilliSecondsSinceUnixEpoch(uint!(42));
+        let timestamp_next_day =
+            MilliSecondsSinceUnixEpoch((42 + 3600 * 24 * 1000).try_into().unwrap());
+        assert_ne!(timestamp_to_date(timestamp), timestamp_to_date(timestamp_next_day));
 
+        txn.push_back(meta.new_timeline_item(event_with_ts(timestamp)));
+        txn.push_back(meta.new_timeline_item(VirtualTimelineItem::DayDivider(timestamp)));
+        txn.push_back(meta.new_timeline_item(VirtualTimelineItem::DayDivider(timestamp)));
+        txn.push_back(meta.new_timeline_item(VirtualTimelineItem::ReadMarker));
+        txn.push_back(meta.new_timeline_item(VirtualTimelineItem::DayDivider(timestamp)));
+        txn.push_back(meta.new_timeline_item(event_with_ts(timestamp_next_day)));
+
+        let mut adjuster = DayDividerAdjuster::default();
+        adjuster.run(&mut txn, &mut meta);
+
+        txn.commit();
+
+        let mut iter = items.iter();
+
+        assert!(iter.next().unwrap().is_day_divider());
+        assert!(iter.next().unwrap().is_remote_event());
+        assert!(iter.next().unwrap().is_read_marker());
+        assert!(iter.next().unwrap().is_day_divider());
+        assert!(iter.next().unwrap().is_remote_event());
         assert!(iter.next().is_none());
     }
 }
