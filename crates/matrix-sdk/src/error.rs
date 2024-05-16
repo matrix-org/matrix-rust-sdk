@@ -404,6 +404,10 @@ pub enum ImageError {
     #[error(transparent)]
     Proc(#[from] image::ImageError),
 
+    /// Error parsing the mimetype of the image.
+    #[error(transparent)]
+    Mime(#[from] mime::FromStrError),
+
     /// The image format is not supported.
     #[error("the image format is not supported")]
     FormatNotSupported,

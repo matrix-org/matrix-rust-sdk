@@ -382,15 +382,14 @@ pub fn generate_image_thumbnail<R: BufRead + Seek>(
     let thumbnail_format = match format {
         ThumbnailFormat::Always(format) => format,
         ThumbnailFormat::Fallback(format) if !image_format.writing_enabled() => format,
-        _ => image_format,
+        ThumbnailFormat::Fallback(_) | ThumbnailFormat::Original => image_format,
     };
 
     let mut data: Vec<u8> = vec![];
     thumbnail.write_to(&mut Cursor::new(&mut data), thumbnail_format)?;
     let data_size = data.len() as u32;
 
-    let content_type = mime::Mime::from_str(thumbnail_format.to_mime_type())
-        .expect("image should give a valid mimetype");
+    let content_type = mime::Mime::from_str(thumbnail_format.to_mime_type())?;
 
     let info = BaseThumbnailInfo {
         width: Some(thumbnail_width.into()),

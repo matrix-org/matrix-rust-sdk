@@ -295,12 +295,12 @@ impl<'a> IntoFuture for SendAttachment<'a> {
 
                     let thumbnail = match res {
                         Ok(thumbnail) => Some(thumbnail),
-                        Err(
-                            ImageError::ThumbnailBiggerThanOriginal
-                            | ImageError::FormatNotSupported,
-                        ) => None,
                         Err(error) => {
-                            tracing::error!("Failed to generate thumbnail: {error}");
+                            if matches!(error, ImageError::ThumbnailBiggerThanOriginal) {
+                                debug!("Not generating thumbnail: {error}");
+                            } else {
+                                tracing::warn!("Failed to generate thumbnail: {error}");
+                            }
                             None
                         }
                     };
