@@ -107,8 +107,8 @@ async fn test_notification() -> Result<()> {
         // In theory, the room name ought to be ROOM_NAME here, but the sliding sync
         // proxy returns the other person's name as the room's name (as of
         // 2023-08-04).
-        assert!(notification.room_display_name != ROOM_NAME);
-        assert_eq!(notification.room_display_name, ALICE_NAME);
+        assert!(notification.room_computed_display_name != ROOM_NAME);
+        assert_eq!(notification.room_computed_display_name, ALICE_NAME);
 
         // Then with /context.
         let notification_client =
@@ -194,7 +194,7 @@ async fn test_notification() -> Result<()> {
         );
 
         assert_eq!(notification.sender_display_name.as_deref(), Some(ALICE_NAME));
-        assert_eq!(notification.room_display_name, ROOM_NAME);
+        assert_eq!(notification.room_computed_display_name, ROOM_NAME);
     };
 
     let notification_client =

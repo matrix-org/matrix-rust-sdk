@@ -63,7 +63,7 @@ impl NotificationItem {
                 is_name_ambiguous: item.is_sender_name_ambiguous,
             },
             room_info: NotificationRoomInfo {
-                display_name: item.room_display_name,
+                display_name: item.room_computed_display_name,
                 avatar_url: item.room_avatar_url,
                 canonical_alias: item.room_canonical_alias,
                 joined_members_count: item.joined_members_count,
