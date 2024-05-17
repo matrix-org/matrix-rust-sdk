@@ -571,33 +571,32 @@ impl Timeline {
         }
 
         let item = self.inner.prepare_retry(txn_id).await.ok_or(Error::RetryEventNotInTimeline)?;
+
         let content = match item {
             TimelineItemContent::Message(msg) => {
                 AnyMessageLikeEventContent::RoomMessage(msg.into())
             }
-            TimelineItemContent::RedactedMessage => {
-                error_return!("Invalid state: attempting to retry a redacted message");
-            }
             TimelineItemContent::Sticker(sticker) => {
                 AnyMessageLikeEventContent::Sticker(sticker.content)
             }
-            TimelineItemContent::UnableToDecrypt(_) => {
-                error_return!("Invalid state: attempting to retry a UTD item");
-            }
+            TimelineItemContent::Poll(poll_state) => AnyMessageLikeEventContent::UnstablePollStart(
+                UnstablePollStartEventContent::New(poll_state.into()),
+            ),
             TimelineItemContent::MembershipChange(_)
             | TimelineItemContent::ProfileChange(_)
-            | TimelineItemContent::OtherState(_) => {
-                error_return!("Retrying state events is not currently supported");
+            | TimelineItemContent::OtherState(_)
+            | TimelineItemContent::CallInvite => {
+                error_return!("Retrying state events/call invite is not currently supported");
             }
             TimelineItemContent::FailedToParseMessageLike { .. }
             | TimelineItemContent::FailedToParseState { .. } => {
                 error_return!("Invalid state: attempting to retry a failed-to-parse item");
             }
-            TimelineItemContent::Poll(poll_state) => AnyMessageLikeEventContent::UnstablePollStart(
-                UnstablePollStartEventContent::New(poll_state.into()),
-            ),
-            TimelineItemContent::CallInvite => {
-                error_return!("Retrying call events is not currently supported");
+            TimelineItemContent::RedactedMessage => {
+                error_return!("Invalid state: attempting to retry a redacted message");
+            }
+            TimelineItemContent::UnableToDecrypt(_) => {
+                error_return!("Invalid state: attempting to retry a UTD item");
             }
         };
 

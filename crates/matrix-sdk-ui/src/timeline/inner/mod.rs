@@ -645,7 +645,8 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
     /// Update the send state of a local event represented by a transaction ID.
     ///
-    /// If no local event is found, a warning is raised.
+    /// If the corresponding local timeline item is missing, a warning is
+    /// raised.
     #[instrument(skip_all, fields(txn_id))]
     pub(super) async fn update_event_send_state(
         &self,
@@ -718,9 +719,11 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         txn.items.set(idx, new_item);
 
         if is_error {
-            // When there is an error, sending further messages is paused. This
-            // should be reflected in the timeline, so we set all other pending
-            // events to cancelled.
+            // When there is an error, sending further messages is paused. This should be
+            // reflected in the timeline, so we set all other pending events to
+            // cancelled.
+            //
+            // TODO(bnjbvr): spooky action at a distance here^
             let items = &mut txn.items;
             let num_items = items.len();
             for idx in 0..num_items {
@@ -797,6 +800,10 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         Ok(follow_up_action)
     }
 
+    /// Attempts to find a local echo item for some event to be sent.
+    ///
+    /// If it's found, it's moved back to the end of the timeline, then its
+    /// content is returned by this function.
     pub(super) async fn prepare_retry(
         &self,
         txn_id: &TransactionId,
