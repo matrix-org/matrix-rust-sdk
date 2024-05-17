@@ -27,7 +27,7 @@ use matrix_sdk::{
     Room,
 };
 use matrix_sdk_base::RoomState;
-use ruma::{events::AnyMessageLikeEventContent, OwnedTransactionId};
+use ruma::{events::AnyMessageLikeEventContent, OwnedEventId, OwnedTransactionId};
 use tokio::{select, sync::mpsc::Receiver};
 use tracing::{debug, error, info, instrument, trace, warn};
 
@@ -57,13 +57,13 @@ pub(super) async fn send_queued_messages(
 
     loop {
         select! {
-            result = &mut send_task => {
+            send_result = &mut send_task => {
                 trace!("SendMessageTask finished");
 
                 send_task.reset();
 
                 handle_send_result(
-                    result,
+                    send_result,
                     &mut send_task,
                     &mut queue,
                     &timeline,
@@ -129,7 +129,7 @@ async fn send_or_queue_msg(
         return;
     }
 
-    send_task.start(room, timeline.clone(), msg);
+    send_task.start(room, msg);
 }
 
 async fn handle_send_result(
@@ -139,16 +139,23 @@ async fn handle_send_result(
     timeline: &TimelineInner,
 ) {
     match send_result {
-        SendMessageResult::Success { room } => {
+        SendMessageResult::Success { event_id, txn_id } => {
+            timeline.update_event_send_state(&txn_id, EventSendState::Sent { event_id }).await;
+
             // Event was successfully sent, move on to the next queued event.
             if let Some(msg) = queue.pop_front() {
-                send_task.start(room, timeline.clone(), msg);
+                send_task.start(timeline.room().clone(), msg);
             }
         }
 
-        SendMessageResult::SendingFailed => {
-            // Timeline items are marked as failed / cancelled in this case.
-            //
+        SendMessageResult::SendingFailed { send_error, txn_id } => {
+            timeline
+                .update_event_send_state(
+                    &txn_id,
+                    EventSendState::SendingFailed { error: Arc::new(send_error) },
+                )
+                .await;
+
             // Clear the queue and wait for the user to explicitly retry (which will
             // re-append the to-be-sent events in the queue).
             queue.clear();
@@ -157,36 +164,41 @@ async fn handle_send_result(
         SendMessageResult::TaskError { join_error, txn_id } => {
             error!("Message-sending task failed: {join_error}");
 
+            timeline
+                .update_event_send_state(
+                    &txn_id,
+                    EventSendState::SendingFailed {
+                        // FIXME: Probably not exactly right
+                        error: Arc::new(matrix_sdk::Error::InconsistentState),
+                    },
+                )
+                .await;
+
             // See above comment in the `SendingFailed` arm.
             queue.clear();
-
-            let send_state = EventSendState::SendingFailed {
-                // FIXME: Probably not exactly right
-                error: Arc::new(matrix_sdk::Error::InconsistentState),
-            };
-
-            timeline.update_event_send_state(&txn_id, send_state).await;
         }
     }
 }
 
 /// Result of [`SendMessageTask`].
 enum SendMessageResult {
-    /// The message was sent successfully, and the local echo was updated to
-    /// indicate this.
+    /// The message was sent successfully.
     Success {
-        /// The joined room object, used to start sending of the next message
-        /// in the queue, if it isn't empty.
-        room: Room,
+        /// The event id returned by the server.
+        event_id: OwnedEventId,
+        /// The transaction ID of the message that was being sent by the task.
+        txn_id: OwnedTransactionId,
     },
 
-    /// Sending failed, and the local echo was updated to indicate this.
-    SendingFailed,
+    /// Sending failed.
+    SendingFailed {
+        /// The reason of the sending failure.
+        send_error: matrix_sdk::Error,
+        /// The transaction ID of the message that was being sent by the task.
+        txn_id: OwnedTransactionId,
+    },
 
     /// The [`SendMessageTask`] failed, likely due to a panic.
-    ///
-    /// This means that the timeline item was likely not updated yet, which thus
-    /// becomes the responsibility of the code observing this result.
     TaskError {
         /// The error with which the task failed.
         join_error: JoinError,
@@ -206,7 +218,7 @@ enum SendMessageTask {
         /// The transaction ID of the message that is being sent.
         txn_id: OwnedTransactionId,
         /// Handle to the task itself.
-        task: JoinHandle<Option<Room>>,
+        task: JoinHandle<SendMessageResult>,
     },
 }
 
@@ -218,22 +230,20 @@ impl SendMessageTask {
 
     /// Spawns a task sending the message to the room, and updating the timeline
     /// once the result has been processed.
-    fn start(&mut self, room: Room, timeline: TimelineInner, msg: LocalMessage) {
+    fn start(&mut self, room: Room, msg: LocalMessage) {
         debug!("Spawning message-sending task");
 
         let txn_id = msg.txn_id.clone();
 
         let task = spawn(async move {
-            let result = room.send(msg.content).with_transaction_id(&msg.txn_id).await;
-
-            let (room, send_state) = match result {
-                Ok(response) => (Some(room), EventSendState::Sent { event_id: response.event_id }),
-                Err(error) => (None, EventSendState::SendingFailed { error: Arc::new(error) }),
-            };
-
-            timeline.update_event_send_state(&msg.txn_id, send_state).await;
-
-            room
+            match room.send(msg.content).with_transaction_id(&msg.txn_id).await {
+                Ok(response) => {
+                    SendMessageResult::Success { event_id: response.event_id, txn_id: msg.txn_id }
+                }
+                Err(error) => {
+                    SendMessageResult::SendingFailed { send_error: error, txn_id: msg.txn_id }
+                }
+            }
         });
 
         *self = Self::Running { txn_id, task };
@@ -251,20 +261,16 @@ impl Future for SendMessageTask {
         match &mut *self {
             SendMessageTask::Idle => Poll::Pending,
 
-            SendMessageTask::Running { txn_id, task: join_handle } => {
-                Pin::new(join_handle).poll(cx).map(|result| {
-                    let txn_id = mem::replace(txn_id, OwnedTransactionId::from(""));
-                    if txn_id.as_str().is_empty() {
-                        warn!("SendMessageTask polled after returning Poll::Ready!");
-                    }
-
-                    match result {
-                        Ok(Some(room)) => SendMessageResult::Success { room },
-                        Ok(None) => SendMessageResult::SendingFailed,
-                        Err(join_error) => SendMessageResult::TaskError { join_error, txn_id },
-                    }
+            SendMessageTask::Running { txn_id, task } => Pin::new(task).poll(cx).map(|result| {
+                let txn_id = mem::replace(txn_id, OwnedTransactionId::from(""));
+                if txn_id.as_str().is_empty() {
+                    warn!("SendMessageTask polled after returning Poll::Ready!");
+                }
+                result.unwrap_or_else(|error| SendMessageResult::TaskError {
+                    join_error: error,
+                    txn_id,
                 })
-            }
+            }),
         }
     }
 }
