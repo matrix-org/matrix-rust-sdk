@@ -220,7 +220,7 @@ impl Encryption {
     }
 
     /// Get the public curve25519 key of our own device in base64. This is
-    /// usually what is called the identiy key of the device.
+    /// usually what is called the identity key of the device.
     pub async fn curve25519_key(&self) -> Option<String> {
         self.inner.curve25519_key().await
     }
