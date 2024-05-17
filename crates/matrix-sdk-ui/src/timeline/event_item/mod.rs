@@ -14,6 +14,7 @@
 
 use std::sync::Arc;
 
+use as_variant::as_variant;
 use indexmap::IndexMap;
 use matrix_sdk::{deserialized_responses::EncryptionInfo, Client, Error};
 use matrix_sdk_base::{deserialized_responses::SyncTimelineEvent, latest_event::LatestEvent};
@@ -180,44 +181,31 @@ impl EventTimelineItem {
 
     /// Get the `LocalEventTimelineItem` if `self` is `Local`.
     pub(super) fn as_local(&self) -> Option<&LocalEventTimelineItem> {
-        match &self.kind {
-            EventTimelineItemKind::Local(local_event_item) => Some(local_event_item),
-            EventTimelineItemKind::Remote(_) => None,
-        }
+        as_variant!(&self.kind, EventTimelineItemKind::Local(local_event_item) => local_event_item)
     }
 
-    /// Get the `RemoteEventTimelineItem` if `self` is `Remote`.
+    /// Get a reference to a [`RemoteEventTimelineItem`] if it's a remote echo.
     pub(super) fn as_remote(&self) -> Option<&RemoteEventTimelineItem> {
-        match &self.kind {
-            EventTimelineItemKind::Local(_) => None,
-            EventTimelineItemKind::Remote(remote_event_item) => Some(remote_event_item),
-        }
+        as_variant!(&self.kind, EventTimelineItemKind::Remote(remote_event_item) => remote_event_item)
     }
 
+    /// Get a mutable reference to a [`RemoteEventTimelineItem`] if it's a
+    /// remote echo.
     pub(super) fn as_remote_mut(&mut self) -> Option<&mut RemoteEventTimelineItem> {
-        match &mut self.kind {
-            EventTimelineItemKind::Local(_) => None,
-            EventTimelineItemKind::Remote(remote_event_item) => Some(remote_event_item),
-        }
+        as_variant!(&mut self.kind, EventTimelineItemKind::Remote(remote_event_item) => remote_event_item)
     }
 
-    /// Get the event's send state, if it is a local echo.
+    /// Get the event's send state of a local echo.
     pub fn send_state(&self) -> Option<&EventSendState> {
-        match &self.kind {
-            EventTimelineItemKind::Local(local) => Some(&local.send_state),
-            EventTimelineItemKind::Remote(_) => None,
-        }
+        as_variant!(&self.kind, EventTimelineItemKind::Local(local) => &local.send_state)
     }
 
-    /// Get the transaction ID of this item.
+    /// Get the transaction ID of a local echo item.
     ///
     /// The transaction ID is currently only kept until the remote echo for a
     /// local event is received.
     pub fn transaction_id(&self) -> Option<&TransactionId> {
-        match &self.kind {
-            EventTimelineItemKind::Local(local) => Some(&local.transaction_id),
-            EventTimelineItemKind::Remote(_) => None,
-        }
+        as_variant!(&self.kind, EventTimelineItemKind::Local(local) => &local.transaction_id)
     }
 
     /// Get the event ID of this item.
