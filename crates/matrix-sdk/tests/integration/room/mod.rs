@@ -1,3 +1,4 @@
+mod attachment;
 mod common;
 mod joined;
 mod left;

@@ -41,6 +41,7 @@ jobs:
           - markdown
           - socks
           - sso-login
+          - image-proc
 
     steps:
       - name: Checkout

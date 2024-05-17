@@ -20,6 +20,8 @@ use std::time::Duration;
 
 #[cfg(feature = "image-proc")]
 use image::GenericImageView;
+#[cfg(feature = "image-proc")]
+pub use image::ImageFormat;
 use ruma::{
     assign,
     events::{
@@ -188,7 +190,7 @@ pub struct Thumbnail {
 }
 
 /// Configuration for sending an attachment.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct AttachmentConfig {
     pub(crate) txn_id: Option<OwnedTransactionId>,
     pub(crate) info: Option<AttachmentInfo>,
@@ -200,6 +202,8 @@ pub struct AttachmentConfig {
     pub(crate) generate_thumbnail: bool,
     #[cfg(feature = "image-proc")]
     pub(crate) thumbnail_size: Option<(u32, u32)>,
+    #[cfg(feature = "image-proc")]
+    pub(crate) thumbnail_format: ThumbnailFormat,
 }
 
 impl AttachmentConfig {
@@ -207,18 +211,7 @@ impl AttachmentConfig {
     ///
     /// To provide a thumbnail use [`AttachmentConfig::with_thumbnail()`].
     pub fn new() -> Self {
-        Self {
-            txn_id: Default::default(),
-            info: Default::default(),
-            thumbnail: None,
-            caption: None,
-            formatted_caption: None,
-            mentions: Default::default(),
-            #[cfg(feature = "image-proc")]
-            generate_thumbnail: Default::default(),
-            #[cfg(feature = "image-proc")]
-            thumbnail_size: Default::default(),
-        }
+        Self::default()
     }
 
     /// Generate the thumbnail to send for this media.
@@ -229,15 +222,21 @@ impl AttachmentConfig {
     /// more information, see the [image](https://github.com/image-rs/image)
     /// crate.
     ///
+    /// If generating the thumbnail failed, the error will be logged and sending
+    /// the attachment will proceed without a thumbnail.
+    ///
     /// # Arguments
     ///
     /// * `size` - The size of the thumbnail in pixels as a `(width, height)`
     /// tuple. If set to `None`, defaults to `(800, 600)`.
+    ///
+    /// * `format` - The image format to use to encode the thumbnail.
     #[cfg(feature = "image-proc")]
     #[must_use]
-    pub fn generate_thumbnail(mut self, size: Option<(u32, u32)>) -> Self {
+    pub fn generate_thumbnail(mut self, size: Option<(u32, u32)>, format: ThumbnailFormat) -> Self {
         self.generate_thumbnail = true;
         self.thumbnail_size = size;
+        self.thumbnail_format = format;
         self
     }
 
@@ -252,18 +251,7 @@ impl AttachmentConfig {
     /// [`AttachmentConfig::new()`] and
     /// [`AttachmentConfig::generate_thumbnail()`].
     pub fn with_thumbnail(thumbnail: Thumbnail) -> Self {
-        Self {
-            txn_id: Default::default(),
-            info: Default::default(),
-            thumbnail: Some(thumbnail),
-            caption: None,
-            formatted_caption: None,
-            mentions: Default::default(),
-            #[cfg(feature = "image-proc")]
-            generate_thumbnail: Default::default(),
-            #[cfg(feature = "image-proc")]
-            thumbnail_size: Default::default(),
-        }
+        Self { thumbnail: Some(thumbnail), ..Default::default() }
     }
 
     /// Set the transaction ID to send.
@@ -322,12 +310,6 @@ impl AttachmentConfig {
     }
 }
 
-impl Default for AttachmentConfig {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 /// Generate a thumbnail for an image.
 ///
 /// This is a convenience method that uses the
@@ -335,13 +317,15 @@ impl Default for AttachmentConfig {
 ///
 /// # Arguments
 /// * `content_type` - The type of the media, this will be used as the
-/// content-type header.
+///   content-type header.
 ///
 /// * `reader` - A `Reader` that will be used to fetch the raw bytes of the
-/// media.
+///   media.
 ///
 /// * `size` - The size of the thumbnail in pixels as a `(width, height)` tuple.
-/// If set to `None`, defaults to `(800, 600)`.
+///   If set to `None`, defaults to `(800, 600)`.
+///
+/// * `format` - The image format to use to encode the thumbnail.
 ///
 /// # Examples
 ///
@@ -349,7 +333,7 @@ impl Default for AttachmentConfig {
 /// use std::{io::Cursor, path::PathBuf};
 ///
 /// use matrix_sdk::attachment::{
-///     generate_image_thumbnail, AttachmentConfig, Thumbnail,
+///     generate_image_thumbnail, AttachmentConfig, Thumbnail, ThumbnailFormat,
 /// };
 /// use mime;
 /// # use matrix_sdk::{Client, ruma::room_id };
@@ -363,13 +347,13 @@ impl Default for AttachmentConfig {
 /// let image = tokio::fs::read(path).await?;
 ///
 /// let cursor = Cursor::new(&image);
-/// let (thumbnail_data, thumbnail_info) =
-///     generate_image_thumbnail(&mime::IMAGE_JPEG, cursor, None)?;
-/// let config = AttachmentConfig::with_thumbnail(Thumbnail {
-///     data: thumbnail_data,
-///     content_type: mime::IMAGE_JPEG,
-///     info: Some(thumbnail_info),
-/// });
+/// let thumbnail = generate_image_thumbnail(
+///     &mime::IMAGE_JPEG,
+///     cursor,
+///     None,
+///     ThumbnailFormat::Original,
+/// )?;
+/// let config = AttachmentConfig::with_thumbnail(thumbnail);
 ///
 /// if let Some(room) = client.get_room(&room_id) {
 ///     room.send_attachment(
@@ -387,13 +371,13 @@ pub fn generate_image_thumbnail<R: BufRead + Seek>(
     content_type: &mime::Mime,
     reader: R,
     size: Option<(u32, u32)>,
-) -> Result<(Vec<u8>, BaseThumbnailInfo), ImageError> {
-    let image_format = image::ImageFormat::from_mime_type(content_type);
-    if image_format.is_none() {
-        return Err(ImageError::FormatNotSupported);
-    }
+    format: ThumbnailFormat,
+) -> Result<Thumbnail, ImageError> {
+    use std::str::FromStr;
 
-    let image_format = image_format.unwrap();
+    let Some(image_format) = ImageFormat::from_mime_type(content_type) else {
+        return Err(ImageError::FormatNotSupported);
+    };
 
     let image = image::load(reader, image_format)?;
     let (original_width, original_height) = image.dimensions();
@@ -409,16 +393,48 @@ pub fn generate_image_thumbnail<R: BufRead + Seek>(
     let thumbnail = image.thumbnail(width, height);
     let (thumbnail_width, thumbnail_height) = thumbnail.dimensions();
 
+    let thumbnail_format = match format {
+        ThumbnailFormat::Always(format) => format,
+        ThumbnailFormat::Fallback(format) if !image_format.writing_enabled() => format,
+        ThumbnailFormat::Fallback(_) | ThumbnailFormat::Original => image_format,
+    };
+
     let mut data: Vec<u8> = vec![];
-    thumbnail.write_to(&mut Cursor::new(&mut data), image_format)?;
+    thumbnail.write_to(&mut Cursor::new(&mut data), thumbnail_format)?;
     let data_size = data.len() as u32;
 
-    Ok((
-        data,
-        BaseThumbnailInfo {
-            width: Some(thumbnail_width.into()),
-            height: Some(thumbnail_height.into()),
-            size: Some(data_size.into()),
-        },
-    ))
+    let content_type = mime::Mime::from_str(thumbnail_format.to_mime_type())?;
+
+    let info = BaseThumbnailInfo {
+        width: Some(thumbnail_width.into()),
+        height: Some(thumbnail_height.into()),
+        size: Some(data_size.into()),
+    };
+
+    Ok(Thumbnail { data, content_type, info: Some(info) })
+}
+
+/// The format to use for encoding the thumbnail.
+#[cfg(feature = "image-proc")]
+#[derive(Debug, Default, Clone, Copy)]
+pub enum ThumbnailFormat {
+    /// Always use this format.
+    ///
+    /// Will always return an error if this format is not writable by the
+    /// `image` crate.
+    Always(ImageFormat),
+    /// Try to use the same format as the original image, and fallback to this
+    /// one if the original format is not writable.
+    ///
+    /// Will return an error if both the original format and this format are not
+    /// writable by the `image` crate.
+    Fallback(ImageFormat),
+    /// Only try to use the format of the original image.
+    ///
+    /// Will return an error if the original format is not writable by the
+    /// `image` crate.
+    ///
+    /// This is the default.
+    #[default]
+    Original,
 }
