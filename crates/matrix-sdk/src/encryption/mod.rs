@@ -613,8 +613,8 @@ impl Encryption {
         self.client.olm_machine().await.as_ref().map(|o| o.identity_keys().ed25519.to_base64())
     }
 
-    /// Get the public curve25519 key of our own device in base64. This is usually what is
-    /// called the identiy key of the device.
+    /// Get the public curve25519 key of our own device in base64. This is
+    /// usually what is called the identiy key of the device.
     pub async fn curve25519_key(&self) -> Option<String> {
         self.client.olm_machine().await.as_ref().map(|o| o.identity_keys().curve25519.to_base64())
     }
