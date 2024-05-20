@@ -586,7 +586,7 @@ impl Timeline {
             | TimelineItemContent::ProfileChange(_)
             | TimelineItemContent::OtherState(_)
             | TimelineItemContent::CallInvite => {
-                error_return!("Retrying state events/call invite is not currently supported");
+                error_return!("Retrying state events/call invites is not currently supported");
             }
             TimelineItemContent::FailedToParseMessageLike { .. }
             | TimelineItemContent::FailedToParseState { .. } => {

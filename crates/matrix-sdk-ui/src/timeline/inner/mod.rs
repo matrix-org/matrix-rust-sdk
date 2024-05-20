@@ -723,7 +723,11 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             // reflected in the timeline, so we set all other pending events to
             // cancelled.
             //
-            // TODO(bnjbvr): spooky action at a distance here^
+            // TODO(bnjbvr): spooky action at a distance here^. The sending task is the one
+            // deciding to clear the sending queue, so we're updating based on that implicit
+            // knowledge here. Instead, the sending queue should notify the timeline that
+            // it's deciding to not send those messages, and then only the
+            // timeline should mark these items as cancelled.
             let items = &mut txn.items;
             let num_items = items.len();
             for idx in 0..num_items {
