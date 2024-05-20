@@ -206,7 +206,7 @@ impl StateStore for MemoryStore {
                 );
             }
             StateStoreDataKey::UserAvatarUrl(user_id) => {
-                self.filters.write().unwrap().insert(
+                self.user_avatar_url.write().unwrap().insert(
                     user_id.to_string(),
                     value.into_user_avatar_url().expect("Session data not a user avatar url"),
                 );
@@ -231,7 +231,7 @@ impl StateStore for MemoryStore {
                 self.filters.write().unwrap().remove(filter_name);
             }
             StateStoreDataKey::UserAvatarUrl(user_id) => {
-                self.filters.write().unwrap().remove(user_id.as_str());
+                self.user_avatar_url.write().unwrap().remove(user_id.as_str());
             }
             StateStoreDataKey::RecentlyVisitedRooms(user_id) => {
                 self.recently_visited_rooms.write().unwrap().remove(user_id.as_str());
