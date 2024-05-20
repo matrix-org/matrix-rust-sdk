@@ -1,8 +1,9 @@
 // The http mocking library is not supported for wasm32
 #![cfg(not(target_arch = "wasm32"))]
 
-use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server, Client};
-use matrix_sdk_test::test_json;
+use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server, Client, Room};
+use matrix_sdk_test::{test_json, SyncResponseBuilder};
+use ruma::RoomId;
 use serde::Serialize;
 use wiremock::{
     matchers::{header, method, path, path_regex, query_param, query_param_is_missing},
@@ -17,6 +18,7 @@ mod matrix_auth;
 mod notification;
 mod refresh_token;
 mod room;
+mod send_queue;
 #[cfg(feature = "experimental-widgets")]
 mod widget;
 
@@ -97,4 +99,29 @@ async fn mock_encryption_state(server: &MockServer, is_encrypted: bool) {
             .mount(server)
             .await;
     }
+}
+
+/// Does a sync for a given room, and returns its `Room` object.
+///
+/// Note this sync is token-less.
+async fn mock_sync_with_new_room<F: Fn(&mut SyncResponseBuilder)>(
+    func: F,
+    client: &Client,
+    server: &MockServer,
+    room_id: &RoomId,
+) -> Room {
+    let mut sync_response_builder = SyncResponseBuilder::default();
+    func(&mut sync_response_builder);
+    let json_response = sync_response_builder.build_json_sync_response();
+
+    let _scope = Mock::given(method("GET"))
+        .and(path("/_matrix/client/r0/sync"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_response))
+        .mount_as_scoped(server)
+        .await;
+
+    let _response = client.sync_once(Default::default()).await.unwrap();
+
+    client.get_room(room_id).expect("we should find the room we just sync'd from")
 }
