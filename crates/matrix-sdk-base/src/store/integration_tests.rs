@@ -58,6 +58,8 @@ pub trait StateStoreIntegrationTests {
     async fn test_member_saving(&self);
     /// Test filter saving.
     async fn test_filter_saving(&self);
+    /// Test saving a user avatar URL.
+    async fn test_user_avatar_url_saving(&self);
     /// Test sync token saving.
     async fn test_sync_token_saving(&self);
     /// Test stripped room member saving.
@@ -535,6 +537,30 @@ impl StateStoreIntegrationTests for DynStateStore {
 
         self.remove_kv_data(StateStoreDataKey::Filter(filter_name)).await.unwrap();
         assert_matches!(self.get_kv_data(StateStoreDataKey::Filter(filter_name)).await, Ok(None));
+    }
+
+    async fn test_user_avatar_url_saving(&self) {
+        let user_id = user_id!("@alice:example.org");
+        let url = "https://example.org";
+
+        self.set_kv_data(
+            StateStoreDataKey::UserAvatarUrl(user_id),
+            StateStoreDataValue::UserAvatarUrl(url.to_owned()),
+        )
+        .await
+        .unwrap();
+
+        assert_let!(
+            Ok(Some(StateStoreDataValue::UserAvatarUrl(stored_url))) =
+                self.get_kv_data(StateStoreDataKey::UserAvatarUrl(user_id)).await
+        );
+        assert_eq!(stored_url, url);
+
+        self.remove_kv_data(StateStoreDataKey::UserAvatarUrl(user_id)).await.unwrap();
+        assert_matches!(
+            self.get_kv_data(StateStoreDataKey::UserAvatarUrl(user_id)).await,
+            Ok(None)
+        );
     }
 
     async fn test_sync_token_saving(&self) {
@@ -1311,6 +1337,12 @@ macro_rules! statestore_integration_tests {
         async fn test_filter_saving() {
             let store = get_store().await.unwrap().into_state_store();
             store.test_filter_saving().await
+        }
+
+        #[async_test]
+        async fn test_user_avatar_url_saving() {
+            let store = get_store().await.unwrap().into_state_store();
+            store.test_user_avatar_url_saving().await
         }
 
         #[async_test]
