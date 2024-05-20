@@ -115,7 +115,9 @@ async fn send_or_queue_msg(
         return;
     }
 
-    if room.state() != RoomState::Joined {
+    if room.state() == RoomState::Joined {
+        send_task.start(room, msg);
+    } else {
         info!("Refusing to send message, room is not joined");
         timeline
             .update_event_send_state(
@@ -126,10 +128,7 @@ async fn send_or_queue_msg(
                 },
             )
             .await;
-        return;
     }
-
-    send_task.start(room, msg);
 }
 
 async fn handle_send_result(
