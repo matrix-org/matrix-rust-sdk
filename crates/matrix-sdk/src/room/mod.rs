@@ -78,7 +78,7 @@ use ruma::{
     push::{Action, PushConditionRoomCtx},
     serde::Raw,
     EventId, Int, MatrixToUri, MatrixUri, MxcUri, OwnedEventId, OwnedRoomId, OwnedServerName,
-    OwnedTransactionId, OwnedUserId, TransactionId, UInt, UserId,
+    OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UInt, UserId,
 };
 use serde::de::DeserializeOwned;
 use thiserror::Error;
@@ -2686,6 +2686,7 @@ impl Room {
 
 /// A wrapper for a weak client and a room id that allows to lazily retrieve a
 /// room, only when needed.
+#[derive(Clone)]
 pub(crate) struct WeakRoom {
     client: WeakClient,
     room_id: OwnedRoomId,
@@ -2700,6 +2701,11 @@ impl WeakRoom {
     /// Attempts to reconstruct the room.
     pub fn get(&self) -> Option<Room> {
         self.client.get().and_then(|client| client.get_room(&self.room_id))
+    }
+
+    /// The room id for that room.
+    pub fn room_id(&self) -> &RoomId {
+        &self.room_id
     }
 }
 

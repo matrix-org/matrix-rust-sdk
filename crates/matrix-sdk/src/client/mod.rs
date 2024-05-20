@@ -83,6 +83,7 @@ use crate::{
     matrix_auth::MatrixAuth,
     notification_settings::NotificationSettings,
     room_preview::RoomPreview,
+    send_queue::SendingQueueData,
     sync::{RoomUpdate, SyncResponse},
     Account, AuthApi, AuthSession, Error, Media, Pusher, RefreshTokenError, Result, Room,
     TransmissionProgress,
@@ -282,6 +283,9 @@ pub(crate) struct ClientInner {
     /// The verification state of our own device.
     #[cfg(feature = "e2e-encryption")]
     pub(crate) verification_state: SharedObservable<VerificationState>,
+
+    /// Data related to the sending queue.
+    pub(crate) sending_queue: Arc<SendingQueueData>,
 }
 
 impl ClientInner {
@@ -301,6 +305,7 @@ impl ClientInner {
         unstable_features: Option<BTreeMap<String, bool>>,
         respect_login_well_known: bool,
         event_cache: OnceCell<EventCache>,
+        sending_queue: Arc<SendingQueueData>,
         #[cfg(feature = "e2e-encryption")] encryption_settings: EncryptionSettings,
     ) -> Arc<Self> {
         let client = Self {
@@ -323,6 +328,7 @@ impl ClientInner {
             respect_login_well_known,
             sync_beat: event_listener::Event::new(),
             event_cache,
+            sending_queue,
             #[cfg(feature = "e2e-encryption")]
             e2ee: EncryptionData::new(encryption_settings),
             #[cfg(feature = "e2e-encryption")]
@@ -2102,6 +2108,7 @@ impl Client {
                 self.inner.unstable_features.get().cloned(),
                 self.inner.respect_login_well_known,
                 self.inner.event_cache.clone(),
+                self.inner.sending_queue.clone(),
                 #[cfg(feature = "e2e-encryption")]
                 self.inner.e2ee.encryption_settings,
             )
@@ -2149,7 +2156,6 @@ impl WeakClient {
     }
 
     /// Construct a [`WeakClient`] from a [`Client`].
-    #[cfg(test)]
     pub fn from_client(client: &Client) -> Self {
         Self::from_inner(&client.inner)
     }
