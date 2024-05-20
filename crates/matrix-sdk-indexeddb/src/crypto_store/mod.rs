@@ -19,6 +19,7 @@ use std::{
 
 use async_trait::async_trait;
 use gloo_utils::format::JsValueSerdeExt;
+use hkdf::Hkdf;
 use indexed_db_futures::prelude::*;
 use matrix_sdk_crypto::{
     olm::{
@@ -39,6 +40,7 @@ use ruma::{
     events::secret::request::SecretName, DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId,
     RoomId, TransactionId, UserId,
 };
+use sha2::Sha256;
 use tokio::sync::Mutex;
 use tracing::{debug, warn};
 use wasm_bindgen::JsValue;
@@ -337,18 +339,27 @@ impl IndexeddbCryptoStore {
     /// * `key` - key with which to encrypt the key which is used to encrypt the
     ///   store. Must be the same each time the store is opened.
     pub async fn open_with_key(prefix: &str, key: &[u8; 32]) -> Result<Self> {
+        // The application might also use the provided key for something else, so to
+        // avoid key reuse, we pass the provided key through an HKDF
+        let mut chacha_key = zeroize::Zeroizing::new([0u8; 32]);
+        const HKDF_INFO: &[u8] = b"CRYPTOSTORE_CIPHER";
+        let hkdf = Hkdf::<Sha256>::new(None, key);
+        hkdf.expand(HKDF_INFO, &mut *chacha_key)
+            .expect("We should be able to generate a 32-byte key");
+
         let db = open_meta_db(prefix).await?;
         let store_cipher = load_store_cipher(&db).await?;
 
         let store_cipher = match store_cipher {
             Some(cipher) => {
                 debug!("IndexedDbCryptoStore: decrypting store cipher");
-                import_store_cipher_with_key(key, &cipher, &db).await?
+                import_store_cipher_with_key(&chacha_key, key, &cipher, &db).await?
             }
             None => {
                 debug!("IndexedDbCryptoStore: encrypting new store cipher");
                 let cipher = StoreCipher::new().map_err(CryptoStoreError::backend)?;
-                let export = cipher.export_with_key(key).map_err(CryptoStoreError::backend)?;
+                let export =
+                    cipher.export_with_key(&chacha_key).map_err(CryptoStoreError::backend)?;
                 save_store_cipher(&db, &export).await?;
                 cipher
             }
@@ -1381,19 +1392,30 @@ async fn save_store_cipher(
 /// Given a serialised store cipher, try importing with the given key.
 ///
 /// This is a helper for [`IndexeddbCryptoStore::open_with_key`].
+///
+/// # Arguments
+///
+/// * `chacha_key`: The key to use with [`StoreCipher::import_with_key`].
+///   Derived from `original_key` via an HKDF.
+/// * `original_key`: The key provided by the application. Used to provide a
+///   migration path from an older key derivation system.
+/// * `serialised_cipher`: The serialized `EncryptedStoreCipher`, retrieved from
+///   the database.
+/// * `db`: Connection to the database.
 async fn import_store_cipher_with_key(
-    key: &[u8; 32],
+    chacha_key: &[u8; 32],
+    original_key: &[u8],
     serialised_cipher: &[u8],
     db: &IdbDatabase,
 ) -> Result<StoreCipher, IndexeddbCryptoStoreError> {
-    let cipher = match StoreCipher::import_with_key(key, serialised_cipher) {
+    let cipher = match StoreCipher::import_with_key(chacha_key, serialised_cipher) {
         Ok(cipher) => cipher,
         Err(matrix_sdk_store_encryption::Error::KdfMismatch) => {
             // Old versions of the matrix-js-sdk used to base64-encode their encryption
             // key, and pass it into [`IndexeddbCryptoStore::open_with_passphrase`]. For
             // backwards compatibility, we fall back to that if we discover we have a cipher
             // encrypted with a KDF when we expected it to be encrypted directly with a key.
-            let cipher = StoreCipher::import(&base64_encode(key), serialised_cipher)
+            let cipher = StoreCipher::import(&base64_encode(original_key), serialised_cipher)
                 .map_err(|_| CryptoStoreError::UnpicklingError)?;
 
             // Loading the cipher with the passphrase was successful. Let's update the
@@ -1401,7 +1423,7 @@ async fn import_store_cipher_with_key(
             // to save doing this again.
             debug!("IndexedDbCryptoStore: Migrating passphrase-encrypted store cipher to key-encryption");
 
-            let export = cipher.export_with_key(key).map_err(CryptoStoreError::backend)?;
+            let export = cipher.export_with_key(chacha_key).map_err(CryptoStoreError::backend)?;
             save_store_cipher(db, &export).await?;
             cipher
         }

@@ -3381,6 +3381,7 @@ dependencies = [
  "base64 0.22.1",
  "getrandom",
  "gloo-utils",
+ "hkdf",
  "indexed_db_futures",
  "js-sys",
  "matrix-sdk-base",
@@ -3393,6 +3394,7 @@ dependencies = [
  "serde",
  "serde-wasm-bindgen",
  "serde_json",
+ "sha2",
  "thiserror",
  "tokio",
  "tracing",
@@ -3401,6 +3403,7 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-test",
  "web-sys",
+ "zeroize",
 ]
 
 [[package]]

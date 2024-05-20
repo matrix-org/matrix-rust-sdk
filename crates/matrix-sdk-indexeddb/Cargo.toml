@@ -38,6 +38,9 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 wasm-bindgen = "0.2.83"
 web-sys = { version = "0.3.57", features = ["IdbKeyRange"] }
+hkdf = "0.12.4"
+zeroize.workspace = true
+sha2.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # for wasm32 we need to activate this
