@@ -142,7 +142,14 @@ impl DayDividerAdjuster {
         for (i, item) in items.iter().enumerate().rev() {
             if item.is_day_divider() {
                 // The item is a trailing day divider: remove it.
-                self.ops.push(DayDividerOperation::Remove(i));
+                if !self
+                    .ops
+                    .iter()
+                    .any(|op| matches!(op, DayDividerOperation::Remove(j) if i == *j))
+                {
+                    trace!("removing trailing day divider");
+                    self.ops.push(DayDividerOperation::Remove(i));
+                }
                 break;
             }
             if item.is_event() {
@@ -736,6 +743,32 @@ mod tests {
         assert!(iter.next().unwrap().is_day_divider());
         assert!(iter.next().unwrap().is_remote_event());
         assert!(iter.next().unwrap().is_remote_event());
+        assert!(iter.next().is_none());
+    }
+
+    #[test]
+    fn test_event_read_marker_spurious_day_divider() {
+        let mut items = ObservableVector::new();
+        let mut txn = items.transaction();
+
+        let mut meta = TimelineInnerMetadata::new(ruma::RoomVersionId::V11, None, None);
+
+        let timestamp = MilliSecondsSinceUnixEpoch(uint!(42));
+
+        txn.push_back(meta.new_timeline_item(event_with_ts(timestamp)));
+        txn.push_back(meta.new_timeline_item(VirtualTimelineItem::ReadMarker));
+        txn.push_back(meta.new_timeline_item(VirtualTimelineItem::DayDivider(timestamp)));
+
+        let mut adjuster = DayDividerAdjuster::default();
+        adjuster.run(&mut txn, &mut meta);
+
+        txn.commit();
+
+        let mut iter = items.iter();
+
+        assert!(iter.next().unwrap().is_day_divider());
+        assert!(iter.next().unwrap().is_remote_event());
+        assert!(iter.next().unwrap().is_read_marker());
         assert!(iter.next().is_none());
     }
 }
