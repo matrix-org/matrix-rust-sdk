@@ -336,7 +336,7 @@ impl IndexeddbCryptoStore {
     /// # Arguments
     ///
     /// * `prefix` - Common prefix for the names of the two IndexedDB stores.
-    /// * `key` - key with which to encrypt the key which is used to encrypt the
+    /// * `key` - Key with which to encrypt the key which is used to encrypt the
     ///   store. Must be the same each time the store is opened.
     pub async fn open_with_key(prefix: &str, key: &[u8; 32]) -> Result<Self> {
         // The application might also use the provided key for something else, so to
