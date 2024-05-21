@@ -56,7 +56,7 @@ use matrix_sdk_common::executor::{spawn, JoinHandle};
 use ruma::{
     events::{AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent},
     serde::Raw,
-    EventId, OwnedEventId, OwnedRoomId, RoomId, UInt,
+    OwnedEventId, OwnedRoomId, RoomId,
 };
 use tokio::sync::{
     broadcast::{error::RecvError, Receiver, Sender},
@@ -66,14 +66,10 @@ use tracing::{error, info_span, instrument, trace, warn, Instrument as _, Span};
 
 use self::{
     pagination::RoomPaginationData,
-    paginator::{PaginableRoom, Paginator, PaginatorError},
+    paginator::{Paginator, PaginatorError},
     store::{Gap, RoomEvents},
 };
-use crate::{
-    client::WeakClient,
-    room::{EventWithContextResponse, Messages, MessagesOptions},
-    Client, Room,
-};
+use crate::{client::WeakClient, room::WeakRoom, Client};
 
 mod linked_chunk;
 mod pagination;
@@ -679,56 +675,6 @@ impl RoomEventCacheInner {
             self.sender.send(RoomEventCacheUpdate::Append { events, ephemeral, ambiguity_changes });
 
         Ok(())
-    }
-}
-
-/// A wrapper for a weak client and a room id that allows to lazily retrieve a
-/// room, only when needed.
-struct WeakRoom {
-    client: WeakClient,
-    room_id: OwnedRoomId,
-}
-
-impl WeakRoom {
-    fn new(client: WeakClient, room_id: OwnedRoomId) -> Self {
-        Self { client, room_id }
-    }
-
-    fn get(&self) -> Result<Room> {
-        self.client
-            .get()
-            .ok_or(EventCacheError::ClientDropped)?
-            .get_room(&self.room_id)
-            .ok_or_else(|| EventCacheError::RoomNotFound(self.room_id.clone()))
-    }
-}
-
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-impl PaginableRoom for WeakRoom {
-    async fn event_with_context(
-        &self,
-        event_id: &EventId,
-        lazy_load_members: bool,
-        num_events: UInt,
-    ) -> std::result::Result<EventWithContextResponse, PaginatorError> {
-        let room = self
-            .get()
-            .map_err(|err| PaginatorError::SdkError(crate::Error::UnknownError(err.into())))?;
-
-        PaginableRoom::event_with_context(&room, event_id, lazy_load_members, num_events).await
-    }
-
-    /// Runs a /messages query for the given room.
-    async fn messages(
-        &self,
-        opts: MessagesOptions,
-    ) -> std::result::Result<Messages, PaginatorError> {
-        let room = self
-            .get()
-            .map_err(|err| PaginatorError::SdkError(crate::Error::UnknownError(err.into())))?;
-
-        PaginableRoom::messages(&room, opts).await
     }
 }
 
