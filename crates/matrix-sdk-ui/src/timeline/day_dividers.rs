@@ -141,17 +141,25 @@ impl DayDividerAdjuster {
         // analyze them in the previous loop.
         for (i, item) in items.iter().enumerate().rev() {
             if item.is_day_divider() {
-                // The item is a trailing day divider: remove it.
+                // The item is a trailing day divider: remove it, if it wasn't already scheduled
+                // for deletion.
                 if !self
                     .ops
                     .iter()
                     .any(|op| matches!(op, DayDividerOperation::Remove(j) if i == *j))
                 {
-                    trace!("removing trailing day divider");
-                    self.ops.push(DayDividerOperation::Remove(i));
+                    trace!("removing trailing day divider @ {i}");
+
+                    // Find the index at which to insert the removal operation. It must be before
+                    // any other operation on a bigger index, to maintain the
+                    // non-decreasing invariant.
+                    let index =
+                        self.ops.iter().position(|op| op.index() > i).unwrap_or(self.ops.len());
+
+                    self.ops.insert(index, DayDividerOperation::Remove(i));
                 }
-                break;
             }
+
             if item.is_event() {
                 // Stop as soon as we run into the first (trailing) event.
                 break;
@@ -290,7 +298,7 @@ impl DayDividerAdjuster {
         for op in &self.ops {
             match *op {
                 DayDividerOperation::Insert(i, ts) => {
-                    assert!(i >= max_i);
+                    assert!(i >= max_i, "trying to insert at {i} < max_i={max_i}");
 
                     let at = (i64::try_from(i).unwrap() + offset)
                         .min(i64::try_from(items.len()).unwrap());
@@ -313,7 +321,7 @@ impl DayDividerAdjuster {
                 }
 
                 DayDividerOperation::Replace(i, ts) => {
-                    assert!(i >= max_i);
+                    assert!(i >= max_i, "trying to replace at {i} < max_i={max_i}");
 
                     let at = i64::try_from(i).unwrap() + offset;
                     assert!(at >= 0);
@@ -335,7 +343,7 @@ impl DayDividerAdjuster {
                 }
 
                 DayDividerOperation::Remove(i) => {
-                    assert!(i >= max_i);
+                    assert!(i >= max_i, "trying to replace at {i} < max_i={max_i}");
 
                     let at = i64::try_from(i).unwrap() + offset;
                     assert!(at >= 0);
@@ -479,6 +487,16 @@ enum DayDividerOperation {
     Insert(usize, MilliSecondsSinceUnixEpoch),
     Replace(usize, MilliSecondsSinceUnixEpoch),
     Remove(usize),
+}
+
+impl DayDividerOperation {
+    fn index(&self) -> usize {
+        match self {
+            DayDividerOperation::Insert(i, _)
+            | DayDividerOperation::Replace(i, _)
+            | DayDividerOperation::Remove(i) => *i,
+        }
+    }
 }
 
 /// Returns whether the two dates for the given timestamps are the same or not.
@@ -774,6 +792,30 @@ mod tests {
 
         assert!(iter.next().unwrap().is_day_divider());
         assert!(iter.next().unwrap().is_remote_event());
+        assert!(iter.next().unwrap().is_read_marker());
+        assert!(iter.next().is_none());
+    }
+
+    #[test]
+    fn test_multiple_trailing_day_dividers() {
+        let mut items = ObservableVector::new();
+        let mut txn = items.transaction();
+
+        let mut meta = TimelineInnerMetadata::new(ruma::RoomVersionId::V11, None, None);
+
+        let timestamp = MilliSecondsSinceUnixEpoch(uint!(42));
+
+        txn.push_back(meta.new_timeline_item(VirtualTimelineItem::ReadMarker));
+        txn.push_back(meta.new_timeline_item(VirtualTimelineItem::DayDivider(timestamp)));
+        txn.push_back(meta.new_timeline_item(VirtualTimelineItem::DayDivider(timestamp)));
+
+        let mut adjuster = DayDividerAdjuster::default();
+        adjuster.run(&mut txn, &mut meta);
+
+        txn.commit();
+
+        let mut iter = items.iter();
+
         assert!(iter.next().unwrap().is_read_marker());
         assert!(iter.next().is_none());
     }
