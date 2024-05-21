@@ -44,7 +44,7 @@
 use std::{
     collections::BTreeMap,
     fmt::Debug,
-    sync::{Arc, OnceLock, Weak},
+    sync::{Arc, OnceLock},
 };
 
 use eyeball::Subscriber;
@@ -69,7 +69,7 @@ use self::{
     paginator::{Paginator, PaginatorError},
     store::{Gap, RoomEvents},
 };
-use crate::{client::ClientInner, Client, Room};
+use crate::{client::WeakClient, Client, Room};
 
 mod linked_chunk;
 mod pagination;
@@ -159,10 +159,10 @@ impl Debug for EventCache {
 
 impl EventCache {
     /// Create a new [`EventCache`] for the given client.
-    pub(crate) fn new(client: &Arc<ClientInner>) -> Self {
+    pub(crate) fn new(client: WeakClient) -> Self {
         Self {
             inner: Arc::new(EventCacheInner {
-                client: Arc::downgrade(client),
+                client,
                 multiple_room_updates_lock: Default::default(),
                 by_room: Default::default(),
                 drop_handles: Default::default(),
@@ -297,7 +297,7 @@ impl EventCache {
 struct EventCacheInner {
     /// A weak reference to the inner client, useful when trying to get a handle
     /// on the owning client.
-    client: Weak<ClientInner>,
+    client: WeakClient,
 
     /// A lock used when many rooms must be updated at once.
     ///
@@ -316,7 +316,7 @@ struct EventCacheInner {
 
 impl EventCacheInner {
     fn client(&self) -> Result<Client> {
-        Ok(Client { inner: self.client.upgrade().ok_or(EventCacheError::ClientDropped)? })
+        self.client.get().ok_or(EventCacheError::ClientDropped)
     }
 
     /// Clears all the room's data.
