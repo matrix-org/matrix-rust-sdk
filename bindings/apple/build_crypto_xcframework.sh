@@ -78,19 +78,11 @@ if ! ${only_ios}; then
     -output "${GENERATED_DIR}/simulator/libmatrix_sdk_crypto_ffi.a"
 fi
 
-if ${only_ios}; then
-  # Generate uniffi files
-  cd ../matrix-sdk-crypto-ffi && cargo run --bin matrix_sdk_crypto_ffi generate \
-    --language swift \
-    --library "${TARGET_DIR}/aarch64-apple-ios/${REL_TYPE_DIR}/libmatrix_sdk_crypto_ffi.a" \
-    --out-dir ${GENERATED_DIR}
-else
-  # Generate uniffi files
-  cd ../matrix-sdk-crypto-ffi && cargo run --bin matrix_sdk_crypto_ffi generate \
-    --language swift \
-    --library "${TARGET_DIR}/aarch64-apple-ios-sim/${REL_TYPE_DIR}/libmatrix_sdk_crypto_ffi.a" \
-    --out-dir ${GENERATED_DIR}
-fi
+# Generate uniffi files
+cd ../matrix-sdk-crypto-ffi && cargo run --bin matrix_sdk_crypto_ffi generate \
+  --language swift \
+  --library "${TARGET_DIR}/aarch64-apple-ios/${REL_TYPE_DIR}/libmatrix_sdk_crypto_ffi.a" \
+  --out-dir ${GENERATED_DIR}
 
 # Move headers to the right place
 HEADERS_DIR=${GENERATED_DIR}/headers
