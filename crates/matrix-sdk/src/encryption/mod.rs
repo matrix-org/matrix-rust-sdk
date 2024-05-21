@@ -68,7 +68,7 @@ use self::{
 };
 use crate::{
     attachment::{AttachmentConfig, Thumbnail},
-    client::ClientInner,
+    client::{ClientInner, WeakClient},
     encryption::{
         identities::{Device, UserDevices},
         verification::{SasVerification, Verification, VerificationRequest},
@@ -126,7 +126,7 @@ impl EncryptionData {
     }
 
     pub fn initialize_room_key_tasks(&self, client: &Arc<ClientInner>) {
-        let weak_client = Arc::downgrade(client);
+        let weak_client = WeakClient::from_inner(client);
 
         let mut tasks = self.tasks.lock().unwrap();
         tasks.upload_room_keys = Some(BackupUploadingTask::new(weak_client.clone()));
