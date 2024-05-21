@@ -24,7 +24,7 @@ use indexed_db_futures::prelude::*;
 use matrix_sdk_base::{
     deserialized_responses::RawAnySyncOrStrippedState,
     media::{MediaRequest, UniqueKey},
-    store::{StateChanges, StateStore, StoreError},
+    store::{ComposerDraft, StateChanges, StateStore, StoreError},
     MinimalRoomMemberEvent, RoomInfo, RoomMemberships, RoomState, StateStoreDataKey,
     StateStoreDataValue,
 };
@@ -388,6 +388,9 @@ impl IndexeddbStateStore {
             StateStoreDataKey::RecentlyVisitedRooms(user_id) => {
                 self.encode_key(keys::KV, (StateStoreDataKey::RECENTLY_VISITED_ROOMS, user_id))
             }
+            StateStoreDataKey::ComposerDraft(room_id) => {
+                self.encode_key(keys::KV, (StateStoreDataKey::COMPOSER_DRAFT, room_id))
+            }
         }
     }
 }
@@ -449,6 +452,10 @@ impl_state_store!({
                 .map(|f| self.deserialize_event::<Vec<String>>(&f))
                 .transpose()?
                 .map(StateStoreDataValue::RecentlyVisitedRooms),
+            StateStoreDataKey::ComposerDraft(_) => value
+                .map(|f| self.deserialize_event::<ComposerDraft>(&f))
+                .transpose()?
+                .map(StateStoreDataValue::ComposerDraft),
         };
 
         Ok(value)
@@ -474,6 +481,9 @@ impl_state_store!({
                 &value
                     .into_recently_visited_rooms()
                     .expect("Session data not a recently visited room list"),
+            ),
+            StateStoreDataKey::ComposerDraft(_) => self.serialize_event(
+                &value.into_composer_draft().expect("Session data not a composer draft"),
             ),
         };
 

@@ -34,6 +34,7 @@ use ruma::{
     serde::Raw,
     EventId, MxcUri, OwnedEventId, OwnedUserId, RoomId, UserId,
 };
+use serde::{Deserialize, Serialize};
 
 use super::{StateChanges, StoreError};
 use crate::{
@@ -808,6 +809,31 @@ pub enum StateStoreDataValue {
 
     /// A list of recently visited room identifiers for the current user
     RecentlyVisitedRooms(Vec<String>),
+
+    /// A composer draft for the room
+    ComposerDraft(ComposerDraft),
+}
+
+/// Struct that represents the current draft of the composer for the room
+#[derive(Debug, Clone, Serialize, Deserialize, uniffi::Record)]
+pub struct ComposerDraft {
+    /// The draft content in plain  text.
+    plain_text: String,
+    /// If the message is formatted in HTML, the HTML representation of the
+    /// message.
+    html_text: Option<String>,
+    /// The type of draft.
+    draft_type: DraftType,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, uniffi::Enum)]
+pub enum DraftType {
+    /// The draft is a new message.
+    NewMessage,
+    /// The draft is a reply to an event.
+    Reply { event_id: String },
+    /// The draft is an edit to an event.
+    Edit { event_id: String },
 }
 
 impl StateStoreDataValue {
@@ -830,6 +856,11 @@ impl StateStoreDataValue {
     pub fn into_recently_visited_rooms(self) -> Option<Vec<String>> {
         as_variant!(self, Self::RecentlyVisitedRooms)
     }
+
+    /// Get this value if it is a composer draft.
+    pub fn into_composer_draft(self) -> Option<ComposerDraft> {
+        as_variant!(self, Self::ComposerDraft)
+    }
 }
 
 /// A key for key-value data.
@@ -846,6 +877,9 @@ pub enum StateStoreDataKey<'a> {
 
     /// Recently visited room identifiers
     RecentlyVisitedRooms(&'a UserId),
+
+    /// Composer draft for the room
+    ComposerDraft(&'a RoomId),
 }
 
 impl StateStoreDataKey<'_> {
@@ -860,4 +894,8 @@ impl StateStoreDataKey<'_> {
     /// Key prefix to use for the
     /// [`RecentlyVisitedRooms`][Self::RecentlyVisitedRooms] variant.
     pub const RECENTLY_VISITED_ROOMS: &'static str = "recently_visited_rooms";
+
+    /// Key prefix to user for the [`ComposerDraft`][Self::ComposerDraft]
+    /// variant.
+    pub const COMPOSER_DRAFT: &'static str = "composer_draft";
 }

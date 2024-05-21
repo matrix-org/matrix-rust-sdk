@@ -35,7 +35,7 @@ use ruma::{
 };
 use tracing::{debug, warn};
 
-use super::{Result, RoomInfo, StateChanges, StateStore, StoreError};
+use super::{traits::ComposerDraft, Result, RoomInfo, StateChanges, StateStore, StoreError};
 use crate::{
     deserialized_responses::RawAnySyncOrStrippedState,
     media::{MediaRequest, UniqueKey as _},
@@ -49,6 +49,7 @@ use crate::{
 #[derive(Debug)]
 pub struct MemoryStore {
     recently_visited_rooms: StdRwLock<HashMap<String, Vec<String>>>,
+    composer_drafts: StdRwLock<HashMap<String, ComposerDraft>>,
     user_avatar_url: StdRwLock<HashMap<String, String>>,
     sync_token: StdRwLock<Option<String>>,
     filters: StdRwLock<HashMap<String, String>>,
@@ -91,6 +92,7 @@ impl Default for MemoryStore {
     fn default() -> Self {
         Self {
             recently_visited_rooms: Default::default(),
+            composer_drafts: Default::default(),
             user_avatar_url: Default::default(),
             sync_token: Default::default(),
             filters: Default::default(),
@@ -186,6 +188,13 @@ impl StateStore for MemoryStore {
                 .get(user_id.as_str())
                 .cloned()
                 .map(StateStoreDataValue::RecentlyVisitedRooms),
+            StateStoreDataKey::ComposerDraft(room_id) => self
+                .composer_drafts
+                .read()
+                .unwrap()
+                .get(room_id.as_str())
+                .cloned()
+                .map(StateStoreDataValue::ComposerDraft),
         })
     }
 
@@ -219,6 +228,12 @@ impl StateStore for MemoryStore {
                         .expect("Session data not a list of recently visited rooms"),
                 );
             }
+            StateStoreDataKey::ComposerDraft(room_id) => {
+                self.composer_drafts.write().unwrap().insert(
+                    room_id.to_string(),
+                    value.into_composer_draft().expect("Session data not a composer draft"),
+                );
+            }
         }
 
         Ok(())
@@ -235,6 +250,9 @@ impl StateStore for MemoryStore {
             }
             StateStoreDataKey::RecentlyVisitedRooms(user_id) => {
                 self.recently_visited_rooms.write().unwrap().remove(user_id.as_str());
+            }
+            StateStoreDataKey::ComposerDraft(room_id) => {
+                self.composer_drafts.write().unwrap().remove(room_id.as_str());
             }
         }
         Ok(())

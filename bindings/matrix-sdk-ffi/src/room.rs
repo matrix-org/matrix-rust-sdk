@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use matrix_sdk::{
     event_cache::paginator::PaginatorError,
     room::{power_levels::RoomPowerLevelChanges, Room as SdkRoom, RoomMemberRole},
-    RoomMemberships, RoomState,
+    ComposerDraft, RoomMemberships, RoomState,
 };
 use matrix_sdk_ui::timeline::{PaginationError, RoomExt, TimelineFocus};
 use mime::Mime;
@@ -643,6 +643,16 @@ impl Room {
     pub async fn matrix_to_event_permalink(&self, event_id: String) -> Result<String, ClientError> {
         let event_id = EventId::parse(event_id)?;
         Ok(self.inner.matrix_to_event_permalink(event_id).await?.to_string())
+    }
+
+    pub async fn save_composer_draft(&self, draft: ComposerDraft) -> Result<(), ClientError> {
+        self.inner.save_composer_draft(draft).await?;
+        Ok(())
+    }
+
+    pub async fn restore_composer_draft(&self) -> Result<Option<ComposerDraft>, ClientError> {
+        let draft = self.inner.restore_composer_draft().await?;
+        Ok(draft)
     }
 }
 
