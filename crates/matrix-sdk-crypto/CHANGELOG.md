@@ -29,6 +29,9 @@ Breaking changes:
 
 Additions:
 
+- Expose new method `BackupMachine::backup_version`.
+  ([#3320](https://github.com/matrix-org/matrix-rust-sdk/pull/3320))
+
 - Add data types to parse the QR code data for the QR code login defined in
   [MSC4108](https://github.com/matrix-org/matrix-spec-proposals/pull/4108)
 
