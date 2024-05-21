@@ -90,7 +90,10 @@ mkdir -p ${HEADERS_DIR}
 mv ${GENERATED_DIR}/*.h ${HEADERS_DIR}
 
 # Rename and merge the modulemap files into a single file to the right place
-for f in ${GENERATED_DIR}/*.modulemap; do cat $f; echo; done > ${HEADERS_DIR}/module.modulemap
+for f in ${GENERATED_DIR}/*.modulemap
+do 
+  cat $f; echo; 
+done > ${HEADERS_DIR}/module.modulemap
 rm ${GENERATED_DIR}/*.modulemap
 
 # Move source files to the right place
