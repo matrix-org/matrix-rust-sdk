@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeMap, sync::Weak, time::Duration};
+use std::{collections::BTreeMap, time::Duration};
 
 use futures_util::future::join_all;
 use matrix_sdk_common::failures_cache::FailuresCache;
@@ -21,7 +21,7 @@ use tokio::sync::mpsc::{self, UnboundedReceiver};
 use tracing::{trace, warn};
 
 use crate::{
-    client::ClientInner,
+    client::WeakClient,
     encryption::backups::UploadState,
     executor::{spawn, JoinHandle},
     Client,
@@ -53,7 +53,7 @@ impl Drop for BackupUploadingTask {
 
 #[cfg(feature = "e2e-encryption")]
 impl BackupUploadingTask {
-    pub(crate) fn new(client: Weak<ClientInner>) -> Self {
+    pub(crate) fn new(client: WeakClient) -> Self {
         let (sender, receiver) = mpsc::unbounded_channel();
 
         let join_handle = spawn(async move {
@@ -67,10 +67,9 @@ impl BackupUploadingTask {
         let _ = self.sender.send(());
     }
 
-    pub(crate) async fn listen(client: Weak<ClientInner>, mut receiver: UnboundedReceiver<()>) {
+    pub(crate) async fn listen(client: WeakClient, mut receiver: UnboundedReceiver<()>) {
         while receiver.recv().await.is_some() {
-            if let Some(client) = client.upgrade() {
-                let client = Client { inner: client };
+            if let Some(client) = client.get() {
                 let upload_progress = &client.inner.e2ee.backup_state.upload_progress;
 
                 if let Err(e) = client.encryption().backups().backup_room_keys().await {
@@ -110,7 +109,7 @@ impl Drop for BackupDownloadTask {
 impl BackupDownloadTask {
     const DOWNLOAD_DELAY_MILLIS: u64 = 100;
 
-    pub(crate) fn new(client: Weak<ClientInner>) -> Self {
+    pub(crate) fn new(client: WeakClient) -> Self {
         let (sender, receiver) = mpsc::unbounded_channel();
 
         let join_handle = spawn(async move {
@@ -160,7 +159,7 @@ impl BackupDownloadTask {
     }
 
     pub(crate) async fn listen(
-        client: Weak<ClientInner>,
+        client: WeakClient,
         mut receiver: UnboundedReceiver<RoomKeyInfo>,
         failures_cache: FailuresCache<RoomKeyInfo>,
     ) {
@@ -173,8 +172,7 @@ impl BackupDownloadTask {
                 Self::prune_tasks(&mut task_queue).await
             }
 
-            if let Some(client) = client.upgrade() {
-                let client = Client { inner: client };
+            if let Some(client) = client.get() {
                 let backups = client.encryption().backups();
 
                 let already_tried = failures_cache.contains(&room_key_info);
