@@ -369,10 +369,16 @@ impl DayDividerAdjuster {
         };
 
         // Assert invariants.
-        // 1. The timeline starts with a date separator.
+        // 1. The timeline starts with a day divider.
         if let Some(item) = items.get(0) {
-            if !item.is_day_divider() {
-                report.errors.push(DayDividerInsertError::FirstItemNotDayDivider)
+            if item.is_read_marker() {
+                if let Some(next_item) = items.get(1) {
+                    if !next_item.is_day_divider() {
+                        report.errors.push(DayDividerInsertError::FirstItemNotDayDivider);
+                    }
+                }
+            } else if !item.is_day_divider() {
+                report.errors.push(DayDividerInsertError::FirstItemNotDayDivider);
             }
         }
 
@@ -769,6 +775,31 @@ mod tests {
         assert!(iter.next().unwrap().is_day_divider());
         assert!(iter.next().unwrap().is_remote_event());
         assert!(iter.next().unwrap().is_read_marker());
+        assert!(iter.next().is_none());
+    }
+
+    #[test]
+    fn test_start_with_read_marker() {
+        let mut items = ObservableVector::new();
+        let mut txn = items.transaction();
+
+        let mut meta = TimelineInnerMetadata::new(ruma::RoomVersionId::V11, None, None);
+
+        let timestamp = MilliSecondsSinceUnixEpoch(uint!(42));
+
+        txn.push_back(meta.new_timeline_item(VirtualTimelineItem::ReadMarker));
+        txn.push_back(meta.new_timeline_item(event_with_ts(timestamp)));
+
+        let mut adjuster = DayDividerAdjuster::default();
+        adjuster.run(&mut txn, &mut meta);
+
+        txn.commit();
+
+        let mut iter = items.iter();
+
+        assert!(iter.next().unwrap().is_read_marker());
+        assert!(iter.next().unwrap().is_day_divider());
+        assert!(iter.next().unwrap().is_remote_event());
         assert!(iter.next().is_none());
     }
 }
