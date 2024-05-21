@@ -40,7 +40,10 @@ pub(super) struct DayDividerAdjuster {
 
 impl Drop for DayDividerAdjuster {
     fn drop(&mut self) {
-        assert!(self.consumed, "the DayDividerAdjuster must be consumed with run()");
+        // Only run the assert if we're not currently panicking.
+        if !std::thread::panicking() {
+            assert!(self.consumed, "the DayDividerAdjuster must be consumed with run()");
+        }
     }
 }
 
