@@ -19,7 +19,7 @@ use std::{
     fmt::{self, Debug},
     future::Future,
     pin::Pin,
-    sync::{Arc, Mutex as StdMutex, RwLock as StdRwLock},
+    sync::{Arc, Mutex as StdMutex, RwLock as StdRwLock, Weak},
 };
 
 use eyeball::{SharedObservable, Subscriber};
@@ -335,7 +335,10 @@ impl ClientInner {
         #[cfg(feature = "e2e-encryption")]
         client.e2ee.initialize_room_key_tasks(&client);
 
-        let _ = client.event_cache.get_or_init(|| async { EventCache::new(&client) }).await;
+        let _ = client
+            .event_cache
+            .get_or_init(|| async { EventCache::new(WeakClient::from_inner(&client)) })
+            .await;
 
         client
     }
@@ -2112,6 +2115,31 @@ impl Client {
     pub fn event_cache(&self) -> &EventCache {
         // SAFETY: always initialized in the `Client` ctor.
         self.inner.event_cache.get().unwrap()
+    }
+}
+
+/// A weak reference to the inner client, useful when trying to get a handle
+/// on the owning client.
+#[derive(Clone)]
+pub(crate) struct WeakClient {
+    client: Weak<ClientInner>,
+}
+
+impl WeakClient {
+    /// Construct a [`WeakClient`] from a `Arc<ClientInner>`.
+    pub fn from_inner(client: &Arc<ClientInner>) -> Self {
+        Self { client: Arc::downgrade(client) }
+    }
+
+    /// Construct a [`WeakClient`] from a [`Client`].
+    #[cfg(test)]
+    pub fn from_client(client: &Client) -> Self {
+        Self::from_inner(&client.inner)
+    }
+
+    /// Attempts to get a [`Client`] from this [`WeakClient`].
+    pub fn get(&self) -> Option<Client> {
+        self.client.upgrade().map(|inner| Client { inner })
     }
 }
 
