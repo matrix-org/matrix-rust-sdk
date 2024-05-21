@@ -24,7 +24,7 @@ use matrix_sdk_base::{deserialized_responses::TimelineEvent, SendOutsideWasm, Sy
 use ruma::{api::Direction, EventId, OwnedEventId, UInt};
 
 use crate::{
-    room::{EventWithContextResponse, Messages, MessagesOptions},
+    room::{EventWithContextResponse, Messages, MessagesOptions, WeakRoom},
     Room,
 };
 
@@ -477,6 +477,34 @@ impl PaginableRoom for Room {
 
     async fn messages(&self, opts: MessagesOptions) -> Result<Messages, PaginatorError> {
         self.messages(opts).await.map_err(PaginatorError::SdkError)
+    }
+}
+
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+impl PaginableRoom for WeakRoom {
+    async fn event_with_context(
+        &self,
+        event_id: &EventId,
+        lazy_load_members: bool,
+        num_events: UInt,
+    ) -> Result<EventWithContextResponse, PaginatorError> {
+        let Some(room) = self.get() else {
+            // Client is shutting down, return a default response.
+            return Ok(EventWithContextResponse::default());
+        };
+
+        PaginableRoom::event_with_context(&room, event_id, lazy_load_members, num_events).await
+    }
+
+    /// Runs a /messages query for the given room.
+    async fn messages(&self, opts: MessagesOptions) -> Result<Messages, PaginatorError> {
+        let Some(room) = self.get() else {
+            // Client is shutting down, return a default response.
+            return Ok(Messages::default());
+        };
+
+        PaginableRoom::messages(&room, opts).await
     }
 }
 

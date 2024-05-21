@@ -92,6 +92,7 @@ pub use self::{
 use crate::event_cache::EventCache;
 use crate::{
     attachment::AttachmentConfig,
+    client::WeakClient,
     config::RequestConfig,
     error::WrongRoomState,
     event_cache::{self, EventCacheDropHandles, RoomEventCache},
@@ -2626,6 +2627,25 @@ impl Room {
             // from a `Room`.
             (maybe_room.unwrap(), drop_handles)
         })
+    }
+}
+
+/// A wrapper for a weak client and a room id that allows to lazily retrieve a
+/// room, only when needed.
+pub(crate) struct WeakRoom {
+    client: WeakClient,
+    room_id: OwnedRoomId,
+}
+
+impl WeakRoom {
+    /// Create a new `WeakRoom` given its weak components.
+    pub fn new(client: WeakClient, room_id: OwnedRoomId) -> Self {
+        Self { client, room_id }
+    }
+
+    /// Attempts to reconstruct the room.
+    pub fn get(&self) -> Option<Room> {
+        self.client.get().and_then(|client| client.get_room(&self.room_id))
     }
 }
 

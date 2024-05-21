@@ -125,7 +125,7 @@ impl fmt::Debug for MessagesOptions {
 ///
 /// In short, this is a possibly decrypted version of the response of a
 /// `room/messages` api call.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Messages {
     /// The token the pagination starts from.
     pub start: String,
