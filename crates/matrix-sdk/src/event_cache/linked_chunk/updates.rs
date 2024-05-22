@@ -123,6 +123,51 @@ pub struct Updates<Item, Gap> {
     pub(super) inner: Arc<RwLock<UpdatesInner<Item, Gap>>>,
 }
 
+impl<Item, Gap> Updates<Item, Gap> {
+    /// Create a new [`Self`].
+    pub(super) fn new() -> Self {
+        Self { inner: Arc::new(RwLock::new(UpdatesInner::new())) }
+    }
+
+    /// Push a new update.
+    pub(super) fn push(&mut self, update: Update<Item, Gap>) {
+        self.inner.write().unwrap().push(update);
+    }
+
+    /// Take new updates.
+    ///
+    /// Updates that have been taken will not be read again.
+    pub(super) fn take(&mut self) -> Vec<Update<Item, Gap>>
+    where
+        Item: Clone,
+        Gap: Clone,
+    {
+        self.inner.write().unwrap().take().to_owned()
+    }
+
+    /// Subscribe to updates by using a [`Stream`].
+    pub(super) fn subscribe(&mut self) -> UpdatesSubscriber<Item, Gap> {
+        // A subscriber is a new update reader, it needs its own token.
+        let token = self.new_reader_token();
+
+        UpdatesSubscriber::new(Arc::downgrade(&self.inner), token)
+    }
+
+    /// Generate a new [`ReaderToken`].
+    pub(super) fn new_reader_token(&mut self) -> ReaderToken {
+        let mut inner = self.inner.write().unwrap();
+
+        // Add 1 before reading the `last_token`, in this particular order, because the
+        // 0 token is reserved by `MAIN_READER_TOKEN`.
+        inner.last_token += 1;
+        let last_token = inner.last_token;
+
+        inner.last_index_per_reader.insert(last_token, 0);
+
+        last_token
+    }
+}
+
 /// A token used to represent readers that read the updates in
 /// [`UpdatesInner`].
 pub(super) type ReaderToken = usize;
@@ -246,51 +291,6 @@ impl<Item, Gap> UpdatesInner<Item, Gap> {
                 *index -= min_index;
             }
         }
-    }
-}
-
-impl<Item, Gap> Updates<Item, Gap> {
-    /// Create a new [`Self`].
-    pub(super) fn new() -> Self {
-        Self { inner: Arc::new(RwLock::new(UpdatesInner::new())) }
-    }
-
-    /// Push a new update.
-    pub(super) fn push(&mut self, update: Update<Item, Gap>) {
-        self.inner.write().unwrap().push(update);
-    }
-
-    /// Take new updates.
-    ///
-    /// Updates that have been taken will not be read again.
-    pub(super) fn take(&mut self) -> Vec<Update<Item, Gap>>
-    where
-        Item: Clone,
-        Gap: Clone,
-    {
-        self.inner.write().unwrap().take().to_owned()
-    }
-
-    /// Subscribe to updates by using a [`Stream`].
-    pub(super) fn subscribe(&mut self) -> UpdatesSubscriber<Item, Gap> {
-        // A subscriber is a new update reader, it needs its own token.
-        let token = self.new_reader_token();
-
-        UpdatesSubscriber::new(Arc::downgrade(&self.inner), token)
-    }
-
-    /// Generate a new [`ReaderToken`].
-    pub(super) fn new_reader_token(&mut self) -> ReaderToken {
-        let mut inner = self.inner.write().unwrap();
-
-        // Add 1 before reading the `last_token`, in this particular order, because the
-        // 0 token is reserved by `MAIN_READER_TOKEN`.
-        inner.last_token += 1;
-        let last_token = inner.last_token;
-
-        inner.last_index_per_reader.insert(last_token, 0);
-
-        last_token
     }
 }
 

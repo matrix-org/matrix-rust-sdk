@@ -62,9 +62,8 @@ impl<Item, Gap> AsVector<Item, Gap> {
         Item: Clone,
     {
         let mut updates = self.updates.write().unwrap();
-        let updates = updates.take_with_token(self.token);
 
-        self.mapper.map(updates)
+        self.mapper.map(updates.take_with_token(self.token))
     }
 }
 
