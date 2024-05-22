@@ -291,9 +291,12 @@ impl<Item, Gap> Updates<Item, Gap> {
 
     pub(super) fn new_reader_token(&mut self) -> ReaderToken {
         let mut inner = self.inner.write().unwrap();
-        inner.last_token += 1;
 
+        // Add 1 before reading the `last_token`, in this particular order, because the
+        // 0 token is reserved by `MAIN_READER_TOKEN`.
+        inner.last_token += 1;
         let last_token = inner.last_token;
+
         inner.last_index_per_reader.insert(last_token, 0);
 
         last_token
