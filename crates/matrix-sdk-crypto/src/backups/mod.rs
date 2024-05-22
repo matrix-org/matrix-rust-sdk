@@ -826,6 +826,12 @@ mod tests {
         let machine = OlmMachine::new(alice_id(), alice_device_id()).await;
         let backup_machine = machine.backup_machine();
 
+        // We set up a backup key, so that we can test `backup_machine.backup()` later.
+        let decryption_key = BackupDecryptionKey::new().expect("Couldn't create new recovery key");
+        let backup_key = decryption_key.megolm_v1_public_key();
+        backup_key.set_version("1".to_owned());
+        backup_machine.enable_backup_v1(backup_key).await.expect("Couldn't enable backup");
+
         let room_id = room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost");
         let session_id = "gM8i47Xhu0q52xLfgUXzanCMpLinoyVyH7R58cBuVBU";
         let room_key = room_key();
@@ -844,14 +850,23 @@ mod tests {
             .await
             .expect("We should be able to import a room key");
 
+        // Now check that the session was correctly imported, and that it is marked as
+        // backed up
         let session = machine.store().get_inbound_group_session(room_id, session_id).await.unwrap();
-
         assert_let!(Some(session) = session);
         assert!(
             session.backed_up(),
             "If a session was imported from a backup, it should be considered to be backed up"
         );
         assert!(session.has_been_imported());
+
+        // Also check that it is not returned by a backup request.
+        let backup_request =
+            backup_machine.backup().await.expect("We should be able to create a backup request");
+        assert!(
+            backup_request.is_none(),
+            "If a session was imported from backup, it should not be backed up again."
+        );
     }
 
     #[async_test]
