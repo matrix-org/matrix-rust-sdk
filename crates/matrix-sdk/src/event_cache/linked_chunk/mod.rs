@@ -724,8 +724,6 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
 
     /// Get a mutable reference to the `LinkedChunk` updates, aka [`Updates`].
     ///
-    /// The caller is responsible to clear these updates.
-    ///
     /// If the `Option` becomes `None`, it will disable update history. Thus, be
     /// careful when you want to empty the update history: do not use
     /// `Option::take()` directly but rather [`Updates::take`] for example.
@@ -737,6 +735,12 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
         self.updates.as_mut()
     }
 
+    /// Get updates as [`eyeball_im::VectorDiff`], see [`AsVector`] to learn
+    /// more.
+    ///
+    /// It returns `None` if updates are disabled, i.e. if this linked chunk has
+    /// been constructed with [`Self::new`], otherwise, if it's been constructed
+    /// with [`Self::new_with_update_history`], it returns `Some(…)`.
     pub fn as_vector(&mut self) -> Option<AsVector<Item, Gap>> {
         let mut initial_chunk_lengths = VecDeque::new();
 

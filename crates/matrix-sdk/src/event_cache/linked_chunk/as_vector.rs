@@ -28,9 +28,9 @@ use super::{
 /// A type alias to represent a chunk's length. This is purely for commodity.
 pub(super) type ChunkLength = usize;
 
-/// A type that transforms a `Vec<Update<Item, Gap>>` —given by
-/// [`Updates`]— into a `Vec<VectorDiff<Item>>` —this
-/// type—. Basically, it helps to consume a [`LinkedChunk<CAP, Item, Gap>`] as
+/// A type that transforms a `Vec<Update<Item, Gap>>` (given by
+/// [`Updates`](super::Update)) into a `Vec<VectorDiff<Item>>` (this
+/// type). Basically, it helps to consume a [`LinkedChunk<CAP, Item, Gap>`] as
 /// if it was an [`eyeball::ObservableVector<Item>`].
 pub struct AsVector<Item, Gap> {
     /// Weak reference to [`UpdatesInner`].
@@ -49,7 +49,6 @@ pub struct AsVector<Item, Gap> {
 impl<Item, Gap> AsVector<Item, Gap> {
     /// Create a new [`Self`].
     ///
-    /// `updates_subscriber` is simply `UpdatesSubscriber`.
     /// `initial_chunk_lengths` must be pairs of all chunk identifiers with the
     /// associated chunk length. The pairs must be in the exact same order than
     /// in [`LinkedChunk`].
@@ -83,8 +82,6 @@ impl<Item, Gap> AsVector<Item, Gap> {
 }
 
 /// Internal type that converts [`Update`] into [`VectorDiff`].
-///
-/// This type maintains its own state.
 struct UpdateToVectorDiff {
     /// Pairs of all known chunks and their respective length. This is the only
     /// required data for this algorithm.
@@ -94,7 +91,7 @@ struct UpdateToVectorDiff {
 impl UpdateToVectorDiff {
     /// Map several [`Update`] into [`VectorDiff`].
     ///
-    /// How this type transforms `Update` into `VectorDiff`? There is no
+    /// How does this type transform `Update` into `VectorDiff`? There is no
     /// internal buffer of kind [`eyeball_im::ObservableVector<Item>`],
     /// which could have been used to generate the `VectorDiff`s. They are
     /// computed manually.
@@ -140,11 +137,10 @@ impl UpdateToVectorDiff {
     /// maintained according to the rules hereinabove.
     ///
     /// That's a pretty memory compact and computation efficient way to map a
-    /// `Stream<Item = Vec<Update<Item, Gap>>>` into a `Stream<Item =
-    /// Vec<VectorDiff<Item>>>`. The larger the `LinkedChunk` capacity is, the
-    /// fewer pairs the algorithm will have to handle, e.g. for 1'000 items
-    /// and a `LinkedChunk` capacity of 128, it's only 8 pairs, be 256
-    /// bytes.
+    /// `Vec<Update<Item, Gap>>` into a `Vec<VectorDiff<Item>>`. The larger the
+    /// `LinkedChunk` capacity is, the fewer pairs the algorithm will have
+    /// to handle, e.g. for 1'000 items and a `LinkedChunk` capacity of 128,
+    /// it's only 8 pairs, that is 256 bytes.
     ///
     /// [`LinkedChunk`]: super::LinkedChunk
     /// [`ChunkContent::Gap`]: super::ChunkContent::Gap

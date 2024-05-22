@@ -79,12 +79,16 @@ pub enum Update<Item, Gap> {
     /// The last items of a chunk have been detached, i.e. the chunk has been
     /// truncated.
     DetachLastItems {
-        /// The split position. Before this position, items are kept, after this
-        /// position, items are detached.
+        /// The split position. Before this position (`[..position]`), items are
+        /// kept, from this position (`[position..]`), items are
+        /// detached.
         at: Position,
     },
 
+    /// Detached items (see [`Self::DetachLastItems`]) are being reattached.
     ReattachItems,
+
+    /// Reattaching items (see [`Self::ReattachItems`]) is finished.
     ReattachItemsDone,
 }
 
