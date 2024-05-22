@@ -1670,6 +1670,67 @@ pub(crate) mod tests {
     }
 
     #[async_test]
+    async fn test_invalid_key_response() {
+        let my_user_id = user_id();
+        let my_device_id = device_id();
+        let manager = manager_test_helper(my_user_id, my_device_id).await;
+
+        // First of all, populate the store with good data
+        let (reqid, _) = manager.build_key_query_for_users(vec![user_id()]);
+        let (device_changes, identity_changes) =
+            manager.receive_keys_query_response(&reqid, &own_key_query()).await.unwrap();
+        assert_eq!(device_changes.new.len(), 1);
+        let test_device_id = device_changes.new.first().unwrap().device_id().to_owned();
+        use crate::store::Changes;
+        let changes =
+            Changes { devices: device_changes, identities: identity_changes, ..Changes::default() };
+        manager.store.save_changes(changes).await.unwrap();
+
+        // Now provide an invalid update
+        let (reqid, _) = manager.build_key_query_for_users(vec![my_user_id]);
+        let response_data = matrix_sdk_test::response_from_file(&json!({
+            "device_keys": {
+                my_user_id: {
+                    test_device_id.as_str(): {
+                        "algorithms": [
+                            "m.olm.v1.curve25519-aes-sha2",
+                        ],
+                        "device_id": test_device_id.as_str(),
+                        "keys": {
+                            format!("curve25519:{}", test_device_id): "wnip2tbJBJxrFayC88NNJpm61TeSNgYcqBH4T9yEDhU",
+                            format!("ed25519:{}", test_device_id): "lQ+eshkhgKoo+qp9Qgnj3OX5PBoWMU5M9zbuEevwYqE"
+                        },
+                        "signatures": {
+                            my_user_id: {
+                                // Not a valid signature.
+                                format!("ed25519:{}", test_device_id): "imadethisup",
+                            }
+                        },
+                        "user_id": my_user_id,
+                    }
+                }
+            }
+        }));
+        let response =
+            ruma::api::client::keys::get_keys::v3::Response::try_from_http_response(response_data)
+                .expect("Can't parse the `/keys/upload` response");
+
+        let (device_changes, identity_changes) =
+            manager.receive_keys_query_response(&reqid, &response).await.unwrap();
+
+        // The result should be empty
+        assert_eq!(device_changes.new.len(), 0);
+        assert_eq!(device_changes.changed.len(), 0);
+        assert_eq!(device_changes.deleted.len(), 0);
+        assert_eq!(identity_changes.new.len(), 0);
+
+        // And the device should not have been updated.
+        let device =
+            manager.store.get_user_devices(my_user_id).await.unwrap().get(&test_device_id).unwrap();
+        assert_eq!(device.algorithms().len(), 2);
+    }
+
+    #[async_test]
     async fn test_devices_stream() {
         let manager = manager_test_helper(user_id(), device_id()).await;
         let (request_id, _) = manager.build_key_query_for_users(vec![user_id()]);
