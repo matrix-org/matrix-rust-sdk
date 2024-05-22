@@ -48,7 +48,7 @@ impl<Item, Gap> AsVector<Item, Gap> {
     pub(super) fn new<const CAP: usize>(
         updates: Arc<RwLock<UpdatesInner<Item, Gap>>>,
         token: ReaderToken,
-        chunk_iterator: Iter<CAP, Item, Gap>,
+        chunk_iterator: Iter<'_, CAP, Item, Gap>,
     ) -> Self {
         Self { updates, token, mapper: UpdateToVectorDiff::new(chunk_iterator) }
     }
@@ -76,7 +76,7 @@ struct UpdateToVectorDiff {
 
 impl UpdateToVectorDiff {
     /// Construct [`Self`].
-    fn new<const CAP: usize, Item, Gap>(chunk_iterator: Iter<CAP, Item, Gap>) -> Self {
+    fn new<const CAP: usize, Item, Gap>(chunk_iterator: Iter<'_, CAP, Item, Gap>) -> Self {
         let mut initial_chunk_lengths = VecDeque::new();
 
         for chunk in chunk_iterator {
