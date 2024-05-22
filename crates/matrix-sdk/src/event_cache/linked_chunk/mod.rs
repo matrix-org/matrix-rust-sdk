@@ -865,6 +865,7 @@ impl Position {
 
 /// An iterator over a [`LinkedChunk`] that traverses the chunk in backward
 /// direction (i.e. it calls `previous` on each chunk to make progress).
+#[derive(Debug)]
 pub struct IterBackward<'a, const CAP: usize, Item, Gap> {
     chunk: Option<&'a Chunk<CAP, Item, Gap>>,
 }
@@ -890,6 +891,7 @@ impl<'a, const CAP: usize, Item, Gap> Iterator for IterBackward<'a, CAP, Item, G
 
 /// An iterator over a [`LinkedChunk`] that traverses the chunk in forward
 /// direction (i.e. it calls `next` on each chunk to make progress).
+#[derive(Debug)]
 pub struct Iter<'a, const CAP: usize, Item, Gap> {
     chunk: Option<&'a Chunk<CAP, Item, Gap>>,
 }

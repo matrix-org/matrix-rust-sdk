@@ -33,6 +33,7 @@ type ChunkLength = usize;
 /// `Vec<VectorDiff<Item>>` (this type). Basically, it helps to consume a
 /// [`LinkedChunk<CAP, Item, Gap>`](super::LinkedChunk) as if it was an
 /// [`eyeball_im::ObservableVector<Item>`].
+#[derive(Debug)]
 pub struct AsVector<Item, Gap> {
     /// Strong reference to [`UpdatesInner`].
     updates: Arc<RwLock<UpdatesInner<Item, Gap>>>,
@@ -82,6 +83,7 @@ impl<Item, Gap> AsVector<Item, Gap> {
 }
 
 /// Internal type that converts [`Update`] into [`VectorDiff`].
+#[derive(Debug)]
 struct UpdateToVectorDiff {
     /// Pairs of all known chunks and their respective length. This is the only
     /// required data for this algorithm.
