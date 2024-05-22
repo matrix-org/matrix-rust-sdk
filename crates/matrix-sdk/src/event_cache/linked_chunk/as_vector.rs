@@ -325,15 +325,21 @@ impl UpdateToVectorDiff {
                         );
 
                         match control_flow {
-                            ControlFlow::Break(value) => Some(value),
-                            ControlFlow::Continue(..) => None,
+                            // Chunk has been found, and all values have been calculated as
+                            // expected.
+                            ControlFlow::Break(values) => values,
+
+                            // Chunk has not been found.
+                            ControlFlow::Continue(..) => {
+                                // SAFETY: Assuming `LinkedChunk` and `Updates` are not buggy, and
+                                // assuming `Self::chunks` is correctly initialized, it is not
+                                // possible to push items on a chunk that does not exist. If this
+                                // predicate fails, it means `LinkedChunk` or `Updates` contain a
+                                // bug.
+                                panic!("Pushing items: The chunk is not found");
+                            }
                         }
-                    }
-                    // SAFETY: Assuming `LinkedChunk` and `Updates` are not buggy, and assuming
-                    // `Self::chunks` is correctly initialized, it is not possible to push items on
-                    // a chunk that does not exist. If this predicate fails, it means `LinkedChunk`
-                    // or `Updates` contain a bug.
-                    .expect("Pushing items: The chunk is not found");
+                    };
 
                     *chunk_length += items.len();
 
