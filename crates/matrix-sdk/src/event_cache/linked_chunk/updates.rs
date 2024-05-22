@@ -68,8 +68,8 @@ pub enum Update<Item, Gap> {
         /// This value is given to prevent the need for position computations by
         /// the update readers. Items are pushed, so the positions should be
         /// incrementally computed from the previous items, which requires the
-        /// reading of the last previous item. With `position_hint`, the update
-        /// readers no longer need to do so.
+        /// reading of the last previous item. With `at`, the update readers no
+        /// longer need to do so.
         position_hint: Position,
 
         /// The items.
@@ -85,11 +85,11 @@ pub enum Update<Item, Gap> {
         at: Position,
     },
 
-    /// Detached items (see [`Self::DetachLastItems`]) are being reattached.
-    ReattachItems,
+    /// Detached items (see [`Self::DetachLastItems`]) starts being reattached.
+    StartReattachItems,
 
-    /// Reattaching items (see [`Self::ReattachItems`]) is finished.
-    ReattachItemsDone,
+    /// Reattaching items (see [`Self::StartReattachItems`]) is finished.
+    EndReattachItems,
 }
 
 impl<Item, Gap> Clone for Update<Item, Gap>
@@ -110,8 +110,8 @@ where
                 Self::PushItems { position_hint: *position_hint, items: items.clone() }
             }
             Self::DetachLastItems { at } => Self::DetachLastItems { at: *at },
-            Self::ReattachItems => Self::ReattachItems,
-            Self::ReattachItemsDone => Self::ReattachItemsDone,
+            Self::StartReattachItems => Self::StartReattachItems,
+            Self::EndReattachItems => Self::EndReattachItems,
         }
     }
 }

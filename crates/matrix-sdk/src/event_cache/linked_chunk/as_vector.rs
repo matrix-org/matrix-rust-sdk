@@ -117,7 +117,7 @@ impl UpdateToVectorDiff {
     /// * [`Update::DetachLastItems`] is decreasing the length of the
     ///   appropriate pair by the number of items to be detached; no
     ///   [`VectorDiff`] is emitted,
-    /// * [`Update::ReattachItems`] and [`Update::ReattachItemsDone`] are
+    /// * [`Update::StartReattachItems`] and [`Update::EndReattachItems`] are
     ///   respectively muting or unmuting the emission of [`VectorDiff`] by
     ///   [`Update::PushItems`].
     ///
@@ -203,7 +203,7 @@ impl UpdateToVectorDiff {
         // Step 3, reattaching detached items:
         //
         // ```
-        // Update::ReattachItems
+        // Update::StartReattachItems
         // Update::PushItems {
         //     position_hint: Position(ChunkIdentifier(2), 2),
         //     items: vec!['b']
@@ -217,7 +217,7 @@ impl UpdateToVectorDiff {
         //     position_hint: Position(ChunkIdentifier(3), 0),
         //     items: vec!['c'],
         // }
-        // Update::ReattachItemsDone
+        // Update::EndReattachItems
         // ```
         //
         // To ensure an optimised behaviour of this algorithm:
@@ -225,8 +225,8 @@ impl UpdateToVectorDiff {
         // * `Update::DetachLastItems` must not emit `VectorDiff::Remove`,
         //
         // * `Update::PushItems` must not emit `VectorDiff::Insert`s or
-        //   `VectorDiff::Append`s if it happens after `ReattachItems` and before
-        //   `ReattachItemsDone`. However, `Self::chunks` must always be updated.
+        //   `VectorDiff::Append`s if it happens after `StartReattachItems` and before
+        //   `EndReattachItems`. However, `Self::chunks` must always be updated.
         //
         // From the `VectorDiff` “point of view”, this optimisation aims at avoiding
         // removing items to push them again later.
@@ -369,12 +369,12 @@ impl UpdateToVectorDiff {
                     *length = new_length;
                 }
 
-                Update::ReattachItems => {
+                Update::StartReattachItems => {
                     // Entering the `reattaching` mode.
                     mute_push_items = true;
                 }
 
-                Update::ReattachItemsDone => {
+                Update::EndReattachItems => {
                     // Exiting the `reattaching` mode.
                     mute_push_items = false;
                 }

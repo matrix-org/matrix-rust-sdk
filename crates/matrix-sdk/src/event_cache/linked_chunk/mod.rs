@@ -364,7 +364,7 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
                             .push_items(items, &self.chunk_identifier_generator, &mut self.updates);
 
                         if let Some(updates) = self.updates.as_mut() {
-                            updates.push(Update::ReattachItems);
+                            updates.push(Update::StartReattachItems);
                         }
 
                         let chunk = chunk
@@ -376,7 +376,7 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
                             );
 
                         if let Some(updates) = self.updates.as_mut() {
-                            updates.push(Update::ReattachItemsDone);
+                            updates.push(Update::EndReattachItems);
                         }
 
                         chunk
@@ -469,7 +469,7 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
                     );
 
                 if let Some(updates) = self.updates.as_mut() {
-                    updates.push(Update::ReattachItems);
+                    updates.push(Update::StartReattachItems);
                 }
 
                 let chunk = chunk
@@ -486,7 +486,7 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
                     );
 
                 if let Some(updates) = self.updates.as_mut() {
-                    updates.push(Update::ReattachItemsDone);
+                    updates.push(Update::EndReattachItems);
                 }
 
                 chunk
@@ -1721,7 +1721,7 @@ mod tests {
                         position_hint: Position(ChunkIdentifier(2), 0),
                         items: vec!['y', 'z']
                     },
-                    ReattachItems,
+                    StartReattachItems,
                     PushItems { position_hint: Position(ChunkIdentifier(2), 2), items: vec!['e'] },
                     NewItemsChunk {
                         previous: Some(ChunkIdentifier(2)),
@@ -1729,7 +1729,7 @@ mod tests {
                         next: None,
                     },
                     PushItems { position_hint: Position(ChunkIdentifier(3), 0), items: vec!['f'] },
-                    ReattachItemsDone,
+                    EndReattachItems,
                 ]
             );
         }
@@ -1758,7 +1758,7 @@ mod tests {
                         next: Some(ChunkIdentifier(1)),
                     },
                     PushItems { position_hint: Position(ChunkIdentifier(4), 0), items: vec!['o'] },
-                    ReattachItems,
+                    StartReattachItems,
                     PushItems {
                         position_hint: Position(ChunkIdentifier(4), 1),
                         items: vec!['a', 'b']
@@ -1769,7 +1769,7 @@ mod tests {
                         next: Some(ChunkIdentifier(1)),
                     },
                     PushItems { position_hint: Position(ChunkIdentifier(5), 0), items: vec!['c'] },
-                    ReattachItemsDone,
+                    EndReattachItems,
                 ]
             );
         }
@@ -1792,9 +1792,9 @@ mod tests {
                         position_hint: Position(ChunkIdentifier(5), 0),
                         items: vec!['r', 's']
                     },
-                    ReattachItems,
+                    StartReattachItems,
                     PushItems { position_hint: Position(ChunkIdentifier(5), 2), items: vec!['c'] },
-                    ReattachItemsDone,
+                    EndReattachItems,
                 ]
             );
         }
@@ -1909,7 +1909,7 @@ mod tests {
                         next: Some(ChunkIdentifier(1)),
                         gap: (),
                     },
-                    ReattachItems,
+                    StartReattachItems,
                     NewItemsChunk {
                         previous: Some(ChunkIdentifier(2)),
                         new: ChunkIdentifier(3),
@@ -1919,7 +1919,7 @@ mod tests {
                         position_hint: Position(ChunkIdentifier(3), 0),
                         items: vec!['b', 'c']
                     },
-                    ReattachItemsDone,
+                    EndReattachItems,
                 ]
             );
         }
@@ -1941,14 +1941,14 @@ mod tests {
                         next: Some(ChunkIdentifier(2)),
                         gap: (),
                     },
-                    ReattachItems,
+                    StartReattachItems,
                     NewItemsChunk {
                         previous: Some(ChunkIdentifier(4)),
                         new: ChunkIdentifier(5),
                         next: Some(ChunkIdentifier(2)),
                     },
                     PushItems { position_hint: Position(ChunkIdentifier(5), 0), items: vec!['a'] },
-                    ReattachItemsDone,
+                    EndReattachItems,
                 ]
             );
         }
