@@ -354,7 +354,7 @@ impl UpdateToVectorDiff {
                     }
                     // No optimisation: let's emit `VectorDiff::Insert`.
                     else {
-                        diffs.extend(items.into_iter().enumerate().map(|(nth, item)| {
+                        diffs.extend(items.iter().enumerate().map(|(nth, item)| {
                             VectorDiff::Insert { index: offset + nth, value: item.clone() }
                         }));
                     }
