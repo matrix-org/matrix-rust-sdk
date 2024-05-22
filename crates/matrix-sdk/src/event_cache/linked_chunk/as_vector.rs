@@ -397,14 +397,36 @@ impl UpdateToVectorDiff {
 
 #[cfg(test)]
 mod tests {
-    use imbl::vector;
+    use std::fmt::Debug;
+
+    use imbl::{vector, Vector};
 
     use super::{super::LinkedChunk, VectorDiff};
+
+    fn apply_and_assert_eq<Item>(
+        accumulator: &mut Vector<Item>,
+        diffs: Vec<VectorDiff<Item>>,
+        expected_diffs: &[VectorDiff<Item>],
+    ) where
+        Item: PartialEq + Clone + Debug,
+    {
+        assert_eq!(diffs, expected_diffs);
+
+        for diff in diffs {
+            match diff {
+                VectorDiff::Insert { index, value } => accumulator.insert(index, value),
+                VectorDiff::Append { values } => accumulator.append(values),
+                diff => unimplemented!("{diff:?}"),
+            }
+        }
+    }
 
     #[test]
     fn test_as_vector() {
         let mut linked_chunk = LinkedChunk::<3, char, ()>::new_with_update_history();
         let mut as_vector = linked_chunk.as_vector().unwrap();
+
+        let mut accumulator = Vector::new();
 
         assert!(as_vector.take().is_empty());
 
@@ -421,12 +443,13 @@ mod tests {
         // ^^^^^^^^^^^^^^^^
         // |
         // new
-        assert_eq!(
+        apply_and_assert_eq(
+            &mut accumulator,
             as_vector.take(),
             &[
                 VectorDiff::Append { values: vector!['a', 'b', 'c'] },
                 VectorDiff::Append { values: vector!['d'] },
-            ]
+            ],
         );
 
         linked_chunk
@@ -446,14 +469,15 @@ mod tests {
         //     ^^^^^^^^^^^^^^^^
         //     |
         //     new
-        assert_eq!(
+        apply_and_assert_eq(
+            &mut accumulator,
             as_vector.take(),
             &[
                 VectorDiff::Insert { index: 1, value: 'w' },
                 VectorDiff::Insert { index: 2, value: 'x' },
                 VectorDiff::Insert { index: 3, value: 'y' },
                 VectorDiff::Insert { index: 4, value: 'z' },
-            ]
+            ],
         );
 
         linked_chunk.push_gap_back(());
@@ -472,12 +496,13 @@ mod tests {
         //                                 ^^^^^^^^^^^^^^^^
         //                                 |
         //                                 new
-        assert_eq!(
+        apply_and_assert_eq(
+            &mut accumulator,
             as_vector.take(),
             &[
                 VectorDiff::Append { values: vector!['e', 'f', 'g'] },
-                VectorDiff::Append { values: vector!['h'] }
-            ]
+                VectorDiff::Append { values: vector!['h'] },
+            ],
         );
 
         linked_chunk
@@ -500,14 +525,15 @@ mod tests {
         //                                 ^^^^^^^^^^^^^^^^
         //                                 |
         //                                 new
-        assert_eq!(
+        apply_and_assert_eq(
+            &mut accumulator,
             as_vector.take(),
-            vec![
+            &[
                 VectorDiff::Insert { index: 8, value: 'i' },
                 VectorDiff::Insert { index: 9, value: 'j' },
                 VectorDiff::Insert { index: 10, value: 'k' },
                 VectorDiff::Insert { index: 11, value: 'l' },
-            ]
+            ],
         );
 
         linked_chunk
@@ -527,9 +553,21 @@ mod tests {
         // ^^^^
         // |
         // new
-        assert_eq!(as_vector.take(), vec![VectorDiff::Insert { index: 0, value: 'm' }]);
+        apply_and_assert_eq(
+            &mut accumulator,
+            as_vector.take(),
+            &[VectorDiff::Insert { index: 0, value: 'm' }],
+        );
 
         drop(linked_chunk);
         assert!(as_vector.take().is_empty());
+
+        // Finally, ensure the “reconstitued” vector is the one expected.
+        assert_eq!(
+            accumulator,
+            vector![
+                'm', 'a', 'w', 'x', 'y', 'z', 'b', 'c', 'd', 'i', 'j', 'k', 'l', 'e', 'f', 'g', 'h'
+            ]
+        );
     }
 }
