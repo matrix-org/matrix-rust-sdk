@@ -721,6 +721,27 @@ impl_crypto_store! {
         Ok(())
     }
 
+    async fn save_inbound_group_sessions(
+        &self,
+        sessions: Vec<InboundGroupSession>,
+        backed_up_to_version: Option<&str>,
+    ) -> Result<()> {
+        // Sanity-check that the data in the sessions corresponds to backed_up_version
+        sessions.iter().for_each(|s| {
+            let backed_up = s.backed_up();
+            if backed_up != backed_up_to_version.is_some() {
+                warn!(
+                    backed_up, backed_up_to_version,
+                    "Session backed-up flag does not correspond to backup version setting",
+                );
+            }
+        });
+
+        // Currently, this store doesn't save the backup version separately, so this
+        // just delegates to save_changes.
+        self.save_changes(Changes { inbound_group_sessions: sessions, ..Changes::default() }).await
+    }
+
     async fn load_tracked_users(&self) -> Result<Vec<TrackedUser>> {
         let tx = self
             .inner

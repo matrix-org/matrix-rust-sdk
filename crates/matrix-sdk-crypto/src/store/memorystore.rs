@@ -25,6 +25,7 @@ use ruma::{
     OwnedUserId, RoomId, TransactionId, UserId,
 };
 use tokio::sync::{Mutex, RwLock};
+use tracing::warn;
 
 use super::{
     caches::{DeviceStore, GroupSessionStore, SessionStore},
@@ -144,12 +145,6 @@ impl MemoryStore {
         }
     }
 
-    fn save_inbound_group_sessions(&self, sessions: Vec<InboundGroupSession>) {
-        for session in sessions {
-            self.inbound_group_sessions.add(session);
-        }
-    }
-
     fn save_outbound_group_sessions(&self, sessions: Vec<OutboundGroupSession>) {
         self.outbound_group_sessions
             .write()
@@ -225,7 +220,7 @@ impl CryptoStore for MemoryStore {
 
     async fn save_changes(&self, changes: Changes) -> Result<()> {
         self.save_sessions(changes.sessions).await;
-        self.save_inbound_group_sessions(changes.inbound_group_sessions);
+        self.save_inbound_group_sessions(changes.inbound_group_sessions, None).await?;
         self.save_outbound_group_sessions(changes.outbound_group_sessions);
         self.save_private_identity(changes.private_identity);
 
@@ -296,6 +291,39 @@ impl CryptoStore for MemoryStore {
             settings.extend(changes.room_settings);
         }
 
+        Ok(())
+    }
+
+    async fn save_inbound_group_sessions(
+        &self,
+        sessions: Vec<InboundGroupSession>,
+        backed_up_to_version: Option<&str>,
+    ) -> Result<()> {
+        let mut inbound_group_sessions_backed_up_to =
+            self.inbound_group_sessions_backed_up_to.write().unwrap();
+
+        for session in sessions {
+            let room_id = session.room_id();
+            let session_id = session.session_id();
+
+            // Sanity-check that the data in the sessions corresponds to backed_up_version
+            let backed_up = session.backed_up();
+            if backed_up != backed_up_to_version.is_some() {
+                warn!(
+                    backed_up,
+                    backed_up_to_version,
+                    "Session backed-up flag does not correspond to backup version setting",
+                );
+            }
+
+            if let Some(backup_version) = backed_up_to_version {
+                inbound_group_sessions_backed_up_to
+                    .entry(room_id.to_owned())
+                    .or_default()
+                    .insert(session_id.to_owned(), BackupVersion::from(backup_version));
+            }
+            self.inbound_group_sessions.add(session);
+        }
         Ok(())
     }
 
@@ -632,7 +660,7 @@ mod tests {
         .unwrap();
 
         let store = MemoryStore::new();
-        store.save_inbound_group_sessions(vec![inbound.clone()]);
+        store.save_inbound_group_sessions(vec![inbound.clone()], None).await.unwrap();
 
         let loaded_session =
             store.get_inbound_group_session(room_id, outbound.session_id()).await.unwrap().unwrap();
@@ -1007,7 +1035,7 @@ mod tests {
         sessions.sort_by_key(|s| s.session_id().to_owned());
 
         let store = MemoryStore::new();
-        store.save_inbound_group_sessions(sessions.clone());
+        store.save_inbound_group_sessions(sessions.clone(), None).await.unwrap();
 
         (store, sessions)
     }
@@ -1135,6 +1163,14 @@ mod integration_tests {
 
         async fn save_pending_changes(&self, changes: PendingChanges) -> Result<(), Self::Error> {
             self.0.save_pending_changes(changes).await
+        }
+
+        async fn save_inbound_group_sessions(
+            &self,
+            sessions: Vec<InboundGroupSession>,
+            backed_up_to_version: Option<&str>,
+        ) -> Result<(), Self::Error> {
+            self.0.save_inbound_group_sessions(sessions, backed_up_to_version).await
         }
 
         async fn get_sessions(
