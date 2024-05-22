@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::HashMap,
     pin::Pin,
     sync::{Arc, RwLock, Weak},
     task::{Context, Poll, Waker},
@@ -21,7 +21,7 @@ use std::{
 
 use futures_core::Stream;
 
-use super::{AsVector, ChunkIdentifier, ChunkLength, Position};
+use super::{ChunkIdentifier, Position};
 
 /// Represent the updates that have happened inside a [`LinkedChunk`].
 ///
@@ -120,7 +120,7 @@ where
 ///
 /// Get a value for this type with [`LinkedChunk::updates`].
 pub struct Updates<Item, Gap> {
-    inner: Arc<RwLock<UpdatesInner<Item, Gap>>>,
+    pub(super) inner: Arc<RwLock<UpdatesInner<Item, Gap>>>,
 }
 
 /// A token used to represent readers that read the updates in
@@ -279,16 +279,7 @@ impl<Item, Gap> Updates<Item, Gap> {
         UpdatesSubscriber::new(Arc::downgrade(&self.inner), token)
     }
 
-    pub(super) unsafe fn as_vector(
-        &mut self,
-        initial_chunk_lengths: VecDeque<(ChunkIdentifier, ChunkLength)>,
-    ) -> AsVector<Item, Gap> {
-        // An `AsVector` is a new update reader, it needs its own token.
-        let token = self.new_reader_token();
-
-        AsVector::new(Arc::clone(&self.inner), token, initial_chunk_lengths)
-    }
-
+    /// Generate a new [`ReaderToken`].
     pub(super) fn new_reader_token(&mut self) -> ReaderToken {
         let mut inner = self.inner.write().unwrap();
 

@@ -22,21 +22,18 @@ use eyeball_im::VectorDiff;
 
 use super::{
     updates::{ReaderToken, Update, UpdatesInner},
-    ChunkIdentifier,
+    ChunkContent, ChunkIdentifier, Iter,
 };
 
 /// A type alias to represent a chunk's length. This is purely for commodity.
-pub(super) type ChunkLength = usize;
+type ChunkLength = usize;
 
 /// A type that transforms a `Vec<Update<Item, Gap>>` (given by
 /// [`Updates`](super::Update)) into a `Vec<VectorDiff<Item>>` (this
 /// type). Basically, it helps to consume a [`LinkedChunk<CAP, Item, Gap>`] as
 /// if it was an [`eyeball::ObservableVector<Item>`].
 pub struct AsVector<Item, Gap> {
-    /// Weak reference to [`UpdatesInner`].
-    ///
-    /// Using a weak reference allows [`Updates`] to be dropped
-    /// freely even if a subscriber exists.
+    /// Strong reference to [`UpdatesInner`].
     updates: Arc<RwLock<UpdatesInner<Item, Gap>>>,
 
     /// The token to read the updates.
@@ -48,22 +45,12 @@ pub struct AsVector<Item, Gap> {
 
 impl<Item, Gap> AsVector<Item, Gap> {
     /// Create a new [`Self`].
-    ///
-    /// `initial_chunk_lengths` must be pairs of all chunk identifiers with the
-    /// associated chunk length. The pairs must be in the exact same order than
-    /// in [`LinkedChunk`].
-    ///
-    /// # Safety
-    ///
-    /// This method is marked as unsafe only to attract the caller's attention
-    /// on the order of pairs. If the order of pairs are incorrect, the entire
-    /// algorithm will not work properly and is very likely to panic.
-    pub(super) unsafe fn new(
+    pub(super) fn new<const CAP: usize>(
         updates: Arc<RwLock<UpdatesInner<Item, Gap>>>,
         token: ReaderToken,
-        initial_chunk_lengths: VecDeque<(ChunkIdentifier, ChunkLength)>,
+        chunk_iterator: Iter<CAP, Item, Gap>,
     ) -> Self {
-        Self { updates, token, mapper: UpdateToVectorDiff { chunks: initial_chunk_lengths } }
+        Self { updates, token, mapper: UpdateToVectorDiff::new(chunk_iterator) }
     }
 
     /// Take the new updates as [`VectorDiff`].
@@ -89,6 +76,23 @@ struct UpdateToVectorDiff {
 }
 
 impl UpdateToVectorDiff {
+    /// Construct [`Self`].
+    fn new<const CAP: usize, Item, Gap>(chunk_iterator: Iter<CAP, Item, Gap>) -> Self {
+        let mut initial_chunk_lengths = VecDeque::new();
+
+        for chunk in chunk_iterator {
+            initial_chunk_lengths.push_front((
+                chunk.identifier(),
+                match chunk.content() {
+                    ChunkContent::Gap(_) => 0,
+                    ChunkContent::Items(items) => items.len(),
+                },
+            ))
+        }
+
+        Self { chunks: initial_chunk_lengths }
+    }
+
     /// Map several [`Update`] into [`VectorDiff`].
     ///
     /// How does this type transform `Update` into `VectorDiff`? There is no
@@ -97,7 +101,8 @@ impl UpdateToVectorDiff {
     /// computed manually.
     ///
     /// The only buffered data is pairs of [`ChunkIdentifier`] and
-    /// [`ChunkLength`]. The following rules must be respected:
+    /// [`ChunkLength`]. The following rules must be respected (they are defined
+    /// in [`Self::new`]):
     ///
     /// * A chunk of kind [`ChunkContent::Gap`] has a length of 0,
     /// * A chunk of kind [`ChunkContent::Items`] has a length equals to its

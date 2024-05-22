@@ -95,7 +95,6 @@ mod as_vector;
 mod updates;
 
 use std::{
-    collections::VecDeque,
     fmt,
     marker::PhantomData,
     ops::Not,
@@ -742,23 +741,13 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
     /// been constructed with [`Self::new`], otherwise, if it's been constructed
     /// with [`Self::new_with_update_history`], it returns `Some(…)`.
     pub fn as_vector(&mut self) -> Option<AsVector<Item, Gap>> {
-        let mut initial_chunk_lengths = VecDeque::new();
+        let (updates, token) = self
+            .updates
+            .as_mut()
+            .map(|updates| (updates.inner.clone(), updates.new_reader_token()))?;
+        let chunk_iterator = self.chunks();
 
-        for chunk in self.chunks() {
-            initial_chunk_lengths.push_front((
-                chunk.identifier(),
-                match chunk.content() {
-                    ChunkContent::Gap(_) => 0,
-                    ChunkContent::Items(items) => items.len(),
-                },
-            ))
-        }
-
-        self.updates.as_mut().map(|updates| {
-            // SAFETY: The order of chunk pairs inside `initial_chunk_lengths` is exactly
-            // the same as chunks in `Self`.
-            unsafe { updates.as_vector(initial_chunk_lengths) }
-        })
+        Some(AsVector::new(updates, token, chunk_iterator))
     }
 }
 
