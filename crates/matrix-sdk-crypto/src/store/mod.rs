@@ -1642,7 +1642,7 @@ impl Store {
     ///   processed. Called with arguments `(processed, total)` where
     ///   `processed` is the number of keys processed so far, and `total` is the
     ///   total number of keys (i.e., `exported_keys.len()`).
-    pub(crate) async fn import_room_keys(
+    pub async fn import_room_keys(
         &self,
         exported_keys: Vec<ExportedRoomKey>,
         from_backup_version: Option<&str>,

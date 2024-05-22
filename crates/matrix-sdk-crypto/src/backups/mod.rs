@@ -600,6 +600,7 @@ impl BackupMachine {
     ///
     /// Returns a [`RoomKeyImportResult`] containing information about room keys
     /// which were imported.
+    #[deprecated(note = "Use the OlmMachine::store::import_room_keys method instead")]
     pub async fn import_backed_up_room_keys(
         &self,
         room_keys: BTreeMap<OwnedRoomId, BTreeMap<String, BackedUpRoomKey>>,
@@ -853,6 +854,7 @@ mod tests {
 
         assert!(session.is_none(), "Initially we should not have the session in the store");
 
+        #[allow(deprecated)]
         backup_machine
             .import_backed_up_room_keys(room_keys, |_, _| {})
             .await
