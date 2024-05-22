@@ -138,10 +138,6 @@ jobs:
       - name: Add rust targets
         run: |
           rustup target add aarch64-apple-ios
-          rustup target add aarch64-apple-darwin
-          rustup target add x86_64-apple-darwin
-          rustup target add aarch64-apple-ios-sim
-          rustup target add x86_64-apple-ios
 
       # Cargo config can screw with caching and is only used for alias config
       # and extra lints, which we don't care about here
