@@ -3170,7 +3170,6 @@ dependencies = [
  "mime",
  "mime2ext",
  "once_cell",
- "pin-project-lite",
  "rand",
  "reqwest",
  "ruma",
