@@ -227,17 +227,18 @@ impl IdentityManager {
             store.get_readonly_device(&device_keys.user_id, &device_keys.device_id).await?;
 
         if let Some(mut device) = old_device {
-            if let Err(e) = device.update_device(&device_keys) {
-                warn!(
-                    user_id = ?device.user_id(),
-                    device_id = ?device.device_id(),
-                    error = ?e,
-                    "Rejecting device update",
-                );
-
-                Ok(DeviceChange::None)
-            } else {
-                Ok(DeviceChange::Updated(device))
+            match device.update_device(&device_keys) {
+                Err(e) => {
+                    warn!(
+                        user_id = ?device.user_id(),
+                        device_id = ?device.device_id(),
+                        error = ?e,
+                        "Rejecting device update",
+                    );
+                    Ok(DeviceChange::None)
+                }
+                Ok(true) => Ok(DeviceChange::Updated(device)),
+                Ok(false) => Ok(DeviceChange::None),
             }
         } else {
             match ReadOnlyDevice::try_from(&device_keys) {
@@ -1723,7 +1724,7 @@ pub(crate) mod tests {
             manager.as_ref().unwrap().build_key_query_for_users(vec![user_id()]);
 
         // A second `/keys/query` response with the same result shouldn't fire a change
-        // notification: the identity should be unchanged.
+        // notification: the identity and device should be unchanged.
         manager
             .as_ref()
             .unwrap()
@@ -1731,10 +1732,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        let (identity_update_2, _) = assert_ready!(stream);
-        assert_eq!(identity_update_2.new.len(), 0);
-        assert_eq!(identity_update_2.changed.len(), 0);
-        assert_eq!(identity_update_2.unchanged.len(), 1);
+        assert_pending!(stream);
 
         // dropping the manager (and hence dropping the store) should close the stream
         manager.take();
