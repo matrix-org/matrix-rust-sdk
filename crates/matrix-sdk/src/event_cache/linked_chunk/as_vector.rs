@@ -349,7 +349,7 @@ impl UpdateToVectorDiff {
                     }
 
                     // Optimisation: we can emit a `VectorDiff::Append` in this particular case.
-                    if chunk_index == self.chunks.len() - 1 {
+                    if chunk_index + 1 == self.chunks.len() {
                         diffs.push(VectorDiff::Append { values: items.into() });
                     }
                     // No optimisation: let's emit `VectorDiff::Insert`.
