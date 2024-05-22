@@ -216,6 +216,12 @@ pub struct LinkedChunk<const CHUNK_CAPACITY: usize, Item, Gap> {
     marker: PhantomData<Box<Chunk<CHUNK_CAPACITY, Item, Gap>>>,
 }
 
+impl<const CAP: usize, Item, Gap> Default for LinkedChunk<CAP, Item, Gap> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
     /// Create a new [`Self`].
     pub fn new() -> Self {
@@ -252,6 +258,7 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
     }
 
     /// Get the number of items in this linked chunk.
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         self.length
     }

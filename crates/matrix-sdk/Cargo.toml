@@ -143,6 +143,7 @@ futures-executor = { workspace = true }
 matrix-sdk-base = { workspace = true, features = ["testing"] }
 matrix-sdk-test = { workspace = true }
 once_cell = { workspace = true }
+proptest = "1.4.0"
 serde_urlencoded = "0.7.1"
 stream_assert = { workspace = true }
 tracing-subscriber = { version = "0.3.11", features = ["env-filter"] }

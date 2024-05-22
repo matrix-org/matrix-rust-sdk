@@ -72,7 +72,7 @@ impl<Item, Gap> AsVector<Item, Gap> {
     ///
     /// It returns an empty `Vec` if there is no new `VectorDiff` for the
     /// moment.
-    pub(super) fn take(&mut self) -> Vec<VectorDiff<Item>>
+    pub fn take(&mut self) -> Vec<VectorDiff<Item>>
     where
         Item: Clone,
     {
@@ -609,5 +609,84 @@ mod tests {
 
         // `diffs` is not empty because new updates are coming.
         assert_eq!(diffs.len(), 1);
+    }
+
+    mod proptests {
+        use proptest::prelude::*;
+
+        use super::*;
+
+        #[derive(Debug, Clone)]
+        enum AsVectorOperation {
+            PushItems { items: Vec<char> },
+            PushGap,
+            ReplaceLastGap { items: Vec<char> },
+        }
+
+        fn as_vector_operation_strategy() -> impl Strategy<Value = AsVectorOperation> {
+            prop_oneof![
+                3 => prop::collection::vec(prop::char::ranges(vec!['a'..='z', 'A'..='Z'].into()), 0..=25)
+                    .prop_map(|items| AsVectorOperation::PushItems { items }),
+
+                2 => Just(AsVectorOperation::PushGap),
+
+                1 => prop::collection::vec(prop::char::ranges(vec!['a'..='z', 'A'..='Z'].into()), 0..=25)
+                    .prop_map(|items| AsVectorOperation::ReplaceLastGap { items }),
+            ]
+        }
+
+        proptest! {
+            #[test]
+            fn as_vector_is_correct(
+                operations in prop::collection::vec(as_vector_operation_strategy(), 10..=50)
+            ) {
+                let mut linked_chunk = LinkedChunk::<10, char, ()>::new_with_update_history();
+                let mut as_vector = linked_chunk.as_vector().unwrap();
+
+                for operation in operations {
+                    match operation {
+                        AsVectorOperation::PushItems { items } => {
+                            linked_chunk.push_items_back(items);
+                        }
+
+                        AsVectorOperation::PushGap => {
+                            linked_chunk.push_gap_back(());
+                        }
+
+                        AsVectorOperation::ReplaceLastGap { items } => {
+                            let Some(gap_identifier) = linked_chunk
+                                .rchunks()
+                                .find_map(|chunk| chunk.is_gap().then_some(chunk.identifier()))
+                            else {
+                                continue;
+                            };
+
+                            linked_chunk.replace_gap_at(items, gap_identifier).unwrap();
+                        }
+                    }
+                }
+
+                let mut vector_from_diffs = Vec::new();
+
+                // Read all updates as `VectorDiff` and rebuild a `Vec<char>`.
+                for diff in as_vector.take() {
+                    match diff {
+                        VectorDiff::Insert { index, value } => vector_from_diffs.insert(index, value),
+                        VectorDiff::Append { values } => {
+                            let mut values = values.iter().copied().collect();
+
+                            vector_from_diffs.append(&mut values);
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+
+                // Iterate over all chunks and collect items as `Vec<char>`.
+                let vector_from_chunks = linked_chunk.items().map(|(_, item)| *item).collect::<Vec<_>>();
+
+                // Compare both `Vec`s.
+                assert_eq!(vector_from_diffs, vector_from_chunks);
+            }
+        }
     }
 }
