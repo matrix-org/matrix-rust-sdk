@@ -58,6 +58,12 @@ impl<Item, Gap> AsVector<Item, Gap> {
         token: ReaderToken,
         chunk_iterator: Iter<'_, CAP, Item, Gap>,
     ) -> Self {
+        // Drain previous updates so that this type is synced with `Updates`.
+        {
+            let mut updates = updates.write().unwrap();
+            let _ = updates.take_with_token(token);
+        }
+
         Self { updates, token, mapper: UpdateToVectorDiff::new(chunk_iterator) }
     }
 
@@ -580,5 +586,26 @@ mod tests {
                 'm', 'a', 'w', 'x', 'y', 'z', 'b', 'c', 'd', 'i', 'j', 'k', 'l', 'e', 'f', 'g', 'h'
             ]
         );
+    }
+
+    #[test]
+    fn updates_are_drained_when_constructing_as_vector() {
+        let mut linked_chunk = LinkedChunk::<10, char, ()>::new_with_update_history();
+
+        linked_chunk.push_items_back(['a']);
+
+        let mut as_vector = linked_chunk.as_vector().unwrap();
+        let diffs = as_vector.take();
+
+        // `diffs` are empty because `AsVector` is built _after_ `LinkedChunk`
+        // has been updated.
+        assert!(diffs.is_empty());
+
+        linked_chunk.push_items_back(['b']);
+
+        let diffs = as_vector.take();
+
+        // `diffs` is not empty because new updates are coming.
+        assert_eq!(diffs.len(), 1);
     }
 }
