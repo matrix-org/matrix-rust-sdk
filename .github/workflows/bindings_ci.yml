@@ -116,3 +116,42 @@ jobs:
     with:
         use_rust_sdk: "." # use local checkout
         use_complement_crypto: "MATCHING_BRANCH"
+
+  test-crypto-apple-framework-generation:
+    name: Generate Crypto FFI Apple XCFramework
+    runs-on: macos-12
+    if: github.event_name == 'push' || !github.event.pull_request.draft
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      # install protoc in case we end up rebuilding opentelemetry-proto
+      - name: Install protoc
+        uses: taiki-e/install-action@v2
+        with:
+          tool: protoc@3.20.3
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Add rust targets
+        run: |
+          rustup target add aarch64-apple-ios
+
+      # Cargo config can screw with caching and is only used for alias config
+      # and extra lints, which we don't care about here
+      - name: Delete cargo config
+        run: rm .cargo/config.toml
+
+      - name: Load cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Run the Build Framework script
+        run: ./bindings/apple/build_crypto_xcframework.sh -i
+
+      - name: Is XCFramework generated?
+        if: ${{ hashFiles('generated/MatrixSDKCryptoFFI.zip') != '' }}
+        run: echo "XCFramework exists"
