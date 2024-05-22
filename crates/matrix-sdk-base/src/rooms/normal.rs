@@ -120,6 +120,13 @@ pub struct RoomSummary {
     invited_member_count: u64,
 }
 
+#[cfg(test)]
+impl RoomSummary {
+    pub(crate) fn heroes(&self) -> &[String] {
+        &self.heroes
+    }
+}
+
 /// Enum keeping track in which state the room is, e.g. if our own user is
 /// joined, invited, or has left the room.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]

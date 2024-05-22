@@ -693,13 +693,20 @@ fn process_room_properties(room_data: &v4::SlidingSyncRoom, room_info: &mut Room
     }
 
     // Sliding sync doesn't have a room summary, nevertheless it contains the joined
-    // and invited member counts. It likely will never have a heroes concept since
-    // it calculates the room display name for us.
+    // and invited member counts, in addition to the heroes if it's been configured
+    // to return them (see the [`v4::RoomSubscription::include_heroes`]).
     //
     // Let's at least fetch the member counts, since they might be useful.
     let mut room_summary = RoomSummary::new();
+
     room_summary.invited_member_count = room_data.invited_count;
     room_summary.joined_member_count = room_data.joined_count;
+
+    if let Some(heroes) = &room_data.heroes {
+        room_summary.heroes =
+            heroes.iter().filter_map(|hero| hero.name.as_ref().cloned()).collect();
+    }
+
     room_info.update_summary(&room_summary);
 
     room_info.set_prev_batch(room_data.prev_batch.as_deref());
@@ -1271,6 +1278,43 @@ mod tests {
         let client_room = client.get_room(room_id).expect("No room found");
         assert_eq!(client_room.computed_display_name().await.unwrap().to_string(), "myroom");
         assert!(client_room.name().is_none());
+    }
+
+    #[async_test]
+    async fn test_compute_heroes_from_sliding_sync() {
+        // Given a logged-in client
+        let client = logged_in_base_client(None).await;
+        let room_id = room_id!("!r:e.uk");
+        let gordon = user_id!("@gordon:e.uk").to_owned();
+        let alice = user_id!("@alice:e.uk").to_owned();
+
+        // When I send sliding sync response containing a room (with identifiable data
+        // in `heroes`)
+        let mut room = v4::SlidingSyncRoom::new();
+        room.heroes = Some(vec![
+            assign!(v4::SlidingSyncRoomHero::default(), {
+                user_id: Some(gordon),
+                name: Some("Gordon".to_string()),
+            }),
+            assign!(v4::SlidingSyncRoomHero::default(), {
+                user_id: Some(alice),
+                name: Some("Alice".to_string()),
+            }),
+        ]);
+        let response = response_with_room(room_id, room).await;
+        let _sync_resp =
+            client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
+
+        // Then the room appears in the client.
+        let client_room = client.get_room(room_id).expect("No room found");
+        assert_eq!(client_room.room_id(), room_id);
+        assert_eq!(client_room.state(), RoomState::Joined);
+
+        // And heroes are part of the summary.
+        assert_eq!(
+            client_room.clone_info().summary.heroes(),
+            &["Gordon".to_string(), "Alice".to_string()]
+        );
     }
 
     #[async_test]
