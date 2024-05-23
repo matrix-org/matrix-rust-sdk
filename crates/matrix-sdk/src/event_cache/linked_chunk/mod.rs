@@ -210,7 +210,7 @@ pub struct LinkedChunk<const CHUNK_CAPACITY: usize, Item, Gap> {
     /// All updates that have been made on this `LinkedChunk`. If this field is
     /// `Some(…)`, update history is enabled, otherwise, if it's `None`, update
     /// history is disabled.
-    updates: Option<Updates<Item, Gap>>,
+    updates: Option<ObservableUpdates<Item, Gap>>,
 
     /// Marker.
     marker: PhantomData<Box<Chunk<CHUNK_CAPACITY, Item, Gap>>>,
@@ -234,8 +234,9 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
 
     /// Create a new [`Self`] with a history of updates.
     ///
-    /// When [`Self`] is built with update history, the [`Updates::take`] method
-    /// must be called to consume and clean the updates. See [`Self::updates`].
+    /// When [`Self`] is built with update history, the
+    /// [`ObservableUpdates::take`] method must be called to consume and
+    /// clean the updates. See [`Self::updates`].
     pub fn new_with_update_history() -> Self {
         Self {
             links: Ends {
@@ -245,7 +246,7 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
             },
             length: 0,
             chunk_identifier_generator: ChunkIdentifierGenerator::new_from_scratch(),
-            updates: Some(Updates::new()),
+            updates: Some(ObservableUpdates::new()),
             marker: PhantomData,
         }
     }
@@ -721,16 +722,18 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
             .skip(position.index()))
     }
 
-    /// Get a mutable reference to the `LinkedChunk` updates, aka [`Updates`].
+    /// Get a mutable reference to the `LinkedChunk` updates, aka
+    /// [`ObservableUpdates`].
     ///
     /// If the `Option` becomes `None`, it will disable update history. Thus, be
     /// careful when you want to empty the update history: do not use
-    /// `Option::take()` directly but rather [`Updates::take`] for example.
+    /// `Option::take()` directly but rather [`ObservableUpdates::take`] for
+    /// example.
     ///
     /// It returns `None` if updates are disabled, i.e. if this linked chunk has
     /// been constructed with [`Self::new`], otherwise, if it's been constructed
     /// with [`Self::new_with_update_history`], it returns `Some(…)`.
-    pub fn updates(&mut self) -> Option<&mut Updates<Item, Gap>> {
+    pub fn updates(&mut self) -> Option<&mut ObservableUpdates<Item, Gap>> {
         self.updates.as_mut()
     }
 
@@ -1046,7 +1049,7 @@ impl<const CAPACITY: usize, Item, Gap> Chunk<CAPACITY, Item, Gap> {
         &mut self,
         mut new_items: I,
         chunk_identifier_generator: &ChunkIdentifierGenerator,
-        updates: &mut Option<Updates<Item, Gap>>,
+        updates: &mut Option<ObservableUpdates<Item, Gap>>,
     ) -> &mut Self
     where
         I: Iterator<Item = Item> + ExactSizeIterator,
@@ -1128,7 +1131,7 @@ impl<const CAPACITY: usize, Item, Gap> Chunk<CAPACITY, Item, Gap> {
     fn insert_next(
         &mut self,
         mut new_chunk_ptr: NonNull<Self>,
-        updates: &mut Option<Updates<Item, Gap>>,
+        updates: &mut Option<ObservableUpdates<Item, Gap>>,
     ) -> &mut Self
     where
         Gap: Clone,
@@ -1172,7 +1175,7 @@ impl<const CAPACITY: usize, Item, Gap> Chunk<CAPACITY, Item, Gap> {
     ///
     /// Be careful: `self` won't belong to `LinkedChunk` anymore, and should be
     /// dropped appropriately.
-    fn unlink(&mut self, updates: &mut Option<Updates<Item, Gap>>) {
+    fn unlink(&mut self, updates: &mut Option<ObservableUpdates<Item, Gap>>) {
         let previous_ptr = self.previous;
         let next_ptr = self.next;
 

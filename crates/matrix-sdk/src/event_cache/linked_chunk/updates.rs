@@ -92,15 +92,15 @@ pub enum Update<Item, Gap> {
     EndReattachItems,
 }
 
-/// A collection of [`Update`].
+/// A collection of [`Update`]s that can be observed.
 ///
 /// Get a value for this type with [`LinkedChunk::updates`].
-pub struct Updates<Item, Gap> {
+pub struct ObservableUpdates<Item, Gap> {
     pub(super) inner: Arc<RwLock<UpdatesInner<Item, Gap>>>,
 }
 
-impl<Item, Gap> Updates<Item, Gap> {
-    /// Create a new [`Self`].
+impl<Item, Gap> ObservableUpdates<Item, Gap> {
+    /// Create a new [`ObservableUpdates`].
     pub(super) fn new() -> Self {
         Self { inner: Arc::new(RwLock::new(UpdatesInner::new())) }
     }
@@ -148,20 +148,20 @@ impl<Item, Gap> Updates<Item, Gap> {
 /// [`UpdatesInner`].
 pub(super) type ReaderToken = usize;
 
-/// Inner type for [`Updates`].
+/// Inner type for [`ObservableUpdates`].
 ///
 /// The particularity of this type is that multiple readers can read the
 /// updates. A reader has a [`ReaderToken`]. The public API (i.e.
-/// [`Updates`]) is considered to be the _main reader_ (it has the token
-/// [`Self::MAIN_READER_TOKEN`]).
+/// [`ObservableUpdates`]) is considered to be the _main reader_ (it has the
+/// token [`Self::MAIN_READER_TOKEN`]).
 ///
 /// An update that have been read by all readers are garbage collected to be
 /// removed from the memory. An update will never be read twice by the same
 /// reader.
 ///
 /// Why do we need multiple readers? The public API reads the updates with
-/// [`Updates::take`], but the private API must also read the updates for
-/// example with [`UpdatesSubscriber`]. Of course, they can be multiple
+/// [`ObservableUpdates::take`], but the private API must also read the updates
+/// for example with [`UpdatesSubscriber`]. Of course, they can be multiple
 /// `UpdatesSubscriber`s at the same time. Hence the need of supporting multiple
 /// readers.
 pub(super) struct UpdatesInner<Item, Gap> {
@@ -270,12 +270,12 @@ impl<Item, Gap> UpdatesInner<Item, Gap> {
     }
 }
 
-/// A subscriber to [`Updates`]. It is helpful to receive updates via a
-/// [`Stream`].
+/// A subscriber to [`ObservableUpdates`]. It is helpful to receive updates via
+/// a [`Stream`].
 pub(super) struct UpdatesSubscriber<Item, Gap> {
     /// Weak reference to [`UpdatesInner`].
     ///
-    /// Using a weak reference allows [`Updates`] to be dropped
+    /// Using a weak reference allows [`ObservableUpdates`] to be dropped
     /// freely even if a subscriber exists.
     updates: Weak<RwLock<UpdatesInner<Item, Gap>>>,
 
@@ -299,7 +299,7 @@ where
 
     fn poll_next(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let Some(updates) = self.updates.upgrade() else {
-            // The `Updates` has been dropped. It's time to close this stream.
+            // The `ObservableUpdates` has been dropped. It's time to close this stream.
             return Poll::Ready(None);
         };
 

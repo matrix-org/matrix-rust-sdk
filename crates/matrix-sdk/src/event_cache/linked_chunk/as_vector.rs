@@ -29,8 +29,8 @@ use super::{
 type ChunkLength = usize;
 
 /// A type that transforms a `Vec<Update<Item, Gap>>` (given by
-/// [`Updates::take`](super::Updates::take)) into a `Vec<VectorDiff<Item>>`
-/// (this type). Basically, it helps to consume a
+/// [`ObservableUpdates::take`](super::ObservableUpdates::take)) into a
+/// `Vec<VectorDiff<Item>>` (this type). Basically, it helps to consume a
 /// [`LinkedChunk<CAP, Item, Gap>`](super::LinkedChunk) as if it was an
 /// [`eyeball_im::ObservableVector<Item>`].
 pub struct AsVector<Item, Gap> {
@@ -47,7 +47,8 @@ pub struct AsVector<Item, Gap> {
 impl<Item, Gap> AsVector<Item, Gap> {
     /// Create a new [`AsVector`].
     ///
-    /// `updates` is the inner value of [`Updates`][super::updates::Updates].
+    /// `updates` is the inner value of
+    /// [`ObservableUpdates`][super::updates::ObservableUpdates].
     /// It's required to read the new [`Update`]s. `token` is the
     /// [`ReaderToken`] necessary for this type to read the [`Update`]s.
     /// `chunk_iterator` is the iterator of all [`Chunk`](super::Chunk)s, used
@@ -277,11 +278,11 @@ impl UpdateToVectorDiff {
                                 .chunks
                                 .iter()
                                 .position(|(chunk_identifier, _)| chunk_identifier == next)
-                                // SAFETY: Assuming `LinkedChunk` and `Updates` are not buggy, and
-                                // assuming `Self::chunks` is correctly initialized, it is not
-                                // possible to insert a chunk between two chunks where one does not
-                                // exist. If this predicate fails, it means `LinkedChunk` or
-                                // `Updates` contain a bug.
+                                // SAFETY: Assuming `LinkedChunk` and `ObservableUpdates` are not
+                                // buggy, and assuming `Self::chunks` is correctly initialized, it
+                                // is not possible to insert a chunk between two chunks where one
+                                // does not exist. If this predicate fails, it means `LinkedChunk`
+                                // or `ObservableUpdates` contain a bug.
                                 .expect("Inserting new chunk: The chunk is not found");
 
                             debug_assert!(
@@ -308,10 +309,10 @@ impl UpdateToVectorDiff {
                         .position(|(chunk_identifier, _)| {
                             chunk_identifier == expected_chunk_identifier
                         })
-                        // SAFETY: Assuming `LinkedChunk` and `Updates` are not buggy, and assuming
-                        // `Self::chunks` is correctly initialized, it is not possible to remove a
-                        // chunk that does not exist. If this predicate fails, it means
-                        // `LinkedChunk` or `Updates` contain a bug.
+                        // SAFETY: Assuming `LinkedChunk` and `ObservableUpdates` are not buggy, and
+                        // assuming `Self::chunks` is correctly initialized, it is not possible to
+                        // remove a chunk that does not exist. If this predicate fails, it means
+                        // `LinkedChunk` or `ObservableUpdates` contain a bug.
                         .expect("Removing a chunk: The chunk is not found");
 
                     // It's OK to ignore the result. The `chunk_index` exists because it's been
@@ -341,11 +342,11 @@ impl UpdateToVectorDiff {
 
                             // Chunk has not been found.
                             ControlFlow::Continue(..) => {
-                                // SAFETY: Assuming `LinkedChunk` and `Updates` are not buggy, and
-                                // assuming `Self::chunks` is correctly initialized, it is not
-                                // possible to push items on a chunk that does not exist. If this
-                                // predicate fails, it means `LinkedChunk` or `Updates` contain a
-                                // bug.
+                                // SAFETY: Assuming `LinkedChunk` and `ObservableUpdates` are not
+                                // buggy, and assuming `Self::chunks` is correctly initialized, it
+                                // is not possible to push items on a chunk that does not exist. If
+                                // this predicate fails, it means `LinkedChunk` or
+                                // `ObservableUpdates` contain a bug.
                                 panic!("Pushing items: The chunk is not found");
                             }
                         }
@@ -380,10 +381,10 @@ impl UpdateToVectorDiff {
                         .find_map(|(chunk_identifier, length)| {
                             (*chunk_identifier == expected_chunk_identifier).then_some(length)
                         })
-                        // SAFETY: Assuming `LinkedChunk` and `Updates` are not buggy, and assuming
-                        // `Self::chunks` is correctly initialized, it is not possible to detach
-                        // items from a chunk that does not exist. If this predicate fails, it means
-                        // `LinkedChunk` or `Updates` contain a bug.
+                        // SAFETY: Assuming `LinkedChunk` and `ObservableUpdates` are not buggy, and
+                        // assuming `Self::chunks` is correctly initialized, it is not possible to
+                        // detach items from a chunk that does not exist. If this predicate fails,
+                        // it means `LinkedChunk` or `ObservableUpdates` contain a bug.
                         .expect("Detach last items: The chunk is not found");
 
                     *length = new_length;
