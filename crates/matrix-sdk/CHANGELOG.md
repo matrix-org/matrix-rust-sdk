@@ -18,6 +18,8 @@ Breaking changes:
 
 Additions:
 
+- Expose new method `Client::Oidc::login_with_qr_code()`.
+  ([#3466](https://github.com/matrix-org/matrix-rust-sdk/pull/3466))
 - Add the `ClientBuilder::add_root_certificates()` method which re-exposes the
   `reqwest::ClientBuilder::add_root_certificate()` functionality.
 - Add `Room::get_user_power_level(user_id)` and `Room::get_suggested_user_role(user_id)` to be able to fetch power level info about an user without loading the room member list.

@@ -25,6 +25,8 @@ ratatui = "ratatui"
 # base64 false positives
 Nd = "Nd"
 Abl = "Abl"
+Som = "Som"
+Ba = "Ba"
 
 [files]
 extend-exclude = [

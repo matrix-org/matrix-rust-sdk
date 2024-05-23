@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! Types and functions related to authentication in Matrix.
+
 // TODO:(pixlwave) Move AuthenticationService from the FFI into this module.
+// TODO:(poljar) Move the oidc and matrix_auth modules under this module.
 
 use std::pin::Pin;
 
@@ -27,6 +30,9 @@ use crate::{
     matrix_auth::{self, MatrixAuth, MatrixAuthData},
     Client, RefreshTokenError, SessionChange,
 };
+
+#[cfg(all(feature = "experimental-oidc", feature = "e2e-encryption", not(target_arch = "wasm32")))]
+pub mod qrcode;
 
 /// Session tokens, for any kind of authentication.
 #[allow(missing_debug_implementations, clippy::large_enum_variant)]
