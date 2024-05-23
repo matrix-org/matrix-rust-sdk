@@ -68,7 +68,7 @@ use crate::{
     RUNTIME,
 };
 
-mod content;
+pub mod content;
 
 #[derive(uniffi::Object)]
 #[repr(transparent)]

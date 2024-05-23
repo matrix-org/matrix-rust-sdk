@@ -6,7 +6,9 @@ use matrix_sdk::{
     room::{power_levels::RoomPowerLevelChanges, Room as SdkRoom, RoomMemberRole},
     ComposerDraft, RoomMemberships, RoomState,
 };
-use matrix_sdk_ui::timeline::{PaginationError, RoomExt, TimelineFocus};
+use matrix_sdk_ui::timeline::{
+    PaginationError, RepliedToEvent, RoomExt, TimelineDetails, TimelineFocus,
+};
 use mime::Mime;
 use ruma::{
     api::client::room::report_content,
@@ -31,7 +33,9 @@ use crate::{
     room_info::RoomInfo,
     room_member::RoomMember,
     ruma::ImageInfo,
-    timeline::{EventTimelineItem, FocusEventError, ReceiptType, Timeline},
+    timeline::{
+        content::InReplyToDetails, EventTimelineItem, FocusEventError, ReceiptType, Timeline,
+    },
     utils::u64_to_uint,
     TaskHandle,
 };
@@ -653,6 +657,25 @@ impl Room {
     pub async fn restore_composer_draft(&self) -> Result<Option<ComposerDraft>, ClientError> {
         let draft = self.inner.restore_composer_draft().await?;
         Ok(draft)
+    }
+
+    pub async fn clear_composer_draft(&self) -> Result<(), ClientError> {
+        self.inner.clear_composer_draft().await?;
+        Ok(())
+    }
+
+    pub async fn get_loaded_reply_details(
+        &self,
+        event_id: String,
+    ) -> Result<InReplyToDetails, ClientError> {
+        let event_id = EventId::parse(event_id)?;
+        let res = match self.inner.event(&event_id).await {
+            Ok(timeline_event) => TimelineDetails::Ready(Box::new(
+                RepliedToEvent::try_from_timeline_event(timeline_event, &self.inner).await?,
+            )),
+            Err(e) => TimelineDetails::Error(Arc::new(e)),
+        };
+        Ok((&matrix_sdk_ui::timeline::InReplyToDetails::new_from_event(event_id, res)).into())
     }
 }
 

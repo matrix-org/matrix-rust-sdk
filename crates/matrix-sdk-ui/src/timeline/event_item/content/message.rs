@@ -237,6 +237,13 @@ impl InReplyToDetails {
 
         InReplyToDetails { event_id, event: TimelineDetails::from_initial_value(event) }
     }
+
+    pub fn new_from_event(
+        event_id: OwnedEventId,
+        event: TimelineDetails<Box<RepliedToEvent>>,
+    ) -> InReplyToDetails {
+        Self { event_id, event }
+    }
 }
 
 /// An event that is replied to.
@@ -279,7 +286,7 @@ impl RepliedToEvent {
         }
     }
 
-    pub(in crate::timeline) async fn try_from_timeline_event<P: RoomDataProvider>(
+    pub async fn try_from_timeline_event<P: RoomDataProvider>(
         timeline_event: TimelineEvent,
         room_data_provider: &P,
     ) -> Result<Self, TimelineError> {

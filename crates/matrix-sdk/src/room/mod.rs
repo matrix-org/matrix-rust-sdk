@@ -2642,7 +2642,14 @@ impl Room {
         let room_id = self.room_id().to_owned();
         let data =
             self.client().store().get_kv_data(StateStoreDataKey::ComposerDraft(&room_id)).await?;
-        Ok(data.map(|d| d.into_composer_draft()).flatten())
+        Ok(data.and_then(|d| d.into_composer_draft()))
+    }
+
+    /// Removes the `ComposerDraft` stored in the state store for this room.
+    pub async fn clear_composer_draft(&self) -> Result<()> {
+        let room_id = self.room_id().to_owned();
+        self.client().store().remove_kv_data(StateStoreDataKey::ComposerDraft(&room_id)).await?;
+        Ok(())
     }
 }
 
