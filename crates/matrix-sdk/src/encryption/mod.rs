@@ -57,6 +57,7 @@ use ruma::{
 };
 use tokio::sync::RwLockReadGuard;
 use tracing::{debug, error, instrument, trace, warn};
+use vodozemac::Curve25519PublicKey;
 
 use self::{
     backups::{types::BackupClientState, Backups},
@@ -613,10 +614,9 @@ impl Encryption {
         self.client.olm_machine().await.as_ref().map(|o| o.identity_keys().ed25519.to_base64())
     }
 
-    /// Get the public curve25519 key of our own device in base64. This is
-    /// usually what is called the identity key of the device.
-    pub async fn curve25519_key(&self) -> Option<String> {
-        self.client.olm_machine().await.as_ref().map(|o| o.identity_keys().curve25519.to_base64())
+    /// Get the public Curve25519 key of our own device.
+    pub async fn curve25519_key(&self) -> Option<Curve25519PublicKey> {
+        self.client.olm_machine().await.as_ref().map(|o| o.identity_keys().curve25519)
     }
 
     /// Get the status of the private cross signing keys.
