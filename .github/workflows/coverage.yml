@@ -1,4 +1,4 @@
-name: Code coverage
+name: Code Coverage
 
 on:
   push:
@@ -110,12 +110,40 @@ jobs:
           HOMESERVER_DOMAIN: "synapse"
           SLIDING_SYNC_PROXY_URL: "http://localhost:8118"
 
-      - name: Upload to codecov.io
-        uses: codecov/codecov-action@v4
+      # Copied with minimal adjustments, source:
+      # https://github.com/google/mdbook-i18n-helpers/blob/2168b9cea1f4f76b55426591a9bcc308a620194f/.github/workflows/test.yml
+      - name: Get PR number and commit SHA
+        run: |
+          echo "Storing PR number ${{ github.event.number }}"
+          echo "${{ github.event.number }}" > pr_number.txt
+
+          echo "Storing commit SHA ${{ github.event.pull_request.head.sha }}"
+          echo "${{ github.event.pull_request.head.sha }}" > commit_sha.txt
+
+      # Workaround for https://github.com/orgs/community/discussions/25220
+      # Triggered sub-workflow is not able to detect the original commit/PR which is available
+      # in this workflow.
+      - name: Store PR number in artifacts
+        uses: actions/upload-artifact@v4
         with:
-          # Work around frequent upload errors, for runs inside the main repo (not PRs from forks).
-          # Otherwise not required for public repos.
-          token: ${{ secrets.CODECOV_UPLOAD_TOKEN }}
-          # The upload sometimes fails due to https://github.com/codecov/codecov-action/issues/837.
-          # To make sure that the failure gets flagged clearly in the UI, fail the action.
-          fail_ci_if_error: true
+          name: pr_number
+          path: pr_number.txt
+
+      - name: Store commit SHA in artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: commit_sha
+          path: commit_sha.txt
+
+      # This stores the coverage report in artifacts. The actual upload to Codecov
+      # is executed by a different workflow `upload_coverage.yml`. The reason for this
+      # split is because `on.pull_request` workflows don't have access to secrets.
+      - name: Store coverage report in artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: codecov_report
+          path: codecov_report.json
+
+      - run: |
+          echo "The coverage report was stored in Github artifacts."
+          echo "It will be uploaded to Codecov using `upload_coverage.yml` workflow shortly."
