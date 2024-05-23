@@ -120,6 +120,16 @@ struct Timeline {
     task: JoinHandle<()>,
 }
 
+/// Extra room information, like its display name, etc.
+#[derive(Clone)]
+struct ExtraRoomInfo {
+    /// Content of the raw m.room.name event, if available.
+    raw_name: Option<String>,
+
+    /// Calculated display name for the room.
+    display_name: Option<String>,
+}
+
 struct App {
     /// Reference to the main SDK client.
     client: Client,
@@ -135,6 +145,9 @@ struct App {
 
     /// Ratatui's list of room list entries.
     room_list_entries: StatefulList<RoomListEntry>,
+
+    /// Extra information about rooms.
+    room_info: Arc<Mutex<HashMap<OwnedRoomId, ExtraRoomInfo>>>,
 
     /// Task listening to room list service changes, and spawning timelines.
     listen_task: JoinHandle<()>,
@@ -164,11 +177,14 @@ impl App {
         let (rooms, stream) = all_rooms.entries();
 
         let rooms = Arc::new(Mutex::new(rooms));
+        let room_infos: Arc<Mutex<HashMap<OwnedRoomId, ExtraRoomInfo>>> =
+            Arc::new(Mutex::new(Default::default()));
         let ui_rooms: Arc<Mutex<HashMap<OwnedRoomId, room_list_service::Room>>> =
             Default::default();
         let timelines = Arc::new(Mutex::new(HashMap::new()));
 
         let r = rooms.clone();
+        let ri = room_infos.clone();
         let ur = ui_rooms.clone();
         let s = sync_service.clone();
         let t = timelines.clone();
@@ -176,6 +192,7 @@ impl App {
         let listen_task = spawn(async move {
             pin_mut!(stream);
             let rooms = r;
+            let room_infos = ri;
             let ui_rooms = ur;
             let sync_service = s;
             let timelines = t;
@@ -252,6 +269,15 @@ impl App {
                     new_ui_rooms.insert(room_id, ui_room);
                 }
 
+                for (room_id, room) in &new_ui_rooms {
+                    let raw_name = room.name();
+                    let display_name = room.computed_display_name().await;
+                    room_infos
+                        .lock()
+                        .unwrap()
+                        .insert(room_id.clone(), ExtraRoomInfo { raw_name, display_name });
+                }
+
                 ui_rooms.lock().unwrap().extend(new_ui_rooms);
                 timelines.lock().unwrap().extend(new_timelines);
             }
@@ -264,6 +290,7 @@ impl App {
         Ok(Self {
             sync_service,
             room_list_entries: StatefulList { state: Default::default(), items: rooms },
+            room_info: room_infos,
             client,
             listen_task,
             last_status_message: Default::default(),
@@ -502,6 +529,10 @@ impl App {
         // We can render the header in outer_area.
         outer_block.render(outer_area, buf);
 
+        // Don't keep this lock too long by cloning the content. RAM's free these days,
+        // right?
+        let mut room_info = self.room_info.lock().unwrap().clone();
+
         // Iterate through all elements in the `items` and stylize them.
         let items: Vec<ListItem<'_>> = self
             .room_list_entries
@@ -519,7 +550,24 @@ impl App {
                 let line = if let Some(room) =
                     item.as_room_id().and_then(|room_id| self.client.get_room(room_id))
                 {
-                    format!("#{i} {}", room.room_id())
+                    let room_id = room.room_id();
+                    let room_info = room_info.remove(room_id);
+
+                    let (raw, display) = if let Some(info) = room_info {
+                        (info.raw_name, info.display_name)
+                    } else {
+                        (None, None)
+                    };
+
+                    let room_name = if let Some(n) = display {
+                        format!("{n} ({room_id})")
+                    } else if let Some(n) = raw {
+                        format!("m.room.name:{n} ({room_id})")
+                    } else {
+                        room_id.to_string()
+                    };
+
+                    format!("#{i} {}", room_name)
                 } else {
                     "non-filled room".to_owned()
                 };
