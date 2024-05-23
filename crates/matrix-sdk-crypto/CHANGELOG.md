@@ -19,6 +19,7 @@ Breaking changes:
 - Add a `custom_account` argument to the `OlmMachine::with_store()` method, this
   allows users to learn their identity keys before they get access to the user
   and device ID.
+  ([#3451](https://github.com/matrix-org/matrix-rust-sdk/pull/3451))
 
 - Add a `backup_version` argument to `CryptoStore`'s
   `inbound_group_sessions_for_backup`,
