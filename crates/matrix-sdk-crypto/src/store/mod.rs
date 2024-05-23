@@ -1735,7 +1735,7 @@ impl Store {
     /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
     /// # let export = Cursor::new("".to_owned());
     /// let exported_keys = decrypt_room_key_export(export, "1234").unwrap();
-    /// machine.import_room_keys(exported_keys, false, |_, _| {}).await.unwrap();
+    /// machine.store().import_exported_room_keys(exported_keys, |_, _| {}).await.unwrap();
     /// # };
     /// ```
     pub async fn import_exported_room_keys(
