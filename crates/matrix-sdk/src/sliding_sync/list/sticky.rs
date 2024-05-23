@@ -16,6 +16,10 @@ pub(super) struct SlidingSyncListStickyParameters {
     /// Required states to return per room.
     required_state: Vec<(StateEventType, String)>,
 
+    /// Return a stripped variant of membership events for the users used to
+    /// calculate the room name.
+    include_heroes: Option<bool>,
+
     /// Any filters to apply to the query.
     filters: Option<v4::SyncRequestListFilters>,
 
@@ -31,13 +35,14 @@ impl SlidingSyncListStickyParameters {
     pub fn new(
         sort: Vec<String>,
         required_state: Vec<(StateEventType, String)>,
+        include_heroes: Option<bool>,
         filters: Option<v4::SyncRequestListFilters>,
         timeline_limit: Option<Bound>,
         bump_event_types: Vec<TimelineEventType>,
     ) -> Self {
         // Consider that each list will have at least one parameter set, so invalidate
         // it by default.
-        Self { sort, required_state, filters, timeline_limit, bump_event_types }
+        Self { sort, required_state, include_heroes, filters, timeline_limit, bump_event_types }
     }
 }
 
@@ -58,6 +63,7 @@ impl StickyData for SlidingSyncListStickyParameters {
         request.sort = self.sort.to_vec();
         request.room_details.required_state = self.required_state.to_vec();
         request.room_details.timeline_limit = self.timeline_limit.map(Into::into);
+        request.include_heroes = self.include_heroes;
         request.filters = self.filters.clone();
         request.bump_event_types = self.bump_event_types.clone();
     }
