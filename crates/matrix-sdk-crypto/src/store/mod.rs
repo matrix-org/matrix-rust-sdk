@@ -32,7 +32,7 @@
 //! # let device_id = device_id!("TEST");
 //! let store = Arc::new(MemoryStore::new());
 //!
-//! let machine = OlmMachine::with_store(user_id, device_id, store);
+//! let machine = OlmMachine::with_store(user_id, device_id, store, None);
 //! ```
 //!
 //! [`OlmMachine`]: /matrix_sdk_crypto/struct.OlmMachine.html

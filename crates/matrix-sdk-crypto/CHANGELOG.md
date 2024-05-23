@@ -16,6 +16,10 @@ Changes:
 
 Breaking changes:
 
+- Add a `custom_account` argument to the `OlmMachine::with_store()` method, this
+  allows users to learn their identity keys before they get access to the user
+  and device ID.
+
 - Add a `backup_version` argument to `CryptoStore`'s
   `inbound_group_sessions_for_backup`,
   `mark_inbound_group_sessions_as_backed_up` and

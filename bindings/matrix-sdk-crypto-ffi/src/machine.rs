@@ -208,8 +208,12 @@ impl OlmMachine {
 
         passphrase.zeroize();
 
-        let inner =
-            runtime.block_on(InnerMachine::with_store(&user_id, device_id, Arc::new(store)))?;
+        let inner = runtime.block_on(InnerMachine::with_store(
+            &user_id,
+            device_id,
+            Arc::new(store),
+            None,
+        ))?;
 
         Ok(Arc::new(OlmMachine { inner: ManuallyDrop::new(inner), runtime }))
     }
