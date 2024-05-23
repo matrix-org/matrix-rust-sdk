@@ -1407,6 +1407,30 @@ impl Encryption {
         }
     }
 
+    /// Upload the device keys and initial set of one-tim keys to the server.
+    ///
+    /// This should only be called when the user logs in for the first time,
+    /// the method will ensure that other devices see our own device as an
+    /// end-to-end encryption enabled one.
+    ///
+    /// **Warning**: Do not use this method if we're already calling
+    /// [`Client::send_outgoing_request()`]. This method is intended for
+    /// explicitly uploading the device keys before starting a sync.
+    #[cfg(feature = "experimental-oidc")]
+    pub(crate) async fn ensure_device_keys_upload(&self) -> Result<()> {
+        let olm = self.client.olm_machine().await;
+        let olm = olm.as_ref().ok_or(Error::NoOlmMachine)?;
+
+        if let Some((request_id, request)) = olm.upload_device_keys().await? {
+            self.client.keys_upload(&request_id, &request).await?;
+
+            let (request_id, request) = olm.query_keys_for_users([olm.user_id()]);
+            self.client.keys_query(&request_id, request.device_keys).await?;
+        }
+
+        Ok(())
+    }
+
     pub(crate) async fn update_state_after_keys_query(&self, response: &get_keys::v3::Response) {
         self.recovery().update_state_after_keys_query(response).await;
 
