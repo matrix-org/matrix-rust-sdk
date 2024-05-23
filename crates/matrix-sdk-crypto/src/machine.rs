@@ -633,11 +633,7 @@ impl OlmMachine {
         let cache = self.store().cache().await?;
         let account = cache.account().await?;
 
-        Ok(if let Some(request) = self.keys_for_upload(&account).await {
-            Some((TransactionId::new(), request))
-        } else {
-            None
-        })
+        Ok(self.keys_for_upload(&account).await.map(|request| (TransactionId::new(), request)))
     }
 
     /// Receive a successful `/keys/upload` response.
