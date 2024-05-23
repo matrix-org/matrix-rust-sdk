@@ -74,7 +74,7 @@ pub enum KeyExportError {
 /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
 /// # let export = Cursor::new("".to_owned());
 /// let exported_keys = decrypt_room_key_export(export, "1234").unwrap();
-/// machine.import_room_keys(exported_keys, false, |_, _| {}).await.unwrap();
+/// machine.store().import_room_keys(exported_keys, None, |_, _| {}).await.unwrap();
 /// # };
 /// ```
 pub fn decrypt_room_key_export(

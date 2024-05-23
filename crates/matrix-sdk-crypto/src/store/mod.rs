@@ -1630,10 +1630,22 @@ impl Store {
         self.inner.store.secrets_stream()
     }
 
-    pub(crate) async fn import_room_keys(
+    /// Import the given room keys into the store.
+    ///
+    /// # Arguments
+    ///
+    /// * `exported_keys` - The keys to be imported.
+    /// * `from_backup_version` - If the keys came from key backup, the key
+    ///   backup version. This will cause the keys to be marked as already
+    ///   backed up, and therefore not requiring another backup.
+    /// * `progress_listener` - Callback which will be called after each key is
+    ///   processed. Called with arguments `(processed, total)` where
+    ///   `processed` is the number of keys processed so far, and `total` is the
+    ///   total number of keys (i.e., `exported_keys.len()`).
+    pub async fn import_room_keys(
         &self,
         exported_keys: Vec<ExportedRoomKey>,
-        from_backup: bool,
+        from_backup_version: Option<&str>,
         progress_listener: impl Fn(usize, usize),
     ) -> Result<RoomKeyImportResult> {
         let mut sessions = Vec::new();
@@ -1664,7 +1676,7 @@ impl Store {
                     // Only import the session if we didn't have this session or
                     // if it's a better version of the same session.
                     if new_session_better(&session, old_session).await {
-                        if from_backup {
+                        if from_backup_version.is_some() {
                             session.mark_as_backed_up();
                         }
 
@@ -1693,9 +1705,7 @@ impl Store {
 
         let imported_count = sessions.len();
 
-        let changes = Changes { inbound_group_sessions: sessions, ..Default::default() };
-
-        self.save_changes(changes).await?;
+        self.inner.store.save_inbound_group_sessions(sessions, from_backup_version).await?;
 
         info!(total_count, imported_count, room_keys = ?keys, "Successfully imported room keys");
 
@@ -1725,7 +1735,7 @@ impl Store {
     /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
     /// # let export = Cursor::new("".to_owned());
     /// let exported_keys = decrypt_room_key_export(export, "1234").unwrap();
-    /// machine.import_room_keys(exported_keys, false, |_, _| {}).await.unwrap();
+    /// machine.store().import_exported_room_keys(exported_keys, |_, _| {}).await.unwrap();
     /// # };
     /// ```
     pub async fn import_exported_room_keys(
@@ -1733,7 +1743,7 @@ impl Store {
         exported_keys: Vec<ExportedRoomKey>,
         progress_listener: impl Fn(usize, usize),
     ) -> Result<RoomKeyImportResult> {
-        self.import_room_keys(exported_keys, false, progress_listener).await
+        self.import_room_keys(exported_keys, None, progress_listener).await
     }
 
     pub(crate) fn crypto_store(&self) -> Arc<CryptoStoreWrapper> {

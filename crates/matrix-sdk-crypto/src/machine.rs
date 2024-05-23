@@ -62,9 +62,8 @@ use crate::{
     gossiping::GossipMachine,
     identities::{user::UserIdentities, Device, IdentityManager, UserDevices},
     olm::{
-        Account, CrossSigningStatus, EncryptionSettings, ExportedRoomKey, IdentityKeys,
-        InboundGroupSession, OlmDecryptionInfo, PrivateCrossSigningIdentity, SessionType,
-        StaticAccountData,
+        Account, CrossSigningStatus, EncryptionSettings, IdentityKeys, InboundGroupSession,
+        OlmDecryptionInfo, PrivateCrossSigningIdentity, SessionType, StaticAccountData,
     },
     requests::{IncomingResponse, OutgoingRequest, UploadSigningKeysRequest},
     session_manager::{GroupSessionManager, SessionManager},
@@ -91,7 +90,7 @@ use crate::{
     utilities::timestamp_to_iso8601,
     verification::{Verification, VerificationMachine, VerificationRequest},
     CrossSigningKeyExport, CryptoStoreError, KeysQueryRequest, LocalTrust, ReadOnlyDevice,
-    RoomKeyImportResult, SignatureError, ToDeviceRequest,
+    SignatureError, ToDeviceRequest,
 };
 
 /// State machine implementation of the Olm/Megolm encryption protocol used for
@@ -1781,49 +1780,6 @@ impl OlmMachine {
     ) -> StoreResult<UserDevices> {
         self.wait_if_user_pending(user_id, timeout).await?;
         self.store().get_user_devices(user_id).await
-    }
-
-    /// Import the given room keys into our store.
-    ///
-    /// # Arguments
-    ///
-    /// * `exported_keys` - A list of previously exported keys that should be
-    /// imported into our store. If we already have a better version of a key
-    /// the key will *not* be imported.
-    ///
-    /// * `from_backup` - Were the room keys imported from the backup, if true
-    /// will mark the room keys as already backed up. This will prevent backing
-    /// up keys that are already backed up.
-    ///
-    /// Returns a tuple of numbers that represent the number of sessions that
-    /// were imported and the total number of sessions that were found in the
-    /// key export.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// # use std::io::Cursor;
-    /// # use matrix_sdk_crypto::{OlmMachine, decrypt_room_key_export};
-    /// # use ruma::{device_id, user_id};
-    /// # let alice = user_id!("@alice:example.org");
-    /// # async {
-    /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
-    /// # let export = Cursor::new("".to_owned());
-    /// let exported_keys = decrypt_room_key_export(export, "1234").unwrap();
-    /// machine.import_room_keys(exported_keys, false, |_, _| {}).await.unwrap();
-    /// # };
-    /// ```
-    #[deprecated(
-        since = "0.7.0",
-        note = "Use the OlmMachine::store::import_exported_room_keys method instead"
-    )]
-    pub async fn import_room_keys(
-        &self,
-        exported_keys: Vec<ExportedRoomKey>,
-        from_backup: bool,
-        progress_listener: impl Fn(usize, usize),
-    ) -> StoreResult<RoomKeyImportResult> {
-        self.store().import_room_keys(exported_keys, from_backup, progress_listener).await
     }
 
     /// Get the status of the private cross signing keys.
