@@ -95,6 +95,7 @@ pub use self::{
     event_type_filter::TimelineEventTypeFilter,
     inner::default_event_filter,
     item::{TimelineItem, TimelineItemKind},
+    pagination::LiveBackPaginationStatus,
     polls::PollResult,
     reactions::ReactionSenderData,
     sliding_sync_ext::SlidingSyncRoomExt,

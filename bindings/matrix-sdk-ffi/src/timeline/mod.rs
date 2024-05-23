@@ -18,14 +18,13 @@ use anyhow::{Context, Result};
 use as_variant::as_variant;
 use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, StreamExt as _};
-use matrix_sdk::{
-    attachment::{
-        AttachmentConfig, AttachmentInfo, BaseAudioInfo, BaseFileInfo, BaseImageInfo,
-        BaseThumbnailInfo, BaseVideoInfo, Thumbnail,
-    },
-    event_cache::paginator::PaginatorState,
+use matrix_sdk::attachment::{
+    AttachmentConfig, AttachmentInfo, BaseAudioInfo, BaseFileInfo, BaseImageInfo,
+    BaseThumbnailInfo, BaseVideoInfo, Thumbnail,
 };
-use matrix_sdk_ui::timeline::{EventItemOrigin, Profile, TimelineDetails};
+use matrix_sdk_ui::timeline::{
+    EventItemOrigin, LiveBackPaginationStatus, Profile, TimelineDetails,
+};
 use mime::Mime;
 use ruma::{
     events::{
@@ -591,7 +590,7 @@ pub trait TimelineListener: Sync + Send {
 
 #[uniffi::export(callback_interface)]
 pub trait PaginationStatusListener: Sync + Send {
-    fn on_update(&self, status: PaginatorState);
+    fn on_update(&self, status: LiveBackPaginationStatus);
 }
 
 #[derive(Clone, uniffi::Object)]
