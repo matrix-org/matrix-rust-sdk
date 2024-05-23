@@ -162,11 +162,15 @@ impl Timeline {
         self.inner.fetch_members().await
     }
 
-    pub fn subscribe_to_back_pagination_status(
+    pub async fn subscribe_to_back_pagination_status(
         &self,
         listener: Box<dyn PaginationStatusListener>,
     ) -> Result<Arc<TaskHandle>, ClientError> {
-        let (initial, mut subscriber) = self.inner.back_pagination_status();
+        let (initial, mut subscriber) = self
+            .inner
+            .live_back_pagination_status()
+            .await
+            .context("can't subscribe to the back-pagination status on a focused timeline")?;
 
         Ok(Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
             // Send the current state even if it hasn't changed right away.

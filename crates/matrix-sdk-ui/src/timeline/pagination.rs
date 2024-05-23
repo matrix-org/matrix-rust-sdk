@@ -112,15 +112,19 @@ impl super::Timeline {
         Ok(false)
     }
 
-    /// Subscribe to the back-pagination status of the timeline.
+    /// Subscribe to the back-pagination status of a live timeline.
+    ///
+    /// This will return `None` if the timeline is in the focused mode.
     ///
     /// Note: this may send multiple Paginating/Idle sequences during a single
     /// call to [`Self::paginate_backwards()`].
-    // TODO: rename to live_back_pagination_status and add check that the timeline
-    // is live.
-    pub fn back_pagination_status(
+    pub async fn live_back_pagination_status(
         &self,
-    ) -> (LiveBackPaginationStatus, impl Stream<Item = LiveBackPaginationStatus>) {
+    ) -> Option<(LiveBackPaginationStatus, impl Stream<Item = LiveBackPaginationStatus>)> {
+        if !self.inner.is_live().await {
+            return None;
+        }
+
         let pagination = self.event_cache.pagination();
 
         let mut status = pagination.status();
@@ -138,7 +142,7 @@ impl super::Timeline {
             }
         });
 
-        (current_value, stream)
+        Some((current_value, stream))
     }
 }
 
