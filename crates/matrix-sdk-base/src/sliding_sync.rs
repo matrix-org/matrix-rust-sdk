@@ -21,7 +21,7 @@ use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
 use ruma::events::AnyToDeviceEvent;
 use ruma::{
     api::client::sync::sync_events::{
-        v3::{self, InvitedRoom, RoomSummary},
+        v3::{self, InvitedRoom},
         v4,
     },
     events::{AnyRoomAccountDataEvent, AnySyncStateEvent, AnySyncTimelineEvent},
@@ -38,7 +38,7 @@ use crate::RoomMemberships;
 use crate::{
     error::Result,
     read_receipts::{compute_unread_counts, PreviousEventsProvider},
-    rooms::RoomState,
+    rooms::{normal::RoomSummary, RoomState},
     store::{ambiguity_map::AmbiguityCache, StateChanges, Store},
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Notification, RoomUpdates, SyncResponse},
     Room, RoomInfo,
@@ -695,23 +695,19 @@ fn process_room_properties(room_data: &v4::SlidingSyncRoom, room_info: &mut Room
     // Sliding sync doesn't have a room summary, nevertheless it contains the joined
     // and invited member counts, in addition to the heroes if it's been configured
     // to return them (see the [`v4::RoomSubscription::include_heroes`]).
-    //
-    // Let's at least fetch the member counts, since they might be useful.
-    let mut room_summary = RoomSummary::new();
-
-    room_summary.invited_member_count = room_data.invited_count;
-    room_summary.joined_member_count = room_data.joined_count;
-
-    if let Some(heroes) = &room_data.heroes {
-        // It's not clear for Ruma, but the `heroes` field should be a collection of
-        // [`UserId`].
-        room_summary.heroes = heroes
-            .iter()
-            .filter_map(|hero| hero.user_id.as_ref().map(ToString::to_string))
-            .collect();
+    if let Some(count) = room_data.joined_count {
+        room_info.update_joined_member_count(count.into());
+    }
+    if let Some(count) = room_data.invited_count {
+        room_info.update_invited_member_count(count.into());
     }
 
-    room_info.update_summary(&room_summary);
+    if let Some(heroes) = &room_data.heroes {
+        // Filter out all the heroes which don't have a user id.
+        room_info.update_heroes(
+            heroes.iter().filter_map(|hero| hero.user_id.as_ref()).cloned().collect(),
+        );
+    }
 
     room_info.set_prev_batch(room_data.prev_batch.as_deref());
 
