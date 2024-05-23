@@ -3156,6 +3156,7 @@ dependencies = [
  "async-trait",
  "axum",
  "backoff",
+ "base64 0.22.1",
  "bytes",
  "bytesize",
  "chrono",
@@ -3185,6 +3186,7 @@ dependencies = [
  "mime",
  "mime2ext",
  "once_cell",
+ "openidconnect",
  "proptest",
  "rand",
  "reqwest",
@@ -3194,6 +3196,7 @@ dependencies = [
  "serde_json",
  "serde_urlencoded",
  "sha2",
+ "similar-asserts",
  "stream_assert",
  "tempfile",
  "thiserror",
@@ -3207,6 +3210,7 @@ dependencies = [
  "url",
  "urlencoding",
  "uuid",
+ "vodozemac",
  "wasm-bindgen-test",
  "wiremock",
  "zeroize",
@@ -3859,6 +3863,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "oauth2"
+version = "5.0.0-alpha.4"
+source = "git+https://github.com/poljar/oauth2-rs?rev=f8e28ce5a7f3278ac85b8593ecdd86f2cf51fa2e#f8e28ce5a7f3278ac85b8593ecdd86f2cf51fa2e"
+dependencies = [
+ "base64 0.21.7",
+ "chrono",
+ "getrandom",
+ "http 1.1.0",
+ "rand",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "serde_path_to_error",
+ "sha2",
+ "thiserror",
+ "url",
+]
+
+[[package]]
 name = "oauth2-types"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3933,6 +3956,36 @@ name = "opaque-debug"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08d65885ee38876c4f86fa503fb49d7b507c2b62552df7c70b2fce627e06381"
+
+[[package]]
+name = "openidconnect"
+version = "4.0.0-alpha.2"
+source = "git+https://github.com/poljar/openidconnect-rs?rev=c7e1dc31b83dd7559125984bfd36b9c0f191585e#c7e1dc31b83dd7559125984bfd36b9c0f191585e"
+dependencies = [
+ "base64 0.21.7",
+ "chrono",
+ "dyn-clone",
+ "ed25519-dalek",
+ "hmac",
+ "http 1.1.0",
+ "itertools 0.10.5",
+ "log",
+ "oauth2",
+ "p256",
+ "p384",
+ "rand",
+ "rsa",
+ "serde",
+ "serde-value",
+ "serde_json",
+ "serde_path_to_error",
+ "serde_plain",
+ "serde_with",
+ "sha2",
+ "subtle",
+ "thiserror",
+ "url",
+]
 
 [[package]]
 name = "openssl"
@@ -4012,7 +4065,7 @@ dependencies = [
  "futures-util",
  "once_cell",
  "opentelemetry",
- "ordered-float",
+ "ordered-float 4.2.0",
  "percent-encoding",
  "rand",
  "thiserror",
@@ -4023,6 +4076,15 @@ name = "option-ext"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
+
+[[package]]
+name = "ordered-float"
+version = "2.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "68f19d67e5a2795c94e73e0bb1cc1a7edeb2e28efd39e2e1c9b7a40c1108b11c"
+dependencies = [
+ "num-traits",
+]
 
 [[package]]
 name = "ordered-float"
@@ -5325,6 +5387,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde-value"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f3a1a3341211875ef120e117ea7fd5228530ae7e7036a779fdc9117be6b3282c"
+dependencies = [
+ "ordered-float 2.10.1",
+ "serde",
+]
+
+[[package]]
 name = "serde-wasm-bindgen"
 version = "0.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5398,6 +5470,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "af99884400da37c88f5e9146b7f1fd0fbcae8f6eec4e9da38b67d05486f814a6"
 dependencies = [
  "itoa",
+ "serde",
+]
+
+[[package]]
+name = "serde_plain"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9ce1fc6db65a611022b23a0dec6975d63fb80a302cb3388835ff02c097258d50"
+dependencies = [
  "serde",
 ]
 
@@ -6563,7 +6644,7 @@ checksum = "49874b5167b65d7193b8aba1567f5c7d93d001cafc34600cee003eda787e483f"
 [[package]]
 name = "vodozemac"
 version = "0.6.0"
-source = "git+https://github.com/matrix-org/vodozemac/?rev=826d0aa22a9b5405535927c7691492db4b92a43b#826d0aa22a9b5405535927c7691492db4b92a43b"
+source = "git+https://github.com/matrix-org/vodozemac/?rev=4ef989c6a8eba0bc809e285a081c56320a9bbf1e#4ef989c6a8eba0bc809e285a081c56320a9bbf1e"
 dependencies = [
  "aes",
  "arrayvec",

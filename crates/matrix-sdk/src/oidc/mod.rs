@@ -186,7 +186,9 @@ use mas_oidc_client::{
         IdToken,
     },
 };
-use matrix_sdk_base::{once_cell::sync::OnceCell, SessionMeta};
+use matrix_sdk_base::{
+    crypto::types::qr_login::QrCodeData, once_cell::sync::OnceCell, SessionMeta,
+};
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use ruma::api::client::discovery::get_authentication_issuer;
 use serde::{Deserialize, Serialize};
@@ -215,7 +217,9 @@ use self::{
     cross_process::{CrossProcessRefreshLockGuard, CrossProcessRefreshManager},
 };
 use crate::{
-    authentication::AuthData, client::SessionChange, Client, HttpError, RefreshTokenError, Result,
+    authentication::{qrcode::LoginWithQrCode, AuthData},
+    client::SessionChange,
+    Client, HttpError, RefreshTokenError, Result,
 };
 
 pub(crate) struct OidcCtx {
@@ -346,6 +350,88 @@ impl Oidc {
             self.client.send(get_authentication_issuer::msc2965::Request::new(), None).await?;
 
         Ok(response.issuer)
+    }
+
+    /// Log in using a QR code.
+    ///
+    /// This method allows you to log in with a QR code, the existing device
+    /// needs to display the QR code which this device can scan and call
+    /// this method to log in.
+    ///
+    /// A successful login using this method will automatically mark the device
+    /// as verified and transfer all end-to-end encryption related secrets, like
+    /// the private cross-signing keys and the backup key from the existing
+    /// device to the new device.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use anyhow::bail;
+    /// use futures_util::StreamExt;
+    /// use matrix_sdk::{
+    ///     authentication::qrcode::{LoginProgress, QrCodeData, QrCodeModeData},
+    ///     Client,
+    ///     oidc::types::registration::VerifiedClientMetadata,
+    /// };
+    /// # fn client_metadata() -> VerifiedClientMetadata { unimplemented!() }
+    /// # _ = async {
+    /// # let bytes = unimplemented!();
+    /// // You'll need to use a different library to scan and extract the raw bytes from the QR
+    /// // code.
+    /// let qr_code_data = QrCodeData::from_bytes(bytes)?;
+    ///
+    /// // Fetch the homeserver out of the parsed QR code data.
+    /// let QrCodeModeData::Reciprocate{ homeserver_url } = qr_code_data.mode_data else {
+    ///     bail!("The QR code is invalid, we did not receive a homeserver in the QR code.");
+    /// };
+    ///
+    /// // Build the client as usual.
+    /// let client = Client::builder()
+    ///     .homeserver_url(homeserver_url)
+    ///     .handle_refresh_tokens()
+    ///     .build()
+    ///     .await?;
+    ///
+    /// let oidc = client.oidc();
+    /// let metadata: VerifiedClientMetadata = client_metadata();
+    ///
+    /// // Subscribing to the progress is necessary since we need to input the check
+    /// // code on the existing device.
+    /// let login = oidc.login_with_qr_code(&qr_code_data, metadata);
+    /// let mut progress = login.subscribe_to_progress();
+    ///
+    /// // Create a task which will show us the progress and tell us the check
+    /// // code to input in the existing device.
+    /// let task = tokio::spawn(async move {
+    ///     while let Some(state) = progress.next().await {
+    ///         match state {
+    ///             LoginProgress::Starting => (),
+    ///             LoginProgress::EstablishingSecureChannel { check_code } => {
+    ///                 let code = check_code.to_digit();
+    ///                 println!("Please enter the following code into the other device {code:02}");
+    ///             },
+    ///             LoginProgress::WaitingForToken { user_code } => {
+    ///                 println!("Please use your other device to confirm the log in {user_code}")
+    ///             },
+    ///             LoginProgress::Done => break,
+    ///         }
+    ///     }
+    /// });
+    ///
+    /// // Now run the future to complete the login.
+    /// login.await?;
+    /// task.abort();
+    ///
+    /// println!("Successfully logged in: {:?} {:?}", client.user_id(), client.device_id());
+    /// # anyhow::Ok(()) };
+    /// ```
+    #[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
+    pub fn login_with_qr_code<'a>(
+        &'a self,
+        data: &'a QrCodeData,
+        client_metadata: VerifiedClientMetadata,
+    ) -> LoginWithQrCode<'a> {
+        LoginWithQrCode::new(&self.client, client_metadata, data)
     }
 
     /// The OpenID Connect Provider used for authorization.
