@@ -787,23 +787,25 @@ async fn test_cross_signing_bootstrap() -> Result<()> {
                 if let Some(user_devices) = updates.new.get(user_id) {
                     if let Some(own_device) = user_devices.get(device_id) {
                         assert!(
-                    own_device.is_cross_signed_by_owner(),
-                    "Since we bootstrapped cross-signing, our own device should have been signed \
-                     by the cross-signing keys."
-                );
+                            own_device.is_cross_signed_by_owner(),
+                            "Since we bootstrapped cross-signing, our own device should have been \
+                            signed by the cross-signing keys."
+                        );
+
+                        break;
                     }
                 }
 
-                break;
+                panic!("The first device update didn't contain our own device, were the device keys uploaded?")
             }
 
             Ok(())
         }
     });
 
-    task.await??;
-
     alice.sync_once().await?;
+
+    task.await??;
 
     Ok(())
 }
