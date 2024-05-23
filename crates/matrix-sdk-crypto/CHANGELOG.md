@@ -31,7 +31,15 @@ Breaking changes:
 - Add new `dehydrated` property to `olm::account::PickledAccount`.
   ([#3164](https://github.com/matrix-org/matrix-rust-sdk/pull/3164))
 
+Deprecations:
+
+- Deprecate `BackupMachine::import_backed_up_room_keys`.
+  ([#3448](https://github.com/matrix-org/matrix-rust-sdk/pull/3448))
+
 Additions:
+
+- Expose new method `CryptoStore::import_room_keys`.
+  ([#3448](https://github.com/matrix-org/matrix-rust-sdk/pull/3448))
 
 - Expose new method `BackupMachine::backup_version`.
   ([#3320](https://github.com/matrix-org/matrix-rust-sdk/pull/3320))
