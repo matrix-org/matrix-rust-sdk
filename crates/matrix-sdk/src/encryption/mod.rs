@@ -619,6 +619,18 @@ impl Encryption {
         self.client.olm_machine().await.as_ref().map(|o| o.identity_keys().curve25519)
     }
 
+    #[cfg(feature = "experimental-oidc")]
+    pub(crate) async fn import_secrets_bundle(
+        &self,
+        bundle: &matrix_sdk_base::crypto::types::SecretsBundle,
+    ) -> Result<(), SecretImportError> {
+        let olm_machine = self.client.olm_machine().await;
+        let olm_machine =
+            olm_machine.as_ref().expect("This should only be called once we have an OlmMachine");
+
+        olm_machine.store().import_secrets_bundle(bundle).await
+    }
+
     /// Get the status of the private cross signing keys.
     ///
     /// This can be used to check which private cross signing keys we have
