@@ -52,7 +52,9 @@ pub(crate) mod types;
 pub use types::{BackupState, UploadState};
 
 use self::futures::WaitForSteadyState;
-use crate::{encryption::BackupDownloadStrategy, Client, Error, Room};
+use crate::{
+    crypto::olm::ExportedRoomKey, encryption::BackupDownloadStrategy, Client, Error, Room,
+};
 
 /// The backups manager for the [`Client`].
 #[derive(Debug, Clone)]
@@ -370,7 +372,7 @@ impl Backups {
         if let Some(decryption_key) = backup_keys.decryption_key {
             if let Some(version) = backup_keys.backup_version {
                 let request =
-                    get_backup_keys_for_room::v3::Request::new(version, room_id.to_owned());
+                    get_backup_keys_for_room::v3::Request::new(version.clone(), room_id.to_owned());
                 let response = self.client.send(request, Default::default()).await?;
 
                 // Transform response to standard format (map of room ID -> room key).
@@ -379,7 +381,8 @@ impl Backups {
                     RoomKeyBackup::new(response.sessions),
                 )]));
 
-                self.handle_downloaded_room_keys(response, decryption_key, olm_machine).await?;
+                self.handle_downloaded_room_keys(response, decryption_key, &version, olm_machine)
+                    .await?;
             }
         }
 
@@ -396,7 +399,7 @@ impl Backups {
         if let Some(decryption_key) = backup_keys.decryption_key {
             if let Some(version) = backup_keys.backup_version {
                 let request = get_backup_keys_for_session::v3::Request::new(
-                    version,
+                    version.clone(),
                     room_id.to_owned(),
                     session_id.to_owned(),
                 );
@@ -411,7 +414,8 @@ impl Backups {
                     )])),
                 )]));
 
-                self.handle_downloaded_room_keys(response, decryption_key, olm_machine).await?;
+                self.handle_downloaded_room_keys(response, decryption_key, &version, olm_machine)
+                    .await?;
             }
         }
 
@@ -445,9 +449,10 @@ impl Backups {
         &self,
         backed_up_keys: get_backup_keys::v3::Response,
         backup_decryption_key: BackupDecryptionKey,
+        backup_version: &str,
         olm_machine: &OlmMachine,
     ) -> Result<(), Error> {
-        let mut decrypted_room_keys: BTreeMap<_, BTreeMap<_, _>> = BTreeMap::new();
+        let mut decrypted_room_keys: Vec<_> = Vec::new();
 
         for (room_id, room_keys) in backed_up_keys.rooms {
             for (session_id, room_key) in room_keys.sessions {
@@ -474,16 +479,17 @@ impl Backups {
                         }
                     };
 
-                decrypted_room_keys
-                    .entry(room_id.to_owned())
-                    .or_default()
-                    .insert(session_id, room_key);
+                decrypted_room_keys.push(ExportedRoomKey::from_backed_up_room_key(
+                    room_id.to_owned(),
+                    session_id,
+                    room_key,
+                ));
             }
         }
 
         let result = olm_machine
-            .backup_machine()
-            .import_backed_up_room_keys(decrypted_room_keys, |_, _| {})
+            .store()
+            .import_room_keys(decrypted_room_keys, Some(backup_version), |_, _| {})
             .await?;
 
         // Since we can't use the usual room keys stream from the `OlmMachine`
@@ -499,13 +505,13 @@ impl Backups {
         decryption_key: BackupDecryptionKey,
         version: String,
     ) -> Result<(), Error> {
-        let request = get_backup_keys::v3::Request::new(version);
+        let request = get_backup_keys::v3::Request::new(version.clone());
         let response = self.client.send(request, Default::default()).await?;
 
         let olm_machine = self.client.olm_machine().await;
         let olm_machine = olm_machine.as_ref().ok_or(Error::NoOlmMachine)?;
 
-        self.handle_downloaded_room_keys(response, decryption_key, olm_machine).await?;
+        self.handle_downloaded_room_keys(response, decryption_key, &version, olm_machine).await?;
 
         Ok(())
     }
@@ -920,7 +926,6 @@ impl Backups {
 mod test {
     use std::time::Duration;
 
-    use matrix_sdk_base::crypto::olm::ExportedRoomKey;
     use matrix_sdk_test::async_test;
     use serde_json::json;
     use wiremock::{
