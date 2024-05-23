@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// TODO(pixlwave) Move AuthenticationService from the FFI into this module.
+// TODO:(pixlwave) Move AuthenticationService from the FFI into this module.
 
 use std::pin::Pin;
 
