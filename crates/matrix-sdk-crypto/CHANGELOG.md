@@ -12,6 +12,7 @@ Changes:
   ensuring that other users/devices will never encounter this device without a
   signature from their user identity. Consequently, they will never see the
   device as unverified.
+  ([#3453](https://github.com/matrix-org/matrix-rust-sdk/pull/3453))
 
 - Avoid emitting entries from `identities_stream_raw` and `devices_stream` when
   we receive a `/keys/query` response which shows that no devices changed.

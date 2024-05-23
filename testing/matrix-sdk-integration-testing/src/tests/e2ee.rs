@@ -777,6 +777,8 @@ async fn test_cross_signing_bootstrap() -> Result<()> {
         let alice = alice.clone();
 
         async move {
+            let mut updates_count = 0;
+
             let user_id = alice.user_id().expect("We should know our user id by now.");
             let device_id = alice.device_id().expect("We should know our device id by now.");
 
@@ -796,13 +798,22 @@ async fn test_cross_signing_bootstrap() -> Result<()> {
                     }
                 }
 
-                panic!("The first device update didn't contain our own device, were the device keys uploaded?")
+                if updates_count >= 1 {
+                    panic!("The first device update didn't contain our own device, were the device keys uploaded?")
+                }
+
+                updates_count += 1;
             }
 
             Ok(())
         }
     });
 
+    // The first sync will receive the device keys changes, but we will race against
+    // the updates task being killed.
+    alice.sync_once().await?;
+
+    // So we sync once more.
     alice.sync_once().await?;
 
     task.await??;
