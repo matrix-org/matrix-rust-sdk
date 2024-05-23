@@ -862,7 +862,13 @@ impl MatrixAuth {
         #[cfg(feature = "e2e-encryption")] login_info: Option<login::v3::LoginInfo>,
     ) -> Result<()> {
         self.set_session_tokens(session.tokens);
-        self.client.set_session_meta(session.meta).await?;
+        self.client
+            .set_session_meta(
+                session.meta,
+                #[cfg(feature = "e2e-encryption")]
+                None,
+            )
+            .await?;
 
         #[cfg(feature = "e2e-encryption")]
         {

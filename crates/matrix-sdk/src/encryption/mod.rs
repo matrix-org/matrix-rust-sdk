@@ -1275,7 +1275,7 @@ impl Encryption {
                 // (get rid of the reference to the current crypto store first)
                 drop(olm_machine_guard);
                 // Recreate the OlmMachine.
-                self.client.base_client().regenerate_olm().await?;
+                self.client.base_client().regenerate_olm(None).await?;
             }
             Ok(generation_number)
         } else {

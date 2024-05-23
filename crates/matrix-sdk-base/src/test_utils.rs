@@ -27,7 +27,11 @@ pub(crate) async fn logged_in_base_client(user_id: Option<&UserId>) -> BaseClien
     let user_id =
         user_id.map(|user_id| user_id.to_owned()).unwrap_or_else(|| owned_user_id!("@u:e.uk"));
     client
-        .set_session_meta(SessionMeta { user_id: user_id.to_owned(), device_id: "FOOBAR".into() })
+        .set_session_meta(
+            SessionMeta { user_id: user_id.to_owned(), device_id: "FOOBAR".into() },
+            #[cfg(feature = "e2e-encryption")]
+            None,
+        )
         .await
         .expect("set_session_meta failed!");
     client
