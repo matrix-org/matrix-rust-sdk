@@ -1688,7 +1688,7 @@ pub(crate) mod tests {
 
         // Now provide an invalid update
         let (reqid, _) = manager.build_key_query_for_users(vec![my_user_id]);
-        let response_data = matrix_sdk_test::response_from_file(&json!({
+        let response_data = response_from_file(&json!({
             "device_keys": {
                 my_user_id: {
                     test_device_id.as_str(): {
