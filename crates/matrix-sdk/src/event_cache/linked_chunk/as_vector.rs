@@ -145,11 +145,11 @@ impl UpdateToVectorDiff {
     /// `VectorDiff::Insert` need an index. To compute this index, the algorithm
     /// will iterate over all pairs to accumulate each chunk length until it
     /// finds the appropriate pair (given by
-    /// [`Update::PushItems::position_hint`]). This is _the offset_. To this
-    /// offset, the algorithm adds the position's index of the new items
-    /// (still given by [`Update::PushItems::position_hint`]). This is
-    /// _the index_. This logic works for all cases as long as pairs are
-    /// maintained according to the rules hereinabove.
+    /// [`Update::PushItems::at`]). This is _the offset_. To this offset, the
+    /// algorithm adds the position's index of the new items (still given by
+    /// [`Update::PushItems::at`]). This is _the index_. This logic works
+    /// for all cases as long as pairs are maintained according to the rules
+    /// hereinabove.
     ///
     /// That's a pretty memory compact and computation efficient way to map a
     /// `Vec<Update<Item, Gap>>` into a `Vec<VectorDiff<Item>>`. The larger the
@@ -201,7 +201,7 @@ impl UpdateToVectorDiff {
         //
         // ```
         // Update::PushItems {
-        //     position_hint: Position(ChunkIdentifier(0), 1),
+        //     at: Position(ChunkIdentifier(0), 1),
         //     items: vec!['w', 'x'],
         // }
         // Update::NewItemsChunk {
@@ -210,7 +210,7 @@ impl UpdateToVectorDiff {
         //     next: Some(ChunkIdentifier(1)),
         // }
         // Update::PushItems {
-        //     position_hint: Position(ChunkIdentifier(2), 0),
+        //     at: Position(ChunkIdentifier(2), 0),
         //     items: vec!['y', 'z'],
         // }
         // ```
@@ -220,7 +220,7 @@ impl UpdateToVectorDiff {
         // ```
         // Update::StartReattachItems
         // Update::PushItems {
-        //     position_hint: Position(ChunkIdentifier(2), 2),
+        //     at: Position(ChunkIdentifier(2), 2),
         //     items: vec!['b']
         // }
         // Update::NewItemsChunk {
@@ -229,7 +229,7 @@ impl UpdateToVectorDiff {
         //     next: Some(ChunkIdentifier(1)),
         // }
         // Update::PushItems {
-        //     position_hint: Position(ChunkIdentifier(3), 0),
+        //     at: Position(ChunkIdentifier(3), 0),
         //     items: vec!['c'],
         // }
         // Update::EndReattachItems
@@ -320,7 +320,7 @@ impl UpdateToVectorDiff {
                     let _ = self.chunks.remove(chunk_index);
                 }
 
-                Update::PushItems { position_hint: position, items } => {
+                Update::PushItems { at: position, items } => {
                     let expected_chunk_identifier = position.chunk_identifier();
 
                     let (chunk_index, offset, chunk_length) = {
