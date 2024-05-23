@@ -1823,7 +1823,11 @@ impl OlmMachine {
         from_backup: bool,
         progress_listener: impl Fn(usize, usize),
     ) -> StoreResult<RoomKeyImportResult> {
-        self.store().import_room_keys(exported_keys, from_backup, progress_listener).await
+        let backup_version =
+            if from_backup { self.backup_machine().backup_version().await } else { None };
+        self.store()
+            .import_room_keys(exported_keys, backup_version.as_deref(), progress_listener)
+            .await
     }
 
     /// Get the status of the private cross signing keys.

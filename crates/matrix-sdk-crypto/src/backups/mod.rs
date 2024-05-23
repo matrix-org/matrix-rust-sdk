@@ -619,7 +619,15 @@ impl BackupMachine {
             }
         }
 
-        self.store.import_room_keys(decrypted_room_keys, true, progress_listener).await
+        // FIXME: This method is a bit flawed: we have no real idea which backup version
+        //   these keys came from. For example, we might have reset the backup
+        //   since the keys were downloaded. For now, let's assume they came from
+        //   the "current" backup version.
+        let backup_version = self.backup_version().await;
+
+        self.store
+            .import_room_keys(decrypted_room_keys, backup_version.as_deref(), progress_listener)
+            .await
     }
 }
 
