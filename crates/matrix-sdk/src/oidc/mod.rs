@@ -207,13 +207,12 @@ mod tests;
 
 pub use self::{
     auth_code_builder::{OidcAuthCodeUrlBuilder, OidcAuthorizationData},
+    cross_process::CrossProcessRefreshLockError,
     end_session_builder::{OidcEndSessionData, OidcEndSessionUrlBuilder},
 };
 use self::{
     backend::{server::OidcServer, OidcBackend},
-    cross_process::{
-        CrossProcessRefreshLockError, CrossProcessRefreshLockGuard, CrossProcessRefreshManager,
-    },
+    cross_process::{CrossProcessRefreshLockGuard, CrossProcessRefreshManager},
 };
 use crate::{
     authentication::AuthData, client::SessionChange, Client, HttpError, RefreshTokenError, Result,
@@ -445,7 +444,7 @@ impl Oidc {
     /// # Panics
     ///
     /// Will panic if no OIDC client has been configured yet.
-    fn set_session_tokens(&self, session_tokens: OidcSessionTokens) {
+    pub(crate) fn set_session_tokens(&self, session_tokens: OidcSessionTokens) {
         let data =
             self.data().expect("Cannot call OpenID Connect API after logging in with another API");
         if let Some(tokens) = data.tokens.get() {
