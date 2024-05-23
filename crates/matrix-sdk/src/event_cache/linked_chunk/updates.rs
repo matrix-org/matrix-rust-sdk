@@ -29,7 +29,7 @@ use super::{ChunkIdentifier, Position};
 ///
 /// These updates are useful to store a `LinkedChunk` in another form of
 /// storage, like a database or something similar.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Update<Item, Gap> {
     /// A new chunk of kind Items has been created.
     NewItemsChunk {
@@ -61,75 +61,110 @@ pub enum Update<Item, Gap> {
     /// A chunk has been removed.
     RemoveChunk(ChunkIdentifier),
 
-    /// Items are inserted inside a chunk of kind Items.
-    InsertItems {
-        /// [`Position`] of the items.
+    /// Items are pushed inside a chunk of kind Items.
+    PushItems {
+        /// The [`Position`] of the items.
+        ///
+        /// This value is given to prevent the need for position computations by
+        /// the update readers. Items are pushed, so the positions should be
+        /// incrementally computed from the previous items, which requires the
+        /// reading of the last previous item. With `at`, the update readers no
+        /// longer need to do so.
         at: Position,
 
         /// The items.
         items: Vec<Item>,
     },
 
-    /// A chunk of kind Items has been truncated.
-    TruncateItems {
-        /// The identifier of the chunk.
-        chunk: ChunkIdentifier,
-
-        /// The new length of the chunk.
-        length: usize,
+    /// The last items of a chunk have been detached, i.e. the chunk has been
+    /// truncated.
+    DetachLastItems {
+        /// The split position. Before this position (`..position`), items are
+        /// kept, from this position (`position..`), items are
+        /// detached.
+        at: Position,
     },
+
+    /// Detached items (see [`Self::DetachLastItems`]) starts being reattached.
+    StartReattachItems,
+
+    /// Reattaching items (see [`Self::StartReattachItems`]) is finished.
+    EndReattachItems,
 }
 
-impl<Item, Gap> Clone for Update<Item, Gap>
-where
-    Item: Clone,
-    Gap: Clone,
-{
-    fn clone(&self) -> Self {
-        match self {
-            Self::NewItemsChunk { previous, new, next } => {
-                Self::NewItemsChunk { previous: *previous, new: *new, next: *next }
-            }
-            Self::NewGapChunk { previous, new, next, gap } => {
-                Self::NewGapChunk { previous: *previous, new: *new, next: *next, gap: gap.clone() }
-            }
-            Self::RemoveChunk(identifier) => Self::RemoveChunk(*identifier),
-            Self::InsertItems { at, items } => Self::InsertItems { at: *at, items: items.clone() },
-            Self::TruncateItems { chunk, length } => {
-                Self::TruncateItems { chunk: *chunk, length: *length }
-            }
-        }
-    }
-}
-
-/// A collection of [`Update`].
+/// A collection of [`Update`]s that can be observed.
 ///
 /// Get a value for this type with [`LinkedChunk::updates`].
-pub struct Updates<Item, Gap> {
-    inner: Arc<RwLock<UpdatesInner<Item, Gap>>>,
+pub struct ObservableUpdates<Item, Gap> {
+    pub(super) inner: Arc<RwLock<UpdatesInner<Item, Gap>>>,
+}
+
+impl<Item, Gap> ObservableUpdates<Item, Gap> {
+    /// Create a new [`ObservableUpdates`].
+    pub(super) fn new() -> Self {
+        Self { inner: Arc::new(RwLock::new(UpdatesInner::new())) }
+    }
+
+    /// Push a new update.
+    pub(super) fn push(&mut self, update: Update<Item, Gap>) {
+        self.inner.write().unwrap().push(update);
+    }
+
+    /// Take new updates.
+    ///
+    /// Updates that have been taken will not be read again.
+    pub(super) fn take(&mut self) -> Vec<Update<Item, Gap>>
+    where
+        Item: Clone,
+        Gap: Clone,
+    {
+        self.inner.write().unwrap().take().to_owned()
+    }
+
+    /// Subscribe to updates by using a [`Stream`].
+    pub(super) fn subscribe(&mut self) -> UpdatesSubscriber<Item, Gap> {
+        // A subscriber is a new update reader, it needs its own token.
+        let token = self.new_reader_token();
+
+        UpdatesSubscriber::new(Arc::downgrade(&self.inner), token)
+    }
+
+    /// Generate a new [`ReaderToken`].
+    pub(super) fn new_reader_token(&mut self) -> ReaderToken {
+        let mut inner = self.inner.write().unwrap();
+
+        // Add 1 before reading the `last_token`, in this particular order, because the
+        // 0 token is reserved by `MAIN_READER_TOKEN`.
+        inner.last_token += 1;
+        let last_token = inner.last_token;
+
+        inner.last_index_per_reader.insert(last_token, 0);
+
+        last_token
+    }
 }
 
 /// A token used to represent readers that read the updates in
 /// [`UpdatesInner`].
-type ReaderToken = usize;
+pub(super) type ReaderToken = usize;
 
-/// Inner type for [`Updates`].
+/// Inner type for [`ObservableUpdates`].
 ///
 /// The particularity of this type is that multiple readers can read the
 /// updates. A reader has a [`ReaderToken`]. The public API (i.e.
-/// [`Updates`]) is considered to be the _main reader_ (it has the token
-/// [`Self::MAIN_READER_TOKEN`]).
+/// [`ObservableUpdates`]) is considered to be the _main reader_ (it has the
+/// token [`Self::MAIN_READER_TOKEN`]).
 ///
 /// An update that have been read by all readers are garbage collected to be
 /// removed from the memory. An update will never be read twice by the same
 /// reader.
 ///
 /// Why do we need multiple readers? The public API reads the updates with
-/// [`Updates::take`], but the private API must also read the updates for
-/// example with [`UpdatesSubscriber`]. Of course, they can be multiple
+/// [`ObservableUpdates::take`], but the private API must also read the updates
+/// for example with [`UpdatesSubscriber`]. Of course, they can be multiple
 /// `UpdatesSubscriber`s at the same time. Hence the need of supporting multiple
 /// readers.
-struct UpdatesInner<Item, Gap> {
+pub(super) struct UpdatesInner<Item, Gap> {
     /// All the updates that have not been read by all readers.
     updates: Vec<Update<Item, Gap>>,
 
@@ -195,7 +230,7 @@ impl<Item, Gap> UpdatesInner<Item, Gap> {
     /// take/read/consume each update only once. An internal index is stored
     /// per reader token to know where to start reading updates next time this
     /// method is called.
-    fn take_with_token(&mut self, token: ReaderToken) -> &[Update<Item, Gap>] {
+    pub(super) fn take_with_token(&mut self, token: ReaderToken) -> &[Update<Item, Gap>] {
         // Let's garbage collect unused updates.
         self.garbage_collect();
 
@@ -235,56 +270,24 @@ impl<Item, Gap> UpdatesInner<Item, Gap> {
     }
 }
 
-impl<Item, Gap> Updates<Item, Gap> {
-    /// Create a new [`Self`].
-    pub(super) fn new() -> Self {
-        Self { inner: Arc::new(RwLock::new(UpdatesInner::new())) }
-    }
-
-    /// Push a new update.
-    pub(super) fn push(&mut self, update: Update<Item, Gap>) {
-        self.inner.write().unwrap().push(update);
-    }
-
-    /// Take new updates.
-    ///
-    /// Updates that have been taken will not be read again.
-    pub(super) fn take(&mut self) -> Vec<Update<Item, Gap>>
-    where
-        Item: Clone,
-        Gap: Clone,
-    {
-        self.inner.write().unwrap().take().to_owned()
-    }
-
-    /// Subscribe to updates by using a [`Stream`].
-    fn subscribe(&mut self) -> UpdatesSubscriber<Item, Gap> {
-        // A subscriber is a new update reader, it needs its own token.
-        let token = {
-            let mut inner = self.inner.write().unwrap();
-            inner.last_token += 1;
-
-            let last_token = inner.last_token;
-            inner.last_index_per_reader.insert(last_token, 0);
-
-            last_token
-        };
-
-        UpdatesSubscriber { updates: Arc::downgrade(&self.inner), token }
-    }
-}
-
-/// A subscriber to [`Updates`]. It is helpful to receive updates via a
-/// [`Stream`].
-struct UpdatesSubscriber<Item, Gap> {
+/// A subscriber to [`ObservableUpdates`]. It is helpful to receive updates via
+/// a [`Stream`].
+pub(super) struct UpdatesSubscriber<Item, Gap> {
     /// Weak reference to [`UpdatesInner`].
     ///
-    /// Using a weak reference allows [`Updates`] to be dropped
+    /// Using a weak reference allows [`ObservableUpdates`] to be dropped
     /// freely even if a subscriber exists.
     updates: Weak<RwLock<UpdatesInner<Item, Gap>>>,
 
     /// The token to read the updates.
     token: ReaderToken,
+}
+
+impl<Item, Gap> UpdatesSubscriber<Item, Gap> {
+    /// Create a new [`Self`].
+    fn new(updates: Weak<RwLock<UpdatesInner<Item, Gap>>>, token: ReaderToken) -> Self {
+        Self { updates, token }
+    }
 }
 
 impl<Item, Gap> Stream for UpdatesSubscriber<Item, Gap>
@@ -296,7 +299,7 @@ where
 
     fn poll_next(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let Some(updates) = self.updates.upgrade() else {
-            // The `Updates` has been dropped. It's time to close this stream.
+            // The `ObservableUpdates` has been dropped. It's time to close this stream.
             return Poll::Ready(None);
         };
 
@@ -381,9 +384,9 @@ mod tests {
             assert_eq!(
                 updates.take(),
                 &[
-                    InsertItems { at: Position(ChunkIdentifier(0), 0), items: vec!['a'] },
-                    InsertItems { at: Position(ChunkIdentifier(0), 1), items: vec!['b'] },
-                    InsertItems { at: Position(ChunkIdentifier(0), 2), items: vec!['c'] },
+                    PushItems { at: Position(ChunkIdentifier(0), 0), items: vec!['a'] },
+                    PushItems { at: Position(ChunkIdentifier(0), 1), items: vec!['b'] },
+                    PushItems { at: Position(ChunkIdentifier(0), 2), items: vec!['c'] },
                 ]
             );
 
@@ -423,12 +426,12 @@ mod tests {
             assert_eq!(
                 updates.inner.write().unwrap().take_with_token(other_token),
                 &[
-                    InsertItems { at: Position(ChunkIdentifier(0), 0), items: vec!['a'] },
-                    InsertItems { at: Position(ChunkIdentifier(0), 1), items: vec!['b'] },
-                    InsertItems { at: Position(ChunkIdentifier(0), 2), items: vec!['c'] },
-                    InsertItems { at: Position(ChunkIdentifier(0), 3), items: vec!['d'] },
-                    InsertItems { at: Position(ChunkIdentifier(0), 4), items: vec!['e'] },
-                    InsertItems { at: Position(ChunkIdentifier(0), 5), items: vec!['f'] },
+                    PushItems { at: Position(ChunkIdentifier(0), 0), items: vec!['a'] },
+                    PushItems { at: Position(ChunkIdentifier(0), 1), items: vec!['b'] },
+                    PushItems { at: Position(ChunkIdentifier(0), 2), items: vec!['c'] },
+                    PushItems { at: Position(ChunkIdentifier(0), 3), items: vec!['d'] },
+                    PushItems { at: Position(ChunkIdentifier(0), 4), items: vec!['e'] },
+                    PushItems { at: Position(ChunkIdentifier(0), 5), items: vec!['f'] },
                 ]
             );
 
@@ -498,20 +501,20 @@ mod tests {
             assert_eq!(
                 updates.take(),
                 &[
-                    InsertItems { at: Position(ChunkIdentifier(0), 3), items: vec!['d'] },
-                    InsertItems { at: Position(ChunkIdentifier(0), 4), items: vec!['e'] },
-                    InsertItems { at: Position(ChunkIdentifier(0), 5), items: vec!['f'] },
-                    InsertItems { at: Position(ChunkIdentifier(0), 6), items: vec!['g'] },
-                    InsertItems { at: Position(ChunkIdentifier(0), 7), items: vec!['h'] },
-                    InsertItems { at: Position(ChunkIdentifier(0), 8), items: vec!['i'] },
+                    PushItems { at: Position(ChunkIdentifier(0), 3), items: vec!['d'] },
+                    PushItems { at: Position(ChunkIdentifier(0), 4), items: vec!['e'] },
+                    PushItems { at: Position(ChunkIdentifier(0), 5), items: vec!['f'] },
+                    PushItems { at: Position(ChunkIdentifier(0), 6), items: vec!['g'] },
+                    PushItems { at: Position(ChunkIdentifier(0), 7), items: vec!['h'] },
+                    PushItems { at: Position(ChunkIdentifier(0), 8), items: vec!['i'] },
                 ]
             );
             assert_eq!(
                 updates.inner.write().unwrap().take_with_token(other_token),
                 &[
-                    InsertItems { at: Position(ChunkIdentifier(0), 6), items: vec!['g'] },
-                    InsertItems { at: Position(ChunkIdentifier(0), 7), items: vec!['h'] },
-                    InsertItems { at: Position(ChunkIdentifier(0), 8), items: vec!['i'] },
+                    PushItems { at: Position(ChunkIdentifier(0), 6), items: vec!['g'] },
+                    PushItems { at: Position(ChunkIdentifier(0), 7), items: vec!['h'] },
+                    PushItems { at: Position(ChunkIdentifier(0), 8), items: vec!['i'] },
                 ]
             );
 
@@ -597,7 +600,7 @@ mod tests {
             Poll::Ready(Some(items)) => {
                 assert_eq!(
                     items,
-                    &[InsertItems { at: Position(ChunkIdentifier(0), 0), items: vec!['a'] }]
+                    &[PushItems { at: Position(ChunkIdentifier(0), 0), items: vec!['a'] }]
                 );
             }
         );
@@ -615,9 +618,9 @@ mod tests {
         assert_eq!(
             linked_chunk.updates().unwrap().take(),
             &[
-                InsertItems { at: Position(ChunkIdentifier(0), 0), items: vec!['a'] },
-                InsertItems { at: Position(ChunkIdentifier(0), 1), items: vec!['b'] },
-                InsertItems { at: Position(ChunkIdentifier(0), 2), items: vec!['c'] },
+                PushItems { at: Position(ChunkIdentifier(0), 0), items: vec!['a'] },
+                PushItems { at: Position(ChunkIdentifier(0), 1), items: vec!['b'] },
+                PushItems { at: Position(ChunkIdentifier(0), 2), items: vec!['c'] },
             ]
         );
         assert_matches!(
@@ -626,8 +629,8 @@ mod tests {
                 assert_eq!(
                     items,
                     &[
-                        InsertItems { at: Position(ChunkIdentifier(0), 1), items: vec!['b'] },
-                        InsertItems { at: Position(ChunkIdentifier(0), 2), items: vec!['c'] },
+                        PushItems { at: Position(ChunkIdentifier(0), 1), items: vec!['b'] },
+                        PushItems { at: Position(ChunkIdentifier(0), 2), items: vec!['c'] },
                     ]
                 );
             }
