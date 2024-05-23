@@ -515,9 +515,9 @@ impl RoomEventCacheInner {
                     handled_read_marker = true;
 
                     // Propagate to observers. (We ignore the error if there aren't any.)
-                    let _ = self.sender.send(RoomEventCacheUpdate::UpdateReadMarker {
-                        event_id: ev.content.event_id,
-                    });
+                    let _ = self
+                        .sender
+                        .send(RoomEventCacheUpdate::ReadMarker { event_id: ev.content.event_id });
                 }
 
                 Ok(_) => {
@@ -702,7 +702,7 @@ pub enum RoomEventCacheUpdate {
     Clear,
 
     /// The fully read marker has moved to a different event.
-    UpdateReadMarker {
+    ReadMarker {
         /// Event at which the read marker is now pointing.
         event_id: OwnedEventId,
     },
@@ -788,10 +788,7 @@ mod tests {
             .unwrap();
 
         // … there's only one read marker update.
-        assert_matches!(
-            stream.recv().await.unwrap(),
-            RoomEventCacheUpdate::UpdateReadMarker { .. }
-        );
+        assert_matches!(stream.recv().await.unwrap(), RoomEventCacheUpdate::ReadMarker { .. });
 
         assert!(stream.recv().now_or_never().is_none());
     }
