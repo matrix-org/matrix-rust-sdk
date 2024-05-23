@@ -41,6 +41,8 @@ Deprecations:
 
 Additions:
 
+- Expose new method `OlmMachine::upload_device_keys()`.
+
 - Expose new method `CryptoStore::import_room_keys`.
   ([#3448](https://github.com/matrix-org/matrix-rust-sdk/pull/3448))
 

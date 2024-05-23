@@ -226,6 +226,7 @@ impl BaseClient {
             &session_meta.user_id,
             &session_meta.device_id,
             self.crypto_store.clone(),
+            None,
         )
         .await
         .map_err(OlmError::from)?;
