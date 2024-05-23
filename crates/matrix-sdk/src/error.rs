@@ -99,7 +99,7 @@ pub enum HttpError {
 
     /// An error converting between ruma_*_api types and Hyper types.
     #[error(transparent)]
-    Api(FromHttpResponseError<RumaApiError>),
+    Api(#[from] FromHttpResponseError<RumaApiError>),
 
     /// An error converting between ruma_client_api types and Hyper types.
     #[error(transparent)]
