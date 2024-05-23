@@ -29,7 +29,7 @@ use super::{ChunkIdentifier, Position};
 ///
 /// These updates are useful to store a `LinkedChunk` in another form of
 /// storage, like a database or something similar.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Update<Item, Gap> {
     /// A new chunk of kind Items has been created.
     NewItemsChunk {
@@ -90,30 +90,6 @@ pub enum Update<Item, Gap> {
 
     /// Reattaching items (see [`Self::StartReattachItems`]) is finished.
     EndReattachItems,
-}
-
-impl<Item, Gap> Clone for Update<Item, Gap>
-where
-    Item: Clone,
-    Gap: Clone,
-{
-    fn clone(&self) -> Self {
-        match self {
-            Self::NewItemsChunk { previous, new, next } => {
-                Self::NewItemsChunk { previous: *previous, new: *new, next: *next }
-            }
-            Self::NewGapChunk { previous, new, next, gap } => {
-                Self::NewGapChunk { previous: *previous, new: *new, next: *next, gap: gap.clone() }
-            }
-            Self::RemoveChunk(identifier) => Self::RemoveChunk(*identifier),
-            Self::PushItems { position_hint, items } => {
-                Self::PushItems { position_hint: *position_hint, items: items.clone() }
-            }
-            Self::DetachLastItems { at } => Self::DetachLastItems { at: *at },
-            Self::StartReattachItems => Self::StartReattachItems,
-            Self::EndReattachItems => Self::EndReattachItems,
-        }
-    }
 }
 
 /// A collection of [`Update`].
