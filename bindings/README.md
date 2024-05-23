@@ -11,7 +11,7 @@ maintained by the owners of the Matrix Rust SDK project.
 
 There are also external bindings in other repositories:
 
-* [`matrix-sdk-crypto-js`], JavaScript bindings of the
+* [`matrix-sdk-crypto-wasm`], JavaScript / WebAssembly bindings of the
   [`matrix-sdk-crypto`] crate,
 * [`matrix-sdk-crypto-nodejs`], Node.js bindings of the
   [`matrix-sdk-crypto`] crate
@@ -22,7 +22,7 @@ There are also external bindings in other repositories:
 [`matrix-sdk-ffi`]: ./matrix-sdk-ffi
 [`matrix-sdk`]: ../crates/matrix-sdk
 
-[`matrix-sdk-crypto-js`]: https://github.com/matrix-org/matrix-rust-sdk-crypto-web
+[`matrix-sdk-crypto-wasm`]: https://github.com/matrix-org/matrix-rust-sdk-crypto-wasm
 [`matrix-sdk-crypto-nodejs`]: https://github.com/matrix-org/matrix-rust-sdk-crypto-nodejs
 
 ## Contributing
