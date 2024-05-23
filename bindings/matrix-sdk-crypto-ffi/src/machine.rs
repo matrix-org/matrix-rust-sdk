@@ -991,7 +991,7 @@ impl OlmMachine {
     ) -> Result<KeysImportResult, KeyImportError> {
         let keys = Cursor::new(keys);
         let keys = decrypt_room_key_export(keys, &passphrase)?;
-        self.import_room_keys_helper(keys, false, progress_listener)
+        self.import_room_keys_helper(keys, None, progress_listener)
     }
 
     /// Import room keys from the given serialized unencrypted key export.
@@ -1000,6 +1000,9 @@ impl OlmMachine {
     /// decryption step is skipped and should be performed by the caller. This
     /// should be used if the room keys are coming from the server-side backup,
     /// the method will mark all imported room keys as backed up.
+    ///
+    /// **Note**: This has been deprecated. Use
+    /// [`OlmMachine::import_room_keys_from_backup`] instead.
     ///
     /// # Arguments
     ///
@@ -1012,11 +1015,38 @@ impl OlmMachine {
         keys: String,
         progress_listener: Box<dyn ProgressListener>,
     ) -> Result<KeysImportResult, KeyImportError> {
+        // Assume that the keys came from the current backup version.
+        let backup_version = self.runtime.block_on(self.inner.backup_machine().backup_version());
         let keys: Vec<Value> = serde_json::from_str(&keys)?;
-
         let keys = keys.into_iter().map(serde_json::from_value).filter_map(|k| k.ok()).collect();
+        self.import_room_keys_helper(keys, backup_version.as_deref(), progress_listener)
+    }
 
-        self.import_room_keys_helper(keys, true, progress_listener)
+    /// Import room keys from the given serialized unencrypted key export.
+    ///
+    /// This method is the same as [`OlmMachine::import_room_keys`] but the
+    /// decryption step is skipped and should be performed by the caller. This
+    /// should be used if the room keys are coming from the server-side backup.
+    /// The method will mark all imported room keys as backed up.
+    ///
+    /// # Arguments
+    ///
+    /// * `keys` - The serialized version of the unencrypted key export.
+    ///
+    /// * `backup_version` - The version of the backup that these keys came
+    /// from.
+    ///
+    /// * `progress_listener` - A callback that can be used to introspect the
+    /// progress of the key import.
+    pub fn import_room_keys_from_backup(
+        &self,
+        keys: String,
+        backup_version: String,
+        progress_listener: Box<dyn ProgressListener>,
+    ) -> Result<KeysImportResult, KeyImportError> {
+        let keys: Vec<Value> = serde_json::from_str(&keys)?;
+        let keys = keys.into_iter().map(serde_json::from_value).filter_map(|k| k.ok()).collect();
+        self.import_room_keys_helper(keys, Some(&backup_version), progress_listener)
     }
 
     /// Discard the currently active room key for the given room if there is
@@ -1506,16 +1536,18 @@ impl OlmMachine {
     fn import_room_keys_helper(
         &self,
         keys: Vec<ExportedRoomKey>,
-        from_backup: bool,
+        from_backup_version: Option<&str>,
         progress_listener: Box<dyn ProgressListener>,
     ) -> Result<KeysImportResult, KeyImportError> {
         let listener = |progress: usize, total: usize| {
             progress_listener.on_progress(progress as i32, total as i32)
         };
 
-        #[allow(deprecated)]
-        let result =
-            self.runtime.block_on(self.inner.import_room_keys(keys, from_backup, listener))?;
+        let result = self.runtime.block_on(self.inner.store().import_room_keys(
+            keys,
+            from_backup_version,
+            listener,
+        ))?;
 
         Ok(KeysImportResult {
             imported: result.imported_count as i64,
