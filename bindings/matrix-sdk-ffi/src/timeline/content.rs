@@ -16,7 +16,10 @@ use std::{collections::HashMap, sync::Arc};
 
 use matrix_sdk::{crypto::types::events::UtdCause, room::power_levels::power_level_user_changes};
 use matrix_sdk_ui::timeline::{PollResult, TimelineDetails};
-use ruma::events::{room::message::RoomMessageEventContentWithoutRelation, FullStateEventContent};
+use ruma::events::{
+    room::{message::RoomMessageEventContentWithoutRelation, MediaSource},
+    FullStateEventContent,
+};
 use tracing::warn;
 
 use super::ProfileDetails;
@@ -38,7 +41,7 @@ impl TimelineItemContent {
                 TimelineItemContentKind::Sticker {
                     body: content.body.clone(),
                     info: (&content.info).into(),
-                    url: content.url.to_string(),
+                    source: Arc::new(MediaSource::from(content.source.clone())),
                 }
             }
             Content::Poll(poll_state) => TimelineItemContentKind::from(poll_state.results()),
@@ -112,7 +115,7 @@ pub enum TimelineItemContentKind {
     Sticker {
         body: String,
         info: ImageInfo,
-        url: String,
+        source: Arc<MediaSource>,
     },
     Poll {
         question: String,
