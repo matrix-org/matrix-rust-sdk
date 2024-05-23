@@ -703,8 +703,12 @@ fn process_room_properties(room_data: &v4::SlidingSyncRoom, room_info: &mut Room
     room_summary.joined_member_count = room_data.joined_count;
 
     if let Some(heroes) = &room_data.heroes {
-        room_summary.heroes =
-            heroes.iter().filter_map(|hero| hero.name.as_ref().cloned()).collect();
+        // It's not clear for Ruma, but the `heroes` field should be a collection of
+        // [`UserId`].
+        room_summary.heroes = heroes
+            .iter()
+            .filter_map(|hero| hero.user_id.as_ref().map(ToString::to_string))
+            .collect();
     }
 
     room_info.update_summary(&room_summary);
@@ -1313,7 +1317,7 @@ mod tests {
         // And heroes are part of the summary.
         assert_eq!(
             client_room.clone_info().summary.heroes(),
-            &["Gordon".to_string(), "Alice".to_string()]
+            &["@gordon:e.uk".to_string(), "@alice:e.uk".to_string()]
         );
     }
 
