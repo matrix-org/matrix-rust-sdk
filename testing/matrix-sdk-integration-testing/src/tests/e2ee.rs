@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 use anyhow::Result;
 use assert_matches::assert_matches;
 use assign::assign;
+use futures::{pin_mut, StreamExt};
 use matrix_sdk::{
     crypto::{format_emojis, SasState},
     encryption::{
@@ -22,6 +23,7 @@ use matrix_sdk::{
     },
     Client,
 };
+use tokio::task::JoinHandle;
 use tracing::warn;
 
 use crate::helpers::{SyncTokenAwareClient, TestClientBuilder};
@@ -771,17 +773,37 @@ async fn test_cross_signing_bootstrap() -> Result<()> {
 
     assert!(status.is_complete(), "We should have all private cross-signing keys available.");
 
-    let own_device = alice
-        .encryption()
-        .get_own_device()
-        .await?
-        .expect("We should have our own device available by now.");
+    let task: JoinHandle<Result<()>> = tokio::spawn({
+        let alice = alice.clone();
 
-    assert!(
-        own_device.is_cross_signed_by_owner(),
-        "Since we bootstrapped cross-signing, our own device should have been signed by the \
-         cross-signing keys."
-    );
+        async move {
+            let user_id = alice.user_id().expect("We should know our user id by now.");
+            let device_id = alice.device_id().expect("We should know our device id by now.");
+
+            let stream = alice.encryption().devices_stream().await?;
+            pin_mut!(stream);
+
+            while let Some(updates) = stream.next().await {
+                if let Some(user_devices) = updates.new.get(user_id) {
+                    if let Some(own_device) = user_devices.get(device_id) {
+                        assert!(
+                    own_device.is_cross_signed_by_owner(),
+                    "Since we bootstrapped cross-signing, our own device should have been signed \
+                     by the cross-signing keys."
+                );
+                    }
+                }
+
+                break;
+            }
+
+            Ok(())
+        }
+    });
+
+    task.await??;
+
+    alice.sync_once().await?;
 
     Ok(())
 }
