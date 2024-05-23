@@ -241,6 +241,22 @@ impl RoomPagination {
     pub fn status(&self) -> Subscriber<PaginatorState> {
         self.inner.pagination.paginator.state()
     }
+
+    /// Returns whether we've hit the start of the timeline.
+    ///
+    /// This is true if, and only if, we didn't have a previous-batch token and
+    /// running backwards pagination would be useless.
+    pub fn hit_timeline_start(&self) -> bool {
+        self.inner.pagination.paginator.hit_timeline_start()
+    }
+
+    /// Returns whether we've hit the end of the timeline.
+    ///
+    /// This is true if, and only if, we didn't have a next-batch token and
+    /// running forwards pagination would be useless.
+    pub fn hit_timeline_end(&self) -> bool {
+        self.inner.pagination.paginator.hit_timeline_end()
+    }
 }
 
 #[cfg(test)]
