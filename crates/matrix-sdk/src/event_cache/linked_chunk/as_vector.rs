@@ -29,9 +29,10 @@ use super::{
 type ChunkLength = usize;
 
 /// A type that transforms a `Vec<Update<Item, Gap>>` (given by
-/// [`Updates`](super::Update)) into a `Vec<VectorDiff<Item>>` (this
-/// type). Basically, it helps to consume a [`LinkedChunk<CAP, Item, Gap>`] as
-/// if it was an [`eyeball::ObservableVector<Item>`].
+/// [`Updates::take`](super::Updates::take)) into a `Vec<VectorDiff<Item>>`
+/// (this type). Basically, it helps to consume a
+/// [`LinkedChunk<CAP, Item, Gap>`](super::LinkedChunk) as if it was an
+/// [`eyeball_im::ObservableVector<Item>`].
 pub struct AsVector<Item, Gap> {
     /// Strong reference to [`UpdatesInner`].
     updates: Arc<RwLock<UpdatesInner<Item, Gap>>>,
@@ -44,7 +45,13 @@ pub struct AsVector<Item, Gap> {
 }
 
 impl<Item, Gap> AsVector<Item, Gap> {
-    /// Create a new [`Self`].
+    /// Create a new [`AsVector`].
+    ///
+    /// `updates` is the inner value of [`Updates`][super::updates::Updates].
+    /// It's required to read the new [`Update`]s. `token` is the
+    /// [`ReaderToken`] necessary for this type to read the [`Update`]s.
+    /// `chunk_iterator` is the iterator of all [`Chunk`](super::Chunk)s, used
+    /// to set up its internal state.
     pub(super) fn new<const CAP: usize>(
         updates: Arc<RwLock<UpdatesInner<Item, Gap>>>,
         token: ReaderToken,
@@ -75,7 +82,10 @@ struct UpdateToVectorDiff {
 }
 
 impl UpdateToVectorDiff {
-    /// Construct [`Self`].
+    /// Construct [`UpdateToVectorDiff`], based on an iterator of
+    /// [`Chunk`](super::Chunk)s, used to set up its own internal state.
+    ///
+    /// See [`Self::map`] to learn more about the algorithm.
     fn new<const CAP: usize, Item, Gap>(chunk_iterator: Iter<'_, CAP, Item, Gap>) -> Self {
         let mut initial_chunk_lengths = VecDeque::new();
 
