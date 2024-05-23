@@ -1624,10 +1624,14 @@ mod tests {
         let client = BaseClient::new();
 
         client
-            .set_session_meta(SessionMeta {
-                user_id: user_id!("@alice:example.org").into(),
-                device_id: ruma::device_id!("AYEAYEAYE").into(),
-            })
+            .set_session_meta(
+                SessionMeta {
+                    user_id: user_id!("@alice:example.org").into(),
+                    device_id: ruma::device_id!("AYEAYEAYE").into(),
+                },
+                #[cfg(feature = "e2e-encryption")]
+                None,
+            )
             .await
             .unwrap();
 
@@ -1694,10 +1698,14 @@ mod tests {
         let client = BaseClient::new();
 
         client
-            .set_session_meta(SessionMeta {
-                user_id: user_id!("@alice:example.org").into(),
-                device_id: ruma::device_id!("AYEAYEAYE").into(),
-            })
+            .set_session_meta(
+                SessionMeta {
+                    user_id: user_id!("@alice:example.org").into(),
+                    device_id: ruma::device_id!("AYEAYEAYE").into(),
+                },
+                #[cfg(feature = "e2e-encryption")]
+                None,
+            )
             .await
             .unwrap();
 
@@ -2137,10 +2145,14 @@ mod tests {
         let client = BaseClient::new();
 
         client
-            .set_session_meta(SessionMeta {
-                user_id: user_id!("@alice:example.org").into(),
-                device_id: ruma::device_id!("AYEAYEAYE").into(),
-            })
+            .set_session_meta(
+                SessionMeta {
+                    user_id: user_id!("@alice:example.org").into(),
+                    device_id: ruma::device_id!("AYEAYEAYE").into(),
+                },
+                #[cfg(feature = "e2e-encryption")]
+                None,
+            )
             .await
             .unwrap();
 

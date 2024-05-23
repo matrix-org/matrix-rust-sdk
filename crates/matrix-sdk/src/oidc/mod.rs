@@ -705,7 +705,13 @@ impl Oidc {
             authorization_data: Default::default(),
         };
 
-        self.client.set_session_meta(meta).await?;
+        self.client
+            .set_session_meta(
+                meta,
+                #[cfg(feature = "e2e-encryption")]
+                None,
+            )
+            .await?;
         self.deferred_enable_cross_process_refresh_lock().await;
 
         self.client
@@ -907,7 +913,14 @@ impl Oidc {
             device_id: whoami_res.device_id.ok_or(OidcError::MissingDeviceId)?,
         };
 
-        self.client.set_session_meta(session).await.map_err(crate::Error::from)?;
+        self.client
+            .set_session_meta(
+                session,
+                #[cfg(feature = "e2e-encryption")]
+                None,
+            )
+            .await
+            .map_err(crate::Error::from)?;
         // At this point the Olm machine has been set up.
 
         // Enable the cross-process lock for refreshes, if needs be.
