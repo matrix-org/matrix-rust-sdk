@@ -3,14 +3,14 @@
 Pod::Spec.new do |s|
 
     s.name                  = "MatrixSDKCrypto"
-    s.version               = "0.0.1"
+    s.version               = "0.4.1"
     s.summary               = "Uniffi based bindings for the Rust SDK crypto crate."
     s.homepage              = "https://github.com/matrix-org/matrix-rust-sdk"
     s.license               = { :type => "Apache License, Version 2.0", :file => "LICENSE" }
     s.author                = { "matrix.org" => "support@matrix.org" }
-
-    s.ios.deployment_target = "11.0"
-    s.osx.deployment_target = "10.10"
+ 
+    s.ios.deployment_target = "13.0"
+    s.osx.deployment_target = "10.15"
 
     s.swift_versions = ['5.1', '5.2']
 
