@@ -10,6 +10,7 @@ use tracing::warn;
 
 use super::{DeviceChanges, IdentityChanges, LockableCryptoStore};
 use crate::{
+    olm::InboundGroupSession,
     store,
     store::{Changes, DynCryptoStore, IntoCryptoStore, RoomKeyInfo},
     GossippedSecret, ReadOnlyOwnUserIdentity,
@@ -92,6 +93,31 @@ impl CryptoStoreWrapper {
             let _ = self.identities_broadcaster.send((own_identity, identities, devices));
         }
 
+        Ok(())
+    }
+
+    /// Save a list of inbound group sessions to the store.
+    ///
+    /// # Arguments
+    ///
+    /// * `sessions` - The sessions to be saved.
+    /// * `backed_up_to_version` - If the keys should be marked as having been
+    ///   backed up, the version of the backup.
+    ///
+    /// Note: some implementations ignore `backup_version` and assume the
+    /// current backup version, which is normally the same.
+    pub async fn save_inbound_group_sessions(
+        &self,
+        sessions: Vec<InboundGroupSession>,
+        backed_up_to_version: Option<&str>,
+    ) -> store::Result<()> {
+        let room_key_updates: Vec<_> = sessions.iter().map(RoomKeyInfo::from).collect();
+        self.store.save_inbound_group_sessions(sessions, backed_up_to_version).await?;
+
+        if !room_key_updates.is_empty() {
+            // Ignore the result. It can only fail if there are no listeners.
+            let _ = self.room_keys_received_sender.send(room_key_updates);
+        }
         Ok(())
     }
 

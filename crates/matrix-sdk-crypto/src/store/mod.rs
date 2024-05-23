@@ -1870,6 +1870,29 @@ mod tests {
     use crate::{machine::tests::get_machine_pair, types::EventEncryptionAlgorithm};
 
     #[async_test]
+    async fn import_room_keys_notifies_stream() {
+        use futures_util::FutureExt;
+
+        let (alice, bob, _) =
+            get_machine_pair(user_id!("@a:s.co"), user_id!("@b:s.co"), false).await;
+
+        let room1_id = room_id!("!room1:localhost");
+        alice.create_outbound_group_session_with_defaults_test_helper(room1_id).await.unwrap();
+        let exported_sessions = alice.store().export_room_keys(|_| true).await.unwrap();
+
+        let mut room_keys_received_stream = Box::pin(bob.store().room_keys_received_stream());
+        bob.store().import_room_keys(exported_sessions, None, |_, _| {}).await.unwrap();
+
+        let room_keys = room_keys_received_stream
+            .next()
+            .now_or_never()
+            .flatten()
+            .expect("We should have received an update of room key infos");
+        assert_eq!(room_keys.len(), 1);
+        assert_eq!(room_keys[0].room_id, "!room1:localhost");
+    }
+
+    #[async_test]
     async fn export_room_keys_provides_selected_keys() {
         // Given an OlmMachine with room keys in it
         let (alice, _, _) = get_machine_pair(user_id!("@a:s.co"), user_id!("@b:s.co"), false).await;
