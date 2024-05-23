@@ -137,7 +137,7 @@ pub struct PaginationResult {
     /// topological order.
     pub events: Vec<TimelineEvent>,
 
-    /// Did we hit an end of the timeline?
+    /// Did we hit *an* end of the timeline?
     ///
     /// If this is the result of a backward pagination, this means we hit the
     /// *start* of the timeline.
@@ -332,6 +332,22 @@ impl Paginator {
         num_events: UInt,
     ) -> Result<PaginationResult, PaginatorError> {
         self.paginate(Direction::Backward, num_events, &self.prev_batch_token).await
+    }
+
+    /// Returns whether we've hit the start of the timeline.
+    ///
+    /// This is true if, and only if, we didn't have a previous-batch token and
+    /// running backwards pagination would be useless.
+    pub fn hit_timeline_start(&self) -> bool {
+        matches!(*self.prev_batch_token.lock().unwrap(), PaginationToken::HitEnd)
+    }
+
+    /// Returns whether we've hit the end of the timeline.
+    ///
+    /// This is true if, and only if, we didn't have a next-batch token and
+    /// running forwards pagination would be useless.
+    pub fn hit_timeline_end(&self) -> bool {
+        matches!(*self.next_batch_token.lock().unwrap(), PaginationToken::HitEnd)
     }
 
     /// Runs a forward pagination (requesting `num_events` to the server), from
@@ -774,6 +790,13 @@ mod tests {
 
         // When I call `Paginator::start_from`, it works,
         let paginator = Arc::new(Paginator::new(room.clone()));
+
+        assert!(!paginator.hit_timeline_start(), "we must have a prev-batch token");
+        assert!(
+            !paginator.hit_timeline_end(),
+            "we don't know about the status of the next-batch token"
+        );
+
         let context =
             paginator.start_from(event_id, uint!(100)).await.expect("start_from should work");
 
@@ -782,9 +805,12 @@ mod tests {
         assert_event_matches_msg(&context.events[0], "initial");
         assert_eq!(context.events[0].event.deserialize().unwrap().event_id(), event_id);
 
-        // There's a previous batch.
+        // There's a previous batch, but no next batch.
         assert!(context.has_prev);
         assert!(!context.has_next);
+
+        assert!(!paginator.hit_timeline_start());
+        assert!(paginator.hit_timeline_end());
 
         // Preparing data for the next back-pagination.
         *room.prev_events.lock().await = vec![event_factory.text_msg("previous").into_timeline()];
@@ -794,6 +820,7 @@ mod tests {
         let prev =
             paginator.paginate_backward(uint!(100)).await.expect("paginate backward should work");
         assert!(!prev.hit_end_of_timeline);
+        assert!(!paginator.hit_timeline_start());
         assert_eq!(prev.events.len(), 1);
         assert_event_matches_msg(&prev.events[0], "previous");
 
@@ -807,6 +834,7 @@ mod tests {
             .await
             .expect("paginate backward the second time should work");
         assert!(prev.hit_end_of_timeline);
+        assert!(paginator.hit_timeline_start());
         assert_eq!(prev.events.len(), 1);
         assert_event_matches_msg(&prev.events[0], "oldest");
 
@@ -817,6 +845,7 @@ mod tests {
             .await
             .expect("paginate backward the third time should work");
         assert!(prev.hit_end_of_timeline);
+        assert!(paginator.hit_timeline_start());
         assert!(prev.events.is_empty());
     }
 
@@ -877,6 +906,12 @@ mod tests {
 
         // When I call `Paginator::start_from`, it works,
         let paginator = Arc::new(Paginator::new(room.clone()));
+        assert!(!paginator.hit_timeline_end(), "we must have a next-batch token");
+        assert!(
+            !paginator.hit_timeline_start(),
+            "we don't know about the status of the prev-batch token"
+        );
+
         let context =
             paginator.start_from(event_id, uint!(100)).await.expect("start_from should work");
 
@@ -885,9 +920,13 @@ mod tests {
         assert_event_matches_msg(&context.events[0], "initial");
         assert_eq!(context.events[0].event.deserialize().unwrap().event_id(), event_id);
 
-        // There's a next batch.
+        // There's a next batch, but no previous batch (i.e. we've hit the start of the
+        // timeline).
         assert!(!context.has_prev);
         assert!(context.has_next);
+
+        assert!(paginator.hit_timeline_start());
+        assert!(!paginator.hit_timeline_end());
 
         // Preparing data for the next forward-pagination.
         *room.next_events.lock().await = vec![event_factory.text_msg("next").into_timeline()];
@@ -899,6 +938,7 @@ mod tests {
         assert!(!next.hit_end_of_timeline);
         assert_eq!(next.events.len(), 1);
         assert_event_matches_msg(&next.events[0], "next");
+        assert!(!paginator.hit_timeline_end());
 
         // And I can forward-paginate again, because there's a prev batch token
         // still.
@@ -912,6 +952,7 @@ mod tests {
         assert!(next.hit_end_of_timeline);
         assert_eq!(next.events.len(), 1);
         assert_event_matches_msg(&next.events[0], "latest");
+        assert!(paginator.hit_timeline_end());
 
         // I've hit the start of the timeline, but back-paginating again will
         // return immediately.
@@ -921,6 +962,7 @@ mod tests {
             .expect("paginate forward the third time should work");
         assert!(next.hit_end_of_timeline);
         assert!(next.events.is_empty());
+        assert!(paginator.hit_timeline_end());
     }
 
     #[async_test]
