@@ -79,8 +79,8 @@ pub enum Update<Item, Gap> {
     /// The last items of a chunk have been detached, i.e. the chunk has been
     /// truncated.
     DetachLastItems {
-        /// The split position. Before this position (`[..position]`), items are
-        /// kept, from this position (`[position..]`), items are
+        /// The split position. Before this position (`..position`), items are
+        /// kept, from this position (`position..`), items are
         /// detached.
         at: Position,
     },

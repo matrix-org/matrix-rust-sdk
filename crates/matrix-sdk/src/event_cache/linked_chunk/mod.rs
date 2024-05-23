@@ -115,14 +115,14 @@ pub enum Error {
         identifier: ChunkIdentifier,
     },
 
-    /// A chunk is a gap, and it was expected to be an items.
+    /// A chunk is a gap chunk, and it was expected to be an items.
     #[error("The chunk is a gap: `{identifier:?}`")]
     ChunkIsAGap {
         /// The chunk identifier.
         identifier: ChunkIdentifier,
     },
 
-    /// A chunk is an items, and it was expected to be a gap.
+    /// A chunk is an items chunk, and it was expected to be a gap.
     #[error("The chunk is an item: `{identifier:?}`")]
     ChunkIsItems {
         /// The chunk identifier.
