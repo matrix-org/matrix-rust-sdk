@@ -1129,16 +1129,19 @@ impl RoomInfo {
     }
 
     /// Updates the joined member count.
+    #[cfg(feature = "experimental-sliding-sync")]
     pub(crate) fn update_joined_member_count(&mut self, count: u64) {
         self.summary.joined_member_count = count;
     }
 
     /// Updates the invited member count.
+    #[cfg(feature = "experimental-sliding-sync")]
     pub(crate) fn update_invited_member_count(&mut self, count: u64) {
         self.summary.invited_member_count = count;
     }
 
     /// Updates the heroes user ids.
+    #[cfg(feature = "experimental-sliding-sync")]
     pub(crate) fn update_heroes(&mut self, heroes: Vec<OwnedUserId>, names: Vec<String>) {
         self.summary.heroes_user_ids = heroes;
         self.summary.heroes_names = names;
