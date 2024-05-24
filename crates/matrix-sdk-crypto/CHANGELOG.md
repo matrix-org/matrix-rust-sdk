@@ -6,6 +6,14 @@ Security fixes:
 
 Changes:
 
+- Sign the device keys with the user-identity (i.e. cross-signing keys) if
+  we're uploading the device keys and if the cross-signing keys are available.
+  This approach eliminates the need to upload signatures in a separate request,
+  ensuring that other users/devices will never encounter this device without a
+  signature from their user identity. Consequently, they will never see the
+  device as unverified.
+  ([#3453](https://github.com/matrix-org/matrix-rust-sdk/pull/3453))
+
 - Avoid emitting entries from `identities_stream_raw` and `devices_stream` when
   we receive a `/keys/query` response which shows that no devices changed.
   ([#3442](https://github.com/matrix-org/matrix-rust-sdk/pull/3442))

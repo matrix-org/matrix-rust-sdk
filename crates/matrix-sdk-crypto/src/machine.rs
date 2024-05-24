@@ -603,6 +603,11 @@ impl OlmMachine {
             (upload_signing_keys_req, upload_signatures_req)
         };
 
+        // `upload_device_keys()` will attempt to sign the device keys using this
+        // `identity`, it will attempt to acquire the lock, so we need to drop
+        // here to avoid a deadlock.
+        drop(identity);
+
         // If there are any *device* keys to upload (i.e. the account isn't shared),
         // upload them before we upload the signatures, since the signatures may
         // reference keys to be uploaded.
@@ -701,7 +706,28 @@ impl OlmMachine {
     ///
     /// [`receive_keys_upload_response`]: #method.receive_keys_upload_response
     async fn keys_for_upload(&self, account: &Account) -> Option<UploadKeysRequest> {
-        let (device_keys, one_time_keys, fallback_keys) = account.keys_for_upload();
+        let (mut device_keys, one_time_keys, fallback_keys) = account.keys_for_upload();
+
+        // When uploading the device keys, if all private cross-signing keys are
+        // available locally, sign the device using these cross-signing keys.
+        // This will mark the device as verified if the user identity (i.e., the
+        // cross-signing keys) is also marked as verified.
+        //
+        // This approach eliminates the need to upload signatures in a separate request,
+        // ensuring that other users/devices will never encounter this device
+        // without a signature from their user identity. Consequently, they will
+        // never see the device as unverified.
+        if let Some(device_keys) = &mut device_keys {
+            let private_identity = self.store().private_identity();
+            let guard = private_identity.lock().await;
+
+            if guard.status().await.is_complete() {
+                guard.sign_device_keys(device_keys).await.expect(
+                    "We should be able to sign our device keys since we confirmed that we \
+                     have a complete set of private cross-signing keys",
+                );
+            }
+        }
 
         if device_keys.is_none() && one_time_keys.is_empty() && fallback_keys.is_empty() {
             None
