@@ -367,19 +367,21 @@ fn calculate_room_name(
     invited_member_count: u64,
     mut heroes: Vec<&str>,
 ) -> DisplayName {
-    let heroes_count = heroes.len() as u64;
+    let num_heroes = heroes.len() as u64;
     let invited_joined = invited_member_count + joined_member_count;
     let invited_joined_minus_one = invited_joined.saturating_sub(1);
 
     // Stabilize ordering.
     heroes.sort_unstable();
 
-    let names = if heroes_count >= invited_joined_minus_one {
+    let names = if num_heroes == 0 && invited_joined > 1 {
+        format!("{} people", invited_joined)
+    } else if num_heroes >= invited_joined_minus_one {
         heroes.join(", ")
-    } else if heroes_count < invited_joined_minus_one && invited_joined > 1 {
+    } else if num_heroes < invited_joined_minus_one && invited_joined > 1 {
         // TODO: What length does the spec want us to use here and in
         // the `else`?
-        format!("{}, and {} others", heroes.join(", "), (invited_joined - heroes_count))
+        format!("{}, and {} others", heroes.join(", "), (invited_joined - num_heroes))
     } else {
         "".to_owned()
     };
@@ -576,6 +578,9 @@ mod tests {
 
         actual = calculate_room_name(5, 0, vec!["a", "b", "c"]);
         assert_eq!(DisplayName::Calculated("a, b, c, and 2 others".to_owned()), actual);
+
+        actual = calculate_room_name(5, 0, vec![]);
+        assert_eq!(DisplayName::Calculated("5 people".to_owned()), actual);
 
         actual = calculate_room_name(0, 0, vec![]);
         assert_eq!(DisplayName::Empty, actual);
