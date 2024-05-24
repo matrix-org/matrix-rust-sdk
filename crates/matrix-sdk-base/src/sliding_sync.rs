@@ -38,7 +38,7 @@ use crate::RoomMemberships;
 use crate::{
     error::Result,
     read_receipts::{compute_unread_counts, PreviousEventsProvider},
-    rooms::{RoomState},
+    rooms::RoomState,
     store::{ambiguity_map::AmbiguityCache, StateChanges, Store},
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Notification, RoomUpdates, SyncResponse},
     Room, RoomInfo,

@@ -126,13 +126,9 @@ impl BaseRoomInfo {
         &self,
         joined_member_count: u64,
         invited_member_count: u64,
-        heroes: Vec<RoomMember>,
+        heroes: Vec<&str>,
     ) -> DisplayName {
-        calculate_room_name(
-            joined_member_count,
-            invited_member_count,
-            heroes.iter().map(|mem| mem.name()).collect::<Vec<&str>>(),
-        )
+        calculate_room_name(joined_member_count, invited_member_count, heroes)
     }
 
     /// Get the room version of this room.
