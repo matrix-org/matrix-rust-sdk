@@ -38,7 +38,7 @@ use crate::RoomMemberships;
 use crate::{
     error::Result,
     read_receipts::{compute_unread_counts, PreviousEventsProvider},
-    rooms::{normal::RoomSummary, RoomState},
+    rooms::{RoomState},
     store::{ambiguity_map::AmbiguityCache, StateChanges, Store},
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Notification, RoomUpdates, SyncResponse},
     Room, RoomInfo,
@@ -703,9 +703,10 @@ fn process_room_properties(room_data: &v4::SlidingSyncRoom, room_info: &mut Room
     }
 
     if let Some(heroes) = &room_data.heroes {
-        // Filter out all the heroes which don't have a user id.
+        // Filter out all the heroes which don't have a user id or name.
         room_info.update_heroes(
             heroes.iter().filter_map(|hero| hero.user_id.as_ref()).cloned().collect(),
+            heroes.iter().filter_map(|hero| hero.name.as_ref()).cloned().collect(),
         );
     }
 

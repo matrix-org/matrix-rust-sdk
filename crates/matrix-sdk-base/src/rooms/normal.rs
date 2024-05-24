@@ -116,8 +116,11 @@ pub struct RoomSummary {
     ///
     /// This was called `heroes` and contained raw `String`s of the `UserId`
     /// before; changing the field's name helped with avoiding a migration.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) heroes_user_ids: Vec<OwnedUserId>,
+    /// The heroes names, as returned by a server, if available.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) heroes_names: Vec<String>,
     /// The number of members that are considered to be joined to the room.
     pub(crate) joined_member_count: u64,
     /// The number of members that are considered to be invited to the room.
@@ -1135,8 +1138,9 @@ impl RoomInfo {
     }
 
     /// Updates the heroes user ids.
-    pub(crate) fn update_heroes(&mut self, heroes: Vec<OwnedUserId>) {
+    pub(crate) fn update_heroes(&mut self, heroes: Vec<OwnedUserId>, names: Vec<String>) {
         self.summary.heroes_user_ids = heroes;
+        self.summary.heroes_names = names;
     }
 
     /// The number of active members (invited + joined) in the room.
@@ -1471,6 +1475,7 @@ mod tests {
             },
             summary: RoomSummary {
                 heroes_user_ids: vec![owned_user_id!("@somebody:example.org")],
+                heroes_names: vec![],
                 joined_member_count: 5,
                 invited_member_count: 0,
             },
@@ -1556,6 +1561,7 @@ mod tests {
             },
             "summary": {
                 "heroes_user_ids": ["@somebody:example.org"],
+                "heroes_names": ["Somebody"],
                 "joined_member_count": 5,
                 "invited_member_count": 0,
             },
@@ -1586,6 +1592,7 @@ mod tests {
         assert_eq!(info.notification_counts.highlight_count, 1);
         assert_eq!(info.notification_counts.notification_count, 2);
         assert_eq!(info.summary.heroes_user_ids, vec![owned_user_id!("@somebody:example.org")]);
+        assert_eq!(info.summary.heroes_names, vec!["Somebody".to_owned()]);
         assert_eq!(info.summary.joined_member_count, 5);
         assert_eq!(info.summary.invited_member_count, 0);
         assert!(info.members_synced);
