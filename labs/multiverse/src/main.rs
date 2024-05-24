@@ -455,7 +455,7 @@ impl App {
                                             .map(|timeline| timeline.timeline.clone())
                                     })
                                 {
-                                    sdk_timeline
+                                    match sdk_timeline
                                         .send(
                                             RoomMessageEventContent::text_plain(format!(
                                                 "hey {}",
@@ -463,9 +463,17 @@ impl App {
                                             ))
                                             .into(),
                                         )
-                                        .await;
-
-                                    self.set_status_message("message sent!".to_owned());
+                                        .await
+                                    {
+                                        Ok(_) => {
+                                            self.set_status_message("message sent!".to_owned());
+                                        }
+                                        Err(err) => {
+                                            self.set_status_message(format!(
+                                                "error when sending event: {err}"
+                                            ));
+                                        }
+                                    }
                                 } else {
                                     self.set_status_message("missing timeline for room".to_owned());
                                 };
