@@ -155,7 +155,7 @@ impl OlmMachine {
     ///
     /// * `device_id` - The unique id of the device that owns this machine.
     pub async fn new(user_id: &UserId, device_id: &DeviceId) -> Self {
-        OlmMachine::with_store(user_id, device_id, MemoryStore::new())
+        OlmMachine::with_store(user_id, device_id, MemoryStore::new(), None)
             .await
             .expect("Reading and writing to the memory store always succeeds")
     }
@@ -244,18 +244,30 @@ impl OlmMachine {
     /// * `store` - A `CryptoStore` implementation that will be used to store
     /// the encryption keys.
     ///
+    /// * `custom_account` - A custom [`vodozemac::olm::Account`] to be used for
+    ///   the identity and one-time keys of this [`OlmMachine`]. If no account
+    ///   is provided, a new default one or one from the store will be used. If
+    ///   an account is provided and one already exists in the store for this
+    ///   [`UserId`]/[`DeviceId`] combination, an error will be raised. This is
+    ///   useful if one wishes to create identity keys before knowing the
+    ///   user/device IDs, e.g., to use the identity key as the device ID.
+    ///
     /// [`CryptoStore`]: crate::store::CryptoStore
-    #[instrument(skip(store), fields(ed25519_key, curve25519_key))]
+    #[instrument(skip(store, custom_account), fields(ed25519_key, curve25519_key))]
     pub async fn with_store(
         user_id: &UserId,
         device_id: &DeviceId,
         store: impl IntoCryptoStore,
+        custom_account: Option<vodozemac::olm::Account>,
     ) -> StoreResult<Self> {
         let store = store.into_crypto_store();
 
         let static_account = match store.load_account().await? {
             Some(account) => {
-                if user_id != account.user_id() || device_id != account.device_id() {
+                if user_id != account.user_id()
+                    || device_id != account.device_id()
+                    || custom_account.is_some()
+                {
                     return Err(CryptoStoreError::MismatchedAccount {
                         expected: (account.user_id().to_owned(), account.device_id().to_owned()),
                         got: (user_id.to_owned(), device_id.to_owned()),
@@ -271,7 +283,12 @@ impl OlmMachine {
             }
 
             None => {
-                let account = Account::with_device_id(user_id, device_id);
+                let account = if let Some(account) = custom_account {
+                    Account::new_helper(account, user_id, device_id)
+                } else {
+                    Account::with_device_id(user_id, device_id)
+                };
+
                 let static_account = account.static_data().clone();
 
                 Span::current()
@@ -4356,7 +4373,8 @@ pub(crate) mod tests {
 
         // Create the machine using `with_store` and without a call to enable_backup_v1,
         // like regenerate_olm would do
-        let alice = OlmMachine::with_store(user_id(), alice_device_id(), store).await.unwrap();
+        let alice =
+            OlmMachine::with_store(user_id(), alice_device_id(), store, None).await.unwrap();
 
         let exported_key = ExportedRoomKey::from_backed_up_room_key(
             room_id!("!room:id").to_owned(),
@@ -4384,5 +4402,22 @@ pub(crate) mod tests {
         backup_decryption_key
             .decrypt_v1(&ephemeral, &mac, &ciphertext)
             .expect("The backed up key should be decrypted successfully");
+    }
+
+    #[async_test]
+    async fn test_olm_machine_with_custom_account() {
+        let store = MemoryStore::new();
+        let account = vodozemac::olm::Account::new();
+        let curve_key = account.identity_keys().curve25519;
+
+        let alice = OlmMachine::with_store(user_id(), alice_device_id(), store, Some(account))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            alice.identity_keys().curve25519,
+            curve_key,
+            "The Olm machine should have used the Account we provided"
+        );
     }
 }

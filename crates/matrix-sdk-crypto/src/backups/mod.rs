@@ -915,7 +915,8 @@ mod tests {
 
         // Create the machine using `with_store` and without a call to enable_backup_v1,
         // like regenerate_olm would do
-        let alice = OlmMachine::with_store(alice_id(), alice_device_id(), store).await.unwrap();
+        let alice =
+            OlmMachine::with_store(alice_id(), alice_device_id(), store, None).await.unwrap();
 
         let binding = alice.backup_machine().backup_key.read().await;
         let machine_backup_key = binding.as_ref().unwrap();
