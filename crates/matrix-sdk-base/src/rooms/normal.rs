@@ -22,7 +22,6 @@ use std::{
 
 use bitflags::bitflags;
 use eyeball::{SharedObservable, Subscriber};
-use futures_util::stream::{self, StreamExt};
 #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
 use matrix_sdk_common::ring_buffer::RingBuffer;
 #[cfg(feature = "experimental-sliding-sync")]
@@ -628,46 +627,44 @@ impl Room {
 
         let own_user_id = self.own_user_id().as_str();
 
-        let (heroes, guessed_num_members): (Vec<RoomMember>, _) =
-            if summary.heroes_user_ids.is_empty() {
-                let mut members = self.members(RoomMemberships::ACTIVE).await?;
+        let (heroes, guessed_num_members): (Vec<String>, _) = if !summary.heroes_names.is_empty() {
+            // Straight-forward path: pass through the heroes names, don't give a guess of
+            // the number of members.
+            (summary.heroes_names, None)
+        } else if !summary.heroes_user_ids.is_empty() {
+            // Use the heroes, if available.
+            let heroes = summary.heroes_user_ids;
 
-                // Make the ordering deterministic.
-                members.sort_unstable_by(|lhs, rhs| lhs.name().cmp(rhs.name()));
+            let mut names = Vec::with_capacity(heroes.len());
+            for user_id in heroes {
+                if user_id == own_user_id {
+                    continue;
+                }
+                if let Some(member) = self.get_member(&user_id).await? {
+                    names.push(member.name().to_owned());
+                }
+            }
 
-                // We can make a good prediction of the total number of members here. This might
-                // be incorrect if the database info is outdated.
-                let guessed_num_members = Some(members.len());
+            (names, None)
+        } else {
+            let mut members = self.members(RoomMemberships::ACTIVE).await?;
 
-                (
-                    members
-                        .into_iter()
-                        .take(NUM_HEROES)
-                        .filter(|u| u.user_id() != own_user_id)
-                        .collect(),
-                    guessed_num_members,
-                )
-            } else {
-                let mut heroes = summary.heroes_user_ids;
+            // Make the ordering deterministic.
+            members.sort_unstable_by(|lhs, rhs| lhs.name().cmp(rhs.name()));
 
-                // Make the ordering deterministic.
-                heroes.sort_unstable();
+            // We can make a good prediction of the total number of members here. This might
+            // be incorrect if the database info is outdated.
+            let guessed_num_members = Some(members.len());
 
-                let members: Vec<_> = stream::iter(heroes.iter())
-                    .filter_map(|user_id| async move {
-                        // Filter out the current user.
-                        if user_id == own_user_id {
-                            return None;
-                        }
-                        self.get_member(&user_id).await.transpose()
-                    })
-                    .collect()
-                    .await;
-
-                let members: StoreResult<Vec<_>> = members.into_iter().collect();
-
-                (members?, None)
-            };
+            (
+                members
+                    .into_iter()
+                    .take(NUM_HEROES)
+                    .filter_map(|u| (u.user_id() != own_user_id).then(|| u.name().to_owned()))
+                    .collect(),
+                guessed_num_members,
+            )
+        };
 
         let (num_joined, num_invited) = match self.state() {
             RoomState::Invited => {
@@ -698,7 +695,11 @@ impl Room {
             "Calculating name for a room",
         );
 
-        Ok(self.inner.read().base_info.calculate_room_name(num_joined, num_invited, heroes))
+        Ok(self.inner.read().base_info.calculate_room_name(
+            num_joined,
+            num_invited,
+            heroes.iter().map(|hero| hero.as_str()).collect(),
+        ))
     }
 
     /// Subscribe to the inner `RoomInfo`.
