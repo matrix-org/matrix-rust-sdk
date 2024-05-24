@@ -1534,6 +1534,12 @@ impl OlmMachine {
         }
         .into()
     }
+
+    /// Clear any in-memory caches because they may be out of sync with the
+    /// underlying data store.
+    pub async fn clear_crypto_cache(&self) {
+        self.runtime.block_on(self.inner.clear_crypto_cache())
+    }
 }
 
 impl OlmMachine {
