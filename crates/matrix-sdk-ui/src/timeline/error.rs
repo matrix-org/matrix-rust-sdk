@@ -14,7 +14,10 @@
 
 use std::fmt;
 
-use matrix_sdk::event_cache::{paginator::PaginatorError, EventCacheError};
+use matrix_sdk::{
+    event_cache::{paginator::PaginatorError, EventCacheError},
+    send_queue::RoomSendingQueueError,
+};
 use thiserror::Error;
 
 /// Errors specific to the timeline.
@@ -126,4 +129,16 @@ enum UnsupportedEditItemInner {
     NotRoomMessage,
     #[error("tried to edit a non-poll event")]
     NotPollEvent,
+}
+
+#[derive(Debug, Error)]
+pub enum SendEventError {
+    #[error(transparent)]
+    UnsupportedReplyItem(#[from] UnsupportedReplyItem),
+
+    #[error(transparent)]
+    UnsupportedEditItem(#[from] UnsupportedEditItem),
+
+    #[error(transparent)]
+    SendError(#[from] RoomSendingQueueError),
 }

@@ -27,6 +27,7 @@ use matrix_sdk::{
     event_handler::EventHandlerHandle,
     executor::JoinHandle,
     room::{Receipts, Room},
+    send_queue::{AbortSendHandle, RoomSendingQueueError},
     Client, Result,
 };
 use matrix_sdk_base::RoomState;
@@ -55,10 +56,9 @@ use ruma::{
     TransactionId, UserId,
 };
 use thiserror::Error;
-use tokio::sync::mpsc::Sender;
-use tracing::{debug, error, instrument, trace, warn};
+use tracing::{error, instrument, trace, warn};
 
-use self::{event_handler::TimelineEventKind, futures::SendAttachment};
+use self::{error::SendEventError, futures::SendAttachment};
 
 mod builder;
 mod day_dividers;
@@ -71,7 +71,6 @@ mod inner;
 mod item;
 mod pagination;
 mod polls;
-mod queue;
 mod reactions;
 mod read_receipts;
 mod sliding_sync_ext;
@@ -104,7 +103,6 @@ pub use self::{
 };
 use self::{
     inner::{ReactionAction, TimelineInner},
-    queue::LocalMessage,
     reactions::ReactionToggleResult,
     util::rfind_event_by_id,
 };
@@ -122,10 +120,6 @@ pub struct Timeline {
 
     /// The event cache specialized for this room's view.
     event_cache: RoomEventCache,
-
-    /// A sender to the task which responsibility is to send messages to the
-    /// current room.
-    msg_sender: Sender<LocalMessage>,
 
     /// References to long-running tasks held by the timeline.
     drop_handle: Arc<TimelineDropHandle>,
@@ -277,20 +271,11 @@ impl Timeline {
     /// [`MessageLikeUnsigned`]: ruma::events::MessageLikeUnsigned
     /// [`SyncMessageLikeEvent`]: ruma::events::SyncMessageLikeEvent
     #[instrument(skip(self, content), fields(room_id = ?self.room().room_id()))]
-    pub async fn send(&self, content: AnyMessageLikeEventContent) {
-        let txn_id = TransactionId::new();
-        self.inner
-            .handle_local_event(
-                txn_id.clone(),
-                TimelineEventKind::Message {
-                    content: content.clone(),
-                    relations: Default::default(),
-                },
-            )
-            .await;
-        if self.msg_sender.send(LocalMessage { content, txn_id }).await.is_err() {
-            error!("Internal error: timeline message receiver is closed");
-        }
+    pub async fn send(
+        &self,
+        content: AnyMessageLikeEventContent,
+    ) -> Result<AbortSendHandle, RoomSendingQueueError> {
+        self.room().sending_queue().send(content).await
     }
 
     /// Send a reply to the given event.
@@ -318,11 +303,11 @@ impl Timeline {
         content: RoomMessageEventContentWithoutRelation,
         reply_item: &EventTimelineItem,
         forward_thread: ForwardThread,
-    ) -> Result<(), UnsupportedReplyItem> {
+    ) -> Result<(), SendEventError> {
         // Error returns here must be in sync with
         // `EventTimelineItem::can_be_replied_to`
         let Some(event_id) = reply_item.event_id() else {
-            return Err(UnsupportedReplyItem::MISSING_EVENT_ID);
+            return Err(UnsupportedReplyItem::MISSING_EVENT_ID.into());
         };
 
         // [The specification](https://spec.matrix.org/v1.10/client-server-api/#user-and-room-mentions) says:
@@ -352,7 +337,7 @@ impl Timeline {
             }
             _ => {
                 let Some(raw_event) = reply_item.latest_json() else {
-                    return Err(UnsupportedReplyItem::MISSING_JSON);
+                    return Err(UnsupportedReplyItem::MISSING_JSON.into());
                 };
 
                 content.make_reply_to_raw(
@@ -365,7 +350,8 @@ impl Timeline {
             }
         };
 
-        self.send(content.into()).await;
+        self.send(content.into()).await?;
+
         Ok(())
     }
 
@@ -384,14 +370,14 @@ impl Timeline {
         &self,
         new_content: RoomMessageEventContentWithoutRelation,
         edit_item: &EventTimelineItem,
-    ) -> Result<(), UnsupportedEditItem> {
+    ) -> Result<(), SendEventError> {
         // Early returns here must be in sync with
         // `EventTimelineItem::can_be_edited`
         let Some(event_id) = edit_item.event_id() else {
-            return Err(UnsupportedEditItem::MISSING_EVENT_ID);
+            return Err(UnsupportedEditItem::MISSING_EVENT_ID.into());
         };
         let TimelineItemContent::Message(original_content) = edit_item.content() else {
-            return Err(UnsupportedEditItem::NOT_ROOM_MESSAGE);
+            return Err(UnsupportedEditItem::NOT_ROOM_MESSAGE.into());
         };
 
         let replied_to_message =
@@ -419,7 +405,8 @@ impl Timeline {
             replied_to_message.as_ref(),
         );
 
-        self.send(content.into()).await;
+        self.send(content.into()).await?;
+
         Ok(())
     }
 
@@ -428,12 +415,12 @@ impl Timeline {
         fallback_text: impl Into<String>,
         poll: UnstablePollStartContentBlock,
         edit_item: &EventTimelineItem,
-    ) -> Result<(), UnsupportedEditItem> {
+    ) -> Result<(), SendEventError> {
         let Some(event_id) = edit_item.event_id() else {
-            return Err(UnsupportedEditItem::MISSING_EVENT_ID);
+            return Err(UnsupportedEditItem::MISSING_EVENT_ID.into());
         };
         let TimelineItemContent::Poll(_) = edit_item.content() else {
-            return Err(UnsupportedEditItem::NOT_POLL_EVENT);
+            return Err(UnsupportedEditItem::NOT_POLL_EVENT.into());
         };
 
         let replacement_poll = ReplacementUnstablePollStartEventContent::plain_text(
@@ -441,7 +428,7 @@ impl Timeline {
             poll,
             event_id.into(),
         );
-        self.send(UnstablePollStartEventContent::from(replacement_poll).into()).await;
+        self.send(UnstablePollStartEventContent::from(replacement_poll).into()).await?;
         Ok(())
     }
 
@@ -554,79 +541,6 @@ impl Timeline {
         config: AttachmentConfig,
     ) -> SendAttachment<'_> {
         SendAttachment::new(self, path.into(), mime_type, config)
-    }
-
-    /// Retry sending a message that previously failed to send.
-    ///
-    /// # Arguments
-    ///
-    /// * `txn_id` - The transaction ID of a local echo timeline item that has a
-    ///   `send_state()` of `SendState::FailedToSend { .. }`
-    #[instrument(skip(self))]
-    pub async fn retry_send(&self, txn_id: &TransactionId) -> Result<(), Error> {
-        macro_rules! error_return {
-            ($msg:literal) => {{
-                error!($msg);
-                return Ok(());
-            }};
-        }
-
-        let item = self.inner.prepare_retry(txn_id).await.ok_or(Error::RetryEventNotInTimeline)?;
-
-        let content = match item {
-            TimelineItemContent::Message(msg) => {
-                AnyMessageLikeEventContent::RoomMessage(msg.into())
-            }
-            TimelineItemContent::Sticker(sticker) => {
-                AnyMessageLikeEventContent::Sticker(sticker.content)
-            }
-            TimelineItemContent::Poll(poll_state) => AnyMessageLikeEventContent::UnstablePollStart(
-                UnstablePollStartEventContent::New(poll_state.into()),
-            ),
-            TimelineItemContent::MembershipChange(_)
-            | TimelineItemContent::ProfileChange(_)
-            | TimelineItemContent::OtherState(_)
-            | TimelineItemContent::CallInvite => {
-                error_return!("Retrying state events/call invites is not supported");
-            }
-            TimelineItemContent::CallNotify => {
-                error_return!("Retrying call notifies is not supported");
-            }
-            TimelineItemContent::FailedToParseMessageLike { .. }
-            | TimelineItemContent::FailedToParseState { .. } => {
-                error_return!("Invalid state: attempting to retry a failed-to-parse item");
-            }
-            TimelineItemContent::RedactedMessage => {
-                error_return!("Invalid state: attempting to retry a redacted message");
-            }
-            TimelineItemContent::UnableToDecrypt(_) => {
-                error_return!("Invalid state: attempting to retry a UTD item");
-            }
-        };
-
-        debug!("Retrying failed local echo");
-        let txn_id = txn_id.to_owned();
-        if self.msg_sender.send(LocalMessage { content, txn_id }).await.is_err() {
-            error!("Internal error: timeline message receiver is closed");
-        }
-
-        Ok(())
-    }
-
-    /// Discard a local echo for a message that failed to send.
-    ///
-    /// Returns whether the local echo with the given transaction ID was found.
-    ///
-    /// # Argument
-    ///
-    /// * `txn_id` - The transaction ID of a local echo timeline item that has a
-    ///   `send_state()` of `SendState::FailedToSend { .. }`. *Note:* A send
-    ///   state of `SendState::NotYetSent` might be supported in the future as
-    ///   well, but there can be no guarantee for that actually stopping the
-    ///   event from reaching the server.
-    #[instrument(skip(self))]
-    pub async fn cancel_send(&self, txn_id: &TransactionId) -> bool {
-        self.inner.discard_local_echo(txn_id).await
     }
 
     /// Fetch unavailable details about the event with the given ID.
@@ -819,6 +733,7 @@ struct TimelineDropHandle {
     event_handler_handles: Vec<EventHandlerHandle>,
     room_update_join_handle: JoinHandle<()>,
     room_key_from_backups_join_handle: JoinHandle<()>,
+    local_echo_listener_handle: JoinHandle<()>,
     _event_cache_drop_handle: Arc<EventCacheDropHandles>,
 }
 
@@ -827,6 +742,7 @@ impl Drop for TimelineDropHandle {
         for handle in self.event_handler_handles.drain(..) {
             self.client.remove_event_handler(handle);
         }
+        self.local_echo_listener_handle.abort();
         self.room_update_join_handle.abort();
         self.room_key_from_backups_join_handle.abort();
     }

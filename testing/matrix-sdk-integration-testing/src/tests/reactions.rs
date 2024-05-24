@@ -102,7 +102,7 @@ async fn test_toggling_reaction() -> Result<()> {
 
     // Send message.
     debug!("Sending initial message…");
-    timeline.send(RoomMessageEventContent::text_plain("hi!").into()).await;
+    timeline.send(RoomMessageEventContent::text_plain("hi!").into()).await.unwrap();
 
     let event_id = timeout(Duration::from_secs(10), event_id_task)
         .await

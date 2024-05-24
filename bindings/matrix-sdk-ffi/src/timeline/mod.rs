@@ -51,7 +51,7 @@ use tokio::{
     sync::Mutex,
     task::{AbortHandle, JoinHandle},
 };
-use tracing::{error, info, warn};
+use tracing::{error, warn};
 use uuid::Uuid;
 
 use self::content::{Reaction, ReactionSenderData, TimelineItemContent};
@@ -221,7 +221,9 @@ impl Timeline {
 
     pub fn send(self: Arc<Self>, msg: Arc<RoomMessageEventContentWithoutRelation>) {
         RUNTIME.spawn(async move {
-            self.inner.send((*msg).to_owned().with_relation(None).into()).await;
+            if let Err(err) = self.inner.send((*msg).to_owned().with_relation(None).into()).await {
+                error!("error when sending a message: {err}");
+            }
         });
     }
 
@@ -390,7 +392,9 @@ impl Timeline {
             AnyMessageLikeEventContent::UnstablePollStart(poll_start_event_content.into());
 
         RUNTIME.spawn(async move {
-            self.inner.send(event_content).await;
+            if let Err(err) = self.inner.send(event_content).await {
+                error!("unable to start poll: {err}");
+            }
         });
 
         Ok(())
@@ -409,7 +413,9 @@ impl Timeline {
             AnyMessageLikeEventContent::UnstablePollResponse(poll_response_event_content);
 
         RUNTIME.spawn(async move {
-            self.inner.send(event_content).await;
+            if let Err(err) = self.inner.send(event_content).await {
+                error!("unable to send poll response: {err}");
+            }
         });
 
         Ok(())
@@ -426,7 +432,9 @@ impl Timeline {
         let event_content = AnyMessageLikeEventContent::UnstablePollEnd(poll_end_event_content);
 
         RUNTIME.spawn(async move {
-            self.inner.send(event_content).await;
+            if let Err(err) = self.inner.send(event_content).await {
+                error!("unable to end poll: {err}");
+            }
         });
 
         Ok(())
@@ -509,22 +517,6 @@ impl Timeline {
         let event_id = <&EventId>::try_from(event_id.as_str())?;
         self.inner.fetch_details_for_event(event_id).await.context("Fetching event details")?;
         Ok(())
-    }
-
-    pub fn retry_send(self: Arc<Self>, txn_id: String) {
-        RUNTIME.spawn(async move {
-            if let Err(e) = self.inner.retry_send(txn_id.as_str().into()).await {
-                error!(txn_id, "Failed to retry sending: {e}");
-            }
-        });
-    }
-
-    pub fn cancel_send(self: Arc<Self>, txn_id: String) {
-        RUNTIME.spawn(async move {
-            if !self.inner.cancel_send(txn_id.as_str().into()).await {
-                info!(txn_id, "Failed to discard local echo: Not found");
-            }
-        });
     }
 
     pub async fn get_event_timeline_item_by_event_id(
