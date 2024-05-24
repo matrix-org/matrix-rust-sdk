@@ -628,21 +628,34 @@ impl OlmMachine {
         // If there are any *device* keys to upload (i.e. the account isn't shared),
         // upload them before we upload the signatures, since the signatures may
         // reference keys to be uploaded.
-        let upload_keys_req = {
-            let cache = self.store().cache().await?;
-            let account = cache.account().await?;
-            if account.shared() {
-                None
-            } else {
-                self.keys_for_upload(&account).await.map(OutgoingRequest::from)
-            }
-        };
+        let upload_keys_req =
+            self.upload_device_keys().await?.map(|(_, request)| OutgoingRequest::from(request));
 
         Ok(CrossSigningBootstrapRequests {
             upload_signing_keys_req,
             upload_keys_req,
             upload_signatures_req,
         })
+    }
+
+    /// Upload the device keys for this [`OlmMachine`].
+    ///
+    /// **Warning**: Do not use this method if
+    /// [`OlmMachine::outgoing_requests()`] is already in use. This method
+    /// is intended for explicitly uploading the device keys before starting
+    /// a sync and before using [`OlmMachine::outgoing_requests()`].
+    ///
+    /// # Returns
+    ///
+    /// A tuple containing a transaction ID and a request if the device keys
+    /// need to be uploaded. Otherwise, returns `None`.
+    pub async fn upload_device_keys(
+        &self,
+    ) -> StoreResult<Option<(OwnedTransactionId, UploadKeysRequest)>> {
+        let cache = self.store().cache().await?;
+        let account = cache.account().await?;
+
+        Ok(self.keys_for_upload(&account).await.map(|request| (TransactionId::new(), request)))
     }
 
     /// Receive a successful `/keys/upload` response.
