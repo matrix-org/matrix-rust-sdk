@@ -57,7 +57,11 @@ pub struct UnableToDecryptInfo {
     pub cause: UtdCause,
 }
 
-type PendingUtdReports = HashMap<OwnedEventId, JoinHandle<()>>;
+#[derive(Debug)]
+struct PendingUtdReport {
+    marked_utd_at: Instant,
+    report_task: JoinHandle<()>,
+}
 
 /// A manager over an existing [`UnableToDecryptHook`] that deduplicates UTDs
 /// on similar events, and adds basic consistency checks.
@@ -90,7 +94,7 @@ pub struct UtdHookManager {
     ///
     /// Note: this is theoretically unbounded in size, although this set of
     /// tasks will degrow over time, as tasks expire after the max delay.
-    pending_delayed: Arc<Mutex<PendingUtdReports>>,
+    pending_delayed: Arc<Mutex<HashMap<OwnedEventId, PendingUtdReport>>>,
 }
 
 impl UtdHookManager {
@@ -166,7 +170,10 @@ impl UtdHookManager {
         });
 
         // Add the task to the set of pending tasks.
-        self.pending_delayed.lock().unwrap().insert(event_id.to_owned(), handle);
+        self.pending_delayed.lock().unwrap().insert(
+            event_id.to_owned(),
+            PendingUtdReport { marked_utd_at: Instant::now(), report_task: handle },
+        );
     }
 
     /// The function to call whenever an event that was marked as a UTD has
@@ -187,9 +194,11 @@ impl UtdHookManager {
         };
 
         // Cancel and remove the task from the outstanding set immediately.
-        self.pending_delayed.lock().unwrap().remove(event_id).map(|task| {
-            task.abort();
-        });
+        self.pending_delayed.lock().unwrap().remove(event_id).map(
+            |pending_utd_report: PendingUtdReport| {
+                pending_utd_report.report_task.abort();
+            },
+        );
 
         // Report to the parent hook.
         self.parent.on_utd(info);
@@ -200,8 +209,8 @@ impl Drop for UtdHookManager {
     fn drop(&mut self) {
         // Cancel all the outstanding delayed tasks to report UTDs.
         let mut pending_delayed = self.pending_delayed.lock().unwrap();
-        for (_, task) in pending_delayed.drain() {
-            task.abort();
+        for (_, pending_utd_report) in pending_delayed.drain() {
+            pending_utd_report.report_task.abort();
         }
     }
 }
