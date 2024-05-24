@@ -722,12 +722,6 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             // When there is an error, sending further messages is paused. This should be
             // reflected in the timeline, so we set all other pending events to
             // cancelled.
-            //
-            // TODO(bnjbvr): spooky action at a distance here^. The sending task is the one
-            // deciding to clear the sending queue, so we're updating based on that implicit
-            // knowledge here. Instead, the sending queue should notify the timeline that
-            // it's deciding to not send those messages, and then only the
-            // timeline should mark these items as cancelled.
             let items = &mut txn.items;
             let num_items = items.len();
             for idx in 0..num_items {
@@ -802,42 +796,6 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         }
 
         Ok(follow_up_action)
-    }
-
-    /// Attempts to find a local echo item for some event to be sent.
-    ///
-    /// If it's found, it's moved back to the end of the timeline, then its
-    /// content is returned by this function.
-    pub(super) async fn prepare_retry(
-        &self,
-        txn_id: &TransactionId,
-    ) -> Option<TimelineItemContent> {
-        let mut state = self.state.write().await;
-
-        let (idx, item) = rfind_event_item(&state.items, |it| it.transaction_id() == Some(txn_id))?;
-        let local_item = item.as_local()?;
-
-        match &local_item.send_state {
-            EventSendState::NotSentYet => {
-                warn!("Attempted to retry the sending of an item that is already pending");
-                return None;
-            }
-            EventSendState::Sent { .. } => {
-                warn!("Attempted to retry the sending of an item that has already succeeded");
-                return None;
-            }
-            EventSendState::SendingFailed { .. } | EventSendState::Cancelled => {}
-        }
-
-        let new_item = item.with_inner_kind(local_item.with_send_state(EventSendState::NotSentYet));
-        let content = item.content.clone();
-
-        let mut txn = state.items.transaction();
-        txn.remove(idx);
-        txn.push_back(new_item);
-        txn.commit();
-
-        Some(content)
     }
 
     pub(super) async fn discard_local_echo(&self, txn_id: &TransactionId) -> bool {
