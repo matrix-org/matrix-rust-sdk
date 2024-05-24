@@ -1690,6 +1690,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "example-qr-login"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "futures-util",
+ "matrix-sdk",
+ "qrcode 0.13.0",
+ "tokio",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
 name = "example-secret-storage"
 version = "0.1.0"
 dependencies = [
@@ -3461,7 +3475,7 @@ version = "0.7.0"
 dependencies = [
  "byteorder",
  "image",
- "qrcode",
+ "qrcode 0.14.0",
  "ruma-common",
  "thiserror",
  "vodozemac",
@@ -4588,6 +4602,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f6d64c71eb498fe9eae14ce4ec935c555749aef511cca85b5568910d6e48001"
 dependencies = [
  "bytemuck",
+]
+
+[[package]]
+name = "qrcode"
+version = "0.13.0"
+source = "git+https://github.com/kennytm/qrcode-rust/#7aaa476e179d5bdc57df245530a7f97b0a79cd54"
+dependencies = [
+ "image",
 ]
 
 [[package]]
