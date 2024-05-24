@@ -24,7 +24,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use matrix_sdk::crypto::types::events::UtdCause;
+use matrix_sdk::{crypto::types::events::UtdCause, Client};
 use ruma::{EventId, OwnedEventId};
 use tokio::{spawn, task::JoinHandle, time::sleep};
 
@@ -107,7 +107,11 @@ pub struct UtdHookManager {
 
 impl UtdHookManager {
     /// Create a new [`UtdHookManager`] for the given hook.
-    pub fn new(parent: Arc<dyn UnableToDecryptHook>) -> Self {
+    ///
+    /// A [`Client`] must also be provided; this provides a link to the
+    /// [`matrix_sdk_base::StateStore`] which is used to load and store the
+    /// persistent data.
+    pub fn new(parent: Arc<dyn UnableToDecryptHook>, _client: Client) -> Self {
         Self {
             parent,
             known_utds: Default::default(),
@@ -225,6 +229,7 @@ impl Drop for UtdHookManager {
 
 #[cfg(test)]
 mod tests {
+    use matrix_sdk::test_utils::test_client_builder;
     use matrix_sdk_test::async_test;
     use ruma::event_id;
 
@@ -241,13 +246,17 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_deduplicates_utds() {
+    async fn build_test_client() -> Client {
+        test_client_builder(None).build().await.unwrap()
+    }
+
+    #[async_test]
+    async fn test_deduplicates_utds() {
         // If I create a dummy hook,
         let hook = Arc::new(Dummy::default());
 
         // And I wrap with the UtdHookManager,
-        let wrapper = UtdHookManager::new(hook.clone());
+        let wrapper = UtdHookManager::new(hook.clone(), build_test_client().await);
 
         // And I call the `on_utd` method multiple times, sometimes on the same event,
         wrapper.on_utd(event_id!("$1"), UtdCause::Unknown);
@@ -272,13 +281,13 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_on_late_decrypted_no_effect() {
+    #[async_test]
+    async fn test_on_late_decrypted_no_effect() {
         // If I create a dummy hook,
         let hook = Arc::new(Dummy::default());
 
         // And I wrap with the UtdHookManager,
-        let wrapper = UtdHookManager::new(hook.clone());
+        let wrapper = UtdHookManager::new(hook.clone(), build_test_client().await);
 
         // And I call the `on_late_decrypt` method before the event had been marked as
         // utd,
@@ -288,13 +297,13 @@ mod tests {
         assert!(hook.utds.lock().unwrap().is_empty());
     }
 
-    #[test]
-    fn test_on_late_decrypted_after_utd_no_grace_period() {
+    #[async_test]
+    async fn test_on_late_decrypted_after_utd_no_grace_period() {
         // If I create a dummy hook,
         let hook = Arc::new(Dummy::default());
 
         // And I wrap with the UtdHookManager,
-        let wrapper = UtdHookManager::new(hook.clone());
+        let wrapper = UtdHookManager::new(hook.clone(), build_test_client().await);
 
         // And I call the `on_utd` method for an event,
         wrapper.on_utd(event_id!("$1"), UtdCause::Unknown);
@@ -329,7 +338,8 @@ mod tests {
 
         // And I wrap with the UtdHookManager, configured to delay reporting after 2
         // seconds.
-        let wrapper = UtdHookManager::new(hook.clone()).with_max_delay(Duration::from_secs(2));
+        let wrapper = UtdHookManager::new(hook.clone(), build_test_client().await)
+            .with_max_delay(Duration::from_secs(2));
 
         // And I call the `on_utd` method for an event,
         wrapper.on_utd(event_id!("$1"), UtdCause::Unknown);
@@ -365,7 +375,8 @@ mod tests {
 
         // And I wrap with the UtdHookManager, configured to delay reporting after 2
         // seconds.
-        let wrapper = UtdHookManager::new(hook.clone()).with_max_delay(Duration::from_secs(2));
+        let wrapper = UtdHookManager::new(hook.clone(), build_test_client().await)
+            .with_max_delay(Duration::from_secs(2));
 
         // And I call the `on_utd` method for an event,
         wrapper.on_utd(event_id!("$1"), UtdCause::Unknown);
