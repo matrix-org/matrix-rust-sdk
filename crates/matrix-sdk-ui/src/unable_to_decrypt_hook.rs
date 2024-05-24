@@ -57,7 +57,7 @@ pub struct UnableToDecryptInfo {
     pub cause: UtdCause,
 }
 
-type PendingUtdReports = Vec<(OwnedEventId, JoinHandle<()>)>;
+type PendingUtdReports = HashMap<OwnedEventId, JoinHandle<()>>;
 
 /// A manager over an existing [`UnableToDecryptHook`] that deduplicates UTDs
 /// on similar events, and adds basic consistency checks.
@@ -83,8 +83,8 @@ pub struct UtdHookManager {
     /// An optional delay before marking the event as UTD ("grace period").
     max_delay: Option<Duration>,
 
-    /// The set of outstanding tasks to report deferred UTDs, including the
-    /// event relating to the task.
+    /// A mapping of events we're going to report as UTDs, to the tasks to do
+    /// so.
     ///
     /// Note: this is empty if no [`Self::max_delay`] is set.
     ///
@@ -156,7 +156,7 @@ impl UtdHookManager {
             sleep(max_delay).await;
 
             // In any case, remove the task from the outstanding set.
-            pending_delayed.lock().unwrap().retain(|(event_id, _)| *event_id != event_id2);
+            pending_delayed.lock().unwrap().remove(&event_id2);
 
             // Check if the event is still in the map: if not, it's been decrypted since
             // then!
@@ -166,7 +166,7 @@ impl UtdHookManager {
         });
 
         // Add the task to the set of pending tasks.
-        self.pending_delayed.lock().unwrap().push((event_id.to_owned(), handle));
+        self.pending_delayed.lock().unwrap().insert(event_id.to_owned(), handle);
     }
 
     /// The function to call whenever an event that was marked as a UTD has
@@ -187,13 +187,8 @@ impl UtdHookManager {
         };
 
         // Cancel and remove the task from the outstanding set immediately.
-        self.pending_delayed.lock().unwrap().retain(|(event_id, task)| {
-            if *event_id == info.event_id {
-                task.abort();
-                false
-            } else {
-                true
-            }
+        self.pending_delayed.lock().unwrap().remove(event_id).map(|task| {
+            task.abort();
         });
 
         // Report to the parent hook.
@@ -205,7 +200,7 @@ impl Drop for UtdHookManager {
     fn drop(&mut self) {
         // Cancel all the outstanding delayed tasks to report UTDs.
         let mut pending_delayed = self.pending_delayed.lock().unwrap();
-        for (_, task) in pending_delayed.drain(..) {
+        for (_, task) in pending_delayed.drain() {
             task.abort();
         }
     }
