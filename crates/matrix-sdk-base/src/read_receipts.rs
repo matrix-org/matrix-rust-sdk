@@ -772,6 +772,7 @@ mod tests {
                 }),
                 encryption_info: None,
                 push_actions,
+                unsigned_encryption_info: None,
             }
         }
 
@@ -857,6 +858,7 @@ mod tests {
                 }),
                 encryption_info: None,
                 push_actions: Vec::new(),
+                unsigned_encryption_info: None,
             }
         }
 

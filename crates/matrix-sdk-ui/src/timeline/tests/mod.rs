@@ -229,7 +229,7 @@ impl TestTimeline {
     }
 
     async fn handle_live_event(&self, event: Raw<AnySyncTimelineEvent>) {
-        let event = SyncTimelineEvent { event, encryption_info: None, push_actions: vec![] };
+        let event = SyncTimelineEvent::new(event);
         self.inner.handle_live_event(event).await
     }
 

@@ -377,9 +377,10 @@ impl Room {
             }
         }
 
-        let push_actions = self.event_push_actions(&event).await?;
+        let mut event = TimelineEvent::new(event);
+        event.push_actions = self.event_push_actions(&event.event).await?;
 
-        Ok(TimelineEvent { event, encryption_info: None, push_actions })
+        Ok(event)
     }
 
     /// Fetch the event with the given `EventId` in this room.
