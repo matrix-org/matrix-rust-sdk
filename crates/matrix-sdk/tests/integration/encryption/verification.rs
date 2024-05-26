@@ -3,12 +3,14 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use assert_matches2::assert_matches;
 use futures_util::FutureExt;
 use imbl::HashSet;
 use matrix_sdk::{
     config::RequestConfig,
     encryption::VerificationState,
     matrix_auth::{MatrixSession, MatrixSessionTokens},
+    test_utils::logged_in_client_with_server,
     Client,
 };
 use matrix_sdk_base::SessionMeta;
@@ -18,11 +20,11 @@ use ruma::{
     encryption::{CrossSigningKey, DeviceKeys},
     owned_device_id, owned_user_id,
     serde::Raw,
-    DeviceId, DeviceKeyId, OwnedDeviceId, OwnedUserId,
+    user_id, DeviceId, DeviceKeyId, OwnedDeviceId, OwnedUserId,
 };
 use serde_json::json;
 use wiremock::{
-    matchers::{method, path},
+    matchers::{body_json, method, path},
     Mock, MockServer, Request, ResponseTemplate,
 };
 
@@ -649,4 +651,93 @@ async fn test_unchecked_mutual_verification() {
         .expect("alice sees bob's device");
     assert!(alice_bob_device.is_verified());
     assert!(alice_bob_device.is_verified_with_cross_signing());
+}
+
+#[async_test]
+async fn test_request_user_identity() {
+    let (client, server) = logged_in_client_with_server().await;
+    let bob_id = user_id!("@bob:example.org");
+
+    Mock::given(method("POST"))
+        .and(path("/_matrix/client/r0/keys/query"))
+        .and(body_json(json!({ "device_keys": { bob_id: []}})))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "failures": {},
+            "device_keys": {
+                "@bob:example.org": {
+                    "B0B0B0B0B": {
+                        "user_id": "@bob:example.org",
+                        "device_id": "B0B0B0B0B",
+                        "algorithms": [
+                            "m.olm.v1.curve25519-aes-sha2",
+                            "m.megolm.v1.aes-sha2"
+                        ],
+                        "keys": {
+                            "curve25519:B0B0B0B0B": "I3YsPwqMZQXHkSQbjFNEs7b529uac2xBpI83eN3LUXo",
+                            "ed25519:B0B0B0B0B": "qzdW3F5IMPFl0HQgz5w/L5Oi/npKUFn8Um84acIHfPY"
+                        },
+                        "signatures": {
+                            "@bob:example.org": {
+                                "ed25519:5JpU6BNHsBZbf4Y3t0IvpIWa7kKDSGy3b+DjVjUuJmc": "MpU1mqNNWymS2mWYsBH0HFxizIVWDgTRmh+qXzXZVdD0dvhwyLKaUAZF/jrbrdyPvjikBtRQGRAk/hhj7DOjDg",
+                                "ed25519:B0B0B0B0B": "jU36UPWk8rrCOUR+v1MN7CsjThmFn4doNR5rFEO2fTERku4zLpAR9oG3OLgRcs+L1Vc8Hqm5++wv9bYuJhp2Bg"
+                            }
+                        }
+                    },
+                },
+            },
+            "master_keys": {
+                "@bob:example.org": {
+                    "user_id": "@bob:example.org",
+                    "usage": ["master"],
+                    "keys": {
+                        "ed25519:3NZwYz0VjFrhONhYT2iBWCYdEYF266jn/vmZqc6QdDU": "3NZwYz0VjFrhONhYT2iBWCYdEYF266jn/vmZqc6QdDU"
+                    },
+                    "signatures": {
+                        "@bob:example.org": {
+                            "ed25519:3NZwYz0VjFrhONhYT2iBWCYdEYF266jn/vmZqc6QdDU": "TCnq8/vy6lp56cF5J9PmsqTnLjKcvsNYN7qFpD6isYWmEFLFBfml8B2ceBzlu9NLwi0xT9jpQV7SYRQt4ZnICQ",
+                            "ed25519:B0B0B0B0B": "yCQFDN+1sJQ+qhqfubOnmPOu/agHT8k17SaD886QmVDwEXCeFFDSZKY29oBDaCRJZJ2BvE2WSK+GACXv5t2FDw"
+                        }
+                    }
+                },
+            },
+            "self_signing_keys": {
+                "@bob:example.org": {
+                    "user_id": "@bob:example.org",
+                    "usage": ["self_signing"],
+                    "keys": {
+                        "ed25519:5JpU6BNHsBZbf4Y3t0IvpIWa7kKDSGy3b+DjVjUuJmc": "5JpU6BNHsBZbf4Y3t0IvpIWa7kKDSGy3b+DjVjUuJmc"
+                    },
+                    "signatures": {
+                        "@bob:example.org": {
+                            "ed25519:3NZwYz0VjFrhONhYT2iBWCYdEYF266jn/vmZqc6QdDU": "yre3bDdzSYNQweNRRB0BXSaaM8n9IA2puathxXSDGebyF6Bh1+Kd6Q8/tl271LwM4Wdar4vgPwrgExW7k2hLBg"
+                        }
+                    }
+                },
+            },
+            "user_signing_keys": {
+                "@bob:example.org": {
+                    "user_id": "@bob:example.org",
+                    "usage": ["user_signing"],
+                    "keys": {
+                        "ed25519:JIKwmV4DJMn4/OY/WuNQrJpNOT8zJSq7fWebLdBq4E8": "JIKwmV4DJMn4/OY/WuNQrJpNOT8zJSq7fWebLdBq4E8"
+                    },
+                    "signatures": {
+                        "@bob:example.org": {
+                            "ed25519:3NZwYz0VjFrhONhYT2iBWCYdEYF266jn/vmZqc6QdDU": "pd0MbRNyh9riLeA9yqEBo+Dk0TUVkdrxyEqkwExKEsP5e3LhPAd6t6f9g7fZv68rxUWjJ2lDbw2xRu3SJghaDA"
+                        }
+                    }
+                },
+            },
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let encryption = client.encryption();
+
+    // We don't have Bob's identity yet.
+    assert_matches!(encryption.get_user_identity(bob_id).await, Ok(None));
+
+    assert_matches!(encryption.request_user_identity(bob_id).await, Ok(Some(_)));
+    assert_matches!(encryption.get_user_identity(bob_id).await, Ok(Some(_)));
 }
