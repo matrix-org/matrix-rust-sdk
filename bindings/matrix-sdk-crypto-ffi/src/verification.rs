@@ -28,8 +28,11 @@ pub trait SasListener: Send {
 /// An Enum describing the state the SAS verification is in.
 #[derive(uniffi::Enum)]
 pub enum SasState {
-    /// The verification has been started, the protocols that should be used
-    /// have been proposed and can be accepted.
+    /// The verification has been created, the protocols that should be used
+    /// have been proposed to the other party.
+    Created,
+    /// The verification has been started, the other party proposed the
+    /// protocols that should be used and that can be accepted.
     Started,
     /// The verification has been accepted and both sides agreed to a set of
     /// protocols that will be used for the verification process.
@@ -58,6 +61,7 @@ pub enum SasState {
 impl From<RustSasState> for SasState {
     fn from(s: RustSasState) -> Self {
         match s {
+            RustSasState::Created { .. } => Self::Created,
             RustSasState::Started { .. } => Self::Started,
             RustSasState::Accepted { .. } => Self::Accepted,
             RustSasState::KeysExchanged { emojis, decimals } => Self::KeysExchanged {

@@ -235,6 +235,10 @@ impl SasVerification {
     ///
     /// ```text
     ///                ┌───────┐
+    ///                │Created│
+    ///                └───┬───┘
+    ///                    │
+    ///                ┌───⌄───┐
     ///                │Started│
     ///                └───┬───┘
     ///                    │
@@ -305,7 +309,8 @@ impl SasVerification {
     ///             );
     ///             break;
     ///         }
-    ///         SasState::Started { .. }
+    ///         SasState::Created { .. }
+    ///         | SasState::Started { .. }
     ///         | SasState::Accepted { .. }
     ///         | SasState::Confirmed => (),
     ///     }

@@ -116,8 +116,15 @@ pub struct EmojiShortAuthString {
 /// An Enum describing the state the SAS verification is in.
 #[derive(Debug, Clone)]
 pub enum SasState {
-    /// The verification has been started, the protocols that should be used
-    /// have been proposed and can be accepted.
+    /// The verification has been created, the protocols that should be used
+    /// have been proposed to the other party.
+    Created {
+        /// The protocols that were proposed in the `m.key.verification.start`
+        /// event.
+        protocols: SasV1Content,
+    },
+    /// The verification has been started, the other party proposed the
+    /// protocols that should be used and that can be accepted.
     Started {
         /// The protocols that were proposed in the `m.key.verification.start`
         /// event.
@@ -157,7 +164,8 @@ impl PartialEq for SasState {
     fn eq(&self, other: &Self) -> bool {
         matches!(
             (self, other),
-            (Self::Started { .. }, Self::Started { .. })
+            (Self::Created { .. }, Self::Created { .. })
+                | (Self::Started { .. }, Self::Started { .. })
                 | (Self::Accepted { .. }, Self::Accepted { .. })
                 | (Self::KeysExchanged { .. }, Self::KeysExchanged { .. })
                 | (Self::Confirmed, Self::Confirmed)
@@ -171,7 +179,7 @@ impl From<&InnerSas> for SasState {
     fn from(value: &InnerSas) -> Self {
         match value {
             InnerSas::Created(s) => {
-                Self::Started { protocols: s.state.protocol_definitions.to_owned() }
+                Self::Created { protocols: s.state.protocol_definitions.to_owned() }
             }
             InnerSas::Started(s) => {
                 Self::Started { protocols: s.state.protocol_definitions.to_owned() }
@@ -658,6 +666,10 @@ impl Sas {
     ///
     /// ```text
     ///                ┌───────┐
+    ///                │Created│
+    ///                └───┬───┘
+    ///                    │
+    ///                ┌───⌄───┐
     ///                │Started│
     ///                └───┬───┘
     ///                    │
@@ -723,7 +735,8 @@ impl Sas {
     ///             );
     ///             break;
     ///         }
-    ///         SasState::Started { .. }
+    ///         SasState::Created { .. }
+    ///         | SasState::Started { .. }
     ///         | SasState::Accepted { .. }
     ///         | SasState::Confirmed => (),
     ///     }
@@ -923,7 +936,7 @@ mod tests {
 
         let (alice, content) = Sas::start(identities, TransactionId::new(), true, None, None);
 
-        assert_matches!(alice.state(), SasState::Started { .. });
+        assert_matches!(alice.state(), SasState::Created { .. });
 
         let flow_id = alice.flow_id().to_owned();
         let content = StartContent::try_from(&content).unwrap();

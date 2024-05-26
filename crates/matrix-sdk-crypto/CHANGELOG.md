@@ -43,6 +43,9 @@ Breaking changes:
 - Remove deprecated `OlmMachine::import_room_keys`.
   ([#3448](https://github.com/matrix-org/matrix-rust-sdk/pull/3448))
 
+- Add the `SasState::Created` variant to differentiate the state between the
+  party that sent the verification start and the party that received it.
+
 Deprecations:
 
 - Deprecate `BackupMachine::import_backed_up_room_keys`.
