@@ -188,7 +188,7 @@ async fn test_mutual_sas_verification() -> Result<()> {
 
     let bob_sas = bob_verification.sas().unwrap();
 
-    assert_matches!(alice_sas.state(), SasState::Started { .. });
+    assert_matches!(alice_sas.state(), SasState::Created { .. });
     assert_matches!(bob_sas.state(), SasState::Started { .. });
 
     bob_sas.accept().await?;
