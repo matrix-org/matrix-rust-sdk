@@ -220,13 +220,15 @@ impl TimelineBuilder {
                             inner.clear().await;
                         }
 
-                        RoomEventCacheUpdate::Append { events, ephemeral, ambiguity_changes } => {
+                        RoomEventCacheUpdate::Append { events, ephemeral } => {
                             trace!("Received new events from sync.");
 
                             // TODO: (bnjbvr) ephemeral should be handled by the event cache, and
                             // we should replace this with a simple `add_events_at`.
                             inner.handle_sync_events(events, ephemeral).await;
+                        }
 
+                        RoomEventCacheUpdate::Members { ambiguity_changes } => {
                             if !ambiguity_changes.is_empty() {
                                 let member_ambiguity_changes = ambiguity_changes
                                     .values()

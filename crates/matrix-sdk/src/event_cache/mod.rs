@@ -44,6 +44,7 @@
 use std::{
     collections::BTreeMap,
     fmt::Debug,
+    result::Result as StdResult,
     sync::{Arc, OnceLock},
 };
 
@@ -59,7 +60,10 @@ use ruma::{
     OwnedEventId, OwnedRoomId, RoomId,
 };
 use tokio::sync::{
-    broadcast::{error::RecvError, Receiver, Sender},
+    broadcast::{
+        error::{RecvError, SendError},
+        Receiver, Sender,
+    },
     Mutex, RwLock, RwLockWriteGuard,
 };
 use tracing::{error, info_span, instrument, trace, warn, Instrument as _, Span};
@@ -671,8 +675,19 @@ impl RoomEventCacheInner {
             self.pagination.token_notifier.notify_one();
         }
 
-        let _ =
-            self.sender.send(RoomEventCacheUpdate::Append { events, ephemeral, ambiguity_changes });
+        let _ = self.send_grouped_updates_for_events(events, ephemeral, ambiguity_changes);
+
+        Ok(())
+    }
+
+    fn send_grouped_updates_for_events(
+        &self,
+        events: Vec<SyncTimelineEvent>,
+        ephemeral: Vec<Raw<AnySyncEphemeralRoomEvent>>,
+        ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
+    ) -> StdResult<(), SendError<RoomEventCacheUpdate>> {
+        self.sender.send(RoomEventCacheUpdate::Append { events, ephemeral })?;
+        self.sender.send(RoomEventCacheUpdate::Members { ambiguity_changes })?;
 
         Ok(())
     }
@@ -707,6 +722,15 @@ pub enum RoomEventCacheUpdate {
         move_to: OwnedEventId,
     },
 
+    /// The members have changed.
+    Members {
+        /// Collection of ambiguity changes that room member events trigger.
+        ///
+        /// This is a map of event ID of the `m.room.member` event to the
+        /// details of the ambiguity change.
+        ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
+    },
+
     /// The room has new events.
     Append {
         /// All the new events that have been added to the room's timeline.
@@ -714,11 +738,6 @@ pub enum RoomEventCacheUpdate {
         /// XXX: this is temporary, until read receipts are handled in the event
         /// cache
         ephemeral: Vec<Raw<AnySyncEphemeralRoomEvent>>,
-        /// Collection of ambiguity changes that room member events trigger.
-        ///
-        /// This is a map of event ID of the `m.room.member` event to the
-        /// details of the ambiguity change.
-        ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
     },
 }
 
