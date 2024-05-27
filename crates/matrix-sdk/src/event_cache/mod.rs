@@ -44,7 +44,6 @@
 use std::{
     collections::BTreeMap,
     fmt::Debug,
-    result::Result as StdResult,
     sync::{Arc, OnceLock},
 };
 
@@ -60,10 +59,7 @@ use ruma::{
     OwnedEventId, OwnedRoomId, RoomId,
 };
 use tokio::sync::{
-    broadcast::{
-        error::{RecvError, SendError},
-        Receiver, Sender,
-    },
+    broadcast::{error::RecvError, Receiver, Sender},
     Mutex, RwLock, RwLockWriteGuard,
 };
 use tracing::{error, info_span, instrument, trace, warn, Instrument as _, Span};
@@ -676,7 +672,13 @@ impl RoomEventCacheInner {
         }
 
         // The ordering is important here.
-        let _ = self.sender.send(RoomEventCacheUpdate::SyncEvents { timeline, ephemeral })?;
+        let _ = self.sender.send(RoomEventCacheUpdate::AddTimelineEvents {
+            events: sync_timeline_events,
+            origin: EventsOrigin::Sync,
+        });
+        let _ = self
+            .sender
+            .send(RoomEventCacheUpdate::AddEphemeralEvents { events: sync_ephemeral_events });
         let _ = self.sender.send(RoomEventCacheUpdate::UpdateMembers { ambiguity_changes });
 
         Ok(())
@@ -721,14 +723,28 @@ pub enum RoomEventCacheUpdate {
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
     },
 
-    /// The room has new events.
-    SyncEvents {
+    /// The room has received new timeline events.
+    AddTimelineEvents {
         /// All the new events that have been added to the room's timeline.
-        timeline: Vec<SyncTimelineEvent>,
+        events: Vec<SyncTimelineEvent>,
+
+        /// Where the events are coming from.
+        origin: EventsOrigin,
+    },
+
+    /// The room has received new ephemeral events.
+    AddEphemeralEvents {
         /// XXX: this is temporary, until read receipts are handled in the event
         /// cache
-        ephemeral: Vec<Raw<AnySyncEphemeralRoomEvent>>,
+        events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
     },
+}
+
+/// Indicate where events are coming from.
+#[derive(Debug, Clone)]
+pub enum EventsOrigin {
+    /// Events are coming from a sync.
+    Sync,
 }
 
 #[cfg(test)]

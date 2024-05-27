@@ -15,7 +15,11 @@
 use std::{collections::BTreeSet, sync::Arc};
 
 use futures_util::{pin_mut, StreamExt};
-use matrix_sdk::{event_cache::RoomEventCacheUpdate, executor::spawn, Room};
+use matrix_sdk::{
+    event_cache::{EventsOrigin, RoomEventCacheUpdate},
+    executor::spawn,
+    Room,
+};
 use ruma::{events::AnySyncTimelineEvent, RoomVersionId};
 use tokio::sync::{broadcast, mpsc};
 use tracing::{info, info_span, trace, warn, Instrument, Span};
@@ -27,7 +31,10 @@ use super::{
     queue::send_queued_messages,
     Error, Timeline, TimelineDropHandle, TimelineFocus,
 };
-use crate::{timeline::event_item::RemoteEventOrigin, unable_to_decrypt_hook::UtdHookManager};
+use crate::{
+    timeline::{event_item::RemoteEventOrigin, inner::TimelineEnd},
+    unable_to_decrypt_hook::UtdHookManager,
+};
 
 /// Builder that allows creating and configuring various parts of a
 /// [`Timeline`].
@@ -220,12 +227,23 @@ impl TimelineBuilder {
                             inner.clear().await;
                         }
 
-                        RoomEventCacheUpdate::SyncEvents { timeline, ephemeral } => {
-                            trace!("Received new events from sync.");
+                        RoomEventCacheUpdate::AddTimelineEvents { events, origin } => {
+                            trace!("Received new timeline events from sync.");
 
-                            // TODO: (bnjbvr) ephemeral should be handled by the event cache, and
-                            // we should replace this with a simple `add_events_at`.
-                            inner.handle_sync_events(timeline, ephemeral).await;
+                            inner.add_events_at(
+                                events,
+                                TimelineEnd::Back,
+                                match origin {
+                                    EventsOrigin::Sync => RemoteEventOrigin::Sync,
+                                }
+                            ).await;
+                        }
+
+                        RoomEventCacheUpdate::AddEphemeralEvents { events } => {
+                            trace!("Received new ephemeral events from sync.");
+
+                            // TODO: (bnjbvr) ephemeral should be handled by the event cache.
+                            inner.handle_ephemeral_events(events).await;
                         }
 
                         RoomEventCacheUpdate::UpdateMembers { ambiguity_changes } => {
