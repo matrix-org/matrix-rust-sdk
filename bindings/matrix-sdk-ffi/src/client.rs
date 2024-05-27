@@ -147,6 +147,16 @@ pub trait ProgressWatcher: Send + Sync {
     fn transmission_progress(&self, progress: TransmissionProgress);
 }
 
+/// A listener to the global (client-wide) status of the sending queue.
+#[uniffi::export(callback_interface)]
+pub trait SendingQueueStatusListener: Sync + Send {
+    /// Called every time the sending queue has received a new status.
+    ///
+    /// This can be set automatically (in case of sending failure), or manually
+    /// via an API call.
+    fn on_value(&self, new_value: bool);
+}
+
 #[derive(Clone, Copy, uniffi::Record)]
 pub struct TransmissionProgress {
     pub current: u64,
@@ -306,6 +316,42 @@ impl Client {
         }
 
         Ok(())
+    }
+
+    /// Enables or disables the sending queue, according to the given parameter.
+    ///
+    /// The sending queue automatically disables itself whenever sending an
+    /// event with it failed (e.g., sending an event via the high-level Timeline
+    /// object), so it's required to manually re-enable it as soon as
+    /// connectivity is back on the device.
+    pub fn enable_sending_queue(&self, val: bool) {
+        if val {
+            self.inner.sending_queue().enable();
+        } else {
+            self.inner.sending_queue().disable();
+        }
+    }
+
+    /// Subscribe to the global enablement status of the sending queue, at the
+    /// client-wide level.
+    ///
+    /// The given listener will be immediately called with the initial value of
+    /// the enablement status.
+    pub fn subscribe_to_sending_queue_status(
+        &self,
+        listener: Box<dyn SendingQueueStatusListener>,
+    ) -> Arc<TaskHandle> {
+        let mut subscriber = self.inner.sending_queue().subscribe_status();
+
+        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
+            // Call with the initial value.
+            listener.on_value(subscriber.next_now());
+
+            // Call every time the value changes.
+            while let Some(next_val) = subscriber.next().await {
+                listener.on_value(next_val);
+            }
+        })))
     }
 }
 
