@@ -733,7 +733,7 @@ struct TimelineDropHandle {
     event_handler_handles: Vec<EventHandlerHandle>,
     room_update_join_handle: JoinHandle<()>,
     room_key_from_backups_join_handle: JoinHandle<()>,
-    local_echo_listener_handle: JoinHandle<()>,
+    local_echo_listener_handle: Option<JoinHandle<()>>,
     _event_cache_drop_handle: Arc<EventCacheDropHandles>,
 }
 
@@ -742,7 +742,9 @@ impl Drop for TimelineDropHandle {
         for handle in self.event_handler_handles.drain(..) {
             self.client.remove_event_handler(handle);
         }
-        self.local_echo_listener_handle.abort();
+        if let Some(handle) = self.local_echo_listener_handle.take() {
+            handle.abort()
+        };
         self.room_update_join_handle.abort();
         self.room_key_from_backups_join_handle.abort();
     }
