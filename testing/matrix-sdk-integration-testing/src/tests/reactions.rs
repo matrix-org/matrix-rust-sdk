@@ -71,7 +71,7 @@ async fn test_toggling_reaction() -> Result<()> {
         let find_event_id = |items: &Vector<Arc<TimelineItem>>| {
             items.iter().find_map(|item| {
                 let event = item.as_event()?;
-                if event.content().as_message()?.body().trim() == "hi!" {
+                if !event.is_local_echo() && event.content().as_message()?.body().trim() == "hi!" {
                     event.event_id().map(|event_id| event_id.to_owned())
                 } else {
                     None
@@ -130,8 +130,7 @@ async fn test_toggling_reaction() -> Result<()> {
         .find_map(|(i, item)| (item.as_event()?.event_id()? == event_id).then_some(i))
         .expect("couldn't find the final position for the event id");
 
-    let reaction_key = "👍";
-    let reaction = Annotation::new(event_id.clone(), reaction_key.into());
+    let reaction = Annotation::new(event_id.clone(), "👍".to_owned());
 
     // Toggle reaction multiple times.
     let all_tests = async move {
