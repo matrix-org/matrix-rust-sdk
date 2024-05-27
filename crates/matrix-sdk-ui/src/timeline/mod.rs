@@ -35,6 +35,7 @@ use pin_project_lite::pin_project;
 use ruma::{
     api::client::receipt::create_receipt::v3::ReceiptType,
     events::{
+        message::MessageEventContent,
         poll::unstable_start::{
             ReplacementUnstablePollStartEventContent, UnstablePollStartContentBlock,
             UnstablePollStartEventContent,
@@ -49,8 +50,9 @@ use ruma::{
             },
             redaction::RoomRedactionEventContent,
         },
-        AnyMessageLikeEventContent, AnySyncTimelineEvent,
+        AnyMessageLikeEventContent, AnySyncTimelineEvent, AnyTimelineEvent,
     },
+    serde::Raw,
     uint, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, RoomVersionId,
     TransactionId, UserId,
 };
@@ -107,6 +109,12 @@ use self::{
     reactions::ReactionToggleResult,
     util::rfind_event_by_id,
 };
+
+#[derive(Debug)]
+struct EditingInfo {
+    event_id: OwnedEventId,
+    original_message: Message,
+}
 
 /// A high-level view into a regular¹ room's contents.
 ///
@@ -368,6 +376,39 @@ impl Timeline {
         Ok(())
     }
 
+    #[instrument(skip(self, new_content))]
+    pub async fn edit_event(
+        &self,
+        new_content: RoomMessageEventContentWithoutRelation,
+        event_id: &EventId,
+    ) -> Result<(), UnsupportedEditItem> {
+        if let Some(timeline_item) = self.item_by_event_id(event_id).await {
+            return self.edit_event_timeline_item(new_content, &timeline_item).await;
+        }
+
+        let Ok(event) = self.room().event(event_id).await else {
+            return Err(UnsupportedEditItem::MISSING_EVENT_ID);
+        };
+
+        let raw_sync_event: Raw<AnySyncTimelineEvent> = event.event.cast();
+
+        let Ok(event) = raw_sync_event.deserialize_as::<AnySyncTimelineEvent>() else {
+            warn!("Unable to deserialize latest_event as an AnySyncTimelineEvent!");
+            return Err(UnsupportedEditItem::MISSING_EVENT_ID);
+        };
+
+        let Some(content) = TimelineItemContent::from_latest_event_content(event) else {
+            return Err(UnsupportedEditItem::MISSING_EVENT_ID);
+        };
+
+        let TimelineItemContent::Message(message) = content else {
+            return Err(UnsupportedEditItem::NOT_ROOM_MESSAGE);
+        };
+
+        let edit_info = EditingInfo { event_id: event_id.to_owned(), original_message: message };
+        self.edit_message(new_content, edit_info).await
+    }
+
     /// Send an edit to the given event.
     ///
     /// Currently only supports `m.room.message` events whose event ID is known.
@@ -379,7 +420,7 @@ impl Timeline {
     ///
     /// * `edit_item` - The event item you want to edit
     #[instrument(skip(self, new_content))]
-    pub async fn edit(
+    pub async fn edit_event_timeline_item(
         &self,
         new_content: RoomMessageEventContentWithoutRelation,
         edit_item: &EventTimelineItem,
@@ -392,13 +433,27 @@ impl Timeline {
         let TimelineItemContent::Message(original_content) = edit_item.content() else {
             return Err(UnsupportedEditItem::NOT_ROOM_MESSAGE);
         };
+        let edit_info = EditingInfo {
+            event_id: event_id.to_owned(),
+            original_message: original_content.clone(),
+        };
+        self.edit_message(new_content, edit_info).await
+    }
 
+    #[instrument(skip(self, new_content))]
+    async fn edit_message(
+        &self,
+        new_content: RoomMessageEventContentWithoutRelation,
+        edit_info: EditingInfo,
+    ) -> Result<(), UnsupportedEditItem> {
+        let original_content = edit_info.original_message;
+        let event_id = edit_info.event_id;
         let replied_to_message =
             original_content.in_reply_to().and_then(|details| match &details.event {
                 TimelineDetails::Ready(event) => match event.content() {
                     TimelineItemContent::Message(msg) => Some(OriginalRoomMessageEvent {
                         content: msg.to_content(),
-                        event_id: event_id.to_owned(),
+                        event_id: event_id.clone(),
                         sender: event.sender.clone(),
                         // Dummy value, not used by make_replacement
                         origin_server_ts: MilliSecondsSinceUnixEpoch(uint!(0)),
@@ -414,7 +469,7 @@ impl Timeline {
             });
 
         let content = new_content.make_replacement(
-            ReplacementMetadata::new(event_id.to_owned(), original_content.mentions.clone()),
+            ReplacementMetadata::new(event_id, original_content.mentions.clone()),
             replied_to_message.as_ref(),
         );
 

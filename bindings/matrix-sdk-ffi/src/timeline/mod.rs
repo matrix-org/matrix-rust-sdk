@@ -441,13 +441,26 @@ impl Timeline {
         Ok(())
     }
 
-    pub async fn edit(
+    pub async fn edit_by_timeline_item(
         &self,
         new_content: Arc<RoomMessageEventContentWithoutRelation>,
         edit_item: Arc<EventTimelineItem>,
     ) -> Result<(), ClientError> {
         self.inner
-            .edit((*new_content).clone(), &edit_item.0)
+            .edit_event_timeline_item((*new_content).clone(), &edit_item.0)
+            .await
+            .map_err(|err| anyhow::anyhow!(err))?;
+        Ok(())
+    }
+
+    pub async fn edit_by_event_id(
+        &self,
+        new_content: Arc<RoomMessageEventContentWithoutRelation>,
+        event_id: String,
+    ) -> Result<(), ClientError> {
+        let event_id = EventId::parse(event_id)?;
+        self.inner
+            .edit_event((*new_content).clone(), &event_id)
             .await
             .map_err(|err| anyhow::anyhow!(err))?;
         Ok(())
