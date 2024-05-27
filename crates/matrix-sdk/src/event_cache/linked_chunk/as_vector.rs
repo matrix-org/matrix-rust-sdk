@@ -611,6 +611,7 @@ mod tests {
         assert_eq!(diffs.len(), 1);
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     mod proptests {
         use proptest::prelude::*;
 
