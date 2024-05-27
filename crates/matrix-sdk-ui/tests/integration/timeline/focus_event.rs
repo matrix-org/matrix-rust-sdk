@@ -27,7 +27,7 @@ use matrix_sdk_test::{
     async_test, sync_timeline_event, JoinedRoomBuilder, SyncResponseBuilder, ALICE, BOB,
 };
 use matrix_sdk_ui::{timeline::TimelineFocus, Timeline};
-use ruma::{event_id, room_id};
+use ruma::{event_id, events::room::message::RoomMessageEventContent, room_id};
 use stream_assert::assert_pending;
 
 use crate::{mock_context, mock_messages, mock_sync};
@@ -266,6 +266,70 @@ async fn test_focused_timeline_reacts() {
     assert_eq!(event_item.content().as_message().unwrap().body(), "yolo");
     // But now there's one reaction to the event.
     assert_eq!(event_item.reactions().len(), 1);
+
+    // And nothing more.
+    assert_pending!(timeline_stream);
+}
+
+#[async_test]
+async fn test_focused_timeline_doesnt_show_local_echoes() {
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let (client, server) = logged_in_client_with_server().await;
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+    let mut sync_response_builder = SyncResponseBuilder::new();
+    sync_response_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+
+    // Mark the room as joined.
+    mock_sync(&server, sync_response_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    // Start a focused timeline.
+    let f = EventFactory::new().room(room_id);
+    let target_event = event_id!("$1");
+
+    mock_context(
+        &server,
+        room_id,
+        target_event,
+        None,
+        vec![],
+        f.text_msg("yolo").event_id(target_event).sender(*BOB).into_timeline(),
+        vec![],
+        None,
+        vec![],
+    )
+    .await;
+
+    let room = client.get_room(room_id).unwrap();
+    let timeline = Timeline::builder(&room)
+        .with_focus(TimelineFocus::Event {
+            target: target_event.to_owned(),
+            num_context_events: 20,
+        })
+        .build()
+        .await
+        .unwrap();
+
+    server.reset().await;
+
+    let (items, mut timeline_stream) = timeline.subscribe().await;
+
+    assert_eq!(items.len(), 1 + 1); // event items + a day divider
+    assert!(items[0].is_day_divider());
+
+    let event_item = items[1].as_event().unwrap();
+    assert_eq!(event_item.content().as_message().unwrap().body(), "yolo");
+    assert_eq!(event_item.reactions().len(), 0);
+
+    assert_pending!(timeline_stream);
+
+    // Send a message in the room, expect no local echo.
+    timeline.send(RoomMessageEventContent::text_plain("h4xx0r").into()).await.unwrap();
+
+    // Let a bit of time for the sending queue to process the event.
+    tokio::time::sleep(Duration::from_millis(300)).await;
 
     // And nothing more.
     assert_pending!(timeline_stream);
