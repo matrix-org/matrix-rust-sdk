@@ -202,7 +202,7 @@ impl TimelineBuilder {
                             // current timeline.
                             match room_event_cache.subscribe().await {
                                 Ok((events, _)) => {
-                                    inner.replace_with_initial_events(events, RemoteEventOrigin::Sync).await;
+                                    inner.replace_with_initial_remote_events(events, RemoteEventOrigin::Sync).await;
                                 }
                                 Err(err) => {
                                     warn!("Error when re-inserting initial events into the timeline: {err}");

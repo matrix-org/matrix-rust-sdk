@@ -92,13 +92,13 @@ impl TimelineInnerState {
         }
     }
 
-    /// Add the given events at the given end of the timeline.
+    /// Add the given remove events at the given end of the timeline.
     ///
     /// Note: when the `position` is [`TimelineEnd::Front`], prepended events
     /// should be ordered in *reverse* topological order, that is, `events[0]`
     /// is the most recent.
     #[tracing::instrument(skip(self, events, room_data_provider, settings))]
-    pub(super) async fn add_events_at<P: RoomDataProvider>(
+    pub(super) async fn add_remote_events_at<P: RoomDataProvider>(
         &mut self,
         events: Vec<impl Into<SyncTimelineEvent>>,
         position: TimelineEnd,
@@ -112,7 +112,7 @@ impl TimelineInnerState {
 
         let mut txn = self.transaction();
         let handle_many_res =
-            txn.add_events_at(events, position, origin, room_data_provider, settings).await;
+            txn.add_remote_events_at(events, position, origin, room_data_provider, settings).await;
         txn.commit();
 
         handle_many_res
@@ -397,13 +397,13 @@ pub(in crate::timeline) struct TimelineInnerStateTransaction<'a> {
 }
 
 impl TimelineInnerStateTransaction<'_> {
-    /// Add the given events at the given end of the timeline.
+    /// Add the given remote events at the given end of the timeline.
     ///
     /// Note: when the `position` is [`TimelineEnd::Front`], prepended events
     /// should be ordered in *reverse* topological order, that is, `events[0]`
     /// is the most recent.
     #[tracing::instrument(skip(self, events, room_data_provider, settings))]
-    pub(super) async fn add_events_at<P: RoomDataProvider>(
+    pub(super) async fn add_remote_events_at<P: RoomDataProvider>(
         &mut self,
         events: Vec<impl Into<SyncTimelineEvent>>,
         position: TimelineEnd,
