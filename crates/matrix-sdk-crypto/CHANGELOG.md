@@ -1,9 +1,5 @@
 # UNRELEASED
 
-Security fixes:
-
-- Don't log the private part of the backup key, introduced in [#71136e4](https://github.com/matrix-org/matrix-rust-sdk/commit/71136e44c03c79f80d6d1a2446673bc4d53a2067).
-
 Changes:
 
 - Sign the device keys with the user-identity (i.e. cross-signing keys) if
@@ -99,6 +95,13 @@ Additions:
 
 - Include event timestamps on logs from event decryption.
   ([#3194](https://github.com/matrix-org/matrix-rust-sdk/pull/3194))
+
+
+## 0.7.1 
+
+Security fixes:
+
+- Don't log the private part of the backup key, introduced in [#71136e4](https://github.com/matrix-org/matrix-rust-sdk/commit/71136e44c03c79f80d6d1a2446673bc4d53a2067).
 
 # 0.7.0
 
