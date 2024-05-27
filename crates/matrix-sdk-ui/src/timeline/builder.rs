@@ -203,7 +203,7 @@ impl TimelineBuilder {
                     };
 
                     match update {
-                        RoomEventCacheUpdate::ReadMarker { event_id } => {
+                        RoomEventCacheUpdate::ReadMarker { move_to: event_id } => {
                             trace!(target = %event_id, "Handling fully read marker.");
                             inner.handle_fully_read_marker(event_id).await;
                         }

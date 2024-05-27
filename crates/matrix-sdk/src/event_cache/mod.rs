@@ -517,7 +517,7 @@ impl RoomEventCacheInner {
                     // Propagate to observers. (We ignore the error if there aren't any.)
                     let _ = self
                         .sender
-                        .send(RoomEventCacheUpdate::ReadMarker { event_id: ev.content.event_id });
+                        .send(RoomEventCacheUpdate::ReadMarker { move_to: ev.content.event_id });
                 }
 
                 Ok(_) => {
@@ -704,7 +704,7 @@ pub enum RoomEventCacheUpdate {
     /// The fully read marker has moved to a different event.
     ReadMarker {
         /// Event at which the read marker is now pointing.
-        event_id: OwnedEventId,
+        move_to: OwnedEventId,
     },
 
     /// The room has new events.
