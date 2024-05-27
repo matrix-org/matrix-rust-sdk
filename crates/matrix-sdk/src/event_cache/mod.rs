@@ -671,15 +671,25 @@ impl RoomEventCacheInner {
             self.pagination.token_notifier.notify_one();
         }
 
-        // The ordering is important here.
-        let _ = self.sender.send(RoomEventCacheUpdate::AddTimelineEvents {
-            events: sync_timeline_events,
-            origin: EventsOrigin::Sync,
-        });
-        let _ = self
-            .sender
-            .send(RoomEventCacheUpdate::AddEphemeralEvents { events: sync_ephemeral_events });
-        let _ = self.sender.send(RoomEventCacheUpdate::UpdateMembers { ambiguity_changes });
+        // The order of `RoomEventCacheUpdate`s is **really** important here.
+        {
+            if !sync_timeline_events.is_empty() {
+                let _ = self.sender.send(RoomEventCacheUpdate::AddTimelineEvents {
+                    events: sync_timeline_events,
+                    origin: EventsOrigin::Sync,
+                });
+            }
+
+            if !sync_ephemeral_events.is_empty() {
+                let _ = self.sender.send(RoomEventCacheUpdate::AddEphemeralEvents {
+                    events: sync_ephemeral_events,
+                });
+            }
+
+            if !ambiguity_changes.is_empty() {
+                let _ = self.sender.send(RoomEventCacheUpdate::UpdateMembers { ambiguity_changes });
+            }
+        }
 
         Ok(())
     }
