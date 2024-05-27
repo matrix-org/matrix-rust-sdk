@@ -553,7 +553,7 @@ impl RoomEventCacheInner {
     async fn handle_timeline(
         &self,
         timeline: Timeline,
-        ephemeral: Vec<Raw<AnySyncEphemeralRoomEvent>>,
+        ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
     ) -> Result<()> {
         if timeline.limited {
@@ -565,7 +565,7 @@ impl RoomEventCacheInner {
             self.replace_all_events_by(
                 timeline.events,
                 timeline.prev_batch,
-                ephemeral,
+                ephemeral_events,
                 ambiguity_changes,
             )
             .await?;
@@ -576,7 +576,7 @@ impl RoomEventCacheInner {
             self.append_new_events(
                 timeline.events,
                 timeline.prev_batch,
-                ephemeral,
+                ephemeral_events,
                 ambiguity_changes,
             )
             .await?;
@@ -594,9 +594,9 @@ impl RoomEventCacheInner {
     /// storage, notifying observers.
     async fn replace_all_events_by(
         &self,
-        events: Vec<SyncTimelineEvent>,
+        timeline_events: Vec<SyncTimelineEvent>,
         prev_batch: Option<String>,
-        ephemeral: Vec<Raw<AnySyncEphemeralRoomEvent>>,
+        ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
     ) -> Result<()> {
         // Acquire the lock.
@@ -611,9 +611,9 @@ impl RoomEventCacheInner {
         // Push the new events.
         self.append_events_locked_impl(
             room_events,
-            events,
+            timeline_events,
             prev_batch,
-            ephemeral,
+            ephemeral_events,
             ambiguity_changes,
         )
         .await
@@ -623,16 +623,16 @@ impl RoomEventCacheInner {
     /// observers.
     async fn append_new_events(
         &self,
-        events: Vec<SyncTimelineEvent>,
+        timeline_events: Vec<SyncTimelineEvent>,
         prev_batch: Option<String>,
-        ephemeral: Vec<Raw<AnySyncEphemeralRoomEvent>>,
+        ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
     ) -> Result<()> {
         self.append_events_locked_impl(
             self.events.write().await,
-            events,
+            timeline_events,
             prev_batch,
-            ephemeral,
+            ephemeral_events,
             ambiguity_changes,
         )
         .await
@@ -646,14 +646,14 @@ impl RoomEventCacheInner {
     async fn append_events_locked_impl(
         &self,
         mut room_events: RwLockWriteGuard<'_, RoomEvents>,
-        events: Vec<SyncTimelineEvent>,
+        timeline_events: Vec<SyncTimelineEvent>,
         prev_batch: Option<String>,
-        ephemeral: Vec<Raw<AnySyncEphemeralRoomEvent>>,
+        ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
     ) -> Result<()> {
-        if events.is_empty()
+        if timeline_events.is_empty()
             && prev_batch.is_none()
-            && ephemeral.is_empty()
+            && ephemeral_events.is_empty()
             && ambiguity_changes.is_empty()
         {
             return Ok(());
@@ -666,7 +666,7 @@ impl RoomEventCacheInner {
                 room_events.push_gap(Gap { prev_token: prev_token.clone() });
             }
 
-            room_events.push_events(events.clone().into_iter());
+            room_events.push_events(timeline_events.clone().into_iter());
         }
 
         // Now that all events have been added, we can trigger the
@@ -675,18 +675,22 @@ impl RoomEventCacheInner {
             self.pagination.token_notifier.notify_one();
         }
 
-        let _ = self.send_grouped_updates_for_events(events, ephemeral, ambiguity_changes);
+        let _ = self.send_grouped_updates_for_events(
+            timeline_events,
+            ephemeral_events,
+            ambiguity_changes,
+        );
 
         Ok(())
     }
 
     fn send_grouped_updates_for_events(
         &self,
-        events: Vec<SyncTimelineEvent>,
+        timeline: Vec<SyncTimelineEvent>,
         ephemeral: Vec<Raw<AnySyncEphemeralRoomEvent>>,
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
     ) -> StdResult<(), SendError<RoomEventCacheUpdate>> {
-        self.sender.send(RoomEventCacheUpdate::Append { events, ephemeral })?;
+        self.sender.send(RoomEventCacheUpdate::SyncEvents { timeline, ephemeral })?;
         self.sender.send(RoomEventCacheUpdate::Members { ambiguity_changes })?;
 
         Ok(())
@@ -732,9 +736,9 @@ pub enum RoomEventCacheUpdate {
     },
 
     /// The room has new events.
-    Append {
+    SyncEvents {
         /// All the new events that have been added to the room's timeline.
-        events: Vec<SyncTimelineEvent>,
+        timeline: Vec<SyncTimelineEvent>,
         /// XXX: this is temporary, until read receipts are handled in the event
         /// cache
         ephemeral: Vec<Raw<AnySyncEphemeralRoomEvent>>,

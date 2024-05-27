@@ -104,9 +104,9 @@ async fn test_add_initial_events() {
         .expect("should've received a room event cache update");
 
     // Which contains the event that was sent beforehand.
-    assert_let!(RoomEventCacheUpdate::Append { events, .. } = update);
-    assert_eq!(events.len(), 1);
-    assert_event_matches_msg(&events[0], "bonjour monde");
+    assert_let!(RoomEventCacheUpdate::SyncEvents { timeline: timeline_events, .. } = update);
+    assert_eq!(timeline_events.len(), 1);
+    assert_event_matches_msg(&timeline_events[0], "bonjour monde");
 
     // And when I later add initial events to this room,
 
@@ -130,9 +130,9 @@ async fn test_add_initial_events() {
         .await
         .expect("timeout after receiving a sync update")
         .expect("should've received a room event cache update");
-    assert_let!(RoomEventCacheUpdate::Append { events, .. } = update);
-    assert_eq!(events.len(), 1);
-    assert_event_matches_msg(&events[0], "new choice!");
+    assert_let!(RoomEventCacheUpdate::SyncEvents { timeline: timeline_events, .. } = update);
+    assert_eq!(timeline_events.len(), 1);
+    assert_event_matches_msg(&timeline_events[0], "new choice!");
 
     // That's all, folks!
     assert!(subscriber.is_empty());
@@ -233,9 +233,9 @@ async fn test_ignored_unignored() {
         .expect("timeout after receiving a sync update")
         .expect("should've received a room event cache update");
 
-    assert_let!(RoomEventCacheUpdate::Append { events, .. } = update);
-    assert_eq!(events.len(), 1);
-    assert_event_matches_msg(&events[0], "i don't like this dexter");
+    assert_let!(RoomEventCacheUpdate::SyncEvents { timeline: timeline_events, .. } = update);
+    assert_eq!(timeline_events.len(), 1);
+    assert_event_matches_msg(&timeline_events[0], "i don't like this dexter");
 
     // The other room has been cleared too.
     {

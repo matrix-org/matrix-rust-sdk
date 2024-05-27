@@ -220,12 +220,12 @@ impl TimelineBuilder {
                             inner.clear().await;
                         }
 
-                        RoomEventCacheUpdate::Append { events, ephemeral } => {
+                        RoomEventCacheUpdate::SyncEvents { timeline, ephemeral } => {
                             trace!("Received new events from sync.");
 
                             // TODO: (bnjbvr) ephemeral should be handled by the event cache, and
                             // we should replace this with a simple `add_events_at`.
-                            inner.handle_sync_events(events, ephemeral).await;
+                            inner.handle_sync_events(timeline, ephemeral).await;
                         }
 
                         RoomEventCacheUpdate::Members { ambiguity_changes } => {
