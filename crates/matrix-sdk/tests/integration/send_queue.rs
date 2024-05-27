@@ -1,7 +1,4 @@
-use std::{
-    sync::{Arc, Mutex},
-    time::Duration,
-};
+use std::{sync::Arc, time::Duration};
 
 use assert_matches2::{assert_let, assert_matches};
 use futures_util::FutureExt as _;
@@ -16,7 +13,7 @@ use ruma::{
     room_id, EventId,
 };
 use serde_json::json;
-use tokio::time::timeout;
+use tokio::{sync::Mutex, time::timeout};
 use wiremock::{
     matchers::{header, method, path_regex},
     Mock, Request, ResponseTemplate,
@@ -152,7 +149,7 @@ async fn test_smoke() {
     let event_id = event_id!("$1");
 
     let lock = Arc::new(Mutex::new(()));
-    let lock_guard = lock.lock().unwrap();
+    let lock_guard = lock.lock().await;
 
     let mock_lock = lock.clone();
 
@@ -162,8 +159,15 @@ async fn test_smoke() {
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
         .and(header("authorization", "Bearer 1234"))
         .respond_with(move |_req: &Request| {
-            // Wait for the signal.
-            drop(mock_lock.lock().unwrap());
+            // Wait for the signal from the main thread that we can process this query.
+            let mock_lock = mock_lock.clone();
+            std::thread::spawn(move || {
+                tokio::runtime::Runtime::new().unwrap().block_on(async {
+                    drop(mock_lock.lock().await);
+                });
+            })
+            .join()
+            .unwrap();
 
             ResponseTemplate::new(200).set_body_json(json!({
                 "event_id": "$1",
@@ -236,7 +240,7 @@ async fn test_error() {
     assert!(watch.is_empty());
 
     let lock = Arc::new(Mutex::new(()));
-    let lock_guard = lock.lock().unwrap();
+    let lock_guard = lock.lock().await;
 
     let mock_lock = lock.clone();
 
@@ -246,8 +250,15 @@ async fn test_error() {
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
         .and(header("authorization", "Bearer 1234"))
         .respond_with(move |_req: &Request| {
-            // Wait for the signal.
-            drop(mock_lock.lock().unwrap());
+            // Wait for the signal from the main thread that we can process this query.
+            let mock_lock = mock_lock.clone();
+            std::thread::spawn(move || {
+                tokio::runtime::Runtime::new().unwrap().block_on(async {
+                    drop(mock_lock.lock().await);
+                });
+            })
+            .join()
+            .unwrap();
 
             ResponseTemplate::new(500)
         })
@@ -394,7 +405,7 @@ async fn test_reenabling_queue() {
 
     mock_encryption_state(&server, false).await;
 
-    let num_request = Mutex::new(1);
+    let num_request = std::sync::Mutex::new(1);
     Mock::given(method("PUT"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
         .and(header("authorization", "Bearer 1234"))
@@ -455,19 +466,26 @@ async fn test_cancellation() {
     assert!(watch.is_empty());
 
     let lock = Arc::new(Mutex::new(()));
-    let lock_guard = lock.lock().unwrap();
+    let lock_guard = lock.lock().await;
 
     let mock_lock = lock.clone();
 
     mock_encryption_state(&server, false).await;
 
-    let num_request = Mutex::new(1);
+    let num_request = std::sync::Mutex::new(1);
     Mock::given(method("PUT"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
         .and(header("authorization", "Bearer 1234"))
         .respond_with(move |_req: &Request| {
-            // Wait for the signal.
-            drop(mock_lock.lock().unwrap());
+            // Wait for the signal from the main thread that we can process this query.
+            let mock_lock = mock_lock.clone();
+            std::thread::spawn(move || {
+                tokio::runtime::Runtime::new().unwrap().block_on(async {
+                    drop(mock_lock.lock().await);
+                });
+            })
+            .join()
+            .unwrap();
 
             let mut num_request = num_request.lock().unwrap();
 
