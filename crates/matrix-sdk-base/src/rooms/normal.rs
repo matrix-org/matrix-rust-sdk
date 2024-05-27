@@ -628,7 +628,7 @@ impl Room {
         let own_user_id = self.own_user_id().as_str();
 
         let (heroes, guessed_num_members): (Vec<String>, _) = if !summary.heroes_names.is_empty() {
-            // Straight-forward path: pass through the heroes names, don't give a guess of
+            // Straightforward path: pass through the heroes names, don't give a guess of
             // the number of members.
             (summary.heroes_names, None)
         } else if !summary.heroes_user_ids.is_empty() {
