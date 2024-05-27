@@ -21,10 +21,8 @@ use std::{path::PathBuf, pin::Pin, sync::Arc, task::Poll};
 use eyeball_im::VectorDiff;
 use futures_core::Stream;
 use imbl::Vector;
-use indexmap::IndexMap;
 use matrix_sdk::{
     attachment::AttachmentConfig,
-    deserialized_responses::SyncTimelineEvent,
     event_cache::{EventCacheDropHandles, RoomEventCache},
     event_handler::EventHandlerHandle,
     executor::JoinHandle,
@@ -53,7 +51,6 @@ use ruma::{
         },
         AnyMessageLikeEventContent, AnySyncTimelineEvent,
     },
-    serde::Raw,
     uint, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, RoomVersionId,
     TransactionId, UserId,
 };
@@ -61,8 +58,7 @@ use thiserror::Error;
 use tokio::sync::mpsc::Sender;
 use tracing::{debug, error, instrument, trace, warn};
 
-use self::{event_handler::TimelineEventKind, futures::SendAttachment, traits::RoomDataProvider};
-use crate::timeline::event_item::{RemoteEventOrigin, RemoteEventTimelineItem};
+use self::{event_handler::TimelineEventKind, futures::SendAttachment};
 
 mod builder;
 mod day_dividers;
@@ -224,53 +220,8 @@ impl Timeline {
     /// object to look up items.
     pub async fn item_by_event_id(&self, event_id: &EventId) -> Option<EventTimelineItem> {
         let items = self.inner.items().await;
-        if let Some((_, item)) = rfind_event_by_id(&items, event_id) {
-            return Some(item.to_owned());
-        }
-
-        let timeline_event = self.room().event(event_id).await.ok()?;
-        let raw_sync_event: Raw<AnySyncTimelineEvent> = timeline_event.event.cast();
-
-        let Ok(event) = raw_sync_event.deserialize_as::<AnySyncTimelineEvent>() else {
-            warn!("Unable to deserialize latest_event as an AnySyncTimelineEvent!");
-            return None;
-        };
-
-        let timestamp = event.origin_server_ts();
-        let sender = event.sender().to_owned();
-        let is_own = self.room().client().user_id().map(|uid| uid == sender).unwrap_or(false);
-
-        // If we don't (yet) know how to handle this type of message, return `None`
-        // here. If we do, convert it into a `TimelineItemContent`.
-        let item_content = TimelineItemContent::from_latest_event_content(event)?;
-
-        // let sender_profile = self
-        //     .room()
-        //     .profile_from_user_id(&sender)
-        //     .await
-        //     .map(TimelineDetails::Ready)
-        //     .unwrap_or(TimelineDetails::Unavailable);
-
-        let event_kind = RemoteEventTimelineItem {
-            event_id: event_id.to_owned(),
-            reactions: IndexMap::new(),
-            read_receipts: IndexMap::new(),
-            is_own,
-            is_highlighted: false,
-            encryption_info: None,
-            original_json: Some(raw_sync_event),
-            latest_edit_json: None,
-            origin: RemoteEventOrigin::Sync,
-        }
-        .into();
-
-        Some(EventTimelineItem::new(
-            sender,
-            TimelineDetails::Unavailable,
-            timestamp,
-            item_content,
-            event_kind,
-        ))
+        let (_, item) = rfind_event_by_id(&items, event_id)?;
+        Some(item.to_owned())
     }
 
     /// Get the latest of the timeline's event items.
