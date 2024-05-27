@@ -228,7 +228,7 @@ impl TimelineBuilder {
                         }
 
                         RoomEventCacheUpdate::AddTimelineEvents { events, origin } => {
-                            trace!("Received new timeline events from sync.");
+                            trace!("Received new timeline events.");
 
                             inner.add_events_at(
                                 events,
