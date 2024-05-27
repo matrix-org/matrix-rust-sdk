@@ -22,6 +22,7 @@ use std::{
     },
 };
 
+use eyeball::{SharedObservable, Subscriber};
 use matrix_sdk_base::RoomState;
 use matrix_sdk_common::executor::{spawn, JoinHandle};
 use ruma::{
@@ -76,7 +77,7 @@ impl SendingQueue {
     /// This may wake up backgrounds tasks and resume sending of events in the
     /// background.
     pub async fn enable(&self) {
-        if !self.client.inner.sending_queue.enabled.swap(true, Ordering::SeqCst) {
+        if self.client.inner.sending_queue.enabled.set_if_not_eq(true).is_some() {
             let rooms = self.client.inner.sending_queue.rooms.read().unwrap();
             // Wake up the rooms, in case events have been queued in the meanwhile.
             for room in rooms.values() {
@@ -98,13 +99,19 @@ impl SendingQueue {
         // the queue is now disabled,
         // - or they were not, and it's not worth it waking them to let them they're
         // disabled, which causes them to go to sleep again.
-        self.client.inner.sending_queue.enabled.store(false, Ordering::SeqCst);
+        self.client.inner.sending_queue.enabled.set(false);
     }
 
     /// Returns whether the sending queue is enabled, at a client-wide
     /// granularity.
     pub fn is_enabled(&self) -> bool {
-        self.client.inner.sending_queue.enabled.load(Ordering::SeqCst)
+        self.client.inner.sending_queue.enabled.get()
+    }
+
+    /// A subscriber to the enablement status (enabled or disabled) of the
+    /// sending queue.
+    pub fn subscribe_status(&self) -> Subscriber<bool> {
+        self.client.inner.sending_queue.enabled.subscribe()
     }
 }
 
@@ -121,7 +128,7 @@ pub(super) struct SendingQueueData {
     rooms: SyncRwLock<BTreeMap<OwnedRoomId, RoomSendingQueue>>,
 
     /// Is the whole mechanism enabled or disabled?
-    enabled: Arc<AtomicBool>,
+    enabled: SharedObservable<bool>,
 
     /// Are we shutting down the entire queue?
     shutting_down: Arc<AtomicBool>,
@@ -132,7 +139,7 @@ impl SendingQueueData {
     pub fn new(enabled: bool) -> Self {
         Self {
             rooms: Default::default(),
-            enabled: Arc::new(enabled.into()),
+            enabled: SharedObservable::new(enabled),
             shutting_down: Arc::new(false.into()),
         }
     }
@@ -174,7 +181,7 @@ impl std::fmt::Debug for RoomSendingQueue {
 
 impl RoomSendingQueue {
     fn new(
-        enabled: Arc<AtomicBool>,
+        enabled: SharedObservable<bool>,
         shutting_down: Arc<AtomicBool>,
         client: &Client,
         room_id: OwnedRoomId,
@@ -254,7 +261,7 @@ impl RoomSendingQueue {
         queue: SharedQueue,
         notifier: Arc<Notify>,
         updates: broadcast::Sender<RoomSendingQueueUpdate>,
-        enabled: Arc<AtomicBool>,
+        enabled: SharedObservable<bool>,
         shutting_down: Arc<AtomicBool>,
     ) {
         info!("spawned the sending task");
@@ -266,7 +273,7 @@ impl RoomSendingQueue {
                 break;
             }
 
-            if !enabled.load(Ordering::SeqCst) {
+            if !enabled.get() {
                 trace!("not enabled, sleeping");
                 // Wait for an explicit wakeup.
                 notifier.notified().await;
@@ -312,7 +319,7 @@ impl RoomSendingQueue {
 
                     // Disable the queue after an error.
                     // See comment in [`SendingQueue::disable()`].
-                    enabled.store(false, Ordering::SeqCst);
+                    enabled.set(false);
 
                     // In this case, we intentionally keep the event in the queue, but mark it as
                     // not being sent anymore.

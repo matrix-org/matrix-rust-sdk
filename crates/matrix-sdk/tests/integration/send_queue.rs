@@ -4,6 +4,7 @@ use std::{
 };
 
 use assert_matches2::{assert_let, assert_matches};
+use futures_util::FutureExt as _;
 use matrix_sdk::{
     send_queue::{LocalEcho, RoomSendingQueueError, RoomSendingQueueUpdate},
     test_utils::logged_in_client_with_server,
@@ -210,7 +211,10 @@ async fn test_smoke() {
 async fn test_error() {
     let (client, server) = logged_in_client_with_server().await;
 
+    let mut global_status = client.sending_queue().subscribe_status();
+
     assert!(client.sending_queue().is_enabled());
+    assert!(global_status.next_now());
 
     // Mark the room as joined.
     let room_id = room_id!("!a:b.c");
@@ -270,6 +274,9 @@ async fn test_error() {
 
     assert!(watch.is_empty());
 
+    // No new update on the global status.
+    assert!(global_status.next().now_or_never().is_none());
+
     drop(lock_guard);
 
     // The exponential backoff used when retrying a request introduces a bit of
@@ -290,6 +297,7 @@ async fn test_error() {
 
     assert!(watch.is_empty());
 
+    assert!(!global_status.next().await.unwrap(), "the queue should be disabled next");
     assert!(!client.sending_queue().is_enabled());
 
     server.reset().await;
@@ -306,6 +314,12 @@ async fn test_error() {
     // Re-enabling the queue will re-send the same message in that room.
     client.sending_queue().enable().await;
 
+    assert!(
+        global_status.next().await.unwrap(),
+        "the queue should be re-enabled after the user action"
+    );
+    assert!(client.sending_queue().is_enabled());
+
     assert_let!(
         Ok(Ok(RoomSendingQueueUpdate::SentEvent { event_id, transaction_id: txn3 })) =
             timeout(Duration::from_secs(1), watch.recv()).await
@@ -313,6 +327,8 @@ async fn test_error() {
 
     assert_eq!(txn1, txn3);
     assert_eq!(event_id, event_id!("$42"));
+
+    assert!(global_status.next().now_or_never().is_none());
 }
 
 #[async_test]
@@ -332,8 +348,15 @@ async fn test_reenabling_queue() {
     )
     .await;
 
+    let mut global_status = client.sending_queue().subscribe_status();
+
+    assert!(global_status.next_now());
+
     // When I start with a disabled sending queue,
     client.sending_queue().disable().await;
+
+    assert!(!client.sending_queue().is_enabled());
+    assert!(!global_status.next().await.unwrap());
 
     let q = room.sending_queue();
 
@@ -392,6 +415,9 @@ async fn test_reenabling_queue() {
     // But when reenabling the queue,
     client.sending_queue().enable().await;
 
+    assert!(client.sending_queue().is_enabled());
+    assert!(global_status.next().await.unwrap());
+
     // They're sent, in the same ordering.
     for i in 1..=3 {
         assert_let!(
@@ -400,6 +426,8 @@ async fn test_reenabling_queue() {
         );
         assert_eq!(event_id.as_str(), format!("${i}"));
     }
+
+    assert!(global_status.next().now_or_never().is_none());
 }
 
 #[async_test]
