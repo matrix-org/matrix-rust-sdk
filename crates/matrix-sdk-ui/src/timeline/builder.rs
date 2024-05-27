@@ -203,7 +203,7 @@ impl TimelineBuilder {
                     };
 
                     match update {
-                        RoomEventCacheUpdate::ReadMarker { move_to: event_id } => {
+                        RoomEventCacheUpdate::MoveReadMarkerTo { event_id } => {
                             trace!(target = %event_id, "Handling fully read marker.");
                             inner.handle_fully_read_marker(event_id).await;
                         }
@@ -228,7 +228,7 @@ impl TimelineBuilder {
                             inner.handle_sync_events(timeline, ephemeral).await;
                         }
 
-                        RoomEventCacheUpdate::Members { ambiguity_changes } => {
+                        RoomEventCacheUpdate::UpdateMembers { ambiguity_changes } => {
                             if !ambiguity_changes.is_empty() {
                                 let member_ambiguity_changes = ambiguity_changes
                                     .values()
