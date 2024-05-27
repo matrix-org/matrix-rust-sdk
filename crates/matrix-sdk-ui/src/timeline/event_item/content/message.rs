@@ -17,7 +17,7 @@
 use std::{fmt, sync::Arc};
 
 use imbl::{vector, Vector};
-use matrix_sdk::deserialized_responses::TimelineEvent;
+use matrix_sdk::{deserialized_responses::TimelineEvent, Room};
 use ruma::{
     assign,
     events::{
@@ -238,10 +238,10 @@ impl InReplyToDetails {
         InReplyToDetails { event_id, event: TimelineDetails::from_initial_value(event) }
     }
 
-    pub fn new_from_event(
+    pub fn new_with_timeline_details(
         event_id: OwnedEventId,
         event: TimelineDetails<Box<RepliedToEvent>>,
-    ) -> InReplyToDetails {
+    ) -> Self {
         Self { event_id, event }
     }
 }
@@ -286,7 +286,16 @@ impl RepliedToEvent {
         }
     }
 
-    pub async fn try_from_timeline_event<P: RoomDataProvider>(
+    /// Try to create a `RepliedToEvent` from a `TimelineEvent` by providing the
+    /// room.
+    pub async fn try_from_timeline_event_for_room(
+        timeline_event: TimelineEvent,
+        room_data_provider: &Room,
+    ) -> Result<Self, TimelineError> {
+        Self::try_from_timeline_event(timeline_event, room_data_provider).await
+    }
+
+    pub(in crate::timeline) async fn try_from_timeline_event<P: RoomDataProvider>(
         timeline_event: TimelineEvent,
         room_data_provider: &P,
     ) -> Result<Self, TimelineError> {

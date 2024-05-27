@@ -810,7 +810,11 @@ pub enum StateStoreDataValue {
     /// A list of recently visited room identifiers for the current user
     RecentlyVisitedRooms(Vec<String>),
 
-    /// A composer draft for the room
+    /// A composer draft for the room.
+    /// /// To learn more, see [`ComposerDraft`] and [`DraftType`].
+    ///
+    /// [`ComposerDraft`]: self::ComposerDraft
+    /// [`DrafType`]: self::DraftType
     ComposerDraft(ComposerDraft),
 }
 
@@ -818,7 +822,7 @@ pub enum StateStoreDataValue {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct ComposerDraft {
-    /// The draft content in plain  text.
+    /// The draft content in plain text.
     plain_text: String,
     /// If the message is formatted in HTML, the HTML representation of the
     /// message.
@@ -834,7 +838,7 @@ pub enum DraftType {
     NewMessage,
     /// The draft is a reply to an event.
     Reply { event_id: String },
-    /// The draft is an edit to an event.
+    /// The draft is an edit of an event.
     Edit { event_id: String },
 }
 

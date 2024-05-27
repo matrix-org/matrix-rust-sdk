@@ -669,13 +669,17 @@ impl Room {
         event_id: String,
     ) -> Result<InReplyToDetails, ClientError> {
         let event_id = EventId::parse(event_id)?;
-        let res = match self.inner.event(&event_id).await {
+        let details = match self.inner.event(&event_id).await {
             Ok(timeline_event) => TimelineDetails::Ready(Box::new(
-                RepliedToEvent::try_from_timeline_event(timeline_event, &self.inner).await?,
+                RepliedToEvent::try_from_timeline_event_for_room(timeline_event, &self.inner)
+                    .await?,
             )),
             Err(e) => TimelineDetails::Error(Arc::new(e)),
         };
-        Ok((&matrix_sdk_ui::timeline::InReplyToDetails::new_from_event(event_id, res)).into())
+        Ok((&matrix_sdk_ui::timeline::InReplyToDetails::new_with_timeline_details(
+            event_id, details,
+        ))
+            .into())
     }
 }
 
