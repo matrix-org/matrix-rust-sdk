@@ -1543,7 +1543,7 @@ impl OlmMachine {
     /// If the machine is used by another process, the cache must be invalidating when the
     /// main process is resumed.
     pub async fn clear_crypto_cache(&self) {
-        self.runtime.block_on(self.inner.clear_crypto_cache())
+        self.inner.clear_crypto_cache().await
     }
 }
 
