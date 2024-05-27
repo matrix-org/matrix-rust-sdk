@@ -298,7 +298,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
                 let has_events = !events.is_empty();
 
-                self.replace_with_initial_events(events, RemoteEventOrigin::Cache).await;
+                self.replace_with_initial_remote_events(events, RemoteEventOrigin::Cache).await;
 
                 Ok(has_events)
             }
@@ -314,7 +314,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
                 let has_events = !start_from_result.events.is_empty();
 
-                self.replace_with_initial_events(
+                self.replace_with_initial_remote_events(
                     start_from_result.events.into_iter().map(Into::into).collect(),
                     RemoteEventOrigin::Pagination,
                 )
@@ -550,7 +550,13 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
         let mut state = self.state.write().await;
         state
-            .add_events_at(events, position, origin, &self.room_data_provider, &self.settings)
+            .add_remote_events_at(
+                events,
+                position,
+                origin,
+                &self.room_data_provider,
+                &self.settings,
+            )
             .await
     }
 
@@ -565,7 +571,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
     ///
     /// This is all done with a single lock guard, since we don't want the state
     /// to be modified between the clear and re-insertion of new events.
-    pub(super) async fn replace_with_initial_events(
+    pub(super) async fn replace_with_initial_remote_events(
         &self,
         events: Vec<SyncTimelineEvent>,
         origin: RemoteEventOrigin,
@@ -584,7 +590,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
         if !events.is_empty() {
             state
-                .add_events_at(
+                .add_remote_events_at(
                     events,
                     TimelineEnd::Back,
                     origin,
@@ -619,7 +625,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
     pub(super) async fn handle_live_event(&self, event: SyncTimelineEvent) {
         let mut state = self.state.write().await;
         state
-            .add_events_at(
+            .add_remote_events_at(
                 vec![event],
                 TimelineEnd::Back,
                 RemoteEventOrigin::Sync,
