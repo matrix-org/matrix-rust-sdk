@@ -161,6 +161,8 @@ impl TimelineBuilder {
         let (room_event_cache, event_cache_drop) = room.event_cache().await?;
         let (_, mut event_subscriber) = room_event_cache.subscribe().await?;
 
+        let is_live = matches!(focus, TimelineFocus::Live);
+
         let inner = TimelineInner::new(room, focus, internal_id_prefix, unable_to_decrypt_hook)
             .with_settings(settings);
 
@@ -264,84 +266,87 @@ impl TimelineBuilder {
             .instrument(span)
         });
 
-        let local_echo_listener_handle = spawn({
-            let timeline = inner.clone();
-            let (local_echoes, mut listener) = room.sending_queue().subscribe().await;
+        let local_echo_listener_handle = if is_live {
+            Some(spawn({
+                let timeline = inner.clone();
+                let (local_echoes, mut listener) = room.sending_queue().subscribe().await;
 
-            // Handles existing local echoes first.
-            for echo in local_echoes {
-                timeline
-                    .handle_local_event(
-                        echo.transaction_id,
-                        TimelineEventKind::Message {
-                            content: echo.content,
-                            relations: Default::default(),
-                        },
-                    )
-                    .await;
-            }
+                // Handles existing local echoes first.
+                for echo in local_echoes {
+                    timeline
+                        .handle_local_event(
+                            echo.transaction_id,
+                            TimelineEventKind::Message {
+                                content: echo.content,
+                                relations: Default::default(),
+                            },
+                        )
+                        .await;
+                }
 
-            let span =
-                info_span!(parent: Span::none(), "local_echo_handler", room_id = ?room.room_id());
-            span.follows_from(Span::current());
+                let span = info_span!(parent: Span::none(), "local_echo_handler", room_id = ?room.room_id());
+                span.follows_from(Span::current());
 
-            // React to future local echoes too.
-            async move {
-                info!("spawned the local echo handler!");
+                // React to future local echoes too.
+                async move {
+                    info!("spawned the local echo handler!");
 
-                loop {
-                    match listener.recv().await {
-                        Ok(update) => match update {
-                            RoomSendingQueueUpdate::NewLocalEvent(echo) => {
-                                timeline
-                                    .handle_local_event(
-                                        echo.transaction_id,
-                                        TimelineEventKind::Message {
-                                            content: echo.content,
-                                            relations: Default::default(),
-                                        },
-                                    )
-                                    .await;
-                            }
-
-                            RoomSendingQueueUpdate::CancelledLocalEvent { transaction_id } => {
-                                if !timeline.discard_local_echo(&transaction_id).await {
-                                    warn!("couldn't find the local echo to discard");
+                    loop {
+                        match listener.recv().await {
+                            Ok(update) => match update {
+                                RoomSendingQueueUpdate::NewLocalEvent(echo) => {
+                                    timeline
+                                        .handle_local_event(
+                                            echo.transaction_id,
+                                            TimelineEventKind::Message {
+                                                content: echo.content,
+                                                relations: Default::default(),
+                                            },
+                                        )
+                                        .await;
                                 }
+
+                                RoomSendingQueueUpdate::CancelledLocalEvent { transaction_id } => {
+                                    if !timeline.discard_local_echo(&transaction_id).await {
+                                        warn!("couldn't find the local echo to discard");
+                                    }
+                                }
+
+                                RoomSendingQueueUpdate::SendError { transaction_id, error } => {
+                                    timeline
+                                        .update_event_send_state(
+                                            &transaction_id,
+                                            EventSendState::SendingFailed { error },
+                                        )
+                                        .await;
+                                }
+
+                                RoomSendingQueueUpdate::SentEvent { transaction_id, event_id } => {
+                                    timeline
+                                        .update_event_send_state(
+                                            &transaction_id,
+                                            EventSendState::Sent { event_id },
+                                        )
+                                        .await;
+                                }
+                            },
+
+                            Err(RecvError::Lagged(num_missed)) => {
+                                warn!("missed {num_missed} local echoes, ignoring those missed");
                             }
 
-                            RoomSendingQueueUpdate::SendError { transaction_id, error } => {
-                                timeline
-                                    .update_event_send_state(
-                                        &transaction_id,
-                                        EventSendState::SendingFailed { error },
-                                    )
-                                    .await;
+                            Err(RecvError::Closed) => {
+                                info!("channel closed, exiting the local echo handler");
+                                break;
                             }
-
-                            RoomSendingQueueUpdate::SentEvent { transaction_id, event_id } => {
-                                timeline
-                                    .update_event_send_state(
-                                        &transaction_id,
-                                        EventSendState::Sent { event_id },
-                                    )
-                                    .await;
-                            }
-                        },
-
-                        Err(RecvError::Lagged(num_missed)) => {
-                            warn!("missed {num_missed} local echoes, ignoring those missed");
-                        }
-
-                        Err(RecvError::Closed) => {
-                            info!("channel closed, exiting the local echo handler");
-                            break;
                         }
                     }
                 }
-            }
-            .instrument(span)
-        });
+                .instrument(span)
+            }))
+        } else {
+            None
+        };
 
         // Not using room.add_event_handler here because RoomKey events are
         // to-device events that are not received in the context of a room.
