@@ -76,7 +76,7 @@ impl SendingQueue {
     ///
     /// This may wake up backgrounds tasks and resume sending of events in the
     /// background.
-    pub async fn enable(&self) {
+    pub fn enable(&self) {
         if self.client.inner.sending_queue.enabled.set_if_not_eq(true).is_some() {
             let rooms = self.client.inner.sending_queue.rooms.read().unwrap();
             // Wake up the rooms, in case events have been queued in the meanwhile.
@@ -92,7 +92,7 @@ impl SendingQueue {
     /// until a status resolves (error responses will keep the events in the
     /// buffer of events to send later). The disablement will happen before
     /// the next event is sent.
-    pub async fn disable(&self) {
+    pub fn disable(&self) {
         // Note: it's not required to wake the tasks just to let them know they're
         // disabled:
         // - either they were busy, will continue to the next iteration and realize
@@ -589,9 +589,9 @@ mod tests {
                 let _watcher = q.subscribe().await;
 
                 if enabled {
-                    client.sending_queue().enable().await;
+                    client.sending_queue().enable();
                 } else {
-                    client.sending_queue().disable().await;
+                    client.sending_queue().disable();
                 }
             }
 
