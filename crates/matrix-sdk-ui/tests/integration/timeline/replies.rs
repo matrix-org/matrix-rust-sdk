@@ -314,7 +314,7 @@ async fn test_send_reply() {
         .await;
 
     timeline
-        .send_reply(
+        .send_reply_with_event_timeline_item(
             RoomMessageEventContentWithoutRelation::text_plain("Replying to Bob"),
             &event_from_bob,
             ForwardThread::Yes,
@@ -418,7 +418,7 @@ async fn test_send_reply_to_self() {
         .await;
 
     timeline
-        .send_reply(
+        .send_reply_with_event_timeline_item(
             RoomMessageEventContentWithoutRelation::text_plain("Replying to self"),
             &event_from_self,
             ForwardThread::Yes,
@@ -505,7 +505,7 @@ async fn test_send_reply_to_threaded() {
         .await;
 
     timeline
-        .send_reply(
+        .send_reply_with_event_timeline_item(
             RoomMessageEventContentWithoutRelation::text_plain("Hello, Bob!"),
             &hello_world_item,
             ForwardThread::Yes,

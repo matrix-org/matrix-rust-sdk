@@ -202,7 +202,10 @@ async fn test_send_edit() {
         .await;
 
     timeline
-        .edit(RoomMessageEventContentWithoutRelation::text_plain("Hello, Room!"), &hello_world_item)
+        .edit_event_timeline_item(
+            RoomMessageEventContentWithoutRelation::text_plain("Hello, Room!"),
+            &hello_world_item,
+        )
         .await
         .unwrap();
 
@@ -289,7 +292,10 @@ async fn test_send_reply_edit() {
         .await;
 
     timeline
-        .edit(RoomMessageEventContentWithoutRelation::text_plain("Hello, Room!"), &reply_item)
+        .edit_event_timeline_item(
+            RoomMessageEventContentWithoutRelation::text_plain("Hello, Room!"),
+            &reply_item,
+        )
         .await
         .unwrap();
 

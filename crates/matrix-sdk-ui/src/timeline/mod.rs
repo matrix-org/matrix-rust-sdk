@@ -50,11 +50,12 @@ use ruma::{
             },
             redaction::RoomRedactionEventContent,
         },
-        AnyMessageLikeEventContent, AnySyncTimelineEvent, AnyTimelineEvent,
+        AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
+        AnyTimelineEvent,
     },
     serde::Raw,
-    uint, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, RoomVersionId,
-    TransactionId, UserId,
+    uint, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
+    RoomVersionId, TransactionId, UserId,
 };
 use thiserror::Error;
 use tokio::sync::mpsc::Sender;
@@ -114,6 +115,20 @@ use self::{
 struct EditingInfo {
     event_id: OwnedEventId,
     original_message: Message,
+}
+
+#[derive(Debug)]
+struct ReplyInfo {
+    event_id: OwnedEventId,
+    sender: OwnedUserId,
+    timestamp: MilliSecondsSinceUnixEpoch,
+    content: ReplyContent,
+}
+
+#[derive(Debug)]
+enum ReplyContent {
+    Message(Message),
+    Raw(Raw<AnySyncTimelineEvent>),
 }
 
 /// A high-level view into a regular¹ room's contents.
@@ -300,6 +315,49 @@ impl Timeline {
         }
     }
 
+    pub async fn send_reply_with_event(
+        &self,
+        content: RoomMessageEventContentWithoutRelation,
+        event_id: &EventId,
+        forward_thread: ForwardThread,
+    ) -> Result<(), UnsupportedReplyItem> {
+        if let Some(timeline_item) = self.item_by_event_id(event_id).await {
+            return self
+                .send_reply_with_event_timeline_item(content, &timeline_item, forward_thread)
+                .await;
+        }
+
+        let Ok(event) = self.room().event(event_id).await else {
+            return Err(UnsupportedReplyItem::MISSING_EVENT);
+        };
+
+        let raw_sync_event: Raw<AnySyncTimelineEvent> = event.event.cast();
+        let Ok(sync_event) = raw_sync_event.deserialize_as::<AnySyncTimelineEvent>() else {
+            return Err(UnsupportedReplyItem::DESERIALIZATION_ERROR);
+        };
+
+        // Likely needs to be changed or renamed?
+        let Some(timeline_item_content) =
+            TimelineItemContent::from_latest_event_content(sync_event.clone())
+        else {
+            return Err(UnsupportedReplyItem::MISSING_EVENT_ID);
+        };
+
+        let reply_content = match timeline_item_content {
+            TimelineItemContent::Message(msg) => ReplyContent::Message(msg.to_owned()),
+            _ => ReplyContent::Raw(raw_sync_event),
+        };
+
+        let reply_info = ReplyInfo {
+            event_id: event_id.to_owned(),
+            sender: sync_event.sender().to_owned(),
+            timestamp: sync_event.origin_server_ts(),
+            content: reply_content,
+        };
+
+        self.send_reply(content, reply_info, forward_thread).await
+    }
+
     /// Send a reply to the given event.
     ///
     /// Currently it only supports events with an event ID and JSON being
@@ -320,17 +378,43 @@ impl Timeline {
     ///   reply to show up in the main timeline even though the `reply_item` is
     ///   part of a thread
     #[instrument(skip(self, content, reply_item))]
-    pub async fn send_reply(
+    pub async fn send_reply_with_event_timeline_item(
         &self,
         content: RoomMessageEventContentWithoutRelation,
         reply_item: &EventTimelineItem,
         forward_thread: ForwardThread,
     ) -> Result<(), UnsupportedReplyItem> {
-        // Error returns here must be in sync with
-        // `EventTimelineItem::can_be_replied_to`
-        let Some(event_id) = reply_item.event_id() else {
-            return Err(UnsupportedReplyItem::MISSING_EVENT_ID);
+        let reply_content = match reply_item.content() {
+            TimelineItemContent::Message(msg) => ReplyContent::Message(msg.to_owned()),
+            _ => {
+                let Some(raw_event) = reply_item.latest_json() else {
+                    return Err(UnsupportedReplyItem::MISSING_JSON);
+                };
+
+                ReplyContent::Raw(raw_event.clone())
+            }
         };
+
+        let reply_info = ReplyInfo {
+            event_id: reply_item
+                .event_id()
+                .ok_or(UnsupportedReplyItem::MISSING_EVENT_ID)?
+                .to_owned(),
+            sender: reply_item.sender().to_owned(),
+            timestamp: reply_item.timestamp(),
+            content: reply_content,
+        };
+
+        self.send_reply(content, reply_info, forward_thread).await
+    }
+
+    async fn send_reply(
+        &self,
+        content: RoomMessageEventContentWithoutRelation,
+        reply_info: ReplyInfo,
+        forward_thread: ForwardThread,
+    ) -> Result<(), UnsupportedReplyItem> {
+        let event_id = reply_info.event_id;
 
         // [The specification](https://spec.matrix.org/v1.10/client-server-api/#user-and-room-mentions) says:
         //
@@ -339,37 +423,31 @@ impl Timeline {
         //
         // If `reply_item` has been written by the current user, let's toggle to
         // `AddMentions::No`.
-        let mention_the_sender = if self.room().own_user_id() == reply_item.sender {
+        let mention_the_sender = if self.room().own_user_id() == reply_info.sender {
             AddMentions::No
         } else {
             AddMentions::Yes
         };
 
-        let content = match reply_item.content() {
-            TimelineItemContent::Message(msg) => {
+        let content = match reply_info.content {
+            ReplyContent::Message(msg) => {
                 let event = OriginalRoomMessageEvent {
                     event_id: event_id.to_owned(),
-                    sender: reply_item.sender().to_owned(),
-                    origin_server_ts: reply_item.timestamp(),
+                    sender: reply_info.sender.clone(),
+                    origin_server_ts: reply_info.timestamp,
                     room_id: self.room().room_id().to_owned(),
                     content: msg.to_content(),
                     unsigned: Default::default(),
                 };
                 content.make_reply_to(&event, forward_thread, mention_the_sender)
             }
-            _ => {
-                let Some(raw_event) = reply_item.latest_json() else {
-                    return Err(UnsupportedReplyItem::MISSING_JSON);
-                };
-
-                content.make_reply_to_raw(
-                    raw_event,
-                    event_id.to_owned(),
-                    self.room().room_id(),
-                    forward_thread,
-                    mention_the_sender,
-                )
-            }
+            ReplyContent::Raw(raw_event) => content.make_reply_to_raw(
+                &raw_event,
+                event_id.to_owned(),
+                self.room().room_id(),
+                forward_thread,
+                mention_the_sender,
+            ),
         };
 
         self.send(content.into()).await;
@@ -397,6 +475,7 @@ impl Timeline {
             return Err(UnsupportedEditItem::MISSING_EVENT_ID);
         };
 
+        // Likely needs to be changed or renamed?
         let Some(content) = TimelineItemContent::from_latest_event_content(event) else {
             return Err(UnsupportedEditItem::MISSING_EVENT_ID);
         };

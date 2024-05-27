@@ -83,7 +83,10 @@ pub struct UnsupportedReplyItem(UnsupportedReplyItemInner);
 
 impl UnsupportedReplyItem {
     pub(super) const MISSING_EVENT_ID: Self = Self(UnsupportedReplyItemInner::MissingEventId);
+    pub(super) const MISSING_EVENT: Self = Self(UnsupportedReplyItemInner::MissingEvent);
     pub(super) const MISSING_JSON: Self = Self(UnsupportedReplyItemInner::MissingJson);
+    pub(super) const DESERIALIZATION_ERROR: Self =
+        Self(UnsupportedReplyItemInner::DeserializationError);
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -99,6 +102,10 @@ enum UnsupportedReplyItemInner {
     MissingEventId,
     #[error("redacted events whose JSON form isn't available can't be replied")]
     MissingJson,
+    #[error("event could not be obtained")]
+    MissingEvent,
+    #[error("error deserializing event")]
+    DeserializationError,
 }
 
 #[derive(Error)]

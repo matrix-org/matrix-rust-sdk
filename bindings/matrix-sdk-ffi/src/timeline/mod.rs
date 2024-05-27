@@ -429,13 +429,26 @@ impl Timeline {
         Ok(())
     }
 
-    pub async fn send_reply(
+    pub async fn send_reply_by_event_timeline_item(
         &self,
         msg: Arc<RoomMessageEventContentWithoutRelation>,
         reply_item: Arc<EventTimelineItem>,
     ) -> Result<(), ClientError> {
         self.inner
-            .send_reply((*msg).clone(), &reply_item.0, ForwardThread::Yes)
+            .send_reply_with_event_timeline_item((*msg).clone(), &reply_item.0, ForwardThread::Yes)
+            .await
+            .map_err(|err| anyhow::anyhow!(err))?;
+        Ok(())
+    }
+
+    pub async fn send_reply_by_event_id(
+        &self,
+        msg: Arc<RoomMessageEventContentWithoutRelation>,
+        reply_event_id: String,
+    ) -> Result<(), ClientError> {
+        let event_id = EventId::parse(reply_event_id)?;
+        self.inner
+            .send_reply_with_event((*msg).clone(), &event_id, ForwardThread::Yes)
             .await
             .map_err(|err| anyhow::anyhow!(err))?;
         Ok(())
