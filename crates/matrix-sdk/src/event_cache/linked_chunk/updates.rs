@@ -95,6 +95,7 @@ pub enum Update<Item, Gap> {
 /// A collection of [`Update`]s that can be observed.
 ///
 /// Get a value for this type with [`LinkedChunk::updates`].
+#[derive(Debug)]
 pub struct ObservableUpdates<Item, Gap> {
     pub(super) inner: Arc<RwLock<UpdatesInner<Item, Gap>>>,
 }
@@ -164,6 +165,7 @@ pub(super) type ReaderToken = usize;
 /// for example with [`UpdatesSubscriber`]. Of course, they can be multiple
 /// `UpdatesSubscriber`s at the same time. Hence the need of supporting multiple
 /// readers.
+#[derive(Debug)]
 pub(super) struct UpdatesInner<Item, Gap> {
     /// All the updates that have not been read by all readers.
     updates: Vec<Update<Item, Gap>>,

@@ -216,6 +216,12 @@ pub struct LinkedChunk<const CHUNK_CAPACITY: usize, Item, Gap> {
     marker: PhantomData<Box<Chunk<CHUNK_CAPACITY, Item, Gap>>>,
 }
 
+impl<const CAP: usize, Item, Gap> Default for LinkedChunk<CAP, Item, Gap> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
     /// Create a new [`Self`].
     pub fn new() -> Self {
@@ -252,6 +258,7 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
     }
 
     /// Get the number of items in this linked chunk.
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         self.length
     }
@@ -865,6 +872,7 @@ impl Position {
 
 /// An iterator over a [`LinkedChunk`] that traverses the chunk in backward
 /// direction (i.e. it calls `previous` on each chunk to make progress).
+#[derive(Debug)]
 pub struct IterBackward<'a, const CAP: usize, Item, Gap> {
     chunk: Option<&'a Chunk<CAP, Item, Gap>>,
 }
@@ -890,6 +898,7 @@ impl<'a, const CAP: usize, Item, Gap> Iterator for IterBackward<'a, CAP, Item, G
 
 /// An iterator over a [`LinkedChunk`] that traverses the chunk in forward
 /// direction (i.e. it calls `next` on each chunk to make progress).
+#[derive(Debug)]
 pub struct Iter<'a, const CAP: usize, Item, Gap> {
     chunk: Option<&'a Chunk<CAP, Item, Gap>>,
 }
@@ -1248,6 +1257,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::ops::Not;
+
     use assert_matches::assert_matches;
 
     use super::{
@@ -2150,5 +2161,24 @@ mod tests {
             assert_eq!(chunk.first_position(), Position(ChunkIdentifier(3), 0));
             assert_eq!(chunk.last_position(), Position(ChunkIdentifier(3), 0));
         }
+    }
+
+    #[test]
+    fn test_is_first_and_last_chunk() {
+        let mut linked_chunk = LinkedChunk::<3, char, ()>::new();
+
+        let mut chunks = linked_chunk.chunks().peekable();
+        assert!(chunks.peek().unwrap().is_first_chunk());
+        assert!(chunks.next().unwrap().is_last_chunk());
+        assert!(chunks.next().is_none());
+
+        linked_chunk.push_items_back(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']);
+
+        let mut chunks = linked_chunk.chunks().peekable();
+        assert!(chunks.next().unwrap().is_first_chunk());
+        assert!(chunks.peek().unwrap().is_first_chunk().not());
+        assert!(chunks.next().unwrap().is_last_chunk().not());
+        assert!(chunks.next().unwrap().is_last_chunk());
+        assert!(chunks.next().is_none());
     }
 }
