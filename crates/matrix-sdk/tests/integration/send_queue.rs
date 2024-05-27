@@ -106,7 +106,7 @@ async fn test_nothing_sent_when_disabled() {
     let event_id = event_id!("$1");
     mock_send_event(event_id).expect(0).mount(&server).await;
 
-    client.sending_queue().disable().await;
+    client.sending_queue().disable();
 
     // A message is queued, but never sent.
     room.sending_queue()
@@ -312,7 +312,7 @@ async fn test_error() {
         .await;
 
     // Re-enabling the queue will re-send the same message in that room.
-    client.sending_queue().enable().await;
+    client.sending_queue().enable();
 
     assert!(
         global_status.next().await.unwrap(),
@@ -353,7 +353,7 @@ async fn test_reenabling_queue() {
     assert!(global_status.next_now());
 
     // When I start with a disabled sending queue,
-    client.sending_queue().disable().await;
+    client.sending_queue().disable();
 
     assert!(!client.sending_queue().is_enabled());
     assert!(!global_status.next().await.unwrap());
@@ -413,7 +413,7 @@ async fn test_reenabling_queue() {
         .await;
 
     // But when reenabling the queue,
-    client.sending_queue().enable().await;
+    client.sending_queue().enable();
 
     assert!(client.sending_queue().is_enabled());
     assert!(global_status.next().await.unwrap());
