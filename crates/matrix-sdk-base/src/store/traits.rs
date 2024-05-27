@@ -815,7 +815,8 @@ pub enum StateStoreDataValue {
 }
 
 /// Struct that represents the current draft of the composer for the room
-#[derive(Debug, Clone, Serialize, Deserialize, uniffi::Record)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct ComposerDraft {
     /// The draft content in plain  text.
     plain_text: String,
@@ -826,7 +827,8 @@ pub struct ComposerDraft {
     draft_type: DraftType,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, uniffi::Enum)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum DraftType {
     /// The draft is a new message.
     NewMessage,
