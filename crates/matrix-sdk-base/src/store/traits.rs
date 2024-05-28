@@ -831,6 +831,7 @@ pub struct ComposerDraft {
     draft_type: DraftType,
 }
 
+/// Struct that represents the type of draft the composer is composing.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum DraftType {
