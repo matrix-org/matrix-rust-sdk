@@ -592,7 +592,7 @@ impl RoomEventCacheInner {
         &self,
         sync_timeline_events: Vec<SyncTimelineEvent>,
         prev_batch: Option<String>,
-        sync_ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
+        ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
     ) -> Result<()> {
         // Acquire the lock.
@@ -609,7 +609,7 @@ impl RoomEventCacheInner {
             room_events,
             sync_timeline_events,
             prev_batch,
-            sync_ephemeral_events,
+            ephemeral_events,
             ambiguity_changes,
         )
         .await
@@ -621,14 +621,14 @@ impl RoomEventCacheInner {
         &self,
         sync_timeline_events: Vec<SyncTimelineEvent>,
         prev_batch: Option<String>,
-        sync_ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
+        ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
     ) -> Result<()> {
         self.append_events_locked_impl(
             self.events.write().await,
             sync_timeline_events,
             prev_batch,
-            sync_ephemeral_events,
+            ephemeral_events,
             ambiguity_changes,
         )
         .await
@@ -644,12 +644,12 @@ impl RoomEventCacheInner {
         mut room_events: RwLockWriteGuard<'_, RoomEvents>,
         sync_timeline_events: Vec<SyncTimelineEvent>,
         prev_batch: Option<String>,
-        sync_ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
+        ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
     ) -> Result<()> {
         if sync_timeline_events.is_empty()
             && prev_batch.is_none()
-            && sync_ephemeral_events.is_empty()
+            && ephemeral_events.is_empty()
             && ambiguity_changes.is_empty()
         {
             return Ok(());
@@ -680,9 +680,9 @@ impl RoomEventCacheInner {
                 });
             }
 
-            if !sync_ephemeral_events.is_empty() {
+            if !ephemeral_events.is_empty() {
                 let _ = self.sender.send(RoomEventCacheUpdate::AddEphemeralEvents {
-                    events: sync_ephemeral_events,
+                    events: ephemeral_events,
                 });
             }
 
