@@ -36,7 +36,8 @@ use matrix_sdk::{
     Client, RoomInfo, RoomListEntry, RoomMemberships, RoomState, SlidingSyncList, SlidingSyncMode,
 };
 use matrix_sdk_ui::{
-    room_list_service::filters::new_filter_all, sync_service::SyncService, RoomListService,
+    room_list_service::filters::new_filter_all, sync_service::SyncService, timeline::RoomExt,
+    RoomListService,
 };
 use once_cell::sync::Lazy;
 use rand::Rng as _;
@@ -1123,6 +1124,124 @@ async fn test_room_preview() -> Result<()> {
         assert_eq!(preview.state, Some(RoomState::Joined));
     }
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_edit_unpaginated_item() -> Result<()> {
+    let alice = TestClientBuilder::new("alice".to_owned())
+        .randomize_username()
+        .use_sqlite()
+        .build()
+        .await?;
+
+    let alice_sync_service = SyncService::builder(alice.clone()).build().await.unwrap();
+    alice_sync_service.start().await;
+
+    // Set up sliding sync for alice.
+    let sliding_alice = alice
+        .sliding_sync("main")?
+        .with_all_extensions()
+        .poll_timeout(Duration::from_secs(5))
+        .network_timeout(Duration::from_secs(5))
+        .add_list(
+            SlidingSyncList::builder("all")
+                .sync_mode(SlidingSyncMode::new_selective().add_range(0..=20)),
+        )
+        .build()
+        .await?;
+
+    // Alice creates a room in which they're alone, to start with.
+    let suffix: u128 = rand::thread_rng().gen();
+    let room_alias = format!("aliasy_mac_alias{suffix}");
+
+    let room = alice
+        .create_room(assign!(CreateRoomRequest::new(), {
+            invite: vec![],
+            is_direct: false,
+            name: Some("Alice's Room".to_owned()),
+            topic: Some("Discussing Alice's Topic".to_owned()),
+            room_alias_name: Some(room_alias.clone()),
+            initial_state: vec![
+                InitialStateEvent::new(RoomHistoryVisibilityEventContent::new(HistoryVisibility::WorldReadable)).to_raw_any(),
+                InitialStateEvent::new(RoomJoinRulesEventContent::new(JoinRule::Invite)).to_raw_any(),
+            ],
+        }))
+        .await?;
+
+    let room_id = room.room_id();
+
+    // Wait for Alice's stream to stabilize (stop updating when we haven't received
+    // successful updates for more than 2 seconds).
+    let stream = sliding_alice.sync();
+    pin_mut!(stream);
+    loop {
+        match timeout(Duration::from_secs(2), stream.next()).await {
+            Ok(None) | Err(_) => break,
+            Ok(Some(up)) => {
+                warn!("alice got an update: {up:?}");
+            }
+        }
+    }
+
+    let alice_room = alice.get_room(room_id).unwrap();
+    let alice_timeline = alice_room.timeline().await?;
+    for index in 0..100 {
+        alice_timeline.send(RoomMessageEventContent::text_plain(index.to_string()).into()).await;
+        sleep(Duration::from_millis(100)).await;
+    }
+
+    alice_timeline.send(RoomMessageEventContent::text_plain("hello world").into()).await;
+    sleep(Duration::from_millis(100)).await;
+    // Get the event id of the message that contains the body we just sent
+    let event_id = alice_timeline
+        .items()
+        .await
+        .into_iter()
+        .find(|binding| {
+            if let Some(event_content) = binding.as_event() {
+                if let Some(message_content) = event_content.content().as_message() {
+                    return message_content.body() == "hello world";
+                }
+            }
+            false
+        })
+        .map(|binding| binding.as_event().unwrap().event_id().unwrap().to_owned())
+        .unwrap();
+
+    drop(alice_timeline);
+    drop(alice_room);
+
+    let alice_room = alice.get_room(room_id).unwrap();
+    let alice_timeline = alice_room.timeline().await?;
+    alice_timeline
+        .alice_timeline
+        .edit_event(RoomMessageEventContent::text_plain("hello world 2").into(), &event_id)
+        .await?;
+    sleep(Duration::from_secs(1)).await;
+    // This fails since the timeline seems to already have 100 items not sure how to
+    // drop it properly
+    assert_eq!(alice_timeline.items().await.len(), 0);
+    _ = alice_timeline.paginate_backwards(101).await;
+    assert_eq!(alice_timeline.items().await.len(), 11);
+    sleep(Duration::from_secs(1)).await;
+
+    let edited_event = alice_timeline
+        .items()
+        .await
+        .into_iter()
+        .find(|binding| {
+            if let Some(event) = binding.as_event() {
+                return event.event_id() == Some(&event_id);
+            }
+            false
+        })
+        .unwrap()
+        .as_event()
+        .unwrap()
+        .to_owned();
+
+    assert_eq!(edited_event.content().as_message().unwrap().body(), "hello world 2");
     Ok(())
 }
 
