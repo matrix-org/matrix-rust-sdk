@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{ops::ControlFlow, time::Duration};
 
 use assert_matches2::{assert_let, assert_matches};
 use matrix_sdk::{
@@ -23,6 +23,10 @@ use wiremock::{
 };
 
 use crate::mock_sync;
+
+pub async fn once(outcome: BackPaginationOutcome) -> ControlFlow<BackPaginationOutcome, ()> {
+    ControlFlow::Break(outcome)
+}
 
 #[async_test]
 async fn test_must_explicitly_subscribe() {
@@ -362,7 +366,7 @@ async fn test_backpaginate_once() {
 
         assert!(pagination.get_or_wait_for_token().await.is_some());
 
-        pagination.run_backwards(20).await.unwrap()
+        pagination.run_backwards(20, once).await.unwrap()
     };
 
     // I'll get all the previous events, in "reverse" order (same as the response).
@@ -450,7 +454,7 @@ async fn test_backpaginate_multiple_iterations() {
     let pagination = room_event_cache.pagination();
     while pagination.get_or_wait_for_token().await.is_some() {
         let BackPaginationOutcome { reached_start, events } =
-            pagination.run_backwards(20).await.unwrap();
+            pagination.run_backwards(20, once).await.unwrap();
 
         if !global_reached_start {
             global_reached_start = reached_start;
@@ -586,7 +590,7 @@ async fn test_reset_while_backpaginating() {
 
     let backpagination = spawn({
         let pagination = room_event_cache.pagination();
-        async move { pagination.run_backwards(20).await }
+        async move { pagination.run_backwards(20, once).await }
     });
 
     // Receive the sync response (which clears the timeline).
@@ -656,7 +660,7 @@ async fn test_backpaginating_without_token() {
     // If we try to back-paginate with a token, it will hit the end of the timeline
     // and give us the resulting event.
     let BackPaginationOutcome { events, reached_start } =
-        pagination.run_backwards(20).await.unwrap();
+        pagination.run_backwards(20, once).await.unwrap();
 
     assert!(reached_start);
 

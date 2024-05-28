@@ -14,7 +14,7 @@
 
 //! A sub-object for running pagination tasks on a given room.
 
-use std::{sync::Arc, time::Duration};
+use std::{future::Future, ops::ControlFlow, sync::Arc, time::Duration};
 
 use eyeball::Subscriber;
 use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
@@ -59,17 +59,64 @@ impl RoomPagination {
     /// This automatically takes care of waiting for a pagination token from
     /// sync, if we haven't done that before.
     ///
+    /// The `until` argument is an async closure that returns a [`ControlFlow`]
+    /// to decide whether a new pagination must be run or not. It's helpful when
+    /// the server replies with e.g. a certain set of events, but we would like
+    /// more, or the event we are looking for isn't part of this set: in this
+    /// case, `until` returns [`Control::Continue`], otherwise it returns
+    /// [`ControlFlow::Break`]. `until` receives [`BackPaginationOutcome`] as
+    /// its sole argument.
+    ///
     /// # Errors
     ///
     /// It may return an error if the pagination token used during
     /// back-pagination has disappeared while we started the pagination. In
     /// that case, it's desirable to call the method again.
-    #[instrument(skip(self))]
-    pub async fn run_backwards(&self, batch_size: u16) -> Result<BackPaginationOutcome> {
+    ///
+    /// # Example
+    ///
+    /// To do a single run:
+    ///
+    /// ```rust
+    /// use std::ops::ControlFlow;
+    ///
+    /// use matrix_sdk::event_cache::{BackPaginationOutcome, RoomPagination};
+    ///
+    /// # async fn foo(room_pagination: RoomPagination) {
+    /// let result = room_pagination.run_backwards(
+    ///     42,
+    ///     |BackPaginationOutcome { events, reached_start }| async move {
+    ///         // Do something with `events` and `reached_start` maybe?
+    ///         let _ = events;
+    ///         let _ = reached_start;
+    ///
+    ///         ControlFlow::Break(())
+    ///     }
+    /// ).await;
+    /// # }
+    #[instrument(skip(self, until))]
+    pub async fn run_backwards<Until, Break, UntilFuture>(
+        &self,
+        batch_size: u16,
+        mut until: Until,
+    ) -> Result<Break>
+    where
+        Until: FnMut(BackPaginationOutcome) -> UntilFuture,
+        UntilFuture: Future<Output = ControlFlow<Break, ()>>,
+    {
         loop {
-            if let Some(result) = self.run_backwards_impl(batch_size).await? {
-                return Ok(result);
+            if let Some(outcome) = self.run_backwards_impl(batch_size).await? {
+                match until(outcome).await {
+                    ControlFlow::Continue(()) => {
+                        debug!("back-pagination continues");
+
+                        continue;
+                    }
+
+                    ControlFlow::Break(value) => return Ok(value),
+                }
             }
+
             debug!("back-pagination has been internally restarted because of a timeline reset.");
         }
     }
