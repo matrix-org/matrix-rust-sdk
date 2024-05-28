@@ -30,7 +30,7 @@ use ruma::{
     TransactionId,
 };
 use tokio::sync::{broadcast, Notify, RwLock};
-use tracing::{error, info, instrument, trace, warn};
+use tracing::{debug, error, info, instrument, trace, warn};
 
 use crate::{client::WeakClient, config::RequestConfig, room::WeakRoom, Client, Room};
 
@@ -78,6 +78,7 @@ impl SendingQueue {
     /// background.
     pub fn enable(&self) {
         if self.client.inner.sending_queue.enabled.set_if_not_eq(true).is_some() {
+            debug!("globally enabling sending queue");
             let rooms = self.client.inner.sending_queue.rooms.read().unwrap();
             // Wake up the rooms, in case events have been queued in the meanwhile.
             for room in rooms.values() {
@@ -99,6 +100,7 @@ impl SendingQueue {
         // the queue is now disabled,
         // - or they were not, and it's not worth it waking them to let them they're
         // disabled, which causes them to go to sleep again.
+        debug!("globally disabling sending queue");
         self.client.inner.sending_queue.enabled.set(false);
     }
 
@@ -149,6 +151,7 @@ impl Drop for SendingQueueData {
     fn drop(&mut self) {
         // Mark the whole sending queue as shutting down, then wake up all the room
         // queues so they're stopped too.
+        debug!("globally shutting down the sending queue");
         self.shutting_down.store(true, Ordering::SeqCst);
 
         let rooms = self.rooms.read().unwrap();
@@ -237,8 +240,8 @@ impl RoomSendingQueue {
             return Err(RoomSendingQueueError::RoomNotJoined);
         }
 
-        trace!("manager sending an event to the task");
         let transaction_id = self.inner.queue.push(content.clone()).await;
+        trace!(%transaction_id, "manager sends an event to the background task");
         self.inner.notifier.notify_one();
 
         let _ = self.inner.updates.send(RoomSendingQueueUpdate::NewLocalEvent(LocalEcho {
