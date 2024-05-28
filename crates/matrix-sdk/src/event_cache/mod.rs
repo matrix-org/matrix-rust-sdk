@@ -681,9 +681,9 @@ impl RoomEventCacheInner {
             }
 
             if !ephemeral_events.is_empty() {
-                let _ = self.sender.send(RoomEventCacheUpdate::AddEphemeralEvents {
-                    events: ephemeral_events,
-                });
+                let _ = self
+                    .sender
+                    .send(RoomEventCacheUpdate::AddEphemeralEvents { events: ephemeral_events });
             }
 
             if !ambiguity_changes.is_empty() {
