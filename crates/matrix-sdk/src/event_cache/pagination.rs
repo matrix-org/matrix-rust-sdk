@@ -115,7 +115,7 @@ impl RoomPagination {
             if let Some(outcome) = self.run_backwards_impl(batch_size).await? {
                 match until(outcome, timeline_has_been_reset).await {
                     ControlFlow::Continue(()) => {
-                        debug!("back-pagination continues");
+                        trace!("back-pagination continues");
 
                         timeline_has_been_reset = TimelineHasBeenResetWhilePaginating::No;
 

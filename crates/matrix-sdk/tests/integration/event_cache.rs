@@ -435,6 +435,7 @@ async fn test_backpaginate_many_times_with_many_iterations() {
     }
 
     let mut num_iterations = 0;
+    let mut num_paginations = 0;
     let mut global_events = Vec::new();
     let mut global_reached_start = false;
 
@@ -459,19 +460,29 @@ async fn test_backpaginate_many_times_with_many_iterations() {
     // Then if I backpaginate in a loop,
     let pagination = room_event_cache.pagination();
     while pagination.get_or_wait_for_token().await.is_some() {
-        let BackPaginationOutcome { reached_start, events } =
-            pagination.run_backwards(20, once).await.unwrap();
+        pagination
+            .run_backwards(20, |outcome, timeline_has_been_reset| {
+                num_paginations += 1;
 
-        if !global_reached_start {
-            global_reached_start = reached_start;
-        }
-        global_events.extend(events);
+                assert_matches!(timeline_has_been_reset, TimelineHasBeenResetWhilePaginating::No);
+
+                if !global_reached_start {
+                    global_reached_start = outcome.reached_start;
+                }
+
+                global_events.extend(outcome.events);
+
+                ready(ControlFlow::Break(()))
+            })
+            .await
+            .unwrap();
 
         num_iterations += 1;
     }
 
     // I'll get all the previous events,
-    assert_eq!(num_iterations, 2);
+    assert_eq!(num_iterations, 2); // in two iterations…
+    assert_eq!(num_paginations, 2); // … we get two paginations.
     assert!(global_reached_start);
 
     assert_event_matches_msg(&global_events[0], "world");
@@ -540,6 +551,7 @@ async fn test_backpaginate_many_times_with_one_iteration() {
     }
 
     let mut num_iterations = 0;
+    let mut num_paginations = 0;
     let mut global_events = Vec::new();
     let mut global_reached_start = false;
 
@@ -565,7 +577,11 @@ async fn test_backpaginate_many_times_with_one_iteration() {
     let pagination = room_event_cache.pagination();
     while pagination.get_or_wait_for_token().await.is_some() {
         pagination
-            .run_backwards(20, |outcome, _timeline_has_been_reset| {
+            .run_backwards(20, |outcome, timeline_has_been_reset| {
+                num_paginations += 1;
+
+                assert_matches!(timeline_has_been_reset, TimelineHasBeenResetWhilePaginating::No);
+
                 if !global_reached_start {
                     global_reached_start = outcome.reached_start;
                 }
@@ -585,7 +601,8 @@ async fn test_backpaginate_many_times_with_one_iteration() {
     }
 
     // I'll get all the previous events,
-    assert_eq!(num_iterations, 1); // in one iteration!
+    assert_eq!(num_iterations, 1); // in one iteration…
+    assert_eq!(num_paginations, 2); // … we get two paginations!
     assert!(global_reached_start);
 
     assert_event_matches_msg(&global_events[0], "world");
