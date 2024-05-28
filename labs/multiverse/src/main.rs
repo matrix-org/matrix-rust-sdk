@@ -21,8 +21,9 @@ use matrix_sdk::{
     encryption::{BackupDownloadStrategy, EncryptionSettings},
     matrix_auth::MatrixSession,
     ruma::{
-        api::client::receipt::create_receipt::v3::ReceiptType, events::room::message::MessageType,
-        OwnedRoomId, RoomId,
+        api::client::receipt::create_receipt::v3::ReceiptType,
+        events::room::message::{MessageType, RoomMessageEventContent},
+        MilliSecondsSinceUnixEpoch, OwnedRoomId, RoomId,
     },
     AuthSession, Client, RoomListEntry, ServerName, SqliteCryptoStore, SqliteStateStore,
 };
@@ -433,6 +434,43 @@ impl App {
 
                             Char('s') => self.sync_service.start().await,
                             Char('S') => self.sync_service.stop().await?,
+
+                            Char('Q') => {
+                                let q = self.client.sending_queue();
+                                let enabled = q.is_enabled();
+                                if enabled {
+                                    q.disable();
+                                } else {
+                                    q.enable();
+                                }
+                            }
+
+                            Char('M') => {
+                                if let Some(sdk_timeline) =
+                                    self.get_selected_room_id(None).and_then(|room_id| {
+                                        self.timelines
+                                            .lock()
+                                            .unwrap()
+                                            .get(&room_id)
+                                            .map(|timeline| timeline.timeline.clone())
+                                    })
+                                {
+                                    sdk_timeline
+                                        .send(
+                                            RoomMessageEventContent::text_plain(format!(
+                                                "hey {}",
+                                                MilliSecondsSinceUnixEpoch::now().get()
+                                            ))
+                                            .into(),
+                                        )
+                                        .await;
+
+                                    self.set_status_message("message sent!".to_owned());
+                                } else {
+                                    self.set_status_message("missing timeline for room".to_owned());
+                                };
+                            }
+
                             Char('r') => self.details_mode = DetailsMode::ReadReceipts,
                             Char('t') => self.details_mode = DetailsMode::TimelineItems,
 
@@ -769,10 +807,10 @@ impl App {
         } else {
             match self.details_mode {
                 DetailsMode::ReadReceipts => {
-                    "\nUse ↓↑ to move, s/S to start/stop the sync service, m to mark as read, t to show the timeline.".to_owned()
+                    "\nUse j/k to move, s/S to start/stop the sync service, m to mark as read, t to show the timeline.".to_owned()
                 }
                 DetailsMode::TimelineItems => {
-                    "\nUse ↓↑ to move, s/S to start/stop the sync service, r to show read receipts.".to_owned()
+                    "\nUse j/k to move, s/S to start/stop the sync service, r to show read receipts, Q to enable/disable the sending queue, M to send a message.".to_owned()
                 }
             }
         };
