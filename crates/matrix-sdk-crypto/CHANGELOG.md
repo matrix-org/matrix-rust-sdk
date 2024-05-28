@@ -50,6 +50,10 @@ Deprecations:
 
 Additions:
 
+
+- Expose new method `OlmMachine::clear_crypto_cache()`, with FFI bindings
+  ([#3462](https://github.com/matrix-org/matrix-rust-sdk/pull/3462))
+
 - Expose new method `OlmMachine::upload_device_keys()`.
   ([#3457](https://github.com/matrix-org/matrix-rust-sdk/pull/3457))
 

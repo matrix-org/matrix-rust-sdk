@@ -2150,6 +2150,13 @@ impl OlmMachine {
         let account = cache.account().await?;
         Ok(account.uploaded_key_count())
     }
+
+    /// Clear any in-memory caches because they may be out of sync with the
+    /// underlying data store.
+    pub async fn clear_crypto_cache(&self) {
+        let crypto_store = self.store().crypto_store();
+        crypto_store.as_ref().clear_caches().await;
+    }
 }
 
 /// A set of requests to be executed when bootstrapping cross-signing using
