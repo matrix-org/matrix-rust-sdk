@@ -72,7 +72,8 @@ impl super::Timeline {
         let result = pagination
             .run_backwards(
                 batch_size,
-                |BackPaginationOutcome { events, reached_start }| async move {
+                |BackPaginationOutcome { events, reached_start },
+                 _timeline_has_been_reset| async move {
                     let num_events = events.len();
                     trace!("Back-pagination succeeded with {num_events} events");
 

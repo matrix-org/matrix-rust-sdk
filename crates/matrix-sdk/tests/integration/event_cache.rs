@@ -1,8 +1,11 @@
-use std::{ops::ControlFlow, time::Duration};
+use std::{future::ready, ops::ControlFlow, time::Duration};
 
 use assert_matches2::{assert_let, assert_matches};
 use matrix_sdk::{
-    event_cache::{BackPaginationOutcome, EventCacheError, RoomEventCacheUpdate},
+    event_cache::{
+        BackPaginationOutcome, EventCacheError, RoomEventCacheUpdate,
+        TimelineHasBeenResetWhilePaginating,
+    },
     test_utils::{assert_event_matches_msg, events::EventFactory, logged_in_client_with_server},
 };
 use matrix_sdk_test::{
@@ -24,7 +27,10 @@ use wiremock::{
 
 use crate::mock_sync;
 
-pub async fn once(outcome: BackPaginationOutcome) -> ControlFlow<BackPaginationOutcome, ()> {
+async fn once(
+    outcome: BackPaginationOutcome,
+    _timeline_has_been_reset: TimelineHasBeenResetWhilePaginating,
+) -> ControlFlow<BackPaginationOutcome, ()> {
     ControlFlow::Break(outcome)
 }
 
@@ -590,7 +596,18 @@ async fn test_reset_while_backpaginating() {
 
     let backpagination = spawn({
         let pagination = room_event_cache.pagination();
-        async move { pagination.run_backwards(20, once).await }
+        async move {
+            pagination
+                .run_backwards(20, |outcome, timeline_has_been_reset| {
+                    assert_matches!(
+                        timeline_has_been_reset,
+                        TimelineHasBeenResetWhilePaginating::Yes
+                    );
+
+                    ready(ControlFlow::Break(outcome))
+                })
+                .await
+        }
     });
 
     // Receive the sync response (which clears the timeline).

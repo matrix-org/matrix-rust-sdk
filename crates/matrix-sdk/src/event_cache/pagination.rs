@@ -80,12 +80,17 @@ impl RoomPagination {
     /// ```rust
     /// use std::ops::ControlFlow;
     ///
-    /// use matrix_sdk::event_cache::{BackPaginationOutcome, RoomPagination};
+    /// use matrix_sdk::event_cache::{
+    ///     BackPaginationOutcome,
+    ///     RoomPagination,
+    ///     TimelineHasBeenResetWhilePaginating
+    /// };
     ///
     /// # async fn foo(room_pagination: RoomPagination) {
     /// let result = room_pagination.run_backwards(
     ///     42,
-    ///     |BackPaginationOutcome { events, reached_start }| async move {
+    ///     |BackPaginationOutcome { events, reached_start },
+    ///      _timeline_has_been_reset: TimelineHasBeenResetWhilePaginating| async move {
     ///         // Do something with `events` and `reached_start` maybe?
     ///         let _ = events;
     ///         let _ = reached_start;
@@ -101,14 +106,18 @@ impl RoomPagination {
         mut until: Until,
     ) -> Result<Break>
     where
-        Until: FnMut(BackPaginationOutcome) -> UntilFuture,
+        Until: FnMut(BackPaginationOutcome, TimelineHasBeenResetWhilePaginating) -> UntilFuture,
         UntilFuture: Future<Output = ControlFlow<Break, ()>>,
     {
+        let mut timeline_has_been_reset = TimelineHasBeenResetWhilePaginating::No;
+
         loop {
             if let Some(outcome) = self.run_backwards_impl(batch_size).await? {
-                match until(outcome).await {
+                match until(outcome, timeline_has_been_reset).await {
                     ControlFlow::Continue(()) => {
                         debug!("back-pagination continues");
+
+                        timeline_has_been_reset = TimelineHasBeenResetWhilePaginating::No;
 
                         continue;
                     }
@@ -116,6 +125,8 @@ impl RoomPagination {
                     ControlFlow::Break(value) => return Ok(value),
                 }
             }
+
+            timeline_has_been_reset = TimelineHasBeenResetWhilePaginating::Yes;
 
             debug!("back-pagination has been internally restarted because of a timeline reset.");
         }
@@ -304,6 +315,16 @@ impl RoomPagination {
     pub fn hit_timeline_end(&self) -> bool {
         self.inner.pagination.paginator.hit_timeline_end()
     }
+}
+
+/// A type representing whether the timeline has been reset.
+#[derive(Debug)]
+pub enum TimelineHasBeenResetWhilePaginating {
+    /// The timeline has been reset.
+    Yes,
+
+    /// The timeline has not been reset.
+    No,
 }
 
 #[cfg(test)]
