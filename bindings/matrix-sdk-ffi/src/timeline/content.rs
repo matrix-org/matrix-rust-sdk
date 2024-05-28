@@ -43,6 +43,7 @@ impl TimelineItemContent {
             }
             Content::Poll(poll_state) => TimelineItemContentKind::from(poll_state.results()),
             Content::CallInvite => TimelineItemContentKind::CallInvite,
+            Content::CallNotify => TimelineItemContentKind::CallNotify,
             Content::UnableToDecrypt(msg) => {
                 TimelineItemContentKind::UnableToDecrypt { msg: EncryptedMessage::new(msg) }
             }
@@ -123,6 +124,7 @@ pub enum TimelineItemContentKind {
         has_been_edited: bool,
     },
     CallInvite,
+    CallNotify,
     UnableToDecrypt {
         msg: EncryptedMessage,
     },

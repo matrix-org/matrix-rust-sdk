@@ -713,7 +713,8 @@ impl App {
                         | TimelineItemContent::FailedToParseMessageLike { .. }
                         | TimelineItemContent::FailedToParseState { .. }
                         | TimelineItemContent::Poll(_)
-                        | TimelineItemContent::CallInvite => {
+                        | TimelineItemContent::CallInvite
+                        | TimelineItemContent::CallNotify => {
                             continue;
                         }
                     }
