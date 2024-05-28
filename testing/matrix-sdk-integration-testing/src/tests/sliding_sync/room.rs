@@ -1186,13 +1186,13 @@ async fn test_edit_unpaginated_item() -> Result<()> {
 
     let alice_room = alice.get_room(room_id).unwrap();
     let alice_timeline = alice_room.timeline().await?;
-    for index in 0..100 {
+    alice_timeline.send(RoomMessageEventContent::text_plain("hello world").into()).await;
+    sleep(Duration::from_millis(100)).await;
+    for index in 0..99 {
         alice_timeline.send(RoomMessageEventContent::text_plain(index.to_string()).into()).await;
         sleep(Duration::from_millis(100)).await;
     }
 
-    alice_timeline.send(RoomMessageEventContent::text_plain("hello world").into()).await;
-    sleep(Duration::from_millis(100)).await;
     // Get the event id of the message that contains the body we just sent
     let event_id = alice_timeline
         .items()
@@ -1209,22 +1209,18 @@ async fn test_edit_unpaginated_item() -> Result<()> {
         .map(|binding| binding.as_event().unwrap().event_id().unwrap().to_owned())
         .unwrap();
 
+    alice.event_cache().add_initial_events(room_id, vec![], None).await?;
     drop(alice_timeline);
-    drop(alice_room);
-
-    let alice_room = alice.get_room(room_id).unwrap();
     let alice_timeline = alice_room.timeline().await?;
+    assert_eq!(alice_timeline.items().await.len(), 0);
+
     alice_timeline
-        .alice_timeline
         .edit_event(RoomMessageEventContent::text_plain("hello world 2").into(), &event_id)
         .await?;
     sleep(Duration::from_secs(1)).await;
-    // This fails since the timeline seems to already have 100 items not sure how to
-    // drop it properly
-    assert_eq!(alice_timeline.items().await.len(), 0);
-    _ = alice_timeline.paginate_backwards(101).await;
-    assert_eq!(alice_timeline.items().await.len(), 11);
+    _ = alice_timeline.paginate_backwards(110).await;
     sleep(Duration::from_secs(1)).await;
+    assert_eq!(alice_timeline.items().await.len(), 110);
 
     let edited_event = alice_timeline
         .items()
@@ -1232,7 +1228,7 @@ async fn test_edit_unpaginated_item() -> Result<()> {
         .into_iter()
         .find(|binding| {
             if let Some(event) = binding.as_event() {
-                return event.event_id() == Some(&event_id);
+                return event.event_id().unwrap() == event_id;
             }
             false
         })
