@@ -314,6 +314,25 @@ impl Timeline {
         }
     }
 
+    /// Send a reply to the given event.
+    ///
+    /// Currently it only supports events with an event ID and JSON being
+    /// available (which can be removed by local redactions). This is subject to
+    /// change. Please check [`EventTimelineItem::can_be_replied_to`] to decide
+    /// whether to render a reply button.
+    ///
+    /// The sender of `reply_item` will be added to the mentions of the reply if
+    /// and only if `reply_item` has not been written by the sender.
+    ///
+    /// # Arguments
+    ///
+    /// * `content` - The content of the reply
+    ///
+    /// * `event_id` - The event id of the item you want to reply to
+    ///
+    /// * `forward_thread` - Usually `Yes`, unless you explicitly want to the
+    ///   reply to show up in the main timeline even though the `reply_item` is
+    ///   part of a thread
     pub async fn send_reply_with_event(
         &self,
         content: RoomMessageEventContentWithoutRelation,
@@ -339,7 +358,7 @@ impl Timeline {
         let Some(timeline_item_content) =
             TimelineItemContent::from_latest_event_content(sync_event.clone())
         else {
-            return Err(UnsupportedReplyItem::MISSING_EVENT_ID);
+            return Err(UnsupportedReplyItem::MISSING_CONTENT);
         };
 
         let reply_content = match timeline_item_content {
@@ -453,6 +472,16 @@ impl Timeline {
         Ok(())
     }
 
+    // Send an edit to the given event.
+    ///
+    /// Currently only supports `m.room.message` events whose event ID is known.
+    /// Please check [`EventTimelineItem::can_be_edited`] before calling this.
+    ///
+    /// # Arguments
+    ///
+    /// * `new_content` - The content of the reply
+    ///
+    /// * `event_id` - The event id item you want to edit
     #[instrument(skip(self, new_content))]
     pub async fn edit_event(
         &self,
@@ -464,19 +493,19 @@ impl Timeline {
         }
 
         let Ok(event) = self.room().event(event_id).await else {
-            return Err(UnsupportedEditItem::MISSING_EVENT_ID);
+            return Err(UnsupportedEditItem::MISSING_EVENT);
         };
 
         let raw_sync_event: Raw<AnySyncTimelineEvent> = event.event.cast();
 
         let Ok(event) = raw_sync_event.deserialize_as::<AnySyncTimelineEvent>() else {
             warn!("Unable to deserialize latest_event as an AnySyncTimelineEvent!");
-            return Err(UnsupportedEditItem::MISSING_EVENT_ID);
+            return Err(UnsupportedEditItem::DESERIALIZATION_ERROR);
         };
 
         // Likely needs to be changed or renamed?
         let Some(content) = TimelineItemContent::from_latest_event_content(event) else {
-            return Err(UnsupportedEditItem::MISSING_EVENT_ID);
+            return Err(UnsupportedEditItem::MISSING_CONTENT);
         };
 
         let TimelineItemContent::Message(message) = content else {

@@ -87,6 +87,7 @@ impl UnsupportedReplyItem {
     pub(super) const MISSING_JSON: Self = Self(UnsupportedReplyItemInner::MissingJson);
     pub(super) const DESERIALIZATION_ERROR: Self =
         Self(UnsupportedReplyItemInner::DeserializationError);
+    pub(super) const MISSING_CONTENT: Self = Self(UnsupportedReplyItemInner::MissingContent);
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -106,6 +107,8 @@ enum UnsupportedReplyItemInner {
     MissingEvent,
     #[error("error deserializing event")]
     DeserializationError,
+    #[error("could not get content")]
+    MissingContent,
 }
 
 #[derive(Error)]
@@ -114,8 +117,12 @@ pub struct UnsupportedEditItem(UnsupportedEditItemInner);
 
 impl UnsupportedEditItem {
     pub(super) const MISSING_EVENT_ID: Self = Self(UnsupportedEditItemInner::MissingEventId);
+    pub(super) const MISSING_EVENT: Self = Self(UnsupportedEditItemInner::MissingEvent);
     pub(super) const NOT_ROOM_MESSAGE: Self = Self(UnsupportedEditItemInner::NotRoomMessage);
     pub(super) const NOT_POLL_EVENT: Self = Self(UnsupportedEditItemInner::NotPollEvent);
+    pub(super) const DESERIALIZATION_ERROR: Self =
+        Self(UnsupportedEditItemInner::DeserializationError);
+    pub(super) const MISSING_CONTENT: Self = Self(UnsupportedEditItemInner::MissingContent);
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -133,4 +140,10 @@ enum UnsupportedEditItemInner {
     NotRoomMessage,
     #[error("tried to edit a non-poll event")]
     NotPollEvent,
+    #[error("event could not be obtained")]
+    MissingEvent,
+    #[error("error deserializing event")]
+    DeserializationError,
+    #[error("could not get content")]
+    MissingContent,
 }
