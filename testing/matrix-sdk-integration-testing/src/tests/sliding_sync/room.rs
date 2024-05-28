@@ -1129,7 +1129,7 @@ async fn test_room_preview() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_edit_unpaginated_item() -> Result<()> {
+async fn test_edit_unpaginated_item_after_resetting_timeline() -> Result<()> {
     let alice = TestClientBuilder::new("alice".to_owned())
         .randomize_username()
         .use_sqlite()
@@ -1204,6 +1204,104 @@ async fn test_edit_unpaginated_item() -> Result<()> {
     let (initial_values, mut timeline_stream) = alice_timeline.subscribe_batched().await;
     assert_pending!(timeline_stream);
     assert_eq!(initial_values.len(), 0);
+
+    alice_timeline
+        .edit_event(RoomMessageEventContent::text_plain("hello world 2").into(), original_event_id)
+        .await?;
+    sleep(Duration::from_secs(1)).await;
+    assert_pending!(timeline_stream);
+
+    _ = alice_timeline.paginate_backwards(100).await;
+    sleep(Duration::from_secs(1)).await;
+
+    let batch = timeline_stream.next().await.unwrap();
+    for diff in batch {
+        if let VectorDiff::PushFront { value, .. } = diff {
+            let event = value.as_event().unwrap();
+            info!("Edited event: {event:?}");
+            let message = event.content().as_message().unwrap();
+            assert!(message.is_edited());
+            assert_eq!(message.body(), "hello world 2");
+            assert_eq!(event.event_id().unwrap().to_string(), original_event_id.to_string());
+            return Ok(());
+        }
+    }
+    panic!("Edited event not found");
+}
+
+#[tokio::test]
+async fn test_edit_unpaginated_item_after_clearing_timeline() -> Result<()> {
+    let alice = TestClientBuilder::new("alice".to_owned())
+        .randomize_username()
+        .use_sqlite()
+        .build()
+        .await?;
+
+    let alice_sync_service = SyncService::builder(alice.clone()).build().await.unwrap();
+    alice_sync_service.start().await;
+
+    // Set up sliding sync for alice.
+    let sliding_alice = alice
+        .sliding_sync("main")?
+        .with_all_extensions()
+        .poll_timeout(Duration::from_secs(5))
+        .network_timeout(Duration::from_secs(5))
+        .add_list(
+            SlidingSyncList::builder("all")
+                .sync_mode(SlidingSyncMode::new_selective().add_range(0..=20)),
+        )
+        .build()
+        .await?;
+
+    // Alice creates a room in which they're alone, to start with.
+    let suffix: u128 = rand::thread_rng().gen();
+    let room_alias = format!("aliasy_mac_alias{suffix}");
+
+    let room = alice
+        .create_room(assign!(CreateRoomRequest::new(), {
+            invite: vec![],
+            is_direct: false,
+            name: Some("Alice's Room".to_owned()),
+            topic: Some("Discussing Alice's Topic".to_owned()),
+            room_alias_name: Some(room_alias.clone()),
+            initial_state: vec![
+                InitialStateEvent::new(RoomHistoryVisibilityEventContent::new(HistoryVisibility::WorldReadable)).to_raw_any(),
+                InitialStateEvent::new(RoomJoinRulesEventContent::new(JoinRule::Invite)).to_raw_any(),
+            ],
+        }))
+        .await?;
+
+    let room_id = room.room_id();
+
+    // Wait for Alice's stream to stabilize (stop updating when we haven't received
+    // successful updates for more than 2 seconds).
+    let stream = sliding_alice.sync();
+    pin_mut!(stream);
+    loop {
+        match timeout(Duration::from_secs(2), stream.next()).await {
+            Ok(None) | Err(_) => break,
+            Ok(Some(up)) => {
+                warn!("alice got an update: {up:?}");
+            }
+        }
+    }
+
+    let alice_room = alice.get_room(room_id).unwrap();
+    let alice_timeline = alice_room.timeline().await?;
+    let (_, mut timeline_stream) = alice_timeline.subscribe_batched().await;
+    alice_timeline.send(RoomMessageEventContent::text_plain("hello world").into()).await;
+    sleep(Duration::from_secs(1)).await;
+    let batch = timeline_stream.next().await.unwrap();
+    let original_event = assert_matches!(&batch[2], VectorDiff::Set { index: _, value, } => { value.as_event().unwrap().clone() });
+    info!("Original event: {original_event:?}");
+    let original_event_id = original_event.event_id().unwrap();
+
+    assert_pending!(timeline_stream);
+
+    alice_timeline.clear().await;
+    let batch = timeline_stream.next().await.unwrap();
+    assert_eq!(batch.len(), 1);
+    assert_matches!(&batch[0], VectorDiff::Clear);
 
     alice_timeline
         .edit_event(RoomMessageEventContent::text_plain("hello world 2").into(), original_event_id)
