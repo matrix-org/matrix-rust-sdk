@@ -20,7 +20,7 @@ use matrix_sdk::crypto::types::events::UtdCause;
 use matrix_sdk_base::latest_event::{is_suitable_for_latest_event, PossibleLatestEvent};
 use ruma::{
     events::{
-        call::invite::SyncCallInviteEvent,
+        call::{invite::SyncCallInviteEvent, notify::SyncCallNotifyEvent},
         policy::rule::{
             room::PolicyRuleRoomEventContent, server::PolicyRuleServerEventContent,
             user::PolicyRuleUserEventContent,
@@ -111,6 +111,9 @@ pub enum TimelineItemContent {
 
     /// An `m.call.invite` event
     CallInvite,
+
+    /// An `m.call.notify` event
+    CallNotify,
 }
 
 impl TimelineItemContent {
@@ -129,6 +132,9 @@ impl TimelineItemContent {
             }
             PossibleLatestEvent::YesCallInvite(call_invite) => {
                 Some(Self::from_suitable_latest_call_invite_content(call_invite))
+            }
+            PossibleLatestEvent::YesCallNotify(call_notify) => {
+                Some(Self::from_suitable_latest_call_notify_content(call_notify))
             }
             PossibleLatestEvent::NoUnsupportedEventType => {
                 // TODO: when we support state events in message previews, this will need change
@@ -206,6 +212,15 @@ impl TimelineItemContent {
         }
     }
 
+    fn from_suitable_latest_call_notify_content(
+        event: &SyncCallNotifyEvent,
+    ) -> TimelineItemContent {
+        match event {
+            SyncCallNotifyEvent::Original(_) => TimelineItemContent::CallNotify,
+            SyncCallNotifyEvent::Redacted(_) => TimelineItemContent::RedactedMessage,
+        }
+    }
+
     /// If `self` is of the [`Message`][Self::Message] variant, return the inner
     /// [`Message`].
     pub fn as_message(&self) -> Option<&Message> {
@@ -246,6 +261,7 @@ impl TimelineItemContent {
             | TimelineItemContent::FailedToParseState { .. } => "an event that couldn't be parsed",
             TimelineItemContent::Poll(_) => "a poll",
             TimelineItemContent::CallInvite => "a call invite",
+            TimelineItemContent::CallNotify => "a call notification",
         }
     }
 
@@ -325,6 +341,7 @@ impl TimelineItemContent {
             | Self::Sticker(_)
             | Self::Poll(_)
             | Self::CallInvite
+            | Self::CallNotify
             | Self::UnableToDecrypt(_) => Self::RedactedMessage,
             Self::MembershipChange(ev) => Self::MembershipChange(ev.redact(room_version)),
             Self::ProfileChange(ev) => Self::ProfileChange(ev.redact()),

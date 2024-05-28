@@ -10,7 +10,10 @@ use ruma::events::{
     AnySyncMessageLikeEvent, AnySyncTimelineEvent,
 };
 use ruma::{
-    events::{call::invite::SyncCallInviteEvent, relation::RelationType},
+    events::{
+        call::{invite::SyncCallInviteEvent, notify::SyncCallNotifyEvent},
+        relation::RelationType,
+    },
     MxcUri, OwnedEventId,
 };
 use serde::{Deserialize, Serialize};
@@ -31,6 +34,9 @@ pub enum PossibleLatestEvent<'a> {
 
     /// This message is suitable - it is a call invite
     YesCallInvite(&'a SyncCallInviteEvent),
+
+    /// This message is suitable - it's a call notification
+    YesCallNotify(&'a SyncCallNotifyEvent),
 
     // Later: YesState(),
     // Later: YesReaction(),
@@ -76,6 +82,10 @@ pub fn is_suitable_for_latest_event(event: &AnySyncTimelineEvent) -> PossibleLat
 
         AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::CallInvite(invite)) => {
             PossibleLatestEvent::YesCallInvite(invite)
+        }
+
+        AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::CallNotify(notify)) => {
+            PossibleLatestEvent::YesCallNotify(notify)
         }
 
         // Encrypted events are not suitable
@@ -256,6 +266,9 @@ mod tests {
         events::{
             call::{
                 invite::{CallInviteEventContent, SyncCallInviteEvent},
+                notify::{
+                    ApplicationType, CallNotifyEventContent, NotifyType, SyncCallNotifyEvent,
+                },
                 SessionDescription,
             },
             poll::unstable_start::{
@@ -277,7 +290,7 @@ mod tests {
             },
             sticker::{StickerEventContent, SyncStickerEvent},
             AnySyncMessageLikeEvent, AnySyncStateEvent, AnySyncTimelineEvent, EmptyStateKey,
-            MessageLikeUnsigned, OriginalSyncMessageLikeEvent, OriginalSyncStateEvent,
+            Mentions, MessageLikeUnsigned, OriginalSyncMessageLikeEvent, OriginalSyncStateEvent,
             RedactedSyncMessageLikeEvent, RedactedUnsigned, StateUnsigned, SyncMessageLikeEvent,
             UnsignedRoomRedactionEvent,
         },
@@ -354,6 +367,28 @@ mod tests {
         ));
         assert_let!(
             PossibleLatestEvent::YesCallInvite(SyncMessageLikeEvent::Original(_)) =
+                is_suitable_for_latest_event(&event)
+        );
+    }
+
+    #[test]
+    fn test_call_notifications_are_suitable() {
+        let event = AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::CallNotify(
+            SyncCallNotifyEvent::Original(OriginalSyncMessageLikeEvent {
+                content: CallNotifyEventContent::new(
+                    "call_id".into(),
+                    ApplicationType::Call,
+                    NotifyType::Ring,
+                    Mentions::new(),
+                ),
+                event_id: owned_event_id!("$1"),
+                sender: owned_user_id!("@a:b.c"),
+                origin_server_ts: MilliSecondsSinceUnixEpoch(UInt::new(2123).unwrap()),
+                unsigned: MessageLikeUnsigned::new(),
+            }),
+        ));
+        assert_let!(
+            PossibleLatestEvent::YesCallNotify(SyncMessageLikeEvent::Original(_)) =
                 is_suitable_for_latest_event(&event)
         );
     }
