@@ -42,7 +42,7 @@ use serde_json::json;
 use stream_assert::assert_next_matches;
 use tokio::time::sleep;
 use wiremock::{
-    matchers::{method, path_regex},
+    matchers::{header, method, path_regex},
     Mock, ResponseTemplate,
 };
 
@@ -218,6 +218,95 @@ async fn test_send_edit() {
     let edit_message = edit_item.content().as_message().unwrap();
     assert_eq!(edit_message.body(), "Hello, Room!");
     assert!(edit_message.is_edited());
+
+    // The response to the mocked endpoint does not generate further timeline
+    // updates, so just wait for a bit before verifying that the endpoint was
+    // called.
+    sleep(Duration::from_millis(200)).await;
+
+    server.verify().await;
+}
+
+#[async_test]
+async fn test_send_edit_with_event_id() {
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let (client, server) = logged_in_client_with_server().await;
+    let event_builder = EventBuilder::new();
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+    let mut sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    let room = client.get_room(room_id).unwrap();
+    let timeline = room.timeline().await.unwrap();
+    let (_, mut timeline_stream) =
+        timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
+
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
+        event_builder.make_sync_message_event_with_id(
+            // Same user as the logged_in_client
+            user_id!("@example:localhost"),
+            event_id!("$original_event"),
+            RoomMessageEventContent::text_plain("Hello, World!"),
+        ),
+    ));
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    let hello_world_item =
+        assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
+    let hello_world_message = hello_world_item.content().as_message().unwrap();
+    assert!(!hello_world_message.is_edited());
+    assert!(hello_world_item.can_be_edited());
+
+    // Clear the timeline to make sure the old item does not need to be
+    // available in it for the edit to work.
+    timeline.clear().await;
+    assert_next_matches!(timeline_stream, VectorDiff::Clear);
+
+    mock_encryption_state(&server, false).await;
+    Mock::given(method("PUT"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({ "event_id": "$edit_event" })),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    // Since we assume we can't use the timeline item directly in this use case, the
+    // API will fetch the event from the server directly so we need to mock the
+    // response.
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/event/"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(hello_world_item.latest_json().unwrap().json()),
+        )
+        .expect(1)
+        .named("event_1")
+        .mount(&server)
+        .await;
+
+    timeline
+        .edit_event(
+            RoomMessageEventContentWithoutRelation::text_plain("Hello, Room!"),
+            hello_world_item.event_id().unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Since verifying the content would mean mocking the sliding sync response with
+    // what we are already expecting, since this test requires to paginate again te
+    // timeline, testing the content change would not be meaningful.
+    // We have an integration test for the full case.
 
     // The response to the mocked endpoint does not generate further timeline
     // updates, so just wait for a bit before verifying that the endpoint was
