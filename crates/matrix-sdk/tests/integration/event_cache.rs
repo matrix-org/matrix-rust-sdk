@@ -104,7 +104,7 @@ async fn test_add_initial_events() {
         .expect("should've received a room event cache update");
 
     // Which contains the event that was sent beforehand.
-    assert_let!(RoomEventCacheUpdate::Append { events, .. } = update);
+    assert_let!(RoomEventCacheUpdate::AddTimelineEvents { events, .. } = update);
     assert_eq!(events.len(), 1);
     assert_event_matches_msg(&events[0], "bonjour monde");
 
@@ -130,7 +130,7 @@ async fn test_add_initial_events() {
         .await
         .expect("timeout after receiving a sync update")
         .expect("should've received a room event cache update");
-    assert_let!(RoomEventCacheUpdate::Append { events, .. } = update);
+    assert_let!(RoomEventCacheUpdate::AddTimelineEvents { events, .. } = update);
     assert_eq!(events.len(), 1);
     assert_event_matches_msg(&events[0], "new choice!");
 
@@ -233,7 +233,7 @@ async fn test_ignored_unignored() {
         .expect("timeout after receiving a sync update")
         .expect("should've received a room event cache update");
 
-    assert_let!(RoomEventCacheUpdate::Append { events, .. } = update);
+    assert_let!(RoomEventCacheUpdate::AddTimelineEvents { events, .. } = update);
     assert_eq!(events.len(), 1);
     assert_event_matches_msg(&events[0], "i don't like this dexter");
 
