@@ -32,7 +32,7 @@
 //! # let device_id = device_id!("TEST");
 //! let store = Arc::new(MemoryStore::new());
 //!
-//! let machine = OlmMachine::with_store(user_id, device_id, store);
+//! let machine = OlmMachine::with_store(user_id, device_id, store, None);
 //! ```
 //!
 //! [`OlmMachine`]: /matrix_sdk_crypto/struct.OlmMachine.html
@@ -1630,10 +1630,22 @@ impl Store {
         self.inner.store.secrets_stream()
     }
 
-    pub(crate) async fn import_room_keys(
+    /// Import the given room keys into the store.
+    ///
+    /// # Arguments
+    ///
+    /// * `exported_keys` - The keys to be imported.
+    /// * `from_backup_version` - If the keys came from key backup, the key
+    ///   backup version. This will cause the keys to be marked as already
+    ///   backed up, and therefore not requiring another backup.
+    /// * `progress_listener` - Callback which will be called after each key is
+    ///   processed. Called with arguments `(processed, total)` where
+    ///   `processed` is the number of keys processed so far, and `total` is the
+    ///   total number of keys (i.e., `exported_keys.len()`).
+    pub async fn import_room_keys(
         &self,
         exported_keys: Vec<ExportedRoomKey>,
-        from_backup: bool,
+        from_backup_version: Option<&str>,
         progress_listener: impl Fn(usize, usize),
     ) -> Result<RoomKeyImportResult> {
         let mut sessions = Vec::new();
@@ -1664,7 +1676,7 @@ impl Store {
                     // Only import the session if we didn't have this session or
                     // if it's a better version of the same session.
                     if new_session_better(&session, old_session).await {
-                        if from_backup {
+                        if from_backup_version.is_some() {
                             session.mark_as_backed_up();
                         }
 
@@ -1693,9 +1705,7 @@ impl Store {
 
         let imported_count = sessions.len();
 
-        let changes = Changes { inbound_group_sessions: sessions, ..Default::default() };
-
-        self.save_changes(changes).await?;
+        self.inner.store.save_inbound_group_sessions(sessions, from_backup_version).await?;
 
         info!(total_count, imported_count, room_keys = ?keys, "Successfully imported room keys");
 
@@ -1725,7 +1735,7 @@ impl Store {
     /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
     /// # let export = Cursor::new("".to_owned());
     /// let exported_keys = decrypt_room_key_export(export, "1234").unwrap();
-    /// machine.import_room_keys(exported_keys, false, |_, _| {}).await.unwrap();
+    /// machine.store().import_exported_room_keys(exported_keys, |_, _| {}).await.unwrap();
     /// # };
     /// ```
     pub async fn import_exported_room_keys(
@@ -1733,7 +1743,7 @@ impl Store {
         exported_keys: Vec<ExportedRoomKey>,
         progress_listener: impl Fn(usize, usize),
     ) -> Result<RoomKeyImportResult> {
-        self.import_room_keys(exported_keys, false, progress_listener).await
+        self.import_room_keys(exported_keys, None, progress_listener).await
     }
 
     pub(crate) fn crypto_store(&self) -> Arc<CryptoStoreWrapper> {
@@ -1858,6 +1868,29 @@ mod tests {
     use ruma::{room_id, user_id};
 
     use crate::{machine::tests::get_machine_pair, types::EventEncryptionAlgorithm};
+
+    #[async_test]
+    async fn import_room_keys_notifies_stream() {
+        use futures_util::FutureExt;
+
+        let (alice, bob, _) =
+            get_machine_pair(user_id!("@a:s.co"), user_id!("@b:s.co"), false).await;
+
+        let room1_id = room_id!("!room1:localhost");
+        alice.create_outbound_group_session_with_defaults_test_helper(room1_id).await.unwrap();
+        let exported_sessions = alice.store().export_room_keys(|_| true).await.unwrap();
+
+        let mut room_keys_received_stream = Box::pin(bob.store().room_keys_received_stream());
+        bob.store().import_room_keys(exported_sessions, None, |_, _| {}).await.unwrap();
+
+        let room_keys = room_keys_received_stream
+            .next()
+            .now_or_never()
+            .flatten()
+            .expect("We should have received an update of room key infos");
+        assert_eq!(room_keys.len(), 1);
+        assert_eq!(room_keys[0].room_id, "!room1:localhost");
+    }
 
     #[async_test]
     async fn export_room_keys_provides_selected_keys() {

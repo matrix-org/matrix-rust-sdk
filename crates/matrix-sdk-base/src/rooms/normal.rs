@@ -22,7 +22,6 @@ use std::{
 
 use bitflags::bitflags;
 use eyeball::{SharedObservable, Subscriber};
-use futures_util::stream::{self, StreamExt};
 #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
 use matrix_sdk_common::ring_buffer::RingBuffer;
 #[cfg(feature = "experimental-sliding-sync")]
@@ -113,11 +112,25 @@ pub struct Room {
 pub struct RoomSummary {
     /// The heroes of the room, members that should be used for the room display
     /// name.
-    heroes: Vec<String>,
+    ///
+    /// This was called `heroes` and contained raw `String`s of the `UserId`
+    /// before; changing the field's name helped with avoiding a migration.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) heroes_user_ids: Vec<OwnedUserId>,
+    /// The heroes names, as returned by a server, if available.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) heroes_names: Vec<String>,
     /// The number of members that are considered to be joined to the room.
-    joined_member_count: u64,
+    pub(crate) joined_member_count: u64,
     /// The number of members that are considered to be invited to the room.
-    invited_member_count: u64,
+    pub(crate) invited_member_count: u64,
+}
+
+#[cfg(test)]
+impl RoomSummary {
+    pub(crate) fn heroes(&self) -> &[OwnedUserId] {
+        &self.heroes_user_ids
+    }
 }
 
 /// Enum keeping track in which state the room is, e.g. if our own user is
@@ -614,7 +627,26 @@ impl Room {
 
         let own_user_id = self.own_user_id().as_str();
 
-        let (heroes, guessed_num_members): (Vec<RoomMember>, _) = if summary.heroes.is_empty() {
+        let (heroes, guessed_num_members): (Vec<String>, _) = if !summary.heroes_names.is_empty() {
+            // Straightforward path: pass through the heroes names, don't give a guess of
+            // the number of members.
+            (summary.heroes_names, None)
+        } else if !summary.heroes_user_ids.is_empty() {
+            // Use the heroes, if available.
+            let heroes = summary.heroes_user_ids;
+
+            let mut names = Vec::with_capacity(heroes.len());
+            for user_id in heroes {
+                if user_id == own_user_id {
+                    continue;
+                }
+                if let Some(member) = self.get_member(&user_id).await? {
+                    names.push(member.name().to_owned());
+                }
+            }
+
+            (names, None)
+        } else {
             let mut members = self.members(RoomMemberships::ACTIVE).await?;
 
             // Make the ordering deterministic.
@@ -628,30 +660,10 @@ impl Room {
                 members
                     .into_iter()
                     .take(NUM_HEROES)
-                    .filter(|u| u.user_id() != own_user_id)
+                    .filter_map(|u| (u.user_id() != own_user_id).then(|| u.name().to_owned()))
                     .collect(),
                 guessed_num_members,
             )
-        } else {
-            let mut heroes = summary.heroes;
-
-            // Make the ordering deterministic.
-            heroes.sort_unstable();
-
-            let members: Vec<_> = stream::iter(heroes.iter())
-                .filter_map(|u| async move {
-                    let user_id = UserId::parse(u.as_str()).ok()?;
-                    if user_id == own_user_id {
-                        return None;
-                    }
-                    self.get_member(&user_id).await.transpose()
-                })
-                .collect()
-                .await;
-
-            let members: StoreResult<Vec<_>> = members.into_iter().collect();
-
-            (members?, None)
         };
 
         let (num_joined, num_invited) = match self.state() {
@@ -683,7 +695,11 @@ impl Room {
             "Calculating name for a room",
         );
 
-        Ok(self.inner.read().base_info.calculate_room_name(num_joined, num_invited, heroes))
+        Ok(self.inner.read().base_info.calculate_room_name(
+            num_joined,
+            num_invited,
+            heroes.iter().map(|hero| hero.as_str()).collect(),
+        ))
     }
 
     /// Subscribe to the inner `RoomInfo`.
@@ -1074,15 +1090,27 @@ impl RoomInfo {
         self.notification_counts = notification_counts;
     }
 
-    /// Update the RoomSummary.
+    /// Update the RoomSummary from a Ruma `RoomSummary`.
     ///
-    /// Returns true if the Summary modified the info, false otherwise.
-    pub fn update_summary(&mut self, summary: &RumaSummary) -> bool {
+    /// Returns true if any field has been updated, false otherwise.
+    pub fn update_from_ruma_summary(&mut self, summary: &RumaSummary) -> bool {
         let mut changed = false;
 
         if !summary.is_empty() {
             if !summary.heroes.is_empty() {
-                self.summary.heroes = summary.heroes.clone();
+                // Parse the user IDs from Ruma.
+                self.summary.heroes_user_ids = summary
+                    .heroes
+                    .iter()
+                    .filter_map(|hero| match UserId::parse(hero.as_str()) {
+                        Ok(user_id) => Some(user_id),
+                        Err(err) => {
+                            warn!("error when parsing user id from hero '{hero}': {err}");
+                            None
+                        }
+                    })
+                    .collect();
+
                 changed = true;
             }
 
@@ -1098,6 +1126,25 @@ impl RoomInfo {
         }
 
         changed
+    }
+
+    /// Updates the joined member count.
+    #[cfg(feature = "experimental-sliding-sync")]
+    pub(crate) fn update_joined_member_count(&mut self, count: u64) {
+        self.summary.joined_member_count = count;
+    }
+
+    /// Updates the invited member count.
+    #[cfg(feature = "experimental-sliding-sync")]
+    pub(crate) fn update_invited_member_count(&mut self, count: u64) {
+        self.summary.invited_member_count = count;
+    }
+
+    /// Updates the heroes user ids.
+    #[cfg(feature = "experimental-sliding-sync")]
+    pub(crate) fn update_heroes(&mut self, heroes: Vec<OwnedUserId>, names: Vec<String>) {
+        self.summary.heroes_user_ids = heroes;
+        self.summary.heroes_names = names;
     }
 
     /// The number of active members (invited + joined) in the room.
@@ -1418,6 +1465,8 @@ mod tests {
         // This test exists to make sure we don't accidentally change the
         // serialized format for `RoomInfo`.
 
+        use ruma::owned_user_id;
+
         use super::RoomSummary;
         use crate::{rooms::BaseRoomInfo, sync::UnreadNotificationsCount};
 
@@ -1429,7 +1478,8 @@ mod tests {
                 notification_count: 2,
             },
             summary: RoomSummary {
-                heroes: vec!["Somebody".to_owned()],
+                heroes_user_ids: vec![owned_user_id!("@somebody:example.org")],
+                heroes_names: vec![],
                 joined_member_count: 5,
                 invited_member_count: 0,
             },
@@ -1453,7 +1503,7 @@ mod tests {
                 "notification_count": 2,
             },
             "summary": {
-                "heroes": ["Somebody"],
+                "heroes_user_ids": ["@somebody:example.org"],
                 "joined_member_count": 5,
                 "invited_member_count": 0,
             },
@@ -1504,6 +1554,8 @@ mod tests {
 
         // The following JSON should never change if we want to be able to read in old
         // cached state
+
+        use ruma::owned_user_id;
         let info_json = json!({
             "room_id": "!gda78o:server.tld",
             "room_state": "Invited",
@@ -1512,7 +1564,8 @@ mod tests {
                 "notification_count": 2,
             },
             "summary": {
-                "heroes": ["Somebody"],
+                "heroes_user_ids": ["@somebody:example.org"],
+                "heroes_names": ["Somebody"],
                 "joined_member_count": 5,
                 "invited_member_count": 0,
             },
@@ -1542,7 +1595,8 @@ mod tests {
         assert_eq!(info.room_state, RoomState::Invited);
         assert_eq!(info.notification_counts.highlight_count, 1);
         assert_eq!(info.notification_counts.notification_count, 2);
-        assert_eq!(info.summary.heroes, vec!["Somebody".to_owned()]);
+        assert_eq!(info.summary.heroes_user_ids, vec![owned_user_id!("@somebody:example.org")]);
+        assert_eq!(info.summary.heroes_names, vec!["Somebody".to_owned()]);
         assert_eq!(info.summary.joined_member_count, 5);
         assert_eq!(info.summary.invited_member_count, 0);
         assert!(info.members_synced);
@@ -1570,10 +1624,14 @@ mod tests {
         let client = BaseClient::new();
 
         client
-            .set_session_meta(SessionMeta {
-                user_id: user_id!("@alice:example.org").into(),
-                device_id: ruma::device_id!("AYEAYEAYE").into(),
-            })
+            .set_session_meta(
+                SessionMeta {
+                    user_id: user_id!("@alice:example.org").into(),
+                    device_id: ruma::device_id!("AYEAYEAYE").into(),
+                },
+                #[cfg(feature = "e2e-encryption")]
+                None,
+            )
             .await
             .unwrap();
 
@@ -1640,10 +1698,14 @@ mod tests {
         let client = BaseClient::new();
 
         client
-            .set_session_meta(SessionMeta {
-                user_id: user_id!("@alice:example.org").into(),
-                device_id: ruma::device_id!("AYEAYEAYE").into(),
-            })
+            .set_session_meta(
+                SessionMeta {
+                    user_id: user_id!("@alice:example.org").into(),
+                    device_id: ruma::device_id!("AYEAYEAYE").into(),
+                },
+                #[cfg(feature = "e2e-encryption")]
+                None,
+            )
             .await
             .unwrap();
 
@@ -1857,7 +1919,7 @@ mod tests {
         changes.add_stripped_member(room_id, me, make_stripped_member_event(me, "Me"));
         store.save_changes(&changes).await.unwrap();
 
-        room.inner.update_if(|info| info.update_summary(&summary));
+        room.inner.update_if(|info| info.update_from_ruma_summary(&summary));
         assert_eq!(
             room.computed_display_name().await.unwrap(),
             DisplayName::Calculated("Matthew".to_owned())
@@ -1909,7 +1971,7 @@ mod tests {
 
         store.save_changes(&changes).await.unwrap();
 
-        room.inner.update_if(|info| info.update_summary(&summary));
+        room.inner.update_if(|info| info.update_from_ruma_summary(&summary));
         assert_eq!(
             room.computed_display_name().await.unwrap(),
             DisplayName::Calculated("Matthew".to_owned())
@@ -1988,7 +2050,7 @@ mod tests {
             joined_member_count: Some(7u32.into()),
             heroes: vec![denis.to_string(), carol.to_string(), bob.to_string(), erica.to_string()],
         });
-        room.inner.update_if(|info| info.update_summary(&summary));
+        room.inner.update_if(|info| info.update_from_ruma_summary(&summary));
 
         assert_eq!(
             room.computed_display_name().await.unwrap(),
@@ -2068,7 +2130,7 @@ mod tests {
 
         store.save_changes(&changes).await.unwrap();
 
-        room.inner.update_if(|info| info.update_summary(&summary));
+        room.inner.update_if(|info| info.update_from_ruma_summary(&summary));
         assert_eq!(
             room.computed_display_name().await.unwrap(),
             DisplayName::EmptyWas("Matthew".to_owned())
@@ -2083,10 +2145,14 @@ mod tests {
         let client = BaseClient::new();
 
         client
-            .set_session_meta(SessionMeta {
-                user_id: user_id!("@alice:example.org").into(),
-                device_id: ruma::device_id!("AYEAYEAYE").into(),
-            })
+            .set_session_meta(
+                SessionMeta {
+                    user_id: user_id!("@alice:example.org").into(),
+                    device_id: ruma::device_id!("AYEAYEAYE").into(),
+                },
+                #[cfg(feature = "e2e-encryption")]
+                None,
+            )
             .await
             .unwrap();
 

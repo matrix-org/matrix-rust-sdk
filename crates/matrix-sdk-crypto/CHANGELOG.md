@@ -1,16 +1,29 @@
 # UNRELEASED
 
-Security fixes:
+Changes:
 
-- Don't log the private part of the backup key, introduced in [#71136e4](https://github.com/matrix-org/matrix-rust-sdk/commit/71136e44c03c79f80d6d1a2446673bc4d53a2067).
+- Sign the device keys with the user-identity (i.e. cross-signing keys) if
+  we're uploading the device keys and if the cross-signing keys are available.
+  This approach eliminates the need to upload signatures in a separate request,
+  ensuring that other users/devices will never encounter this device without a
+  signature from their user identity. Consequently, they will never see the
+  device as unverified.
+  ([#3453](https://github.com/matrix-org/matrix-rust-sdk/pull/3453))
 
-Changed:
+- Avoid emitting entries from `identities_stream_raw` and `devices_stream` when
+  we receive a `/keys/query` response which shows that no devices changed.
+  ([#3442](https://github.com/matrix-org/matrix-rust-sdk/pull/3442))
 
 - Fallback keys are rotated in a time-based manner, instead of waiting for the
   server to tell us that a fallback key got used.
   ([#3151](https://github.com/matrix-org/matrix-rust-sdk/pull/3151))
 
 Breaking changes:
+
+- Add a `custom_account` argument to the `OlmMachine::with_store()` method, this
+  allows users to learn their identity keys before they get access to the user
+  and device ID.
+  ([#3451](https://github.com/matrix-org/matrix-rust-sdk/pull/3451))
 
 - Add a `backup_version` argument to `CryptoStore`'s
   `inbound_group_sessions_for_backup`,
@@ -27,7 +40,25 @@ Breaking changes:
 - Add new `dehydrated` property to `olm::account::PickledAccount`.
   ([#3164](https://github.com/matrix-org/matrix-rust-sdk/pull/3164))
 
+- Remove deprecated `OlmMachine::import_room_keys`.
+  ([#3448](https://github.com/matrix-org/matrix-rust-sdk/pull/3448))
+
+Deprecations:
+
+- Deprecate `BackupMachine::import_backed_up_room_keys`.
+  ([#3448](https://github.com/matrix-org/matrix-rust-sdk/pull/3448))
+
 Additions:
+
+
+- Expose new method `OlmMachine::clear_crypto_cache()`, with FFI bindings
+  ([#3462](https://github.com/matrix-org/matrix-rust-sdk/pull/3462))
+
+- Expose new method `OlmMachine::upload_device_keys()`.
+  ([#3457](https://github.com/matrix-org/matrix-rust-sdk/pull/3457))
+
+- Expose new method `CryptoStore::import_room_keys`.
+  ([#3448](https://github.com/matrix-org/matrix-rust-sdk/pull/3448))
 
 - Expose new method `BackupMachine::backup_version`.
   ([#3320](https://github.com/matrix-org/matrix-rust-sdk/pull/3320))
@@ -68,6 +99,13 @@ Additions:
 
 - Include event timestamps on logs from event decryption.
   ([#3194](https://github.com/matrix-org/matrix-rust-sdk/pull/3194))
+
+
+## 0.7.1 
+
+Security fixes:
+
+- Don't log the private part of the backup key, introduced in [#71136e4](https://github.com/matrix-org/matrix-rust-sdk/commit/71136e44c03c79f80d6d1a2446673bc4d53a2067).
 
 # 0.7.0
 

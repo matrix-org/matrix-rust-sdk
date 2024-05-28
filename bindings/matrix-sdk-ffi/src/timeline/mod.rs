@@ -18,14 +18,13 @@ use anyhow::{Context, Result};
 use as_variant::as_variant;
 use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, StreamExt as _};
-use matrix_sdk::{
-    attachment::{
-        AttachmentConfig, AttachmentInfo, BaseAudioInfo, BaseFileInfo, BaseImageInfo,
-        BaseThumbnailInfo, BaseVideoInfo, Thumbnail,
-    },
-    event_cache::paginator::PaginatorState,
+use matrix_sdk::attachment::{
+    AttachmentConfig, AttachmentInfo, BaseAudioInfo, BaseFileInfo, BaseImageInfo,
+    BaseThumbnailInfo, BaseVideoInfo, Thumbnail,
 };
-use matrix_sdk_ui::timeline::{EventItemOrigin, Profile, TimelineDetails};
+use matrix_sdk_ui::timeline::{
+    EventItemOrigin, LiveBackPaginationStatus, Profile, TimelineDetails,
+};
 use mime::Mime;
 use ruma::{
     events::{
@@ -163,11 +162,15 @@ impl Timeline {
         self.inner.fetch_members().await
     }
 
-    pub fn subscribe_to_back_pagination_status(
+    pub async fn subscribe_to_back_pagination_status(
         &self,
         listener: Box<dyn PaginationStatusListener>,
     ) -> Result<Arc<TaskHandle>, ClientError> {
-        let (initial, mut subscriber) = self.inner.back_pagination_status();
+        let (initial, mut subscriber) = self
+            .inner
+            .live_back_pagination_status()
+            .await
+            .context("can't subscribe to the back-pagination status on a focused timeline")?;
 
         Ok(Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
             // Send the current state even if it hasn't changed right away.
@@ -617,7 +620,7 @@ pub trait TimelineListener: Sync + Send {
 
 #[uniffi::export(callback_interface)]
 pub trait PaginationStatusListener: Sync + Send {
-    fn on_update(&self, status: PaginatorState);
+    fn on_update(&self, status: LiveBackPaginationStatus);
 }
 
 #[derive(Clone, uniffi::Object)]

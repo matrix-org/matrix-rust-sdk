@@ -186,7 +186,9 @@ use mas_oidc_client::{
         IdToken,
     },
 };
-use matrix_sdk_base::{once_cell::sync::OnceCell, SessionMeta};
+use matrix_sdk_base::{
+    crypto::types::qr_login::QrCodeData, once_cell::sync::OnceCell, SessionMeta,
+};
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use ruma::api::client::discovery::get_authentication_issuer;
 use serde::{Deserialize, Serialize};
@@ -207,16 +209,17 @@ mod tests;
 
 pub use self::{
     auth_code_builder::{OidcAuthCodeUrlBuilder, OidcAuthorizationData},
+    cross_process::CrossProcessRefreshLockError,
     end_session_builder::{OidcEndSessionData, OidcEndSessionUrlBuilder},
 };
 use self::{
     backend::{server::OidcServer, OidcBackend},
-    cross_process::{
-        CrossProcessRefreshLockError, CrossProcessRefreshLockGuard, CrossProcessRefreshManager,
-    },
+    cross_process::{CrossProcessRefreshLockGuard, CrossProcessRefreshManager},
 };
 use crate::{
-    authentication::AuthData, client::SessionChange, Client, HttpError, RefreshTokenError, Result,
+    authentication::{qrcode::LoginWithQrCode, AuthData},
+    client::SessionChange,
+    Client, HttpError, RefreshTokenError, Result,
 };
 
 pub(crate) struct OidcCtx {
@@ -300,17 +303,17 @@ impl Oidc {
     /// olm machine has been initialized.
     ///
     /// Must be called after `set_session_meta`.
-    async fn deferred_enable_cross_process_refresh_lock(&self) -> Result<()> {
+    async fn deferred_enable_cross_process_refresh_lock(&self) {
         let deferred_init_lock = self.ctx().deferred_cross_process_lock_init.lock().await;
 
         // Don't `take()` the value, so that subsequent calls to
         // `enable_cross_process_refresh_lock` will keep on failing if we've enabled the
         // lock at least once.
         let Some(lock_value) = deferred_init_lock.as_ref() else {
-            return Ok(());
+            return;
         };
 
-        // FIXME We shouldn't be using the crypto store for that! see also https://github.com/matrix-org/matrix-rust-sdk/issues/2472
+        // FIXME: We shouldn't be using the crypto store for that! see also https://github.com/matrix-org/matrix-rust-sdk/issues/2472
         let olm_machine_lock = self.client.olm_machine().await;
         let olm_machine =
             olm_machine_lock.as_ref().expect("there has to be an olm machine, hopefully?");
@@ -323,8 +326,6 @@ impl Oidc {
         // This method is guarded with the `deferred_cross_process_lock_init` lock held,
         // so this `set` can't be an error.
         let _ = self.ctx().cross_process_token_refresh_manager.set(manager);
-
-        Ok(())
     }
 
     /// The OpenID Connect authentication data.
@@ -349,6 +350,88 @@ impl Oidc {
             self.client.send(get_authentication_issuer::msc2965::Request::new(), None).await?;
 
         Ok(response.issuer)
+    }
+
+    /// Log in using a QR code.
+    ///
+    /// This method allows you to log in with a QR code, the existing device
+    /// needs to display the QR code which this device can scan and call
+    /// this method to log in.
+    ///
+    /// A successful login using this method will automatically mark the device
+    /// as verified and transfer all end-to-end encryption related secrets, like
+    /// the private cross-signing keys and the backup key from the existing
+    /// device to the new device.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use anyhow::bail;
+    /// use futures_util::StreamExt;
+    /// use matrix_sdk::{
+    ///     authentication::qrcode::{LoginProgress, QrCodeData, QrCodeModeData},
+    ///     Client,
+    ///     oidc::types::registration::VerifiedClientMetadata,
+    /// };
+    /// # fn client_metadata() -> VerifiedClientMetadata { unimplemented!() }
+    /// # _ = async {
+    /// # let bytes = unimplemented!();
+    /// // You'll need to use a different library to scan and extract the raw bytes from the QR
+    /// // code.
+    /// let qr_code_data = QrCodeData::from_bytes(bytes)?;
+    ///
+    /// // Fetch the homeserver out of the parsed QR code data.
+    /// let QrCodeModeData::Reciprocate{ homeserver_url } = qr_code_data.mode_data else {
+    ///     bail!("The QR code is invalid, we did not receive a homeserver in the QR code.");
+    /// };
+    ///
+    /// // Build the client as usual.
+    /// let client = Client::builder()
+    ///     .homeserver_url(homeserver_url)
+    ///     .handle_refresh_tokens()
+    ///     .build()
+    ///     .await?;
+    ///
+    /// let oidc = client.oidc();
+    /// let metadata: VerifiedClientMetadata = client_metadata();
+    ///
+    /// // Subscribing to the progress is necessary since we need to input the check
+    /// // code on the existing device.
+    /// let login = oidc.login_with_qr_code(&qr_code_data, metadata);
+    /// let mut progress = login.subscribe_to_progress();
+    ///
+    /// // Create a task which will show us the progress and tell us the check
+    /// // code to input in the existing device.
+    /// let task = tokio::spawn(async move {
+    ///     while let Some(state) = progress.next().await {
+    ///         match state {
+    ///             LoginProgress::Starting => (),
+    ///             LoginProgress::EstablishingSecureChannel { check_code } => {
+    ///                 let code = check_code.to_digit();
+    ///                 println!("Please enter the following code into the other device {code:02}");
+    ///             },
+    ///             LoginProgress::WaitingForToken { user_code } => {
+    ///                 println!("Please use your other device to confirm the log in {user_code}")
+    ///             },
+    ///             LoginProgress::Done => break,
+    ///         }
+    ///     }
+    /// });
+    ///
+    /// // Now run the future to complete the login.
+    /// login.await?;
+    /// task.abort();
+    ///
+    /// println!("Successfully logged in: {:?} {:?}", client.user_id(), client.device_id());
+    /// # anyhow::Ok(()) };
+    /// ```
+    #[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
+    pub fn login_with_qr_code<'a>(
+        &'a self,
+        data: &'a QrCodeData,
+        client_metadata: VerifiedClientMetadata,
+    ) -> LoginWithQrCode<'a> {
+        LoginWithQrCode::new(&self.client, client_metadata, data)
     }
 
     /// The OpenID Connect Provider used for authorization.
@@ -447,7 +530,7 @@ impl Oidc {
     /// # Panics
     ///
     /// Will panic if no OIDC client has been configured yet.
-    fn set_session_tokens(&self, session_tokens: OidcSessionTokens) {
+    pub(crate) fn set_session_tokens(&self, session_tokens: OidcSessionTokens) {
         let data =
             self.data().expect("Cannot call OpenID Connect API after logging in with another API");
         if let Some(tokens) = data.tokens.get() {
@@ -707,8 +790,14 @@ impl Oidc {
             authorization_data: Default::default(),
         };
 
-        self.client.set_session_meta(meta).await?;
-        self.deferred_enable_cross_process_refresh_lock().await?;
+        self.client
+            .set_session_meta(
+                meta,
+                #[cfg(feature = "e2e-encryption")]
+                None,
+            )
+            .await?;
+        self.deferred_enable_cross_process_refresh_lock().await;
 
         self.client
             .inner
@@ -751,7 +840,7 @@ impl Oidc {
         }
 
         #[cfg(feature = "e2e-encryption")]
-        self.client.encryption().run_initialization_tasks(None).await?;
+        self.client.encryption().run_initialization_tasks(None).await;
 
         Ok(())
     }
@@ -909,18 +998,34 @@ impl Oidc {
             device_id: whoami_res.device_id.ok_or(OidcError::MissingDeviceId)?,
         };
 
-        self.client.set_session_meta(session).await.map_err(crate::Error::from)?;
+        self.client
+            .set_session_meta(
+                session,
+                #[cfg(feature = "e2e-encryption")]
+                None,
+            )
+            .await
+            .map_err(crate::Error::from)?;
         // At this point the Olm machine has been set up.
 
         // Enable the cross-process lock for refreshes, if needs be.
-        self.deferred_enable_cross_process_refresh_lock().await?;
+        self.enable_cross_process_lock().await.map_err(OidcError::from)?;
+
+        #[cfg(feature = "e2e-encryption")]
+        self.client.encryption().run_initialization_tasks(None).await;
+
+        Ok(())
+    }
+
+    pub(crate) async fn enable_cross_process_lock(
+        &self,
+    ) -> Result<(), CrossProcessRefreshLockError> {
+        // Enable the cross-process lock for refreshes, if needs be.
+        self.deferred_enable_cross_process_refresh_lock().await;
 
         if let Some(cross_process_manager) = self.ctx().cross_process_token_refresh_manager.get() {
             if let Some(tokens) = self.session_tokens() {
-                let mut cross_process_guard = cross_process_manager
-                    .spin_lock()
-                    .await
-                    .map_err(|err| crate::Error::Oidc(err.into()))?;
+                let mut cross_process_guard = cross_process_manager.spin_lock().await?;
 
                 if cross_process_guard.hash_mismatch {
                     // At this point, we're finishing a login while another process had written
@@ -932,15 +1037,9 @@ impl Oidc {
                     );
                 }
 
-                cross_process_guard
-                    .save_in_memory_and_db(&tokens)
-                    .await
-                    .map_err(|err| crate::Error::Oidc(err.into()))?;
+                cross_process_guard.save_in_memory_and_db(&tokens).await?;
             }
         }
-
-        #[cfg(feature = "e2e-encryption")]
-        self.client.encryption().run_initialization_tasks(None).await?;
 
         Ok(())
     }

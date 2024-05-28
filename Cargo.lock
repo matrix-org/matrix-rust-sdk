@@ -554,6 +554,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "bit-set"
+version = "0.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0700ddab506f33b20a03b13996eccd309a48e5ff77d0d95926aa0210fb4e95f1"
+dependencies = [
+ "bit-vec",
+]
+
+[[package]]
+name = "bit-vec"
+version = "0.6.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "349f9b6a179ed607305526ca489b34ad0a41aed5f7980fa90eb03160b69598fb"
+
+[[package]]
 name = "bit_field"
 version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1672,6 +1687,20 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "example-qr-login"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "futures-util",
+ "matrix-sdk",
+ "qrcode 0.13.0",
+ "tokio",
+ "tracing-subscriber",
+ "url",
 ]
 
 [[package]]
@@ -3141,6 +3170,7 @@ dependencies = [
  "async-trait",
  "axum",
  "backoff",
+ "base64 0.22.1",
  "bytes",
  "bytesize",
  "chrono",
@@ -3170,6 +3200,8 @@ dependencies = [
  "mime",
  "mime2ext",
  "once_cell",
+ "openidconnect",
+ "proptest",
  "rand",
  "reqwest",
  "ruma",
@@ -3178,6 +3210,7 @@ dependencies = [
  "serde_json",
  "serde_urlencoded",
  "sha2",
+ "similar-asserts",
  "stream_assert",
  "tempfile",
  "thiserror",
@@ -3191,6 +3224,7 @@ dependencies = [
  "url",
  "urlencoding",
  "uuid",
+ "vodozemac",
  "wasm-bindgen-test",
  "wiremock",
  "zeroize",
@@ -3256,7 +3290,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-crypto"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "aes",
  "anyhow",
@@ -3381,6 +3415,7 @@ dependencies = [
  "base64 0.22.1",
  "getrandom",
  "gloo-utils",
+ "hkdf",
  "indexed_db_futures",
  "js-sys",
  "matrix-sdk-base",
@@ -3388,10 +3423,12 @@ dependencies = [
  "matrix-sdk-crypto",
  "matrix-sdk-store-encryption",
  "matrix-sdk-test",
+ "rand",
  "ruma",
  "serde",
  "serde-wasm-bindgen",
  "serde_json",
+ "sha2",
  "thiserror",
  "tokio",
  "tracing",
@@ -3400,6 +3437,7 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-test",
  "web-sys",
+ "zeroize",
 ]
 
 [[package]]
@@ -3437,7 +3475,7 @@ version = "0.7.0"
 dependencies = [
  "byteorder",
  "image",
- "qrcode",
+ "qrcode 0.14.0",
  "ruma-common",
  "thiserror",
  "vodozemac",
@@ -3839,6 +3877,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "oauth2"
+version = "5.0.0-alpha.4"
+source = "git+https://github.com/poljar/oauth2-rs?rev=f8e28ce5a7f3278ac85b8593ecdd86f2cf51fa2e#f8e28ce5a7f3278ac85b8593ecdd86f2cf51fa2e"
+dependencies = [
+ "base64 0.21.7",
+ "chrono",
+ "getrandom",
+ "http 1.1.0",
+ "rand",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "serde_path_to_error",
+ "sha2",
+ "thiserror",
+ "url",
+]
+
+[[package]]
 name = "oauth2-types"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3913,6 +3970,36 @@ name = "opaque-debug"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08d65885ee38876c4f86fa503fb49d7b507c2b62552df7c70b2fce627e06381"
+
+[[package]]
+name = "openidconnect"
+version = "4.0.0-alpha.2"
+source = "git+https://github.com/poljar/openidconnect-rs?rev=c7e1dc31b83dd7559125984bfd36b9c0f191585e#c7e1dc31b83dd7559125984bfd36b9c0f191585e"
+dependencies = [
+ "base64 0.21.7",
+ "chrono",
+ "dyn-clone",
+ "ed25519-dalek",
+ "hmac",
+ "http 1.1.0",
+ "itertools 0.10.5",
+ "log",
+ "oauth2",
+ "p256",
+ "p384",
+ "rand",
+ "rsa",
+ "serde",
+ "serde-value",
+ "serde_json",
+ "serde_path_to_error",
+ "serde_plain",
+ "serde_with",
+ "sha2",
+ "subtle",
+ "thiserror",
+ "url",
+]
 
 [[package]]
 name = "openssl"
@@ -3992,7 +4079,7 @@ dependencies = [
  "futures-util",
  "once_cell",
  "opentelemetry",
- "ordered-float",
+ "ordered-float 4.2.0",
  "percent-encoding",
  "rand",
  "thiserror",
@@ -4003,6 +4090,15 @@ name = "option-ext"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
+
+[[package]]
+name = "ordered-float"
+version = "2.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "68f19d67e5a2795c94e73e0bb1cc1a7edeb2e28efd39e2e1c9b7a40c1108b11c"
+dependencies = [
+ "num-traits",
+]
 
 [[package]]
 name = "ordered-float"
@@ -4444,6 +4540,8 @@ version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "31b476131c3c86cb68032fdc5cb6d5a1045e3e42d96b69fa599fd77701e1f5bf"
 dependencies = [
+ "bit-set",
+ "bit-vec",
  "bitflags 2.5.0",
  "lazy_static",
  "num-traits",
@@ -4451,6 +4549,8 @@ dependencies = [
  "rand_chacha",
  "rand_xorshift",
  "regex-syntax 0.8.3",
+ "rusty-fork",
+ "tempfile",
  "unarray",
 ]
 
@@ -4506,12 +4606,26 @@ dependencies = [
 
 [[package]]
 name = "qrcode"
+version = "0.13.0"
+source = "git+https://github.com/kennytm/qrcode-rust/#7aaa476e179d5bdc57df245530a7f97b0a79cd54"
+dependencies = [
+ "image",
+]
+
+[[package]]
+name = "qrcode"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23e719ca51966ff9f5a8436edb00d6115b3c606a0bb27c8f8ca74a38ff2b036d"
 dependencies = [
  "image",
 ]
+
+[[package]]
+name = "quick-error"
+version = "1.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a1d01941d82fa2ab50be1e79e6714289dd7cde78eba4c074bc5a4374f650dfe0"
 
 [[package]]
 name = "quick-error"
@@ -4649,7 +4763,7 @@ dependencies = [
  "avif-serialize",
  "imgref",
  "loop9",
- "quick-error",
+ "quick-error 2.0.1",
  "rav1e",
  "rayon",
  "rgb",
@@ -4893,8 +5007,7 @@ dependencies = [
 [[package]]
 name = "ruma"
 version = "0.10.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3a555b3e7ca84892ef6e81eadb42c783b76ffb939d6ad9781a9da7023a501521"
+source = "git+https://github.com/Hywan/ruma?branch=feat-sliding-sync-list-include-heroes#8ff12161c2e598f3bfff28e543b304dbdad2af27"
 dependencies = [
  "assign",
  "js_int",
@@ -4911,8 +5024,7 @@ dependencies = [
 [[package]]
 name = "ruma-client-api"
 version = "0.18.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fa7ec9d6b5fe002fc018b1daa36f888e80a670ffa7f7778d025e90478c0838ad"
+source = "git+https://github.com/Hywan/ruma?branch=feat-sliding-sync-list-include-heroes#8ff12161c2e598f3bfff28e543b304dbdad2af27"
 dependencies = [
  "as_variant",
  "assign",
@@ -4928,14 +5040,14 @@ dependencies = [
  "serde_html_form",
  "serde_json",
  "thiserror",
+ "url",
  "web-time",
 ]
 
 [[package]]
 name = "ruma-common"
 version = "0.13.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2ba97203cc4cab8dc10e62fe8156ae5c61d2553f37c3037759fbae601982fb7b"
+source = "git+https://github.com/Hywan/ruma?branch=feat-sliding-sync-list-include-heroes#8ff12161c2e598f3bfff28e543b304dbdad2af27"
 dependencies = [
  "as_variant",
  "base64 0.22.1",
@@ -4967,8 +5079,7 @@ dependencies = [
 [[package]]
 name = "ruma-events"
 version = "0.28.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fddef15eca0faee500016850a8473fb8c07b17b056b2ae5352ef67cf917102e3"
+source = "git+https://github.com/Hywan/ruma?branch=feat-sliding-sync-list-include-heroes#8ff12161c2e598f3bfff28e543b304dbdad2af27"
 dependencies = [
  "as_variant",
  "indexmap 2.2.6",
@@ -4992,8 +5103,7 @@ dependencies = [
 [[package]]
 name = "ruma-federation-api"
 version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ea43deab72b76655e36305127894249e33f48696a5af3c8aa048dc42d772af45"
+source = "git+https://github.com/Hywan/ruma?branch=feat-sliding-sync-list-include-heroes#8ff12161c2e598f3bfff28e543b304dbdad2af27"
 dependencies = [
  "js_int",
  "ruma-common",
@@ -5005,8 +5115,7 @@ dependencies = [
 [[package]]
 name = "ruma-html"
 version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb6d948779da5fb4d1fc2d4c7a3f0cab21453dd14765a72fbee38ef758613d7f"
+source = "git+https://github.com/Hywan/ruma?branch=feat-sliding-sync-list-include-heroes#8ff12161c2e598f3bfff28e543b304dbdad2af27"
 dependencies = [
  "as_variant",
  "html5ever",
@@ -5018,8 +5127,7 @@ dependencies = [
 [[package]]
 name = "ruma-identifiers-validation"
 version = "0.9.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9fa38974f5901ed4e00e10aec57b9ad3b4d6d6c1a1ae683c51b88700b9f4ffba"
+source = "git+https://github.com/Hywan/ruma?branch=feat-sliding-sync-list-include-heroes#8ff12161c2e598f3bfff28e543b304dbdad2af27"
 dependencies = [
  "js_int",
  "thiserror",
@@ -5028,8 +5136,7 @@ dependencies = [
 [[package]]
 name = "ruma-macros"
 version = "0.13.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d36857a3350ea611ecc9968dcc4f3d5a03227a6c3fcbb446e8530e3be8852282"
+source = "git+https://github.com/Hywan/ruma?branch=feat-sliding-sync-list-include-heroes#8ff12161c2e598f3bfff28e543b304dbdad2af27"
 dependencies = [
  "once_cell",
  "proc-macro-crate",
@@ -5044,8 +5151,7 @@ dependencies = [
 [[package]]
 name = "ruma-push-gateway-api"
 version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b42ef562eddab426c4402d004ea577f9034c74cd1714e087e9e0d47e88662ec2"
+source = "git+https://github.com/Hywan/ruma?branch=feat-sliding-sync-list-include-heroes#8ff12161c2e598f3bfff28e543b304dbdad2af27"
 dependencies = [
  "js_int",
  "ruma-common",
@@ -5142,6 +5248,18 @@ name = "rustversion"
 version = "1.0.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "092474d1a01ea8278f69e6a358998405fae5b8b963ddaeb2b0b04a128bf1dfb0"
+
+[[package]]
+name = "rusty-fork"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb3dcc6e454c328bb824492db107ab7c0ae8fcffe4ad210136ef014458c1bc4f"
+dependencies = [
+ "fnv",
+ "quick-error 1.2.3",
+ "tempfile",
+ "wait-timeout",
+]
 
 [[package]]
 name = "ryu"
@@ -5291,6 +5409,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde-value"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f3a1a3341211875ef120e117ea7fd5228530ae7e7036a779fdc9117be6b3282c"
+dependencies = [
+ "ordered-float 2.10.1",
+ "serde",
+]
+
+[[package]]
 name = "serde-wasm-bindgen"
 version = "0.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5364,6 +5492,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "af99884400da37c88f5e9146b7f1fd0fbcae8f6eec4e9da38b67d05486f814a6"
 dependencies = [
  "itoa",
+ "serde",
+]
+
+[[package]]
+name = "serde_plain"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9ce1fc6db65a611022b23a0dec6975d63fb80a302cb3388835ff02c097258d50"
+dependencies = [
  "serde",
 ]
 
@@ -6529,7 +6666,7 @@ checksum = "49874b5167b65d7193b8aba1567f5c7d93d001cafc34600cee003eda787e483f"
 [[package]]
 name = "vodozemac"
 version = "0.6.0"
-source = "git+https://github.com/matrix-org/vodozemac/?rev=826d0aa22a9b5405535927c7691492db4b92a43b#826d0aa22a9b5405535927c7691492db4b92a43b"
+source = "git+https://github.com/matrix-org/vodozemac/?rev=4ef989c6a8eba0bc809e285a081c56320a9bbf1e#4ef989c6a8eba0bc809e285a081c56320a9bbf1e"
 dependencies = [
  "aes",
  "arrayvec",
@@ -6553,6 +6690,15 @@ dependencies = [
  "thiserror",
  "x25519-dalek",
  "zeroize",
+]
+
+[[package]]
+name = "wait-timeout"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9f200f5b12eb75f8c1ed65abd4b2db8a6e1b138a20de009dacee265a2498f3f6"
+dependencies = [
+ "libc",
 ]
 
 [[package]]

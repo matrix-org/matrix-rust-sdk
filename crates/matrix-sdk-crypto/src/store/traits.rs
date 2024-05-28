@@ -65,6 +65,22 @@ pub trait CryptoStore: AsyncTraitDeps {
     /// * `changes` - The set of changes that should be stored.
     async fn save_pending_changes(&self, changes: PendingChanges) -> Result<(), Self::Error>;
 
+    /// Save a list of inbound group sessions to the store.
+    ///
+    /// # Arguments
+    ///
+    /// * `sessions` - The sessions to be saved.
+    /// * `backed_up_to_version` - If the keys should be marked as having been
+    ///   backed up, the version of the backup.
+    ///
+    /// Note: some implementations ignore `backup_version` and assume the
+    /// current backup version, which is normally the same.
+    async fn save_inbound_group_sessions(
+        &self,
+        sessions: Vec<InboundGroupSession>,
+        backed_up_to_version: Option<&str>,
+    ) -> Result<(), Self::Error>;
+
     /// Get all the sessions that belong to the given sender key.
     ///
     /// # Arguments
@@ -345,6 +361,14 @@ impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
 
     async fn save_pending_changes(&self, changes: PendingChanges) -> Result<()> {
         self.0.save_pending_changes(changes).await.map_err(Into::into)
+    }
+
+    async fn save_inbound_group_sessions(
+        &self,
+        sessions: Vec<InboundGroupSession>,
+        backed_up_to_version: Option<&str>,
+    ) -> Result<()> {
+        self.0.save_inbound_group_sessions(sessions, backed_up_to_version).await.map_err(Into::into)
     }
 
     async fn get_sessions(&self, sender_key: &str) -> Result<Option<Arc<Mutex<Vec<Session>>>>> {

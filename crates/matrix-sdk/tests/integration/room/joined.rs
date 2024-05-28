@@ -11,7 +11,7 @@ use matrix_sdk::{
 use matrix_sdk_base::RoomState;
 use matrix_sdk_test::{
     async_test, test_json, test_json::sync::CUSTOM_ROOM_POWER_LEVELS, EphemeralTestEvent,
-    JoinedRoomBuilder, SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
+    GlobalAccountDataTestEvent, JoinedRoomBuilder, SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
 };
 use ruma::{
     api::client::{membership::Invite3pidInit, receipt::create_receipt::v3::ReceiptType},
@@ -19,7 +19,7 @@ use ruma::{
     events::{receipt::ReceiptThread, room::message::RoomMessageEventContent, TimelineEventType},
     int, mxc_uri, owned_event_id, room_id, thirdparty, user_id, OwnedUserId, TransactionId,
 };
-use serde_json::json;
+use serde_json::{json, Value};
 use wiremock::{
     matchers::{body_json, body_partial_json, header, method, path_regex},
     Mock, ResponseTemplate,
@@ -627,4 +627,89 @@ async fn test_reset_power_levels() {
     assert_eq!(initial_power_levels.events[&TimelineEventType::RoomAvatar], int!(100));
 
     room.reset_power_levels().await.unwrap();
+}
+
+#[async_test]
+async fn test_call_notifications_ring_for_dms() {
+    let (client, server) = logged_in_client_with_server().await;
+
+    let mut sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(JoinedRoomBuilder::default());
+    sync_builder.add_global_account_data_event(GlobalAccountDataTestEvent::Direct);
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    mock_encryption_state(&server, false).await;
+
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let _response = client.sync_once(sync_settings).await.unwrap();
+
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
+    assert!(room.is_direct().await.unwrap());
+    assert!(!room.has_active_room_call());
+
+    Mock::given(method("PUT"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
+        .and({
+            move |request: &wiremock::Request| {
+                let content: Value = request.body_json().expect("The body should be a JSON body");
+                assert_eq!(
+                    content,
+                    json!({
+                        "application": "m.call",
+                        "call_id": DEFAULT_TEST_ROOM_ID.to_string(),
+                        "m.mentions": {"room" :true},
+                        "notify_type": "ring"
+                    }),
+                );
+                true
+            }
+        })
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"event_id": "$event_id"})))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    room.send_call_notification_if_needed().await.unwrap();
+}
+
+#[async_test]
+async fn test_call_notifications_notify_for_rooms() {
+    let (client, server) = logged_in_client_with_server().await;
+
+    let mut sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(JoinedRoomBuilder::default());
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    mock_encryption_state(&server, false).await;
+
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let _response = client.sync_once(sync_settings).await.unwrap();
+
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
+    assert!(!room.is_direct().await.unwrap());
+    assert!(!room.has_active_room_call());
+
+    Mock::given(method("PUT"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
+        .and({
+            move |request: &wiremock::Request| {
+                let content: Value = request.body_json().expect("The body should be a JSON body");
+                assert_eq!(
+                    content,
+                    json!({
+                        "application": "m.call",
+                        "call_id": DEFAULT_TEST_ROOM_ID.to_string(),
+                        "m.mentions": {"room" :true},
+                        "notify_type": "notify"
+                    }),
+                );
+                true
+            }
+        })
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"event_id": "$event_id"})))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    room.send_call_notification_if_needed().await.unwrap();
 }

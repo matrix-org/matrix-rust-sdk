@@ -19,7 +19,7 @@ use std::{
     fmt::{self, Debug},
     future::Future,
     pin::Pin,
-    sync::{Arc, Mutex as StdMutex, RwLock as StdRwLock},
+    sync::{Arc, Mutex as StdMutex, RwLock as StdRwLock, Weak},
 };
 
 use eyeball::{SharedObservable, Subscriber};
@@ -335,7 +335,10 @@ impl ClientInner {
         #[cfg(feature = "e2e-encryption")]
         client.e2ee.initialize_room_key_tasks(&client);
 
-        let _ = client.event_cache.get_or_init(|| async { EventCache::new(&client) }).await;
+        let _ = client
+            .event_cache
+            .get_or_init(|| async { EventCache::new(WeakClient::from_inner(&client)) })
+            .await;
 
         client
     }
@@ -1010,8 +1013,19 @@ impl Client {
         }
     }
 
-    pub(crate) async fn set_session_meta(&self, session_meta: SessionMeta) -> Result<()> {
-        self.base_client().set_session_meta(session_meta).await?;
+    pub(crate) async fn set_session_meta(
+        &self,
+        session_meta: SessionMeta,
+        #[cfg(feature = "e2e-encryption")] custom_account: Option<vodozemac::olm::Account>,
+    ) -> Result<()> {
+        self.base_client()
+            .set_session_meta(
+                session_meta,
+                #[cfg(feature = "e2e-encryption")]
+                custom_account,
+            )
+            .await?;
+
         Ok(())
     }
 
@@ -2102,7 +2116,13 @@ impl Client {
         // overwrite the session information shared with the parent too, and it
         // must be initialized at most once.
         if let Some(session) = self.session() {
-            client.set_session_meta(session.into_meta()).await?;
+            client
+                .set_session_meta(
+                    session.into_meta(),
+                    #[cfg(feature = "e2e-encryption")]
+                    None,
+                )
+                .await?;
         }
 
         Ok(client)
@@ -2115,10 +2135,35 @@ impl Client {
     }
 }
 
+/// A weak reference to the inner client, useful when trying to get a handle
+/// on the owning client.
+#[derive(Clone)]
+pub(crate) struct WeakClient {
+    client: Weak<ClientInner>,
+}
+
+impl WeakClient {
+    /// Construct a [`WeakClient`] from a `Arc<ClientInner>`.
+    pub fn from_inner(client: &Arc<ClientInner>) -> Self {
+        Self { client: Arc::downgrade(client) }
+    }
+
+    /// Construct a [`WeakClient`] from a [`Client`].
+    #[cfg(test)]
+    pub fn from_client(client: &Client) -> Self {
+        Self::from_inner(&client.inner)
+    }
+
+    /// Attempts to get a [`Client`] from this [`WeakClient`].
+    pub fn get(&self) -> Option<Client> {
+        self.client.upgrade().map(|inner| Client { inner })
+    }
+}
+
 // The http mocking library is not supported for wasm32
 #[cfg(all(test, not(target_arch = "wasm32")))]
 pub(crate) mod tests {
-    use std::time::Duration;
+    use std::{sync::Arc, time::Duration};
 
     use assert_matches::assert_matches;
     use matrix_sdk_base::RoomState;
@@ -2129,7 +2174,7 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-    use ruma::{events::ignored_user_list::IgnoredUserListEventContent, UserId};
+    use ruma::{events::ignored_user_list::IgnoredUserListEventContent, room_id, UserId};
     use url::Url;
     use wiremock::{
         matchers::{body_json, header, method, path},
@@ -2138,6 +2183,7 @@ pub(crate) mod tests {
 
     use super::Client;
     use crate::{
+        client::WeakClient,
         config::{RequestConfig, SyncSettings},
         test_utils::{logged_in_client, no_retry_test_client, test_client_builder},
         Error,
@@ -2455,5 +2501,39 @@ pub(crate) mod tests {
 
         // And the last tracked room should be the first
         assert_eq!(rooms.first().unwrap(), "!19:localhost");
+    }
+
+    #[async_test]
+    async fn test_client_no_cycle_with_event_cache() {
+        let client = logged_in_client(None).await;
+        let weak_client = WeakClient::from_client(&client);
+
+        {
+            let room_id = room_id!("!room:example.org");
+
+            // Have the client know the room.
+            let response = SyncResponseBuilder::default()
+                .add_joined_room(JoinedRoomBuilder::new(room_id))
+                .build_sync_response();
+            client.inner.base_client.receive_sync_response(response).await.unwrap();
+
+            client.event_cache().subscribe().unwrap();
+
+            let (_room_event_cache, _drop_handles) =
+                client.get_room(room_id).unwrap().event_cache().await.unwrap();
+        }
+
+        drop(client);
+
+        // Give a bit of time for background tasks to die.
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        // The weak client must be the last reference to the client now.
+        let client = weak_client.get();
+        assert!(
+            client.is_none(),
+            "too many strong references to the client: {}",
+            Arc::strong_count(&client.unwrap().inner)
+        );
     }
 }

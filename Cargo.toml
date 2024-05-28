@@ -39,8 +39,11 @@ futures-util = { version = "0.3.26", default-features = false, features = [
 http = "1.1.0"
 imbl = "2.0.0"
 itertools = "0.12.0"
+once_cell = "1.16.0"
+pin-project-lite = "0.2.9"
+rand = "0.8.5"
 reqwest = { version = "0.12.4", default-features = false }
-ruma = { version = "0.10.1", features = [
+ruma = { git = "https://github.com/Hywan/ruma", branch = "feat-sliding-sync-list-include-heroes", features = [
     "client-api-c",
     "compat-upload-signatures",
     "compat-user-id",
@@ -48,10 +51,9 @@ ruma = { version = "0.10.1", features = [
     "compat-tag-info",
     "unstable-msc3401",
     "unstable-msc3266",
+    "unstable-msc4075"
 ] }
-ruma-common = { version = "0.13.0" }
-once_cell = "1.16.0"
-rand = "0.8.5"
+ruma-common = { git = "https://github.com/Hywan/ruma", branch = "feat-sliding-sync-list-include-heroes" }
 serde = "1.0.151"
 serde_html_form = "0.2.0"
 serde_json = "1.0.91"
@@ -65,7 +67,7 @@ tracing-core = "0.1.32"
 uniffi = { version = "0.27.1" }
 uniffi_bindgen = { version = "0.27.1" }
 url = "2.5.0"
-vodozemac = { git = "https://github.com/matrix-org/vodozemac/", rev = "826d0aa22a9b5405535927c7691492db4b92a43b" }
+vodozemac = { git = "https://github.com/matrix-org/vodozemac/", rev = "4ef989c6a8eba0bc809e285a081c56320a9bbf1e" }
 wiremock = "0.6.0"
 zeroize = "1.6.0"
 

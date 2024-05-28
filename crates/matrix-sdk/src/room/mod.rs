@@ -51,6 +51,7 @@ use ruma::{
     },
     assign,
     events::{
+        call::notify::{ApplicationType, CallNotifyEventContent, NotifyType},
         direct::DirectEventContent,
         marked_unread::MarkedUnreadEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
@@ -68,10 +69,11 @@ use ruma::{
         space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
         tag::{TagInfo, TagName},
         typing::SyncTypingEvent,
-        AnyRoomAccountDataEvent, AnyTimelineEvent, EmptyStateKey, MessageLikeEventContent,
-        MessageLikeEventType, RedactContent, RedactedStateEventContent, RoomAccountDataEvent,
-        RoomAccountDataEventContent, RoomAccountDataEventType, StateEventContent, StateEventType,
-        StaticEventContent, StaticStateEventContent, SyncStateEvent,
+        AnyRoomAccountDataEvent, AnyTimelineEvent, EmptyStateKey, Mentions,
+        MessageLikeEventContent, MessageLikeEventType, RedactContent, RedactedStateEventContent,
+        RoomAccountDataEvent, RoomAccountDataEventContent, RoomAccountDataEventType,
+        StateEventContent, StateEventType, StaticEventContent, StaticStateEventContent,
+        SyncStateEvent,
     },
     push::{Action, PushConditionRoomCtx},
     serde::Raw,
@@ -92,6 +94,7 @@ pub use self::{
 use crate::event_cache::EventCache;
 use crate::{
     attachment::AttachmentConfig,
+    client::WeakClient,
     config::RequestConfig,
     error::WrongRoomState,
     event_cache::{self, EventCacheDropHandles, RoomEventCache},
@@ -2628,12 +2631,64 @@ impl Room {
         })
     }
 
+    /// This will only send a call notification event if appropriate.
+    ///
+    /// This function is supposed to be called whenever the user creates a room
+    /// call. It will send a `m.call.notify` event if:
+    ///  - there is not yet a running call.
+    /// It will configure the notify type: ring or notify based on:
+    ///  - is this a DM room -> ring
+    ///  - is this a group with more than one other member -> notify
+    pub async fn send_call_notification_if_needed(&self) -> Result<()> {
+        if self.has_active_room_call() {
+            return Ok(());
+        }
+
+        self.send_call_notification(
+            self.room_id().to_string().to_owned(),
+            ApplicationType::Call,
+            if self.is_direct().await.unwrap_or(false) {
+                NotifyType::Ring
+            } else {
+                NotifyType::Notify
+            },
+            Mentions::with_room_mention(),
+        )
+        .await?;
+
+        Ok(())
+    }
+
+    /// Send a call notification event in the current room.
+    ///
+    /// This is only supposed to be used in **custom** situations where the user
+    /// explicitly chooses to send a `m.call.notify` event to invite/notify
+    /// someone explicitly in unusual conditions. The default should be to
+    /// use `send_call_notification_if_needed` just before a new room call is
+    /// created/joined.
+    ///
+    /// One example could be that the UI allows to start a call with a subset of
+    /// users of the room members first. And then later on the user can
+    /// invite more users to the call.
+    pub async fn send_call_notification(
+        &self,
+        call_id: String,
+        application: ApplicationType,
+        notify_type: NotifyType,
+        mentions: Mentions,
+    ) -> Result<()> {
+        let call_notify_event_content =
+            CallNotifyEventContent::new(call_id, application, notify_type, mentions);
+        self.send(call_notify_event_content).await?;
+        Ok(())
+    }
+
     /// Stores the given `ComposerDraft` in the state store using the current
     /// room id, as identifier.
     pub async fn save_composer_draft(&self, draft: ComposerDraft) -> Result<()> {
         let room_id = self.room_id().to_owned();
         let data = StateStoreDataValue::ComposerDraft(draft);
-        self.client().store().set_kv_data(StateStoreDataKey::ComposerDraft(&room_id), data).await?;
+        self.client.store().set_kv_data(StateStoreDataKey::ComposerDraft(&room_id), data).await?;
         Ok(())
     }
 
@@ -2641,15 +2696,34 @@ impl Room {
     pub async fn restore_composer_draft(&self) -> Result<Option<ComposerDraft>> {
         let room_id = self.room_id().to_owned();
         let data =
-            self.client().store().get_kv_data(StateStoreDataKey::ComposerDraft(&room_id)).await?;
+            self.client.store().get_kv_data(StateStoreDataKey::ComposerDraft(&room_id)).await?;
         Ok(data.and_then(|d| d.into_composer_draft()))
     }
 
     /// Removes the `ComposerDraft` stored in the state store for this room.
     pub async fn clear_composer_draft(&self) -> Result<()> {
         let room_id = self.room_id().to_owned();
-        self.client().store().remove_kv_data(StateStoreDataKey::ComposerDraft(&room_id)).await?;
+        self.client.store().remove_kv_data(StateStoreDataKey::ComposerDraft(&room_id)).await?;
         Ok(())
+    }
+}
+
+/// A wrapper for a weak client and a room id that allows to lazily retrieve a
+/// room, only when needed.
+pub(crate) struct WeakRoom {
+    client: WeakClient,
+    room_id: OwnedRoomId,
+}
+
+impl WeakRoom {
+    /// Create a new `WeakRoom` given its weak components.
+    pub fn new(client: WeakClient, room_id: OwnedRoomId) -> Self {
+        Self { client, room_id }
+    }
+
+    /// Attempts to reconstruct the room.
+    pub fn get(&self) -> Option<Room> {
+        self.client.get().and_then(|client| client.get_room(&self.room_id))
     }
 }
 

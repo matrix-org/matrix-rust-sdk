@@ -78,6 +78,11 @@ async fn test_new_focused() {
         .await
         .unwrap();
 
+    assert!(
+        timeline.live_back_pagination_status().await.is_none(),
+        "there should be no live back-pagination status for a focused timeline"
+    );
+
     server.reset().await;
 
     let (items, mut timeline_stream) = timeline.subscribe().await;

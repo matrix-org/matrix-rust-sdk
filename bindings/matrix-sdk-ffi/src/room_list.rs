@@ -615,6 +615,7 @@ pub struct RequiredState {
 pub struct RoomSubscription {
     pub required_state: Option<Vec<RequiredState>>,
     pub timeline_limit: Option<u32>,
+    pub include_heroes: Option<bool>,
 }
 
 impl From<RoomSubscription> for RumaRoomSubscription {
@@ -623,7 +624,8 @@ impl From<RoomSubscription> for RumaRoomSubscription {
             required_state: val.required_state.map(|r|
                 r.into_iter().map(|s| (s.key.into(), s.value)).collect()
             ).unwrap_or_default(),
-            timeline_limit: val.timeline_limit.map(|u| u.into())
+            timeline_limit: val.timeline_limit.map(|u| u.into()),
+            include_heroes: val.include_heroes,
         })
     }
 }

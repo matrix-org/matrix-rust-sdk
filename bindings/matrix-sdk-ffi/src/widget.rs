@@ -260,11 +260,12 @@ pub fn new_virtual_element_call_widget(
 /// but should only be done as temporal workarounds until this function is
 /// adjusted
 #[uniffi::export]
-pub fn get_element_call_required_permissions() -> WidgetCapabilities {
+pub fn get_element_call_required_permissions(own_user_id: String) -> WidgetCapabilities {
     use ruma::events::StateEventType;
 
     WidgetCapabilities {
         read: vec![
+            WidgetEventFilter::StateWithType { event_type: "org.matrix.msc3401.call".to_owned() },
             WidgetEventFilter::StateWithType { event_type: StateEventType::CallMember.to_string() },
             WidgetEventFilter::StateWithType { event_type: StateEventType::RoomMember.to_string() },
             WidgetEventFilter::MessageLikeWithType {
@@ -275,11 +276,14 @@ pub fn get_element_call_required_permissions() -> WidgetCapabilities {
             },
         ],
         send: vec![
-            WidgetEventFilter::StateWithType { event_type: StateEventType::CallMember.to_string() },
-            WidgetEventFilter::StateWithType {
+            WidgetEventFilter::StateWithTypeAndStateKey {
+                event_type: StateEventType::CallMember.to_string(),
+                state_key: own_user_id.clone(),
+            },
+            WidgetEventFilter::MessageLikeWithType {
                 event_type: "org.matrix.rageshake_request".to_owned(),
             },
-            WidgetEventFilter::StateWithType {
+            WidgetEventFilter::MessageLikeWithType {
                 event_type: "io.element.call.encryption_keys".to_owned(),
             },
         ],

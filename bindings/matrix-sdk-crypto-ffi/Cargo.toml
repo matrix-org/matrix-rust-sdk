@@ -12,6 +12,10 @@ publish = false
 [lib]
 crate-type = ["cdylib", "staticlib"]
 
+[[bin]]
+name = "matrix_sdk_crypto_ffi"
+path = "uniffi-bindgen.rs"
+
 [features]
 default = ["bundled-sqlite"]
 bundled-sqlite = ["matrix-sdk-sqlite/bundled"]
@@ -31,7 +35,7 @@ sha2 = { workspace = true }
 thiserror = { workspace = true }
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 # keep in sync with uniffi dependency in matrix-sdk-ffi, and uniffi_bindgen in ffi CI job
-uniffi = { workspace = true }
+uniffi = { workspace = true , features = ["cli"]}
 vodozemac = { workspace = true }
 zeroize = { workspace = true, features = ["zeroize_derive"] }
 
@@ -54,6 +58,7 @@ features = ["rt-multi-thread"]
 
 [build-dependencies]
 vergen = { version = "8.2.5", features = ["build", "git", "gitcl"] }
+uniffi = { workspace = true, features = ["build"] }
 
 [dev-dependencies]
 tempfile = "3.8.0"

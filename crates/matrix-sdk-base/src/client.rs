@@ -32,6 +32,8 @@ use ruma::events::{
     room::{history_visibility::HistoryVisibility, message::MessageType},
     SyncMessageLikeEvent,
 };
+#[cfg(doc)]
+use ruma::DeviceId;
 use ruma::{
     api::client as api,
     events::{
@@ -200,13 +202,28 @@ impl BaseClient {
     /// * `session_meta` - The meta of a session that the user already has from
     ///   a previous login call.
     ///
+    /// * `custom_account` - A custom
+    ///   [`matrix_sdk_crypto::vodozemac::olm::Account`] to be used for the
+    ///   identity and one-time keys of this [`BaseClient`]. If no account is
+    ///   provided, a new default one or one from the store will be used. If an
+    ///   account is provided and one already exists in the store for this
+    ///   [`UserId`]/[`DeviceId`] combination, an error will be raised. This is
+    ///   useful if one wishes to create identity keys before knowing the
+    ///   user/device IDs, e.g., to use the identity key as the device ID.
+    ///
     /// This method panics if it is called twice.
-    pub async fn set_session_meta(&self, session_meta: SessionMeta) -> Result<()> {
+    pub async fn set_session_meta(
+        &self,
+        session_meta: SessionMeta,
+        #[cfg(feature = "e2e-encryption")] custom_account: Option<
+            crate::crypto::vodozemac::olm::Account,
+        >,
+    ) -> Result<()> {
         debug!(user_id = ?session_meta.user_id, device_id = ?session_meta.device_id, "Restoring login");
         self.store.set_session_meta(session_meta.clone(), &self.roominfo_update_sender).await?;
 
         #[cfg(feature = "e2e-encryption")]
-        self.regenerate_olm().await?;
+        self.regenerate_olm(custom_account).await?;
 
         Ok(())
     }
@@ -215,7 +232,10 @@ impl BaseClient {
     ///
     /// In particular, this will clear all its caches.
     #[cfg(feature = "e2e-encryption")]
-    pub async fn regenerate_olm(&self) -> Result<()> {
+    pub async fn regenerate_olm(
+        &self,
+        custom_account: Option<crate::crypto::vodozemac::olm::Account>,
+    ) -> Result<()> {
         tracing::debug!("regenerating OlmMachine");
         let session_meta = self.session_meta().ok_or(Error::OlmError(OlmError::MissingSession))?;
 
@@ -226,6 +246,7 @@ impl BaseClient {
             &session_meta.user_id,
             &session_meta.device_id,
             self.crypto_store.clone(),
+            custom_account,
         )
         .await
         .map_err(OlmError::from)?;
@@ -834,7 +855,7 @@ impl BaseClient {
             let mut room_info = room.clone_info();
 
             room_info.mark_as_joined();
-            room_info.update_summary(&new_info.summary);
+            room_info.update_from_ruma_summary(&new_info.summary);
             room_info.set_prev_batch(new_info.timeline.prev_batch.as_deref());
             room_info.mark_state_fully_synced();
 
@@ -1703,10 +1724,11 @@ mod tests {
 
         let client = BaseClient::new();
         client
-            .set_session_meta(SessionMeta {
-                user_id: user_id.to_owned(),
-                device_id: "FOOBAR".into(),
-            })
+            .set_session_meta(
+                SessionMeta { user_id: user_id.to_owned(), device_id: "FOOBAR".into() },
+                #[cfg(feature = "e2e-encryption")]
+                None,
+            )
             .await
             .unwrap();
 
@@ -1763,10 +1785,11 @@ mod tests {
 
         let client = BaseClient::new();
         client
-            .set_session_meta(SessionMeta {
-                user_id: user_id.to_owned(),
-                device_id: "FOOBAR".into(),
-            })
+            .set_session_meta(
+                SessionMeta { user_id: user_id.to_owned(), device_id: "FOOBAR".into() },
+                #[cfg(feature = "e2e-encryption")]
+                None,
+            )
             .await
             .unwrap();
 
@@ -1822,10 +1845,11 @@ mod tests {
 
         let client = BaseClient::new();
         client
-            .set_session_meta(SessionMeta {
-                user_id: user_id.to_owned(),
-                device_id: "FOOBAR".into(),
-            })
+            .set_session_meta(
+                SessionMeta { user_id: user_id.to_owned(), device_id: "FOOBAR".into() },
+                #[cfg(feature = "e2e-encryption")]
+                None,
+            )
             .await
             .unwrap();
 

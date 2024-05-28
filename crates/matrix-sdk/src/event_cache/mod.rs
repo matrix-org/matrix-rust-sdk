@@ -44,7 +44,7 @@
 use std::{
     collections::BTreeMap,
     fmt::Debug,
-    sync::{Arc, OnceLock, Weak},
+    sync::{Arc, OnceLock},
 };
 
 use eyeball::Subscriber;
@@ -69,7 +69,7 @@ use self::{
     paginator::{Paginator, PaginatorError},
     store::{Gap, RoomEvents},
 };
-use crate::{client::ClientInner, Client, Room};
+use crate::{client::WeakClient, room::WeakRoom, Client};
 
 mod linked_chunk;
 mod pagination;
@@ -159,10 +159,10 @@ impl Debug for EventCache {
 
 impl EventCache {
     /// Create a new [`EventCache`] for the given client.
-    pub(crate) fn new(client: &Arc<ClientInner>) -> Self {
+    pub(crate) fn new(client: WeakClient) -> Self {
         Self {
             inner: Arc::new(EventCacheInner {
-                client: Arc::downgrade(client),
+                client,
                 multiple_room_updates_lock: Default::default(),
                 by_room: Default::default(),
                 drop_handles: Default::default(),
@@ -297,7 +297,7 @@ impl EventCache {
 struct EventCacheInner {
     /// A weak reference to the inner client, useful when trying to get a handle
     /// on the owning client.
-    client: Weak<ClientInner>,
+    client: WeakClient,
 
     /// A lock used when many rooms must be updated at once.
     ///
@@ -316,7 +316,7 @@ struct EventCacheInner {
 
 impl EventCacheInner {
     fn client(&self) -> Result<Client> {
-        Ok(Client { inner: self.client.upgrade().ok_or(EventCacheError::ClientDropped)? })
+        self.client.get().ok_or(EventCacheError::ClientDropped)
     }
 
     /// Clears all the room's data.
@@ -398,11 +398,7 @@ impl EventCacheInner {
                     return Ok(Some(room.clone()));
                 }
 
-                let Some(room) = self.client()?.get_room(room_id) else {
-                    return Ok(None);
-                };
-
-                let room_event_cache = RoomEventCache::new(room);
+                let room_event_cache = RoomEventCache::new(self.client.clone(), room_id.to_owned());
 
                 by_room_guard.insert(room_id.to_owned(), room_event_cache.clone());
 
@@ -428,8 +424,8 @@ impl Debug for RoomEventCache {
 
 impl RoomEventCache {
     /// Create a new [`RoomEventCache`] using the given room and store.
-    fn new(room: Room) -> Self {
-        Self { inner: Arc::new(RoomEventCacheInner::new(room)) }
+    fn new(client: WeakClient, room_id: OwnedRoomId) -> Self {
+        Self { inner: Arc::new(RoomEventCacheInner::new(client, room_id)) }
     }
 
     /// Subscribe to room updates for this room, after getting the initial list
@@ -477,14 +473,16 @@ struct RoomEventCacheInner {
 impl RoomEventCacheInner {
     /// Creates a new cache for a room, and subscribes to room updates, so as
     /// to handle new timeline events.
-    fn new(room: Room) -> Self {
+    fn new(client: WeakClient, room_id: OwnedRoomId) -> Self {
         let sender = Sender::new(32);
+
+        let weak_room = WeakRoom::new(client, room_id);
 
         Self {
             events: RwLock::new(RoomEvents::default()),
             sender,
             pagination: RoomPaginationData {
-                paginator: Paginator::new(Box::new(room)),
+                paginator: Paginator::new(Box::new(weak_room)),
                 waited_for_initial_prev_token: Mutex::new(false),
                 token_notifier: Default::default(),
             },
@@ -517,7 +515,7 @@ impl RoomEventCacheInner {
                     handled_read_marker = true;
 
                     // Propagate to observers. (We ignore the error if there aren't any.)
-                    let _ = self.sender.send(RoomEventCacheUpdate::UpdateReadMarker {
+                    let _ = self.sender.send(RoomEventCacheUpdate::MoveReadMarkerTo {
                         event_id: ev.content.event_id,
                     });
                 }
@@ -551,7 +549,7 @@ impl RoomEventCacheInner {
     async fn handle_timeline(
         &self,
         timeline: Timeline,
-        ephemeral: Vec<Raw<AnySyncEphemeralRoomEvent>>,
+        ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
     ) -> Result<()> {
         if timeline.limited {
@@ -563,7 +561,7 @@ impl RoomEventCacheInner {
             self.replace_all_events_by(
                 timeline.events,
                 timeline.prev_batch,
-                ephemeral,
+                ephemeral_events,
                 ambiguity_changes,
             )
             .await?;
@@ -574,7 +572,7 @@ impl RoomEventCacheInner {
             self.append_new_events(
                 timeline.events,
                 timeline.prev_batch,
-                ephemeral,
+                ephemeral_events,
                 ambiguity_changes,
             )
             .await?;
@@ -592,9 +590,9 @@ impl RoomEventCacheInner {
     /// storage, notifying observers.
     async fn replace_all_events_by(
         &self,
-        events: Vec<SyncTimelineEvent>,
+        sync_timeline_events: Vec<SyncTimelineEvent>,
         prev_batch: Option<String>,
-        ephemeral: Vec<Raw<AnySyncEphemeralRoomEvent>>,
+        ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
     ) -> Result<()> {
         // Acquire the lock.
@@ -609,9 +607,9 @@ impl RoomEventCacheInner {
         // Push the new events.
         self.append_events_locked_impl(
             room_events,
-            events,
+            sync_timeline_events,
             prev_batch,
-            ephemeral,
+            ephemeral_events,
             ambiguity_changes,
         )
         .await
@@ -621,16 +619,16 @@ impl RoomEventCacheInner {
     /// observers.
     async fn append_new_events(
         &self,
-        events: Vec<SyncTimelineEvent>,
+        sync_timeline_events: Vec<SyncTimelineEvent>,
         prev_batch: Option<String>,
-        ephemeral: Vec<Raw<AnySyncEphemeralRoomEvent>>,
+        ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
     ) -> Result<()> {
         self.append_events_locked_impl(
             self.events.write().await,
-            events,
+            sync_timeline_events,
             prev_batch,
-            ephemeral,
+            ephemeral_events,
             ambiguity_changes,
         )
         .await
@@ -644,14 +642,14 @@ impl RoomEventCacheInner {
     async fn append_events_locked_impl(
         &self,
         mut room_events: RwLockWriteGuard<'_, RoomEvents>,
-        events: Vec<SyncTimelineEvent>,
+        sync_timeline_events: Vec<SyncTimelineEvent>,
         prev_batch: Option<String>,
-        ephemeral: Vec<Raw<AnySyncEphemeralRoomEvent>>,
+        ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
     ) -> Result<()> {
-        if events.is_empty()
+        if sync_timeline_events.is_empty()
             && prev_batch.is_none()
-            && ephemeral.is_empty()
+            && ephemeral_events.is_empty()
             && ambiguity_changes.is_empty()
         {
             return Ok(());
@@ -664,7 +662,7 @@ impl RoomEventCacheInner {
                 room_events.push_gap(Gap { prev_token: prev_token.clone() });
             }
 
-            room_events.push_events(events.clone().into_iter());
+            room_events.push_events(sync_timeline_events.clone().into_iter());
         }
 
         // Now that all events have been added, we can trigger the
@@ -673,8 +671,25 @@ impl RoomEventCacheInner {
             self.pagination.token_notifier.notify_one();
         }
 
-        let _ =
-            self.sender.send(RoomEventCacheUpdate::Append { events, ephemeral, ambiguity_changes });
+        // The order of `RoomEventCacheUpdate`s is **really** important here.
+        {
+            if !sync_timeline_events.is_empty() {
+                let _ = self.sender.send(RoomEventCacheUpdate::AddTimelineEvents {
+                    events: sync_timeline_events,
+                    origin: EventsOrigin::Sync,
+                });
+            }
+
+            if !ephemeral_events.is_empty() {
+                let _ = self
+                    .sender
+                    .send(RoomEventCacheUpdate::AddEphemeralEvents { events: ephemeral_events });
+            }
+
+            if !ambiguity_changes.is_empty() {
+                let _ = self.sender.send(RoomEventCacheUpdate::UpdateMembers { ambiguity_changes });
+            }
+        }
 
         Ok(())
     }
@@ -704,24 +719,42 @@ pub enum RoomEventCacheUpdate {
     Clear,
 
     /// The fully read marker has moved to a different event.
-    UpdateReadMarker {
+    MoveReadMarkerTo {
         /// Event at which the read marker is now pointing.
         event_id: OwnedEventId,
     },
 
-    /// The room has new events.
-    Append {
-        /// All the new events that have been added to the room's timeline.
-        events: Vec<SyncTimelineEvent>,
-        /// XXX: this is temporary, until read receipts are handled in the event
-        /// cache
-        ephemeral: Vec<Raw<AnySyncEphemeralRoomEvent>>,
+    /// The members have changed.
+    UpdateMembers {
         /// Collection of ambiguity changes that room member events trigger.
         ///
         /// This is a map of event ID of the `m.room.member` event to the
         /// details of the ambiguity change.
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
     },
+
+    /// The room has received new timeline events.
+    AddTimelineEvents {
+        /// All the new events that have been added to the room's timeline.
+        events: Vec<SyncTimelineEvent>,
+
+        /// Where the events are coming from.
+        origin: EventsOrigin,
+    },
+
+    /// The room has received new ephemeral events.
+    AddEphemeralEvents {
+        /// XXX: this is temporary, until read receipts are handled in the event
+        /// cache
+        events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
+    },
+}
+
+/// Indicate where events are coming from.
+#[derive(Debug, Clone)]
+pub enum EventsOrigin {
+    /// Events are coming from a sync.
+    Sync,
 }
 
 #[cfg(test)]
@@ -792,7 +825,7 @@ mod tests {
         // … there's only one read marker update.
         assert_matches!(
             stream.recv().await.unwrap(),
-            RoomEventCacheUpdate::UpdateReadMarker { .. }
+            RoomEventCacheUpdate::MoveReadMarkerTo { .. }
         );
 
         assert!(stream.recv().now_or_never().is_none());

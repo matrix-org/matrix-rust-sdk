@@ -606,13 +606,12 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         self.state.write().await.handle_fully_read_marker(fully_read_event_id);
     }
 
-    pub(super) async fn handle_sync_events(
+    pub(super) async fn handle_ephemeral_events(
         &self,
-        events: Vec<SyncTimelineEvent>,
-        ephemeral: Vec<Raw<AnySyncEphemeralRoomEvent>>,
+        events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
     ) {
         let mut state = self.state.write().await;
-        state.handle_sync_events(events, ephemeral, &self.room_data_provider, &self.settings).await;
+        state.handle_ephemeral_events(events, &self.room_data_provider).await;
     }
 
     #[cfg(test)]

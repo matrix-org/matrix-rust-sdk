@@ -275,6 +275,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
                         ["m.room.name", ""],
                         ["m.room.power_levels", ""],
                     ],
+                    "include_heroes": true,
                     "filters": {
                         "is_tombstoned": false,
                         "not_room_types": ["m.space"],
@@ -333,6 +334,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
                         ["m.room.encryption", ""],
                         ["m.room.member", "$LAZY"],
                     ],
+                    "include_heroes": true,
                     "filters": {
                         "is_tombstoned": false,
                         "not_room_types": ["m.space"],

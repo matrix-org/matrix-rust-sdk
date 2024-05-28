@@ -127,37 +127,28 @@ impl TimelineInnerState {
     }
 
     #[instrument(skip_all)]
-    pub(super) async fn handle_sync_events<P: RoomDataProvider>(
+    pub(super) async fn handle_ephemeral_events<P: RoomDataProvider>(
         &mut self,
-        events: Vec<SyncTimelineEvent>,
-        ephemeral: Vec<Raw<AnySyncEphemeralRoomEvent>>,
+        events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
         room_data_provider: &P,
-        settings: &TimelineInnerSettings,
     ) {
+        if events.is_empty() {
+            return;
+        }
+
         let mut txn = self.transaction();
 
-        txn.add_events_at(
-            events,
-            TimelineEnd::Back,
-            RemoteEventOrigin::Sync,
-            room_data_provider,
-            settings,
-        )
-        .await;
-
-        if !ephemeral.is_empty() {
-            trace!("Handling ephemeral room events");
-            let own_user_id = room_data_provider.own_user_id();
-            for raw_event in ephemeral {
-                match raw_event.deserialize() {
-                    Ok(AnySyncEphemeralRoomEvent::Receipt(ev)) => {
-                        txn.handle_explicit_read_receipts(ev.content, own_user_id);
-                    }
-                    Ok(_) => {}
-                    Err(e) => {
-                        let event_type = raw_event.get_field::<String>("type").ok().flatten();
-                        warn!(event_type, "Failed to deserialize ephemeral event: {e}");
-                    }
+        trace!("Handling ephemeral room events");
+        let own_user_id = room_data_provider.own_user_id();
+        for raw_event in events {
+            match raw_event.deserialize() {
+                Ok(AnySyncEphemeralRoomEvent::Receipt(ev)) => {
+                    txn.handle_explicit_read_receipts(ev.content, own_user_id);
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    let event_type = raw_event.get_field::<String>("type").ok().flatten();
+                    warn!(event_type, "Failed to deserialize ephemeral event: {e}");
                 }
             }
         }

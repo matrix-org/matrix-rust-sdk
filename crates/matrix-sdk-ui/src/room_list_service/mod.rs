@@ -459,6 +459,7 @@ fn configure_all_or_visible_rooms_list(
 ) -> SlidingSyncListBuilder {
     list_builder
         .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
+        .include_heroes(Some(true))
         .filters(Some(assign!(SyncRequestListFilters::default(), {
             // As defined in the [SlidingSync MSC](https://github.com/matrix-org/matrix-spec-proposals/blob/9450ced7fb9cf5ea9077d029b3adf36aebfa8709/proposals/3575-sync.md?plain=1#L444)
             // If unset, both invited and joined rooms are returned. If false, no invited rooms are

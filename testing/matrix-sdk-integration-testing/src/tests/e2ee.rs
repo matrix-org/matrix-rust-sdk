@@ -746,3 +746,41 @@ async fn test_backup_enable_new_user() -> Result<()> {
 
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_cross_signing_bootstrap() -> Result<()> {
+    let encryption_settings =
+        EncryptionSettings { auto_enable_cross_signing: true, ..Default::default() };
+
+    let alice = SyncTokenAwareClient::new(
+        TestClientBuilder::new("alice")
+            .randomize_username()
+            .use_sqlite()
+            .encryption_settings(encryption_settings)
+            .build()
+            .await?,
+    );
+
+    alice.encryption().wait_for_e2ee_initialization_tasks().await;
+
+    let status = alice
+        .encryption()
+        .cross_signing_status()
+        .await
+        .expect("We should know our cross-signing status by now.");
+
+    assert!(status.is_complete(), "We should have all private cross-signing keys available.");
+
+    // We need to sync to get the remote echo of the upload of the device keys.
+    alice.sync_once().await?;
+
+    let own_device = alice.encryption().get_own_device().await?.unwrap();
+
+    assert!(
+        own_device.is_cross_signed_by_owner(),
+        "Since we bootstrapped cross-signing, our own device should have been \
+         signed by the cross-signing keys."
+    );
+
+    Ok(())
+}
