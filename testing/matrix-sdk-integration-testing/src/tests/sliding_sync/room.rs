@@ -4,6 +4,7 @@ use std::{
 };
 
 use anyhow::Result;
+use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, FutureExt, StreamExt as _};
@@ -1186,61 +1187,46 @@ async fn test_edit_unpaginated_item() -> Result<()> {
 
     let alice_room = alice.get_room(room_id).unwrap();
     let alice_timeline = alice_room.timeline().await?;
+    let (_, mut timeline_stream) = alice_timeline.subscribe_batched().await;
     alice_timeline.send(RoomMessageEventContent::text_plain("hello world").into()).await;
-    sleep(Duration::from_millis(100)).await;
+    sleep(Duration::from_secs(1)).await;
+    let batch = timeline_stream.next().await.unwrap();
+    let original_event = assert_matches!(&batch[2], VectorDiff::Set { index: _, value, } => { value.as_event().unwrap().clone() });
+    info!("Original event: {original_event:?}");
+    let original_event_id = original_event.event_id().unwrap();
 
-    alice_timeline.send(RoomMessageEventContent::text_plain("ignore me").into()).await;
-    sleep(Duration::from_millis(100)).await;
-
-    // Get the event id of the message that contains the body we just sent
-    let event_id = alice_timeline
-        .items()
-        .await
-        .into_iter()
-        .find(|binding| {
-            if let Some(event_content) = binding.as_event() {
-                if let Some(message_content) = event_content.content().as_message() {
-                    return message_content.body() == "hello world";
-                }
-            }
-            false
-        })
-        .map(|binding| binding.as_event().unwrap().event_id().unwrap().to_owned())
-        .unwrap();
-
+    assert_pending!(timeline_stream);
     alice.event_cache().add_initial_events(room_id, vec![], None).await?;
+    alice_timeline.clear().await;
+
     drop(alice_timeline);
     let alice_timeline = alice_room.timeline().await?;
-
-    let (initial_values, mut stream) = alice_timeline.subscribe_batched().await;
+    let (initial_values, mut timeline_stream) = alice_timeline.subscribe_batched().await;
+    assert_pending!(timeline_stream);
     assert_eq!(initial_values.len(), 0);
-    alice_timeline
-        .edit_event(RoomMessageEventContent::text_plain("hello world 2").into(), &event_id)
-        .await?;
 
+    alice_timeline
+        .edit_event(RoomMessageEventContent::text_plain("hello world 2").into(), original_event_id)
+        .await?;
     sleep(Duration::from_secs(1)).await;
+    assert_pending!(timeline_stream);
 
     _ = alice_timeline.paginate_backwards(100).await;
     sleep(Duration::from_secs(1)).await;
 
-    let results_batch: Vec<VectorDiff<Arc<matrix_sdk_ui::timeline::TimelineItem>>> =
-        stream.next().await.unwrap();
-
-    info!("event id: {event_id}");
-    info!("Results batch: {results_batch:?}");
-
-    for diff in results_batch {
-        if let VectorDiff::PushFront { value } = diff {
-            if let Some(event) = value.as_event() {
-                if let Some(diff_event_id) = event.event_id() {
-                    if diff_event_id == event_id {
-                        assert_eq!(event.content().as_message().unwrap().body(), "hello world 2");
-                    }
-                }
-            }
+    let batch = timeline_stream.next().await.unwrap();
+    for diff in batch {
+        if let VectorDiff::PushFront { value, .. } = diff {
+            let event = value.as_event().unwrap();
+            info!("Edited event: {event:?}");
+            let message = event.content().as_message().unwrap();
+            assert!(message.is_edited());
+            assert_eq!(message.body(), "hello world 2");
+            assert_eq!(event.event_id().unwrap().to_string(), original_event_id.to_string());
+            return Ok(());
         }
     }
-    Ok(())
+    panic!("Edited event not found");
 }
 
 fn assert_room_preview(preview: &RoomPreview, room_alias: &str) {
