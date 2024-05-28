@@ -51,11 +51,11 @@ pub fn new_filter(client: &Client, pattern: &str) -> impl Filter {
     let client = client.clone();
 
     move |room_list_entry| -> bool {
-        let Some(room_id) = room_list_entry.as_room_id() else { return false };
-        let Some(room) = client.get_room(room_id) else { return false };
-        let Some(room_name) = room.name() else { return false };
-
-        searcher.matches(&room_name)
+        room_list_entry
+            .as_room_id()
+            .and_then(|room_id| client.get_room(room_id))
+            .and_then(|room| room.cached_computed_display_name())
+            .map_or(false, |room_name| searcher.matches(&room_name.to_string()))
     }
 }
 

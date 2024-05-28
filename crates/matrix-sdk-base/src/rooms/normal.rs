@@ -93,6 +93,9 @@ pub struct Room {
     roominfo_update_sender: broadcast::Sender<RoomInfoUpdate>,
     store: Arc<DynStateStore>,
 
+    /// Cached computed display name.
+    computed_display_name: Arc<SyncRwLock<Option<DisplayName>>>,
+
     /// The most recent few encrypted events. When the keys come through to
     /// decrypt these, the most recent relevant one will replace
     /// `latest_event`. (We can't tell which one is relevant until
@@ -202,6 +205,7 @@ impl Room {
                 Self::MAX_ENCRYPTED_EVENTS,
             ))),
             roominfo_update_sender,
+            computed_display_name: Arc::new(SyncRwLock::new(None)),
         }
     }
 
@@ -480,7 +484,20 @@ impl Room {
     ///
     /// [spec]: <https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room>
     pub async fn computed_display_name(&self) -> StoreResult<DisplayName> {
-        self.calculate_name().await
+        let res = self.calculate_name().await;
+        if let Ok(display_name) = &res {
+            *self.computed_display_name.write().unwrap() = Some(display_name.clone());
+        }
+        res
+    }
+
+    /// Returns a cached result of a previous call to
+    /// [`Self::computed_display_name`].
+    ///
+    /// This may return outdated values, or return `None` if we've never called
+    /// the above method.
+    pub fn cached_computed_display_name(&self) -> Option<DisplayName> {
+        self.computed_display_name.read().unwrap().clone()
     }
 
     /// Return the last event in this room, if one has been cached during
