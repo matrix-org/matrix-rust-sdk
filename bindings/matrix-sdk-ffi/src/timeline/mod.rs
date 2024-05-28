@@ -219,12 +219,22 @@ impl Timeline {
         Ok(())
     }
 
-    pub fn send(self: Arc<Self>, msg: Arc<RoomMessageEventContentWithoutRelation>) {
-        RUNTIME.spawn(async move {
-            if let Err(err) = self.inner.send((*msg).to_owned().with_relation(None).into()).await {
+    /// Queues an event in the room's sending queue so it's processed for
+    /// sending later.
+    ///
+    /// Returns an abort handle that allows to abort sending, if it hasn't
+    /// happened yet.
+    pub async fn send(
+        self: Arc<Self>,
+        msg: Arc<RoomMessageEventContentWithoutRelation>,
+    ) -> Result<Arc<AbortSendHandle>, ClientError> {
+        match self.inner.send((*msg).to_owned().with_relation(None).into()).await {
+            Ok(handle) => Ok(Arc::new(AbortSendHandle { inner: Mutex::new(Some(handle)) })),
+            Err(err) => {
                 error!("error when sending a message: {err}");
+                Err(anyhow::anyhow!(err).into())
             }
-        });
+        }
     }
 
     pub fn send_image(
@@ -480,7 +490,7 @@ impl Timeline {
         Ok(())
     }
 
-    pub fn send_location(
+    pub async fn send_location(
         self: Arc<Self>,
         body: String,
         geo_uri: String,
@@ -504,7 +514,8 @@ impl Timeline {
         let room_message_event_content = RoomMessageEventContentWithoutRelation::new(
             MessageType::Location(location_event_message_content),
         );
-        self.send(Arc::new(room_message_event_content))
+        // Errors are logged in `Self::send` already.
+        let _ = self.send(Arc::new(room_message_event_content)).await;
     }
 
     pub async fn toggle_reaction(&self, event_id: String, key: String) -> Result<(), ClientError> {
@@ -536,6 +547,28 @@ impl Timeline {
         let latest_event = self.inner.latest_event().await;
 
         latest_event.map(|item| Arc::new(EventTimelineItem(item)))
+    }
+}
+
+#[derive(uniffi::Object)]
+pub struct AbortSendHandle {
+    inner: Mutex<Option<matrix_sdk::send_queue::AbortSendHandle>>,
+}
+
+#[uniffi::export(async_runtime = "tokio")]
+impl AbortSendHandle {
+    /// Try to abort the sending of the current event.
+    ///
+    /// If this returns `true`, then the sending could be aborted, because the
+    /// event hasn't been sent yet. Otherwise, if this returns `false`, the
+    /// event had already been sent and could not be aborted.
+    async fn abort(self: Arc<Self>) -> bool {
+        if let Some(inner) = self.inner.lock().await.take() {
+            inner.abort().await
+        } else {
+            warn!("trying to abort an send handle that's already been actioned");
+            false
+        }
     }
 }
 
