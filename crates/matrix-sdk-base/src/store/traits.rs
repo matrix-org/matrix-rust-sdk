@@ -811,10 +811,9 @@ pub enum StateStoreDataValue {
     RecentlyVisitedRooms(Vec<String>),
 
     /// A composer draft for the room.
-    /// /// To learn more, see [`ComposerDraft`] and [`DraftType`].
+    /// /// To learn more, see [`ComposerDraft`].
     ///
     /// [`ComposerDraft`]: self::ComposerDraft
-    /// [`DrafType`]: self::DraftType
     ComposerDraft(ComposerDraft),
 }
 
