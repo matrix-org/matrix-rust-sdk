@@ -128,21 +128,26 @@ impl UtdHookManager {
             known_utds.insert(event_id.to_owned(), Instant::now());
         }
 
-        let info =
-            UnableToDecryptInfo { event_id: event_id.to_owned(), time_to_decrypt: None, cause };
+        // Construct a closure which will report the UTD to the parent.
+        let report_utd = {
+            let info =
+                UnableToDecryptInfo { event_id: event_id.to_owned(), time_to_decrypt: None, cause };
+            let parent = self.parent.clone();
+            move || {
+                parent.on_utd(info);
+            }
+        };
 
         let Some(max_delay) = self.max_delay else {
             // No delay: immediately report the event to the parent hook.
-            self.parent.on_utd(info);
+            report_utd();
             return;
         };
 
-        let event_id = info.event_id.clone();
-
-        // Clone Arc'd pointers shared with the task below.
+        // Clone data shared with the task below.
         let known_utds = self.known_utds.clone();
         let pending_delayed = self.pending_delayed.clone();
-        let parent = self.parent.clone();
+        let event_id2 = event_id.to_owned();
 
         // Spawn a task that will wait for the given delay, and maybe call the parent
         // hook then.
@@ -151,17 +156,17 @@ impl UtdHookManager {
             sleep(max_delay).await;
 
             // In any case, remove the task from the outstanding set.
-            pending_delayed.lock().unwrap().retain(|(event_id, _)| *event_id != info.event_id);
+            pending_delayed.lock().unwrap().retain(|(event_id, _)| *event_id != event_id2);
 
             // Check if the event is still in the map: if not, it's been decrypted since
             // then!
-            if known_utds.lock().unwrap().contains_key(&info.event_id) {
-                parent.on_utd(info);
+            if known_utds.lock().unwrap().contains_key(&event_id2) {
+                report_utd();
             }
         });
 
         // Add the task to the set of pending tasks.
-        self.pending_delayed.lock().unwrap().push((event_id, handle));
+        self.pending_delayed.lock().unwrap().push((event_id.to_owned(), handle));
     }
 
     /// The function to call whenever an event that was marked as a UTD has
