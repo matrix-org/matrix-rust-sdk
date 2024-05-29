@@ -19,7 +19,7 @@
 //! utilities to simplify usage of this trait.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
@@ -76,13 +76,12 @@ pub struct UtdHookManager {
     /// The parent hook we'll call, when we have found a unique UTD.
     parent: Arc<dyn UnableToDecryptHook>,
 
-    /// A mapping of events we've marked as UTDs, and the time at which we
-    /// observed those UTDs.
+    /// A mapping of events we've marked as UTDs.
     ///
     /// Note: this is unbounded, because we have absolutely no idea how long it
     /// will take for a UTD to resolve, or if it will even resolve at any
     /// point.
-    known_utds: Arc<Mutex<HashMap<OwnedEventId, Instant>>>,
+    known_utds: Arc<Mutex<HashSet<OwnedEventId>>>,
 
     /// An optional delay before marking the event as UTD ("grace period").
     max_delay: Option<Duration>,
@@ -131,12 +130,9 @@ impl UtdHookManager {
         // Keep track of UTDs we have already seen.
         {
             let mut known_utds = self.known_utds.lock().unwrap();
-            // Note: we don't want to replace the previous time, so don't look at the result
-            // of insert to know whether the entry was already present or not.
-            if known_utds.contains_key(event_id) {
+            if !known_utds.insert(event_id.to_owned()) {
                 return;
             }
-            known_utds.insert(event_id.to_owned(), Instant::now());
         }
 
         // Construct a closure which will report the UTD to the parent.
