@@ -84,11 +84,13 @@ pub enum HumanQrLoginError {
     SlidingSyncNotAvailable,
     #[error("Unable to use OIDC as the supplied client metadata is invalid.")]
     OidcMetadataInvalid,
+    #[error("The other device is not signed in and as such can't sign in other devices.")]
+    OtherDeviceNotSignedIn,
 }
 
 impl From<qrcode::QRCodeLoginError> for HumanQrLoginError {
     fn from(value: qrcode::QRCodeLoginError) -> Self {
-        use qrcode::QRCodeLoginError;
+        use qrcode::{QRCodeLoginError, SecureChannelError};
 
         match value {
             QRCodeLoginError::LoginFailure { reason, .. } => match reason {
@@ -108,7 +110,17 @@ impl From<qrcode::QRCodeLoginError> for HumanQrLoginError {
                     HumanQrLoginError::Unknown
                 }
             }
-            QRCodeLoginError::SecureChannel(_) => HumanQrLoginError::ConnectionInsecure,
+            QRCodeLoginError::SecureChannel(e) => match e {
+                SecureChannelError::Utf8(_)
+                | SecureChannelError::Ecies(_)
+                | SecureChannelError::MessageDecode(_)
+                | SecureChannelError::Json(_)
+                | SecureChannelError::SecureChannelMessage { .. }
+                | SecureChannelError::InvalidCheckCode
+                | SecureChannelError::RendezvousChannel(_) => HumanQrLoginError::Unknown,
+                SecureChannelError::InvalidIntent => HumanQrLoginError::OtherDeviceNotSignedIn,
+            },
+
             QRCodeLoginError::UnexpectedMessage { .. }
             | QRCodeLoginError::CrossProcessRefreshLock(_)
             | QRCodeLoginError::DeviceKeyUpload(_)
