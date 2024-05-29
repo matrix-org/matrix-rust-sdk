@@ -121,7 +121,14 @@ impl UtdHookManager {
     ///
     /// Pipe in any information that needs to be included in the final report.
     pub(crate) fn on_utd(&self, event_id: &EventId, cause: UtdCause) {
-        // Only let the parent hook know if the event wasn't already handled.
+        // First of all, check if we already have a task to handle this UTD. If so, our
+        // work is done
+        let mut pending_delayed_lock = self.pending_delayed.lock().unwrap();
+        if pending_delayed_lock.contains_key(event_id) {
+            return;
+        }
+
+        // Keep track of UTDs we have already seen.
         {
             let mut known_utds = self.known_utds.lock().unwrap();
             // Note: we don't want to replace the previous time, so don't look at the result
@@ -149,7 +156,6 @@ impl UtdHookManager {
         };
 
         // Clone data shared with the task below.
-        let known_utds = self.known_utds.clone();
         let pending_delayed = self.pending_delayed.clone();
         let event_id2 = event_id.to_owned();
 
@@ -159,18 +165,15 @@ impl UtdHookManager {
             // Wait for the given delay.
             sleep(max_delay).await;
 
-            // In any case, remove the task from the outstanding set.
-            pending_delayed.lock().unwrap().remove(&event_id2);
-
-            // Check if the event is still in the map: if not, it's been decrypted since
-            // then!
-            if known_utds.lock().unwrap().contains_key(&event_id2) {
+            // Remove the task from the outstanding set. But if it's already been removed,
+            // it's been decrypted since the task was added!
+            if pending_delayed.lock().unwrap().remove(&event_id2).is_some() {
                 report_utd();
             }
         });
 
         // Add the task to the set of pending tasks.
-        self.pending_delayed.lock().unwrap().insert(
+        pending_delayed_lock.insert(
             event_id.to_owned(),
             PendingUtdReport { marked_utd_at: Instant::now(), report_task: handle },
         );
@@ -182,25 +185,25 @@ impl UtdHookManager {
     /// Note: if this is called for an event that was never marked as a UTD
     /// before, it has no effect.
     pub(crate) fn on_late_decrypt(&self, event_id: &EventId, cause: UtdCause) {
-        // Only let the parent hook know if the event was known to be a UTDs.
-        let Some(marked_utd_at) = self.known_utds.lock().unwrap().remove(event_id) else {
+        let mut pending_delayed_lock = self.pending_delayed.lock().unwrap();
+        self.known_utds.lock().unwrap().remove(event_id);
+
+        // Only let the parent hook know about the late decryption if the event is
+        // a pending UTD. If so, remove the event from the pending list --
+        // doing so will cause the reporting task to no-op if it runs.
+        let Some(pending_utd_report) = pending_delayed_lock.remove(event_id) else {
             return;
         };
 
+        // We can also cancel the reporting task.
+        pending_utd_report.report_task.abort();
+
+        // Now we can report the late decryption.
         let info = UnableToDecryptInfo {
             event_id: event_id.to_owned(),
-            time_to_decrypt: Some(marked_utd_at.elapsed()),
+            time_to_decrypt: Some(pending_utd_report.marked_utd_at.elapsed()),
             cause,
         };
-
-        // Cancel and remove the task from the outstanding set immediately.
-        self.pending_delayed.lock().unwrap().remove(event_id).map(
-            |pending_utd_report: PendingUtdReport| {
-                pending_utd_report.report_task.abort();
-            },
-        );
-
-        // Report to the parent hook.
         self.parent.on_utd(info);
     }
 }
@@ -302,18 +305,10 @@ mod tests {
         // And when I call the `on_late_decrypt` method,
         wrapper.on_late_decrypt(event_id!("$1"), UtdCause::Unknown);
 
-        // Then the event is now reported as a late-decryption too.
+        // Then the event is not reported again as a late-decryption.
         {
             let utds = hook.utds.lock().unwrap();
-            assert_eq!(utds.len(), 2);
-
-            // The previous report is still there. (There was no grace period.)
-            assert_eq!(utds[0].event_id, event_id!("$1"));
-            assert!(utds[0].time_to_decrypt.is_none());
-
-            // The new report with a late-decryption is there.
-            assert_eq!(utds[1].event_id, event_id!("$1"));
-            assert!(utds[1].time_to_decrypt.is_some());
+            assert_eq!(utds.len(), 1);
         }
     }
 
