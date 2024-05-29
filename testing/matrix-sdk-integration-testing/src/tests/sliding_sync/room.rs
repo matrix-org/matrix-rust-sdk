@@ -1290,7 +1290,7 @@ async fn test_edit_unpaginated_item_after_clearing_timeline() -> Result<()> {
     let alice_timeline = alice_room.timeline().await?;
     let (_, mut timeline_stream) = alice_timeline.subscribe_batched().await;
     alice_timeline.send(RoomMessageEventContent::text_plain("hello world").into()).await;
-    sleep(Duration::from_secs(1)).await;
+    sleep(Duration::from_secs(2)).await;
     let batch = timeline_stream.next().await.unwrap();
     let original_event = assert_matches!(&batch[2], VectorDiff::Set { index: _, value, } => { value.as_event().unwrap().clone() });
     info!("Original event: {original_event:?}");
@@ -1306,11 +1306,11 @@ async fn test_edit_unpaginated_item_after_clearing_timeline() -> Result<()> {
     alice_timeline
         .edit_event(RoomMessageEventContent::text_plain("hello world 2").into(), original_event_id)
         .await?;
-    sleep(Duration::from_secs(1)).await;
+    sleep(Duration::from_secs(2)).await;
     assert_pending!(timeline_stream);
 
     _ = alice_timeline.paginate_backwards(100).await;
-    sleep(Duration::from_secs(1)).await;
+    sleep(Duration::from_secs(2)).await;
 
     let batch = timeline_stream.next().await.unwrap();
     for diff in batch {
