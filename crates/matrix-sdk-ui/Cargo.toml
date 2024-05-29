@@ -43,6 +43,7 @@ matrix-sdk-base = { workspace = true }
 mime = "0.3.16"
 once_cell = { workspace = true }
 pin-project-lite = { workspace = true }
+rmp-serde = "1.3.0"
 ruma = { workspace = true, features = ["html", "unstable-msc3381"] }
 serde = { workspace = true }
 serde_json = { workspace = true }

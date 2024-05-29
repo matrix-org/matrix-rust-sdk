@@ -3591,6 +3591,7 @@ dependencies = [
  "mime",
  "once_cell",
  "pin-project-lite",
+ "rmp-serde",
  "ruma",
  "serde",
  "serde_json",

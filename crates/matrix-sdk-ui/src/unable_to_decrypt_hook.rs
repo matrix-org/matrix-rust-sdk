@@ -26,8 +26,10 @@ use std::{
 
 use growable_bloom_filter::{GrowableBloom, GrowableBloomBuilder};
 use matrix_sdk::{crypto::types::events::UtdCause, Client};
+use matrix_sdk_base::{StateStoreDataKey, StateStoreDataValue};
 use ruma::{EventId, OwnedEventId};
 use tokio::{spawn, task::JoinHandle, time::sleep};
+use tracing::{debug, error, trace, warn};
 
 /// A generic interface which methods get called whenever we observe a
 /// unable-to-decrypt (UTD) event.
@@ -240,18 +242,32 @@ impl Drop for UtdHookManager {
         for (_, pending_utd_report) in pending_delayed.drain() {
             pending_utd_report.report_task.abort();
         }
+
+        // If there is a pending flush task, abort it. We'll lose data, but
+        // there's not much we can do at this point. It's better than hanging onto a
+        // reference to the Client forever.
+        self.reported_utds.cancel_flush_task();
     }
 }
 
 /// A manager which keeps track of the UTD events which have been reported to
-/// the parent hook.
+/// the parent hook, and takes care of persisting the data to the store
+/// periodically.
 ///
 /// It is based on a Bloom filter, which is a space-efficient probabilistic data
 /// structure.
 #[derive(Debug, Clone)]
 struct ReportedUtdsManager {
-    /// The actual data about which events have been reported as UTDs.
+    /// A Client associated with the UTD hook. This is used to access the store
+    /// which we persist our data to.
+    client: Client,
+
+    /// The actual data about which events have been reported.
     data: Arc<Mutex<ReportedUtdsData>>,
+
+    /// Mutex which is used to ensure that only one flush job runs at a time.
+    /// See the notes in [`ReportedUtdsManager::flush`].
+    flush_mutex: Arc<tokio::sync::Mutex<()>>,
 }
 
 /// Data store object for [`ReportedUtdsManager::data`].
@@ -260,6 +276,11 @@ struct ReportedUtdsData {
     /// Bloom filter containing the event IDs of events which have been reported
     /// as UTDs
     pub bloom_filter: GrowableBloom,
+
+    /// A pending task to flush the data to the store.
+    ///
+    /// If this is `None`, there is no pending job.
+    pub flush_task: Option<JoinHandle<()>>,
 }
 
 impl ReportedUtdsManager {
@@ -307,14 +328,33 @@ impl ReportedUtdsManager {
             // [1]: https://gsd.di.uminho.pt/members/cbm/ps/dbloom.pdf
             GrowableBloomBuilder::new().estimated_insertions(1000).desired_error_ratio(0.01).build()
         };
-        Self { data: Arc::new(Mutex::new(ReportedUtdsData { bloom_filter })) }
+        Self {
+            client,
+            data: Arc::new(Mutex::new(ReportedUtdsData { bloom_filter, flush_task: None })),
+            flush_mutex: Arc::new(tokio::sync::Mutex::new(())),
+        }
     }
 
     /// Insert a new entry into the bloom filter.
+    ///
+    /// A task will be started to persist the state of the bloom filter to the
+    /// store, if one was not already pending.
     pub fn insert(&self, event_id: OwnedEventId) {
         let mut data = self.data.lock().unwrap();
 
         data.bloom_filter.insert(event_id);
+
+        // If there isn't already an active job to flush the data to the store, kick one
+        // off.
+        if data.flush_task.is_none() {
+            trace!("Scheduling UtdHookManager flush task");
+            let this = self.clone();
+            data.flush_task = Some(spawn(async move {
+                this.flush().await.unwrap_or_else(|e| {
+                    error!("unable to flush UTD report data: {}", e);
+                });
+            }));
+        }
     }
 
     /// Test if the event id is in the bloom filter.
@@ -323,6 +363,40 @@ impl ReportedUtdsManager {
     /// If `false` is returned, it has definitely *not* been reported.
     pub fn contains(&self, event_id: &EventId) -> bool {
         self.data.lock().unwrap().bloom_filter.contains(event_id)
+    }
+
+    /// If there is a pending flush task, cancel it.
+    pub fn cancel_flush_task(&self) {
+        if let Some(flush_task) = self.data.lock().unwrap().flush_task.take() {
+            warn!("Cancelling pending UTD report flush task");
+            flush_task.abort();
+        }
+    }
+
+    async fn flush(&self) -> Result<(), Box<dyn std::error::Error>> {
+        // Make sure that only one flush task runs at a time.
+        // Otherwise, if one flush task was particularly slow, it could be overtaken
+        // by the next task; then when the first task completed it would overwrite the
+        // newer data.
+        //
+        // (Annoyingly, we can't use the mutex on `data` for this, because that is
+        // a regular `std::sync::Mutex`, which isn't `Send`, so we can't hold over an
+        // `await` point. Conversely, we can't use `flush_mutex` to protect `data`
+        // elsewhere because locking a `tokio::sync::Mutex` is an async
+        // operation, and we require synchronous access to `data`.)
+        let _flush_lock = self.flush_mutex.lock().await;
+
+        // Atomically clear the `flush_task` and serialise the current state of the
+        // bloom filter.
+        let serialized = {
+            let mut data = self.data.lock().unwrap();
+            data.flush_task.take();
+            StateStoreDataValue::UtdHookManagerData(rmp_serde::to_vec(&data.bloom_filter)?)
+        };
+
+        self.client.store().set_kv_data(StateStoreDataKey::UtdHookManagerData, serialized).await?;
+        debug!("Flushed UTD report data to store");
+        Ok(())
     }
 }
 
