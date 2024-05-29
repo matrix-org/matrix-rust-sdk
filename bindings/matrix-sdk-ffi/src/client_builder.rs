@@ -112,12 +112,12 @@ impl From<qrcode::QRCodeLoginError> for HumanQrLoginError {
             }
             QRCodeLoginError::SecureChannel(e) => match e {
                 SecureChannelError::Utf8(_)
-                | SecureChannelError::Ecies(_)
                 | SecureChannelError::MessageDecode(_)
                 | SecureChannelError::Json(_)
-                | SecureChannelError::SecureChannelMessage { .. }
-                | SecureChannelError::InvalidCheckCode
                 | SecureChannelError::RendezvousChannel(_) => HumanQrLoginError::Unknown,
+                SecureChannelError::SecureChannelMessage { .. }
+                | SecureChannelError::Ecies(_)
+                | SecureChannelError::InvalidCheckCode => HumanQrLoginError::ConnectionInsecure,
                 SecureChannelError::InvalidIntent => HumanQrLoginError::OtherDeviceNotSignedIn,
             },
 
