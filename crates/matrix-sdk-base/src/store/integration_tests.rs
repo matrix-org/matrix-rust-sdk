@@ -62,6 +62,8 @@ pub trait StateStoreIntegrationTests {
     async fn test_user_avatar_url_saving(&self);
     /// Test sync token saving.
     async fn test_sync_token_saving(&self);
+    /// Test UtdHookManagerData saving.
+    async fn test_utd_hook_manager_data_saving(&self);
     /// Test stripped room member saving.
     async fn test_stripped_member_saving(&self);
     /// Test room power levels saving.
@@ -592,6 +594,37 @@ impl StateStoreIntegrationTests for DynStateStore {
 
         self.remove_kv_data(StateStoreDataKey::SyncToken).await.unwrap();
         assert_matches!(self.get_kv_data(StateStoreDataKey::SyncToken).await, Ok(None));
+    }
+
+    async fn test_utd_hook_manager_data_saving(&self) {
+        // Before any data is written, the getter should return None.
+        assert!(
+            self.get_kv_data(StateStoreDataKey::UtdHookManagerData)
+                .await
+                .expect("Could not read data")
+                .is_none(),
+            "Store was not empty at start"
+        );
+
+        // Put some data in the store...
+        let data = "some data".as_bytes().to_vec();
+        self.set_kv_data(
+            StateStoreDataKey::UtdHookManagerData,
+            StateStoreDataValue::UtdHookManagerData(data.clone()),
+        )
+        .await
+        .expect("Could not save data");
+
+        // ... and check it comes back.
+        let read_data = self
+            .get_kv_data(StateStoreDataKey::UtdHookManagerData)
+            .await
+            .expect("Could not read data")
+            .expect("no data found")
+            .into_utd_hook_manager_data()
+            .expect("not UtdHookManagerData");
+
+        assert_eq!(read_data, data);
     }
 
     async fn test_stripped_member_saving(&self) {
@@ -1349,6 +1382,12 @@ macro_rules! statestore_integration_tests {
         async fn test_sync_token_saving() {
             let store = get_store().await.unwrap().into_state_store();
             store.test_sync_token_saving().await
+        }
+
+        #[async_test]
+        async fn test_utd_hook_manager_data_saving() {
+             let store = get_store().await.expect("creating store failed").into_state_store();
+             store.test_utd_hook_manager_data_saving().await;
         }
 
         #[async_test]

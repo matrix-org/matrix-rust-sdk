@@ -388,6 +388,9 @@ impl IndexeddbStateStore {
             StateStoreDataKey::RecentlyVisitedRooms(user_id) => {
                 self.encode_key(keys::KV, (StateStoreDataKey::RECENTLY_VISITED_ROOMS, user_id))
             }
+            StateStoreDataKey::UtdHookManagerData => {
+                self.encode_key(keys::KV, StateStoreDataKey::UTD_HOOK_MANAGER_DATA)
+            }
         }
     }
 }
@@ -449,6 +452,10 @@ impl_state_store!({
                 .map(|f| self.deserialize_event::<Vec<String>>(&f))
                 .transpose()?
                 .map(StateStoreDataValue::RecentlyVisitedRooms),
+            StateStoreDataKey::UtdHookManagerData => value
+                .map(|f| self.deserialize_event::<Vec<u8>>(&f))
+                .transpose()?
+                .map(StateStoreDataValue::UtdHookManagerData),
         };
 
         Ok(value)
@@ -474,6 +481,9 @@ impl_state_store!({
                 &value
                     .into_recently_visited_rooms()
                     .expect("Session data not a recently visited room list"),
+            ),
+            StateStoreDataKey::UtdHookManagerData => self.serialize_event(
+                &value.into_utd_hook_manager_data().expect("Session data not UtdHookManagerData"),
             ),
         };
 
