@@ -278,6 +278,9 @@ impl SqliteStateStore {
             StateStoreDataKey::RecentlyVisitedRooms(b) => {
                 Cow::Owned(format!("{}:{b}", StateStoreDataKey::RECENTLY_VISITED_ROOMS))
             }
+            StateStoreDataKey::UtdHookManagerData => {
+                Cow::Borrowed(StateStoreDataKey::UTD_HOOK_MANAGER_DATA)
+            }
         };
 
         self.encode_key(keys::KV_BLOB, &*key_s)
@@ -896,6 +899,9 @@ impl StateStore for SqliteStateStore {
                     StateStoreDataKey::RecentlyVisitedRooms(_) => {
                         StateStoreDataValue::RecentlyVisitedRooms(self.deserialize_value(&data)?)
                     }
+                    StateStoreDataKey::UtdHookManagerData => {
+                        StateStoreDataValue::UtdHookManagerData(self.deserialize_value(&data)?)
+                    }
                 })
             })
             .transpose()
@@ -918,6 +924,9 @@ impl StateStore for SqliteStateStore {
             )?,
             StateStoreDataKey::RecentlyVisitedRooms(_) => self.serialize_value(
                 &value.into_recently_visited_rooms().expect("Session data not breadcrumbs"),
+            )?,
+            StateStoreDataKey::UtdHookManagerData => self.serialize_value(
+                &value.into_utd_hook_manager_data().expect("Session data not UtdHookManagerData"),
             )?,
         };
 

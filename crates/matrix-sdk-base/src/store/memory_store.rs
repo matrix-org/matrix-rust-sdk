@@ -19,6 +19,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+use growable_bloom_filter::GrowableBloom;
 use matrix_sdk_common::{instant::Instant, ring_buffer::RingBuffer};
 use ruma::{
     canonical_json::{redact, RedactedBecause},
@@ -52,6 +53,7 @@ pub struct MemoryStore {
     user_avatar_url: StdRwLock<HashMap<String, String>>,
     sync_token: StdRwLock<Option<String>>,
     filters: StdRwLock<HashMap<String, String>>,
+    utd_hook_manager_data: StdRwLock<Option<GrowableBloom>>,
     account_data: StdRwLock<HashMap<GlobalAccountDataEventType, Raw<AnyGlobalAccountDataEvent>>>,
     profiles: StdRwLock<HashMap<OwnedRoomId, HashMap<OwnedUserId, MinimalRoomMemberEvent>>>,
     display_names: StdRwLock<HashMap<OwnedRoomId, HashMap<String, BTreeSet<OwnedUserId>>>>,
@@ -94,6 +96,7 @@ impl Default for MemoryStore {
             user_avatar_url: Default::default(),
             sync_token: Default::default(),
             filters: Default::default(),
+            utd_hook_manager_data: Default::default(),
             account_data: Default::default(),
             profiles: Default::default(),
             display_names: Default::default(),
@@ -186,6 +189,12 @@ impl StateStore for MemoryStore {
                 .get(user_id.as_str())
                 .cloned()
                 .map(StateStoreDataValue::RecentlyVisitedRooms),
+            StateStoreDataKey::UtdHookManagerData => self
+                .utd_hook_manager_data
+                .read()
+                .unwrap()
+                .clone()
+                .map(StateStoreDataValue::UtdHookManagerData),
         })
     }
 
@@ -219,6 +228,13 @@ impl StateStore for MemoryStore {
                         .expect("Session data not a list of recently visited rooms"),
                 );
             }
+            StateStoreDataKey::UtdHookManagerData => {
+                *self.utd_hook_manager_data.write().unwrap() = Some(
+                    value
+                        .into_utd_hook_manager_data()
+                        .expect("Session data not the hook manager data"),
+                );
+            }
         }
 
         Ok(())
@@ -235,6 +251,9 @@ impl StateStore for MemoryStore {
             }
             StateStoreDataKey::RecentlyVisitedRooms(user_id) => {
                 self.recently_visited_rooms.write().unwrap().remove(user_id.as_str());
+            }
+            StateStoreDataKey::UtdHookManagerData => {
+                *self.utd_hook_manager_data.write().unwrap() = None
             }
         }
         Ok(())

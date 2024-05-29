@@ -15,7 +15,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = ["e2e-encryption", "state-store"]
-state-store = ["dep:matrix-sdk-base"]
+state-store = ["dep:matrix-sdk-base", "growable-bloom-filter"]
 e2e-encryption = ["dep:matrix-sdk-crypto"]
 testing = ["matrix-sdk-crypto?/testing"]
 
@@ -24,6 +24,7 @@ anyhow = { workspace = true }
 async-trait = { workspace = true }
 base64 = { workspace = true }
 gloo-utils = { version = "0.2.0", features = ["serde"] }
+growable-bloom-filter = { workspace = true, optional = true }
 indexed_db_futures = "0.4.1"
 js-sys = { version = "0.3.58" }
 matrix-sdk-base = { workspace = true, features = ["js"], optional = true }
