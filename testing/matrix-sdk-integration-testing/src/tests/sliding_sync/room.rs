@@ -1315,13 +1315,15 @@ async fn test_edit_unpaginated_item_after_clearing_timeline() -> Result<()> {
     let batch = timeline_stream.next().await.unwrap();
     for diff in batch {
         if let VectorDiff::PushFront { value, .. } = diff {
-            let event = value.as_event().unwrap();
-            info!("Edited event: {event:?}");
-            let message = event.content().as_message().unwrap();
-            assert!(message.is_edited());
-            assert_eq!(message.body(), "hello world 2");
-            assert_eq!(event.event_id().unwrap().to_string(), original_event_id.to_string());
-            return Ok(());
+            if let Some(event) = value.as_event() {
+                if event.event_id() == Some(original_event_id) {
+                    let message = event.content().as_message().unwrap();
+                    info!("Edited event: {event:?}");
+                    assert!(message.is_edited());
+                    assert_eq!(message.body(), "hello world 2");
+                    return Ok(());
+                }
+            }
         }
     }
     panic!("Edited event not found");
