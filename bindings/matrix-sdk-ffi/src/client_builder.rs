@@ -99,6 +99,7 @@ impl From<qrcode::QRCodeLoginError> for HumanQrLoginError {
                 LoginFailureReason::UserCancelled => HumanQrLoginError::Cancelled,
                 _ => HumanQrLoginError::Unknown,
             },
+
             QRCodeLoginError::Oidc(e) => {
                 if let Some(e) = e.as_request_token_error() {
                     match e {
@@ -110,6 +111,7 @@ impl From<qrcode::QRCodeLoginError> for HumanQrLoginError {
                     HumanQrLoginError::Unknown
                 }
             }
+
             QRCodeLoginError::SecureChannel(e) => match e {
                 SecureChannelError::Utf8(_)
                 | SecureChannelError::MessageDecode(_)
@@ -492,7 +494,7 @@ impl ClientBuilder {
 
             Ok(client)
         } else {
-            Err(HumanQrLoginError::InvalidQrCode)
+            Err(HumanQrLoginError::OtherDeviceNotSignedIn)
         }
     }
 }
