@@ -78,8 +78,6 @@ pub enum HumanQrLoginError {
     Declined,
     #[error("An unknown error has happened.")]
     Unknown,
-    #[error("The QR code we scanned was not valid.")]
-    InvalidQrCode,
     #[error("The homeserver doesn't provide a sliding sync proxy in its configuration.")]
     SlidingSyncNotAvailable,
     #[error("Unable to use OIDC as the supplied client metadata is invalid.")]
@@ -99,6 +97,7 @@ impl From<qrcode::QRCodeLoginError> for HumanQrLoginError {
                 LoginFailureReason::UserCancelled => HumanQrLoginError::Cancelled,
                 _ => HumanQrLoginError::Unknown,
             },
+
             QRCodeLoginError::Oidc(e) => {
                 if let Some(e) = e.as_request_token_error() {
                     match e {
@@ -110,6 +109,7 @@ impl From<qrcode::QRCodeLoginError> for HumanQrLoginError {
                     HumanQrLoginError::Unknown
                 }
             }
+
             QRCodeLoginError::SecureChannel(e) => match e {
                 SecureChannelError::Utf8(_)
                 | SecureChannelError::MessageDecode(_)
@@ -492,7 +492,7 @@ impl ClientBuilder {
 
             Ok(client)
         } else {
-            Err(HumanQrLoginError::InvalidQrCode)
+            Err(HumanQrLoginError::OtherDeviceNotSignedIn)
         }
     }
 }
