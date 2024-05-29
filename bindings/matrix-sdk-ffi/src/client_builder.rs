@@ -78,8 +78,6 @@ pub enum HumanQrLoginError {
     Declined,
     #[error("An unknown error has happened.")]
     Unknown,
-    #[error("The QR code we scanned was not valid.")]
-    InvalidQrCode,
     #[error("The homeserver doesn't provide a sliding sync proxy in its configuration.")]
     SlidingSyncNotAvailable,
     #[error("Unable to use OIDC as the supplied client metadata is invalid.")]
