@@ -712,6 +712,9 @@ impl Room {
         Ok(())
     }
 
+    /// Loads the reply details for the given event id.
+    /// This will return an `InReplyToDetails` object that contains the details
+    /// which will either be ready or an error.
     pub async fn load_reply_details(
         &self,
         event_id: String,
