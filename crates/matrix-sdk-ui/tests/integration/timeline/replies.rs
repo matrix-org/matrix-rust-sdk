@@ -388,6 +388,8 @@ async fn test_send_reply_with_event_id() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
+    assert_next_matches!(timeline_stream, VectorDiff::PushBack { .. });
+
     // Clear the timeline to make sure the old item does not need to be
     // available in it for the reply to work.
     timeline.clear().await;
