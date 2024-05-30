@@ -6,7 +6,7 @@ on:
   # This workflow is triggered after every successfull execution
   # of `coverage` workflow.
   workflow_run:
-    workflows: ["coverage"]
+    workflows: ["Code Coverage"]
     types:
       - completed
 
