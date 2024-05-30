@@ -131,6 +131,7 @@ jobs:
             cobertura.xml
             pr_number.txt
             commit_sha.txt
+          if-no-files-found: error
 
       - run: |
           echo 'The coverage report was stored in Github artifacts.'
