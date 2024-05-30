@@ -1328,6 +1328,8 @@ async fn test_edit_unpaginated_item_after_clearing_timeline() -> Result<()> {
     sleep(Duration::from_secs(2)).await;
 
     let batch = timeline_stream.next().await.unwrap();
+    assert_pending!(timeline_stream);
+    info!("batch: {batch:?}");
     _ = batch
         .into_iter()
         .find_map(|diff| {
@@ -1345,7 +1347,6 @@ async fn test_edit_unpaginated_item_after_clearing_timeline() -> Result<()> {
             None
         })
         .unwrap();
-    assert_pending!(timeline_stream);
 
     Ok(())
 }
