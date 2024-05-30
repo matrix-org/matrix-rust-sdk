@@ -46,43 +46,9 @@ jobs:
             });
             fs.writeFileSync('codecov_report.zip', Buffer.from(download.data));
 
-            let prNumber = artifacts.data.artifacts.filter((artifact) => {
-              return artifact.name == "pr_number";
-            });
-
-            if (prNumber.length != 1) {
-              throw new Error("Unexpected number of {pr_number} artifacts: " + prNumber.length);
-            }
-
-            var download = await github.rest.actions.downloadArtifact({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              artifact_id: prNumber[0].id,
-              archive_format: 'zip',
-            });
-            fs.writeFileSync('pr_number.zip', Buffer.from(download.data));
-
-            let commitSha = artifacts.data.artifacts.filter((artifact) => {
-              return artifact.name == "commit_sha";
-            });
-
-            if (commitSha.length != 1) {
-              throw new Error("Unexpected number of {commit_sha} artifacts: " + commitSha.length);
-            }
-
-            var download = await github.rest.actions.downloadArtifact({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              artifact_id: commitSha[0].id,
-              archive_format: 'zip',
-            });
-            fs.writeFileSync('commit_sha.zip', Buffer.from(download.data));
-
       - id: parse_previous_artifacts
         run: |
           unzip codecov_report.zip
-          unzip pr_number.zip
-          unzip commit_sha.zip
 
           echo "Detected PR is: $(<pr_number.txt)"
           echo "Detected commit_sha is: $(<commit_sha.txt)"
