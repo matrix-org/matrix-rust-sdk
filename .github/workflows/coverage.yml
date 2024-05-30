@@ -128,7 +128,7 @@ jobs:
         with:
           name: codecov_report
           path: |
-            codecov_report.json
+            cobertura.xml
             pr_number.txt
             commit_sha.txt
 
