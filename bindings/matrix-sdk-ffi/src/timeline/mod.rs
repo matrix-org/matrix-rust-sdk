@@ -227,9 +227,9 @@ impl Timeline {
     pub async fn send(
         self: Arc<Self>,
         msg: Arc<RoomMessageEventContentWithoutRelation>,
-    ) -> Result<AbortSendHandle, ClientError> {
+    ) -> Result<Arc<AbortSendHandle>, ClientError> {
         match self.inner.send((*msg).to_owned().with_relation(None).into()).await {
-            Ok(handle) => Ok(AbortSendHandle { inner: Mutex::new(Some(handle)) }),
+            Ok(handle) => Ok(Arc::new(AbortSendHandle { inner: Mutex::new(Some(handle)) })),
             Err(err) => {
                 error!("error when sending a message: {err}");
                 Err(anyhow::anyhow!(err).into())
