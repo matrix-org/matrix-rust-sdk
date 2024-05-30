@@ -849,8 +849,9 @@ impl Encryption {
     ///
     /// * `user_id` - The ID of the user that the identity belongs to.
     ///
-    /// Returns a `UserIdentity` if one is found. Returns an error if there was
-    /// an issue with the crypto store or with the request to the homeserver.
+    /// Returns a [`UserIdentity`] if one is found. Returns an error if there
+    /// was an issue with the crypto store or with the request to the
+    /// homeserver.
     ///
     /// This will always return `None` if the client hasn't been logged in.
     ///
