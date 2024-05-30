@@ -307,9 +307,9 @@ async fn test_send_edit_when_timeline_is_clear() {
         .unwrap();
 
     // Since verifying the content would mean mocking the sliding sync response with
-    // what we are already expecting, since this test requires to paginate again te
-    // timeline, testing the content change would not be meaningful.
-    // We have an integration test for the full case.
+    // what we are already expecting, because this test would require to paginate
+    // again the timeline, testing the content change would not be meaningful.
+    // Use an integration test for the full case.
 
     // The response to the mocked endpoint does not generate further timeline
     // updates, so just wait for a bit before verifying that the endpoint was
