@@ -145,5 +145,5 @@ jobs:
           path: codecov_report.json
 
       - run: |
-          echo "The coverage report was stored in Github artifacts."
-          echo "It will be uploaded to Codecov using `upload_coverage.yml` workflow shortly."
+          echo 'The coverage report was stored in Github artifacts.'
+          echo 'It will be uploaded to Codecov using `upload_coverage.yml` workflow shortly.'
