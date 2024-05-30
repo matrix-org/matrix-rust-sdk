@@ -1346,6 +1346,7 @@ async fn test_edit_unpaginated_item_after_clearing_timeline() -> Result<()> {
         })
         .unwrap();
     assert_pending!(timeline_stream);
+
     Ok(())
 }
 
