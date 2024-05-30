@@ -49,7 +49,7 @@ use tokio::{
     sync::Mutex,
     time::{sleep, timeout},
 };
-use tracing::{debug, error, event, info, warn};
+use tracing::{debug, error, info, warn};
 use wiremock::{matchers::AnyMatcher, Mock, MockServer};
 
 use crate::helpers::TestClientBuilder;
