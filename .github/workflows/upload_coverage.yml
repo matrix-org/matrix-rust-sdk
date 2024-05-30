@@ -25,9 +25,9 @@ jobs:
 
             // List artifacts of the workflow run that triggered this workflow
             var artifacts = await github.rest.actions.listWorkflowRunArtifacts({
-               owner: context.repo.owner,
-               repo: context.repo.repo,
-               run_id: context.payload.workflow_run.id,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.payload.workflow_run.id,
             });
 
             let codecovReport = artifacts.data.artifacts.filter((artifact) => {
@@ -39,10 +39,10 @@ jobs:
             }
 
             var download = await github.rest.actions.downloadArtifact({
-               owner: context.repo.owner,
-               repo: context.repo.repo,
-               artifact_id: codecovReport[0].id,
-               archive_format: 'zip',
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              artifact_id: codecovReport[0].id,
+              archive_format: 'zip',
             });
             fs.writeFileSync('codecov_report.zip', Buffer.from(download.data));
 
@@ -55,10 +55,10 @@ jobs:
             }
 
             var download = await github.rest.actions.downloadArtifact({
-               owner: context.repo.owner,
-               repo: context.repo.repo,
-               artifact_id: prNumber[0].id,
-               archive_format: 'zip',
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              artifact_id: prNumber[0].id,
+              archive_format: 'zip',
             });
             fs.writeFileSync('pr_number.zip', Buffer.from(download.data));
 
@@ -71,10 +71,10 @@ jobs:
             }
 
             var download = await github.rest.actions.downloadArtifact({
-               owner: context.repo.owner,
-               repo: context.repo.repo,
-               artifact_id: commitSha[0].id,
-               archive_format: 'zip',
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              artifact_id: commitSha[0].id,
+              archive_format: 'zip',
             });
             fs.writeFileSync('commit_sha.zip', Buffer.from(download.data));
 
