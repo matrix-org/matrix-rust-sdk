@@ -432,51 +432,37 @@ impl Timeline {
         Ok(())
     }
 
-    pub async fn send_reply_by_event_timeline_item(
-        &self,
-        msg: Arc<RoomMessageEventContentWithoutRelation>,
-        reply_item: Arc<EventTimelineItem>,
-    ) -> Result<(), ClientError> {
-        self.inner
-            .send_reply_with_event_timeline_item((*msg).clone(), &reply_item.0, ForwardThread::Yes)
-            .await
-            .map_err(|err| anyhow::anyhow!(err))?;
-        Ok(())
-    }
-
-    pub async fn send_reply_by_event_id(
+    pub async fn send_reply(
         &self,
         msg: Arc<RoomMessageEventContentWithoutRelation>,
         reply_event_id: String,
     ) -> Result<(), ClientError> {
         let event_id = EventId::parse(reply_event_id)?;
+        let replied_to_info = self
+            .inner
+            .get_replied_to_info_from_event_id(&event_id)
+            .await
+            .map_err(|err| anyhow::anyhow!(err))?;
         self.inner
-            .send_reply_with_event((*msg).clone(), &event_id, ForwardThread::Yes)
+            .send_reply((*msg).clone(), replied_to_info, ForwardThread::Yes)
             .await
             .map_err(|err| anyhow::anyhow!(err))?;
         Ok(())
     }
 
-    pub async fn edit_by_timeline_item(
-        &self,
-        new_content: Arc<RoomMessageEventContentWithoutRelation>,
-        edit_item: Arc<EventTimelineItem>,
-    ) -> Result<(), ClientError> {
-        self.inner
-            .edit_event_timeline_item((*new_content).clone(), &edit_item.0)
-            .await
-            .map_err(|err| anyhow::anyhow!(err))?;
-        Ok(())
-    }
-
-    pub async fn edit_by_event_id(
+    pub async fn edit(
         &self,
         new_content: Arc<RoomMessageEventContentWithoutRelation>,
         event_id: String,
     ) -> Result<(), ClientError> {
         let event_id = EventId::parse(event_id)?;
+        let editing_info = self
+            .inner
+            .get_edit_info_from_event_id(&event_id)
+            .await
+            .map_err(|err| anyhow::anyhow!(err))?;
         self.inner
-            .edit_event((*new_content).clone(), &event_id)
+            .edit((*new_content).clone(), editing_info)
             .await
             .map_err(|err| anyhow::anyhow!(err))?;
         Ok(())

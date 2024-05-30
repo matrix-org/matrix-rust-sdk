@@ -201,11 +201,9 @@ async fn test_send_edit() {
         .mount(&server)
         .await;
 
+    let edit_info = timeline.get_edit_info_from_event_timeline_item(&hello_world_item).unwrap();
     timeline
-        .edit_event_timeline_item(
-            RoomMessageEventContentWithoutRelation::text_plain("Hello, Room!"),
-            &hello_world_item,
-        )
+        .edit(RoomMessageEventContentWithoutRelation::text_plain("Hello, Room!"), edit_info)
         .await
         .unwrap();
 
@@ -228,7 +226,7 @@ async fn test_send_edit() {
 }
 
 #[async_test]
-async fn test_send_edit_with_event_id() {
+async fn test_send_edit_when_timeline_is_clear() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client_with_server().await;
     let event_builder = EventBuilder::new();
@@ -286,20 +284,25 @@ async fn test_send_edit_with_event_id() {
     Mock::given(method("GET"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/event/"))
         .and(header("authorization", "Bearer 1234"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(hello_world_item.latest_json().unwrap().json()),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "content":{
+                "body":"Hello, World!",
+                "msgtype":"m.text"
+            },
+            "event_id":"$original_event",
+            "origin_server_ts":0,
+            "sender":"@example:localhost",
+            "type":"m.room.message"
+        })))
         .expect(1)
         .named("event_1")
         .mount(&server)
         .await;
 
+    let edit_info =
+        timeline.get_edit_info_from_event_id(hello_world_item.event_id().unwrap()).await.unwrap();
     timeline
-        .edit_event(
-            RoomMessageEventContentWithoutRelation::text_plain("Hello, Room!"),
-            hello_world_item.event_id().unwrap(),
-        )
+        .edit(RoomMessageEventContentWithoutRelation::text_plain("Hello, Room!"), edit_info)
         .await
         .unwrap();
 
@@ -380,11 +383,9 @@ async fn test_send_reply_edit() {
         .mount(&server)
         .await;
 
+    let edit_info = timeline.get_edit_info_from_event_timeline_item(&reply_item).unwrap();
     timeline
-        .edit_event_timeline_item(
-            RoomMessageEventContentWithoutRelation::text_plain("Hello, Room!"),
-            &reply_item,
-        )
+        .edit(RoomMessageEventContentWithoutRelation::text_plain("Hello, Room!"), edit_info)
         .await
         .unwrap();
 

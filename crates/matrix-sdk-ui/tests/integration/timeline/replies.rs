@@ -313,10 +313,12 @@ async fn test_send_reply() {
         .mount(&server)
         .await;
 
+    let replied_to_info =
+        timeline.get_replied_to_info_from_event_timeline_item(&event_from_bob).unwrap();
     timeline
-        .send_reply_with_event_timeline_item(
+        .send_reply(
             RoomMessageEventContentWithoutRelation::text_plain("Replying to Bob"),
-            &event_from_bob,
+            replied_to_info,
             ForwardThread::Yes,
         )
         .await
@@ -426,18 +428,27 @@ async fn test_send_reply_with_event_id() {
     Mock::given(method("GET"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/event/"))
         .and(header("authorization", "Bearer 1234"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_json(event_from_bob.latest_json().unwrap().json()),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "content":{
+                "body":"Hello from Bob",
+                "msgtype":"m.text"
+            },
+            "event_id":"$event_from_bob",
+            "origin_server_ts":0,
+            "sender":"@bob:other.server",
+            "type":"m.room.message"
+        })))
         .expect(1)
         .named("event_1")
         .mount(&server)
         .await;
 
+    let replied_to_info =
+        timeline.get_replied_to_info_from_event_id(event_id_from_bob).await.unwrap();
     timeline
-        .send_reply_with_event(
+        .send_reply(
             RoomMessageEventContentWithoutRelation::text_plain("Replying to Bob"),
-            event_id_from_bob,
+            replied_to_info,
             ForwardThread::Yes,
         )
         .await
@@ -538,10 +549,12 @@ async fn test_send_reply_to_self() {
         .mount(&server)
         .await;
 
+    let replied_to_info =
+        timeline.get_replied_to_info_from_event_timeline_item(&event_from_self).unwrap();
     timeline
-        .send_reply_with_event_timeline_item(
+        .send_reply(
             RoomMessageEventContentWithoutRelation::text_plain("Replying to self"),
-            &event_from_self,
+            replied_to_info,
             ForwardThread::Yes,
         )
         .await
@@ -625,10 +638,12 @@ async fn test_send_reply_to_threaded() {
         .mount(&server)
         .await;
 
+    let replied_to_info =
+        timeline.get_replied_to_info_from_event_timeline_item(&hello_world_item).unwrap();
     timeline
-        .send_reply_with_event_timeline_item(
+        .send_reply(
             RoomMessageEventContentWithoutRelation::text_plain("Hello, Bob!"),
-            &hello_world_item,
+            replied_to_info,
             ForwardThread::Yes,
         )
         .await

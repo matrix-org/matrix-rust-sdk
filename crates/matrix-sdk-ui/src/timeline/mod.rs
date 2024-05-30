@@ -111,16 +111,21 @@ use self::{
 };
 
 #[derive(Debug)]
-struct EditingInfo {
+pub struct EditInfo {
     event_id: OwnedEventId,
     original_message: Message,
 }
 
+/// Information needed to reply to an event.
 #[derive(Debug)]
-struct ReplyInfo {
+pub struct RepliedToInfo {
+    /// The event ID of the event to reply to
     event_id: OwnedEventId,
+    /// The sender of the event to reply to
     sender: OwnedUserId,
+    /// The timestamp of the event to reply to
     timestamp: MilliSecondsSinceUnixEpoch,
+    /// The content of the event to reply to
     content: ReplyContent,
 }
 
@@ -321,28 +326,102 @@ impl Timeline {
     /// change. Please check [`EventTimelineItem::can_be_replied_to`] to decide
     /// whether to render a reply button.
     ///
-    /// The sender of `reply_item` will be added to the mentions of the reply if
-    /// and only if `reply_item` has not been written by the sender.
+    /// The sender will be added to the mentions of the reply if
+    /// and only if the event has not been written by the sender.
     ///
     /// # Arguments
     ///
     /// * `content` - The content of the reply
     ///
-    /// * `event_id` - The event id of the item you want to reply to
+    /// * `replied_to_info` - A wrapper that contains the event ID, sender,
+    ///   content and timestamp of the event to reply to
     ///
     /// * `forward_thread` - Usually `Yes`, unless you explicitly want to the
     ///   reply to show up in the main timeline even though the `reply_item` is
     ///   part of a thread
-    pub async fn send_reply_with_event(
+    pub async fn send_reply(
         &self,
         content: RoomMessageEventContentWithoutRelation,
-        event_id: &EventId,
+        replied_to_info: RepliedToInfo,
         forward_thread: ForwardThread,
-    ) -> Result<(), UnsupportedReplyItem> {
+    ) -> Result<()> {
+        let event_id = replied_to_info.event_id;
+
+        // [The specification](https://spec.matrix.org/v1.10/client-server-api/#user-and-room-mentions) says:
+        //
+        // > Users should not add their own Matrix ID to the `m.mentions` property as
+        // > outgoing messages cannot self-notify.
+        //
+        // If the replied to event has been written by the current user, let's toggle to
+        // `AddMentions::No`.
+        let mention_the_sender = if self.room().own_user_id() == replied_to_info.sender {
+            AddMentions::No
+        } else {
+            AddMentions::Yes
+        };
+
+        let content = match replied_to_info.content {
+            ReplyContent::Message(msg) => {
+                let event = OriginalRoomMessageEvent {
+                    event_id: event_id.to_owned(),
+                    sender: replied_to_info.sender.clone(),
+                    origin_server_ts: replied_to_info.timestamp,
+                    room_id: self.room().room_id().to_owned(),
+                    content: msg.to_content(),
+                    unsigned: Default::default(),
+                };
+                content.make_reply_to(&event, forward_thread, mention_the_sender)
+            }
+            ReplyContent::Raw(raw_event) => content.make_reply_to_raw(
+                &raw_event,
+                event_id.to_owned(),
+                self.room().room_id(),
+                forward_thread,
+                mention_the_sender,
+            ),
+        };
+
+        self.send(content.into()).await;
+        Ok(())
+    }
+
+    /// Gives the information needed to reply to an event from a timeline item.
+    pub fn get_replied_to_info_from_event_timeline_item(
+        &self,
+        reply_item: &EventTimelineItem,
+    ) -> Result<RepliedToInfo, UnsupportedReplyItem> {
+        let reply_content = match reply_item.content() {
+            TimelineItemContent::Message(msg) => ReplyContent::Message(msg.to_owned()),
+            _ => {
+                let Some(raw_event) = reply_item.latest_json() else {
+                    return Err(UnsupportedReplyItem::MISSING_JSON);
+                };
+
+                ReplyContent::Raw(raw_event.clone())
+            }
+        };
+
+        let Some(event_id) = reply_item.event_id() else {
+            return Err(UnsupportedReplyItem::MISSING_EVENT_ID);
+        };
+
+        let reply_info = RepliedToInfo {
+            event_id: event_id.to_owned(),
+            sender: reply_item.sender().to_owned(),
+            timestamp: reply_item.timestamp(),
+            content: reply_content,
+        };
+
+        Ok(reply_info)
+    }
+
+    /// Gives the information needed to reply to an event from an event id.
+    pub async fn get_replied_to_info_from_event_id(
+        &self,
+        event_id: &EventId,
+    ) -> Result<RepliedToInfo, UnsupportedReplyItem> {
         if let Some(timeline_item) = self.item_by_event_id(event_id).await {
-            return self
-                .send_reply_with_event_timeline_item(content, &timeline_item, forward_thread)
-                .await;
+            return self.get_replied_to_info_from_event_timeline_item(&timeline_item);
         }
 
         let Ok(event) = self.room().event(event_id).await else {
@@ -366,154 +445,14 @@ impl Timeline {
             _ => ReplyContent::Raw(raw_sync_event),
         };
 
-        let reply_info = ReplyInfo {
+        let reply_info = RepliedToInfo {
             event_id: event_id.to_owned(),
             sender: sync_event.sender().to_owned(),
             timestamp: sync_event.origin_server_ts(),
             content: reply_content,
         };
 
-        self.send_reply(content, reply_info, forward_thread).await
-    }
-
-    /// Send a reply to the given event.
-    ///
-    /// Currently it only supports events with an event ID and JSON being
-    /// available (which can be removed by local redactions). This is subject to
-    /// change. Please check [`EventTimelineItem::can_be_replied_to`] to decide
-    /// whether to render a reply button.
-    ///
-    /// The sender of `reply_item` will be added to the mentions of the reply if
-    /// and only if `reply_item` has not been written by the sender.
-    ///
-    /// # Arguments
-    ///
-    /// * `content` - The content of the reply
-    ///
-    /// * `reply_item` - The event item you want to reply to
-    ///
-    /// * `forward_thread` - Usually `Yes`, unless you explicitly want to the
-    ///   reply to show up in the main timeline even though the `reply_item` is
-    ///   part of a thread
-    #[instrument(skip(self, content, reply_item))]
-    pub async fn send_reply_with_event_timeline_item(
-        &self,
-        content: RoomMessageEventContentWithoutRelation,
-        reply_item: &EventTimelineItem,
-        forward_thread: ForwardThread,
-    ) -> Result<(), UnsupportedReplyItem> {
-        let reply_content = match reply_item.content() {
-            TimelineItemContent::Message(msg) => ReplyContent::Message(msg.to_owned()),
-            _ => {
-                let Some(raw_event) = reply_item.latest_json() else {
-                    return Err(UnsupportedReplyItem::MISSING_JSON);
-                };
-
-                ReplyContent::Raw(raw_event.clone())
-            }
-        };
-
-        let reply_info = ReplyInfo {
-            event_id: reply_item
-                .event_id()
-                .ok_or(UnsupportedReplyItem::MISSING_EVENT_ID)?
-                .to_owned(),
-            sender: reply_item.sender().to_owned(),
-            timestamp: reply_item.timestamp(),
-            content: reply_content,
-        };
-
-        self.send_reply(content, reply_info, forward_thread).await
-    }
-
-    async fn send_reply(
-        &self,
-        content: RoomMessageEventContentWithoutRelation,
-        reply_info: ReplyInfo,
-        forward_thread: ForwardThread,
-    ) -> Result<(), UnsupportedReplyItem> {
-        let event_id = reply_info.event_id;
-
-        // [The specification](https://spec.matrix.org/v1.10/client-server-api/#user-and-room-mentions) says:
-        //
-        // > Users should not add their own Matrix ID to the `m.mentions` property as
-        // > outgoing messages cannot self-notify.
-        //
-        // If `reply_item` has been written by the current user, let's toggle to
-        // `AddMentions::No`.
-        let mention_the_sender = if self.room().own_user_id() == reply_info.sender {
-            AddMentions::No
-        } else {
-            AddMentions::Yes
-        };
-
-        let content = match reply_info.content {
-            ReplyContent::Message(msg) => {
-                let event = OriginalRoomMessageEvent {
-                    event_id: event_id.to_owned(),
-                    sender: reply_info.sender.clone(),
-                    origin_server_ts: reply_info.timestamp,
-                    room_id: self.room().room_id().to_owned(),
-                    content: msg.to_content(),
-                    unsigned: Default::default(),
-                };
-                content.make_reply_to(&event, forward_thread, mention_the_sender)
-            }
-            ReplyContent::Raw(raw_event) => content.make_reply_to_raw(
-                &raw_event,
-                event_id.to_owned(),
-                self.room().room_id(),
-                forward_thread,
-                mention_the_sender,
-            ),
-        };
-
-        self.send(content.into()).await;
-        Ok(())
-    }
-
-    // Send an edit to the given event.
-    ///
-    /// Currently only supports `m.room.message` events whose event ID is known.
-    /// Please check [`EventTimelineItem::can_be_edited`] before calling this.
-    ///
-    /// # Arguments
-    ///
-    /// * `new_content` - The content of the reply
-    ///
-    /// * `event_id` - The event id item you want to edit
-    #[instrument(skip(self, new_content))]
-    pub async fn edit_event(
-        &self,
-        new_content: RoomMessageEventContentWithoutRelation,
-        event_id: &EventId,
-    ) -> Result<(), UnsupportedEditItem> {
-        if let Some(timeline_item) = self.item_by_event_id(event_id).await {
-            return self.edit_event_timeline_item(new_content, &timeline_item).await;
-        }
-
-        let Ok(event) = self.room().event(event_id).await else {
-            return Err(UnsupportedEditItem::MISSING_EVENT);
-        };
-
-        let raw_sync_event: Raw<AnySyncTimelineEvent> = event.event.cast();
-
-        let Ok(event) = raw_sync_event.deserialize_as::<AnySyncTimelineEvent>() else {
-            warn!("Unable to deserialize latest_event as an AnySyncTimelineEvent!");
-            return Err(UnsupportedEditItem::DESERIALIZATION_ERROR);
-        };
-
-        // Likely needs to be changed or renamed?
-        let Some(content) = TimelineItemContent::from_latest_event_content(event) else {
-            return Err(UnsupportedEditItem::MISSING_CONTENT);
-        };
-
-        let TimelineItemContent::Message(message) = content else {
-            return Err(UnsupportedEditItem::NOT_ROOM_MESSAGE);
-        };
-
-        let edit_info = EditingInfo { event_id: event_id.to_owned(), original_message: message };
-        self.edit_message(new_content, edit_info).await
+        Ok(reply_info)
     }
 
     /// Send an edit to the given event.
@@ -525,33 +464,13 @@ impl Timeline {
     ///
     /// * `new_content` - The content of the reply
     ///
-    /// * `edit_item` - The event item you want to edit
+    /// * `edit_info` - A wrapper that contains the event ID and the content of
+    ///  the event to edit
     #[instrument(skip(self, new_content))]
-    pub async fn edit_event_timeline_item(
+    pub async fn edit(
         &self,
         new_content: RoomMessageEventContentWithoutRelation,
-        edit_item: &EventTimelineItem,
-    ) -> Result<(), UnsupportedEditItem> {
-        // Early returns here must be in sync with
-        // `EventTimelineItem::can_be_edited`
-        let Some(event_id) = edit_item.event_id() else {
-            return Err(UnsupportedEditItem::MISSING_EVENT_ID);
-        };
-        let TimelineItemContent::Message(original_content) = edit_item.content() else {
-            return Err(UnsupportedEditItem::NOT_ROOM_MESSAGE);
-        };
-        let edit_info = EditingInfo {
-            event_id: event_id.to_owned(),
-            original_message: original_content.clone(),
-        };
-        self.edit_message(new_content, edit_info).await
-    }
-
-    #[instrument(skip(self, new_content))]
-    async fn edit_message(
-        &self,
-        new_content: RoomMessageEventContentWithoutRelation,
-        edit_info: EditingInfo,
+        edit_info: EditInfo,
     ) -> Result<(), UnsupportedEditItem> {
         let original_content = edit_info.original_message;
         let event_id = edit_info.event_id;
@@ -582,6 +501,55 @@ impl Timeline {
 
         self.send(content.into()).await;
         Ok(())
+    }
+
+    pub fn get_edit_info_from_event_timeline_item(
+        &self,
+        edit_item: &EventTimelineItem,
+    ) -> Result<EditInfo, UnsupportedEditItem> {
+        // Early returns here must be in sync with
+        // `EventTimelineItem::can_be_edited`
+        let Some(event_id) = edit_item.event_id() else {
+            return Err(UnsupportedEditItem::MISSING_EVENT_ID);
+        };
+        let TimelineItemContent::Message(original_content) = edit_item.content() else {
+            return Err(UnsupportedEditItem::NOT_ROOM_MESSAGE);
+        };
+        let edit_info =
+            EditInfo { event_id: event_id.to_owned(), original_message: original_content.clone() };
+        Ok(edit_info)
+    }
+
+    pub async fn get_edit_info_from_event_id(
+        &self,
+        event_id: &EventId,
+    ) -> Result<EditInfo, UnsupportedEditItem> {
+        if let Some(timeline_item) = self.item_by_event_id(event_id).await {
+            return self.get_edit_info_from_event_timeline_item(&timeline_item);
+        }
+
+        let Ok(event) = self.room().event(event_id).await else {
+            return Err(UnsupportedEditItem::MISSING_EVENT);
+        };
+
+        let raw_sync_event: Raw<AnySyncTimelineEvent> = event.event.cast();
+
+        let Ok(event) = raw_sync_event.deserialize_as::<AnySyncTimelineEvent>() else {
+            warn!("Unable to deserialize latest_event as an AnySyncTimelineEvent!");
+            return Err(UnsupportedEditItem::DESERIALIZATION_ERROR);
+        };
+
+        // Likely needs to be changed or renamed?
+        let Some(content) = TimelineItemContent::from_latest_event_content(event) else {
+            return Err(UnsupportedEditItem::MISSING_CONTENT);
+        };
+
+        let TimelineItemContent::Message(message) = content else {
+            return Err(UnsupportedEditItem::NOT_ROOM_MESSAGE);
+        };
+
+        let edit_info = EditInfo { event_id: event_id.to_owned(), original_message: message };
+        Ok(edit_info)
     }
 
     pub async fn edit_poll(

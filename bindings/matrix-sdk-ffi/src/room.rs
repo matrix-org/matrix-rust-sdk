@@ -7,7 +7,8 @@ use matrix_sdk::{
     ComposerDraft, RoomMemberships, RoomState,
 };
 use matrix_sdk_ui::timeline::{
-    PaginationError, RepliedToEvent, RoomExt, TimelineDetails, TimelineFocus,
+    InReplyToDetails as SdkInReplyDetails, PaginationError, RepliedToEvent, RoomExt,
+    TimelineDetails, TimelineFocus,
 };
 use mime::Mime;
 use ruma::{
@@ -692,22 +693,26 @@ impl Room {
         Ok(())
     }
 
+    /// Stores the given `ComposerDraft` in the state store using the current
+    /// room id, as identifier.
     pub async fn save_composer_draft(&self, draft: ComposerDraft) -> Result<(), ClientError> {
         self.inner.save_composer_draft(draft).await?;
         Ok(())
     }
 
+    /// Retrieves the `ComposerDraft` stored in the state store for this room.
     pub async fn restore_composer_draft(&self) -> Result<Option<ComposerDraft>, ClientError> {
         let draft = self.inner.restore_composer_draft().await?;
         Ok(draft)
     }
 
+    /// Removes the `ComposerDraft` stored in the state store for this room.
     pub async fn clear_composer_draft(&self) -> Result<(), ClientError> {
         self.inner.clear_composer_draft().await?;
         Ok(())
     }
 
-    pub async fn get_loaded_reply_details(
+    pub async fn load_reply_details(
         &self,
         event_id: String,
     ) -> Result<InReplyToDetails, ClientError> {
@@ -719,10 +724,8 @@ impl Room {
             )),
             Err(e) => TimelineDetails::Error(Arc::new(e)),
         };
-        Ok((&matrix_sdk_ui::timeline::InReplyToDetails::new_with_timeline_details(
-            event_id, details,
-        ))
-            .into())
+        let reply_details = &SdkInReplyDetails::new_with_timeline_details(event_id, details);
+        Ok(reply_details.into())
     }
 }
 
