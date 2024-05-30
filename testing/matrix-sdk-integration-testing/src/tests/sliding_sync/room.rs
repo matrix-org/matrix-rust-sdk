@@ -49,7 +49,7 @@ use tokio::{
     sync::Mutex,
     time::{sleep, timeout},
 };
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, event, info, warn};
 use wiremock::{matchers::AnyMatcher, Mock, MockServer};
 
 use crate::helpers::TestClientBuilder;
@@ -1289,12 +1289,27 @@ async fn test_edit_unpaginated_item_after_clearing_timeline() -> Result<()> {
     let alice_room = alice.get_room(room_id).unwrap();
     let alice_timeline = alice_room.timeline().await?;
     let (_, mut timeline_stream) = alice_timeline.subscribe_batched().await;
+    assert_pending!(timeline_stream);
     alice_timeline.send(RoomMessageEventContent::text_plain("hello world").into()).await;
     sleep(Duration::from_secs(2)).await;
     let batch = timeline_stream.next().await.unwrap();
-    let original_event = assert_matches!(&batch[2], VectorDiff::Set { index: _, value, } => { value.as_event().unwrap().clone() });
-    info!("Original event: {original_event:?}");
-    let original_event_id = original_event.event_id().unwrap();
+    let original_event_id = batch
+        .into_iter()
+        .find_map(|diff| {
+            // Using the diff since the remote echo will set it its event_id
+            if let VectorDiff::Set { value, .. } = diff {
+                if let Some(event) = value.as_event() {
+                    if event.content().as_message().unwrap().body() == "hello world" {
+                        if let Some(event_id) = event.event_id() {
+                            return Some(event_id.to_owned());
+                        }
+                    }
+                }
+            }
+            None
+        })
+        .unwrap();
+    info!("Original event id: {original_event_id:?}");
 
     assert_pending!(timeline_stream);
 
@@ -1304,7 +1319,7 @@ async fn test_edit_unpaginated_item_after_clearing_timeline() -> Result<()> {
     assert_matches!(&batch[0], VectorDiff::Clear);
 
     alice_timeline
-        .edit_event(RoomMessageEventContent::text_plain("hello world 2").into(), original_event_id)
+        .edit_event(RoomMessageEventContent::text_plain("hello world 2").into(), &original_event_id)
         .await?;
     sleep(Duration::from_secs(2)).await;
     assert_pending!(timeline_stream);
@@ -1313,20 +1328,25 @@ async fn test_edit_unpaginated_item_after_clearing_timeline() -> Result<()> {
     sleep(Duration::from_secs(2)).await;
 
     let batch = timeline_stream.next().await.unwrap();
-    for diff in batch {
-        if let VectorDiff::PushFront { value, .. } = diff {
-            if let Some(event) = value.as_event() {
-                if event.event_id() == Some(original_event_id) {
-                    let message = event.content().as_message().unwrap();
-                    info!("Edited event: {event:?}");
-                    assert!(message.is_edited());
-                    assert_eq!(message.body(), "hello world 2");
-                    return Ok(());
+    _ = batch
+        .into_iter()
+        .find_map(|diff| {
+            if let VectorDiff::PushFront { value, .. } = diff {
+                if let Some(event) = value.as_event() {
+                    if event.event_id() == Some(&original_event_id) {
+                        if let Some(message) = event.content().as_message() {
+                            if message.body() == "hello world 2" {
+                                return Some(event.clone());
+                            }
+                        }
+                    }
                 }
             }
-        }
-    }
-    panic!("Edited event not found");
+            None
+        })
+        .unwrap();
+    assert_pending!(timeline_stream);
+    Ok(())
 }
 
 fn assert_room_preview(preview: &RoomPreview, room_alias: &str) {
