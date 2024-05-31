@@ -239,6 +239,7 @@ impl TestTimeline {
             .handle_local_event(
                 txn_id.clone(),
                 TimelineEventKind::Message { content, relations: Default::default() },
+                None,
             )
             .await;
         txn_id
@@ -250,6 +251,7 @@ impl TestTimeline {
             .handle_local_event(
                 txn_id.clone(),
                 TimelineEventKind::Redaction { redacts: redacts.to_owned() },
+                None,
             )
             .await;
         txn_id

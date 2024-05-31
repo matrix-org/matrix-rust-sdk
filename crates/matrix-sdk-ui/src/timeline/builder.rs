@@ -280,6 +280,7 @@ impl TimelineBuilder {
                                 content: echo.content,
                                 relations: Default::default(),
                             },
+                            Some(echo.abort_handle),
                         )
                         .await;
                 }
@@ -297,7 +298,7 @@ impl TimelineBuilder {
                                 RoomSendingQueueUpdate::NewLocalEvent(LocalEcho {
                                     transaction_id,
                                     content,
-                                    abort_handle: _, // TODO: (bnjbvr) do something with this
+                                    abort_handle,
                                 }) => {
                                     timeline
                                         .handle_local_event(
@@ -306,6 +307,7 @@ impl TimelineBuilder {
                                                 content,
                                                 relations: Default::default(),
                                             },
+                                            Some(abort_handle),
                                         )
                                         .await;
                                 }
