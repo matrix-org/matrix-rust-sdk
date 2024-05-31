@@ -481,6 +481,98 @@ mod tests {
     }
 
     #[async_test]
+    async fn test_deduplicates_utds_from_previous_session() {
+        // Use a single client for both hooks, so that both hooks are backed by the same
+        // memorystore.
+        let client = build_test_client().await;
+
+        // Dummy hook 1, with the first UtdHookManager
+        {
+            let hook = Arc::new(Dummy::default());
+            let wrapper = UtdHookManager::new(hook.clone(), client.clone()).await.unwrap();
+
+            // I call it a couple of times with different events
+            wrapper.on_utd(event_id!("$1"), UtdCause::Unknown);
+            wrapper.on_utd(event_id!("$2"), UtdCause::Unknown);
+
+            // Sanity-check the reported event IDs
+            {
+                let utds = hook.utds.lock().unwrap();
+                assert_eq!(utds.len(), 2);
+                assert_eq!(utds[0].event_id, event_id!("$1"));
+                assert!(utds[0].time_to_decrypt.is_none());
+                assert_eq!(utds[1].event_id, event_id!("$2"));
+                assert!(utds[1].time_to_decrypt.is_none());
+            }
+
+            // Sleep for a while (before dropping the wrapper) to allow the persist job to
+            // be flushed
+            sleep(Duration::from_millis(1500)).await;
+        }
+
+        // Now, create a *new* hook, with a *new* UtdHookManager
+        {
+            let hook = Arc::new(Dummy::default());
+            let wrapper = UtdHookManager::new(hook.clone(), client.clone()).await.unwrap();
+
+            // Call it with more events, some of which match the previous instance
+            wrapper.on_utd(event_id!("$1"), UtdCause::Unknown);
+            wrapper.on_utd(event_id!("$3"), UtdCause::Unknown);
+
+            // Only the *new* ones should be reported
+            let utds = hook.utds.lock().unwrap();
+            assert_eq!(utds.len(), 1);
+            assert_eq!(utds[0].event_id, event_id!("$3"));
+        }
+    }
+
+    /// Test that UTD events which had not yet been reported in a previous
+    /// session, are reported in the next session.
+    #[async_test]
+    async fn test_does_not_deduplicate_late_utds_from_previous_session() {
+        // Use a single client for both hooks, so that both hooks are backed by the same
+        // memorystore.
+        let client = build_test_client().await;
+
+        // Dummy hook 1, with the first UtdHookManager
+        {
+            let hook = Arc::new(Dummy::default());
+            let wrapper = UtdHookManager::new(hook.clone(), client.clone())
+                .await
+                .unwrap()
+                .with_max_delay(Duration::from_secs(2));
+
+            // a UTD event
+            wrapper.on_utd(event_id!("$1"), UtdCause::Unknown);
+
+            // Wait a bit, to allow the state to be saved if it's going to happen.
+            sleep(Duration::from_millis(1500)).await;
+
+            // The event ID should not yet have been reported.
+            {
+                let utds = hook.utds.lock().unwrap();
+                assert_eq!(utds.len(), 0);
+            }
+        }
+
+        // Now, create a *new* hook, with a *new* UtdHookManager
+        {
+            let hook = Arc::new(Dummy::default());
+            let wrapper = UtdHookManager::new(hook.clone(), client.clone()).await.unwrap();
+
+            // Call the new hook with the same event
+            wrapper.on_utd(event_id!("$1"), UtdCause::Unknown);
+
+            // And it should be reported.
+            sleep(Duration::from_millis(2500)).await;
+
+            let utds = hook.utds.lock().unwrap();
+            assert_eq!(utds.len(), 1);
+            assert_eq!(utds[0].event_id, event_id!("$1"));
+        }
+    }
+
+    #[async_test]
     async fn test_on_late_decrypted_no_effect() {
         // If I create a dummy hook,
         let hook = Arc::new(Dummy::default());
