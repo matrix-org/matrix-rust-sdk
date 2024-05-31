@@ -2687,8 +2687,13 @@ impl Room {
     /// room id, as identifier.
     pub async fn save_composer_draft(&self, draft: ComposerDraft) -> Result<()> {
         let room_id = self.room_id().to_owned();
-        let data = StateStoreDataValue::ComposerDraft(draft);
-        self.client.store().set_kv_data(StateStoreDataKey::ComposerDraft(&room_id), data).await?;
+        self.client
+            .store()
+            .set_kv_data(
+                StateStoreDataKey::ComposerDraft(&room_id),
+                StateStoreDataValue::ComposerDraft(draft),
+            )
+            .await?;
         Ok(())
     }
 

@@ -696,20 +696,17 @@ impl Room {
     /// Stores the given `ComposerDraft` in the state store using the current
     /// room id, as identifier.
     pub async fn save_composer_draft(&self, draft: ComposerDraft) -> Result<(), ClientError> {
-        self.inner.save_composer_draft(draft).await?;
-        Ok(())
+        Ok(self.inner.save_composer_draft(draft).await?)
     }
 
     /// Retrieves the `ComposerDraft` stored in the state store for this room.
     pub async fn restore_composer_draft(&self) -> Result<Option<ComposerDraft>, ClientError> {
-        let draft = self.inner.restore_composer_draft().await?;
-        Ok(draft)
+        Ok(self.inner.restore_composer_draft().await?)
     }
 
     /// Removes the `ComposerDraft` stored in the state store for this room.
     pub async fn clear_composer_draft(&self) -> Result<(), ClientError> {
-        self.inner.clear_composer_draft().await?;
-        Ok(())
+        Ok(self.inner.clear_composer_draft().await?)
     }
 
     /// Loads the reply details for the given event id.

@@ -107,7 +107,7 @@ enum UnsupportedReplyItemInner {
     MissingEvent,
     #[error("error deserializing event")]
     DeserializationError,
-    #[error("could not get content")]
+    #[error("could not get event content")]
     MissingContent,
 }
 
@@ -120,8 +120,8 @@ impl UnsupportedEditItem {
     pub(super) const MISSING_EVENT: Self = Self(UnsupportedEditItemInner::MissingEvent);
     pub(super) const NOT_ROOM_MESSAGE: Self = Self(UnsupportedEditItemInner::NotRoomMessage);
     pub(super) const NOT_POLL_EVENT: Self = Self(UnsupportedEditItemInner::NotPollEvent);
-    pub(super) const DESERIALIZATION_ERROR: Self =
-        Self(UnsupportedEditItemInner::DeserializationError);
+    pub(super) const FAILED_TO_DESERIALIZE_EVENT: Self =
+        Self(UnsupportedEditItemInner::FailedToDeserializeEvent);
     pub(super) const MISSING_CONTENT: Self = Self(UnsupportedEditItemInner::MissingContent);
 }
 
@@ -143,7 +143,7 @@ enum UnsupportedEditItemInner {
     #[error("event could not be obtained")]
     MissingEvent,
     #[error("error deserializing event")]
-    DeserializationError,
-    #[error("could not get content")]
+    FailedToDeserializeEvent,
+    #[error("could not get event content")]
     MissingContent,
 }

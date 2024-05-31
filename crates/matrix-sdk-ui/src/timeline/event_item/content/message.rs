@@ -238,6 +238,8 @@ impl InReplyToDetails {
         InReplyToDetails { event_id, event: TimelineDetails::from_initial_value(event) }
     }
 
+    /// Create a new `InReplyToDetails` with the given event ID and the event
+    /// timeline details.
     pub fn new_with_timeline_details(
         event_id: OwnedEventId,
         event: TimelineDetails<Box<RepliedToEvent>>,

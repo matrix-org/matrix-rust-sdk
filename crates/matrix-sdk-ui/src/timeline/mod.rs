@@ -110,28 +110,34 @@ use self::{
     util::rfind_event_by_id,
 };
 
+/// Information needed to edit an event.
 #[derive(Debug)]
 pub struct EditInfo {
+    /// The event ID of the event that needs editing.
     event_id: OwnedEventId,
+    /// The original content of the event that needs editing.
     original_message: Message,
 }
 
 /// Information needed to reply to an event.
 #[derive(Debug)]
 pub struct RepliedToInfo {
-    /// The event ID of the event to reply to
+    /// The event ID of the event to reply to.
     event_id: OwnedEventId,
-    /// The sender of the event to reply to
+    /// The sender of the event to reply to.
     sender: OwnedUserId,
-    /// The timestamp of the event to reply to
+    /// The timestamp of the event to reply to.
     timestamp: MilliSecondsSinceUnixEpoch,
-    /// The content of the event to reply to
+    /// The content of the event to reply to.
     content: ReplyContent,
 }
 
+/// The content of a reply.
 #[derive(Debug)]
 enum ReplyContent {
+    /// Content of a message event.
     Message(Message),
+    /// Content of any other kind of event stored as raw.
     Raw(Raw<AnySyncTimelineEvent>),
 }
 
@@ -385,47 +391,21 @@ impl Timeline {
         Ok(())
     }
 
-    /// Gives the information needed to reply to an event from a timeline item.
-    pub fn get_replied_to_info_from_event_timeline_item(
-        &self,
-        reply_item: &EventTimelineItem,
-    ) -> Result<RepliedToInfo, UnsupportedReplyItem> {
-        let reply_content = match reply_item.content() {
-            TimelineItemContent::Message(msg) => ReplyContent::Message(msg.to_owned()),
-            _ => {
-                let Some(raw_event) = reply_item.latest_json() else {
-                    return Err(UnsupportedReplyItem::MISSING_JSON);
-                };
-
-                ReplyContent::Raw(raw_event.clone())
-            }
-        };
-
-        let Some(event_id) = reply_item.event_id() else {
-            return Err(UnsupportedReplyItem::MISSING_EVENT_ID);
-        };
-
-        let reply_info = RepliedToInfo {
-            event_id: event_id.to_owned(),
-            sender: reply_item.sender().to_owned(),
-            timestamp: reply_item.timestamp(),
-            content: reply_content,
-        };
-
-        Ok(reply_info)
-    }
-
     /// Gives the information needed to reply to an event from an event id.
     pub async fn get_replied_to_info_from_event_id(
         &self,
         event_id: &EventId,
     ) -> Result<RepliedToInfo, UnsupportedReplyItem> {
         if let Some(timeline_item) = self.item_by_event_id(event_id).await {
-            return self.get_replied_to_info_from_event_timeline_item(&timeline_item);
+            return timeline_item.get_replied_to_info();
         }
 
-        let Ok(event) = self.room().event(event_id).await else {
-            return Err(UnsupportedReplyItem::MISSING_EVENT);
+        let event = match self.room().event(event_id).await {
+            Ok(event) => event,
+            Err(error) => {
+                error!("Failed to fetch event with ID {event_id} with error: {error}");
+                return Err(UnsupportedReplyItem::MISSING_EVENT);
+            }
         };
 
         let raw_sync_event: Raw<AnySyncTimelineEvent> = event.event.cast();
@@ -445,14 +425,12 @@ impl Timeline {
             _ => ReplyContent::Raw(raw_sync_event),
         };
 
-        let reply_info = RepliedToInfo {
+        Ok(RepliedToInfo {
             event_id: event_id.to_owned(),
             sender: sync_event.sender().to_owned(),
             timestamp: sync_event.origin_server_ts(),
             content: reply_content,
-        };
-
-        Ok(reply_info)
+        })
     }
 
     /// Send an edit to the given event.
@@ -503,40 +481,31 @@ impl Timeline {
         Ok(())
     }
 
-    pub fn get_edit_info_from_event_timeline_item(
-        &self,
-        edit_item: &EventTimelineItem,
-    ) -> Result<EditInfo, UnsupportedEditItem> {
-        // Early returns here must be in sync with
-        // `EventTimelineItem::can_be_edited`
-        let Some(event_id) = edit_item.event_id() else {
-            return Err(UnsupportedEditItem::MISSING_EVENT_ID);
-        };
-        let TimelineItemContent::Message(original_content) = edit_item.content() else {
-            return Err(UnsupportedEditItem::NOT_ROOM_MESSAGE);
-        };
-        let edit_info =
-            EditInfo { event_id: event_id.to_owned(), original_message: original_content.clone() };
-        Ok(edit_info)
-    }
-
+    /// Gives the information needed to edit an event from an event id.
     pub async fn get_edit_info_from_event_id(
         &self,
         event_id: &EventId,
     ) -> Result<EditInfo, UnsupportedEditItem> {
         if let Some(timeline_item) = self.item_by_event_id(event_id).await {
-            return self.get_edit_info_from_event_timeline_item(&timeline_item);
+            return timeline_item.get_edit_info();
         }
 
-        let Ok(event) = self.room().event(event_id).await else {
-            return Err(UnsupportedEditItem::MISSING_EVENT);
+        let event = match self.room().event(event_id).await {
+            Ok(event) => event,
+            Err(error) => {
+                error!("Failed to fetch event with ID {event_id} with error: {error}");
+                return Err(UnsupportedEditItem::MISSING_EVENT);
+            }
         };
 
         let raw_sync_event: Raw<AnySyncTimelineEvent> = event.event.cast();
 
-        let Ok(event) = raw_sync_event.deserialize_as::<AnySyncTimelineEvent>() else {
-            warn!("Unable to deserialize latest_event as an AnySyncTimelineEvent!");
-            return Err(UnsupportedEditItem::DESERIALIZATION_ERROR);
+        let event = match raw_sync_event.deserialize() {
+            Ok(event) => event,
+            Err(error) => {
+                error!("Failed to deserialize event with ID {event_id} with error: {error}");
+                return Err(UnsupportedEditItem::FAILED_TO_DESERIALIZE_EVENT);
+            }
         };
 
         // Likely needs to be changed or renamed?
@@ -548,8 +517,7 @@ impl Timeline {
             return Err(UnsupportedEditItem::NOT_ROOM_MESSAGE);
         };
 
-        let edit_info = EditInfo { event_id: event_id.to_owned(), original_message: message };
-        Ok(edit_info)
+        Ok(EditInfo { event_id: event_id.to_owned(), original_message: message })
     }
 
     pub async fn edit_poll(

@@ -201,7 +201,7 @@ async fn test_send_edit() {
         .mount(&server)
         .await;
 
-    let edit_info = timeline.get_edit_info_from_event_timeline_item(&hello_world_item).unwrap();
+    let edit_info = hello_world_item.get_edit_info().unwrap();
     timeline
         .edit(RoomMessageEventContentWithoutRelation::text_plain("Hello, Room!"), edit_info)
         .await
@@ -383,7 +383,7 @@ async fn test_send_reply_edit() {
         .mount(&server)
         .await;
 
-    let edit_info = timeline.get_edit_info_from_event_timeline_item(&reply_item).unwrap();
+    let edit_info = reply_item.get_edit_info().unwrap();
     timeline
         .edit(RoomMessageEventContentWithoutRelation::text_plain("Hello, Room!"), edit_info)
         .await

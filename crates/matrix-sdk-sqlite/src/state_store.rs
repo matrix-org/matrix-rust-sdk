@@ -278,8 +278,8 @@ impl SqliteStateStore {
             StateStoreDataKey::RecentlyVisitedRooms(b) => {
                 Cow::Owned(format!("{}:{b}", StateStoreDataKey::RECENTLY_VISITED_ROOMS))
             }
-            StateStoreDataKey::ComposerDraft(r) => {
-                Cow::Owned(format!("{}:{r}", StateStoreDataKey::COMPOSER_DRAFT))
+            StateStoreDataKey::ComposerDraft(room_id) => {
+                Cow::Owned(format!("{}:{room_id}", StateStoreDataKey::COMPOSER_DRAFT))
             }
         };
 

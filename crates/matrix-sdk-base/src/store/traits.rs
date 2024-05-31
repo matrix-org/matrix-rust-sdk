@@ -811,13 +811,13 @@ pub enum StateStoreDataValue {
     RecentlyVisitedRooms(Vec<String>),
 
     /// A composer draft for the room.
-    /// /// To learn more, see [`ComposerDraft`].
+    /// To learn more, see [`ComposerDraft`].
     ///
-    /// [`ComposerDraft`]: self::ComposerDraft
+    /// [`ComposerDraft`]: Self::ComposerDraft
     ComposerDraft(ComposerDraft),
 }
 
-/// Struct that represents the current draft of the composer for the room
+/// Current draft of the composer for the room.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct ComposerDraft {
@@ -830,7 +830,7 @@ pub struct ComposerDraft {
     draft_type: DraftType,
 }
 
-/// Struct that represents the type of draft the composer is composing.
+/// The type of draft of the composer.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum DraftType {
@@ -884,7 +884,10 @@ pub enum StateStoreDataKey<'a> {
     /// Recently visited room identifiers
     RecentlyVisitedRooms(&'a UserId),
 
-    /// Composer draft for the room
+    /// A composer draft for the room.
+    /// To learn more, see [`ComposerDraft`].
+    ///
+    /// [`ComposerDraft`]: Self::ComposerDraft
     ComposerDraft(&'a RoomId),
 }
 
@@ -901,7 +904,7 @@ impl StateStoreDataKey<'_> {
     /// [`RecentlyVisitedRooms`][Self::RecentlyVisitedRooms] variant.
     pub const RECENTLY_VISITED_ROOMS: &'static str = "recently_visited_rooms";
 
-    /// Key prefix to user for the [`ComposerDraft`][Self::ComposerDraft]
+    /// Key prefix to use for the [`ComposerDraft`][Self::ComposerDraft]
     /// variant.
     pub const COMPOSER_DRAFT: &'static str = "composer_draft";
 }

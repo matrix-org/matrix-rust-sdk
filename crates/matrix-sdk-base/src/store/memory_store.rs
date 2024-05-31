@@ -49,7 +49,7 @@ use crate::{
 #[derive(Debug)]
 pub struct MemoryStore {
     recently_visited_rooms: StdRwLock<HashMap<String, Vec<String>>>,
-    composer_drafts: StdRwLock<HashMap<String, ComposerDraft>>,
+    composer_drafts: StdRwLock<HashMap<OwnedRoomId, ComposerDraft>>,
     user_avatar_url: StdRwLock<HashMap<String, String>>,
     sync_token: StdRwLock<Option<String>>,
     filters: StdRwLock<HashMap<String, String>>,
@@ -192,7 +192,7 @@ impl StateStore for MemoryStore {
                 .composer_drafts
                 .read()
                 .unwrap()
-                .get(room_id.as_str())
+                .get(room_id)
                 .cloned()
                 .map(StateStoreDataValue::ComposerDraft),
         })
@@ -230,7 +230,7 @@ impl StateStore for MemoryStore {
             }
             StateStoreDataKey::ComposerDraft(room_id) => {
                 self.composer_drafts.write().unwrap().insert(
-                    room_id.to_string(),
+                    room_id.to_owned(),
                     value.into_composer_draft().expect("Session data not a composer draft"),
                 );
             }
@@ -252,7 +252,7 @@ impl StateStore for MemoryStore {
                 self.recently_visited_rooms.write().unwrap().remove(user_id.as_str());
             }
             StateStoreDataKey::ComposerDraft(room_id) => {
-                self.composer_drafts.write().unwrap().remove(room_id.as_str());
+                self.composer_drafts.write().unwrap().remove(room_id);
             }
         }
         Ok(())

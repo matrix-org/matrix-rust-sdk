@@ -456,13 +456,13 @@ impl Timeline {
         event_id: String,
     ) -> Result<(), ClientError> {
         let event_id = EventId::parse(event_id)?;
-        let editing_info = self
+        let edit_info = self
             .inner
             .get_edit_info_from_event_id(&event_id)
             .await
             .map_err(|err| anyhow::anyhow!(err))?;
         self.inner
-            .edit((*new_content).clone(), editing_info)
+            .edit((*new_content).clone(), edit_info)
             .await
             .map_err(|err| anyhow::anyhow!(err))?;
         Ok(())
