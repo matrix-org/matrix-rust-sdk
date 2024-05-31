@@ -60,6 +60,7 @@ use tracing::{error, instrument, trace, warn};
 
 use self::{
     error::{RedactEventError, SendEventError},
+    event_item::EventTimelineItemKind,
     futures::SendAttachment,
 };
 
@@ -361,7 +362,7 @@ impl Timeline {
     /// Send an edit to the given event.
     ///
     /// Currently only supports `m.room.message` events whose event ID is known.
-    /// Please check [`EventTimelineItem::can_be_edited`] before calling this.
+    /// Please check [`EventTimelineItem::is_editable`] before calling this.
     ///
     /// # Arguments
     ///
@@ -374,11 +375,14 @@ impl Timeline {
         new_content: RoomMessageEventContentWithoutRelation,
         edit_item: &EventTimelineItem,
     ) -> Result<(), SendEventError> {
-        // Early returns here must be in sync with
-        // `EventTimelineItem::can_be_edited`
+        // Early returns here must be in sync with `EventTimelineItem::is_editable`.
+        if !edit_item.is_own() {
+            return Err(UnsupportedEditItem::NOT_OWN_EVENT.into());
+        }
         let Some(event_id) = edit_item.event_id() else {
             return Err(UnsupportedEditItem::MISSING_EVENT_ID.into());
         };
+
         let TimelineItemContent::Message(original_content) = edit_item.content() else {
             return Err(UnsupportedEditItem::NOT_ROOM_MESSAGE.into());
         };
@@ -419,19 +423,29 @@ impl Timeline {
         poll: UnstablePollStartContentBlock,
         edit_item: &EventTimelineItem,
     ) -> Result<(), SendEventError> {
+        // TODO: refactor this function into [`Self::edit`], there's no good reason to
+        // keep a separate function for this.
+
+        // Early returns here must be in sync with `EventTimelineItem::is_editable`.
+        if !edit_item.is_own() {
+            return Err(UnsupportedEditItem::NOT_OWN_EVENT.into());
+        }
         let Some(event_id) = edit_item.event_id() else {
             return Err(UnsupportedEditItem::MISSING_EVENT_ID.into());
         };
+
         let TimelineItemContent::Poll(_) = edit_item.content() else {
             return Err(UnsupportedEditItem::NOT_POLL_EVENT.into());
         };
 
-        let replacement_poll = ReplacementUnstablePollStartEventContent::plain_text(
+        let content = ReplacementUnstablePollStartEventContent::plain_text(
             fallback_text,
             poll,
             event_id.into(),
         );
-        self.send(UnstablePollStartEventContent::from(replacement_poll).into()).await?;
+
+        self.send(UnstablePollStartEventContent::from(content).into()).await?;
+
         Ok(())
     }
 
@@ -560,7 +574,7 @@ impl Timeline {
         reason: Option<&str>,
     ) -> Result<bool, RedactEventError> {
         match &event.kind {
-            event_item::EventTimelineItemKind::Local(local) => {
+            EventTimelineItemKind::Local(local) => {
                 if let Some(handle) = local.abort_handle.clone() {
                     Ok(handle.abort().await)
                 } else {
@@ -570,7 +584,7 @@ impl Timeline {
                 }
             }
 
-            event_item::EventTimelineItemKind::Remote(remote) => {
+            EventTimelineItemKind::Remote(remote) => {
                 self.room()
                     .redact(&remote.event_id, reason, None)
                     .await
