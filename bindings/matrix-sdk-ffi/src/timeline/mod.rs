@@ -548,6 +548,30 @@ impl Timeline {
 
         latest_event.map(|item| Arc::new(EventTimelineItem(item)))
     }
+
+    /// Redacts an event from the timeline.
+    ///
+    /// Only works for events that exist as timeline items.
+    ///
+    /// If it was a local event, this will *try* to cancel it, if it was not
+    /// being sent already. If the event was a remote event, then it will be
+    /// redacted by sending a redaction request to the server.
+    ///
+    /// Returns whether the redaction did happen. It can only return false for
+    /// local events that are being processed.
+    pub async fn redact_event(
+        &self,
+        item: Arc<EventTimelineItem>,
+        reason: Option<String>,
+    ) -> Result<bool, ClientError> {
+        let removed = self
+            .inner
+            .redact(&item.0, reason.as_deref())
+            .await
+            .map_err(|err| anyhow::anyhow!(err))?;
+
+        Ok(removed)
+    }
 }
 
 #[derive(uniffi::Object)]

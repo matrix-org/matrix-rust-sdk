@@ -18,6 +18,7 @@ use matrix_sdk::{
     event_cache::{paginator::PaginatorError, EventCacheError},
     send_queue::RoomSendingQueueError,
 };
+use ruma::OwnedTransactionId;
 use thiserror::Error;
 
 /// Errors specific to the timeline.
@@ -141,4 +142,13 @@ pub enum SendEventError {
 
     #[error(transparent)]
     SendError(#[from] RoomSendingQueueError),
+}
+
+#[derive(Debug, Error)]
+pub enum RedactEventError {
+    #[error("the given local event (with transaction id {0}) doesn't support redaction")]
+    UnsupportedRedactLocal(OwnedTransactionId),
+
+    #[error(transparent)]
+    SdkError(#[from] matrix_sdk::Error),
 }

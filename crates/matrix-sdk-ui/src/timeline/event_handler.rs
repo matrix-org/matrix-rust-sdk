@@ -17,7 +17,10 @@ use std::sync::Arc;
 use as_variant::as_variant;
 use eyeball_im::{ObservableVectorTransaction, ObservableVectorTransactionEntry};
 use indexmap::{map::Entry, IndexMap};
-use matrix_sdk::{crypto::types::events::UtdCause, deserialized_responses::EncryptionInfo};
+use matrix_sdk::{
+    crypto::types::events::UtdCause, deserialized_responses::EncryptionInfo,
+    send_queue::AbortSendHandle,
+};
 use ruma::{
     events::{
         poll::{
@@ -68,6 +71,9 @@ pub(super) enum Flow {
     Local {
         /// The transaction id we've used in requests associated to this event.
         txn_id: OwnedTransactionId,
+
+        /// A handle to abort sending this event.
+        abort_handle: Option<AbortSendHandle>,
     },
 
     /// The event has been received from a remote source (sync, pagination,
@@ -853,10 +859,11 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         let mut reactions = self.pending_reactions().unwrap_or_default();
 
         let kind: EventTimelineItemKind = match &self.ctx.flow {
-            Flow::Local { txn_id } => {
+            Flow::Local { txn_id, abort_handle } => {
                 LocalEventTimelineItem {
                     send_state: EventSendState::NotSentYet,
                     transaction_id: txn_id.to_owned(),
+                    abort_handle: abort_handle.clone(),
                 }
             }
             .into(),
