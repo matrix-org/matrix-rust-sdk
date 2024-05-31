@@ -57,9 +57,13 @@ pub struct UnableToDecryptInfo {
     pub cause: UtdCause,
 }
 
+/// Data about a UTD event which we are waiting to report to the parent hook.
 #[derive(Debug)]
 struct PendingUtdReport {
+    /// The time that we received the UTD report from the timeline code.
     marked_utd_at: Instant,
+
+    /// The task that will report this UTD to the parent hook.
     report_task: JoinHandle<()>,
 }
 
@@ -154,7 +158,7 @@ impl UtdHookManager {
 
         // Clone data shared with the task below.
         let pending_delayed = self.pending_delayed.clone();
-        let event_id2 = event_id.to_owned();
+        let target_event_id = event_id.to_owned();
 
         // Spawn a task that will wait for the given delay, and maybe call the parent
         // hook then.
@@ -168,7 +172,7 @@ impl UtdHookManager {
             // Make sure we hold the lock on `pending_delayed` while the task runs, to
             // prevent races against new reports.
             let mut pending_delayed_lock = pending_delayed.lock().unwrap();
-            if pending_delayed_lock.remove(&event_id2).is_some() {
+            if pending_delayed_lock.remove(&target_event_id).is_some() {
                 report_utd();
             }
         });
@@ -189,7 +193,7 @@ impl UtdHookManager {
         let mut pending_delayed_lock = self.pending_delayed.lock().unwrap();
 
         // Only let the parent hook know about the late decryption if the event is
-        // a pending UTD. If so, remove the event from the pending list --
+        // a pending UTD. If so, remove the event from the pending list —
         // doing so will cause the reporting task to no-op if it runs.
         let Some(pending_utd_report) = pending_delayed_lock.remove(event_id) else {
             return;
