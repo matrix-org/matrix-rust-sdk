@@ -1709,7 +1709,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
- "futures-util",
  "matrix-sdk",
  "tokio",
  "tracing-subscriber",
@@ -3170,7 +3169,6 @@ dependencies = [
  "async-trait",
  "axum",
  "backoff",
- "base64 0.22.1",
  "bytes",
  "bytesize",
  "chrono",
@@ -3178,7 +3176,6 @@ dependencies = [
  "event-listener",
  "eyeball",
  "eyeball-im",
- "eyeball-im-util",
  "eyre",
  "futures-core",
  "futures-executor",
@@ -3392,7 +3389,6 @@ dependencies = [
  "serde_json",
  "thiserror",
  "tokio",
- "tokio-stream",
  "tracing",
  "tracing-appender",
  "tracing-core",
@@ -3592,7 +3588,6 @@ dependencies = [
  "tracing",
  "unicode-normalization",
  "uniffi",
- "url",
  "wiremock",
 ]
 
@@ -3689,7 +3684,6 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
- "url",
 ]
 
 [[package]]
