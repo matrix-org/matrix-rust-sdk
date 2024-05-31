@@ -19,7 +19,7 @@
 //! utilities to simplify usage of this trait.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
@@ -83,18 +83,6 @@ pub struct UtdHookManager {
     /// The parent hook we'll call, when we have found a unique UTD.
     parent: Arc<dyn UnableToDecryptHook>,
 
-    /// The set of events we've marked as UTDs.
-    ///
-    /// Events are added to this set when they are first flagged as UTDs. If
-    /// they are subsequently successfully decrypted, they are removed from
-    /// this set. (In other words, this is a superset of the events in
-    /// [`Self::pending_delayed`].
-    ///
-    /// Note: this is unbounded, because we have absolutely no idea how long it
-    /// will take for a UTD to resolve, or if it will even resolve at any
-    /// point.
-    known_utds: Arc<Mutex<HashSet<OwnedEventId>>>,
-
     /// An optional delay before marking the event as UTD ("grace period").
     max_delay: Option<Duration>,
 
@@ -121,7 +109,6 @@ impl UtdHookManager {
     pub async fn new(parent: Arc<dyn UnableToDecryptHook>, client: Client) -> Result<Self, Error> {
         Ok(Self {
             parent,
-            known_utds: Default::default(),
             max_delay: None,
             pending_delayed: Default::default(),
             reported_utds: ReportedUtdsManager::new(client).await?,
@@ -146,14 +133,6 @@ impl UtdHookManager {
         let mut pending_delayed_lock = self.pending_delayed.lock().unwrap();
         if pending_delayed_lock.contains_key(event_id) {
             return;
-        }
-
-        // Keep track of UTDs we have already seen.
-        {
-            let mut known_utds = self.known_utds.lock().unwrap();
-            if !known_utds.insert(event_id.to_owned()) {
-                return;
-            }
         }
 
         // A previous instance of UtdHookManager may already have reported this UTD, so
@@ -212,7 +191,6 @@ impl UtdHookManager {
     /// before, it has no effect.
     pub(crate) fn on_late_decrypt(&self, event_id: &EventId, cause: UtdCause) {
         let mut pending_delayed_lock = self.pending_delayed.lock().unwrap();
-        self.known_utds.lock().unwrap().remove(event_id);
 
         // Only let the parent hook know about the late decryption if the event is
         // a pending UTD. If so, remove the event from the pending list —
