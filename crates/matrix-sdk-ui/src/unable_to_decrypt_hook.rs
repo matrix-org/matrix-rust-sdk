@@ -80,6 +80,18 @@ pub struct UtdHookManager {
     /// The parent hook we'll call, when we have found a unique UTD.
     parent: Arc<dyn UnableToDecryptHook>,
 
+    /// The set of events we've marked as UTDs.
+    ///
+    /// Events are added to this set when they are first flagged as UTDs. If
+    /// they are subsequently successfully decrypted, they are removed from
+    /// this set. (In other words, this is a superset of the events in
+    /// [`Self::pending_delayed`].
+    ///
+    /// Note: this is unbounded, because we have absolutely no idea how long it
+    /// will take for a UTD to resolve, or if it will even resolve at any
+    /// point.
+    known_utds: Arc<Mutex<HashSet<OwnedEventId>>>,
+
     /// An optional delay before marking the event as UTD ("grace period").
     max_delay: Option<Duration>,
 
@@ -91,11 +103,6 @@ pub struct UtdHookManager {
     /// Note: this is theoretically unbounded in size, although this set of
     /// tasks will degrow over time, as tasks expire after the max delay.
     pending_delayed: Arc<Mutex<HashMap<OwnedEventId, PendingUtdReport>>>,
-
-    /// The list of events we've reported as UTDs.
-    ///
-    /// Note: this is unbounded, because we could receive infinitely many UTDs.
-    reported_utds: Arc<Mutex<HashSet<OwnedEventId>>>,
 }
 
 impl UtdHookManager {
@@ -103,9 +110,9 @@ impl UtdHookManager {
     pub fn new(parent: Arc<dyn UnableToDecryptHook>) -> Self {
         Self {
             parent,
+            known_utds: Default::default(),
             max_delay: None,
             pending_delayed: Default::default(),
-            reported_utds: Default::default(),
         }
     }
 
@@ -129,12 +136,12 @@ impl UtdHookManager {
             return;
         }
 
-        // We may already have reported this UTD, so check that too.
-        //
-        // Note: we check this *after* taking the lock on `pending_delayed`,
-        // which ensures that we don't race against a thread which is doing the report.
-        if self.reported_utds.lock().unwrap().contains(&event_id.to_owned()) {
-            return;
+        // Keep track of UTDs we have already seen.
+        {
+            let mut known_utds = self.known_utds.lock().unwrap();
+            if !known_utds.insert(event_id.to_owned()) {
+                return;
+            }
         }
 
         // Construct a closure which will report the UTD to the parent.
@@ -142,11 +149,8 @@ impl UtdHookManager {
             let info =
                 UnableToDecryptInfo { event_id: event_id.to_owned(), time_to_decrypt: None, cause };
             let parent = self.parent.clone();
-            let reported_utds = self.reported_utds.clone();
             move || {
-                let event_id = info.event_id.clone();
                 parent.on_utd(info);
-                reported_utds.lock().unwrap().insert(event_id);
             }
         };
 
@@ -168,11 +172,7 @@ impl UtdHookManager {
 
             // Remove the task from the outstanding set. But if it's already been removed,
             // it's been decrypted since the task was added!
-            //
-            // Make sure we hold the lock on `pending_delayed` while the task runs, to
-            // prevent races against new reports.
-            let mut pending_delayed_lock = pending_delayed.lock().unwrap();
-            if pending_delayed_lock.remove(&target_event_id).is_some() {
+            if pending_delayed.lock().unwrap().remove(&target_event_id).is_some() {
                 report_utd();
             }
         });
@@ -191,6 +191,7 @@ impl UtdHookManager {
     /// before, it has no effect.
     pub(crate) fn on_late_decrypt(&self, event_id: &EventId, cause: UtdCause) {
         let mut pending_delayed_lock = self.pending_delayed.lock().unwrap();
+        self.known_utds.lock().unwrap().remove(event_id);
 
         // Only let the parent hook know about the late decryption if the event is
         // a pending UTD. If so, remove the event from the pending list —
@@ -209,7 +210,6 @@ impl UtdHookManager {
             cause,
         };
         self.parent.on_utd(info);
-        self.reported_utds.lock().unwrap().insert(event_id.to_owned());
     }
 }
 
