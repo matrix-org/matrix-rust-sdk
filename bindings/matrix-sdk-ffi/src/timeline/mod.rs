@@ -798,9 +798,6 @@ pub enum EventSendState {
     /// The local event has been sent to the server, but unsuccessfully: The
     /// sending has failed.
     SendingFailed { error: String },
-    /// Sending has been cancelled because an earlier event in the
-    /// message-sending queue failed.
-    Cancelled,
     /// The local event has been sent successfully to the server.
     Sent { event_id: String },
 }
@@ -812,7 +809,6 @@ impl From<&matrix_sdk_ui::timeline::EventSendState> for EventSendState {
         match value {
             NotSentYet => Self::NotSentYet,
             SendingFailed { error } => Self::SendingFailed { error: error.to_string() },
-            Cancelled => Self::Cancelled,
             Sent { event_id } => Self::Sent { event_id: event_id.to_string() },
         }
     }

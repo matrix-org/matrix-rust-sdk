@@ -728,28 +728,8 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             error!(?existing_event_id, ?new_event_id, "Local echo already marked as sent");
         }
 
-        let is_error = matches!(send_state, EventSendState::SendingFailed { .. });
-
         let new_item = item.with_inner_kind(local_item.with_send_state(send_state));
         txn.items.set(idx, new_item);
-
-        if is_error {
-            // When there is an error, sending further messages is paused. This should be
-            // reflected in the timeline, so we set all other pending events to
-            // cancelled.
-            let items = &mut txn.items;
-            let num_items = items.len();
-            for idx in 0..num_items {
-                let item = &items[idx];
-                let Some(event_item) = item.as_event() else { continue };
-                let Some(local_item) = event_item.as_local() else { continue };
-                if matches!(&local_item.send_state, EventSendState::NotSentYet) {
-                    let new_event_item =
-                        event_item.with_kind(local_item.with_send_state(EventSendState::Cancelled));
-                    items.set(idx, item.with_kind(new_event_item));
-                }
-            }
-        }
 
         txn.commit();
     }
