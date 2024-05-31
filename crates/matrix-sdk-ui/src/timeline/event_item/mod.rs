@@ -279,17 +279,30 @@ impl EventTimelineItem {
         }
     }
 
-    /// Flag indicating this timeline item can be edited by current user.
+    /// Flag indicating this timeline item can be edited by the current user.
     pub fn is_editable(&self) -> bool {
+        // This must be in sync with the early returns of `Timeline::edit`
+        if !self.is_own() {
+            // In theory could work, but it's hard to compute locally.
+            return false;
+        }
+
+        if self.event_id().is_none() {
+            // Local echoes without an event id (not sent yet) can't be edited.
+            return false;
+        }
+
         match self.content() {
             TimelineItemContent::Message(message) => {
-                self.is_own()
-                    && matches!(message.msgtype(), MessageType::Text(_) | MessageType::Emote(_))
+                matches!(message.msgtype(), MessageType::Text(_) | MessageType::Emote(_))
             }
             TimelineItemContent::Poll(poll) => {
-                self.is_own() && poll.response_data.is_empty() && poll.end_event_timestamp.is_none()
+                poll.response_data.is_empty() && poll.end_event_timestamp.is_none()
             }
-            _ => false,
+            _ => {
+                // Other timeline items can't be edited at the moment.
+                false
+            }
         }
     }
 
@@ -319,15 +332,6 @@ impl EventTimelineItem {
         } else {
             self.latest_json().is_some()
         }
-    }
-
-    /// Check whether this item can be edited.
-    ///
-    /// Please also check whether the `sender` of this event is the client's
-    /// current user before presenting an edit button in the UI.
-    pub fn can_be_edited(&self) -> bool {
-        // This must be in sync with the early returns of `Timeline::edit`
-        self.event_id().is_some() && self.content().as_message().is_some()
     }
 
     /// Get the raw JSON representation of the initial event (the one that

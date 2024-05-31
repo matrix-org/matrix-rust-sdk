@@ -87,25 +87,31 @@ async fn test_message_order() {
 
     // Local echoes are available after the sending queue has processed these.
     assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
+        assert!(!value.is_editable(), "local echo for first can't be edited");
         assert_eq!(value.content().as_message().unwrap().body(), "First!");
     });
     assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
+        assert!(!value.is_editable(), "local echo for second can't be edited");
         assert_eq!(value.content().as_message().unwrap().body(), "Second.");
     });
 
-    // Wait 200ms for the first msg, 100ms for the second, 200ms for overhead
+    // Wait 200ms for the first msg, 100ms for the second, 200ms for overhead.
     sleep(Duration::from_millis(500)).await;
 
-    // The first item should be updated first
+    // The first item should be updated first.
     assert_next_matches!(timeline_stream, VectorDiff::Set { index: 0, value } => {
+        assert!(value.is_editable(), "remote echo of first can be edited");
         assert_eq!(value.content().as_message().unwrap().body(), "First!");
         assert_eq!(value.event_id().unwrap(), "$PyHxV5mYzjetBUT3qZq7V95GOzxb02EP");
     });
-    // Then the second one
+
+    // Then the second one.
     assert_next_matches!(timeline_stream, VectorDiff::Set { index: 1, value } => {
+        assert!(value.is_editable(), "remote echo of second can be edited");
         assert_eq!(value.content().as_message().unwrap().body(), "Second.");
         assert_eq!(value.event_id().unwrap(), "$5E2kLK/Sg342bgBU9ceEIEPYpbFaqJpZ");
     });
+
     assert_pending!(timeline_stream);
 }
 

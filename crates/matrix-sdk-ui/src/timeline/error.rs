@@ -113,6 +113,7 @@ impl UnsupportedEditItem {
     pub(super) const MISSING_EVENT_ID: Self = Self(UnsupportedEditItemInner::MissingEventId);
     pub(super) const NOT_ROOM_MESSAGE: Self = Self(UnsupportedEditItemInner::NotRoomMessage);
     pub(super) const NOT_POLL_EVENT: Self = Self(UnsupportedEditItemInner::NotPollEvent);
+    pub(super) const NOT_OWN_EVENT: Self = Self(UnsupportedEditItemInner::NotOwnEvent);
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -130,6 +131,8 @@ enum UnsupportedEditItemInner {
     NotRoomMessage,
     #[error("tried to edit a non-poll event")]
     NotPollEvent,
+    #[error("tried to edit another user's event")]
+    NotOwnEvent,
 }
 
 #[derive(Debug, Error)]

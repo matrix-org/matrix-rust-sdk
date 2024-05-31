@@ -189,7 +189,7 @@ async fn test_send_edit() {
         assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
     let hello_world_message = hello_world_item.content().as_message().unwrap();
     assert!(!hello_world_message.is_edited());
-    assert!(hello_world_item.can_be_edited());
+    assert!(hello_world_item.is_editable());
 
     mock_encryption_state(&server, false).await;
     Mock::given(method("PUT"))
@@ -269,14 +269,14 @@ async fn test_send_reply_edit() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    // 'Hello, World!' message
+    // 'Hello, World!' message.
     assert_next_matches!(timeline_stream, VectorDiff::PushBack { .. });
 
-    // Reply message
+    // Reply message.
     let reply_item = assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
     let reply_message = reply_item.content().as_message().unwrap();
     assert!(!reply_message.is_edited());
-    assert!(reply_item.can_be_edited());
+    assert!(reply_item.is_editable());
     let in_reply_to = reply_message.in_reply_to().unwrap();
     assert_eq!(in_reply_to.event_id, fst_event_id);
     assert_matches!(in_reply_to.event, TimelineDetails::Ready(_));
