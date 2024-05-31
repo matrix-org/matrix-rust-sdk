@@ -114,12 +114,10 @@ pub enum TimelineItemContent {
 }
 
 impl TimelineItemContent {
-    /// If the supplied event is suitable to be used as a `latest_event` in a
-    /// message preview, extract its contents and wrap it as a
-    /// `TimelineItemContent`.
-    pub(crate) fn from_latest_event_content(
-        event: AnySyncTimelineEvent,
-    ) -> Option<TimelineItemContent> {
+    /// If the supplied event is suitable to be used as a message preview
+    /// like reply previews or latest event items in the room list,
+    /// extract its contents and wrap it as a `TimelineItemContent`.
+    pub(crate) fn from_any_sync_event(event: AnySyncTimelineEvent) -> Option<TimelineItemContent> {
         match is_suitable_for_latest_event(&event) {
             PossibleLatestEvent::YesRoomMessage(m) => {
                 Some(Self::from_suitable_latest_event_content(m))

@@ -330,6 +330,13 @@ async fn test_send_reply() {
     assert_eq!(reply_message.body(), "Replying to Bob");
     let in_reply_to = reply_message.in_reply_to().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_from_bob);
+    // Right now, we don't pass along the replied-to event to the event handler,
+    // so it's not available if the timeline got cleared. Not critical, but
+    // there's notable room for improvement here.
+    //
+    // let replied_to_event =
+    // assert_matches!(&in_reply_to.event, TimelineDetails::Ready(ev) => ev);
+    // assert_eq!(replied_to_event.sender(), *BOB);
 
     let diff = timeout(timeline_stream.next(), Duration::from_secs(1)).await.unwrap().unwrap();
     assert_let!(VectorDiff::Set { index: 0, value: reply_item_remote_echo } = diff);
@@ -339,6 +346,11 @@ async fn test_send_reply() {
     assert_eq!(reply_message.body(), "Replying to Bob");
     let in_reply_to = reply_message.in_reply_to().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_from_bob);
+    // Same as above.
+    //
+    // let replied_to_event =
+    // assert_matches!(&in_reply_to.event, TimelineDetails::Ready(ev) =>
+    // ev); assert_eq!(replied_to_event.sender(), *BOB);
 
     server.verify().await;
 }
@@ -363,13 +375,14 @@ async fn test_send_reply_with_event_id() {
         timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
 
     let event_id_from_bob = event_id!("$event_from_bob");
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
-        event_builder.make_sync_message_event_with_id(
-            &BOB,
-            event_id_from_bob,
-            RoomMessageEventContent::text_plain("Hello from Bob"),
-        ),
-    ));
+    let raw_event_from_bob = event_builder.make_sync_message_event_with_id(
+        &BOB,
+        event_id_from_bob,
+        RoomMessageEventContent::text_plain("Hello from Bob"),
+    );
+    sync_builder.add_joined_room(
+        JoinedRoomBuilder::new(room_id).add_timeline_event(raw_event_from_bob.clone()),
+    );
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
@@ -416,16 +429,7 @@ async fn test_send_reply_with_event_id() {
     Mock::given(method("GET"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/event/"))
         .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "content":{
-                "body":"Hello from Bob",
-                "msgtype":"m.text"
-            },
-            "event_id":"$event_from_bob",
-            "origin_server_ts":0,
-            "sender":"@bob:other.server",
-            "type":"m.room.message"
-        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(raw_event_from_bob.json()))
         .expect(1)
         .named("event_1")
         .mount(&server)
@@ -449,13 +453,6 @@ async fn test_send_reply_with_event_id() {
     assert_eq!(reply_message.body(), "Replying to Bob");
     let in_reply_to = reply_message.in_reply_to().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_from_bob);
-    // Right now, we don't pass along the replied-to event to the event handler,
-    // so it's not available if the timeline got cleared. Not critical, but
-    // there's notable room for improvement here.
-    //
-    // let replied_to_event =
-    // assert_matches!(&in_reply_to.event, TimelineDetails::Ready(ev) => ev);
-    // assert_eq!(replied_to_event.sender(), *BOB);
 
     let diff = timeout(timeline_stream.next(), Duration::from_secs(1)).await.unwrap().unwrap();
     assert_let!(VectorDiff::Set { index: 0, value: reply_item_remote_echo } = diff);
@@ -465,11 +462,6 @@ async fn test_send_reply_with_event_id() {
     assert_eq!(reply_message.body(), "Replying to Bob");
     let in_reply_to = reply_message.in_reply_to().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_from_bob);
-    // Same as above.
-    //
-    // let replied_to_event =
-    // assert_matches!(&in_reply_to.event, TimelineDetails::Ready(ev) =>
-    // ev); assert_eq!(replied_to_event.sender(), *BOB);
 
     server.verify().await;
 }

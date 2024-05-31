@@ -119,7 +119,7 @@ impl EventTimelineItem {
 
         // If we don't (yet) know how to handle this type of message, return `None`
         // here. If we do, convert it into a `TimelineItemContent`.
-        let item_content = TimelineItemContent::from_latest_event_content(event)?;
+        let item_content = TimelineItemContent::from_any_sync_event(event)?;
 
         // We don't currently bundle any reactions with the main event. This could
         // conceivably be wanted in the message preview in future.

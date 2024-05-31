@@ -408,14 +408,14 @@ impl Timeline {
             }
         };
 
+        // We need to synthetise the TimelineitemContent and we can do that by casting
+        // the event as a AnySyncTimelineEvent
         let raw_sync_event: Raw<AnySyncTimelineEvent> = event.event.cast();
         let Ok(sync_event) = raw_sync_event.deserialize_as::<AnySyncTimelineEvent>() else {
             return Err(UnsupportedReplyItem::DESERIALIZATION_ERROR);
         };
-
-        // Likely needs to be changed or renamed?
         let Some(timeline_item_content) =
-            TimelineItemContent::from_latest_event_content(sync_event.clone())
+            TimelineItemContent::from_any_sync_event(sync_event.clone())
         else {
             return Err(UnsupportedReplyItem::MISSING_CONTENT);
         };
@@ -498,8 +498,9 @@ impl Timeline {
             }
         };
 
+        // We need to synthetise the TimelineitemContent and we can do that by casting
+        // the event as a AnySyncTimelineEvent
         let raw_sync_event: Raw<AnySyncTimelineEvent> = event.event.cast();
-
         let event = match raw_sync_event.deserialize() {
             Ok(event) => event,
             Err(error) => {
@@ -507,9 +508,7 @@ impl Timeline {
                 return Err(UnsupportedEditItem::FAILED_TO_DESERIALIZE_EVENT);
             }
         };
-
-        // Likely needs to be changed or renamed?
-        let Some(content) = TimelineItemContent::from_latest_event_content(event) else {
+        let Some(content) = TimelineItemContent::from_any_sync_event(event) else {
             return Err(UnsupportedEditItem::MISSING_CONTENT);
         };
 

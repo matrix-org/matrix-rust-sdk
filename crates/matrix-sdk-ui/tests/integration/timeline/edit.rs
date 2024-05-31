@@ -244,14 +244,15 @@ async fn test_send_edit_when_timeline_is_clear() {
     let (_, mut timeline_stream) =
         timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
 
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
-        event_builder.make_sync_message_event_with_id(
-            // Same user as the logged_in_client
-            user_id!("@example:localhost"),
-            event_id!("$original_event"),
-            RoomMessageEventContent::text_plain("Hello, World!"),
-        ),
-    ));
+    let raw_original_event = event_builder.make_sync_message_event_with_id(
+        // Same user as the logged_in_client
+        user_id!("@example:localhost"),
+        event_id!("$original_event"),
+        RoomMessageEventContent::text_plain("Hello, World!"),
+    );
+    sync_builder.add_joined_room(
+        JoinedRoomBuilder::new(room_id).add_timeline_event(raw_original_event.clone()),
+    );
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
@@ -284,16 +285,7 @@ async fn test_send_edit_when_timeline_is_clear() {
     Mock::given(method("GET"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/event/"))
         .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "content":{
-                "body":"Hello, World!",
-                "msgtype":"m.text"
-            },
-            "event_id":"$original_event",
-            "origin_server_ts":0,
-            "sender":"@example:localhost",
-            "type":"m.room.message"
-        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(raw_original_event.json()))
         .expect(1)
         .named("event_1")
         .mount(&server)
