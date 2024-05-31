@@ -314,6 +314,10 @@ mod tests {
         {
             let utds = hook.utds.lock().unwrap();
             assert_eq!(utds.len(), 1);
+
+            // The previous report is still there. (There was no grace period.)
+            assert_eq!(utds[0].event_id, event_id!("$1"));
+            assert!(utds[0].time_to_decrypt.is_none());
         }
     }
 

@@ -157,6 +157,10 @@ async fn test_retry_message_decryption() {
     {
         let utds = hook.utds.lock().unwrap();
         assert_eq!(utds.len(), 1);
+
+        // The previous UTD report is still there.
+        assert_eq!(utds[0].event_id, event.event_id().unwrap());
+        assert!(utds[0].time_to_decrypt.is_none());
     }
 }
 
