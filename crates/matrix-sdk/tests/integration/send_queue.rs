@@ -182,7 +182,8 @@ async fn test_smoke() {
     assert_let!(
         Ok(Ok(RoomSendingQueueUpdate::NewLocalEvent(LocalEcho {
             content: AnyMessageLikeEventContent::RoomMessage(msg),
-            transaction_id: txn1
+            transaction_id: txn1,
+            ..
         }))) = timeout(Duration::from_secs(1), watch.recv()).await
     );
     assert_eq!(msg.body(), "1");
@@ -271,7 +272,8 @@ async fn test_error() {
     assert_let!(
         Ok(Ok(RoomSendingQueueUpdate::NewLocalEvent(LocalEcho {
             content: AnyMessageLikeEventContent::RoomMessage(msg),
-            transaction_id: txn1
+            transaction_id: txn1,
+            ..
         }))) = timeout(Duration::from_secs(1), watch.recv()).await
     );
     assert_eq!(msg.body(), "1");
@@ -503,12 +505,15 @@ async fn test_cancellation() {
     let handle1 = q.send(RoomMessageEventContent::text_plain("msg1").into()).await.unwrap();
     let handle2 = q.send(RoomMessageEventContent::text_plain("msg2").into()).await.unwrap();
     q.send(RoomMessageEventContent::text_plain("msg3").into()).await.unwrap();
+    q.send(RoomMessageEventContent::text_plain("msg4").into()).await.unwrap();
+    q.send(RoomMessageEventContent::text_plain("msg5").into()).await.unwrap();
 
     // Receiving update for msg1.
     assert_let!(
         Ok(Ok(RoomSendingQueueUpdate::NewLocalEvent(LocalEcho {
             content: AnyMessageLikeEventContent::RoomMessage(_),
             transaction_id: txn1,
+            ..
         }))) = timeout(Duration::from_secs(1), watch.recv()).await
     );
 
@@ -517,6 +522,7 @@ async fn test_cancellation() {
         Ok(Ok(RoomSendingQueueUpdate::NewLocalEvent(LocalEcho {
             content: AnyMessageLikeEventContent::RoomMessage(_),
             transaction_id: txn2,
+            ..
         }))) = timeout(Duration::from_secs(1), watch.recv()).await
     );
 
@@ -525,6 +531,25 @@ async fn test_cancellation() {
         Ok(Ok(RoomSendingQueueUpdate::NewLocalEvent(LocalEcho {
             content: AnyMessageLikeEventContent::RoomMessage(_),
             transaction_id: txn3,
+            abort_handle: handle3,
+        }))) = timeout(Duration::from_secs(1), watch.recv()).await
+    );
+
+    // Receiving update for msg4.
+    assert_let!(
+        Ok(Ok(RoomSendingQueueUpdate::NewLocalEvent(LocalEcho {
+            content: AnyMessageLikeEventContent::RoomMessage(_),
+            transaction_id: txn4,
+            ..
+        }))) = timeout(Duration::from_secs(1), watch.recv()).await
+    );
+
+    // Receiving update for msg5.
+    assert_let!(
+        Ok(Ok(RoomSendingQueueUpdate::NewLocalEvent(LocalEcho {
+            content: AnyMessageLikeEventContent::RoomMessage(_),
+            transaction_id: txn5,
+            ..
         }))) = timeout(Duration::from_secs(1), watch.recv()).await
     );
 
@@ -538,7 +563,8 @@ async fn test_cancellation() {
 
     assert!(watch.is_empty());
 
-    // The second item is pending, so we can abort it.
+    // The second item is pending, so we can abort it, using the handle returned by
+    // `send()`.
     assert!(handle2.abort().await);
 
     assert_let!(
@@ -548,6 +574,44 @@ async fn test_cancellation() {
     );
 
     assert_eq!(cancelled_transaction_id, txn2);
+
+    assert!(watch.is_empty());
+
+    // The third item is pending, so we can abort it, using the handle received from
+    // the update.
+    assert!(handle3.abort().await);
+
+    assert_let!(
+        Ok(Ok(RoomSendingQueueUpdate::CancelledLocalEvent {
+            transaction_id: cancelled_transaction_id
+        })) = timeout(Duration::from_secs(1), watch.recv()).await
+    );
+
+    assert_eq!(cancelled_transaction_id, txn3);
+
+    assert!(watch.is_empty());
+
+    // The fourth item is pending, so we can abort it, using an handle provided by
+    // the initial array of values.
+    let (mut local_echoes, _) = q.subscribe().await;
+
+    // At this point, local echoes = txn1, txn4, txn5.
+    assert_eq!(local_echoes.len(), 3);
+
+    let local_echo4 = local_echoes.remove(1);
+    assert_eq!(local_echo4.transaction_id, txn4);
+
+    let handle4 = local_echo4.abort_handle;
+
+    assert!(handle4.abort().await);
+
+    assert_let!(
+        Ok(Ok(RoomSendingQueueUpdate::CancelledLocalEvent {
+            transaction_id: cancelled_transaction_id
+        })) = timeout(Duration::from_secs(1), watch.recv()).await
+    );
+
+    assert_eq!(cancelled_transaction_id, txn4);
 
     assert!(watch.is_empty());
 
@@ -565,7 +629,7 @@ async fn test_cancellation() {
         Ok(Ok(RoomSendingQueueUpdate::SentEvent { transaction_id: sent_txn, .. })) =
             timeout(Duration::from_secs(1), watch.recv()).await
     );
-    assert_eq!(sent_txn, txn3,);
+    assert_eq!(sent_txn, txn5);
 
     assert!(watch.is_empty());
 }

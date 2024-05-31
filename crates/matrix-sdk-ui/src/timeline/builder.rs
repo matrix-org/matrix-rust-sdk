@@ -18,7 +18,7 @@ use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::{
     event_cache::{EventsOrigin, RoomEventCacheUpdate},
     executor::spawn,
-    send_queue::RoomSendingQueueUpdate,
+    send_queue::{LocalEcho, RoomSendingQueueUpdate},
     Room,
 };
 use ruma::{events::AnySyncTimelineEvent, RoomVersionId};
@@ -294,12 +294,16 @@ impl TimelineBuilder {
                     loop {
                         match listener.recv().await {
                             Ok(update) => match update {
-                                RoomSendingQueueUpdate::NewLocalEvent(echo) => {
+                                RoomSendingQueueUpdate::NewLocalEvent(LocalEcho {
+                                    transaction_id,
+                                    content,
+                                    abort_handle: _, // TODO: (bnjbvr) do something with this
+                                }) => {
                                     timeline
                                         .handle_local_event(
-                                            echo.transaction_id,
+                                            transaction_id,
                                             TimelineEventKind::Message {
-                                                content: echo.content,
+                                                content,
                                                 relations: Default::default(),
                                             },
                                         )
