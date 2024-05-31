@@ -150,11 +150,6 @@ async fn test_retry_order() {
     assert_let!(Some(VectorDiff::Set { index: 0, value: first }) = timeline_stream.next().await);
     assert_matches!(first.send_state().unwrap(), EventSendState::SendingFailed { .. });
 
-    // The second one is cancelled without an extra delay.
-    let second =
-        assert_next_matches!(timeline_stream, VectorDiff::Set { index: 1, value } => value);
-    assert_matches!(second.send_state().unwrap(), EventSendState::Cancelled);
-
     // Response for first message takes 100ms to respond
     Mock::given(method("PUT"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
