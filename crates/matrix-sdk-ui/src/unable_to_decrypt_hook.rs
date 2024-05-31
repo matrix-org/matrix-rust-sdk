@@ -24,9 +24,15 @@ use std::{
     time::{Duration, Instant},
 };
 
+use growable_bloom_filter::{GrowableBloom, GrowableBloomBuilder};
 use matrix_sdk::{crypto::types::events::UtdCause, Client};
 use ruma::{EventId, OwnedEventId};
-use tokio::{spawn, task::JoinHandle, time::sleep};
+use tokio::{
+    spawn,
+    sync::{Mutex as AsyncMutex, MutexGuard},
+    task::JoinHandle,
+    time::sleep,
+};
 
 /// A generic interface which methods get called whenever we observe a
 /// unable-to-decrypt (UTD) event.
@@ -107,6 +113,10 @@ pub struct UtdHookManager {
     /// Note: this is theoretically unbounded in size, although this set of
     /// tasks will degrow over time, as tasks expire after the max delay.
     pending_delayed: Arc<Mutex<HashMap<OwnedEventId, PendingUtdReport>>>,
+
+    /// Bloom filter containing the event IDs of events which have been reported
+    /// as UTDs
+    reported_utds: Arc<AsyncMutex<GrowableBloom>>,
 }
 
 impl UtdHookManager {
@@ -116,12 +126,55 @@ impl UtdHookManager {
     /// [`matrix_sdk_base::StateStore`] which is used to load and store the
     /// persistent data.
     pub fn new(parent: Arc<dyn UnableToDecryptHook>, client: Client) -> Self {
+        let bloom_filter =
+            // Some slightly arbitrarily-chosen parameters here. We specify that, after 1000
+            // UTDs, we want to have a false-positive rate of 1%.
+            //
+            // The GrowableBloomFilter is based on a series of (partitioned) Bloom filters;
+            // once the first starts getting full (the expected false-positive
+            // rate gets too high), it adds another Bloom filter. Each new entry
+            // is recorded in the most recent Bloom filter; when querying, if
+            // *any* of the component filters show a match, that shows
+            // an overall match.
+            //
+            // The first component filter is created based on the parameters we give. For
+            // reasons derived in the paper [1], a partitioned Bloom filter with
+            // target false-positive rate `P` after `n` insertions requires a
+            // number of slices `k` given by:
+            //
+            // k = log2(1/P) = -ln(P) / ln(2)
+            //
+            // ... where each slice has a number of bits `m` given by
+            //
+            // m = n / ln(2)
+            //
+            // We have to have a whole number of slices and bits, so the total number of
+            // bits M is:
+            //
+            // M = ceil(k) * ceil(m)
+            //   = ceil(-ln(P) / ln(2)) * ceil(n / ln(2))
+            //
+            // In other words, our FP rate of 1% after 1000 insertions requires:
+            //
+            // M = ceil(-ln(0.01) / ln(2)) * ceil(1000 / ln(2))
+            //   = 7 * 1443 = 10101 bits
+            //
+            // So our filter starts off with 1263 bytes of data (plus a little overhead).
+            // Once we hit 1000 UTDs, we add a second component filter with a capacity
+            // double that of the original and target error rate 85% of the
+            // original (another 2526 bytes), which then lasts us until a total
+            // of 3000 UTDs.
+            //
+            // [1]: https://gsd.di.uminho.pt/members/cbm/ps/dbloom.pdf
+            GrowableBloomBuilder::new().estimated_insertions(1000).desired_error_ratio(0.01).build();
+
         Self {
             client,
             parent,
             known_utds: Default::default(),
             max_delay: None,
             pending_delayed: Default::default(),
+            reported_utds: Arc::new(AsyncMutex::new(bloom_filter)),
         }
     }
 
@@ -138,10 +191,18 @@ impl UtdHookManager {
     ///
     /// Pipe in any information that needs to be included in the final report.
     pub(crate) async fn on_utd(&self, event_id: &EventId, cause: UtdCause) {
-        // First of all, check if we already have a task to handle this UTD. If so, our
-        // work is done
-        let mut pending_delayed_lock = self.pending_delayed.lock().unwrap();
-        if pending_delayed_lock.contains_key(event_id) {
+        // Hold the lock on `reported_utds` throughout, to avoid races with other
+        // threads.
+        let mut reported_utds_lock = self.reported_utds.lock().await;
+
+        // Check if this, or a previous instance of UtdHookManager, has already reported
+        // this UTD, and bail out if not.
+        if reported_utds_lock.contains(event_id) {
+            return;
+        }
+
+        // Otherwise, check if we already have a task to handle this UTD.
+        if self.pending_delayed.lock().unwrap().contains_key(event_id) {
             return;
         }
 
@@ -158,12 +219,13 @@ impl UtdHookManager {
 
         let Some(max_delay) = self.max_delay else {
             // No delay: immediately report the event to the parent hook.
-            Self::report_utd(info, &self.parent);
+            Self::report_utd(info, &self.parent, &mut reported_utds_lock);
             return;
         };
 
         // Clone data shared with the task below.
         let pending_delayed = self.pending_delayed.clone();
+        let reported_utds = self.reported_utds.clone();
         let parent = self.parent.clone();
 
         // Spawn a task that will wait for the given delay, and maybe call the parent
@@ -172,15 +234,22 @@ impl UtdHookManager {
             // Wait for the given delay.
             sleep(max_delay).await;
 
+            // Make sure we take out the lock on `reported_utds` before removing the entry
+            // from `pending_delayed`, to ensure we don't race against another call to
+            // `on_utd` (which could otherwise see that the entry has been
+            // removed from `pending_delayed` but not yet added to
+            // `reported_utds`).
+            let mut reported_utds_lock = reported_utds.lock().await;
+
             // Remove the task from the outstanding set. But if it's already been removed,
             // it's been decrypted since the task was added!
             if pending_delayed.lock().unwrap().remove(&info.event_id).is_some() {
-                Self::report_utd(info, &parent);
+                Self::report_utd(info, &parent, &mut reported_utds_lock);
             }
         });
 
         // Add the task to the set of pending tasks.
-        pending_delayed_lock.insert(
+        self.pending_delayed.lock().unwrap().insert(
             event_id.to_owned(),
             PendingUtdReport { marked_utd_at: Instant::now(), report_task: handle },
         );
@@ -192,13 +261,16 @@ impl UtdHookManager {
     /// Note: if this is called for an event that was never marked as a UTD
     /// before, it has no effect.
     pub(crate) async fn on_late_decrypt(&self, event_id: &EventId, cause: UtdCause) {
-        let mut pending_delayed_lock = self.pending_delayed.lock().unwrap();
+        // Hold the lock on `reported_utds` throughout, to avoid races with other
+        // threads.
+        let mut reported_utds_lock = self.reported_utds.lock().await;
+
         self.known_utds.lock().unwrap().remove(event_id);
 
         // Only let the parent hook know about the late decryption if the event is
         // a pending UTD. If so, remove the event from the pending list —
         // doing so will cause the reporting task to no-op if it runs.
-        let Some(pending_utd_report) = pending_delayed_lock.remove(event_id) else {
+        let Some(pending_utd_report) = self.pending_delayed.lock().unwrap().remove(event_id) else {
             return;
         };
 
@@ -211,19 +283,38 @@ impl UtdHookManager {
             time_to_decrypt: Some(pending_utd_report.marked_utd_at.elapsed()),
             cause,
         };
-        Self::report_utd(info, &self.parent);
+        Self::report_utd(info, &self.parent, &mut reported_utds_lock);
     }
 
     /// Helper for [`UtdHookManager::on_utd`] and
-    /// [`UtdHookManager.on_late_decrypt`]: reports the UTD to the parent.
-    fn report_utd(info: UnableToDecryptInfo, parent_hook: &Arc<dyn UnableToDecryptHook>) {
+    /// [`UtdHookManager.on_late_decrypt`]: reports the UTD to the parent,
+    /// and records the event as reported.
+    ///
+    /// Must be called with the lock held on [`UtdHookManager::reported_utds`],
+    /// and takes a `MutexGuard` to enforce that.
+    fn report_utd(
+        info: UnableToDecryptInfo,
+        parent_hook: &Arc<dyn UnableToDecryptHook>,
+        reported_utds_lock: &mut MutexGuard<GrowableBloom>,
+    ) {
+        let event_id = info.event_id.clone();
         parent_hook.on_utd(info);
+        reported_utds_lock.insert(event_id);
     }
 }
 
 impl Drop for UtdHookManager {
     fn drop(&mut self) {
         // Cancel all the outstanding delayed tasks to report UTDs.
+        //
+        // Here, we don't take the lock on `reported_utd`s (indeed, we can't, since
+        // `reported_utds` has an async mutex, and `drop` has to be sync), but
+        // that's ok. We can't race against `on_utd` or `on_late_decrypt`, since
+        // they both have `&self` references which mean `drop` can't be called.
+        // We *could* race against one of the actual tasks to report
+        // UTDs, but that's ok too: either the report task will bail out when it sees
+        // the entry has been removed from `pending_delayed` (which is fine), or the
+        // report task will successfully report the UTD (which is fine).
         let mut pending_delayed = self.pending_delayed.lock().unwrap();
         for (_, pending_utd_report) in pending_delayed.drain() {
             pending_utd_report.report_task.abort();
