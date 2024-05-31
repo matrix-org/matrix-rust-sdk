@@ -80,7 +80,7 @@ async fn test_retry_message_decryption() {
 
     let hook = Arc::new(DummyUtdHook::default());
     let client = test_client_builder(None).build().await.unwrap();
-    let utd_hook = Arc::new(UtdHookManager::new(hook.clone(), client));
+    let utd_hook = Arc::new(UtdHookManager::new(hook.clone(), client).await.unwrap());
 
     let timeline = TestTimeline::with_unable_to_decrypt_hook(utd_hook.clone());
     let mut stream = timeline.subscribe().await;

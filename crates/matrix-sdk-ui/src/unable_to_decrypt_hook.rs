@@ -26,7 +26,7 @@ use std::{
 
 use growable_bloom_filter::{GrowableBloom, GrowableBloomBuilder};
 use matrix_sdk::{crypto::types::events::UtdCause, Client};
-use matrix_sdk_base::{StateStoreDataKey, StateStoreDataValue};
+use matrix_sdk_base::{StateStoreDataKey, StateStoreDataValue, StoreError};
 use ruma::{EventId, OwnedEventId};
 use tokio::{spawn, task::JoinHandle, time::sleep};
 use tracing::{debug, error, trace, warn};
@@ -118,14 +118,14 @@ impl UtdHookManager {
     /// A [`Client`] must also be provided; this provides a link to the
     /// [`matrix_sdk_base::StateStore`] which is used to load and store the
     /// persistent data.
-    pub fn new(parent: Arc<dyn UnableToDecryptHook>, client: Client) -> Self {
-        Self {
+    pub async fn new(parent: Arc<dyn UnableToDecryptHook>, client: Client) -> Result<Self, Error> {
+        Ok(Self {
             parent,
             known_utds: Default::default(),
             max_delay: None,
             pending_delayed: Default::default(),
-            reported_utds: ReportedUtdsManager::new(client),
-        }
+            reported_utds: ReportedUtdsManager::new(client).await?,
+        })
     }
 
     /// Reports UTDs with the given max delay.
@@ -284,9 +284,20 @@ struct ReportedUtdsData {
 }
 
 impl ReportedUtdsManager {
-    /// Create a new [`ReportedUtdsManager`] with an empty data set.
-    pub fn new(client: Client) -> Self {
-        let bloom_filter = {
+    /// Create a new [`ReportedUtdsManager`].
+    ///
+    /// The initial data is read from the store; if no stored data is found, the
+    /// manager is initialised with an empty data set.
+    pub async fn new(client: Client) -> Result<Self, Error> {
+        let existing_data =
+            client.store().get_kv_data(StateStoreDataKey::UtdHookManagerData).await?;
+
+        let bloom_filter = match existing_data {
+            Some(existing_data) => {
+                let serialized_data = existing_data.into_utd_hook_manager_data().unwrap();
+                rmp_serde::from_slice(&serialized_data)?
+            }
+
             // Some slightly arbitrarily-chosen parameters here. We specify that, after 1000
             // UTDs, we want to have a false-positive rate of 1%.
             //
@@ -326,13 +337,16 @@ impl ReportedUtdsManager {
             // of 3000 UTDs.
             //
             // [1]: https://gsd.di.uminho.pt/members/cbm/ps/dbloom.pdf
-            GrowableBloomBuilder::new().estimated_insertions(1000).desired_error_ratio(0.01).build()
+            None => GrowableBloomBuilder::new()
+                .estimated_insertions(1000)
+                .desired_error_ratio(0.01)
+                .build(),
         };
-        Self {
+        Ok(Self {
             client,
             data: Arc::new(Mutex::new(ReportedUtdsData { bloom_filter, flush_task: None })),
             flush_mutex: Arc::new(tokio::sync::Mutex::new(())),
-        }
+        })
     }
 
     /// Insert a new entry into the bloom filter.
@@ -400,6 +414,18 @@ impl ReportedUtdsManager {
     }
 }
 
+/// Errors for the [`UtdHookManager`].
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    /// We failed to read from the store.
+    #[error(transparent)]
+    Store(#[from] StoreError),
+
+    /// We failed to deserialize the data from the store.
+    #[error(transparent)]
+    Deserialization(#[from] rmp_serde::decode::Error),
+}
+
 #[cfg(test)]
 mod tests {
     use matrix_sdk::test_utils::test_client_builder;
@@ -429,7 +455,7 @@ mod tests {
         let hook = Arc::new(Dummy::default());
 
         // And I wrap with the UtdHookManager,
-        let wrapper = UtdHookManager::new(hook.clone(), build_test_client().await);
+        let wrapper = UtdHookManager::new(hook.clone(), build_test_client().await).await.unwrap();
 
         // And I call the `on_utd` method multiple times, sometimes on the same event,
         wrapper.on_utd(event_id!("$1"), UtdCause::Unknown);
@@ -460,7 +486,7 @@ mod tests {
         let hook = Arc::new(Dummy::default());
 
         // And I wrap with the UtdHookManager,
-        let wrapper = UtdHookManager::new(hook.clone(), build_test_client().await);
+        let wrapper = UtdHookManager::new(hook.clone(), build_test_client().await).await.unwrap();
 
         // And I call the `on_late_decrypt` method before the event had been marked as
         // utd,
@@ -476,7 +502,7 @@ mod tests {
         let hook = Arc::new(Dummy::default());
 
         // And I wrap with the UtdHookManager,
-        let wrapper = UtdHookManager::new(hook.clone(), build_test_client().await);
+        let wrapper = UtdHookManager::new(hook.clone(), build_test_client().await).await.unwrap();
 
         // And I call the `on_utd` method for an event,
         wrapper.on_utd(event_id!("$1"), UtdCause::Unknown);
@@ -512,6 +538,8 @@ mod tests {
         // And I wrap with the UtdHookManager, configured to delay reporting after 2
         // seconds.
         let wrapper = UtdHookManager::new(hook.clone(), build_test_client().await)
+            .await
+            .unwrap()
             .with_max_delay(Duration::from_secs(2));
 
         // And I call the `on_utd` method for an event,
@@ -549,6 +577,8 @@ mod tests {
         // And I wrap with the UtdHookManager, configured to delay reporting after 2
         // seconds.
         let wrapper = UtdHookManager::new(hook.clone(), build_test_client().await)
+            .await
+            .unwrap()
             .with_max_delay(Duration::from_secs(2));
 
         // And I call the `on_utd` method for an event,

@@ -4,7 +4,9 @@ use matrix_sdk::{
     encryption::CryptoStoreError, event_cache::EventCacheError, oidc::OidcError, HttpError,
     IdParseError, NotificationSettingsError as SdkNotificationSettingsError, StoreError,
 };
-use matrix_sdk_ui::{encryption_sync_service, notification_client, sync_service, timeline};
+use matrix_sdk_ui::{
+    encryption_sync_service, notification_client, sync_service, timeline, unable_to_decrypt_hook,
+};
 use uniffi::UnexpectedUniFFICallbackError;
 
 #[derive(Debug, thiserror::Error)]
@@ -81,6 +83,12 @@ impl From<mime::FromStrError> for ClientError {
 
 impl From<encryption_sync_service::Error> for ClientError {
     fn from(e: encryption_sync_service::Error) -> Self {
+        Self::new(e)
+    }
+}
+
+impl From<unable_to_decrypt_hook::Error> for ClientError {
+    fn from(e: unable_to_decrypt_hook::Error) -> Self {
         Self::new(e)
     }
 }

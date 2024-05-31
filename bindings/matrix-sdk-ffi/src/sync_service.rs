@@ -117,18 +117,20 @@ impl SyncServiceBuilder {
         Arc::new(Self { client: this.client, builder, utd_hook: this.utd_hook })
     }
 
-    pub fn with_utd_hook(self: Arc<Self>, delegate: Box<dyn UnableToDecryptDelegate>) -> Arc<Self> {
+    pub fn with_utd_hook(
+        self: Arc<Self>,
+        delegate: Box<dyn UnableToDecryptDelegate>,
+    ) -> Result<Arc<Self>, ClientError> {
         // UTDs detected before this duration may be reclassified as "late decryption"
         // events (or discarded, if they get decrypted fast enough).
         const UTD_HOOK_GRACE_PERIOD: Duration = Duration::from_secs(60);
 
         let this = unwrap_or_clone_arc(self);
 
-        let utd_hook = Some(Arc::new(
-            UtdHookManager::new(Arc::new(UtdHook { delegate }), this.client.clone())
-                .with_max_delay(UTD_HOOK_GRACE_PERIOD),
-        ));
-        Arc::new(Self { client: this.client, builder: this.builder, utd_hook })
+        let utd_manager = RUNTIME
+            .block_on(UtdHookManager::new(Arc::new(UtdHook { delegate }), this.client.clone()))?;
+        let utd_hook = Some(Arc::new(utd_manager.with_max_delay(UTD_HOOK_GRACE_PERIOD)));
+        Ok(Arc::new(Self { client: this.client, builder: this.builder, utd_hook }))
     }
 
     pub async fn finish(self: Arc<Self>) -> Result<Arc<SyncService>, ClientError> {
