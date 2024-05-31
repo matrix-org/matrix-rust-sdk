@@ -58,7 +58,10 @@ use ruma::{
 use thiserror::Error;
 use tracing::{error, instrument, trace, warn};
 
-use self::{error::SendEventError, futures::SendAttachment};
+use self::{
+    error::{RedactEventError, SendEventError},
+    futures::SendAttachment,
+};
 
 mod builder;
 mod day_dividers;
@@ -541,6 +544,40 @@ impl Timeline {
         config: AttachmentConfig,
     ) -> SendAttachment<'_> {
         SendAttachment::new(self, path.into(), mime_type, config)
+    }
+
+    /// Redacts an event from the timeline.
+    ///
+    /// If it was a local event, this will *try* to cancel it, if it was not
+    /// being sent already. If the event was a remote event, then it will be
+    /// redacted by sending a redaction request to the server.
+    ///
+    /// Returns whether the redaction did happen. It can only return false for
+    /// local events that are being processed.
+    pub async fn redact(
+        &self,
+        event: &EventTimelineItem,
+        reason: Option<&str>,
+    ) -> Result<bool, RedactEventError> {
+        match &event.kind {
+            event_item::EventTimelineItemKind::Local(local) => {
+                if let Some(handle) = local.abort_handle.clone() {
+                    Ok(handle.abort().await)
+                } else {
+                    // No abort handle; theoretically unreachable for regular usage of the
+                    // timeline, but this may happen in testing contexts.
+                    Err(RedactEventError::UnsupportedRedactLocal(local.transaction_id.clone()))
+                }
+            }
+
+            event_item::EventTimelineItemKind::Remote(remote) => {
+                self.room()
+                    .redact(&remote.event_id, reason, None)
+                    .await
+                    .map_err(|err| RedactEventError::SdkError(err.into()))?;
+                Ok(true)
+            }
+        }
     }
 
     /// Fetch unavailable details about the event with the given ID.

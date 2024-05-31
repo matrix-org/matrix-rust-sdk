@@ -27,6 +27,7 @@ use matrix_sdk::crypto::OlmMachine;
 use matrix_sdk::{
     deserialized_responses::SyncTimelineEvent,
     event_cache::{paginator::Paginator, RoomEventCache},
+    send_queue::AbortSendHandle,
     Result, Room,
 };
 #[cfg(test)]
@@ -470,6 +471,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                     sender,
                     sender_profile,
                     txn_id.clone(),
+                    None,
                     TimelineEventKind::Message {
                         content: event_content.clone(),
                         relations: Default::default(),
@@ -489,7 +491,13 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                     unreachable!("the None/None case has been handled above")
                 };
 
-                state.handle_local_event(sender, sender_profile, TransactionId::new(), content);
+                state.handle_local_event(
+                    sender,
+                    sender_profile,
+                    TransactionId::new(),
+                    None,
+                    content,
+                );
 
                 // Remember the remote echo to redact on the homeserver.
                 ReactionState::Redacting(remote_echo_event_id.cloned())
@@ -641,12 +649,13 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         &self,
         txn_id: OwnedTransactionId,
         content: TimelineEventKind,
+        abort_handle: Option<AbortSendHandle>,
     ) {
         let sender = self.room_data_provider.own_user_id().to_owned();
         let profile = self.room_data_provider.profile_from_user_id(&sender).await;
 
         let mut state = self.state.write().await;
-        state.handle_local_event(sender, profile, txn_id, content);
+        state.handle_local_event(sender, profile, txn_id, abort_handle, content);
     }
 
     /// Update the send state of a local event represented by a transaction ID.
