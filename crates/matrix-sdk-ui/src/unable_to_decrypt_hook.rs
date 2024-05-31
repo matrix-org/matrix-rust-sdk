@@ -24,6 +24,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use growable_bloom_filter::{GrowableBloom, GrowableBloomBuilder};
 use matrix_sdk::{crypto::types::events::UtdCause, Client};
 use ruma::{EventId, OwnedEventId};
 use tokio::{spawn, task::JoinHandle, time::sleep};
@@ -103,6 +104,10 @@ pub struct UtdHookManager {
     /// Note: this is theoretically unbounded in size, although this set of
     /// tasks will degrow over time, as tasks expire after the max delay.
     pending_delayed: Arc<Mutex<HashMap<OwnedEventId, PendingUtdReport>>>,
+
+    /// An object which keeps track of the set of UTDs that have already been
+    /// reported to the parent hook.
+    reported_utds: ReportedUtdsManager,
 }
 
 impl UtdHookManager {
@@ -111,12 +116,13 @@ impl UtdHookManager {
     /// A [`Client`] must also be provided; this provides a link to the
     /// [`matrix_sdk_base::StateStore`] which is used to load and store the
     /// persistent data.
-    pub fn new(parent: Arc<dyn UnableToDecryptHook>, _client: Client) -> Self {
+    pub fn new(parent: Arc<dyn UnableToDecryptHook>, client: Client) -> Self {
         Self {
             parent,
             known_utds: Default::default(),
             max_delay: None,
             pending_delayed: Default::default(),
+            reported_utds: ReportedUtdsManager::new(client),
         }
     }
 
@@ -148,13 +154,22 @@ impl UtdHookManager {
             }
         }
 
+        // A previous instance of UtdHookManager may already have reported this UTD, so
+        // check that too.
+        if self.reported_utds.contains(event_id) {
+            return;
+        }
+
         // Construct a closure which will report the UTD to the parent.
         let report_utd = {
             let info =
                 UnableToDecryptInfo { event_id: event_id.to_owned(), time_to_decrypt: None, cause };
             let parent = self.parent.clone();
+            let reported_utds = self.reported_utds.clone();
+            let event_id = event_id.to_owned();
             move || {
                 parent.on_utd(info);
+                reported_utds.insert(event_id);
             }
         };
 
@@ -214,6 +229,7 @@ impl UtdHookManager {
             cause,
         };
         self.parent.on_utd(info);
+        self.reported_utds.insert(event_id.to_owned());
     }
 }
 
@@ -224,6 +240,89 @@ impl Drop for UtdHookManager {
         for (_, pending_utd_report) in pending_delayed.drain() {
             pending_utd_report.report_task.abort();
         }
+    }
+}
+
+/// A manager which keeps track of the UTD events which have been reported to
+/// the parent hook.
+///
+/// It is based on a Bloom filter, which is a space-efficient probabilistic data
+/// structure.
+#[derive(Debug, Clone)]
+struct ReportedUtdsManager {
+    /// The actual data about which events have been reported as UTDs.
+    data: Arc<Mutex<ReportedUtdsData>>,
+}
+
+/// Data store object for [`ReportedUtdsManager::data`].
+#[derive(Debug)]
+struct ReportedUtdsData {
+    /// Bloom filter containing the event IDs of events which have been reported
+    /// as UTDs
+    pub bloom_filter: GrowableBloom,
+}
+
+impl ReportedUtdsManager {
+    /// Create a new [`ReportedUtdsManager`] with an empty data set.
+    pub fn new(client: Client) -> Self {
+        let bloom_filter = {
+            // Some slightly arbitrarily-chosen parameters here. We specify that, after 1000
+            // UTDs, we want to have a false-positive rate of 1%.
+            //
+            // The GrowableBloomFilter is based on a series of (partitioned) Bloom filters;
+            // once the first starts getting full (the expected false-positive
+            // rate gets too high), it adds another Bloom filter. Each new entry
+            // is recorded in the most recent Bloom filter; when querying, if
+            // *any* of the component filters show a match, that shows
+            // an overall match.
+            //
+            // The first component filter is created based on the parameters we give. For
+            // reasons derived in the paper [1], a partitioned Bloom filter with
+            // target false-positive rate `P` after `n` insertions requires a
+            // number of slices `k` given by:
+            //
+            // k = log2(1/P) = -ln(P) / ln(2)
+            //
+            // ... where each slice has a number of bits `m` given by
+            //
+            // m = n / ln(2)
+            //
+            // We have to have a whole number of slices and bits, so the total number of
+            // bits M is:
+            //
+            // M = ceil(k) * ceil(m)
+            //   = ceil(-ln(P) / ln(2)) * ceil(n / ln(2))
+            //
+            // In other words, our FP rate of 1% after 1000 insertions requires:
+            //
+            // M = ceil(-ln(0.01) / ln(2)) * ceil(1000 / ln(2))
+            //   = 7 * 1443 = 10101 bits
+            //
+            // So our filter starts off with 1263 bytes of data (plus a little overhead).
+            // Once we hit 1000 UTDs, we add a second component filter with a capacity
+            // double that of the original and target error rate 85% of the
+            // original (another 2526 bytes), which then lasts us until a total
+            // of 3000 UTDs.
+            //
+            // [1]: https://gsd.di.uminho.pt/members/cbm/ps/dbloom.pdf
+            GrowableBloomBuilder::new().estimated_insertions(1000).desired_error_ratio(0.01).build()
+        };
+        Self { data: Arc::new(Mutex::new(ReportedUtdsData { bloom_filter })) }
+    }
+
+    /// Insert a new entry into the bloom filter.
+    pub fn insert(&self, event_id: OwnedEventId) {
+        let mut data = self.data.lock().unwrap();
+
+        data.bloom_filter.insert(event_id);
+    }
+
+    /// Test if the event id is in the bloom filter.
+    ///
+    /// If `true` is returned, this event ID was *probably* previously reported.
+    /// If `false` is returned, it has definitely *not* been reported.
+    pub fn contains(&self, event_id: &EventId) -> bool {
+        self.data.lock().unwrap().bloom_filter.contains(event_id)
     }
 }
 
