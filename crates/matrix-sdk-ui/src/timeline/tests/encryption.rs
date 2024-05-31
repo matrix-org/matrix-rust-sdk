@@ -153,17 +153,14 @@ async fn test_retry_message_decryption() {
     assert_eq!(message.body(), "It's a secret to everybody");
     assert!(!event.is_highlighted());
 
+    // The message should not be re-reported as a late decryption.
     {
         let utds = hook.utds.lock().unwrap();
-        assert_eq!(utds.len(), 2);
+        assert_eq!(utds.len(), 1);
 
         // The previous UTD report is still there.
         assert_eq!(utds[0].event_id, event.event_id().unwrap());
         assert!(utds[0].time_to_decrypt.is_none());
-
-        // The UTD is now *also* reported as a late-decryption event.
-        assert_eq!(utds[1].event_id, event.event_id().unwrap());
-        assert!(utds[1].time_to_decrypt.is_some());
     }
 }
 
