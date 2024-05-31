@@ -23,7 +23,6 @@ tokio = { version = "1.24.2", features = ["macros", "rt-multi-thread"] }
 tracing = { workspace = true }
 tracing-appender = { version = "0.2.2" }
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
-url = { workspace = true }
 
 [lints]
 workspace = true
