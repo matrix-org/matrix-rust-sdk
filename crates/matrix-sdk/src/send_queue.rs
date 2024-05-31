@@ -247,6 +247,10 @@ impl RoomSendingQueue {
         let _ = self.inner.updates.send(RoomSendingQueueUpdate::NewLocalEvent(LocalEcho {
             transaction_id: transaction_id.clone(),
             content,
+            abort_handle: AbortSendHandle {
+                room: self.clone(),
+                transaction_id: transaction_id.clone(),
+            },
         }));
 
         Ok(AbortSendHandle { transaction_id, room: self.clone() })
@@ -255,7 +259,20 @@ impl RoomSendingQueue {
     /// Returns the current local events as well as a receiver to listen to the
     /// send queue updates, as defined in [`RoomSendingQueueUpdate`].
     pub async fn subscribe(&self) -> (Vec<LocalEcho>, broadcast::Receiver<RoomSendingQueueUpdate>) {
-        (self.inner.queue.local_echoes().await, self.inner.updates.subscribe())
+        let local_echoes = self
+            .inner
+            .queue
+            .local_echoes()
+            .await
+            .into_iter()
+            .map(|(transaction_id, content)| LocalEcho {
+                transaction_id: transaction_id.clone(),
+                content,
+                abort_handle: AbortSendHandle { room: self.clone(), transaction_id },
+            })
+            .collect();
+
+        (local_echoes, self.inner.updates.subscribe())
     }
 
     #[instrument(skip_all, fields(room_id = %room.room_id()))]
@@ -456,15 +473,12 @@ impl SharedQueue {
 
     /// Returns a list of the local echoes, that is, all the events that we're
     /// about to send but that haven't been sent yet (or are being sent).
-    async fn local_echoes(&self) -> Vec<LocalEcho> {
+    async fn local_echoes(&self) -> Vec<(OwnedTransactionId, AnyMessageLikeEventContent)> {
         self.0
             .write()
             .await
             .iter()
-            .map(|queued| LocalEcho {
-                transaction_id: queued.transaction_id.clone(),
-                content: queued.event.clone(),
-            })
+            .map(|queued| (queued.transaction_id.clone(), queued.event.clone()))
             .collect()
     }
 }
@@ -476,6 +490,8 @@ pub struct LocalEcho {
     pub transaction_id: OwnedTransactionId,
     /// Content of the event itself, that we are about to send.
     pub content: AnyMessageLikeEventContent,
+    /// A handle to abort sending the associated event.
+    pub abort_handle: AbortSendHandle,
 }
 
 /// An update to a room sending queue, observable with
@@ -531,7 +547,7 @@ pub enum RoomSendingQueueError {
 
 /// A way to tentatively abort sending an event that was scheduled to be sent to
 /// a room.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct AbortSendHandle {
     room: RoomSendingQueue,
     transaction_id: OwnedTransactionId,
