@@ -8,7 +8,6 @@ use tracing_subscriber::{
     EnvFilter, Layer,
 };
 
-#[cfg(target_os = "android")]
 pub fn log_panics() {
     std::env::set_var("RUST_BACKTRACE", "1");
     log_panics::init();
@@ -184,7 +183,6 @@ pub struct TracingConfiguration {
 
 #[uniffi::export]
 pub fn setup_tracing(config: TracingConfiguration) {
-    #[cfg(target_os = "android")]
     log_panics();
 
     tracing_subscriber::registry()
