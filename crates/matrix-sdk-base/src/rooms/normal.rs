@@ -29,7 +29,7 @@ use ruma::events::AnySyncTimelineEvent;
 use ruma::{
     api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
     events::{
-        call::member::Membership,
+        call::member::MembershipData,
         ignored_user_list::IgnoredUserListEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
         room::{
@@ -462,7 +462,7 @@ impl Room {
 
     /// Returns a Vec of userId's that participate in the room call.
     ///
-    /// matrix_rtc memberships with application "m.call" and scope "m.room" are
+    /// MatrixRTC memberships with application "m.call" and scope "m.room" are
     /// considered. A user can occur twice if they join with two devices.
     /// convert to a set depending if the different users are required or the
     /// amount of sessions.
@@ -1289,7 +1289,7 @@ impl RoomInfo {
     /// associated UserId's in this room.
     ///
     /// The vector is ordered by oldest membership to newest.
-    fn active_matrix_rtc_memberships(&self) -> Vec<(OwnedUserId, &Membership)> {
+    fn active_matrix_rtc_memberships(&self) -> Vec<(OwnedUserId, MembershipData<'_>)> {
         let mut v = self
             .base_info
             .rtc_member
@@ -1304,7 +1304,7 @@ impl RoomInfo {
             })
             .flatten()
             .collect::<Vec<_>>();
-        v.sort_by_key(|(_, m)| m.created_ts);
+        v.sort_by_key(|(_, m)| m.created_ts());
         v
     }
 
@@ -1313,7 +1313,7 @@ impl RoomInfo {
     /// returns Memberships with application "m.call" and scope "m.room".
     ///
     /// The vector is ordered by oldest membership user to newest.
-    fn active_room_call_memberships(&self) -> Vec<(OwnedUserId, &Membership)> {
+    fn active_room_call_memberships(&self) -> Vec<(OwnedUserId, MembershipData<'_>)> {
         self.active_matrix_rtc_memberships()
             .into_iter()
             .filter(|(_user_id, m)| m.is_room_call())
@@ -1485,8 +1485,9 @@ mod tests {
         api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
         events::{
             call::member::{
-                Application, CallApplicationContent, CallMemberEventContent, Focus, LivekitFocus,
-                Membership, MembershipInit, OriginalSyncCallMemberEvent,
+                Application, CallApplicationContent, CallMemberEventContent, Focus,
+                LegacyMembershipData, LegacyMembershipDataInit, LivekitFocus,
+                OriginalSyncCallMemberEvent,
             },
             room::{
                 canonical_alias::RoomCanonicalAliasEventContent,
@@ -2341,11 +2342,11 @@ mod tests {
     }
 
     fn call_member_state_event(
-        memberships: Vec<Membership>,
+        memberships: Vec<LegacyMembershipData>,
         ev_id: &str,
         user_id: &UserId,
     ) -> AnySyncStateEvent {
-        let content = CallMemberEventContent::new(memberships);
+        let content = CallMemberEventContent::new_legacy(memberships);
 
         AnySyncStateEvent::CallMember(SyncStateEvent::Original(OriginalSyncCallMemberEvent {
             content,
@@ -2363,7 +2364,7 @@ mod tests {
         device_id: &str,
         membership_id: &str,
         minutes_ago: u32,
-    ) -> Membership {
+    ) -> LegacyMembershipData {
         let application = Application::Call(CallApplicationContent::new(
             "my_call_id_1".to_owned(),
             ruma::events::call::member::CallScope::Room,
@@ -2374,7 +2375,7 @@ mod tests {
         ))];
 
         assign!(
-            Membership::from(MembershipInit {
+            LegacyMembershipData::from(LegacyMembershipDataInit {
                 application,
                 device_id: device_id.to_owned(),
                 expires: Duration::from_millis(3_600_000),

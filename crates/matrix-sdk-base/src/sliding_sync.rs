@@ -713,7 +713,7 @@ fn process_room_properties(room_data: &v4::SlidingSyncRoom, room_info: &mut Room
     if let Some(heroes) = &room_data.heroes {
         // Filter out all the heroes which don't have a user id or name.
         room_info.update_heroes(
-            heroes.iter().filter_map(|hero| hero.user_id.as_ref()).cloned().collect(),
+            heroes.iter().map(|hero| &hero.user_id).cloned().collect(),
             heroes.iter().filter_map(|hero| hero.name.as_ref()).cloned().collect(),
         );
     }
@@ -1351,12 +1351,10 @@ mod tests {
         // in `heroes`)
         let mut room = v4::SlidingSyncRoom::new();
         room.heroes = Some(vec![
-            assign!(v4::SlidingSyncRoomHero::default(), {
-                user_id: Some(gordon),
+            assign!(v4::SlidingSyncRoomHero::new(gordon), {
                 name: Some("Gordon".to_owned()),
             }),
-            assign!(v4::SlidingSyncRoomHero::default(), {
-                user_id: Some(alice),
+            assign!(v4::SlidingSyncRoomHero::new(alice), {
                 name: Some("Alice".to_owned()),
             }),
         ]);
