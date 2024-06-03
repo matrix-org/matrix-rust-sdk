@@ -628,7 +628,7 @@ impl Room {
 
         let own_user_id = self.own_user_id().as_str();
 
-        let (heroes, guessed_num_members): (Vec<String>, _) = if !summary.heroes_names.is_empty() {
+        let (heroes, num_joined_guess): (Vec<String>, _) = if !summary.heroes_names.is_empty() {
             // Straightforward path: pass through the heroes names, don't give a guess of
             // the number of members.
             (summary.heroes_names, None)
@@ -648,22 +648,22 @@ impl Room {
 
             (names, None)
         } else {
-            let mut members = self.members(RoomMemberships::ACTIVE).await?;
+            let mut joined_members = self.members(RoomMemberships::JOIN).await?;
 
             // Make the ordering deterministic.
-            members.sort_unstable_by(|lhs, rhs| lhs.name().cmp(rhs.name()));
+            joined_members.sort_unstable_by(|lhs, rhs| lhs.name().cmp(rhs.name()));
 
             // We can make a good prediction of the total number of members here. This might
             // be incorrect if the database info is outdated.
-            let guessed_num_members = Some(members.len());
+            let num_joined = Some(joined_members.len());
 
             (
-                members
+                joined_members
                     .into_iter()
                     .take(NUM_HEROES)
                     .filter_map(|u| (u.user_id() != own_user_id).then(|| u.name().to_owned()))
                     .collect(),
-                guessed_num_members,
+                num_joined,
             )
         };
 
@@ -675,14 +675,13 @@ impl Room {
             }
 
             RoomState::Joined if summary.joined_member_count == 0 => {
-                let num_members = if let Some(guessed_num_members) = guessed_num_members {
-                    guessed_num_members
+                let num_joined = if let Some(num_joined) = num_joined_guess {
+                    num_joined
                 } else {
-                    self.members(RoomMemberships::ACTIVE).await?.len()
+                    self.joined_user_ids().await?.len()
                 };
 
-                // joined but the summary is not completed yet
-                (num_members as u64, summary.invited_member_count)
+                (num_joined as u64, summary.invited_member_count)
             }
 
             _ => (summary.joined_member_count, summary.invited_member_count),
@@ -693,7 +692,7 @@ impl Room {
             own_user = ?self.own_user_id,
             num_joined, num_invited,
             heroes = ?heroes,
-            "Calculating name for a room",
+            "Calculating name for a room based on heroes",
         );
 
         Ok(calculate_room_name(
