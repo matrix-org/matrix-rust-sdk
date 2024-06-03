@@ -62,6 +62,7 @@ use self::{
     error::{RedactEventError, SendEventError},
     event_item::EventTimelineItemKind,
     futures::SendAttachment,
+    util::rfind_event_item,
 };
 
 mod builder;
@@ -214,12 +215,33 @@ impl Timeline {
 
     /// Get the current timeline item for the given event ID, if any.
     ///
+    /// Will return a remote event, *or* a local echo that has been sent but not
+    /// yet replaced by a remote echo.
+    ///
     /// It's preferable to store the timeline items in the model for your UI, if
     /// possible, instead of just storing IDs and coming back to the timeline
     /// object to look up items.
     pub async fn item_by_event_id(&self, event_id: &EventId) -> Option<EventTimelineItem> {
         let items = self.inner.items().await;
         let (_, item) = rfind_event_by_id(&items, event_id)?;
+        Some(item.to_owned())
+    }
+
+    /// Get the current timeline item for the given transaction ID, if any.
+    ///
+    /// This will always return a local echo, if found.
+    ///
+    /// It's preferable to store the timeline items in the model for your UI, if
+    /// possible, instead of just storing IDs and coming back to the timeline
+    /// object to look up items.
+    pub async fn item_by_transaction_id(
+        &self,
+        target: &TransactionId,
+    ) -> Option<EventTimelineItem> {
+        let items = self.inner.items().await;
+        let (_, item) = rfind_event_item(&items, |item| {
+            item.as_local().map_or(false, |local| local.transaction_id == target)
+        })?;
         Some(item.to_owned())
     }
 
