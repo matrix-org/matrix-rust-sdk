@@ -1296,11 +1296,11 @@ mod tests {
         room.heroes = Some(vec![
             assign!(v4::SlidingSyncRoomHero::default(), {
                 user_id: Some(gordon),
-                name: Some("Gordon".to_string()),
+                name: Some("Gordon".to_owned()),
             }),
             assign!(v4::SlidingSyncRoomHero::default(), {
                 user_id: Some(alice),
-                name: Some("Alice".to_string()),
+                name: Some("Alice".to_owned()),
             }),
         ]);
         let response = response_with_room(room_id, room).await;
@@ -1315,7 +1315,7 @@ mod tests {
         // And heroes are part of the summary.
         assert_eq!(
             client_room.clone_info().summary.heroes(),
-            &["@gordon:e.uk".to_string(), "@alice:e.uk".to_string()]
+            &["@gordon:e.uk".to_owned(), "@alice:e.uk".to_owned()]
         );
     }
 

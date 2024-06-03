@@ -425,7 +425,7 @@ impl ClientBuilder {
                     random_dir
                         .to_str()
                         .expect("The base path and the uuid both are valid UTF-8 strings")
-                        .to_string(),
+                        .to_owned(),
                 );
 
                 Some((base_directory, random_dir))
