@@ -753,6 +753,9 @@ pub enum RoomEventCacheUpdate {
 pub enum EventsOrigin {
     /// Events are coming from a sync.
     Sync,
+
+    /// Events are coming from a pagination.
+    Pagination,
 }
 
 #[cfg(test)]

@@ -240,6 +240,7 @@ impl TimelineBuilder {
                                 TimelineEnd::Back,
                                 match origin {
                                     EventsOrigin::Sync => RemoteEventOrigin::Sync,
+                                    EventsOrigin::Pagination => RemoteEventOrigin::Pagination,
                                 }
                             ).await;
                         }
