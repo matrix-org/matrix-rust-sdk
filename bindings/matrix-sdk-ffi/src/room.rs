@@ -134,7 +134,7 @@ impl Room {
 
     /// Returns a Vec of userId's that participate in the room call.
     ///
-    /// matrix_rtc memberships with application "m.call" and scope "m.room" are
+    /// MatrixRTC memberships with application "m.call" and scope "m.room" are
     /// considered. A user can occur twice if they join with two devices.
     /// convert to a set depending if the different users are required or the
     /// amount of sessions.
