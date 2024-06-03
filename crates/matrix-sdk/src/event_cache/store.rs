@@ -14,10 +14,11 @@
 
 use std::{fmt, iter::once};
 
+use eyeball_im::VectorDiff;
 use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
 
 use super::linked_chunk::{
-    Chunk, ChunkIdentifier, Error, Iter, IterBackward, LinkedChunk, Position,
+    AsVector, Chunk, ChunkIdentifier, Error, Iter, IterBackward, LinkedChunk, Position,
 };
 
 #[derive(Clone, Debug)]
@@ -31,6 +32,7 @@ const DEFAULT_CHUNK_CAPACITY: usize = 128;
 
 pub struct RoomEvents {
     chunks: LinkedChunk<DEFAULT_CHUNK_CAPACITY, SyncTimelineEvent, Gap>,
+    chunks_updates_as_vector: AsVector<SyncTimelineEvent, Gap>,
 }
 
 impl Default for RoomEvents {
@@ -42,12 +44,25 @@ impl Default for RoomEvents {
 #[allow(dead_code)]
 impl RoomEvents {
     pub fn new() -> Self {
-        Self { chunks: LinkedChunk::new() }
+        let mut chunks = LinkedChunk::new_with_update_history();
+        let chunks_updates_as_vector = chunks
+            .as_vector()
+            // SAFETY: The `LinkedChunk` has been built with `new_with_update_history`, so
+            // `as_vector` must return `Some(…)`.
+            .expect("`LinkedChunk` must have been constructor with `new_with_update_history`");
+
+        Self { chunks, chunks_updates_as_vector }
     }
 
     /// Clear all events.
     pub fn reset(&mut self) {
-        self.chunks = LinkedChunk::new();
+        self.chunks = LinkedChunk::new_with_update_history();
+        self.chunks_updates_as_vector = self
+            .chunks
+            .as_vector()
+            // SAFETY: The `LinkedChunk` has been built with `new_with_update_history`, so
+            // `as_vector` must return `Some(…)`.
+            .expect("`LinkedChunk` must have been constructor with `new_with_update_history`");
     }
 
     /// Return the number of events.
@@ -185,6 +200,15 @@ impl RoomEvents {
         position: Position,
     ) -> Result<impl Iterator<Item = (Position, &SyncTimelineEvent)>, Error> {
         self.chunks.items_from(position)
+    }
+
+    /// Get all updates as [`VectorDiff`].
+    ///
+    /// Be careful that each `VectorDiff` is returned only once!
+    ///
+    /// See [`AsVector`] to learn more.
+    pub fn updates_as_vector_diffs(&mut self) -> Vec<VectorDiff<SyncTimelineEvent>> {
+        self.chunks_updates_as_vector.take()
     }
 }
 
