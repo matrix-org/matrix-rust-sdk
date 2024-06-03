@@ -63,7 +63,7 @@ impl RoomPagination {
     /// to decide whether a new pagination must be run or not. It's helpful when
     /// the server replies with e.g. a certain set of events, but we would like
     /// more, or the event we are looking for isn't part of this set: in this
-    /// case, `until` returns [`Control::Continue`], otherwise it returns
+    /// case, `until` returns [`ControlFlow::Continue`], otherwise it returns
     /// [`ControlFlow::Break`]. `until` receives [`BackPaginationOutcome`] as
     /// its sole argument.
     ///
