@@ -1127,6 +1127,7 @@ async fn test_room_preview() -> Result<()> {
 }
 
 fn assert_room_preview(preview: &RoomPreview, room_alias: &str) {
+    dbg!(preview);
     assert_eq!(preview.canonical_alias.as_ref().unwrap().alias(), room_alias);
     assert_eq!(preview.name.as_ref().unwrap(), "Alice's Room");
     assert_eq!(preview.topic.as_ref().unwrap(), "Discussing Alice's Topic");

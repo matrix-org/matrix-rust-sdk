@@ -157,6 +157,8 @@ impl RoomPreview {
 
         let response = client.send(request, None).await?;
 
+        dbg!(&response);
+
         // The server returns a `Left` room state for rooms the user has not joined. Be
         // more precise than that, and set it to `None` if we haven't joined
         // that room.
