@@ -284,8 +284,10 @@ pub(crate) struct ClientInner {
     #[cfg(feature = "e2e-encryption")]
     pub(crate) verification_state: SharedObservable<VerificationState>,
 
-    /// Data related to the sending queue.
-    pub(crate) sending_queue: Arc<SendingQueueData>,
+    /// Data related to the [`SendingQueue`].
+    ///
+    /// [`SendingQueue`]: crate::send_queue::SendingQueue
+    pub(crate) sending_queue_data: Arc<SendingQueueData>,
 }
 
 impl ClientInner {
@@ -328,7 +330,7 @@ impl ClientInner {
             respect_login_well_known,
             sync_beat: event_listener::Event::new(),
             event_cache,
-            sending_queue,
+            sending_queue_data: sending_queue,
             #[cfg(feature = "e2e-encryption")]
             e2ee: EncryptionData::new(encryption_settings),
             #[cfg(feature = "e2e-encryption")]
@@ -2108,7 +2110,7 @@ impl Client {
                 self.inner.unstable_features.get().cloned(),
                 self.inner.respect_login_well_known,
                 self.inner.event_cache.clone(),
-                self.inner.sending_queue.clone(),
+                self.inner.sending_queue_data.clone(),
                 #[cfg(feature = "e2e-encryption")]
                 self.inner.e2ee.encryption_settings,
             )
