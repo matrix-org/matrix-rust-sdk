@@ -122,15 +122,6 @@ impl BaseRoomInfo {
         Self::default()
     }
 
-    pub(crate) fn calculate_room_name(
-        &self,
-        joined_member_count: u64,
-        invited_member_count: u64,
-        heroes: Vec<&str>,
-    ) -> DisplayName {
-        calculate_room_name(joined_member_count, invited_member_count, heroes)
-    }
-
     /// Get the room version of this room.
     ///
     /// For room versions earlier than room version 11, if the event is
@@ -359,7 +350,7 @@ impl Default for BaseRoomInfo {
     }
 }
 
-/// Calculate room name according to step 3 of the [naming algorithm.]
+/// Calculate room name according to step 3 of the [naming algorithm].
 ///
 /// [naming algorithm]: https://spec.matrix.org/latest/client-server-api/#calculating-the-display-name-for-a-room
 fn calculate_room_name(
