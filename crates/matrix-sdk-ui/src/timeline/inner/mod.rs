@@ -14,7 +14,7 @@
 
 #[cfg(feature = "e2e-encryption")]
 use std::collections::BTreeSet;
-use std::{fmt, sync::Arc};
+use std::{fmt, ops::Add, sync::Arc};
 
 use as_variant::as_variant;
 use eyeball_im::{ObservableVectorEntry, VectorDiff};
@@ -1240,6 +1240,17 @@ pub(super) struct HandleManyEventsResult {
 
     /// The number of items that were updated in the timeline.
     pub items_updated: u64,
+}
+
+impl Add for HandleManyEventsResult {
+    type Output = Self;
+
+    fn add(self, other: Self) -> Self {
+        Self {
+            items_added: self.items_added + other.items_added,
+            items_updated: self.items_updated + other.items_updated,
+        }
+    }
 }
 
 async fn fetch_replied_to_event(
