@@ -1,8 +1,11 @@
-use std::time::Duration;
+use std::{future::ready, ops::ControlFlow, time::Duration};
 
 use assert_matches2::{assert_let, assert_matches};
 use matrix_sdk::{
-    event_cache::{BackPaginationOutcome, EventCacheError, RoomEventCacheUpdate},
+    event_cache::{
+        BackPaginationOutcome, EventCacheError, RoomEventCacheUpdate,
+        TimelineHasBeenResetWhilePaginating,
+    },
     test_utils::{assert_event_matches_msg, events::EventFactory, logged_in_client_with_server},
 };
 use matrix_sdk_test::{
@@ -23,6 +26,13 @@ use wiremock::{
 };
 
 use crate::mock_sync;
+
+async fn once(
+    outcome: BackPaginationOutcome,
+    _timeline_has_been_reset: TimelineHasBeenResetWhilePaginating,
+) -> ControlFlow<BackPaginationOutcome, ()> {
+    ControlFlow::Break(outcome)
+}
 
 #[async_test]
 async fn test_must_explicitly_subscribe() {
@@ -362,7 +372,7 @@ async fn test_backpaginate_once() {
 
         assert!(pagination.get_or_wait_for_token().await.is_some());
 
-        pagination.run_backwards(20).await.unwrap()
+        pagination.run_backwards(20, once).await.unwrap()
     };
 
     // I'll get all the previous events, in "reverse" order (same as the response).
@@ -377,7 +387,7 @@ async fn test_backpaginate_once() {
 }
 
 #[async_test]
-async fn test_backpaginate_multiple_iterations() {
+async fn test_backpaginate_many_times_with_many_iterations() {
     let (client, server) = logged_in_client_with_server().await;
 
     let event_cache = client.event_cache();
@@ -425,6 +435,7 @@ async fn test_backpaginate_multiple_iterations() {
     }
 
     let mut num_iterations = 0;
+    let mut num_paginations = 0;
     let mut global_events = Vec::new();
     let mut global_reached_start = false;
 
@@ -449,19 +460,149 @@ async fn test_backpaginate_multiple_iterations() {
     // Then if I backpaginate in a loop,
     let pagination = room_event_cache.pagination();
     while pagination.get_or_wait_for_token().await.is_some() {
-        let BackPaginationOutcome { reached_start, events } =
-            pagination.run_backwards(20).await.unwrap();
+        pagination
+            .run_backwards(20, |outcome, timeline_has_been_reset| {
+                num_paginations += 1;
 
-        if !global_reached_start {
-            global_reached_start = reached_start;
-        }
-        global_events.extend(events);
+                assert_matches!(timeline_has_been_reset, TimelineHasBeenResetWhilePaginating::No);
+
+                if !global_reached_start {
+                    global_reached_start = outcome.reached_start;
+                }
+
+                global_events.extend(outcome.events);
+
+                ready(ControlFlow::Break(()))
+            })
+            .await
+            .unwrap();
 
         num_iterations += 1;
     }
 
     // I'll get all the previous events,
-    assert_eq!(num_iterations, 2);
+    assert_eq!(num_iterations, 2); // in two iterations…
+    assert_eq!(num_paginations, 2); // … we get two paginations.
+    assert!(global_reached_start);
+
+    assert_event_matches_msg(&global_events[0], "world");
+    assert_event_matches_msg(&global_events[1], "hello");
+    assert_event_matches_msg(&global_events[2], "oh well");
+    assert_eq!(global_events.len(), 3);
+
+    // And next time I'll open the room, I'll get the events in the right order.
+    let (events, _receiver) = room_event_cache.subscribe().await.unwrap();
+
+    assert_event_matches_msg(&events[0], "oh well");
+    assert_event_matches_msg(&events[1], "hello");
+    assert_event_matches_msg(&events[2], "world");
+    assert_event_matches_msg(&events[3], "heyo");
+    assert_eq!(events.len(), 4);
+
+    assert!(room_stream.is_empty());
+}
+
+#[async_test]
+async fn test_backpaginate_many_times_with_one_iteration() {
+    let (client, server) = logged_in_client_with_server().await;
+
+    let event_cache = client.event_cache();
+
+    // Immediately subscribe the event cache to sync updates.
+    event_cache.subscribe().unwrap();
+
+    // If I sync and get informed I've joined The Room, and get a previous batch
+    // token,
+    let room_id = room_id!("!omelette:fromage.fr");
+
+    let event_builder = EventBuilder::new();
+    let mut sync_builder = SyncResponseBuilder::new();
+
+    {
+        sync_builder.add_joined_room(
+            JoinedRoomBuilder::new(room_id)
+                // Note to self: a timeline must have at least single event to be properly
+                // serialized.
+                .add_timeline_event(event_builder.make_sync_message_event(
+                    user_id!("@a:b.c"),
+                    RoomMessageEventContent::text_plain("heyo"),
+                ))
+                .set_timeline_prev_batch("prev_batch".to_owned()),
+        );
+        let response_body = sync_builder.build_json_sync_response();
+
+        mock_sync(&server, response_body, None).await;
+        client.sync_once(Default::default()).await.unwrap();
+        server.reset().await;
+    }
+
+    let (room_event_cache, _drop_handles) =
+        client.get_room(room_id).unwrap().event_cache().await.unwrap();
+
+    let (events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
+
+    // This is racy: either the initial message has been processed by the event
+    // cache (and no room updates will happen in this case), or it hasn't, and
+    // the stream will return the next message soon.
+    if events.is_empty() {
+        let _ = room_stream.recv().await.expect("read error");
+    } else {
+        assert_eq!(events.len(), 1);
+    }
+
+    let mut num_iterations = 0;
+    let mut num_paginations = 0;
+    let mut global_events = Vec::new();
+    let mut global_reached_start = false;
+
+    // The first back-pagination will return these two.
+    mock_messages(
+        &server,
+        "prev_batch",
+        Some("prev_batch2"),
+        non_sync_events!(event_builder, [ (room_id, "$2": "world"), (room_id, "$3": "hello") ]),
+    )
+    .await;
+
+    // The second round of back-pagination will return this one.
+    mock_messages(
+        &server,
+        "prev_batch2",
+        None,
+        non_sync_events!(event_builder, [ (room_id, "$4": "oh well"), ]),
+    )
+    .await;
+
+    // Then if I backpaginate in a loop,
+    let pagination = room_event_cache.pagination();
+    while pagination.get_or_wait_for_token().await.is_some() {
+        pagination
+            .run_backwards(20, |outcome, timeline_has_been_reset| {
+                num_paginations += 1;
+
+                assert_matches!(timeline_has_been_reset, TimelineHasBeenResetWhilePaginating::No);
+
+                if !global_reached_start {
+                    global_reached_start = outcome.reached_start;
+                }
+
+                global_events.extend(outcome.events);
+
+                ready(if outcome.reached_start {
+                    ControlFlow::Break(())
+                } else {
+                    ControlFlow::Continue(())
+                })
+            })
+            .await
+            .unwrap();
+
+        num_iterations += 1;
+    }
+
+    // I'll get all the previous events,
+    assert_eq!(num_iterations, 1); // in one iteration…
+    assert_eq!(num_paginations, 2); // … we get two paginations!
     assert!(global_reached_start);
 
     assert_event_matches_msg(&global_events[0], "world");
@@ -586,7 +727,18 @@ async fn test_reset_while_backpaginating() {
 
     let backpagination = spawn({
         let pagination = room_event_cache.pagination();
-        async move { pagination.run_backwards(20).await }
+        async move {
+            pagination
+                .run_backwards(20, |outcome, timeline_has_been_reset| {
+                    assert_matches!(
+                        timeline_has_been_reset,
+                        TimelineHasBeenResetWhilePaginating::Yes
+                    );
+
+                    ready(ControlFlow::Break(outcome))
+                })
+                .await
+        }
     });
 
     // Receive the sync response (which clears the timeline).
@@ -656,7 +808,7 @@ async fn test_backpaginating_without_token() {
     // If we try to back-paginate with a token, it will hit the end of the timeline
     // and give us the resulting event.
     let BackPaginationOutcome { events, reached_start } =
-        pagination.run_backwards(20).await.unwrap();
+        pagination.run_backwards(20, once).await.unwrap();
 
     assert!(reached_start);
 
