@@ -583,17 +583,9 @@ impl Timeline {
     /// local events that are being processed.
     pub async fn redact_event(
         &self,
-        event_id: String,
+        item: Arc<EventTimelineItem>,
         reason: Option<String>,
     ) -> Result<bool, ClientError> {
-        let event_id = EventId::parse(event_id)?;
-
-        let item = self
-            .inner
-            .item_by_event_id(&event_id)
-            .await
-            .context("Item with given event ID not found")?;
-
         let removed = self
             .inner
             .redact(&item, reason.as_deref())
