@@ -588,7 +588,7 @@ impl Timeline {
     ) -> Result<bool, ClientError> {
         let removed = self
             .inner
-            .redact(&item, reason.as_deref())
+            .redact(&item.0, reason.as_deref())
             .await
             .map_err(|err| anyhow::anyhow!(err))?;
 
