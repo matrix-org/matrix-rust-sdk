@@ -64,6 +64,7 @@ use crate::latest_event::LatestEvent;
 use crate::{
     deserialized_responses::MemberEvent,
     read_receipts::RoomReadReceipts,
+    rooms::calculate_room_name,
     store::{DynStateStore, Result as StoreResult, StateStoreExt},
     sync::UnreadNotificationsCount,
     MinimalStateEvent, OriginalMinimalStateEvent, RoomMemberships,
@@ -695,7 +696,7 @@ impl Room {
             "Calculating name for a room",
         );
 
-        Ok(self.inner.read().base_info.calculate_room_name(
+        Ok(calculate_room_name(
             num_joined,
             num_invited,
             heroes.iter().map(|hero| hero.as_str()).collect(),
