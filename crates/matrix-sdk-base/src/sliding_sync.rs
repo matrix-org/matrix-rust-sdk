@@ -817,19 +817,20 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_room_name_is_found_when_processing_sliding_sync_response() {
+    async fn test_missing_room_name_event() {
         // Given a logged-in client
         let client = logged_in_base_client(None).await;
         let room_id = room_id!("!r:e.uk");
 
-        // When I send sliding sync response containing a room with a name
+        // When I send sliding sync response containing a room with a name set in the
+        // sliding sync response,
         let mut room = v4::SlidingSyncRoom::new();
         room.name = Some("little room".to_owned());
         let response = response_with_room(room_id, room);
         let sync_resp =
             client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
 
-        // Then the room doesn't have the name in the client.
+        // No m.room.name event, no heroes, no members => considered an empty room!
         let client_room = client.get_room(room_id).expect("No room found");
         assert!(client_room.name().is_none());
         assert_eq!(client_room.computed_display_name().await.unwrap().to_string(), "Empty Room");
@@ -842,14 +843,15 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_invited_room_name_is_found_when_processing_sliding_sync_response() {
+    async fn test_missing_invited_room_name_event() {
         // Given a logged-in client,
         let client = logged_in_base_client(None).await;
         let room_id = room_id!("!r:e.uk");
         let user_id = user_id!("@w:e.uk");
         let inviter = user_id!("@john:mastodon.org");
 
-        // When I send sliding sync response containing a room with a name,
+        // When I send sliding sync response containing a room with a name set in the
+        // sliding sync response,
         let mut room = v4::SlidingSyncRoom::new();
         set_room_invited(&mut room, inviter, user_id);
         room.name = Some("name from sliding sync response".to_owned());
@@ -861,9 +863,8 @@ mod tests {
         let client_room = client.get_room(room_id).expect("No room found");
         assert!(client_room.name().is_none());
 
-        // The computed display name will show heroes name, but for an invited room…
-        // it's only self, the invitee, who will appear.
-        assert_eq!(client_room.computed_display_name().await.unwrap().to_string(), "w");
+        // No m.room.name event, no heroes, no members => considered an empty room!
+        assert_eq!(client_room.computed_display_name().await.unwrap().to_string(), "Empty Room");
 
         assert_eq!(client_room.state(), RoomState::Invited);
 
