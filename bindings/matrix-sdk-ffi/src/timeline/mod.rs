@@ -540,28 +540,6 @@ impl Timeline {
         Ok(Arc::new(EventTimelineItem(item)))
     }
 
-    pub async fn get_timeline_event_content_by_event_id(
-        &self,
-        event_id: String,
-    ) -> Result<Arc<RoomMessageEventContentWithoutRelation>, ClientError> {
-        let event_id = EventId::parse(event_id)?;
-
-        let item = self
-            .inner
-            .item_by_event_id(&event_id)
-            .await
-            .context("Item with given event ID not found")?;
-
-        let msgtype = item
-            .content()
-            .as_message()
-            .context("Item with given event ID is not a message")?
-            .msgtype()
-            .to_owned();
-
-        Ok(Arc::new(RoomMessageEventContentWithoutRelation::new(msgtype)))
-    }
-
     pub async fn latest_event(&self) -> Option<Arc<EventTimelineItem>> {
         let latest_event = self.inner.latest_event().await;
 
