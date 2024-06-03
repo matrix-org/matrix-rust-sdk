@@ -43,6 +43,7 @@ impl Default for RoomEvents {
 
 #[allow(dead_code)]
 impl RoomEvents {
+    /// Create a new [`RoomEvents`].
     pub fn new() -> Self {
         let mut chunks = LinkedChunk::new_with_update_history();
         let chunks_updates_as_vector = chunks

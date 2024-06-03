@@ -565,6 +565,44 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             .await
     }
 
+    pub(super) async fn add_events_with_diffs(
+        &self,
+        diffs: Vec<VectorDiff<SyncTimelineEvent>>,
+        origin: RemoteEventOrigin,
+    ) -> HandleManyEventsResult {
+        let mut result = Default::default();
+
+        if diffs.is_empty() {
+            return result;
+        }
+
+        let mut state = self.state.write().await;
+
+        // TODO: replace `into_iter().collect()` by a simple iterator in
+        // `state.add_events_at`.
+
+        for diff in diffs {
+            result = result
+                + match diff {
+                    VectorDiff::Append { values: events } => {
+                        state
+                            .add_remote_events_at(
+                                events.into_iter().collect::<Vec<_>>(),
+                                TimelineEnd::Back,
+                                origin,
+                                &self.room_data_provider,
+                                &self.settings,
+                            )
+                            .await
+                    }
+
+                    diff => todo!("Unsupported `VectorDiff` {diff:?}"),
+                };
+        }
+
+        result
+    }
+
     pub(super) async fn clear(&self) {
         self.state.write().await.clear();
     }

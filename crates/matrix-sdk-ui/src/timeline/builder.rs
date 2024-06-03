@@ -32,10 +32,7 @@ use super::{
     Error, Timeline, TimelineDropHandle, TimelineFocus,
 };
 use crate::{
-    timeline::{
-        event_handler::TimelineEventKind, event_item::RemoteEventOrigin, inner::TimelineEnd,
-        EventSendState,
-    },
+    timeline::{event_handler::TimelineEventKind, event_item::RemoteEventOrigin, EventSendState},
     unable_to_decrypt_hook::UtdHookManager,
 };
 
@@ -235,9 +232,8 @@ impl TimelineBuilder {
                         RoomEventCacheUpdate::AddTimelineEvents { events, origin } => {
                             trace!("Received new timeline events.");
 
-                            inner.add_events_at(
+                            inner.add_events_with_diffs(
                                 events,
-                                TimelineEnd::Back,
                                 match origin {
                                     EventsOrigin::Sync => RemoteEventOrigin::Sync,
                                     EventsOrigin::Pagination => RemoteEventOrigin::Pagination,

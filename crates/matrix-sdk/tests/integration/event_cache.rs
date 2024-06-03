@@ -1,6 +1,7 @@
 use std::{future::ready, ops::ControlFlow, time::Duration};
 
 use assert_matches2::{assert_let, assert_matches};
+use eyeball_im::VectorDiff;
 use matrix_sdk::{
     event_cache::{
         BackPaginationOutcome, EventCacheError, RoomEventCacheUpdate,
@@ -116,6 +117,8 @@ async fn test_add_initial_events() {
     // Which contains the event that was sent beforehand.
     assert_let!(RoomEventCacheUpdate::AddTimelineEvents { events, .. } = update);
     assert_eq!(events.len(), 1);
+    assert_let!(VectorDiff::Append { values: events } = &events[0]);
+    assert_eq!(events.len(), 1);
     assert_event_matches_msg(&events[0], "bonjour monde");
 
     // And when I later add initial events to this room,
@@ -141,6 +144,8 @@ async fn test_add_initial_events() {
         .expect("timeout after receiving a sync update")
         .expect("should've received a room event cache update");
     assert_let!(RoomEventCacheUpdate::AddTimelineEvents { events, .. } = update);
+    assert_eq!(events.len(), 1);
+    assert_let!(VectorDiff::Append { values: events } = &events[0]);
     assert_eq!(events.len(), 1);
     assert_event_matches_msg(&events[0], "new choice!");
 
@@ -244,6 +249,8 @@ async fn test_ignored_unignored() {
         .expect("should've received a room event cache update");
 
     assert_let!(RoomEventCacheUpdate::AddTimelineEvents { events, .. } = update);
+    assert_eq!(events.len(), 1);
+    assert_let!(VectorDiff::Append { values: events } = &events[0]);
     assert_eq!(events.len(), 1);
     assert_event_matches_msg(&events[0], "i don't like this dexter");
 

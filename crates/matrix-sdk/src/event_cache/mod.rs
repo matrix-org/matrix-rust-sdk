@@ -48,6 +48,7 @@ use std::{
 };
 
 use eyeball::Subscriber;
+use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
     deserialized_responses::{AmbiguityChange, SyncTimelineEvent, TimelineEvent},
     sync::{JoinedRoomUpdate, LeftRoomUpdate, RoomUpdates, Timeline},
@@ -660,7 +661,7 @@ impl RoomEventCacheInner {
                 room_events.push_gap(Gap { prev_token: prev_token.clone() });
             }
 
-            room_events.push_events(sync_timeline_events.clone());
+            room_events.push_events(sync_timeline_events);
         }
 
         // Now that all events have been added, we can trigger the
@@ -671,9 +672,11 @@ impl RoomEventCacheInner {
 
         // The order of `RoomEventCacheUpdate`s is **really** important here.
         {
-            if !sync_timeline_events.is_empty() {
+            let sync_timeline_event_diffs = room_events.updates_as_vector_diffs();
+
+            if !sync_timeline_event_diffs.is_empty() {
                 let _ = self.sender.send(RoomEventCacheUpdate::AddTimelineEvents {
-                    events: sync_timeline_events,
+                    events: sync_timeline_event_diffs,
                     origin: EventsOrigin::Sync,
                 });
             }
@@ -734,7 +737,7 @@ pub enum RoomEventCacheUpdate {
     /// The room has received new timeline events.
     AddTimelineEvents {
         /// All the new events that have been added to the room's timeline.
-        events: Vec<SyncTimelineEvent>,
+        events: Vec<VectorDiff<SyncTimelineEvent>>,
 
         /// Where the events are coming from.
         origin: EventsOrigin,
