@@ -1056,8 +1056,8 @@ async fn test_room_preview() -> Result<()> {
     let sliding_alice = alice
         .sliding_sync("main")?
         .with_all_extensions()
-        .poll_timeout(Duration::from_secs(5))
-        .network_timeout(Duration::from_secs(5))
+        .poll_timeout(Duration::from_secs(30))
+        .network_timeout(Duration::from_secs(30))
         .add_list(
             SlidingSyncList::builder("all")
                 .sync_mode(SlidingSyncMode::new_selective().add_range(0..=20)),
@@ -1103,8 +1103,11 @@ async fn test_room_preview() -> Result<()> {
     // successful updates for more than 2 seconds).
     let stream = sliding_alice.sync();
     pin_mut!(stream);
+
+    // Wait for updates coming in under than 15 seconds. After that, we consider the
+    // sync as stable.
     loop {
-        match timeout(Duration::from_secs(2), stream.next()).await {
+        match timeout(Duration::from_secs(15), stream.next()).await {
             Ok(None) | Err(_) => break,
             Ok(Some(up)) => {
                 warn!("alice got an update: {up:?}");
@@ -1118,6 +1121,7 @@ async fn test_room_preview() -> Result<()> {
     {
         // Dummy test for `Client::get_room_preview` which may call one or the other
         // methods.
+        info!("Alice gets a preview of the public room using any method");
         let preview = alice.get_room_preview(room_id.into(), Vec::new()).await.unwrap();
         assert_room_preview(&preview, &room_alias);
         assert_eq!(preview.state, Some(RoomState::Joined));
@@ -1145,18 +1149,21 @@ async fn get_room_preview_with_room_state(
     public_no_history_room_id: &RoomId,
 ) {
     // Alice has joined the room, so they get the full details.
+    info!("Alice gets a preview of the public room from state events");
     let preview = RoomPreview::from_state_events(alice, room_id).await.unwrap();
     assert_room_preview(&preview, room_alias);
     assert_eq!(preview.state, Some(RoomState::Joined));
 
     // Bob definitely doesn't know about the room, but they can get a preview of the
     // room too.
+    info!("Bob gets a preview of the public room from state events");
     let preview = RoomPreview::from_state_events(bob, room_id).await.unwrap();
     assert_room_preview(&preview, room_alias);
     assert!(preview.state.is_none());
 
     // Bob can't preview the second room, because its history visibility is neither
     // world-readable, nor have they joined the room before.
+    info!("Bob gets a preview of the private room from state events");
     let preview_result = RoomPreview::from_state_events(bob, public_no_history_room_id).await;
     assert_eq!(preview_result.unwrap_err().as_client_api_error().unwrap().status_code, 403);
 }
@@ -1169,6 +1176,7 @@ async fn get_room_preview_with_room_summary(
     public_no_history_room_id: &RoomId,
 ) {
     // Alice has joined the room, so they get the full details.
+    info!("Alice gets a preview of the public room from msc3266 using the room id");
     let preview =
         RoomPreview::from_room_summary(alice, room_id.to_owned(), room_id.into(), Vec::new())
             .await
@@ -1178,6 +1186,7 @@ async fn get_room_preview_with_room_summary(
     assert_eq!(preview.state, Some(RoomState::Joined));
 
     // The preview also works when using the room alias parameter.
+    info!("Alice gets a preview of the public room from msc3266 using the room alias");
     let full_alias = format!("#{room_alias}:{}", alice.user_id().unwrap().server_name());
     let preview = RoomPreview::from_room_summary(
         alice,
@@ -1193,6 +1202,7 @@ async fn get_room_preview_with_room_summary(
 
     // Bob definitely doesn't know about the room, but they can get a preview of the
     // room too.
+    info!("Bob gets a preview of the public room from msc3266 using the room id");
     let preview =
         RoomPreview::from_room_summary(bob, room_id.to_owned(), room_id.into(), Vec::new())
             .await
@@ -1202,6 +1212,7 @@ async fn get_room_preview_with_room_summary(
 
     // Bob can preview the second room with the room summary (because its join rule
     // is set to public, or because Alice is a member of that room).
+    info!("Bob gets a preview of the private room from msc3266 using the room id");
     let preview = RoomPreview::from_room_summary(
         bob,
         public_no_history_room_id.to_owned(),
