@@ -27,6 +27,7 @@ async-compat = "0.2.1"
 eyeball-im = { workspace = true }
 extension-trait = "1.0.1"
 futures-util = { workspace = true }
+log-panics = { version = "2", features = ["with-backtrace"] }
 matrix-sdk-ui = { workspace = true, features = ["e2e-encryption", "uniffi"] }
 mime = "0.3.16"
 once_cell = { workspace = true }
@@ -40,7 +41,6 @@ tracing-core = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = { version = "0.2.2" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
-tokio-stream = { workspace = true, features = ["time"] }
 uniffi = { workspace = true, features = ["tokio"] }
 url = { workspace = true }
 zeroize = { workspace = true }
@@ -48,7 +48,6 @@ uuid = { version = "1.4.1", features = ["v4"] }
 language-tags = "0.3.2"
 
 [target.'cfg(target_os = "android")'.dependencies]
-log-panics = { version = "2", features = ["with-backtrace"] }
 paranoid-android = "0.2.1"
 
 [target.'cfg(target_os = "android")'.dependencies.matrix-sdk]

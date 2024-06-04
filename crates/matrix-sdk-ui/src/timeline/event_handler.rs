@@ -377,6 +377,9 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 AnyMessageLikeEventContent::CallInvite(_) => {
                     self.add(should_add, TimelineItemContent::CallInvite);
                 }
+                AnyMessageLikeEventContent::CallNotify(_) => {
+                    self.add(should_add, TimelineItemContent::CallNotify)
+                }
 
                 // TODO
                 _ => {

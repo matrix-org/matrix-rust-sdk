@@ -1,0 +1,79 @@
+# Copied with minimal adjustments, source:
+# https://github.com/google/mdbook-i18n-helpers/blob/2168b9cea1f4f76b55426591a9bcc308a620194f/.github/workflows/coverage-report.yml
+name: Codecov
+
+on:
+  # This workflow is triggered after every successfull execution
+  # of `coverage` workflow.
+  workflow_run:
+    workflows: ["Code Coverage"]
+    types:
+      - completed
+
+jobs:
+  coverage:
+    name: Upload coverage report
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion == 'success'
+    steps:
+      - name: 'Fetch coverage report from artifacts'
+        id: prepare_report
+        uses: actions/github-script@v7
+        with:
+          script: |
+            var fs = require('fs');
+
+            // List artifacts of the workflow run that triggered this workflow
+            var artifacts = await github.rest.actions.listWorkflowRunArtifacts({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.payload.workflow_run.id,
+            });
+
+            let codecovReport = artifacts.data.artifacts.filter((artifact) => {
+              return artifact.name == "codecov_report";
+            });
+
+            if (codecovReport.length != 1) {
+              throw new Error("Unexpected number of {codecov_report} artifacts: " + codecovReport.length);
+            }
+
+            var download = await github.rest.actions.downloadArtifact({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              artifact_id: codecovReport[0].id,
+              archive_format: 'zip',
+            });
+            fs.writeFileSync('codecov_report.zip', Buffer.from(download.data));
+
+      - id: parse_previous_artifacts
+        run: |
+          unzip codecov_report.zip
+
+          echo "Detected PR is: $(<pr_number.txt)"
+          echo "Detected commit_sha is: $(<commit_sha.txt)"
+
+          # Make the params available as step output
+          echo "override_pr=$(<pr_number.txt)" >> "$GITHUB_OUTPUT"
+          echo "override_commit=$(<commit_sha.txt)" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.parse_previous_artifacts.outputs.override_commit || '' }}
+          path: repo_root
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_UPLOAD_TOKEN }}
+          fail_ci_if_error: true
+          # Manual overrides for these parameters are needed because automatic detection
+          # in codecov-action does not work for non-`pull_request` workflows.
+          # In `main` branch push, these default to empty strings since we want to run
+          # the analysis on HEAD.
+          override_commit: ${{ steps.parse_previous_artifacts.outputs.override_commit || '' }}
+          override_pr: ${{ steps.parse_previous_artifacts.outputs.override_pr || '' }}
+          working-directory: ${{ github.workspace }}/repo_root
+          # Location where coverage report files are searched for
+          directory: ${{ github.workspace }}

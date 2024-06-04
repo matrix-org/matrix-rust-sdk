@@ -730,7 +730,8 @@ impl BaseClient {
                     match is_suitable_for_latest_event(&any_sync_event) {
                         PossibleLatestEvent::YesRoomMessage(_)
                         | PossibleLatestEvent::YesPoll(_)
-                        | PossibleLatestEvent::YesCallInvite(_) => {
+                        | PossibleLatestEvent::YesCallInvite(_)
+                        | PossibleLatestEvent::YesCallNotify(_) => {
                             // The event is the right type for us to use as latest_event
                             return Some((Box::new(LatestEvent::new(decrypted)), i));
                         }

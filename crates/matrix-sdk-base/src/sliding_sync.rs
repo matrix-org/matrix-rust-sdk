@@ -583,7 +583,8 @@ async fn cache_latest_events(
             match is_suitable_for_latest_event(&timeline_event) {
                 PossibleLatestEvent::YesRoomMessage(_)
                 | PossibleLatestEvent::YesPoll(_)
-                | PossibleLatestEvent::YesCallInvite(_) => {
+                | PossibleLatestEvent::YesCallInvite(_)
+                | PossibleLatestEvent::YesCallNotify(_) => {
                     // We found a suitable latest event. Store it.
 
                     // In order to make the latest event fast to read, we want to keep the

@@ -13,6 +13,7 @@ macro_rules! cryptostore_integration_tests {
                 to_device::DeviceIdOrAllDevices, user_id, DeviceId, RoomId, TransactionId, UserId,
             };
             use serde_json::value::to_raw_value;
+            use serde_json::json;
             use $crate::{
                 olm::{
                     Account, Curve25519PublicKey, InboundGroupSession, OlmMessageHash,
@@ -35,9 +36,10 @@ macro_rules! cryptostore_integration_tests {
                         secret_send::SecretSendContent,
                         ToDeviceEvent,
                     },
+                    DeviceKeys,
                     EventEncryptionAlgorithm,
                 },
-                GossippedSecret, ReadOnlyDevice, SecretInfo, ToDeviceRequest, TrackedUser,
+                GossippedSecret, LocalTrust, ReadOnlyDevice, SecretInfo, ToDeviceRequest, TrackedUser,
             };
 
             use super::get_store;
@@ -571,9 +573,28 @@ macro_rules! cryptostore_integration_tests {
                     "SECONDDEVICE".into(),
                 ));
 
+                let json = json!({
+                    "algorithms": ["m.olm.v1.curve25519-aes-sha2", "m.megolm.v1.aes-sha2"],
+                    "user_id": "@bob:localhost",
+                    "device_id": "BOBDEVICE",
+                    "extra_property": "somevalue",
+                    "keys": {
+                        "curve25519:BOBDEVICE": "n0zs7qnaPLLf/OTL+dDLcI5kaPexbUeQ8jLQ2q6sO0E",
+                        "ed25519:BOBDEVICE": "RrKiu4+5EHRBWY6Qj6OtQGC0txpmEeanOz2irEZ/IN4",
+                    },
+                    "signatures": {
+                        "@bob:localhost": {
+                            "ed25519:BOBDEVICE": "9NjPewVHfB7Ah32mJ+CBx64mVoiQ8gbh+/2pc9WfAgut/H0Kqd/bbpgJq9Pn518szaXcGqEq0DxDP6CABBX8CQ",
+                        },
+                    },
+                });
+
+                let bob_device_1_keys: DeviceKeys = serde_json::from_value(json).unwrap();
+                let bob_device_1 = ReadOnlyDevice::new(bob_device_1_keys, LocalTrust::Unset);
+
                 let changes = Changes {
                     devices: DeviceChanges {
-                        new: vec![alice_device_1.clone(), alice_device_2.clone()],
+                        new: vec![alice_device_1.clone(), alice_device_2.clone(), bob_device_1.clone()],
                         ..Default::default()
                     },
                     ..Default::default()
@@ -603,6 +624,14 @@ macro_rules! cryptostore_integration_tests {
 
                 let user_devices = store.get_user_devices(alice_device_1.user_id()).await.unwrap();
                 assert_eq!(user_devices.len(), 2);
+
+                let bob_device = store
+                    .get_device(bob_device_1.user_id(), bob_device_1.device_id())
+                    .await
+                    .unwrap();
+
+                let bob_device_json = serde_json::to_value(bob_device).unwrap();
+                assert_eq!(bob_device_json["inner"]["extra_property"], json!("somevalue"));
             }
 
             #[async_test]

@@ -16,7 +16,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use matrix_sdk::{crypto::types::events::UtdCause, room::power_levels::power_level_user_changes};
 use matrix_sdk_ui::timeline::{PollResult, TimelineDetails};
-use ruma::events::FullStateEventContent;
+use ruma::events::{room::message::RoomMessageEventContentWithoutRelation, FullStateEventContent};
 use tracing::warn;
 
 use super::ProfileDetails;
@@ -43,6 +43,7 @@ impl TimelineItemContent {
             }
             Content::Poll(poll_state) => TimelineItemContentKind::from(poll_state.results()),
             Content::CallInvite => TimelineItemContentKind::CallInvite,
+            Content::CallNotify => TimelineItemContentKind::CallNotify,
             Content::UnableToDecrypt(msg) => {
                 TimelineItemContentKind::UnableToDecrypt { msg: EncryptedMessage::new(msg) }
             }
@@ -123,6 +124,7 @@ pub enum TimelineItemContentKind {
         has_been_edited: bool,
     },
     CallInvite,
+    CallNotify,
     UnableToDecrypt {
         msg: EncryptedMessage,
     },
@@ -175,6 +177,10 @@ impl Message {
 
     pub fn is_edited(&self) -> bool {
         self.0.is_edited()
+    }
+
+    pub fn content(&self) -> Arc<RoomMessageEventContentWithoutRelation> {
+        Arc::new(RoomMessageEventContentWithoutRelation::new(self.0.msgtype().clone()))
     }
 }
 

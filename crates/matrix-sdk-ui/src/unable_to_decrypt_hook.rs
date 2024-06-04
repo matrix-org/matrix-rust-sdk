@@ -19,7 +19,7 @@
 //! utilities to simplify usage of this trait.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
@@ -57,7 +57,15 @@ pub struct UnableToDecryptInfo {
     pub cause: UtdCause,
 }
 
-type PendingUtdReports = Vec<(OwnedEventId, JoinHandle<()>)>;
+/// Data about a UTD event which we are waiting to report to the parent hook.
+#[derive(Debug)]
+struct PendingUtdReport {
+    /// The time that we received the UTD report from the timeline code.
+    marked_utd_at: Instant,
+
+    /// The task that will report this UTD to the parent hook.
+    report_task: JoinHandle<()>,
+}
 
 /// A manager over an existing [`UnableToDecryptHook`] that deduplicates UTDs
 /// on similar events, and adds basic consistency checks.
@@ -72,25 +80,29 @@ pub struct UtdHookManager {
     /// The parent hook we'll call, when we have found a unique UTD.
     parent: Arc<dyn UnableToDecryptHook>,
 
-    /// A mapping of events we've marked as UTDs, and the time at which we
-    /// observed those UTDs.
+    /// The set of events we've marked as UTDs.
+    ///
+    /// Events are added to this set when they are first flagged as UTDs. If
+    /// they are subsequently successfully decrypted, they are removed from
+    /// this set. (In other words, this is a superset of the events in
+    /// [`Self::pending_delayed`].
     ///
     /// Note: this is unbounded, because we have absolutely no idea how long it
     /// will take for a UTD to resolve, or if it will even resolve at any
     /// point.
-    known_utds: Arc<Mutex<HashMap<OwnedEventId, Instant>>>,
+    known_utds: Arc<Mutex<HashSet<OwnedEventId>>>,
 
     /// An optional delay before marking the event as UTD ("grace period").
     max_delay: Option<Duration>,
 
-    /// The set of outstanding tasks to report deferred UTDs, including the
-    /// event relating to the task.
+    /// A mapping of events we're going to report as UTDs, to the tasks to do
+    /// so.
     ///
     /// Note: this is empty if no [`Self::max_delay`] is set.
     ///
     /// Note: this is theoretically unbounded in size, although this set of
     /// tasks will degrow over time, as tasks expire after the max delay.
-    pending_delayed: Arc<Mutex<PendingUtdReports>>,
+    pending_delayed: Arc<Mutex<HashMap<OwnedEventId, PendingUtdReport>>>,
 }
 
 impl UtdHookManager {
@@ -117,32 +129,40 @@ impl UtdHookManager {
     ///
     /// Pipe in any information that needs to be included in the final report.
     pub(crate) fn on_utd(&self, event_id: &EventId, cause: UtdCause) {
-        // Only let the parent hook know if the event wasn't already handled.
-        {
-            let mut known_utds = self.known_utds.lock().unwrap();
-            // Note: we don't want to replace the previous time, so don't look at the result
-            // of insert to know whether the entry was already present or not.
-            if known_utds.contains_key(event_id) {
-                return;
-            }
-            known_utds.insert(event_id.to_owned(), Instant::now());
+        // First of all, check if we already have a task to handle this UTD. If so, our
+        // work is done
+        let mut pending_delayed_lock = self.pending_delayed.lock().unwrap();
+        if pending_delayed_lock.contains_key(event_id) {
+            return;
         }
 
-        let info =
-            UnableToDecryptInfo { event_id: event_id.to_owned(), time_to_decrypt: None, cause };
+        // Keep track of UTDs we have already seen.
+        {
+            let mut known_utds = self.known_utds.lock().unwrap();
+            if !known_utds.insert(event_id.to_owned()) {
+                return;
+            }
+        }
+
+        // Construct a closure which will report the UTD to the parent.
+        let report_utd = {
+            let info =
+                UnableToDecryptInfo { event_id: event_id.to_owned(), time_to_decrypt: None, cause };
+            let parent = self.parent.clone();
+            move || {
+                parent.on_utd(info);
+            }
+        };
 
         let Some(max_delay) = self.max_delay else {
             // No delay: immediately report the event to the parent hook.
-            self.parent.on_utd(info);
+            report_utd();
             return;
         };
 
-        let event_id = info.event_id.clone();
-
-        // Clone Arc'd pointers shared with the task below.
-        let known_utds = self.known_utds.clone();
+        // Clone data shared with the task below.
         let pending_delayed = self.pending_delayed.clone();
-        let parent = self.parent.clone();
+        let target_event_id = event_id.to_owned();
 
         // Spawn a task that will wait for the given delay, and maybe call the parent
         // hook then.
@@ -150,18 +170,18 @@ impl UtdHookManager {
             // Wait for the given delay.
             sleep(max_delay).await;
 
-            // In any case, remove the task from the outstanding set.
-            pending_delayed.lock().unwrap().retain(|(event_id, _)| *event_id != info.event_id);
-
-            // Check if the event is still in the map: if not, it's been decrypted since
-            // then!
-            if known_utds.lock().unwrap().contains_key(&info.event_id) {
-                parent.on_utd(info);
+            // Remove the task from the outstanding set. But if it's already been removed,
+            // it's been decrypted since the task was added!
+            if pending_delayed.lock().unwrap().remove(&target_event_id).is_some() {
+                report_utd();
             }
         });
 
         // Add the task to the set of pending tasks.
-        self.pending_delayed.lock().unwrap().push((event_id, handle));
+        pending_delayed_lock.insert(
+            event_id.to_owned(),
+            PendingUtdReport { marked_utd_at: Instant::now(), report_task: handle },
+        );
     }
 
     /// The function to call whenever an event that was marked as a UTD has
@@ -170,28 +190,25 @@ impl UtdHookManager {
     /// Note: if this is called for an event that was never marked as a UTD
     /// before, it has no effect.
     pub(crate) fn on_late_decrypt(&self, event_id: &EventId, cause: UtdCause) {
-        // Only let the parent hook know if the event was known to be a UTDs.
-        let Some(marked_utd_at) = self.known_utds.lock().unwrap().remove(event_id) else {
+        let mut pending_delayed_lock = self.pending_delayed.lock().unwrap();
+        self.known_utds.lock().unwrap().remove(event_id);
+
+        // Only let the parent hook know about the late decryption if the event is
+        // a pending UTD. If so, remove the event from the pending list —
+        // doing so will cause the reporting task to no-op if it runs.
+        let Some(pending_utd_report) = pending_delayed_lock.remove(event_id) else {
             return;
         };
 
+        // We can also cancel the reporting task.
+        pending_utd_report.report_task.abort();
+
+        // Now we can report the late decryption.
         let info = UnableToDecryptInfo {
             event_id: event_id.to_owned(),
-            time_to_decrypt: Some(marked_utd_at.elapsed()),
+            time_to_decrypt: Some(pending_utd_report.marked_utd_at.elapsed()),
             cause,
         };
-
-        // Cancel and remove the task from the outstanding set immediately.
-        self.pending_delayed.lock().unwrap().retain(|(event_id, task)| {
-            if *event_id == info.event_id {
-                task.abort();
-                false
-            } else {
-                true
-            }
-        });
-
-        // Report to the parent hook.
         self.parent.on_utd(info);
     }
 }
@@ -200,8 +217,8 @@ impl Drop for UtdHookManager {
     fn drop(&mut self) {
         // Cancel all the outstanding delayed tasks to report UTDs.
         let mut pending_delayed = self.pending_delayed.lock().unwrap();
-        for (_, task) in pending_delayed.drain(..) {
-            task.abort();
+        for (_, pending_utd_report) in pending_delayed.drain() {
+            pending_utd_report.report_task.abort();
         }
     }
 }
@@ -293,18 +310,14 @@ mod tests {
         // And when I call the `on_late_decrypt` method,
         wrapper.on_late_decrypt(event_id!("$1"), UtdCause::Unknown);
 
-        // Then the event is now reported as a late-decryption too.
+        // Then the event is not reported again as a late-decryption.
         {
             let utds = hook.utds.lock().unwrap();
-            assert_eq!(utds.len(), 2);
+            assert_eq!(utds.len(), 1);
 
             // The previous report is still there. (There was no grace period.)
             assert_eq!(utds[0].event_id, event_id!("$1"));
             assert!(utds[0].time_to_decrypt.is_none());
-
-            // The new report with a late-decryption is there.
-            assert_eq!(utds[1].event_id, event_id!("$1"));
-            assert!(utds[1].time_to_decrypt.is_some());
         }
     }
 

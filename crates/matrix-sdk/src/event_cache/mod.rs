@@ -76,7 +76,7 @@ mod pagination;
 mod store;
 
 pub mod paginator;
-pub use pagination::RoomPagination;
+pub use pagination::{RoomPagination, TimelineHasBeenResetWhilePaginating};
 
 /// An error observed in the [`EventCache`].
 #[derive(thiserror::Error, Debug)]

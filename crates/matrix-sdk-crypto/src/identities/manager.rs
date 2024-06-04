@@ -1848,4 +1848,49 @@ pub(crate) mod tests {
 
         manager.take();
     }
+
+    #[async_test]
+    async fn test_key_query_with_unknown_properties() {
+        let manager = manager_test_helper(user_id(), device_id()).await;
+        let other_user = user_id!("@example:localhost");
+        let devices = manager.store.get_user_devices(other_user).await.unwrap();
+        assert_eq!(devices.devices().count(), 0);
+
+        let response = json!({
+            "device_keys": {
+                "@example:localhost": {
+                    "OBEBOSKTBE": {
+                        "algorithms": ["m.olm.v1.curve25519-aes-sha2", "m.megolm.v1.aes-sha2"],
+                        "user_id": "@example:localhost",
+                        "device_id": "OBEBOSKTBE",
+                        "extra_property": "somevalue",
+                        "keys": {
+                            "curve25519:OBEBOSKTBE": "ECrdZebl0DskwbkxoztsiKPb6ivu7M2qQ70BFWwre3w",
+                            "ed25519:OBEBOSKTBE": "hFWo+pG6TVWNzq/ZubUQVL5Ardu9rqHxpKkCbf1/KiA"
+                        },
+                        "signatures": {
+                            "@example:localhost": {
+                                "ed25519:OBEBOSKTBE": "6vyYUgX+IoT1x6Mvf0g/GEPVb2UI3brfL7WZ75WZ81sH4FBFgAzkkuGpw9suGLKXnlEdLH0suBzaT4esVhFDCw",
+                            },
+                        },
+                    },
+                },
+            },
+        });
+
+        let response = KeysQueryResponse::try_from_http_response(response_from_file(&response))
+            .expect("Can't parse the `/keys/query` response");
+
+        manager.receive_keys_query_response(&TransactionId::new(), &response).await.unwrap();
+
+        let devices = manager.store.get_user_devices(other_user).await.unwrap();
+        assert_eq!(devices.devices().count(), 1);
+
+        manager
+            .store
+            .get_readonly_device(other_user, device_id!("OBEBOSKTBE"))
+            .await
+            .unwrap()
+            .unwrap();
+    }
 }
