@@ -264,7 +264,23 @@ impl AuthenticationService {
         builder = builder.server_name_or_homeserver_url(server_name_or_homeserver_url);
 
         let client = builder.build_inner().await?;
-        let details = self.details_from_client(&client).await;
+
+        // Compute homeserver login details.
+        let details = {
+            let supports_oidc_login =
+                client.inner.oidc().fetch_authentication_issuer().await.is_ok();
+            let supports_password_login =
+                client.supports_password_login().await.ok().unwrap_or(false);
+            let sliding_sync_proxy =
+                client.sliding_sync_proxy().map(|proxy_url| proxy_url.to_string());
+
+            HomeserverLoginDetails {
+                url: client.homeserver(),
+                sliding_sync_proxy,
+                supports_oidc_login,
+                supports_password_login,
+            }
+        };
 
         // Make sure there's a sliding sync proxy available.
         if self.custom_sliding_sync_proxy.read().unwrap().is_none()
@@ -421,21 +437,6 @@ impl AuthenticationService {
         builder = builder.add_root_certificates(self.additional_root_certificates.clone());
 
         builder
-    }
-
-    /// Get the homeserver login details from a client.
-    async fn details_from_client(&self, client: &Client) -> HomeserverLoginDetails {
-        let supports_oidc_login = client.inner.oidc().fetch_authentication_issuer().await.is_ok();
-        let supports_password_login = client.supports_password_login().await.ok().unwrap_or(false);
-        let sliding_sync_proxy = client.sliding_sync_proxy().map(|proxy_url| proxy_url.to_string());
-        let url = client.homeserver();
-
-        HomeserverLoginDetails {
-            url,
-            sliding_sync_proxy,
-            supports_oidc_login,
-            supports_password_login,
-        }
     }
 
     /// Handle any necessary configuration in order for login via OIDC to
