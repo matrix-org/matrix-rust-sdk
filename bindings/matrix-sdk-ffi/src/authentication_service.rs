@@ -264,7 +264,7 @@ impl AuthenticationService {
         builder = builder.server_name_or_homeserver_url(server_name_or_homeserver_url);
 
         let client = builder.build_inner().await?;
-        let details = self.details_from_client(&client).await?;
+        let details = self.details_from_client(&client).await;
 
         // Make sure there's a sliding sync proxy available.
         if self.custom_sliding_sync_proxy.read().unwrap().is_none()
@@ -403,10 +403,12 @@ impl AuthenticationService {
 }
 
 impl AuthenticationService {
-    /// A new client builder pre-configured with the service's base path and
-    /// user agent if specified
+    /// Create a new client builder pre-configured with the service's HTTP
+    /// configuration if needed.
+    ///
+    /// Note: this client doesn't set the base path by default.
     fn new_client_builder(&self) -> Arc<ClientBuilder> {
-        let mut builder = ClientBuilder::new().base_path(self.base_path.clone());
+        let mut builder = ClientBuilder::new();
 
         if let Some(user_agent) = self.user_agent.clone() {
             builder = builder.user_agent(user_agent);
@@ -422,21 +424,18 @@ impl AuthenticationService {
     }
 
     /// Get the homeserver login details from a client.
-    async fn details_from_client(
-        &self,
-        client: &Client,
-    ) -> Result<HomeserverLoginDetails, AuthenticationError> {
+    async fn details_from_client(&self, client: &Client) -> HomeserverLoginDetails {
         let supports_oidc_login = client.inner.oidc().fetch_authentication_issuer().await.is_ok();
         let supports_password_login = client.supports_password_login().await.ok().unwrap_or(false);
         let sliding_sync_proxy = client.sliding_sync_proxy().map(|proxy_url| proxy_url.to_string());
         let url = client.homeserver();
 
-        Ok(HomeserverLoginDetails {
+        HomeserverLoginDetails {
             url,
             sliding_sync_proxy,
             supports_oidc_login,
             supports_password_login,
-        })
+        }
     }
 
     /// Handle any necessary configuration in order for login via OIDC to
@@ -590,6 +589,7 @@ impl AuthenticationService {
         // Construct the final client.
         let mut client = self
             .new_client_builder()
+            .base_path(self.base_path.clone())
             .passphrase(self.passphrase.clone())
             .homeserver_url(homeserver_url)
             .sliding_sync_proxy(sliding_sync_proxy)
@@ -597,10 +597,6 @@ impl AuthenticationService {
             .backup_download_strategy(BackupDownloadStrategy::AfterDecryptionFailure)
             .auto_enable_backups(true)
             .username(user_id.to_string());
-
-        if let Some(proxy) = &self.proxy {
-            client = client.proxy(proxy.to_owned())
-        }
 
         if let Some(id) = &self.cross_process_refresh_lock_id {
             let Some(ref session_delegate) = self.session_delegate else {
