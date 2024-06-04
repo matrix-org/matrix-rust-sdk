@@ -248,18 +248,18 @@ impl RoomPagination {
         Ok(Some(BackPaginationOutcome { events, reached_start }))
     }
 
-    /// Test-only function to get the latest pagination token, as stored in the
-    /// room events linked list.
+    /// Get the latest pagination token, as stored in the room events linked
+    /// list.
     #[doc(hidden)]
     pub async fn get_or_wait_for_token(&self) -> Option<String> {
         const DEFAULT_INITIAL_WAIT_DURATION: Duration = Duration::from_secs(3);
 
-        let mut waited = self.inner.pagination.waited_for_initial_prev_token.lock().await;
-        if *waited {
+        let waited = *self.inner.pagination.waited_for_initial_prev_token.lock().await;
+        if waited {
             self.oldest_token(None).await
         } else {
             let token = self.oldest_token(Some(DEFAULT_INITIAL_WAIT_DURATION)).await;
-            *waited = true;
+            *self.inner.pagination.waited_for_initial_prev_token.lock().await = true;
             token
         }
     }
