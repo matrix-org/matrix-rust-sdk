@@ -666,8 +666,8 @@ impl Client {
         Arc::new(NotificationSettings::new((*self.inner).clone(), inner))
     }
 
-    pub fn encryption(&self) -> Arc<Encryption> {
-        Arc::new(self.inner.encryption().into())
+    pub fn encryption(self: Arc<Self>) -> Arc<Encryption> {
+        Arc::new(Encryption { inner: self.inner.encryption(), _client: self.clone() })
     }
 
     // Ignored users
