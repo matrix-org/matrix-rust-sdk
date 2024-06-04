@@ -14,6 +14,7 @@ use matrix_sdk::{
     ClientBuilder as MatrixClientBuilder, IdParseError,
 };
 use sanitize_filename_reader_friendly::sanitize;
+use tracing::{debug, error, warn};
 use url::Url;
 use zeroize::Zeroizing;
 
@@ -419,7 +420,7 @@ impl ClientBuilder {
                 let base_directory = PathBuf::from(base_path);
                 let random_dir = base_directory.join(&uuid);
 
-                tracing::debug!("Setting the Client storage path to {random_dir:?}");
+                debug!("Setting the Client storage path to {random_dir:?}");
 
                 builder = builder.base_path(
                     random_dir
@@ -434,7 +435,7 @@ impl ClientBuilder {
             };
 
             let client = builder.build().await.map_err(|e| {
-                tracing::error!("Couldn't build the client {e:?}");
+                error!("Couldn't build the client {e:?}");
                 HumanQrLoginError::Unknown
             })?;
 
@@ -462,9 +463,9 @@ impl ClientBuilder {
             if let Err(e) = login.await {
                 if let Some((_, random_dir)) = directories {
                     if let Err(e) = fs::remove_dir_all(random_dir) {
-                        tracing::warn!(
+                        warn!(
                             "Couldn't clean up the random directory after a login failure: {e:?}"
-                        )
+                        );
                     }
                 }
 
@@ -480,12 +481,10 @@ impl ClientBuilder {
                     .expect("Since the login above succeeded, we should know our user id now.");
                 let user_dir = base_directory.join(sanitize(&user_id));
 
-                tracing::debug!(
-                    "Renaming the Client storage path from {random_dir:?} to {user_dir:?}"
-                );
+                debug!("Renaming the Client storage path from {random_dir:?} to {user_dir:?}");
 
                 fs::rename(random_dir, user_dir).map_err(|e| {
-                    tracing::error!("Couldn't rename the per-user storage directory: {e:?}");
+                    error!("Couldn't rename the per-user storage directory: {e:?}");
                     HumanQrLoginError::Unknown
                 })?;
             }
@@ -523,15 +522,22 @@ impl ClientBuilder {
         let mut inner_builder = builder.inner;
 
         if let Some(base_path) = &builder.base_path {
-            // Determine store path
+            // Determine store path.
             let data_path = if let Some(username) = &builder.username {
                 PathBuf::from(base_path).join(sanitize(username))
             } else {
                 PathBuf::from(base_path)
             };
 
+            debug!(
+                data_path = %data_path.to_string_lossy(),
+                "Creating directory and using it as the base path."
+            );
+
             fs::create_dir_all(&data_path)?;
             inner_builder = inner_builder.sqlite_store(&data_path, builder.passphrase.as_deref());
+        } else {
+            debug!("Not using a base path.");
         }
 
         // Determine server either from URL, server name or user ID.
