@@ -1060,7 +1060,17 @@ async fn test_room_preview() -> Result<()> {
         .network_timeout(Duration::from_secs(30))
         .add_list(
             SlidingSyncList::builder("all")
-                .sync_mode(SlidingSyncMode::new_selective().add_range(0..=20)),
+                .sync_mode(SlidingSyncMode::new_selective().add_range(0..=20))
+                .required_state(vec![
+                    // Explicitly request all the state events we need to get a preview for a known
+                    // room.
+                    (StateEventType::RoomName, "".to_owned()),
+                    (StateEventType::RoomCanonicalAlias, "".to_owned()),
+                    (StateEventType::RoomTopic, "".to_owned()),
+                    (StateEventType::RoomCreate, "".to_owned()),
+                    (StateEventType::RoomJoinRules, "".to_owned()),
+                    (StateEventType::RoomHistoryVisibility, "".to_owned()),
+                ]),
         )
         .build()
         .await?;

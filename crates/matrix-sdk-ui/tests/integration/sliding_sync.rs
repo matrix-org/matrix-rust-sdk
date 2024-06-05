@@ -122,7 +122,10 @@ macro_rules! sliding_sync_then_assert_request_and_fake_response {
                         &json!({ $( $request_json )* }),
                         $crate::sliding_sync_then_assert_request_and_fake_response!(@assertion_config $sign)
                     ) {
-                        dbg!(json_value);
+                        #[allow(clippy::dbg_macro)]
+                        {
+                            dbg!(json_value);
+                        }
                         panic!("{error}");
                     }
 

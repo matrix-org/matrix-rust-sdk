@@ -14,7 +14,11 @@
 
 use std::fmt;
 
-use matrix_sdk::event_cache::{paginator::PaginatorError, EventCacheError};
+use matrix_sdk::{
+    event_cache::{paginator::PaginatorError, EventCacheError},
+    send_queue::RoomSendingQueueError,
+};
+use ruma::OwnedTransactionId;
 use thiserror::Error;
 
 /// Errors specific to the timeline.
@@ -123,6 +127,7 @@ impl UnsupportedEditItem {
     pub(super) const FAILED_TO_DESERIALIZE_EVENT: Self =
         Self(UnsupportedEditItemInner::FailedToDeserializeEvent);
     pub(super) const MISSING_CONTENT: Self = Self(UnsupportedEditItemInner::MissingContent);
+    pub(super) const NOT_OWN_EVENT: Self = Self(UnsupportedEditItemInner::NotOwnEvent);
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -146,4 +151,27 @@ enum UnsupportedEditItemInner {
     FailedToDeserializeEvent,
     #[error("could not get event content")]
     MissingContent,
+    #[error("tried to edit another user's event")]
+    NotOwnEvent,
+}
+
+#[derive(Debug, Error)]
+pub enum SendEventError {
+    #[error(transparent)]
+    UnsupportedReplyItem(#[from] UnsupportedReplyItem),
+
+    #[error(transparent)]
+    UnsupportedEditItem(#[from] UnsupportedEditItem),
+
+    #[error(transparent)]
+    SendError(#[from] RoomSendingQueueError),
+}
+
+#[derive(Debug, Error)]
+pub enum RedactEventError {
+    #[error("the given local event (with transaction id {0}) doesn't support redaction")]
+    UnsupportedRedactLocal(OwnedTransactionId),
+
+    #[error(transparent)]
+    SdkError(#[from] matrix_sdk::Error),
 }

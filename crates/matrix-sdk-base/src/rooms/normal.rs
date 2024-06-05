@@ -1098,19 +1098,7 @@ impl RoomInfo {
 
         if !summary.is_empty() {
             if !summary.heroes.is_empty() {
-                // Parse the user IDs from Ruma.
-                self.summary.heroes_user_ids = summary
-                    .heroes
-                    .iter()
-                    .filter_map(|hero| match UserId::parse(hero.as_str()) {
-                        Ok(user_id) => Some(user_id),
-                        Err(err) => {
-                            warn!("error when parsing user id from hero '{hero}': {err}");
-                            None
-                        }
-                    })
-                    .collect();
-
+                self.summary.heroes_user_ids = summary.heroes.clone();
                 changed = true;
             }
 
@@ -1908,7 +1896,7 @@ mod tests {
         let me = user_id!("@me:example.org");
         let mut changes = StateChanges::new("".to_owned());
         let summary = assign!(RumaSummary::new(), {
-            heroes: vec![me.to_string(), matthew.to_string()],
+            heroes: vec![me.to_owned(), matthew.to_owned()],
         });
 
         changes.add_stripped_member(
@@ -1957,7 +1945,7 @@ mod tests {
         let mut changes = StateChanges::new("".to_owned());
         let summary = assign!(RumaSummary::new(), {
             joined_member_count: Some(2u32.into()),
-            heroes: vec![me.to_string(), matthew.to_string()],
+            heroes: vec![me.to_owned(), matthew.to_owned()],
         });
 
         let members = changes
@@ -2048,7 +2036,7 @@ mod tests {
 
         let summary = assign!(RumaSummary::new(), {
             joined_member_count: Some(7u32.into()),
-            heroes: vec![denis.to_string(), carol.to_string(), bob.to_string(), erica.to_string()],
+            heroes: vec![denis.to_owned(), carol.to_owned(), bob.to_owned(), erica.to_owned()],
         });
         room.inner.update_if(|info| info.update_from_ruma_summary(&summary));
 
@@ -2116,7 +2104,7 @@ mod tests {
         let mut changes = StateChanges::new("".to_owned());
         let summary = assign!(RumaSummary::new(), {
             joined_member_count: Some(1u32.into()),
-            heroes: vec![me.to_string(), matthew.to_string()],
+            heroes: vec![me.to_owned(), matthew.to_owned()],
         });
 
         let members = changes

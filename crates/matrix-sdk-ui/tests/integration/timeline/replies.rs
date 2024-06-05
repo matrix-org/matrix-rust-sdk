@@ -29,6 +29,7 @@ use ruma::{
 };
 use serde_json::json;
 use stream_assert::assert_next_matches;
+use tokio::task::yield_now;
 use wiremock::{
     matchers::{header, method, path_regex},
     Mock, Request, ResponseTemplate,
@@ -323,6 +324,9 @@ async fn test_send_reply() {
         .await
         .unwrap();
 
+    // Let the sending queue handle the event.
+    yield_now().await;
+
     let reply_item = assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
 
     assert_matches!(reply_item.send_state(), Some(EventSendState::NotSentYet));
@@ -539,6 +543,9 @@ async fn test_send_reply_to_self() {
         .await
         .unwrap();
 
+    // Let the sending queue handle the event.
+    yield_now().await;
+
     let reply_item = assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
 
     assert_matches!(reply_item.send_state(), Some(EventSendState::NotSentYet));
@@ -626,6 +633,9 @@ async fn test_send_reply_to_threaded() {
         )
         .await
         .unwrap();
+
+    // Let the sending queue handle the event.
+    yield_now().await;
 
     let reply_item = assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
 

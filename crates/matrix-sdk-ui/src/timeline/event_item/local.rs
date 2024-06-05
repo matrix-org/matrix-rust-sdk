@@ -15,7 +15,7 @@
 use std::sync::Arc;
 
 use as_variant::as_variant;
-use matrix_sdk::Error;
+use matrix_sdk::{send_queue::AbortSendHandle, Error};
 use ruma::{EventId, OwnedEventId, OwnedTransactionId};
 
 /// An item for an event that was created locally and not yet echoed back by
@@ -26,6 +26,8 @@ pub(in crate::timeline) struct LocalEventTimelineItem {
     pub send_state: EventSendState,
     /// The transaction ID.
     pub transaction_id: OwnedTransactionId,
+    /// A handle to abort sending this event, if possible.
+    pub abort_handle: Option<AbortSendHandle>,
 }
 
 impl LocalEventTimelineItem {
@@ -54,9 +56,6 @@ pub enum EventSendState {
         /// Details about how sending the event failed.
         error: Arc<Error>,
     },
-    /// Sending has been cancelled because an earlier event in the
-    /// message-sending queue failed.
-    Cancelled,
     /// The local event has been sent successfully to the server.
     Sent {
         /// The event ID assigned by the server.
