@@ -660,7 +660,7 @@ impl RoomEventCacheInner {
                 room_events.push_gap(Gap { prev_token: prev_token.clone() });
             }
 
-            room_events.push_events(sync_timeline_events.clone().into_iter());
+            room_events.push_events(sync_timeline_events.clone());
         }
 
         // Now that all events have been added, we can trigger the
