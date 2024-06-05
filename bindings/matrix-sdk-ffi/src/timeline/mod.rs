@@ -385,7 +385,7 @@ impl Timeline {
         }))
     }
 
-    pub fn create_poll(
+    pub async fn create_poll(
         self: Arc<Self>,
         question: String,
         answers: Vec<String>,
@@ -401,16 +401,14 @@ impl Timeline {
         let event_content =
             AnyMessageLikeEventContent::UnstablePollStart(poll_start_event_content.into());
 
-        RUNTIME.spawn(async move {
-            if let Err(err) = self.inner.send(event_content).await {
-                error!("unable to start poll: {err}");
-            }
-        });
+        if let Err(err) = self.inner.send(event_content).await {
+            error!("unable to start poll: {err}");
+        }
 
         Ok(())
     }
 
-    pub fn send_poll_response(
+    pub async fn send_poll_response(
         self: Arc<Self>,
         poll_start_id: String,
         answers: Vec<String>,
@@ -422,11 +420,9 @@ impl Timeline {
         let event_content =
             AnyMessageLikeEventContent::UnstablePollResponse(poll_response_event_content);
 
-        RUNTIME.spawn(async move {
-            if let Err(err) = self.inner.send(event_content).await {
-                error!("unable to send poll response: {err}");
-            }
-        });
+        if let Err(err) = self.inner.send(event_content).await {
+            error!("unable to send poll response: {err}");
+        }
 
         Ok(())
     }
@@ -614,6 +610,9 @@ impl AbortSendHandle {
     /// If this returns `true`, then the sending could be aborted, because the
     /// event hasn't been sent yet. Otherwise, if this returns `false`, the
     /// event had already been sent and could not be aborted.
+    ///
+    /// This has an effect only on the first call; subsequent calls will always
+    /// return `false`.
     async fn abort(self: Arc<Self>) -> bool {
         if let Some(inner) = self.inner.lock().await.take() {
             inner.abort().await
