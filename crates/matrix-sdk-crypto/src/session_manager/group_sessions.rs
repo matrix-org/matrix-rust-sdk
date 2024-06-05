@@ -614,7 +614,7 @@ impl GroupSessionManager {
         }
     }
 
-    async fn handle_withheld_devices(
+    fn handle_withheld_devices(
         &self,
         group_session: &OutboundGroupSession,
         withheld_devices: Vec<(ReadOnlyDevice, WithheldCode)>,
@@ -815,7 +815,7 @@ impl GroupSessionManager {
 
         // Now handle and add the withheld recipients to the resulting requests to the
         // `OutboundGroupSession`.
-        self.handle_withheld_devices(&outbound, withheld_devices).await?;
+        self.handle_withheld_devices(&outbound, withheld_devices)?;
 
         // The to-device requests get added to the outbound group session, this
         // way we're making sure that they are persisted and scoped to the
