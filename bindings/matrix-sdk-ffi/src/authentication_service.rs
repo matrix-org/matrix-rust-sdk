@@ -19,12 +19,9 @@ use matrix_sdk::{
         AuthorizationResponse, Oidc, OidcError,
     },
     reqwest::StatusCode,
-    AuthSession, ClientBuildError as MatrixClientBuildError, HttpError, RumaApiError,
+    ClientBuildError as MatrixClientBuildError, HttpError, RumaApiError,
 };
-use ruma::{
-    api::error::{DeserializationError, FromHttpResponseError},
-    OwnedUserId,
-};
+use ruma::api::error::{DeserializationError, FromHttpResponseError};
 use tokio::sync::RwLock as AsyncRwLock;
 use url::Url;
 use zeroize::Zeroize;
@@ -44,7 +41,7 @@ pub struct AuthenticationService {
     client: AsyncRwLock<Option<Client>>,
     homeserver_details: StdRwLock<Option<Arc<HomeserverLoginDetails>>>,
     oidc_configuration: Option<OidcConfiguration>,
-    custom_sliding_sync_proxy: StdRwLock<Option<String>>,
+    custom_sliding_sync_proxy: Option<String>,
     cross_process_refresh_lock_id: Option<String>,
     session_delegate: Option<Arc<dyn ClientSessionDelegate>>,
     additional_root_certificates: Vec<CertificateBytes>,
@@ -250,7 +247,7 @@ impl AuthenticationService {
             client: AsyncRwLock::new(None),
             homeserver_details: StdRwLock::new(None),
             oidc_configuration,
-            custom_sliding_sync_proxy: StdRwLock::new(custom_sliding_sync_proxy),
+            custom_sliding_sync_proxy,
             session_delegate: session_delegate.map(Into::into),
             cross_process_refresh_lock_id,
             additional_root_certificates,
@@ -268,8 +265,8 @@ impl AuthenticationService {
         &self,
         server_name_or_homeserver_url: String,
     ) -> Result<(), AuthenticationError> {
-        let mut builder = self.new_client_builder();
-        builder = builder.server_name_or_homeserver_url(server_name_or_homeserver_url);
+        let builder =
+            self.new_client_builder()?.server_name_or_homeserver_url(server_name_or_homeserver_url);
 
         let client = builder.build_inner().await?;
 
@@ -291,9 +288,7 @@ impl AuthenticationService {
         };
 
         // Make sure there's a sliding sync proxy available.
-        if self.custom_sliding_sync_proxy.read().unwrap().is_none()
-            && details.sliding_sync_proxy().is_none()
-        {
+        if self.custom_sliding_sync_proxy.is_none() && details.sliding_sync_proxy().is_none() {
             return Err(AuthenticationError::SlidingSyncNotAvailable);
         }
 
@@ -323,12 +318,16 @@ impl AuthenticationService {
                 ClientError::Generic { msg } => AuthenticationError::Generic { message: msg },
             },
         )?;
-        let whoami = client.whoami().await?;
-        let session =
-            client.inner.matrix_auth().session().ok_or(AuthenticationError::SessionMissing)?;
 
         drop(client_guard);
-        self.finalize_client(session, whoami.user_id).await
+
+        // Now that the client is logged in we can take ownership away from the service
+        // to ensure there aren't two clients at any point later.
+        let Some(client) = self.client.write().await.take() else {
+            return Err(AuthenticationError::ClientMissing);
+        };
+
+        Ok(Arc::new(client))
     }
 
     /// Requests the URL needed for login in a web view using OIDC. Once the web
@@ -417,20 +416,29 @@ impl AuthenticationService {
             .await
             .map_err(|e| AuthenticationError::OidcError { message: e.to_string() })?;
 
-        let user_id = client.inner.user_id().unwrap().to_owned();
-        let session =
-            client.inner.oidc().full_session().ok_or(AuthenticationError::SessionMissing)?;
-
         drop(client_guard);
-        self.finalize_client(session, user_id).await
+
+        // Now that the client is logged in we can take ownership away from the service
+        // to ensure there aren't two clients at any point later.
+        let Some(client) = self.client.write().await.take() else {
+            return Err(AuthenticationError::ClientMissing);
+        };
+
+        Ok(Arc::new(client))
     }
 }
 
 impl AuthenticationService {
-    /// Create a new client builder pre-configured with the store path and the service's
-    /// HTTP configuration if needed.
-    fn new_client_builder(&self) -> Arc<ClientBuilder> {
-        let mut builder = ClientBuilder::new().session_path(self.session_path.clone());
+    /// Create a new client builder pre-configured with the store path and the
+    /// service's HTTP configuration if needed.
+    fn new_client_builder(&self) -> Result<Arc<ClientBuilder>, AuthenticationError> {
+        let mut builder = ClientBuilder::new()
+            .session_path(self.session_path.clone())
+            .passphrase(self.passphrase.clone())
+            .sliding_sync_proxy(self.custom_sliding_sync_proxy.clone())
+            .auto_enable_cross_signing(true)
+            .backup_download_strategy(BackupDownloadStrategy::AfterDecryptionFailure)
+            .auto_enable_backups(true);
 
         if let Some(user_agent) = self.user_agent.clone() {
             builder = builder.user_agent(user_agent);
@@ -442,7 +450,19 @@ impl AuthenticationService {
 
         builder = builder.add_root_certificates(self.additional_root_certificates.clone());
 
-        builder
+        if let Some(id) = &self.cross_process_refresh_lock_id {
+            let Some(ref session_delegate) = self.session_delegate else {
+                return Err(AuthenticationError::OidcError {
+                    message: "cross-process refresh lock requires session delegate".to_owned(),
+                });
+            };
+            builder = builder
+                .enable_cross_process_refresh_lock_inner(id.clone(), session_delegate.clone());
+        } else if let Some(ref session_delegate) = self.session_delegate {
+            builder = builder.set_session_delegate_inner(session_delegate.clone());
+        }
+
+        Ok(builder)
     }
 
     /// Handle any necessary configuration in order for login via OIDC to
@@ -572,68 +592,6 @@ impl AuthenticationService {
                 Some((issuer, ClientId(client_id.clone())))
             })
             .collect()
-    }
-
-    /// Creates a new client to setup the store path now the user ID is known.
-    async fn finalize_client(
-        &self,
-        session: impl Into<AuthSession>,
-        user_id: OwnedUserId,
-    ) -> Result<Arc<Client>, AuthenticationError> {
-        // Take ownership of the client. This means that further attempts to
-        // `finalize_client` may fail, but we want to make sure that there
-        // aren't two clients at any point later.
-        let Some(client) = self.client.write().await.take() else {
-            return Err(AuthenticationError::ClientMissing);
-        };
-
-        let homeserver_url = client.homeserver();
-
-        let sliding_sync_proxy = self
-            .custom_sliding_sync_proxy
-            .read()
-            .unwrap()
-            .clone()
-            .or_else(|| client.sliding_sync_proxy().map(|url| url.to_string()));
-
-        // Wait for the parent client to finish running its initialization tasks.
-        client.inner.encryption().wait_for_e2ee_initialization_tasks().await;
-
-        // Drop the parent client. Both clients shouldn't be alive at the same time, or
-        // it may cause issues (when trying to initialize encryption-related tasks at
-        // the same time).
-        drop(client);
-
-        // Construct the final client.
-        let mut client = self
-            .new_client_builder()
-            .base_path(self.base_path.clone())
-            .passphrase(self.passphrase.clone())
-            .homeserver_url(homeserver_url)
-            .sliding_sync_proxy(sliding_sync_proxy)
-            .auto_enable_cross_signing(true)
-            .backup_download_strategy(BackupDownloadStrategy::AfterDecryptionFailure)
-            .auto_enable_backups(true)
-            .username(user_id.to_string());
-
-        if let Some(id) = &self.cross_process_refresh_lock_id {
-            let Some(ref session_delegate) = self.session_delegate else {
-                return Err(AuthenticationError::OidcError {
-                    message: "cross-process refresh lock requires session delegate".to_owned(),
-                });
-            };
-            client = client
-                .enable_cross_process_refresh_lock_inner(id.clone(), session_delegate.clone());
-        } else if let Some(ref session_delegate) = self.session_delegate {
-            client = client.set_session_delegate_inner(session_delegate.clone());
-        }
-
-        let client = client.build_inner().await?;
-
-        // Restore the client using the session from the login request.
-        client.restore_session_inner(session).await?;
-
-        Ok(Arc::new(client))
     }
 }
 

@@ -19,7 +19,6 @@ use matrix_sdk::{
     },
     ruma::{
         api::client::{
-            account::whoami,
             media::get_content_thumbnail::v3::Method,
             push::{EmailPusherData, PusherIds, PusherInit, PusherKind as RumaPusherKind},
             room::{create_room, Visibility},
@@ -378,11 +377,6 @@ impl Client {
             .iter()
             .any(|login_type| matches!(login_type, get_login_types::v3::LoginType::Password(_)));
         Ok(supports_password)
-    }
-
-    /// Gets information about the owner of a given access token.
-    pub(crate) async fn whoami(&self) -> anyhow::Result<whoami::v3::Response> {
-        Ok(self.inner.whoami().await?)
     }
 }
 
