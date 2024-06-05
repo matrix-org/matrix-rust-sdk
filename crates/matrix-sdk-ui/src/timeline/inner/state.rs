@@ -52,8 +52,8 @@ use crate::{
 
 /// Which end of the timeline should an event be added to?
 ///
-/// This is a simplification of `TimelineItemPosition` which doesn't contain the
-/// `Update` variant, when adding a bunch of events at the same time.
+/// This is a simplification of [`TimelineItemPosition`] which doesn't contain
+/// the `Update` variant, when adding a bunch of events at the same time.
 #[derive(Debug)]
 pub(crate) enum TimelineEnd {
     /// Event should be prepended to the front of the timeline.
