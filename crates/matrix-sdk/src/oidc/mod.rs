@@ -840,7 +840,7 @@ impl Oidc {
         }
 
         #[cfg(feature = "e2e-encryption")]
-        self.client.encryption().run_initialization_tasks(None).await;
+        self.client.encryption().run_initialization_tasks(None);
 
         Ok(())
     }
@@ -1012,7 +1012,7 @@ impl Oidc {
         self.enable_cross_process_lock().await.map_err(OidcError::from)?;
 
         #[cfg(feature = "e2e-encryption")]
-        self.client.encryption().run_initialization_tasks(None).await;
+        self.client.encryption().run_initialization_tasks(None);
 
         Ok(())
     }

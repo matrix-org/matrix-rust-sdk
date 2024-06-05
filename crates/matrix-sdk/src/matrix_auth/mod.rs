@@ -884,7 +884,7 @@ impl MatrixAuth {
                 _ => None,
             };
 
-            self.client.encryption().run_initialization_tasks(auth_data).await;
+            self.client.encryption().run_initialization_tasks(auth_data);
         }
 
         Ok(())
