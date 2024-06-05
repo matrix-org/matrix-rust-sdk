@@ -589,6 +589,7 @@ async fn check_is_homeserver(homeserver_url: &Url, http_client: &HttpClient) -> 
     }
 }
 
+#[allow(clippy::unused_async)] // False positive when building with !sqlite & !indexeddb
 async fn build_store_config(
     builder_config: BuilderStoreConfig,
 ) -> Result<StoreConfig, ClientBuildError> {
