@@ -365,7 +365,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     // timeline.
                     if let Some(hook) = self.meta.unable_to_decrypt_hook.as_ref() {
                         if let Flow::Remote { event_id, .. } = &self.ctx.flow {
-                            hook.on_utd(event_id, cause);
+                            hook.on_utd(event_id, cause).await;
                         }
                     }
                 }

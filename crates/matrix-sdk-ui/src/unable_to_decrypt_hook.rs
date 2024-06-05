@@ -128,7 +128,7 @@ impl UtdHookManager {
     /// The function to call whenever a UTD is seen for the first time.
     ///
     /// Pipe in any information that needs to be included in the final report.
-    pub(crate) fn on_utd(&self, event_id: &EventId, cause: UtdCause) {
+    pub(crate) async fn on_utd(&self, event_id: &EventId, cause: UtdCause) {
         // First of all, check if we already have a task to handle this UTD. If so, our
         // work is done
         let mut pending_delayed_lock = self.pending_delayed.lock().unwrap();
@@ -241,8 +241,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_deduplicates_utds() {
+    #[async_test]
+    async fn test_deduplicates_utds() {
         // If I create a dummy hook,
         let hook = Arc::new(Dummy::default());
 
@@ -250,12 +250,12 @@ mod tests {
         let wrapper = UtdHookManager::new(hook.clone());
 
         // And I call the `on_utd` method multiple times, sometimes on the same event,
-        wrapper.on_utd(event_id!("$1"), UtdCause::Unknown);
-        wrapper.on_utd(event_id!("$1"), UtdCause::Unknown);
-        wrapper.on_utd(event_id!("$2"), UtdCause::Unknown);
-        wrapper.on_utd(event_id!("$1"), UtdCause::Unknown);
-        wrapper.on_utd(event_id!("$2"), UtdCause::Unknown);
-        wrapper.on_utd(event_id!("$3"), UtdCause::Unknown);
+        wrapper.on_utd(event_id!("$1"), UtdCause::Unknown).await;
+        wrapper.on_utd(event_id!("$1"), UtdCause::Unknown).await;
+        wrapper.on_utd(event_id!("$2"), UtdCause::Unknown).await;
+        wrapper.on_utd(event_id!("$1"), UtdCause::Unknown).await;
+        wrapper.on_utd(event_id!("$2"), UtdCause::Unknown).await;
+        wrapper.on_utd(event_id!("$3"), UtdCause::Unknown).await;
 
         // Then the event ids have been deduplicated,
         {
@@ -288,8 +288,8 @@ mod tests {
         assert!(hook.utds.lock().unwrap().is_empty());
     }
 
-    #[test]
-    fn test_on_late_decrypted_after_utd_no_grace_period() {
+    #[async_test]
+    async fn test_on_late_decrypted_after_utd_no_grace_period() {
         // If I create a dummy hook,
         let hook = Arc::new(Dummy::default());
 
@@ -297,7 +297,7 @@ mod tests {
         let wrapper = UtdHookManager::new(hook.clone());
 
         // And I call the `on_utd` method for an event,
-        wrapper.on_utd(event_id!("$1"), UtdCause::Unknown);
+        wrapper.on_utd(event_id!("$1"), UtdCause::Unknown).await;
 
         // Then the UTD has been notified, but not as late-decrypted event.
         {
@@ -332,7 +332,7 @@ mod tests {
         let wrapper = UtdHookManager::new(hook.clone()).with_max_delay(Duration::from_secs(2));
 
         // And I call the `on_utd` method for an event,
-        wrapper.on_utd(event_id!("$1"), UtdCause::Unknown);
+        wrapper.on_utd(event_id!("$1"), UtdCause::Unknown).await;
 
         // Then the UTD is not being reported immediately.
         assert!(hook.utds.lock().unwrap().is_empty());
@@ -368,7 +368,7 @@ mod tests {
         let wrapper = UtdHookManager::new(hook.clone()).with_max_delay(Duration::from_secs(2));
 
         // And I call the `on_utd` method for an event,
-        wrapper.on_utd(event_id!("$1"), UtdCause::Unknown);
+        wrapper.on_utd(event_id!("$1"), UtdCause::Unknown).await;
 
         // Then the UTD has not been notified quite yet.
         assert!(hook.utds.lock().unwrap().is_empty());
