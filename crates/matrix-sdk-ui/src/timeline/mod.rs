@@ -521,6 +521,11 @@ impl Timeline {
                 return Err(UnsupportedEditItem::FAILED_TO_DESERIALIZE_EVENT);
             }
         };
+
+        if event.sender() != self.room().own_user_id() {
+            return Err(UnsupportedEditItem::NOT_OWN_EVENT);
+        };
+
         let Some(content) = TimelineItemContent::from_any_sync_event(event) else {
             return Err(UnsupportedEditItem::MISSING_CONTENT);
         };

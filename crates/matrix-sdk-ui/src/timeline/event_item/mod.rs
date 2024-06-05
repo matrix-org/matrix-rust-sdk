@@ -450,6 +450,9 @@ impl EventTimelineItem {
 
     /// Gives the information needed to edit the event of the item.
     pub fn get_edit_info(&self) -> Result<EditInfo, UnsupportedEditItem> {
+        if !self.is_own() {
+            return Err(UnsupportedEditItem::NOT_OWN_EVENT);
+        }
         // Early returns here must be in sync with
         // `EventTimelineItem::can_be_edited`
         let Some(event_id) = self.event_id() else {
