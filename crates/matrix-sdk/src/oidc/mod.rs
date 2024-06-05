@@ -1193,7 +1193,7 @@ impl Oidc {
                     {
                         // Satisfies the save_session_callback invariant: set_session_tokens has
                         // been called just above.
-                        if let Err(err) = save_session_callback(this.client.clone()).await {
+                        if let Err(err) = save_session_callback(this.client.clone()) {
                             error!("when saving session after refresh: {err}");
                         }
                     }

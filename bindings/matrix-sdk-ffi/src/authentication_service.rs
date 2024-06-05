@@ -456,7 +456,7 @@ impl AuthenticationService {
 
         let oidc_metadata: VerifiedClientMetadata = configuration.try_into()?;
 
-        if self.load_client_registration(oidc, issuer.clone(), oidc_metadata.clone()).await {
+        if self.load_client_registration(oidc, issuer.clone(), oidc_metadata.clone()) {
             tracing::info!("OIDC configuration loaded from disk.");
             return Ok(());
         }
@@ -472,14 +472,14 @@ impl AuthenticationService {
         oidc.restore_registered_client(issuer, oidc_metadata, credentials);
 
         tracing::info!("Persisting OIDC registration data.");
-        self.store_client_registration(oidc).await?;
+        self.store_client_registration(oidc)?;
 
         Ok(())
     }
 
     /// Stores the current OIDC dynamic client registration so it can be re-used
     /// if we ever log in via the same issuer again.
-    async fn store_client_registration(&self, oidc: &Oidc) -> Result<(), AuthenticationError> {
+    fn store_client_registration(&self, oidc: &Oidc) -> Result<(), AuthenticationError> {
         let issuer = Url::parse(oidc.issuer().ok_or(AuthenticationError::OidcNotSupported)?)
             .map_err(|_| AuthenticationError::OidcError {
                 message: String::from("Failed to parse issuer URL."),
@@ -508,7 +508,7 @@ impl AuthenticationService {
 
     /// Attempts to load an existing OIDC dynamic client registration for the
     /// currently configured issuer.
-    async fn load_client_registration(
+    fn load_client_registration(
         &self,
         oidc: &Oidc,
         issuer: String,
