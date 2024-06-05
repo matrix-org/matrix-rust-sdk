@@ -38,7 +38,7 @@ use stream_assert::assert_next_matches;
 use super::TestTimeline;
 use crate::timeline::{
     event_item::{AnyOtherFullStateEventContent, RemoteEventOrigin},
-    inner::{TimelineEnd, TimelineInnerSettings},
+    inner::{TimelineInnerSettings, TimelineNewItemPosition},
     tests::{ReadReceiptMap, TestRoomDataProvider},
     MembershipChange, TimelineDetails, TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
 };
@@ -63,8 +63,7 @@ async fn test_initial_events() {
                         .make_sync_message_event(*BOB, RoomMessageEventContent::text_plain("B")),
                 ),
             ],
-            TimelineEnd::Back,
-            RemoteEventOrigin::Sync,
+            TimelineNewItemPosition::End { origin: RemoteEventOrigin::Sync },
         )
         .await;
 
@@ -103,7 +102,10 @@ async fn test_replace_with_initial_events_and_read_marker() {
     let factory = EventFactory::new();
     let ev = factory.text_msg("hey").sender(*ALICE).into_sync();
 
-    timeline.inner.add_events_at(vec![ev], TimelineEnd::Back, RemoteEventOrigin::Sync).await;
+    timeline
+        .inner
+        .add_events_at(vec![ev], TimelineNewItemPosition::End { origin: RemoteEventOrigin::Sync })
+        .await;
 
     let items = timeline.inner.items().await;
     assert_eq!(items.len(), 2);
@@ -287,8 +289,7 @@ async fn test_dedup_initial() {
                 // … and a new event also came in
                 event_c,
             ],
-            TimelineEnd::Back,
-            RemoteEventOrigin::Sync,
+            TimelineNewItemPosition::End { origin: RemoteEventOrigin::Sync },
         )
         .await;
 
@@ -324,7 +325,10 @@ async fn test_internal_id_prefix() {
 
     timeline
         .inner
-        .add_events_at(vec![ev_a, ev_b, ev_c], TimelineEnd::Back, RemoteEventOrigin::Sync)
+        .add_events_at(
+            vec![ev_a, ev_b, ev_c],
+            TimelineNewItemPosition::End { origin: RemoteEventOrigin::Sync },
+        )
         .await;
 
     let timeline_items = timeline.inner.items().await;

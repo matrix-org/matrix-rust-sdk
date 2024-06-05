@@ -28,7 +28,7 @@ use stream_assert::assert_next_matches;
 
 use crate::timeline::{
     event_item::RemoteEventOrigin,
-    inner::{ReactionAction, TimelineEnd},
+    inner::{ReactionAction, TimelineNewItemPosition},
     reactions::ReactionToggleResult,
     tests::{assert_event_is_updated, assert_no_more_updates, TestTimeline},
     TimelineItem,
@@ -257,8 +257,7 @@ async fn test_initial_reaction_timestamp_is_stored() {
                     RoomMessageEventContent::text_plain("A"),
                 )),
             ],
-            TimelineEnd::Back,
-            RemoteEventOrigin::Sync,
+            TimelineNewItemPosition::End { origin: RemoteEventOrigin::Sync },
         )
         .await;
 

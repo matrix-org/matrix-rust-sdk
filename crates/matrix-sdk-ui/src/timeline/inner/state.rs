@@ -50,16 +50,26 @@ use crate::{
     unable_to_decrypt_hook::UtdHookManager,
 };
 
-/// Which end of the timeline should an event be added to?
-///
 /// This is a simplification of [`TimelineItemPosition`] which doesn't contain
-/// the `Update` variant, when adding a bunch of events at the same time.
-#[derive(Debug)]
-pub(crate) enum TimelineEnd {
-    /// Event should be prepended to the front of the timeline.
-    Front,
-    /// Event should appended to the back of the timeline.
-    Back,
+/// the `Update` variant, because it is used only for **new** items.
+#[derive(Copy, Clone, Debug)]
+pub(crate) enum TimelineNewItemPosition {
+    /// One or more items are prepended to the timeline (i.e. they're the
+    /// oldest).
+    Start { origin: RemoteEventOrigin },
+
+    /// One or more items are appended to the timeline (i.e. they're the most
+    /// recent).
+    End { origin: RemoteEventOrigin },
+}
+
+impl From<TimelineNewItemPosition> for TimelineItemPosition {
+    fn from(value: TimelineNewItemPosition) -> Self {
+        match value {
+            TimelineNewItemPosition::Start { origin } => Self::Start { origin },
+            TimelineNewItemPosition::End { origin } => Self::End { origin },
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -94,15 +104,14 @@ impl TimelineInnerState {
 
     /// Add the given remove events at the given end of the timeline.
     ///
-    /// Note: when the `position` is [`TimelineEnd::Front`], prepended events
-    /// should be ordered in *reverse* topological order, that is, `events[0]`
-    /// is the most recent.
+    /// Note: when the `position` is [`TimelineNewItemPosition::Start`],
+    /// prepended events should be ordered in *reverse* topological order,
+    /// that is, `events[0]` is the most recent.
     #[tracing::instrument(skip(self, events, room_data_provider, settings))]
     pub(super) async fn add_remote_events_at<Events, RoomData>(
         &mut self,
         events: Events,
-        position: TimelineEnd,
-        origin: RemoteEventOrigin,
+        position: TimelineNewItemPosition,
         room_data_provider: &RoomData,
         settings: &TimelineInnerSettings,
     ) -> HandleManyEventsResult
@@ -119,9 +128,8 @@ impl TimelineInnerState {
         }
 
         let mut txn = self.transaction();
-        let handle_many_res = txn
-            .add_remote_events_at(events, position.into(), origin, room_data_provider, settings)
-            .await;
+        let handle_many_res =
+            txn.add_remote_events_at(events, position, room_data_provider, settings).await;
         txn.commit();
 
         handle_many_res
@@ -411,15 +419,14 @@ pub(in crate::timeline) struct TimelineInnerStateTransaction<'a> {
 impl TimelineInnerStateTransaction<'_> {
     /// Add the given remote events at the given end of the timeline.
     ///
-    /// Note: when the `position` is [`TimelineEnd::Front`], prepended events
-    /// should be ordered in *reverse* topological order, that is, `events[0]`
-    /// is the most recent.
+    /// Note: when the `position` is [`TimelineNewItemPosition::Start`],
+    /// prepended events should be ordered in *reverse* topological order,
+    /// that is, `events[0]` is the most recent.
     #[tracing::instrument(skip(self, events, room_data_provider, settings))]
     pub(super) async fn add_remote_events_at<Events, RoomData>(
         &mut self,
         events: Events,
-        position: TimelineEnd,
-        origin: RemoteEventOrigin,
+        position: TimelineNewItemPosition,
         room_data_provider: &RoomData,
         settings: &TimelineInnerSettings,
     ) -> HandleManyEventsResult
@@ -429,21 +436,18 @@ impl TimelineInnerStateTransaction<'_> {
         RoomData: RoomDataProvider,
     {
         let mut total = HandleManyEventsResult::default();
-
-        let position = match position {
-            TimelineEnd::Front => TimelineItemPosition::Start { origin },
-            TimelineEnd::Back => TimelineItemPosition::End { origin },
-        };
-
         let mut day_divider_adjuster = DayDividerAdjuster::default();
 
-        // Implementation note: when `position` is `TimelineEnd::Front`, events are in
-        // the reverse topological order. Prepending them one by one in the order they
-        // appear in the vector will thus result in the correct order.
+        // Implementation note: when `position` is `TimelineNewItemPosition::Start`,
+        // events are in the reverse topological order. Prepending them one by
+        // one in the order they appear in the vector will thus result in the
+        // correct order.
         //
         // For instance, if the new events are : [C, B, A], where C is the most recent
         // and A is the oldest: we prepend C, then prepend B, then prepend A,
         // resulting in [A, B, C, (previous events)], which is what we want.
+
+        let position = position.into();
 
         for event in events {
             let handle_one_res = self
