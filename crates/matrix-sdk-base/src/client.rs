@@ -418,7 +418,6 @@ impl BaseClient {
                             room_info,
                             changes,
                         )
-                        .await;
                     } else {
                         push_context = self.get_push_room_context(room, room_info, changes).await?;
                     }
@@ -1409,7 +1408,7 @@ impl BaseClient {
     /// Update the push context for the given room.
     ///
     /// Updates the context data from `changes` or `room_info`.
-    pub async fn update_push_room_context(
+    pub fn update_push_room_context(
         &self,
         push_rules: &mut PushConditionRoomCtx,
         user_id: &UserId,
