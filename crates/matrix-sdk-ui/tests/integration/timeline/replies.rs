@@ -450,6 +450,9 @@ async fn test_send_reply_with_event_id() {
         .await
         .unwrap();
 
+    // Let the sending queue handle the event.
+    yield_now().await;
+
     let reply_item = assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
 
     assert_matches!(reply_item.send_state(), Some(EventSendState::NotSentYet));
