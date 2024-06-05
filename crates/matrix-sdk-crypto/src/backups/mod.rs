@@ -145,7 +145,7 @@ impl BackupMachine {
     }
 
     /// Check if our own device has signed the given signed JSON payload.
-    async fn check_own_device_signature(
+    fn check_own_device_signature(
         &self,
         signatures: &Signatures,
         auth_data: &str,
@@ -285,7 +285,7 @@ impl BackupMachine {
 
         // Check if there's a signature from our own device.
         let device_signature =
-            self.check_own_device_signature(&auth_data.signatures, &serialized_auth_data).await;
+            self.check_own_device_signature(&auth_data.signatures, &serialized_auth_data);
         // Check if there's a signature from our own user identity.
         let user_identity_signature =
             self.check_own_identity_signature(&auth_data.signatures, &serialized_auth_data).await?;
