@@ -1548,7 +1548,7 @@ mod tests {
         device_id!("BOBDEVICE")
     }
 
-    async fn get_sas_pair(
+    fn get_sas_pair(
         mac_method: Option<SupportedMacMethod>,
     ) -> (SasState<Created>, SasState<WeAccepted>) {
         let alice = Account::with_device_id(alice_id(), alice_device_id());
@@ -1632,23 +1632,23 @@ mod tests {
             .expect_err("We don't support the old Curve25519 key agreement protocol");
     }
 
-    #[async_test]
-    async fn create_sas() {
-        let (_, _) = get_sas_pair(None).await;
+    #[test]
+    fn test_create_sas() {
+        let (_, _) = get_sas_pair(None);
     }
 
-    #[async_test]
-    async fn sas_accept() {
-        let (alice, bob) = get_sas_pair(None).await;
+    #[test]
+    fn test_sas_accept() {
+        let (alice, bob) = get_sas_pair(None);
         let content = bob.as_content();
         let content = AcceptContent::from(&content);
 
         alice.into_accepted(bob.user_id(), &content).unwrap();
     }
 
-    #[async_test]
-    async fn sas_key_share() {
-        let (alice, bob) = get_sas_pair(None).await;
+    #[test]
+    fn test_sas_key_share() {
+        let (alice, bob) = get_sas_pair(None);
 
         let content = bob.as_content();
         let content = AcceptContent::from(&content);
@@ -1673,8 +1673,8 @@ mod tests {
         assert_eq!(alice.get_emoji(), bob.get_emoji());
     }
 
-    async fn full_flow_helper(mac_method: SupportedMacMethod) {
-        let (alice, bob) = get_sas_pair(Some(mac_method)).await;
+    fn full_flow_helper(mac_method: SupportedMacMethod) {
+        let (alice, bob) = get_sas_pair(Some(mac_method));
 
         let content = bob.as_content();
         let content = AcceptContent::from(&content);
@@ -1728,24 +1728,24 @@ mod tests {
         assert!(alice.verified_devices().contains(&alice.other_device()));
     }
 
-    #[async_test]
-    async fn full_flow() {
-        full_flow_helper(SupportedMacMethod::HkdfHmacSha256).await
+    #[test]
+    fn test_full_flow() {
+        full_flow_helper(SupportedMacMethod::HkdfHmacSha256);
     }
 
-    #[async_test]
-    async fn full_flow_hkdf_hmac_sha_v2() {
-        full_flow_helper(SupportedMacMethod::HkdfHmacSha256V2).await
+    #[test]
+    fn test_full_flow_hkdf_hmac_sha_v2() {
+        full_flow_helper(SupportedMacMethod::HkdfHmacSha256V2);
     }
 
-    #[async_test]
-    async fn full_flow_hkdf_msc3783() {
-        full_flow_helper(SupportedMacMethod::Msc3783HkdfHmacSha256V2).await
+    #[test]
+    fn test_full_flow_hkdf_msc3783() {
+        full_flow_helper(SupportedMacMethod::Msc3783HkdfHmacSha256V2);
     }
 
-    #[async_test]
-    async fn sas_invalid_commitment() {
-        let (alice, bob) = get_sas_pair(None).await;
+    #[test]
+    fn test_sas_invalid_commitment() {
+        let (alice, bob) = get_sas_pair(None);
 
         let mut content = bob.as_content();
         let mut method = content.method_mut();
@@ -1772,9 +1772,9 @@ mod tests {
             .expect_err("Didn't cancel on invalid commitment");
     }
 
-    #[async_test]
-    async fn sas_invalid_sender() {
-        let (alice, bob) = get_sas_pair(None).await;
+    #[test]
+    fn test_sas_invalid_sender() {
+        let (alice, bob) = get_sas_pair(None);
 
         let content = bob.as_content();
         let content = AcceptContent::from(&content);
@@ -1782,9 +1782,9 @@ mod tests {
         alice.into_accepted(sender, &content).expect_err("Didn't cancel on a invalid sender");
     }
 
-    #[async_test]
-    async fn sas_unknown_sas_method() {
-        let (alice, bob) = get_sas_pair(None).await;
+    #[test]
+    fn test_sas_unknown_sas_method() {
+        let (alice, bob) = get_sas_pair(None);
 
         let mut content = bob.as_content();
         let mut method = content.method_mut();
@@ -1803,9 +1803,9 @@ mod tests {
             .expect_err("Didn't cancel on an invalid SAS method");
     }
 
-    #[async_test]
-    async fn test_sas_unknown_method() {
-        let (alice, bob) = get_sas_pair(None).await;
+    #[test]
+    fn test_sas_unknown_method() {
+        let (alice, bob) = get_sas_pair(None);
 
         let content = json!({
             "method": "m.sas.custom",
