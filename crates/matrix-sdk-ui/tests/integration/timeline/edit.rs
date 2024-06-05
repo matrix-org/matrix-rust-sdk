@@ -265,7 +265,7 @@ async fn test_send_edit_when_timeline_is_clear() {
         assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
     let hello_world_message = hello_world_item.content().as_message().unwrap();
     assert!(!hello_world_message.is_edited());
-    assert!(hello_world_item.can_be_edited());
+    assert!(hello_world_item.is_editable());
 
     // Clear the timeline to make sure the old item does not need to be
     // available in it for the edit to work.
