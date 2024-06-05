@@ -279,7 +279,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: nightly-2024-05-09
+          toolchain: nightly-2024-05-19
           components: rustfmt
 
       - name: Cargo fmt
@@ -316,7 +316,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: nightly-2024-05-09
+          toolchain: nightly-2024-05-19
           components: clippy
 
       - name: Load cache
