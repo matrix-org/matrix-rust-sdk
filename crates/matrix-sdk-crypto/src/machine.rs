@@ -166,8 +166,7 @@ impl OlmMachine {
         device_id: &DeviceId,
         device_data: Raw<DehydratedDeviceData>,
     ) -> Result<OlmMachine, DehydrationError> {
-        let account =
-            Account::rehydrate(pickle_key, self.user_id(), device_id, device_data).await?;
+        let account = Account::rehydrate(pickle_key, self.user_id(), device_id, device_data)?;
         let static_account = account.static_data().clone();
 
         let store = Arc::new(CryptoStoreWrapper::new(self.user_id(), MemoryStore::new()));
