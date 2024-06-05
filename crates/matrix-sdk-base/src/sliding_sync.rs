@@ -738,6 +738,7 @@ mod tests {
                 canonical_alias::RoomCanonicalAliasEventContent,
                 member::{MembershipState, RoomMemberEventContent},
                 message::SyncRoomMessageEvent,
+                name::RoomNameEventContent,
             },
             AnySyncMessageLikeEvent, AnySyncTimelineEvent, GlobalAccountDataEventContent,
             StateEventContent,
@@ -843,6 +844,28 @@ mod tests {
     }
 
     #[async_test]
+    async fn test_room_name_event() {
+        // Given a logged-in client
+        let client = logged_in_base_client(None).await;
+        let room_id = room_id!("!r:e.uk");
+
+        // When I send sliding sync response containing a room with a name set in the
+        // sliding sync response, and a m.room.name event,
+        let mut room = v4::SlidingSyncRoom::new();
+
+        room.name = Some("little room".to_owned());
+        set_room_name(&mut room, user_id!("@a:b.c"), "The Name".to_owned());
+
+        let response = response_with_room(room_id, room);
+        client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
+
+        // The name is known.
+        let client_room = client.get_room(room_id).expect("No room found");
+        assert_eq!(client_room.name().as_deref(), Some("The Name"));
+        assert_eq!(client_room.computed_display_name().await.unwrap().to_string(), "The Name");
+    }
+
+    #[async_test]
     async fn test_missing_invited_room_name_event() {
         // Given a logged-in client,
         let client = logged_in_base_client(None).await;
@@ -872,6 +895,32 @@ mod tests {
         assert!(!sync_resp.rooms.join.contains_key(room_id));
         assert!(!sync_resp.rooms.leave.contains_key(room_id));
         assert!(sync_resp.rooms.invite.contains_key(room_id));
+    }
+
+    #[async_test]
+    async fn test_invited_room_name_event() {
+        // Given a logged-in client,
+        let client = logged_in_base_client(None).await;
+        let room_id = room_id!("!r:e.uk");
+        let user_id = user_id!("@w:e.uk");
+        let inviter = user_id!("@john:mastodon.org");
+
+        // When I send sliding sync response containing a room with a name set in the
+        // sliding sync response, and a m.room.name event,
+        let mut room = v4::SlidingSyncRoom::new();
+
+        set_room_invited(&mut room, inviter, user_id);
+
+        room.name = Some("name from sliding sync response".to_owned());
+        set_room_name(&mut room, user_id!("@a:b.c"), "The Name".to_owned());
+
+        let response = response_with_room(room_id, room);
+        client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
+
+        // The name is known.
+        let client_room = client.get_room(room_id).expect("No room found");
+        assert_eq!(client_room.name().as_deref(), Some("The Name"));
+        assert_eq!(client_room.computed_display_name().await.unwrap().to_string(), "The Name");
     }
 
     #[async_test]
@@ -1856,6 +1905,15 @@ mod tests {
                 .collect::<Vec<_>>(),
         );
         room
+    }
+
+    fn set_room_name(room: &mut v4::SlidingSyncRoom, sender: &UserId, name: String) {
+        room.required_state.push(make_state_event(
+            sender,
+            "",
+            RoomNameEventContent::new(name),
+            None,
+        ));
     }
 
     fn set_room_invited(room: &mut v4::SlidingSyncRoom, inviter: &UserId, invitee: &UserId) {
