@@ -886,7 +886,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             }
         };
 
-        let retry_indices: Vec<_> = state
+        let retry_timeline_item_indices: Vec<_> = state
             .items
             .iter()
             .enumerate()
@@ -902,7 +902,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             })
             .collect();
 
-        if retry_indices.is_empty() {
+        if retry_timeline_item_indices.is_empty() {
             return;
         }
 
@@ -977,7 +977,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             state
                 .retry_event_decryption(
                     retry_one,
-                    retry_indices,
+                    retry_timeline_item_indices,
                     push_rules_context,
                     &room_data_provider,
                     &settings,

@@ -56,14 +56,25 @@ use crate::{
 pub(crate) enum TimelineNewItemPosition {
     /// One or more items are prepended to the timeline (i.e. they're the
     /// oldest).
-    Start { origin: RemoteEventOrigin },
+    Start {
+        /// The origin of the new item(s).
+        origin: RemoteEventOrigin,
+    },
 
     /// One or more items are appended to the timeline (i.e. they're the most
     /// recent).
-    End { origin: RemoteEventOrigin },
+    End {
+        /// The origin of the new item(s).
+        origin: RemoteEventOrigin,
+    },
 
     /// One item is inserted to the timeline at a specific position.
-    At { index: usize, origin: RemoteEventOrigin },
+    At {
+        /// The index of the new **event**.
+        event_index: usize,
+        /// The origin of the new item.
+        origin: RemoteEventOrigin,
+    },
 }
 
 impl From<TimelineNewItemPosition> for TimelineItemPosition {
@@ -71,7 +82,7 @@ impl From<TimelineNewItemPosition> for TimelineItemPosition {
         match value {
             TimelineNewItemPosition::Start { origin } => Self::Start { origin },
             TimelineNewItemPosition::End { origin } => Self::End { origin },
-            TimelineNewItemPosition::At { index, origin } => Self::At { index, origin },
+            TimelineNewItemPosition::At { event_index, origin } => Self::At { event_index, origin },
         }
     }
 }
@@ -223,7 +234,7 @@ impl TimelineInnerState {
     pub(super) async fn retry_event_decryption<P: RoomDataProvider, Fut>(
         &mut self,
         retry_one: impl Fn(Arc<TimelineItem>) -> Fut,
-        retry_indices: Vec<usize>,
+        retry_timeline_item_indices: Vec<usize>,
         push_rules_context: Option<(ruma::push::Ruleset, ruma::push::PushConditionRoomCtx)>,
         room_data_provider: &P,
         settings: &TimelineInnerSettings,
@@ -238,9 +249,9 @@ impl TimelineInnerState {
         // before the event being edited, if both were UTD. Keep track of
         // index change as UTDs are removed instead of updated.
         let mut offset = 0;
-        for index in retry_indices {
-            let index = index - offset;
-            let Some(mut event) = retry_one(txn.items[index].clone()).await else {
+        for timeline_item_index in retry_timeline_item_indices {
+            let timeline_item_index = timeline_item_index - offset;
+            let Some(mut event) = retry_one(txn.items[timeline_item_index].clone()).await else {
                 continue;
             };
 
@@ -251,7 +262,7 @@ impl TimelineInnerState {
             let handle_one_res = txn
                 .handle_remote_event(
                     event.into(),
-                    TimelineItemPosition::Update { index },
+                    TimelineItemPosition::Update { timeline_item_index },
                     room_data_provider,
                     settings,
                     &mut day_divider_adjuster,
@@ -708,7 +719,7 @@ impl TimelineInnerStateTransaction<'_> {
                 self.meta.all_events.push_back(event_meta.base_meta());
             }
 
-            TimelineItemPosition::At { index, .. } => {
+            TimelineItemPosition::At { event_index: index, .. } => {
                 self.meta.all_events.insert(index, event_meta.base_meta());
             }
 

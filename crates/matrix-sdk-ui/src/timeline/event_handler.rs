@@ -219,20 +219,34 @@ impl TimelineEventKind {
 pub(super) enum TimelineItemPosition {
     /// One or more items are prepended to the timeline (i.e. they're the
     /// oldest).
-    Start { origin: RemoteEventOrigin },
+    Start {
+        /// The origin of the new item(s).
+        origin: RemoteEventOrigin,
+    },
 
     /// One or more items are appended to the timeline (i.e. they're the most
     /// recent).
-    End { origin: RemoteEventOrigin },
+    End {
+        /// The origin of the new item(s).
+        origin: RemoteEventOrigin,
+    },
 
     /// One item is inserted to the timeline at a specific position.
-    At { index: usize, origin: RemoteEventOrigin },
+    At {
+        /// The index of the new **event**.
+        event_index: usize,
+        /// The origin of the new item.
+        origin: RemoteEventOrigin,
+    },
 
     /// A single item is updated.
     ///
     /// This only happens when a UTD must be replaced with the decrypted event.
     #[cfg(feature = "e2e-encryption")]
-    Update { index: usize },
+    Update {
+        /// The index of the **timeline item**.
+        timeline_item_index: usize,
+    },
 }
 
 /// The outcome of handling a single event with
@@ -323,7 +337,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     | TimelineItemPosition::End { origin }
                     | TimelineItemPosition::At { origin, .. } => *origin,
 
-                    TimelineItemPosition::Update { index } => self
+                    TimelineItemPosition::Update { timeline_item_index: index } => self
                         .items
                         .get(*index)
                         .and_then(|item| item.as_event())
@@ -460,8 +474,10 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             trace!("No new item added");
 
             #[cfg(feature = "e2e-encryption")]
-            if let Flow::Remote { position: TimelineItemPosition::Update { index }, .. } =
-                self.ctx.flow
+            if let Flow::Remote {
+                position: TimelineItemPosition::Update { timeline_item_index: index },
+                ..
+            } = self.ctx.flow
             {
                 // If add was not called, that means the UTD event is one that
                 // wouldn't normally be visible. Remove it.
@@ -902,7 +918,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
                     // For updates, reuse the origin of the encrypted event.
                     #[cfg(feature = "e2e-encryption")]
-                    TimelineItemPosition::Update { index } => self.items[index]
+                    TimelineItemPosition::Update { timeline_item_index: index } => self.items
+                        [index]
                         .as_event()
                         .and_then(|ev| Some(ev.as_remote()?.origin))
                         .unwrap_or_else(|| {
@@ -1045,14 +1062,17 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             }
 
             Flow::Remote {
-                position: TimelineItemPosition::At { index, .. },
+                position: TimelineItemPosition::At { event_index: index, .. },
                 txn_id,
                 event_id,
                 ..
             } => todo!(),
 
             #[cfg(feature = "e2e-encryption")]
-            Flow::Remote { position: TimelineItemPosition::Update { index }, .. } => {
+            Flow::Remote {
+                position: TimelineItemPosition::Update { timeline_item_index: index },
+                ..
+            } => {
                 trace!("Updating timeline item at position {index}");
                 let id = self.items[*index].internal_id.clone();
                 self.items.set(*index, TimelineItem::new(item, id));
