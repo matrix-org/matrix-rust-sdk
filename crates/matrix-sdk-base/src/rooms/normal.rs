@@ -64,7 +64,6 @@ use crate::latest_event::LatestEvent;
 use crate::{
     deserialized_responses::MemberEvent,
     read_receipts::RoomReadReceipts,
-    rooms::calculate_room_name,
     store::{DynStateStore, Result as StoreResult, StateStoreExt},
     sync::UnreadNotificationsCount,
     MinimalStateEvent, OriginalMinimalStateEvent, RoomMemberships,
@@ -1396,6 +1395,45 @@ impl RoomStateFilter {
     }
 }
 
+/// Calculate room name according to step 3 of the [naming algorithm].
+///
+/// [naming algorithm]: https://spec.matrix.org/latest/client-server-api/#calculating-the-display-name-for-a-room
+fn calculate_room_name(
+    joined_member_count: u64,
+    invited_member_count: u64,
+    mut heroes: Vec<&str>,
+) -> DisplayName {
+    let num_heroes = heroes.len() as u64;
+    let invited_joined = invited_member_count + joined_member_count;
+    let invited_joined_minus_one = invited_joined.saturating_sub(1);
+
+    // Stabilize ordering.
+    heroes.sort_unstable();
+
+    let names = if num_heroes == 0 && invited_joined > 1 {
+        format!("{} people", invited_joined)
+    } else if num_heroes >= invited_joined_minus_one {
+        heroes.join(", ")
+    } else if num_heroes < invited_joined_minus_one && invited_joined > 1 {
+        // TODO: What length does the spec want us to use here and in
+        // the `else`?
+        format!("{}, and {} others", heroes.join(", "), (invited_joined - num_heroes))
+    } else {
+        "".to_owned()
+    };
+
+    // User is alone.
+    if invited_joined <= 1 {
+        if names.is_empty() {
+            DisplayName::Empty
+        } else {
+            DisplayName::EmptyWas(names)
+        }
+    } else {
+        DisplayName::Calculated(names)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::{
@@ -1435,7 +1473,7 @@ mod tests {
 
     #[cfg(feature = "experimental-sliding-sync")]
     use super::SyncInfo;
-    use super::{Room, RoomInfo, RoomState};
+    use super::{calculate_room_name, Room, RoomInfo, RoomState};
     #[cfg(any(feature = "experimental-sliding-sync", feature = "e2e-encryption"))]
     use crate::latest_event::LatestEvent;
     use crate::{
@@ -2365,5 +2403,41 @@ mod tests {
         // We have no active call anymore after emptying the memberships
         assert_eq!(Vec::<OwnedUserId>::new(), room.active_room_call_participants());
         assert!(!room.has_active_room_call());
+    }
+
+    #[test]
+    fn test_calculate_room_name() {
+        let mut actual = calculate_room_name(2, 0, vec!["a"]);
+        assert_eq!(DisplayName::Calculated("a".to_owned()), actual);
+
+        actual = calculate_room_name(3, 0, vec!["a", "b"]);
+        assert_eq!(DisplayName::Calculated("a, b".to_owned()), actual);
+
+        actual = calculate_room_name(4, 0, vec!["a", "b", "c"]);
+        assert_eq!(DisplayName::Calculated("a, b, c".to_owned()), actual);
+
+        actual = calculate_room_name(5, 0, vec!["a", "b", "c"]);
+        assert_eq!(DisplayName::Calculated("a, b, c, and 2 others".to_owned()), actual);
+
+        actual = calculate_room_name(5, 0, vec![]);
+        assert_eq!(DisplayName::Calculated("5 people".to_owned()), actual);
+
+        actual = calculate_room_name(0, 0, vec![]);
+        assert_eq!(DisplayName::Empty, actual);
+
+        actual = calculate_room_name(1, 0, vec![]);
+        assert_eq!(DisplayName::Empty, actual);
+
+        actual = calculate_room_name(0, 1, vec![]);
+        assert_eq!(DisplayName::Empty, actual);
+
+        actual = calculate_room_name(1, 0, vec!["a"]);
+        assert_eq!(DisplayName::EmptyWas("a".to_owned()), actual);
+
+        actual = calculate_room_name(1, 0, vec!["a", "b"]);
+        assert_eq!(DisplayName::EmptyWas("a, b".to_owned()), actual);
+
+        actual = calculate_room_name(1, 0, vec!["a", "b", "c"]);
+        assert_eq!(DisplayName::EmptyWas("a, b, c".to_owned()), actual);
     }
 }

@@ -350,45 +350,6 @@ impl Default for BaseRoomInfo {
     }
 }
 
-/// Calculate room name according to step 3 of the [naming algorithm].
-///
-/// [naming algorithm]: https://spec.matrix.org/latest/client-server-api/#calculating-the-display-name-for-a-room
-fn calculate_room_name(
-    joined_member_count: u64,
-    invited_member_count: u64,
-    mut heroes: Vec<&str>,
-) -> DisplayName {
-    let num_heroes = heroes.len() as u64;
-    let invited_joined = invited_member_count + joined_member_count;
-    let invited_joined_minus_one = invited_joined.saturating_sub(1);
-
-    // Stabilize ordering.
-    heroes.sort_unstable();
-
-    let names = if num_heroes == 0 && invited_joined > 1 {
-        format!("{} people", invited_joined)
-    } else if num_heroes >= invited_joined_minus_one {
-        heroes.join(", ")
-    } else if num_heroes < invited_joined_minus_one && invited_joined > 1 {
-        // TODO: What length does the spec want us to use here and in
-        // the `else`?
-        format!("{}, and {} others", heroes.join(", "), (invited_joined - num_heroes))
-    } else {
-        "".to_owned()
-    };
-
-    // User is alone.
-    if invited_joined <= 1 {
-        if names.is_empty() {
-            DisplayName::Empty
-        } else {
-            DisplayName::EmptyWas(names)
-        }
-    } else {
-        DisplayName::Calculated(names)
-    }
-}
-
 /// The content of an `m.room.create` event, with a required `creator` field.
 ///
 /// Starting with room version 11, the `creator` field should be removed and the
@@ -554,43 +515,7 @@ mod tests {
 
     use ruma::events::tag::{TagInfo, TagName, Tags};
 
-    use super::{calculate_room_name, BaseRoomInfo, DisplayName, RoomNotableTags};
-
-    #[test]
-    fn test_calculate_room_name() {
-        let mut actual = calculate_room_name(2, 0, vec!["a"]);
-        assert_eq!(DisplayName::Calculated("a".to_owned()), actual);
-
-        actual = calculate_room_name(3, 0, vec!["a", "b"]);
-        assert_eq!(DisplayName::Calculated("a, b".to_owned()), actual);
-
-        actual = calculate_room_name(4, 0, vec!["a", "b", "c"]);
-        assert_eq!(DisplayName::Calculated("a, b, c".to_owned()), actual);
-
-        actual = calculate_room_name(5, 0, vec!["a", "b", "c"]);
-        assert_eq!(DisplayName::Calculated("a, b, c, and 2 others".to_owned()), actual);
-
-        actual = calculate_room_name(5, 0, vec![]);
-        assert_eq!(DisplayName::Calculated("5 people".to_owned()), actual);
-
-        actual = calculate_room_name(0, 0, vec![]);
-        assert_eq!(DisplayName::Empty, actual);
-
-        actual = calculate_room_name(1, 0, vec![]);
-        assert_eq!(DisplayName::Empty, actual);
-
-        actual = calculate_room_name(0, 1, vec![]);
-        assert_eq!(DisplayName::Empty, actual);
-
-        actual = calculate_room_name(1, 0, vec!["a"]);
-        assert_eq!(DisplayName::EmptyWas("a".to_owned()), actual);
-
-        actual = calculate_room_name(1, 0, vec!["a", "b"]);
-        assert_eq!(DisplayName::EmptyWas("a, b".to_owned()), actual);
-
-        actual = calculate_room_name(1, 0, vec!["a", "b", "c"]);
-        assert_eq!(DisplayName::EmptyWas("a, b, c".to_owned()), actual);
-    }
+    use super::{BaseRoomInfo, RoomNotableTags};
 
     #[test]
     fn test_handle_notable_tags_favourite() {
