@@ -88,7 +88,7 @@ pub(super) async fn store_sliding_sync_state(
     storage
         .set_custom_value(
             instance_storage_key.as_bytes(),
-            serde_json::to_vec(&FrozenSlidingSync::new(position).await)?,
+            serde_json::to_vec(&FrozenSlidingSync::new(position))?,
         )
         .await?;
 

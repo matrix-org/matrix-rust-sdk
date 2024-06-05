@@ -910,7 +910,7 @@ struct FrozenSlidingSync {
 }
 
 impl FrozenSlidingSync {
-    async fn new(position: &SlidingSyncPositionMarkers) -> Self {
+    fn new(position: &SlidingSyncPositionMarkers) -> Self {
         // The to-device token must be saved in the `FrozenCryptoSlidingSync` now.
         Self { delta_token: position.delta_token.clone(), to_device_since: None }
     }
@@ -1233,7 +1233,7 @@ mod tests {
         // FrozenSlidingSync doesn't contain the to_device_token anymore, as it's saved
         // in the crypto store since PR #2323.
         let position_guard = sliding_sync.inner.position.lock().await;
-        let frozen = FrozenSlidingSync::new(&position_guard).await;
+        let frozen = FrozenSlidingSync::new(&position_guard);
         assert!(frozen.to_device_since.is_none());
 
         Ok(())
