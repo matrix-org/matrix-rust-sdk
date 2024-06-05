@@ -1158,8 +1158,7 @@ impl OlmMachine {
         let methods = methods.into_iter().map(VerificationMethod::from).collect();
 
         Ok(if let Some(identity) = identity.and_then(|i| i.other()) {
-            let content =
-                self.runtime.block_on(identity.verification_request_content(Some(methods)));
+            let content = identity.verification_request_content(Some(methods));
             Some(serde_json::to_string(&content)?)
         } else {
             None

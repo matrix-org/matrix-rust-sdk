@@ -276,7 +276,7 @@ impl UserIdentity {
     /// started with the [`request_verification()`] method.
     ///
     /// [`request_verification()`]: #method.request_verification
-    pub async fn verification_request_content(
+    pub fn verification_request_content(
         &self,
         methods: Option<Vec<VerificationMethod>>,
     ) -> KeyVerificationRequestEventContent {
