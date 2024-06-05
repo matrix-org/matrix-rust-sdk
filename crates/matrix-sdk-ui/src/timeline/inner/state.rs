@@ -788,7 +788,7 @@ impl TimelineInnerMetadata {
 
     /// Returns the next internal id for a timeline item (and increment our
     /// internal counter).
-    pub fn next_internal_id(&mut self) -> String {
+    fn next_internal_id(&mut self) -> String {
         let val = self.next_internal_id;
         self.next_internal_id += 1;
         let prefix = self.internal_id_prefix.as_deref().unwrap_or("");
