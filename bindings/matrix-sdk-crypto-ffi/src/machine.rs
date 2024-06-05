@@ -1158,8 +1158,7 @@ impl OlmMachine {
         let methods = methods.into_iter().map(VerificationMethod::from).collect();
 
         Ok(if let Some(identity) = identity.and_then(|i| i.other()) {
-            let content =
-                self.runtime.block_on(identity.verification_request_content(Some(methods)));
+            let content = identity.verification_request_content(Some(methods));
             Some(serde_json::to_string(&content)?)
         } else {
             None
@@ -1202,11 +1201,7 @@ impl OlmMachine {
         let methods = methods.into_iter().map(VerificationMethod::from).collect();
 
         Ok(if let Some(identity) = identity.and_then(|i| i.other()) {
-            let request = self.runtime.block_on(identity.request_verification(
-                &room_id,
-                &event_id,
-                Some(methods),
-            ));
+            let request = identity.request_verification(&room_id, &event_id, Some(methods));
 
             Some(
                 VerificationRequest { inner: request, runtime: self.runtime.handle().to_owned() }
@@ -1243,8 +1238,7 @@ impl OlmMachine {
             if let Some(device) =
                 self.runtime.block_on(self.inner.get_device(&user_id, device_id, None))?
             {
-                let (verification, request) =
-                    self.runtime.block_on(device.request_verification_with_methods(methods));
+                let (verification, request) = device.request_verification_with_methods(methods);
 
                 Some(RequestVerificationResult {
                     verification: VerificationRequest {

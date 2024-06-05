@@ -242,9 +242,7 @@ impl Client {
                     let session_delegate = session_delegate.clone();
                     Box::new(move |client| {
                         let session_delegate = session_delegate.clone();
-                        Box::pin(
-                            async move { Ok(Self::save_session(session_delegate, client).await?) },
-                        )
+                        Ok(Self::save_session(session_delegate, client)?)
                     })
                 },
             )?;
@@ -415,8 +413,8 @@ impl Client {
         })
     }
 
-    pub async fn session(&self) -> Result<Session, ClientError> {
-        Self::session_inner((*self.inner).clone()).await
+    pub fn session(&self) -> Result<Session, ClientError> {
+        Self::session_inner((*self.inner).clone())
     }
 
     pub async fn account_url(
@@ -968,7 +966,7 @@ impl Client {
         }
     }
 
-    async fn session_inner(client: matrix_sdk::Client) -> Result<Session, ClientError> {
+    fn session_inner(client: matrix_sdk::Client) -> Result<Session, ClientError> {
         let auth_api = client.auth_api().context("Missing authentication API")?;
 
         let homeserver_url = client.homeserver().into();
@@ -977,11 +975,11 @@ impl Client {
         Session::new(auth_api, homeserver_url, sliding_sync_proxy)
     }
 
-    async fn save_session(
+    fn save_session(
         session_delegate: Arc<dyn ClientSessionDelegate>,
         client: matrix_sdk::Client,
     ) -> anyhow::Result<()> {
-        let session = Self::session_inner(client).await?;
+        let session = Self::session_inner(client)?;
         session_delegate.save_session_in_keychain(session);
         Ok(())
     }

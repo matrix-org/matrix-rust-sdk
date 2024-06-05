@@ -600,7 +600,7 @@ impl PrivateCrossSigningIdentity {
     /// # Panic
     ///
     /// Panics if the pickle_key isn't 32 bytes long.
-    pub async fn from_pickle(pickle: PickledCrossSigningIdentity) -> Result<Self, SigningError> {
+    pub fn from_pickle(pickle: PickledCrossSigningIdentity) -> Result<Self, SigningError> {
         let keys = pickle.keys;
 
         let master = keys.master_key.map(MasterSigning::from_pickle).transpose()?;
@@ -709,7 +709,7 @@ mod tests {
 
         let pickled = identity.pickle().await;
 
-        let unpickled = PrivateCrossSigningIdentity::from_pickle(pickled).await.unwrap();
+        let unpickled = PrivateCrossSigningIdentity::from_pickle(pickled).unwrap();
 
         assert_eq!(identity.user_id, unpickled.user_id);
         assert_eq!(&*identity.master_key.lock().await, &*unpickled.master_key.lock().await);

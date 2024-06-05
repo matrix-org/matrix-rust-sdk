@@ -840,7 +840,7 @@ impl Oidc {
         }
 
         #[cfg(feature = "e2e-encryption")]
-        self.client.encryption().run_initialization_tasks(None).await;
+        self.client.encryption().spawn_initialization_task(None);
 
         Ok(())
     }
@@ -1012,7 +1012,7 @@ impl Oidc {
         self.enable_cross_process_lock().await.map_err(OidcError::from)?;
 
         #[cfg(feature = "e2e-encryption")]
-        self.client.encryption().run_initialization_tasks(None).await;
+        self.client.encryption().spawn_initialization_task(None);
 
         Ok(())
     }
@@ -1193,7 +1193,7 @@ impl Oidc {
                     {
                         // Satisfies the save_session_callback invariant: set_session_tokens has
                         // been called just above.
-                        if let Err(err) = save_session_callback(this.client.clone()).await {
+                        if let Err(err) = save_session_callback(this.client.clone()) {
                             error!("when saving session after refresh: {err}");
                         }
                     }

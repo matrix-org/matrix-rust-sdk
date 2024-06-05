@@ -486,7 +486,7 @@ impl MatrixAuth {
                 if let Some(save_session_callback) =
                     self.client.inner.auth_ctx.save_session_callback.get()
                 {
-                    if let Err(err) = save_session_callback(self.client.clone()).await {
+                    if let Err(err) = save_session_callback(self.client.clone()) {
                         error!("when saving session after refresh: {err}");
                     }
                 }
@@ -884,7 +884,7 @@ impl MatrixAuth {
                 _ => None,
             };
 
-            self.client.encryption().run_initialization_tasks(auth_data).await;
+            self.client.encryption().spawn_initialization_task(auth_data);
         }
 
         Ok(())

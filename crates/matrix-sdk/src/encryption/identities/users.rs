@@ -432,7 +432,7 @@ impl UserIdentities {
                 Ok(VerificationRequest { inner: verification, client: self.client.clone() })
             }
             CryptoUserIdentities::Other(i) => {
-                let content = i.verification_request_content(methods.clone()).await;
+                let content = i.verification_request_content(methods.clone());
 
                 let room = if let Some(room) = self.client.get_dm_room(i.user_id()) {
                     // Make sure that the user, to be verified, is still in the room
@@ -454,7 +454,7 @@ impl UserIdentities {
                     .await?;
 
                 let verification =
-                    i.request_verification(room.room_id(), &response.event_id, methods).await;
+                    i.request_verification(room.room_id(), &response.event_id, methods);
 
                 Ok(VerificationRequest { inner: verification, client: self.client.clone() })
             }

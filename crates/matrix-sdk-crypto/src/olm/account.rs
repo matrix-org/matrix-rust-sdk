@@ -693,7 +693,7 @@ impl Account {
         Raw::from_json(to_raw_value(&data).expect("Couldn't serialize our dehydrated device data"))
     }
 
-    pub(crate) async fn rehydrate(
+    pub(crate) fn rehydrate(
         pickle_key: &[u8; 32],
         user_id: &UserId,
         device_id: &DeviceId,

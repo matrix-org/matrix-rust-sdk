@@ -72,7 +72,7 @@ impl VerificationMachine {
         &self.store.account.device_id
     }
 
-    pub(crate) async fn request_to_device_verification(
+    pub(crate) fn request_to_device_verification(
         &self,
         user_id: &UserId,
         recipient_devices: Vec<OwnedDeviceId>,
@@ -96,7 +96,7 @@ impl VerificationMachine {
         (verification, request.into())
     }
 
-    pub async fn request_verification(
+    pub fn request_verification(
         &self,
         identity: &ReadOnlyUserIdentity,
         room_id: &RoomId,

@@ -852,7 +852,6 @@ impl_crypto_store! {
 
             Ok(Some(
                 PrivateCrossSigningIdentity::from_pickle(pickle)
-                    .await
                     .map_err(|_| CryptoStoreError::UnpicklingError)?,
             ))
         } else {
@@ -1135,6 +1134,7 @@ impl_crypto_store! {
             }).collect()
     }
 
+    #[allow(clippy::unused_async)] // Mandated by trait on wasm.
     async fn delete_secrets_from_inbox(
         &self,
         secret_name: &SecretName,
@@ -1271,6 +1271,7 @@ impl_crypto_store! {
             .transpose()?)
     }
 
+    #[allow(clippy::unused_async)] // Mandated by trait on wasm.
     async fn set_custom_value(&self, key: &str, value: Vec<u8>) -> Result<()> {
         self
             .inner
@@ -1280,6 +1281,7 @@ impl_crypto_store! {
         Ok(())
     }
 
+    #[allow(clippy::unused_async)] // Mandated by trait on wasm.
     async fn remove_custom_value(&self, key: &str) -> Result<()> {
         self
             .inner
@@ -1330,6 +1332,7 @@ impl_crypto_store! {
         }
     }
 
+    #[allow(clippy::unused_async)] // Mandated by trait on wasm.
     async fn clear_caches(&self) {
         self.session_cache.clear()
         // We don't need to clear `static_account` as it only contains immutable data

@@ -878,6 +878,7 @@ impl Backups {
         }
     }
 
+    #[allow(clippy::unused_async)] // Because it's used as an event handler, which must be async.
     pub(crate) async fn utd_event_handler(
         event: SyncRoomEncryptedEvent,
         room: Room,

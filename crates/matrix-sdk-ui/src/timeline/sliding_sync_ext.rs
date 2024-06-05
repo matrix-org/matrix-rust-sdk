@@ -103,7 +103,10 @@ mod tests {
     ) {
         let mut room = v4::SlidingSyncRoom::new();
         room.timeline.push(event.event);
-        let response = response_with_room(room_id, room).await;
+
+        let mut response = v4::Response::new("6".to_owned());
+        response.rooms.insert(room_id.to_owned(), room);
+
         client.process_sliding_sync_test_helper(&response).await.unwrap();
     }
 
@@ -133,11 +136,5 @@ mod tests {
             )
             .unwrap(),
         )
-    }
-
-    async fn response_with_room(room_id: &RoomId, room: v4::SlidingSyncRoom) -> v4::Response {
-        let mut response = v4::Response::new("6".to_owned());
-        response.rooms.insert(room_id.to_owned(), room);
-        response
     }
 }

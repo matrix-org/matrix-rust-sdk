@@ -17,10 +17,7 @@
 // TODO:(pixlwave) Move AuthenticationService from the FFI into this module.
 // TODO:(poljar) Move the oidc and matrix_auth modules under this module.
 
-use std::pin::Pin;
-
 use as_variant::as_variant;
-use futures_core::Future;
 use matrix_sdk_base::SessionMeta;
 use tokio::sync::{broadcast, Mutex, OnceCell};
 
@@ -45,9 +42,8 @@ pub enum SessionTokens {
 }
 
 pub(crate) type SessionCallbackError = Box<dyn std::error::Error + Send + Sync>;
-pub(crate) type SaveSessionCallback = dyn Fn(Client) -> Pin<Box<dyn Send + Sync + Future<Output = Result<(), SessionCallbackError>>>>
-    + Send
-    + Sync;
+pub(crate) type SaveSessionCallback =
+    dyn Fn(Client) -> Result<(), SessionCallbackError> + Send + Sync;
 pub(crate) type ReloadSessionCallback =
     dyn Fn(Client) -> Result<SessionTokens, SessionCallbackError> + Send + Sync;
 

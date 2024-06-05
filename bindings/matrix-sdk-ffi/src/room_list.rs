@@ -510,9 +510,10 @@ impl RoomListItem {
         Ok(RoomInfo::new(self.inner.inner_room(), latest_event).await?)
     }
 
-    /// Building a `Room`. If its internal timeline hasn't been initialized
-    /// it'll fail.
-    async fn full_room(&self) -> Result<Arc<Room>, RoomListError> {
+    /// Build a full `Room` FFI object, filling its associated timeline.
+    ///
+    /// If its internal timeline hasn't been initialized, it'll fail.
+    fn full_room(&self) -> Result<Arc<Room>, RoomListError> {
         if let Some(timeline) = self.inner.timeline() {
             Ok(Arc::new(Room::with_timeline(
                 self.inner.inner_room().clone(),

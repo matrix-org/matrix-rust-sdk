@@ -140,7 +140,7 @@ impl Device {
     /// [`request_verification_with_methods()`]:
     /// #method.request_verification_with_methods
     pub async fn request_verification(&self) -> Result<VerificationRequest> {
-        let (verification, request) = self.inner.request_verification().await;
+        let (verification, request) = self.inner.request_verification();
         self.client.send_verification_request(request).await?;
 
         Ok(VerificationRequest { inner: verification, client: self.client.clone() })
@@ -194,7 +194,7 @@ impl Device {
     ) -> Result<VerificationRequest> {
         assert!(!methods.is_empty(), "The list of verification methods can't be non-empty");
 
-        let (verification, request) = self.inner.request_verification_with_methods(methods).await;
+        let (verification, request) = self.inner.request_verification_with_methods(methods);
         self.client.send_verification_request(request).await?;
 
         Ok(VerificationRequest { inner: verification, client: self.client.clone() })

@@ -708,11 +708,7 @@ impl CryptoStore for SqliteCryptoStore {
         let conn = self.acquire().await?;
         if let Some(i) = conn.get_kv("identity").await? {
             let pickle = self.deserialize_value(&i)?;
-            Ok(Some(
-                PrivateCrossSigningIdentity::from_pickle(pickle)
-                    .await
-                    .map_err(|_| Error::Unpickle)?,
-            ))
+            Ok(Some(PrivateCrossSigningIdentity::from_pickle(pickle).map_err(|_| Error::Unpickle)?))
         } else {
             Ok(None)
         }

@@ -571,7 +571,7 @@ mod tests {
         room.timeline.push(member_event(room_id, user_id, "Alice Margatroid", "mxc://e.org/SEs"));
 
         // And the room is stored in the client so it can be extracted when needed
-        let response = response_with_room(room_id, room).await;
+        let response = response_with_room(room_id, room);
         client.process_sliding_sync_test_helper(&response).await.unwrap();
 
         // When we construct a timeline event from it
@@ -615,7 +615,7 @@ mod tests {
         // `StateChanges`.
 
         // And the room is stored in the client so it can be extracted when needed
-        let response = response_with_room(room_id, room).await;
+        let response = response_with_room(room_id, room);
         client.process_sliding_sync_test_helper(&response).await.unwrap();
 
         // When we construct a timeline event from it
@@ -665,7 +665,7 @@ mod tests {
         })
     }
 
-    async fn response_with_room(room_id: &RoomId, room: v4::SlidingSyncRoom) -> v4::Response {
+    fn response_with_room(room_id: &RoomId, room: v4::SlidingSyncRoom) -> v4::Response {
         let mut response = v4::Response::new("6".to_owned());
         response.rooms.insert(room_id.to_owned(), room);
         response

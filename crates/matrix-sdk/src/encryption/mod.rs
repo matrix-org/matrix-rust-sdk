@@ -1422,7 +1422,7 @@ impl Encryption {
     /// proposal (MSC3967) to remove this requirement, which would allow for
     /// the initial upload of cross-signing keys without authentication,
     /// rendering this parameter obsolete.
-    pub(crate) async fn run_initialization_tasks(&self, auth_data: Option<AuthData>) {
+    pub(crate) fn spawn_initialization_task(&self, auth_data: Option<AuthData>) {
         let mut tasks = self.client.inner.e2ee.tasks.lock().unwrap();
 
         let this = self.clone();

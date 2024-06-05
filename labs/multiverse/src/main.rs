@@ -351,7 +351,7 @@ impl App {
 
     /// Run a small back-pagination (expect a batch of 20 events, continue until
     /// we get 10 timeline items or hit the timeline start).
-    async fn back_paginate(&mut self) {
+    fn back_paginate(&mut self) {
         let Some(sdk_timeline) = self.get_selected_room_id(None).and_then(|room_id| {
             self.timelines.lock().unwrap().get(&room_id).map(|timeline| timeline.timeline.clone())
         }) else {
@@ -483,7 +483,7 @@ impl App {
                             Char('t') => self.details_mode = DetailsMode::TimelineItems,
 
                             Char('b') if self.details_mode == DetailsMode::TimelineItems => {
-                                self.back_paginate().await;
+                                self.back_paginate();
                             }
 
                             Char('m') if self.details_mode == DetailsMode::ReadReceipts => {

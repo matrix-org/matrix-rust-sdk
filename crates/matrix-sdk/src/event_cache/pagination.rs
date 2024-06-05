@@ -138,7 +138,7 @@ impl RoomPagination {
 
         let paginator = &self.inner.pagination.paginator;
 
-        paginator.set_idle_state(prev_token.clone(), None).await?;
+        paginator.set_idle_state(prev_token.clone(), None)?;
 
         // Run the actual pagination.
         let PaginationResult { events, hit_end_of_timeline: reached_start } =

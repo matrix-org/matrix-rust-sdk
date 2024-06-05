@@ -193,10 +193,11 @@ impl OwnUserIdentity {
             .inner
             .filter_devices_to_request(all_devices, self.verification_machine.own_device_id());
 
-        Ok(self
-            .verification_machine
-            .request_to_device_verification(self.user_id(), devices, methods)
-            .await)
+        Ok(self.verification_machine.request_to_device_verification(
+            self.user_id(),
+            devices,
+            methods,
+        ))
     }
 }
 
@@ -256,15 +257,18 @@ impl UserIdentity {
 
     /// Create a `VerificationRequest` object after the verification request
     /// content has been sent out.
-    pub async fn request_verification(
+    pub fn request_verification(
         &self,
         room_id: &RoomId,
         request_event_id: &EventId,
         methods: Option<Vec<VerificationMethod>>,
     ) -> VerificationRequest {
-        self.verification_machine
-            .request_verification(&self.inner, room_id, request_event_id, methods)
-            .await
+        self.verification_machine.request_verification(
+            &self.inner,
+            room_id,
+            request_event_id,
+            methods,
+        )
     }
 
     /// Send a verification request to the given user.
@@ -276,7 +280,7 @@ impl UserIdentity {
     /// started with the [`request_verification()`] method.
     ///
     /// [`request_verification()`]: #method.request_verification
-    pub async fn verification_request_content(
+    pub fn verification_request_content(
         &self,
         methods: Option<Vec<VerificationMethod>>,
     ) -> KeyVerificationRequestEventContent {
