@@ -852,7 +852,6 @@ impl_crypto_store! {
 
             Ok(Some(
                 PrivateCrossSigningIdentity::from_pickle(pickle)
-                    .await
                     .map_err(|_| CryptoStoreError::UnpicklingError)?,
             ))
         } else {
