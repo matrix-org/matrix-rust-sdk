@@ -467,16 +467,18 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                 let event_content = AnyMessageLikeEventContent::Reaction(
                     ReactionEventContent::from(annotation.clone()),
                 );
-                state.handle_local_event(
-                    sender,
-                    sender_profile,
-                    txn_id.clone(),
-                    None,
-                    TimelineEventKind::Message {
-                        content: event_content.clone(),
-                        relations: Default::default(),
-                    },
-                );
+                state
+                    .handle_local_event(
+                        sender,
+                        sender_profile,
+                        txn_id.clone(),
+                        None,
+                        TimelineEventKind::Message {
+                            content: event_content.clone(),
+                            relations: Default::default(),
+                        },
+                    )
+                    .await;
 
                 ReactionState::Sending(txn_id)
             }
@@ -491,13 +493,9 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                     unreachable!("the None/None case has been handled above")
                 };
 
-                state.handle_local_event(
-                    sender,
-                    sender_profile,
-                    TransactionId::new(),
-                    None,
-                    content,
-                );
+                state
+                    .handle_local_event(sender, sender_profile, TransactionId::new(), None, content)
+                    .await;
 
                 // Remember the remote echo to redact on the homeserver.
                 ReactionState::Redacting(remote_echo_event_id.cloned())
@@ -655,7 +653,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         let profile = self.room_data_provider.profile_from_user_id(&sender).await;
 
         let mut state = self.state.write().await;
-        state.handle_local_event(sender, profile, txn_id, abort_handle, content);
+        state.handle_local_event(sender, profile, txn_id, abort_handle, content).await;
     }
 
     /// Update the send state of a local event represented by a transaction ID.

@@ -158,7 +158,7 @@ impl TimelineInnerState {
 
     /// Adds a local echo (for an event) to the timeline.
     #[instrument(skip_all)]
-    pub(super) fn handle_local_event(
+    pub(super) async fn handle_local_event(
         &mut self,
         own_user_id: OwnedUserId,
         own_profile: Option<Profile>,
