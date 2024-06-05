@@ -612,7 +612,6 @@ impl RoomEventCacheInner {
             ephemeral_events,
             ambiguity_changes,
         )
-        .await
     }
 
     /// Append a set of events to the room cache and storage, notifying
@@ -631,7 +630,6 @@ impl RoomEventCacheInner {
             ephemeral_events,
             ambiguity_changes,
         )
-        .await
     }
 
     /// Append a set of events, with an attached lock.
@@ -639,7 +637,7 @@ impl RoomEventCacheInner {
     /// If the lock `room_events` is `None`, one will be created.
     ///
     /// This is a private implementation. It must not be exposed publicly.
-    async fn append_events_locked_impl(
+    fn append_events_locked_impl(
         &self,
         mut room_events: RwLockWriteGuard<'_, RoomEvents>,
         sync_timeline_events: Vec<SyncTimelineEvent>,
