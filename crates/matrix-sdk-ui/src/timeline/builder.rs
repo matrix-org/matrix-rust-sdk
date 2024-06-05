@@ -229,11 +229,11 @@ impl TimelineBuilder {
                             inner.clear().await;
                         }
 
-                        RoomEventCacheUpdate::AddTimelineEvents { events, origin } => {
+                        RoomEventCacheUpdate::AddTimelineEvents { events: diffs, origin } => {
                             trace!("Received new timeline events.");
 
                             inner.add_events_with_diffs(
-                                events,
+                                diffs,
                                 match origin {
                                     EventsOrigin::Sync => RemoteEventOrigin::Sync,
                                     EventsOrigin::Pagination => RemoteEventOrigin::Pagination,

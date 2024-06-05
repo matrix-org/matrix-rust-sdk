@@ -98,21 +98,30 @@ impl TimelineInnerState {
     /// should be ordered in *reverse* topological order, that is, `events[0]`
     /// is the most recent.
     #[tracing::instrument(skip(self, events, room_data_provider, settings))]
-    pub(super) async fn add_remote_events_at<P: RoomDataProvider>(
+    pub(super) async fn add_remote_events_at<Events, RoomData>(
         &mut self,
-        events: Vec<impl Into<SyncTimelineEvent>>,
+        events: Events,
         position: TimelineEnd,
         origin: RemoteEventOrigin,
-        room_data_provider: &P,
+        room_data_provider: &RoomData,
         settings: &TimelineInnerSettings,
-    ) -> HandleManyEventsResult {
-        if events.is_empty() {
+    ) -> HandleManyEventsResult
+    where
+        Events: IntoIterator,
+        Events::IntoIter: ExactSizeIterator,
+        Events::Item: Into<SyncTimelineEvent>,
+        RoomData: RoomDataProvider,
+    {
+        let events = events.into_iter();
+
+        if events.len() == 0 {
             return Default::default();
         }
 
         let mut txn = self.transaction();
-        let handle_many_res =
-            txn.add_remote_events_at(events, position, origin, room_data_provider, settings).await;
+        let handle_many_res = txn
+            .add_remote_events_at(events, position.into(), origin, room_data_provider, settings)
+            .await;
         txn.commit();
 
         handle_many_res
@@ -406,14 +415,19 @@ impl TimelineInnerStateTransaction<'_> {
     /// should be ordered in *reverse* topological order, that is, `events[0]`
     /// is the most recent.
     #[tracing::instrument(skip(self, events, room_data_provider, settings))]
-    pub(super) async fn add_remote_events_at<P: RoomDataProvider>(
+    pub(super) async fn add_remote_events_at<Events, RoomData>(
         &mut self,
-        events: Vec<impl Into<SyncTimelineEvent>>,
+        events: Events,
         position: TimelineEnd,
         origin: RemoteEventOrigin,
-        room_data_provider: &P,
+        room_data_provider: &RoomData,
         settings: &TimelineInnerSettings,
-    ) -> HandleManyEventsResult {
+    ) -> HandleManyEventsResult
+    where
+        Events: IntoIterator,
+        Events::Item: Into<SyncTimelineEvent>,
+        RoomData: RoomDataProvider,
+    {
         let mut total = HandleManyEventsResult::default();
 
         let position = match position {

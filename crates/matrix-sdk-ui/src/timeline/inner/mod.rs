@@ -543,13 +543,20 @@ impl<P: RoomDataProvider> TimelineInner<P> {
     /// is the most recent.
     ///
     /// Returns the number of timeline updates that were made.
-    pub(super) async fn add_events_at(
+    pub(super) async fn add_events_at<Events>(
         &self,
-        events: Vec<impl Into<SyncTimelineEvent>>,
+        events: Events,
         position: TimelineEnd,
         origin: RemoteEventOrigin,
-    ) -> HandleManyEventsResult {
-        if events.is_empty() {
+    ) -> HandleManyEventsResult
+    where
+        Events: IntoIterator,
+        Events::IntoIter: ExactSizeIterator,
+        Events::Item: Into<SyncTimelineEvent>,
+    {
+        let events = events.into_iter();
+
+        if events.len() == 0 {
             return Default::default();
         }
 
@@ -578,16 +585,13 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
         let mut state = self.state.write().await;
 
-        // TODO: replace `into_iter().collect()` by a simple iterator in
-        // `state.add_events_at`.
-
         for diff in diffs {
             result = result
                 + match diff {
                     VectorDiff::Append { values: events } => {
                         state
                             .add_remote_events_at(
-                                events.into_iter().collect::<Vec<_>>(),
+                                events,
                                 TimelineEnd::Back,
                                 origin,
                                 &self.room_data_provider,
