@@ -25,7 +25,7 @@ use std::{
     fs,
     fs::File,
     io::{BufReader, BufWriter},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
 use mas_oidc_client::types::registration::{
@@ -37,9 +37,9 @@ use url::Url;
 /// Errors related to persisting OIDC registrations.
 #[derive(Debug, thiserror::Error)]
 pub enum OidcRegistrationsError {
-    /// The supplied base path is invalid.
-    #[error("Failed to use the supplied base path.")]
-    InvalidBasePath,
+    /// The supplied registrations file path is invalid.
+    #[error("Failed to use the supplied registrations file path.")]
+    InvalidFilePath,
     /// An error occurred whilst saving the registration data.
     #[error("Failed to save the registration data {0}.")]
     SaveFailure(#[source] Box<dyn std::error::Error>),
@@ -107,9 +107,9 @@ impl OidcRegistrations {
     ///
     /// # Arguments
     ///
-    /// * `base_path` - A directory where the registrations file can be stored.
-    ///   It will be nested inside of a directory called `oidc` as
-    ///   `registrations.json`.
+    /// * `registrations_file` - A file path where the registrations will be
+    ///   stored. This previously took a directory and stored the registrations
+    ///   with the path `supplied_directory/oidc/registrations.json`.
     ///
     /// * `metadata` - The metadata used to register the client. If this
     ///   changes, any stored registrations will be lost so the client can
@@ -118,15 +118,15 @@ impl OidcRegistrations {
     /// * `static_registrations` - Pre-configured registrations for use with
     ///   issuers that don't support dynamic client registration.
     pub fn new(
-        base_path: &str,
+        registrations_file: &Path,
         metadata: VerifiedClientMetadata,
         static_registrations: HashMap<Url, ClientId>,
     ) -> Result<Self, OidcRegistrationsError> {
-        let oidc_directory = PathBuf::from(base_path).join("oidc");
-        fs::create_dir_all(&oidc_directory).map_err(|_| OidcRegistrationsError::InvalidBasePath)?;
+        let parent = registrations_file.parent().ok_or(OidcRegistrationsError::InvalidFilePath)?;
+        fs::create_dir_all(parent).map_err(|_| OidcRegistrationsError::InvalidFilePath)?;
 
         Ok(OidcRegistrations {
-            file_path: oidc_directory.join("registrations.json"),
+            file_path: registrations_file.to_owned(),
             verified_metadata: metadata,
             static_registrations,
         })
@@ -211,7 +211,7 @@ mod tests {
     fn test_oidc_registrations() {
         // Given a fresh registration store with a single static registration.
         let dir = tempdir().unwrap();
-        let base_path = dir.path().to_str().unwrap();
+        let registrations_file = dir.path().join("oidc").join("registrations.json");
 
         let static_url = Url::parse("https://example.com").unwrap();
         let static_id = ClientId("static_client_id".to_owned());
@@ -224,7 +224,8 @@ mod tests {
         let oidc_metadata = mock_metadata("Example".to_owned());
 
         let registrations =
-            OidcRegistrations::new(base_path, oidc_metadata, static_registrations).unwrap();
+            OidcRegistrations::new(&registrations_file, oidc_metadata, static_registrations)
+                .unwrap();
 
         assert_eq!(registrations.client_id(&static_url), Some(static_id.clone()));
         assert_eq!(registrations.client_id(&dynamic_url), None);
@@ -242,7 +243,7 @@ mod tests {
     fn test_change_of_metadata() {
         // Given a single registration with an example app name.
         let dir = tempdir().unwrap();
-        let base_path = dir.path().to_str().unwrap();
+        let registrations_file = dir.path().join("oidc").join("registrations.json");
 
         let static_url = Url::parse("https://example.com").unwrap();
         let static_id = ClientId("static_client_id".to_owned());
@@ -254,8 +255,12 @@ mod tests {
         let mut static_registrations = HashMap::new();
         static_registrations.insert(static_url.clone(), static_id.clone());
 
-        let registrations =
-            OidcRegistrations::new(base_path, oidc_metadata, static_registrations.clone()).unwrap();
+        let registrations = OidcRegistrations::new(
+            &registrations_file,
+            oidc_metadata,
+            static_registrations.clone(),
+        )
+        .unwrap();
         registrations.set_and_write_client_id(dynamic_id.clone(), dynamic_url.clone()).unwrap();
 
         assert_eq!(registrations.client_id(&static_url), Some(static_id.clone()));
@@ -265,7 +270,8 @@ mod tests {
         let new_oidc_metadata = mock_metadata("New App".to_owned());
 
         let registrations =
-            OidcRegistrations::new(base_path, new_oidc_metadata, static_registrations).unwrap();
+            OidcRegistrations::new(&registrations_file, new_oidc_metadata, static_registrations)
+                .unwrap();
 
         // Then the dynamic registrations are cleared.
         assert_eq!(registrations.client_id(&dynamic_url), None);
