@@ -864,7 +864,7 @@ impl OlmMachine {
         }
     }
 
-    async fn add_withheld_info(&self, changes: &mut Changes, event: &RoomKeyWithheldEvent) {
+    fn add_withheld_info(&self, changes: &mut Changes, event: &RoomKeyWithheldEvent) {
         if let RoomKeyWithheldContent::MegolmV1AesSha2(
             MegolmV1AesSha2WithheldContent::BlackListed(c)
             | MegolmV1AesSha2WithheldContent::Unverified(c),
@@ -1128,7 +1128,7 @@ impl OlmMachine {
         match event {
             RoomKeyRequest(e) => self.inner.key_request_machine.receive_incoming_key_request(e),
             SecretRequest(e) => self.inner.key_request_machine.receive_incoming_secret_request(e),
-            RoomKeyWithheld(e) => self.add_withheld_info(changes, e).await,
+            RoomKeyWithheld(e) => self.add_withheld_info(changes, e),
             KeyVerificationAccept(..)
             | KeyVerificationCancel(..)
             | KeyVerificationKey(..)
