@@ -114,7 +114,7 @@ pub trait MediaEventContent {
 
 impl MediaEventContent for StickerEventContent {
     fn source(&self) -> Option<MediaSource> {
-        Some(MediaSource::Plain(self.url.clone()))
+        Some(MediaSource::from(self.source.clone()))
     }
 
     fn thumbnail_source(&self) -> Option<MediaSource> {
