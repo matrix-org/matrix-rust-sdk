@@ -13,8 +13,7 @@ use matrix_sdk::{
     Client as MatrixClient, ClientBuildError as MatrixClientBuildError,
     ClientBuilder as MatrixClientBuilder, IdParseError,
 };
-use sanitize_filename_reader_friendly::sanitize;
-use tracing::{debug, error, warn};
+use tracing::{debug, error};
 use url::Url;
 use zeroize::Zeroizing;
 
@@ -215,7 +214,7 @@ impl From<ClientError> for ClientBuildError {
 
 #[derive(Clone, uniffi::Object)]
 pub struct ClientBuilder {
-    base_path: Option<String>,
+    session_path: Option<String>,
     username: Option<String>,
     homeserver_cfg: Option<HomeserverConfig>,
     server_versions: Option<Vec<String>>,
@@ -237,7 +236,7 @@ impl ClientBuilder {
     #[uniffi::constructor]
     pub fn new() -> Arc<Self> {
         Arc::new(Self {
-            base_path: None,
+            session_path: None,
             username: None,
             homeserver_cfg: None,
             server_versions: None,
@@ -277,9 +276,14 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
-    pub fn base_path(self: Arc<Self>, path: String) -> Arc<Self> {
+    /// Sets the path that the client will use to store its data once logged in.
+    /// This path **must** be unique per session as the data stores aren't
+    /// capable of handling multiple users.
+    ///
+    /// Leaving this unset tells the client to use an in-memory data store.
+    pub fn session_path(self: Arc<Self>, path: String) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.base_path = Some(path);
+        builder.session_path = Some(path);
         Arc::new(builder)
     }
 
@@ -411,28 +415,7 @@ impl ClientBuilder {
         progress_listener: Box<dyn QrLoginProgressListener>,
     ) -> Result<Arc<Client>, HumanQrLoginError> {
         if let QrCodeModeData::Reciprocate { homeserver_url } = &qr_code_data.inner.mode_data {
-            let mut builder = self.server_name_or_homeserver_url(homeserver_url.to_string());
-            let uuid = uuid::Uuid::new_v4().to_string();
-
-            // If a base directory was configured, create a random subdirectory, we will
-            // rename this directory later on.
-            let directories = if let Some(base_path) = &builder.base_path {
-                let base_directory = PathBuf::from(base_path);
-                let random_dir = base_directory.join(&uuid);
-
-                debug!("Setting the Client storage path to {random_dir:?}");
-
-                builder = builder.base_path(
-                    random_dir
-                        .to_str()
-                        .expect("The base path and the uuid both are valid UTF-8 strings")
-                        .to_owned(),
-                );
-
-                Some((base_directory, random_dir))
-            } else {
-                None
-            };
+            let builder = self.server_name_or_homeserver_url(homeserver_url.to_string());
 
             let client = builder.build().await.map_err(|e| {
                 error!("Couldn't build the client {e:?}");
@@ -460,34 +443,7 @@ impl ClientBuilder {
                 }
             }));
 
-            if let Err(e) = login.await {
-                if let Some((_, random_dir)) = directories {
-                    if let Err(e) = fs::remove_dir_all(random_dir) {
-                        warn!(
-                            "Couldn't clean up the random directory after a login failure: {e:?}"
-                        );
-                    }
-                }
-
-                return Err(e.into());
-            }
-
-            // Clients want to scope the per-client directory by the user ID, but the user
-            // ID is only available once we logged in. So rename the uuid based
-            // directory into the user name's directory.
-            if let Some((base_directory, random_dir)) = directories {
-                let user_id = client
-                    .user_id()
-                    .expect("Since the login above succeeded, we should know our user id now.");
-                let user_dir = base_directory.join(sanitize(&user_id));
-
-                debug!("Renaming the Client storage path from {random_dir:?} to {user_dir:?}");
-
-                fs::rename(random_dir, user_dir).map_err(|e| {
-                    error!("Couldn't rename the per-user storage directory: {e:?}");
-                    HumanQrLoginError::Unknown
-                })?;
-            }
+            login.await?;
 
             Ok(client)
         } else {
@@ -521,23 +477,18 @@ impl ClientBuilder {
         let builder = unwrap_or_clone_arc(self);
         let mut inner_builder = builder.inner;
 
-        if let Some(base_path) = &builder.base_path {
-            // Determine store path.
-            let data_path = if let Some(username) = &builder.username {
-                PathBuf::from(base_path).join(sanitize(username))
-            } else {
-                PathBuf::from(base_path)
-            };
+        if let Some(session_path) = &builder.session_path {
+            let data_path = PathBuf::from(session_path);
 
             debug!(
                 data_path = %data_path.to_string_lossy(),
-                "Creating directory and using it as the base path."
+                "Creating directory and using it as the store path."
             );
 
             fs::create_dir_all(&data_path)?;
             inner_builder = inner_builder.sqlite_store(&data_path, builder.passphrase.as_deref());
         } else {
-            debug!("Not using a base path.");
+            debug!("Not using a store path.");
         }
 
         // Determine server either from URL, server name or user ID.
