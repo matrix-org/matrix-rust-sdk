@@ -104,6 +104,7 @@ impl Session {
     }
 
     /// Get the [`EventEncryptionAlgorithm`] of this [`Session`].
+    #[allow(clippy::unused_async)] // The experimental-algorithms feature uses async code.
     pub async fn algorithm(&self) -> EventEncryptionAlgorithm {
         #[cfg(feature = "experimental-algorithms")]
         if self.session_config().await.version() == 2 {
