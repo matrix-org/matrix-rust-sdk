@@ -454,7 +454,7 @@ impl UserIdentities {
                     .await?;
 
                 let verification =
-                    i.request_verification(room.room_id(), &response.event_id, methods).await;
+                    i.request_verification(room.room_id(), &response.event_id, methods);
 
                 Ok(VerificationRequest { inner: verification, client: self.client.clone() })
             }

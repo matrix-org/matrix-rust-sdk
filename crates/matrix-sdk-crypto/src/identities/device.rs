@@ -301,8 +301,8 @@ impl Device {
     ///
     /// Returns a `VerificationRequest` object and a to-device request that
     /// needs to be sent out.
-    pub async fn request_verification(&self) -> (VerificationRequest, OutgoingVerificationRequest) {
-        self.request_verification_helper(None).await
+    pub fn request_verification(&self) -> (VerificationRequest, OutgoingVerificationRequest) {
+        self.request_verification_helper(None)
     }
 
     /// Request an interactive verification with this `Device`.
@@ -313,24 +313,22 @@ impl Device {
     /// # Arguments
     ///
     /// * `methods` - The verification methods that we want to support.
-    pub async fn request_verification_with_methods(
+    pub fn request_verification_with_methods(
         &self,
         methods: Vec<VerificationMethod>,
     ) -> (VerificationRequest, OutgoingVerificationRequest) {
-        self.request_verification_helper(Some(methods)).await
+        self.request_verification_helper(Some(methods))
     }
 
-    async fn request_verification_helper(
+    fn request_verification_helper(
         &self,
         methods: Option<Vec<VerificationMethod>>,
     ) -> (VerificationRequest, OutgoingVerificationRequest) {
-        self.verification_machine
-            .request_to_device_verification(
-                self.user_id(),
-                vec![self.device_id().to_owned()],
-                methods,
-            )
-            .await
+        self.verification_machine.request_to_device_verification(
+            self.user_id(),
+            vec![self.device_id().to_owned()],
+            methods,
+        )
     }
 
     /// Get the Olm sessions that belong to this device.

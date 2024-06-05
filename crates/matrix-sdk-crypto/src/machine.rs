@@ -3756,7 +3756,7 @@ pub(crate) mod tests {
 
         // Alice sends a verification request with her desired methods to Bob
         let (alice_ver_req, request) =
-            bob_device.request_verification_with_methods(vec![VerificationMethod::SasV1]).await;
+            bob_device.request_verification_with_methods(vec![VerificationMethod::SasV1]);
 
         // ----------------------------------------------------------------------------
         // On Bobs's device:
