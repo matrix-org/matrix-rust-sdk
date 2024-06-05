@@ -61,6 +61,9 @@ pub(crate) enum TimelineNewItemPosition {
     /// One or more items are appended to the timeline (i.e. they're the most
     /// recent).
     End { origin: RemoteEventOrigin },
+
+    /// One item is inserted to the timeline at a specific position.
+    At { index: usize, origin: RemoteEventOrigin },
 }
 
 impl From<TimelineNewItemPosition> for TimelineItemPosition {
@@ -68,6 +71,7 @@ impl From<TimelineNewItemPosition> for TimelineItemPosition {
         match value {
             TimelineNewItemPosition::Start { origin } => Self::Start { origin },
             TimelineNewItemPosition::End { origin } => Self::End { origin },
+            TimelineNewItemPosition::At { index, origin } => Self::At { index, origin },
         }
     }
 }
@@ -703,6 +707,11 @@ impl TimelineInnerStateTransaction<'_> {
 
                 self.meta.all_events.push_back(event_meta.base_meta());
             }
+
+            TimelineItemPosition::At { index, .. } => {
+                self.meta.all_events.insert(index, event_meta.base_meta());
+            }
+
             #[cfg(feature = "e2e-encryption")]
             TimelineItemPosition::Update { .. } => {
                 if let Some(event) =
@@ -724,11 +733,12 @@ impl TimelineInnerStateTransaction<'_> {
         if settings.track_read_receipts
             && matches!(
                 position,
-                TimelineItemPosition::Start { .. } | TimelineItemPosition::End { .. }
+                TimelineItemPosition::Start { .. }
+                    | TimelineItemPosition::End { .. }
+                    | TimelineItemPosition::At { .. }
             )
         {
             self.load_read_receipts_for_event(event_meta.event_id, room_data_provider).await;
-
             self.maybe_add_implicit_read_receipt(event_meta);
         }
 

@@ -225,6 +225,9 @@ pub(super) enum TimelineItemPosition {
     /// recent).
     End { origin: RemoteEventOrigin },
 
+    /// One item is inserted to the timeline at a specific position.
+    At { index: usize, origin: RemoteEventOrigin },
+
     /// A single item is updated.
     ///
     /// This only happens when a UTD must be replaced with the decrypted event.
@@ -316,8 +319,9 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
                 // Retrieve the origin of the event.
                 let origin = match position {
-                    TimelineItemPosition::End { origin }
-                    | TimelineItemPosition::Start { origin } => *origin,
+                    TimelineItemPosition::Start { origin }
+                    | TimelineItemPosition::End { origin }
+                    | TimelineItemPosition::At { origin, .. } => *origin,
 
                     TimelineItemPosition::Update { index } => self
                         .items
@@ -893,7 +897,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
                 let origin = match *position {
                     TimelineItemPosition::Start { origin }
-                    | TimelineItemPosition::End { origin } => origin,
+                    | TimelineItemPosition::End { origin }
+                    | TimelineItemPosition::At { origin, .. } => origin,
 
                     // For updates, reuse the origin of the encrypted event.
                     #[cfg(feature = "e2e-encryption")]
@@ -1038,6 +1043,13 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     self.items.insert(insert_idx, new_item);
                 }
             }
+
+            Flow::Remote {
+                position: TimelineItemPosition::At { index, .. },
+                txn_id,
+                event_id,
+                ..
+            } => todo!(),
 
             #[cfg(feature = "e2e-encryption")]
             Flow::Remote { position: TimelineItemPosition::Update { index }, .. } => {
