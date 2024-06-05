@@ -229,7 +229,7 @@ pub(super) enum TimelineItemPosition {
     ///
     /// This only happens when a UTD must be replaced with the decrypted event.
     #[cfg(feature = "e2e-encryption")]
-    Update(usize),
+    Update { index: usize },
 }
 
 /// The outcome of handling a single event with
@@ -319,9 +319,9 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     TimelineItemPosition::End { origin }
                     | TimelineItemPosition::Start { origin } => *origin,
 
-                    TimelineItemPosition::Update(idx) => self
+                    TimelineItemPosition::Update { index } => self
                         .items
-                        .get(*idx)
+                        .get(*index)
                         .and_then(|item| item.as_event())
                         .and_then(|item| item.as_remote())
                         .map_or(RemoteEventOrigin::Unknown, |item| item.origin),
@@ -456,12 +456,13 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             trace!("No new item added");
 
             #[cfg(feature = "e2e-encryption")]
-            if let Flow::Remote { position: TimelineItemPosition::Update(idx), .. } = self.ctx.flow
+            if let Flow::Remote { position: TimelineItemPosition::Update { index }, .. } =
+                self.ctx.flow
             {
                 // If add was not called, that means the UTD event is one that
                 // wouldn't normally be visible. Remove it.
                 trace!("Removing UTD that was successfully retried");
-                self.items.remove(idx);
+                self.items.remove(index);
 
                 self.result.item_removed = true;
             }
@@ -896,7 +897,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
                     // For updates, reuse the origin of the encrypted event.
                     #[cfg(feature = "e2e-encryption")]
-                    TimelineItemPosition::Update(idx) => self.items[idx]
+                    TimelineItemPosition::Update { index } => self.items[index]
                         .as_event()
                         .and_then(|ev| Some(ev.as_remote()?.origin))
                         .unwrap_or_else(|| {
@@ -963,7 +964,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 if let Some((idx, old_item)) = result {
                     if old_item.as_remote().is_some() {
                         // Item was previously received from the server. This should be very rare
-                        // normally, but with the sliding- sync proxy, it is actually very
+                        // normally, but with the sliding-sync proxy, it is actually very
                         // common.
                         // NOTE: SS proxy workaround.
                         trace!(?item, old_item = ?*old_item, "Received duplicate event");
@@ -1039,10 +1040,10 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             }
 
             #[cfg(feature = "e2e-encryption")]
-            Flow::Remote { position: TimelineItemPosition::Update(idx), .. } => {
-                trace!("Updating timeline item at position {idx}");
-                let id = self.items[*idx].internal_id.clone();
-                self.items.set(*idx, TimelineItem::new(item, id));
+            Flow::Remote { position: TimelineItemPosition::Update { index }, .. } => {
+                trace!("Updating timeline item at position {index}");
+                let id = self.items[*index].internal_id.clone();
+                self.items.set(*index, TimelineItem::new(item, id));
             }
         }
 

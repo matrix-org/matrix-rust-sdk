@@ -234,9 +234,9 @@ impl TimelineInnerState {
         // before the event being edited, if both were UTD. Keep track of
         // index change as UTDs are removed instead of updated.
         let mut offset = 0;
-        for idx in retry_indices {
-            let idx = idx - offset;
-            let Some(mut event) = retry_one(txn.items[idx].clone()).await else {
+        for index in retry_indices {
+            let index = index - offset;
+            let Some(mut event) = retry_one(txn.items[index].clone()).await else {
                 continue;
             };
 
@@ -247,7 +247,7 @@ impl TimelineInnerState {
             let handle_one_res = txn
                 .handle_remote_event(
                     event.into(),
-                    TimelineItemPosition::Update(idx),
+                    TimelineItemPosition::Update { index },
                     room_data_provider,
                     settings,
                     &mut day_divider_adjuster,
@@ -695,6 +695,7 @@ impl TimelineInnerStateTransaction<'_> {
 
                 self.meta.all_events.push_front(event_meta.base_meta())
             }
+
             TimelineItemPosition::End { .. } => {
                 if event_already_exists(event_meta.event_id, &self.meta.all_events) {
                     return false;
@@ -703,7 +704,7 @@ impl TimelineInnerStateTransaction<'_> {
                 self.meta.all_events.push_back(event_meta.base_meta());
             }
             #[cfg(feature = "e2e-encryption")]
-            TimelineItemPosition::Update(_) => {
+            TimelineItemPosition::Update { .. } => {
                 if let Some(event) =
                     self.meta.all_events.iter_mut().find(|e| e.event_id == event_meta.event_id)
                 {
