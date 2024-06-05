@@ -720,6 +720,10 @@ impl TimelineInnerStateTransaction<'_> {
             }
 
             TimelineItemPosition::At { event_index: index, .. } => {
+                if event_already_exists(event_meta.event_id, &self.meta.all_events) {
+                    return false;
+                }
+
                 self.meta.all_events.insert(index, event_meta.base_meta());
             }
 
