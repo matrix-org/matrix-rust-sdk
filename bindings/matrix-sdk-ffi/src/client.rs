@@ -154,7 +154,7 @@ pub trait SendingQueueStatusListener: Sync + Send {
     ///
     /// This can be set automatically (in case of sending failure), or manually
     /// via an API call.
-    fn on_value(&self, new_value: bool);
+    fn on_update(&self, new_value: bool);
 }
 
 #[derive(Clone, Copy, uniffi::Record)]
@@ -324,8 +324,8 @@ impl Client {
     /// event with it failed (e.g., sending an event via the high-level Timeline
     /// object), so it's required to manually re-enable it as soon as
     /// connectivity is back on the device.
-    pub fn enable_sending_queue(&self, val: bool) {
-        if val {
+    pub fn enable_sending_queue(&self, enable: bool) {
+        if enable {
             self.inner.sending_queue().enable();
         } else {
             self.inner.sending_queue().disable();
@@ -345,11 +345,11 @@ impl Client {
 
         Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
             // Call with the initial value.
-            listener.on_value(subscriber.next_now());
+            listener.on_update(subscriber.next_now());
 
             // Call every time the value changes.
             while let Some(next_val) = subscriber.next().await {
-                listener.on_value(next_val);
+                listener.on_update(next_val);
             }
         })))
     }
