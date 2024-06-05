@@ -38,7 +38,7 @@ use crate::{
 
 #[derive(uniffi::Object)]
 pub struct AuthenticationService {
-    base_path: String,
+    session_path: String,
     passphrase: Option<String>,
     user_agent: Option<String>,
     client: AsyncRwLock<Option<Client>>,
@@ -233,7 +233,7 @@ impl AuthenticationService {
     // this to a builder pattern as well.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        base_path: String,
+        session_path: String,
         passphrase: Option<String>,
         user_agent: Option<String>,
         additional_root_certificates: Vec<Vec<u8>>,
@@ -244,7 +244,7 @@ impl AuthenticationService {
         cross_process_refresh_lock_id: Option<String>,
     ) -> Arc<Self> {
         Arc::new(AuthenticationService {
-            base_path,
+            session_path,
             passphrase,
             user_agent,
             client: AsyncRwLock::new(None),
@@ -427,12 +427,10 @@ impl AuthenticationService {
 }
 
 impl AuthenticationService {
-    /// Create a new client builder pre-configured with the service's HTTP
-    /// configuration if needed.
-    ///
-    /// Note: this client doesn't set the base path by default.
+    /// Create a new client builder pre-configured with the store path and the service's
+    /// HTTP configuration if needed.
     fn new_client_builder(&self) -> Arc<ClientBuilder> {
-        let mut builder = ClientBuilder::new();
+        let mut builder = ClientBuilder::new().session_path(self.session_path.clone());
 
         if let Some(user_agent) = self.user_agent.clone() {
             builder = builder.user_agent(user_agent);
