@@ -481,7 +481,96 @@ impl Room {
     ///
     /// [spec]: <https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room>
     pub async fn computed_display_name(&self) -> StoreResult<DisplayName> {
-        self.calculate_name().await
+        let summary = {
+            let inner = self.inner.read();
+
+            if let Some(name) = inner.name() {
+                let name = name.trim();
+                return Ok(DisplayName::Named(name.to_owned()));
+            }
+
+            if let Some(alias) = inner.canonical_alias() {
+                let alias = alias.alias().trim();
+                return Ok(DisplayName::Aliased(alias.to_owned()));
+            }
+
+            inner.summary.clone()
+        };
+
+        let own_user_id = self.own_user_id().as_str();
+
+        let (heroes, num_joined_guess): (Vec<String>, _) = if !summary.heroes_names.is_empty() {
+            // Straightforward path: pass through the heroes names, don't give a guess of
+            // the number of members.
+            (summary.heroes_names, None)
+        } else if !summary.heroes_user_ids.is_empty() {
+            // Use the heroes, if available.
+            let heroes = summary.heroes_user_ids;
+
+            let mut names = Vec::with_capacity(heroes.len());
+            for user_id in heroes {
+                if user_id == own_user_id {
+                    continue;
+                }
+                if let Some(member) = self.get_member(&user_id).await? {
+                    names.push(member.name().to_owned());
+                }
+            }
+
+            (names, None)
+        } else {
+            let mut joined_members = self.members(RoomMemberships::JOIN).await?;
+
+            // Make the ordering deterministic.
+            joined_members.sort_unstable_by(|lhs, rhs| lhs.name().cmp(rhs.name()));
+
+            // We can make a good prediction of the total number of members here. This might
+            // be incorrect if the database info is outdated.
+            let num_joined = Some(joined_members.len());
+
+            (
+                joined_members
+                    .into_iter()
+                    .take(NUM_HEROES)
+                    .filter_map(|u| (u.user_id() != own_user_id).then(|| u.name().to_owned()))
+                    .collect(),
+                num_joined,
+            )
+        };
+
+        let (num_joined, num_invited) = match self.state() {
+            RoomState::Invited => {
+                // when we were invited we don't have a proper summary, we have to do best
+                // guessing
+                (heroes.len() as u64, 1u64)
+            }
+
+            RoomState::Joined if summary.joined_member_count == 0 => {
+                let num_joined = if let Some(num_joined) = num_joined_guess {
+                    num_joined
+                } else {
+                    self.joined_user_ids().await?.len()
+                };
+
+                (num_joined as u64, summary.invited_member_count)
+            }
+
+            _ => (summary.joined_member_count, summary.invited_member_count),
+        };
+
+        debug!(
+            room_id = ?self.room_id(),
+            own_user = ?self.own_user_id,
+            num_joined, num_invited,
+            heroes = ?heroes,
+            "Calculating name for a room based on heroes",
+        );
+
+        Ok(calculate_room_name(
+            num_joined,
+            num_invited,
+            heroes.iter().map(|hero| hero.as_str()).collect(),
+        ))
     }
 
     /// Return the last event in this room, if one has been cached during
@@ -607,99 +696,6 @@ impl Room {
     /// Returns the number of members who have joined the room.
     pub fn joined_members_count(&self) -> u64 {
         self.inner.read().joined_members_count()
-    }
-
-    async fn calculate_name(&self) -> StoreResult<DisplayName> {
-        let summary = {
-            let inner = self.inner.read();
-
-            if let Some(name) = inner.name() {
-                let name = name.trim();
-                return Ok(DisplayName::Named(name.to_owned()));
-            }
-
-            if let Some(alias) = inner.canonical_alias() {
-                let alias = alias.alias().trim();
-                return Ok(DisplayName::Aliased(alias.to_owned()));
-            }
-
-            inner.summary.clone()
-        };
-
-        let own_user_id = self.own_user_id().as_str();
-
-        let (heroes, num_joined_guess): (Vec<String>, _) = if !summary.heroes_names.is_empty() {
-            // Straightforward path: pass through the heroes names, don't give a guess of
-            // the number of members.
-            (summary.heroes_names, None)
-        } else if !summary.heroes_user_ids.is_empty() {
-            // Use the heroes, if available.
-            let heroes = summary.heroes_user_ids;
-
-            let mut names = Vec::with_capacity(heroes.len());
-            for user_id in heroes {
-                if user_id == own_user_id {
-                    continue;
-                }
-                if let Some(member) = self.get_member(&user_id).await? {
-                    names.push(member.name().to_owned());
-                }
-            }
-
-            (names, None)
-        } else {
-            let mut joined_members = self.members(RoomMemberships::JOIN).await?;
-
-            // Make the ordering deterministic.
-            joined_members.sort_unstable_by(|lhs, rhs| lhs.name().cmp(rhs.name()));
-
-            // We can make a good prediction of the total number of members here. This might
-            // be incorrect if the database info is outdated.
-            let num_joined = Some(joined_members.len());
-
-            (
-                joined_members
-                    .into_iter()
-                    .take(NUM_HEROES)
-                    .filter_map(|u| (u.user_id() != own_user_id).then(|| u.name().to_owned()))
-                    .collect(),
-                num_joined,
-            )
-        };
-
-        let (num_joined, num_invited) = match self.state() {
-            RoomState::Invited => {
-                // when we were invited we don't have a proper summary, we have to do best
-                // guessing
-                (heroes.len() as u64, 1u64)
-            }
-
-            RoomState::Joined if summary.joined_member_count == 0 => {
-                let num_joined = if let Some(num_joined) = num_joined_guess {
-                    num_joined
-                } else {
-                    self.joined_user_ids().await?.len()
-                };
-
-                (num_joined as u64, summary.invited_member_count)
-            }
-
-            _ => (summary.joined_member_count, summary.invited_member_count),
-        };
-
-        debug!(
-            room_id = ?self.room_id(),
-            own_user = ?self.own_user_id,
-            num_joined, num_invited,
-            heroes = ?heroes,
-            "Calculating name for a room based on heroes",
-        );
-
-        Ok(calculate_room_name(
-            num_joined,
-            num_invited,
-            heroes.iter().map(|hero| hero.as_str()).collect(),
-        ))
     }
 
     /// Subscribe to the inner `RoomInfo`.
