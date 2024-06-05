@@ -217,7 +217,7 @@ impl Paginator {
     ///
     /// Will return an `InvalidPreviousState` error if the paginator is busy
     /// (running /context or /messages).
-    pub(super) async fn set_idle_state(
+    pub(super) fn set_idle_state(
         &self,
         prev_batch_token: Option<String>,
         next_batch_token: Option<String>,
@@ -1144,10 +1144,7 @@ mod tests {
 
             // Assuming a paginator ready to back- or forward- paginate,
             let paginator = Paginator::new(room.clone());
-            paginator
-                .set_idle_state(Some("prev".to_owned()), Some("next".to_owned()))
-                .await
-                .unwrap();
+            paginator.set_idle_state(Some("prev".to_owned()), Some("next".to_owned())).unwrap();
 
             let paginator = Arc::new(paginator);
 
