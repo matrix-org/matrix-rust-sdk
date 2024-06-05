@@ -800,7 +800,7 @@ mod tests {
         // in joined_count)
         let mut room = v4::SlidingSyncRoom::new();
         room.joined_count = Some(uint!(41));
-        let response = response_with_room(room_id, room).await;
+        let response = response_with_room(room_id, room);
         let sync_resp =
             client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
 
@@ -825,7 +825,7 @@ mod tests {
         // When I send sliding sync response containing a room with a name
         let mut room = v4::SlidingSyncRoom::new();
         room.name = Some("little room".to_owned());
-        let response = response_with_room(room_id, room).await;
+        let response = response_with_room(room_id, room);
         let sync_resp =
             client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
 
@@ -853,7 +853,7 @@ mod tests {
         let mut room = v4::SlidingSyncRoom::new();
         set_room_invited(&mut room, inviter, user_id);
         room.name = Some("name from sliding sync response".to_owned());
-        let response = response_with_room(room_id, room).await;
+        let response = response_with_room(room_id, room);
         let sync_resp =
             client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
 
@@ -883,14 +883,14 @@ mod tests {
         // When I join…
         let mut room = v4::SlidingSyncRoom::new();
         set_room_joined(&mut room, user_id);
-        let response = response_with_room(room_id, room).await;
+        let response = response_with_room(room_id, room);
         client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
         assert_eq!(client.get_room(room_id).unwrap().state(), RoomState::Joined);
 
         // And then leave with a `required_state` state event…
         let mut room = v4::SlidingSyncRoom::new();
         set_room_left(&mut room, user_id);
-        let response = response_with_room(room_id, room).await;
+        let response = response_with_room(room_id, room);
         let sync_resp =
             client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
 
@@ -914,7 +914,7 @@ mod tests {
             // When I join…
             let mut room = v4::SlidingSyncRoom::new();
             set_room_joined(&mut room, user_a_id);
-            let response = response_with_room(room_id, room).await;
+            let response = response_with_room(room_id, room);
             client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
             assert_eq!(client.get_room(room_id).unwrap().state(), RoomState::Joined);
 
@@ -926,7 +926,7 @@ mod tests {
                 RoomMemberEventContent::new(membership),
                 None,
             ));
-            let response = response_with_room(room_id, room).await;
+            let response = response_with_room(room_id, room);
             let sync_resp =
                 client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
 
@@ -950,14 +950,14 @@ mod tests {
         // When I join…
         let mut room = v4::SlidingSyncRoom::new();
         set_room_joined(&mut room, user_id);
-        let response = response_with_room(room_id, room).await;
+        let response = response_with_room(room_id, room);
         client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
         assert_eq!(client.get_room(room_id).unwrap().state(), RoomState::Joined);
 
         // And then leave with a `timeline` state event…
         let mut room = v4::SlidingSyncRoom::new();
         set_room_left_as_timeline_event(&mut room, user_id);
-        let response = response_with_room(room_id, room).await;
+        let response = response_with_room(room_id, room);
         client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
 
         // The room is left.
@@ -976,7 +976,7 @@ mod tests {
         // When I join...
         let mut room = v4::SlidingSyncRoom::new();
         set_room_joined(&mut room, user_id);
-        let response = response_with_room(room_id, room).await;
+        let response = response_with_room(room_id, room);
         client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
         // (sanity: state is join)
         assert_eq!(client.get_room(room_id).unwrap().state(), RoomState::Joined);
@@ -984,7 +984,7 @@ mod tests {
         // And then leave...
         let mut room = v4::SlidingSyncRoom::new();
         set_room_left(&mut room, user_id);
-        let response = response_with_room(room_id, room).await;
+        let response = response_with_room(room_id, room);
         client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
         // (sanity: state is left)
         assert_eq!(client.get_room(room_id).unwrap().state(), RoomState::Left);
@@ -992,7 +992,7 @@ mod tests {
         // And then get invited back
         let mut room = v4::SlidingSyncRoom::new();
         set_room_invited(&mut room, user_id, user_id);
-        let response = response_with_room(room_id, room).await;
+        let response = response_with_room(room_id, room);
         client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
 
         // Then the room is in the invite state
@@ -1109,7 +1109,7 @@ mod tests {
 
             room
         };
-        let response = response_with_room(room_id, room).await;
+        let response = response_with_room(room_id, room);
         client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
 
         // Then the room in the client has the avatar
@@ -1135,7 +1135,7 @@ mod tests {
 
             room
         };
-        let response = response_with_room(room_id, room).await;
+        let response = response_with_room(room_id, room);
         client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
 
         // Then the room in the client has the avatar
@@ -1149,7 +1149,7 @@ mod tests {
 
         // When I send sliding sync response containing no avatar.
         let room = v4::SlidingSyncRoom::new();
-        let response = response_with_room(room_id, room).await;
+        let response = response_with_room(room_id, room);
         client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
 
         // Then the room in the client still has the avatar
@@ -1168,7 +1168,7 @@ mod tests {
 
             room
         };
-        let response = response_with_room(room_id, room).await;
+        let response = response_with_room(room_id, room);
         client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
 
         // Then the room in the client has no more avatar
@@ -1185,7 +1185,7 @@ mod tests {
 
         // When I send sliding sync response containing a room with an avatar
         let room = room_with_avatar(mxc_uri!("mxc://e.uk/med1"), user_id);
-        let response = response_with_room(room_id, room).await;
+        let response = response_with_room(room_id, room);
         client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
 
         // Then the room in the client has the avatar
@@ -1206,7 +1206,7 @@ mod tests {
         // When I send sliding sync response containing an invited room
         let mut room = v4::SlidingSyncRoom::new();
         set_room_invited(&mut room, user_id, user_id);
-        let response = response_with_room(room_id, room).await;
+        let response = response_with_room(room_id, room);
         let sync_resp =
             client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
 
@@ -1230,7 +1230,7 @@ mod tests {
         // When I send sliding sync response containing an invited room with an avatar
         let mut room = room_with_avatar(mxc_uri!("mxc://e.uk/med1"), user_id);
         set_room_invited(&mut room, user_id, user_id);
-        let response = response_with_room(room_id, room).await;
+        let response = response_with_room(room_id, room);
         client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
 
         // Then the room in the client has the avatar
@@ -1253,7 +1253,7 @@ mod tests {
         // When I send sliding sync response containing an invited room with an avatar
         let mut room = room_with_canonical_alias(room_alias_id, user_id);
         set_room_invited(&mut room, user_id, user_id);
-        let response = response_with_room(room_id, room).await;
+        let response = response_with_room(room_id, room);
         client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
 
         // Then the room in the client has the avatar
@@ -1273,7 +1273,7 @@ mod tests {
         // alias
         let mut room = room_with_canonical_alias(room_alias_id, user_id);
         room.name = Some("This came from the server".to_owned());
-        let response = response_with_room(room_id, room).await;
+        let response = response_with_room(room_id, room);
         client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
 
         // Then the room's name is NOT overridden by the server-computed display name.
@@ -1303,7 +1303,7 @@ mod tests {
                 name: Some("Alice".to_owned()),
             }),
         ]);
-        let response = response_with_room(room_id, room).await;
+        let response = response_with_room(room_id, room);
         let _sync_resp =
             client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
 
@@ -1342,7 +1342,7 @@ mod tests {
         // When the sliding sync response contains a timeline
         let events = &[event_a, event_b.clone()];
         let room = room_with_timeline(events);
-        let response = response_with_room(room_id, room).await;
+        let response = response_with_room(room_id, room);
         client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
 
         // Then the room holds the latest event
@@ -1368,7 +1368,7 @@ mod tests {
 
         // When the sliding sync response contains a timeline
         let room = room_with_timeline(&[event_a]);
-        let response = response_with_room(room_id, room).await;
+        let response = response_with_room(room_id, room);
         client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
 
         // Then the room holds the latest event
@@ -1389,7 +1389,7 @@ mod tests {
 
         // When a redaction for that event is received
         let room = room_with_timeline(&[redaction]);
-        let response = response_with_room(room_id, room).await;
+        let response = response_with_room(room_id, room);
         client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
 
         // Then the room still holds the latest event
@@ -1778,7 +1778,7 @@ mod tests {
 
         room.required_state.push(make_membership_event(their_id, other_state));
 
-        let mut response = response_with_room(room_id, room).await;
+        let mut response = response_with_room(room_id, room);
         set_direct_with(&mut response, their_id.to_owned(), vec![room_id.to_owned()]);
         client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
     }
@@ -1792,7 +1792,7 @@ mod tests {
     ) {
         let mut room = v4::SlidingSyncRoom::new();
         room.required_state.push(make_membership_event(user_id, new_state));
-        let response = response_with_room(room_id, room).await;
+        let response = response_with_room(room_id, room);
         client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
     }
 
@@ -1810,7 +1810,7 @@ mod tests {
             .push(make_global_account_data_event(DirectEventContent(direct_content)));
     }
 
-    async fn response_with_room(room_id: &RoomId, room: v4::SlidingSyncRoom) -> v4::Response {
+    fn response_with_room(room_id: &RoomId, room: v4::SlidingSyncRoom) -> v4::Response {
         let mut response = v4::Response::new("5".to_owned());
         response.rooms.insert(room_id.to_owned(), room);
         response
