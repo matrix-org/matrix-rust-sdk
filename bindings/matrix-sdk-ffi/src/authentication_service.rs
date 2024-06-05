@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    path::Path,
     sync::{Arc, RwLock as StdRwLock},
 };
 
@@ -75,8 +76,6 @@ pub enum AuthenticationError {
 
     #[error("Login was successful but is missing a valid Session to configure the file store.")]
     SessionMissing,
-    #[error("Failed to use the supplied base path.")]
-    InvalidBasePath,
 
     #[error(
         "The homeserver doesn't provide an authentication issuer in its well-known configuration."
@@ -86,6 +85,8 @@ pub enum AuthenticationError {
     OidcMetadataMissing,
     #[error("Unable to use OIDC as the supplied client metadata is invalid.")]
     OidcMetadataInvalid,
+    #[error("Failed to use the supplied registrations file path.")]
+    OidcRegistrationsPathInvalid,
     #[error("The supplied callback URL used to complete OIDC is invalid.")]
     OidcCallbackUrlInvalid,
     #[error("The OIDC login was cancelled by the user.")]
@@ -130,7 +131,9 @@ impl From<ClientBuildError> for AuthenticationError {
 impl From<OidcRegistrationsError> for AuthenticationError {
     fn from(e: OidcRegistrationsError) -> AuthenticationError {
         match e {
-            OidcRegistrationsError::InvalidBasePath => AuthenticationError::InvalidBasePath,
+            OidcRegistrationsError::InvalidFilePath => {
+                AuthenticationError::OidcRegistrationsPathInvalid
+            }
             _ => AuthenticationError::OidcError { message: e.to_string() },
         }
     }
@@ -164,6 +167,11 @@ pub struct OidcConfiguration {
     /// Pre-configured registrations for use with issuers that don't support
     /// dynamic client registration.
     pub static_registrations: HashMap<String, String>,
+
+    /// A file path where any dynamic registrations should be stored.
+    ///
+    /// Suggested value: `{base_path}/oidc/registrations.json`
+    pub dynamic_registrations_file: String,
 }
 
 /// The data required to authenticate against an OIDC server.
@@ -455,8 +463,14 @@ impl AuthenticationService {
         };
 
         let oidc_metadata: VerifiedClientMetadata = configuration.try_into()?;
+        let registrations_file = Path::new(&configuration.dynamic_registrations_file);
 
-        if self.load_client_registration(oidc, issuer.clone(), oidc_metadata.clone()) {
+        if self.load_client_registration(
+            oidc,
+            issuer.clone(),
+            oidc_metadata.clone(),
+            registrations_file,
+        ) {
             tracing::info!("OIDC configuration loaded from disk.");
             return Ok(());
         }
@@ -472,14 +486,18 @@ impl AuthenticationService {
         oidc.restore_registered_client(issuer, oidc_metadata, credentials);
 
         tracing::info!("Persisting OIDC registration data.");
-        self.store_client_registration(oidc)?;
+        self.store_client_registration(oidc, registrations_file)?;
 
         Ok(())
     }
 
     /// Stores the current OIDC dynamic client registration so it can be re-used
     /// if we ever log in via the same issuer again.
-    fn store_client_registration(&self, oidc: &Oidc) -> Result<(), AuthenticationError> {
+    fn store_client_registration(
+        &self,
+        oidc: &Oidc,
+        registrations_file: &Path,
+    ) -> Result<(), AuthenticationError> {
         let issuer = Url::parse(oidc.issuer().ok_or(AuthenticationError::OidcNotSupported)?)
             .map_err(|_| AuthenticationError::OidcError {
                 message: String::from("Failed to parse issuer URL."),
@@ -497,7 +515,7 @@ impl AuthenticationService {
         })?;
 
         let registrations = OidcRegistrations::new(
-            &self.base_path,
+            registrations_file,
             metadata.clone(),
             self.oidc_static_registrations(),
         )?;
@@ -513,13 +531,14 @@ impl AuthenticationService {
         oidc: &Oidc,
         issuer: String,
         oidc_metadata: VerifiedClientMetadata,
+        registrations_file: &Path,
     ) -> bool {
         let Ok(issuer_url) = Url::parse(&issuer) else {
             tracing::error!("Failed to parse {issuer:?}");
             return false;
         };
         let Some(registrations) = OidcRegistrations::new(
-            &self.base_path,
+            registrations_file,
             oidc_metadata.clone(),
             self.oidc_static_registrations(),
         )
