@@ -86,7 +86,7 @@ async fn test_back_pagination() {
 
     let message = assert_next_matches!(
         timeline_stream,
-        VectorDiff::PushFront { value } => value
+        VectorDiff::PushBack { value } => value
     );
     assert_let!(TimelineItemContent::Message(msg) = message.as_event().unwrap().content());
     assert_let!(MessageType::Text(text) = msg.msgtype());
@@ -209,7 +209,7 @@ async fn test_back_pagination_highlighted() {
 
     let first = assert_next_matches!(
         timeline_stream,
-        VectorDiff::PushFront { value } => value
+        VectorDiff::PushBack { value } => value
     );
     let remote_event = first.as_event().unwrap();
     // Own events don't trigger push rules.
@@ -602,7 +602,7 @@ async fn test_empty_chunk() {
 
     let message = assert_next_matches!(
         timeline_stream,
-        VectorDiff::PushFront { value } => value
+        VectorDiff::PushBack { value } => value
     );
     assert_let!(TimelineItemContent::Message(msg) = message.as_event().unwrap().content());
     assert_let!(MessageType::Text(text) = msg.msgtype());
@@ -700,7 +700,7 @@ async fn test_until_num_items_with_empty_chunk() {
 
     let message = assert_next_matches!(
         timeline_stream,
-        VectorDiff::PushFront { value } => value
+        VectorDiff::PushBack { value } => value
     );
     assert_let!(TimelineItemContent::Message(msg) = message.as_event().unwrap().content());
     assert_let!(MessageType::Text(text) = msg.msgtype());
