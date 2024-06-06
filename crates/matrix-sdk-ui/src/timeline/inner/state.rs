@@ -708,7 +708,7 @@ impl TimelineInnerStateTransaction<'_> {
                     return false;
                 }
 
-                self.meta.all_events.push_front(event_meta.base_meta())
+                self.meta.all_events.push_front(event_meta.base_meta());
             }
 
             TimelineItemPosition::End { .. } => {
@@ -952,7 +952,11 @@ pub(crate) struct FullEventMeta<'a> {
 
 impl<'a> FullEventMeta<'a> {
     fn base_meta(&self) -> EventMeta {
-        EventMeta { event_id: self.event_id.to_owned(), visible: self.visible }
+        EventMeta {
+            event_id: self.event_id.to_owned(),
+            timeline_item_index: None,
+            visible: self.visible,
+        }
     }
 }
 
@@ -961,6 +965,15 @@ impl<'a> FullEventMeta<'a> {
 pub(crate) struct EventMeta {
     /// The ID of the event.
     pub event_id: OwnedEventId,
+    /// A way to map an `event_index` (from `TimelineInnerMetadata::all_events`)
+    /// or `event_id` (from `Self::event_id`) to a `timeline_item_index`.
+    ///
+    /// It is `Some(_)` if the timeline item is something that doesn't _move_ in
+    /// the timeline, `None` otherwise.
+    ///
+    /// Something that _moves_ is an item that attaches to or groups with
+    /// another item.
+    pub timeline_item_index: Option<usize>,
     /// Whether the event is among the timeline items.
     pub visible: bool,
 }
