@@ -921,7 +921,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
                             // Notify observers that we managed to eventually decrypt an event.
                             if let Some(hook) = unable_to_decrypt_hook {
-                                hook.on_late_decrypt(&remote_event.event_id, cause);
+                                hook.on_late_decrypt(&remote_event.event_id, cause).await;
                             }
 
                             Some(event)

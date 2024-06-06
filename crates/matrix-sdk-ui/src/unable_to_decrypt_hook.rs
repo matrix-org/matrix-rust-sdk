@@ -189,7 +189,7 @@ impl UtdHookManager {
     ///
     /// Note: if this is called for an event that was never marked as a UTD
     /// before, it has no effect.
-    pub(crate) fn on_late_decrypt(&self, event_id: &EventId, cause: UtdCause) {
+    pub(crate) async fn on_late_decrypt(&self, event_id: &EventId, cause: UtdCause) {
         let mut pending_delayed_lock = self.pending_delayed.lock().unwrap();
         self.known_utds.lock().unwrap().remove(event_id);
 
@@ -272,8 +272,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_on_late_decrypted_no_effect() {
+    #[async_test]
+    async fn test_on_late_decrypted_no_effect() {
         // If I create a dummy hook,
         let hook = Arc::new(Dummy::default());
 
@@ -282,7 +282,7 @@ mod tests {
 
         // And I call the `on_late_decrypt` method before the event had been marked as
         // utd,
-        wrapper.on_late_decrypt(event_id!("$1"), UtdCause::Unknown);
+        wrapper.on_late_decrypt(event_id!("$1"), UtdCause::Unknown).await;
 
         // Then nothing is registered in the parent hook.
         assert!(hook.utds.lock().unwrap().is_empty());
@@ -308,7 +308,7 @@ mod tests {
         }
 
         // And when I call the `on_late_decrypt` method,
-        wrapper.on_late_decrypt(event_id!("$1"), UtdCause::Unknown);
+        wrapper.on_late_decrypt(event_id!("$1"), UtdCause::Unknown).await;
 
         // Then the event is not reported again as a late-decryption.
         {
@@ -377,7 +377,7 @@ mod tests {
         // If I wait for 1 second, and mark the event as late-decrypted,
         sleep(Duration::from_secs(1)).await;
 
-        wrapper.on_late_decrypt(event_id!("$1"), UtdCause::Unknown);
+        wrapper.on_late_decrypt(event_id!("$1"), UtdCause::Unknown).await;
 
         // Then it's being immediately reported as a late-decryption UTD.
         {
