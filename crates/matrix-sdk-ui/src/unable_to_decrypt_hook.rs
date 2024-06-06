@@ -153,25 +153,18 @@ impl UtdHookManager {
             }
         }
 
-        // Construct a closure which will report the UTD to the parent.
-        let report_utd = {
-            let info =
-                UnableToDecryptInfo { event_id: event_id.to_owned(), time_to_decrypt: None, cause };
-            let parent = self.parent.clone();
-            move || {
-                parent.on_utd(info);
-            }
-        };
+        let info =
+            UnableToDecryptInfo { event_id: event_id.to_owned(), time_to_decrypt: None, cause };
 
         let Some(max_delay) = self.max_delay else {
             // No delay: immediately report the event to the parent hook.
-            report_utd();
+            Self::report_utd(info, &self.parent);
             return;
         };
 
         // Clone data shared with the task below.
         let pending_delayed = self.pending_delayed.clone();
-        let target_event_id = event_id.to_owned();
+        let parent = self.parent.clone();
 
         // Spawn a task that will wait for the given delay, and maybe call the parent
         // hook then.
@@ -181,8 +174,8 @@ impl UtdHookManager {
 
             // Remove the task from the outstanding set. But if it's already been removed,
             // it's been decrypted since the task was added!
-            if pending_delayed.lock().unwrap().remove(&target_event_id).is_some() {
-                report_utd();
+            if pending_delayed.lock().unwrap().remove(&info.event_id).is_some() {
+                Self::report_utd(info, &parent);
             }
         });
 
@@ -218,7 +211,13 @@ impl UtdHookManager {
             time_to_decrypt: Some(pending_utd_report.marked_utd_at.elapsed()),
             cause,
         };
-        self.parent.on_utd(info);
+        Self::report_utd(info, &self.parent);
+    }
+
+    /// Helper for [`UtdHookManager::on_utd`] and
+    /// [`UtdHookManager.on_late_decrypt`]: reports the UTD to the parent.
+    fn report_utd(info: UnableToDecryptInfo, parent_hook: &Arc<dyn UnableToDecryptHook>) {
+        parent_hook.on_utd(info);
     }
 }
 
