@@ -14,7 +14,7 @@
 
 use std::{fmt, sync::Arc};
 
-use ruma::{serde::Raw, OwnedDeviceId, OwnedUserId, SecondsSinceUnixEpoch};
+use ruma::{serde::Raw, SecondsSinceUnixEpoch};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::sync::Mutex;
@@ -24,14 +24,14 @@ use vodozemac::{
     Curve25519PublicKey,
 };
 
-use super::IdentityKeys;
 #[cfg(feature = "experimental-algorithms")]
 use crate::types::events::room::encrypted::OlmV2Curve25519AesSha2Content;
 use crate::{
     error::{EventError, OlmResult},
+    olm::PrivateCrossSigningIdentity,
     types::{
         events::room::encrypted::{OlmV1Curve25519AesSha2Content, ToDeviceEncryptedEventContent},
-        EventEncryptionAlgorithm,
+        DeviceKeys, EventEncryptionAlgorithm,
     },
     ReadOnlyDevice,
 };
@@ -40,18 +40,14 @@ use crate::{
 /// `Account`s
 #[derive(Clone)]
 pub struct Session {
-    /// The `UserId` associated with this session
-    pub user_id: OwnedUserId,
-    /// The specific `DeviceId` associated with this session
-    pub device_id: OwnedDeviceId,
-    /// The `IdentityKeys` associated with this session
-    pub our_identity_keys: Arc<IdentityKeys>,
     /// The OlmSession
     pub inner: Arc<Mutex<InnerSession>>,
     /// Our sessionId
     pub session_id: Arc<str>,
     /// The Key of the sender
     pub sender_key: Curve25519PublicKey,
+    /// The signed device keys
+    pub device_keys: DeviceKeys,
     /// Has this been created using the fallback key
     pub created_using_fallback_key: bool,
     /// When the session was created
@@ -156,11 +152,12 @@ impl Session {
                 recipient_device.ed25519_key().ok_or(EventError::MissingSigningKey)?;
 
             let payload = json!({
-                "sender": &self.user_id,
-                "sender_device": &self.device_id,
+                "sender": &self.device_keys.user_id,
+                "sender_device": &self.device_keys.device_id,
                 "keys": {
-                    "ed25519": self.our_identity_keys.ed25519.to_base64(),
+                    "ed25519": self.device_keys.ed25519_key().unwrap().to_base64(),
                 },
+                "device_keys": self.device_keys,
                 "recipient": recipient_device.user_id(),
                 "recipient_keys": {
                     "ed25519": recipient_signing_key.to_base64(),
@@ -178,7 +175,7 @@ impl Session {
             EventEncryptionAlgorithm::OlmV1Curve25519AesSha2 => OlmV1Curve25519AesSha2Content {
                 ciphertext,
                 recipient_key: self.sender_key,
-                sender_key: self.our_identity_keys.curve25519,
+                sender_key: self.device_keys.curve25519_key().unwrap(),
                 message_id,
             }
             .into(),
@@ -237,23 +234,25 @@ impl Session {
     ///
     /// * `pickle_mode` - The mode that was used to pickle the session, either
     /// an unencrypted mode or an encrypted using passphrase.
-    pub fn from_pickle(
-        user_id: OwnedUserId,
-        device_id: OwnedDeviceId,
-        our_identity_keys: Arc<IdentityKeys>,
+    pub async fn from_pickle(
+        mut device_keys: DeviceKeys,
+        identity: Option<PrivateCrossSigningIdentity>,
         pickle: PickledSession,
     ) -> Self {
+        // FIXME: assert that device_keys has curve25519 and ed25519 keys
         let session: vodozemac::olm::Session = pickle.pickle.into();
         let session_id = session.session_id();
 
+        if let Some(identity) = identity {
+            let _ = identity.sign_device_keys(&mut device_keys).await;
+        }
+
         Session {
-            user_id,
-            device_id,
-            our_identity_keys,
             inner: Arc::new(Mutex::new(session)),
             session_id: session_id.into(),
             created_using_fallback_key: pickle.created_using_fallback_key,
             sender_key: pickle.sender_key,
+            device_keys,
             creation_time: pickle.creation_time,
             last_use_time: pickle.last_use_time,
         }
@@ -284,4 +283,70 @@ pub struct PickledSession {
     pub creation_time: SecondsSinceUnixEpoch,
     /// The Unix timestamp when the session was last used.
     pub last_use_time: SecondsSinceUnixEpoch,
+}
+
+#[cfg(test)]
+mod tests {
+    use matrix_sdk_test::async_test;
+
+    use ruma::{device_id, user_id};
+    use serde_json::{self, Value};
+    use vodozemac::olm::{OlmMessage, SessionConfig};
+
+    use crate::{
+        identities::ReadOnlyDevice, olm::Account,
+        types::events::room::encrypted::ToDeviceEncryptedEventContent,
+    };
+
+    #[async_test]
+    async fn test_encryption_and_decryption() {
+        use ruma::events::dummy::ToDeviceDummyEventContent;
+
+        let alice =
+            Account::with_device_id(user_id!("@alice:localhost"), device_id!("ALICEDEVICE"));
+        let mut bob = Account::with_device_id(user_id!("@bob:localhost"), device_id!("BOBDEVICE"));
+
+        bob.generate_one_time_keys(1);
+        let one_time_key = *bob.one_time_keys().values().next().unwrap();
+        let sender_key = bob.identity_keys().curve25519;
+        let mut alice_session = alice
+            .create_outbound_session_helper(
+                SessionConfig::default(),
+                sender_key,
+                one_time_key,
+                false,
+            )
+            .await;
+
+        let alice_device = ReadOnlyDevice::from_account(&alice);
+        // let bob_device = ReadOnlyDevice::from_account(&bob);
+
+        let message = alice_session
+            .encrypt(&alice_device, "m.dummy", ToDeviceDummyEventContent::new(), None)
+            .await
+            .unwrap()
+            .deserialize()
+            .unwrap();
+
+        let content = if let ToDeviceEncryptedEventContent::OlmV1Curve25519AesSha2(c) = message {
+            c
+        } else {
+            panic!("Invalid encrypted event algorithm {}", message.algorithm());
+        };
+
+        let prekey = if let OlmMessage::PreKey(m) = content.ciphertext {
+            m
+        } else {
+            panic!("Wrong Olm message type");
+        };
+
+        let bob_session_result = bob
+            .create_inbound_session(alice_device.curve25519_key().unwrap(), &prekey)
+            .await
+            .unwrap();
+
+        // check that the payload has the device keys
+        let plaintext: Value = serde_json::from_str(&bob_session_result.plaintext).unwrap();
+        assert_eq!(plaintext["device_keys"]["user_id"].as_str(), Some("@alice:localhost"));
+    }
 }

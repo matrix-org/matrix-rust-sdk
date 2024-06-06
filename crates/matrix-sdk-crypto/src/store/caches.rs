@@ -397,7 +397,7 @@ mod tests {
 
     #[async_test]
     async fn test_session_store() {
-        let (_, session) = get_account_and_session_test_helper();
+        let (_, session) = get_account_and_session_test_helper().await;
 
         let store = SessionStore::new();
 
@@ -414,7 +414,7 @@ mod tests {
 
     #[async_test]
     async fn test_session_store_bulk_storing() {
-        let (_, session) = get_account_and_session_test_helper();
+        let (_, session) = get_account_and_session_test_helper().await;
 
         let store = SessionStore::new();
         store.set_for_sender(&session.sender_key.to_base64(), vec![session.clone()]);
@@ -429,7 +429,7 @@ mod tests {
 
     #[async_test]
     async fn test_group_session_store() {
-        let (account, _) = get_account_and_session_test_helper();
+        let (account, _) = get_account_and_session_test_helper().await;
         let room_id = room_id!("!test:localhost");
         let curve_key = "Nn0L2hkcCMFKqynTjyGsJbth7QrVmX3lbrksMkrGOAw";
 

@@ -537,7 +537,7 @@ impl SessionManager {
                 };
 
                 let account = store_transaction.account().await?;
-                let session = match account.create_outbound_session(&device, key_map) {
+                let session = match account.create_outbound_session(&device, key_map).await {
                     Ok(s) => s,
                     Err(e) => {
                         warn!(

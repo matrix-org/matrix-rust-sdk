@@ -18,6 +18,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+use futures_util::stream::{FuturesUnordered, StreamExt};
 use gloo_utils::format::JsValueSerdeExt;
 use hkdf::Hkdf;
 use indexed_db_futures::prelude::*;
@@ -860,9 +861,21 @@ impl_crypto_store! {
     }
 
     async fn get_sessions(&self, sender_key: &str) -> Result<Option<Arc<Mutex<Vec<Session>>>>> {
-        let account_info = self.get_static_account().ok_or(CryptoStoreError::AccountUnset)?;
-
         if self.session_cache.get(sender_key).is_none() {
+            let account = self.load_account()
+                .await
+                .or(Err(CryptoStoreError::AccountUnset))?
+                .ok_or(CryptoStoreError::AccountUnset)?;
+            let identity = self.load_identity()
+                .await
+                .unwrap_or(None);
+            let mut device_keys = account.device_keys();
+            // FIXME: we could avoid the FuturesUnordered and the .clone for
+            // device_keys and identity if we can sign the device_keys here,
+            // but the function for signing isn't visible to this crate.  (It
+            // would also be more efficient since we will only need to do the
+            // signing once, rather than for each session)
+
             let range = self.serializer.encode_to_range(keys::SESSION, sender_key)?;
             let sessions: Vec<Session> = self
                 .inner
@@ -873,13 +886,13 @@ impl_crypto_store! {
                 .iter()
                 .filter_map(|f| self.serializer.deserialize_value(f).ok().map(|p| {
                     Session::from_pickle(
-                        account_info.user_id.clone(),
-                        account_info.device_id.clone(),
-                        account_info.identity_keys.clone(),
+                        device_keys.clone(),
+                        identity.clone(),
                         p,
                     )
                 }))
-                .collect::<Vec<Session>>();
+                .collect::<FuturesUnordered<_>>()
+                .collect::<Vec<Session>>().await;
 
             self.session_cache.set_for_sender(sender_key, sessions);
         }
