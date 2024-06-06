@@ -633,3 +633,69 @@ async fn test_cancellation() {
 
     assert!(watch.is_empty());
 }
+
+#[async_test]
+async fn test_abort_reenable() {
+    let (client, server) = logged_in_client_with_server().await;
+
+    // Mark the room as joined.
+    let room_id = room_id!("!a:b.c");
+
+    let room = mock_sync_with_new_room(
+        |builder| {
+            builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+        },
+        &client,
+        &server,
+        room_id,
+    )
+    .await;
+
+    let mut global_status = client.sending_queue().subscribe_status();
+
+    assert!(global_status.next_now());
+
+    // When I start with an enabled sending queue,
+    client.sending_queue().enable();
+
+    assert!(client.sending_queue().is_enabled());
+
+    let q = room.sending_queue();
+
+    let (local_echoes, mut watch) = q.subscribe().await;
+
+    assert!(local_echoes.is_empty());
+    assert!(watch.is_empty());
+
+    // One message is queued.
+    let abort_send_handle =
+        q.send(RoomMessageEventContent::text_plain("hey there").into()).await.unwrap();
+
+    // It is first seen as a local echo,
+    assert_let!(
+        Ok(Ok(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
+            content: AnyMessageLikeEventContent::RoomMessage(msg),
+            ..
+        }))) = timeout(Duration::from_secs(1), watch.recv()).await
+    );
+    assert_eq!(msg.body(), format!("hey there"));
+
+    // Waiting for the global status to report the queue is getting disabled.
+    assert!(!global_status.next().await.unwrap());
+
+    // Aborting the sending should work.
+    assert!(abort_send_handle.abort().await);
+
+    // The room updates will report the error, then the cancelled event, eventually.
+    assert_let!(
+        Ok(Ok(RoomSendQueueUpdate::SendError { .. })) =
+            timeout(Duration::from_secs(1), watch.recv()).await
+    );
+
+    assert_let!(
+        Ok(Ok(RoomSendQueueUpdate::CancelledLocalEvent { .. })) =
+            timeout(Duration::from_secs(1), watch.recv()).await
+    );
+
+    assert!(watch.is_empty());
+}
