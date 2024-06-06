@@ -82,7 +82,7 @@ impl Room {
     /// compute a room name based on the room's nature (DM or not) and number of
     /// members.
     pub fn display_name(&self) -> Option<String> {
-        Some(self.inner.cached_computed_display_name()?.to_string())
+        Some(self.inner.cached_display_name()?.to_string())
     }
 
     /// The raw name as present in the room state event.

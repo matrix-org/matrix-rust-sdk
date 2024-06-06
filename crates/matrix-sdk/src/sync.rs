@@ -163,7 +163,7 @@ impl Client {
                 .chain(rooms.invite.keys())
                 .filter_map(|room_id| self.get_room(room_id))
             {
-                let _ = room.computed_display_name().await;
+                let _ = room.compute_display_name().await;
             }
         }
 

@@ -1660,7 +1660,7 @@ mod tests {
         let room = client.get_room(room_id).expect("Room not found");
         assert_eq!(room.state(), RoomState::Invited);
         assert_eq!(
-            room.computed_display_name().await.expect("fetching display name failed"),
+            room.compute_display_name().await.expect("fetching display name failed"),
             DisplayName::Calculated("Kyra".to_owned())
         );
     }
