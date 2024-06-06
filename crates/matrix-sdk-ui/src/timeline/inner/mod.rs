@@ -580,6 +580,8 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             return result;
         }
 
+        let room_data_provider = &self.room_data_provider;
+        let settings = &self.settings;
         let mut state = self.state.write().await;
 
         for diff in diffs {
@@ -590,8 +592,41 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                             .add_remote_events_at(
                                 events,
                                 TimelineNewItemPosition::End { origin },
-                                &self.room_data_provider,
-                                &self.settings,
+                                room_data_provider,
+                                settings,
+                            )
+                            .await
+                    }
+
+                    VectorDiff::PushFront { value } => {
+                        state
+                            .add_remote_events_at(
+                                [value],
+                                TimelineNewItemPosition::Start { origin },
+                                room_data_provider,
+                                settings,
+                            )
+                            .await
+                    }
+
+                    VectorDiff::PushBack { value } => {
+                        state
+                            .add_remote_events_at(
+                                [value],
+                                TimelineNewItemPosition::End { origin },
+                                room_data_provider,
+                                settings,
+                            )
+                            .await
+                    }
+
+                    VectorDiff::Insert { index: event_index, value } => {
+                        state
+                            .add_remote_events_at(
+                                [value],
+                                TimelineNewItemPosition::At { event_index, origin },
+                                room_data_provider,
+                                settings,
                             )
                             .await
                     }
