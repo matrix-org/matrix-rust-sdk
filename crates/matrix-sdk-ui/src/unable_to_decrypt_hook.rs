@@ -26,6 +26,7 @@ use std::{
 
 use growable_bloom_filter::{GrowableBloom, GrowableBloomBuilder};
 use matrix_sdk::{crypto::types::events::UtdCause, Client};
+use matrix_sdk_base::{StateStoreDataKey, StateStoreDataValue};
 use ruma::{EventId, OwnedEventId};
 use tokio::{
     spawn,
@@ -33,6 +34,7 @@ use tokio::{
     task::JoinHandle,
     time::sleep,
 };
+use tracing::error;
 
 /// A generic interface which methods get called whenever we observe a
 /// unable-to-decrypt (UTD) event.
@@ -198,7 +200,7 @@ impl UtdHookManager {
 
         let Some(max_delay) = self.max_delay else {
             // No delay: immediately report the event to the parent hook.
-            Self::report_utd(info, &self.parent, &mut reported_utds_lock);
+            Self::report_utd(info, &self.parent, &self.client, &mut reported_utds_lock).await;
             return;
         };
 
@@ -206,6 +208,7 @@ impl UtdHookManager {
         let pending_delayed = self.pending_delayed.clone();
         let reported_utds = self.reported_utds.clone();
         let parent = self.parent.clone();
+        let client = self.client.clone();
 
         // Spawn a task that will wait for the given delay, and maybe call the parent
         // hook then.
@@ -223,7 +226,7 @@ impl UtdHookManager {
             // Remove the task from the outstanding set. But if it's already been removed,
             // it's been decrypted since the task was added!
             if pending_delayed.lock().unwrap().remove(&info.event_id).is_some() {
-                Self::report_utd(info, &parent, &mut reported_utds_lock);
+                Self::report_utd(info, &parent, &client, &mut reported_utds_lock).await;
             }
         });
 
@@ -260,7 +263,7 @@ impl UtdHookManager {
             time_to_decrypt: Some(pending_utd_report.marked_utd_at.elapsed()),
             cause,
         };
-        Self::report_utd(info, &self.parent, &mut reported_utds_lock);
+        Self::report_utd(info, &self.parent, &self.client, &mut reported_utds_lock).await;
     }
 
     /// Helper for [`UtdHookManager::on_utd`] and
@@ -269,14 +272,25 @@ impl UtdHookManager {
     ///
     /// Must be called with the lock held on [`UtdHookManager::reported_utds`],
     /// and takes a `MutexGuard` to enforce that.
-    fn report_utd(
+    async fn report_utd<'a>(
         info: UnableToDecryptInfo,
         parent_hook: &Arc<dyn UnableToDecryptHook>,
-        reported_utds_lock: &mut MutexGuard<GrowableBloom>,
+        client: &Client,
+        reported_utds_lock: &mut MutexGuard<'a, GrowableBloom>,
     ) {
         let event_id = info.event_id.clone();
         parent_hook.on_utd(info);
         reported_utds_lock.insert(event_id);
+        if let Err(e) = client
+            .store()
+            .set_kv_data(
+                StateStoreDataKey::UtdHookManagerData,
+                StateStoreDataValue::UtdHookManagerData(reported_utds_lock.clone()),
+            )
+            .await
+        {
+            error!("Unable to persist UTD report data: {}", e);
+        }
     }
 }
 
