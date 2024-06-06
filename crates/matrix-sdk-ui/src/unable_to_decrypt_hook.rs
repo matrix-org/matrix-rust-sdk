@@ -26,7 +26,7 @@ use std::{
 
 use growable_bloom_filter::{GrowableBloom, GrowableBloomBuilder};
 use matrix_sdk::{crypto::types::events::UtdCause, Client};
-use matrix_sdk_base::{StateStoreDataKey, StateStoreDataValue};
+use matrix_sdk_base::{StateStoreDataKey, StateStoreDataValue, StoreError};
 use ruma::{EventId, OwnedEventId};
 use tokio::{
     spawn,
@@ -174,6 +174,24 @@ impl UtdHookManager {
     pub fn with_max_delay(mut self, delay: Duration) -> Self {
         self.max_delay = Some(delay);
         self
+    }
+
+    /// Load the persistent data for the UTD hook from the store.
+    ///
+    /// If the client previously used a UtdHookManager, and UTDs were
+    /// encountered, the data on the reported UTDs is loaded from the store.
+    /// Otherwise, there is no effect.
+    pub async fn reload_from_store(&mut self) -> Result<(), StoreError> {
+        let existing_data =
+            self.client.store().get_kv_data(StateStoreDataKey::UtdHookManagerData).await?;
+
+        if let Some(existing_data) = existing_data {
+            let bloom_filter = existing_data
+                .into_utd_hook_manager_data()
+                .expect("StateStore::get_kv_data should return data of the right type");
+            self.reported_utds = Arc::new(AsyncMutex::new(bloom_filter));
+        }
+        Ok(())
     }
 
     /// The function to call whenever a UTD is seen for the first time.
