@@ -103,12 +103,11 @@ pub struct Room {
     #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
     pub latest_encrypted_events: Arc<SyncRwLock<RingBuffer<Raw<AnySyncTimelineEvent>>>>,
 
-    /// Cached value of the last call to `computed_display_name()`, useful for
-    /// sync access.
+    /// Cached display name, useful for sync access.
     ///
-    /// Filled by calling `computed_display_name`. It's automatically filled at
-    /// start, when creating a room, or on every successful sync.
-    pub(crate) cached_computed_display_name: Arc<SyncRwLock<Option<DisplayName>>>,
+    /// Filled by calling [`Self::compute_display_name`]. It's automatically
+    /// filled at start when creating a room, or on every successful sync.
+    pub(crate) cached_display_name: Arc<SyncRwLock<Option<DisplayName>>>,
 }
 
 /// The room summary containing member counts and members that should be used to
@@ -207,11 +206,11 @@ impl Room {
                 Self::MAX_ENCRYPTED_EVENTS,
             ))),
             roominfo_update_sender,
-            cached_computed_display_name: Arc::new(SyncRwLock::new(None)),
+            cached_display_name: Arc::new(SyncRwLock::new(None)),
         };
 
-        // Refill the computed_display_name cache.
-        let _ = room.computed_display_name().await;
+        // Refill the display name cache.
+        let _ = room.compute_display_name().await;
 
         room
     }
@@ -491,12 +490,12 @@ impl Room {
     ///
     /// This is automatically recomputed on every successful sync, and the
     /// cached result can be retrieved in
-    /// [`Self::cached_computed_display_name`].
+    /// [`Self::cached_display_name`].
     ///
     /// [spec]: <https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room>
-    pub async fn computed_display_name(&self) -> StoreResult<DisplayName> {
+    pub async fn compute_display_name(&self) -> StoreResult<DisplayName> {
         let update_cache = |new_val: DisplayName| {
-            *self.cached_computed_display_name.write().unwrap() = Some(new_val.clone());
+            *self.cached_display_name.write().unwrap() = Some(new_val.clone());
             new_val
         };
 
@@ -592,8 +591,11 @@ impl Room {
     }
 
     /// Returns the cached computed display name, if available.
-    pub fn cached_computed_display_name(&self) -> Option<DisplayName> {
-        self.cached_computed_display_name.read().unwrap().clone()
+    ///
+    /// This cache is refilled every time we call
+    /// [`Self::compute_display_name`].
+    pub fn cached_display_name(&self) -> Option<DisplayName> {
+        self.cached_display_name.read().unwrap().clone()
     }
 
     /// Return the last event in this room, if one has been cached during
@@ -1852,7 +1854,7 @@ mod tests {
     #[async_test]
     async fn test_display_name_for_joined_room_is_empty_if_no_info() {
         let (_, room) = make_room_test_helper(RoomState::Joined).await;
-        assert_eq!(room.computed_display_name().await.unwrap(), DisplayName::Empty);
+        assert_eq!(room.compute_display_name().await.unwrap(), DisplayName::Empty);
     }
 
     #[async_test]
@@ -1861,7 +1863,7 @@ mod tests {
         room.inner
             .update(|info| info.base_info.canonical_alias = Some(make_canonical_alias_event()));
         assert_eq!(
-            room.computed_display_name().await.unwrap(),
+            room.compute_display_name().await.unwrap(),
             DisplayName::Aliased("test".to_owned())
         );
     }
@@ -1872,13 +1874,13 @@ mod tests {
         room.inner
             .update(|info| info.base_info.canonical_alias = Some(make_canonical_alias_event()));
         assert_eq!(
-            room.computed_display_name().await.unwrap(),
+            room.compute_display_name().await.unwrap(),
             DisplayName::Aliased("test".to_owned())
         );
         room.inner.update(|info| info.base_info.name = Some(make_name_event()));
         // Display name wasn't cached when we asked for it above, and name overrides
         assert_eq!(
-            room.computed_display_name().await.unwrap(),
+            room.compute_display_name().await.unwrap(),
             DisplayName::Named("Test Room".to_owned())
         );
     }
@@ -1886,7 +1888,7 @@ mod tests {
     #[async_test]
     async fn test_display_name_for_invited_room_is_empty_if_no_info() {
         let (_, room) = make_room_test_helper(RoomState::Invited).await;
-        assert_eq!(room.computed_display_name().await.unwrap(), DisplayName::Empty);
+        assert_eq!(room.compute_display_name().await.unwrap(), DisplayName::Empty);
     }
 
     #[async_test]
@@ -1899,7 +1901,7 @@ mod tests {
         });
         room.inner.update(|info| info.base_info.name = Some(room_name));
 
-        assert_eq!(room.computed_display_name().await.unwrap(), DisplayName::Empty);
+        assert_eq!(room.compute_display_name().await.unwrap(), DisplayName::Empty);
     }
 
     #[async_test]
@@ -1908,7 +1910,7 @@ mod tests {
         room.inner
             .update(|info| info.base_info.canonical_alias = Some(make_canonical_alias_event()));
         assert_eq!(
-            room.computed_display_name().await.unwrap(),
+            room.compute_display_name().await.unwrap(),
             DisplayName::Aliased("test".to_owned())
         );
     }
@@ -1919,13 +1921,13 @@ mod tests {
         room.inner
             .update(|info| info.base_info.canonical_alias = Some(make_canonical_alias_event()));
         assert_eq!(
-            room.computed_display_name().await.unwrap(),
+            room.compute_display_name().await.unwrap(),
             DisplayName::Aliased("test".to_owned())
         );
         room.inner.update(|info| info.base_info.name = Some(make_name_event()));
         // Display name wasn't cached when we asked for it above, and name overrides
         assert_eq!(
-            room.computed_display_name().await.unwrap(),
+            room.compute_display_name().await.unwrap(),
             DisplayName::Named("Test Room".to_owned())
         );
     }
@@ -1967,7 +1969,7 @@ mod tests {
 
         room.inner.update_if(|info| info.update_from_ruma_summary(&summary));
         assert_eq!(
-            room.computed_display_name().await.unwrap(),
+            room.compute_display_name().await.unwrap(),
             DisplayName::Calculated("Matthew".to_owned())
         );
     }
@@ -1989,7 +1991,7 @@ mod tests {
         store.save_changes(&changes).await.unwrap();
 
         assert_eq!(
-            room.computed_display_name().await.unwrap(),
+            room.compute_display_name().await.unwrap(),
             DisplayName::Calculated("Matthew".to_owned())
         );
     }
@@ -2019,7 +2021,7 @@ mod tests {
 
         room.inner.update_if(|info| info.update_from_ruma_summary(&summary));
         assert_eq!(
-            room.computed_display_name().await.unwrap(),
+            room.compute_display_name().await.unwrap(),
             DisplayName::Calculated("Matthew".to_owned())
         );
     }
@@ -2044,7 +2046,7 @@ mod tests {
         store.save_changes(&changes).await.unwrap();
 
         assert_eq!(
-            room.computed_display_name().await.unwrap(),
+            room.compute_display_name().await.unwrap(),
             DisplayName::Calculated("Matthew".to_owned())
         );
     }
@@ -2099,7 +2101,7 @@ mod tests {
         room.inner.update_if(|info| info.update_from_ruma_summary(&summary));
 
         assert_eq!(
-            room.computed_display_name().await.unwrap(),
+            room.compute_display_name().await.unwrap(),
             DisplayName::Calculated("Bob, Carol, Denis, Erica, and 3 others".to_owned())
         );
     }
@@ -2148,7 +2150,7 @@ mod tests {
         }
 
         assert_eq!(
-            room.computed_display_name().await.unwrap(),
+            room.compute_display_name().await.unwrap(),
             DisplayName::Calculated("Alice, Bob, Carol, Denis, Erica, and 2 others".to_owned())
         );
     }
@@ -2178,7 +2180,7 @@ mod tests {
 
         room.inner.update_if(|info| info.update_from_ruma_summary(&summary));
         assert_eq!(
-            room.computed_display_name().await.unwrap(),
+            room.compute_display_name().await.unwrap(),
             DisplayName::EmptyWas("Matthew".to_owned())
         );
     }

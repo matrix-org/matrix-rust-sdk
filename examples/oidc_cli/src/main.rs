@@ -881,7 +881,7 @@ async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
     }
     let MessageType::Text(text_content) = &event.content.msgtype else { return };
 
-    let room_name = match room.computed_display_name().await {
+    let room_name = match room.compute_display_name().await {
         Ok(room_name) => room_name.to_string(),
         Err(error) => {
             println!("Error getting room display name: {error}");

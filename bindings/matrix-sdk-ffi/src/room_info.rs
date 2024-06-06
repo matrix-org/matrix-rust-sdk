@@ -69,7 +69,7 @@ impl RoomInfo {
 
         Ok(Self {
             id: room.room_id().to_string(),
-            display_name: room.cached_computed_display_name().map(|name| name.to_string()),
+            display_name: room.cached_display_name().map(|name| name.to_string()),
             raw_name: room.name(),
             topic: room.topic(),
             avatar_url: room.avatar_url().map(Into::into),

@@ -53,7 +53,7 @@ pub fn new_filter(client: &Client, pattern: &str) -> impl Filter {
     move |room_list_entry| -> bool {
         let Some(room_id) = room_list_entry.as_room_id() else { return false };
         let Some(room) = client.get_room(room_id) else { return false };
-        let Some(room_name) = room.cached_computed_display_name() else { return false };
+        let Some(room_name) = room.cached_display_name() else { return false };
 
         searcher.matches(&room_name.to_string())
     }
