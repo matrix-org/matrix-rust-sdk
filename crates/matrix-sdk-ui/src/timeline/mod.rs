@@ -27,7 +27,7 @@ use matrix_sdk::{
     event_handler::EventHandlerHandle,
     executor::JoinHandle,
     room::{Receipts, Room},
-    send_queue::{AbortSendHandle, RoomSendingQueueError},
+    send_queue::{AbortSendHandle, RoomSendQueueError},
     Client, Result,
 };
 use matrix_sdk_base::RoomState;
@@ -300,7 +300,7 @@ impl Timeline {
     pub async fn send(
         &self,
         content: AnyMessageLikeEventContent,
-    ) -> Result<AbortSendHandle, RoomSendingQueueError> {
+    ) -> Result<AbortSendHandle, RoomSendQueueError> {
         self.room().sending_queue().send(content).await
     }
 

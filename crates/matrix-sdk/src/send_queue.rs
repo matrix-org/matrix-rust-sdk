@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! A sending queue facility to serializing queuing and sending of messages.
+//! A send queue facility to serializing queuing and sending of messages.
 
 use std::{
     collections::{BTreeMap, VecDeque},
@@ -34,24 +34,24 @@ use tracing::{debug, error, info, instrument, trace, warn};
 
 use crate::{client::WeakClient, config::RequestConfig, room::WeakRoom, Client, Room};
 
-/// A client-wide sending queue, for all the rooms known by a client.
-pub struct SendingQueue {
+/// A client-wide send queue, for all the rooms known by a client.
+pub struct SendQueue {
     client: Client,
 }
 
 #[cfg(not(tarpaulin_include))]
-impl std::fmt::Debug for SendingQueue {
+impl std::fmt::Debug for SendQueue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SendingQueue").finish_non_exhaustive()
+        f.debug_struct("SendQueue").finish_non_exhaustive()
     }
 }
 
-impl SendingQueue {
+impl SendQueue {
     pub(super) fn new(client: Client) -> Self {
         Self { client }
     }
 
-    fn for_room(&self, room: Room) -> RoomSendingQueue {
+    fn for_room(&self, room: Room) -> RoomSendQueue {
         let data = &self.client.inner.sending_queue_data;
 
         let mut map = data.rooms.write().unwrap();
@@ -62,7 +62,7 @@ impl SendingQueue {
         }
 
         let owned_room_id = room_id.to_owned();
-        let room_q = RoomSendingQueue::new(
+        let room_q = RoomSendQueue::new(
             data.globally_enabled.clone(),
             data.is_dropping.clone(),
             &self.client,
@@ -72,13 +72,13 @@ impl SendingQueue {
         room_q
     }
 
-    /// Enable the sending queue for the entire client, i.e. all rooms.
+    /// Enable the send queue for the entire client, i.e. all rooms.
     ///
     /// This may wake up background tasks and resume sending of events in the
     /// background.
     pub fn enable(&self) {
         if self.client.inner.sending_queue_data.globally_enabled.set_if_not_eq(true).is_some() {
-            debug!("globally enabling sending queue");
+            debug!("globally enabling send queue");
             let rooms = self.client.inner.sending_queue_data.rooms.read().unwrap();
             // Wake up the rooms, in case events have been queued in the meanwhile.
             for room in rooms.values() {
@@ -87,7 +87,7 @@ impl SendingQueue {
         }
     }
 
-    /// Disable the sending queue for the entire client, i.e. all rooms.
+    /// Disable the send queue for the entire client, i.e. all rooms.
     ///
     /// If requests were being sent, they're not aborted, and will continue
     /// until a status resolves (error responses will keep the events in the
@@ -100,34 +100,34 @@ impl SendingQueue {
         // the queue is now disabled,
         // - or they were not, and it's not worth it waking them to let them they're
         // disabled, which causes them to go to sleep again.
-        debug!("globally disabling sending queue");
+        debug!("globally disabling send queue");
         self.client.inner.sending_queue_data.globally_enabled.set(false);
     }
 
-    /// Returns whether the sending queue is enabled, at a client-wide
+    /// Returns whether the send queue is enabled, at a client-wide
     /// granularity.
     pub fn is_enabled(&self) -> bool {
         self.client.inner.sending_queue_data.globally_enabled.get()
     }
 
     /// A subscriber to the enablement status (enabled or disabled) of the
-    /// sending queue.
+    /// send queue.
     pub fn subscribe_status(&self) -> Subscriber<bool> {
         self.client.inner.sending_queue_data.globally_enabled.subscribe()
     }
 }
 
 impl Client {
-    /// Returns a [`SendingQueue`] that handles sending, retrying and not
+    /// Returns a [`SendQueue`] that handles sending, retrying and not
     /// forgetting about messages that are to be sent.
-    pub fn sending_queue(&self) -> SendingQueue {
-        SendingQueue::new(self.clone())
+    pub fn sending_queue(&self) -> SendQueue {
+        SendQueue::new(self.clone())
     }
 }
 
-pub(super) struct SendingQueueData {
-    /// Mapping of room to their unique sending queue.
-    rooms: SyncRwLock<BTreeMap<OwnedRoomId, RoomSendingQueue>>,
+pub(super) struct SendQueueData {
+    /// Mapping of room to their unique send queue.
+    rooms: SyncRwLock<BTreeMap<OwnedRoomId, RoomSendQueue>>,
 
     /// Is the whole mechanism enabled or disabled?
     globally_enabled: SharedObservable<bool>,
@@ -136,8 +136,8 @@ pub(super) struct SendingQueueData {
     is_dropping: Arc<AtomicBool>,
 }
 
-impl SendingQueueData {
-    /// Create the data for a sending queue, in the given enabled state.
+impl SendQueueData {
+    /// Create the data for a send queue, in the given enabled state.
     pub fn new(globally_enabled: bool) -> Self {
         Self {
             rooms: Default::default(),
@@ -147,11 +147,11 @@ impl SendingQueueData {
     }
 }
 
-impl Drop for SendingQueueData {
+impl Drop for SendQueueData {
     fn drop(&mut self) {
-        // Mark the whole sending queue as shutting down, then wake up all the room
+        // Mark the whole send queue as shutting down, then wake up all the room
         // queues so they're stopped too.
-        debug!("globally dropping the sending queue");
+        debug!("globally dropping the send queue");
         self.is_dropping.store(true, Ordering::SeqCst);
 
         let rooms = self.rooms.read().unwrap();
@@ -162,27 +162,27 @@ impl Drop for SendingQueueData {
 }
 
 impl Room {
-    /// Returns the [`RoomSendingQueue`] for this specific room.
-    pub fn sending_queue(&self) -> RoomSendingQueue {
+    /// Returns the [`RoomSendQueue`] for this specific room.
+    pub fn sending_queue(&self) -> RoomSendQueue {
         self.client.sending_queue().for_room(self.clone())
     }
 }
 
-/// A per-room sending queue.
+/// A per-room send queue.
 ///
 /// This is cheap to clone.
 #[derive(Clone)]
-pub struct RoomSendingQueue {
-    inner: Arc<RoomSendingQueueInner>,
+pub struct RoomSendQueue {
+    inner: Arc<RoomSendQueueInner>,
 }
 
-impl std::fmt::Debug for RoomSendingQueue {
+impl std::fmt::Debug for RoomSendQueue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RoomSendingQueue").finish_non_exhaustive()
+        f.debug_struct("RoomSendQueue").finish_non_exhaustive()
     }
 }
 
-impl RoomSendingQueue {
+impl RoomSendQueue {
     fn new(
         globally_enabled: SharedObservable<bool>,
         is_dropping: Arc<AtomicBool>,
@@ -206,7 +206,7 @@ impl RoomSendingQueue {
         ));
 
         Self {
-            inner: Arc::new(RoomSendingQueueInner {
+            inner: Arc::new(RoomSendQueueInner {
                 room: weak_room,
                 updates: updates_sender,
                 _task: task,
@@ -221,7 +221,7 @@ impl RoomSendingQueue {
     /// This immediately returns, and will push the event to be sent into a
     /// queue, handled in the background.
     ///
-    /// Callers are expected to consume [`RoomSendingQueueUpdate`] via calling
+    /// Callers are expected to consume [`RoomSendQueueUpdate`] via calling
     /// the [`Self::subscribe()`] method to get updates about the sending of
     /// that event.
     ///
@@ -232,12 +232,12 @@ impl RoomSendingQueue {
     pub async fn send(
         &self,
         content: AnyMessageLikeEventContent,
-    ) -> Result<AbortSendHandle, RoomSendingQueueError> {
+    ) -> Result<AbortSendHandle, RoomSendQueueError> {
         let Some(room) = self.inner.room.get() else {
-            return Err(RoomSendingQueueError::RoomDisappeared);
+            return Err(RoomSendQueueError::RoomDisappeared);
         };
         if room.state() != RoomState::Joined {
-            return Err(RoomSendingQueueError::RoomNotJoined);
+            return Err(RoomSendQueueError::RoomNotJoined);
         }
 
         let transaction_id = self.inner.queue.push(content.clone()).await;
@@ -245,7 +245,7 @@ impl RoomSendingQueue {
 
         self.inner.notifier.notify_one();
 
-        let _ = self.inner.updates.send(RoomSendingQueueUpdate::NewLocalEvent(LocalEcho {
+        let _ = self.inner.updates.send(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
             transaction_id: transaction_id.clone(),
             content,
             abort_handle: AbortSendHandle {
@@ -258,8 +258,8 @@ impl RoomSendingQueue {
     }
 
     /// Returns the current local events as well as a receiver to listen to the
-    /// send queue updates, as defined in [`RoomSendingQueueUpdate`].
-    pub async fn subscribe(&self) -> (Vec<LocalEcho>, broadcast::Receiver<RoomSendingQueueUpdate>) {
+    /// send queue updates, as defined in [`RoomSendQueueUpdate`].
+    pub async fn subscribe(&self) -> (Vec<LocalEcho>, broadcast::Receiver<RoomSendQueueUpdate>) {
         let local_echoes = self
             .inner
             .queue
@@ -281,7 +281,7 @@ impl RoomSendingQueue {
         room: WeakRoom,
         queue: QueueStorage,
         notifier: Arc<Notify>,
-        updates: broadcast::Sender<RoomSendingQueueUpdate>,
+        updates: broadcast::Sender<RoomSendQueueUpdate>,
         globally_enabled: SharedObservable<bool>,
         is_dropping: Arc<AtomicBool>,
     ) {
@@ -329,7 +329,7 @@ impl RoomSendingQueue {
 
                     queue.mark_as_sent(&queued_event.transaction_id).await;
 
-                    let _ = updates.send(RoomSendingQueueUpdate::SentEvent {
+                    let _ = updates.send(RoomSendQueueUpdate::SentEvent {
                         transaction_id: queued_event.transaction_id,
                         event_id: res.event_id,
                     });
@@ -339,14 +339,14 @@ impl RoomSendingQueue {
                     warn!(txn_id = %queued_event.transaction_id, "error when sending event: {err}");
 
                     // Disable the queue after an error.
-                    // See comment in [`SendingQueue::disable()`].
+                    // See comment in [`SendQueue::disable()`].
                     globally_enabled.set(false);
 
                     // In this case, we intentionally keep the event in the queue, but mark it as
                     // not being sent anymore.
                     queue.mark_as_not_being_sent(&queued_event.transaction_id).await;
 
-                    let _ = updates.send(RoomSendingQueueUpdate::SendError {
+                    let _ = updates.send(RoomSendQueueUpdate::SendError {
                         transaction_id: queued_event.transaction_id,
                         error: Arc::new(err),
                     });
@@ -358,14 +358,14 @@ impl RoomSendingQueue {
     }
 }
 
-struct RoomSendingQueueInner {
-    /// The room which this sending queue relates to.
+struct RoomSendQueueInner {
+    /// The room which this send queue relates to.
     room: WeakRoom,
 
     /// Broadcaster for notifications about the statuses of events to be sent.
     ///
     /// Can be subscribed to from the outside.
-    updates: broadcast::Sender<RoomSendingQueueUpdate>,
+    updates: broadcast::Sender<RoomSendQueueUpdate>,
 
     /// Queue of events that are either to be sent, or being sent.
     ///
@@ -506,10 +506,10 @@ pub struct LocalEcho {
     pub abort_handle: AbortSendHandle,
 }
 
-/// An update to a room sending queue, observable with
-/// [`RoomSendingQueue::subscribe`].
+/// An update to a room send queue, observable with
+/// [`RoomSendQueue::subscribe`].
 #[derive(Clone, Debug)]
-pub enum RoomSendingQueueUpdate {
+pub enum RoomSendQueueUpdate {
     /// A new local event is being sent.
     ///
     /// There's been a user query to create this event. It is being sent to the
@@ -525,7 +525,7 @@ pub enum RoomSendingQueueUpdate {
 
     /// An error happened when an event was being sent.
     ///
-    /// The event has not been removed from the queue. All the sending queues
+    /// The event has not been removed from the queue. All the send queues
     /// will be disabled after this happens, and must be manually re-enabled.
     SendError {
         /// Transaction id used to identify this event.
@@ -544,9 +544,9 @@ pub enum RoomSendingQueueUpdate {
     },
 }
 
-/// An error triggered by the sending queue module.
+/// An error triggered by the send queue module.
 #[derive(Debug, thiserror::Error)]
-pub enum RoomSendingQueueError {
+pub enum RoomSendQueueError {
     /// The room isn't in the joined state.
     #[error("the room isn't in the joined state")]
     RoomNotJoined,
@@ -561,7 +561,7 @@ pub enum RoomSendingQueueError {
 /// a room.
 #[derive(Clone, Debug)]
 pub struct AbortSendHandle {
-    room: RoomSendingQueue,
+    room: RoomSendQueue,
     transaction_id: OwnedTransactionId,
 }
 
@@ -573,7 +573,7 @@ impl AbortSendHandle {
     pub async fn abort(self) -> bool {
         if self.room.inner.queue.cancel(&self.transaction_id).await {
             // Propagate a cancelled update too.
-            let _ = self.room.inner.updates.send(RoomSendingQueueUpdate::CancelledLocalEvent {
+            let _ = self.room.inner.updates.send(RoomSendQueueUpdate::CancelledLocalEvent {
                 transaction_id: self.transaction_id.clone(),
             });
             true

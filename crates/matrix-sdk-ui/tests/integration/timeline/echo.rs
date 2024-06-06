@@ -151,7 +151,7 @@ async fn test_retry_failed() {
 
     timeline.send(RoomMessageEventContent::text_plain("Hello, World!").into()).await.unwrap();
 
-    // Let the sending queue handle the event.
+    // Let the send queue handle the event.
     yield_now().await;
 
     // First, local echo is added
@@ -177,7 +177,7 @@ async fn test_retry_failed() {
 
     client.sending_queue().enable();
 
-    // Let the sending queue handle the event.
+    // Let the send queue handle the event.
     tokio::time::sleep(Duration::from_millis(300)).await;
 
     // After mocking the endpoint and retrying, it succeeds.
@@ -281,7 +281,7 @@ async fn test_cancel_failed() {
     let handle =
         timeline.send(RoomMessageEventContent::text_plain("Hello, World!").into()).await.unwrap();
 
-    // Let the sending queue handle the event.
+    // Let the send queue handle the event.
     yield_now().await;
 
     // Local echo is added (immediately)

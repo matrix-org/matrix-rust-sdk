@@ -83,7 +83,7 @@ use crate::{
     matrix_auth::MatrixAuth,
     notification_settings::NotificationSettings,
     room_preview::RoomPreview,
-    send_queue::SendingQueueData,
+    send_queue::SendQueueData,
     sync::{RoomUpdate, SyncResponse},
     Account, AuthApi, AuthSession, Error, Media, Pusher, RefreshTokenError, Result, Room,
     TransmissionProgress,
@@ -284,10 +284,10 @@ pub(crate) struct ClientInner {
     #[cfg(feature = "e2e-encryption")]
     pub(crate) verification_state: SharedObservable<VerificationState>,
 
-    /// Data related to the [`SendingQueue`].
+    /// Data related to the [`SendQueue`].
     ///
-    /// [`SendingQueue`]: crate::send_queue::SendingQueue
-    pub(crate) sending_queue_data: Arc<SendingQueueData>,
+    /// [`SendQueue`]: crate::send_queue::SendQueue
+    pub(crate) sending_queue_data: Arc<SendQueueData>,
 }
 
 impl ClientInner {
@@ -307,7 +307,7 @@ impl ClientInner {
         unstable_features: Option<BTreeMap<String, bool>>,
         respect_login_well_known: bool,
         event_cache: OnceCell<EventCache>,
-        sending_queue: Arc<SendingQueueData>,
+        sending_queue: Arc<SendQueueData>,
         #[cfg(feature = "e2e-encryption")] encryption_settings: EncryptionSettings,
     ) -> Arc<Self> {
         let client = Self {

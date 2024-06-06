@@ -18,7 +18,7 @@ use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::{
     event_cache::{EventsOrigin, RoomEventCacheUpdate},
     executor::spawn,
-    send_queue::{LocalEcho, RoomSendingQueueUpdate},
+    send_queue::{LocalEcho, RoomSendQueueUpdate},
     Room,
 };
 use ruma::{events::AnySyncTimelineEvent, RoomVersionId};
@@ -295,7 +295,7 @@ impl TimelineBuilder {
                     loop {
                         match listener.recv().await {
                             Ok(update) => match update {
-                                RoomSendingQueueUpdate::NewLocalEvent(LocalEcho {
+                                RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
                                     transaction_id,
                                     content,
                                     abort_handle,
@@ -312,13 +312,13 @@ impl TimelineBuilder {
                                         .await;
                                 }
 
-                                RoomSendingQueueUpdate::CancelledLocalEvent { transaction_id } => {
+                                RoomSendQueueUpdate::CancelledLocalEvent { transaction_id } => {
                                     if !timeline.discard_local_echo(&transaction_id).await {
                                         warn!("couldn't find the local echo to discard");
                                     }
                                 }
 
-                                RoomSendingQueueUpdate::SendError { transaction_id, error } => {
+                                RoomSendQueueUpdate::SendError { transaction_id, error } => {
                                     timeline
                                         .update_event_send_state(
                                             &transaction_id,
@@ -327,7 +327,7 @@ impl TimelineBuilder {
                                         .await;
                                 }
 
-                                RoomSendingQueueUpdate::SentEvent { transaction_id, event_id } => {
+                                RoomSendQueueUpdate::SentEvent { transaction_id, event_id } => {
                                     timeline
                                         .update_event_send_state(
                                             &transaction_id,

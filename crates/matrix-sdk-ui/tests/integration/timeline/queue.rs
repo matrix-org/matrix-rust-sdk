@@ -82,10 +82,10 @@ async fn test_message_order() {
     timeline.send(RoomMessageEventContent::text_plain("First!").into()).await.unwrap();
     timeline.send(RoomMessageEventContent::text_plain("Second.").into()).await.unwrap();
 
-    // Let the sending queue handle the event.
+    // Let the send queue handle the event.
     yield_now().await;
 
-    // Local echoes are available after the sending queue has processed these.
+    // Local echoes are available after the send queue has processed these.
     assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
         assert!(!value.is_editable(), "local echo for first can't be edited");
         assert_eq!(value.content().as_message().unwrap().body(), "First!");
@@ -140,10 +140,10 @@ async fn test_retry_order() {
     timeline.send(RoomMessageEventContent::text_plain("First!").into()).await.unwrap();
     timeline.send(RoomMessageEventContent::text_plain("Second.").into()).await.unwrap();
 
-    // Let the sending queue handle the event.
+    // Let the send queue handle the event.
     yield_now().await;
 
-    // Local echoes are available after the sending queue has processed these.
+    // Local echoes are available after the send queue has processed these.
     assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
         assert_eq!(value.content().as_message().unwrap().body(), "First!");
     });
@@ -187,7 +187,7 @@ async fn test_retry_order() {
     // Wait 200ms for the first msg, 100ms for the second, 300ms for overhead
     sleep(Duration::from_millis(600)).await;
 
-    // With the sending queue, sending is retried in the same order as the events
+    // With the send queue, sending is retried in the same order as the events
     // were sent. So we first see the first message.
     assert_next_matches!(timeline_stream, VectorDiff::Set { index: 0, value } => {
         assert_eq!(value.content().as_message().unwrap().body(), "First!");
@@ -336,7 +336,7 @@ async fn test_no_duplicate_day_divider() {
     timeline.send(RoomMessageEventContent::text_plain("First!").into()).await.unwrap();
     timeline.send(RoomMessageEventContent::text_plain("Second.").into()).await.unwrap();
 
-    // Let the sending queue handle the event.
+    // Let the send queue handle the event.
     yield_now().await;
 
     // Local echoes are available as soon as `timeline.send` returns.
