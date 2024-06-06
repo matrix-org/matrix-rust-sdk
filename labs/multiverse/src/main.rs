@@ -272,7 +272,7 @@ impl App {
 
                 for (room_id, room) in &new_ui_rooms {
                     let raw_name = room.name();
-                    let display_name = room.computed_display_name().await;
+                    let display_name = room.cached_display_name();
                     room_infos
                         .lock()
                         .unwrap()

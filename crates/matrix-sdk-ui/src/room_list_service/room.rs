@@ -84,8 +84,8 @@ impl Room {
     }
 
     /// Get a computed room name for the room.
-    pub async fn computed_display_name(&self) -> Option<String> {
-        Some(self.inner.room.computed_display_name().await.ok()?.to_string())
+    pub fn cached_display_name(&self) -> Option<String> {
+        Some(self.inner.room.cached_computed_display_name()?.to_string())
     }
 
     /// Get the underlying [`matrix_sdk::Room`].

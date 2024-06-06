@@ -489,7 +489,7 @@ impl RoomListItem {
     /// compute a room name based on the room's nature (DM or not) and number of
     /// members.
     fn display_name(&self) -> Option<String> {
-        RUNTIME.block_on(self.inner.computed_display_name())
+        self.inner.cached_display_name()
     }
 
     fn avatar_url(&self) -> Option<String> {
