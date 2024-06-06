@@ -36,7 +36,7 @@ use ruma::{
     room_id,
 };
 use serde_json::{json, Value as JsonValue};
-use stream_assert::{assert_next_eq, assert_next_matches};
+use stream_assert::{assert_next_eq, assert_pending};
 use tokio::{
     spawn,
     time::{sleep, timeout},
@@ -84,26 +84,7 @@ async fn test_back_pagination() {
     };
     join(paginate, observe_paginating).await;
 
-    let message = assert_next_matches!(
-        timeline_stream,
-        VectorDiff::PushBack { value } => value
-    );
-    assert_let!(TimelineItemContent::Message(msg) = message.as_event().unwrap().content());
-    assert_let!(MessageType::Text(text) = msg.msgtype());
-    assert_eq!(text.body, "hello world");
-
-    let message = assert_next_matches!(
-        timeline_stream,
-        VectorDiff::PushFront { value } => value
-    );
-    assert_let!(TimelineItemContent::Message(msg) = message.as_event().unwrap().content());
-    assert_let!(MessageType::Text(text) = msg.msgtype());
-    assert_eq!(text.body, "the world is big");
-
-    let message = assert_next_matches!(
-        timeline_stream,
-        VectorDiff::PushFront {  value } => value
-    );
+    assert_let!(Some(VectorDiff::PushBack { value: message }) = timeline_stream.next().await);
     assert_let!(TimelineItemContent::OtherState(state) = message.as_event().unwrap().content());
     assert_eq!(state.state_key(), "");
     assert_let!(
@@ -115,11 +96,24 @@ async fn test_back_pagination() {
     assert_eq!(content.name, "New room name");
     assert_eq!(prev_content.as_ref().unwrap().name.as_ref().unwrap(), "Old room name");
 
-    let day_divider = assert_next_matches!(
-        timeline_stream,
-        VectorDiff::PushFront { value } => value
-    );
+    // Implicit read receipt.
+    assert_let!(Some(VectorDiff::Set { index: 0, value: message }) = timeline_stream.next().await);
+    assert_let!(TimelineItemContent::OtherState(_) = message.as_event().unwrap().content());
+
+    assert_let!(Some(VectorDiff::PushBack { value: message }) = timeline_stream.next().await);
+    assert_let!(TimelineItemContent::Message(msg) = message.as_event().unwrap().content());
+    assert_let!(MessageType::Text(text) = msg.msgtype());
+    assert_eq!(text.body, "the world is big");
+
+    assert_let!(Some(VectorDiff::PushBack { value: message }) = timeline_stream.next().await);
+    assert_let!(TimelineItemContent::Message(msg) = message.as_event().unwrap().content());
+    assert_let!(MessageType::Text(text) = msg.msgtype());
+    assert_eq!(text.body, "hello world");
+
+    assert_let!(Some(VectorDiff::PushFront { value: day_divider }) = timeline_stream.next().await);
     assert!(day_divider.is_day_divider());
+
+    assert_pending!(timeline_stream);
 
     Mock::given(method("GET"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
@@ -141,6 +135,9 @@ async fn test_back_pagination() {
         back_pagination_status,
         LiveBackPaginationStatus::Idle { hit_start_of_timeline: true }
     );
+
+    assert_pending!(timeline_stream);
+    assert_pending!(back_pagination_status);
 }
 
 #[async_test]
@@ -207,27 +204,20 @@ async fn test_back_pagination_highlighted() {
     timeline.live_paginate_backwards(10).await.unwrap();
     server.reset().await;
 
-    let first = assert_next_matches!(
-        timeline_stream,
-        VectorDiff::PushBack { value } => value
-    );
-    let remote_event = first.as_event().unwrap();
-    // Own events don't trigger push rules.
-    assert!(!remote_event.is_highlighted());
-
-    let second = assert_next_matches!(
-        timeline_stream,
-        VectorDiff::PushFront { value } => value
-    );
-    let remote_event = second.as_event().unwrap();
+    assert_let!(Some(VectorDiff::PushBack { value: event }) = timeline_stream.next().await);
+    let remote_event = event.as_event().unwrap();
     // `m.room.tombstone` should be highlighted by default.
     assert!(remote_event.is_highlighted());
 
-    let day_divider = assert_next_matches!(
-        timeline_stream,
-        VectorDiff::PushFront { value } => value
-    );
+    assert_let!(Some(VectorDiff::PushBack { value: event }) = timeline_stream.next().await);
+    let remote_event = event.as_event().unwrap();
+    // Own events don't trigger push rules.
+    assert!(!remote_event.is_highlighted());
+
+    assert_let!(Some(VectorDiff::PushFront { value: day_divider }) = timeline_stream.next().await);
     assert!(day_divider.is_day_divider());
+
+    assert_pending!(timeline_stream);
 }
 
 #[async_test]
@@ -543,7 +533,6 @@ pub static ROOM_MESSAGES_BATCH_2: Lazy<JsonValue> = Lazy::new(|| {
             "type": "m.room.message"
           },
         ],
-        "start": "t54392-516_47314_0_7_1_1_1_11444_1",
         "start": "t59392-516_47314_0_7_1_1_1_11444_1",
     })
 });
@@ -600,26 +589,7 @@ async fn test_empty_chunk() {
     };
     join(paginate, observe_paginating).await;
 
-    let message = assert_next_matches!(
-        timeline_stream,
-        VectorDiff::PushBack { value } => value
-    );
-    assert_let!(TimelineItemContent::Message(msg) = message.as_event().unwrap().content());
-    assert_let!(MessageType::Text(text) = msg.msgtype());
-    assert_eq!(text.body, "hello world");
-
-    let message = assert_next_matches!(
-        timeline_stream,
-        VectorDiff::PushFront { value } => value
-    );
-    assert_let!(TimelineItemContent::Message(msg) = message.as_event().unwrap().content());
-    assert_let!(MessageType::Text(text) = msg.msgtype());
-    assert_eq!(text.body, "the world is big");
-
-    let message = assert_next_matches!(
-        timeline_stream,
-        VectorDiff::PushFront { value } => value
-    );
+    assert_let!(Some(VectorDiff::PushBack { value: message }) = timeline_stream.next().await);
     assert_let!(TimelineItemContent::OtherState(state) = message.as_event().unwrap().content());
     assert_eq!(state.state_key(), "");
     assert_let!(
@@ -631,11 +601,30 @@ async fn test_empty_chunk() {
     assert_eq!(content.name, "New room name");
     assert_eq!(prev_content.as_ref().unwrap().name.as_ref().unwrap(), "Old room name");
 
-    let day_divider = assert_next_matches!(
-        timeline_stream,
-        VectorDiff::PushFront { value } => value
-    );
+    // Implicit read receipt.
+    assert_let!(Some(VectorDiff::Set { index: 0, value: message }) = timeline_stream.next().await);
+    assert_let!(TimelineItemContent::OtherState(_) = message.as_event().unwrap().content());
+
+    assert_let!(Some(VectorDiff::PushBack { value: message }) = timeline_stream.next().await);
+    assert_let!(TimelineItemContent::Message(msg) = message.as_event().unwrap().content());
+    assert_let!(MessageType::Text(text) = msg.msgtype());
+    assert_eq!(text.body, "the world is big");
+
+    assert_let!(Some(VectorDiff::PushBack { value: message }) = timeline_stream.next().await);
+    assert_let!(TimelineItemContent::Message(msg) = message.as_event().unwrap().content());
+    assert_let!(MessageType::Text(text) = msg.msgtype());
+    assert_eq!(text.body, "hello world");
+
+    assert_let!(Some(VectorDiff::PushFront { value: day_divider }) = timeline_stream.next().await);
     assert!(day_divider.is_day_divider());
+
+    assert_eq!(
+        back_pagination_status.next().await,
+        Some(LiveBackPaginationStatus::Idle { hit_start_of_timeline: false })
+    );
+
+    assert_pending!(timeline_stream);
+    assert_pending!(back_pagination_status);
 }
 
 #[async_test]
@@ -698,26 +687,7 @@ async fn test_until_num_items_with_empty_chunk() {
     };
     join(paginate, observe_paginating).await;
 
-    let message = assert_next_matches!(
-        timeline_stream,
-        VectorDiff::PushBack { value } => value
-    );
-    assert_let!(TimelineItemContent::Message(msg) = message.as_event().unwrap().content());
-    assert_let!(MessageType::Text(text) = msg.msgtype());
-    assert_eq!(text.body, "hello world");
-
-    let message = assert_next_matches!(
-        timeline_stream,
-        VectorDiff::PushFront { value } => value
-    );
-    assert_let!(TimelineItemContent::Message(msg) = message.as_event().unwrap().content());
-    assert_let!(MessageType::Text(text) = msg.msgtype());
-    assert_eq!(text.body, "the world is big");
-
-    let message = assert_next_matches!(
-        timeline_stream,
-        VectorDiff::PushFront { value } => value
-    );
+    assert_let!(Some(VectorDiff::PushBack { value: message }) = timeline_stream.next().await);
     assert_let!(TimelineItemContent::OtherState(state) = message.as_event().unwrap().content());
     assert_eq!(state.state_key(), "");
     assert_let!(
@@ -729,28 +699,43 @@ async fn test_until_num_items_with_empty_chunk() {
     assert_eq!(content.name, "New room name");
     assert_eq!(prev_content.as_ref().unwrap().name.as_ref().unwrap(), "Old room name");
 
-    let day_divider = assert_next_matches!(
-        timeline_stream,
-        VectorDiff::PushFront { value } => value
-    );
+    // Implicit read receipt.
+    assert_let!(Some(VectorDiff::Set { index: 0, value: message }) = timeline_stream.next().await);
+    assert_let!(TimelineItemContent::OtherState(_) = message.as_event().unwrap().content());
+
+    assert_let!(Some(VectorDiff::PushBack { value: message }) = timeline_stream.next().await);
+    assert_let!(TimelineItemContent::Message(msg) = message.as_event().unwrap().content());
+    assert_let!(MessageType::Text(text) = msg.msgtype());
+    assert_eq!(text.body, "the world is big");
+
+    assert_let!(Some(VectorDiff::PushBack { value: message }) = timeline_stream.next().await);
+    assert_let!(TimelineItemContent::Message(msg) = message.as_event().unwrap().content());
+    assert_let!(MessageType::Text(text) = msg.msgtype());
+    assert_eq!(text.body, "hello world");
+
+    assert_let!(Some(VectorDiff::PushFront { value: day_divider }) = timeline_stream.next().await);
     assert!(day_divider.is_day_divider());
 
-    timeline.live_paginate_backwards(10).await.unwrap();
+    let paginate = async {
+        timeline.live_paginate_backwards(10).await.unwrap();
+    };
+    let observe_paginating = async {
+        assert_eq!(
+            back_pagination_status.next().await,
+            Some(LiveBackPaginationStatus::Idle { hit_start_of_timeline: true })
+        );
+    };
+    join(paginate, observe_paginating).await;
 
-    let message = assert_next_matches!(
-        timeline_stream,
-        VectorDiff::PushFront { value } => value
+    assert_let!(
+        Some(VectorDiff::Insert { index: 3, value: message }) = timeline_stream.next().await
     );
     assert_let!(TimelineItemContent::Message(msg) = message.as_event().unwrap().content());
     assert_let!(MessageType::Text(text) = msg.msgtype());
     assert_eq!(text.body, "hello room then");
 
-    let day_divider = assert_next_matches!(
-        timeline_stream,
-        VectorDiff::PushFront { value } => value
-    );
-    assert!(day_divider.is_day_divider());
-    assert_next_matches!(timeline_stream, VectorDiff::Remove { index: 2 });
+    assert_pending!(timeline_stream);
+    assert_pending!(back_pagination_status);
 }
 
 #[async_test]

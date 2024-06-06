@@ -631,7 +631,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                             .await
                     }
 
-                    diff => todo!("Unsupported `VectorDiff` {diff:?}"),
+                    diff => unimplemented!("Unsupported `VectorDiff` {diff:?}"),
                 };
         }
 

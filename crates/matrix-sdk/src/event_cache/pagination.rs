@@ -25,11 +25,13 @@ use tokio::{
 use tracing::{debug, instrument, trace};
 
 use super::{
+    super::event_cache::{
+        linked_chunk::ChunkContent, store::RoomEvents, EventsOrigin, RoomEventCacheUpdate,
+    },
     paginator::{PaginationResult, Paginator, PaginatorState},
     store::Gap,
     BackPaginationOutcome, Result, RoomEventCacheInner,
 };
-use crate::event_cache::{linked_chunk::ChunkContent, store::RoomEvents};
 
 #[derive(Debug)]
 pub(super) struct RoomPaginationData {
@@ -206,7 +208,17 @@ impl RoomPagination {
             trace!("replaced gap with new events from backpagination");
 
             // TODO: implement smarter reconciliation later
-            //let _ = self.sender.send(RoomEventCacheUpdate::Prepend { events });
+            // Send the `VectorDiff`s from the `RoomEvents`.
+            {
+                let sync_timeline_event_diffs = room_events.updates_as_vector_diffs();
+
+                if !sync_timeline_event_diffs.is_empty() {
+                    let _ = self.inner.sender.send(RoomEventCacheUpdate::AddTimelineEvents {
+                        events: sync_timeline_event_diffs,
+                        origin: EventsOrigin::Pagination,
+                    });
+                }
+            }
 
             return Ok(Some(BackPaginationOutcome { events, reached_start }));
         }
@@ -242,6 +254,18 @@ impl RoomPagination {
                 }
 
                 room_events.push_events(sync_events);
+            }
+        }
+
+        // Send the `VectorDiff`s from the `RoomEvents`.
+        {
+            let sync_timeline_event_diffs = room_events.updates_as_vector_diffs();
+
+            if !sync_timeline_event_diffs.is_empty() {
+                let _ = self.inner.sender.send(RoomEventCacheUpdate::AddTimelineEvents {
+                    events: sync_timeline_event_diffs,
+                    origin: EventsOrigin::Pagination,
+                });
             }
         }
 
