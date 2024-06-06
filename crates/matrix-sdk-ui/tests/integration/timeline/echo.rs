@@ -142,7 +142,7 @@ async fn test_retry_failed() {
 
     mock_encryption_state(&server, false).await;
 
-    client.sending_queue().enable();
+    client.send_queue().enable();
 
     let room = client.get_room(room_id).unwrap();
     let timeline = Arc::new(room.timeline().await.unwrap());
@@ -173,9 +173,9 @@ async fn test_retry_failed() {
         .mount(&server)
         .await;
 
-    assert!(!client.sending_queue().is_enabled());
+    assert!(!client.send_queue().is_enabled());
 
-    client.sending_queue().enable();
+    client.send_queue().enable();
 
     // Let the send queue handle the event.
     tokio::time::sleep(Duration::from_millis(300)).await;

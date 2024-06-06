@@ -453,7 +453,7 @@ impl ClientBuilder {
         });
 
         let event_cache = OnceCell::new();
-        let sending_queue = Arc::new(SendQueueData::new(true));
+        let send_queue = Arc::new(SendQueueData::new(true));
         let inner = ClientInner::new(
             auth_ctx,
             homeserver,
@@ -465,7 +465,7 @@ impl ClientBuilder {
             None,
             self.respect_login_well_known,
             event_cache,
-            sending_queue,
+            send_queue,
             #[cfg(feature = "e2e-encryption")]
             self.encryption_settings,
         )

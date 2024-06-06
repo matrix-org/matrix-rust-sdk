@@ -269,7 +269,7 @@ impl TimelineBuilder {
         let local_echo_listener_handle = if is_live {
             Some(spawn({
                 let timeline = inner.clone();
-                let (local_echoes, mut listener) = room.sending_queue().subscribe().await;
+                let (local_echoes, mut listener) = room.send_queue().subscribe().await;
 
                 // Handles existing local echoes first.
                 for echo in local_echoes {

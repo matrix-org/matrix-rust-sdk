@@ -301,7 +301,7 @@ impl Timeline {
         &self,
         content: AnyMessageLikeEventContent,
     ) -> Result<AbortSendHandle, RoomSendQueueError> {
-        self.room().sending_queue().send(content).await
+        self.room().send_queue().send(content).await
     }
 
     /// Send a reply to the given event.
