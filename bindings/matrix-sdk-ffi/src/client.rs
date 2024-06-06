@@ -321,11 +321,11 @@ impl Client {
     /// event with it failed (e.g., sending an event via the high-level Timeline
     /// object), so it's required to manually re-enable it as soon as
     /// connectivity is back on the device.
-    pub fn enable_sending_queue(&self, enable: bool) {
+    pub fn enable_send_queue(&self, enable: bool) {
         if enable {
-            self.inner.sending_queue().enable();
+            self.inner.send_queue().enable();
         } else {
-            self.inner.sending_queue().disable();
+            self.inner.send_queue().disable();
         }
     }
 
@@ -334,11 +334,11 @@ impl Client {
     ///
     /// The given listener will be immediately called with the initial value of
     /// the enablement status.
-    pub fn subscribe_to_sending_queue_status(
+    pub fn subscribe_to_send_queue_status(
         &self,
         listener: Box<dyn SendQueueStatusListener>,
     ) -> Arc<TaskHandle> {
-        let mut subscriber = self.inner.sending_queue().subscribe_status();
+        let mut subscriber = self.inner.send_queue().subscribe_status();
 
         Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
             // Call with the initial value.

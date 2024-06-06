@@ -52,7 +52,7 @@ impl SendQueue {
     }
 
     fn for_room(&self, room: Room) -> RoomSendQueue {
-        let data = &self.client.inner.sending_queue_data;
+        let data = &self.client.inner.send_queue_data;
 
         let mut map = data.rooms.write().unwrap();
 
@@ -77,9 +77,9 @@ impl SendQueue {
     /// This may wake up background tasks and resume sending of events in the
     /// background.
     pub fn enable(&self) {
-        if self.client.inner.sending_queue_data.globally_enabled.set_if_not_eq(true).is_some() {
+        if self.client.inner.send_queue_data.globally_enabled.set_if_not_eq(true).is_some() {
             debug!("globally enabling send queue");
-            let rooms = self.client.inner.sending_queue_data.rooms.read().unwrap();
+            let rooms = self.client.inner.send_queue_data.rooms.read().unwrap();
             // Wake up the rooms, in case events have been queued in the meanwhile.
             for room in rooms.values() {
                 room.inner.notifier.notify_one();
@@ -101,26 +101,26 @@ impl SendQueue {
         // - or they were not, and it's not worth it waking them to let them they're
         // disabled, which causes them to go to sleep again.
         debug!("globally disabling send queue");
-        self.client.inner.sending_queue_data.globally_enabled.set(false);
+        self.client.inner.send_queue_data.globally_enabled.set(false);
     }
 
     /// Returns whether the send queue is enabled, at a client-wide
     /// granularity.
     pub fn is_enabled(&self) -> bool {
-        self.client.inner.sending_queue_data.globally_enabled.get()
+        self.client.inner.send_queue_data.globally_enabled.get()
     }
 
     /// A subscriber to the enablement status (enabled or disabled) of the
     /// send queue.
     pub fn subscribe_status(&self) -> Subscriber<bool> {
-        self.client.inner.sending_queue_data.globally_enabled.subscribe()
+        self.client.inner.send_queue_data.globally_enabled.subscribe()
     }
 }
 
 impl Client {
     /// Returns a [`SendQueue`] that handles sending, retrying and not
     /// forgetting about messages that are to be sent.
-    pub fn sending_queue(&self) -> SendQueue {
+    pub fn send_queue(&self) -> SendQueue {
         SendQueue::new(self.clone())
     }
 }
@@ -163,8 +163,8 @@ impl Drop for SendQueueData {
 
 impl Room {
     /// Returns the [`RoomSendQueue`] for this specific room.
-    pub fn sending_queue(&self) -> RoomSendQueue {
-        self.client.sending_queue().for_room(self.clone())
+    pub fn send_queue(&self) -> RoomSendQueue {
+        self.client.send_queue().for_room(self.clone())
     }
 }
 
@@ -620,14 +620,14 @@ mod tests {
                     .unwrap();
 
                 let room = client.get_room(room_id).unwrap();
-                let q = room.sending_queue();
+                let q = room.send_queue();
 
                 let _watcher = q.subscribe().await;
 
                 if enabled {
-                    client.sending_queue().enable();
+                    client.send_queue().enable();
                 } else {
-                    client.sending_queue().disable();
+                    client.send_queue().disable();
                 }
             }
 

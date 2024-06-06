@@ -287,7 +287,7 @@ pub(crate) struct ClientInner {
     /// Data related to the [`SendQueue`].
     ///
     /// [`SendQueue`]: crate::send_queue::SendQueue
-    pub(crate) sending_queue_data: Arc<SendQueueData>,
+    pub(crate) send_queue_data: Arc<SendQueueData>,
 }
 
 impl ClientInner {
@@ -307,7 +307,7 @@ impl ClientInner {
         unstable_features: Option<BTreeMap<String, bool>>,
         respect_login_well_known: bool,
         event_cache: OnceCell<EventCache>,
-        sending_queue: Arc<SendQueueData>,
+        send_queue: Arc<SendQueueData>,
         #[cfg(feature = "e2e-encryption")] encryption_settings: EncryptionSettings,
     ) -> Arc<Self> {
         let client = Self {
@@ -330,7 +330,7 @@ impl ClientInner {
             respect_login_well_known,
             sync_beat: event_listener::Event::new(),
             event_cache,
-            sending_queue_data: sending_queue,
+            send_queue_data: send_queue,
             #[cfg(feature = "e2e-encryption")]
             e2ee: EncryptionData::new(encryption_settings),
             #[cfg(feature = "e2e-encryption")]
@@ -2110,7 +2110,7 @@ impl Client {
                 self.inner.unstable_features.get().cloned(),
                 self.inner.respect_login_well_known,
                 self.inner.event_cache.clone(),
-                self.inner.sending_queue_data.clone(),
+                self.inner.send_queue_data.clone(),
                 #[cfg(feature = "e2e-encryption")]
                 self.inner.e2ee.encryption_settings,
             )

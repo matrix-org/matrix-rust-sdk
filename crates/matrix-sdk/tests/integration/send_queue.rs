@@ -49,9 +49,7 @@ async fn test_cant_send_invited_room() {
 
     // I can't send message to it with the send queue.
     assert_matches!(
-        room.sending_queue()
-            .send(RoomMessageEventContent::text_plain("Hello, World!").into())
-            .await,
+        room.send_queue().send(RoomMessageEventContent::text_plain("Hello, World!").into()).await,
         Err(RoomSendQueueError::RoomNotJoined)
     );
 }
@@ -75,7 +73,7 @@ async fn test_cant_send_left_room() {
 
     // I can't send message to it with the send queue.
     assert_matches!(
-        room.sending_queue()
+        room.send_queue()
             .send(RoomMessageEventContent::text_plain("Farewell, World!").into())
             .await,
         Err(RoomSendQueueError::RoomNotJoined)
@@ -103,10 +101,10 @@ async fn test_nothing_sent_when_disabled() {
     let event_id = event_id!("$1");
     mock_send_event(event_id).expect(0).mount(&server).await;
 
-    client.sending_queue().disable();
+    client.send_queue().disable();
 
     // A message is queued, but never sent.
-    room.sending_queue()
+    room.send_queue()
         .send(RoomMessageEventContent::text_plain("Hello, World!").into())
         .await
         .unwrap();
@@ -139,7 +137,7 @@ async fn test_smoke() {
     )
     .await;
 
-    let q = room.sending_queue();
+    let q = room.send_queue();
 
     let (local_echoes, mut watch) = q.subscribe().await;
     assert!(local_echoes.is_empty());
@@ -177,7 +175,7 @@ async fn test_smoke() {
         .mount(&server)
         .await;
 
-    room.sending_queue().send(RoomMessageEventContent::text_plain("1").into()).await.unwrap();
+    room.send_queue().send(RoomMessageEventContent::text_plain("1").into()).await.unwrap();
 
     assert_let!(
         Ok(Ok(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
@@ -216,9 +214,9 @@ async fn test_smoke() {
 async fn test_error() {
     let (client, server) = logged_in_client_with_server().await;
 
-    let mut global_status = client.sending_queue().subscribe_status();
+    let mut global_status = client.send_queue().subscribe_status();
 
-    assert!(client.sending_queue().is_enabled());
+    assert!(client.send_queue().is_enabled());
     assert!(global_status.next_now());
 
     // Mark the room as joined.
@@ -234,7 +232,7 @@ async fn test_error() {
     )
     .await;
 
-    let q = room.sending_queue();
+    let q = room.send_queue();
 
     let (local_echoes, mut watch) = q.subscribe().await;
     assert!(local_echoes.is_empty());
@@ -311,7 +309,7 @@ async fn test_error() {
     assert!(watch.is_empty());
 
     assert!(!global_status.next().await.unwrap(), "the queue should be disabled next");
-    assert!(!client.sending_queue().is_enabled());
+    assert!(!client.send_queue().is_enabled());
 
     server.reset().await;
     Mock::given(method("PUT"))
@@ -325,13 +323,13 @@ async fn test_error() {
         .await;
 
     // Re-enabling the queue will re-send the same message in that room.
-    client.sending_queue().enable();
+    client.send_queue().enable();
 
     assert!(
         global_status.next().await.unwrap(),
         "the queue should be re-enabled after the user action"
     );
-    assert!(client.sending_queue().is_enabled());
+    assert!(client.send_queue().is_enabled());
 
     assert_let!(
         Ok(Ok(RoomSendQueueUpdate::SentEvent { event_id, transaction_id: txn3 })) =
@@ -361,17 +359,17 @@ async fn test_reenabling_queue() {
     )
     .await;
 
-    let mut global_status = client.sending_queue().subscribe_status();
+    let mut global_status = client.send_queue().subscribe_status();
 
     assert!(global_status.next_now());
 
     // When I start with a disabled send queue,
-    client.sending_queue().disable();
+    client.send_queue().disable();
 
-    assert!(!client.sending_queue().is_enabled());
+    assert!(!client.send_queue().is_enabled());
     assert!(!global_status.next().await.unwrap());
 
-    let q = room.sending_queue();
+    let q = room.send_queue();
 
     let (local_echoes, mut watch) = q.subscribe().await;
 
@@ -426,9 +424,9 @@ async fn test_reenabling_queue() {
         .await;
 
     // But when reenabling the queue,
-    client.sending_queue().enable();
+    client.send_queue().enable();
 
-    assert!(client.sending_queue().is_enabled());
+    assert!(client.send_queue().is_enabled());
     assert!(global_status.next().await.unwrap());
 
     // They're sent, in the same ordering.
@@ -460,7 +458,7 @@ async fn test_cancellation() {
     )
     .await;
 
-    let q = room.sending_queue();
+    let q = room.send_queue();
 
     let (local_echoes, mut watch) = q.subscribe().await;
 
@@ -651,16 +649,16 @@ async fn test_abort_reenable() {
     )
     .await;
 
-    let mut global_status = client.sending_queue().subscribe_status();
+    let mut global_status = client.send_queue().subscribe_status();
 
     assert!(global_status.next_now());
 
     // When I start with an enabled sending queue,
-    client.sending_queue().enable();
+    client.send_queue().enable();
 
-    assert!(client.sending_queue().is_enabled());
+    assert!(client.send_queue().is_enabled());
 
-    let q = room.sending_queue();
+    let q = room.send_queue();
 
     let (local_echoes, mut watch) = q.subscribe().await;
 

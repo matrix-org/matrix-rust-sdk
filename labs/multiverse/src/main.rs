@@ -436,7 +436,7 @@ impl App {
                             Char('S') => self.sync_service.stop().await?,
 
                             Char('Q') => {
-                                let q = self.client.sending_queue();
+                                let q = self.client.send_queue();
                                 let enabled = q.is_enabled();
                                 if enabled {
                                     q.disable();

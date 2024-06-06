@@ -182,7 +182,7 @@ async fn test_retry_order() {
         .await;
 
     // Retry the second message first
-    client.sending_queue().enable();
+    client.send_queue().enable();
 
     // Wait 200ms for the first msg, 100ms for the second, 300ms for overhead
     sleep(Duration::from_millis(600)).await;
