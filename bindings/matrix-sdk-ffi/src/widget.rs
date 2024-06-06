@@ -265,9 +265,16 @@ pub fn get_element_call_required_permissions(own_user_id: String) -> WidgetCapab
 
     WidgetCapabilities {
         read: vec![
+            // TODO: we really should not have this permission in here, since it is not used
+            // anymore. The only reason `org.matrix.msc3401.call` is still here is to
+            // not break current EC deployments. (EC still expects to get this
+            // permission even though its not using it.) https://github.com/element-hq/element-call/pull/2399 needs to be merged and deployed
             WidgetEventFilter::StateWithType { event_type: "org.matrix.msc3401.call".to_owned() },
             WidgetEventFilter::StateWithType { event_type: StateEventType::CallMember.to_string() },
             WidgetEventFilter::StateWithType { event_type: StateEventType::RoomMember.to_string() },
+            WidgetEventFilter::StateWithType {
+                event_type: StateEventType::RoomEncryption.to_string(),
+            },
             WidgetEventFilter::MessageLikeWithType {
                 event_type: "org.matrix.rageshake_request".to_owned(),
             },
