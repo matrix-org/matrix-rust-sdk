@@ -224,6 +224,35 @@ impl HomeserverLoginDetails {
 #[uniffi::export(async_runtime = "tokio")]
 impl AuthenticationService {
     /// Creates a new service to authenticate a user with.
+    ///
+    /// # Arguments
+    ///
+    /// * `session_path` - A path to the directory where the session data will
+    ///   be stored. A new directory **must** be given for each subsequent
+    ///   session as the database isn't designed to be shared.
+    ///
+    /// * `passphrase` - An optional passphrase to use to encrypt the session
+    ///   data.
+    ///
+    /// * `user_agent` - An optional user agent to use when making requests.
+    ///
+    /// * `additional_root_certificates` - Additional root certificates to trust
+    ///   when making requests when built with rustls.
+    ///
+    /// * `proxy` - An optional HTTP(S) proxy URL to use when making requests.
+    ///
+    /// * `oidc_configuration` - Configuration data about the app to use during
+    ///   OIDC authentication. This is required if OIDC authentication is to be
+    ///   used.
+    ///
+    /// * `custom_sliding_sync_proxy` - An optional sliding sync proxy URL that
+    ///   will override the proxy discovered from the homeserver's well-known.
+    ///
+    /// * `session_delegate` - A delegate that will handle token refresh etc.
+    ///   when the cross-process lock is configured.
+    ///
+    /// * `cross_process_refresh_lock_id` - A process ID to use for
+    ///   cross-process token refresh locks.
     #[uniffi::constructor]
     // TODO: This has too many arguments, even clippy agrees. Many of these methods are the same as
     // for the `ClientBuilder`. We should let people pass in a `ClientBuilder` and possibly convert
@@ -429,8 +458,8 @@ impl AuthenticationService {
 }
 
 impl AuthenticationService {
-    /// Create a new client builder pre-configured with the store path and the
-    /// service's HTTP configuration if needed.
+    /// Create a new client builder that is pre-configured with the parameters
+    /// passed to the service along with some other sensible defaults
     fn new_client_builder(&self) -> Result<Arc<ClientBuilder>, AuthenticationError> {
         let mut builder = ClientBuilder::new()
             .session_path(self.session_path.clone())
