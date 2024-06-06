@@ -345,7 +345,7 @@ mod tests {
         async fn test_wait_no_pagination_token() {
             let client = logged_in_client(None).await;
             let room_id = room_id!("!galette:saucisse.bzh");
-            client.base_client().get_or_create_room(room_id, RoomState::Joined);
+            client.base_client().get_or_create_room(room_id, RoomState::Joined).await;
 
             let event_cache = client.event_cache();
 
@@ -398,7 +398,7 @@ mod tests {
         async fn test_wait_for_pagination_token_already_present() {
             let client = logged_in_client(None).await;
             let room_id = room_id!("!galette:saucisse.bzh");
-            client.base_client().get_or_create_room(room_id, RoomState::Joined);
+            client.base_client().get_or_create_room(room_id, RoomState::Joined).await;
 
             let event_cache = client.event_cache();
 
@@ -453,7 +453,7 @@ mod tests {
         async fn test_wait_for_late_pagination_token() {
             let client = logged_in_client(None).await;
             let room_id = room_id!("!galette:saucisse.bzh");
-            client.base_client().get_or_create_room(room_id, RoomState::Joined);
+            client.base_client().get_or_create_room(room_id, RoomState::Joined).await;
 
             let event_cache = client.event_cache();
 

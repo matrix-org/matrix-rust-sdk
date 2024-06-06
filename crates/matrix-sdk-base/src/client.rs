@@ -171,8 +171,10 @@ impl BaseClient {
 
     /// Lookup the Room for the given RoomId, or create one, if it didn't exist
     /// yet in the store
-    pub fn get_or_create_room(&self, room_id: &RoomId, room_state: RoomState) -> Room {
-        self.store.get_or_create_room(room_id, room_state, self.roominfo_update_sender.clone())
+    pub async fn get_or_create_room(&self, room_id: &RoomId, room_state: RoomState) -> Room {
+        self.store
+            .get_or_create_room(room_id, room_state, self.roominfo_update_sender.clone())
+            .await
     }
 
     /// Get all the rooms this client knows about.
@@ -746,11 +748,10 @@ impl BaseClient {
     ///
     /// Update the internal and cached state accordingly. Return the final Room.
     pub async fn room_joined(&self, room_id: &RoomId) -> Result<Room> {
-        let room = self.store.get_or_create_room(
-            room_id,
-            RoomState::Joined,
-            self.roominfo_update_sender.clone(),
-        );
+        let room = self
+            .store
+            .get_or_create_room(room_id, RoomState::Joined, self.roominfo_update_sender.clone())
+            .await;
         if room.state() != RoomState::Joined {
             let _sync_lock = self.sync_lock().lock().await;
 
@@ -772,11 +773,10 @@ impl BaseClient {
     ///
     /// Update the internal and cached state accordingly.
     pub async fn room_left(&self, room_id: &RoomId) -> Result<()> {
-        let room = self.store.get_or_create_room(
-            room_id,
-            RoomState::Left,
-            self.roominfo_update_sender.clone(),
-        );
+        let room = self
+            .store
+            .get_or_create_room(room_id, RoomState::Left, self.roominfo_update_sender.clone())
+            .await;
         if room.state() != RoomState::Left {
             let _sync_lock = self.sync_lock().lock().await;
 
@@ -847,11 +847,14 @@ impl BaseClient {
         let mut notifications = Default::default();
 
         for (room_id, new_info) in response.rooms.join {
-            let room = self.store.get_or_create_room(
-                &room_id,
-                RoomState::Joined,
-                self.roominfo_update_sender.clone(),
-            );
+            let room = self
+                .store
+                .get_or_create_room(
+                    &room_id,
+                    RoomState::Joined,
+                    self.roominfo_update_sender.clone(),
+                )
+                .await;
             let mut room_info = room.clone_info();
 
             room_info.mark_as_joined();
@@ -959,11 +962,10 @@ impl BaseClient {
         }
 
         for (room_id, new_info) in response.rooms.leave {
-            let room = self.store.get_or_create_room(
-                &room_id,
-                RoomState::Left,
-                self.roominfo_update_sender.clone(),
-            );
+            let room = self
+                .store
+                .get_or_create_room(&room_id, RoomState::Left, self.roominfo_update_sender.clone())
+                .await;
             let mut room_info = room.clone_info();
             room_info.mark_as_left();
             room_info.mark_state_partially_synced();
@@ -1017,11 +1019,14 @@ impl BaseClient {
         }
 
         for (room_id, new_info) in response.rooms.invite {
-            let room = self.store.get_or_create_room(
-                &room_id,
-                RoomState::Invited,
-                self.roominfo_update_sender.clone(),
-            );
+            let room = self
+                .store
+                .get_or_create_room(
+                    &room_id,
+                    RoomState::Invited,
+                    self.roominfo_update_sender.clone(),
+                )
+                .await;
             let mut room_info = room.clone_info();
             room_info.mark_as_invited();
             room_info.mark_state_fully_synced();
