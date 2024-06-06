@@ -222,8 +222,8 @@ impl Store {
     }
 
     /// Lookup the Room for the given RoomId, or create one, if it didn't exist
-    /// yet in the store
-    pub fn get_or_create_room(
+    /// yet in the store.
+    pub async fn get_or_create_room(
         &self,
         room_id: &RoomId,
         room_type: RoomState,

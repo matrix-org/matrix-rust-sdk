@@ -787,7 +787,7 @@ mod tests {
     async fn test_uniq_read_marker() {
         let client = logged_in_client(None).await;
         let room_id = room_id!("!galette:saucisse.bzh");
-        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined).await;
 
         let event_cache = client.event_cache();
 

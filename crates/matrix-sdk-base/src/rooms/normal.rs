@@ -1658,7 +1658,7 @@ mod tests {
             .unwrap();
 
         let room_id = room_id!("!test:localhost");
-        let room = client.get_or_create_room(room_id, RoomState::Joined);
+        let room = client.get_or_create_room(room_id, RoomState::Joined).await;
 
         // Sanity checks to ensure the room isn't marked as favourite.
         assert!(room.is_favourite().not());
@@ -1732,7 +1732,7 @@ mod tests {
             .unwrap();
 
         let room_id = room_id!("!test:localhost");
-        let room = client.get_or_create_room(room_id, RoomState::Joined);
+        let room = client.get_or_create_room(room_id, RoomState::Joined).await;
 
         // Sanity checks to ensure the room isn't marked as low priority.
         assert!(!room.is_low_priority());
@@ -2179,7 +2179,7 @@ mod tests {
             .unwrap();
 
         let room_id = room_id!("!test:localhost");
-        let room = client.get_or_create_room(room_id, RoomState::Joined);
+        let room = client.get_or_create_room(room_id, RoomState::Joined).await;
 
         // That has an encrypted event,
         add_encrypted_event(&room, "$A");
