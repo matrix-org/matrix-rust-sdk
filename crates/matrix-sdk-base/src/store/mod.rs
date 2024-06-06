@@ -182,7 +182,9 @@ impl Store {
                 self.inner.clone(),
                 info,
                 roominfo_update_sender.clone(),
-            );
+            )
+            .await;
+
             self.rooms.write().unwrap().insert(room.room_id().to_owned(), room);
         }
 
@@ -229,17 +231,24 @@ impl Store {
         room_type: RoomState,
         roominfo_update_sender: broadcast::Sender<RoomInfoUpdate>,
     ) -> Room {
-        let user_id =
-            &self.session_meta.get().expect("Creating room while not being logged in").user_id;
+        let user_id = self
+            .session_meta
+            .get()
+            .expect("Creating room while not being logged in")
+            .user_id
+            .clone();
 
-        self.rooms
-            .write()
-            .unwrap()
-            .entry(room_id.to_owned())
-            .or_insert_with(|| {
-                Room::new(user_id, self.inner.clone(), room_id, room_type, roominfo_update_sender)
-            })
-            .clone()
+        if let Some(room) = self.rooms.read().unwrap().get(room_id).cloned() {
+            return room;
+        }
+
+        let room =
+            Room::new(&user_id, self.inner.clone(), room_id, room_type, roominfo_update_sender)
+                .await;
+
+        // Use entry() because another caller could have racily written the room in
+        // the meanwhile.
+        self.rooms.write().unwrap().entry(room_id.to_owned()).or_insert(room).clone()
     }
 }
 
