@@ -146,10 +146,10 @@ pub trait ProgressWatcher: Send + Sync {
     fn transmission_progress(&self, progress: TransmissionProgress);
 }
 
-/// A listener to the global (client-wide) status of the sending queue.
+/// A listener to the global (client-wide) status of the send queue.
 #[uniffi::export(callback_interface)]
-pub trait SendingQueueStatusListener: Sync + Send {
-    /// Called every time the sending queue has received a new status.
+pub trait SendQueueStatusListener: Sync + Send {
+    /// Called every time the send queue has received a new status.
     ///
     /// This can be set automatically (in case of sending failure), or manually
     /// via an API call.
@@ -315,9 +315,9 @@ impl Client {
         Ok(())
     }
 
-    /// Enables or disables the sending queue, according to the given parameter.
+    /// Enables or disables the send queue, according to the given parameter.
     ///
-    /// The sending queue automatically disables itself whenever sending an
+    /// The send queue automatically disables itself whenever sending an
     /// event with it failed (e.g., sending an event via the high-level Timeline
     /// object), so it's required to manually re-enable it as soon as
     /// connectivity is back on the device.
@@ -329,14 +329,14 @@ impl Client {
         }
     }
 
-    /// Subscribe to the global enablement status of the sending queue, at the
+    /// Subscribe to the global enablement status of the send queue, at the
     /// client-wide level.
     ///
     /// The given listener will be immediately called with the initial value of
     /// the enablement status.
     pub fn subscribe_to_sending_queue_status(
         &self,
-        listener: Box<dyn SendingQueueStatusListener>,
+        listener: Box<dyn SendQueueStatusListener>,
     ) -> Arc<TaskHandle> {
         let mut subscriber = self.inner.sending_queue().subscribe_status();
 

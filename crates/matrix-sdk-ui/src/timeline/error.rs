@@ -16,7 +16,7 @@ use std::fmt;
 
 use matrix_sdk::{
     event_cache::{paginator::PaginatorError, EventCacheError},
-    send_queue::RoomSendingQueueError,
+    send_queue::RoomSendQueueError,
 };
 use ruma::OwnedTransactionId;
 use thiserror::Error;
@@ -144,7 +144,7 @@ pub enum SendEventError {
     UnsupportedEditItem(#[from] UnsupportedEditItem),
 
     #[error(transparent)]
-    SendError(#[from] RoomSendingQueueError),
+    SendError(#[from] RoomSendQueueError),
 }
 
 #[derive(Debug, Error)]

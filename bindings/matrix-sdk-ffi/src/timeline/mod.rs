@@ -219,7 +219,7 @@ impl Timeline {
         Ok(())
     }
 
-    /// Queues an event in the room's sending queue so it's processed for
+    /// Queues an event in the room's send queue so it's processed for
     /// sending later.
     ///
     /// Returns an abort handle that allows to abort sending, if it hasn't

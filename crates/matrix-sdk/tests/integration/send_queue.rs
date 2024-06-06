@@ -3,7 +3,7 @@ use std::{sync::Arc, time::Duration};
 use assert_matches2::{assert_let, assert_matches};
 use futures_util::FutureExt as _;
 use matrix_sdk::{
-    send_queue::{LocalEcho, RoomSendingQueueError, RoomSendingQueueUpdate},
+    send_queue::{LocalEcho, RoomSendQueueError, RoomSendQueueUpdate},
     test_utils::logged_in_client_with_server,
 };
 use matrix_sdk_test::{async_test, InvitedRoomBuilder, JoinedRoomBuilder, LeftRoomBuilder};
@@ -47,12 +47,12 @@ async fn test_cant_send_invited_room() {
     )
     .await;
 
-    // I can't send message to it with the sending queue.
+    // I can't send message to it with the send queue.
     assert_matches!(
         room.sending_queue()
             .send(RoomMessageEventContent::text_plain("Hello, World!").into())
             .await,
-        Err(RoomSendingQueueError::RoomNotJoined)
+        Err(RoomSendQueueError::RoomNotJoined)
     );
 }
 
@@ -73,12 +73,12 @@ async fn test_cant_send_left_room() {
     )
     .await;
 
-    // I can't send message to it with the sending queue.
+    // I can't send message to it with the send queue.
     assert_matches!(
         room.sending_queue()
             .send(RoomMessageEventContent::text_plain("Farewell, World!").into())
             .await,
-        Err(RoomSendingQueueError::RoomNotJoined)
+        Err(RoomSendQueueError::RoomNotJoined)
     );
 }
 
@@ -99,7 +99,7 @@ async fn test_nothing_sent_when_disabled() {
     )
     .await;
 
-    // When I disable the sending queue,
+    // When I disable the send queue,
     let event_id = event_id!("$1");
     mock_send_event(event_id).expect(0).mount(&server).await;
 
@@ -180,7 +180,7 @@ async fn test_smoke() {
     room.sending_queue().send(RoomMessageEventContent::text_plain("1").into()).await.unwrap();
 
     assert_let!(
-        Ok(Ok(RoomSendingQueueUpdate::NewLocalEvent(LocalEcho {
+        Ok(Ok(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
             content: AnyMessageLikeEventContent::RoomMessage(msg),
             transaction_id: txn1,
             ..
@@ -200,7 +200,7 @@ async fn test_smoke() {
     drop(lock_guard);
 
     assert_let!(
-        Ok(Ok(RoomSendingQueueUpdate::SentEvent {
+        Ok(Ok(RoomSendQueueUpdate::SentEvent {
             event_id: response_event_id,
             transaction_id: txn2
         })) = timeout(Duration::from_secs(1), watch.recv()).await
@@ -270,7 +270,7 @@ async fn test_error() {
     q.send(RoomMessageEventContent::text_plain("1").into()).await.unwrap();
 
     assert_let!(
-        Ok(Ok(RoomSendingQueueUpdate::NewLocalEvent(LocalEcho {
+        Ok(Ok(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
             content: AnyMessageLikeEventContent::RoomMessage(msg),
             transaction_id: txn1,
             ..
@@ -296,7 +296,7 @@ async fn test_error() {
     // non-determinism, so let it fail after a large amount of time (10
     // seconds).
     assert_let!(
-        Ok(Ok(RoomSendingQueueUpdate::SendError { transaction_id: txn2, error })) =
+        Ok(Ok(RoomSendQueueUpdate::SendError { transaction_id: txn2, error })) =
             timeout(Duration::from_secs(10), watch.recv()).await
     );
 
@@ -334,7 +334,7 @@ async fn test_error() {
     assert!(client.sending_queue().is_enabled());
 
     assert_let!(
-        Ok(Ok(RoomSendingQueueUpdate::SentEvent { event_id, transaction_id: txn3 })) =
+        Ok(Ok(RoomSendQueueUpdate::SentEvent { event_id, transaction_id: txn3 })) =
             timeout(Duration::from_secs(1), watch.recv()).await
     );
 
@@ -365,7 +365,7 @@ async fn test_reenabling_queue() {
 
     assert!(global_status.next_now());
 
-    // When I start with a disabled sending queue,
+    // When I start with a disabled send queue,
     client.sending_queue().disable();
 
     assert!(!client.sending_queue().is_enabled());
@@ -385,7 +385,7 @@ async fn test_reenabling_queue() {
 
     for i in 1..=3 {
         assert_let!(
-            Ok(Ok(RoomSendingQueueUpdate::NewLocalEvent(LocalEcho {
+            Ok(Ok(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
                 content: AnyMessageLikeEventContent::RoomMessage(msg),
                 ..
             }))) = timeout(Duration::from_secs(1), watch.recv()).await
@@ -434,7 +434,7 @@ async fn test_reenabling_queue() {
     // They're sent, in the same ordering.
     for i in 1..=3 {
         assert_let!(
-            Ok(Ok(RoomSendingQueueUpdate::SentEvent { event_id, .. })) =
+            Ok(Ok(RoomSendQueueUpdate::SentEvent { event_id, .. })) =
                 timeout(Duration::from_secs(1), watch.recv()).await
         );
         assert_eq!(event_id.as_str(), format!("${i}"));
@@ -510,7 +510,7 @@ async fn test_cancellation() {
 
     // Receiving update for msg1.
     assert_let!(
-        Ok(Ok(RoomSendingQueueUpdate::NewLocalEvent(LocalEcho {
+        Ok(Ok(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
             content: AnyMessageLikeEventContent::RoomMessage(_),
             transaction_id: txn1,
             ..
@@ -519,7 +519,7 @@ async fn test_cancellation() {
 
     // Receiving update for msg2.
     assert_let!(
-        Ok(Ok(RoomSendingQueueUpdate::NewLocalEvent(LocalEcho {
+        Ok(Ok(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
             content: AnyMessageLikeEventContent::RoomMessage(_),
             transaction_id: txn2,
             ..
@@ -528,7 +528,7 @@ async fn test_cancellation() {
 
     // Receiving update for msg3.
     assert_let!(
-        Ok(Ok(RoomSendingQueueUpdate::NewLocalEvent(LocalEcho {
+        Ok(Ok(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
             content: AnyMessageLikeEventContent::RoomMessage(_),
             transaction_id: txn3,
             abort_handle: handle3,
@@ -537,7 +537,7 @@ async fn test_cancellation() {
 
     // Receiving update for msg4.
     assert_let!(
-        Ok(Ok(RoomSendingQueueUpdate::NewLocalEvent(LocalEcho {
+        Ok(Ok(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
             content: AnyMessageLikeEventContent::RoomMessage(_),
             transaction_id: txn4,
             ..
@@ -546,7 +546,7 @@ async fn test_cancellation() {
 
     // Receiving update for msg5.
     assert_let!(
-        Ok(Ok(RoomSendingQueueUpdate::NewLocalEvent(LocalEcho {
+        Ok(Ok(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
             content: AnyMessageLikeEventContent::RoomMessage(_),
             transaction_id: txn5,
             ..
@@ -568,7 +568,7 @@ async fn test_cancellation() {
     assert!(handle2.abort().await);
 
     assert_let!(
-        Ok(Ok(RoomSendingQueueUpdate::CancelledLocalEvent {
+        Ok(Ok(RoomSendQueueUpdate::CancelledLocalEvent {
             transaction_id: cancelled_transaction_id
         })) = timeout(Duration::from_secs(1), watch.recv()).await
     );
@@ -582,7 +582,7 @@ async fn test_cancellation() {
     assert!(handle3.abort().await);
 
     assert_let!(
-        Ok(Ok(RoomSendingQueueUpdate::CancelledLocalEvent {
+        Ok(Ok(RoomSendQueueUpdate::CancelledLocalEvent {
             transaction_id: cancelled_transaction_id
         })) = timeout(Duration::from_secs(1), watch.recv()).await
     );
@@ -606,7 +606,7 @@ async fn test_cancellation() {
     assert!(handle4.abort().await);
 
     assert_let!(
-        Ok(Ok(RoomSendingQueueUpdate::CancelledLocalEvent {
+        Ok(Ok(RoomSendQueueUpdate::CancelledLocalEvent {
             transaction_id: cancelled_transaction_id
         })) = timeout(Duration::from_secs(1), watch.recv()).await
     );
@@ -620,13 +620,13 @@ async fn test_cancellation() {
 
     // Now the server will process msg1 and msg3.
     assert_let!(
-        Ok(Ok(RoomSendingQueueUpdate::SentEvent { transaction_id: sent_txn, .. })) =
+        Ok(Ok(RoomSendQueueUpdate::SentEvent { transaction_id: sent_txn, .. })) =
             timeout(Duration::from_secs(1), watch.recv()).await
     );
     assert_eq!(sent_txn, txn1,);
 
     assert_let!(
-        Ok(Ok(RoomSendingQueueUpdate::SentEvent { transaction_id: sent_txn, .. })) =
+        Ok(Ok(RoomSendQueueUpdate::SentEvent { transaction_id: sent_txn, .. })) =
             timeout(Duration::from_secs(1), watch.recv()).await
     );
     assert_eq!(sent_txn, txn5);

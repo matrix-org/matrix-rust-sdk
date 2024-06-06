@@ -2539,7 +2539,7 @@ async fn test_room_latest_event() -> Result<(), Error> {
     // Insert a local event in the `Timeline`.
     timeline.send(RoomMessageEventContent::text_plain("Hello, World!").into()).await.unwrap();
 
-    // Let the sending queue send the message, and the timeline process it.
+    // Let the send queue send the message, and the timeline process it.
     yield_now().await;
 
     // The latest event of the `Timeline` is a local event.

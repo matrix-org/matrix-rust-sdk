@@ -206,7 +206,7 @@ async fn test_send_edit() {
         .await
         .unwrap();
 
-    // Let the sending queue handle the event.
+    // Let the send queue handle the event.
     yield_now().await;
 
     let edit_item =
@@ -296,7 +296,7 @@ async fn test_send_reply_edit() {
         .await
         .unwrap();
 
-    // Let the sending queue handle the event.
+    // Let the send queue handle the event.
     yield_now().await;
 
     let edit_item =
@@ -387,7 +387,7 @@ async fn test_send_edit_poll() {
         UnstablePollStartContentBlock::new("Edited Test".to_owned(), edited_poll_answers);
     timeline.edit_poll("poll_fallback_text", edited_poll, &poll_event).await.unwrap();
 
-    // Let the sending queue handle the event.
+    // Let the send queue handle the event.
     yield_now().await;
 
     let edit_item =

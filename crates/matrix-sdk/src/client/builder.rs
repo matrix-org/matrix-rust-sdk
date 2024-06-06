@@ -38,7 +38,7 @@ use crate::http_client::HttpSettings;
 use crate::oidc::OidcCtx;
 use crate::{
     authentication::AuthCtx, config::RequestConfig, error::RumaApiError, http_client::HttpClient,
-    send_queue::SendingQueueData, HttpError, IdParseError,
+    send_queue::SendQueueData, HttpError, IdParseError,
 };
 
 /// Builder that allows creating and configuring various parts of a [`Client`].
@@ -453,7 +453,7 @@ impl ClientBuilder {
         });
 
         let event_cache = OnceCell::new();
-        let sending_queue = Arc::new(SendingQueueData::new(true));
+        let sending_queue = Arc::new(SendQueueData::new(true));
         let inner = ClientInner::new(
             auth_ctx,
             homeserver,
