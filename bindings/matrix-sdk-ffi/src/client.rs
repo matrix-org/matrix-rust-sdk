@@ -146,14 +146,12 @@ pub trait ProgressWatcher: Send + Sync {
     fn transmission_progress(&self, progress: TransmissionProgress);
 }
 
-/// A listener to the global (client-wide) status of the send queue.
+/// A listener to the global (client-wide) error reporter of the send queue.
 #[uniffi::export(callback_interface)]
-pub trait SendQueueStatusListener: Sync + Send {
-    /// Called every time the send queue has received a new status.
-    ///
-    /// This can be set automatically (in case of sending failure), or manually
-    /// via an API call.
-    fn on_update(&self, new_value: bool);
+pub trait SendQueueRoomErrorListener: Sync + Send {
+    /// Called every time the send queue has ran into an error for a given room,
+    /// which will disable the send queue for that particular room.
+    fn on_error(&self, room_id: String, error: ClientError);
 }
 
 #[derive(Clone, Copy, uniffi::Record)]
@@ -315,18 +313,15 @@ impl Client {
         Ok(())
     }
 
-    /// Enables or disables the send queue, according to the given parameter.
+    /// Enables or disables all the room send queues at once.
     ///
-    /// The send queue automatically disables itself whenever sending an
-    /// event with it failed (e.g., sending an event via the high-level Timeline
-    /// object), so it's required to manually re-enable it as soon as
-    /// connectivity is back on the device.
-    pub fn enable_send_queue(&self, enable: bool) {
-        if enable {
-            self.inner.send_queue().enable();
-        } else {
-            self.inner.send_queue().disable();
-        }
+    /// When connectivity is lost on a device, it is recommended to disable the
+    /// room sending queues.
+    ///
+    /// This can be controlled for individual rooms, using
+    /// [`Room::enable_send_queue`].
+    pub fn enable_all_send_queues(&self, enable: bool) {
+        self.inner.send_queue().set_enabled(enable);
     }
 
     /// Subscribe to the global enablement status of the send queue, at the
@@ -336,17 +331,19 @@ impl Client {
     /// the enablement status.
     pub fn subscribe_to_send_queue_status(
         &self,
-        listener: Box<dyn SendQueueStatusListener>,
+        listener: Box<dyn SendQueueRoomErrorListener>,
     ) -> Arc<TaskHandle> {
-        let mut subscriber = self.inner.send_queue().subscribe_status();
+        let mut subscriber = self.inner.send_queue().subscribe_errors();
 
         Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
-            // Call with the initial value.
-            listener.on_update(subscriber.next_now());
-
-            // Call every time the value changes.
-            while let Some(next_val) = subscriber.next().await {
-                listener.on_update(next_val);
+            loop {
+                match subscriber.recv().await {
+                    Ok(report) => listener
+                        .on_error(report.room_id.to_string(), ClientError::new(report.error)),
+                    Err(err) => {
+                        error!("error when listening to the send queue error reporter: {err}");
+                    }
+                }
             }
         })))
     }

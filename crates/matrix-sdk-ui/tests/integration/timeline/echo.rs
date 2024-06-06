@@ -142,7 +142,7 @@ async fn test_retry_failed() {
 
     mock_encryption_state(&server, false).await;
 
-    client.send_queue().enable();
+    client.send_queue().set_enabled(true);
 
     let room = client.get_room(room_id).unwrap();
     let timeline = Arc::new(room.timeline().await.unwrap());
@@ -173,9 +173,12 @@ async fn test_retry_failed() {
         .mount(&server)
         .await;
 
-    assert!(!client.send_queue().is_enabled());
+    // This doesn't disable the send queue at the global level…
+    assert!(client.send_queue().is_enabled());
+    // …but does so at the local level.
+    assert!(!room.send_queue().is_enabled());
 
-    client.send_queue().enable();
+    room.send_queue().set_enabled(true);
 
     // Let the send queue handle the event.
     tokio::time::sleep(Duration::from_millis(300)).await;

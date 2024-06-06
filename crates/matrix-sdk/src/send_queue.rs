@@ -22,7 +22,6 @@ use std::{
     },
 };
 
-use eyeball::{SharedObservable, Subscriber};
 use matrix_sdk_base::RoomState;
 use matrix_sdk_common::executor::{spawn, JoinHandle};
 use ruma::{
@@ -51,8 +50,13 @@ impl SendQueue {
         Self { client }
     }
 
+    #[inline(always)]
+    fn data(&self) -> &SendQueueData {
+        &self.client.inner.send_queue_data
+    }
+
     fn for_room(&self, room: Room) -> RoomSendQueue {
-        let data = &self.client.inner.send_queue_data;
+        let data = self.data();
 
         let mut map = data.rooms.write().unwrap();
 
@@ -63,7 +67,8 @@ impl SendQueue {
 
         let owned_room_id = room_id.to_owned();
         let room_q = RoomSendQueue::new(
-            data.globally_enabled.clone(),
+            data.globally_enabled.load(Ordering::SeqCst),
+            data.error_reporter.clone(),
             data.is_dropping.clone(),
             &self.client,
             owned_room_id.clone(),
@@ -72,49 +77,47 @@ impl SendQueue {
         room_q
     }
 
-    /// Enable the send queue for the entire client, i.e. all rooms.
+    /// Enable or disable the send queue for the entire client, i.e. all rooms.
+    ///
+    /// If we're disabling the queue, and requests were being sent, they're not
+    /// aborted, and will continue until a status resolves (error responses
+    /// will keep the events in the buffer of events to send later). The
+    /// disablement will happen before the next event is sent.
     ///
     /// This may wake up background tasks and resume sending of events in the
     /// background.
-    pub fn enable(&self) {
-        if self.client.inner.send_queue_data.globally_enabled.set_if_not_eq(true).is_some() {
-            debug!("globally enabling send queue");
-            let rooms = self.client.inner.send_queue_data.rooms.read().unwrap();
-            // Wake up the rooms, in case events have been queued in the meanwhile.
-            for room in rooms.values() {
-                room.inner.notifier.notify_one();
-            }
-        }
-    }
+    pub fn set_enabled(&self, enabled: bool) {
+        debug!(?enabled, "setting global send queue enablement");
 
-    /// Disable the send queue for the entire client, i.e. all rooms.
-    ///
-    /// If requests were being sent, they're not aborted, and will continue
-    /// until a status resolves (error responses will keep the events in the
-    /// buffer of events to send later). The disablement will happen before
-    /// the next event is sent.
-    pub fn disable(&self) {
-        // Note: it's not required to wake the tasks just to let them know they're
-        // disabled:
-        // - either they were busy, will continue to the next iteration and realize
-        // the queue is now disabled,
-        // - or they were not, and it's not worth it waking them to let them they're
-        // disabled, which causes them to go to sleep again.
-        debug!("globally disabling send queue");
-        self.client.inner.send_queue_data.globally_enabled.set(false);
+        self.data().globally_enabled.store(enabled, Ordering::SeqCst);
+
+        let rooms = self.data().rooms.read().unwrap();
+        for room in rooms.values() {
+            room.set_enabled(enabled);
+        }
     }
 
     /// Returns whether the send queue is enabled, at a client-wide
     /// granularity.
     pub fn is_enabled(&self) -> bool {
-        self.client.inner.send_queue_data.globally_enabled.get()
+        self.data().globally_enabled.load(Ordering::SeqCst)
     }
 
     /// A subscriber to the enablement status (enabled or disabled) of the
     /// send queue.
-    pub fn subscribe_status(&self) -> Subscriber<bool> {
-        self.client.inner.send_queue_data.globally_enabled.subscribe()
+    pub fn subscribe_errors(&self) -> broadcast::Receiver<SendQueueRoomError> {
+        self.data().error_reporter.subscribe()
     }
+}
+
+/// A specific room ran into an error, and has disabled itself.
+#[derive(Clone, Debug)]
+pub struct SendQueueRoomError {
+    /// Which room is failing?
+    pub room_id: OwnedRoomId,
+
+    /// The error the room has ran into, when trying to send an event.
+    pub error: Arc<crate::Error>,
 }
 
 impl Client {
@@ -130,7 +133,13 @@ pub(super) struct SendQueueData {
     rooms: SyncRwLock<BTreeMap<OwnedRoomId, RoomSendQueue>>,
 
     /// Is the whole mechanism enabled or disabled?
-    globally_enabled: SharedObservable<bool>,
+    ///
+    /// This is only kept in memory to initialize new room queues with an
+    /// initial enablement state.
+    globally_enabled: AtomicBool,
+
+    /// Global error updates for the send queue.
+    error_reporter: broadcast::Sender<SendQueueRoomError>,
 
     /// Are we currently dropping the Client?
     is_dropping: Arc<AtomicBool>,
@@ -139,9 +148,12 @@ pub(super) struct SendQueueData {
 impl SendQueueData {
     /// Create the data for a send queue, in the given enabled state.
     pub fn new(globally_enabled: bool) -> Self {
+        let (sender, _) = broadcast::channel(32);
+
         Self {
             rooms: Default::default(),
-            globally_enabled: SharedObservable::new(globally_enabled),
+            globally_enabled: AtomicBool::new(globally_enabled),
+            error_reporter: sender,
             is_dropping: Arc::new(false.into()),
         }
     }
@@ -184,7 +196,8 @@ impl std::fmt::Debug for RoomSendQueue {
 
 impl RoomSendQueue {
     fn new(
-        globally_enabled: SharedObservable<bool>,
+        globally_enabled: bool,
+        global_error_reporter: broadcast::Sender<SendQueueRoomError>,
         is_dropping: Arc<AtomicBool>,
         client: &Client,
         room_id: OwnedRoomId,
@@ -195,13 +208,15 @@ impl RoomSendQueue {
         let notifier = Arc::new(Notify::new());
 
         let weak_room = WeakRoom::new(WeakClient::from_client(client), room_id);
+        let locally_enabled = Arc::new(AtomicBool::new(globally_enabled));
 
         let task = spawn(Self::sending_task(
             weak_room.clone(),
             queue.clone(),
             notifier.clone(),
             updates_sender.clone(),
-            globally_enabled,
+            locally_enabled.clone(),
+            global_error_reporter,
             is_dropping,
         ));
 
@@ -212,6 +227,7 @@ impl RoomSendQueue {
                 _task: task,
                 queue,
                 notifier,
+                locally_enabled,
             }),
         }
     }
@@ -282,7 +298,8 @@ impl RoomSendQueue {
         queue: QueueStorage,
         notifier: Arc<Notify>,
         updates: broadcast::Sender<RoomSendQueueUpdate>,
-        globally_enabled: SharedObservable<bool>,
+        locally_enabled: Arc<AtomicBool>,
+        global_error_reporter: broadcast::Sender<SendQueueRoomError>,
         is_dropping: Arc<AtomicBool>,
     ) {
         info!("spawned the sending task");
@@ -294,7 +311,7 @@ impl RoomSendQueue {
                 break;
             }
 
-            if !globally_enabled.get() {
+            if !locally_enabled.load(Ordering::SeqCst) {
                 trace!("not enabled, sleeping");
                 // Wait for an explicit wakeup.
                 notifier.notified().await;
@@ -347,19 +364,41 @@ impl RoomSendQueue {
                     // try to remove an item, while it's still marked as being sent, resulting in a
                     // cancellation failure.
 
-                    // Disable the queue after an error.
-                    // See comment in [`SendQueue::disable()`].
-                    globally_enabled.set(false);
+                    // Disable the queue for this room after an error.
+                    locally_enabled.store(false, Ordering::SeqCst);
+
+                    let error = Arc::new(err);
+
+                    let _ = global_error_reporter.send(SendQueueRoomError {
+                        room_id: room.room_id().to_owned(),
+                        error: error.clone(),
+                    });
 
                     let _ = updates.send(RoomSendQueueUpdate::SendError {
                         transaction_id: queued_event.transaction_id,
-                        error: Arc::new(err),
+                        error,
                     });
                 }
             }
         }
 
         info!("exited sending task");
+    }
+
+    /// Returns whether the room is enabled, at the room level.
+    pub fn is_enabled(&self) -> bool {
+        self.inner.locally_enabled.load(Ordering::SeqCst)
+    }
+
+    /// Set the locally enabled flag for this room queue.
+    pub fn set_enabled(&self, enabled: bool) {
+        self.inner.locally_enabled.store(enabled, Ordering::SeqCst);
+
+        // No need to wake a task to tell it it's been disabled, so only notify if we're
+        // re-enabling the queue.
+        if enabled {
+            self.inner.notifier.notify_one();
+        }
     }
 }
 
@@ -388,6 +427,10 @@ struct RoomSendQueueInner {
     /// A notifier that's updated any time common data is touched (stopped or
     /// enabled statuses), or the associated room [`QueueStorage`].
     notifier: Arc<Notify>,
+
+    /// Should the room process new events or not (because e.g. it might be
+    /// running off the network)?
+    locally_enabled: Arc<AtomicBool>,
 
     /// Handle to the actual sending task. Unused, but kept alive along this
     /// data structure.
@@ -624,11 +667,7 @@ mod tests {
 
                 let _watcher = q.subscribe().await;
 
-                if enabled {
-                    client.send_queue().enable();
-                } else {
-                    client.send_queue().disable();
-                }
+                client.send_queue().set_enabled(enabled);
             }
 
             drop(client);
