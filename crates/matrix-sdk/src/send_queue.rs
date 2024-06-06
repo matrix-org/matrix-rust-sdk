@@ -338,13 +338,18 @@ impl RoomSendQueue {
                 Err(err) => {
                     warn!(txn_id = %queued_event.transaction_id, "error when sending event: {err}");
 
-                    // Disable the queue after an error.
-                    // See comment in [`SendQueue::disable()`].
-                    globally_enabled.set(false);
-
                     // In this case, we intentionally keep the event in the queue, but mark it as
                     // not being sent anymore.
                     queue.mark_as_not_being_sent(&queued_event.transaction_id).await;
+
+                    // Let observers know about a failure *after* we've marked the item as not
+                    // being sent anymore. Otherwise, there's a possible race where a caller might
+                    // try to remove an item, while it's still marked as being sent, resulting in a
+                    // cancellation failure.
+
+                    // Disable the queue after an error.
+                    // See comment in [`SendQueue::disable()`].
+                    globally_enabled.set(false);
 
                     let _ = updates.send(RoomSendQueueUpdate::SendError {
                         transaction_id: queued_event.transaction_id,
