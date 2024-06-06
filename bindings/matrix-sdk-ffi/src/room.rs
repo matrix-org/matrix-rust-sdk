@@ -687,6 +687,17 @@ impl Room {
             .await?;
         Ok(())
     }
+
+    /// Returns whether the send queue for that particular room is enabled or
+    /// not.
+    pub fn is_send_queue_enabled(&self) -> bool {
+        self.inner.send_queue().is_enabled()
+    }
+
+    /// Enable or disable the send queue for that particular room.
+    pub fn enable_send_queue(&self, enable: bool) {
+        self.inner.send_queue().set_enabled(enable);
+    }
 }
 
 /// Generates a `matrix.to` permalink to the given room alias.

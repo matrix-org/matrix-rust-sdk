@@ -1,7 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
 use assert_matches2::{assert_let, assert_matches};
-use futures_util::FutureExt as _;
 use matrix_sdk::{
     send_queue::{LocalEcho, RoomSendQueueError, RoomSendQueueUpdate},
     test_utils::logged_in_client_with_server,
@@ -101,7 +100,7 @@ async fn test_nothing_sent_when_disabled() {
     let event_id = event_id!("$1");
     mock_send_event(event_id).expect(0).mount(&server).await;
 
-    client.send_queue().disable();
+    client.send_queue().set_enabled(false);
 
     // A message is queued, but never sent.
     room.send_queue()
@@ -211,13 +210,14 @@ async fn test_smoke() {
 }
 
 #[async_test]
-async fn test_error() {
+async fn test_error_then_locally_reenabling() {
     let (client, server) = logged_in_client_with_server().await;
 
-    let mut global_status = client.send_queue().subscribe_status();
+    let mut errors = client.send_queue().subscribe_errors();
 
+    // Starting with a globally enabled queue.
     assert!(client.send_queue().is_enabled());
-    assert!(global_status.next_now());
+    assert!(errors.is_empty());
 
     // Mark the room as joined.
     let room_id = room_id!("!a:b.c");
@@ -285,8 +285,8 @@ async fn test_error() {
 
     assert!(watch.is_empty());
 
-    // No new update on the global status.
-    assert!(global_status.next().now_or_never().is_none());
+    // No new update on the global error reporter.
+    assert!(errors.is_empty());
 
     drop(lock_guard);
 
@@ -308,28 +308,24 @@ async fn test_error() {
 
     assert!(watch.is_empty());
 
-    assert!(!global_status.next().await.unwrap(), "the queue should be disabled next");
-    assert!(!client.send_queue().is_enabled());
+    let report = errors.recv().await.unwrap();
+    assert_eq!(report.room_id, room.room_id());
+
+    // The send queue is still globally enabled,
+    assert!(client.send_queue().is_enabled());
+    // But the room send queue is disabled.
+    assert!(!room.send_queue().is_enabled());
 
     server.reset().await;
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "event_id": "$42"
-        })))
-        .expect(1)
-        .mount(&server)
-        .await;
+    mock_send_event(event_id!("$42")).expect(1).mount(&server).await;
 
-    // Re-enabling the queue will re-send the same message in that room.
-    client.send_queue().enable();
+    // Re-enabling the *room* queue will re-send the same message in that room.
+    room.send_queue().set_enabled(true);
 
-    assert!(
-        global_status.next().await.unwrap(),
-        "the queue should be re-enabled after the user action"
-    );
+    assert!(errors.is_empty());
+
     assert!(client.send_queue().is_enabled());
+    assert!(room.send_queue().is_enabled());
 
     assert_let!(
         Ok(Ok(RoomSendQueueUpdate::SentEvent { event_id, transaction_id: txn3 })) =
@@ -339,7 +335,94 @@ async fn test_error() {
     assert_eq!(txn1, txn3);
     assert_eq!(event_id, event_id!("$42"));
 
-    assert!(global_status.next().now_or_never().is_none());
+    assert!(errors.is_empty());
+}
+
+#[async_test]
+async fn test_error_then_globally_reenabling() {
+    let (client, server) = logged_in_client_with_server().await;
+
+    let mut errors = client.send_queue().subscribe_errors();
+
+    // Starting with a globally enabled queue.
+    assert!(client.send_queue().is_enabled());
+    assert!(errors.is_empty());
+
+    // Mark the room as joined.
+    let room_id = room_id!("!a:b.c");
+
+    let room = mock_sync_with_new_room(
+        |builder| {
+            builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+        },
+        &client,
+        &server,
+        room_id,
+    )
+    .await;
+
+    let q = room.send_queue();
+
+    let (local_echoes, mut watch) = q.subscribe().await;
+    assert!(local_echoes.is_empty());
+    assert!(watch.is_empty());
+
+    q.send(RoomMessageEventContent::text_plain("1").into()).await.unwrap();
+
+    assert_let!(
+        Ok(Ok(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
+            content: AnyMessageLikeEventContent::RoomMessage(msg),
+            transaction_id: txn1,
+            ..
+        }))) = timeout(Duration::from_secs(1), watch.recv()).await
+    );
+    assert_eq!(msg.body(), "1");
+
+    assert!(watch.is_empty());
+
+    // We should receive an error because the mocking endpoint hasn't been set up
+    // yet.
+    let report = errors.recv().await.unwrap();
+    assert_eq!(report.room_id, room.room_id());
+
+    // The exponential backoff used when retrying a request introduces a bit of
+    // non-determinism, so let it fail after a large amount of time (10
+    // seconds).
+    assert_let!(
+        Ok(Ok(RoomSendQueueUpdate::SendError { transaction_id: txn2, .. })) =
+            timeout(Duration::from_secs(10), watch.recv()).await
+    );
+
+    // It's the same transaction id that's used to signal the send error.
+    assert_eq!(txn1, txn2);
+
+    // The send queue is still globally enabled,
+    assert!(client.send_queue().is_enabled());
+    // But the room send queue is disabled.
+    assert!(!room.send_queue().is_enabled());
+
+    assert!(watch.is_empty());
+
+    server.reset().await;
+    mock_encryption_state(&server, false).await;
+    mock_send_event(event_id!("$42")).expect(1).mount(&server).await;
+
+    // Re-enabling the global queue will cause the event to be sent.
+    client.send_queue().set_enabled(true);
+
+    assert!(client.send_queue().is_enabled());
+    assert!(room.send_queue().is_enabled());
+
+    assert_let!(
+        Ok(Ok(RoomSendQueueUpdate::SentEvent { event_id, transaction_id: txn3 })) =
+            timeout(Duration::from_secs(1), watch.recv()).await
+    );
+
+    assert_eq!(txn1, txn3);
+    assert_eq!(event_id, event_id!("$42"));
+
+    assert!(errors.is_empty());
+    assert!(watch.is_empty());
 }
 
 #[async_test]
@@ -359,15 +442,16 @@ async fn test_reenabling_queue() {
     )
     .await;
 
-    let mut global_status = client.send_queue().subscribe_status();
+    let errors = client.send_queue().subscribe_errors();
 
-    assert!(global_status.next_now());
+    assert!(errors.is_empty());
 
     // When I start with a disabled send queue,
-    client.send_queue().disable();
+    client.send_queue().set_enabled(false);
 
     assert!(!client.send_queue().is_enabled());
-    assert!(!global_status.next().await.unwrap());
+    assert!(!room.send_queue().is_enabled());
+    assert!(errors.is_empty());
 
     let q = room.send_queue();
 
@@ -423,11 +507,12 @@ async fn test_reenabling_queue() {
         .mount(&server)
         .await;
 
-    // But when reenabling the queue,
-    client.send_queue().enable();
+    // But when reenabling the queue globally,
+    client.send_queue().set_enabled(true);
 
     assert!(client.send_queue().is_enabled());
-    assert!(global_status.next().await.unwrap());
+    assert!(room.send_queue().is_enabled());
+    assert!(errors.is_empty());
 
     // They're sent, in the same ordering.
     for i in 1..=3 {
@@ -438,7 +523,53 @@ async fn test_reenabling_queue() {
         assert_eq!(event_id.as_str(), format!("${i}"));
     }
 
-    assert!(global_status.next().now_or_never().is_none());
+    assert!(errors.is_empty());
+    assert!(watch.is_empty());
+}
+
+#[async_test]
+async fn test_disjoint_enabled_status() {
+    let (client, server) = logged_in_client_with_server().await;
+
+    // Mark the room as joined.
+    let room_id1 = room_id!("!a:b.c");
+    let room_id2 = room_id!("!b:b.c");
+    let room1 = mock_sync_with_new_room(
+        |builder| {
+            builder
+                .add_joined_room(JoinedRoomBuilder::new(room_id1))
+                .add_joined_room(JoinedRoomBuilder::new(room_id2));
+        },
+        &client,
+        &server,
+        room_id1,
+    )
+    .await;
+    let room2 = client.get_room(room_id2).unwrap();
+
+    // When I start with a disabled send queue,
+    client.send_queue().set_enabled(false);
+
+    // All queues are marked as disabled.
+    assert!(!client.send_queue().is_enabled());
+    assert!(!room1.send_queue().is_enabled());
+    assert!(!room2.send_queue().is_enabled());
+
+    // When I enable globally,
+    client.send_queue().set_enabled(true);
+
+    // This enables globally and locally.
+    assert!(client.send_queue().is_enabled());
+    assert!(room1.send_queue().is_enabled());
+    assert!(room2.send_queue().is_enabled());
+
+    // I can disable one locally,
+    room1.send_queue().set_enabled(false);
+
+    // And it doesn't touch the state of other rooms.
+    assert!(client.send_queue().is_enabled());
+    assert!(!room1.send_queue().is_enabled());
+    assert!(room2.send_queue().is_enabled());
 }
 
 #[async_test]
@@ -649,12 +780,12 @@ async fn test_abort_reenable() {
     )
     .await;
 
-    let mut global_status = client.send_queue().subscribe_status();
+    let mut errors = client.send_queue().subscribe_errors();
 
-    assert!(global_status.next_now());
+    assert!(errors.is_empty());
 
     // When I start with an enabled sending queue,
-    client.send_queue().enable();
+    client.send_queue().set_enabled(true);
 
     assert!(client.send_queue().is_enabled());
 
@@ -679,7 +810,10 @@ async fn test_abort_reenable() {
     assert_eq!(msg.body(), format!("hey there"));
 
     // Waiting for the global status to report the queue is getting disabled.
-    assert!(!global_status.next().await.unwrap());
+    let report = errors.recv().await.unwrap();
+    assert_eq!(report.room_id, room.room_id());
+    assert!(!room.send_queue().is_enabled());
+    assert!(client.send_queue().is_enabled());
 
     // Aborting the sending should work.
     assert!(abort_send_handle.abort().await);
@@ -696,4 +830,5 @@ async fn test_abort_reenable() {
     );
 
     assert!(watch.is_empty());
+    assert!(errors.is_empty());
 }

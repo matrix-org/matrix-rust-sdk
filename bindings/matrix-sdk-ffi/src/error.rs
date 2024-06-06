@@ -14,7 +14,7 @@ pub enum ClientError {
 }
 
 impl ClientError {
-    fn new<E: Display>(error: E) -> Self {
+    pub(crate) fn new<E: Display>(error: E) -> Self {
         Self::Generic { msg: error.to_string() }
     }
 }
