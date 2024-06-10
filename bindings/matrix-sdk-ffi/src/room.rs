@@ -6,10 +6,7 @@ use matrix_sdk::{
     room::{power_levels::RoomPowerLevelChanges, Room as SdkRoom, RoomMemberRole},
     ComposerDraft, RoomMemberships, RoomState,
 };
-use matrix_sdk_ui::timeline::{
-    InReplyToDetails as SdkInReplyDetails, PaginationError, RepliedToEvent, RoomExt,
-    TimelineDetails, TimelineFocus,
-};
+use matrix_sdk_ui::timeline::{PaginationError, RepliedToEvent, RoomExt, TimelineFocus};
 use mime::Mime;
 use ruma::{
     api::client::room::report_content,
@@ -36,7 +33,8 @@ use crate::{
     room_member::RoomMember,
     ruma::{ImageInfo, Mentions, NotifyType},
     timeline::{
-        content::InReplyToDetails, EventTimelineItem, FocusEventError, ReceiptType, Timeline,
+        content::{InReplyToDetails, RepliedToEventDetails, TimelineItemContent},
+        EventTimelineItem, FocusEventError, ReceiptType, Timeline,
     },
     utils::u64_to_uint,
     TaskHandle,
@@ -693,39 +691,53 @@ impl Room {
         Ok(())
     }
 
-    /// Stores the given `ComposerDraft` in the state store using the current
+    /// Store the given `ComposerDraft` in the state store using the current
     /// room id, as identifier.
     pub async fn save_composer_draft(&self, draft: ComposerDraft) -> Result<(), ClientError> {
         Ok(self.inner.save_composer_draft(draft).await?)
     }
 
-    /// Retrieves the `ComposerDraft` stored in the state store for this room.
-    pub async fn restore_composer_draft(&self) -> Result<Option<ComposerDraft>, ClientError> {
-        Ok(self.inner.restore_composer_draft().await?)
+    /// Retrieve the `ComposerDraft` stored in the state store for this room.
+    pub async fn load_composer_draft(&self) -> Result<Option<ComposerDraft>, ClientError> {
+        Ok(self.inner.load_composer_draft().await?)
     }
 
-    /// Removes the `ComposerDraft` stored in the state store for this room.
+    /// Remove the `ComposerDraft` stored in the state store for this room.
     pub async fn clear_composer_draft(&self) -> Result<(), ClientError> {
         Ok(self.inner.clear_composer_draft().await?)
     }
 
-    /// Loads the reply details for the given event id.
+    /// Load the reply details for the given event id.
+    ///
     /// This will return an `InReplyToDetails` object that contains the details
     /// which will either be ready or an error.
     pub async fn load_reply_details(
         &self,
-        event_id: String,
+        event_id_str: String,
     ) -> Result<InReplyToDetails, ClientError> {
-        let event_id = EventId::parse(event_id)?;
-        let details = match self.inner.event(&event_id).await {
-            Ok(timeline_event) => TimelineDetails::Ready(Box::new(
-                RepliedToEvent::try_from_timeline_event_for_room(timeline_event, &self.inner)
-                    .await?,
-            )),
-            Err(e) => TimelineDetails::Error(Arc::new(e)),
-        };
-        let reply_details = &SdkInReplyDetails::new_with_timeline_details(event_id, details);
-        Ok(reply_details.into())
+        let event_id = EventId::parse(&event_id_str)?;
+
+        match self.inner.event(&event_id).await {
+            Ok(timeline_event) => {
+                let replied_to =
+                    RepliedToEvent::try_from_timeline_event_for_room(timeline_event, &self.inner)
+                        .await?;
+
+                Ok(InReplyToDetails {
+                    event_id: event_id_str,
+                    event: RepliedToEventDetails::Ready {
+                        content: Arc::new(TimelineItemContent(replied_to.content().clone())),
+                        sender: replied_to.sender().to_string(),
+                        sender_profile: replied_to.sender_profile().into(),
+                    },
+                })
+            }
+
+            Err(e) => Ok(InReplyToDetails {
+                event_id: event_id_str,
+                event: RepliedToEventDetails::Error { message: e.to_string() },
+            }),
+        }
     }
 }
 
