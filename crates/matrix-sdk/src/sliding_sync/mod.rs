@@ -2187,7 +2187,7 @@ mod tests {
 
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
-        client.base_client().get_or_create_room(&room_id, RoomState::Joined).await;
+        client.base_client().get_or_create_room(&room_id, RoomState::Joined);
 
         // Setup sliding sync with with one room and one list
 
@@ -2310,7 +2310,7 @@ mod tests {
 
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
-        client.base_client().get_or_create_room(&room, RoomState::Joined).await;
+        client.base_client().get_or_create_room(&room, RoomState::Joined);
 
         let sliding_sync = client
             .sliding_sync("test")?

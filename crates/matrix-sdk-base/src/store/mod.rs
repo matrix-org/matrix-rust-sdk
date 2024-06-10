@@ -182,8 +182,7 @@ impl Store {
                 self.inner.clone(),
                 info,
                 roominfo_update_sender.clone(),
-            )
-            .await;
+            );
 
             self.rooms.write().unwrap().insert(room.room_id().to_owned(), room);
         }
@@ -225,30 +224,23 @@ impl Store {
 
     /// Lookup the Room for the given RoomId, or create one, if it didn't exist
     /// yet in the store.
-    pub async fn get_or_create_room(
+    pub fn get_or_create_room(
         &self,
         room_id: &RoomId,
         room_type: RoomState,
         roominfo_update_sender: broadcast::Sender<RoomInfoUpdate>,
     ) -> Room {
-        let user_id = self
-            .session_meta
-            .get()
-            .expect("Creating room while not being logged in")
-            .user_id
-            .clone();
+        let user_id =
+            &self.session_meta.get().expect("Creating room while not being logged in").user_id;
 
-        if let Some(room) = self.rooms.read().unwrap().get(room_id).cloned() {
-            return room;
-        }
-
-        let room =
-            Room::new(&user_id, self.inner.clone(), room_id, room_type, roominfo_update_sender)
-                .await;
-
-        // Use entry() because another caller could have racily written the room in
-        // the meanwhile.
-        self.rooms.write().unwrap().entry(room_id.to_owned()).or_insert(room).clone()
+        self.rooms
+            .write()
+            .unwrap()
+            .entry(room_id.to_owned())
+            .or_insert_with(|| {
+                Room::new(user_id, self.inner.clone(), room_id, room_type, roominfo_update_sender)
+            })
+            .clone()
     }
 }
 
