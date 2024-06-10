@@ -14,7 +14,7 @@
 
 #[cfg(feature = "e2e-encryption")]
 use std::collections::BTreeSet;
-use std::{fmt, ops::Add, sync::Arc};
+use std::{fmt, sync::Arc};
 
 use as_variant::as_variant;
 use eyeball_im::{ObservableVectorEntry, VectorDiff};
@@ -585,54 +585,56 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         let mut state = self.state.write().await;
 
         for diff in diffs {
-            result = result
-                + match diff {
-                    VectorDiff::Append { values: events } => {
-                        state
-                            .add_remote_events_at(
-                                events,
-                                TimelineNewItemPosition::End { origin },
-                                room_data_provider,
-                                settings,
-                            )
-                            .await
-                    }
+            let HandleManyEventsResult { items_added, items_updated } = match diff {
+                VectorDiff::Append { values: events } => {
+                    state
+                        .add_remote_events_at(
+                            events,
+                            TimelineNewItemPosition::End { origin },
+                            room_data_provider,
+                            settings,
+                        )
+                        .await
+                }
 
-                    VectorDiff::PushFront { value } => {
-                        state
-                            .add_remote_events_at(
-                                [value],
-                                TimelineNewItemPosition::Start { origin },
-                                room_data_provider,
-                                settings,
-                            )
-                            .await
-                    }
+                VectorDiff::PushFront { value } => {
+                    state
+                        .add_remote_events_at(
+                            [value],
+                            TimelineNewItemPosition::Start { origin },
+                            room_data_provider,
+                            settings,
+                        )
+                        .await
+                }
 
-                    VectorDiff::PushBack { value } => {
-                        state
-                            .add_remote_events_at(
-                                [value],
-                                TimelineNewItemPosition::End { origin },
-                                room_data_provider,
-                                settings,
-                            )
-                            .await
-                    }
+                VectorDiff::PushBack { value } => {
+                    state
+                        .add_remote_events_at(
+                            [value],
+                            TimelineNewItemPosition::End { origin },
+                            room_data_provider,
+                            settings,
+                        )
+                        .await
+                }
 
-                    VectorDiff::Insert { index: event_index, value } => {
-                        state
-                            .add_remote_events_at(
-                                [value],
-                                TimelineNewItemPosition::At { event_index, origin },
-                                room_data_provider,
-                                settings,
-                            )
-                            .await
-                    }
+                VectorDiff::Insert { index: event_index, value } => {
+                    state
+                        .add_remote_events_at(
+                            [value],
+                            TimelineNewItemPosition::At { event_index, origin },
+                            room_data_provider,
+                            settings,
+                        )
+                        .await
+                }
 
-                    diff => unimplemented!("Unsupported `VectorDiff` {diff:?}"),
-                };
+                diff => unimplemented!("Unsupported `VectorDiff` {diff:?}"),
+            };
+
+            result.items_added = items_added;
+            result.items_updated = items_updated;
         }
 
         result
@@ -1311,17 +1313,6 @@ pub(super) struct HandleManyEventsResult {
 
     /// The number of items that were updated in the timeline.
     pub items_updated: u64,
-}
-
-impl Add for HandleManyEventsResult {
-    type Output = Self;
-
-    fn add(self, other: Self) -> Self {
-        Self {
-            items_added: self.items_added + other.items_added,
-            items_updated: self.items_updated + other.items_updated,
-        }
-    }
 }
 
 async fn fetch_replied_to_event(
