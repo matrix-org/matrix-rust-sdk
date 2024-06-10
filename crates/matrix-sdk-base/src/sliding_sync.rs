@@ -331,9 +331,8 @@ impl BaseClient {
 
         // Find or create the room in the store
         #[allow(unused_mut)] // Required for some feature flag combinations
-        let (mut room, mut room_info, invited_room) = self
-            .process_sliding_sync_room_membership(room_data, &state_events, store, room_id)
-            .await;
+        let (mut room, mut room_info, invited_room) =
+            self.process_sliding_sync_room_membership(room_data, &state_events, store, room_id);
 
         room_info.mark_state_partially_synced();
 
@@ -453,7 +452,7 @@ impl BaseClient {
     /// If any invite_state exists, we take it to mean that we are invited to
     /// this room, unless that state contains membership events that specify
     /// otherwise. https://github.com/matrix-org/matrix-spec-proposals/blob/kegan/sync-v3/proposals/3575-sync.md#room-list-parameters
-    async fn process_sliding_sync_room_membership(
+    fn process_sliding_sync_room_membership(
         &self,
         room_data: &v4::SlidingSyncRoom,
         state_events: &[AnySyncStateEvent],
@@ -461,13 +460,11 @@ impl BaseClient {
         room_id: &RoomId,
     ) -> (Room, RoomInfo, Option<InvitedRoom>) {
         if let Some(invite_state) = &room_data.invite_state {
-            let room = store
-                .get_or_create_room(
-                    room_id,
-                    RoomState::Invited,
-                    self.roominfo_update_sender.clone(),
-                )
-                .await;
+            let room = store.get_or_create_room(
+                room_id,
+                RoomState::Invited,
+                self.roominfo_update_sender.clone(),
+            );
             let mut room_info = room.clone_info();
 
             // We don't actually know what events are inside invite_state. In theory, they
@@ -485,9 +482,11 @@ impl BaseClient {
 
             (room, room_info, Some(InvitedRoom::from(v3::InviteState::from(invite_state.clone()))))
         } else {
-            let room = store
-                .get_or_create_room(room_id, RoomState::Joined, self.roominfo_update_sender.clone())
-                .await;
+            let room = store.get_or_create_room(
+                room_id,
+                RoomState::Joined,
+                self.roominfo_update_sender.clone(),
+            );
             let mut room_info = room.clone_info();
 
             // We default to considering this room joined if it's not an invite. If it's
@@ -1510,7 +1509,7 @@ mod tests {
         let events = &[event1, event2.clone(), event3.clone(), event4.clone()];
 
         // When I ask to cache events
-        let room = make_room().await;
+        let room = make_room();
         let mut room_info = room.clone_info();
         cache_latest_events(&room, &mut room_info, events, None, None).await;
 
@@ -1539,7 +1538,7 @@ mod tests {
         let events = &[event1, event2.clone(), event3.clone()];
 
         // When I ask to cache events
-        let room = make_room().await;
+        let room = make_room();
         let mut room_info = room.clone_info();
         cache_latest_events(&room, &mut room_info, events, None, None).await;
         room.set_room_info(room_info, false);
@@ -1566,7 +1565,7 @@ mod tests {
         let events = &[event1, event2.clone(), event3.clone(), event4, event5.clone()];
 
         // When I ask to cache events
-        let room = make_room().await;
+        let room = make_room();
         let mut room_info = room.clone_info();
         cache_latest_events(&room, &mut room_info, events, None, None).await;
         room.set_room_info(room_info, false);
@@ -1619,7 +1618,7 @@ mod tests {
         ];
 
         // When I ask to cache events
-        let room = make_room().await;
+        let room = make_room();
         let mut room_info = room.clone_info();
         cache_latest_events(&room, &mut room_info, events, None, None).await;
         room.set_room_info(room_info, false);
@@ -1642,7 +1641,7 @@ mod tests {
     #[async_test]
     async fn test_dont_overflow_capacity_if_previous_encrypted_events_exist() {
         // Given a RoomInfo with lots of encrypted events already inside it
-        let room = make_room().await;
+        let room = make_room();
         let mut room_info = room.clone_info();
         cache_latest_events(
             &room,
@@ -1684,7 +1683,7 @@ mod tests {
     #[async_test]
     async fn test_existing_encrypted_events_are_deleted_if_we_receive_unencrypted() {
         // Given a RoomInfo with some encrypted events already inside it
-        let room = make_room().await;
+        let room = make_room();
         let mut room_info = room.clone_info();
         cache_latest_events(
             &room,
@@ -1710,7 +1709,7 @@ mod tests {
     }
 
     async fn choose_event_to_cache(events: &[SyncTimelineEvent]) -> Option<SyncTimelineEvent> {
-        let room = make_room().await;
+        let room = make_room();
         let mut room_info = room.clone_info();
         cache_latest_events(&room, &mut room_info, events, None, None).await;
         room.set_room_info(room_info, false);
@@ -1733,7 +1732,7 @@ mod tests {
         events.iter().map(|e| e.event_id().unwrap().to_string()).collect()
     }
 
-    async fn make_room() -> Room {
+    fn make_room() -> Room {
         let (sender, _receiver) = tokio::sync::broadcast::channel(1);
 
         Room::new(
@@ -1743,7 +1742,6 @@ mod tests {
             RoomState::Joined,
             sender,
         )
-        .await
     }
 
     fn make_event(typ: &str, id: &str) -> SyncTimelineEvent {

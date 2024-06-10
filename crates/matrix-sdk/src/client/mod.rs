@@ -1244,8 +1244,7 @@ impl Client {
         let is_direct_room = request.is_direct;
         let response = self.send(request, None).await?;
 
-        let base_room =
-            self.base_client().get_or_create_room(&response.room_id, RoomState::Joined).await;
+        let base_room = self.base_client().get_or_create_room(&response.room_id, RoomState::Joined);
 
         let joined_room = Room::new(self.clone(), base_room);
 

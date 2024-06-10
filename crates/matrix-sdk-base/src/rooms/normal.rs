@@ -12,10 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
+use std::sync::RwLock as SyncRwLock;
 use std::{
     collections::{BTreeMap, HashSet},
     mem,
-    sync::{atomic::AtomicBool, Arc, RwLock as SyncRwLock},
+    sync::{atomic::AtomicBool, Arc},
 };
 
 use bitflags::bitflags;
@@ -102,12 +104,6 @@ pub struct Room {
     /// to disk but held in memory.
     #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
     pub latest_encrypted_events: Arc<SyncRwLock<RingBuffer<Raw<AnySyncTimelineEvent>>>>,
-
-    /// Cached display name, useful for sync access.
-    ///
-    /// Filled by calling [`Self::compute_display_name`]. It's automatically
-    /// filled at start when creating a room, or on every successful sync.
-    pub(crate) cached_display_name: Arc<SyncRwLock<Option<DisplayName>>>,
 }
 
 /// The room summary containing member counts and members that should be used to
@@ -179,7 +175,7 @@ impl Room {
     const MAX_ENCRYPTED_EVENTS: std::num::NonZeroUsize =
         unsafe { std::num::NonZeroUsize::new_unchecked(10) };
 
-    pub(crate) async fn new(
+    pub(crate) fn new(
         own_user_id: &UserId,
         store: Arc<DynStateStore>,
         room_id: &RoomId,
@@ -187,16 +183,16 @@ impl Room {
         roominfo_update_sender: broadcast::Sender<RoomInfoUpdate>,
     ) -> Self {
         let room_info = RoomInfo::new(room_id, room_state);
-        Self::restore(own_user_id, store, room_info, roominfo_update_sender).await
+        Self::restore(own_user_id, store, room_info, roominfo_update_sender)
     }
 
-    pub(crate) async fn restore(
+    pub(crate) fn restore(
         own_user_id: &UserId,
         store: Arc<DynStateStore>,
         room_info: RoomInfo,
         roominfo_update_sender: broadcast::Sender<RoomInfoUpdate>,
     ) -> Self {
-        let room = Self {
+        Self {
             own_user_id: own_user_id.into(),
             room_id: room_info.room_id.clone(),
             store,
@@ -206,13 +202,7 @@ impl Room {
                 Self::MAX_ENCRYPTED_EVENTS,
             ))),
             roominfo_update_sender,
-            cached_display_name: Arc::new(SyncRwLock::new(None)),
-        };
-
-        // Refill the display name cache.
-        let _ = room.compute_display_name().await;
-
-        room
+        }
     }
 
     /// Get the unique room id of the room.
@@ -495,7 +485,14 @@ impl Room {
     /// [spec]: <https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room>
     pub async fn compute_display_name(&self) -> StoreResult<DisplayName> {
         let update_cache = |new_val: DisplayName| {
-            *self.cached_display_name.write().unwrap() = Some(new_val.clone());
+            self.inner.update_if(|info| {
+                if info.cached_display_name.as_ref() != Some(&new_val) {
+                    info.cached_display_name = Some(new_val.clone());
+                    true
+                } else {
+                    false
+                }
+            });
             new_val
         };
 
@@ -503,11 +500,15 @@ impl Room {
             let inner = self.inner.read();
 
             if let Some(name) = inner.name() {
-                return Ok(update_cache(DisplayName::Named(name.trim().to_owned())));
+                let name = name.trim().to_owned();
+                drop(inner); // drop the lock on `self.inner` to avoid deadlocking in `update_cache`.
+                return Ok(update_cache(DisplayName::Named(name)));
             }
 
             if let Some(alias) = inner.canonical_alias() {
-                return Ok(update_cache(DisplayName::Aliased(alias.alias().trim().to_owned())));
+                let alias = alias.alias().trim().to_owned();
+                drop(inner); // See above comment.
+                return Ok(update_cache(DisplayName::Aliased(alias)));
             }
 
             inner.summary.clone()
@@ -595,7 +596,7 @@ impl Room {
     /// This cache is refilled every time we call
     /// [`Self::compute_display_name`].
     pub fn cached_display_name(&self) -> Option<DisplayName> {
-        self.cached_display_name.read().unwrap().clone()
+        self.inner.read().cached_display_name.clone()
     }
 
     /// Return the last event in this room, if one has been cached during
@@ -918,6 +919,13 @@ pub struct RoomInfo {
     /// spamming about unknown room versions in the log for the same room.
     #[serde(skip)]
     pub(crate) warned_about_unknown_room_version: Arc<AtomicBool>,
+
+    /// Cached display name, useful for sync access.
+    ///
+    /// Filled by calling [`Self::compute_display_name`]. It's automatically
+    /// filled at start when creating a room, or on every successful sync.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) cached_display_name: Option<DisplayName>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -954,6 +962,7 @@ impl RoomInfo {
             read_receipts: Default::default(),
             base_info: Box::new(BaseRoomInfo::new()),
             warned_about_unknown_room_version: Arc::new(false.into()),
+            cached_display_name: None,
         }
     }
 
@@ -1541,6 +1550,7 @@ mod tests {
             base_info: Box::new(BaseRoomInfo::new()),
             read_receipts: Default::default(),
             warned_about_unknown_room_version: Arc::new(false.into()),
+            cached_display_name: None,
         };
 
         let info_json = json!({
@@ -1635,6 +1645,7 @@ mod tests {
                 "tombstone": null,
                 "topic": null,
             },
+            "cached_display_name": { "Calculated": "lol" }
         });
 
         let info: RoomInfo = serde_json::from_value(info_json).unwrap();
@@ -1664,6 +1675,11 @@ mod tests {
         assert!(info.base_info.name.is_none());
         assert!(info.base_info.tombstone.is_none());
         assert!(info.base_info.topic.is_none());
+
+        assert_eq!(
+            info.cached_display_name.as_ref(),
+            Some(&DisplayName::Calculated("lol".to_owned()))
+        )
     }
 
     #[async_test]
@@ -1684,7 +1700,7 @@ mod tests {
             .unwrap();
 
         let room_id = room_id!("!test:localhost");
-        let room = client.get_or_create_room(room_id, RoomState::Joined).await;
+        let room = client.get_or_create_room(room_id, RoomState::Joined);
 
         // Sanity checks to ensure the room isn't marked as favourite.
         assert!(room.is_favourite().not());
@@ -1758,7 +1774,7 @@ mod tests {
             .unwrap();
 
         let room_id = room_id!("!test:localhost");
-        let room = client.get_or_create_room(room_id, RoomState::Joined).await;
+        let room = client.get_or_create_room(room_id, RoomState::Joined);
 
         // Sanity checks to ensure the room isn't marked as low priority.
         assert!(!room.is_low_priority());
@@ -1814,13 +1830,13 @@ mod tests {
         assert!(room.is_low_priority().not());
     }
 
-    async fn make_room_test_helper(room_type: RoomState) -> (Arc<MemoryStore>, Room) {
+    fn make_room_test_helper(room_type: RoomState) -> (Arc<MemoryStore>, Room) {
         let store = Arc::new(MemoryStore::new());
         let user_id = user_id!("@me:example.org");
         let room_id = room_id!("!test:localhost");
         let (sender, _receiver) = tokio::sync::broadcast::channel(1);
 
-        (store.clone(), Room::new(user_id, store, room_id, room_type, sender).await)
+        (store.clone(), Room::new(user_id, store, room_id, room_type, sender))
     }
 
     fn make_stripped_member_event(user_id: &UserId, name: &str) -> Raw<StrippedRoomMemberEvent> {
@@ -1853,13 +1869,13 @@ mod tests {
 
     #[async_test]
     async fn test_display_name_for_joined_room_is_empty_if_no_info() {
-        let (_, room) = make_room_test_helper(RoomState::Joined).await;
+        let (_, room) = make_room_test_helper(RoomState::Joined);
         assert_eq!(room.compute_display_name().await.unwrap(), DisplayName::Empty);
     }
 
     #[async_test]
     async fn test_display_name_for_joined_room_uses_canonical_alias_if_available() {
-        let (_, room) = make_room_test_helper(RoomState::Joined).await;
+        let (_, room) = make_room_test_helper(RoomState::Joined);
         room.inner
             .update(|info| info.base_info.canonical_alias = Some(make_canonical_alias_event()));
         assert_eq!(
@@ -1870,7 +1886,7 @@ mod tests {
 
     #[async_test]
     async fn test_display_name_for_joined_room_prefers_name_over_alias() {
-        let (_, room) = make_room_test_helper(RoomState::Joined).await;
+        let (_, room) = make_room_test_helper(RoomState::Joined);
         room.inner
             .update(|info| info.base_info.canonical_alias = Some(make_canonical_alias_event()));
         assert_eq!(
@@ -1887,13 +1903,13 @@ mod tests {
 
     #[async_test]
     async fn test_display_name_for_invited_room_is_empty_if_no_info() {
-        let (_, room) = make_room_test_helper(RoomState::Invited).await;
+        let (_, room) = make_room_test_helper(RoomState::Invited);
         assert_eq!(room.compute_display_name().await.unwrap(), DisplayName::Empty);
     }
 
     #[async_test]
     async fn test_display_name_for_invited_room_is_empty_if_room_name_empty() {
-        let (_, room) = make_room_test_helper(RoomState::Invited).await;
+        let (_, room) = make_room_test_helper(RoomState::Invited);
 
         let room_name = MinimalStateEvent::Original(OriginalMinimalStateEvent {
             content: RoomNameEventContent::new(String::new()),
@@ -1906,7 +1922,7 @@ mod tests {
 
     #[async_test]
     async fn test_display_name_for_invited_room_uses_canonical_alias_if_available() {
-        let (_, room) = make_room_test_helper(RoomState::Invited).await;
+        let (_, room) = make_room_test_helper(RoomState::Invited);
         room.inner
             .update(|info| info.base_info.canonical_alias = Some(make_canonical_alias_event()));
         assert_eq!(
@@ -1917,7 +1933,7 @@ mod tests {
 
     #[async_test]
     async fn test_display_name_for_invited_room_prefers_name_over_alias() {
-        let (_, room) = make_room_test_helper(RoomState::Invited).await;
+        let (_, room) = make_room_test_helper(RoomState::Invited);
         room.inner
             .update(|info| info.base_info.canonical_alias = Some(make_canonical_alias_event()));
         assert_eq!(
@@ -1950,7 +1966,7 @@ mod tests {
 
     #[async_test]
     async fn test_display_name_dm_invited() {
-        let (store, room) = make_room_test_helper(RoomState::Invited).await;
+        let (store, room) = make_room_test_helper(RoomState::Invited);
         let room_id = room_id!("!test:localhost");
         let matthew = user_id!("@matthew:example.org");
         let me = user_id!("@me:example.org");
@@ -1976,7 +1992,7 @@ mod tests {
 
     #[async_test]
     async fn test_display_name_dm_invited_no_heroes() {
-        let (store, room) = make_room_test_helper(RoomState::Invited).await;
+        let (store, room) = make_room_test_helper(RoomState::Invited);
         let room_id = room_id!("!test:localhost");
         let matthew = user_id!("@matthew:example.org");
         let me = user_id!("@me:example.org");
@@ -1998,7 +2014,7 @@ mod tests {
 
     #[async_test]
     async fn test_display_name_dm_joined() {
-        let (store, room) = make_room_test_helper(RoomState::Joined).await;
+        let (store, room) = make_room_test_helper(RoomState::Joined);
         let room_id = room_id!("!test:localhost");
         let matthew = user_id!("@matthew:example.org");
         let me = user_id!("@me:example.org");
@@ -2028,7 +2044,7 @@ mod tests {
 
     #[async_test]
     async fn test_display_name_dm_joined_no_heroes() {
-        let (store, room) = make_room_test_helper(RoomState::Joined).await;
+        let (store, room) = make_room_test_helper(RoomState::Joined);
         let room_id = room_id!("!test:localhost");
         let matthew = user_id!("@matthew:example.org");
         let me = user_id!("@me:example.org");
@@ -2053,7 +2069,7 @@ mod tests {
 
     #[async_test]
     async fn test_display_name_deterministic() {
-        let (store, room) = make_room_test_helper(RoomState::Joined).await;
+        let (store, room) = make_room_test_helper(RoomState::Joined);
 
         let alice = user_id!("@alice:example.org");
         let bob = user_id!("@bob:example.org");
@@ -2108,7 +2124,7 @@ mod tests {
 
     #[async_test]
     async fn test_display_name_deterministic_no_heroes() {
-        let (store, room) = make_room_test_helper(RoomState::Joined).await;
+        let (store, room) = make_room_test_helper(RoomState::Joined);
 
         let alice = user_id!("@alice:example.org");
         let bob = user_id!("@bob:example.org");
@@ -2157,7 +2173,7 @@ mod tests {
 
     #[async_test]
     async fn test_display_name_dm_alone() {
-        let (store, room) = make_room_test_helper(RoomState::Joined).await;
+        let (store, room) = make_room_test_helper(RoomState::Joined);
         let room_id = room_id!("!test:localhost");
         let matthew = user_id!("@matthew:example.org");
         let me = user_id!("@me:example.org");
@@ -2205,7 +2221,7 @@ mod tests {
             .unwrap();
 
         let room_id = room_id!("!test:localhost");
-        let room = client.get_or_create_room(room_id, RoomState::Joined).await;
+        let room = client.get_or_create_room(room_id, RoomState::Joined);
 
         // That has an encrypted event,
         add_encrypted_event(&room, "$A");
@@ -2237,7 +2253,7 @@ mod tests {
     #[cfg(feature = "experimental-sliding-sync")]
     async fn test_when_we_provide_a_newly_decrypted_event_it_replaces_latest_event() {
         // Given a room with an encrypted event
-        let (_store, room) = make_room_test_helper(RoomState::Joined).await;
+        let (_store, room) = make_room_test_helper(RoomState::Joined);
         add_encrypted_event(&room, "$A");
         // Sanity: it has no latest_event
         assert!(room.latest_event().is_none());
@@ -2256,7 +2272,7 @@ mod tests {
     #[cfg(feature = "experimental-sliding-sync")]
     async fn test_when_a_newly_decrypted_event_appears_we_delete_all_older_encrypted_events() {
         // Given a room with some encrypted events and a latest event
-        let (_store, room) = make_room_test_helper(RoomState::Joined).await;
+        let (_store, room) = make_room_test_helper(RoomState::Joined);
         room.inner.update(|info| info.latest_event = Some(make_latest_event("$A")));
         add_encrypted_event(&room, "$0");
         add_encrypted_event(&room, "$1");
@@ -2284,7 +2300,7 @@ mod tests {
     #[cfg(feature = "experimental-sliding-sync")]
     async fn test_replacing_the_newest_event_leaves_none_left() {
         // Given a room with some encrypted events
-        let (_store, room) = make_room_test_helper(RoomState::Joined).await;
+        let (_store, room) = make_room_test_helper(RoomState::Joined);
         add_encrypted_event(&room, "$0");
         add_encrypted_event(&room, "$1");
         add_encrypted_event(&room, "$2");
@@ -2382,8 +2398,8 @@ mod tests {
     /// `user_a`: empty memberships
     /// `user_b`: one membership
     /// `user_c`: two memberships (two devices)
-    async fn create_call_with_member_events_for_user(a: &UserId, b: &UserId, c: &UserId) -> Room {
-        let (_, room) = make_room_test_helper(RoomState::Joined).await;
+    fn create_call_with_member_events_for_user(a: &UserId, b: &UserId, c: &UserId) -> Room {
+        let (_, room) = make_room_test_helper(RoomState::Joined);
 
         let a_empty = call_member_state_event(Vec::new(), "$1234", a);
 
@@ -2403,9 +2419,9 @@ mod tests {
         room
     }
 
-    #[async_test]
-    async fn test_show_correct_active_call_state() {
-        let room = create_call_with_member_events_for_user(&ALICE, &BOB, &CAROL).await;
+    #[test]
+    fn test_show_correct_active_call_state() {
+        let room = create_call_with_member_events_for_user(&ALICE, &BOB, &CAROL);
 
         // This check also tests the ordering.
         // We want older events to be in the front.
@@ -2417,9 +2433,9 @@ mod tests {
         assert!(room.has_active_room_call());
     }
 
-    #[async_test]
-    async fn test_active_call_is_false_when_everyone_left() {
-        let room = create_call_with_member_events_for_user(&ALICE, &BOB, &CAROL).await;
+    #[test]
+    fn test_active_call_is_false_when_everyone_left() {
+        let room = create_call_with_member_events_for_user(&ALICE, &BOB, &CAROL);
 
         let b_empty_membership = call_member_state_event(Vec::new(), "$1234_1", &BOB);
         let c_empty_membership = call_member_state_event(Vec::new(), "$12345_1", &CAROL);
