@@ -2683,32 +2683,35 @@ impl Room {
         Ok(())
     }
 
-    /// Stores the given `ComposerDraft` in the state store using the current
+    /// Store the given `ComposerDraft` in the state store using the current
     /// room id, as identifier.
     pub async fn save_composer_draft(&self, draft: ComposerDraft) -> Result<()> {
-        let room_id = self.room_id().to_owned();
         self.client
             .store()
             .set_kv_data(
-                StateStoreDataKey::ComposerDraft(&room_id),
+                StateStoreDataKey::ComposerDraft(self.room_id()),
                 StateStoreDataValue::ComposerDraft(draft),
             )
             .await?;
         Ok(())
     }
 
-    /// Retrieves the `ComposerDraft` stored in the state store for this room.
-    pub async fn restore_composer_draft(&self) -> Result<Option<ComposerDraft>> {
-        let room_id = self.room_id().to_owned();
-        let data =
-            self.client.store().get_kv_data(StateStoreDataKey::ComposerDraft(&room_id)).await?;
+    /// Retrieve the `ComposerDraft` stored in the state store for this room.
+    pub async fn load_composer_draft(&self) -> Result<Option<ComposerDraft>> {
+        let data = self
+            .client
+            .store()
+            .get_kv_data(StateStoreDataKey::ComposerDraft(self.room_id()))
+            .await?;
         Ok(data.and_then(|d| d.into_composer_draft()))
     }
 
-    /// Removes the `ComposerDraft` stored in the state store for this room.
+    /// Remove the `ComposerDraft` stored in the state store for this room.
     pub async fn clear_composer_draft(&self) -> Result<()> {
-        let room_id = self.room_id().to_owned();
-        self.client.store().remove_kv_data(StateStoreDataKey::ComposerDraft(&room_id)).await?;
+        self.client
+            .store()
+            .remove_kv_data(StateStoreDataKey::ComposerDraft(self.room_id()))
+            .await?;
         Ok(())
     }
 }
