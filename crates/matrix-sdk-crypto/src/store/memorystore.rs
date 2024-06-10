@@ -626,7 +626,7 @@ mod tests {
 
     #[async_test]
     async fn test_session_store() {
-        let (account, session) = get_account_and_session_test_helper().await;
+        let (account, session) = get_account_and_session_test_helper();
         let store = MemoryStore::new();
 
         assert!(store.load_account().await.unwrap().is_none());
@@ -644,7 +644,7 @@ mod tests {
 
     #[async_test]
     async fn test_inbound_group_session_store() {
-        let (account, _) = get_account_and_session_test_helper().await;
+        let (account, _) = get_account_and_session_test_helper();
         let room_id = room_id!("!test:localhost");
         let curve_key = "Nn0L2hkcCMFKqynTjyGsJbth7QrVmX3lbrksMkrGOAw";
 
@@ -833,7 +833,7 @@ mod tests {
     #[async_test]
     async fn test_outbound_group_session_store() {
         // Given an outbound session
-        let (account, _) = get_account_and_session_test_helper().await;
+        let (account, _) = get_account_and_session_test_helper();
         let room_id = room_id!("!test:localhost");
         let (outbound, _) = account.create_group_session_pair_with_defaults(room_id).await;
 

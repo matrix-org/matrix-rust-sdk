@@ -36,7 +36,7 @@ use crate::{
     gossiping::GossipMachine,
     requests::{OutgoingRequest, ToDeviceRequest},
     store::{Changes, Result as StoreResult, Store},
-    types::{events::EventType, EventEncryptionAlgorithm},
+    types::{events::EventType, DeviceKeys, EventEncryptionAlgorithm},
     ReadOnlyDevice,
 };
 
@@ -514,6 +514,8 @@ impl SessionManager {
         let mut new_sessions: BTreeMap<&UserId, BTreeMap<&DeviceId, SessionInfo>> = BTreeMap::new();
         let mut store_transaction = self.store.transaction().await;
 
+        let mut our_device_keys: Option<DeviceKeys> = None;
+
         for (user_id, user_devices) in &response.one_time_keys {
             for (device_id, key_map) in user_devices {
                 let device = match self.store.get_readonly_device(user_id, device_id).await {
@@ -537,7 +539,28 @@ impl SessionManager {
                 };
 
                 let account = store_transaction.account().await?;
-                let session = match account.create_outbound_session(&device, key_map).await {
+                let device_keys = match our_device_keys {
+                    Some(ref device_keys) => device_keys.clone(),
+                    None => {
+                        let device_keys = self
+                            .store
+                            .get_device(&account.user_id, &account.device_id)
+                            .await
+                            .unwrap_or(None)
+                            .map(|read_only_device| read_only_device.as_device_keys().clone());
+                        // if we don't have it stored, fall back to generating a fresh
+                        // device keys from our own Account
+                        let device_keys = match device_keys {
+                            Some(device_keys) => device_keys,
+                            None => account.device_keys(),
+                        };
+
+                        our_device_keys = Some(device_keys.clone());
+
+                        device_keys
+                    }
+                };
+                let session = match account.create_outbound_session(&device, key_map, device_keys) {
                     Ok(s) => s,
                     Err(e) => {
                         warn!(

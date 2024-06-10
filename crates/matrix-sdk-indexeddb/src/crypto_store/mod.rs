@@ -18,7 +18,6 @@ use std::{
 };
 
 use async_trait::async_trait;
-use futures_util::stream::{FuturesUnordered, StreamExt};
 use gloo_utils::format::JsValueSerdeExt;
 use hkdf::Hkdf;
 use indexed_db_futures::prelude::*;
@@ -31,7 +30,7 @@ use matrix_sdk_crypto::{
         caches::SessionStore, BackupKeys, Changes, CryptoStore, CryptoStoreError, PendingChanges,
         RoomKeyCounts, RoomSettings,
     },
-    types::events::room_key_withheld::RoomKeyWithheldEvent,
+    types::{events::room_key_withheld::RoomKeyWithheldEvent, DeviceKeys},
     vodozemac::base64_encode,
     Account, GossipRequest, GossippedSecret, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
     TrackedUser,
@@ -861,20 +860,26 @@ impl_crypto_store! {
     }
 
     async fn get_sessions(&self, sender_key: &str) -> Result<Option<Arc<Mutex<Vec<Session>>>>> {
+        let account_info = self.get_static_account().ok_or(CryptoStoreError::AccountUnset)?;
         if self.session_cache.get(sender_key).is_none() {
-            let account = self.load_account()
+            // try to get our own stored device keys
+            let device_keys = self.get_device(&account_info.user_id, &account_info.device_id)
                 .await
-                .or(Err(CryptoStoreError::AccountUnset))?
-                .ok_or(CryptoStoreError::AccountUnset)?;
-            let identity = self.load_identity()
-                .await
-                .unwrap_or(None);
-            let mut device_keys = account.device_keys();
-            // FIXME: we could avoid the FuturesUnordered and the .clone for
-            // device_keys and identity if we can sign the device_keys here,
-            // but the function for signing isn't visible to this crate.  (It
-            // would also be more efficient since we will only need to do the
-            // signing once, rather than for each session)
+                .unwrap_or(None)
+                .map(|read_only_device| read_only_device.as_device_keys().clone());
+
+            // if we don't have it stored, fall back to generating a fresh
+            // device keys from our own Account
+            let device_keys = match device_keys {
+                Some(device_keys) => device_keys,
+                None => {
+                    let account = self.load_account()
+                        .await
+                        .or(Err(CryptoStoreError::AccountUnset))?
+                        .ok_or(CryptoStoreError::AccountUnset)?;
+                    account.device_keys()
+                },
+            };
 
             let range = self.serializer.encode_to_range(keys::SESSION, sender_key)?;
             let sessions: Vec<Session> = self
@@ -887,12 +892,10 @@ impl_crypto_store! {
                 .filter_map(|f| self.serializer.deserialize_value(f).ok().map(|p| {
                     Session::from_pickle(
                         device_keys.clone(),
-                        identity.clone(),
                         p,
                     )
                 }))
-                .collect::<FuturesUnordered<_>>()
-                .collect::<Vec<Session>>().await;
+                .collect::<Vec<Session>>();
 
             self.session_cache.set_for_sender(sender_key, sessions);
         }

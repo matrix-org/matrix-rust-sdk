@@ -28,7 +28,6 @@ use vodozemac::{
 use crate::types::events::room::encrypted::OlmV2Curve25519AesSha2Content;
 use crate::{
     error::{EventError, OlmResult},
-    olm::PrivateCrossSigningIdentity,
     types::{
         events::room::encrypted::{OlmV1Curve25519AesSha2Content, ToDeviceEncryptedEventContent},
         DeviceKeys, EventEncryptionAlgorithm,
@@ -234,18 +233,10 @@ impl Session {
     ///
     /// * `pickle_mode` - The mode that was used to pickle the session, either
     /// an unencrypted mode or an encrypted using passphrase.
-    pub async fn from_pickle(
-        mut device_keys: DeviceKeys,
-        identity: Option<PrivateCrossSigningIdentity>,
-        pickle: PickledSession,
-    ) -> Self {
+    pub fn from_pickle(device_keys: DeviceKeys, pickle: PickledSession) -> Self {
         // FIXME: assert that device_keys has curve25519 and ed25519 keys
         let session: vodozemac::olm::Session = pickle.pickle.into();
         let session_id = session.session_id();
-
-        if let Some(identity) = identity {
-            let _ = identity.sign_device_keys(&mut device_keys).await;
-        }
 
         Session {
             inner: Arc::new(Mutex::new(session)),
@@ -309,14 +300,13 @@ mod tests {
         bob.generate_one_time_keys(1);
         let one_time_key = *bob.one_time_keys().values().next().unwrap();
         let sender_key = bob.identity_keys().curve25519;
-        let mut alice_session = alice
-            .create_outbound_session_helper(
-                SessionConfig::default(),
-                sender_key,
-                one_time_key,
-                false,
-            )
-            .await;
+        let mut alice_session = alice.create_outbound_session_helper(
+            SessionConfig::default(),
+            sender_key,
+            one_time_key,
+            false,
+            alice.device_keys(),
+        );
 
         let alice_device = ReadOnlyDevice::from_account(&alice);
         // let bob_device = ReadOnlyDevice::from_account(&bob);
@@ -341,8 +331,11 @@ mod tests {
         };
 
         let bob_session_result = bob
-            .create_inbound_session(alice_device.curve25519_key().unwrap(), &prekey)
-            .await
+            .create_inbound_session(
+                alice_device.curve25519_key().unwrap(),
+                bob.device_keys(),
+                &prekey,
+            )
             .unwrap();
 
         // check that the payload has the device keys

@@ -85,7 +85,8 @@ macro_rules! cryptostore_integration_tests {
                     sender_key,
                     one_time_key,
                     false,
-                ).await;
+                    alice.device_keys(),
+                );
 
                 (alice, session)
             }

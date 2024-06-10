@@ -871,7 +871,7 @@ impl ReadOnlyDevice {
         }
     }
 
-    pub(crate) fn as_device_keys(&self) -> &DeviceKeys {
+    pub fn as_device_keys(&self) -> &DeviceKeys {
         &self.inner
     }
 

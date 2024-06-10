@@ -908,6 +908,27 @@ impl CryptoStore for SqliteCryptoStore {
         let account_info = self.get_static_account().ok_or(Error::AccountUnset)?;
 
         if self.session_cache.get(sender_key).is_none() {
+            // try to get our own stored device keys
+            let device_keys = self
+                .get_device(&account_info.user_id, &account_info.device_id)
+                .await
+                .unwrap_or(None)
+                .map(|read_only_device| read_only_device.as_device_keys().clone());
+
+            // if we don't have it stored, fall back to generating a fresh
+            // device keys from our own Account
+            let device_keys = match device_keys {
+                Some(device_keys) => device_keys,
+                None => {
+                    let account = self
+                        .load_account()
+                        .await
+                        .or(Err(Error::AccountUnset))?
+                        .ok_or(Error::AccountUnset)?;
+                    account.device_keys()
+                }
+            };
+
             let sessions = self
                 .acquire()
                 .await?
@@ -916,12 +937,7 @@ impl CryptoStore for SqliteCryptoStore {
                 .into_iter()
                 .map(|bytes| {
                     let pickle = self.deserialize_value(&bytes)?;
-                    Ok(Session::from_pickle(
-                        account_info.user_id.clone(),
-                        account_info.device_id.clone(),
-                        account_info.identity_keys.clone(),
-                        pickle,
-                    ))
+                    Ok(Session::from_pickle(device_keys.clone(), pickle))
                 })
                 .collect::<Result<_>>()?;
 

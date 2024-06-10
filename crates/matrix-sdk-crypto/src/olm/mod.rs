@@ -81,21 +81,20 @@ pub(crate) mod tests {
         device_id!("BOBDEVICE")
     }
 
-    pub(crate) async fn get_account_and_session_test_helper() -> (Account, Session) {
+    pub(crate) fn get_account_and_session_test_helper() -> (Account, Session) {
         let alice = Account::with_device_id(alice_id(), alice_device_id());
         let mut bob = Account::with_device_id(bob_id(), bob_device_id());
 
         bob.generate_one_time_keys(1);
         let one_time_key = *bob.one_time_keys().values().next().unwrap();
         let sender_key = bob.identity_keys().curve25519;
-        let session = alice
-            .create_outbound_session_helper(
-                SessionConfig::default(),
-                sender_key,
-                one_time_key,
-                false,
-            )
-            .await;
+        let session = alice.create_outbound_session_helper(
+            SessionConfig::default(),
+            sender_key,
+            one_time_key,
+            false,
+            alice.device_keys(),
+        );
 
         (alice, session)
     }
@@ -141,14 +140,13 @@ pub(crate) mod tests {
 
         let one_time_key = *one_time_keys.values().next().unwrap();
 
-        let mut bob_session = bob
-            .create_outbound_session_helper(
-                SessionConfig::default(),
-                alice_keys.curve25519,
-                one_time_key,
-                false,
-            )
-            .await;
+        let mut bob_session = bob.create_outbound_session_helper(
+            SessionConfig::default(),
+            alice_keys.curve25519,
+            one_time_key,
+            false,
+            bob.device_keys(),
+        );
 
         let plaintext = "Hello world";
 
@@ -160,8 +158,9 @@ pub(crate) mod tests {
         };
 
         let bob_keys = bob.identity_keys();
-        let result =
-            alice.create_inbound_session(bob_keys.curve25519, &prekey_message).await.unwrap();
+        let result = alice
+            .create_inbound_session(bob_keys.curve25519, alice.device_keys(), &prekey_message)
+            .unwrap();
 
         assert_eq!(bob_session.session_id(), result.session.session_id());
 
