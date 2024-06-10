@@ -846,7 +846,8 @@ pub enum SlidingSyncMode {
     },
 
     /// Fully sync all rooms in the background, page by page of `batch_size`,
-    /// like `0..=19`, `20..=39`, 40..=59` etc. assuming the `batch_size` is 20.
+    /// like `0..=19`, `20..=39`, `40..=59` etc. assuming the `batch_size` is
+    /// 20.
     Paging {
         /// The batch size.
         batch_size: u32,
