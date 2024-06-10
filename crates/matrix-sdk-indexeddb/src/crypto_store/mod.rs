@@ -447,7 +447,10 @@ impl IndexeddbCryptoStore {
 
     /// Process all the changes and do all encryption/serialization before the
     /// actual transaction.
-    async fn prepare_for_transaction(&self, changes: &Changes) -> Result<PendingIndexeddbChanges> {
+    async fn prepare_for_transaction(
+        &self,
+        changes: &Changes,
+    ) -> Result<(PendingIndexeddbChanges, bool)> {
         let mut indexeddb_changes = PendingIndexeddbChanges::new();
 
         let private_identity_pickle =
@@ -534,7 +537,17 @@ impl IndexeddbCryptoStore {
 
         let mut device_store = indexeddb_changes.get(keys::DEVICES);
 
+        let account_info = self.get_static_account();
+        let mut clear_caches = false;
         for device in device_changes.new.iter().chain(&device_changes.changed) {
+            // if our own device key changes, we need to clear the
+            // session cache because the sessions contain a copy of our
+            // device key
+            if account_info.clone().is_some_and(|info| {
+                info.user_id == device.user_id() && info.device_id == device.device_id()
+            }) {
+                clear_caches = true;
+            }
             let key =
                 self.serializer.encode_key(keys::DEVICES, (device.user_id(), device.device_id()));
             let device = self.serializer.serialize_value(&device)?;
@@ -617,7 +630,7 @@ impl IndexeddbCryptoStore {
             }
         }
 
-        Ok(indexeddb_changes)
+        Ok((indexeddb_changes, clear_caches))
     }
 }
 
@@ -697,7 +710,7 @@ impl_crypto_store! {
         // TODO: #2000 should make this lock go away, or change its shape.
         let _guard = self.save_changes_lock.lock().await;
 
-        let indexeddb_changes = self.prepare_for_transaction(&changes).await?;
+        let (indexeddb_changes, clear_caches) = self.prepare_for_transaction(&changes).await?;
 
         let stores = indexeddb_changes.touched_stores();
 
@@ -713,9 +726,13 @@ impl_crypto_store! {
 
         tx.await.into_result()?;
 
-        // all good, let's update our caches:indexeddb
-        for session in changes.sessions {
-            self.session_cache.add(session).await;
+        if clear_caches {
+            self.clear_caches().await;
+        } else {
+            // all good, let's update our caches:indexeddb
+            for session in changes.sessions {
+                self.session_cache.add(session).await;
+            }
         }
 
         Ok(())
