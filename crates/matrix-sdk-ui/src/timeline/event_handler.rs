@@ -1005,16 +1005,14 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 // pending local echo, or at the start if there is no such item.
                 let insert_idx = latest_event_idx.map_or(0, |idx| idx + 1);
 
-                let id = match removed_event_item_id {
+                trace!("Adding new remote timeline item after all non-pending events");
+                let new_item = match removed_event_item_id {
                     // If a previous version of the same item (usually a local
                     // echo) was removed and we now need to add it again, reuse
                     // the previous item's ID.
-                    Some(id) => id,
-                    None => self.meta.next_internal_id(),
+                    Some(id) => TimelineItem::new(item, id),
+                    None => self.meta.new_timeline_item(item),
                 };
-
-                trace!("Adding new remote timeline item after all non-pending events");
-                let new_item = TimelineItem::new(item, id);
 
                 // Keep push semantics, if we're inserting at the front or the back.
                 if insert_idx == self.items.len() {
