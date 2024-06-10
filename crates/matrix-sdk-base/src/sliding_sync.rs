@@ -295,6 +295,13 @@ impl BaseClient {
         self.apply_changes(&changes, false);
         trace!("applied changes");
 
+        // Now that all the rooms information have been saved, update the display name
+        // cache (which relies on information stored in the database). This will
+        // live in memory, until the next sync which will saves the room info to
+        // disk; we do this to avoid saving that would be redundant with the
+        // above. Oh well.
+        new_rooms.update_in_memory_caches(&self.store).await;
+
         Ok(SyncResponse {
             rooms: new_rooms,
             notifications,
