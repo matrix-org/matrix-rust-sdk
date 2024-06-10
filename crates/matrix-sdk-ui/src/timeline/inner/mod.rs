@@ -425,8 +425,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         let user_id = self.room_data_provider.own_user_id();
 
         let related_event = {
-            let items = state.items.clone();
-            let Some((_, item)) = rfind_event_by_id(&items, &annotation.event_id) else {
+            let Some((_, item)) = rfind_event_by_id(&state.items, &annotation.event_id) else {
                 warn!("Timeline item not found, can't update reaction ID");
                 return Err(Error::FailedToToggleReaction);
             };
