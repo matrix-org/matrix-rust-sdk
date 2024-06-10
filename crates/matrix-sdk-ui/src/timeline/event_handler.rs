@@ -286,7 +286,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     /// `raw_event` is only needed to determine the cause of any UTDs,
     /// so if we know this is not a UTD it can be None.
     #[instrument(skip_all, fields(txn_id, event_id, position))]
-    pub(super) fn handle_event(
+    pub(super) async fn handle_event(
         mut self,
         day_divider_adjuster: &mut DayDividerAdjuster,
         event_kind: TimelineEventKind,
@@ -367,7 +367,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     // timeline.
                     if let Some(hook) = self.meta.unable_to_decrypt_hook.as_ref() {
                         if let Flow::Remote { event_id, .. } = &self.ctx.flow {
-                            hook.on_utd(event_id, cause);
+                            hook.on_utd(event_id, cause).await;
                         }
                     }
                 }

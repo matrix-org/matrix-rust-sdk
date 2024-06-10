@@ -2143,6 +2143,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "growable-bloom-filter"
+version = "2.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c669fa03050eb3445343f215d62fc1ab831e8098bc9a55f26e9724faff11075c"
+dependencies = [
+ "serde",
+ "serde_bytes",
+ "serde_derive",
+ "xxhash-rust",
+]
+
+[[package]]
 name = "h2"
 version = "0.3.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3241,6 +3253,7 @@ dependencies = [
  "eyeball-im",
  "futures-executor",
  "futures-util",
+ "growable-bloom-filter",
  "http 1.1.0",
  "matrix-sdk-common",
  "matrix-sdk-crypto",
@@ -3411,6 +3424,7 @@ dependencies = [
  "base64 0.22.1",
  "getrandom",
  "gloo-utils",
+ "growable-bloom-filter",
  "hkdf",
  "indexed_db_futures",
  "js-sys",
@@ -3569,6 +3583,7 @@ dependencies = [
  "futures-core",
  "futures-util",
  "fuzzy-matcher",
+ "growable-bloom-filter",
  "imbl",
  "indexmap 2.2.6",
  "itertools 0.12.1",
@@ -4565,7 +4580,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "19de2de2a00075bf566bee3bd4db014b11587e84184d3f7a791bc17f1a8e9e48"
 dependencies = [
  "anyhow",
- "itertools 0.10.5",
+ "itertools 0.12.1",
  "proc-macro2",
  "quote",
  "syn 2.0.63",
@@ -7155,6 +7170,12 @@ dependencies = [
  "uniffi_bindgen",
  "xshell",
 ]
+
+[[package]]
+name = "xxhash-rust"
+version = "0.8.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "927da81e25be1e1a2901d59b81b37dd2efd1fc9c9345a55007f09bf5a2d3ee03"
 
 [[package]]
 name = "zerocopy"

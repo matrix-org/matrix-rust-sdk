@@ -25,6 +25,7 @@ use matrix_sdk_ui::{
         UnableToDecryptHook, UnableToDecryptInfo as SdkUnableToDecryptInfo, UtdHookManager,
     },
 };
+use tracing::error;
 
 use crate::{
     error::ClientError, helpers::unwrap_or_clone_arc, room_list::RoomListService, TaskHandle,
@@ -93,6 +94,7 @@ impl SyncService {
 
 #[derive(Clone, uniffi::Object)]
 pub struct SyncServiceBuilder {
+    client: Client,
     builder: MatrixSyncServiceBuilder,
 
     utd_hook: Option<Arc<UtdHookManager>>,
@@ -100,7 +102,11 @@ pub struct SyncServiceBuilder {
 
 impl SyncServiceBuilder {
     pub(crate) fn new(client: Client) -> Arc<Self> {
-        Arc::new(Self { builder: MatrixSyncService::builder(client), utd_hook: None })
+        Arc::new(Self {
+            client: client.clone(),
+            builder: MatrixSyncService::builder(client),
+            utd_hook: None,
+        })
     }
 }
 
@@ -109,20 +115,33 @@ impl SyncServiceBuilder {
     pub fn with_cross_process_lock(self: Arc<Self>, app_identifier: Option<String>) -> Arc<Self> {
         let this = unwrap_or_clone_arc(self);
         let builder = this.builder.with_cross_process_lock(app_identifier);
-        Arc::new(Self { builder, utd_hook: this.utd_hook })
+        Arc::new(Self { client: this.client, builder, utd_hook: this.utd_hook })
     }
 
-    pub fn with_utd_hook(self: Arc<Self>, delegate: Box<dyn UnableToDecryptDelegate>) -> Arc<Self> {
+    pub async fn with_utd_hook(
+        self: Arc<Self>,
+        delegate: Box<dyn UnableToDecryptDelegate>,
+    ) -> Arc<Self> {
         // UTDs detected before this duration may be reclassified as "late decryption"
         // events (or discarded, if they get decrypted fast enough).
         const UTD_HOOK_GRACE_PERIOD: Duration = Duration::from_secs(60);
 
         let this = unwrap_or_clone_arc(self);
-        let utd_hook = Some(Arc::new(
-            UtdHookManager::new(Arc::new(UtdHook { delegate }))
-                .with_max_delay(UTD_HOOK_GRACE_PERIOD),
-        ));
-        Arc::new(Self { builder: this.builder, utd_hook })
+
+        let mut utd_hook = UtdHookManager::new(Arc::new(UtdHook { delegate }), this.client.clone())
+            .with_max_delay(UTD_HOOK_GRACE_PERIOD);
+
+        if let Err(e) = utd_hook.reload_from_store().await {
+            error!("Unable to reload UTD hook data from data store: {}", e);
+            // Carry on with the setup anyway; we shouldn't fail setup just
+            // because the UTD hook failed to load its data.
+        }
+
+        Arc::new(Self {
+            client: this.client,
+            builder: this.builder,
+            utd_hook: Some(Arc::new(utd_hook)),
+        })
     }
 
     pub async fn finish(self: Arc<Self>) -> Result<Arc<SyncService>, ClientError> {

@@ -36,6 +36,7 @@ futures-executor = "0.3.21"
 futures-util = { version = "0.3.26", default-features = false, features = [
     "alloc",
 ] }
+growable-bloom-filter = "2.1.0"
 http = "1.1.0"
 imbl = "2.0.0"
 itertools = "0.12.0"

@@ -158,7 +158,7 @@ impl TimelineInnerState {
 
     /// Adds a local echo (for an event) to the timeline.
     #[instrument(skip_all)]
-    pub(super) fn handle_local_event(
+    pub(super) async fn handle_local_event(
         &mut self,
         own_user_id: OwnedUserId,
         own_profile: Option<Profile>,
@@ -183,13 +183,15 @@ impl TimelineInnerState {
 
         let mut day_divider_adjuster = DayDividerAdjuster::default();
 
-        TimelineEventHandler::new(&mut txn, ctx).handle_event(
-            &mut day_divider_adjuster,
-            content,
-            // Local events are never UTD, so no need to pass in a raw_event - this is only used to
-            // determine the type of UTD if there is one.
-            None,
-        );
+        TimelineEventHandler::new(&mut txn, ctx)
+            .handle_event(
+                &mut day_divider_adjuster,
+                content,
+                // Local events are never UTD, so no need to pass in a raw_event - this is only
+                // used to determine the type of UTD if there is one.
+                None,
+            )
+            .await;
 
         txn.adjust_day_dividers(day_divider_adjuster);
 
@@ -569,11 +571,9 @@ impl TimelineInnerStateTransaction<'_> {
             },
         };
 
-        TimelineEventHandler::new(self, ctx).handle_event(
-            day_divider_adjuster,
-            event_kind,
-            Some(&raw),
-        )
+        TimelineEventHandler::new(self, ctx)
+            .handle_event(day_divider_adjuster, event_kind, Some(&raw))
+            .await
     }
 
     fn clear(&mut self) {

@@ -21,6 +21,7 @@ use std::{
 
 use as_variant::as_variant;
 use async_trait::async_trait;
+use growable_bloom_filter::GrowableBloom;
 use matrix_sdk_common::AsyncTraitDeps;
 use ruma::{
     events::{
@@ -808,6 +809,10 @@ pub enum StateStoreDataValue {
 
     /// A list of recently visited room identifiers for the current user
     RecentlyVisitedRooms(Vec<String>),
+
+    /// Persistent data for
+    /// `matrix_sdk_ui::unable_to_decrypt_hook::UtdHookManager`.
+    UtdHookManagerData(GrowableBloom),
 }
 
 impl StateStoreDataValue {
@@ -830,6 +835,11 @@ impl StateStoreDataValue {
     pub fn into_recently_visited_rooms(self) -> Option<Vec<String>> {
         as_variant!(self, Self::RecentlyVisitedRooms)
     }
+
+    /// Get this value if it is the data for the `UtdHookManager`.
+    pub fn into_utd_hook_manager_data(self) -> Option<GrowableBloom> {
+        as_variant!(self, Self::UtdHookManagerData)
+    }
 }
 
 /// A key for key-value data.
@@ -846,6 +856,10 @@ pub enum StateStoreDataKey<'a> {
 
     /// Recently visited room identifiers
     RecentlyVisitedRooms(&'a UserId),
+
+    /// Persistent data for
+    /// `matrix_sdk_ui::unable_to_decrypt_hook::UtdHookManager`.
+    UtdHookManagerData,
 }
 
 impl StateStoreDataKey<'_> {
@@ -860,4 +874,8 @@ impl StateStoreDataKey<'_> {
     /// Key prefix to use for the
     /// [`RecentlyVisitedRooms`][Self::RecentlyVisitedRooms] variant.
     pub const RECENTLY_VISITED_ROOMS: &'static str = "recently_visited_rooms";
+
+    /// Key to use for the [`UtdHookManagerData`][Self::UtdHookManagerData]
+    /// variant.
+    pub const UTD_HOOK_MANAGER_DATA: &'static str = "utd_hook_manager_data";
 }
