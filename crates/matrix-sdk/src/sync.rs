@@ -154,19 +154,6 @@ impl Client {
     ) -> Result<()> {
         let BaseSyncResponse { rooms, presence, account_data, to_device, notifications } = response;
 
-        {
-            // Recompute the computed display name for all the rooms which had an update.
-            for room in rooms
-                .leave
-                .keys()
-                .chain(rooms.join.keys())
-                .chain(rooms.invite.keys())
-                .filter_map(|room_id| self.get_room(room_id))
-            {
-                let _ = room.compute_display_name().await;
-            }
-        }
-
         let now = Instant::now();
         self.handle_sync_events(HandlerKind::GlobalAccountData, None, account_data).await?;
         self.handle_sync_events(HandlerKind::Presence, None, presence).await?;
