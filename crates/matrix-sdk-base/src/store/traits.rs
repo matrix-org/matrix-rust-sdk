@@ -827,13 +827,13 @@ pub struct ComposerDraft {
     /// message.
     html_text: Option<String>,
     /// The type of draft.
-    draft_type: DraftType,
+    draft_type: ComposerDraftType,
 }
 
 /// The type of draft of the composer.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
-pub enum DraftType {
+pub enum ComposerDraftType {
     /// The draft is a new message.
     NewMessage,
     /// The draft is a reply to an event.
