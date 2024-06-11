@@ -189,8 +189,8 @@ impl Message {
 
 #[derive(uniffi::Record)]
 pub struct InReplyToDetails {
-    event_id: String,
-    event: RepliedToEventDetails,
+    pub(crate) event_id: String,
+    pub(crate) event: RepliedToEventDetails,
 }
 
 impl From<&matrix_sdk_ui::timeline::InReplyToDetails> for InReplyToDetails {
