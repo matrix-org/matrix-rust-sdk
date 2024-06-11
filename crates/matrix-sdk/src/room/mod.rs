@@ -2969,7 +2969,7 @@ pub struct TryFromReportedContentScoreError(());
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
-    use matrix_sdk_base::SessionMeta;
+    use matrix_sdk_base::{store::ComposerDraftType, ComposerDraft, SessionMeta};
     use matrix_sdk_test::{
         async_test, test_json, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder,
     };
@@ -2983,6 +2983,7 @@ mod tests {
     use crate::{
         config::RequestConfig,
         matrix_auth::{MatrixSession, MatrixSessionTokens},
+        test_utils::logged_in_client,
         Client,
     };
 
@@ -3130,5 +3131,31 @@ mod tests {
         assert_eq!(score.value(), -100);
         ReportedContentScore::try_from(int!(10)).unwrap_err();
         ReportedContentScore::try_from(int!(-110)).unwrap_err();
+    }
+
+    #[async_test]
+    async fn test_composer_draft() {
+        use matrix_sdk_test::DEFAULT_TEST_ROOM_ID;
+
+        let client = logged_in_client(None).await;
+
+        let response = SyncResponseBuilder::default()
+            .add_joined_room(JoinedRoomBuilder::default())
+            .build_sync_response();
+        client.base_client().receive_sync_response(response).await.unwrap();
+        let room = client.get_room(&DEFAULT_TEST_ROOM_ID).expect("Room should exist");
+
+        assert_eq!(room.load_composer_draft().await.unwrap(), None);
+
+        let draft = ComposerDraft {
+            plain_text: "Hello, world!".to_owned(),
+            html_text: Some("<strong>Hello</strong>, world!".to_owned()),
+            draft_type: ComposerDraftType::NewMessage,
+        };
+        room.save_composer_draft(draft.clone()).await.unwrap();
+        assert_eq!(room.load_composer_draft().await.unwrap(), Some(draft));
+
+        room.clear_composer_draft().await.unwrap();
+        assert_eq!(room.load_composer_draft().await.unwrap(), None);
     }
 }

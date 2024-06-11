@@ -823,28 +823,34 @@ pub enum StateStoreDataValue {
 }
 
 /// Current draft of the composer for the room.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct ComposerDraft {
     /// The draft content in plain text.
-    plain_text: String,
+    pub plain_text: String,
     /// If the message is formatted in HTML, the HTML representation of the
     /// message.
-    html_text: Option<String>,
+    pub html_text: Option<String>,
     /// The type of draft.
-    draft_type: ComposerDraftType,
+    pub draft_type: ComposerDraftType,
 }
 
 /// The type of draft of the composer.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum ComposerDraftType {
     /// The draft is a new message.
     NewMessage,
-    /// The draft is a rseply to an event.
-    Reply { event_id: String },
+    /// The draft is a reply to an event.
+    Reply {
+        /// The ID of the event being replied to.
+        event_id: String,
+    },
     /// The draft is an edit of an event.
-    Edit { event_id: String },
+    Edit {
+        /// The ID of the event being edited.
+        event_id: String,
+    },
 }
 
 impl StateStoreDataValue {
