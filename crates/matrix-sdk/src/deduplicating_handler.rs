@@ -146,7 +146,7 @@ mod tests {
     use std::sync::Arc;
 
     use matrix_sdk_test::async_test;
-    use tokio::{join, sync::Mutex, task::yield_now};
+    use tokio::{join, spawn, sync::Mutex, task::yield_now};
 
     use crate::deduplicating_handler::DeduplicatingHandler;
 
@@ -235,6 +235,76 @@ mod tests {
         *num_calls.lock().await = 0;
         handler.run(0, inner()).await?;
         assert_eq!(*num_calls.lock().await, 1);
+
+        Ok(())
+    }
+
+    #[async_test]
+    async fn test_cancelling_deduplicated_query() -> anyhow::Result<()> {
+        // A mutex used to prevent progress in the `inner` function.
+        let allow_progress = Arc::new(Mutex::new(()));
+
+        // Number of calls up to the `allow_progress` lock taking.
+        let num_before = Arc::new(Mutex::new(0));
+        // Number of calls after the `allow_progress` lock taking.
+        let num_after = Arc::new(Mutex::new(0));
+
+        let inner = || {
+            let num_before = num_before.clone();
+            let num_after = num_after.clone();
+            let allow_progress = allow_progress.clone();
+
+            async move {
+                *num_before.lock().await += 1;
+                let _ = allow_progress.lock().await;
+                *num_after.lock().await += 1;
+                Ok(())
+            }
+        };
+
+        let handler = Arc::new(DeduplicatingHandler::default());
+
+        // First, take the lock so that the `inner` can't complete.
+        let progress_guard = allow_progress.lock().await;
+
+        // Then, spawn deduplicated tasks.
+        let first = spawn({
+            let handler = handler.clone();
+            let query = inner();
+            async move { handler.run(0, query).await }
+        });
+
+        let second = spawn({
+            let handler = handler.clone();
+            let query = inner();
+            async move { handler.run(0, query).await }
+        });
+
+        // At this point, only the "before" count has been incremented, and only once
+        // (per the deduplication contract).
+        yield_now().await;
+
+        assert_eq!(*num_before.lock().await, 1);
+        assert_eq!(*num_after.lock().await, 0);
+
+        // Cancel the first task.
+        first.abort();
+        assert!(first.await.unwrap_err().is_cancelled());
+
+        // The second task restarts the whole query from the beginning.
+        yield_now().await;
+
+        assert_eq!(*num_before.lock().await, 2);
+        assert_eq!(*num_after.lock().await, 0);
+
+        // Release the progress lock; the second query can now finish.
+        drop(progress_guard);
+
+        assert!(second.await.unwrap().is_ok());
+
+        // We should've reached completion once.
+        assert_eq!(*num_before.lock().await, 2);
+        assert_eq!(*num_after.lock().await, 1);
 
         Ok(())
     }
