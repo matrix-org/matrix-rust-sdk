@@ -24,7 +24,7 @@ use tokio::sync::Mutex;
 
 use crate::{Error, Result};
 
-type DeduplicatedRequestMap<Key> = Mutex<BTreeMap<Key, Arc<Mutex<Result<(), ()>>>>>;
+type DeduplicatedRequestMap<Key> = Mutex<BTreeMap<Key, Arc<Mutex<Option<Result<(), ()>>>>>>;
 
 /// Handler that properly deduplicates function calls given a key uniquely
 /// identifying the call kind, and will properly report error upwards in case
@@ -55,31 +55,61 @@ impl<Key: Clone + Ord + std::hash::Hash> DeduplicatingHandler<Key> {
     ) -> Result<()> {
         let mut map = self.inflight.lock().await;
 
-        if let Some(mutex) = map.get(&key).cloned() {
+        if let Some(request_mutex) = map.get(&key).cloned() {
             // If a request is already going on, await the release of the lock.
             drop(map);
 
-            return mutex.lock().await.map_err(|()| Error::ConcurrentRequestFailed);
+            let mut request_guard = request_mutex.lock().await;
+
+            return match *request_guard {
+                Some(Ok(())) => {
+                    // The query completed with a success: forward this success.
+                    Ok(())
+                }
+
+                Some(Err(())) => {
+                    // The query completed with an error, but we don't know what it is; report
+                    // there was an error.
+                    Err(Error::ConcurrentRequestFailed)
+                }
+
+                None => {
+                    // The query hasn't completed, it could have been cancelled. Repeat it.
+                    self.run_code(key, code, &mut *request_guard).await
+                }
+            };
         }
 
-        // Assume a successful request; we'll modify the result in case of failures
-        // later.
-        let request_mutex = Arc::new(Mutex::new(Ok(())));
+        // Start at the `None` state to indicate we haven't completed the request yet.
+        let request_mutex = Arc::new(Mutex::new(None));
 
         map.insert(key.clone(), request_mutex.clone());
 
         let mut request_guard = request_mutex.lock().await;
         drop(map);
 
+        self.run_code(key, code, &mut *request_guard).await
+    }
+
+    async fn run_code<'a, F: Future<Output = Result<()>> + SendOutsideWasm + 'a>(
+        &self,
+        key: Key,
+        code: F,
+        result: &mut Option<Result<(), ()>>,
+    ) -> Result<()> {
         match code.await {
             Ok(()) => {
+                // Mark the request as completed.
+                *result = Some(Ok(()));
+
                 self.inflight.lock().await.remove(&key);
+
                 Ok(())
             }
 
             Err(err) => {
                 // Propagate the error state to other callers.
-                *request_guard = Err(());
+                *result = Some(Err(()));
 
                 // Remove the request from the in-flights set.
                 self.inflight.lock().await.remove(&key);
