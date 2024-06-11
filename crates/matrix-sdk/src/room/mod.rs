@@ -20,7 +20,7 @@ use matrix_sdk_base::{
     },
     instant::Instant,
     store::StateStoreExt,
-    RoomMemberships, StateChanges,
+    ComposerDraft, RoomMemberships, StateChanges, StateStoreDataKey, StateStoreDataValue,
 };
 use matrix_sdk_common::timeout::timeout;
 use mime::Mime;
@@ -2680,6 +2680,38 @@ impl Room {
         let call_notify_event_content =
             CallNotifyEventContent::new(call_id, application, notify_type, mentions);
         self.send(call_notify_event_content).await?;
+        Ok(())
+    }
+
+    /// Store the given `ComposerDraft` in the state store using the current
+    /// room id, as identifier.
+    pub async fn save_composer_draft(&self, draft: ComposerDraft) -> Result<()> {
+        self.client
+            .store()
+            .set_kv_data(
+                StateStoreDataKey::ComposerDraft(self.room_id()),
+                StateStoreDataValue::ComposerDraft(draft),
+            )
+            .await?;
+        Ok(())
+    }
+
+    /// Retrieve the `ComposerDraft` stored in the state store for this room.
+    pub async fn load_composer_draft(&self) -> Result<Option<ComposerDraft>> {
+        let data = self
+            .client
+            .store()
+            .get_kv_data(StateStoreDataKey::ComposerDraft(self.room_id()))
+            .await?;
+        Ok(data.and_then(|d| d.into_composer_draft()))
+    }
+
+    /// Remove the `ComposerDraft` stored in the state store for this room.
+    pub async fn clear_composer_draft(&self) -> Result<()> {
+        self.client
+            .store()
+            .remove_kv_data(StateStoreDataKey::ComposerDraft(self.room_id()))
+            .await?;
         Ok(())
     }
 }

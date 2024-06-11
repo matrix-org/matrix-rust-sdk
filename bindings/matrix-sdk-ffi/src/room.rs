@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use matrix_sdk::{
     event_cache::paginator::PaginatorError,
     room::{power_levels::RoomPowerLevelChanges, Room as SdkRoom, RoomMemberRole},
-    RoomMemberships, RoomState,
+    ComposerDraft, RoomMemberships, RoomState,
 };
 use matrix_sdk_ui::timeline::{PaginationError, RoomExt, TimelineFocus};
 use mime::Mime;
@@ -697,6 +697,22 @@ impl Room {
     /// Enable or disable the send queue for that particular room.
     pub fn enable_send_queue(&self, enable: bool) {
         self.inner.send_queue().set_enabled(enable);
+    }
+
+    /// Store the given `ComposerDraft` in the state store using the current
+    /// room id, as identifier.
+    pub async fn save_composer_draft(&self, draft: ComposerDraft) -> Result<(), ClientError> {
+        Ok(self.inner.save_composer_draft(draft).await?)
+    }
+
+    /// Retrieve the `ComposerDraft` stored in the state store for this room.
+    pub async fn load_composer_draft(&self) -> Result<Option<ComposerDraft>, ClientError> {
+        Ok(self.inner.load_composer_draft().await?)
+    }
+
+    /// Remove the `ComposerDraft` stored in the state store for this room.
+    pub async fn clear_composer_draft(&self) -> Result<(), ClientError> {
+        Ok(self.inner.clear_composer_draft().await?)
     }
 }
 

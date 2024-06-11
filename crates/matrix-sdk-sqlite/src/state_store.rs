@@ -281,6 +281,9 @@ impl SqliteStateStore {
             StateStoreDataKey::UtdHookManagerData => {
                 Cow::Borrowed(StateStoreDataKey::UTD_HOOK_MANAGER_DATA)
             }
+            StateStoreDataKey::ComposerDraft(room_id) => {
+                Cow::Owned(format!("{}:{room_id}", StateStoreDataKey::COMPOSER_DRAFT))
+            }
         };
 
         self.encode_key(keys::KV_BLOB, &*key_s)
@@ -902,6 +905,9 @@ impl StateStore for SqliteStateStore {
                     StateStoreDataKey::UtdHookManagerData => {
                         StateStoreDataValue::UtdHookManagerData(self.deserialize_value(&data)?)
                     }
+                    StateStoreDataKey::ComposerDraft(_) => {
+                        StateStoreDataValue::ComposerDraft(self.deserialize_value(&data)?)
+                    }
                 })
             })
             .transpose()
@@ -927,6 +933,9 @@ impl StateStore for SqliteStateStore {
             )?,
             StateStoreDataKey::UtdHookManagerData => self.serialize_value(
                 &value.into_utd_hook_manager_data().expect("Session data not UtdHookManagerData"),
+            )?,
+            StateStoreDataKey::ComposerDraft(_) => self.serialize_value(
+                &value.into_composer_draft().expect("Session data not a composer draft"),
             )?,
         };
 

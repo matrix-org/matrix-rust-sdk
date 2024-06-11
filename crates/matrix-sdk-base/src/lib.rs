@@ -55,7 +55,9 @@ pub use rooms::{
     DisplayName, Room, RoomCreateWithCreatorEventContent, RoomInfo, RoomInfoUpdate, RoomMember,
     RoomMemberships, RoomState, RoomStateFilter,
 };
-pub use store::{StateChanges, StateStore, StateStoreDataKey, StateStoreDataValue, StoreError};
+pub use store::{
+    ComposerDraft, StateChanges, StateStore, StateStoreDataKey, StateStoreDataValue, StoreError,
+};
 pub use utils::{
     MinimalRoomMemberEvent, MinimalStateEvent, OriginalMinimalStateEvent, RedactedMinimalStateEvent,
 };

@@ -35,6 +35,7 @@ use ruma::{
     serde::Raw,
     EventId, MxcUri, OwnedEventId, OwnedUserId, RoomId, UserId,
 };
+use serde::{Deserialize, Serialize};
 
 use super::{StateChanges, StoreError};
 use crate::{
@@ -813,6 +814,37 @@ pub enum StateStoreDataValue {
     /// Persistent data for
     /// `matrix_sdk_ui::unable_to_decrypt_hook::UtdHookManager`.
     UtdHookManagerData(GrowableBloom),
+
+    /// A composer draft for the room.
+    /// To learn more, see [`ComposerDraft`].
+    ///
+    /// [`ComposerDraft`]: Self::ComposerDraft
+    ComposerDraft(ComposerDraft),
+}
+
+/// Current draft of the composer for the room.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct ComposerDraft {
+    /// The draft content in plain text.
+    plain_text: String,
+    /// If the message is formatted in HTML, the HTML representation of the
+    /// message.
+    html_text: Option<String>,
+    /// The type of draft.
+    draft_type: ComposerDraftType,
+}
+
+/// The type of draft of the composer.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+pub enum ComposerDraftType {
+    /// The draft is a new message.
+    NewMessage,
+    /// The draft is a rseply to an event.
+    Reply { event_id: String },
+    /// The draft is an edit of an event.
+    Edit { event_id: String },
 }
 
 impl StateStoreDataValue {
@@ -840,6 +872,11 @@ impl StateStoreDataValue {
     pub fn into_utd_hook_manager_data(self) -> Option<GrowableBloom> {
         as_variant!(self, Self::UtdHookManagerData)
     }
+
+    /// Get this value if it is a composer draft.
+    pub fn into_composer_draft(self) -> Option<ComposerDraft> {
+        as_variant!(self, Self::ComposerDraft)
+    }
 }
 
 /// A key for key-value data.
@@ -860,6 +897,12 @@ pub enum StateStoreDataKey<'a> {
     /// Persistent data for
     /// `matrix_sdk_ui::unable_to_decrypt_hook::UtdHookManager`.
     UtdHookManagerData,
+
+    /// A composer draft for the room.
+    /// To learn more, see [`ComposerDraft`].
+    ///
+    /// [`ComposerDraft`]: Self::ComposerDraft
+    ComposerDraft(&'a RoomId),
 }
 
 impl StateStoreDataKey<'_> {
@@ -878,4 +921,8 @@ impl StateStoreDataKey<'_> {
     /// Key to use for the [`UtdHookManagerData`][Self::UtdHookManagerData]
     /// variant.
     pub const UTD_HOOK_MANAGER_DATA: &'static str = "utd_hook_manager_data";
+
+    /// Key prefix to use for the [`ComposerDraft`][Self::ComposerDraft]
+    /// variant.
+    pub const COMPOSER_DRAFT: &'static str = "composer_draft";
 }

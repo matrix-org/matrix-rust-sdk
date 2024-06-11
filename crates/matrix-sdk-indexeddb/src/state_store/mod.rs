@@ -25,7 +25,7 @@ use indexed_db_futures::prelude::*;
 use matrix_sdk_base::{
     deserialized_responses::RawAnySyncOrStrippedState,
     media::{MediaRequest, UniqueKey},
-    store::{StateChanges, StateStore, StoreError},
+    store::{ComposerDraft, StateChanges, StateStore, StoreError},
     MinimalRoomMemberEvent, RoomInfo, RoomMemberships, RoomState, StateStoreDataKey,
     StateStoreDataValue,
 };
@@ -392,6 +392,9 @@ impl IndexeddbStateStore {
             StateStoreDataKey::UtdHookManagerData => {
                 self.encode_key(keys::KV, StateStoreDataKey::UTD_HOOK_MANAGER_DATA)
             }
+            StateStoreDataKey::ComposerDraft(room_id) => {
+                self.encode_key(keys::KV, (StateStoreDataKey::COMPOSER_DRAFT, room_id))
+            }
         }
     }
 }
@@ -457,6 +460,10 @@ impl_state_store!({
                 .map(|f| self.deserialize_event::<GrowableBloom>(&f))
                 .transpose()?
                 .map(StateStoreDataValue::UtdHookManagerData),
+            StateStoreDataKey::ComposerDraft(_) => value
+                .map(|f| self.deserialize_event::<ComposerDraft>(&f))
+                .transpose()?
+                .map(StateStoreDataValue::ComposerDraft),
         };
 
         Ok(value)
@@ -485,6 +492,9 @@ impl_state_store!({
             ),
             StateStoreDataKey::UtdHookManagerData => self.serialize_event(
                 &value.into_utd_hook_manager_data().expect("Session data not UtdHookManagerData"),
+            ),
+            StateStoreDataKey::ComposerDraft(_) => self.serialize_event(
+                &value.into_composer_draft().expect("Session data not a composer draft"),
             ),
         };
 
