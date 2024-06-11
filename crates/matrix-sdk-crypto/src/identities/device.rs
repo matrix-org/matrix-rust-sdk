@@ -764,6 +764,24 @@ impl ReadOnlyDevice {
         )
     }
 
+    pub(crate) fn is_cross_signing_by_owner(
+        &self,
+        device_owner_identity: &ReadOnlyUserIdentities,
+    ) -> bool {
+        match device_owner_identity {
+            // If it's one of our own devices, just check that
+            // we signed the device.
+            ReadOnlyUserIdentities::Own(identity) => identity.is_device_signed(self).is_ok(),
+
+            // If it's a device from someone else, first check
+            // that our user has signed the other user and then
+            // check if the other user has signed this device.
+            ReadOnlyUserIdentities::Other(device_identity) => {
+                device_identity.is_device_signed(self).is_ok()
+            }
+        }
+    }
+
     /// Encrypt the given content for this device.
     ///
     /// # Arguments

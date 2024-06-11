@@ -3875,7 +3875,7 @@ name = "oauth2"
 version = "5.0.0-alpha.4"
 source = "git+https://github.com/poljar/oauth2-rs?rev=f8e28ce5a7f3278ac85b8593ecdd86f2cf51fa2e#f8e28ce5a7f3278ac85b8593ecdd86f2cf51fa2e"
 dependencies = [
- "base64 0.21.7",
+ "base64 0.22.1",
  "chrono",
  "getrandom",
  "http 1.1.0",
@@ -4565,7 +4565,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "19de2de2a00075bf566bee3bd4db014b11587e84184d3f7a791bc17f1a8e9e48"
 dependencies = [
  "anyhow",
- "itertools 0.10.5",
+ "itertools 0.12.1",
  "proc-macro2",
  "quote",
  "syn 2.0.63",

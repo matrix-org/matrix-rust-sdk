@@ -25,12 +25,13 @@ mod utility;
 
 pub use account::{Account, OlmMessageHash, PickledAccount, StaticAccountData};
 pub(crate) use account::{OlmDecryptionInfo, SessionType};
-pub(crate) use group_sessions::ShareState;
 pub use group_sessions::{
-    BackedUpRoomKey, EncryptionSettings, ExportedRoomKey, InboundGroupSession,
-    OutboundGroupSession, PickledInboundGroupSession, PickledOutboundGroupSession,
-    SessionCreationError, SessionExportError, SessionKey, ShareInfo,
+    BackedUpRoomKey, DeviceBasedStrategy, EncryptionSettings, ExportedRoomKey,
+    IdentityBasedStrategy, InboundGroupSession, OutboundGroupSession, PickledInboundGroupSession,
+    PickledOutboundGroupSession, RoomKeySharingStrategy, SessionCreationError, SessionExportError,
+    SessionKey, ShareInfo,
 };
+pub(crate) use group_sessions::{CollectRecipientsResult, ShareState};
 pub use session::{PickledSession, Session};
 pub use signing::{CrossSigningStatus, PickledCrossSigningIdentity, PrivateCrossSigningIdentity};
 pub(crate) use utility::{SignedJsonObject, VerifyJson};
