@@ -36,7 +36,7 @@ use ruma::{
 };
 use tracing::{debug, warn};
 
-use super::{Result, RoomInfo, StateChanges, StateStore, StoreError};
+use super::{traits::ComposerDraft, Result, RoomInfo, StateChanges, StateStore, StoreError};
 use crate::{
     deserialized_responses::RawAnySyncOrStrippedState,
     media::{MediaRequest, UniqueKey as _},
@@ -50,6 +50,7 @@ use crate::{
 #[derive(Debug)]
 pub struct MemoryStore {
     recently_visited_rooms: StdRwLock<HashMap<String, Vec<String>>>,
+    composer_drafts: StdRwLock<HashMap<OwnedRoomId, ComposerDraft>>,
     user_avatar_url: StdRwLock<HashMap<String, String>>,
     sync_token: StdRwLock<Option<String>>,
     filters: StdRwLock<HashMap<String, String>>,
@@ -93,6 +94,7 @@ impl Default for MemoryStore {
     fn default() -> Self {
         Self {
             recently_visited_rooms: Default::default(),
+            composer_drafts: Default::default(),
             user_avatar_url: Default::default(),
             sync_token: Default::default(),
             filters: Default::default(),
@@ -195,6 +197,13 @@ impl StateStore for MemoryStore {
                 .unwrap()
                 .clone()
                 .map(StateStoreDataValue::UtdHookManagerData),
+            StateStoreDataKey::ComposerDraft(room_id) => self
+                .composer_drafts
+                .read()
+                .unwrap()
+                .get(room_id)
+                .cloned()
+                .map(StateStoreDataValue::ComposerDraft),
         })
     }
 
@@ -235,6 +244,12 @@ impl StateStore for MemoryStore {
                         .expect("Session data not the hook manager data"),
                 );
             }
+            StateStoreDataKey::ComposerDraft(room_id) => {
+                self.composer_drafts.write().unwrap().insert(
+                    room_id.to_owned(),
+                    value.into_composer_draft().expect("Session data not a composer draft"),
+                );
+            }
         }
 
         Ok(())
@@ -254,6 +269,9 @@ impl StateStore for MemoryStore {
             }
             StateStoreDataKey::UtdHookManagerData => {
                 *self.utd_hook_manager_data.write().unwrap() = None
+            }
+            StateStoreDataKey::ComposerDraft(room_id) => {
+                self.composer_drafts.write().unwrap().remove(room_id);
             }
         }
         Ok(())

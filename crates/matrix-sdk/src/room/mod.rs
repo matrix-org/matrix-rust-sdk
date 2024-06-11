@@ -20,7 +20,7 @@ use matrix_sdk_base::{
     },
     instant::Instant,
     store::StateStoreExt,
-    RoomMemberships, StateChanges,
+    ComposerDraft, RoomMemberships, StateChanges, StateStoreDataKey, StateStoreDataValue,
 };
 use matrix_sdk_common::timeout::timeout;
 use mime::Mime;
@@ -2682,6 +2682,38 @@ impl Room {
         self.send(call_notify_event_content).await?;
         Ok(())
     }
+
+    /// Store the given `ComposerDraft` in the state store using the current
+    /// room id, as identifier.
+    pub async fn save_composer_draft(&self, draft: ComposerDraft) -> Result<()> {
+        self.client
+            .store()
+            .set_kv_data(
+                StateStoreDataKey::ComposerDraft(self.room_id()),
+                StateStoreDataValue::ComposerDraft(draft),
+            )
+            .await?;
+        Ok(())
+    }
+
+    /// Retrieve the `ComposerDraft` stored in the state store for this room.
+    pub async fn load_composer_draft(&self) -> Result<Option<ComposerDraft>> {
+        let data = self
+            .client
+            .store()
+            .get_kv_data(StateStoreDataKey::ComposerDraft(self.room_id()))
+            .await?;
+        Ok(data.and_then(|d| d.into_composer_draft()))
+    }
+
+    /// Remove the `ComposerDraft` stored in the state store for this room.
+    pub async fn clear_composer_draft(&self) -> Result<()> {
+        self.client
+            .store()
+            .remove_kv_data(StateStoreDataKey::ComposerDraft(self.room_id()))
+            .await?;
+        Ok(())
+    }
 }
 
 /// A wrapper for a weak client and a room id that allows to lazily retrieve a
@@ -2937,7 +2969,7 @@ pub struct TryFromReportedContentScoreError(());
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
-    use matrix_sdk_base::SessionMeta;
+    use matrix_sdk_base::{store::ComposerDraftType, ComposerDraft, SessionMeta};
     use matrix_sdk_test::{
         async_test, test_json, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder,
     };
@@ -2951,6 +2983,7 @@ mod tests {
     use crate::{
         config::RequestConfig,
         matrix_auth::{MatrixSession, MatrixSessionTokens},
+        test_utils::logged_in_client,
         Client,
     };
 
@@ -3098,5 +3131,31 @@ mod tests {
         assert_eq!(score.value(), -100);
         ReportedContentScore::try_from(int!(10)).unwrap_err();
         ReportedContentScore::try_from(int!(-110)).unwrap_err();
+    }
+
+    #[async_test]
+    async fn test_composer_draft() {
+        use matrix_sdk_test::DEFAULT_TEST_ROOM_ID;
+
+        let client = logged_in_client(None).await;
+
+        let response = SyncResponseBuilder::default()
+            .add_joined_room(JoinedRoomBuilder::default())
+            .build_sync_response();
+        client.base_client().receive_sync_response(response).await.unwrap();
+        let room = client.get_room(&DEFAULT_TEST_ROOM_ID).expect("Room should exist");
+
+        assert_eq!(room.load_composer_draft().await.unwrap(), None);
+
+        let draft = ComposerDraft {
+            plain_text: "Hello, world!".to_owned(),
+            html_text: Some("<strong>Hello</strong>, world!".to_owned()),
+            draft_type: ComposerDraftType::NewMessage,
+        };
+        room.save_composer_draft(draft.clone()).await.unwrap();
+        assert_eq!(room.load_composer_draft().await.unwrap(), Some(draft));
+
+        room.clear_composer_draft().await.unwrap();
+        assert_eq!(room.load_composer_draft().await.unwrap(), None);
     }
 }

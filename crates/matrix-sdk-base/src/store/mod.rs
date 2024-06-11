@@ -70,8 +70,8 @@ pub use self::integration_tests::StateStoreIntegrationTests;
 pub use self::{
     memory_store::MemoryStore,
     traits::{
-        DynStateStore, IntoStateStore, StateStore, StateStoreDataKey, StateStoreDataValue,
-        StateStoreExt,
+        ComposerDraft, ComposerDraftType, DynStateStore, IntoStateStore, StateStore,
+        StateStoreDataKey, StateStoreDataValue, StateStoreExt,
     },
 };
 
