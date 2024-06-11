@@ -56,10 +56,14 @@ async fn main() -> Result<(), OlmError> {
 [Matrix]: https://matrix.org/
 [matrix-sdk]: https://github.com/matrix-org/matrix-rust-sdk/
 
-# Room key sharing algorithm
+# Room key forwarding algorithm
 
-The decision tree below visualizes the way this crate decides whether a room
-key will be shared with a requester upon a key request.
+The decision tree below visualizes the way this crate decides whether a message
+key ("room key") will be [forwarded][forwarded_room_key] to a requester upon a
+key request, provided the `automatic-room-key-forwarding` feature is enabled.
+Key forwarding is sometimes also referred to as key *gossiping*.
+
+[forwarded_room_key]: <https://spec.matrix.org/v1.10/client-server-api/#mforwarded_room_key>
 
 ![](https://raw.githubusercontent.com/matrix-org/matrix-rust-sdk/main/contrib/key-sharing-algorithm/model.png)
 

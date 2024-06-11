@@ -1,4 +1,4 @@
-This models the room key sharing algorithm as a decision tree and provides
+This models the room key forwarding algorithm as a decision tree and provides
 tooling to render it as a PDF or PNG.
 
 # Usage
