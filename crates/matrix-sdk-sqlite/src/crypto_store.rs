@@ -808,9 +808,9 @@ impl CryptoStore for SqliteCryptoStore {
 
                 let account_info = this.get_static_account();
                 for device in changes.devices.new.iter().chain(&changes.devices.changed) {
-                    // if our own device key changes, we need to clear the
+                    // If our own device key changes, we need to clear the
                     // session cache because the sessions contain a copy of our
-                    // device key
+                    // device key.
                     if account_info.clone().is_some_and(|info| {
                         info.user_id == device.user_id() && info.device_id == device.device_id()
                     }) {
@@ -923,15 +923,15 @@ impl CryptoStore for SqliteCryptoStore {
         let account_info = self.get_static_account().ok_or(Error::AccountUnset)?;
 
         if self.session_cache.get(sender_key).is_none() {
-            // try to get our own stored device keys
+            // Try to get our own stored device keys.
             let device_keys = self
                 .get_device(&account_info.user_id, &account_info.device_id)
                 .await
                 .unwrap_or(None)
                 .map(|read_only_device| read_only_device.as_device_keys().clone());
 
-            // if we don't have it stored, fall back to generating a fresh
-            // device keys from our own Account
+            // If we don't have it stored, fall back to generating a fresh
+            // device keys from our own Account.
             let device_keys = match device_keys {
                 Some(device_keys) => device_keys,
                 None => {

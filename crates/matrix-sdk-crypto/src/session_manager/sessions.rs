@@ -514,6 +514,8 @@ impl SessionManager {
         let mut new_sessions: BTreeMap<&UserId, BTreeMap<&DeviceId, SessionInfo>> = BTreeMap::new();
         let mut store_transaction = self.store.transaction().await;
 
+        // Cache of our own device keys, so we only need to fetch it once, if
+        // we need it at all.
         let mut our_device_keys: Option<DeviceKeys> = None;
 
         for (user_id, user_devices) in &response.one_time_keys {
@@ -542,14 +544,15 @@ impl SessionManager {
                 let device_keys = match our_device_keys {
                     Some(ref device_keys) => device_keys.clone(),
                     None => {
+                        // Try to get our own stored device keys.
                         let device_keys = self
                             .store
                             .get_device(&account.user_id, &account.device_id)
                             .await
                             .unwrap_or(None)
                             .map(|read_only_device| read_only_device.as_device_keys().clone());
-                        // if we don't have it stored, fall back to generating a fresh
-                        // device keys from our own Account
+                        // If we don't have it stored, fall back to generating a fresh
+                        // device keys from our own Account.
                         let device_keys = match device_keys {
                             Some(device_keys) => device_keys,
                             None => account.device_keys(),

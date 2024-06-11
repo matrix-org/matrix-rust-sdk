@@ -1299,14 +1299,14 @@ impl Account {
                 }
 
                 // We didn't find a matching session; try to create a new session.
-                // try to get our own stored device keys
+                // Try to get our own stored device keys.
                 let device_keys = store
                     .get_device(&self.user_id, &self.device_id)
                     .await
                     .unwrap_or(None)
                     .map(|read_only_device| read_only_device.as_device_keys().clone());
-                // if we don't have it stored, fall back to generating a fresh
-                // device keys from our own Account
+                // If we don't have our device keys stored, fall back to
+                // generating a fresh device keys from our own Account.
                 let device_keys = match device_keys {
                     Some(device_keys) => device_keys,
                     None => self.device_keys(),

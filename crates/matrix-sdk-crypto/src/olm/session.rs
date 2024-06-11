@@ -309,7 +309,6 @@ mod tests {
         );
 
         let alice_device = ReadOnlyDevice::from_account(&alice);
-        // let bob_device = ReadOnlyDevice::from_account(&bob);
 
         let message = alice_session
             .encrypt(&alice_device, "m.dummy", ToDeviceDummyEventContent::new(), None)
@@ -338,7 +337,7 @@ mod tests {
             )
             .unwrap();
 
-        // check that the payload has the device keys
+        // Check that the encrypted payload has the device keys.
         let plaintext: Value = serde_json::from_str(&bob_session_result.plaintext).unwrap();
         assert_eq!(plaintext["device_keys"]["user_id"].as_str(), Some("@alice:localhost"));
     }

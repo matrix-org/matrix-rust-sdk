@@ -871,6 +871,7 @@ impl ReadOnlyDevice {
         }
     }
 
+    /// Return the device keys
     pub fn as_device_keys(&self) -> &DeviceKeys {
         &self.inner
     }
