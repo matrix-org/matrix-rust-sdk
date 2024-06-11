@@ -1,5 +1,5 @@
 digraph {
-    label="Matrix room key sharing algorithm"
+    label="Matrix room key forwarding algorithm"
     fontname="Fira Sans"
     ratio=0.5
 
@@ -16,10 +16,10 @@ digraph {
     /* End states */
     allow_verified [label="Share the entire session from the earliest known index.\n\nOk(None)", color=4, fillcolor=3]
     allow_limited [label="Share a limited session starting from index i, which is the index we previously shared at.\n\nOk(Some(i))", color=4, fillcolor=3]
-    refuse_device_key_changed [label="Sender key changed, refuse to share.\n\nErr(KeyForwardDecision::ChangedSenderKey)", color=6, fillcolor=5]
-    refuse_not_shared [label="Session was never shared with this device, refuse to share.\n\nErr(KeyForwardDecision::OutboundSessionNotShared)", color=6, fillcolor=5]
-    refuse_untrusted_own_device [label="Our own device, but it is untrusted and we haven't previously shared with it. Refuse to share.\n\nErr(KeyForwardDecision::UntrustedDevice)", color=6, fillcolor=5]
-    refuse_missing_outbound_session [label="Not our device and haven't previously shared with it. Refuse to share.\n\nErr(KeyForwardDecision::MissingOutboundSession)", color=6, fillcolor=5]
+    refuse_device_key_changed [label="Sender key changed, refuse to forward.\n\nErr(KeyForwardDecision::ChangedSenderKey)", color=6, fillcolor=5]
+    refuse_not_shared [label="Session was never shared with this device, refuse to forward.\n\nErr(KeyForwardDecision::OutboundSessionNotShared)", color=6, fillcolor=5]
+    refuse_untrusted_own_device [label="Our own device, but it is untrusted and we haven't previously shared with it. Refuse to forward.\n\nErr(KeyForwardDecision::UntrustedDevice)", color=6, fillcolor=5]
+    refuse_missing_outbound_session [label="Not our device and haven't previously shared with it. Refuse to forward.\n\nErr(KeyForwardDecision::MissingOutboundSession)", color=6, fillcolor=5]
 
     /* Checks */
 
