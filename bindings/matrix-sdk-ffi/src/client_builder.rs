@@ -414,8 +414,8 @@ impl ClientBuilder {
         oidc_configuration: &OidcConfiguration,
         progress_listener: Box<dyn QrLoginProgressListener>,
     ) -> Result<Arc<Client>, HumanQrLoginError> {
-        if let QrCodeModeData::Reciprocate { homeserver_url } = &qr_code_data.inner.mode_data {
-            let builder = self.server_name_or_homeserver_url(homeserver_url.to_string());
+        if let QrCodeModeData::Reciprocate { server_name } = &qr_code_data.inner.mode_data {
+            let builder = self.server_name_or_homeserver_url(server_name.to_owned());
 
             let client = builder.build().await.map_err(|e| {
                 error!("Couldn't build the client {e:?}");
