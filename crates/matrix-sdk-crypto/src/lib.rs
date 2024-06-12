@@ -34,6 +34,9 @@ mod utilities;
 mod verification;
 
 #[cfg(any(test, feature = "testing"))]
+mod testing_data;
+
+#[cfg(any(test, feature = "testing"))]
 /// Testing facilities and helpers for crypto tests
 pub mod testing {
     pub use crate::identities::{

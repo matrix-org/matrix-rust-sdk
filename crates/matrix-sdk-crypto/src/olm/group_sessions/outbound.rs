@@ -42,10 +42,7 @@ pub use vodozemac::{
     PickleError,
 };
 
-use super::{
-    share_strategy::{DeviceBasedStrategy, RoomKeySharingStrategy},
-    SessionCreationError,
-};
+use super::{share_strategy::RoomKeySharingStrategy, SessionCreationError};
 #[cfg(feature = "experimental-algorithms")]
 use crate::types::events::room::encrypted::MegolmV2AesSha2Content;
 use crate::{
@@ -130,10 +127,9 @@ impl EncryptionSettings {
         }
     }
 
-
     /// Create new encryption settings using an `RoomEncryptionEventContent`,
-    /// a history visibility, and setting to define what devices should or should not
-    /// be allowed in the conversation.
+    /// a history visibility, and setting to define what devices should or
+    /// should not be allowed in the conversation.
     pub fn new_with_strategy(
         content: RoomEncryptionEventContent,
         history_visibility: HistoryVisibility,
