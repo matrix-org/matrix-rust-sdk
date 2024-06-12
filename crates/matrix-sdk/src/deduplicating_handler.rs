@@ -27,10 +27,10 @@ use crate::{Error, Result};
 /// State machine for the state of a query deduplicated by the
 /// [`DeduplicatingHandler`].
 enum QueryState {
-    /// The query hasn't completed yet. This doesn't mean it hasn't *started*
-    /// yet, but rather that it couldn't get to completion: some
-    /// intermediate steps might have run.
-    NotFinishedYet,
+    /// The query hasn't completed. This doesn't mean it hasn't *started* yet,
+    /// but rather that it couldn't get to completion: some intermediate
+    /// steps might have run.
+    Cancelled,
     /// The query has completed with an `Ok` result.
     Success,
     /// The query has completed with an `Err` result.
@@ -60,6 +60,11 @@ impl<Key: Clone + Ord + std::hash::Hash> DeduplicatingHandler<Key> {
     /// Runs the given code if and only if there wasn't a similar query running
     /// for the same key.
     ///
+    /// Note: the `code` may be run multiple times, if the first query to run it
+    /// has been aborted by the caller (i.e. the future has been dropped).
+    /// As a consequence, it's important that the `code` future be
+    /// idempotent.
+    ///
     /// See also [`DeduplicatingHandler`] for more details.
     pub async fn run<'a, F: Future<Output = Result<()>> + SendOutsideWasm + 'a>(
         &self,
@@ -86,7 +91,7 @@ impl<Key: Clone + Ord + std::hash::Hash> DeduplicatingHandler<Key> {
                     Err(Error::ConcurrentRequestFailed)
                 }
 
-                QueryState::NotFinishedYet => {
+                QueryState::Cancelled => {
                     // If we could take a hold onto the mutex without it being in the success or
                     // failure state, then the query hasn't completed (e.g. it could have been
                     // cancelled). Repeat it.
@@ -99,8 +104,9 @@ impl<Key: Clone + Ord + std::hash::Hash> DeduplicatingHandler<Key> {
             };
         }
 
-        // Start at the `None` state to indicate we haven't completed the request yet.
-        let request_mutex = Arc::new(Mutex::new(QueryState::NotFinishedYet));
+        // Let's assume the cancelled state, if we succeed or fail we'll modify the
+        // result.
+        let request_mutex = Arc::new(Mutex::new(QueryState::Cancelled));
 
         map.insert(key.clone(), request_mutex.clone());
 
