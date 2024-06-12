@@ -30,9 +30,9 @@ use futures_util::{
     future::try_join,
     stream::{self, StreamExt},
 };
-use matrix_sdk_base::crypto::{
+use matrix_sdk_base::{crypto::{
     CrossSigningBootstrapRequests, OlmMachine, OutgoingRequest, RoomMessageRequest, ToDeviceRequest,
-};
+}, CryptoDistributionMode, GlobalEncryptionSettings};
 use matrix_sdk_common::executor::spawn;
 use ruma::{
     api::client::{
@@ -614,6 +614,17 @@ impl Encryption {
     /// Get the public Curve25519 key of our own device.
     pub async fn curve25519_key(&self) -> Option<Curve25519PublicKey> {
         self.client.olm_machine().await.as_ref().map(|o| o.identity_keys().curve25519)
+    }
+
+    /// Set the lab flag to enable invisible crypto key distribution mode
+    pub async fn set_invisible_crypto_enabled(&self, enabled: bool) {
+        let key_distribution_mode = if enabled {
+            GlobalEncryptionSettings { key_distribution_mode: CryptoDistributionMode::InvisibleCrypto  }
+        } else {
+
+            GlobalEncryptionSettings { key_distribution_mode: CryptoDistributionMode::Legacy   }
+        };
+        self.client.base_client().set_global_encryption_settings(key_distribution_mode).await
     }
 
     #[cfg(feature = "experimental-oidc")]

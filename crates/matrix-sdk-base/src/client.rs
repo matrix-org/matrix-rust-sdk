@@ -75,6 +75,26 @@ use crate::{
     RoomStateFilter, SessionMeta,
 };
 
+///
+/// Lab Feature: Allows to switch to the new key distribution mode used by Invisible Crypto
+#[cfg(feature = "e2e-encryption")]
+#[derive(Default, Clone, Debug)]
+pub enum CryptoDistributionMode {
+    /// The legacy mode, distribute to all devices in the room
+    #[default]
+    Legacy,
+    /// Distribute to tofu/trusted identities, and only to device signed by their owner.
+    InvisibleCrypto
+}
+
+/// Global default encryption settings. Some of them could be defined per room, here
+/// is the global value that should be used by default when not specified by the room.
+#[cfg(feature = "e2e-encryption")]
+#[derive(Default, Clone, Debug)]
+pub struct GlobalEncryptionSettings {
+    /// The distribution mode to use
+    pub key_distribution_mode: CryptoDistributionMode
+}
 /// A no IO Client implementation.
 ///
 /// This Client is a state machine that receives responses and events and
@@ -101,6 +121,11 @@ pub struct BaseClient {
     /// event contains the room and a boolean whether this event should
     /// trigger a room list update.
     pub(crate) roominfo_update_sender: broadcast::Sender<RoomInfoUpdate>,
+
+    /// Stores the global settings related to encryption and key distribution,
+    /// can be updated dynamically
+    #[cfg(feature = "e2e-encryption")]
+    pub global_encryption_settings: Arc<Mutex<GlobalEncryptionSettings>>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -136,7 +161,16 @@ impl BaseClient {
             olm_machine: Default::default(),
             ignore_user_list_changes: Default::default(),
             roominfo_update_sender,
+            #[cfg(feature = "e2e-encryption")]
+            global_encryption_settings: Default::default(),
         }
+    }
+
+    /// Sets the global encryption settings for that client
+    #[cfg(feature = "e2e-encryption")]
+    pub async fn set_global_encryption_settings(&self, settings: GlobalEncryptionSettings) {
+        let mut settings_lock = self.global_encryption_settings.lock().await;
+        *settings_lock = settings
     }
 
     /// Clones the current base client to use the same crypto store but a
@@ -1265,6 +1299,8 @@ impl BaseClient {
     /// Get a to-device request that will share a room key with users in a room.
     #[cfg(feature = "e2e-encryption")]
     pub async fn share_room_key(&self, room_id: &RoomId) -> Result<Vec<Arc<ToDeviceRequest>>> {
+        use matrix_sdk_crypto::olm::RoomKeySharingStrategy;
+
         match self.olm_machine().await.as_ref() {
             Some(o) => {
                 let (history_visibility, settings) = self
@@ -1283,9 +1319,16 @@ impl BaseClient {
                 let members = self.store.get_user_ids(room_id, filter).await?;
 
                 let settings = settings.ok_or(Error::EncryptionNotEnabled)?;
-                let settings = EncryptionSettings::new(settings, history_visibility, false);
 
-                Ok(o.share_room_key(room_id, members.iter().map(Deref::deref), settings).await?)
+                let global_settings = self.global_encryption_settings.lock().await.clone();
+                let crypto_settings = match global_settings.key_distribution_mode {
+                    CryptoDistributionMode::InvisibleCrypto => EncryptionSettings::new_with_strategy(settings, history_visibility, RoomKeySharingStrategy::new_modern()),
+                    CryptoDistributionMode::Legacy => EncryptionSettings::new_with_strategy(settings, history_visibility, RoomKeySharingStrategy::new_legacy(false)),
+                }; 
+
+                // let settings = EncryptionSettings::new(settings, history_visibility, false);
+
+                Ok(o.share_room_key(room_id, members.iter().map(Deref::deref), crypto_settings).await?)
             }
             None => panic!("Olm machine wasn't started"),
         }

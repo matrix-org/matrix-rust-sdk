@@ -60,6 +60,10 @@ pub use utils::{
     MinimalRoomMemberEvent, MinimalStateEvent, OriginalMinimalStateEvent, RedactedMinimalStateEvent,
 };
 
+
+#[cfg(feature = "e2e-encryption")]
+pub use client::{ GlobalEncryptionSettings, CryptoDistributionMode };
+
 #[cfg(test)]
 matrix_sdk_test::init_tracing_for_tests!();
 

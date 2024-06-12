@@ -110,6 +110,7 @@ impl EncryptionSettings {
     /// Create new encryption settings using an `RoomEncryptionEventContent`,
     /// a history visibility, and setting if only trusted devices should receive
     /// a room key.
+    #[deprecated = "Use new_with_strategy with RoomKeySharingStrategy instead"]
     pub fn new(
         content: RoomEncryptionEventContent,
         history_visibility: HistoryVisibility,
@@ -125,9 +126,30 @@ impl EncryptionSettings {
             rotation_period,
             rotation_period_msgs,
             history_visibility,
-            sharing_strategy: RoomKeySharingStrategy::Legacy(DeviceBasedStrategy {
-                only_allow_trusted_devices,
-            }),
+            sharing_strategy: RoomKeySharingStrategy::new_legacy(only_allow_trusted_devices),
+        }
+    }
+
+
+    /// Create new encryption settings using an `RoomEncryptionEventContent`,
+    /// a history visibility, and setting to define what devices should or should not
+    /// be allowed in the conversation.
+    pub fn new_with_strategy(
+        content: RoomEncryptionEventContent,
+        history_visibility: HistoryVisibility,
+        sharing_strategy: RoomKeySharingStrategy,
+    ) -> Self {
+        let rotation_period: Duration =
+            content.rotation_period_ms.map_or(ROTATION_PERIOD, |r| Duration::from_millis(r.into()));
+        let rotation_period_msgs: u64 =
+            content.rotation_period_msgs.map_or(ROTATION_MESSAGES, Into::into);
+
+        Self {
+            algorithm: EventEncryptionAlgorithm::from(content.algorithm.as_str()),
+            rotation_period,
+            rotation_period_msgs,
+            history_visibility,
+            sharing_strategy,
         }
     }
 }
