@@ -6,7 +6,7 @@ use matrix_sdk::{
     room::{power_levels::RoomPowerLevelChanges, Room as SdkRoom, RoomMemberRole},
     ComposerDraft, RoomMemberships, RoomState,
 };
-use matrix_sdk_ui::timeline::{PaginationError, RepliedToEvent, RoomExt, TimelineFocus};
+use matrix_sdk_ui::timeline::{PaginationError, RoomExt, TimelineFocus};
 use mime::Mime;
 use ruma::{
     api::client::room::report_content,
@@ -32,10 +32,7 @@ use crate::{
     room_info::RoomInfo,
     room_member::RoomMember,
     ruma::{ImageInfo, Mentions, NotifyType},
-    timeline::{
-        content::{InReplyToDetails, RepliedToEventDetails, TimelineItemContent},
-        EventTimelineItem, FocusEventError, ReceiptType, Timeline,
-    },
+    timeline::{EventTimelineItem, FocusEventError, ReceiptType, Timeline},
     utils::u64_to_uint,
     TaskHandle,
 };
@@ -716,39 +713,6 @@ impl Room {
     /// Remove the `ComposerDraft` stored in the state store for this room.
     pub async fn clear_composer_draft(&self) -> Result<(), ClientError> {
         Ok(self.inner.clear_composer_draft().await?)
-    }
-
-    /// Load the reply details for the given event id.
-    ///
-    /// This will return an `InReplyToDetails` object that contains the details
-    /// which will either be ready or an error.
-    pub async fn load_reply_details(
-        &self,
-        event_id_str: String,
-    ) -> Result<InReplyToDetails, ClientError> {
-        let event_id = EventId::parse(&event_id_str)?;
-
-        match self.inner.event(&event_id).await {
-            Ok(timeline_event) => {
-                let replied_to =
-                    RepliedToEvent::try_from_timeline_event_for_room(timeline_event, &self.inner)
-                        .await?;
-
-                Ok(InReplyToDetails {
-                    event_id: event_id_str,
-                    event: RepliedToEventDetails::Ready {
-                        content: Arc::new(TimelineItemContent(replied_to.content().clone())),
-                        sender: replied_to.sender().to_string(),
-                        sender_profile: replied_to.sender_profile().into(),
-                    },
-                })
-            }
-
-            Err(e) => Ok(InReplyToDetails {
-                event_id: event_id_str,
-                event: RepliedToEventDetails::Error { message: e.to_string() },
-            }),
-        }
     }
 }
 

@@ -16,6 +16,7 @@ use std::{collections::HashMap, fmt::Write as _, fs, sync::Arc};
 
 use anyhow::{Context, Result};
 use as_variant::as_variant;
+use content::{InReplyToDetails, RepliedToEventDetails};
 use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, StreamExt as _};
 use matrix_sdk::attachment::{
@@ -23,7 +24,7 @@ use matrix_sdk::attachment::{
     BaseThumbnailInfo, BaseVideoInfo, Thumbnail,
 };
 use matrix_sdk_ui::timeline::{
-    EventItemOrigin, LiveBackPaginationStatus, Profile, TimelineDetails,
+    EventItemOrigin, LiveBackPaginationStatus, Profile, RepliedToEvent, TimelineDetails,
 };
 use mime::Mime;
 use ruma::{
@@ -67,7 +68,7 @@ use crate::{
     RUNTIME,
 };
 
-pub mod content;
+mod content;
 
 #[derive(uniffi::Object)]
 #[repr(transparent)]
@@ -595,6 +596,41 @@ impl Timeline {
             .map_err(|err| anyhow::anyhow!(err))?;
 
         Ok(removed)
+    }
+
+    /// Load the reply details for the given event id.
+    ///
+    /// This will return an `InReplyToDetails` object that contains the details
+    /// which will either be ready or an error.
+    pub async fn load_reply_details(
+        &self,
+        event_id_str: String,
+    ) -> Result<InReplyToDetails, ClientError> {
+        let event_id = EventId::parse(&event_id_str)?;
+
+        match self.inner.room().event(&event_id).await {
+            Ok(timeline_event) => {
+                let replied_to = RepliedToEvent::try_from_timeline_event_for_room(
+                    timeline_event,
+                    self.inner.room(),
+                )
+                .await?;
+
+                Ok(InReplyToDetails {
+                    event_id: event_id_str,
+                    event: RepliedToEventDetails::Ready {
+                        content: Arc::new(TimelineItemContent(replied_to.content().clone())),
+                        sender: replied_to.sender().to_string(),
+                        sender_profile: replied_to.sender_profile().into(),
+                    },
+                })
+            }
+
+            Err(e) => Ok(InReplyToDetails {
+                event_id: event_id_str,
+                event: RepliedToEventDetails::Error { message: e.to_string() },
+            }),
+        }
     }
 }
 
