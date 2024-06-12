@@ -318,11 +318,15 @@ impl TimelineBuilder {
                                     }
                                 }
 
-                                RoomSendQueueUpdate::SendError { transaction_id, error } => {
+                                RoomSendQueueUpdate::SendError {
+                                    transaction_id,
+                                    error,
+                                    is_recoverable,
+                                } => {
                                     timeline
                                         .update_event_send_state(
                                             &transaction_id,
-                                            EventSendState::SendingFailed { error },
+                                            EventSendState::SendingFailed { error, is_recoverable },
                                         )
                                         .await;
                                 }

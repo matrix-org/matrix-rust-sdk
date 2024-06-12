@@ -852,7 +852,16 @@ pub enum EventSendState {
     NotSentYet,
     /// The local event has been sent to the server, but unsuccessfully: The
     /// sending has failed.
-    SendingFailed { error: String },
+    SendingFailed {
+        /// Stringified error message.
+        error: String,
+        /// Whether the error is considered recoverable or not.
+        ///
+        /// An error that's recoverable will disable the room's send queue,
+        /// while an unrecoverable error will be parked, until the user
+        /// decides to cancel sending it.
+        is_recoverable: bool,
+    },
     /// The local event has been sent successfully to the server.
     Sent { event_id: String },
 }
@@ -863,7 +872,9 @@ impl From<&matrix_sdk_ui::timeline::EventSendState> for EventSendState {
 
         match value {
             NotSentYet => Self::NotSentYet,
-            SendingFailed { error } => Self::SendingFailed { error: error.to_string() },
+            SendingFailed { error, is_recoverable } => {
+                Self::SendingFailed { error: error.to_string(), is_recoverable: *is_recoverable }
+            }
             Sent { event_id } => Self::Sent { event_id: event_id.to_string() },
         }
     }

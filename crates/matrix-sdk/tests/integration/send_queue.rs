@@ -1,4 +1,10 @@
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 
 use assert_matches2::{assert_let, assert_matches};
 use matrix_sdk::{
@@ -27,6 +33,15 @@ fn mock_send_event(returned_event_id: &EventId) -> Mock {
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "event_id": returned_event_id,
         })))
+}
+
+/// Return a mock that will fail all requests to /rooms/ROOM_ID/send with a
+/// transient 500 error.
+fn mock_send_transient_failure() -> Mock {
+    Mock::given(method("PUT"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(500))
 }
 
 #[async_test]
@@ -294,9 +309,10 @@ async fn test_error_then_locally_reenabling() {
     // non-determinism, so let it fail after a large amount of time (10
     // seconds).
     assert_let!(
-        Ok(Ok(RoomSendQueueUpdate::SendError { transaction_id: txn2, error })) =
+        Ok(Ok(RoomSendQueueUpdate::SendError { transaction_id: txn2, error, is_recoverable })) =
             timeout(Duration::from_secs(10), watch.recv()).await
     );
+    assert!(is_recoverable);
 
     // It's the same transaction id that's used to signal the send error.
     assert_eq!(txn1, txn2);
@@ -310,6 +326,7 @@ async fn test_error_then_locally_reenabling() {
 
     let report = errors.recv().await.unwrap();
     assert_eq!(report.room_id, room.room_id());
+    assert!(report.is_recoverable);
 
     // The send queue is still globally enabled,
     assert!(client.send_queue().is_enabled());
@@ -367,6 +384,10 @@ async fn test_error_then_globally_reenabling() {
     assert!(local_echoes.is_empty());
     assert!(watch.is_empty());
 
+    server.reset().await;
+    mock_encryption_state(&server, false).await;
+    mock_send_transient_failure().expect(3).mount(&server).await;
+
     q.send(RoomMessageEventContent::text_plain("1").into()).await.unwrap();
 
     assert_let!(
@@ -380,10 +401,10 @@ async fn test_error_then_globally_reenabling() {
 
     assert!(watch.is_empty());
 
-    // We should receive an error because the mocking endpoint hasn't been set up
-    // yet.
+    // We receive an error.
     let report = errors.recv().await.unwrap();
     assert_eq!(report.room_id, room.room_id());
+    assert!(report.is_recoverable);
 
     // The exponential backoff used when retrying a request introduces a bit of
     // non-determinism, so let it fail after a large amount of time (10
@@ -764,7 +785,7 @@ async fn test_cancellation() {
 }
 
 #[async_test]
-async fn test_abort_reenable() {
+async fn test_abort_after_disable() {
     let (client, server) = logged_in_client_with_server().await;
 
     // Mark the room as joined.
@@ -784,7 +805,7 @@ async fn test_abort_reenable() {
 
     assert!(errors.is_empty());
 
-    // When I start with an enabled sending queue,
+    // Start with an enabled sending queue.
     client.send_queue().set_enabled(true);
 
     assert!(client.send_queue().is_enabled());
@@ -795,6 +816,13 @@ async fn test_abort_reenable() {
 
     assert!(local_echoes.is_empty());
     assert!(watch.is_empty());
+
+    server.reset().await;
+
+    mock_encryption_state(&server, false).await;
+
+    // Respond to /send with a transient 500 error.
+    mock_send_transient_failure().expect(3).mount(&server).await;
 
     // One message is queued.
     let abort_send_handle =
@@ -812,17 +840,19 @@ async fn test_abort_reenable() {
     // Waiting for the global status to report the queue is getting disabled.
     let report = errors.recv().await.unwrap();
     assert_eq!(report.room_id, room.room_id());
+
+    // The room updates will report the error, then the cancelled event, eventually.
+    assert_let!(
+        Ok(Ok(RoomSendQueueUpdate::SendError { is_recoverable: true, .. })) =
+            timeout(Duration::from_secs(1), watch.recv()).await
+    );
+
+    // The room queue has been disabled, but not the client wide one.
     assert!(!room.send_queue().is_enabled());
     assert!(client.send_queue().is_enabled());
 
     // Aborting the sending should work.
     assert!(abort_send_handle.abort().await);
-
-    // The room updates will report the error, then the cancelled event, eventually.
-    assert_let!(
-        Ok(Ok(RoomSendQueueUpdate::SendError { .. })) =
-            timeout(Duration::from_secs(1), watch.recv()).await
-    );
 
     assert_let!(
         Ok(Ok(RoomSendQueueUpdate::CancelledLocalEvent { .. })) =
@@ -831,4 +861,116 @@ async fn test_abort_reenable() {
 
     assert!(watch.is_empty());
     assert!(errors.is_empty());
+}
+
+#[async_test]
+async fn test_unrecoverable_errors() {
+    let (client, server) = logged_in_client_with_server().await;
+
+    // Mark the room as joined.
+    let room_id = room_id!("!a:b.c");
+
+    let room = mock_sync_with_new_room(
+        |builder| {
+            builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+        },
+        &client,
+        &server,
+        room_id,
+    )
+    .await;
+
+    let mut errors = client.send_queue().subscribe_errors();
+
+    assert!(errors.is_empty());
+
+    // Start with an enabled sending queue.
+    client.send_queue().set_enabled(true);
+
+    assert!(client.send_queue().is_enabled());
+
+    let q = room.send_queue();
+
+    let (local_echoes, mut watch) = q.subscribe().await;
+
+    assert!(local_echoes.is_empty());
+    assert!(watch.is_empty());
+
+    server.reset().await;
+
+    mock_encryption_state(&server, false).await;
+
+    let respond_with_unrecoverable = AtomicBool::new(true);
+
+    // Respond to the first /send with an unrecoverable error.
+    Mock::given(method("PUT"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(move |_req: &Request| {
+            // The first message gets M_TOO_LARGE, subsequent messages will encounter a
+            // great success.
+            if respond_with_unrecoverable.swap(false, Ordering::SeqCst) {
+                ResponseTemplate::new(413).set_body_json(json!({
+                    // From https://spec.matrix.org/v1.10/client-server-api/#standard-error-response
+                    "errcode": "M_TOO_LARGE",
+                }))
+            } else {
+                ResponseTemplate::new(200).set_body_json(json!({
+                    "event_id": "$42",
+                }))
+            }
+        })
+        .expect(2)
+        .mount(&server)
+        .await;
+
+    // Queue two messages.
+    q.send(RoomMessageEventContent::text_plain("i'm too big for ya").into()).await.unwrap();
+    q.send(RoomMessageEventContent::text_plain("aloha").into()).await.unwrap();
+
+    // First message is seen as a local echo.
+    assert_let!(
+        Ok(Ok(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
+            content: AnyMessageLikeEventContent::RoomMessage(msg),
+            transaction_id: txn1,
+            ..
+        }))) = timeout(Duration::from_secs(1), watch.recv()).await
+    );
+    assert_eq!(msg.body(), format!("i'm too big for ya"));
+
+    // Second message is seen as a local echo.
+    assert_let!(
+        Ok(Ok(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
+            content: AnyMessageLikeEventContent::RoomMessage(msg),
+            transaction_id: txn2,
+            ..
+        }))) = timeout(Duration::from_secs(1), watch.recv()).await
+    );
+    assert_eq!(msg.body(), format!("aloha"));
+
+    // There will be an error report for the first message, indicating that the
+    // error is unrecoverable.
+    let report = errors.recv().await.unwrap();
+    assert_eq!(report.room_id, room.room_id());
+    assert!(!report.is_recoverable);
+
+    // The room updates will report the error for the first message as unrecoverable
+    // too.
+    assert_let!(
+        Ok(Ok(RoomSendQueueUpdate::SendError { is_recoverable: false, transaction_id, .. })) =
+            timeout(Duration::from_secs(1), watch.recv()).await
+    );
+    assert_eq!(transaction_id, txn1);
+
+    // The second message will be properly sent.
+    assert_let!(
+        Ok(Ok(RoomSendQueueUpdate::SentEvent { transaction_id, event_id })) =
+            timeout(Duration::from_secs(1), watch.recv()).await
+    );
+    assert_eq!(transaction_id, txn2);
+    assert_eq!(event_id, event_id!("$42"));
+
+    // No queue is being disabled, because the error was unrecoverable.
+    assert!(room.send_queue().is_enabled());
+    assert!(client.send_queue().is_enabled());
 }
