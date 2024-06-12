@@ -616,20 +616,20 @@ impl Timeline {
                 )
                 .await?;
 
-                Ok(InReplyToDetails {
-                    event_id: event_id_str,
-                    event: RepliedToEventDetails::Ready {
+                Ok(InReplyToDetails::new(
+                    event_id_str,
+                    RepliedToEventDetails::Ready {
                         content: Arc::new(TimelineItemContent(replied_to.content().clone())),
                         sender: replied_to.sender().to_string(),
                         sender_profile: replied_to.sender_profile().into(),
                     },
-                })
+                ))
             }
 
-            Err(e) => Ok(InReplyToDetails {
-                event_id: event_id_str,
-                event: RepliedToEventDetails::Error { message: e.to_string() },
-            }),
+            Err(e) => Ok(InReplyToDetails::new(
+                event_id_str,
+                RepliedToEventDetails::Error { message: e.to_string() },
+            )),
         }
     }
 }
