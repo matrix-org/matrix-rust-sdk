@@ -28,7 +28,7 @@ use serde_json::json;
 use stream_assert::{assert_next_matches, assert_pending};
 use tokio::{task::yield_now, time::sleep};
 use wiremock::{
-    matchers::{body_string_contains, method, path_regex},
+    matchers::{body_string_contains, header, method, path_regex},
     Mock, ResponseTemplate,
 };
 
@@ -126,17 +126,26 @@ async fn test_retry_order() {
 
     mock_sync(&server, sync_response_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
-
-    mock_encryption_state(&server, false).await;
 
     let room = client.get_room(room_id).unwrap();
     let timeline = Arc::new(room.timeline().await.unwrap());
     let (_, mut timeline_stream) =
         timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
 
+    // When trying to send an event, return with a 500 error, which is interpreted
+    // as a transient error.
+    server.reset().await;
+    mock_encryption_state(&server, false).await;
+    let scoped_faulty_send = Mock::given(method("PUT"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(500))
+        .expect(3)
+        .mount_as_scoped(&server)
+        .await;
+
     // Send two messages without mocking the server response.
-    // It will respond with a 404, resulting in a failed-to-send state.
+    // It will respond with a 500, resulting in a failed-to-send state.
     timeline.send(RoomMessageEventContent::text_plain("First!").into()).await.unwrap();
     timeline.send(RoomMessageEventContent::text_plain("Second.").into()).await.unwrap();
 
@@ -157,6 +166,7 @@ async fn test_retry_order() {
     assert_matches!(first.send_state().unwrap(), EventSendState::SendingFailed { .. });
 
     // Response for first message takes 100ms to respond
+    drop(scoped_faulty_send);
     Mock::given(method("PUT"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
         .and(body_string_contains("First!"))

@@ -63,14 +63,20 @@ async fn test_remote_echo_full_trip() {
             .inner
             .update_event_send_state(
                 &txn_id,
-                EventSendState::SendingFailed { error: Arc::new(some_io_error) },
+                EventSendState::SendingFailed {
+                    error: Arc::new(some_io_error),
+                    is_recoverable: true,
+                },
             )
             .await;
 
         let item = assert_next_matches!(stream, VectorDiff::Set { value, index: 1 } => value);
         let event_item = item.as_event().unwrap();
         assert!(event_item.is_local_echo());
-        assert_matches!(event_item.send_state(), Some(EventSendState::SendingFailed { .. }));
+        assert_matches!(
+            event_item.send_state(),
+            Some(EventSendState::SendingFailed { is_recoverable: true, .. })
+        );
         assert_eq!(item.unique_id(), id);
     }
 
