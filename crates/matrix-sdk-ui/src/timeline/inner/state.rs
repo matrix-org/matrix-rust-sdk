@@ -501,7 +501,8 @@ impl TimelineInnerStateTransaction<'_> {
                         timestamp: Some(event.origin_server_ts()),
                         visible: false,
                     };
-                    self.add_event(event_meta, position, room_data_provider, settings).await;
+                    let _event_added =
+                        self.add_event(event_meta, position, room_data_provider, settings).await;
 
                     return HandleEventResult::default();
                 }
@@ -526,7 +527,9 @@ impl TimelineInnerStateTransaction<'_> {
                             timestamp,
                             visible: false,
                         };
-                        self.add_event(event_meta, position, room_data_provider, settings).await;
+                        let _event_added = self
+                            .add_event(event_meta, position, room_data_provider, settings)
+                            .await;
                     }
 
                     return HandleEventResult::default();
@@ -543,7 +546,14 @@ impl TimelineInnerStateTransaction<'_> {
             timestamp: Some(timestamp),
             visible: should_add,
         };
-        self.add_event(event_meta, position, room_data_provider, settings).await;
+
+        let event_added = self.add_event(event_meta, position, room_data_provider, settings).await;
+
+        // If the event has not been added, it's because it's a duplicated event. Let's
+        // return early.
+        if !event_added {
+            return HandleEventResult::default();
+        }
 
         let sender_profile = room_data_provider.profile_from_user_id(&sender).await;
         let ctx = TimelineEventContext {
@@ -637,23 +647,36 @@ impl TimelineInnerStateTransaction<'_> {
         items.commit();
     }
 
+    /// Add an event in the [`TimelineInnerMeta::all_events`] collection.
+    ///
+    /// This method also adjusts read receipt if needed.
+    ///
+    /// It returns `true` if the event has been added, `false` otherwise. The
+    /// latter happens if the event already exists, i.e. if an existing event is
+    /// requested to be added.
     async fn add_event<P: RoomDataProvider>(
         &mut self,
         event_meta: FullEventMeta<'_>,
         position: TimelineItemPosition,
         room_data_provider: &P,
         settings: &TimelineInnerSettings,
-    ) {
+    ) -> bool {
+        // Detect if an event already exists in [`TimelineInnerMeta::all_events`]
+        fn event_already_exists(new_event_id: &EventId, all_events: &VecDeque<EventMeta>) -> bool {
+            all_events.iter().any(|EventMeta { event_id, .. }| event_id == new_event_id)
+        }
+
         match position {
             TimelineItemPosition::Start { .. } => {
+                if event_already_exists(event_meta.event_id, &self.meta.all_events) {
+                    return false;
+                }
+
                 self.meta.all_events.push_front(event_meta.base_meta())
             }
             TimelineItemPosition::End { .. } => {
-                // Handle duplicated event.
-                if let Some(pos) =
-                    self.meta.all_events.iter().position(|ev| ev.event_id == event_meta.event_id)
-                {
-                    self.meta.all_events.remove(pos);
+                if event_already_exists(event_meta.event_id, &self.meta.all_events) {
+                    return false;
                 }
 
                 self.meta.all_events.push_back(event_meta.base_meta());
@@ -686,6 +709,8 @@ impl TimelineInnerStateTransaction<'_> {
 
             self.maybe_add_implicit_read_receipt(event_meta);
         }
+
+        true
     }
 
     fn adjust_day_dividers(&mut self, mut adjuster: DayDividerAdjuster) {
