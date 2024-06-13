@@ -66,7 +66,12 @@ mod room;
 mod room_list;
 mod state;
 
-use std::{future::ready, num::NonZeroUsize, sync::Arc, time::Duration};
+use std::{
+    future::ready,
+    num::NonZeroUsize,
+    sync::{Arc, RwLock},
+    time::Duration,
+};
 
 use async_stream::stream;
 use eyeball::{SharedObservable, Subscriber};
@@ -90,10 +95,7 @@ use ruma::{
 };
 pub use state::*;
 use thiserror::Error;
-use tokio::{
-    sync::{Mutex, RwLock},
-    time::timeout,
-};
+use tokio::{sync::Mutex, time::timeout};
 
 use crate::timeline;
 
@@ -424,9 +426,9 @@ impl RoomListService {
     }
 
     /// Get a [`Room`] if it exists.
-    pub async fn room(&self, room_id: &RoomId) -> Result<Room, Error> {
+    pub fn room(&self, room_id: &RoomId) -> Result<Room, Error> {
         {
-            let rooms = self.rooms.read().await;
+            let rooms = self.rooms.read().unwrap();
 
             if let Some(room) = rooms.iter().rfind(|room| room.id() == room_id) {
                 return Ok(room.clone());
@@ -435,7 +437,7 @@ impl RoomListService {
 
         let room = Room::new(&self.client, room_id, &self.sliding_sync)?;
 
-        self.rooms.write().await.push(room.clone());
+        self.rooms.write().unwrap().push(room.clone());
 
         Ok(room)
     }
