@@ -501,8 +501,9 @@ impl TimelineInnerStateTransaction<'_> {
                         timestamp: Some(event.origin_server_ts()),
                         visible: false,
                     };
-                    let _event_added =
-                        self.add_event(event_meta, position, room_data_provider, settings).await;
+                    let _event_added_or_updated = self
+                        .add_or_update_event(event_meta, position, room_data_provider, settings)
+                        .await;
 
                     return HandleEventResult::default();
                 }
@@ -527,8 +528,8 @@ impl TimelineInnerStateTransaction<'_> {
                             timestamp,
                             visible: false,
                         };
-                        let _event_added = self
-                            .add_event(event_meta, position, room_data_provider, settings)
+                        let _event_added_or_updated = self
+                            .add_or_update_event(event_meta, position, room_data_provider, settings)
                             .await;
                     }
 
@@ -547,11 +548,12 @@ impl TimelineInnerStateTransaction<'_> {
             visible: should_add,
         };
 
-        let event_added = self.add_event(event_meta, position, room_data_provider, settings).await;
+        let event_added_or_updated =
+            self.add_or_update_event(event_meta, position, room_data_provider, settings).await;
 
-        // If the event has not been added, it's because it's a duplicated event. Let's
-        // return early.
-        if !event_added {
+        // If the event has not been added or updated, it's because it's a duplicated
+        // event. Let's return early.
+        if !event_added_or_updated {
             return HandleEventResult::default();
         }
 
@@ -647,14 +649,15 @@ impl TimelineInnerStateTransaction<'_> {
         items.commit();
     }
 
-    /// Add an event in the [`TimelineInnerMeta::all_events`] collection.
+    /// Add or update an event in the [`TimelineInnerMeta::all_events`]
+    /// collection.
     ///
     /// This method also adjusts read receipt if needed.
     ///
-    /// It returns `true` if the event has been added, `false` otherwise. The
-    /// latter happens if the event already exists, i.e. if an existing event is
-    /// requested to be added.
-    async fn add_event<P: RoomDataProvider>(
+    /// It returns `true` if the event has been added or updated, `false`
+    /// otherwise. The latter happens if the event already exists, i.e. if
+    /// an existing event is requested to be added.
+    async fn add_or_update_event<P: RoomDataProvider>(
         &mut self,
         event_meta: FullEventMeta<'_>,
         position: TimelineItemPosition,
