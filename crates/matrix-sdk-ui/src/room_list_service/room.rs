@@ -22,7 +22,7 @@ use ruma::{api::client::sync::sync_events::v4::RoomSubscription, events::StateEv
 
 use super::Error;
 use crate::{
-    timeline::{EventTimelineItem, SlidingSyncRoomExt, TimelineBuilder},
+    timeline::{EventTimelineItem, TimelineBuilder},
     Timeline,
 };
 
@@ -154,6 +154,9 @@ impl Room {
     /// contains a local event. Otherwise, it comes from the cache. This method
     /// does not fetch any events or calculate anything — if it's not
     /// already available, we return `None`.
+    ///
+    /// Reminder: this method also returns `None` is the latest event is not
+    /// suitable for use in a message preview.
     pub async fn latest_event(&self) -> Option<EventTimelineItem> {
         // Look for a local event in the `Timeline`.
         //
@@ -161,15 +164,22 @@ impl Room {
         if let Some(timeline) = self.inner.timeline.get() {
             // If it contains a `latest_event`…
             if let Some(timeline_last_event) = timeline.latest_event().await {
-                // If it's a local echo…
-                if timeline_last_event.is_local_echo() {
-                    return Some(timeline_last_event);
-                }
+                // If it's a local event or a remote event, we return it.
+                return Some(timeline_last_event);
             }
         }
 
         // Otherwise, fallback to the classical path.
-        self.inner.sliding_sync_room.latest_timeline_item().await
+        if let Some(latest_event) = self.inner.room.latest_event() {
+            EventTimelineItem::from_latest_event(
+                self.inner.room.client(),
+                self.inner.room.room_id(),
+                latest_event,
+            )
+            .await
+        } else {
+            None
+        }
     }
 
     /// Create a new [`TimelineBuilder`] with the default configuration.
