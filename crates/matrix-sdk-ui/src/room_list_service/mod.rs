@@ -69,7 +69,7 @@ mod state;
 use std::{
     future::ready,
     num::NonZeroUsize,
-    sync::{Arc, RwLock},
+    sync::{Arc, Mutex as StdMutex},
     time::Duration,
 };
 
@@ -114,7 +114,7 @@ pub struct RoomListService {
     state: SharedObservable<State>,
 
     /// Room cache, to avoid recreating `Room`s every time users fetch them.
-    rooms: Arc<RwLock<RingBuffer<Room>>>,
+    rooms: Arc<StdMutex<RingBuffer<Room>>>,
 
     /// The current viewport ranges.
     ///
@@ -204,7 +204,7 @@ impl RoomListService {
             client,
             sliding_sync,
             state: SharedObservable::new(State::Init),
-            rooms: Arc::new(RwLock::new(RingBuffer::new(Self::ROOM_OBJECT_CACHE_SIZE))),
+            rooms: Arc::new(StdMutex::new(RingBuffer::new(Self::ROOM_OBJECT_CACHE_SIZE))),
             viewport_ranges: Mutex::new(vec![VISIBLE_ROOMS_DEFAULT_RANGE]),
         })
     }
@@ -427,17 +427,16 @@ impl RoomListService {
 
     /// Get a [`Room`] if it exists.
     pub fn room(&self, room_id: &RoomId) -> Result<Room, Error> {
-        {
-            let rooms = self.rooms.read().unwrap();
+        let mut rooms = self.rooms.lock().unwrap();
 
-            if let Some(room) = rooms.iter().rfind(|room| room.id() == room_id) {
-                return Ok(room.clone());
-            }
+        if let Some(room) = rooms.iter().rfind(|room| room.id() == room_id) {
+            return Ok(room.clone());
         }
 
         let room = Room::new(&self.client, room_id, &self.sliding_sync)?;
 
-        self.rooms.write().unwrap().push(room.clone());
+        // Save for later.
+        rooms.push(room.clone());
 
         Ok(room)
     }
