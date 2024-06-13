@@ -319,7 +319,7 @@ mod tests {
             .deserialize()
             .unwrap();
 
-        if let ToDeviceEncryptedEventContent::OlmV1Curve25519AesSha2(content) = else {
+        let ToDeviceEncryptedEventContent::OlmV1Curve25519AesSha2(content) = message else {
             panic!("Invalid encrypted event algorithm {}", message.algorithm());
         };
 
