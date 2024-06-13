@@ -30,7 +30,7 @@ use matrix_sdk_crypto::{
         caches::SessionStore, BackupKeys, Changes, CryptoStore, CryptoStoreError, PendingChanges,
         RoomKeyCounts, RoomSettings,
     },
-    types::{events::room_key_withheld::RoomKeyWithheldEvent, DeviceKeys},
+    types::events::room_key_withheld::RoomKeyWithheldEvent,
     vodozemac::base64_encode,
     Account, GossipRequest, GossippedSecret, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
     TrackedUser,
@@ -447,6 +447,10 @@ impl IndexeddbCryptoStore {
 
     /// Process all the changes and do all encryption/serialization before the
     /// actual transaction.
+    ///
+    /// Returns a tuple where the first item is a `PendingIndexeddbChanges`
+    /// struct, and the second item is a boolean indicating whether the session
+    /// cache should be cleared.
     async fn prepare_for_transaction(
         &self,
         changes: &Changes,
@@ -543,7 +547,7 @@ impl IndexeddbCryptoStore {
             // If our own device key changes, we need to clear the session
             // cache because the sessions contain a copy of our device key, and
             // we want the sessions to use the new version.
-            if account_info.clone().is_some_and(|info| {
+            if account_info.as_ref().is_some_and(|info| {
                 info.user_id == device.user_id() && info.device_id == device.device_id()
             }) {
                 clear_caches = true;
@@ -729,7 +733,9 @@ impl_crypto_store! {
         if clear_caches {
             self.clear_caches().await;
         } else {
-            // all good, let's update our caches:indexeddb
+            // All good, let's update our caches:indexeddb.
+            // We only do this if clear_caches is false, because the sessions may
+            // have been created using old device_keys.
             for session in changes.sessions {
                 self.session_cache.add(session).await;
             }

@@ -974,6 +974,9 @@ impl Account {
     ///
     /// * `key_map` - A map from the algorithm and device ID to the one-time key
     ///   that the other account created and shared with us.
+    ///
+    /// * `our_device_keys` - Our own `DeviceKeys`, including cross-signing
+    ///   signatures if applicable, for embedding in encrypted messages.
     #[allow(clippy::result_large_err)]
     pub fn create_outbound_session(
         &self,

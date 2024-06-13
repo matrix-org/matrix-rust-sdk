@@ -181,7 +181,7 @@ impl Session {
             #[cfg(feature = "experimental-algorithms")]
             EventEncryptionAlgorithm::OlmV2Curve25519AesSha2 => OlmV2Curve25519AesSha2Content {
                 ciphertext,
-                sender_key: self.our_identity_keys.curve25519,
+                sender_key: self.device_keys.curve25519_key().unwrap(),
                 message_id,
             }
             .into(),
@@ -279,7 +279,6 @@ pub struct PickledSession {
 #[cfg(test)]
 mod tests {
     use matrix_sdk_test::async_test;
-
     use ruma::{device_id, user_id};
     use serde_json::{self, Value};
     use vodozemac::olm::{OlmMessage, SessionConfig};
@@ -293,10 +292,12 @@ mod tests {
     async fn test_encryption_and_decryption() {
         use ruma::events::dummy::ToDeviceDummyEventContent;
 
+        // Given users Alice and Bob
         let alice =
             Account::with_device_id(user_id!("@alice:localhost"), device_id!("ALICEDEVICE"));
         let mut bob = Account::with_device_id(user_id!("@bob:localhost"), device_id!("BOBDEVICE"));
 
+        // When Alice creates an Olm session with Bob
         bob.generate_one_time_keys(1);
         let one_time_key = *bob.one_time_keys().values().next().unwrap();
         let sender_key = bob.identity_keys().curve25519;
@@ -310,6 +311,7 @@ mod tests {
 
         let alice_device = ReadOnlyDevice::from_account(&alice);
 
+        // and encrypts a message
         let message = alice_session
             .encrypt(&alice_device, "m.dummy", ToDeviceDummyEventContent::new(), None)
             .await
@@ -317,9 +319,7 @@ mod tests {
             .deserialize()
             .unwrap();
 
-        let content = if let ToDeviceEncryptedEventContent::OlmV1Curve25519AesSha2(c) = message {
-            c
-        } else {
+        if let ToDeviceEncryptedEventContent::OlmV1Curve25519AesSha2(content) = else {
             panic!("Invalid encrypted event algorithm {}", message.algorithm());
         };
 
@@ -329,6 +329,7 @@ mod tests {
             panic!("Wrong Olm message type");
         };
 
+        // Then Bob should be able to create a session from the message and decrypt it.
         let bob_session_result = bob
             .create_inbound_session(
                 alice_device.curve25519_key().unwrap(),
@@ -337,7 +338,7 @@ mod tests {
             )
             .unwrap();
 
-        // Check that the encrypted payload has the device keys.
+        // Also ensure that the encrypted payload has the device keys.
         let plaintext: Value = serde_json::from_str(&bob_session_result.plaintext).unwrap();
         assert_eq!(plaintext["device_keys"]["user_id"].as_str(), Some("@alice:localhost"));
     }
