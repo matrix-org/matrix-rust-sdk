@@ -102,7 +102,7 @@ pub enum HttpError {
 
     /// An error occurred while refreshing the access token.
     #[error(transparent)]
-    RefreshToken(#[from] RefreshTokenError),
+    RefreshToken(RefreshTokenError),
 }
 
 #[rustfmt::skip] // stop rustfmt breaking the `<code>` in docs across multiple lines
