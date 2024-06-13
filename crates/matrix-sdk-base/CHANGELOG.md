@@ -7,6 +7,9 @@
   don't acquire the lock for every room they read.
 - `Store::get_rooms`, `Store::get_rooms_filtered` and `Store::get_room` are
   renamed `Store::rooms`, `Store::rooms_filtered` and `Store::room`.
+- `Client::get_rooms` and `Client::get_rooms_filtered` are renamed
+  `Client::rooms` and `Client::rooms_filtered`.
+- `Client::get_stripped_rooms` has finally been removed.
 
 # 0.7.0
 
