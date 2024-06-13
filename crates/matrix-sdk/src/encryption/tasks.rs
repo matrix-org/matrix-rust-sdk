@@ -19,7 +19,7 @@ use matrix_sdk_common::failures_cache::FailuresCache;
 use ruma::{
     events::room::encrypted::{EncryptedEventScheme, OriginalSyncRoomEncryptedEvent},
     serde::Raw,
-    OwnedRoomId,
+    OwnedEventId, OwnedRoomId,
 };
 use tokio::sync::mpsc::{self, UnboundedReceiver};
 use tracing::{trace, warn};
@@ -93,11 +93,31 @@ impl BackupUploadingTask {
     }
 }
 
+/// Information about a request for a backup download for an undecryptable
+/// event.
+#[derive(Debug)]
+struct RoomKeyDownloadRequest {
+    /// The room in which the event was sent.
+    room_id: OwnedRoomId,
+
+    /// The ID of the event we could not decrypt.
+    event_id: OwnedEventId,
+
+    /// The megolm session that the event was encrypted with.
+    megolm_session_id: String,
+}
+
+impl RoomKeyDownloadRequest {
+    pub fn to_room_key_info(&self) -> RoomKeyInfo {
+        (self.room_id.clone(), self.megolm_session_id.clone())
+    }
+}
+
 pub type RoomKeyInfo = (OwnedRoomId, String);
 pub type TaskQueue = BTreeMap<RoomKeyInfo, JoinHandle<()>>;
 
 pub(crate) struct BackupDownloadTask {
-    sender: mpsc::UnboundedSender<RoomKeyInfo>,
+    sender: mpsc::UnboundedSender<RoomKeyDownloadRequest>,
     #[allow(dead_code)]
     join_handle: JoinHandle<()>,
 }
@@ -140,7 +160,11 @@ impl BackupDownloadTask {
     ) {
         if let Ok(deserialized_event) = event.deserialize() {
             if let EncryptedEventScheme::MegolmV1AesSha2(c) = deserialized_event.content.scheme {
-                let _ = self.sender.send((room_id, c.session_id));
+                let _ = self.sender.send(RoomKeyDownloadRequest {
+                    room_id,
+                    event_id: deserialized_event.event_id,
+                    megolm_session_id: c.session_id,
+                });
             }
         }
     }
@@ -177,12 +201,13 @@ impl BackupDownloadTask {
 
     pub(crate) async fn listen(
         client: WeakClient,
-        mut receiver: UnboundedReceiver<RoomKeyInfo>,
+        mut receiver: UnboundedReceiver<RoomKeyDownloadRequest>,
         failures_cache: FailuresCache<RoomKeyInfo>,
     ) {
         let mut task_queue = TaskQueue::new();
 
-        while let Some(room_key_info) = receiver.recv().await {
+        while let Some(room_key_download_request) = receiver.recv().await {
+            let room_key_info = room_key_download_request.to_room_key_info();
             trace!(?room_key_info, "Got a request to download a room key from the backup");
 
             if task_queue.len() >= 10 {
