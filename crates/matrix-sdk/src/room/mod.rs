@@ -104,7 +104,7 @@ use crate::{
     room::power_levels::{RoomPowerLevelChanges, RoomPowerLevelsExt},
     sync::RoomUpdate,
     utils::{IntoRawMessageLikeEventContent, IntoRawStateEventContent},
-    BaseRoom, Client, Error, HttpError, HttpResult, Result, RoomState, TransmissionProgress,
+    BaseRoom, Client, Error, HttpResult, Result, RoomState, TransmissionProgress,
 };
 
 pub mod futures;
@@ -983,15 +983,15 @@ impl Room {
         &self,
         tag: TagName,
         tag_info: TagInfo,
-    ) -> HttpResult<create_tag::v3::Response> {
-        let user_id = self.client.user_id().ok_or(HttpError::AuthenticationRequired)?;
+    ) -> Result<create_tag::v3::Response> {
+        let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
         let request = create_tag::v3::Request::new(
             user_id.to_owned(),
             self.inner.room_id().to_owned(),
             tag.to_string(),
             tag_info,
         );
-        self.client.send(request, None).await
+        Ok(self.client.send(request, None).await?)
     }
 
     /// Removes a tag from the room.
@@ -1000,14 +1000,14 @@ impl Room {
     ///
     /// # Arguments
     /// * `tag` - The tag to remove.
-    pub async fn remove_tag(&self, tag: TagName) -> HttpResult<delete_tag::v3::Response> {
-        let user_id = self.client.user_id().ok_or(HttpError::AuthenticationRequired)?;
+    pub async fn remove_tag(&self, tag: TagName) -> Result<delete_tag::v3::Response> {
+        let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
         let request = delete_tag::v3::Request::new(
             user_id.to_owned(),
             self.inner.room_id().to_owned(),
             tag.to_string(),
         );
-        self.client.send(request, None).await
+        Ok(self.client.send(request, None).await?)
     }
 
     /// Add or remove the `m.favourite` flag for this room.
@@ -1071,8 +1071,7 @@ impl Room {
     /// # Arguments
     /// * `is_direct` - Whether to mark this room as direct.
     pub async fn set_is_direct(&self, is_direct: bool) -> Result<()> {
-        let user_id =
-            self.client.user_id().ok_or_else(|| Error::from(HttpError::AuthenticationRequired))?;
+        let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
 
         let mut content = self
             .client
@@ -2602,8 +2601,7 @@ impl Room {
     /// Set a flag on the room to indicate that the user has explicitly marked
     /// it as (un)read.
     pub async fn set_unread_flag(&self, unread: bool) -> Result<()> {
-        let user_id =
-            self.client.user_id().ok_or_else(|| Error::from(HttpError::AuthenticationRequired))?;
+        let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
 
         let content = MarkedUnreadEventContent::new(unread);
 
