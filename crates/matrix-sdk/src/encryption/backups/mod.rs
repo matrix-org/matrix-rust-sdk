@@ -878,6 +878,13 @@ impl Backups {
         }
     }
 
+    /// Handle UTD events by triggering download from key backup.
+    ///
+    /// This function is registered as an event handler; it exists to deal
+    /// with cases where [`Room::decrypt_event`] is not called and instead the
+    /// event should be decrypted by the time this crate sees the event, such as
+    /// for events received via `/sync` (as opposed to via `/messages`,
+    /// `/context`, etc.)
     #[allow(clippy::unused_async)] // Because it's used as an event handler, which must be async.
     pub(crate) async fn utd_event_handler(
         event: SyncRoomEncryptedEvent,
