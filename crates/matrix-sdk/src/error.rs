@@ -105,10 +105,6 @@ pub enum HttpError {
     #[error(transparent)]
     IntoHttp(#[from] IntoHttpError),
 
-    /// The given request can't be cloned and thus can't be retried.
-    #[error("The request cannot be cloned")]
-    UnableToCloneRequest,
-
     /// An error occurred while refreshing the access token.
     #[error(transparent)]
     RefreshToken(#[from] RefreshTokenError),
