@@ -88,11 +88,6 @@ pub enum HttpError {
     #[error(transparent)]
     Reqwest(#[from] ReqwestError),
 
-    /// Queried endpoint requires authentication but was called on an anonymous
-    /// client.
-    #[error("the queried endpoint requires authentication but was called before logging in")]
-    AuthenticationRequired,
-
     /// Queried endpoint is not meant for clients.
     #[error("the queried endpoint is not meant for clients")]
     NotClientRequest,
