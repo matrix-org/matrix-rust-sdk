@@ -901,17 +901,13 @@ impl Client {
     ///
     /// This will return the list of joined, invited, and left rooms.
     pub fn rooms(&self) -> Vec<Room> {
-        self.base_client()
-            .get_rooms()
-            .into_iter()
-            .map(|room| Room::new(self.clone(), room))
-            .collect()
+        self.base_client().rooms().into_iter().map(|room| Room::new(self.clone(), room)).collect()
     }
 
     /// Get all the rooms the client knows about, filtered by room state.
     pub fn rooms_filtered(&self, filter: RoomStateFilter) -> Vec<Room> {
         self.base_client()
-            .get_rooms_filtered(filter)
+            .rooms_filtered(filter)
             .into_iter()
             .map(|room| Room::new(self.clone(), room))
             .collect()
@@ -920,7 +916,7 @@ impl Client {
     /// Returns the joined rooms this client knows about.
     pub fn joined_rooms(&self) -> Vec<Room> {
         self.base_client()
-            .get_rooms_filtered(RoomStateFilter::JOINED)
+            .rooms_filtered(RoomStateFilter::JOINED)
             .into_iter()
             .map(|room| Room::new(self.clone(), room))
             .collect()
@@ -929,7 +925,7 @@ impl Client {
     /// Returns the invited rooms this client knows about.
     pub fn invited_rooms(&self) -> Vec<Room> {
         self.base_client()
-            .get_rooms_filtered(RoomStateFilter::INVITED)
+            .rooms_filtered(RoomStateFilter::INVITED)
             .into_iter()
             .map(|room| Room::new(self.clone(), room))
             .collect()
@@ -938,7 +934,7 @@ impl Client {
     /// Returns the left rooms this client knows about.
     pub fn left_rooms(&self) -> Vec<Room> {
         self.base_client()
-            .get_rooms_filtered(RoomStateFilter::LEFT)
+            .rooms_filtered(RoomStateFilter::LEFT)
             .into_iter()
             .map(|room| Room::new(self.clone(), room))
             .collect()

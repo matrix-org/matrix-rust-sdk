@@ -203,23 +203,23 @@ impl Store {
     }
 
     /// Get all the rooms this store knows about.
-    pub fn get_rooms(&self) -> Vec<Room> {
+    pub fn rooms(&self) -> Vec<Room> {
         self.rooms.read().unwrap().values().cloned().collect()
     }
 
     /// Get all the rooms this store knows about, filtered by state.
-    pub fn get_rooms_filtered(&self, filter: RoomStateFilter) -> Vec<Room> {
+    pub fn rooms_filtered(&self, filter: RoomStateFilter) -> Vec<Room> {
         self.rooms
             .read()
             .unwrap()
             .iter()
-            .filter(|(_, r)| filter.matches(r.state()))
-            .filter_map(|(id, _)| self.get_room(id))
+            .filter(|(_, room)| filter.matches(room.state()))
+            .map(|(_, room)| room.clone())
             .collect()
     }
 
     /// Get the room with the given room id.
-    pub fn get_room(&self, room_id: &RoomId) -> Option<Room> {
+    pub fn room(&self, room_id: &RoomId) -> Option<Room> {
         self.rooms.read().unwrap().get(room_id).cloned()
     }
 

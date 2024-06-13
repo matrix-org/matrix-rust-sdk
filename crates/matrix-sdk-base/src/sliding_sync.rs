@@ -223,7 +223,7 @@ impl BaseClient {
         for (room_id, raw) in &rooms_account_data {
             self.handle_room_account_data(room_id, raw, &mut changes).await;
 
-            if let Some(room) = self.store.get_room(room_id) {
+            if let Some(room) = self.store.room(room_id) {
                 match room.state() {
                     RoomState::Joined => new_rooms
                         .join
