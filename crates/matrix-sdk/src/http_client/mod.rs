@@ -150,8 +150,9 @@ impl HttpClient {
                 }
             }
 
-            let request =
-                self.serialize_request(request, config, homeserver, access_token, server_versions)?;
+            let request = self
+                .serialize_request(request, config, homeserver, access_token, server_versions)
+                .map_err(HttpError::IntoHttp)?;
 
             let method = request.method();
 
