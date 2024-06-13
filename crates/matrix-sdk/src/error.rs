@@ -98,7 +98,7 @@ pub enum HttpError {
 
     /// An error converting between ruma_client_api types and Hyper types.
     #[error(transparent)]
-    IntoHttp(#[from] IntoHttpError),
+    IntoHttp(IntoHttpError),
 
     /// An error occurred while refreshing the access token.
     #[error(transparent)]
