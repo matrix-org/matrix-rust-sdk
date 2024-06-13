@@ -325,7 +325,7 @@ mod test {
 
         assert_eq!(
             expected_rendezvous, data.rendezvous_url,
-            "The parsed rendezvous URL should match to the expected one",
+            "The parsed rendezvous URL should match expected one",
         );
 
         assert_eq!(
@@ -337,7 +337,7 @@ mod test {
         assert_eq!(
             QrCodeModeData::Login,
             data.mode_data,
-            "The parsed QR code mode should match to the expected one",
+            "The parsed QR code mode should match expected one",
         );
     }
 
@@ -361,18 +361,18 @@ mod test {
 
         assert_eq!(
             expected_rendezvous, data.rendezvous_url,
-            "The parsed rendezvous URL should match to the expected one",
+            "The parsed rendezvous URL should match expected one",
         );
 
         assert_eq!(
             data.mode(),
             QrCodeMode::Reciprocate,
-            "The mode in the test bytes vector should be Login"
+            "The mode in the test bytes vector should be Reciprocate"
         );
 
         assert_let!(
             QrCodeModeData::Reciprocate { server_name } = data.mode_data,
-            "The parsed QR code mode should match to the expected one",
+            "The parsed QR code mode should match the expected one",
         );
 
         assert_eq!(
@@ -404,19 +404,19 @@ mod test {
         assert_eq!(
             data.mode(),
             QrCodeMode::Reciprocate,
-            "The mode in the test bytes vector should be Login"
+            "The mode in the test bytes vector should be Reciprocate"
         );
 
         assert_eq!(
             expected_rendezvous, data.rendezvous_url,
-            "The parsed rendezvous URL should match to the expected one",
+            "The parsed rendezvous URL should match the expected one",
         );
 
         assert_let!(QrCodeModeData::Reciprocate { server_name } = data.mode_data);
 
         assert_eq!(
             server_name, expected_server_name,
-            "The parsed homeserver URL should match to the expected one"
+            "The parsed server name should match the expected one"
         );
     }
 
