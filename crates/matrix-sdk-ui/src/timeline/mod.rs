@@ -78,7 +78,6 @@ mod pagination;
 mod polls;
 mod reactions;
 mod read_receipts;
-mod sliding_sync_ext;
 #[cfg(test)]
 mod tests;
 #[cfg(feature = "e2e-encryption")]
@@ -102,7 +101,6 @@ pub use self::{
     pagination::LiveBackPaginationStatus,
     polls::PollResult,
     reactions::ReactionSenderData,
-    sliding_sync_ext::SlidingSyncRoomExt,
     traits::RoomExt,
     virtual_item::VirtualTimelineItem,
 };

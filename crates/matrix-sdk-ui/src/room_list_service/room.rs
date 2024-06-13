@@ -150,10 +150,12 @@ impl Room {
 
     /// Get the latest event in the timeline.
     ///
-    /// The latest event comes first from the `Timeline` if it exists and if it
-    /// contains a local event. Otherwise, it comes from the cache. This method
-    /// does not fetch any events or calculate anything — if it's not
-    /// already available, we return `None`.
+    /// The latest event comes first from the `Timeline`, it can be a local or a
+    /// remote event. Note that the `Timeline` can have more information esp. if
+    /// it has run a backpagination for example. Otherwise if the `Timeline`
+    /// doesn't have any latest event, it comes from the cache. This method
+    /// does not fetch any events or calculate anything — if it's not already
+    /// available, we return `None`.
     ///
     /// Reminder: this method also returns `None` is the latest event is not
     /// suitable for use in a message preview.

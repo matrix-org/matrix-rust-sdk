@@ -343,10 +343,6 @@ copies accordingly. Because of where the loop sits in the stack, that can
 be a bit tedious though, so lists and rooms have an additional way of
 subscribing to updates via [`eyeball`].
 
-The `Timeline` one can receive per room by calling `.timeline()` (from
-`matrix_sdk_ui::timeline::SlidingSyncRoomExt`) will be populated with the
-currently cached timeline events.
-
 ## Caching
 
 All room data, for filled but also _invalidated_ rooms, including the entire
