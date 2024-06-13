@@ -1,10 +1,9 @@
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
 use matrix_sdk::RoomState;
 
 use crate::{
     notification_settings::RoomNotificationMode, room::Membership, room_member::RoomMember,
-    timeline::EventTimelineItem,
 };
 
 #[derive(uniffi::Record)]
@@ -25,7 +24,6 @@ pub struct RoomInfo {
     canonical_alias: Option<String>,
     alternative_aliases: Vec<String>,
     membership: Membership,
-    latest_event: Option<Arc<EventTimelineItem>>,
     /// Member who invited the current user to a room that's in the invited
     /// state.
     ///
@@ -55,10 +53,7 @@ pub struct RoomInfo {
 }
 
 impl RoomInfo {
-    pub(crate) async fn new(
-        room: &matrix_sdk::Room,
-        latest_event: Option<Arc<EventTimelineItem>>,
-    ) -> matrix_sdk::Result<Self> {
+    pub(crate) async fn new(room: &matrix_sdk::Room) -> matrix_sdk::Result<Self> {
         let unread_notification_counts = room.unread_notification_counts();
 
         let power_levels_map = room.users_with_power_levels().await;
@@ -81,7 +76,6 @@ impl RoomInfo {
             canonical_alias: room.canonical_alias().map(Into::into),
             alternative_aliases: room.alt_aliases().into_iter().map(Into::into).collect(),
             membership: room.state().into(),
-            latest_event,
             inviter: match room.state() {
                 RoomState::Invited => room
                     .invite_details()
