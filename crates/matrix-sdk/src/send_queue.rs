@@ -380,9 +380,9 @@ impl RoomSendQueue {
                         let http_err = retry_kind.error();
 
                         if !is_recoverable {
-                            // Also classify raw HTTP-level request errors as recoverable, because
-                            // `characterize_retry_kind` doesn't do that, and bnjbvr isn't clear
-                            // whether it should.
+                            // Also flag all HTTP errors as recoverable: they might indicate that
+                            // the server was unreachable, or that the device is entirely
+                            // disconnected.
                             is_recoverable =
                                 matches!(http_err, crate::error::HttpError::Reqwest(..));
                         }

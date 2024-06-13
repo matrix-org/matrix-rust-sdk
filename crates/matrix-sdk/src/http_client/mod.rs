@@ -278,7 +278,10 @@ impl RetryKind {
     }
 }
 
-/// Returns whether an API error is transient or permanent,
+/// Returns whether an HTTP error response should be qualified as transient or
+/// permanent.
+///
+/// This is what decides whether to retry requests, in the [`native`] module.
 pub(crate) fn characterize_retry_kind(err: HttpError) -> RetryKind {
     use ruma::api::client::error::{ErrorBody, ErrorKind, RetryAfter};
 

@@ -9,7 +9,7 @@ use std::{
 use assert_matches2::{assert_let, assert_matches};
 use matrix_sdk::{
     send_queue::{LocalEcho, RoomSendQueueError, RoomSendQueueUpdate},
-    test_utils::logged_in_client_with_server,
+    test_utils::{logged_in_client, logged_in_client_with_server},
 };
 use matrix_sdk_test::{async_test, InvitedRoomBuilder, JoinedRoomBuilder, LeftRoomBuilder};
 use ruma::{
@@ -972,5 +972,79 @@ async fn test_unrecoverable_errors() {
 
     // No queue is being disabled, because the error was unrecoverable.
     assert!(room.send_queue().is_enabled());
+    assert!(client.send_queue().is_enabled());
+}
+
+#[async_test]
+async fn test_no_network_access_error_is_recoverable() {
+    // This is subtle, but for the `drop(server)` below to be effectful, it needs to
+    // not be a pooled wiremock server (the default), which will keep the dropped
+    // server in a static. Using the line below will create a "bare" server,
+    // which is effectively dropped upon `drop()`.
+    let server = wiremock::MockServer::builder().start().await;
+
+    let client = logged_in_client(Some(server.uri().to_string())).await;
+
+    // Mark the room as joined.
+    let room_id = room_id!("!a:b.c");
+
+    let room = mock_sync_with_new_room(
+        |builder| {
+            builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+        },
+        &client,
+        &server,
+        room_id,
+    )
+    .await;
+
+    // Dropping the server: any subsequent attempt to connect mimics an unreachable
+    // server, which might be caused by missing network.
+    drop(server);
+
+    let mut errors = client.send_queue().subscribe_errors();
+    assert!(errors.is_empty());
+
+    // Start with an enabled sending queue.
+    client.send_queue().set_enabled(true);
+    assert!(client.send_queue().is_enabled());
+
+    let q = room.send_queue();
+    let (local_echoes, mut watch) = q.subscribe().await;
+
+    assert!(local_echoes.is_empty());
+    assert!(watch.is_empty());
+
+    // Queue two messages.
+    q.send(RoomMessageEventContent::text_plain("is there anyone around here").into())
+        .await
+        .unwrap();
+
+    // First message is seen as a local echo.
+    assert_let!(
+        Ok(Ok(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
+            content: AnyMessageLikeEventContent::RoomMessage(msg),
+            transaction_id: txn1,
+            ..
+        }))) = timeout(Duration::from_secs(1), watch.recv()).await
+    );
+    assert_eq!(msg.body(), format!("is there anyone around here"));
+
+    // There will be an error report for the first message, indicating that the
+    // error is recoverable: because network is unreachable.
+    let report = errors.recv().await.unwrap();
+    assert_eq!(report.room_id, room.room_id());
+    assert!(report.is_recoverable);
+
+    // The room updates will report the error for the first message as recoverable
+    // too.
+    assert_let!(
+        Ok(Ok(RoomSendQueueUpdate::SendError { is_recoverable: true, transaction_id, .. })) =
+            timeout(Duration::from_secs(1), watch.recv()).await
+    );
+    assert_eq!(transaction_id, txn1);
+
+    // The room queue is disabled, because the error was recoverable.
+    assert!(!room.send_queue().is_enabled());
     assert!(client.send_queue().is_enabled());
 }
