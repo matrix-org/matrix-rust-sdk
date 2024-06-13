@@ -1120,8 +1120,6 @@ impl Room {
         &self,
         event: &Raw<OriginalSyncRoomEncryptedEvent>,
     ) -> Result<TimelineEvent> {
-        use ruma::events::room::encrypted::EncryptedEventScheme;
-
         let machine = self.client.olm_machine().await;
         let machine = machine.as_ref().ok_or(Error::NoOlmMachine)?;
 
@@ -1129,13 +1127,10 @@ impl Room {
             match machine.decrypt_room_event(event.cast_ref(), self.inner.room_id()).await {
                 Ok(event) => event,
                 Err(e) => {
-                    let event = event.deserialize()?;
-                    if let EncryptedEventScheme::MegolmV1AesSha2(c) = event.content.scheme {
-                        self.client
-                            .encryption()
-                            .backups()
-                            .maybe_download_room_key(self.room_id().to_owned(), c.session_id);
-                    }
+                    self.client
+                        .encryption()
+                        .backups()
+                        .maybe_download_room_key(self.room_id().to_owned(), event.clone());
 
                     return Err(e.into());
                 }

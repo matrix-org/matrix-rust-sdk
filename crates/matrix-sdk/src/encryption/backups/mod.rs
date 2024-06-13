@@ -37,7 +37,7 @@ use ruma::{
         error::ErrorKind,
     },
     events::{
-        room::encrypted::{EncryptedEventScheme, OriginalSyncRoomEncryptedEvent},
+        room::encrypted::OriginalSyncRoomEncryptedEvent,
         secret::{request::SecretName, send::ToDeviceSecretSendEvent},
     },
     serde::Raw,
@@ -891,21 +891,19 @@ impl Backups {
         room: Room,
         client: Client,
     ) {
-        if let Ok(event) = event.deserialize() {
-            if let EncryptedEventScheme::MegolmV1AesSha2(c) = &event.content.scheme {
-                client
-                    .encryption()
-                    .backups()
-                    .maybe_download_room_key(room.room_id().to_owned(), c.session_id.to_owned());
-            }
-        }
+        client.encryption().backups().maybe_download_room_key(room.room_id().to_owned(), event);
     }
 
-    pub(crate) fn maybe_download_room_key(&self, room_id: OwnedRoomId, session_id: String) {
+    /// Send a notification to the task responsible for key backup downloads
+    /// that it should attempt to download the keys for the given event.
+    pub(crate) fn maybe_download_room_key(
+        &self,
+        room_id: OwnedRoomId,
+        event: Raw<OriginalSyncRoomEncryptedEvent>,
+    ) {
         let tasks = self.client.inner.e2ee.tasks.lock().unwrap();
-
         if let Some(task) = tasks.download_room_keys.as_ref() {
-            task.trigger_download((room_id, session_id))
+            task.trigger_download_for_utd_event(room_id, event);
         }
     }
 

@@ -16,7 +16,11 @@ use std::{collections::BTreeMap, time::Duration};
 
 use futures_util::future::join_all;
 use matrix_sdk_common::failures_cache::FailuresCache;
-use ruma::OwnedRoomId;
+use ruma::{
+    events::room::encrypted::{EncryptedEventScheme, OriginalSyncRoomEncryptedEvent},
+    serde::Raw,
+    OwnedRoomId,
+};
 use tokio::sync::mpsc::{self, UnboundedReceiver};
 use tracing::{trace, warn};
 
@@ -124,8 +128,21 @@ impl BackupDownloadTask {
         Self { sender, join_handle }
     }
 
-    pub(crate) fn trigger_download(&self, room_key_info: RoomKeyInfo) {
-        let _ = self.sender.send(room_key_info);
+    /// Trigger a backup download for the keys for the given event.
+    ///
+    /// Does nothing unless the event is encrypted using `m.megolm.v1.aes-sha2`.
+    /// Otherwise, tells the listener task to set off a task to do a backup
+    /// download, unless there is one already running.
+    pub(crate) fn trigger_download_for_utd_event(
+        &self,
+        room_id: OwnedRoomId,
+        event: Raw<OriginalSyncRoomEncryptedEvent>,
+    ) {
+        if let Ok(deserialized_event) = event.deserialize() {
+            if let EncryptedEventScheme::MegolmV1AesSha2(c) = deserialized_event.content.scheme {
+                let _ = self.sender.send((room_id, c.session_id));
+            }
+        }
     }
 
     pub(crate) async fn download(
