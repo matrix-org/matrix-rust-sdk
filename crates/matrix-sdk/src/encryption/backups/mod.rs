@@ -37,7 +37,7 @@ use ruma::{
         error::ErrorKind,
     },
     events::{
-        room::encrypted::{EncryptedEventScheme, SyncRoomEncryptedEvent},
+        room::encrypted::{EncryptedEventScheme, OriginalSyncRoomEncryptedEvent},
         secret::{request::SecretName, send::ToDeviceSecretSendEvent},
     },
     serde::Raw,
@@ -887,11 +887,11 @@ impl Backups {
     /// `/context`, etc.)
     #[allow(clippy::unused_async)] // Because it's used as an event handler, which must be async.
     pub(crate) async fn utd_event_handler(
-        event: SyncRoomEncryptedEvent,
+        event: Raw<OriginalSyncRoomEncryptedEvent>,
         room: Room,
         client: Client,
     ) {
-        if let Some(event) = event.as_original() {
+        if let Ok(event) = event.deserialize() {
             if let EncryptedEventScheme::MegolmV1AesSha2(c) = &event.content.scheme {
                 client
                     .encryption()
