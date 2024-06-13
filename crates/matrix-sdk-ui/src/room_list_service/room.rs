@@ -17,7 +17,7 @@
 use std::{ops::Deref, sync::Arc};
 
 use async_once_cell::OnceCell as AsyncOnceCell;
-use matrix_sdk::{event_cache, SlidingSync, SlidingSyncRoom};
+use matrix_sdk::{Client, SlidingSync};
 use ruma::{api::client::sync::sync_events::v4::RoomSubscription, events::StateEventType, RoomId};
 
 use super::Error;
@@ -39,9 +39,6 @@ struct RoomInner {
     /// The Sliding Sync where everything comes from.
     sliding_sync: Arc<SlidingSync>,
 
-    /// The Sliding Sync room.
-    sliding_sync_room: SlidingSyncRoom,
-
     /// The underlying client room.
     room: matrix_sdk::Room,
 
@@ -60,18 +57,16 @@ impl Deref for Room {
 impl Room {
     /// Create a new `Room`.
     pub(super) fn new(
-        sliding_sync: Arc<SlidingSync>,
-        sliding_sync_room: SlidingSyncRoom,
+        client: &Client,
+        room_id: &RoomId,
+        sliding_sync: &Arc<SlidingSync>,
     ) -> Result<Self, Error> {
-        let room = sliding_sync_room
-            .client()
-            .get_room(sliding_sync_room.room_id())
-            .ok_or_else(|| Error::RoomNotFound(sliding_sync_room.room_id().to_owned()))?;
+        let room =
+            client.get_room(room_id).ok_or_else(|| Error::RoomNotFound(room_id.to_owned()))?;
 
         Ok(Self {
             inner: Arc::new(RoomInner {
-                sliding_sync,
-                sliding_sync_room,
+                sliding_sync: sliding_sync.clone(),
                 room,
                 timeline: AsyncOnceCell::new(),
             }),
@@ -185,18 +180,27 @@ impl Room {
     }
 
     /// Create a new [`TimelineBuilder`] with the default configuration.
-    pub async fn default_room_timeline_builder(&self) -> event_cache::Result<TimelineBuilder> {
+    pub async fn default_room_timeline_builder(&self) -> Result<TimelineBuilder, Error> {
         // TODO we can remove this once the event cache handles his own cache.
+
+        let sliding_sync_room =
+            self.inner
+                .sliding_sync
+                .get_room(self.inner.room.room_id())
+                .await
+                .ok_or_else(|| Error::RoomNotFound(self.inner.room.room_id().to_owned()))?;
+
         self.inner
             .room
             .client()
             .event_cache()
             .add_initial_events(
                 self.inner.room.room_id(),
-                self.inner.sliding_sync_room.timeline_queue().iter().cloned().collect(),
-                self.inner.sliding_sync_room.prev_batch(),
+                sliding_sync_room.timeline_queue().iter().cloned().collect(),
+                sliding_sync_room.prev_batch(),
             )
-            .await?;
+            .await
+            .map_err(Error::EventCache)?;
 
         Ok(Timeline::builder(&self.inner.room).track_read_marker_and_receipts())
     }
