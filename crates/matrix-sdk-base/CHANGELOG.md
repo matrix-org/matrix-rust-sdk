@@ -3,6 +3,10 @@
 - Replace the `Notification` type from Ruma in `SyncResponse` and `StateChanges` by a custom one
 - The ambiguity maps in `SyncResponse` are moved to `JoinedRoom` and `LeftRoom`
 - `AmbiguityCache` contains the room member's user ID
+- `Store::get_rooms` and `Store::get_rooms_filtered` are way faster because they
+  don't acquire the lock for every room they read.
+- `Store::get_rooms`, `Store::get_rooms_filtered` and `Store::get_room` are
+  renamed `Store::rooms`, `Store::rooms_filtered` and `Store::room`.
 
 # 0.7.0
 
