@@ -125,11 +125,11 @@ impl RoomListService {
         })))
     }
 
-    async fn room(&self, room_id: String) -> Result<Arc<RoomListItem>, RoomListError> {
+    fn room(&self, room_id: String) -> Result<Arc<RoomListItem>, RoomListError> {
         let room_id = <&RoomId>::try_from(room_id.as_str()).map_err(RoomListError::from)?;
 
         Ok(Arc::new(RoomListItem {
-            inner: Arc::new(self.inner.room(room_id).await?),
+            inner: Arc::new(self.inner.room(room_id)?),
             utd_hook: self.utd_hook.clone(),
         }))
     }
@@ -172,7 +172,7 @@ pub struct RoomList {
     inner: Arc<matrix_sdk_ui::room_list_service::RoomList>,
 }
 
-#[uniffi::export(async_runtime = "tokio")]
+#[uniffi::export]
 impl RoomList {
     fn loading_state(
         &self,
@@ -233,8 +233,8 @@ impl RoomList {
         }
     }
 
-    async fn room(&self, room_id: String) -> Result<Arc<RoomListItem>, RoomListError> {
-        self.room_list_service.room(room_id).await
+    fn room(&self, room_id: String) -> Result<Arc<RoomListItem>, RoomListError> {
+        self.room_list_service.room(room_id)
     }
 }
 

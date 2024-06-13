@@ -66,7 +66,12 @@ mod room;
 mod room_list;
 mod state;
 
-use std::{future::ready, num::NonZeroUsize, sync::Arc, time::Duration};
+use std::{
+    future::ready,
+    num::NonZeroUsize,
+    sync::{Arc, Mutex as StdMutex},
+    time::Duration,
+};
 
 use async_stream::stream;
 use eyeball::{SharedObservable, Subscriber};
@@ -90,10 +95,7 @@ use ruma::{
 };
 pub use state::*;
 use thiserror::Error;
-use tokio::{
-    sync::{Mutex, RwLock},
-    time::timeout,
-};
+use tokio::{sync::Mutex, time::timeout};
 
 use crate::timeline;
 
@@ -112,7 +114,7 @@ pub struct RoomListService {
     state: SharedObservable<State>,
 
     /// Room cache, to avoid recreating `Room`s every time users fetch them.
-    rooms: Arc<RwLock<RingBuffer<Room>>>,
+    rooms: Arc<StdMutex<RingBuffer<Room>>>,
 
     /// The current viewport ranges.
     ///
@@ -202,7 +204,7 @@ impl RoomListService {
             client,
             sliding_sync,
             state: SharedObservable::new(State::Init),
-            rooms: Arc::new(RwLock::new(RingBuffer::new(Self::ROOM_OBJECT_CACHE_SIZE))),
+            rooms: Arc::new(StdMutex::new(RingBuffer::new(Self::ROOM_OBJECT_CACHE_SIZE))),
             viewport_ranges: Mutex::new(vec![VISIBLE_ROOMS_DEFAULT_RANGE]),
         })
     }
@@ -424,21 +426,17 @@ impl RoomListService {
     }
 
     /// Get a [`Room`] if it exists.
-    pub async fn room(&self, room_id: &RoomId) -> Result<Room, Error> {
-        {
-            let rooms = self.rooms.read().await;
+    pub fn room(&self, room_id: &RoomId) -> Result<Room, Error> {
+        let mut rooms = self.rooms.lock().unwrap();
 
-            if let Some(room) = rooms.iter().rfind(|room| room.id() == room_id) {
-                return Ok(room.clone());
-            }
+        if let Some(room) = rooms.iter().rfind(|room| room.id() == room_id) {
+            return Ok(room.clone());
         }
 
-        let room = match self.sliding_sync.get_room(room_id).await {
-            Some(room) => Room::new(self.sliding_sync.clone(), room)?,
-            None => return Err(Error::RoomNotFound(room_id.to_owned())),
-        };
+        let room = Room::new(&self.client, room_id, &self.sliding_sync)?;
 
-        self.rooms.write().await.push(room.clone());
+        // Save for later.
+        rooms.push(room.clone());
 
         Ok(room)
     }
