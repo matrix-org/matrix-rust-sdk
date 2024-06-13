@@ -505,9 +505,7 @@ impl RoomListItem {
     }
 
     pub async fn room_info(&self) -> Result<RoomInfo, ClientError> {
-        let latest_event = self.inner.latest_event().await.map(EventTimelineItem).map(Arc::new);
-
-        Ok(RoomInfo::new(self.inner.inner_room(), latest_event).await?)
+        Ok(RoomInfo::new(self.inner.inner_room()).await?)
     }
 
     /// Build a full `Room` FFI object, filling its associated timeline.

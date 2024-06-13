@@ -32,7 +32,7 @@ use crate::{
     room_info::RoomInfo,
     room_member::RoomMember,
     ruma::{ImageInfo, Mentions, NotifyType},
-    timeline::{EventTimelineItem, FocusEventError, ReceiptType, Timeline},
+    timeline::{FocusEventError, ReceiptType, Timeline},
     utils::u64_to_uint,
     TaskHandle,
 };
@@ -257,38 +257,7 @@ impl Room {
     }
 
     pub async fn room_info(&self) -> Result<RoomInfo, ClientError> {
-        // Look for a local event in the `Timeline`.
-        //
-        // First off, let's see if a `Timeline` exists…
-        if let Some(timeline) = self.timeline.read().await.clone() {
-            // If it contains a `latest_event`…
-            if let Some(timeline_last_event) = timeline.inner.latest_event().await {
-                // If it's a local echo…
-                if timeline_last_event.is_local_echo() {
-                    return Ok(RoomInfo::new(
-                        &self.inner,
-                        Some(Arc::new(EventTimelineItem(timeline_last_event))),
-                    )
-                    .await?);
-                }
-            }
-        }
-
-        // Otherwise, create a synthetic [`EventTimelineItem`] using the classical
-        // [`Room`] path.
-        let latest_event = match self.inner.latest_event() {
-            Some(latest_event) => matrix_sdk_ui::timeline::EventTimelineItem::from_latest_event(
-                self.inner.client(),
-                self.inner.room_id(),
-                latest_event,
-            )
-            .await
-            .map(EventTimelineItem)
-            .map(Arc::new),
-            None => None,
-        };
-
-        Ok(RoomInfo::new(&self.inner, latest_event).await?)
+        Ok(RoomInfo::new(&self.inner).await?)
     }
 
     pub fn subscribe_to_room_info_updates(
