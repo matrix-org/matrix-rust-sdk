@@ -572,12 +572,6 @@ impl Timeline {
         Ok(Arc::new(EventTimelineItem(item)))
     }
 
-    pub async fn latest_event(&self) -> Option<Arc<EventTimelineItem>> {
-        let latest_event = self.inner.latest_event().await;
-
-        latest_event.map(|item| Arc::new(EventTimelineItem(item)))
-    }
-
     /// Redacts an event from the timeline.
     ///
     /// Only works for events that exist as timeline items.
