@@ -84,7 +84,7 @@ impl RumaApiError {
 /// converting the raw HTTP response into a Matrix response.
 #[derive(Error, Debug)]
 pub enum HttpError {
-    /// An error at the HTTP layer.
+    /// Error at the HTTP layer.
     #[error(transparent)]
     Reqwest(#[from] ReqwestError),
 
@@ -92,15 +92,16 @@ pub enum HttpError {
     #[error("the queried endpoint is not meant for clients")]
     NotClientRequest,
 
-    /// An error converting between ruma_*_api types and Hyper types.
+    /// API response error (deserialization, or a Matrix-specific error).
     #[error(transparent)]
     Api(#[from] FromHttpResponseError<RumaApiError>),
 
-    /// An error converting between ruma_client_api types and Hyper types.
+    /// Error when creating an API request (e.g. serialization of
+    /// body/headers/query parameters).
     #[error(transparent)]
     IntoHttp(IntoHttpError),
 
-    /// An error occurred while refreshing the access token.
+    /// Error while refreshing the access token.
     #[error(transparent)]
     RefreshToken(RefreshTokenError),
 }
