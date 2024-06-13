@@ -213,8 +213,8 @@ impl Store {
             .read()
             .unwrap()
             .iter()
-            .filter(|(_, r)| filter.matches(r.state()))
-            .filter_map(|(id, _)| self.get_room(id))
+            .filter(|(_, room)| filter.matches(room.state()))
+            .map(|(_, room)| room.clone())
             .collect()
     }
 
