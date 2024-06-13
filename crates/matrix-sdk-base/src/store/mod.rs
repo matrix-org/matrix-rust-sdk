@@ -142,6 +142,7 @@ pub(crate) struct Store {
     session_meta: Arc<OnceCell<SessionMeta>>,
     /// The current sync token that should be used for the next sync call.
     pub(super) sync_token: Arc<RwLock<Option<String>>>,
+    /// All rooms the store knows about.
     rooms: Arc<StdRwLock<BTreeMap<OwnedRoomId, Room>>>,
     /// A lock to synchronize access to the store, such that data by the sync is
     /// never overwritten.
@@ -203,7 +204,7 @@ impl Store {
 
     /// Get all the rooms this store knows about.
     pub fn get_rooms(&self) -> Vec<Room> {
-        self.rooms.read().unwrap().keys().filter_map(|id| self.get_room(id)).collect()
+        self.rooms.read().unwrap().values().cloned().collect()
     }
 
     /// Get all the rooms this store knows about, filtered by state.
