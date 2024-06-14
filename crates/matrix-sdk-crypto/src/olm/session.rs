@@ -320,11 +320,13 @@ mod tests {
             .unwrap();
 
         #[cfg(feature = "experimental-algorithms")]
-        let ToDeviceEncryptedEventContent::OlmV2Curve25519AesSha2(content) = message else {
+        let ToDeviceEncryptedEventContent::OlmV2Curve25519AesSha2(content) = message
+        else {
             panic!("Invalid encrypted event algorithm {}", message.algorithm());
         };
         #[cfg(not(feature = "experimental-algorithms"))]
-        let ToDeviceEncryptedEventContent::OlmV1Curve25519AesSha2(content) = message else {
+        let ToDeviceEncryptedEventContent::OlmV1Curve25519AesSha2(content) = message
+        else {
             panic!("Invalid encrypted event algorithm {}", message.algorithm());
         };
 

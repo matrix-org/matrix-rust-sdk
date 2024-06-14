@@ -921,10 +921,7 @@ impl CryptoStore for SqliteCryptoStore {
 
     async fn get_sessions(&self, sender_key: &str) -> Result<Option<Arc<Mutex<Vec<Session>>>>> {
         if self.session_cache.get(sender_key).is_none() {
-            let device_keys = self.get_own_device()
-                .await?
-                .as_device_keys()
-                .clone();
+            let device_keys = self.get_own_device().await?.as_device_keys().clone();
 
             let sessions = self
                 .acquire()
@@ -1125,9 +1122,7 @@ impl CryptoStore for SqliteCryptoStore {
 
     async fn get_own_device(&self) -> Result<ReadOnlyDevice> {
         let account_info = self.get_static_account().ok_or(Error::AccountUnset)?;
-        Ok(self.get_device(&account_info.user_id, &account_info.device_id)
-           .await?
-           .unwrap())
+        Ok(self.get_device(&account_info.user_id, &account_info.device_id).await?.unwrap())
     }
 
     async fn get_user_identity(&self, user_id: &UserId) -> Result<Option<ReadOnlyUserIdentities>> {

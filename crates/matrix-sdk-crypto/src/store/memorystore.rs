@@ -475,9 +475,7 @@ impl CryptoStore for MemoryStore {
     }
 
     async fn get_own_device(&self) -> Result<ReadOnlyDevice> {
-        let account = self.load_account()
-            .await?
-            .unwrap();
+        let account = self.load_account().await?.unwrap();
 
         Ok(self.devices.get(&account.user_id, &account.device_id).unwrap())
     }
