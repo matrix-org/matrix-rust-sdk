@@ -2162,6 +2162,13 @@ impl WeakClient {
     pub fn get(&self) -> Option<Client> {
         self.client.upgrade().map(|inner| Client { inner })
     }
+
+    /// Gets the number of strong (`Arc`) pointers still pointing to this
+    /// client.
+    #[allow(dead_code)]
+    pub fn strong_count(&self) -> usize {
+        self.client.strong_count()
+    }
 }
 
 // The http mocking library is not supported for wasm32
@@ -2510,7 +2517,12 @@ pub(crate) mod tests {
     #[async_test]
     async fn test_client_no_cycle_with_event_cache() {
         let client = logged_in_client(None).await;
+
+        // Wait for the init tasks to die.
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
         let weak_client = WeakClient::from_client(&client);
+        assert_eq!(weak_client.strong_count(), 1);
 
         {
             let room_id = room_id!("!room:example.org");
@@ -2533,6 +2545,7 @@ pub(crate) mod tests {
         tokio::time::sleep(Duration::from_secs(1)).await;
 
         // The weak client must be the last reference to the client now.
+        assert_eq!(weak_client.strong_count(), 0);
         let client = weak_client.get();
         assert!(
             client.is_none(),
