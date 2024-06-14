@@ -811,7 +811,10 @@ mod tests {
             user_id, SecondsSinceUnixEpoch,
         };
 
-        use crate::{olm::OutboundGroupSession, Account, EncryptionSettings, MegolmError};
+        use crate::{
+            olm::{OutboundGroupSession, SenderData},
+            Account, EncryptionSettings, MegolmError,
+        };
 
         const TWO_HOURS: Duration = Duration::from_secs(60 * 60 * 2);
 
@@ -999,7 +1002,11 @@ mod tests {
                 Account::with_device_id(user_id!("@alice:example.org"), device_id!("DEVICEID"))
                     .static_data;
             let (session, _) = account
-                .create_group_session_pair(room_id!("!test_room:example.org"), settings)
+                .create_group_session_pair(
+                    room_id!("!test_room:example.org"),
+                    settings,
+                    SenderData::unknown(),
+                )
                 .await
                 .unwrap();
             session

@@ -1103,6 +1103,19 @@ impl Store {
             .map(|d| d.devices().find(|d| d.curve25519_key() == Some(curve_key)))
     }
 
+    //    /// Get a device for the given user with the given ed25519 key.
+    //    ///
+    //    /// *Note*: This doesn't return our own device.
+    //    pub(crate) async fn get_device_from_ed_key(
+    //        &self,
+    //        user_id: &UserId,
+    //        curve_key: &Ed25519PublicKey,
+    //    ) -> Result<Option<Device>> {
+    //        self.get_user_devices(user_id)
+    //            .await
+    //            .map(|d| d.devices().find(|d| d.ed25519_key() ==
+    // Some(*curve_key)))    }
+    //
     /// Get all devices associated with the given `user_id`
     ///
     /// *Note*: This does also return our own device.
