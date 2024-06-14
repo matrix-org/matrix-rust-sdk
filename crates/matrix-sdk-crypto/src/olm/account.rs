@@ -902,6 +902,9 @@ impl Account {
     /// created and shared with us.
     ///
     /// * `fallback_used` - Was the one-time key a fallback key.
+    ///
+    /// * `our_device_keys` - Our own `DeviceKeys`, including cross-signing
+    ///   signatures if applicable, for embedding in encrypted messages.
     pub fn create_outbound_session_helper(
         &self,
         config: SessionConfig,
@@ -1025,6 +1028,9 @@ impl Account {
     ///
     /// # Arguments
     /// * `their_identity_key` - The other account's identity/curve25519 key.
+    ///
+    /// * `our_device_keys` - Our own `DeviceKeys`, including cross-signing
+    ///   signatures if applicable, for embedding in encrypted messages.
     ///
     /// * `message` - A pre-key Olm message that was sent to us by the other
     /// account.
