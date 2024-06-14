@@ -46,6 +46,8 @@ mod utils;
 uniffi::setup_scaffolding!();
 
 pub use client::BaseClient;
+#[cfg(feature = "e2e-encryption")]
+pub use client::{CryptoDistributionMode, GlobalEncryptionSettings};
 #[cfg(any(test, feature = "testing"))]
 pub use http;
 #[cfg(feature = "e2e-encryption")]
@@ -59,10 +61,6 @@ pub use store::{StateChanges, StateStore, StateStoreDataKey, StateStoreDataValue
 pub use utils::{
     MinimalRoomMemberEvent, MinimalStateEvent, OriginalMinimalStateEvent, RedactedMinimalStateEvent,
 };
-
-
-#[cfg(feature = "e2e-encryption")]
-pub use client::{ GlobalEncryptionSettings, CryptoDistributionMode };
 
 #[cfg(test)]
 matrix_sdk_test::init_tracing_for_tests!();

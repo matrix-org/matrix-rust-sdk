@@ -69,6 +69,21 @@ pub enum OlmError {
             have a valid Olm session with us"
     )]
     MissingSession,
+
+    /// When encrypting using the IdentityBased strategy.
+    /// Will be thrown when sharing room keys when there is a new identity for a
+    /// user that has not been confirmed by the user.
+    /// Application should display identity changes to the user as soon as
+    /// possible to avoid hitting this case. If it happens the app might
+    /// just retry automatically after the identity change has been
+    /// notified, or offer option to cancel.
+    #[error("Encryption failed because there is a new unknown identity for a user")]
+    UnconfirmedIdentityChange(Vec<OwnedUserId>),
+    /// The current device needs to be verified when encrypting using the
+    /// IdentityBased strategy. Apps should prevent sending in the UI to
+    /// avoid hitting this case.
+    #[error("Encryption failed: Verify your device to send encrypted messages")]
+    SendingFromUnverifiedDevice,
 }
 
 /// Error representing a failure during a group encryption operation.

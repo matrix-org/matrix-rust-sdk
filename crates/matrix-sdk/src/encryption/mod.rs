@@ -30,9 +30,13 @@ use futures_util::{
     future::try_join,
     stream::{self, StreamExt},
 };
-use matrix_sdk_base::{crypto::{
-    CrossSigningBootstrapRequests, OlmMachine, OutgoingRequest, RoomMessageRequest, ToDeviceRequest,
-}, CryptoDistributionMode, GlobalEncryptionSettings};
+use matrix_sdk_base::{
+    crypto::{
+        CrossSigningBootstrapRequests, OlmMachine, OutgoingRequest, RoomMessageRequest,
+        ToDeviceRequest,
+    },
+    CryptoDistributionMode, GlobalEncryptionSettings,
+};
 use matrix_sdk_common::executor::spawn;
 use ruma::{
     api::client::{
@@ -619,10 +623,11 @@ impl Encryption {
     /// Set the lab flag to enable invisible crypto key distribution mode
     pub async fn set_invisible_crypto_enabled(&self, enabled: bool) {
         let key_distribution_mode = if enabled {
-            GlobalEncryptionSettings { key_distribution_mode: CryptoDistributionMode::InvisibleCrypto  }
+            GlobalEncryptionSettings {
+                key_distribution_mode: CryptoDistributionMode::InvisibleCrypto,
+            }
         } else {
-
-            GlobalEncryptionSettings { key_distribution_mode: CryptoDistributionMode::Legacy   }
+            GlobalEncryptionSettings { key_distribution_mode: CryptoDistributionMode::Legacy }
         };
         self.client.base_client().set_global_encryption_settings(key_distribution_mode).await
     }

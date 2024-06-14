@@ -226,7 +226,8 @@ impl Encryption {
         self.inner.curve25519_key().await.map(|k| k.to_base64())
     }
 
-    /// Lab: Enable the new Invisible Crypto key distribution mode for all rooms.
+    /// Lab: Enable the new Invisible Crypto key distribution mode for all
+    /// rooms.
     pub async fn set_invisible_crypto_enabled(&self, enabled: bool) {
         self.inner.set_invisible_crypto_enabled(enabled).await
     }

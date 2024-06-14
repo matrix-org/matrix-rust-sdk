@@ -76,24 +76,27 @@ use crate::{
 };
 
 ///
-/// Lab Feature: Allows to switch to the new key distribution mode used by Invisible Crypto
+/// Lab Feature: Allows to switch to the new key distribution mode used by
+/// Invisible Crypto
 #[cfg(feature = "e2e-encryption")]
 #[derive(Default, Clone, Debug)]
 pub enum CryptoDistributionMode {
     /// The legacy mode, distribute to all devices in the room
     #[default]
     Legacy,
-    /// Distribute to tofu/trusted identities, and only to device signed by their owner.
-    InvisibleCrypto
+    /// Distribute to tofu/trusted identities, and only to device signed by
+    /// their owner.
+    InvisibleCrypto,
 }
 
-/// Global default encryption settings. Some of them could be defined per room, here
-/// is the global value that should be used by default when not specified by the room.
+/// Global default encryption settings. Some of them could be defined per room,
+/// here is the global value that should be used by default when not specified
+/// by the room.
 #[cfg(feature = "e2e-encryption")]
 #[derive(Default, Clone, Debug)]
 pub struct GlobalEncryptionSettings {
     /// The distribution mode to use
-    pub key_distribution_mode: CryptoDistributionMode
+    pub key_distribution_mode: CryptoDistributionMode,
 }
 /// A no IO Client implementation.
 ///
@@ -1322,13 +1325,24 @@ impl BaseClient {
 
                 let global_settings = self.global_encryption_settings.lock().await.clone();
                 let crypto_settings = match global_settings.key_distribution_mode {
-                    CryptoDistributionMode::InvisibleCrypto => EncryptionSettings::new_with_strategy(settings, history_visibility, RoomKeySharingStrategy::new_modern()),
-                    CryptoDistributionMode::Legacy => EncryptionSettings::new_with_strategy(settings, history_visibility, RoomKeySharingStrategy::new_legacy(false)),
-                }; 
+                    CryptoDistributionMode::InvisibleCrypto => {
+                        EncryptionSettings::new_with_strategy(
+                            settings,
+                            history_visibility,
+                            RoomKeySharingStrategy::new_modern(),
+                        )
+                    }
+                    CryptoDistributionMode::Legacy => EncryptionSettings::new_with_strategy(
+                        settings,
+                        history_visibility,
+                        RoomKeySharingStrategy::new_legacy(false),
+                    ),
+                };
 
                 // let settings = EncryptionSettings::new(settings, history_visibility, false);
 
-                Ok(o.share_room_key(room_id, members.iter().map(Deref::deref), crypto_settings).await?)
+                Ok(o.share_room_key(room_id, members.iter().map(Deref::deref), crypto_settings)
+                    .await?)
             }
             None => panic!("Olm machine wasn't started"),
         }

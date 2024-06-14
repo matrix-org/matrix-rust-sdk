@@ -256,9 +256,37 @@ impl KeyDistributionTestData {
     pub const USER_SIGNING_KEY_PRIVATE_EXPORT: &'static str =
         "zQSosK46giUFs2ACsaf32bA7drcIXbmViyEt+TLfloI";
 
+    /// A device for @me, notice that it is not the current device of the olm
+    /// machine (we don't need it for this test)
+    fn me_device() -> Value {
+        json!({
+            "algorithms": [
+                "m.olm.v1.curve25519-aes-sha2",
+                "m.megolm.v1.aes-sha2"
+            ],
+            "device_id": "MGZZKAKBCG",
+            "keys": {
+                "curve25519:MGZZKAKBCG": "ThkvfM4Ay97QWjw8gigYVUKr9xMLJj1vKZp+3uXKHRY",
+                "ed25519:MGZZKAKBCG": "z5MXB64O+LCKfbywMSJkoaWQi8HaNn1E/DxU+mrKh7Q"
+            },
+            "signatures": {
+                "@me:localhost": {
+                    "ed25519:MGZZKAKBCG": "dXXLn/PECKFioCMsWKueQ5rcGcfqjPcOVljZX9U0y15vZpwRgMRGJcv9KCgjc1in7sNYu61Ec+qfCXeAEs0BAg",
+                    "ed25519:9gXJQzvqZ+KQunfBTd0g9AkrulwEeFfspyWTSQFqqrw": "kyFZD4p9EcFvT0f+UUOq0sBrDY7rfuhREODSTTylSEaBnsVwRxH7lqi1xpNkCrN9ZDlbqoIYz3436k0cILABAg"
+                }
+            },
+            "user_id": "@me:localhost",
+        })
+    }
+
     /// Current user keys query response containing the cross-signing keys
     pub fn me_keys_query_response() -> KeyQueryResponse {
         let data = json!({
+            "device_keys": {
+                "@me:localhost": {
+                    "MGZZKAKBCG": Self::me_device()
+                }
+            },
             "master_keys": {
                 "@me:localhost": {
                     "keys": {

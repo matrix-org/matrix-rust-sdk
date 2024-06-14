@@ -25,7 +25,7 @@ use tracing::{debug, trace};
 use super::OutboundGroupSession;
 use crate::{
     error::OlmResult, store::Store, types::events::room_key_withheld::WithheldCode,
-    EncryptionSettings, ReadOnlyDevice,
+    EncryptionSettings, OlmError, ReadOnlyDevice, ReadOnlyOwnUserIdentity,
 };
 
 /// Returned by `collect_session_recipients`.
@@ -277,6 +277,16 @@ impl RoomKeyShareStrategy for IdentityBasedStrategy {
 
         trace!(?users, ?self, "Calculating group session recipients");
 
+        let own_identity =
+            store.get_user_identity(store.user_id()).await?.and_then(|i| i.into_own());
+
+        if own_identity.is_none() || !own_identity.unwrap().is_verified() {
+            // TODO different error if no identity?
+            return Err(OlmError::SendingFromUnverifiedDevice);
+        }
+
+        let mut rotated_unnoticed_identities: Vec<OwnedUserId> = Default::default();
+
         for user_id in users {
             let user_devices = store.get_readonly_devices_filtered(user_id).await?;
 
@@ -292,6 +302,20 @@ impl RoomKeyShareStrategy for IdentityBasedStrategy {
                     );
                 }
                 Some(device_owner_identity) => {
+                    match &device_owner_identity {
+                        crate::ReadOnlyUserIdentities::Own(_) => {
+                            // If it's our own identity we know it's trusted
+                            // because we already returned an error ealier if
+                            // not the case
+                        }
+                        crate::ReadOnlyUserIdentities::Other(other_identity) => {
+                            if !other_identity.is_tofu_trusted() {
+                                // This identity has changed without the user beeing noticed
+                                rotated_unnoticed_identities.push(user_id.to_owned());
+                                break;
+                            }
+                        }
+                    }
                     // From all the devices a user has, we're splitting them into two
                     // buckets, a bucket of devices that should receive the
                     // room key and a bucket of devices that should receive
@@ -315,6 +339,12 @@ impl RoomKeyShareStrategy for IdentityBasedStrategy {
             }
         }
 
+        if rotated_unnoticed_identities.len() != 0 {
+            // Distribution problem, a user identity has changed and the user has not been
+            // notified
+            return Err(OlmError::UnconfirmedIdentityChange(rotated_unnoticed_identities));
+        }
+
         Ok(KeySharingResult { allowed_devices, withheld_devices })
     }
 }
@@ -324,15 +354,18 @@ mod tests {
 
     use std::sync::Arc;
 
+    use assert_matches::assert_matches;
     use matrix_sdk_test::async_test;
-    use ruma::{room_id, TransactionId};
+    use ruma::{device_id, room_id, user_id, TransactionId};
 
     use super::RoomKeySharingStrategy;
     use crate::{
         olm::OutboundGroupSession,
-        testing_data::keys_query::KeyDistributionTestData as KeyDistributionDataSet,
-        types::events::room_key_withheld::WithheldCode, CrossSigningKeyExport, EncryptionSettings,
-        OlmMachine,
+        testing_data::keys_query::{
+            IdentityChangeDataSet, KeyDistributionTestData as KeyDistributionDataSet,
+        },
+        types::events::room_key_withheld::WithheldCode,
+        CrossSigningKeyExport, EncryptionSettings, OlmError, OlmMachine,
     };
 
     async fn set_up_test_machine() -> OlmMachine {
@@ -611,5 +644,153 @@ mod tests {
         // In that case no devices have left follwing the strategy change, yet as we
         // have changed the strategy it should rotate
         assert!(result.should_rotate)
+    }
+
+    #[async_test]
+    async fn test_sending_from_unverified_session_with_identity_base_strategy() {
+        let machine = OlmMachine::new(
+            KeyDistributionDataSet::me_id(),
+            KeyDistributionDataSet::me_device_id(),
+        )
+        .await;
+
+        let keys_query = KeyDistributionDataSet::me_keys_query_response();
+        let txn_id = TransactionId::new();
+        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+
+        let identity_strategy = RoomKeySharingStrategy::new_modern();
+
+        let fake_room_id = room_id!("!roomid:localhost");
+
+        let id_keys = machine.identity_keys();
+        let encryption_settings =
+            EncryptionSettings { sharing_strategy: identity_strategy, ..Default::default() };
+
+        let group_session = OutboundGroupSession::new(
+            machine.device_id().into(),
+            Arc::new(id_keys),
+            fake_room_id,
+            encryption_settings.clone(),
+        )
+        .unwrap();
+
+        let distribution_result = encryption_settings
+            .sharing_strategy
+            .collect_session_recipients(
+                &encryption_settings,
+                machine.store(),
+                vec![KeyDistributionDataSet::me_id()].into_iter(),
+                &group_session,
+            )
+            .await;
+
+        // Should fail if the current session is not verified
+        assert!(distribution_result.is_err());
+        assert_matches!(distribution_result.unwrap_err(), OlmError::SendingFromUnverifiedDevice);
+
+        // If the current device get verified it would work
+        machine
+            .import_cross_signing_keys(CrossSigningKeyExport {
+                master_key: Some(KeyDistributionDataSet::MASTER_KEY_PRIVATE_EXPORT.to_owned()),
+                self_signing_key: Some(
+                    KeyDistributionDataSet::SELF_SIGNING_KEY_PRIVATE_EXPORT.to_owned(),
+                ),
+                user_signing_key: Some(
+                    KeyDistributionDataSet::USER_SIGNING_KEY_PRIVATE_EXPORT.to_owned(),
+                ),
+            })
+            .await
+            .unwrap();
+
+        assert!(machine
+            .get_identity(KeyDistributionDataSet::me_id(), None)
+            .await
+            .unwrap()
+            .unwrap()
+            .own()
+            .unwrap()
+            .is_verified());
+        let distribution_result = encryption_settings
+            .sharing_strategy
+            .collect_session_recipients(
+                &encryption_settings,
+                machine.store(),
+                vec![KeyDistributionDataSet::me_id()].into_iter(),
+                &group_session,
+            )
+            .await;
+
+        assert!(distribution_result.is_ok());
+    }
+
+    #[async_test]
+    async fn test_confirm_identity_rotation_identity_base_strategy() {
+        let machine = OlmMachine::new(user_id!("@alice:localhost"), device_id!("ABCDEFGH")).await;
+
+        let keys_query = IdentityChangeDataSet::key_query_with_identity_a();
+        let txn_id = TransactionId::new();
+        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+
+        // Now suppose the identity key of that user was rotated
+        let keys_query = IdentityChangeDataSet::key_query_with_identity_b();
+        let txn_id = TransactionId::new();
+        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+
+        let identity_strategy = RoomKeySharingStrategy::new_modern();
+
+        let fake_room_id = room_id!("!roomid:localhost");
+        let id_keys = machine.identity_keys();
+        let encryption_settings =
+            EncryptionSettings { sharing_strategy: identity_strategy, ..Default::default() };
+
+        let group_session = OutboundGroupSession::new(
+            machine.device_id().into(),
+            Arc::new(id_keys),
+            fake_room_id,
+            encryption_settings.clone(),
+        )
+        .unwrap();
+
+        let distribution_result = encryption_settings
+            .sharing_strategy
+            .collect_session_recipients(
+                &encryption_settings,
+                machine.store(),
+                vec![IdentityChangeDataSet::user_id()].into_iter(),
+                &group_session,
+            )
+            .await;
+
+        // Should fail if the current session is not verified
+        assert!(distribution_result.is_err());
+        let distribution_err = distribution_result.unwrap_err();
+        assert_matches!(distribution_err, OlmError::UnconfirmedIdentityChange(_));
+
+        if let OlmError::UnconfirmedIdentityChange(unconfirmed_identity) = distribution_err {
+            for user_id in unconfirmed_identity {
+                // The idenity change has been shown to the user
+                machine
+                    .get_identity(&user_id, None)
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .other()
+                    .unwrap()
+                    .mark_as_tofu_trusted();
+            }
+        }
+
+        // The idenity change has been shown to the user
+        let distribution_result = encryption_settings
+            .sharing_strategy
+            .collect_session_recipients(
+                &encryption_settings,
+                machine.store(),
+                vec![IdentityChangeDataSet::user_id()].into_iter(),
+                &group_session,
+            )
+            .await;
+
+        assert!(distribution_result.is_ok());
     }
 }
