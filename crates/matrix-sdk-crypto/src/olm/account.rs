@@ -1113,7 +1113,7 @@ impl Account {
         let other_session = other
             .create_inbound_session(
                 our_device.curve25519_key().unwrap(),
-                self.device_keys(),
+                other.device_keys(),
                 &prekey,
             )
             .unwrap();
