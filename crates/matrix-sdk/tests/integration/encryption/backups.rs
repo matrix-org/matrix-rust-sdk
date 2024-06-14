@@ -29,6 +29,7 @@ use matrix_sdk::{
     Client,
 };
 use matrix_sdk_base::SessionMeta;
+use matrix_sdk_common::timeout::timeout;
 use matrix_sdk_test::{async_test, JoinedRoomBuilder, SyncResponseBuilder};
 use ruma::{
     api::client::room::create_room::v3::Request as CreateRoomRequest,
@@ -1337,11 +1338,16 @@ async fn enable_from_secret_storage_and_download_after_utd() {
         "We should not be able to decrypt the event right away"
     );
 
-    if let Some(Ok(room_keys)) = room_key_stream.next().await {
+    // Wait for the key to be downloaded from backup.
+    {
+        let room_keys = timeout(room_key_stream.next(), std::time::Duration::from_secs(5))
+            .await
+            .expect("did not get a room key stream update within 5 seconds")
+            .expect("room_key_stream.next() returned None")
+            .expect("room_key_stream.next() returned an error");
+
         let (_, room_key_set) = room_keys.first_key_value().unwrap();
         assert!(room_key_set.contains("64H7XKokIx0ASkYDHZKlT5zd/Zccz/cQspPNdvnNULA"));
-    } else {
-        panic!("Failed to get an update about room keys being imported from the backup")
     }
 
     let event = room.event(event_id).await.expect("We should be able to fetch our encrypted event");
