@@ -920,29 +920,11 @@ impl CryptoStore for SqliteCryptoStore {
     }
 
     async fn get_sessions(&self, sender_key: &str) -> Result<Option<Arc<Mutex<Vec<Session>>>>> {
-        let account_info = self.get_static_account().ok_or(Error::AccountUnset)?;
-
         if self.session_cache.get(sender_key).is_none() {
-            // Try to get our own stored device keys.
-            let device_keys = self
-                .get_device(&account_info.user_id, &account_info.device_id)
-                .await
-                .unwrap_or(None)
-                .map(|read_only_device| read_only_device.as_device_keys().clone());
-
-            // If we don't have it stored, fall back to generating a fresh
-            // device keys from our own Account.
-            let device_keys = match device_keys {
-                Some(device_keys) => device_keys,
-                None => {
-                    let account = self
-                        .load_account()
-                        .await
-                        .or(Err(Error::AccountUnset))?
-                        .ok_or(Error::AccountUnset)?;
-                    account.device_keys()
-                }
-            };
+            let device_keys = self.get_own_device()
+                .await?
+                .as_device_keys()
+                .clone();
 
             let sessions = self
                 .acquire()
@@ -1139,6 +1121,13 @@ impl CryptoStore for SqliteCryptoStore {
                 Ok((device.device_id().to_owned(), device))
             })
             .collect()
+    }
+
+    async fn get_own_device(&self) -> Result<ReadOnlyDevice> {
+        let account_info = self.get_static_account().ok_or(Error::AccountUnset)?;
+        Ok(self.get_device(&account_info.user_id, &account_info.device_id)
+           .await?
+           .unwrap())
     }
 
     async fn get_user_identity(&self, user_id: &UserId) -> Result<Option<ReadOnlyUserIdentities>> {
