@@ -66,7 +66,8 @@ use crate::{
     identities::{user::UserIdentities, Device, IdentityManager, UserDevices},
     olm::{
         Account, CrossSigningStatus, EncryptionSettings, IdentityKeys, InboundGroupSession,
-        OlmDecryptionInfo, PrivateCrossSigningIdentity, SenderData, SessionType, StaticAccountData,
+        OlmDecryptionInfo, PrivateCrossSigningIdentity, SenderData, SenderDataFinder, SessionType,
+        StaticAccountData,
     },
     requests::{IncomingResponse, OutgoingRequest, UploadSigningKeysRequest},
     session_manager::{GroupSessionManager, SessionManager},
@@ -816,7 +817,7 @@ impl OlmMachine {
         event: &DecryptedRoomKeyEvent,
         content: &MegolmV1AesSha2Content,
     ) -> OlmResult<Option<InboundGroupSession>> {
-        let sender_data = SenderData::unknown();
+        let sender_data = SenderDataFinder::find_using_event(self, sender_key, event).await?;
 
         let session = InboundGroupSession::new(
             sender_key,
@@ -900,7 +901,11 @@ impl OlmMachine {
         let (_, session) = self
             .inner
             .group_session_manager
-            .create_outbound_group_session(room_id, EncryptionSettings::default())
+            .create_outbound_group_session(
+                room_id,
+                EncryptionSettings::default(),
+                SenderData::unknown(),
+            )
             .await?;
 
         self.store().save_inbound_group_sessions(&[session]).await?;
@@ -917,7 +922,11 @@ impl OlmMachine {
         let (_, session) = self
             .inner
             .group_session_manager
-            .create_outbound_group_session(room_id, EncryptionSettings::default())
+            .create_outbound_group_session(
+                room_id,
+                EncryptionSettings::default(),
+                SenderData::unknown(),
+            )
             .await?;
 
         Ok(session)
@@ -1016,7 +1025,26 @@ impl OlmMachine {
         users: impl Iterator<Item = &UserId>,
         encryption_settings: impl Into<EncryptionSettings>,
     ) -> OlmResult<Vec<Arc<ToDeviceRequest>>> {
-        self.inner.group_session_manager.share_room_key(room_id, users, encryption_settings).await
+        // Use our own device info to populate the SenderData that validates the
+        // InboundGroupSession that we create as a pair to the OutboundGroupSession we
+        // are sending out.
+        let account = self.store().static_account();
+        let device = self.store().get_device(account.user_id(), account.device_id()).await;
+        let own_sender_data = match device {
+            Ok(Some(device)) => {
+                SenderDataFinder::find_using_device_keys(self, device.as_device_keys().clone())
+                    .await?
+            }
+            _ => {
+                error!("Unable to find our own device!");
+                SenderData::unknown()
+            }
+        };
+
+        self.inner
+            .group_session_manager
+            .share_room_key(room_id, users, encryption_settings, own_sender_data)
+            .await
     }
 
     /// Receive an unencrypted verification event.
@@ -4169,7 +4197,7 @@ pub(crate) mod tests {
         let (outbound, mut inbound) = alice
             .store()
             .static_account()
-            .create_group_session_pair(room_id, Default::default())
+            .create_group_session_pair(room_id, Default::default(), SenderData::unknown())
             .await
             .unwrap();
 
