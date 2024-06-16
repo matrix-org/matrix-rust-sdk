@@ -3399,6 +3399,7 @@ dependencies = [
  "ruma",
  "sanitize-filename-reader-friendly",
  "serde",
+ "serde_html_form",
  "serde_json",
  "thiserror",
  "tokio",

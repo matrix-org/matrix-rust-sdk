@@ -22,6 +22,7 @@ use matrix_sdk::{
     ClientBuildError as MatrixClientBuildError, HttpError, RumaApiError,
 };
 use ruma::api::error::{DeserializationError, FromHttpResponseError};
+use serde::Deserialize;
 use tokio::sync::RwLock as AsyncRwLock;
 use url::Url;
 use zeroize::Zeroize;
@@ -90,6 +91,13 @@ pub enum AuthenticationError {
     OidcCancelled,
     #[error("An error occurred with OIDC: {message}")]
     OidcError { message: String },
+
+    #[error("The supplied callback URL used to complete SSO is invalid.")]
+    SsoCallbackUrlInvalid,
+    #[error("The supplied callback URL used to complete SSO does not contain a login token.")]
+    SsoCallbackUrlMissingLoginToken,
+    #[error("Logging in with the token from the supplied callback URL failed.")]
+    SsoLoginWithTokenFailed,
 
     #[error("An error occurred: {message}")]
     Generic { message: String },
@@ -444,6 +452,69 @@ impl AuthenticationService {
         oidc.finish_login()
             .await
             .map_err(|e| AuthenticationError::OidcError { message: e.to_string() })?;
+
+        drop(client_guard);
+
+        // Now that the client is logged in we can take ownership away from the service
+        // to ensure there aren't two clients at any point later.
+        let Some(client) = self.client.write().await.take() else {
+            return Err(AuthenticationError::ClientMissing);
+        };
+
+        Ok(Arc::new(client))
+    }
+
+    /// Requests the URL needed for login in a web view using SSO. Once the web
+    /// view has succeeded, call `login_with_sso_callback` with the callback it
+    /// returns.
+    pub async fn url_for_sso_login(
+        &self,
+        redirect_url: String,
+        idp_id: Option<String>,
+    ) -> Result<String, AuthenticationError> {
+        let client_guard = self.client.read().await;
+        let Some(client) = client_guard.as_ref() else {
+            return Err(AuthenticationError::ClientMissing);
+        };
+
+        let auth = client.inner.matrix_auth();
+
+        match auth.get_sso_login_url(redirect_url.as_str(), idp_id.as_deref()).await {
+            Ok(url) => Ok(url),
+            Err(error) => Err(AuthenticationError::Generic { message: error.to_string() }),
+        }
+    }
+
+    /// Completes the SSO login process.
+    pub async fn login_with_sso_callback(
+        &self,
+        callback_url: String,
+    ) -> Result<Arc<Client>, AuthenticationError> {
+        let client_guard = self.client.read().await;
+        let Some(client) = client_guard.as_ref() else {
+            return Err(AuthenticationError::ClientMissing);
+        };
+
+        let auth = client.inner.matrix_auth();
+
+        let url =
+            Url::parse(&callback_url).map_err(|_| AuthenticationError::SsoCallbackUrlInvalid)?;
+
+        #[derive(Deserialize)]
+        struct QueryParameters {
+            #[serde(rename = "loginToken")]
+            login_token: Option<String>,
+        }
+
+        let query_string = url.query().unwrap_or("");
+        let query: QueryParameters = serde_html_form::from_str(query_string)
+            .map_err(|_| AuthenticationError::SsoCallbackUrlInvalid)?;
+        let token =
+            query.login_token.ok_or(AuthenticationError::SsoCallbackUrlMissingLoginToken)?;
+
+        auth.login_token(token.as_str())
+            .await
+            .map_err(|_| AuthenticationError::SsoLoginWithTokenFailed)?;
 
         drop(client_guard);
 
