@@ -184,6 +184,9 @@ impl From<qrcode::LoginProgress> for QrLoginProgress {
 pub enum ClientBuildError {
     #[error(transparent)]
     Sdk(#[from] MatrixClientBuildError),
+    #[error("The homeserver doesn't provide a trusted sliding sync proxy in its well-known configuration.")]
+    SlidingSyncNotAvailable,
+
     #[error("Failed to build the client: {message}")]
     Generic { message: String },
 }
@@ -220,6 +223,7 @@ pub struct ClientBuilder {
     server_versions: Option<Vec<String>>,
     passphrase: Zeroizing<Option<String>>,
     user_agent: Option<String>,
+    requires_sliding_sync: bool,
     sliding_sync_proxy: Option<String>,
     proxy: Option<String>,
     disable_ssl_verification: bool,
@@ -242,6 +246,7 @@ impl ClientBuilder {
             server_versions: None,
             passphrase: Zeroizing::new(None),
             user_agent: None,
+            requires_sliding_sync: false,
             sliding_sync_proxy: None,
             proxy: None,
             disable_ssl_verification: false,
@@ -326,6 +331,12 @@ impl ClientBuilder {
     pub fn user_agent(self: Arc<Self>, user_agent: String) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.user_agent = Some(user_agent);
+        Arc::new(builder)
+    }
+
+    pub fn requires_sliding_sync(self: Arc<Self>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.requires_sliding_sync = true;
         Arc::new(builder)
     }
 
@@ -417,14 +428,15 @@ impl ClientBuilder {
         if let QrCodeModeData::Reciprocate { server_name } = &qr_code_data.inner.mode_data {
             let builder = self.server_name_or_homeserver_url(server_name.to_owned());
 
-            let client = builder.build().await.map_err(|e| {
-                error!("Couldn't build the client {e:?}");
-                HumanQrLoginError::Unknown
+            let client = builder.build().await.map_err(|e| match e {
+                ClientBuildError::SlidingSyncNotAvailable => {
+                    HumanQrLoginError::SlidingSyncNotAvailable
+                }
+                _ => {
+                    error!("Couldn't build the client {e:?}");
+                    HumanQrLoginError::Unknown
+                }
             })?;
-
-            if client.sliding_sync_proxy().is_none() {
-                return Err(HumanQrLoginError::SlidingSyncNotAvailable);
-            }
 
             let client_metadata = oidc_configuration
                 .try_into()
@@ -576,6 +588,10 @@ impl ClientBuilder {
         // session, which not immediate to detect if there is no test.
         if let Some(sliding_sync_proxy) = builder.sliding_sync_proxy {
             sdk_client.set_sliding_sync_proxy(Some(Url::parse(&sliding_sync_proxy)?));
+        }
+
+        if builder.requires_sliding_sync && sdk_client.sliding_sync_proxy().is_none() {
+            return Err(ClientBuildError::SlidingSyncNotAvailable);
         }
 
         Ok(Client::new(sdk_client, builder.cross_process_refresh_lock_id, builder.session_delegate)

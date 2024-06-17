@@ -120,6 +120,10 @@ impl From<ClientBuildError> for AuthenticationError {
                 FromHttpResponseError::Deserialization(e),
             )) => AuthenticationError::WellKnownDeserializationError(e),
 
+            ClientBuildError::SlidingSyncNotAvailable => {
+                AuthenticationError::SlidingSyncNotAvailable
+            }
+
             _ => AuthenticationError::Generic { message: e.to_string() },
         }
     }
@@ -316,11 +320,6 @@ impl AuthenticationService {
             }
         };
 
-        // Make sure there's a sliding sync proxy available.
-        if self.custom_sliding_sync_proxy.is_none() && details.sliding_sync_proxy().is_none() {
-            return Err(AuthenticationError::SlidingSyncNotAvailable);
-        }
-
         *self.client.write().await = Some(client);
         *self.homeserver_details.write().unwrap() = Some(Arc::new(details));
 
@@ -340,8 +339,6 @@ impl AuthenticationService {
             return Err(AuthenticationError::ClientMissing);
         };
 
-        // Login and ask the server for the full user ID as this could be different from
-        // the username that was entered.
         client.login(username, password, initial_device_name, device_id).await.map_err(
             |e| match e {
                 ClientError::Generic { msg } => AuthenticationError::Generic { message: msg },
@@ -464,6 +461,7 @@ impl AuthenticationService {
         let mut builder = ClientBuilder::new()
             .session_path(self.session_path.clone())
             .passphrase(self.passphrase.clone())
+            .requires_sliding_sync()
             .sliding_sync_proxy(self.custom_sliding_sync_proxy.clone())
             .auto_enable_cross_signing(true)
             .backup_download_strategy(BackupDownloadStrategy::AfterDecryptionFailure)
