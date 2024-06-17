@@ -29,6 +29,7 @@ use matrix_sdk_ui::timeline::{
 };
 use once_cell::sync::Lazy;
 use ruma::{
+    event_id,
     events::{
         room::message::{MessageType, RoomMessageEventContent},
         FullStateEventContent,
@@ -476,7 +477,7 @@ pub static ROOM_MESSAGES_BATCH_1: Lazy<JsonValue> = Lazy::new(|| {
               "body": "hello world",
               "msgtype": "m.text"
             },
-            "event_id": "$1444812213350496Caaaf:example.com",
+            "event_id": "$hello:matrix.org",
             "origin_server_ts": 1444812213737i64,
             "room_id": "!Xq3620DUiqCaoxq:example.com",
             "sender": "@alice:example.com",
@@ -488,7 +489,7 @@ pub static ROOM_MESSAGES_BATCH_1: Lazy<JsonValue> = Lazy::new(|| {
               "body": "the world is big",
               "msgtype": "m.text"
             },
-            "event_id": "$1444812213350496Cbbbf:example.com",
+            "event_id": "$world:matrix.org",
             "origin_server_ts": 1444812194656i64,
             "room_id": "!Xq3620DUiqCaoxq:example.com",
             "sender": "@bob:example.com",
@@ -499,7 +500,7 @@ pub static ROOM_MESSAGES_BATCH_1: Lazy<JsonValue> = Lazy::new(|| {
             "content": {
               "name": "New room name"
             },
-            "event_id": "$1444812213350496Ccccf:example.com",
+            "event_id": "$room_name:matrix.org",
             "origin_server_ts": 1444812163990i64,
             "unsigned": {
               "prev_content": {
@@ -727,12 +728,16 @@ async fn test_until_num_items_with_empty_chunk() {
     };
     join(paginate, observe_paginating).await;
 
-    assert_let!(
-        Some(VectorDiff::Insert { index: 3, value: message }) = timeline_stream.next().await
-    );
+    assert_let!(Some(VectorDiff::PushFront { value: message }) = timeline_stream.next().await);
     assert_let!(TimelineItemContent::Message(msg) = message.as_event().unwrap().content());
     assert_let!(MessageType::Text(text) = msg.msgtype());
     assert_eq!(text.body, "hello room then");
+
+    assert_let!(Some(VectorDiff::PushFront { value: day_divider }) = timeline_stream.next().await);
+    assert!(day_divider.is_day_divider());
+
+    // TODO(hywan): Why?!
+    assert_let!(Some(VectorDiff::Remove { index: 2 }) = timeline_stream.next().await);
 
     assert_pending!(timeline_stream);
     assert_pending!(back_pagination_status);
@@ -790,4 +795,130 @@ async fn test_back_pagination_aborted() {
 
     // And there should be no other pending pagination status updates.
     assert!(back_pagination_status.next().now_or_never().is_none());
+}
+
+#[async_test]
+async fn test_back_pagination_with_non_empty_timeline() {
+    let room_id = room_id!("!foo:bar");
+    let (client, server) = logged_in_client_with_server().await;
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+    client.event_cache().subscribe().unwrap();
+
+    // Let's sync the timeline.
+
+    let event_builder = EventBuilder::new();
+    let mut sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_bulk([
+        event_builder.make_sync_message_event_with_id(
+            &ALICE,
+            event_id!("$ev1"),
+            RoomMessageEventContent::text_plain("msg1"),
+        ),
+        event_builder.make_sync_message_event_with_id(
+            &ALICE,
+            event_id!("$ev2"),
+            RoomMessageEventContent::text_plain("msg2"),
+        ),
+        event_builder.make_sync_message_event_with_id(
+            &ALICE,
+            event_id!("$ev3"),
+            RoomMessageEventContent::text_plain("msg3"),
+        ),
+    ]));
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    let room = client.get_room(room_id).unwrap();
+    let timeline = Arc::new(room.timeline().await.unwrap());
+    let (timeline_initial_items, mut timeline_stream) = timeline.subscribe().await;
+    let (_, mut back_pagination_status) = timeline.live_back_pagination_status().await.unwrap();
+
+    assert_eq!(timeline_initial_items.len(), 4);
+    assert!(timeline_initial_items[0].is_day_divider());
+    assert_eq!(timeline_initial_items[1].as_event().unwrap().event_id(), Some(event_id!("$ev1")));
+    assert_eq!(timeline_initial_items[2].as_event().unwrap().event_id(), Some(event_id!("$ev2")));
+    assert_eq!(timeline_initial_items[3].as_event().unwrap().event_id(), Some(event_id!("$ev3")));
+
+    // And now let's backpaginate!
+
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&*ROOM_MESSAGES_BATCH_1))
+        .expect(1)
+        .named("messages_batch_1")
+        .mount(&server)
+        .await;
+
+    let paginate = async {
+        timeline.live_paginate_backwards(10).await.unwrap();
+        server.reset().await;
+    };
+    let observe_paginating = async {
+        assert_eq!(back_pagination_status.next().await, Some(LiveBackPaginationStatus::Paginating));
+    };
+    join(paginate, observe_paginating).await;
+
+    {
+        assert_let!(Some(VectorDiff::PushFront { value: message }) = timeline_stream.next().await);
+        assert_let!(TimelineItemContent::OtherState(_) = message.as_event().unwrap().content());
+    }
+
+    {
+        assert_let!(
+            Some(VectorDiff::PushFront { value: day_divider }) = timeline_stream.next().await
+        );
+        assert!(day_divider.is_day_divider());
+    }
+
+    {
+        // Implicit read receipt on `m.room.name`.
+        assert_let!(
+            Some(VectorDiff::Set { index: 1, value: message }) = timeline_stream.next().await
+        );
+        assert_let!(TimelineItemContent::OtherState(_) = message.as_event().unwrap().content());
+    }
+
+    {
+        assert_let!(
+            Some(VectorDiff::Insert { index: 2, value: message }) = timeline_stream.next().await
+        );
+        assert_eq!(message.as_event().unwrap().event_id(), Some(event_id!("$world:matrix.org")));
+    }
+
+    {
+        assert_let!(
+            Some(VectorDiff::Insert { index: 3, value: message }) = timeline_stream.next().await
+        );
+        assert_eq!(message.as_event().unwrap().event_id(), Some(event_id!("$hello:matrix.org")));
+    }
+
+    assert_pending!(timeline_stream);
+
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            // Usually there would be a few events here, but we just want to test
+            // that the timeline start item is added when there is no end token
+            "chunk": [],
+            "start": "t47409-4357353_219380_26003_2269"
+        })))
+        .expect(1)
+        .named("messages_batch_1")
+        .mount(&server)
+        .await;
+
+    let hit_start = timeline.live_paginate_backwards(10).await.unwrap();
+    assert!(hit_start);
+    assert_next_eq!(
+        back_pagination_status,
+        LiveBackPaginationStatus::Idle { hit_start_of_timeline: true }
+    );
+
+    assert_pending!(timeline_stream);
+    assert_pending!(back_pagination_status);
 }
