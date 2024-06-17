@@ -32,11 +32,7 @@ use tokio::sync::{broadcast, Notify, RwLock};
 use tracing::{debug, error, info, instrument, trace, warn};
 
 use crate::{
-    client::WeakClient,
-    config::RequestConfig,
-    http_client::{characterize_retry_kind, RetryKind},
-    room::WeakRoom,
-    Client, Room,
+    client::WeakClient, config::RequestConfig, error::RetryKind, room::WeakRoom, Client, Room,
 };
 
 /// A client-wide send queue, for all the rooms known by a client.
@@ -366,30 +362,11 @@ impl RoomSendQueue {
                 }
 
                 Err(err) => {
-                    let (err, is_recoverable) = if let crate::Error::Http(http_err) = err {
-                        // A small trick to confuse borrowck (and humans too).
-                        //
-                        // `is_transient_error` really wants ownership of the error, so we can't
-                        // match above on `&err`, and we have to pass the error around by ownership
-                        // all over the place. We give ownership in `is_transient_error`, and then
-                        // get it back with the below call to `.error()`. Oh well.
-                        let retry_kind = characterize_retry_kind(http_err);
-
-                        let mut is_recoverable = matches!(retry_kind, RetryKind::Transient { .. });
-
-                        let http_err = retry_kind.error();
-
-                        if !is_recoverable {
-                            // Also flag all HTTP errors as recoverable: they might indicate that
-                            // the server was unreachable, or that the device is entirely
-                            // disconnected.
-                            is_recoverable =
-                                matches!(http_err, crate::error::HttpError::Reqwest(..));
-                        }
-
-                        (crate::Error::Http(http_err), is_recoverable)
+                    let is_recoverable = if let crate::Error::Http(ref http_err) = err {
+                        // All transient errors are recoverable.
+                        matches!(http_err.retry_kind(), RetryKind::Transient { .. })
                     } else {
-                        (err, false)
+                        false
                     };
 
                     if is_recoverable {
