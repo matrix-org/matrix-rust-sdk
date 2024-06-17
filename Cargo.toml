@@ -28,9 +28,9 @@ async-trait = "0.1.60"
 as_variant = "1.2.0"
 base64 = "0.22.0"
 byteorder = "1.4.3"
-eyeball = { version = "0.8.7", features = ["tracing"] }
-eyeball-im = { version = "0.4.1", features = ["tracing"] }
-eyeball-im-util = "0.5.1"
+eyeball = { version = "0.8.8", features = ["tracing"] }
+eyeball-im = { version = "0.5.0", features = ["tracing"] }
+eyeball-im-util = "0.6.0"
 futures-core = "0.3.28"
 futures-executor = "0.3.21"
 futures-util = { version = "0.3.26", default-features = false, features = [
@@ -38,7 +38,7 @@ futures-util = { version = "0.3.26", default-features = false, features = [
 ] }
 growable-bloom-filter = "2.1.0"
 http = "1.1.0"
-imbl = "2.0.0"
+imbl = "3.0.0"
 itertools = "0.12.0"
 once_cell = "1.16.0"
 pin-project-lite = "0.2.9"
