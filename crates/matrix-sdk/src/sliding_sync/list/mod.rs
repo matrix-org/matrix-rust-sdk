@@ -174,16 +174,6 @@ impl SlidingSyncList {
         Observable::subscribe(&self.inner.maximum_number_of_rooms.read().unwrap())
     }
 
-    /// Return the `room_id` at the given index.
-    pub fn get_room_id(&self, index: usize) -> Option<OwnedRoomId> {
-        self.inner
-            .room_list
-            .read()
-            .unwrap()
-            .get(index)
-            .and_then(|room_list_entry| room_list_entry.as_room_id().map(ToOwned::to_owned))
-    }
-
     /// Calculate the next request and return it.
     ///
     /// The next request is entirely calculated based on the request generator
@@ -988,35 +978,6 @@ mod tests {
 
         list.set_timeline_limit(None);
         assert_eq!(list.inner.sticky.read().unwrap().data().timeline_limit(), None);
-    }
-
-    #[test]
-    fn test_sliding_sync_get_room_id() {
-        let (sender, _receiver) = channel(1);
-
-        let mut list = SlidingSyncList::builder("foo")
-            .sync_mode(SlidingSyncMode::new_selective().add_range(0..=1))
-            .build(sender);
-
-        let room0 = room_id!("!room0:bar.org");
-        let room1 = room_id!("!room1:bar.org");
-
-        // Simulate a request.
-        let _ = list.next_request(&mut LazyTransactionId::new());
-
-        // A new response.
-        let sync0: v4::SyncOp = serde_json::from_value(json!({
-            "op": SlidingOp::Sync,
-            "range": [0, 1],
-            "room_ids": [room0, room1],
-        }))
-        .unwrap();
-
-        list.update(Some(6), &[sync0], &[]).unwrap();
-
-        assert_eq!(list.get_room_id(0), Some(room0.to_owned()));
-        assert_eq!(list.get_room_id(1), Some(room1.to_owned()));
-        assert_eq!(list.get_room_id(2), None);
     }
 
     macro_rules! assert_ranges {
