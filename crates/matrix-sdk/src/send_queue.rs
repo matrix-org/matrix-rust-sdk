@@ -15,17 +15,17 @@
 //! A send queue facility to serializing queuing and sending of messages.
 
 use std::{
-    collections::{BTreeMap, BTreeSet, VecDeque},
+    collections::{BTreeMap, BTreeSet},
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, RwLock as SyncRwLock,
     },
 };
 
-use matrix_sdk_base::{RoomState, StoreError};
+use matrix_sdk_base::{store::SerializableEventContent, RoomState, StoreError};
 use matrix_sdk_common::executor::{spawn, JoinHandle};
 use ruma::{
-    events::AnyMessageLikeEventContent, OwnedEventId, OwnedRoomId, OwnedTransactionId, RoomId,
+    events::AnyMessageLikeEventContent, OwnedEventId, OwnedRoomId, OwnedTransactionId,
     TransactionId,
 };
 use tokio::sync::{broadcast, Notify, RwLock};
@@ -213,7 +213,7 @@ impl RoomSendQueue {
     ) -> Self {
         let (updates_sender, _) = broadcast::channel(32);
 
-        let queue = QueueStorage::new(room_id.clone());
+        let queue = QueueStorage::new(WeakClient::from_client(client), room_id.clone());
         let notifier = Arc::new(Notify::new());
 
         let weak_room = WeakRoom::new(WeakClient::from_client(client), room_id);
@@ -346,7 +346,7 @@ impl RoomSendQueue {
                 }
             };
 
-            trace!("received an event to send!");
+            trace!(txn_id = %queued_event.transaction_id, "received an event to send!");
 
             let Some(room) = room.get() else {
                 if is_dropping.load(Ordering::SeqCst) {
@@ -485,81 +485,21 @@ struct RoomSendQueueInner {
     _task: JoinHandle<()>,
 }
 
-#[derive(Clone)]
-struct QueuedEvent {
+/// Same as [`QueuedEvent`], but the event is deserialized.
+///
+/// Only local to this file.
+struct DeserializedQueuedEvent {
     /// The content of the message-like event we'd like to send.
-    event: AnyMessageLikeEventContent,
+    pub event: AnyMessageLikeEventContent,
 
     /// Unique transaction id for the queued event, acting as a key.
-    transaction_id: OwnedTransactionId,
-
-    /// If the event couldn't be sent because of an API error, it's marked as
-    /// wedged, and won't ever be peeked for sending. The only option is to
-    /// remove it.
-    is_wedged: bool,
-}
-
-#[derive(Clone)]
-struct FakeStateStore(Arc<RwLock<VecDeque<QueuedEvent>>>);
-
-impl FakeStateStore {
-    /// Insert a single queued event for the given room into storage.
-    async fn insert(
-        &self,
-        _room_id: &RoomId,
-        transaction_id: OwnedTransactionId,
-        content: AnyMessageLikeEventContent,
-    ) -> Result<(), StoreError> {
-        self.0.write().await.push_back(QueuedEvent {
-            event: content,
-            transaction_id: transaction_id.clone(),
-            is_wedged: false,
-        });
-        Ok(())
-    }
-
-    /// Updates the state (wedged or not) for a single event in the given room.
-    async fn update_state(
-        &self,
-        _room_id: &RoomId,
-        transaction_id: &TransactionId,
-        is_wedged: bool,
-    ) -> Result<(), StoreError> {
-        for item in self.0.write().await.iter_mut() {
-            if item.transaction_id == transaction_id {
-                item.is_wedged = is_wedged;
-                break;
-            }
-        }
-        Ok(())
-    }
-
-    /// Remove the given event identified by the given transaction id from the
-    /// store.
-    async fn remove(
-        &self,
-        _room: &RoomId,
-        transaction_id: &TransactionId,
-    ) -> Result<(), StoreError> {
-        let mut q = self.0.write().await;
-        if let Some(index) = q.iter().position(|item| item.transaction_id == transaction_id) {
-            q.remove(index);
-        } else {
-            warn!("couldn't find item to mark as sent with transaction id {transaction_id}");
-        }
-        Ok(())
-    }
-
-    /// Returns all the queued events for a given room.
-    async fn all(&self, _room: &RoomId) -> Result<Vec<QueuedEvent>, StoreError> {
-        Ok(self.0.read().await.iter().cloned().collect())
-    }
+    pub transaction_id: OwnedTransactionId,
 }
 
 #[derive(Clone)]
 struct QueueStorage {
-    /// Reference to the store.
-    store: FakeStateStore,
+    /// Reference to the client, to get access to the underlying store.
+    client: WeakClient,
 
     /// To which room is this storage related.
     room_id: OwnedRoomId,
@@ -570,12 +510,8 @@ struct QueueStorage {
 
 impl QueueStorage {
     /// Create a new synchronized queue for queuing events to be sent later.
-    fn new(room: OwnedRoomId) -> Self {
-        Self {
-            room_id: room,
-            being_sent: Default::default(),
-            store: FakeStateStore(Arc::new(RwLock::new(VecDeque::with_capacity(16)))),
-        }
+    fn new(client: WeakClient, room: OwnedRoomId) -> Self {
+        Self { room_id: room, being_sent: Default::default(), client }
     }
 
     /// Push a new event to be sent in the queue.
@@ -584,9 +520,18 @@ impl QueueStorage {
     async fn push(
         &self,
         content: AnyMessageLikeEventContent,
-    ) -> Result<OwnedTransactionId, StoreError> {
+    ) -> Result<OwnedTransactionId, RoomSendQueueStorageError> {
         let transaction_id = TransactionId::new();
-        self.store.insert(&self.room_id, transaction_id.clone(), content).await?;
+
+        let serializable = SerializableEventContent::new(content)?;
+
+        self.client
+            .get()
+            .ok_or(RoomSendQueueStorageError::ClientShuttingDown)?
+            .store()
+            .save_send_queue_event(&self.room_id, transaction_id.clone(), serializable)
+            .await?;
+
         Ok(transaction_id)
     }
 
@@ -594,11 +539,26 @@ impl QueueStorage {
     ///
     /// It is required to call [`Self::mark_as_sent`] after it's been
     /// effectively sent.
-    async fn peek_next_to_send(&self) -> Result<Option<QueuedEvent>, StoreError> {
-        let queued_events = self.store.all(&self.room_id).await?;
+    async fn peek_next_to_send(
+        &self,
+    ) -> Result<Option<DeserializedQueuedEvent>, RoomSendQueueStorageError> {
+        let queued_events = self
+            .client
+            .get()
+            .ok_or(RoomSendQueueStorageError::ClientShuttingDown)?
+            .store()
+            .load_send_queue_events(&self.room_id)
+            .await?;
+
         if let Some(event) = queued_events.iter().find(|queued| !queued.is_wedged) {
+            let deserialized = event.event.as_content()?;
+
             self.being_sent.write().await.insert(event.transaction_id.clone());
-            Ok(Some(event.clone()))
+
+            Ok(Some(DeserializedQueuedEvent {
+                event: deserialized,
+                transaction_id: event.transaction_id.clone(),
+            }))
         } else {
             Ok(None)
         }
@@ -614,17 +574,36 @@ impl QueueStorage {
     /// Marks an event popped with [`Self::peek_next_to_send`] and identified
     /// with the given transaction id as being wedged (and not being sent
     /// anymore), so it can be removed from the queue later.
-    async fn mark_as_wedged(&self, transaction_id: &TransactionId) -> Result<(), StoreError> {
+    async fn mark_as_wedged(
+        &self,
+        transaction_id: &TransactionId,
+    ) -> Result<(), RoomSendQueueStorageError> {
         self.mark_as_not_being_sent(transaction_id).await;
 
-        self.store.update_state(&self.room_id, transaction_id, true).await
+        Ok(self
+            .client
+            .get()
+            .ok_or(RoomSendQueueStorageError::ClientShuttingDown)?
+            .store()
+            .update_send_queue_event_status(&self.room_id, transaction_id, true)
+            .await?)
     }
 
     /// Marks an event pushed with [`Self::push`] and identified with the given
     /// transaction id as sent by removing it from the local queue.
-    async fn mark_as_sent(&self, transaction_id: &TransactionId) -> Result<(), StoreError> {
+    async fn mark_as_sent(
+        &self,
+        transaction_id: &TransactionId,
+    ) -> Result<(), RoomSendQueueStorageError> {
         self.mark_as_not_being_sent(transaction_id).await;
-        self.store.remove(&self.room_id, transaction_id).await
+
+        Ok(self
+            .client
+            .get()
+            .ok_or(RoomSendQueueStorageError::ClientShuttingDown)?
+            .store()
+            .remove_send_queue_event(&self.room_id, transaction_id)
+            .await?)
     }
 
     /// Cancel a sending command for an event that has been sent with
@@ -633,12 +612,21 @@ impl QueueStorage {
     /// Returns whether the given transaction has been effectively removed. If
     /// false, this either means that the transaction id was unrelated to
     /// this queue, or that the event was sent before we cancelled it.
-    async fn cancel(&self, transaction_id: &TransactionId) -> Result<bool, StoreError> {
+    async fn cancel(
+        &self,
+        transaction_id: &TransactionId,
+    ) -> Result<bool, RoomSendQueueStorageError> {
         if self.being_sent.read().await.contains(transaction_id) {
             return Ok(false);
         }
 
-        self.store.remove(&self.room_id, transaction_id).await?;
+        self.client
+            .get()
+            .ok_or(RoomSendQueueStorageError::ClientShuttingDown)?
+            .store()
+            .remove_send_queue_event(&self.room_id, transaction_id)
+            .await?;
+
         Ok(true)
     }
 
@@ -646,14 +634,18 @@ impl QueueStorage {
     /// about to send but that haven't been sent yet (or are being sent).
     async fn local_echoes(
         &self,
-    ) -> Result<Vec<(OwnedTransactionId, AnyMessageLikeEventContent)>, StoreError> {
+    ) -> Result<Vec<(OwnedTransactionId, AnyMessageLikeEventContent)>, RoomSendQueueStorageError>
+    {
         Ok(self
-            .store
-            .all(&self.room_id)
+            .client
+            .get()
+            .ok_or(RoomSendQueueStorageError::ClientShuttingDown)?
+            .store()
+            .load_send_queue_events(&self.room_id)
             .await?
             .iter()
-            .map(|queued| (queued.transaction_id.clone(), queued.event.clone()))
-            .collect())
+            .map(|queued| Ok((queued.transaction_id.clone(), queued.event.as_content()?)))
+            .collect::<Result<Vec<_>, StoreError>>()?)
     }
 }
 
@@ -726,7 +718,23 @@ pub enum RoomSendQueueError {
 
     /// Error coming from storage.
     #[error(transparent)]
+    StorageError(#[from] RoomSendQueueStorageError),
+}
+
+/// An error triggered by the send queue storage.
+#[derive(Debug, thiserror::Error)]
+pub enum RoomSendQueueStorageError {
+    /// Error caused by the state store.
+    #[error(transparent)]
     StorageError(#[from] StoreError),
+
+    /// Error caused when (de)serializing into/from json.
+    #[error(transparent)]
+    JsonSerialization(#[from] serde_json::Error),
+
+    /// The client is shutting down.
+    #[error("The client is shutting down.")]
+    ClientShuttingDown,
 }
 
 /// A way to tentatively abort sending an event that was scheduled to be sent to
@@ -742,7 +750,7 @@ impl AbortSendHandle {
     ///
     /// Returns true if the sending could be aborted, false if not (i.e. the
     /// event had already been sent).
-    pub async fn abort(self) -> Result<bool, StoreError> {
+    pub async fn abort(self) -> Result<bool, RoomSendQueueStorageError> {
         if self.room.inner.queue.cancel(&self.transaction_id).await? {
             // Propagate a cancelled update too.
             let _ = self.room.inner.updates.send(RoomSendQueueUpdate::CancelledLocalEvent {

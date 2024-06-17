@@ -687,7 +687,7 @@ async fn test_cancellation() {
     assert_eq!(local_echoes.len(), 3);
 
     let local_echo4 = local_echoes.remove(1);
-    assert_eq!(local_echo4.transaction_id, txn4);
+    assert_eq!(local_echo4.transaction_id, txn4, "local echoes: {local_echoes:?}");
 
     let handle4 = local_echo4.abort_handle;
 
