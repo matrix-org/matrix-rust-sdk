@@ -24,7 +24,6 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fmt,
     ops::Deref,
-    pin::Pin,
     result::Result as StdResult,
     str::Utf8Error,
     sync::{Arc, RwLock as StdRwLock},
@@ -52,9 +51,6 @@ use ruma::{
     EventId, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, UserId,
 };
 use tokio::sync::{broadcast, Mutex, RwLock};
-
-/// BoxStream of owned Types
-pub type BoxStream<T> = Pin<Box<dyn futures_util::Stream<Item = T> + Send>>;
 
 use crate::{
     rooms::{normal::RoomInfoUpdate, RoomInfo, RoomState},
