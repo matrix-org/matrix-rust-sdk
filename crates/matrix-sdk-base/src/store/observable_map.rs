@@ -126,7 +126,7 @@ mod impl_non_wasm32 {
             self.values.iter()
         }
 
-        /// Get a [`Stream`] of it.
+        /// Get a [`Stream`] of the values.
         pub(crate) fn stream(&self) -> (Vector<V>, impl Stream<Item = Vec<VectorDiff<V>>>) {
             self.values.subscribe().into_values_and_batched_stream()
         }

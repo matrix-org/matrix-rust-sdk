@@ -227,7 +227,8 @@ impl Store {
             .collect()
     }
 
-    /// Get a stream of all the rooms, in addition to the existing rooms.
+    /// Get a stream of all the rooms changes, in addition to the existing
+    /// rooms.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn rooms_stream(&self) -> (Vector<Room>, impl Stream<Item = Vec<VectorDiff<Room>>>) {
         self.rooms.read().unwrap().stream()
