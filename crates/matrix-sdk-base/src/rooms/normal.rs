@@ -1150,7 +1150,7 @@ impl RoomInfo {
             if !summary.heroes.is_empty() {
                 // Parse the user IDs from Ruma.
                 self.summary.room_heroes = summary
-                    .heroes // TODO: Load the profiles?
+                    .heroes
                     .iter()
                     .map(|hero_id| RoomHero {
                         user_id: hero_id.to_owned(),
