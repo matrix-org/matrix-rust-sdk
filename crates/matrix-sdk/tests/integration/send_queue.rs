@@ -209,7 +209,7 @@ async fn test_smoke() {
 
     let q = room.send_queue();
 
-    let (local_echoes, mut watch) = q.subscribe().await;
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
     assert!(local_echoes.is_empty());
     assert!(watch.is_empty());
 
@@ -250,7 +250,7 @@ async fn test_smoke() {
     let (txn1, _) = assert_update!(watch => local echo { body = "1" });
 
     {
-        let (local_echoes, _) = q.subscribe().await;
+        let (local_echoes, _) = q.subscribe().await.unwrap();
 
         assert_eq!(local_echoes.len(), 1);
         assert_eq!(local_echoes[0].transaction_id, txn1);
@@ -290,7 +290,7 @@ async fn test_error_then_locally_reenabling() {
 
     let q = room.send_queue();
 
-    let (local_echoes, mut watch) = q.subscribe().await;
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
     assert!(local_echoes.is_empty());
     assert!(watch.is_empty());
 
@@ -326,7 +326,7 @@ async fn test_error_then_locally_reenabling() {
     let (txn1, _) = assert_update!(watch => local echo { body = "1" });
 
     {
-        let (local_echoes, _) = q.subscribe().await;
+        let (local_echoes, _) = q.subscribe().await.unwrap();
         assert_eq!(local_echoes.len(), 1);
         assert_eq!(local_echoes[0].transaction_id, txn1);
     }
@@ -401,7 +401,7 @@ async fn test_error_then_globally_reenabling() {
 
     let q = room.send_queue();
 
-    let (local_echoes, mut watch) = q.subscribe().await;
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
     assert!(local_echoes.is_empty());
     assert!(watch.is_empty());
 
@@ -479,7 +479,7 @@ async fn test_reenabling_queue() {
 
     let q = room.send_queue();
 
-    let (local_echoes, mut watch) = q.subscribe().await;
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
 
     assert!(local_echoes.is_empty());
     assert!(watch.is_empty());
@@ -494,7 +494,7 @@ async fn test_reenabling_queue() {
     }
 
     {
-        let (local_echoes, _) = q.subscribe().await;
+        let (local_echoes, _) = q.subscribe().await.unwrap();
         assert_eq!(local_echoes.len(), 3);
     }
 
@@ -606,7 +606,7 @@ async fn test_cancellation() {
 
     let q = room.send_queue();
 
-    let (local_echoes, mut watch) = q.subscribe().await;
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
 
     assert!(local_echoes.is_empty());
     assert!(watch.is_empty());
@@ -664,24 +664,24 @@ async fn test_cancellation() {
     tokio::task::yield_now().await;
 
     // The first item is already being sent, so we can't abort it.
-    assert!(!handle1.abort().await);
+    assert!(!handle1.abort().await.unwrap());
     assert!(watch.is_empty());
 
     // The second item is pending, so we can abort it, using the handle returned by
     // `send()`.
-    assert!(handle2.abort().await);
+    assert!(handle2.abort().await.unwrap());
     assert_update!(watch => cancelled { txn = txn2 });
     assert!(watch.is_empty());
 
     // The third item is pending, so we can abort it, using the handle received from
     // the update.
-    assert!(handle3.abort().await);
+    assert!(handle3.abort().await.unwrap());
     assert_update!(watch => cancelled { txn = txn3 });
     assert!(watch.is_empty());
 
     // The fourth item is pending, so we can abort it, using an handle provided by
     // the initial array of values.
-    let (mut local_echoes, _) = q.subscribe().await;
+    let (mut local_echoes, _) = q.subscribe().await.unwrap();
 
     // At this point, local echoes = txn1, txn4, txn5.
     assert_eq!(local_echoes.len(), 3);
@@ -691,7 +691,7 @@ async fn test_cancellation() {
 
     let handle4 = local_echo4.abort_handle;
 
-    assert!(handle4.abort().await);
+    assert!(handle4.abort().await.unwrap());
     assert_update!(watch => cancelled { txn = txn4 });
     assert!(watch.is_empty());
 
@@ -732,7 +732,7 @@ async fn test_abort_after_disable() {
 
     let q = room.send_queue();
 
-    let (local_echoes, mut watch) = q.subscribe().await;
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
 
     assert!(local_echoes.is_empty());
     assert!(watch.is_empty());
@@ -763,7 +763,7 @@ async fn test_abort_after_disable() {
     assert!(client.send_queue().is_enabled());
 
     // Aborting the sending should work.
-    assert!(abort_send_handle.abort().await);
+    assert!(abort_send_handle.abort().await.unwrap());
 
     assert_update!(watch => cancelled { txn = txn });
 
@@ -799,7 +799,7 @@ async fn test_unrecoverable_errors() {
 
     let q = room.send_queue();
 
-    let (local_echoes, mut watch) = q.subscribe().await;
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
 
     assert!(local_echoes.is_empty());
     assert!(watch.is_empty());
@@ -895,7 +895,7 @@ async fn test_no_network_access_error_is_recoverable() {
     assert!(client.send_queue().is_enabled());
 
     let q = room.send_queue();
-    let (local_echoes, mut watch) = q.subscribe().await;
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
 
     assert!(local_echoes.is_empty());
     assert!(watch.is_empty());
