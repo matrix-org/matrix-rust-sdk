@@ -38,7 +38,7 @@ use crate::RoomMemberships;
 use crate::{
     error::Result,
     read_receipts::{compute_unread_counts, PreviousEventsProvider},
-    rooms::RoomState,
+    rooms::{normal::RoomHero, RoomState},
     store::{ambiguity_map::AmbiguityCache, StateChanges, Store},
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Notification, RoomUpdates, SyncResponse},
     Room, RoomInfo,
@@ -711,10 +711,15 @@ fn process_room_properties(room_data: &v4::SlidingSyncRoom, room_info: &mut Room
     }
 
     if let Some(heroes) = &room_data.heroes {
-        // Filter out all the heroes which don't have a user id or name.
         room_info.update_heroes(
-            heroes.iter().map(|hero| &hero.user_id).cloned().collect(),
-            heroes.iter().filter_map(|hero| hero.name.as_ref()).cloned().collect(),
+            heroes
+                .iter()
+                .map(|hero| RoomHero {
+                    user_id: hero.user_id.clone(),
+                    display_name: hero.name.clone(),
+                    avatar_url: hero.avatar.clone(),
+                })
+                .collect(),
         );
     }
 
@@ -750,7 +755,7 @@ mod tests {
             AnySyncMessageLikeEvent, AnySyncTimelineEvent, GlobalAccountDataEventContent,
             StateEventContent,
         },
-        mxc_uri, room_alias_id, room_id,
+        mxc_uri, owned_mxc_uri, owned_user_id, room_alias_id, room_id,
         serde::Raw,
         uint, user_id, JsOption, MxcUri, OwnedRoomId, OwnedUserId, RoomAliasId, RoomId, UserId,
     };
@@ -758,7 +763,8 @@ mod tests {
 
     use super::cache_latest_events;
     use crate::{
-        store::MemoryStore, test_utils::logged_in_base_client, BaseClient, Room, RoomState,
+        rooms::normal::RoomHero, store::MemoryStore, test_utils::logged_in_base_client, BaseClient,
+        Room, RoomState,
     };
 
     #[async_test]
@@ -1356,6 +1362,7 @@ mod tests {
             }),
             assign!(v4::SlidingSyncRoomHero::new(alice), {
                 name: Some("Alice".to_owned()),
+                avatar: Some(owned_mxc_uri!("mxc://e.uk/med1"))
             }),
         ]);
         let response = response_with_room(room_id, room);
@@ -1370,7 +1377,18 @@ mod tests {
         // And heroes are part of the summary.
         assert_eq!(
             client_room.clone_info().summary.heroes(),
-            &["@gordon:e.uk".to_owned(), "@alice:e.uk".to_owned()]
+            &[
+                RoomHero {
+                    user_id: owned_user_id!("@gordon:e.uk"),
+                    display_name: Some("Gordon".to_owned()),
+                    avatar_url: None
+                },
+                RoomHero {
+                    user_id: owned_user_id!("@alice:e.uk"),
+                    display_name: Some("Alice".to_owned()),
+                    avatar_url: Some(owned_mxc_uri!("mxc://e.uk/med1"))
+                },
+            ]
         );
     }
 
