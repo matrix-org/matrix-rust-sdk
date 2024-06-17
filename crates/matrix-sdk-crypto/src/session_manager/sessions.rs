@@ -36,7 +36,7 @@ use crate::{
     gossiping::GossipMachine,
     requests::{OutgoingRequest, ToDeviceRequest},
     store::{Changes, Result as StoreResult, Store},
-    types::{events::EventType, DeviceKeys, EventEncryptionAlgorithm},
+    types::{events::EventType, EventEncryptionAlgorithm},
     ReadOnlyDevice,
 };
 
@@ -514,10 +514,6 @@ impl SessionManager {
         let mut new_sessions: BTreeMap<&UserId, BTreeMap<&DeviceId, SessionInfo>> = BTreeMap::new();
         let mut store_transaction = self.store.transaction().await;
 
-        // Cache of our own device keys, so we only need to fetch it once, if
-        // we need it at all.
-        let mut our_device_keys: Option<DeviceKeys> = None;
-
         for (user_id, user_devices) in &response.one_time_keys {
             for (device_id, key_map) in user_devices {
                 let device = match self.store.get_readonly_device(user_id, device_id).await {
@@ -541,28 +537,12 @@ impl SessionManager {
                 };
 
                 let account = store_transaction.account().await?;
-                let device_keys = match our_device_keys {
-                    Some(ref device_keys) => device_keys.clone(),
-                    None => {
-                        // Try to get our own stored device keys.
-                        let device_keys = self
-                            .store
-                            .get_device(&account.user_id, &account.device_id)
-                            .await
-                            .unwrap_or(None)
-                            .map(|read_only_device| read_only_device.as_device_keys().clone());
-                        // If we don't have it stored, fall back to generating a fresh
-                        // device keys from our own Account.
-                        let device_keys = match device_keys {
-                            Some(device_keys) => device_keys,
-                            None => account.device_keys(),
-                        };
-
-                        our_device_keys = Some(device_keys.clone());
-
-                        device_keys
-                    }
-                };
+                let device_keys = self
+                    .store
+                    .get_own_device()
+                    .await?
+                    .as_device_keys()
+                    .clone();
                 let session = match account.create_outbound_session(&device, key_map, device_keys) {
                     Ok(s) => s,
                     Err(e) => {
@@ -657,7 +637,7 @@ mod tests {
         identities::{IdentityManager, ReadOnlyDevice},
         olm::{Account, PrivateCrossSigningIdentity},
         session_manager::GroupSessionCache,
-        store::{CryptoStoreWrapper, MemoryStore, PendingChanges, Store},
+        store::{Changes, CryptoStoreWrapper, DeviceChanges, MemoryStore, PendingChanges, Store},
         verification::VerificationMachine,
     };
 
@@ -714,7 +694,18 @@ mod tests {
         );
 
         let store = Store::new(account.static_data().clone(), identity, store, verification);
+        let device = ReadOnlyDevice::from_account(&account);
         store.save_pending_changes(PendingChanges { account: Some(account) }).await.unwrap();
+        store
+            .save_changes(Changes {
+                devices: DeviceChanges {
+                    new: vec![device],
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .await
+            .unwrap();
 
         let session_cache = GroupSessionCache::new(store.clone());
         let identity_manager = IdentityManager::new(store.clone());
