@@ -17,6 +17,7 @@ use std::fmt;
 use matrix_sdk::{
     event_cache::{paginator::PaginatorError, EventCacheError},
     send_queue::RoomSendQueueError,
+    StoreError,
 };
 use ruma::OwnedTransactionId;
 use thiserror::Error;
@@ -68,6 +69,10 @@ pub enum Error {
     /// An error happened during pagination.
     #[error("An error happened during pagination.")]
     PaginationError(#[from] PaginationError),
+
+    /// An error happened while operating the room's send queue.
+    #[error(transparent)]
+    SendQueueError(#[from] RoomSendQueueError),
 }
 
 #[derive(Error, Debug)]
@@ -161,7 +166,7 @@ pub enum SendEventError {
     UnsupportedEditItem(#[from] UnsupportedEditItem),
 
     #[error(transparent)]
-    SendError(#[from] RoomSendQueueError),
+    RoomQueueError(#[from] RoomSendQueueError),
 }
 
 #[derive(Debug, Error)]
@@ -171,4 +176,7 @@ pub enum RedactEventError {
 
     #[error(transparent)]
     SdkError(#[from] matrix_sdk::Error),
+
+    #[error("an error happened while interacting with the room queue")]
+    RoomQueueError(#[source] StoreError),
 }

@@ -15,17 +15,17 @@
 //! A send queue facility to serializing queuing and sending of messages.
 
 use std::{
-    collections::{BTreeMap, VecDeque},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, RwLock as SyncRwLock,
     },
 };
 
-use matrix_sdk_base::RoomState;
+use matrix_sdk_base::{RoomState, StoreError};
 use matrix_sdk_common::executor::{spawn, JoinHandle};
 use ruma::{
-    events::AnyMessageLikeEventContent, OwnedEventId, OwnedRoomId, OwnedTransactionId,
+    events::AnyMessageLikeEventContent, OwnedEventId, OwnedRoomId, OwnedTransactionId, RoomId,
     TransactionId,
 };
 use tokio::sync::{broadcast, Notify, RwLock};
@@ -213,7 +213,7 @@ impl RoomSendQueue {
     ) -> Self {
         let (updates_sender, _) = broadcast::channel(32);
 
-        let queue = QueueStorage::new();
+        let queue = QueueStorage::new(room_id.clone());
         let notifier = Arc::new(Notify::new());
 
         let weak_room = WeakRoom::new(WeakClient::from_client(client), room_id);
@@ -265,7 +265,7 @@ impl RoomSendQueue {
             return Err(RoomSendQueueError::RoomNotJoined);
         }
 
-        let transaction_id = self.inner.queue.push(content.clone()).await;
+        let transaction_id = self.inner.queue.push(content.clone()).await?;
         trace!(%transaction_id, "manager sends an event to the background task");
 
         self.inner.notifier.notify_one();
@@ -284,12 +284,15 @@ impl RoomSendQueue {
 
     /// Returns the current local events as well as a receiver to listen to the
     /// send queue updates, as defined in [`RoomSendQueueUpdate`].
-    pub async fn subscribe(&self) -> (Vec<LocalEcho>, broadcast::Receiver<RoomSendQueueUpdate>) {
+    pub async fn subscribe(
+        &self,
+    ) -> Result<(Vec<LocalEcho>, broadcast::Receiver<RoomSendQueueUpdate>), RoomSendQueueError>
+    {
         let local_echoes = self
             .inner
             .queue
             .local_echoes()
-            .await
+            .await?
             .into_iter()
             .map(|(transaction_id, content)| LocalEcho {
                 transaction_id: transaction_id.clone(),
@@ -298,7 +301,7 @@ impl RoomSendQueue {
             })
             .collect();
 
-        (local_echoes, self.inner.updates.subscribe())
+        Ok((local_echoes, self.inner.updates.subscribe()))
     }
 
     #[instrument(skip_all, fields(room_id = %room.room_id()))]
@@ -327,11 +330,20 @@ impl RoomSendQueue {
                 continue;
             }
 
-            let Some(queued_event) = queue.peek_next_to_send().await else {
-                trace!("queue is empty, sleeping");
-                // Wait for an explicit wakeup.
-                notifier.notified().await;
-                continue;
+            let queued_event = match queue.peek_next_to_send().await {
+                Ok(Some(event)) => event,
+
+                Ok(None) => {
+                    trace!("queue is empty, sleeping");
+                    // Wait for an explicit wakeup.
+                    notifier.notified().await;
+                    continue;
+                }
+
+                Err(err) => {
+                    warn!("error when loading next event to send: {err}");
+                    continue;
+                }
             };
 
             trace!("received an event to send!");
@@ -353,12 +365,18 @@ impl RoomSendQueue {
                 Ok(res) => {
                     trace!(txn_id = %queued_event.transaction_id, event_id = %res.event_id, "successfully sent");
 
-                    queue.mark_as_sent(&queued_event.transaction_id).await;
+                    match queue.mark_as_sent(&queued_event.transaction_id).await {
+                        Ok(()) => {
+                            let _ = updates.send(RoomSendQueueUpdate::SentEvent {
+                                transaction_id: queued_event.transaction_id,
+                                event_id: res.event_id,
+                            });
+                        }
 
-                    let _ = updates.send(RoomSendQueueUpdate::SentEvent {
-                        transaction_id: queued_event.transaction_id,
-                        event_id: res.event_id,
-                    });
+                        Err(err) => {
+                            warn!("unable to mark queued event as sent: {err}");
+                        }
+                    }
                 }
 
                 Err(err) => {
@@ -390,7 +408,9 @@ impl RoomSendQueue {
                         warn!(txn_id = %queued_event.transaction_id, error = ?err, "Unrecoverable error when sending event: {err}");
 
                         // Mark the event as wedged, so it's not picked at any future point.
-                        queue.mark_as_wedged(&queued_event.transaction_id).await;
+                        if let Err(err) = queue.mark_as_wedged(&queued_event.transaction_id).await {
+                            warn!("unable to mark event as wedged: {err}");
+                        }
                     }
 
                     let error = Arc::new(err);
@@ -467,14 +487,11 @@ struct RoomSendQueueInner {
 
 #[derive(Clone)]
 struct QueuedEvent {
+    /// The content of the message-like event we'd like to send.
     event: AnyMessageLikeEventContent,
-    transaction_id: OwnedTransactionId,
 
-    /// Flag to indicate if an event has been scheduled for sending.
-    ///
-    /// Useful to indicate if cancelling could happen or if it was too late and
-    /// the event had already been sent.
-    is_being_sent: bool,
+    /// Unique transaction id for the queued event, acting as a key.
+    transaction_id: OwnedTransactionId,
 
     /// If the event couldn't be sent because of an API error, it's marked as
     /// wedged, and won't ever be peeked for sending. The only option is to
@@ -483,43 +500,107 @@ struct QueuedEvent {
 }
 
 #[derive(Clone)]
-struct QueueStorage(Arc<RwLock<VecDeque<QueuedEvent>>>);
+struct FakeStateStore(Arc<RwLock<VecDeque<QueuedEvent>>>);
+
+impl FakeStateStore {
+    /// Insert a single queued event for the given room into storage.
+    async fn insert(
+        &self,
+        _room_id: &RoomId,
+        transaction_id: OwnedTransactionId,
+        content: AnyMessageLikeEventContent,
+    ) -> Result<(), StoreError> {
+        self.0.write().await.push_back(QueuedEvent {
+            event: content,
+            transaction_id: transaction_id.clone(),
+            is_wedged: false,
+        });
+        Ok(())
+    }
+
+    /// Updates the state (wedged or not) for a single event in the given room.
+    async fn update_state(
+        &self,
+        _room_id: &RoomId,
+        transaction_id: &TransactionId,
+        is_wedged: bool,
+    ) -> Result<(), StoreError> {
+        for item in self.0.write().await.iter_mut() {
+            if item.transaction_id == transaction_id {
+                item.is_wedged = is_wedged;
+                break;
+            }
+        }
+        Ok(())
+    }
+
+    /// Remove the given event identified by the given transaction id from the
+    /// store.
+    async fn remove(
+        &self,
+        _room: &RoomId,
+        transaction_id: &TransactionId,
+    ) -> Result<(), StoreError> {
+        let mut q = self.0.write().await;
+        if let Some(index) = q.iter().position(|item| item.transaction_id == transaction_id) {
+            q.remove(index);
+        } else {
+            warn!("couldn't find item to mark as sent with transaction id {transaction_id}");
+        }
+        Ok(())
+    }
+
+    /// Returns all the queued events for a given room.
+    async fn all(&self, _room: &RoomId) -> Result<Vec<QueuedEvent>, StoreError> {
+        Ok(self.0.read().await.iter().cloned().collect())
+    }
+}
+
+#[derive(Clone)]
+struct QueueStorage {
+    /// Reference to the store.
+    store: FakeStateStore,
+
+    /// To which room is this storage related.
+    room_id: OwnedRoomId,
+
+    /// All the queued events that are being sent at the moment.
+    being_sent: Arc<RwLock<BTreeSet<OwnedTransactionId>>>,
+}
 
 impl QueueStorage {
     /// Create a new synchronized queue for queuing events to be sent later.
-    fn new() -> Self {
-        Self(Arc::new(RwLock::new(VecDeque::with_capacity(16))))
+    fn new(room: OwnedRoomId) -> Self {
+        Self {
+            room_id: room,
+            being_sent: Default::default(),
+            store: FakeStateStore(Arc::new(RwLock::new(VecDeque::with_capacity(16)))),
+        }
     }
 
     /// Push a new event to be sent in the queue.
     ///
     /// Returns the transaction id chosen to identify the request.
-    async fn push(&self, content: AnyMessageLikeEventContent) -> OwnedTransactionId {
+    async fn push(
+        &self,
+        content: AnyMessageLikeEventContent,
+    ) -> Result<OwnedTransactionId, StoreError> {
         let transaction_id = TransactionId::new();
-
-        self.0.write().await.push_back(QueuedEvent {
-            event: content,
-            transaction_id: transaction_id.clone(),
-            is_being_sent: false,
-            is_wedged: false,
-        });
-
-        transaction_id
+        self.store.insert(&self.room_id, transaction_id.clone(), content).await?;
+        Ok(transaction_id)
     }
 
     /// Peeks the next event to be sent, marking it as being sent.
     ///
     /// It is required to call [`Self::mark_as_sent`] after it's been
     /// effectively sent.
-    async fn peek_next_to_send(&self) -> Option<QueuedEvent> {
-        let mut q = self.0.write().await;
-        if let Some(event) = q.iter_mut().find(|queued| !queued.is_wedged) {
-            // TODO: This flag should probably live in memory when we have an actual
-            // storage.
-            event.is_being_sent = true;
-            Some(event.clone())
+    async fn peek_next_to_send(&self) -> Result<Option<QueuedEvent>, StoreError> {
+        let queued_events = self.store.all(&self.room_id).await?;
+        if let Some(event) = queued_events.iter().find(|queued| !queued.is_wedged) {
+            self.being_sent.write().await.insert(event.transaction_id.clone());
+            Ok(Some(event.clone()))
         } else {
-            None
+            Ok(None)
         }
     }
 
@@ -527,36 +608,23 @@ impl QueueStorage {
     /// with the given transaction id as not being sent anymore, so it can
     /// be removed from the queue later.
     async fn mark_as_not_being_sent(&self, transaction_id: &TransactionId) {
-        for item in self.0.write().await.iter_mut() {
-            if item.transaction_id == transaction_id {
-                item.is_being_sent = false;
-                break;
-            }
-        }
+        self.being_sent.write().await.remove(transaction_id);
     }
 
     /// Marks an event popped with [`Self::peek_next_to_send`] and identified
     /// with the given transaction id as being wedged (and not being sent
     /// anymore), so it can be removed from the queue later.
-    async fn mark_as_wedged(&self, transaction_id: &TransactionId) {
-        for item in self.0.write().await.iter_mut() {
-            if item.transaction_id == transaction_id {
-                item.is_being_sent = false;
-                item.is_wedged = true;
-                break;
-            }
-        }
+    async fn mark_as_wedged(&self, transaction_id: &TransactionId) -> Result<(), StoreError> {
+        self.mark_as_not_being_sent(transaction_id).await;
+
+        self.store.update_state(&self.room_id, transaction_id, true).await
     }
 
     /// Marks an event pushed with [`Self::push`] and identified with the given
     /// transaction id as sent by removing it from the local queue.
-    async fn mark_as_sent(&self, transaction_id: &TransactionId) {
-        let mut q = self.0.write().await;
-        if let Some(index) = q.iter().position(|item| item.transaction_id == transaction_id) {
-            q.remove(index);
-        } else {
-            warn!("couldn't find item to mark as sent with transaction id {transaction_id}");
-        }
+    async fn mark_as_sent(&self, transaction_id: &TransactionId) -> Result<(), StoreError> {
+        self.mark_as_not_being_sent(transaction_id).await;
+        self.store.remove(&self.room_id, transaction_id).await
     }
 
     /// Cancel a sending command for an event that has been sent with
@@ -565,28 +633,27 @@ impl QueueStorage {
     /// Returns whether the given transaction has been effectively removed. If
     /// false, this either means that the transaction id was unrelated to
     /// this queue, or that the event was sent before we cancelled it.
-    async fn cancel(&self, transaction_id: &TransactionId) -> bool {
-        let mut found = false;
-        self.0.write().await.retain(|queued| {
-            if queued.transaction_id == transaction_id && !queued.is_being_sent {
-                found = true;
-                false
-            } else {
-                true
-            }
-        });
-        found
+    async fn cancel(&self, transaction_id: &TransactionId) -> Result<bool, StoreError> {
+        if self.being_sent.read().await.contains(transaction_id) {
+            return Ok(false);
+        }
+
+        self.store.remove(&self.room_id, transaction_id).await?;
+        Ok(true)
     }
 
     /// Returns a list of the local echoes, that is, all the events that we're
     /// about to send but that haven't been sent yet (or are being sent).
-    async fn local_echoes(&self) -> Vec<(OwnedTransactionId, AnyMessageLikeEventContent)> {
-        self.0
-            .write()
-            .await
+    async fn local_echoes(
+        &self,
+    ) -> Result<Vec<(OwnedTransactionId, AnyMessageLikeEventContent)>, StoreError> {
+        Ok(self
+            .store
+            .all(&self.room_id)
+            .await?
             .iter()
             .map(|queued| (queued.transaction_id.clone(), queued.event.clone()))
-            .collect()
+            .collect())
     }
 }
 
@@ -656,6 +723,10 @@ pub enum RoomSendQueueError {
     /// shutting down.
     #[error("the room is now missing from the client")]
     RoomDisappeared,
+
+    /// Error coming from storage.
+    #[error(transparent)]
+    StorageError(#[from] StoreError),
 }
 
 /// A way to tentatively abort sending an event that was scheduled to be sent to
@@ -671,15 +742,15 @@ impl AbortSendHandle {
     ///
     /// Returns true if the sending could be aborted, false if not (i.e. the
     /// event had already been sent).
-    pub async fn abort(self) -> bool {
-        if self.room.inner.queue.cancel(&self.transaction_id).await {
+    pub async fn abort(self) -> Result<bool, StoreError> {
+        if self.room.inner.queue.cancel(&self.transaction_id).await? {
             // Propagate a cancelled update too.
             let _ = self.room.inner.updates.send(RoomSendQueueUpdate::CancelledLocalEvent {
                 transaction_id: self.transaction_id.clone(),
             });
-            true
+            Ok(true)
         } else {
-            false
+            Ok(false)
         }
     }
 }
