@@ -139,6 +139,22 @@ impl EventBuilder {
         })
     }
 
+    pub fn make_sync_redacted_message_event_with_id<C: RedactedMessageLikeEventContent>(
+        &self,
+        sender: &UserId,
+        event_id: &EventId,
+        content: C,
+    ) -> Raw<AnySyncTimelineEvent> {
+        sync_timeline_event!({
+            "type": content.event_type(),
+            "content": content,
+            "event_id": event_id,
+            "sender": sender,
+            "origin_server_ts": self.next_server_ts(),
+            "unsigned": self.make_redacted_unsigned(sender),
+        })
+    }
+
     pub fn make_sync_state_event<C: StateEventContent>(
         &self,
         sender: &UserId,

@@ -91,7 +91,7 @@ impl UnsupportedReplyItem {
     pub(super) const MISSING_EVENT: Self = Self(UnsupportedReplyItemInner::MissingEvent);
     pub(super) const FAILED_TO_DESERIALIZE_EVENT: Self =
         Self(UnsupportedReplyItemInner::FailedToDeserializeEvent);
-    pub(super) const MISSING_CONTENT: Self = Self(UnsupportedReplyItemInner::MissingContent);
+    pub(super) const STATE_EVENT: Self = Self(UnsupportedReplyItemInner::StateEvent);
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -111,8 +111,8 @@ enum UnsupportedReplyItemInner {
     MissingEvent,
     #[error("failed to deserialize event to reply to")]
     FailedToDeserializeEvent,
-    #[error("event to reply to has no content")]
-    MissingContent,
+    #[error("tried to reply to a state event")]
+    StateEvent,
 }
 
 #[derive(Error)]
@@ -127,7 +127,6 @@ impl UnsupportedEditItem {
     pub(super) const MISSING_EVENT: Self = Self(UnsupportedEditItemInner::MissingEvent);
     pub(super) const FAILED_TO_DESERIALIZE_EVENT: Self =
         Self(UnsupportedEditItemInner::FailedToDeserializeEvent);
-    pub(super) const MISSING_CONTENT: Self = Self(UnsupportedEditItemInner::MissingContent);
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -151,8 +150,6 @@ enum UnsupportedEditItemInner {
     MissingEvent,
     #[error("failed to deserialize event to edit")]
     FailedToDeserializeEvent,
-    #[error("event to edit has no content")]
-    MissingContent,
 }
 
 #[derive(Debug, Error)]

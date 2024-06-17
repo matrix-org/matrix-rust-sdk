@@ -50,7 +50,7 @@ use ruma::{
             },
             redaction::RoomRedactionEventContent,
         },
-        AnyMessageLikeEventContent, AnySyncTimelineEvent,
+        AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
     },
     serde::Raw,
     uint, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
@@ -354,6 +354,7 @@ impl Timeline {
     /// * `forward_thread` - Usually `Yes`, unless you explicitly want to the
     ///   reply to show up in the main timeline even though the `reply_item` is
     ///   part of a thread
+    #[instrument(skip(self, content, replied_to_info))]
     pub async fn send_reply(
         &self,
         content: RoomMessageEventContentWithoutRelation,
@@ -379,7 +380,7 @@ impl Timeline {
             ReplyContent::Message(msg) => {
                 let event = OriginalRoomMessageEvent {
                     event_id: event_id.to_owned(),
-                    sender: replied_to_info.sender.clone(),
+                    sender: replied_to_info.sender,
                     origin_server_ts: replied_to_info.timestamp,
                     room_id: self.room().room_id().to_owned(),
                     content: msg.to_content(),
@@ -419,22 +420,31 @@ impl Timeline {
         };
 
         // We need to synthetise the TimelineitemContent and we can do that by casting
-        // the event as a AnySyncTimelineEvent
+        // the event as a `AnySyncTimelineEvent` which is the same as a
+        // `AnyTimelineEvent`, but without the `room_id` field.
+        // The cast is valid because we are just losing track of such field.
         let raw_sync_event: Raw<AnySyncTimelineEvent> = event.event.cast();
         let Ok(sync_event) = raw_sync_event.deserialize_as::<AnySyncTimelineEvent>() else {
             return Err(UnsupportedReplyItem::FAILED_TO_DESERIALIZE_EVENT);
         };
 
-        // We need to probably change this.
-        let Some(timeline_item_content) =
-            TimelineItemContent::from_latest_event_content(sync_event.clone())
-        else {
-            return Err(UnsupportedReplyItem::MISSING_CONTENT);
-        };
-
-        let reply_content = match timeline_item_content {
-            TimelineItemContent::Message(msg) => ReplyContent::Message(msg.to_owned()),
-            _ => ReplyContent::Raw(raw_sync_event),
+        let reply_content = match &sync_event {
+            AnySyncTimelineEvent::MessageLike(message_like_event) => {
+                if let AnySyncMessageLikeEvent::RoomMessage(message_event) = message_like_event {
+                    if let Some(original_message) = message_event.as_original() {
+                        ReplyContent::Message(Message::from_event(
+                            original_message.content.clone(),
+                            message_like_event.relations(),
+                            &self.items().await,
+                        ))
+                    } else {
+                        ReplyContent::Raw(raw_sync_event)
+                    }
+                } else {
+                    ReplyContent::Raw(raw_sync_event)
+                }
+            }
+            AnySyncTimelineEvent::State(_) => return Err(UnsupportedReplyItem::STATE_EVENT),
         };
 
         Ok(RepliedToInfo {
@@ -513,7 +523,9 @@ impl Timeline {
         };
 
         // We need to synthetise the TimelineitemContent and we can do that by casting
-        // the event as a AnySyncTimelineEvent
+        // the event as a `AnySyncTimelineEvent` which is the same as a
+        // `AnyTimelineEvent`, but without the `room_id` field.
+        // The cast is valid because we are just losing track of such field.
         let raw_sync_event: Raw<AnySyncTimelineEvent> = event.event.cast();
         let event = match raw_sync_event.deserialize() {
             Ok(event) => event,
@@ -527,16 +539,22 @@ impl Timeline {
             return Err(UnsupportedEditItem::NOT_OWN_EVENT);
         };
 
-        // We need to probably change this.
-        let Some(content) = TimelineItemContent::from_latest_event_content(event) else {
-            return Err(UnsupportedEditItem::MISSING_CONTENT);
-        };
-
-        let TimelineItemContent::Message(message) = content else {
-            return Err(UnsupportedEditItem::NOT_ROOM_MESSAGE);
-        };
-
-        Ok(EditInfo { event_id: event_id.to_owned(), original_message: message })
+        if let AnySyncTimelineEvent::MessageLike(message_like_event) = &event {
+            if let AnySyncMessageLikeEvent::RoomMessage(message_event) = message_like_event {
+                if let Some(original_message) = message_event.as_original() {
+                    let message = Message::from_event(
+                        original_message.content.clone(),
+                        message_like_event.relations(),
+                        &self.items().await,
+                    );
+                    return Ok(EditInfo {
+                        event_id: event_id.to_owned(),
+                        original_message: message,
+                    });
+                }
+            }
+        }
+        Err(UnsupportedEditItem::NOT_ROOM_MESSAGE)
     }
 
     pub async fn edit_poll(
