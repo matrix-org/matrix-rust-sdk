@@ -1657,14 +1657,41 @@ impl OlmMachine {
         result
     }
 
-    /// Do we have the room key for the given room and with the given session id
-    /// in the store?
+    /// Check if we have the room key for the given event in the store.
+    ///
+    /// # Arguments
+    ///
+    /// * `event` - The event to get information for.
+    /// * `room_id` - The ID of the room where the event was sent to.
     pub async fn is_room_key_available(
         &self,
+        event: &Raw<EncryptedEvent>,
         room_id: &RoomId,
-        session_id: &str,
     ) -> Result<bool, CryptoStoreError> {
-        Ok(self.store().get_inbound_group_session(room_id, session_id).await?.is_some())
+        let event = event.deserialize()?;
+
+        let (session_id, message_index) = match &event.content.scheme {
+            RoomEventEncryptionScheme::MegolmV1AesSha2(c) => {
+                (&c.session_id, c.ciphertext.message_index())
+            }
+            #[cfg(feature = "experimental-algorithms")]
+            RoomEventEncryptionScheme::MegolmV2AesSha2(c) => {
+                (&c.session_id, c.ciphertext.message_index())
+            }
+            RoomEventEncryptionScheme::Unknown(_) => {
+                // We don't support this encryption algorithm, so clearly don't have its key.
+                return Ok(false);
+            }
+        };
+
+        // Check that we have the session in the store, and that its first known index
+        // predates the index of our message.
+        Ok(self
+            .store()
+            .get_inbound_group_session(room_id, session_id)
+            .await?
+            .filter(|s| s.first_known_index() <= message_index)
+            .is_some())
     }
 
     /// Get encryption info for a decrypted timeline event.

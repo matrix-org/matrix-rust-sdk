@@ -109,6 +109,9 @@ struct RoomKeyDownloadRequest {
     /// The ID of the event we could not decrypt.
     event_id: OwnedEventId,
 
+    /// The event we could not decrypt.
+    event: Raw<OriginalSyncRoomEncryptedEvent>,
+
     /// The megolm session that the event was encrypted with.
     megolm_session_id: String,
 }
@@ -163,6 +166,7 @@ impl BackupDownloadTask {
                 let _ = self.sender.send(RoomKeyDownloadRequest {
                     room_id,
                     event_id: deserialized_event.event_id,
+                    event,
                     megolm_session_id: c.session_id,
                 });
             }
@@ -333,7 +337,7 @@ impl BackupDownloadTaskListenerState {
         // (though if the store is returning errors, probably something else is
         // going to go wrong very soon).
         if machine
-            .is_room_key_available(&download_request.room_id, &download_request.megolm_session_id)
+            .is_room_key_available(download_request.event.cast_ref(), &download_request.room_id)
             .await
             .unwrap_or(false)
         {
