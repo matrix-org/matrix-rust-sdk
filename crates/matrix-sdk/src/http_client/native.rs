@@ -28,11 +28,11 @@ use reqwest::Certificate;
 use ruma::api::{error::FromHttpResponseError, IncomingResponse, OutgoingRequest};
 use tracing::{info, warn};
 
-use super::{
-    characterize_retry_kind, response_to_http_response, HttpClient, RetryKind,
-    TransmissionProgress, DEFAULT_REQUEST_TIMEOUT,
+use super::{response_to_http_response, HttpClient, TransmissionProgress, DEFAULT_REQUEST_TIMEOUT};
+use crate::{
+    config::RequestConfig,
+    error::{HttpError, RetryKind},
 };
-use crate::{config::RequestConfig, error::HttpError};
 
 impl HttpClient {
     pub(super) async fn send_request<R>(
@@ -62,11 +62,11 @@ impl HttpClient {
                 let error_type = if stop {
                     RetryError::Permanent
                 } else {
-                    |err: HttpError| match characterize_retry_kind(err) {
-                        RetryKind::Transient { err, retry_after } => {
+                    |err: HttpError| match err.retry_kind() {
+                        RetryKind::Transient { retry_after } => {
                             RetryError::Transient { err, retry_after }
                         }
-                        RetryKind::Permanent(err) => RetryError::Permanent(err),
+                        RetryKind::Permanent => RetryError::Permanent(err),
                     }
                 };
 
