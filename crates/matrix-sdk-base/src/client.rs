@@ -21,7 +21,9 @@ use std::{
 use std::{ops::Deref, sync::Arc};
 
 use eyeball::{SharedObservable, Subscriber};
+#[cfg(not(target_arch = "wasm32"))]
 use eyeball_im::{Vector, VectorDiff};
+#[cfg(not(target_arch = "wasm32"))]
 use futures_util::Stream;
 use matrix_sdk_common::instant::Instant;
 #[cfg(feature = "e2e-encryption")]
@@ -173,6 +175,7 @@ impl BaseClient {
 
     /// Get a stream of all the rooms changes, in addition to the existing
     /// rooms.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn rooms_stream(&self) -> (Vector<Room>, impl Stream<Item = Vec<VectorDiff<Room>>>) {
         self.store.rooms_stream()
     }

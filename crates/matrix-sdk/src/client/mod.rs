@@ -23,9 +23,12 @@ use std::{
 };
 
 use eyeball::{SharedObservable, Subscriber};
+#[cfg(not(target_arch = "wasm32"))]
 use eyeball_im::VectorDiff;
 use futures_core::Stream;
+#[cfg(not(target_arch = "wasm32"))]
 use futures_util::StreamExt;
+#[cfg(not(target_arch = "wasm32"))]
 use imbl::Vector;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::store::LockableCryptoStore;
@@ -917,6 +920,7 @@ impl Client {
     }
 
     /// Get a stream of all the rooms, in addition to the existing rooms.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn rooms_stream(&self) -> (Vector<Room>, impl Stream<Item = Vec<VectorDiff<Room>>> + '_) {
         let (rooms, stream) = self.base_client().rooms_stream();
 
