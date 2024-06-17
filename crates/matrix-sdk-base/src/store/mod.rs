@@ -531,7 +531,7 @@ mod tests_observable_map {
         map.insert('b', 'f');
 
         let (initial_values, mut stream) = map.stream();
-        assert_eq!(initial_values.iter().cloned().collect::<Vec<_>>(), &['f']);
+        assert_eq!(initial_values.iter().copied().collect::<Vec<_>>(), &['f']);
 
         assert_pending!(stream);
 
