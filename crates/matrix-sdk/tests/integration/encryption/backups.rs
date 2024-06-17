@@ -1365,7 +1365,7 @@ async fn enable_from_secret_storage_and_download_after_utd() {
 /// decryption key from 4S.
 async fn init_client_secret_storage_and_backup(client: &Client, server: &wiremock::MockServer) {
     let store = init_secret_store(client, server).await;
-    mock_query_key_backup(&server).await;
+    mock_query_key_backup(server).await;
     store.import_secrets().await.unwrap();
 }
 
@@ -1374,7 +1374,7 @@ async fn init_secret_store(client: &Client, server: &wiremock::MockServer) -> Se
     const SECRET_STORE_KEY: &str = "mypassphrase";
     const KEY_ID: &str = "yJWwBm2Ts8jHygTBslKpABFyykavhhfA";
 
-    mock_secret_store_with_backup_key(client.user_id().unwrap(), KEY_ID, &server).await;
+    mock_secret_store_with_backup_key(client.user_id().unwrap(), KEY_ID, server).await;
     client
         .encryption()
         .secret_storage()
@@ -1406,7 +1406,7 @@ async fn mock_get_event(
         .and(header("authorization", "Bearer 1234"))
         .respond_with(ResponseTemplate::new(200).set_body_json(event_json))
         .expect(2)
-        .mount(&server)
+        .mount(server)
         .await;
 }
 
@@ -1426,6 +1426,6 @@ async fn mock_query_key_backup(server: &wiremock::MockServer) {
             "etag": "1",
             "version": "6"
         })))
-        .mount(&server)
+        .mount(server)
         .await;
 }
