@@ -27,13 +27,14 @@ use ruma::{
     events::{
         presence::PresenceEvent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
-        AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, EmptyStateKey, GlobalAccountDataEvent,
-        GlobalAccountDataEventContent, GlobalAccountDataEventType, RedactContent,
-        RedactedStateEventContent, RoomAccountDataEvent, RoomAccountDataEventContent,
-        RoomAccountDataEventType, StateEventType, StaticEventContent, StaticStateEventContent,
+        AnyGlobalAccountDataEvent, AnyMessageLikeEventContent, AnyRoomAccountDataEvent,
+        EmptyStateKey, EventContent as _, GlobalAccountDataEvent, GlobalAccountDataEventContent,
+        GlobalAccountDataEventType, RawExt, RedactContent, RedactedStateEventContent,
+        RoomAccountDataEvent, RoomAccountDataEventContent, RoomAccountDataEventType,
+        StateEventType, StaticEventContent, StaticStateEventContent,
     },
     serde::Raw,
-    EventId, MxcUri, OwnedEventId, OwnedUserId, RoomId, UserId,
+    EventId, MxcUri, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UserId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -369,14 +370,14 @@ pub trait StateStore: AsyncTraitDeps {
         request: &MediaRequest,
     ) -> Result<Option<Vec<u8>>, Self::Error>;
 
-    /// Removes a media file's content from the media store.
+    /// Remove a media file's content from the media store.
     ///
     /// # Arguments
     ///
     /// * `request` - The `MediaRequest` of the file.
     async fn remove_media_content(&self, request: &MediaRequest) -> Result<(), Self::Error>;
 
-    /// Removes all the media files' content associated to an `MxcUri` from the
+    /// Remove all the media files' content associated to an `MxcUri` from the
     /// media store.
     ///
     /// # Arguments
@@ -384,12 +385,50 @@ pub trait StateStore: AsyncTraitDeps {
     /// * `uri` - The `MxcUri` of the media files.
     async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<(), Self::Error>;
 
-    /// Removes a room and all elements associated from the state store.
+    /// Remove a room and all elements associated from the state store.
     ///
     /// # Arguments
     ///
     /// * `room_id` - The `RoomId` of the room to delete.
     async fn remove_room(&self, room_id: &RoomId) -> Result<(), Self::Error>;
+
+    /// Save an event to be sent by a send queue later.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The `RoomId` of the send queue's room.
+    /// * `transaction_id` - The unique key identifying the event to be sent
+    ///   (and its transaction). Note: this is expected to be randomly generated
+    ///   and thus unique.
+    /// * `content` - Serializable event content to be sent.
+    async fn save_send_queue_event(
+        &self,
+        room_id: &RoomId,
+        transaction_id: OwnedTransactionId,
+        content: SerializableEventContent,
+    ) -> Result<(), Self::Error>;
+
+    /// Remove an event previously inserted with [`Self::save_send_queue_event`]
+    /// from the database, based on its transaction id.
+    async fn remove_send_queue_event(
+        &self,
+        room_id: &RoomId,
+        transaction_id: &TransactionId,
+    ) -> Result<(), Self::Error>;
+
+    /// Loads all the send queue events for the given room.
+    async fn load_send_queue_events(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Vec<QueuedEvent>, Self::Error>;
+
+    /// Updates the send queue wedged status for a given send queue event.
+    async fn update_send_queue_event_status(
+        &self,
+        room_id: &RoomId,
+        transaction_id: &TransactionId,
+        wedged: bool,
+    ) -> Result<(), Self::Error>;
 }
 
 #[repr(transparent)]
@@ -612,6 +651,42 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
 
     async fn remove_room(&self, room_id: &RoomId) -> Result<(), Self::Error> {
         self.0.remove_room(room_id).await.map_err(Into::into)
+    }
+
+    async fn save_send_queue_event(
+        &self,
+        room_id: &RoomId,
+        transaction_id: OwnedTransactionId,
+        content: SerializableEventContent,
+    ) -> Result<(), Self::Error> {
+        self.0.save_send_queue_event(room_id, transaction_id, content).await.map_err(Into::into)
+    }
+
+    async fn remove_send_queue_event(
+        &self,
+        room_id: &RoomId,
+        transaction_id: &TransactionId,
+    ) -> Result<(), Self::Error> {
+        self.0.remove_send_queue_event(room_id, transaction_id).await.map_err(Into::into)
+    }
+
+    async fn load_send_queue_events(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Vec<QueuedEvent>, Self::Error> {
+        self.0.load_send_queue_events(room_id).await.map_err(Into::into)
+    }
+
+    async fn update_send_queue_event_status(
+        &self,
+        room_id: &RoomId,
+        transaction_id: &TransactionId,
+        wedged: bool,
+    ) -> Result<(), Self::Error> {
+        self.0
+            .update_send_queue_event_status(room_id, transaction_id, wedged)
+            .await
+            .map_err(Into::into)
     }
 }
 
@@ -931,4 +1006,61 @@ impl StateStoreDataKey<'_> {
     /// Key prefix to use for the [`ComposerDraft`][Self::ComposerDraft]
     /// variant.
     pub const COMPOSER_DRAFT: &'static str = "composer_draft";
+}
+
+/// A thin wrapper to serialize a `AnyMessageLikeEventContent`.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct SerializableEventContent {
+    event: Raw<AnyMessageLikeEventContent>,
+    event_type: String,
+}
+
+#[cfg(not(tarpaulin_include))]
+impl fmt::Debug for SerializableEventContent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Don't include the event in the debug display.
+        f.debug_struct("SerializedEventContent")
+            .field("event_type", &self.event_type)
+            .finish_non_exhaustive()
+    }
+}
+
+impl SerializableEventContent {
+    /// Create a [`SerializableEventContent`] from an
+    /// [`AnyMessageLikeEventContent`].
+    pub fn new(event: AnyMessageLikeEventContent) -> Result<Self, serde_json::Error> {
+        Ok(Self { event_type: event.event_type().to_string(), event: Raw::new(&event)? })
+    }
+
+    /// Convert a [`SerializableEventContent`] back into a
+    /// [`AnyMessageLikeEventContent`].
+    pub fn as_content(&self) -> Result<AnyMessageLikeEventContent, serde_json::Error> {
+        self.event.deserialize_with_type(self.event_type.clone().into())
+    }
+}
+
+/// An event to be sent with a send queue.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct QueuedEvent {
+    /// The content of the message-like event we'd like to send.
+    pub event: SerializableEventContent,
+
+    /// Unique transaction id for the queued event, acting as a key.
+    pub transaction_id: OwnedTransactionId,
+
+    /// If the event couldn't be sent because of an API error, it's marked as
+    /// wedged, and won't ever be peeked for sending. The only option is to
+    /// remove it.
+    pub is_wedged: bool,
+}
+
+#[cfg(not(tarpaulin_include))]
+impl fmt::Debug for QueuedEvent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Hide the content from the debug log.
+        f.debug_struct("QueuedEvent")
+            .field("transaction_id", &self.transaction_id)
+            .field("is_wedged", &self.is_wedged)
+            .finish_non_exhaustive()
+    }
 }

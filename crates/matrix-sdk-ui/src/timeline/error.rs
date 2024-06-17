@@ -14,8 +14,7 @@
 
 use matrix_sdk::{
     event_cache::{paginator::PaginatorError, EventCacheError},
-    send_queue::RoomSendQueueError,
-    StoreError,
+    send_queue::{RoomSendQueueError, RoomSendQueueStorageError},
 };
 use ruma::OwnedTransactionId;
 use thiserror::Error;
@@ -135,5 +134,5 @@ pub enum RedactEventError {
     SdkError(#[from] matrix_sdk::Error),
 
     #[error("an error happened while interacting with the room queue")]
-    RoomQueueError(#[source] StoreError),
+    RoomQueueError(#[source] RoomSendQueueStorageError),
 }
