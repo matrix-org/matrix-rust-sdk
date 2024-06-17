@@ -537,12 +537,7 @@ impl SessionManager {
                 };
 
                 let account = store_transaction.account().await?;
-                let device_keys = self
-                    .store
-                    .get_own_device()
-                    .await?
-                    .as_device_keys()
-                    .clone();
+                let device_keys = self.store.get_own_device().await?.as_device_keys().clone();
                 let session = match account.create_outbound_session(&device, key_map, device_keys) {
                     Ok(s) => s,
                     Err(e) => {
@@ -698,10 +693,7 @@ mod tests {
         store.save_pending_changes(PendingChanges { account: Some(account) }).await.unwrap();
         store
             .save_changes(Changes {
-                devices: DeviceChanges {
-                    new: vec![device],
-                    ..Default::default()
-                },
+                devices: DeviceChanges { new: vec![device], ..Default::default() },
                 ..Default::default()
             })
             .await
