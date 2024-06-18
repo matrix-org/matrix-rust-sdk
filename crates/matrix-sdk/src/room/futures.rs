@@ -32,7 +32,9 @@ use ruma::{
     serde::Raw,
     OwnedTransactionId, TransactionId,
 };
-use tracing::{debug, info, Instrument, Span};
+#[cfg(feature = "image-proc")]
+use tracing::debug;
+use tracing::{info, trace, Instrument, Span};
 
 use super::Room;
 #[cfg(feature = "image-proc")]
@@ -172,46 +174,44 @@ impl<'a> IntoFuture for SendRawMessageLikeEvent<'a> {
             Span::current().record("transaction_id", tracing::field::debug(&txn_id));
 
             #[cfg(not(feature = "e2e-encryption"))]
-            debug!("Sending plaintext event to room because we don't have encryption support.");
+            trace!("Sending plaintext event to room because we don't have encryption support.");
 
             #[cfg(feature = "e2e-encryption")]
-            if room.is_encrypted().await? {
-                Span::current().record("encrypted", true);
+            if !room.is_encrypted().await? {
+                Span::current().record("encrypted", false);
+                trace!("Sending plaintext event because the room is NOT encrypted.",);
+            } else if event_type == "m.reaction" {
                 // Reactions are currently famously not encrypted, skip encrypting
                 // them until they are.
-                if event_type == "m.reaction" {
-                    debug!("Sending plaintext event because of the event type.");
-                } else {
-                    debug!(
-                        room_id = ?room.room_id(),
-                        "Sending encrypted event because the room is encrypted.",
-                    );
-
-                    if !room.are_members_synced() {
-                        room.sync_members().await?;
-                    }
-
-                    // Query keys in case we don't have them for newly synced members.
-                    //
-                    // Note we do it all the time, because we might have sync'd members before
-                    // sending a message (so didn't enter the above branch), but
-                    // could have not query their keys ever.
-                    room.query_keys_for_untracked_users().await?;
-
-                    room.preshare_room_key().await?;
-
-                    let olm = room.client.olm_machine().await;
-                    let olm = olm.as_ref().expect("Olm machine wasn't started");
-
-                    content = olm
-                        .encrypt_room_event_raw(room.room_id(), event_type, &content)
-                        .await?
-                        .cast();
-                    event_type = "m.room.encrypted";
-                }
-            } else {
                 Span::current().record("encrypted", false);
-                debug!("Sending plaintext event because the room is NOT encrypted.",);
+                trace!("Sending plaintext event because of the event type.");
+            } else {
+                // Encrypt the event, since the room is encrypted.
+                Span::current().record("encrypted", true);
+                trace!(
+                    room_id = ?room.room_id(),
+                    "Sending encrypted event because the room is encrypted.",
+                );
+
+                if !room.are_members_synced() {
+                    room.sync_members().await?;
+                }
+
+                // Query keys in case we don't have them for newly synced members.
+                //
+                // Note we do it all the time, because we might have sync'd members before
+                // sending a message (so didn't enter the above branch), but
+                // could have not query their keys ever.
+                room.query_keys_for_untracked_users().await?;
+
+                room.preshare_room_key().await?;
+
+                let olm = room.client.olm_machine().await;
+                let olm = olm.as_ref().expect("Olm machine wasn't started");
+
+                content =
+                    olm.encrypt_room_event_raw(room.room_id(), event_type, &content).await?.cast();
+                event_type = "m.room.encrypted";
             };
 
             let request = send_message_event::v3::Request::new_raw(
