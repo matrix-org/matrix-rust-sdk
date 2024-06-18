@@ -244,7 +244,7 @@ impl DeviceCollector for DeviceBasedStrategy {
                 }
             });
 
-            if recipients.len() > 0 {
+            if !recipients.is_empty() {
                 allowed_devices.entry(user_id.to_owned()).or_default().extend(recipients);
             }
             withheld_devices.extend(withheld_recipients);
@@ -416,8 +416,7 @@ mod tests {
         let (_, code) = share_result
             .withheld_devices
             .iter()
-            .filter(|(d, _)| d.device_id().as_str() == "FRGNMZVOKA")
-            .nth(0)
+            .find(|(d, _)| d.device_id().as_str() == "FRGNMZVOKA")
             .expect("This dan's device should receive a withheld code");
 
         assert_eq!(code.as_str(), WithheldCode::Unverified.as_str());
@@ -425,8 +424,7 @@ mod tests {
         let (_, code) = share_result
             .withheld_devices
             .iter()
-            .filter(|(d, _)| d.device_id().as_str() == "HVCXJTHMBM")
-            .nth(0)
+            .find(|(d, _)| d.device_id().as_str() == "HVCXJTHMBM")
             .expect("This daves's device should receive a withheld code");
 
         assert_eq!(code.as_str(), WithheldCode::Unverified.as_str());
