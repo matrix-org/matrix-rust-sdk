@@ -746,7 +746,7 @@ mod tests {
     use serde_json::{json, Value};
 
     use crate::{
-        olm::{CollectRecipientsHelper, CollectStrategy},
+        olm::CollectStrategy,
         session_manager::group_sessions::CollectRecipientsResult,
         types::{
             events::room_key_withheld::{
@@ -1127,7 +1127,7 @@ mod tests {
             .await
             .expect("We should be able to collect the session recipients");
 
-        assert!(recipients[user_id].is_empty());
+        assert!(!recipients.contains_key(user_id));
 
         let device_id = "AFGUOBTZWM".into();
         let device = machine.get_device(user_id, device_id, None).await.unwrap().unwrap();
