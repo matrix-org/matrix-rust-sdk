@@ -360,7 +360,7 @@ impl Timeline {
         content: RoomMessageEventContentWithoutRelation,
         replied_to_info: RepliedToInfo,
         forward_thread: ForwardThread,
-    ) -> Result<(), SendEventError> {
+    ) -> Result<(), RoomSendQueueError> {
         let event_id = replied_to_info.event_id;
 
         // [The specification](https://spec.matrix.org/v1.10/client-server-api/#user-and-room-mentions) says:
@@ -403,12 +403,12 @@ impl Timeline {
     }
 
     /// Gives the information needed to reply to an event from an event id.
-    pub async fn get_replied_to_info_from_event_id(
+    pub async fn replied_to_info_from_event_id(
         &self,
         event_id: &EventId,
     ) -> Result<RepliedToInfo, UnsupportedReplyItem> {
         if let Some(timeline_item) = self.item_by_event_id(event_id).await {
-            return timeline_item.get_replied_to_info();
+            return timeline_item.replied_to_info();
         }
 
         let event = match self.room().event(event_id).await {
@@ -419,13 +419,17 @@ impl Timeline {
             }
         };
 
-        // We need to synthetise the TimelineitemContent and we can do that by casting
+        // We need to get the content and we can do that by casting
         // the event as a `AnySyncTimelineEvent` which is the same as a
         // `AnyTimelineEvent`, but without the `room_id` field.
         // The cast is valid because we are just losing track of such field.
         let raw_sync_event: Raw<AnySyncTimelineEvent> = event.event.cast();
-        let Ok(sync_event) = raw_sync_event.deserialize_as::<AnySyncTimelineEvent>() else {
-            return Err(UnsupportedReplyItem::FAILED_TO_DESERIALIZE_EVENT);
+        let sync_event = match raw_sync_event.deserialize() {
+            Ok(event) => event,
+            Err(error) => {
+                error!("Failed to deserialize event with ID {event_id} with error: {error}");
+                return Err(UnsupportedReplyItem::FAILED_TO_DESERIALIZE_EVENT);
+            }
         };
 
         let reply_content = match &sync_event {
@@ -471,7 +475,7 @@ impl Timeline {
         &self,
         new_content: RoomMessageEventContentWithoutRelation,
         edit_info: EditInfo,
-    ) -> Result<(), SendEventError> {
+    ) -> Result<(), RoomSendQueueError> {
         let original_content = edit_info.original_message;
         let event_id = edit_info.event_id;
 
@@ -505,13 +509,13 @@ impl Timeline {
         Ok(())
     }
 
-    /// Gives the information needed to edit an event from an event id.
-    pub async fn get_edit_info_from_event_id(
+    /// Give the information needed to edit an event from an event id.
+    pub async fn edit_info_from_event_id(
         &self,
         event_id: &EventId,
     ) -> Result<EditInfo, UnsupportedEditItem> {
         if let Some(timeline_item) = self.item_by_event_id(event_id).await {
-            return timeline_item.get_edit_info();
+            return timeline_item.edit_info();
         }
 
         let event = match self.room().event(event_id).await {
@@ -522,7 +526,7 @@ impl Timeline {
             }
         };
 
-        // We need to synthetise the TimelineitemContent and we can do that by casting
+        // We need to get the content and we can do that by casting
         // the event as a `AnySyncTimelineEvent` which is the same as a
         // `AnyTimelineEvent`, but without the `room_id` field.
         // The cast is valid because we are just losing track of such field.

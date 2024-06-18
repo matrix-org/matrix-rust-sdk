@@ -424,7 +424,7 @@ impl EventTimelineItem {
     }
 
     /// Gives the information needed to reply to the event of the item.
-    pub fn get_replied_to_info(&self) -> Result<RepliedToInfo, UnsupportedReplyItem> {
+    pub fn replied_to_info(&self) -> Result<RepliedToInfo, UnsupportedReplyItem> {
         let reply_content = match self.content() {
             TimelineItemContent::Message(msg) => ReplyContent::Message(msg.to_owned()),
             _ => {
@@ -449,7 +449,7 @@ impl EventTimelineItem {
     }
 
     /// Gives the information needed to edit the event of the item.
-    pub fn get_edit_info(&self) -> Result<EditInfo, UnsupportedEditItem> {
+    pub fn edit_info(&self) -> Result<EditInfo, UnsupportedEditItem> {
         if !self.is_own() {
             return Err(UnsupportedEditItem::NOT_OWN_EVENT);
         }

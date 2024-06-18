@@ -315,7 +315,7 @@ async fn test_send_reply() {
         .mount(&server)
         .await;
 
-    let replied_to_info = event_from_bob.get_replied_to_info().unwrap();
+    let replied_to_info = event_from_bob.replied_to_info().unwrap();
     timeline
         .send_reply(
             RoomMessageEventContentWithoutRelation::text_plain("Replying to Bob"),
@@ -423,7 +423,7 @@ async fn test_send_reply_to_self() {
         .mount(&server)
         .await;
 
-    let replied_to_info = event_from_self.get_replied_to_info().unwrap();
+    let replied_to_info = event_from_self.replied_to_info().unwrap();
     timeline
         .send_reply(
             RoomMessageEventContentWithoutRelation::text_plain("Replying to self"),
@@ -514,7 +514,7 @@ async fn test_send_reply_to_threaded() {
         .mount(&server)
         .await;
 
-    let replied_to_info = hello_world_item.get_replied_to_info().unwrap();
+    let replied_to_info = hello_world_item.replied_to_info().unwrap();
     timeline
         .send_reply(
             RoomMessageEventContentWithoutRelation::text_plain("Hello, Bob!"),
@@ -642,8 +642,7 @@ async fn test_send_reply_with_event_id() {
         .mount(&server)
         .await;
 
-    let replied_to_info =
-        timeline.get_replied_to_info_from_event_id(event_id_from_bob).await.unwrap();
+    let replied_to_info = timeline.replied_to_info_from_event_id(event_id_from_bob).await.unwrap();
     timeline
         .send_reply(
             RoomMessageEventContentWithoutRelation::text_plain("Replying to Bob"),
@@ -678,6 +677,10 @@ async fn test_send_reply_with_event_id() {
 
 #[async_test]
 async fn test_send_reply_with_event_id_that_is_redacted() {
+    // This test checks if is possible to reply to a redacted event that is not in
+    // the timeline. The event id will go through a process where the event is
+    // fetched and the content will be extracted and deserialised to be used in
+    // the reply.
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client_with_server().await;
     let event_builder = EventBuilder::new();
@@ -753,7 +756,7 @@ async fn test_send_reply_with_event_id_that_is_redacted() {
         .await;
 
     let replied_to_info =
-        timeline.get_replied_to_info_from_event_id(redacted_event_id_from_bob).await.unwrap();
+        timeline.replied_to_info_from_event_id(redacted_event_id_from_bob).await.unwrap();
     timeline
         .send_reply(
             RoomMessageEventContentWithoutRelation::text_plain("Replying to Bob"),

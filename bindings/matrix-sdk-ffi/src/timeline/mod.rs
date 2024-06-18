@@ -459,7 +459,7 @@ impl Timeline {
         let event_id = EventId::parse(event_id)?;
         let replied_to_info = self
             .inner
-            .get_replied_to_info_from_event_id(&event_id)
+            .replied_to_info_from_event_id(&event_id)
             .await
             .map_err(|err| anyhow::anyhow!(err))?;
 
@@ -478,7 +478,7 @@ impl Timeline {
         let event_id = EventId::parse(event_id)?;
         let edit_info = self
             .inner
-            .get_edit_info_from_event_id(&event_id)
+            .edit_info_from_event_id(&event_id)
             .await
             .map_err(|err| anyhow::anyhow!(err))?;
 
