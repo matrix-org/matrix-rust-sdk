@@ -183,12 +183,23 @@ impl From<qrcode::LoginProgress> for QrLoginProgress {
 #[uniffi(flat_error)]
 pub enum ClientBuildError {
     #[error(transparent)]
-    Sdk(#[from] MatrixClientBuildError),
+    Sdk(MatrixClientBuildError),
     #[error("The homeserver doesn't provide a trusted sliding sync proxy in its well-known configuration.")]
     SlidingSyncNotAvailable,
 
     #[error("Failed to build the client: {message}")]
     Generic { message: String },
+}
+
+impl From<MatrixClientBuildError> for ClientBuildError {
+    fn from(e: MatrixClientBuildError) -> Self {
+        match e {
+            MatrixClientBuildError::SlidingSyncNotAvailable => {
+                ClientBuildError::SlidingSyncNotAvailable
+            }
+            _ => ClientBuildError::Sdk(e),
+        }
+    }
 }
 
 impl From<IdParseError> for ClientBuildError {
@@ -571,6 +582,10 @@ impl ClientBuilder {
 
         inner_builder = inner_builder.with_encryption_settings(builder.encryption_settings);
 
+        if builder.requires_sliding_sync {
+            inner_builder = inner_builder.requires_sliding_sync();
+        }
+
         let sdk_client = inner_builder.build().await?;
 
         // At this point, `sdk_client` might contain a `sliding_sync_proxy` that has
@@ -588,10 +603,6 @@ impl ClientBuilder {
         // session, which not immediate to detect if there is no test.
         if let Some(sliding_sync_proxy) = builder.sliding_sync_proxy {
             sdk_client.set_sliding_sync_proxy(Some(Url::parse(&sliding_sync_proxy)?));
-        }
-
-        if builder.requires_sliding_sync && sdk_client.sliding_sync_proxy().is_none() {
-            return Err(ClientBuildError::SlidingSyncNotAvailable);
         }
 
         Ok(Client::new(sdk_client, builder.cross_process_refresh_lock_id, builder.session_delegate)
