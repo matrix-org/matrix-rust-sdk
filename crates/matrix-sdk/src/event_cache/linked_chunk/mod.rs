@@ -102,7 +102,7 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-use as_vector::*;
+pub use as_vector::AsVector;
 use updates::*;
 
 /// Errors of [`LinkedChunk`].

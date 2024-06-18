@@ -50,16 +50,41 @@ use crate::{
     unable_to_decrypt_hook::UtdHookManager,
 };
 
-/// Which end of the timeline should an event be added to?
-///
-/// This is a simplification of `TimelineItemPosition` which doesn't contain the
-/// `Update` variant, when adding a bunch of events at the same time.
-#[derive(Debug)]
-pub(crate) enum TimelineEnd {
-    /// Event should be prepended to the front of the timeline.
-    Front,
-    /// Event should appended to the back of the timeline.
-    Back,
+/// This is a simplification of [`TimelineItemPosition`] which doesn't contain
+/// the `Update` variant, because it is used only for **new** items.
+#[derive(Copy, Clone, Debug)]
+pub(crate) enum TimelineNewItemPosition {
+    /// One or more items are prepended to the timeline (i.e. they're the
+    /// oldest).
+    Start {
+        /// The origin of the new item(s).
+        origin: RemoteEventOrigin,
+    },
+
+    /// One or more items are appended to the timeline (i.e. they're the most
+    /// recent).
+    End {
+        /// The origin of the new item(s).
+        origin: RemoteEventOrigin,
+    },
+
+    /// One item is inserted to the timeline at a specific position.
+    At {
+        /// The index of the new **event**.
+        event_index: usize,
+        /// The origin of the new item.
+        origin: RemoteEventOrigin,
+    },
+}
+
+impl From<TimelineNewItemPosition> for TimelineItemPosition {
+    fn from(value: TimelineNewItemPosition) -> Self {
+        match value {
+            TimelineNewItemPosition::Start { origin } => Self::Start { origin },
+            TimelineNewItemPosition::End { origin } => Self::End { origin },
+            TimelineNewItemPosition::At { event_index, origin } => Self::At { event_index, origin },
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -94,25 +119,32 @@ impl TimelineInnerState {
 
     /// Add the given remove events at the given end of the timeline.
     ///
-    /// Note: when the `position` is [`TimelineEnd::Front`], prepended events
-    /// should be ordered in *reverse* topological order, that is, `events[0]`
-    /// is the most recent.
+    /// Note: when the `position` is [`TimelineNewItemPosition::Start`],
+    /// prepended events should be ordered in *reverse* topological order,
+    /// that is, `events[0]` is the most recent.
     #[tracing::instrument(skip(self, events, room_data_provider, settings))]
-    pub(super) async fn add_remote_events_at<P: RoomDataProvider>(
+    pub(super) async fn add_remote_events_at<Events, RoomData>(
         &mut self,
-        events: Vec<impl Into<SyncTimelineEvent>>,
-        position: TimelineEnd,
-        origin: RemoteEventOrigin,
-        room_data_provider: &P,
+        events: Events,
+        position: TimelineNewItemPosition,
+        room_data_provider: &RoomData,
         settings: &TimelineInnerSettings,
-    ) -> HandleManyEventsResult {
-        if events.is_empty() {
+    ) -> HandleManyEventsResult
+    where
+        Events: IntoIterator,
+        Events::IntoIter: ExactSizeIterator,
+        Events::Item: Into<SyncTimelineEvent>,
+        RoomData: RoomDataProvider,
+    {
+        let events = events.into_iter();
+
+        if events.len() == 0 {
             return Default::default();
         }
 
         let mut txn = self.transaction();
         let handle_many_res =
-            txn.add_remote_events_at(events, position, origin, room_data_provider, settings).await;
+            txn.add_remote_events_at(events, position, room_data_provider, settings).await;
         txn.commit();
 
         handle_many_res
@@ -202,7 +234,7 @@ impl TimelineInnerState {
     pub(super) async fn retry_event_decryption<P: RoomDataProvider, Fut>(
         &mut self,
         retry_one: impl Fn(Arc<TimelineItem>) -> Fut,
-        retry_indices: Vec<usize>,
+        retry_timeline_item_indices: Vec<usize>,
         push_rules_context: Option<(ruma::push::Ruleset, ruma::push::PushConditionRoomCtx)>,
         room_data_provider: &P,
         settings: &TimelineInnerSettings,
@@ -217,9 +249,9 @@ impl TimelineInnerState {
         // before the event being edited, if both were UTD. Keep track of
         // index change as UTDs are removed instead of updated.
         let mut offset = 0;
-        for idx in retry_indices {
-            let idx = idx - offset;
-            let Some(mut event) = retry_one(txn.items[idx].clone()).await else {
+        for timeline_item_index in retry_timeline_item_indices {
+            let timeline_item_index = timeline_item_index - offset;
+            let Some(mut event) = retry_one(txn.items[timeline_item_index].clone()).await else {
                 continue;
             };
 
@@ -230,7 +262,7 @@ impl TimelineInnerState {
             let handle_one_res = txn
                 .handle_remote_event(
                     event.into(),
-                    TimelineItemPosition::Update(idx),
+                    TimelineItemPosition::Update { timeline_item_index },
                     room_data_provider,
                     settings,
                     &mut day_divider_adjuster,
@@ -402,34 +434,35 @@ pub(in crate::timeline) struct TimelineInnerStateTransaction<'a> {
 impl TimelineInnerStateTransaction<'_> {
     /// Add the given remote events at the given end of the timeline.
     ///
-    /// Note: when the `position` is [`TimelineEnd::Front`], prepended events
-    /// should be ordered in *reverse* topological order, that is, `events[0]`
-    /// is the most recent.
+    /// Note: when the `position` is [`TimelineNewItemPosition::Start`],
+    /// prepended events should be ordered in *reverse* topological order,
+    /// that is, `events[0]` is the most recent.
     #[tracing::instrument(skip(self, events, room_data_provider, settings))]
-    pub(super) async fn add_remote_events_at<P: RoomDataProvider>(
+    pub(super) async fn add_remote_events_at<Events, RoomData>(
         &mut self,
-        events: Vec<impl Into<SyncTimelineEvent>>,
-        position: TimelineEnd,
-        origin: RemoteEventOrigin,
-        room_data_provider: &P,
+        events: Events,
+        position: TimelineNewItemPosition,
+        room_data_provider: &RoomData,
         settings: &TimelineInnerSettings,
-    ) -> HandleManyEventsResult {
+    ) -> HandleManyEventsResult
+    where
+        Events: IntoIterator,
+        Events::Item: Into<SyncTimelineEvent>,
+        RoomData: RoomDataProvider,
+    {
         let mut total = HandleManyEventsResult::default();
-
-        let position = match position {
-            TimelineEnd::Front => TimelineItemPosition::Start { origin },
-            TimelineEnd::Back => TimelineItemPosition::End { origin },
-        };
-
         let mut day_divider_adjuster = DayDividerAdjuster::default();
 
-        // Implementation note: when `position` is `TimelineEnd::Front`, events are in
-        // the reverse topological order. Prepending them one by one in the order they
-        // appear in the vector will thus result in the correct order.
+        // Implementation note: when `position` is `TimelineNewItemPosition::Start`,
+        // events are in the reverse topological order. Prepending them one by
+        // one in the order they appear in the vector will thus result in the
+        // correct order.
         //
         // For instance, if the new events are : [C, B, A], where C is the most recent
         // and A is the oldest: we prepend C, then prepend B, then prepend A,
         // resulting in [A, B, C, (previous events)], which is what we want.
+
+        let position = position.into();
 
         for event in events {
             let handle_one_res = self
@@ -675,8 +708,9 @@ impl TimelineInnerStateTransaction<'_> {
                     return false;
                 }
 
-                self.meta.all_events.push_front(event_meta.base_meta())
+                self.meta.all_events.push_front(event_meta.base_meta());
             }
+
             TimelineItemPosition::End { .. } => {
                 if event_already_exists(event_meta.event_id, &self.meta.all_events) {
                     return false;
@@ -684,8 +718,17 @@ impl TimelineInnerStateTransaction<'_> {
 
                 self.meta.all_events.push_back(event_meta.base_meta());
             }
+
+            TimelineItemPosition::At { event_index: index, .. } => {
+                if event_already_exists(event_meta.event_id, &self.meta.all_events) {
+                    return false;
+                }
+
+                self.meta.all_events.insert(index, event_meta.base_meta());
+            }
+
             #[cfg(feature = "e2e-encryption")]
-            TimelineItemPosition::Update(_) => {
+            TimelineItemPosition::Update { .. } => {
                 if let Some(event) =
                     self.meta.all_events.iter_mut().find(|e| e.event_id == event_meta.event_id)
                 {
@@ -705,11 +748,12 @@ impl TimelineInnerStateTransaction<'_> {
         if settings.track_read_receipts
             && matches!(
                 position,
-                TimelineItemPosition::Start { .. } | TimelineItemPosition::End { .. }
+                TimelineItemPosition::Start { .. }
+                    | TimelineItemPosition::End { .. }
+                    | TimelineItemPosition::At { .. }
             )
         {
             self.load_read_receipts_for_event(event_meta.event_id, room_data_provider).await;
-
             self.maybe_add_implicit_read_receipt(event_meta);
         }
 
@@ -908,7 +952,11 @@ pub(crate) struct FullEventMeta<'a> {
 
 impl<'a> FullEventMeta<'a> {
     fn base_meta(&self) -> EventMeta {
-        EventMeta { event_id: self.event_id.to_owned(), visible: self.visible }
+        EventMeta {
+            event_id: self.event_id.to_owned(),
+            timeline_item_index: None,
+            visible: self.visible,
+        }
     }
 }
 
@@ -917,6 +965,15 @@ impl<'a> FullEventMeta<'a> {
 pub(crate) struct EventMeta {
     /// The ID of the event.
     pub event_id: OwnedEventId,
+    /// A way to map an `event_index` (from `TimelineInnerMetadata::all_events`)
+    /// or `event_id` (from `Self::event_id`) to a `timeline_item_index`.
+    ///
+    /// It is `Some(_)` if the timeline item is something that doesn't _move_ in
+    /// the timeline, `None` otherwise.
+    ///
+    /// Something that _moves_ is an item that attaches to or groups with
+    /// another item.
+    pub timeline_item_index: Option<usize>,
     /// Whether the event is among the timeline items.
     pub visible: bool,
 }

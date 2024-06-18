@@ -307,6 +307,15 @@ impl DayDividerAdjuster {
 
                     let item = meta.new_timeline_item(VirtualTimelineItem::DayDivider(ts));
 
+                    // Shift all timeline item indices to the right after `at`!
+                    for event_meta in &mut meta.all_events {
+                        if let Some(index) = event_meta.timeline_item_index.as_mut() {
+                            if *index >= at {
+                                *index += 1;
+                            }
+                        }
+                    }
+
                     // Keep push semantics, if we're inserting at the front or the back.
                     if at == items.len() {
                         items.push_back(item);
@@ -343,12 +352,22 @@ impl DayDividerAdjuster {
                 }
 
                 DayDividerOperation::Remove(i) => {
-                    assert!(i >= max_i, "trying to replace at {i} < max_i={max_i}");
+                    assert!(i >= max_i, "trying to remove at {i} < max_i={max_i}");
 
                     let at = i64::try_from(i).unwrap() + offset;
                     assert!(at >= 0);
+                    let at = at as usize;
 
-                    let removed = items.remove(at as usize);
+                    // Shift all timeline item indices to the left after `at`!
+                    for event_meta in &mut meta.all_events {
+                        if let Some(index) = event_meta.timeline_item_index.as_mut() {
+                            if *index >= at {
+                                *index -= 1;
+                            }
+                        }
+                    }
+
+                    let removed = items.remove(at);
                     if !removed.is_day_divider() {
                         error!("we removed a non day-divider @ {i}: {:?}", removed.kind());
                     }

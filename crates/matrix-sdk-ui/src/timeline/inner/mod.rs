@@ -73,8 +73,8 @@ use crate::{
 mod state;
 
 pub(super) use self::state::{
-    EventMeta, FullEventMeta, TimelineEnd, TimelineInnerMetadata, TimelineInnerState,
-    TimelineInnerStateTransaction,
+    EventMeta, FullEventMeta, TimelineInnerMetadata, TimelineInnerState,
+    TimelineInnerStateTransaction, TimelineNewItemPosition,
 };
 
 /// Data associated to the current timeline focus.
@@ -342,8 +342,11 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                 .map_err(PaginationError::Paginator)?,
         };
 
-        self.add_events_at(pagination.events, TimelineEnd::Front, RemoteEventOrigin::Pagination)
-            .await;
+        self.add_events_at(
+            pagination.events,
+            TimelineNewItemPosition::Start { origin: RemoteEventOrigin::Pagination },
+        )
+        .await;
 
         Ok(pagination.hit_end_of_timeline)
     }
@@ -364,8 +367,11 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                 .map_err(PaginationError::Paginator)?,
         };
 
-        self.add_events_at(pagination.events, TimelineEnd::Back, RemoteEventOrigin::Pagination)
-            .await;
+        self.add_events_at(
+            pagination.events,
+            TimelineNewItemPosition::End { origin: RemoteEventOrigin::Pagination },
+        )
+        .await;
 
         Ok(pagination.hit_end_of_timeline)
     }
@@ -538,31 +544,100 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
     /// Handle a list of events at the given end of the timeline.
     ///
-    /// Note: when the `position` is [`TimelineEnd::Front`], prepended events
-    /// should be ordered in *reverse* topological order, that is, `events[0]`
-    /// is the most recent.
+    /// Note: when the `position` is [`TimelineNewItemPosition::Start`],
+    /// prepended events should be ordered in *reverse* topological order,
+    /// that is, `events[0]` is the most recent.
     ///
     /// Returns the number of timeline updates that were made.
-    pub(super) async fn add_events_at(
+    pub(super) async fn add_events_at<Events>(
         &self,
-        events: Vec<impl Into<SyncTimelineEvent>>,
-        position: TimelineEnd,
-        origin: RemoteEventOrigin,
-    ) -> HandleManyEventsResult {
-        if events.is_empty() {
+        events: Events,
+        position: TimelineNewItemPosition,
+    ) -> HandleManyEventsResult
+    where
+        Events: IntoIterator,
+        Events::IntoIter: ExactSizeIterator,
+        Events::Item: Into<SyncTimelineEvent>,
+    {
+        let events = events.into_iter();
+
+        if events.len() == 0 {
             return Default::default();
         }
 
         let mut state = self.state.write().await;
-        state
-            .add_remote_events_at(
-                events,
-                position,
-                origin,
-                &self.room_data_provider,
-                &self.settings,
-            )
-            .await
+        state.add_remote_events_at(events, position, &self.room_data_provider, &self.settings).await
+    }
+
+    pub(super) async fn add_events_with_diffs(
+        &self,
+        diffs: Vec<VectorDiff<SyncTimelineEvent>>,
+        origin: RemoteEventOrigin,
+    ) -> HandleManyEventsResult {
+        let mut result = Default::default();
+
+        if diffs.is_empty() {
+            return result;
+        }
+
+        let room_data_provider = &self.room_data_provider;
+        let settings = &self.settings;
+        let mut state = self.state.write().await;
+
+        for diff in diffs {
+            let HandleManyEventsResult { items_added, items_updated } = match diff {
+                VectorDiff::Append { values: events } => {
+                    state
+                        .add_remote_events_at(
+                            events,
+                            TimelineNewItemPosition::End { origin },
+                            room_data_provider,
+                            settings,
+                        )
+                        .await
+                }
+
+                VectorDiff::PushFront { value } => {
+                    state
+                        .add_remote_events_at(
+                            [value],
+                            TimelineNewItemPosition::Start { origin },
+                            room_data_provider,
+                            settings,
+                        )
+                        .await
+                }
+
+                VectorDiff::PushBack { value } => {
+                    state
+                        .add_remote_events_at(
+                            [value],
+                            TimelineNewItemPosition::End { origin },
+                            room_data_provider,
+                            settings,
+                        )
+                        .await
+                }
+
+                VectorDiff::Insert { index: event_index, value } => {
+                    state
+                        .add_remote_events_at(
+                            [value],
+                            TimelineNewItemPosition::At { event_index, origin },
+                            room_data_provider,
+                            settings,
+                        )
+                        .await
+                }
+
+                diff => unimplemented!("Unsupported `VectorDiff` {diff:?}"),
+            };
+
+            result.items_added = items_added;
+            result.items_updated = items_updated;
+        }
+
+        result
     }
 
     pub(super) async fn clear(&self) {
@@ -597,8 +672,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             state
                 .add_remote_events_at(
                     events,
-                    TimelineEnd::Back,
-                    origin,
+                    TimelineNewItemPosition::End { origin },
                     &self.room_data_provider,
                     &self.settings,
                 )
@@ -632,8 +706,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         state
             .add_remote_events_at(
                 vec![event],
-                TimelineEnd::Back,
-                RemoteEventOrigin::Sync,
+                TimelineNewItemPosition::End { origin: RemoteEventOrigin::Sync },
                 &self.room_data_provider,
                 &self.settings,
             )
@@ -850,7 +923,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             }
         };
 
-        let retry_indices: Vec<_> = state
+        let retry_timeline_item_indices: Vec<_> = state
             .items
             .iter()
             .enumerate()
@@ -866,7 +939,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             })
             .collect();
 
-        if retry_indices.is_empty() {
+        if retry_timeline_item_indices.is_empty() {
             return;
         }
 
@@ -941,7 +1014,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             state
                 .retry_event_decryption(
                     retry_one,
-                    retry_indices,
+                    retry_timeline_item_indices,
                     push_rules_context,
                     &room_data_provider,
                     &settings,

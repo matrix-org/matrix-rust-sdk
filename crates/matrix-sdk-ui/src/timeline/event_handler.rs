@@ -219,17 +219,34 @@ impl TimelineEventKind {
 pub(super) enum TimelineItemPosition {
     /// One or more items are prepended to the timeline (i.e. they're the
     /// oldest).
-    Start { origin: RemoteEventOrigin },
+    Start {
+        /// The origin of the new item(s).
+        origin: RemoteEventOrigin,
+    },
 
     /// One or more items are appended to the timeline (i.e. they're the most
     /// recent).
-    End { origin: RemoteEventOrigin },
+    End {
+        /// The origin of the new item(s).
+        origin: RemoteEventOrigin,
+    },
+
+    /// One item is inserted to the timeline at a specific position.
+    At {
+        /// The index of the new **event**.
+        event_index: usize,
+        /// The origin of the new item.
+        origin: RemoteEventOrigin,
+    },
 
     /// A single item is updated.
     ///
     /// This only happens when a UTD must be replaced with the decrypted event.
     #[cfg(feature = "e2e-encryption")]
-    Update(usize),
+    Update {
+        /// The index of the **timeline item**.
+        timeline_item_index: usize,
+    },
 }
 
 /// The outcome of handling a single event with
@@ -316,12 +333,13 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
                 // Retrieve the origin of the event.
                 let origin = match position {
-                    TimelineItemPosition::End { origin }
-                    | TimelineItemPosition::Start { origin } => *origin,
+                    TimelineItemPosition::Start { origin }
+                    | TimelineItemPosition::End { origin }
+                    | TimelineItemPosition::At { origin, .. } => *origin,
 
-                    TimelineItemPosition::Update(idx) => self
+                    TimelineItemPosition::Update { timeline_item_index: index } => self
                         .items
-                        .get(*idx)
+                        .get(*index)
                         .and_then(|item| item.as_event())
                         .and_then(|item| item.as_remote())
                         .map_or(RemoteEventOrigin::Unknown, |item| item.origin),
@@ -456,12 +474,25 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             trace!("No new item added");
 
             #[cfg(feature = "e2e-encryption")]
-            if let Flow::Remote { position: TimelineItemPosition::Update(idx), .. } = self.ctx.flow
+            if let Flow::Remote {
+                position: TimelineItemPosition::Update { timeline_item_index },
+                ..
+            } = self.ctx.flow
             {
                 // If add was not called, that means the UTD event is one that
                 // wouldn't normally be visible. Remove it.
                 trace!("Removing UTD that was successfully retried");
-                self.items.remove(idx);
+
+                // Shift all timeline item indices to the left after `timeline_item_index`!
+                for event_meta in &mut self.meta.all_events {
+                    if let Some(index) = event_meta.timeline_item_index.as_mut() {
+                        if *index >= timeline_item_index {
+                            *index -= 1;
+                        }
+                    }
+                }
+
+                self.items.remove(timeline_item_index);
 
                 self.result.item_removed = true;
             }
@@ -892,11 +923,13 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
                 let origin = match *position {
                     TimelineItemPosition::Start { origin }
-                    | TimelineItemPosition::End { origin } => origin,
+                    | TimelineItemPosition::End { origin }
+                    | TimelineItemPosition::At { origin, .. } => origin,
 
                     // For updates, reuse the origin of the encrypted event.
                     #[cfg(feature = "e2e-encryption")]
-                    TimelineItemPosition::Update(idx) => self.items[idx]
+                    TimelineItemPosition::Update { timeline_item_index: index } => self.items
+                        [index]
                         .as_event()
                         .and_then(|ev| Some(ev.as_remote()?.origin))
                         .unwrap_or_else(|| {
@@ -930,94 +963,185 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 self.items.push_back(item);
             }
 
-            Flow::Remote { position: TimelineItemPosition::Start { .. }, event_id, .. } => {
-                if self
-                    .items
-                    .iter()
-                    .filter_map(|ev| ev.as_event()?.event_id())
-                    .any(|id| id == event_id)
-                {
-                    trace!("Skipping back-paginated event that has already been seen");
-                    return;
-                }
-
-                trace!("Adding new remote timeline item at the start");
-
-                let item = self.meta.new_timeline_item(item);
-                self.items.push_front(item);
-            }
-
             Flow::Remote {
-                position: TimelineItemPosition::End { .. }, txn_id, event_id, ..
+                position: position @ TimelineItemPosition::Start { .. },
+                txn_id,
+                event_id,
+                ..
+            }
+            | Flow::Remote {
+                position: position @ TimelineItemPosition::End { .. },
+                txn_id,
+                event_id,
+                ..
+            }
+            | Flow::Remote {
+                position: position @ TimelineItemPosition::At { .. },
+                txn_id,
+                event_id,
+                ..
             } => {
-                // Look if we already have a corresponding item somewhere, based on the
-                // transaction id (if a local echo) or the event id (if a
-                // duplicate remote event).
-                let result = rfind_event_item(self.items, |it| {
-                    txn_id.is_some() && it.transaction_id() == txn_id.as_deref()
-                        || it.event_id() == Some(event_id)
-                });
+                // This block tries to find duplicated events.
+                //
+                // TODO: It must be removed once the `EventCache` handles duplication. The
+                // `Timeline` must not have to handle that.
+                let removed_event_item_id = {
+                    // Look if we already have a corresponding item somewhere, based on the
+                    // transaction id (if a local echo) or the event id (if a
+                    // duplicate remote event).
+                    let result = rfind_event_item(self.items, |it| {
+                        txn_id.is_some() && it.transaction_id() == txn_id.as_deref()
+                            || it.event_id() == Some(event_id)
+                    });
 
-                let mut removed_event_item_id = None;
+                    if let Some((idx, old_item)) = result {
+                        if old_item.as_remote().is_some() {
+                            // Item was previously received from the server. This should be very
+                            // rare normally, but with the sliding-sync
+                            // proxy, it is actually very common.
+                            // NOTE: SS proxy workaround.
+                            trace!(?item, old_item = ?*old_item, "Received duplicate event");
 
-                if let Some((idx, old_item)) = result {
-                    if old_item.as_remote().is_some() {
-                        // Item was previously received from the server. This should be very rare
-                        // normally, but with the sliding- sync proxy, it is actually very
-                        // common.
-                        // NOTE: SS proxy workaround.
-                        trace!(?item, old_item = ?*old_item, "Received duplicate event");
+                            if old_item.content.is_redacted() && !item.content.is_redacted() {
+                                warn!("Got original form of an event that was previously redacted");
+                                item.content = item.content.redact(&self.meta.room_version);
+                                item.as_remote_mut()
+                                    .expect("Can't have a local item when flow == Remote")
+                                    .reactions
+                                    .clear();
+                            }
+                        }
 
-                        if old_item.content.is_redacted() && !item.content.is_redacted() {
-                            warn!("Got original form of an event that was previously redacted");
-                            item.content = item.content.redact(&self.meta.room_version);
-                            item.as_remote_mut()
-                                .expect("Can't have a local item when flow == Remote")
-                                .reactions
-                                .clear();
+                        // TODO: Check whether anything is different about the
+                        //       old and new item?
+
+                        transfer_details(&mut item, &old_item);
+
+                        let old_item_id = old_item.internal_id;
+
+                        if idx == self.items.len() - 1 {
+                            // If the old item is the last one and no day divider
+                            // changes need to happen, replace and return early.
+                            trace!(idx, "Replacing existing event");
+                            self.items.set(idx, TimelineItem::new(item, old_item_id.to_owned()));
+                            return;
+                        }
+
+                        // In more complex cases, remove the item before re-adding the item.
+                        trace!("Removing local echo or duplicate timeline item");
+
+                        // Shift all timeline item indices to the left after `idx`!
+                        for event_meta in &mut self.meta.all_events {
+                            if let Some(index) = event_meta.timeline_item_index.as_mut() {
+                                if *index >= idx {
+                                    *index -= 1;
+                                }
+                            }
+                        }
+
+                        Some(self.items.remove(idx).internal_id.clone())
+
+                        // no return here, below code for adding a new event
+                        // will run to re-add the removed item
+                    } else if txn_id.is_some() {
+                        warn!(
+                            "Received event with transaction ID, but didn't \
+                             find matching timeline item"
+                        );
+
+                        None
+                    } else {
+                        None
+                    }
+                };
+
+                let (event_index, timeline_item_index) = match position {
+                    TimelineItemPosition::Start { .. }
+                    | TimelineItemPosition::At { event_index: 0, .. } => (0, 0),
+                    TimelineItemPosition::End { .. } => {
+                        (
+                            self.meta.all_events.len().checked_sub(1).unwrap_or(0),
+                            // Insert the next item after the latest timeline item that's not a
+                            // pending local echo, or at the start if there is no such item.
+                            // Local echoes that are pending should stick to the bottom,
+                            // find the latest event that isn't that.
+                            self.items
+                                .iter()
+                                .enumerate()
+                                .rev()
+                                .find_map(|(index, item)| {
+                                    (!item.as_event()?.is_local_echo()).then_some(index)
+                                })
+                                .map_or(0, |index| index + 1),
+                        )
+                    }
+                    TimelineItemPosition::At { event_index, .. } => {
+                        let event_index = *event_index;
+
+                        // Look for the closest `timeline_item_index` at the left of the current
+                        // event.
+                        let timeline_item_index = self
+                            .meta
+                            .all_events
+                            // The events at the left.
+                            //
+                            // Note: the case where `event_index = 0` is matched with
+                            // `TimelineItemPosition::Start`.
+                            .range(0..=event_index)
+                            // In reverse order, because we want to find the closest.
+                            .rev()
+                            .find_map(|event_meta| event_meta.timeline_item_index)
+                            // The new `timeline_item_index` is the previous + 1.
+                            .map(|timeline_item_index| timeline_item_index + 1)
+                            //
+                            // No index? Look for the closest `timeline_item_index` at the right of
+                            // the current event.
+                            .or_else(|| {
+                                self.meta
+                                    .all_events
+                                    // The events at the right.
+                                    .range(event_index + 1..)
+                                    .find_map(|event_meta| event_meta.timeline_item_index)
+                            })
+                            //
+                            // No index? Well, it means there is no existing `timeline_item_index`
+                            // so we are inserting at position 0.
+                            .unwrap_or(0);
+
+                        (event_index, timeline_item_index)
+                    }
+                    TimelineItemPosition::Update { .. } => unreachable!(),
+                };
+
+                // Update the mapping from event index to timeline item index.
+                {
+                    // Ensure `all_events` is consistent.
+                    debug_assert_eq!(
+                        &self
+                            .meta
+                            .all_events
+                            .get(event_index)
+                            .expect("Event is missing from `all_events`")
+                            .event_id,
+                        event_id
+                    );
+
+                    // Shift all timeline item indices to the right after `timeline_item_index`!
+                    for event_meta in &mut self.meta.all_events {
+                        if let Some(index) = event_meta.timeline_item_index.as_mut() {
+                            if *index >= timeline_item_index {
+                                *index += 1;
+                            }
                         }
                     }
 
-                    // TODO: Check whether anything is different about the
-                    //       old and new item?
+                    let Some(event_meta) = self.meta.all_events.get_mut(event_index) else {
+                        panic!("Event `{event_index}` is missing from `all_events`, it is inconsistent");
+                    };
 
-                    transfer_details(&mut item, &old_item);
-
-                    let old_item_id = old_item.internal_id;
-
-                    if idx == self.items.len() - 1 {
-                        // If the old item is the last one and no day divider
-                        // changes need to happen, replace and return early.
-                        trace!(idx, "Replacing existing event");
-                        self.items.set(idx, TimelineItem::new(item, old_item_id.to_owned()));
-                        return;
-                    }
-
-                    // In more complex cases, remove the item before re-adding the item.
-                    trace!("Removing local echo or duplicate timeline item");
-                    removed_event_item_id = Some(self.items.remove(idx).internal_id.clone());
-
-                    // no return here, below code for adding a new event
-                    // will run to re-add the removed item
-                } else if txn_id.is_some() {
-                    warn!(
-                        "Received event with transaction ID, but didn't \
-                         find matching timeline item"
-                    );
+                    // The event index maps to a timeline item index!
+                    event_meta.timeline_item_index = Some(timeline_item_index);
                 }
-
-                // Local echoes that are pending should stick to the bottom,
-                // find the latest event that isn't that.
-                let latest_event_idx = self
-                    .items
-                    .iter()
-                    .enumerate()
-                    .rev()
-                    .find_map(|(idx, item)| (!item.as_event()?.is_local_echo()).then_some(idx));
-
-                // Insert the next item after the latest event item that's not a
-                // pending local echo, or at the start if there is no such item.
-                let insert_idx = latest_event_idx.map_or(0, |idx| idx + 1);
 
                 trace!("Adding new remote timeline item after all non-pending events");
                 let new_item = match removed_event_item_id {
@@ -1028,21 +1152,31 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     None => self.meta.new_timeline_item(item),
                 };
 
-                // Keep push semantics, if we're inserting at the front or the back.
-                if insert_idx == self.items.len() {
+                // Keep push semantics, if we're inserting at the front, the back, or in the
+                // middle.
+                if timeline_item_index == self.items.len() {
+                    trace!("Adding new remote timeline item at the back");
                     self.items.push_back(new_item);
-                } else if insert_idx == 0 {
+                } else if timeline_item_index == 0 {
+                    trace!("Adding new remote timeline item at the front");
                     self.items.push_front(new_item);
                 } else {
-                    self.items.insert(insert_idx, new_item);
+                    trace!(
+                        timeline_item_index,
+                        "Adding new remote timeline item at specific index"
+                    );
+                    self.items.insert(timeline_item_index, new_item);
                 }
             }
 
             #[cfg(feature = "e2e-encryption")]
-            Flow::Remote { position: TimelineItemPosition::Update(idx), .. } => {
-                trace!("Updating timeline item at position {idx}");
-                let id = self.items[*idx].internal_id.clone();
-                self.items.set(*idx, TimelineItem::new(item, id));
+            Flow::Remote {
+                position: TimelineItemPosition::Update { timeline_item_index: index },
+                ..
+            } => {
+                trace!("Updating timeline item at position {index}");
+                let id = self.items[*index].internal_id.clone();
+                self.items.set(*index, TimelineItem::new(item, id));
             }
         }
 

@@ -1,6 +1,7 @@
 use std::{future::ready, ops::ControlFlow, time::Duration};
 
 use assert_matches2::{assert_let, assert_matches};
+use eyeball_im::VectorDiff;
 use matrix_sdk::{
     event_cache::{
         BackPaginationOutcome, EventCacheError, RoomEventCacheUpdate,
@@ -116,6 +117,8 @@ async fn test_add_initial_events() {
     // Which contains the event that was sent beforehand.
     assert_let!(RoomEventCacheUpdate::AddTimelineEvents { events, .. } = update);
     assert_eq!(events.len(), 1);
+    assert_let!(VectorDiff::Append { values: events } = &events[0]);
+    assert_eq!(events.len(), 1);
     assert_event_matches_msg(&events[0], "bonjour monde");
 
     // And when I later add initial events to this room,
@@ -141,6 +144,8 @@ async fn test_add_initial_events() {
         .expect("timeout after receiving a sync update")
         .expect("should've received a room event cache update");
     assert_let!(RoomEventCacheUpdate::AddTimelineEvents { events, .. } = update);
+    assert_eq!(events.len(), 1);
+    assert_let!(VectorDiff::Append { values: events } = &events[0]);
     assert_eq!(events.len(), 1);
     assert_event_matches_msg(&events[0], "new choice!");
 
@@ -244,6 +249,8 @@ async fn test_ignored_unignored() {
         .expect("should've received a room event cache update");
 
     assert_let!(RoomEventCacheUpdate::AddTimelineEvents { events, .. } = update);
+    assert_eq!(events.len(), 1);
+    assert_let!(VectorDiff::Append { values: events } = &events[0]);
     assert_eq!(events.len(), 1);
     assert_event_matches_msg(&events[0], "i don't like this dexter");
 
@@ -383,6 +390,19 @@ async fn test_backpaginate_once() {
     assert_event_matches_msg(&events[1], "hello");
     assert_eq!(events.len(), 2);
 
+    // I'll get all the previous events, as `VectorDiff`.
+    assert_matches!(
+        room_stream.recv().await.expect("failed to read `room_stream`"),
+        RoomEventCacheUpdate::AddTimelineEvents { events, .. }
+    );
+    assert_eq!(events.len(), 2);
+
+    assert_matches!(&events[0], VectorDiff::Insert { index: 0, value: event });
+    assert_event_matches_msg(event, "hello");
+
+    assert_matches!(&events[1], VectorDiff::Insert { index: 1, value: event });
+    assert_event_matches_msg(event, "world");
+
     assert!(room_stream.is_empty());
 }
 
@@ -490,8 +510,34 @@ async fn test_backpaginate_many_times_with_many_iterations() {
     assert_event_matches_msg(&global_events[2], "oh well");
     assert_eq!(global_events.len(), 3);
 
+    // I'll get all the previous events, as `VectorDiff`.
+    // … First batch.
+    assert_matches!(
+        room_stream.recv().await.expect("failed to read `room_stream`"),
+        RoomEventCacheUpdate::AddTimelineEvents { events, .. }
+    );
+    assert_eq!(events.len(), 2);
+
+    assert_matches!(&events[0], VectorDiff::Insert { index: 0, value: event });
+    assert_event_matches_msg(event, "hello");
+
+    assert_matches!(&events[1], VectorDiff::Insert { index: 1, value: event });
+    assert_event_matches_msg(event, "world");
+
+    // … Second batch.
+    assert_matches!(
+        room_stream.recv().await.expect("failed to read `room_stream`"),
+        RoomEventCacheUpdate::AddTimelineEvents { events, .. }
+    );
+    assert_eq!(events.len(), 1);
+
+    assert_matches!(&events[0], VectorDiff::Insert { index: 0, value: event });
+    assert_event_matches_msg(event, "oh well");
+
+    assert!(room_stream.is_empty());
+
     // And next time I'll open the room, I'll get the events in the right order.
-    let (events, _receiver) = room_event_cache.subscribe().await.unwrap();
+    let (events, room_stream) = room_event_cache.subscribe().await.unwrap();
 
     assert_event_matches_msg(&events[0], "oh well");
     assert_event_matches_msg(&events[1], "hello");
@@ -499,6 +545,7 @@ async fn test_backpaginate_many_times_with_many_iterations() {
     assert_event_matches_msg(&events[3], "heyo");
     assert_eq!(events.len(), 4);
 
+    // And I'll get zero update from the stream.
     assert!(room_stream.is_empty());
 }
 
@@ -610,8 +657,34 @@ async fn test_backpaginate_many_times_with_one_iteration() {
     assert_event_matches_msg(&global_events[2], "oh well");
     assert_eq!(global_events.len(), 3);
 
+    // I'll get all the previous events, as `VectorDiff`.
+    // … First batch.
+    assert_matches!(
+        room_stream.recv().await.expect("failed to read `room_stream`"),
+        RoomEventCacheUpdate::AddTimelineEvents { events, .. }
+    );
+    assert_eq!(events.len(), 2);
+
+    assert_matches!(&events[0], VectorDiff::Insert { index: 0, value: event });
+    assert_event_matches_msg(event, "hello");
+
+    assert_matches!(&events[1], VectorDiff::Insert { index: 1, value: event });
+    assert_event_matches_msg(event, "world");
+
+    // … Second batch.
+    assert_matches!(
+        room_stream.recv().await.expect("failed to read `room_stream`"),
+        RoomEventCacheUpdate::AddTimelineEvents { events, .. }
+    );
+    assert_eq!(events.len(), 1);
+
+    assert_matches!(&events[0], VectorDiff::Insert { index: 0, value: event });
+    assert_event_matches_msg(event, "oh well");
+
+    assert!(room_stream.is_empty());
+
     // And next time I'll open the room, I'll get the events in the right order.
-    let (events, _receiver) = room_event_cache.subscribe().await.unwrap();
+    let (events, room_stream) = room_event_cache.subscribe().await.unwrap();
 
     assert_event_matches_msg(&events[0], "oh well");
     assert_event_matches_msg(&events[1], "hello");
@@ -619,6 +692,7 @@ async fn test_backpaginate_many_times_with_one_iteration() {
     assert_event_matches_msg(&events[3], "heyo");
     assert_eq!(events.len(), 4);
 
+    // And I'll get zero update from the stream.
     assert!(room_stream.is_empty());
 }
 
@@ -785,7 +859,7 @@ async fn test_backpaginating_without_token() {
     let (room_event_cache, _drop_handles) =
         client.get_room(room_id).unwrap().event_cache().await.unwrap();
 
-    let (events, room_stream) = room_event_cache.subscribe().await.unwrap();
+    let (events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
 
     assert!(events.is_empty());
     assert!(room_stream.is_empty());
@@ -815,6 +889,17 @@ async fn test_backpaginating_without_token() {
     // And we get notified about the new event.
     assert_event_matches_msg(&events[0], "hi");
     assert_eq!(events.len(), 1);
+
+    // I'll get all the previous events, as `VectorDiff`.
+    // … First batch.
+    assert_matches!(
+        room_stream.recv().await.expect("failed to read `room_stream`"),
+        RoomEventCacheUpdate::AddTimelineEvents { events, .. }
+    );
+    assert_eq!(events.len(), 1);
+
+    assert_matches!(&events[0], VectorDiff::Append { values: sub_events });
+    assert_event_matches_msg(&sub_events[0], "hi");
 
     assert!(room_stream.is_empty());
 }

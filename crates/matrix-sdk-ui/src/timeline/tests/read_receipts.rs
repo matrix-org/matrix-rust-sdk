@@ -303,7 +303,7 @@ async fn test_read_receipts_updates_on_back_paginated_filtered_events() {
         .await;
 
     // No read receipt for our own user.
-    let item_a = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
+    let item_a = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let event_a = item_a.as_event().unwrap();
     assert!(event_a.read_receipts().is_empty());
 
