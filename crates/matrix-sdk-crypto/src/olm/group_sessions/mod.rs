@@ -17,12 +17,15 @@ use serde::{Deserialize, Serialize};
 
 mod inbound;
 mod outbound;
+mod share_strategy;
 
 pub use inbound::{InboundGroupSession, PickledInboundGroupSession};
 pub(crate) use outbound::ShareState;
 pub use outbound::{
     EncryptionSettings, OutboundGroupSession, PickledOutboundGroupSession, ShareInfo,
 };
+pub(crate) use share_strategy::{CollectRecipientsHelper, CollectRecipientsResult};
+pub use share_strategy::{CollectStrategy, DeviceBasedStrategy};
 use thiserror::Error;
 pub use vodozemac::megolm::{ExportedSessionKey, SessionKey};
 use vodozemac::{megolm::SessionKeyDecodeError, Curve25519PublicKey};

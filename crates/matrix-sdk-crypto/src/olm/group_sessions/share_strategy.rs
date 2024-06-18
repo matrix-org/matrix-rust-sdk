@@ -1,0 +1,434 @@
+// Copyright 2024 The Matrix.org Foundation C.I.C.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    ops::Deref,
+};
+
+use itertools::{Either, Itertools};
+use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, UserId};
+use serde::{Deserialize, Serialize};
+use tracing::{debug, trace};
+
+use super::OutboundGroupSession;
+use crate::{
+    error::OlmResult, store::Store, types::events::room_key_withheld::WithheldCode,
+    EncryptionSettings, ReadOnlyDevice,
+};
+
+/// Returned by `collect_session_recipients`.
+///
+/// Information indicating whether the session needs to be rotated
+/// (`should_rotate`) and the list of users/devices that should receive
+/// (`devices`) or not the session,  including withheld reason
+/// `withheld_devices`.
+#[derive(Debug)]
+pub(crate) struct CollectRecipientsResult {
+    /// If true the outbound group session should be rotated
+    pub should_rotate: bool,
+    /// The map of user|device that should receive the session
+    pub devices: BTreeMap<OwnedUserId, Vec<ReadOnlyDevice>>,
+    /// The map of user|device that won't receive the key with the withheld
+    /// code.
+    pub withheld_devices: Vec<(ReadOnlyDevice, WithheldCode)>,
+}
+
+struct KeySharingResult {
+    /// The map of user|device that should have access to current room key
+    pub allowed_devices: BTreeMap<OwnedUserId, Vec<ReadOnlyDevice>>,
+    /// The map of user|device that won't receive the room key with the withheld
+    /// code.
+    pub withheld_devices: Vec<(ReadOnlyDevice, WithheldCode)>,
+}
+
+trait DeviceCollector {
+    async fn collect_session_recipients(
+        &self,
+        store: &Store,
+        users: BTreeSet<&UserId>,
+    ) -> OlmResult<KeySharingResult>;
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub(crate) struct CollectRecipientsHelper {
+    pub(crate) collection_strategy: CollectStrategy,
+}
+
+/// Strategy to collect the devices that should receive room keys for the
+/// current discussion.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum CollectStrategy {
+    /// Device based sharing strategy.
+    DeviceBased(DeviceBasedStrategy),
+    // XXX some new strategy to be defined later
+}
+
+impl CollectStrategy {
+    /// Creates a new legacy strategy, based on per device trust.
+    pub const fn new_device_based(only_allow_trusted_devices: bool) -> Self {
+        CollectStrategy::DeviceBased(DeviceBasedStrategy { only_allow_trusted_devices })
+    }
+}
+
+impl Default for CollectStrategy {
+    fn default() -> Self {
+        CollectStrategy::new_device_based(false)
+    }
+}
+
+/// Device based sharing strategy.
+/// With this strategy every device will be considered for sharing, looking at
+/// them individually.
+/// By default all devices will receive the key unless
+/// `only_allow_trusted_devices` is set to true. Individual devices can be
+/// blacklisted.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DeviceBasedStrategy {
+    /// If `true`, devices that are not trusted will be excluded from the
+    /// conversation. A device is trusted if any of the following is true:
+    ///     - It was manually marked as trusted.
+    ///     - It was marked as verified via interactive verification.
+    ///     - It is signed by it's owner identity, and this identity has been
+    ///       trusted via interactive verification.
+    ///     - It is the current own device of the user.
+    pub only_allow_trusted_devices: bool,
+}
+
+impl CollectRecipientsHelper {
+    pub(crate) async fn collect_session_recipients(
+        &self,
+        settings: &EncryptionSettings,
+        store: &Store,
+        users: impl Iterator<Item = &UserId>,
+        outbound: &OutboundGroupSession,
+    ) -> OlmResult<CollectRecipientsResult> {
+        let users: BTreeSet<&UserId> = users.collect();
+
+        let users_shared_with: BTreeSet<OwnedUserId> =
+            outbound.shared_with_set.read().unwrap().keys().cloned().collect();
+
+        let users_shared_with: BTreeSet<&UserId> =
+            users_shared_with.iter().map(Deref::deref).collect();
+
+        // A user left if a user is missing from the set of users that should
+        // get the session but is in the set of users that received the session.
+        let user_left = !users_shared_with.difference(&users).collect::<BTreeSet<_>>().is_empty();
+
+        let visibility_changed =
+            outbound.settings().history_visibility != settings.history_visibility;
+        let algorithm_changed = outbound.settings().algorithm != settings.algorithm;
+
+        let sharing_strategy_changed =
+            outbound.settings().sharing_strategy != settings.sharing_strategy;
+
+        let mut should_rotate =
+            user_left || visibility_changed || algorithm_changed || sharing_strategy_changed;
+
+        if should_rotate {
+            debug!(
+                should_rotate,
+                user_left,
+                visibility_changed,
+                algorithm_changed,
+                "Rotating room key to protect room history",
+            );
+        }
+
+        let sharing_result = match &self.collection_strategy {
+            CollectStrategy::DeviceBased(strategy) => {
+                strategy.collect_session_recipients(store, users).await?
+            }
+        };
+
+        // If we haven't already concluded that the session should be
+        // rotated for other reasons, we also need to check whether any
+        // of the devices in the session got deleted or blacklisted in the
+        // meantime. If so, we should also rotate the session.
+        if !should_rotate {
+            for (user_id, devices) in &sharing_result.allowed_devices {
+                // Device IDs that should receive this session
+                let recipient_device_ids: BTreeSet<&DeviceId> =
+                    devices.iter().map(|d| d.device_id()).collect();
+
+                if let Some(shared) = outbound.shared_with_set.read().unwrap().get(user_id) {
+                    // Devices that received this session
+                    let shared: BTreeSet<OwnedDeviceId> = shared.keys().cloned().collect();
+                    let shared: BTreeSet<&DeviceId> = shared.iter().map(|d| d.as_ref()).collect();
+
+                    // The set difference between
+                    //
+                    // 1. Devices that had previously received the session, and
+                    // 2. Devices that would now receive the session
+                    //
+                    // Represents newly deleted, unauthorised or blacklisted devices. If this
+                    // set is non-empty, we must rotate.
+                    let newly_excluded =
+                        shared.difference(&recipient_device_ids).collect::<BTreeSet<_>>();
+
+                    should_rotate = !newly_excluded.is_empty();
+                    if should_rotate {
+                        // We have concluded that it should rotate, no need to continue checking
+                        // other users
+                        debug!(
+                                "Rotating a room key due to at least these devices being deleted/blacklisted {:?}",
+                                newly_excluded,
+                            );
+                        break;
+                    }
+                };
+            }
+        }
+
+        trace!(should_rotate, "Done calculating group session recipients");
+
+        Ok(CollectRecipientsResult {
+            should_rotate,
+            devices: sharing_result.allowed_devices,
+            withheld_devices: sharing_result.withheld_devices,
+        })
+    }
+}
+
+impl DeviceCollector for DeviceBasedStrategy {
+    async fn collect_session_recipients(
+        &self,
+        store: &Store,
+        users: BTreeSet<&UserId>,
+    ) -> OlmResult<KeySharingResult> {
+        let mut allowed_devices: BTreeMap<OwnedUserId, Vec<ReadOnlyDevice>> = Default::default();
+        let mut withheld_devices: Vec<(ReadOnlyDevice, WithheldCode)> = Default::default();
+
+        trace!(?users, ?self, "Calculating group session recipients");
+
+        let own_identity =
+            store.get_user_identity(store.user_id()).await?.and_then(|i| i.into_own());
+
+        for user_id in users {
+            let user_devices = store.get_readonly_devices_filtered(user_id).await?;
+
+            // We only need the user identity if settings.only_allow_trusted_devices is set.
+            let device_owner_identity = if self.only_allow_trusted_devices {
+                store.get_user_identity(user_id).await?
+            } else {
+                None
+            };
+
+            // From all the devices a user has, we're splitting them into two
+            // buckets, a bucket of devices that should receive the
+            // room key and a bucket of devices that should receive
+            // a withheld code.
+            let (recipients, withheld_recipients): (
+                Vec<ReadOnlyDevice>,
+                Vec<(ReadOnlyDevice, WithheldCode)>,
+            ) = user_devices.into_values().partition_map(|d| {
+                if d.is_blacklisted() {
+                    Either::Right((d, WithheldCode::Blacklisted))
+                } else if self.only_allow_trusted_devices
+                    && !d.is_verified(&own_identity, &device_owner_identity)
+                {
+                    Either::Right((d, WithheldCode::Unverified))
+                } else {
+                    Either::Left(d)
+                }
+            });
+
+            if recipients.len() > 0 {
+                allowed_devices.entry(user_id.to_owned()).or_default().extend(recipients);
+            }
+            withheld_devices.extend(withheld_recipients);
+        }
+
+        Ok(KeySharingResult { allowed_devices, withheld_devices })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use std::sync::Arc;
+
+    use matrix_sdk_test::{async_test, test_json::keys_query_sets::KeyDistributionTestData};
+    use ruma::{room_id, TransactionId};
+
+    use super::CollectRecipientsHelper;
+    use crate::{
+        olm::{group_sessions::share_strategy::CollectStrategy, OutboundGroupSession},
+        types::events::room_key_withheld::WithheldCode,
+        CrossSigningKeyExport, EncryptionSettings, OlmMachine,
+    };
+
+    async fn set_up_test_machine() -> OlmMachine {
+        let machine = OlmMachine::new(
+            KeyDistributionTestData::me_id(),
+            KeyDistributionTestData::me_device_id(),
+        )
+        .await;
+
+        let keys_query = KeyDistributionTestData::me_keys_query_response();
+        let txn_id = TransactionId::new();
+        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+
+        machine
+            .import_cross_signing_keys(CrossSigningKeyExport {
+                master_key: KeyDistributionTestData::MASTER_KEY_PRIVATE_EXPORT.to_owned().into(),
+                self_signing_key: KeyDistributionTestData::SELF_SIGNING_KEY_PRIVATE_EXPORT
+                    .to_owned()
+                    .into(),
+                user_signing_key: KeyDistributionTestData::USER_SIGNING_KEY_PRIVATE_EXPORT
+                    .to_owned()
+                    .into(),
+            })
+            .await
+            .unwrap();
+
+        let keys_query = KeyDistributionTestData::dan_keys_query_response();
+        let txn_id = TransactionId::new();
+        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+
+        let txn_id_dave = TransactionId::new();
+        let keys_query_dave = KeyDistributionTestData::dave_keys_query_response();
+        machine.mark_request_as_sent(&txn_id_dave, &keys_query_dave).await.unwrap();
+
+        let txn_id_good = TransactionId::new();
+        let keys_query_good = KeyDistributionTestData::good_keys_query_response();
+        machine.mark_request_as_sent(&txn_id_good, &keys_query_good).await.unwrap();
+
+        machine
+    }
+
+    #[async_test]
+    async fn test_share_with_per_device_strategy_to_all() {
+        let machine = set_up_test_machine().await;
+
+        let legacy_strategy = CollectStrategy::new_device_based(false);
+
+        let encryption_settings =
+            EncryptionSettings { sharing_strategy: legacy_strategy.clone(), ..Default::default() };
+
+        let fake_room_id = room_id!("!roomid:localhost");
+
+        let id_keys = machine.identity_keys();
+        let group_session = OutboundGroupSession::new(
+            machine.device_id().into(),
+            Arc::new(id_keys),
+            fake_room_id,
+            encryption_settings.clone(),
+        )
+        .unwrap();
+
+        let helper = CollectRecipientsHelper { collection_strategy: legacy_strategy.clone() };
+        let share_result = helper
+            .collect_session_recipients(
+                &encryption_settings,
+                machine.store(),
+                vec![
+                    KeyDistributionTestData::dan_id(),
+                    KeyDistributionTestData::dave_id(),
+                    KeyDistributionTestData::good_id(),
+                ]
+                .into_iter(),
+                &group_session,
+            )
+            .await
+            .unwrap();
+
+        assert!(!share_result.should_rotate);
+
+        let dan_devices_shared =
+            share_result.devices.get(KeyDistributionTestData::dan_id()).unwrap();
+        let dave_devices_shared =
+            share_result.devices.get(KeyDistributionTestData::dave_id()).unwrap();
+        let good_devices_shared =
+            share_result.devices.get(KeyDistributionTestData::good_id()).unwrap();
+
+        // With this strategy the room key would be distributed to all devices
+        assert_eq!(dan_devices_shared.len(), 2);
+        assert_eq!(dave_devices_shared.len(), 1);
+        assert_eq!(good_devices_shared.len(), 2);
+    }
+
+    #[async_test]
+    async fn test_share_with_per_device_strategy_only_trusted() {
+        let machine = set_up_test_machine().await;
+
+        let fake_room_id = room_id!("!roomid:localhost");
+
+        let legacy_strategy = CollectStrategy::new_device_based(true);
+
+        let encryption_settings =
+            EncryptionSettings { sharing_strategy: legacy_strategy.clone(), ..Default::default() };
+
+        let id_keys = machine.identity_keys();
+        let group_session = OutboundGroupSession::new(
+            machine.device_id().into(),
+            Arc::new(id_keys),
+            fake_room_id,
+            encryption_settings.clone(),
+        )
+        .unwrap();
+
+        let helper = CollectRecipientsHelper { collection_strategy: legacy_strategy.clone() };
+        let share_result = helper
+            .collect_session_recipients(
+                &encryption_settings,
+                machine.store(),
+                vec![
+                    KeyDistributionTestData::dan_id(),
+                    KeyDistributionTestData::dave_id(),
+                    KeyDistributionTestData::good_id(),
+                ]
+                .into_iter(),
+                &group_session,
+            )
+            .await
+            .unwrap();
+
+        assert!(!share_result.should_rotate);
+
+        let dave_devices_shared = share_result.devices.get(KeyDistributionTestData::dave_id());
+        let good_devices_shared = share_result.devices.get(KeyDistributionTestData::good_id());
+        // dave and good wouldn't receive any key
+        assert!(dave_devices_shared.is_none());
+        assert!(good_devices_shared.is_none());
+
+        // dan is verified by me and has one of his devices self signed, so should get
+        // the key
+        let dan_devices_shared =
+            share_result.devices.get(KeyDistributionTestData::dan_id()).unwrap();
+
+        assert_eq!(dan_devices_shared.len(), 1);
+        let dan_device_that_will_get_the_key = &dan_devices_shared[0];
+        assert_eq!(dan_device_that_will_get_the_key.device_id().as_str(), "JHPUERYQUW");
+
+        // Check withthelds for others
+        let (_, code) = share_result
+            .withheld_devices
+            .iter()
+            .filter(|(d, _)| d.device_id().as_str() == "FRGNMZVOKA")
+            .nth(0)
+            .expect("This dan's device should receive a withheld code");
+
+        assert_eq!(code.as_str(), WithheldCode::Unverified.as_str());
+
+        let (_, code) = share_result
+            .withheld_devices
+            .iter()
+            .filter(|(d, _)| d.device_id().as_str() == "HVCXJTHMBM")
+            .nth(0)
+            .expect("This daves's device should receive a withheld code");
+
+        assert_eq!(code.as_str(), WithheldCode::Unverified.as_str());
+    }
+}

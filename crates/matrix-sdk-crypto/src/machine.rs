@@ -2263,7 +2263,8 @@ pub(crate) mod tests {
         error::{EventError, SetRoomSettingsError},
         machine::{EncryptionSyncChanges, OlmMachine},
         olm::{
-            BackedUpRoomKey, ExportedRoomKey, InboundGroupSession, OutboundGroupSession, VerifyJson,
+            BackedUpRoomKey, CollectStrategy, ExportedRoomKey, InboundGroupSession,
+            OutboundGroupSession, VerifyJson,
         },
         store::{BackupDecryptionKey, Changes, CryptoStore, MemoryStore, RoomSettings},
         types::{
@@ -3083,8 +3084,10 @@ pub(crate) mod tests {
         let room_id = room_id!("!test:example.org");
 
         let encryption_settings = EncryptionSettings::default();
-        let encryption_settings =
-            EncryptionSettings { only_allow_trusted_devices: true, ..encryption_settings };
+        let encryption_settings = EncryptionSettings {
+            sharing_strategy: CollectStrategy::new_device_based(true),
+            ..encryption_settings
+        };
 
         let to_device_requests = alice
             .share_room_key(room_id, iter::once(bob.user_id()), encryption_settings)
