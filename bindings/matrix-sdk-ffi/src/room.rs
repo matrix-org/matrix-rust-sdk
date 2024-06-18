@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use matrix_sdk::{
     event_cache::paginator::PaginatorError,
     room::{power_levels::RoomPowerLevelChanges, Room as SdkRoom, RoomMemberRole},
-    ComposerDraft, RoomMemberships, RoomState,
+    ComposerDraft, RoomHero as SdkRoomHero, RoomMemberships, RoomState,
 };
 use matrix_sdk_ui::timeline::{PaginationError, RoomExt, TimelineFocus};
 use mime::Mime;
@@ -124,6 +124,11 @@ impl Room {
 
     pub fn membership(&self) -> Membership {
         self.inner.state().into()
+    }
+
+    /// Returns the room heroes for this room.
+    pub fn heroes(&self) -> Vec<RoomHero> {
+        self.inner.heroes().into_iter().map(Into::into).collect()
     }
 
     /// Is there a non expired membership with application "m.call" and scope
@@ -773,6 +778,27 @@ impl RoomMembersIterator {
         self.chunk_iterator
             .next(chunk_size)
             .map(|members| members.into_iter().map(|m| m.into()).collect())
+    }
+}
+
+/// Information about a member considered to be a room hero.
+#[derive(uniffi::Record)]
+pub struct RoomHero {
+    /// The user ID of the hero.
+    user_id: String,
+    /// The display name of the hero.
+    display_name: Option<String>,
+    /// The avatar URL of the hero.
+    avatar_url: Option<String>,
+}
+
+impl From<SdkRoomHero> for RoomHero {
+    fn from(value: SdkRoomHero) -> Self {
+        Self {
+            user_id: value.user_id.to_string(),
+            display_name: value.display_name.clone(),
+            avatar_url: value.avatar_url.as_ref().map(ToString::to_string),
+        }
     }
 }
 

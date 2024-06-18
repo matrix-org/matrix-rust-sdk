@@ -23,7 +23,7 @@ pub use matrix_sdk_base::crypto;
 pub use matrix_sdk_base::{
     deserialized_responses,
     store::{ComposerDraft, DynStateStore, MemoryStore, StateStoreExt},
-    DisplayName, Room as BaseRoom, RoomCreateWithCreatorEventContent, RoomInfo,
+    DisplayName, Room as BaseRoom, RoomCreateWithCreatorEventContent, RoomHero, RoomInfo,
     RoomMember as BaseRoomMember, RoomMemberships, RoomState, SessionMeta, StateChanges,
     StateStore, StoreError,
 };
