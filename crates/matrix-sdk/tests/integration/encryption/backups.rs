@@ -1450,6 +1450,9 @@ async fn enable_from_secret_storage_and_download_after_utd_from_old_message_inde
         )
         .await
         .unwrap();
+        // sanity-check that we got the session at index 1.
+        assert_eq!(inbound_group_session.first_known_index(), 1);
+
         let machine_guard = client.olm_machine_for_testing().await;
         let olm_machine = machine_guard.as_ref().unwrap();
         olm_machine
