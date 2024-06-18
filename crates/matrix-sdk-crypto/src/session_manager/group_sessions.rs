@@ -33,7 +33,7 @@ use crate::{
     error::{EventError, MegolmResult, OlmResult},
     identities::device::MaybeEncryptedRoomKey,
     olm::{
-        CollectRecipientsHelper, CollectRecipientsResult, CollectStrategy, InboundGroupSession,
+        CollectRecipientsHelper, CollectRecipientsResult, InboundGroupSession,
         OutboundGroupSession, Session, ShareInfo, ShareState,
     },
     store::{Changes, CryptoStoreWrapper, Result as StoreResult, Store},
