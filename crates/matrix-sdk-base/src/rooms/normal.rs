@@ -1148,7 +1148,6 @@ impl RoomInfo {
 
         if !summary.is_empty() {
             if !summary.heroes.is_empty() {
-                // Parse the user IDs from Ruma.
                 self.summary.room_heroes = summary
                     .heroes
                     .iter()
