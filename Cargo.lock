@@ -3392,6 +3392,7 @@ dependencies = [
  "language-tags",
  "log-panics",
  "matrix-sdk",
+ "matrix-sdk-test",
  "matrix-sdk-ui",
  "mime",
  "once_cell",
@@ -3411,6 +3412,7 @@ dependencies = [
  "url",
  "uuid",
  "vergen",
+ "wiremock",
  "zeroize",
 ]
 
