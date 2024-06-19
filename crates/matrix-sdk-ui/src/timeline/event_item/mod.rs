@@ -45,7 +45,10 @@ pub(super) use self::{
     local::LocalEventTimelineItem,
     remote::{RemoteEventOrigin, RemoteEventTimelineItem},
 };
-use super::{EditInfo, RepliedToInfo, ReplyContent, UnsupportedEditItem, UnsupportedReplyItem};
+use super::{
+    EditInfo, EditedEventKind, RepliedToInfo, ReplyContent, UnsupportedEditItem,
+    UnsupportedReplyItem,
+};
 
 /// An item in the timeline that represents at least one event.
 ///
@@ -429,7 +432,7 @@ impl EventTimelineItem {
             TimelineItemContent::Message(msg) => ReplyContent::Message(msg.to_owned()),
             _ => {
                 let Some(raw_event) = self.latest_json() else {
-                    return Err(UnsupportedReplyItem::MISSING_JSON);
+                    return Err(UnsupportedReplyItem::MissingJson);
                 };
 
                 ReplyContent::Raw(raw_event.clone())
@@ -437,7 +440,7 @@ impl EventTimelineItem {
         };
 
         let Some(event_id) = self.event_id() else {
-            return Err(UnsupportedReplyItem::MISSING_EVENT_ID);
+            return Err(UnsupportedReplyItem::MissingEventId);
         };
 
         Ok(RepliedToInfo {
@@ -451,17 +454,34 @@ impl EventTimelineItem {
     /// Gives the information needed to edit the event of the item.
     pub fn edit_info(&self) -> Result<EditInfo, UnsupportedEditItem> {
         if !self.is_own() {
-            return Err(UnsupportedEditItem::NOT_OWN_EVENT);
+            return Err(UnsupportedEditItem::NotOwnEvent);
         }
         // Early returns here must be in sync with
         // `EventTimelineItem::can_be_edited`
         let Some(event_id) = self.event_id() else {
-            return Err(UnsupportedEditItem::MISSING_EVENT_ID);
+            return Err(UnsupportedEditItem::MissingEventId);
         };
-        let TimelineItemContent::Message(original_content) = self.content() else {
-            return Err(UnsupportedEditItem::NOT_ROOM_MESSAGE);
+
+        let event_kind = match self.content() {
+            TimelineItemContent::Message(original_content) => {
+                EditedEventKind::Message(original_content.clone())
+            }
+            TimelineItemContent::Poll(_) => EditedEventKind::Poll,
+            TimelineItemContent::CallInvite
+            | TimelineItemContent::CallNotify
+            | TimelineItemContent::RedactedMessage
+            | TimelineItemContent::Sticker(_)
+            | TimelineItemContent::UnableToDecrypt(_)
+            | TimelineItemContent::MembershipChange(_)
+            | TimelineItemContent::ProfileChange(_)
+            | TimelineItemContent::OtherState(_)
+            | TimelineItemContent::FailedToParseMessageLike { .. }
+            | TimelineItemContent::FailedToParseState { .. } => {
+                return Err(UnsupportedEditItem::NotRoomMessage);
+            }
         };
-        Ok(EditInfo { event_id: event_id.to_owned(), original_message: original_content.clone() })
+
+        Ok(EditInfo { event_id: event_id.to_owned(), event_kind })
     }
 }
 
