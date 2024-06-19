@@ -204,6 +204,7 @@ pub struct SsoHandler {
     service: Arc<AuthenticationService>,
 
     /// The underlying URL for authentication.
+    #[allow(dead_code)]
     pub url: String,
 }
 
@@ -785,7 +786,7 @@ mod tests {
     #[async_test]
     async fn test_start_sso_login_adds_redirect_url_to_login_url() {
         let service = AuthenticationService::new(
-            "generated".to_string(),
+            "generated".to_owned(),
             None,
             None,
             vec![],
@@ -811,7 +812,7 @@ mod tests {
         service.configure_homeserver(server.uri()).await.expect("Should configure home server");
 
         let handler = service
-            .start_sso_login("app://redirect".to_string(), None)
+            .start_sso_login("app://redirect".to_owned(), None)
             .await
             .expect("Should create SSO handler");
 
@@ -827,7 +828,7 @@ mod tests {
         let query: QueryParameters = serde_html_form::from_str(query_string)
             .expect("Should deserialize query parameters from SSO login URL");
 
-        assert_eq!(query.redirect_url, Some("app://redirect".to_string()));
+        assert_eq!(query.redirect_url, Some("app://redirect".to_owned()));
     }
 
     /* Helper functions */
