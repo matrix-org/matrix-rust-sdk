@@ -414,7 +414,7 @@ impl Timeline {
 
         let event = self.room().event(event_id).await.map_err(|error| {
             error!("Failed to fetch event with ID {event_id} with error: {error}");
-            UnsupportedReplyItem::MISSING_EVENT
+            UnsupportedReplyItem::MissingEvent
         })?;
 
         // We need to get the content and we can do that by casting the event as a
@@ -424,7 +424,7 @@ impl Timeline {
         let raw_sync_event: Raw<AnySyncTimelineEvent> = event.event.cast();
         let sync_event = raw_sync_event.deserialize().map_err(|error| {
             error!("Failed to deserialize event with ID {event_id} with error: {error}");
-            UnsupportedReplyItem::FAILED_TO_DESERIALIZE_EVENT
+            UnsupportedReplyItem::FailedToDeserializeEvent
         })?;
 
         let reply_content = match &sync_event {
@@ -442,7 +442,7 @@ impl Timeline {
                     ReplyContent::Raw(raw_sync_event)
                 }
             }
-            AnySyncTimelineEvent::State(_) => return Err(UnsupportedReplyItem::STATE_EVENT),
+            AnySyncTimelineEvent::State(_) => return Err(UnsupportedReplyItem::StateEvent),
         };
 
         Ok(RepliedToInfo {
@@ -514,7 +514,7 @@ impl Timeline {
 
         let event = self.room().event(event_id).await.map_err(|error| {
             error!("Failed to fetch event with ID {event_id} with error: {error}");
-            UnsupportedEditItem::MISSING_EVENT
+            UnsupportedEditItem::MissingEvent
         })?;
 
         // We need to get the content and we can do that by casting
@@ -524,11 +524,11 @@ impl Timeline {
         let raw_sync_event: Raw<AnySyncTimelineEvent> = event.event.cast();
         let event = raw_sync_event.deserialize().map_err(|error| {
             error!("Failed to deserialize event with ID {event_id} with error: {error}");
-            UnsupportedEditItem::FAILED_TO_DESERIALIZE_EVENT
+            UnsupportedEditItem::FailedToDeserializeEvent
         })?;
 
         if event.sender() != self.room().own_user_id() {
-            return Err(UnsupportedEditItem::NOT_OWN_EVENT);
+            return Err(UnsupportedEditItem::NotOwnEvent);
         };
 
         if let AnySyncTimelineEvent::MessageLike(message_like_event) = &event {
@@ -545,7 +545,7 @@ impl Timeline {
             }
         }
 
-        Err(UnsupportedEditItem::NOT_ROOM_MESSAGE)
+        Err(UnsupportedEditItem::NotRoomMessage)
     }
 
     pub async fn edit_poll(
@@ -559,14 +559,14 @@ impl Timeline {
 
         // Early returns here must be in sync with `EventTimelineItem::is_editable`.
         if !edit_item.is_own() {
-            return Err(UnsupportedEditItem::NOT_OWN_EVENT.into());
+            return Err(UnsupportedEditItem::NotOwnEvent.into());
         }
         let Some(event_id) = edit_item.event_id() else {
-            return Err(UnsupportedEditItem::MISSING_EVENT_ID.into());
+            return Err(UnsupportedEditItem::MissingEvent.into());
         };
 
         let TimelineItemContent::Poll(_) = edit_item.content() else {
-            return Err(UnsupportedEditItem::NOT_POLL_EVENT.into());
+            return Err(UnsupportedEditItem::NotPollEvent.into());
         };
 
         let content = ReplacementUnstablePollStartEventContent::plain_text(
