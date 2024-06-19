@@ -146,7 +146,7 @@ matrix-sdk-base = { workspace = true, features = ["testing"] }
 matrix-sdk-test = { workspace = true }
 once_cell = { workspace = true }
 serde_urlencoded = "0.7.1"
-similar-asserts = "1.5.0"
+similar-asserts = { workspace = true }
 stream_assert = { workspace = true }
 tracing-subscriber = { version = "0.3.11", features = ["env-filter"] }
 

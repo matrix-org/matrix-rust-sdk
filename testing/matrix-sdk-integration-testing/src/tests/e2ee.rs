@@ -2,13 +2,17 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
 use assert_matches::assert_matches;
+use assert_matches2::assert_let;
 use assign::assign;
 use matrix_sdk::{
     crypto::{format_emojis, SasState},
     encryption::{
         backups::BackupState,
-        verification::{QrVerificationData, QrVerificationState, VerificationRequestState},
-        EncryptionSettings, LocalTrust,
+        recovery::RecoveryState,
+        verification::{
+            QrVerificationData, QrVerificationState, Verification, VerificationRequestState,
+        },
+        BackupDownloadStrategy, EncryptionSettings, LocalTrust,
     },
     ruma::{
         api::client::room::create_room::v3::Request as CreateRoomRequest,
@@ -18,10 +22,12 @@ use matrix_sdk::{
                 MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent,
                 SyncRoomMessageEvent,
             },
+            OriginalSyncMessageLikeEvent,
         },
     },
     Client,
 };
+use similar_asserts::assert_eq;
 use tracing::warn;
 
 use crate::helpers::{SyncTokenAwareClient, TestClientBuilder};
@@ -780,6 +786,196 @@ async fn test_cross_signing_bootstrap() -> Result<()> {
         own_device.is_cross_signed_by_owner(),
         "Since we bootstrapped cross-signing, our own device should have been \
          signed by the cross-signing keys."
+    );
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_secret_gossip_after_interactive_verification() -> Result<()> {
+    let encryption_settings = EncryptionSettings {
+        auto_enable_cross_signing: true,
+        auto_enable_backups: true,
+        backup_download_strategy: BackupDownloadStrategy::OneShot,
+    };
+
+    let first_client = SyncTokenAwareClient::new(
+        TestClientBuilder::new("alice_gossip_test")
+            .randomize_username()
+            .encryption_settings(encryption_settings)
+            .build()
+            .await?,
+    );
+
+    let user_id = first_client.user_id().expect("We should have access to the user id now");
+
+    let request = CreateRoomRequest::new();
+    let room_first_client = first_client.create_room(request).await?;
+    room_first_client.enable_encryption().await?;
+    first_client.sync_once().await?;
+
+    first_client.encryption().recovery().enable().await?;
+
+    assert_eq!(first_client.encryption().recovery().state(), RecoveryState::Enabled);
+
+    let response = room_first_client
+        .send(RoomMessageEventContent::text_plain("It's a secret to everybody"))
+        .await?;
+
+    let event_id = response.event_id;
+
+    warn!("The first device has created and enabled encryption in the room and sent an event");
+
+    let second_client = SyncTokenAwareClient::new(
+        TestClientBuilder::new(user_id.localpart())
+            .encryption_settings(encryption_settings)
+            .build()
+            .await?,
+    );
+
+    second_client.encryption().wait_for_e2ee_initialization_tasks().await;
+
+    // The second client doesn't have access to the backup, nor is recovery in the
+    // enabled state.
+    assert_eq!(second_client.encryption().recovery().state(), RecoveryState::Incomplete);
+    assert_eq!(second_client.encryption().backups().state(), BackupState::Unknown);
+
+    warn!("The first device: {}", first_client.device_id().unwrap());
+    warn!("The second device: {}", second_client.device_id().unwrap());
+    assert_ne!(first_client.device_id().unwrap(), second_client.device_id().unwrap());
+
+    second_client.sync_once().await?;
+
+    let seconds_first_device = second_client
+        .encryption()
+        .get_device(second_client.user_id().unwrap(), first_client.device_id().unwrap())
+        .await?
+        .expect("We should have access to the first device once we have synced");
+
+    // The first client is not verified from the point of view of the second client.
+    assert!(!seconds_first_device.is_verified());
+
+    // Let's send out a request to verify with each other.
+    let seconds_verification_request = seconds_first_device.request_verification().await?;
+    let flow_id = seconds_verification_request.flow_id();
+
+    first_client.sync_once().await?;
+    let firsts_verification_request = first_client
+        .encryption()
+        .get_verification_request(user_id, flow_id)
+        .await
+        .expect("The verification should have been requested");
+
+    assert_matches!(seconds_verification_request.state(), VerificationRequestState::Created { .. });
+    assert_matches!(
+        firsts_verification_request.state(),
+        VerificationRequestState::Requested { .. }
+    );
+    warn!("The first device is accepting the verification request");
+    firsts_verification_request.accept().await?;
+
+    first_client.sync_once().await?;
+
+    assert_matches!(firsts_verification_request.state(), VerificationRequestState::Ready { .. });
+    let firsts_sas = firsts_verification_request
+        .start_sas()
+        .await?
+        .expect("We should be able to start the SAS verification");
+
+    second_client.sync_once().await?;
+    assert_let!(
+        VerificationRequestState::Transitioned { verification: Verification::SasV1(seconds_sas) } =
+            seconds_verification_request.state()
+    );
+
+    seconds_sas.accept().await?;
+
+    // We need to sync a couple of times so the clients exchange the shared secret.
+    first_client.sync_once().await?;
+    second_client.sync_once().await?;
+    first_client.sync_once().await?;
+
+    assert_eq!(
+        firsts_sas.emoji().expect("The firsts sas should be presentable"),
+        seconds_sas.emoji().expect("The seconds sas should be presentable"),
+        "The emojis should match"
+    );
+
+    // Confirm that the emojis match.
+    firsts_sas.confirm().await?;
+    seconds_sas.confirm().await?;
+
+    // After both sides confirm, we need a couple more syncs to exchange the final
+    // verification events.
+    second_client.sync_once().await?;
+    first_client.sync_once().await?;
+    second_client.sync_once().await?;
+
+    // And we're done, the verification dance is completed.
+    assert!(seconds_sas.is_done());
+    assert!(firsts_sas.is_done());
+
+    let second_device = second_client.encryption().get_own_device().await?.unwrap();
+
+    // The first device has signed the second one.
+    assert!(second_device.is_cross_signed_by_owner());
+    assert!(
+        !second_client.encryption().cross_signing_status().await.unwrap().is_complete(),
+        "We should not have received our cross-signing keys yet."
+    );
+    assert_eq!(
+        second_client.encryption().backups().state(),
+        BackupState::Unknown,
+        "The backup should not have been enabled yet."
+    );
+    assert_eq!(
+        second_client.encryption().recovery().state(),
+        RecoveryState::Incomplete,
+        "The recovery state should be in the Incomplete state, since we have not yet received all secrets"
+    );
+
+    // We still need to gossip the secrets from one device to the other, the first
+    // device syncs to receive the gossip requests, then the second device syncs
+    // to receive the secrets.
+    first_client.sync_once().await?;
+    warn!("The second client is doing its final sync");
+    second_client.sync_once().await?;
+
+    assert!(
+        second_client.encryption().cross_signing_status().await.unwrap().is_complete(),
+        "We should have received all the cross-signing keys from the first device"
+    );
+    assert_eq!(
+        second_client.encryption().backups().state(),
+        BackupState::Enabled,
+        "We should have enabled the backup after we received the backup key from the first device"
+    );
+    assert_eq!(
+        second_client.encryption().recovery().state(),
+        RecoveryState::Enabled,
+        "The recovery state should be in the Enabled state, since we have all the secrets"
+    );
+
+    // Let's now check if we can decrypt the event that was sent before our
+    // device was created.
+    let room = second_client
+        .get_room(room_first_client.room_id())
+        .expect("The second client should know about the room as well");
+
+    let timeline_event = room.event(&event_id).await?;
+    timeline_event
+        .encryption_info
+        .expect("The event should have been encrypted and successfully decrypted.");
+
+    let event: OriginalSyncMessageLikeEvent<RoomMessageEventContent> =
+        timeline_event.event.deserialize_as()?;
+    let message = event.content.msgtype;
+
+    assert_let!(MessageType::Text(message) = message);
+
+    assert_eq!(
+        message.body, "It's a secret to everybody",
+        "The decrypted message should match the text we encrypted."
     );
 
     Ok(())
