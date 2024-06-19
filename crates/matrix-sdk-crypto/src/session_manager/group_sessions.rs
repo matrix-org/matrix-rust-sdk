@@ -797,8 +797,13 @@ impl GroupSessionManager {
         let devices: Vec<_> = devices
             .into_iter()
             .flat_map(|(_, d)| {
-                d.into_iter()
-                    .filter(|d| matches!(outbound.is_shared_with(d), ShareState::NotShared))
+                d.into_iter().filter(|d| match outbound.is_shared_with(d) {
+                    ShareState::NotShared => true,
+                    ShareState::Shared(_msg_index, olm_wedging_index) => {
+                        olm_wedging_index < d.olm_wedging_index
+                    }
+                    _ => false,
+                })
             })
             .collect();
 

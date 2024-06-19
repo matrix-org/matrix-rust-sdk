@@ -69,7 +69,7 @@ const ROTATION_MESSAGES: u64 = 100;
 pub(crate) enum ShareState {
     NotShared,
     SharedButChangedSenderKey,
-    Shared(u32),
+    Shared(u32, u32),
 }
 
 /// Settings for an encrypted room.
@@ -168,8 +168,12 @@ pub enum ShareInfo {
 
 impl ShareInfo {
     /// Helper to create a SharedWith info
-    pub fn new_shared(sender_key: Curve25519PublicKey, message_index: u32) -> Self {
-        ShareInfo::Shared(SharedWith { sender_key, message_index })
+    pub fn new_shared(
+        sender_key: Curve25519PublicKey,
+        message_index: u32,
+        olm_wedging_index: u32,
+    ) -> Self {
+        ShareInfo::Shared(SharedWith { sender_key, message_index, olm_wedging_index })
     }
 
     /// Helper to create a Withheld info
@@ -184,6 +188,9 @@ pub struct SharedWith {
     pub sender_key: Curve25519PublicKey,
     /// The message index that the device received.
     pub message_index: u32,
+    /// The Olm wedging index of the device at the time the session was shared.
+    #[serde(default)]
+    pub olm_wedging_index: u32,
 }
 
 impl OutboundGroupSession {
@@ -526,7 +533,7 @@ impl OutboundGroupSession {
                 d.get(device.device_id()).map(|s| match s {
                     ShareInfo::Shared(s) => {
                         if device.curve25519_key() == Some(s.sender_key) {
-                            ShareState::Shared(s.message_index)
+                            ShareState::Shared(s.message_index, s.olm_wedging_index)
                         } else {
                             ShareState::SharedButChangedSenderKey
                         }
@@ -550,7 +557,7 @@ impl OutboundGroupSession {
                     Some(match info {
                         ShareInfo::Shared(info) => {
                             if device.curve25519_key() == Some(info.sender_key) {
-                                ShareState::Shared(info.message_index)
+                                ShareState::Shared(info.message_index, info.olm_wedging_index)
                             } else {
                                 ShareState::SharedButChangedSenderKey
                             }
@@ -602,7 +609,7 @@ impl OutboundGroupSession {
             .unwrap()
             .entry(user_id.to_owned())
             .or_default()
-            .insert(device_id.to_owned(), ShareInfo::new_shared(sender_key, index));
+            .insert(device_id.to_owned(), ShareInfo::new_shared(sender_key, index, 0));
     }
 
     /// Mark the session as shared with the given user/device pair, starting
@@ -614,7 +621,7 @@ impl OutboundGroupSession {
         device_id: &DeviceId,
         sender_key: Curve25519PublicKey,
     ) {
-        let share_info = ShareInfo::new_shared(sender_key, self.message_index().await);
+        let share_info = ShareInfo::new_shared(sender_key, self.message_index().await, 0);
         self.shared_with_set
             .write()
             .unwrap()
