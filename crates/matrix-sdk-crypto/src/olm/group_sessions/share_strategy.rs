@@ -260,7 +260,7 @@ mod tests {
     use std::sync::Arc;
 
     use matrix_sdk_test::{async_test, test_json::keys_query_sets::KeyDistributionTestData};
-    use ruma::{room_id, TransactionId};
+    use ruma::{events::room::history_visibility::HistoryVisibility, room_id, TransactionId};
 
     use super::CollectRecipientsHelper;
     use crate::{
@@ -428,5 +428,109 @@ mod tests {
             .expect("This daves's device should receive a withheld code");
 
         assert_eq!(code.as_str(), WithheldCode::Unverified.as_str());
+    }
+
+    #[async_test]
+    async fn test_should_rotate_based_on_visibility() {
+        let machine = set_up_test_machine().await;
+
+        let fake_room_id = room_id!("!roomid:localhost");
+
+        let strategy = CollectStrategy::new_device_based(false);
+
+        let encryption_settings = EncryptionSettings {
+            sharing_strategy: strategy.clone(),
+            history_visibility: HistoryVisibility::Invited,
+            ..Default::default()
+        };
+
+        let id_keys = machine.identity_keys();
+        let group_session = OutboundGroupSession::new(
+            machine.device_id().into(),
+            Arc::new(id_keys),
+            fake_room_id,
+            encryption_settings.clone(),
+        )
+        .unwrap();
+
+        let helper = CollectRecipientsHelper { collection_strategy: strategy.clone() };
+        let _ = helper
+            .collect_session_recipients(
+                &encryption_settings,
+                machine.store(),
+                vec![KeyDistributionTestData::dan_id()].into_iter(),
+                &group_session,
+            )
+            .await
+            .unwrap();
+
+        // Try to share again with updated history visibility
+        let encryption_settings = EncryptionSettings {
+            sharing_strategy: strategy.clone(),
+            history_visibility: HistoryVisibility::Shared,
+            ..Default::default()
+        };
+
+        let share_result = helper
+            .collect_session_recipients(
+                &encryption_settings,
+                machine.store(),
+                vec![KeyDistributionTestData::dan_id()].into_iter(),
+                &group_session,
+            )
+            .await
+            .unwrap();
+
+        assert!(share_result.should_rotate);
+    }
+
+    #[async_test]
+    async fn test_should_rotate_based_on_strategy() {
+        let machine = set_up_test_machine().await;
+
+        let fake_room_id = room_id!("!roomid:localhost");
+
+        let strategy = CollectStrategy::new_device_based(true);
+
+        let encryption_settings =
+            EncryptionSettings { sharing_strategy: strategy.clone(), ..Default::default() };
+
+        let id_keys = machine.identity_keys();
+        let group_session = OutboundGroupSession::new(
+            machine.device_id().into(),
+            Arc::new(id_keys),
+            fake_room_id,
+            encryption_settings.clone(),
+        )
+        .unwrap();
+
+        let helper = CollectRecipientsHelper { collection_strategy: strategy.clone() };
+        let _ = helper
+            .collect_session_recipients(
+                &encryption_settings,
+                machine.store(),
+                vec![KeyDistributionTestData::dan_id()].into_iter(),
+                &group_session,
+            )
+            .await
+            .unwrap();
+
+        // Try to share again with updated strategy
+
+        let updated_strategy = CollectStrategy::new_device_based(false);
+        let encryption_settings =
+            EncryptionSettings { sharing_strategy: updated_strategy, ..Default::default() };
+
+        let share_result = helper
+            .collect_session_recipients(
+                &encryption_settings,
+                machine.store(),
+                vec![KeyDistributionTestData::dan_id()].into_iter(),
+                &group_session,
+            )
+            .await
+            .unwrap();
+
+        assert!(share_result.should_rotate);
     }
 }
