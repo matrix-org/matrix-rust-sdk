@@ -77,6 +77,7 @@ use self::{
 };
 use crate::{client::WeakClient, room::WeakRoom, Client};
 
+mod deduplicator;
 mod linked_chunk;
 mod pagination;
 mod store;
