@@ -12,13 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{fs::File, io::Write};
+use std::{fs::File, io::Write, sync::Arc};
 
 use anyhow::Result;
 use assert_matches::assert_matches;
 use futures_util::{pin_mut, FutureExt, StreamExt};
 use matrix_sdk::{
     config::RequestConfig,
+    crypto::{
+        olm::{InboundGroupSession, SessionCreationError},
+        store::BackupDecryptionKey,
+        types::EventEncryptionAlgorithm,
+    },
     encryption::{
         backups::{futures::SteadyStateError, BackupState, UploadState},
         secret_storage::SecretStore,
@@ -28,7 +33,7 @@ use matrix_sdk::{
     test_utils::{no_retry_test_client_with_server, test_client_builder_with_server},
     Client,
 };
-use matrix_sdk_base::SessionMeta;
+use matrix_sdk_base::{crypto::olm::OutboundGroupSession, SessionMeta};
 use matrix_sdk_common::timeout::timeout;
 use matrix_sdk_test::{async_test, JoinedRoomBuilder, SyncResponseBuilder};
 use ruma::{
@@ -40,12 +45,18 @@ use ruma::{
 use serde_json::{json, Value};
 use tempfile::tempdir;
 use tokio::spawn;
+use vodozemac::{
+    olm::IdentityKeys, Curve25519PublicKey, Curve25519SecretKey, Ed25519PublicKey, Ed25519SecretKey,
+};
 use wiremock::{
     matchers::{header, method, path, path_regex},
     Mock, ResponseTemplate,
 };
 
-use crate::{encryption::mock_secret_store_with_backup_key, mock_sync};
+use crate::{
+    encryption::{mock_secret_store_with_backup_key, BACKUP_DECRYPTION_KEY_BASE64},
+    mock_sync,
+};
 
 const ROOM_KEY: &[u8] = b"\
         -----BEGIN MEGOLM SESSION DATA-----\n\
@@ -1361,6 +1372,134 @@ async fn enable_from_secret_storage_and_download_after_utd() {
     server.verify().await;
 }
 
+/// Even if we have a key to the session, we should still attempt a backup
+/// download if the UTD message has a lower megolm ratchet index than we have.
+#[async_test]
+async fn enable_from_secret_storage_and_download_after_utd_from_old_message_index() {
+    let user_id = user_id!("@example2:morpheus.localhost");
+    let room_id = room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost");
+    let event_id = event_id!("$JbFHtZpEJiH8uaajZjPLz0QUZc1xtBR9rPGBOjF6WFM");
+
+    let session = MatrixSession {
+        meta: SessionMeta { user_id: user_id.into(), device_id: device_id!("DEVICEID").to_owned() },
+        tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
+    };
+    let (builder, server) = test_client_builder_with_server().await;
+    let encryption_settings = EncryptionSettings {
+        backup_download_strategy: BackupDownloadStrategy::AfterDecryptionFailure,
+        ..Default::default()
+    };
+    let client = builder
+        .request_config(RequestConfig::new().disable_retry())
+        .with_encryption_settings(encryption_settings)
+        .build()
+        .await
+        .unwrap();
+
+    client.restore_session(session).await.unwrap();
+
+    let sync = SyncResponseBuilder::new()
+        .add_joined_room(JoinedRoomBuilder::new(room_id))
+        .build_json_sync_response();
+    mock_sync(&server, sync, None).await;
+
+    client.sync_once(Default::default()).await.expect("We should be able to sync with the server");
+
+    init_client_secret_storage_and_backup(&client, &server).await;
+
+    // Create an outbound group session which we will use to encrypt a test event.
+    let sender_identity_keys = IdentityKeys {
+        ed25519: Ed25519SecretKey::new().public_key(),
+        curve25519: Curve25519PublicKey::from(&Curve25519SecretKey::new()),
+    };
+    let outbound_group_session = OutboundGroupSession::new(
+        device_id!("KIUVQQSDTM").to_owned(),
+        Arc::new(sender_identity_keys),
+        room_id,
+        matrix_sdk::crypto::EncryptionSettings::default(),
+    )
+    .unwrap();
+
+    // Export the `OutboundGroupSession` to an `InboundGroupSession`, and export it
+    // to the backup. We do this now, at ratchet index 0.
+    let inbound_group_session = inbound_session_from_outbound_session(
+        sender_identity_keys.ed25519,
+        room_id,
+        &outbound_group_session,
+    )
+    .await
+    .unwrap();
+    mock_download_session_from_key_backup(room_id, inbound_group_session, &server).await;
+
+    // Encrypt an event and prepare for the client to download it.
+    let event_body = json!({"body":"tt","msgtype":"m.text"});
+    let encrypted_event_content = serde_json::to_value(
+        outbound_group_session
+            .encrypt("m.room.message", &serde_json::from_value(event_body).unwrap())
+            .await,
+    )
+    .unwrap();
+    mock_get_event(room_id, event_id, encrypted_event_content, &server).await;
+
+    // Now, import the megolm session into the client's store, at ratchet index 1.
+    {
+        let inbound_group_session = inbound_session_from_outbound_session(
+            sender_identity_keys.ed25519,
+            room_id,
+            &outbound_group_session,
+        )
+        .await
+        .unwrap();
+        // sanity-check that we got the session at index 1.
+        assert_eq!(inbound_group_session.first_known_index(), 1);
+
+        let machine_guard = client.olm_machine_for_testing().await;
+        let olm_machine = machine_guard.as_ref().unwrap();
+        olm_machine
+            .store()
+            .import_room_keys(vec![inbound_group_session.export().await], None, |_, _| ())
+            .await
+            .expect("should be able to import room key");
+    }
+
+    // Listen out for key downloads
+    let room_key_stream = client.encryption().backups().room_keys_for_room_stream(room_id);
+    pin_mut!(room_key_stream);
+
+    // Finally, make a request for the event. That should kick off an attempt to
+    // fetch from backup.
+    let room = client.get_room(room_id).expect("We should have access to the room after the sync");
+    let event = room.event(event_id).await.expect("We should be able to fetch our encrypted event");
+
+    assert_matches!(
+        event.encryption_info,
+        None,
+        "We should not be able to decrypt the event right away"
+    );
+
+    // Wait for the key to be downloaded from backup.
+    {
+        let room_keys = timeout(room_key_stream.next(), std::time::Duration::from_secs(5))
+            .await
+            .expect("did not get a room key stream update within 5 seconds")
+            .expect("room_key_stream.next() returned None")
+            .expect("room_key_stream.next() returned an error");
+
+        let (_, room_key_set) = room_keys.first_key_value().unwrap();
+        assert!(room_key_set.contains(outbound_group_session.session_id()));
+    }
+
+    let event = room.event(event_id).await.expect("We should be able to fetch our encrypted event");
+
+    assert_matches!(event.encryption_info, Some(..), "The event should now be decrypted");
+    let event: RoomMessageEvent =
+        event.event.deserialize_as().expect("We should be able to deserialize the event");
+    let event = event.as_original().unwrap();
+    assert_eq!(event.content.body(), "tt");
+
+    server.verify().await;
+}
+
 /// Set up secret storage, and allow the client to import the backup
 /// decryption key from 4S.
 async fn init_client_secret_storage_and_backup(client: &Client, server: &wiremock::MockServer) {
@@ -1381,6 +1520,22 @@ async fn init_secret_store(client: &Client, server: &wiremock::MockServer) -> Se
         .open_secret_store(SECRET_STORE_KEY)
         .await
         .expect("We should be able to open our secret store")
+}
+
+/// Given an `OutboundGroupSession`, create an `InboundGroupSession` from it.
+async fn inbound_session_from_outbound_session(
+    sender_signing_key: Ed25519PublicKey,
+    room_id: &RoomId,
+    outbound_group_session: &OutboundGroupSession,
+) -> Result<InboundGroupSession, SessionCreationError> {
+    InboundGroupSession::new(
+        outbound_group_session.sender_key(),
+        sender_signing_key,
+        room_id,
+        &outbound_group_session.session_key().await,
+        EventEncryptionAlgorithm::MegolmV1AesSha2,
+        None,
+    )
 }
 
 /// Add a mock for a `GET /_matrix/client/r0/rooms/{}/event/{}` for the given
@@ -1426,6 +1581,34 @@ async fn mock_query_key_backup(server: &wiremock::MockServer) {
             "etag": "1",
             "version": "6"
         })))
+        .mount(server)
+        .await;
+}
+
+/// Encrypt the given session with the backup key, and add a mock for a `GET
+/// /_matrix/client/r0/room_keys/keys/{}/{}` request which will return it.
+async fn mock_download_session_from_key_backup(
+    room_id: &RoomId,
+    inbound_group_session: InboundGroupSession,
+    server: &wiremock::MockServer,
+) {
+    let session_id = inbound_group_session.session_id().to_owned();
+    let session_backup_data = BackupDecryptionKey::from_base64(BACKUP_DECRYPTION_KEY_BASE64)
+        .unwrap()
+        .megolm_v1_public_key()
+        .encrypt(inbound_group_session)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path(format!(
+            "/_matrix/client/r0/room_keys/keys/{}/{}",
+            room_id,
+            // urlencode escapes things like `+`, which we do not want to escape.
+            session_id.replace("/", "%2F"),
+        )))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(session_backup_data))
+        .expect(1)
         .mount(server)
         .await;
 }
