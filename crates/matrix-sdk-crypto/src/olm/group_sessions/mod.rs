@@ -24,8 +24,8 @@ pub(crate) use outbound::ShareState;
 pub use outbound::{
     EncryptionSettings, OutboundGroupSession, PickledOutboundGroupSession, ShareInfo,
 };
+pub use share_strategy::CollectStrategy;
 pub(crate) use share_strategy::{CollectRecipientsHelper, CollectRecipientsResult};
-pub use share_strategy::{CollectStrategy, DeviceBasedStrategy};
 use thiserror::Error;
 pub use vodozemac::megolm::{ExportedSessionKey, SessionKey};
 use vodozemac::{megolm::SessionKeyDecodeError, Curve25519PublicKey};

@@ -334,9 +334,8 @@ impl GroupSessionManager {
         settings: &EncryptionSettings,
         outbound: &OutboundGroupSession,
     ) -> OlmResult<CollectRecipientsResult> {
-        let collection_helper =
-            CollectRecipientsHelper { collection_strategy: settings.sharing_strategy.clone() };
-        collection_helper.collect_session_recipients(settings, &self.store, users, outbound).await
+        CollectRecipientsHelper::collect_session_recipients(settings, &self.store, users, outbound)
+            .await
     }
 
     async fn encrypt_request(

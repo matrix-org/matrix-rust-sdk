@@ -53,32 +53,29 @@ struct KeySharingResult {
     pub withheld_devices: Vec<(ReadOnlyDevice, WithheldCode)>,
 }
 
-trait DeviceCollector {
-    async fn collect_session_recipients(
-        &self,
-        store: &Store,
-        users: BTreeSet<&UserId>,
-    ) -> OlmResult<KeySharingResult>;
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub(crate) struct CollectRecipientsHelper {
-    pub(crate) collection_strategy: CollectStrategy,
-}
+pub(crate) struct CollectRecipientsHelper {}
 
 /// Strategy to collect the devices that should receive room keys for the
 /// current discussion.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum CollectStrategy {
     /// Device based sharing strategy.
-    DeviceBased(DeviceBasedStrategy),
-    // XXX some new strategy to be defined later
+    DeviceBasedStrategy {
+        /// If `true`, devices that are not trusted will be excluded from the
+        /// conversation. A device is trusted if any of the following is true:
+        ///     - It was manually marked as trusted.
+        ///     - It was marked as verified via interactive verification.
+        ///     - It is signed by it's owner identity, and this identity has
+        ///       been trusted via interactive verification.
+        ///     - It is the current own device of the user.
+        only_allow_trusted_devices: bool,
+    }, // XXX some new strategy to be defined later
 }
 
 impl CollectStrategy {
     /// Creates a new legacy strategy, based on per device trust.
     pub const fn new_device_based(only_allow_trusted_devices: bool) -> Self {
-        CollectStrategy::DeviceBased(DeviceBasedStrategy { only_allow_trusted_devices })
+        CollectStrategy::DeviceBasedStrategy { only_allow_trusted_devices }
     }
 }
 
@@ -88,27 +85,8 @@ impl Default for CollectStrategy {
     }
 }
 
-/// Device based sharing strategy.
-/// With this strategy every device will be considered for sharing, looking at
-/// them individually.
-/// By default all devices will receive the key unless
-/// `only_allow_trusted_devices` is set to true. Individual devices can be
-/// blacklisted.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct DeviceBasedStrategy {
-    /// If `true`, devices that are not trusted will be excluded from the
-    /// conversation. A device is trusted if any of the following is true:
-    ///     - It was manually marked as trusted.
-    ///     - It was marked as verified via interactive verification.
-    ///     - It is signed by it's owner identity, and this identity has been
-    ///       trusted via interactive verification.
-    ///     - It is the current own device of the user.
-    pub only_allow_trusted_devices: bool,
-}
-
 impl CollectRecipientsHelper {
     pub(crate) async fn collect_session_recipients(
-        &self,
         settings: &EncryptionSettings,
         store: &Store,
         users: impl Iterator<Item = &UserId>,
@@ -146,9 +124,14 @@ impl CollectRecipientsHelper {
             );
         }
 
-        let sharing_result = match &self.collection_strategy {
-            CollectStrategy::DeviceBased(strategy) => {
-                strategy.collect_session_recipients(store, users).await?
+        let sharing_result = match settings.sharing_strategy {
+            CollectStrategy::DeviceBasedStrategy { only_allow_trusted_devices } => {
+                Self::collect_session_recipients_device_based(
+                    store,
+                    users,
+                    only_allow_trusted_devices,
+                )
+                .await?
             }
         };
 
@@ -199,18 +182,17 @@ impl CollectRecipientsHelper {
             withheld_devices: sharing_result.withheld_devices,
         })
     }
-}
 
-impl DeviceCollector for DeviceBasedStrategy {
-    async fn collect_session_recipients(
-        &self,
+    async fn collect_session_recipients_device_based(
+        // &self,
         store: &Store,
         users: BTreeSet<&UserId>,
+        only_allow_trusted_devices: bool,
     ) -> OlmResult<KeySharingResult> {
         let mut allowed_devices: BTreeMap<OwnedUserId, Vec<ReadOnlyDevice>> = Default::default();
         let mut withheld_devices: Vec<(ReadOnlyDevice, WithheldCode)> = Default::default();
 
-        trace!(?users, ?self, "Calculating group session recipients");
+        trace!(?users, "Calculating group session recipients - device based");
 
         let own_identity =
             store.get_user_identity(store.user_id()).await?.and_then(|i| i.into_own());
@@ -218,8 +200,8 @@ impl DeviceCollector for DeviceBasedStrategy {
         for user_id in users {
             let user_devices = store.get_readonly_devices_filtered(user_id).await?;
 
-            // We only need the user identity if settings.only_allow_trusted_devices is set.
-            let device_owner_identity = if self.only_allow_trusted_devices {
+            // We only need the user identity if only_allow_trusted_devices is set.
+            let device_owner_identity = if only_allow_trusted_devices {
                 store.get_user_identity(user_id).await?
             } else {
                 None
@@ -235,7 +217,7 @@ impl DeviceCollector for DeviceBasedStrategy {
             ) = user_devices.into_values().partition_map(|d| {
                 if d.is_blacklisted() {
                     Either::Right((d, WithheldCode::Blacklisted))
-                } else if self.only_allow_trusted_devices
+                } else if only_allow_trusted_devices
                     && !d.is_verified(&own_identity, &device_owner_identity)
                 {
                     Either::Right((d, WithheldCode::Unverified))
@@ -328,21 +310,19 @@ mod tests {
         )
         .unwrap();
 
-        let helper = CollectRecipientsHelper { collection_strategy: legacy_strategy.clone() };
-        let share_result = helper
-            .collect_session_recipients(
-                &encryption_settings,
-                machine.store(),
-                vec![
-                    KeyDistributionTestData::dan_id(),
-                    KeyDistributionTestData::dave_id(),
-                    KeyDistributionTestData::good_id(),
-                ]
-                .into_iter(),
-                &group_session,
-            )
-            .await
-            .unwrap();
+        let share_result = CollectRecipientsHelper::collect_session_recipients(
+            &encryption_settings,
+            machine.store(),
+            vec![
+                KeyDistributionTestData::dan_id(),
+                KeyDistributionTestData::dave_id(),
+                KeyDistributionTestData::good_id(),
+            ]
+            .into_iter(),
+            &group_session,
+        )
+        .await
+        .unwrap();
 
         assert!(!share_result.should_rotate);
 
@@ -379,21 +359,19 @@ mod tests {
         )
         .unwrap();
 
-        let helper = CollectRecipientsHelper { collection_strategy: legacy_strategy.clone() };
-        let share_result = helper
-            .collect_session_recipients(
-                &encryption_settings,
-                machine.store(),
-                vec![
-                    KeyDistributionTestData::dan_id(),
-                    KeyDistributionTestData::dave_id(),
-                    KeyDistributionTestData::good_id(),
-                ]
-                .into_iter(),
-                &group_session,
-            )
-            .await
-            .unwrap();
+        let share_result = CollectRecipientsHelper::collect_session_recipients(
+            &encryption_settings,
+            machine.store(),
+            vec![
+                KeyDistributionTestData::dan_id(),
+                KeyDistributionTestData::dave_id(),
+                KeyDistributionTestData::good_id(),
+            ]
+            .into_iter(),
+            &group_session,
+        )
+        .await
+        .unwrap();
 
         assert!(!share_result.should_rotate);
 
@@ -453,16 +431,14 @@ mod tests {
         )
         .unwrap();
 
-        let helper = CollectRecipientsHelper { collection_strategy: strategy.clone() };
-        let _ = helper
-            .collect_session_recipients(
-                &encryption_settings,
-                machine.store(),
-                vec![KeyDistributionTestData::dan_id()].into_iter(),
-                &group_session,
-            )
-            .await
-            .unwrap();
+        let _ = CollectRecipientsHelper::collect_session_recipients(
+            &encryption_settings,
+            machine.store(),
+            vec![KeyDistributionTestData::dan_id()].into_iter(),
+            &group_session,
+        )
+        .await
+        .unwrap();
 
         // Try to share again with updated history visibility
         let encryption_settings = EncryptionSettings {
@@ -471,15 +447,14 @@ mod tests {
             ..Default::default()
         };
 
-        let share_result = helper
-            .collect_session_recipients(
-                &encryption_settings,
-                machine.store(),
-                vec![KeyDistributionTestData::dan_id()].into_iter(),
-                &group_session,
-            )
-            .await
-            .unwrap();
+        let share_result = CollectRecipientsHelper::collect_session_recipients(
+            &encryption_settings,
+            machine.store(),
+            vec![KeyDistributionTestData::dan_id()].into_iter(),
+            &group_session,
+        )
+        .await
+        .unwrap();
 
         assert!(share_result.should_rotate);
     }
@@ -504,16 +479,14 @@ mod tests {
         )
         .unwrap();
 
-        let helper = CollectRecipientsHelper { collection_strategy: strategy.clone() };
-        let _ = helper
-            .collect_session_recipients(
-                &encryption_settings,
-                machine.store(),
-                vec![KeyDistributionTestData::dan_id()].into_iter(),
-                &group_session,
-            )
-            .await
-            .unwrap();
+        let _ = CollectRecipientsHelper::collect_session_recipients(
+            &encryption_settings,
+            machine.store(),
+            vec![KeyDistributionTestData::dan_id()].into_iter(),
+            &group_session,
+        )
+        .await
+        .unwrap();
 
         // Try to share again with updated strategy
 
@@ -521,15 +494,14 @@ mod tests {
         let encryption_settings =
             EncryptionSettings { sharing_strategy: updated_strategy, ..Default::default() };
 
-        let share_result = helper
-            .collect_session_recipients(
-                &encryption_settings,
-                machine.store(),
-                vec![KeyDistributionTestData::dan_id()].into_iter(),
-                &group_session,
-            )
-            .await
-            .unwrap();
+        let share_result = CollectRecipientsHelper::collect_session_recipients(
+            &encryption_settings,
+            machine.store(),
+            vec![KeyDistributionTestData::dan_id()].into_iter(),
+            &group_session,
+        )
+        .await
+        .unwrap();
 
         assert!(share_result.should_rotate);
     }
