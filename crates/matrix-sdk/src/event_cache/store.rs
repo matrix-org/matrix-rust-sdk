@@ -15,8 +15,12 @@
 use std::fmt;
 
 use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
+use tracing::error;
 
-use super::linked_chunk::{Chunk, ChunkIdentifier, Error, Iter, LinkedChunk, Position};
+use super::{
+    deduplicator::{Decoration, Deduplicator},
+    linked_chunk::{Chunk, ChunkIdentifier, Error, Iter, LinkedChunk, Position},
+};
 
 #[derive(Clone, Debug)]
 pub struct Gap {
@@ -29,6 +33,7 @@ const DEFAULT_CHUNK_CAPACITY: usize = 128;
 
 pub struct RoomEvents {
     chunks: LinkedChunk<DEFAULT_CHUNK_CAPACITY, SyncTimelineEvent, Gap>,
+    deduplicator: Deduplicator,
 }
 
 impl Default for RoomEvents {
@@ -39,12 +44,34 @@ impl Default for RoomEvents {
 
 impl RoomEvents {
     pub fn new() -> Self {
-        Self { chunks: LinkedChunk::new() }
+        Self { chunks: LinkedChunk::new(), deduplicator: Deduplicator::new() }
     }
 
     /// Clear all events.
     pub fn reset(&mut self) {
         self.chunks = LinkedChunk::new();
+    }
+
+    /// Deduplicate `events` considering all events in `Self::chunks`.
+    fn deduplicate<'a, I>(&'a self, events: I) -> impl Iterator<Item = SyncTimelineEvent> + 'a
+    where
+        I: Iterator<Item = SyncTimelineEvent> + 'a,
+    {
+        self.deduplicator.scan_and_learn(events, self).map(
+            |decorated_event| match decorated_event {
+                Decoration::Ok(event) => event,
+                Decoration::Duplicated(event) => {
+                    error!(?event, "Found a duplicated event");
+
+                    event
+                }
+                Decoration::Invalid(event) => {
+                    error!(?event, "Found an invalid event");
+
+                    event
+                }
+            },
+        )
     }
 
     /// Push events after all events or gaps.
@@ -53,8 +80,9 @@ impl RoomEvents {
     pub fn push_events<I>(&mut self, events: I)
     where
         I: IntoIterator<Item = SyncTimelineEvent>,
-        I::IntoIter: ExactSizeIterator,
     {
+        let events = self.deduplicate(events.into_iter()).collect::<Vec<_>>();
+
         self.chunks.push_items_back(events)
     }
 
@@ -67,8 +95,9 @@ impl RoomEvents {
     pub fn insert_events_at<I>(&mut self, events: I, position: Position) -> Result<(), Error>
     where
         I: IntoIterator<Item = SyncTimelineEvent>,
-        I::IntoIter: ExactSizeIterator,
     {
+        let events = self.deduplicate(events.into_iter()).collect::<Vec<_>>();
+
         self.chunks.insert_items_at(events, position)
     }
 
@@ -91,8 +120,9 @@ impl RoomEvents {
     ) -> Result<&Chunk<DEFAULT_CHUNK_CAPACITY, SyncTimelineEvent, Gap>, Error>
     where
         I: IntoIterator<Item = SyncTimelineEvent>,
-        I::IntoIter: ExactSizeIterator,
     {
+        let events = self.deduplicate(events.into_iter()).collect::<Vec<_>>();
+
         self.chunks.replace_gap_at(events, gap_identifier)
     }
 

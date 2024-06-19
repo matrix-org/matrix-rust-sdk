@@ -12,65 +12,107 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::ops::Not;
+use std::{collections::BTreeSet, sync::Mutex};
 
-use bloomfilter::Bloom;
+use growable_bloom_filter::{GrowableBloom, GrowableBloomBuilder};
 use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
-use ruma::OwnedEventId;
 
 use super::store::RoomEvents;
 
 pub struct Deduplicator {
-    bloom_filter: Bloom<OwnedEventId>,
+    bloom_filter: Mutex<GrowableBloom>,
 }
 
 impl Deduplicator {
     const APPROXIMATED_MAXIMUM_NUMBER_OF_EVENTS: usize = 800_000;
     const DESIRED_FALSE_POSITIVE_RATE: f64 = 0.001;
-    const SEED_FOR_HASHER: &'static [u8; 32] = b"matrix_sdk_event_cache_deduptor!";
 
+    /// Create a new `Self`.
     pub fn new() -> Self {
         Self {
-            bloom_filter: Bloom::new_for_fp_rate_with_seed(
-                Self::APPROXIMATED_MAXIMUM_NUMBER_OF_EVENTS,
-                Self::DESIRED_FALSE_POSITIVE_RATE,
-                Self::SEED_FOR_HASHER,
+            bloom_filter: Mutex::new(
+                GrowableBloomBuilder::new()
+                    .estimated_insertions(Self::APPROXIMATED_MAXIMUM_NUMBER_OF_EVENTS)
+                    .desired_error_ratio(Self::DESIRED_FALSE_POSITIVE_RATE)
+                    .build(),
             ),
         }
     }
 
-    pub fn filter_and_learn<'a, I>(
-        &'a mut self,
-        events: I,
-        room_events: &'a RoomEvents,
-    ) -> impl Iterator<Item = I::Item> + 'a
+    /// Scan a collection of events and detect duplications.
+    ///
+    /// This method takes a collection of events `events_to_scan` and returns a
+    /// new collection of events, where each event is decorated by a
+    /// [`Decoration`], so that the caller can decide what to do with these
+    /// events.
+    ///
+    /// Each scanned event will update `Self`'s internal state.
+    ///
+    /// `existing_events` represents all events of a room that already exist.
+    pub fn scan_and_learn<'a, I>(
+        &'a self,
+        events_to_scan: I,
+        existing_events: &'a RoomEvents,
+    ) -> impl Iterator<Item = Decoration<I::Item>> + 'a
     where
         I: Iterator<Item = SyncTimelineEvent> + 'a,
     {
-        events.filter(|event| {
+        let mut already_seen = BTreeSet::new();
+
+        events_to_scan.map(move |event| {
             let Some(event_id) = event.event_id() else {
-                // The event has no `event_id`. Safe path: filter it out.
-                return false;
+                // The event has no `event_id`.
+                return Decoration::Invalid(event);
             };
 
-            if self.bloom_filter.check_and_set(&event_id) {
-                // Bloom filter has false positives. We are NOT sure the event
-                // is NOT present. Even if the false positive rate is low, we
-                // need to iterate over all events to ensure it isn't present.
+            if self.bloom_filter.lock().unwrap().check_and_set(&event_id) {
+                // Bloom filter has false positives. We are NOT sure the event is NOT present.
+                // Even if the false positive rate is low, we need to iterate over all events to
+                // ensure it isn't present.
 
-                room_events
-                    .revents()
-                    .any(|(_position, other_event)| {
-                        other_event.event_id().as_ref() == Some(&event_id)
-                    })
-                    .not()
+                // But first, let's ensure `event` is not a duplicate from `events`, i.e. if the
+                // iterator itself contains duplicated events! We use a `BTreetSet`, otherwise
+                // using a bloom filter again may generate false positives.
+                if already_seen.contains(&event_id) {
+                    // The iterator contains a duplicated `event`.
+                    return Decoration::Duplicated(event);
+                }
+
+                // Now we can iterate over all events to ensure `event` is not present in
+                // `existing_events`.
+                let duplicated = existing_events.revents().any(|(_position, other_event)| {
+                    other_event.event_id().as_ref() == Some(&event_id)
+                });
+
+                already_seen.insert(event_id);
+
+                if duplicated {
+                    Decoration::Duplicated(event)
+                } else {
+                    Decoration::Ok(event)
+                }
             } else {
+                already_seen.insert(event_id);
+
                 // Bloom filter has no false negatives. We are sure the event is NOT present: we
                 // can keep it in the iterator.
-                true
+                Decoration::Ok(event)
             }
         })
     }
+}
+
+/// Information about the scanned collection of events.
+#[derive(Debug)]
+pub enum Decoration<I> {
+    /// This event is not duplicated.
+    Ok(I),
+
+    /// This event is duplicated.
+    Duplicated(I),
+
+    /// This event is invalid (i.e. not well formed).
+    Invalid(I),
 }
 
 #[cfg(test)]
@@ -83,8 +125,8 @@ mod tests {
 
     fn sync_timeline_event(event_builder: &EventBuilder, event_id: &EventId) -> SyncTimelineEvent {
         SyncTimelineEvent::new(event_builder.make_sync_message_event_with_id(
-            &*ALICE,
-            &event_id,
+            *ALICE,
+            event_id,
             RoomMessageEventContent::text_plain("foo"),
         ))
     }
@@ -101,26 +143,61 @@ mod tests {
         let event_1 = sync_timeline_event(&event_builder, &event_id_1);
         let event_2 = sync_timeline_event(&event_builder, &event_id_2);
 
-        let mut deduplicator = Deduplicator::new();
-        let room_events = RoomEvents::new();
+        let deduplicator = Deduplicator::new();
+        let existing_events = RoomEvents::new();
 
         let mut events =
-            deduplicator.filter_and_learn([event_0, event_1, event_2].into_iter(), &room_events);
+            deduplicator.scan_and_learn([event_0, event_1, event_2].into_iter(), &existing_events);
 
-        assert_let!(Some(event) = events.next());
+        assert_let!(Some(Decoration::Ok(event)) = events.next());
         assert_eq!(event.event_id(), Some(event_id_0));
 
-        assert_let!(Some(event) = events.next());
+        assert_let!(Some(Decoration::Ok(event)) = events.next());
         assert_eq!(event.event_id(), Some(event_id_1));
 
-        assert_let!(Some(event) = events.next());
+        assert_let!(Some(Decoration::Ok(event)) = events.next());
         assert_eq!(event.event_id(), Some(event_id_2));
 
         assert!(events.next().is_none());
     }
 
     #[test]
-    fn test_filter_duplicates() {
+    fn test_filter_duplicates_in_new_events() {
+        let event_builder = EventBuilder::new();
+
+        let event_id_0 = owned_event_id!("$ev0");
+        let event_id_1 = owned_event_id!("$ev1");
+
+        let event_0 = sync_timeline_event(&event_builder, &event_id_0);
+        let event_1 = sync_timeline_event(&event_builder, &event_id_1);
+
+        let deduplicator = Deduplicator::new();
+        let existing_events = RoomEvents::new();
+
+        let mut events = deduplicator.scan_and_learn(
+            [
+                event_0.clone(), // OK
+                event_0,         // Not OK
+                event_1,         // OK
+            ]
+            .into_iter(),
+            &existing_events,
+        );
+
+        assert_let!(Some(Decoration::Ok(event)) = events.next());
+        assert_eq!(event.event_id(), Some(event_id_0.clone()));
+
+        assert_let!(Some(Decoration::Duplicated(event)) = events.next());
+        assert_eq!(event.event_id(), Some(event_id_0));
+
+        assert_let!(Some(Decoration::Ok(event)) = events.next());
+        assert_eq!(event.event_id(), Some(event_id_1));
+
+        assert!(events.next().is_none());
+    }
+
+    #[test]
+    fn test_filter_duplicates_with_existing_events() {
         let event_builder = EventBuilder::new();
 
         let event_id_0 = owned_event_id!("$ev0");
@@ -131,36 +208,44 @@ mod tests {
         let event_1 = sync_timeline_event(&event_builder, &event_id_1);
         let event_2 = sync_timeline_event(&event_builder, &event_id_2);
 
-        let mut deduplicator = Deduplicator::new();
-        let mut room_events = RoomEvents::new();
+        let deduplicator = Deduplicator::new();
+        let mut existing_events = RoomEvents::new();
 
-        // Simulate `event_1` is inserted inside `room_events`.
+        // Simulate `event_1` is inserted inside `existing_events`.
         {
             let mut events =
-                deduplicator.filter_and_learn([event_1.clone()].into_iter(), &room_events);
+                deduplicator.scan_and_learn([event_1.clone()].into_iter(), &existing_events);
 
-            assert_let!(Some(event_1) = events.next());
-            assert_eq!(event_1.event_id(), Some(event_id_1));
+            assert_let!(Some(Decoration::Ok(event_1)) = events.next());
+            assert_eq!(event_1.event_id(), Some(event_id_1.clone()));
 
             assert!(events.next().is_none());
 
             drop(events); // make the borrow checker happy.
 
-            // Now we can push `event_1` inside `room_events`.
-            room_events.push_event(event_1);
+            // Now we can push `event_1` inside `existing_events`.
+            existing_events.push_events([event_1]);
         }
 
         // `event_1` will be duplicated.
         {
-            let mut events = deduplicator
-                .filter_and_learn([event_0, event_1, event_2].into_iter(), &room_events);
+            let mut events = deduplicator.scan_and_learn(
+                [
+                    event_0, // OK
+                    event_1, // Not OK
+                    event_2, // Ok
+                ]
+                .into_iter(),
+                &existing_events,
+            );
 
-            assert_let!(Some(event) = events.next());
+            assert_let!(Some(Decoration::Ok(event)) = events.next());
             assert_eq!(event.event_id(), Some(event_id_0));
 
-            // `event_1` is missing.
+            assert_let!(Some(Decoration::Duplicated(event)) = events.next());
+            assert_eq!(event.event_id(), Some(event_id_1));
 
-            assert_let!(Some(event) = events.next());
+            assert_let!(Some(Decoration::Ok(event)) = events.next());
             assert_eq!(event.event_id(), Some(event_id_2));
 
             assert!(events.next().is_none());
