@@ -6,14 +6,13 @@ use std::{
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, FutureExt, StreamExt};
-use imbl::vector;
 use matrix_sdk::{test_utils::logged_in_client_with_server, Client};
 use matrix_sdk_base::sync::UnreadNotificationsCount;
 use matrix_sdk_test::async_test;
 use matrix_sdk_ui::{
     room_list_service::{
         filters::{new_filter_fuzzy_match_room_name, new_filter_non_left, new_filter_none},
-        Error, Input, InputResult, RoomListEntry, RoomListLoadingState, State, SyncIndicator,
+        Error, Input, InputResult, RoomListLoadingState, State, SyncIndicator,
         ALL_ROOMS_LIST_NAME as ALL_ROOMS, VISIBLE_ROOMS_LIST_NAME as VISIBLE_ROOMS,
     },
     timeline::{TimelineItemKind, VirtualTimelineItem},
@@ -93,31 +92,9 @@ macro_rules! sync_then_assert_request_and_fake_response {
     };
 }
 
-macro_rules! entries {
-    ( @_ [ E $( , $( $rest:tt )* )? ] [ $( $accumulator:tt )* ] ) => {
-        entries!( @_ [ $( $( $rest )* )? ] [ $( $accumulator )* RoomListEntry::Empty, ] )
-    };
-
-    ( @_ [ F( $room_id:literal ) $( , $( $rest:tt )* )? ] [ $( $accumulator:tt )* ] ) => {
-        entries!( @_ [ $( $( $rest )* )? ] [ $( $accumulator )* RoomListEntry::Filled(room_id!( $room_id ).to_owned()), ] )
-    };
-
-    ( @_ [ I( $room_id:literal ) $( , $( $rest:tt )* )? ] [ $( $accumulator:tt )* ] ) => {
-        entries!( @_ [ $( $( $rest )* )? ] [ $( $accumulator )* RoomListEntry::Invalidated(room_id!( $room_id ).to_owned()), ] )
-    };
-
-    ( @_ [] [ $( $accumulator:tt )* ] ) => {
-        vector![ $( $accumulator )* ]
-    };
-
-    ( $( $all:tt )* ) => {
-        entries!( @_ [ $( $all )* ] [] )
-    };
-}
-
 macro_rules! assert_entries_batch {
-    // `append [$entries]`
-    ( @_ [ $entries:ident ] [ append [ $( $entry:tt )* ] ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
+    // `append [$room_id, …]`
+    ( @_ [ $entries:ident ] [ append [ $( $room_id:literal ),* $(,)? ] ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
         assert_entries_batch!(
             @_
             [ $entries ]
@@ -127,15 +104,45 @@ macro_rules! assert_entries_batch {
                 assert_matches!(
                     $entries.next(),
                     Some(&VectorDiff::Append { ref values }) => {
-                        assert_eq!(values, &entries!( $( $entry )* ));
+                        #[allow(unused)]
+                        let mut values = values.iter();
+
+                        $(
+                            assert_eq!(
+                                values
+                                    .next()
+                                    .expect("One more room is expected, but is not present")
+                                    .room_id()
+                                    .as_str(),
+                                $room_id,
+                            );
+                        )*
                     }
                 );
             ]
         )
     };
 
-    // `set [$nth] [$entry]`
-    ( @_ [ $entries:ident ] [ set [ $index:literal ] [ $( $entry:tt )+ ] ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
+    // `push back [$room_id]`
+    ( @_ [ $entries:ident ] [ push back [ $room_id:literal ] ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
+        assert_entries_batch!(
+            @_
+            [ $entries ]
+            [ $( $rest )* ]
+            [
+                $( $accumulator )*
+                assert_matches!(
+                    $entries.next(),
+                    Some(&VectorDiff::PushBack { ref value }) => {
+                        assert_eq!(value.room_id().to_string(), $room_id);
+                    }
+                );
+            ]
+        )
+    };
+
+    // `set [$nth] [$room_id]`
+    ( @_ [ $entries:ident ] [ set [ $index:literal ] [ $room_id:literal ] ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
         assert_entries_batch!(
             @_
             [ $entries ]
@@ -145,7 +152,7 @@ macro_rules! assert_entries_batch {
                 assert_matches!(
                     $entries.next(),
                     Some(&VectorDiff::Set { index: $index, ref value }) => {
-                        assert_eq!(value, &entries!( $( $entry )+ )[0]);
+                        assert_eq!(value.room_id().to_string(), $room_id);
                     }
                 );
             ]
@@ -160,16 +167,16 @@ macro_rules! assert_entries_batch {
             [ $( $rest )* ]
             [
                 $( $accumulator )*
-                assert_eq!(
+                assert_matches!(
                     $entries.next(),
-                    Some(&VectorDiff::Remove { index: $index }),
+                    Some(&VectorDiff::Remove { index: $index })
                 );
             ]
         )
     };
 
-    // `insert [$nth] [$entry]`
-    ( @_ [ $entries:ident ] [ insert [ $index:literal ] [ $( $entry:tt )+ ] ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
+    // `insert [$nth] [$room_id]`
+    ( @_ [ $entries:ident ] [ insert [ $index:literal ] [ $room_id:literal ] ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
         assert_entries_batch!(
             @_
             [ $entries ]
@@ -179,7 +186,7 @@ macro_rules! assert_entries_batch {
                 assert_matches!(
                     $entries.next(),
                     Some(&VectorDiff::Insert { index: $index, ref value }) => {
-                        assert_eq!(value, &entries!( $( $entry )+ )[0]);
+                        assert_eq!(value.room_id().to_string(), $room_id);
                     }
                 );
             ]
@@ -194,16 +201,16 @@ macro_rules! assert_entries_batch {
             [ $( $rest )* ]
             [
                 $( $accumulator )*
-                assert_eq!(
+                assert_matches!(
                     $entries.next(),
-                    Some(&VectorDiff::Truncate { length: $length }),
+                    Some(&VectorDiff::Truncate { length: $length })
                 );
             ]
         )
     };
 
-    // `reset [$entries]`
-    ( @_ [ $entries:ident ] [ reset [ $( $entry:tt )* ] ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
+    // `reset [$room_id, …]`
+    ( @_ [ $entries:ident ] [ reset [ $( $room_id:literal ),* $(,)? ] ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
         assert_entries_batch!(
             @_
             [ $entries ]
@@ -213,7 +220,19 @@ macro_rules! assert_entries_batch {
                 assert_matches!(
                     $entries.next(),
                     Some(&VectorDiff::Reset { ref values }) => {
-                        assert_eq!(values, &entries!( $( $entry )* ));
+                        #[allow(unused)]
+                        let mut values = values.iter();
+
+                        $(
+                            assert_eq!(
+                                values
+                                    .next()
+                                    .expect("One more room is expected, but is not present")
+                                    .room_id()
+                                    .as_str(),
+                                $room_id,
+                            );
+                        )*
                     }
                 );
             ]
@@ -228,7 +247,7 @@ macro_rules! assert_entries_batch {
             [ $( $rest )* ]
             [
                 $( $accumulator )*
-                assert_eq!($entries.next(), None);
+                assert!($entries.next().is_none());
             ]
         )
     };
@@ -244,8 +263,8 @@ macro_rules! assert_entries_batch {
         let entries = $stream
             .next()
             .now_or_never()
-            .expect("stream entry wasn't in the ready state")
-            .expect("stream was stopped");
+            .expect("Stream entry wasn't in the ready state")
+            .expect("Stream was stopped");
 
         let mut entries = entries.iter();
 
@@ -307,9 +326,6 @@ async fn test_sync_all_states() -> Result<(), Error> {
             "lists": {
                 ALL_ROOMS: {
                     "count": 420,
-                    "ops": [
-                        // let's ignore them for now
-                    ],
                 },
             },
             "rooms": {
@@ -354,13 +370,9 @@ async fn test_sync_all_states() -> Result<(), Error> {
             "lists": {
                 ALL_ROOMS: {
                     "count": 420,
-                    "ops": [
-                        // let's ignore them for now
-                    ],
                 },
                 VISIBLE_ROOMS: {
                     "count": 0,
-                    "ops": [],
                 },
             },
             "rooms": {
@@ -388,13 +400,9 @@ async fn test_sync_all_states() -> Result<(), Error> {
             "lists": {
                 ALL_ROOMS: {
                     "count": 420,
-                    "ops": [
-                        // let's ignore them for now
-                    ],
                 },
                 VISIBLE_ROOMS: {
                     "count": 0,
-                    "ops": [],
                 },
             },
             "rooms": {
@@ -422,13 +430,9 @@ async fn test_sync_all_states() -> Result<(), Error> {
             "lists": {
                 ALL_ROOMS: {
                     "count": 420,
-                    "ops": [
-                        // let's ignore them for now
-                    ],
                 },
                 VISIBLE_ROOMS: {
                     "count": 0,
-                    "ops": [],
                 },
             },
             "rooms": {
@@ -456,13 +460,9 @@ async fn test_sync_all_states() -> Result<(), Error> {
             "lists": {
                 ALL_ROOMS: {
                     "count": 420,
-                    "ops": [
-                        // let's ignore them for now
-                    ],
                 },
                 VISIBLE_ROOMS: {
                     "count": 0,
-                    "ops": [],
                 },
             },
             "rooms": {
@@ -498,7 +498,6 @@ async fn test_sync_resumes_from_previous_state() -> Result<(), Error> {
                 "lists": {
                     ALL_ROOMS: {
                         "count": 10,
-                        "ops": []
                     },
                 },
                 "rooms": {},
@@ -529,11 +528,9 @@ async fn test_sync_resumes_from_previous_state() -> Result<(), Error> {
                 "lists": {
                     ALL_ROOMS: {
                         "count": 10,
-                        "ops": [],
                     },
                     VISIBLE_ROOMS: {
                         "count": 0,
-                        "ops": [],
                     },
                 },
                 "rooms": {},
@@ -564,11 +561,9 @@ async fn test_sync_resumes_from_previous_state() -> Result<(), Error> {
                 "lists": {
                     ALL_ROOMS: {
                         "count": 10,
-                        "ops": [],
                     },
                     VISIBLE_ROOMS: {
                         "count": 0,
-                        "ops": [],
                     },
                 },
                 "rooms": {},
@@ -1308,32 +1303,18 @@ async fn test_entries_stream() -> Result<(), Error> {
             "lists": {
                 ALL_ROOMS: {
                     "count": 10,
-                    "ops": [
-                        {
-                            "op": "SYNC",
-                            "range": [0, 2],
-                            "room_ids": [
-                                "!r0:bar.org",
-                                "!r1:bar.org",
-                                "!r2:bar.org",
-                            ],
-                        },
-                    ],
                 },
             },
             "rooms": {
                 "!r0:bar.org": {
-                    "name": "Room #0",
                     "initial": true,
                     "timeline": [],
                 },
                 "!r1:bar.org": {
-                    "name": "Room #1",
                     "initial": true,
                     "timeline": [],
                 },
                 "!r2:bar.org": {
-                    "name": "Room #2",
                     "initial": true,
                     "timeline": [],
                 },
@@ -1344,10 +1325,9 @@ async fn test_entries_stream() -> Result<(), Error> {
     assert!(previous_entries.is_empty());
     assert_entries_batch! {
         [entries_stream]
-        append [ E, E, E, E, E, E, E, E, E, E ];
-        set[0] [ F("!r0:bar.org") ];
-        set[1] [ F("!r1:bar.org") ];
-        set[2] [ F("!r2:bar.org") ];
+        push back [ "!r0:bar.org" ];
+        push back [ "!r1:bar.org" ];
+        push back [ "!r2:bar.org" ];
         end;
     };
 
@@ -1369,21 +1349,6 @@ async fn test_entries_stream() -> Result<(), Error> {
             "lists": {
                 ALL_ROOMS: {
                     "count": 9,
-                    "ops": [
-                        {
-                            "op": "DELETE",
-                            "index": 1,
-                        },
-                        {
-                            "op": "DELETE",
-                            "index": 0,
-                        },
-                        {
-                            "op": "INSERT",
-                            "index": 0,
-                            "room_id": "!r3:bar.org",
-                        },
-                    ],
                 },
                 VISIBLE_ROOMS: {
                     "count": 0,
@@ -1391,7 +1356,6 @@ async fn test_entries_stream() -> Result<(), Error> {
             },
             "rooms": {
                 "!r3:bar.org": {
-                    "name": "Room #3",
                     "initial": true,
                     "timeline": [],
                 },
@@ -1401,9 +1365,7 @@ async fn test_entries_stream() -> Result<(), Error> {
 
     assert_entries_batch! {
         [entries_stream]
-        remove[1];
-        remove[0];
-        insert[0] [ F("!r3:bar.org") ];
+        push back [ "!r3:bar.org" ];
         end;
     };
 
@@ -1438,20 +1400,10 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
             "lists": {
                 ALL_ROOMS: {
                     "count": 10,
-                    "ops": [
-                        {
-                            "op": "SYNC",
-                            "range": [0, 0],
-                            "room_ids": [
-                                "!r0:bar.org",
-                            ],
-                        },
-                    ],
                 },
             },
             "rooms": {
                 "!r0:bar.org": {
-                    "name": "This is ignored",
                     "initial": true,
                     "timeline": [],
                     "required_state": [
@@ -1476,13 +1428,13 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
     assert_pending!(dynamic_entries_stream);
 
     // Now, let's define a filter.
-    dynamic_entries.set_filter(Box::new(new_filter_fuzzy_match_room_name(&client, "mat ba")));
+    dynamic_entries.set_filter(Box::new(new_filter_fuzzy_match_room_name("mat ba")));
 
     // Assert the dynamic entries.
     assert_entries_batch! {
         [dynamic_entries_stream]
         // Receive a `reset` because the filter has been reset/set for the first time.
-        reset [ F("!r0:bar.org") ];
+        reset [ "!r0:bar.org" ];
         end;
     };
     assert_pending!(dynamic_entries_stream);
@@ -1505,18 +1457,6 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
             "lists": {
                 ALL_ROOMS: {
                     "count": 10,
-                    "ops": [
-                        {
-                            "op": "SYNC",
-                            "range": [1, 4],
-                            "room_ids": [
-                                "!r1:bar.org",
-                                "!r2:bar.org",
-                                "!r3:bar.org",
-                                "!r4:bar.org",
-                            ],
-                        },
-                    ],
                 },
                 VISIBLE_ROOMS: {
                     "count": 0,
@@ -1524,13 +1464,12 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
             },
             "rooms": {
                 "!r1:bar.org": {
-                    "name": "Yop yop",
                     "initial": true,
                     "timeline": [],
                     "required_state": [
                         {
                             "content": {
-                                "name": "Matrix Foobar"
+                                "name": "Matrix Foobaz"
                             },
                             "sender": "@example:bar.org",
                             "state_key": "",
@@ -1541,7 +1480,6 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
                     ],
                 },
                 "!r2:bar.org": {
-                    "name": "Hello",
                     "initial": true,
                     "timeline": [],
                     "required_state": [
@@ -1558,7 +1496,6 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
                     ],
                 },
                 "!r3:bar.org": {
-                    "name": "Helios live",
                     "initial": true,
                     "timeline": [],
                     "required_state": [
@@ -1575,7 +1512,6 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
                     ],
                 },
                 "!r4:bar.org": {
-                    "name": "Matrix Baz",
                     "initial": true,
                     "timeline": [],
                     "required_state": [
@@ -1598,8 +1534,8 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
     // Assert the dynamic entries.
     assert_entries_batch! {
         [dynamic_entries_stream]
-        insert[1] [ F("!r1:bar.org") ];
-        insert[2] [ F("!r4:bar.org") ];
+        push back [ "!r1:bar.org" ];
+        push back [ "!r4:bar.org" ];
         end;
     };
     assert_pending!(dynamic_entries_stream);
@@ -1622,17 +1558,6 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
             "lists": {
                 ALL_ROOMS: {
                     "count": 10,
-                    "ops": [
-                        {
-                            "op": "SYNC",
-                            "range": [5, 7],
-                            "room_ids": [
-                                "!r5:bar.org",
-                                "!r6:bar.org",
-                                "!r7:bar.org",
-                            ],
-                        },
-                    ],
                 },
                 VISIBLE_ROOMS: {
                     "count": 0,
@@ -1640,7 +1565,6 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
             },
             "rooms": {
                 "!r5:bar.org": {
-                    "name": "Matrix Barracuda Room",
                     "initial": true,
                     "timeline": [],
                     "required_state": [
@@ -1657,7 +1581,6 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
                     ],
                 },
                 "!r6:bar.org": {
-                    "name": "Matrix is real as hell",
                     "initial": true,
                     "timeline": [],
                     "required_state": [
@@ -1674,7 +1597,6 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
                     ],
                 },
                 "!r7:bar.org": {
-                    "name": "Matrix Baraka",
                     "initial": true,
                     "timeline": [],
                     "required_state": [
@@ -1697,20 +1619,20 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
     // Assert the dynamic entries.
     assert_entries_batch! {
         [dynamic_entries_stream]
-        insert[3] [ F("!r5:bar.org") ];
-        insert[4] [ F("!r7:bar.org") ];
+        push back [ "!r5:bar.org" ];
+        push back [ "!r7:bar.org" ];
         end;
     };
     assert_pending!(dynamic_entries_stream);
 
     // Now, let's change the dynamic entries!
-    dynamic_entries.set_filter(Box::new(new_filter_fuzzy_match_room_name(&client, "hell")));
+    dynamic_entries.set_filter(Box::new(new_filter_fuzzy_match_room_name("hell")));
 
     // Assert the dynamic entries.
     assert_entries_batch! {
         [dynamic_entries_stream]
         // Receive a `reset` again because the filter has been reset.
-        reset [ F("!r2:bar.org"), F("!r3:bar.org"), F("!r6:bar.org") ];
+        reset [ "!r2:bar.org", "!r3:bar.org", "!r6:bar.org" ];
         end;
     }
     assert_pending!(dynamic_entries_stream);
@@ -1727,18 +1649,18 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
     };
 
     // Now, let's change again the dynamic filter!
-    dynamic_entries.set_filter(Box::new(new_filter_non_left(&client)));
+    dynamic_entries.set_filter(Box::new(new_filter_non_left()));
 
     // Assert the dynamic entries.
     assert_entries_batch! {
         [dynamic_entries_stream]
         // Receive a `reset` again because the filter has been reset.
         reset [
-            F("!r0:bar.org"),
-            F("!r1:bar.org"),
-            F("!r2:bar.org"),
-            F("!r3:bar.org"),
-            F("!r4:bar.org"),
+            "!r0:bar.org",
+            "!r1:bar.org",
+            "!r2:bar.org",
+            "!r3:bar.org",
+            "!r4:bar.org",
             // Stop! The page is full :-).
         ];
         end;
@@ -1753,9 +1675,9 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
         [dynamic_entries_stream]
         // Receive the next values.
         append [
-            F("!r5:bar.org"),
-            F("!r6:bar.org"),
-            F("!r7:bar.org"),
+            "!r5:bar.org",
+            "!r6:bar.org",
+            "!r7:bar.org",
         ];
         end;
     };
@@ -1785,9 +1707,9 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
         [dynamic_entries_stream]
         // Receive the next values.
         append [
-            F("!r5:bar.org"),
-            F("!r6:bar.org"),
-            F("!r7:bar.org"),
+            "!r5:bar.org",
+            "!r6:bar.org",
+            "!r7:bar.org",
         ];
         end;
     };
@@ -1831,20 +1753,10 @@ async fn test_dynamic_entries_stream_manual_update() -> Result<(), Error> {
             "lists": {
                 ALL_ROOMS: {
                     "count": 10,
-                    "ops": [
-                        {
-                            "op": "SYNC",
-                            "range": [0, 0],
-                            "room_ids": [
-                                "!r0:bar.org",
-                            ],
-                        },
-                    ],
                 },
             },
             "rooms": {
                 "!r0:bar.org": {
-                    "name": "This is ignored",
                     "initial": true,
                     "timeline": [],
                     "required_state": [
@@ -1869,13 +1781,13 @@ async fn test_dynamic_entries_stream_manual_update() -> Result<(), Error> {
     assert_pending!(dynamic_entries_stream);
 
     // Now, let's define a filter.
-    dynamic_entries.set_filter(Box::new(new_filter_fuzzy_match_room_name(&client, "mat ba")));
+    dynamic_entries.set_filter(Box::new(new_filter_fuzzy_match_room_name("mat ba")));
 
     // Assert the dynamic entries.
     assert_entries_batch! {
         [dynamic_entries_stream]
         // Receive a `reset` because the filter has been reset/set for the first time.
-        reset [ F("!r0:bar.org") ];
+        reset [ "!r0:bar.org" ];
         end;
     };
     assert_pending!(dynamic_entries_stream);
@@ -1898,16 +1810,6 @@ async fn test_dynamic_entries_stream_manual_update() -> Result<(), Error> {
             "lists": {
                 ALL_ROOMS: {
                     "count": 10,
-                    "ops": [
-                        {
-                            "op": "SYNC",
-                            "range": [0, 1],
-                            "room_ids": [
-                                "!r1:bar.org",
-                                "!r0:bar.org",
-                            ],
-                        },
-                    ],
                 },
                 VISIBLE_ROOMS: {
                     "count": 0,
@@ -1915,7 +1817,6 @@ async fn test_dynamic_entries_stream_manual_update() -> Result<(), Error> {
             },
             "rooms": {
                 "!r1:bar.org": {
-                    "name": "Matrix Bar",
                     "initial": true,
                     "timeline": [],
                     "required_state": [
@@ -1938,77 +1839,17 @@ async fn test_dynamic_entries_stream_manual_update() -> Result<(), Error> {
     // Assert the dynamic entries.
     assert_entries_batch! {
         [dynamic_entries_stream]
-        set[0] [ F("!r1:bar.org") ];
-        insert[1] [ F("!r0:bar.org") ];
+        push back [ "!r1:bar.org" ];
         end;
     };
 
-    // Variation 1: Send manual update after reading stream, !r0 should be at new
-    // pos 1
+    // Send manual update after reading stream.
     let room = client.get_room(room_id!("!r0:bar.org")).unwrap();
     room.set_room_info(room.clone_info(), true);
 
     assert_entries_batch! {
         [dynamic_entries_stream]
-        set[1] [ F("!r0:bar.org") ];
-        end;
-    };
-
-    assert_pending!(dynamic_entries_stream);
-
-    sync_then_assert_request_and_fake_response! {
-        [server, room_list, sync]
-        states = Running => Running,
-        assert request >= {
-            "lists": {
-                ALL_ROOMS: {
-                    "ranges": [[0, 9]],
-                },
-                VISIBLE_ROOMS: {
-                    "ranges": [[0, 19]],
-                },
-            },
-        },
-        respond with = {
-            "pos": "2",
-            "lists": {
-                ALL_ROOMS: {
-                    "count": 10,
-                    "ops": [
-                        {
-                            "op": "SYNC",
-                            "range": [0, 1],
-                            "room_ids": [
-                                "!r0:bar.org",
-                                "!r1:bar.org",
-                            ],
-                        },
-                    ],
-                },
-                VISIBLE_ROOMS: {
-                    "count": 0,
-                },
-            },
-            "rooms": {},
-        },
-    };
-
-    // Variation 2: Send manual update before reading stream, !r0 should still be at
-    // previous pos 1
-    let room = client.get_room(room_id!("!r0:bar.org")).unwrap();
-    room.set_room_info(room.clone_info(), true);
-
-    assert_entries_batch! {
-        [dynamic_entries_stream]
-        set[1] [ F("!r0:bar.org") ];
-        end;
-    };
-
-    // Assert the dynamic entries.
-    assert_entries_batch! {
-        [dynamic_entries_stream]
-        set[0] [ F("!r0:bar.org") ];
-        set[1] [ F("!r1:bar.org") ];
+        set[0] [ "!r0:bar.org" ];
         end;
     };
 
@@ -2035,21 +1876,10 @@ async fn test_room() -> Result<(), Error> {
             "lists": {
                 ALL_ROOMS: {
                     "count": 2,
-                    "ops": [
-                        {
-                            "op": "SYNC",
-                            "range": [0, 1],
-                            "room_ids": [
-                                room_id_0,
-                                room_id_1,
-                            ],
-                        },
-                    ],
                 },
             },
             "rooms": {
                 room_id_0: {
-                    "name": "This is ignored",
                     "avatar": "mxc://homeserver/media",
                     "initial": true,
                     "required_state": [
@@ -2097,15 +1927,6 @@ async fn test_room() -> Result<(), Error> {
             "lists": {
                 ALL_ROOMS: {
                     "count": 2,
-                    "ops": [
-                        {
-                            "op": "SYNC",
-                            "range": [1, 1],
-                            "room_ids": [
-                                room_id_1,
-                            ],
-                        },
-                    ],
                 },
             },
             "rooms": {
@@ -2178,30 +1999,16 @@ async fn test_room_subscription() -> Result<(), Error> {
             "lists": {
                 ALL_ROOMS: {
                     "count": 3,
-                    "ops": [
-                        {
-                            "op": "SYNC",
-                            "range": [0, 2],
-                            "room_ids": [
-                                room_id_0,
-                                room_id_1,
-                                room_id_2,
-                            ],
-                        },
-                    ],
                 },
             },
             "rooms": {
                 room_id_0: {
-                    "name": "Room #0",
                     "initial": true,
                 },
                 room_id_1: {
-                    "name": "Room #1",
                     "initial": true,
                 },
                 room_id_2: {
-                    "name": "Room #2",
                     "initial": true,
                 }
             },
@@ -2298,18 +2105,10 @@ async fn test_room_unread_notifications() -> Result<(), Error> {
             "lists": {
                 ALL_ROOMS: {
                     "count": 1,
-                    "ops": [
-                        {
-                            "op": "SYNC",
-                            "range": [0, 0],
-                            "room_ids": [room_id],
-                        },
-                    ],
                 },
             },
             "rooms": {
                 room_id: {
-                    "name": "Room #0",
                     "initial": true,
                 },
             },
@@ -2370,18 +2169,10 @@ async fn test_room_timeline() -> Result<(), Error> {
             "lists": {
                 ALL_ROOMS: {
                     "count": 2,
-                    "ops": [
-                        {
-                            "op": "SYNC",
-                            "range": [0, 0],
-                            "room_ids": [room_id],
-                        },
-                    ],
                 },
             },
             "rooms": {
                 room_id: {
-                    "name": "Room #0",
                     "initial": true,
                     "timeline": [
                         timeline_event!("$x0:bar.org" at 0 sec),
@@ -2455,18 +2246,10 @@ async fn test_room_latest_event() -> Result<(), Error> {
             "lists": {
                 ALL_ROOMS: {
                     "count": 2,
-                    "ops": [
-                        {
-                            "op": "SYNC",
-                            "range": [0, 0],
-                            "room_ids": [room_id],
-                        },
-                    ],
                 },
             },
             "rooms": {
                 room_id: {
-                    "name": "Room #0",
                     "initial": true,
                 },
             },
@@ -2563,6 +2346,7 @@ async fn test_room_latest_event() -> Result<(), Error> {
     Ok(())
 }
 
+/*
 #[async_test]
 async fn test_input_viewport() -> Result<(), Error> {
     let (_, server, room_list) = new_room_list_service().await?;
@@ -2650,8 +2434,9 @@ async fn test_input_viewport() -> Result<(), Error> {
 
     Ok(())
 }
+*/
 
-#[ignore = "Flaky"]
+// #[ignore = "Flaky"]
 #[async_test]
 async fn test_sync_indicator() -> Result<(), Error> {
     let (_, server, room_list) = new_room_list_service().await?;

@@ -12,52 +12,57 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{super::room_list::BoxedFilterFn, Filter};
+use super::{BoxedFilterFn, Filter};
 
 /// Create a new filter that will run multiple filters. It returns `false` if at
 /// least one of the filter returns `false`.
 pub fn new_filter(filters: Vec<BoxedFilterFn>) -> impl Filter {
-    move |room_list_entry| -> bool { filters.iter().all(|filter| filter(room_list_entry)) }
+    move |room| -> bool { filters.iter().all(|filter| filter(room)) }
 }
 
 #[cfg(test)]
 mod tests {
     use std::ops::Not;
 
-    use matrix_sdk::RoomListEntry;
+    use matrix_sdk_test::async_test;
     use ruma::room_id;
 
-    use super::new_filter;
+    use super::{
+        super::{client_and_server_prelude, new_rooms},
+        *,
+    };
 
-    #[test]
-    fn test_one_filter() {
-        let room_list_entry = RoomListEntry::Filled(room_id!("!r0:bar.org").to_owned());
+    #[async_test]
+    async fn test_one_filter() {
+        let (client, server, sliding_sync) = client_and_server_prelude().await;
+        let [room] = new_rooms([room_id!("!a:b.c")], &client, &server, &sliding_sync).await;
 
         {
             let filter = |_: &_| true;
             let all = new_filter(vec![Box::new(filter)]);
 
-            assert!(all(&room_list_entry));
+            assert!(all(&room));
         }
 
         {
             let filter = |_: &_| false;
             let all = new_filter(vec![Box::new(filter)]);
 
-            assert!(all(&room_list_entry).not());
+            assert!(all(&room).not());
         }
     }
 
-    #[test]
-    fn test_two_filters() {
-        let room_list_entry = RoomListEntry::Filled(room_id!("!r0:bar.org").to_owned());
+    #[async_test]
+    async fn test_two_filters() {
+        let (client, server, sliding_sync) = client_and_server_prelude().await;
+        let [room] = new_rooms([room_id!("!a:b.c")], &client, &server, &sliding_sync).await;
 
         {
             let filter1 = |_: &_| true;
             let filter2 = |_: &_| true;
             let all = new_filter(vec![Box::new(filter1), Box::new(filter2)]);
 
-            assert!(all(&room_list_entry));
+            assert!(all(&room));
         }
 
         {
@@ -65,7 +70,7 @@ mod tests {
             let filter2 = |_: &_| false;
             let all = new_filter(vec![Box::new(filter1), Box::new(filter2)]);
 
-            assert!(all(&room_list_entry).not());
+            assert!(all(&room).not());
         }
 
         {
@@ -73,7 +78,7 @@ mod tests {
             let filter2 = |_: &_| true;
             let all = new_filter(vec![Box::new(filter1), Box::new(filter2)]);
 
-            assert!(all(&room_list_entry).not());
+            assert!(all(&room).not());
         }
 
         {
@@ -81,7 +86,7 @@ mod tests {
             let filter2 = |_: &_| false;
             let all = new_filter(vec![Box::new(filter1), Box::new(filter2)]);
 
-            assert!(all(&room_list_entry).not());
+            assert!(all(&room).not());
         }
     }
 }

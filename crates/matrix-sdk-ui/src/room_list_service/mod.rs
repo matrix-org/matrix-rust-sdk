@@ -76,7 +76,6 @@ use std::{
 use async_stream::stream;
 use eyeball::{SharedObservable, Subscriber};
 use futures_util::{pin_mut, Stream, StreamExt};
-pub use matrix_sdk::RoomListEntry;
 use matrix_sdk::{
     event_cache::EventCacheError, sliding_sync::Ranges, Client, Error as SlidingSyncError,
     SlidingSync, SlidingSyncList, SlidingSyncListBuilder, SlidingSyncMode,
@@ -385,7 +384,7 @@ impl RoomListService {
     }
 
     async fn list_for(&self, sliding_sync_list_name: &str) -> Result<RoomList, Error> {
-        RoomList::new(&self.sliding_sync, sliding_sync_list_name, self.state()).await
+        RoomList::new(&self.client, &self.sliding_sync, sliding_sync_list_name, self.state()).await
     }
 
     /// Get a [`RoomList`] for all rooms.

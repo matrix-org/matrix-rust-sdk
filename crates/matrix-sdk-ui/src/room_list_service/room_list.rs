@@ -23,17 +23,19 @@ use eyeball_im_util::vector::VectorObserverExt;
 use futures_util::{pin_mut, stream, Stream, StreamExt as _};
 use matrix_sdk::{
     executor::{spawn, JoinHandle},
-    RoomListEntry, SlidingSync, SlidingSyncList,
+    Client, SlidingSync, SlidingSyncList,
 };
 use matrix_sdk_base::RoomInfoUpdate;
 use tokio::{select, sync::broadcast};
 
-use super::{filters::Filter, Error, State};
+use super::{filters::BoxedFilterFn, Error, Room, State};
 
 /// A `RoomList` represents a list of rooms, from a
 /// [`RoomListService`](super::RoomListService).
 #[derive(Debug)]
 pub struct RoomList {
+    client: Client,
+    sliding_sync: Arc<SlidingSync>,
     sliding_sync_list: SlidingSyncList,
     loading_state: SharedObservable<RoomListLoadingState>,
     loading_state_task: JoinHandle<()>,
@@ -47,7 +49,8 @@ impl Drop for RoomList {
 
 impl RoomList {
     pub(super) async fn new(
-        sliding_sync: &SlidingSync,
+        client: &Client,
+        sliding_sync: &Arc<SlidingSync>,
         sliding_sync_list_name: &str,
         room_list_service_state: Subscriber<State>,
     ) -> Result<Self, Error> {
@@ -65,6 +68,8 @@ impl RoomList {
             });
 
         Ok(Self {
+            client: client.clone(),
+            sliding_sync: sliding_sync.clone(),
             sliding_sync_list: sliding_sync_list.clone(),
             loading_state: loading_state.clone(),
             loading_state_task: spawn(async move {
@@ -105,12 +110,16 @@ impl RoomList {
         self.loading_state.subscribe()
     }
 
-    /// Get all previous room list entries, in addition to a [`Stream`] to room
-    /// list entry's updates.
-    pub fn entries(
-        &self,
-    ) -> (Vector<RoomListEntry>, impl Stream<Item = Vec<VectorDiff<RoomListEntry>>>) {
-        self.sliding_sync_list.room_list_stream()
+    /// Get all previous rooms, in addition to a [`Stream`] to rooms' updates.
+    pub fn entries(&self) -> (Vector<Room>, impl Stream<Item = Vec<VectorDiff<Room>>> + '_) {
+        let (rooms, stream) = self.client.rooms_stream();
+
+        let map_room = |room| Room::new(room, &self.sliding_sync);
+
+        (
+            rooms.into_iter().map(map_room).collect(),
+            stream.map(move |diffs| diffs.into_iter().map(|diff| diff.map(map_room)).collect()),
+        )
     }
 
     /// Similar to [`Self::entries`] except that it's possible to provide a
@@ -120,14 +129,13 @@ impl RoomList {
     /// The returned stream will only start yielding diffs once a filter is set
     /// through the returned [`RoomListDynamicEntriesController`]. For every
     /// call to [`RoomListDynamicEntriesController::set_filter`], the stream
-    /// will yield a [`VectorDiff::Clear`] followed by any updates of the
+    /// will yield a [`VectorDiff::Reset`] followed by any updates of the
     /// room list under that filter (until the next reset).
     pub fn entries_with_dynamic_adapters(
         &self,
         page_size: usize,
         roominfo_update_recv: broadcast::Receiver<RoomInfoUpdate>,
-    ) -> (impl Stream<Item = Vec<VectorDiff<RoomListEntry>>>, RoomListDynamicEntriesController)
-    {
+    ) -> (impl Stream<Item = Vec<VectorDiff<Room>>> + '_, RoomListDynamicEntriesController) {
         let list = self.sliding_sync_list.clone();
 
         let filter_fn_cell = AsyncCell::shared();
@@ -145,7 +153,8 @@ impl RoomList {
         let stream = stream! {
             loop {
                 let filter_fn = filter_fn_cell.take().await;
-                let (raw_values, raw_stream) = list.room_list_stream();
+
+                let (raw_values, raw_stream) = self.entries();
 
                 // Combine normal stream events with other updates from rooms
                 let merged_stream = merge_stream_and_receiver(raw_values.clone(), raw_stream, roominfo_update_recv.resubscribe());
@@ -169,10 +178,10 @@ impl RoomList {
 /// knows where all rooms are. When the receiver is triggered, a Set operation
 /// for the room position is inserted to the stream.
 fn merge_stream_and_receiver(
-    mut raw_current_values: Vector<RoomListEntry>,
-    raw_stream: impl Stream<Item = Vec<VectorDiff<RoomListEntry>>>,
+    mut raw_current_values: Vector<Room>,
+    raw_stream: impl Stream<Item = Vec<VectorDiff<Room>>>,
     mut roominfo_update_recv: broadcast::Receiver<RoomInfoUpdate>,
-) -> impl Stream<Item = Vec<VectorDiff<RoomListEntry>>> {
+) -> impl Stream<Item = Vec<VectorDiff<Room>>> {
     stream! {
         pin_mut!(raw_stream);
 
@@ -187,12 +196,10 @@ fn merge_stream_and_receiver(
 
                     // Search list for the updated room
                     for (index, room) in raw_current_values.iter().enumerate() {
-                        if let RoomListEntry::Filled(r) = room {
-                            if r == &update.room_id {
-                                let update = VectorDiff::Set { index, value: raw_current_values[index].clone() };
-                                yield vec![update];
-                                break;
-                            }
+                        if room.room_id() == &update.room_id {
+                            let update = VectorDiff::Set { index, value: raw_current_values[index].clone() };
+                            yield vec![update];
+                            break;
                         }
                     }
                 }
@@ -242,10 +249,10 @@ pub enum RoomListLoadingState {
         /// The maximum number of rooms a [`RoomList`] contains.
         ///
         /// It does not mean that there are exactly this many rooms to display.
-        /// Usually, the room entries are represented by
-        /// [`RoomListEntry`]. The room entry might have been synced or not
-        /// synced yet, but we know for sure (from the server), that there will
-        /// be this amount of rooms in the list at the end.
+        /// Usually, the room entries are represented by [`Room`]. The room
+        /// entry might have been synced or not synced yet, but we know for sure
+        /// (from the server), that there will be this amount of rooms in the
+        /// list at the end.
         ///
         /// Note that it's an `Option`, because it may be possible that the
         /// server did miss to send us this value. It's up to you, dear reader,
@@ -253,9 +260,6 @@ pub enum RoomListLoadingState {
         maximum_number_of_rooms: Option<u32>,
     },
 }
-
-/// Type alias for a boxed filter function.
-pub type BoxedFilterFn = Box<dyn Filter + Send + Sync>;
 
 /// Controller for the [`RoomList`] dynamic entries.
 ///
