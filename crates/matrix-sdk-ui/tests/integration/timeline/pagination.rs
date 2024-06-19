@@ -40,6 +40,7 @@ use serde_json::{json, Value as JsonValue};
 use stream_assert::{assert_next_eq, assert_pending};
 use tokio::{
     spawn,
+    task::yield_now,
     time::{sleep, timeout},
 };
 use wiremock::{
@@ -339,6 +340,103 @@ async fn test_dedup_pagination() {
     // `expect()`ed requested is indeed 1.
     //
     // Make sure pagination was called (with the right parameters).
+    server.verify().await;
+}
+
+#[async_test]
+async fn test_duplicated_events_from_pagination() {
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let (client, server) = logged_in_client_with_server().await;
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+    client.event_cache().subscribe().unwrap();
+
+    let event_builder = EventBuilder::new();
+    let mut sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_bulk([
+        event_builder.make_sync_message_event_with_id(
+            &ALICE,
+            event_id!("$ev1"),
+            RoomMessageEventContent::text_plain("msg1"),
+        ),
+    ]));
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    let room = client.get_room(room_id).unwrap();
+    let timeline = Arc::new(room.timeline().await.unwrap());
+
+    let payload = json!({
+        "chunk": [
+          {
+            "age": 1042,
+            "content": {
+              "body": "hello world",
+              "msgtype": "m.text"
+            },
+            "event_id": "$hello:matrix.org",
+            "origin_server_ts": 1444812213737i64,
+            "room_id": "!Xq3620DUiqCaoxq:example.com",
+            "sender": "@alice:example.com",
+            "type": "m.room.message"
+          },
+          {
+            "age": 20123,
+            "content": {
+              "body": "the world is big",
+              "msgtype": "m.text"
+            },
+            "event_id": "$world:matrix.org",
+            "origin_server_ts": 1444812194656i64,
+            "room_id": "!Xq3620DUiqCaoxq:example.com",
+            "sender": "@bob:example.com",
+            "type": "m.room.message"
+          },
+          {
+            "age": 20123,
+            "content": {
+              "body": "the world is big",
+              "msgtype": "m.text"
+            },
+            "event_id": "$world:matrix.org",
+            "origin_server_ts": 1444812194656i64,
+            "room_id": "!Xq3620DUiqCaoxq:example.com",
+            "sender": "@bob:example.com",
+            "type": "m.room.message"
+          },
+          {
+            "age": 20123,
+            "content": {
+              "body": "the world is big",
+              "msgtype": "m.text"
+            },
+            "event_id": "$world:matrix.org",
+            "origin_server_ts": 1444812194656i64,
+            "room_id": "!Xq3620DUiqCaoxq:example.com",
+            "sender": "@bob:example.com",
+            "type": "m.room.message"
+          },
+        ],
+        "end": "t47409-4357353_219380_26003_2269",
+        "start": "t392-516_47314_0_7_1_1_1_11444_1"
+    });
+
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(payload))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+
+    timeline.live_paginate_backwards(10).await.unwrap();
+
+    yield_now().await;
+
     server.verify().await;
 }
 
