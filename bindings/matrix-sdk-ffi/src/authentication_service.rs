@@ -541,7 +541,7 @@ impl AuthenticationService {
 
         drop(client_guard);
 
-        Ok(Arc::new(SsoHandler { service: Arc::clone(self), url: url }))
+        Ok(Arc::new(SsoHandler { service: Arc::clone(self), url }))
     }
 }
 
