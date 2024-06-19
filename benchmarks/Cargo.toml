@@ -13,7 +13,7 @@ matrix-sdk-base = { workspace = true }
 matrix-sdk-crypto = { workspace = true }
 matrix-sdk-sqlite = { workspace = true, features = ["crypto-store"] }
 matrix-sdk-test = { workspace = true }
-matrix-sdk = { workspace = true }
+matrix-sdk = { workspace = true, features = ["native-tls", "e2e-encryption", "sqlite"] }
 ruma = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
