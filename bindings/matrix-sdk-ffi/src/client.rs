@@ -13,15 +13,12 @@ use matrix_sdk::{
         requests::account_management::AccountManagementActionFull,
         types::{
             client_credentials::ClientCredentials,
-            errors::ClientErrorCode::AccessDenied,
             registration::{
                 ClientMetadata, ClientMetadataVerificationError, VerifiedClientMetadata,
             },
-            requests::Prompt,
         },
-        AuthorizationResponse, Oidc, OidcSession,
+        OidcAuthorizationData, OidcError, OidcSession,
     },
-    reqwest::StatusCode,
     ruma::{
         api::client::{
             media::get_content_thumbnail::v3::Method,
@@ -39,7 +36,7 @@ use matrix_sdk::{
         serde::Raw,
         EventEncryptionAlgorithm, RoomId, TransactionId, UInt, UserId,
     },
-    AuthApi, AuthSession, Client as MatrixClient, SessionChange, SessionTokens,
+    AuthApi, AuthSession, Client as MatrixClient, Error, SessionChange, SessionTokens,
 };
 use matrix_sdk_ui::notification_client::{
     NotificationClient as MatrixNotificationClient,
@@ -63,7 +60,7 @@ use url::Url;
 
 use super::{room::Room, session_verification::SessionVerificationController, RUNTIME};
 use crate::{
-    authentication_service::{AuthenticationError, OidcAuthenticationData, OidcConfiguration},
+    authentication_service::{AuthenticationError, OidcConfiguration},
     client,
     encryption::Encryption,
     notification::NotificationClient,
@@ -362,72 +359,58 @@ impl Client {
     pub(crate) async fn url_for_oidc_login(
         &self,
         oidc_configuration: &OidcConfiguration,
-    ) -> Result<Arc<OidcAuthenticationData>, AuthenticationError> {
-        let oidc = self.inner.oidc();
+    ) -> Result<Arc<OidcAuthorizationData>, AuthenticationError> {
+        let oidc_metadata: VerifiedClientMetadata = oidc_configuration.try_into()?;
+        let registrations_file = Path::new(&oidc_configuration.dynamic_registrations_file);
+        let static_registrations = oidc_configuration
+            .static_registrations
+            .iter()
+            .filter_map(|(issuer, client_id)| {
+                let Ok(issuer) = Url::parse(issuer) else {
+                    tracing::error!("Failed to parse {:?}", issuer);
+                    return None;
+                };
+                Some((issuer, ClientId(client_id.clone())))
+            })
+            .collect::<HashMap<_, _>>();
+        let registrations = OidcRegistrations::new(
+            registrations_file,
+            oidc_metadata.clone(),
+            static_registrations,
+        )?;
 
-        let issuer = match oidc.fetch_authentication_issuer().await {
-            Ok(issuer) => issuer,
-            Err(error) => {
-                if error
-                    .as_client_api_error()
-                    .is_some_and(|err| err.status_code == StatusCode::NOT_FOUND)
-                {
-                    return Err(AuthenticationError::OidcNotSupported);
-                } else {
-                    return Err(AuthenticationError::ServerUnreachable(error));
-                }
-            }
-        };
+        let data =
+            self.inner.oidc().url_for_oidc_login(oidc_metadata, registrations).await.map_err(
+                |e| match e {
+                    OidcError::MissingAuthenticationIssuer => AuthenticationError::OidcNotSupported,
+                    OidcError::MissingRedirectUri => AuthenticationError::OidcMetadataInvalid,
+                    _ => AuthenticationError::OidcError { message: e.to_string() },
+                },
+            )?;
 
-        let redirect_url = Url::parse(&oidc_configuration.redirect_uri)
-            .map_err(|_e| AuthenticationError::OidcMetadataInvalid)?;
-
-        self.configure_oidc(&oidc, issuer, oidc_configuration).await?;
-
-        let mut data_builder = oidc.login(redirect_url, None)?;
-        // TODO: Add a check for the Consent prompt when MAS is updated.
-        data_builder = data_builder.prompt(vec![Prompt::Consent]);
-        let data = data_builder.build().await?;
-
-        Ok(Arc::new(OidcAuthenticationData { url: data.url, state: data.state }))
+        Ok(Arc::new(data))
     }
 
     /// Completes the OIDC login process.
     pub(crate) async fn login_with_oidc_callback(
         &self,
-        authentication_data: Arc<OidcAuthenticationData>,
+        authorization_data: Arc<OidcAuthorizationData>,
         callback_url: String,
     ) -> Result<(), AuthenticationError> {
-        let oidc = self.inner.oidc();
+        let url = Url::parse(&callback_url).or(Err(AuthenticationError::OidcCallbackUrlInvalid))?;
 
-        let url =
-            Url::parse(&callback_url).map_err(|_| AuthenticationError::OidcCallbackUrlInvalid)?;
-
-        let response = AuthorizationResponse::parse_uri(&url)
-            .map_err(|_| AuthenticationError::OidcCallbackUrlInvalid)?;
-
-        let code = match response {
-            AuthorizationResponse::Success(code) => code,
-            AuthorizationResponse::Error(err) => {
-                if err.error.error == AccessDenied {
-                    // The user cancelled the login in the web view.
-                    return Err(AuthenticationError::OidcCancelled);
+        self.inner.oidc().login_with_oidc_callback(&authorization_data, url).await.map_err(
+            |e| match e {
+                Error::Oidc(OidcError::InvalidCallbackUrl) => {
+                    AuthenticationError::OidcCallbackUrlInvalid
                 }
-                return Err(AuthenticationError::OidcError {
-                    message: err.error.error.to_string(),
-                });
-            }
-        };
-
-        if code.state != authentication_data.state {
-            return Err(AuthenticationError::OidcCallbackUrlInvalid);
-        };
-
-        oidc.finish_authorization(code).await?;
-
-        oidc.finish_login()
-            .await
-            .map_err(|e| AuthenticationError::OidcError { message: e.to_string() })?;
+                Error::Oidc(OidcError::InvalidState) => AuthenticationError::OidcCallbackUrlInvalid,
+                Error::Oidc(OidcError::CancelledAuthorization) => {
+                    AuthenticationError::OidcCancelled
+                }
+                _ => AuthenticationError::OidcError { message: e.to_string() },
+            },
+        )?;
 
         Ok(())
     }
@@ -456,126 +439,6 @@ impl Client {
             .iter()
             .any(|login_type| matches!(login_type, get_login_types::v3::LoginType::Password(_)));
         Ok(supports_password)
-    }
-
-    /// Handle any necessary configuration in order for login via OIDC to
-    /// succeed. This includes performing dynamic client registration against
-    /// the homeserver's issuer or restoring a previous registration if one has
-    /// been stored.
-    async fn configure_oidc(
-        &self,
-        oidc: &Oidc,
-        issuer: String,
-        configuration: &OidcConfiguration,
-    ) -> Result<(), AuthenticationError> {
-        if oidc.client_credentials().is_some() {
-            tracing::info!("OIDC is already configured.");
-            return Ok(());
-        };
-
-        let oidc_metadata: VerifiedClientMetadata = configuration.try_into()?;
-        let registrations_file = Path::new(&configuration.dynamic_registrations_file);
-        let static_registrations = configuration
-            .static_registrations
-            .iter()
-            .filter_map(|(issuer, client_id)| {
-                let Ok(issuer) = Url::parse(issuer) else {
-                    tracing::error!("Failed to parse {:?}", issuer);
-                    return None;
-                };
-                Some((issuer, ClientId(client_id.clone())))
-            })
-            .collect::<HashMap<_, _>>();
-
-        if self.load_client_registration(
-            oidc,
-            issuer.clone(),
-            oidc_metadata.clone(),
-            registrations_file,
-            static_registrations.clone(),
-        ) {
-            tracing::info!("OIDC configuration loaded from disk.");
-            return Ok(());
-        }
-
-        tracing::info!("Registering this client for OIDC.");
-        let registration_response =
-            oidc.register_client(&issuer, oidc_metadata.clone(), None).await?;
-
-        // The format of the credentials changes according to the client metadata that
-        // was sent. Public clients only get a client ID.
-        let credentials =
-            ClientCredentials::None { client_id: registration_response.client_id.clone() };
-        oidc.restore_registered_client(issuer, oidc_metadata, credentials);
-
-        tracing::info!("Persisting OIDC registration data.");
-        self.store_client_registration(oidc, registrations_file, static_registrations)?;
-
-        Ok(())
-    }
-
-    /// Stores the current OIDC dynamic client registration so it can be re-used
-    /// if we ever log in via the same issuer again.
-    fn store_client_registration(
-        &self,
-        oidc: &Oidc,
-        registrations_file: &Path,
-        static_registrations: HashMap<Url, ClientId>,
-    ) -> Result<(), AuthenticationError> {
-        let issuer = Url::parse(oidc.issuer().ok_or(AuthenticationError::OidcNotSupported)?)
-            .map_err(|_| AuthenticationError::OidcError {
-                message: String::from("Failed to parse issuer URL."),
-            })?;
-        let client_id = oidc
-            .client_credentials()
-            .ok_or(AuthenticationError::OidcError {
-                message: String::from("Missing client registration."),
-            })?
-            .client_id()
-            .to_owned();
-
-        let metadata = oidc.client_metadata().ok_or(AuthenticationError::OidcError {
-            message: String::from("Missing client metadata."),
-        })?;
-
-        let registrations =
-            OidcRegistrations::new(registrations_file, metadata.clone(), static_registrations)?;
-        registrations.set_and_write_client_id(ClientId(client_id), issuer)?;
-
-        Ok(())
-    }
-
-    /// Attempts to load an existing OIDC dynamic client registration for the
-    /// currently configured issuer.
-    fn load_client_registration(
-        &self,
-        oidc: &Oidc,
-        issuer: String,
-        oidc_metadata: VerifiedClientMetadata,
-        registrations_file: &Path,
-        static_registrations: HashMap<Url, ClientId>,
-    ) -> bool {
-        let Ok(issuer_url) = Url::parse(&issuer) else {
-            tracing::error!("Failed to parse {issuer:?}");
-            return false;
-        };
-        let Some(registrations) =
-            OidcRegistrations::new(registrations_file, oidc_metadata.clone(), static_registrations)
-                .ok()
-        else {
-            return false;
-        };
-        let Some(client_id) = registrations.client_id(&issuer_url) else {
-            return false;
-        };
-
-        oidc.restore_registered_client(
-            issuer,
-            oidc_metadata,
-            ClientCredentials::None { client_id: client_id.0 },
-        );
-
-        true
     }
 }
 

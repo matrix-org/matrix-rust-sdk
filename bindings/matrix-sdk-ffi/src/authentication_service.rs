@@ -13,7 +13,7 @@ use matrix_sdk::{
             registration::{ClientMetadata, Localized, VerifiedClientMetadata},
             requests::GrantType,
         },
-        OidcError,
+        OidcAuthorizationData, OidcError,
     },
     ClientBuildError as MatrixClientBuildError, HttpError, RumaApiError,
 };
@@ -165,24 +165,6 @@ pub struct OidcConfiguration {
     ///
     /// Suggested value: `{base_path}/oidc/registrations.json`
     pub dynamic_registrations_file: String,
-}
-
-/// The data required to authenticate against an OIDC server.
-#[derive(uniffi::Object)]
-pub struct OidcAuthenticationData {
-    /// The underlying URL for authentication.
-    pub(crate) url: Url,
-    /// A unique identifier for the request, used to ensure the response
-    /// originated from the authentication issuer.
-    pub(crate) state: String,
-}
-
-#[uniffi::export]
-impl OidcAuthenticationData {
-    /// The login URL to use for authentication.
-    pub fn login_url(&self) -> String {
-        self.url.to_string()
-    }
 }
 
 #[derive(uniffi::Object)]
@@ -360,7 +342,7 @@ impl AuthenticationService {
     /// returns.
     pub async fn url_for_oidc_login(
         &self,
-    ) -> Result<Arc<OidcAuthenticationData>, AuthenticationError> {
+    ) -> Result<Arc<OidcAuthorizationData>, AuthenticationError> {
         let client_guard = self.client.read().await;
         let Some(client) = client_guard.as_ref() else {
             return Err(AuthenticationError::ClientMissing);
@@ -376,7 +358,7 @@ impl AuthenticationService {
     /// Completes the OIDC login process.
     pub async fn login_with_oidc_callback(
         &self,
-        authentication_data: Arc<OidcAuthenticationData>,
+        authentication_data: Arc<OidcAuthorizationData>,
         callback_url: String,
     ) -> Result<Arc<Client>, AuthenticationError> {
         let client_guard = self.client.read().await;
