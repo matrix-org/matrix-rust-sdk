@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::fmt;
-
 use matrix_sdk::{
     event_cache::{paginator::PaginatorError, EventCacheError},
     send_queue::RoomSendQueueError,
@@ -81,28 +79,8 @@ pub enum PaginationError {
     Paginator(#[source] PaginatorError),
 }
 
-#[derive(Error)]
-#[error("{0}")]
-pub struct UnsupportedReplyItem(UnsupportedReplyItemInner);
-
-impl UnsupportedReplyItem {
-    pub(super) const MISSING_EVENT_ID: Self = Self(UnsupportedReplyItemInner::MissingEventId);
-    pub(super) const MISSING_JSON: Self = Self(UnsupportedReplyItemInner::MissingJson);
-    pub(super) const MISSING_EVENT: Self = Self(UnsupportedReplyItemInner::MissingEvent);
-    pub(super) const FAILED_TO_DESERIALIZE_EVENT: Self =
-        Self(UnsupportedReplyItemInner::FailedToDeserializeEvent);
-    pub(super) const STATE_EVENT: Self = Self(UnsupportedReplyItemInner::StateEvent);
-}
-
-#[cfg(not(tarpaulin_include))]
-impl fmt::Debug for UnsupportedReplyItem {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
-    }
-}
-
 #[derive(Debug, Error)]
-enum UnsupportedReplyItemInner {
+pub enum UnsupportedReplyItem {
     #[error("local messages whose event ID is not known can't be replied to currently")]
     MissingEventId,
     #[error("redacted events whose JSON form isn't available can't be replied")]
@@ -115,29 +93,8 @@ enum UnsupportedReplyItemInner {
     StateEvent,
 }
 
-#[derive(Error)]
-#[error("{0}")]
-pub struct UnsupportedEditItem(UnsupportedEditItemInner);
-
-impl UnsupportedEditItem {
-    pub(super) const MISSING_EVENT_ID: Self = Self(UnsupportedEditItemInner::MissingEventId);
-    pub(super) const NOT_ROOM_MESSAGE: Self = Self(UnsupportedEditItemInner::NotRoomMessage);
-    pub(super) const NOT_POLL_EVENT: Self = Self(UnsupportedEditItemInner::NotPollEvent);
-    pub(super) const NOT_OWN_EVENT: Self = Self(UnsupportedEditItemInner::NotOwnEvent);
-    pub(super) const MISSING_EVENT: Self = Self(UnsupportedEditItemInner::MissingEvent);
-    pub(super) const FAILED_TO_DESERIALIZE_EVENT: Self =
-        Self(UnsupportedEditItemInner::FailedToDeserializeEvent);
-}
-
-#[cfg(not(tarpaulin_include))]
-impl fmt::Debug for UnsupportedEditItem {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
-    }
-}
-
 #[derive(Debug, Error)]
-enum UnsupportedEditItemInner {
+pub enum UnsupportedEditItem {
     #[error("local messages whose event ID is not known can't be edited currently")]
     MissingEventId,
     #[error("tried to edit a non-message event")]

@@ -429,7 +429,7 @@ impl EventTimelineItem {
             TimelineItemContent::Message(msg) => ReplyContent::Message(msg.to_owned()),
             _ => {
                 let Some(raw_event) = self.latest_json() else {
-                    return Err(UnsupportedReplyItem::MISSING_JSON);
+                    return Err(UnsupportedReplyItem::MissingJson);
                 };
 
                 ReplyContent::Raw(raw_event.clone())
@@ -437,7 +437,7 @@ impl EventTimelineItem {
         };
 
         let Some(event_id) = self.event_id() else {
-            return Err(UnsupportedReplyItem::MISSING_EVENT_ID);
+            return Err(UnsupportedReplyItem::MissingEventId);
         };
 
         Ok(RepliedToInfo {
@@ -451,15 +451,15 @@ impl EventTimelineItem {
     /// Gives the information needed to edit the event of the item.
     pub fn edit_info(&self) -> Result<EditInfo, UnsupportedEditItem> {
         if !self.is_own() {
-            return Err(UnsupportedEditItem::NOT_OWN_EVENT);
+            return Err(UnsupportedEditItem::NotOwnEvent);
         }
         // Early returns here must be in sync with
         // `EventTimelineItem::can_be_edited`
         let Some(event_id) = self.event_id() else {
-            return Err(UnsupportedEditItem::MISSING_EVENT_ID);
+            return Err(UnsupportedEditItem::MissingEventId);
         };
         let TimelineItemContent::Message(original_content) = self.content() else {
-            return Err(UnsupportedEditItem::NOT_ROOM_MESSAGE);
+            return Err(UnsupportedEditItem::NotRoomMessage);
         };
         Ok(EditInfo { event_id: event_id.to_owned(), original_message: original_content.clone() })
     }
