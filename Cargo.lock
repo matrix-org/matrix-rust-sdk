@@ -3471,6 +3471,7 @@ dependencies = [
  "rand",
  "reqwest",
  "serde_json",
+ "similar-asserts",
  "stream_assert",
  "tempfile",
  "tokio",
