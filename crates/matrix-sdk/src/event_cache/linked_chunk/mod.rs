@@ -1029,7 +1029,7 @@ impl<const CAPACITY: usize, Item, Gap> Chunk<CAPACITY, Item, Gap> {
 
         match &self.content {
             ChunkContent::Gap(..) => Position(identifier, 0),
-            ChunkContent::Items(items) => Position(identifier, items.len() - 1),
+            ChunkContent::Items(items) => Position(identifier, items.len().saturating_sub(1)),
         }
     }
 
@@ -1607,6 +1607,14 @@ mod tests {
     }
 
     #[test]
+    fn test_ritems_empty() {
+        let linked_chunk = LinkedChunk::<2, char, ()>::new();
+        let mut iterator = linked_chunk.ritems();
+
+        assert_matches!(iterator.next(), None);
+    }
+
+    #[test]
     fn test_items() {
         let mut linked_chunk = LinkedChunk::<2, char, ()>::new();
         linked_chunk.push_items_back(['a', 'b']);
@@ -1620,6 +1628,14 @@ mod tests {
         assert_matches!(iterator.next(), Some((Position(ChunkIdentifier(2), 0), 'c')));
         assert_matches!(iterator.next(), Some((Position(ChunkIdentifier(2), 1), 'd')));
         assert_matches!(iterator.next(), Some((Position(ChunkIdentifier(3), 0), 'e')));
+        assert_matches!(iterator.next(), None);
+    }
+
+    #[test]
+    fn test_items_empty() {
+        let linked_chunk = LinkedChunk::<2, char, ()>::new();
+        let mut iterator = linked_chunk.items();
+
         assert_matches!(iterator.next(), None);
     }
 
