@@ -520,9 +520,10 @@ impl AuthenticationService {
         Ok(Arc::new(client))
     }
 
-    /// Returns a handler to start the SSO login process. The URL available via the handler's
-    /// `url` field should be opened in a web view. Once the web view succeeds, call `finish`
-    /// on the handler with the callback URL.
+    /// Returns a handler to start the SSO login process. The URL available via
+    /// the handler's `url` field should be opened in a web view. Once the
+    /// web view succeeds, call `finish` on the handler with the callback
+    /// URL.
     pub async fn start_sso_login(
         self: &Arc<Self>,
         redirect_url: String,
@@ -770,7 +771,6 @@ impl OptionExt for Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::AuthenticationService;
     use matrix_sdk_test::{async_test, test_json};
     use serde::Deserialize;
     use serde_json::{json_internal, Value as JsonValue};
@@ -779,6 +779,8 @@ mod tests {
         matchers::{method, path},
         Mock, MockServer, ResponseTemplate,
     };
+
+    use super::AuthenticationService;
 
     #[async_test]
     async fn test_start_sso_login_adds_redirect_url_to_login_url() {
