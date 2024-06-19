@@ -31,6 +31,7 @@ use axum::{
 use futures_util::StreamExt;
 use matrix_sdk::{
     config::SyncSettings,
+    encryption::recovery::RecoveryState,
     oidc::{
         requests::account_management::AccountManagementActionFull,
         types::{
@@ -97,6 +98,7 @@ fn help() {
     println!("  watch [sliding?]       Watch new incoming messages until an error occurs");
     println!("  authorize [scope…]     Authorize the given scope");
     println!("  refresh                Refresh the access token");
+    println!("  recover                Recover the E2EE secrets from secret storage");
     println!("  logout                 Log out of this account");
     println!("  exit                   Exit this program");
     println!("  help                   Show this message\n");
@@ -364,6 +366,9 @@ impl OidcCli {
                 Some("help") => {
                     help();
                 }
+                Some("recover") => {
+                    self.recover().await?;
+                }
                 Some(cmd) => {
                     println!("Error: unknown command '{cmd}'\n");
                     help();
@@ -373,6 +378,28 @@ impl OidcCli {
                     help()
                 }
             };
+        }
+
+        Ok(())
+    }
+
+    async fn recover(&self) -> anyhow::Result<()> {
+        let recovery = self.client.encryption().recovery();
+
+        println!("Please enter your recovery key:");
+
+        let mut input = String::new();
+        io::stdin().read_line(&mut input).expect("error: unable to read user input");
+
+        let input = input.trim();
+
+        recovery.recover(input).await?;
+
+        match recovery.state() {
+            RecoveryState::Enabled => println!("Successfully recovered all the E2EE secrets."),
+            RecoveryState::Disabled => println!("Error recovering, recovery is disabled."),
+            RecoveryState::Incomplete => println!("Couldn't recover all E2EE secrets."),
+            _ => unreachable!("We should know our recovery state by now"),
         }
 
         Ok(())
