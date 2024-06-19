@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::ops::Not;
+use std::{collections::BTreeSet, ops::Not};
 
 use bloomfilter::Bloom;
 use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
@@ -47,24 +47,42 @@ impl Deduplicator {
     where
         I: Iterator<Item = SyncTimelineEvent> + 'a,
     {
-        events.filter(|event| {
+        let mut already_seen = BTreeSet::new();
+
+        events.filter(move |event| {
             let Some(event_id) = event.event_id() else {
                 // The event has no `event_id`. Safe path: filter it out.
                 return false;
             };
 
             if self.bloom_filter.check_and_set(&event_id) {
-                // Bloom filter has false positives. We are NOT sure the event
-                // is NOT present. Even if the false positive rate is low, we
-                // need to iterate over all events to ensure it isn't present.
+                // Bloom filter has false positives. We are NOT sure the event is NOT present.
+                // Even if the false positive rate is low, we need to iterate over all events to
+                // ensure it isn't present.
 
-                room_events
+                // But first, let's ensure `event` is not a duplicate from `events`, i.e. if the
+                // iterator itself contains duplicated events! We use a `BTreetSet`, otherwise
+                // using a bloom filter again may generate false positives.
+                if already_seen.contains(&event_id) {
+                    // The iterator contains a duplicated `event`. Let's filter it out.
+                    return false;
+                }
+
+                // Now we can iterate over all events to ensure `event` is not present in
+                // `room_events`.
+                let result = room_events
                     .revents()
                     .any(|(_position, other_event)| {
                         other_event.event_id().as_ref() == Some(&event_id)
                     })
-                    .not()
+                    .not();
+
+                already_seen.insert(event_id);
+
+                result
             } else {
+                already_seen.insert(event_id);
+
                 // Bloom filter has no false negatives. We are sure the event is NOT present: we
                 // can keep it in the iterator.
                 true
@@ -120,7 +138,39 @@ mod tests {
     }
 
     #[test]
-    fn test_filter_duplicates() {
+    fn test_filter_duplicates_in_new_events() {
+        let event_builder = EventBuilder::new();
+
+        let event_id_0 = owned_event_id!("$ev0");
+        let event_id_1 = owned_event_id!("$ev1");
+
+        let event_0 = sync_timeline_event(&event_builder, &event_id_0);
+        let event_1 = sync_timeline_event(&event_builder, &event_id_1);
+
+        let mut deduplicator = Deduplicator::new();
+        let room_events = RoomEvents::new();
+
+        let mut events = deduplicator.filter_and_learn(
+            [
+                event_0.clone(), // OK
+                event_0,         // Not OK
+                event_1,         // OK
+            ]
+            .into_iter(),
+            &room_events,
+        );
+
+        assert_let!(Some(event) = events.next());
+        assert_eq!(event.event_id(), Some(event_id_0));
+
+        assert_let!(Some(event) = events.next());
+        assert_eq!(event.event_id(), Some(event_id_1));
+
+        assert!(events.next().is_none());
+    }
+
+    #[test]
+    fn test_filter_duplicates_with_existing_events() {
         let event_builder = EventBuilder::new();
 
         let event_id_0 = owned_event_id!("$ev0");
