@@ -24,7 +24,8 @@ use matrix_sdk::attachment::{
     BaseThumbnailInfo, BaseVideoInfo, Thumbnail,
 };
 use matrix_sdk_ui::timeline::{
-    EventItemOrigin, LiveBackPaginationStatus, Profile, RepliedToEvent, TimelineDetails,
+    EditNewContent, EventItemOrigin, LiveBackPaginationStatus, Profile, RepliedToEvent,
+    TimelineDetails,
 };
 use mime::Mime;
 use ruma::{
@@ -476,6 +477,7 @@ impl Timeline {
         event_id: String,
     ) -> Result<(), ClientError> {
         let event_id = EventId::parse(event_id)?;
+
         let edit_info = self
             .inner
             .edit_info_from_event_id(&event_id)
@@ -483,7 +485,7 @@ impl Timeline {
             .map_err(|err| anyhow::anyhow!(err))?;
 
         self.inner
-            .edit((*new_content).clone(), edit_info)
+            .edit(EditNewContent::Message((*new_content).clone()), edit_info)
             .await
             .map_err(|err| anyhow::anyhow!(err))?;
         Ok(())
@@ -495,13 +497,28 @@ impl Timeline {
         answers: Vec<String>,
         max_selections: u8,
         poll_kind: PollKind,
-        edit_item: Arc<EventTimelineItem>,
+        event_id: String,
     ) -> Result<(), ClientError> {
-        let poll_data = PollData { question, answers, max_selections, poll_kind };
-        self.inner
-            .edit_poll(poll_data.fallback_text(), poll_data.try_into()?, &edit_item.0)
+        let event_id = EventId::parse(event_id)?;
+
+        let edit_info = self
+            .inner
+            .edit_info_from_event_id(&event_id)
             .await
             .map_err(|err| anyhow::anyhow!(err))?;
+
+        let poll_data = PollData { question, answers, max_selections, poll_kind };
+        self.inner
+            .edit(
+                EditNewContent::Poll {
+                    fallback_text: poll_data.fallback_text(),
+                    poll: poll_data.try_into()?,
+                },
+                edit_info,
+            )
+            .await
+            .map_err(|err| anyhow::anyhow!(err))?;
+
         Ok(())
     }
 

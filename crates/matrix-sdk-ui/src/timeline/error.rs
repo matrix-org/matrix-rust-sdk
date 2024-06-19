@@ -12,10 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use matrix_sdk::{
-    event_cache::{paginator::PaginatorError, EventCacheError},
-    send_queue::RoomSendQueueError,
-};
+use matrix_sdk::event_cache::{paginator::PaginatorError, EventCacheError};
 use ruma::OwnedTransactionId;
 use thiserror::Error;
 
@@ -107,18 +104,6 @@ pub enum UnsupportedEditItem {
     MissingEvent,
     #[error("failed to deserialize event to edit")]
     FailedToDeserializeEvent,
-}
-
-#[derive(Debug, Error)]
-pub enum SendEventError {
-    #[error(transparent)]
-    UnsupportedReplyItem(#[from] UnsupportedReplyItem),
-
-    #[error(transparent)]
-    UnsupportedEditItem(#[from] UnsupportedEditItem),
-
-    #[error(transparent)]
-    SendError(#[from] RoomSendQueueError),
 }
 
 #[derive(Debug, Error)]

@@ -45,7 +45,10 @@ pub(super) use self::{
     local::LocalEventTimelineItem,
     remote::{RemoteEventOrigin, RemoteEventTimelineItem},
 };
-use super::{EditInfo, RepliedToInfo, ReplyContent, UnsupportedEditItem, UnsupportedReplyItem};
+use super::{
+    EditInfo, EditedEventKind, RepliedToInfo, ReplyContent, UnsupportedEditItem,
+    UnsupportedReplyItem,
+};
 
 /// An item in the timeline that represents at least one event.
 ///
@@ -458,10 +461,27 @@ impl EventTimelineItem {
         let Some(event_id) = self.event_id() else {
             return Err(UnsupportedEditItem::MissingEventId);
         };
-        let TimelineItemContent::Message(original_content) = self.content() else {
-            return Err(UnsupportedEditItem::NotRoomMessage);
+
+        let event_kind = match self.content() {
+            TimelineItemContent::Message(original_content) => {
+                EditedEventKind::Message(original_content.clone())
+            }
+            TimelineItemContent::Poll(_) => EditedEventKind::Poll,
+            TimelineItemContent::CallInvite
+            | TimelineItemContent::CallNotify
+            | TimelineItemContent::RedactedMessage
+            | TimelineItemContent::Sticker(_)
+            | TimelineItemContent::UnableToDecrypt(_)
+            | TimelineItemContent::MembershipChange(_)
+            | TimelineItemContent::ProfileChange(_)
+            | TimelineItemContent::OtherState(_)
+            | TimelineItemContent::FailedToParseMessageLike { .. }
+            | TimelineItemContent::FailedToParseState { .. } => {
+                return Err(UnsupportedEditItem::NotRoomMessage);
+            }
         };
-        Ok(EditInfo { event_id: event_id.to_owned(), original_message: original_content.clone() })
+
+        Ok(EditInfo { event_id: event_id.to_owned(), event_kind })
     }
 }
 

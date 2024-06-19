@@ -22,7 +22,7 @@ use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server}
 use matrix_sdk_test::{
     async_test, EventBuilder, JoinedRoomBuilder, SyncResponseBuilder, ALICE, BOB,
 };
-use matrix_sdk_ui::timeline::{RoomExt, TimelineDetails, TimelineItemContent};
+use matrix_sdk_ui::timeline::{EditNewContent, RoomExt, TimelineDetails, TimelineItemContent};
 use ruma::{
     assign, event_id,
     events::{
@@ -203,7 +203,12 @@ async fn test_send_edit() {
 
     let edit_info = hello_world_item.edit_info().unwrap();
     timeline
-        .edit(RoomMessageEventContentWithoutRelation::text_plain("Hello, Room!"), edit_info)
+        .edit(
+            EditNewContent::Message(RoomMessageEventContentWithoutRelation::text_plain(
+                "Hello, Room!",
+            )),
+            edit_info,
+        )
         .await
         .unwrap();
 
@@ -294,7 +299,12 @@ async fn test_send_reply_edit() {
 
     let edit_info = reply_item.edit_info().unwrap();
     timeline
-        .edit(RoomMessageEventContentWithoutRelation::text_plain("Hello, Room!"), edit_info)
+        .edit(
+            EditNewContent::Message(RoomMessageEventContentWithoutRelation::text_plain(
+                "Hello, Room!",
+            )),
+            edit_info,
+        )
         .await
         .unwrap();
 
@@ -385,9 +395,20 @@ async fn test_send_edit_poll() {
         UnstablePollAnswer::new("2", "Maybe"),
     ])
     .unwrap();
+
     let edited_poll =
         UnstablePollStartContentBlock::new("Edited Test".to_owned(), edited_poll_answers);
-    timeline.edit_poll("poll_fallback_text", edited_poll, &poll_event).await.unwrap();
+
+    timeline
+        .edit(
+            EditNewContent::Poll {
+                fallback_text: "poll_fallback_text".to_owned(),
+                poll: edited_poll,
+            },
+            poll_event.edit_info().unwrap(),
+        )
+        .await
+        .unwrap();
 
     // Let the send queue handle the event.
     yield_now().await;
@@ -482,7 +503,12 @@ async fn test_send_edit_when_timeline_is_clear() {
     let edit_info =
         timeline.edit_info_from_event_id(hello_world_item.event_id().unwrap()).await.unwrap();
     timeline
-        .edit(RoomMessageEventContentWithoutRelation::text_plain("Hello, Room!"), edit_info)
+        .edit(
+            EditNewContent::Message(RoomMessageEventContentWithoutRelation::text_plain(
+                "Hello, Room!",
+            )),
+            edit_info,
+        )
         .await
         .unwrap();
 
