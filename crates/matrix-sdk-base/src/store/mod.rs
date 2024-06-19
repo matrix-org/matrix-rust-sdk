@@ -24,22 +24,27 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fmt,
     ops::Deref,
-    pin::Pin,
     result::Result as StdResult,
     str::Utf8Error,
     sync::{Arc, RwLock as StdRwLock},
 };
 
+#[cfg(not(target_arch = "wasm32"))]
+use eyeball_im::{Vector, VectorDiff};
+#[cfg(not(target_arch = "wasm32"))]
+use futures_util::Stream;
 use once_cell::sync::OnceCell;
 
 #[cfg(any(test, feature = "testing"))]
 #[macro_use]
 pub mod integration_tests;
+mod observable_map;
 mod traits;
 
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::store::{DynCryptoStore, IntoCryptoStore};
 pub use matrix_sdk_store_encryption::Error as StoreEncryptionError;
+use observable_map::ObservableMap;
 use ruma::{
     events::{
         presence::PresenceEvent,
@@ -52,9 +57,6 @@ use ruma::{
     EventId, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, UserId,
 };
 use tokio::sync::{broadcast, Mutex, RwLock};
-
-/// BoxStream of owned Types
-pub type BoxStream<T> = Pin<Box<dyn futures_util::Stream<Item = T> + Send>>;
 
 use crate::{
     rooms::{normal::RoomInfoUpdate, RoomInfo, RoomState},
@@ -142,7 +144,8 @@ pub(crate) struct Store {
     session_meta: Arc<OnceCell<SessionMeta>>,
     /// The current sync token that should be used for the next sync call.
     pub(super) sync_token: Arc<RwLock<Option<String>>>,
-    rooms: Arc<StdRwLock<BTreeMap<OwnedRoomId, Room>>>,
+    /// All rooms the store knows about.
+    rooms: Arc<StdRwLock<ObservableMap<OwnedRoomId, Room>>>,
     /// A lock to synchronize access to the store, such that data by the sync is
     /// never overwritten.
     sync_lock: Arc<Mutex<()>>,
@@ -155,7 +158,7 @@ impl Store {
             inner,
             session_meta: Default::default(),
             sync_token: Default::default(),
-            rooms: Default::default(),
+            rooms: Arc::new(StdRwLock::new(ObservableMap::new())),
             sync_lock: Default::default(),
         }
     }
@@ -176,15 +179,22 @@ impl Store {
         session_meta: SessionMeta,
         roominfo_update_sender: &broadcast::Sender<RoomInfoUpdate>,
     ) -> Result<()> {
-        for info in self.inner.get_room_infos().await? {
-            let room = Room::restore(
-                &session_meta.user_id,
-                self.inner.clone(),
-                info,
-                roominfo_update_sender.clone(),
-            );
+        {
+            let room_infos = self.inner.get_room_infos().await?;
 
-            self.rooms.write().unwrap().insert(room.room_id().to_owned(), room);
+            let mut rooms = self.rooms.write().unwrap();
+
+            for room_info in room_infos {
+                let new_room = Room::restore(
+                    &session_meta.user_id,
+                    self.inner.clone(),
+                    room_info,
+                    roominfo_update_sender.clone(),
+                );
+                let new_room_id = new_room.room_id().to_owned();
+
+                rooms.insert(new_room_id, new_room);
+            }
         }
 
         let token =
@@ -202,28 +212,35 @@ impl Store {
     }
 
     /// Get all the rooms this store knows about.
-    pub fn get_rooms(&self) -> Vec<Room> {
-        self.rooms.read().unwrap().keys().filter_map(|id| self.get_room(id)).collect()
+    pub fn rooms(&self) -> Vec<Room> {
+        self.rooms.read().unwrap().iter().cloned().collect()
     }
 
     /// Get all the rooms this store knows about, filtered by state.
-    pub fn get_rooms_filtered(&self, filter: RoomStateFilter) -> Vec<Room> {
+    pub fn rooms_filtered(&self, filter: RoomStateFilter) -> Vec<Room> {
         self.rooms
             .read()
             .unwrap()
             .iter()
-            .filter(|(_, r)| filter.matches(r.state()))
-            .filter_map(|(id, _)| self.get_room(id))
+            .filter(|room| filter.matches(room.state()))
+            .cloned()
             .collect()
     }
 
+    /// Get a stream of all the rooms changes, in addition to the existing
+    /// rooms.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn rooms_stream(&self) -> (Vector<Room>, impl Stream<Item = Vec<VectorDiff<Room>>>) {
+        self.rooms.read().unwrap().stream()
+    }
+
     /// Get the room with the given room id.
-    pub fn get_room(&self, room_id: &RoomId) -> Option<Room> {
+    pub fn room(&self, room_id: &RoomId) -> Option<Room> {
         self.rooms.read().unwrap().get(room_id).cloned()
     }
 
-    /// Lookup the Room for the given RoomId, or create one, if it didn't exist
-    /// yet in the store.
+    /// Lookup the `Room` for the given `RoomId`, or create one, if it didn't
+    /// exist yet in the store
     pub fn get_or_create_room(
         &self,
         room_id: &RoomId,
@@ -236,8 +253,7 @@ impl Store {
         self.rooms
             .write()
             .unwrap()
-            .entry(room_id.to_owned())
-            .or_insert_with(|| {
+            .get_or_create(room_id, || {
                 Room::new(user_id, self.inner.clone(), room_id, room_type, roominfo_update_sender)
             })
             .clone()

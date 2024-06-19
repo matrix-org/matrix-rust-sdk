@@ -21,6 +21,7 @@ use matrix_sdk::{
     config::RequestConfig,
     encryption::{
         backups::{futures::SteadyStateError, BackupState, UploadState},
+        secret_storage::SecretStore,
         BackupDownloadStrategy, EncryptionSettings,
     },
     matrix_auth::{MatrixSession, MatrixSessionTokens},
@@ -28,14 +29,15 @@ use matrix_sdk::{
     Client,
 };
 use matrix_sdk_base::SessionMeta;
+use matrix_sdk_common::timeout::timeout;
 use matrix_sdk_test::{async_test, JoinedRoomBuilder, SyncResponseBuilder};
 use ruma::{
     api::client::room::create_room::v3::Request as CreateRoomRequest,
     assign, device_id, event_id,
     events::room::message::{RoomMessageEvent, RoomMessageEventContent},
-    room_id, user_id, TransactionId,
+    room_id, user_id, EventId, RoomId, TransactionId,
 };
-use serde_json::json;
+use serde_json::{json, Value};
 use tempfile::tempdir;
 use tokio::spawn;
 use wiremock::{
@@ -896,32 +898,18 @@ async fn enable_from_secret_storage() {
 
     client.sync_once(Default::default()).await.expect("We should be able to sync with the server");
 
-    Mock::given(method("GET"))
-        .and(path("_matrix/client/r0/rooms/!DovneieKSTkdHKpIXy:morpheus.localhost/event/$JbFHtZpEJiH8uaajZjPLz0QUZc1xtBR9rPGBOjF6WFM"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "content": {
-                "algorithm": "m.megolm.v1.aes-sha2",
-                "ciphertext": "AwgAEpABhetEzzZzyYrxtEVUtlJnZtJcURBlQUQJ9irVeklCTs06LwgTMQj61PMUS4Vy\
-                               YOX+PD67+hhU40/8olOww+Ud0m2afjMjC3wFX+4fFfSkoWPVHEmRVucfcdSF1RSB4EmK\
-                               PIP4eo1X6x8kCIMewBvxl2sI9j4VNvDvAN7M3zkLJfFLOFHbBviI4FN7hSFHFeM739Zg\
-                               iwxEs3hIkUXEiAfrobzaMEM/zY7SDrTdyffZndgJo7CZOVhoV6vuaOhmAy4X2t4UnbuV\
-                               JGJjKfV57NAhp8W+9oT7ugwO",
-                "device_id": "KIUVQQSDTM",
-                "sender_key": "LvryVyoCjdONdBCi2vvoSbI34yTOx7YrCFACUEKoXnc",
-                "session_id": "64H7XKokIx0ASkYDHZKlT5zd/Zccz/cQspPNdvnNULA"
-            },
-            "event_id": "$JbFHtZpEJiH8uaajZjPLz0QUZc1xtBR9rPGBOjF6WFM",
-            "origin_server_ts": 1698579035927u64,
-            "sender": "@example2:morpheus.localhost",
-            "type": "m.room.encrypted",
-            "unsigned": {
-                "age": 14393491
-            }
-        })))
-        .expect(2)
-        .mount(&server)
-        .await;
+    let event_content = json!({
+        "algorithm": "m.megolm.v1.aes-sha2",
+        "ciphertext": "AwgAEpABhetEzzZzyYrxtEVUtlJnZtJcURBlQUQJ9irVeklCTs06LwgTMQj61PMUS4Vy\
+                       YOX+PD67+hhU40/8olOww+Ud0m2afjMjC3wFX+4fFfSkoWPVHEmRVucfcdSF1RSB4EmK\
+                       PIP4eo1X6x8kCIMewBvxl2sI9j4VNvDvAN7M3zkLJfFLOFHbBviI4FN7hSFHFeM739Zg\
+                       iwxEs3hIkUXEiAfrobzaMEM/zY7SDrTdyffZndgJo7CZOVhoV6vuaOhmAy4X2t4UnbuV\
+                       JGJjKfV57NAhp8W+9oT7ugwO",
+        "device_id": "KIUVQQSDTM",
+        "sender_key": "LvryVyoCjdONdBCi2vvoSbI34yTOx7YrCFACUEKoXnc",
+        "session_id": "64H7XKokIx0ASkYDHZKlT5zd/Zccz/cQspPNdvnNULA"
+    });
+    mock_get_event(room_id, event_id, event_content, &server).await;
 
     let room = client.get_room(room_id).expect("We should have access to the room after the sync");
     let event = room.event(event_id).await.expect("We should be able to fetch our encrypted event");
@@ -940,22 +928,7 @@ async fn enable_from_secret_storage() {
         .await
         .expect("We should be able to open our secret store");
 
-    Mock::given(method("GET"))
-        .and(path("_matrix/client/r0/room_keys/version"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "algorithm": "m.megolm_backup.v1.curve25519-aes-sha2",
-            "auth_data": {
-                "public_key": "hdx5rSn94rBuvJI5cwnhKAVmFyZgfJjk7vwEBD6mIHc",
-                "signatures": {}
-            },
-            "count": 1,
-            "etag": "1",
-            "version": "6"
-        })))
-        .expect(2)
-        .mount(&server)
-        .await;
+    mock_query_key_backup(&server).await;
 
     Mock::given(method("GET"))
         .and(path("_matrix/client/r0/room_keys/keys"))
@@ -1032,8 +1005,6 @@ async fn enable_from_secret_storage() {
 
 #[async_test]
 async fn enable_from_secret_storage_no_existing_backup() {
-    const SECRET_STORE_KEY: &str = "mypassphrase";
-    const KEY_ID: &str = "yJWwBm2Ts8jHygTBslKpABFyykavhhfA";
     let user_id = user_id!("@example2:morpheus.localhost");
 
     let session = MatrixSession {
@@ -1054,15 +1025,7 @@ async fn enable_from_secret_storage_no_existing_backup() {
 
     client.restore_session(session).await.unwrap();
 
-    mock_secret_store_with_backup_key(user_id, KEY_ID, &server).await;
-
-    let secret_storage = client.encryption().secret_storage();
-
-    let store = secret_storage
-        .open_secret_store(SECRET_STORE_KEY)
-        .await
-        .expect("We should be able to open our secret store");
-
+    let store = init_secret_store(&client, &server).await;
     store.import_secrets().await.expect_err(
         "We should return an error if we couldn't fetch the backup version from the server",
     );
@@ -1085,8 +1048,6 @@ async fn enable_from_secret_storage_no_existing_backup() {
 
 #[async_test]
 async fn enable_from_secret_storage_mismatched_key() {
-    const SECRET_STORE_KEY: &str = "mypassphrase";
-    const KEY_ID: &str = "yJWwBm2Ts8jHygTBslKpABFyykavhhfA";
     let user_id = user_id!("@example2:morpheus.localhost");
 
     let session = MatrixSession {
@@ -1107,14 +1068,7 @@ async fn enable_from_secret_storage_mismatched_key() {
 
     client.restore_session(session).await.unwrap();
 
-    mock_secret_store_with_backup_key(user_id, KEY_ID, &server).await;
-
-    let secret_storage = client.encryption().secret_storage();
-
-    let store = secret_storage
-        .open_secret_store(SECRET_STORE_KEY)
-        .await
-        .expect("We should be able to open our secret store");
+    let store = init_secret_store(&client, &server).await;
 
     Mock::given(method("GET"))
         .and(path("_matrix/client/r0/room_keys/version"))
@@ -1146,8 +1100,6 @@ async fn enable_from_secret_storage_mismatched_key() {
 
 #[async_test]
 async fn enable_from_secret_storage_manual_download() {
-    const SECRET_STORE_KEY: &str = "mypassphrase";
-    const KEY_ID: &str = "yJWwBm2Ts8jHygTBslKpABFyykavhhfA";
     let user_id = user_id!("@example2:morpheus.localhost");
 
     let session = MatrixSession {
@@ -1160,14 +1112,7 @@ async fn enable_from_secret_storage_manual_download() {
 
     client.restore_session(session).await.unwrap();
 
-    mock_secret_store_with_backup_key(user_id, KEY_ID, &server).await;
-
-    let secret_storage = client.encryption().secret_storage();
-
-    let store = secret_storage
-        .open_secret_store(SECRET_STORE_KEY)
-        .await
-        .expect("We should be able to open our secret store");
+    let store = init_secret_store(&client, &server).await;
 
     Mock::given(method("GET"))
         .and(path("_matrix/client/r0/room_keys/version"))
@@ -1186,9 +1131,6 @@ async fn enable_from_secret_storage_manual_download() {
 
 #[async_test]
 async fn enable_from_secret_storage_and_manual_download() {
-    const SECRET_STORE_KEY: &str = "mypassphrase";
-    const KEY_ID: &str = "yJWwBm2Ts8jHygTBslKpABFyykavhhfA";
-
     let user_id = user_id!("@example2:morpheus.localhost");
     let room_id = room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost");
 
@@ -1210,33 +1152,7 @@ async fn enable_from_secret_storage_and_manual_download() {
 
     client.restore_session(session).await.unwrap();
 
-    mock_secret_store_with_backup_key(user_id, KEY_ID, &server).await;
-
-    let secret_storage = client.encryption().secret_storage();
-
-    let store = secret_storage
-        .open_secret_store(SECRET_STORE_KEY)
-        .await
-        .expect("We should be able to open our secret store");
-
-    Mock::given(method("GET"))
-        .and(path("_matrix/client/r0/room_keys/version"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "algorithm": "m.megolm_backup.v1.curve25519-aes-sha2",
-            "auth_data": {
-                "public_key": "hdx5rSn94rBuvJI5cwnhKAVmFyZgfJjk7vwEBD6mIHc",
-                "signatures": {}
-            },
-            "count": 1,
-            "etag": "1",
-            "version": "6"
-        })))
-        .expect(1)
-        .mount(&server)
-        .await;
-
-    store.import_secrets().await.unwrap();
+    init_client_secret_storage_and_backup(&client, &server).await;
 
     Mock::given(method("GET"))
         .and(path("/_matrix/client/r0/room_keys/keys/!DovneieKSTkdHKpIXy:morpheus.localhost"))
@@ -1336,9 +1252,6 @@ async fn enable_from_secret_storage_and_manual_download() {
 
 #[async_test]
 async fn enable_from_secret_storage_and_download_after_utd() {
-    const SECRET_STORE_KEY: &str = "mypassphrase";
-    const KEY_ID: &str = "yJWwBm2Ts8jHygTBslKpABFyykavhhfA";
-
     let user_id = user_id!("@example2:morpheus.localhost");
     let room_id = room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost");
     let event_id = event_id!("$JbFHtZpEJiH8uaajZjPLz0QUZc1xtBR9rPGBOjF6WFM");
@@ -1368,60 +1281,21 @@ async fn enable_from_secret_storage_and_download_after_utd() {
 
     client.sync_once(Default::default()).await.expect("We should be able to sync with the server");
 
-    mock_secret_store_with_backup_key(user_id, KEY_ID, &server).await;
+    init_client_secret_storage_and_backup(&client, &server).await;
 
-    let secret_storage = client.encryption().secret_storage();
+    let event_content = json!({
+        "algorithm": "m.megolm.v1.aes-sha2",
+        "ciphertext": "AwgAEpABhetEzzZzyYrxtEVUtlJnZtJcURBlQUQJ9irVeklCTs06LwgTMQj61PMUS4Vy\
+                       YOX+PD67+hhU40/8olOww+Ud0m2afjMjC3wFX+4fFfSkoWPVHEmRVucfcdSF1RSB4EmK\
+                       PIP4eo1X6x8kCIMewBvxl2sI9j4VNvDvAN7M3zkLJfFLOFHbBviI4FN7hSFHFeM739Zg\
+                       iwxEs3hIkUXEiAfrobzaMEM/zY7SDrTdyffZndgJo7CZOVhoV6vuaOhmAy4X2t4UnbuV\
+                       JGJjKfV57NAhp8W+9oT7ugwO",
+        "device_id": "KIUVQQSDTM",
+        "sender_key": "LvryVyoCjdONdBCi2vvoSbI34yTOx7YrCFACUEKoXnc",
+        "session_id": "64H7XKokIx0ASkYDHZKlT5zd/Zccz/cQspPNdvnNULA"
+    });
 
-    let store = secret_storage
-        .open_secret_store(SECRET_STORE_KEY)
-        .await
-        .expect("We should be able to open our secret store");
-
-    Mock::given(method("GET"))
-        .and(path("_matrix/client/r0/room_keys/version"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "algorithm": "m.megolm_backup.v1.curve25519-aes-sha2",
-            "auth_data": {
-                "public_key": "hdx5rSn94rBuvJI5cwnhKAVmFyZgfJjk7vwEBD6mIHc",
-                "signatures": {}
-            },
-            "count": 1,
-            "etag": "1",
-            "version": "6"
-        })))
-        .expect(1)
-        .mount(&server)
-        .await;
-
-    store.import_secrets().await.unwrap();
-
-    Mock::given(method("GET"))
-        .and(path("_matrix/client/r0/rooms/!DovneieKSTkdHKpIXy:morpheus.localhost/event/$JbFHtZpEJiH8uaajZjPLz0QUZc1xtBR9rPGBOjF6WFM"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "content": {
-                "algorithm": "m.megolm.v1.aes-sha2",
-                "ciphertext": "AwgAEpABhetEzzZzyYrxtEVUtlJnZtJcURBlQUQJ9irVeklCTs06LwgTMQj61PMUS4Vy\
-                               YOX+PD67+hhU40/8olOww+Ud0m2afjMjC3wFX+4fFfSkoWPVHEmRVucfcdSF1RSB4EmK\
-                               PIP4eo1X6x8kCIMewBvxl2sI9j4VNvDvAN7M3zkLJfFLOFHbBviI4FN7hSFHFeM739Zg\
-                               iwxEs3hIkUXEiAfrobzaMEM/zY7SDrTdyffZndgJo7CZOVhoV6vuaOhmAy4X2t4UnbuV\
-                               JGJjKfV57NAhp8W+9oT7ugwO",
-                "device_id": "KIUVQQSDTM",
-                "sender_key": "LvryVyoCjdONdBCi2vvoSbI34yTOx7YrCFACUEKoXnc",
-                "session_id": "64H7XKokIx0ASkYDHZKlT5zd/Zccz/cQspPNdvnNULA"
-            },
-            "event_id": "$JbFHtZpEJiH8uaajZjPLz0QUZc1xtBR9rPGBOjF6WFM",
-            "origin_server_ts": 1698579035927u64,
-            "sender": "@example2:morpheus.localhost",
-            "type": "m.room.encrypted",
-            "unsigned": {
-                "age": 14393491
-            }
-        })))
-        .expect(2)
-        .mount(&server)
-        .await;
+    mock_get_event(room_id, event_id, event_content, &server).await;
 
     Mock::given(method("GET"))
         .and(path("/_matrix/client/r0/room_keys/keys/!DovneieKSTkdHKpIXy:morpheus.localhost/64H7XKokIx0ASkYDHZKlT5zd%2FZccz%2FcQspPNdvnNULA"))
@@ -1464,11 +1338,16 @@ async fn enable_from_secret_storage_and_download_after_utd() {
         "We should not be able to decrypt the event right away"
     );
 
-    if let Some(Ok(room_keys)) = room_key_stream.next().await {
+    // Wait for the key to be downloaded from backup.
+    {
+        let room_keys = timeout(room_key_stream.next(), std::time::Duration::from_secs(5))
+            .await
+            .expect("did not get a room key stream update within 5 seconds")
+            .expect("room_key_stream.next() returned None")
+            .expect("room_key_stream.next() returned an error");
+
         let (_, room_key_set) = room_keys.first_key_value().unwrap();
         assert!(room_key_set.contains("64H7XKokIx0ASkYDHZKlT5zd/Zccz/cQspPNdvnNULA"));
-    } else {
-        panic!("Failed to get an update about room keys being imported from the backup")
     }
 
     let event = room.event(event_id).await.expect("We should be able to fetch our encrypted event");
@@ -1480,4 +1359,73 @@ async fn enable_from_secret_storage_and_download_after_utd() {
     assert_eq!(event.content.body(), "tt");
 
     server.verify().await;
+}
+
+/// Set up secret storage, and allow the client to import the backup
+/// decryption key from 4S.
+async fn init_client_secret_storage_and_backup(client: &Client, server: &wiremock::MockServer) {
+    let store = init_secret_store(client, server).await;
+    mock_query_key_backup(server).await;
+    store.import_secrets().await.unwrap();
+}
+
+/// Mock the data for secret storage, and use it to set up a `SecretStore`.
+async fn init_secret_store(client: &Client, server: &wiremock::MockServer) -> SecretStore {
+    const SECRET_STORE_KEY: &str = "mypassphrase";
+    const KEY_ID: &str = "yJWwBm2Ts8jHygTBslKpABFyykavhhfA";
+
+    mock_secret_store_with_backup_key(client.user_id().unwrap(), KEY_ID, server).await;
+    client
+        .encryption()
+        .secret_storage()
+        .open_secret_store(SECRET_STORE_KEY)
+        .await
+        .expect("We should be able to open our secret store")
+}
+
+/// Add a mock for a `GET /_matrix/client/r0/rooms/{}/event/{}` for the given
+/// room/event ID.
+async fn mock_get_event(
+    room_id: &RoomId,
+    event_id: &EventId,
+    event_content_json: Value,
+    server: &wiremock::MockServer,
+) {
+    let event_json = json!({
+        "content": event_content_json,
+        "event_id": event_id,
+        "origin_server_ts": 1698579035927u64,
+        "sender": "@example2:morpheus.localhost",
+        "type": "m.room.encrypted",
+        "unsigned": {
+            "age": 14393491
+        }
+    });
+    Mock::given(method("GET"))
+        .and(path(format!("_matrix/client/r0/rooms/{}/event/{}", room_id, event_id)))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(event_json))
+        .expect(2)
+        .mount(server)
+        .await;
+}
+
+/// Add a mock for a `GET /_matrix/client/r0/room_keys/version` request; return
+/// some suitable backup data.
+async fn mock_query_key_backup(server: &wiremock::MockServer) {
+    Mock::given(method("GET"))
+        .and(path("_matrix/client/r0/room_keys/version"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "algorithm": "m.megolm_backup.v1.curve25519-aes-sha2",
+            "auth_data": {
+                "public_key": "hdx5rSn94rBuvJI5cwnhKAVmFyZgfJjk7vwEBD6mIHc",
+                "signatures": {}
+            },
+            "count": 1,
+            "etag": "1",
+            "version": "6"
+        })))
+        .mount(server)
+        .await;
 }

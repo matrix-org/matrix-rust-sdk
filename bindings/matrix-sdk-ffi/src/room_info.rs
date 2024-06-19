@@ -3,7 +3,9 @@ use std::collections::HashMap;
 use matrix_sdk::RoomState;
 
 use crate::{
-    notification_settings::RoomNotificationMode, room::Membership, room_member::RoomMember,
+    notification_settings::RoomNotificationMode,
+    room::{Membership, RoomHero},
+    room_member::RoomMember,
 };
 
 #[derive(uniffi::Record)]
@@ -30,6 +32,7 @@ pub struct RoomInfo {
     /// Can be missing if the room membership invite event is missing from the
     /// store.
     inviter: Option<RoomMember>,
+    heroes: Vec<RoomHero>,
     active_members_count: u64,
     invited_members_count: u64,
     joined_members_count: u64,
@@ -85,6 +88,7 @@ impl RoomInfo {
                     .map(Into::into),
                 _ => None,
             },
+            heroes: room.heroes().into_iter().map(Into::into).collect(),
             active_members_count: room.active_members_count(),
             invited_members_count: room.invited_members_count(),
             joined_members_count: room.joined_members_count(),

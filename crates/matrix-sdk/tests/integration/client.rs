@@ -1,6 +1,7 @@
 use std::{collections::BTreeMap, time::Duration};
 
 use assert_matches2::assert_let;
+use eyeball_im::VectorDiff;
 use futures_util::FutureExt;
 use matrix_sdk::{
     config::SyncSettings,
@@ -1259,4 +1260,60 @@ async fn test_test_ambiguity_changes() {
     assert!(changes.is_empty());
 
     assert_pending!(updates);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[async_test]
+async fn test_rooms_stream() {
+    use futures_util::StreamExt as _;
+
+    let (client, server) = logged_in_client_with_server().await;
+    let (rooms, mut rooms_stream) = client.rooms_stream();
+
+    assert!(rooms.is_empty());
+    assert_pending!(rooms_stream);
+
+    let room_id_1 = room_id!("!room0:matrix.org");
+    let room_id_2 = room_id!("!room1:matrix.org");
+    let room_id_3 = room_id!("!room2:matrix.org");
+
+    let payload = json!({
+        "next_batch": "foo",
+        "rooms": {
+            "invite": {},
+            "join": {
+                room_id_1: {},
+                room_id_2: {},
+                room_id_3: {},
+            },
+            "leave": {}
+        },
+    });
+
+    mock_sync(&server, &payload, None).await;
+
+    assert!(client.get_room(room_id_1).is_none());
+    assert!(client.get_room(room_id_2).is_none());
+    assert!(client.get_room(room_id_3).is_none());
+
+    client.sync_once(SyncSettings::default()).await.unwrap();
+
+    // Rooms are created.
+    assert!(client.get_room(room_id_1).is_some());
+    assert!(client.get_room(room_id_2).is_some());
+    assert!(client.get_room(room_id_3).is_some());
+
+    // We receive 3 diffs…
+    assert_let!(Some(diffs) = rooms_stream.next().await);
+    assert_eq!(diffs.len(), 3);
+
+    // … which map to the new rooms!
+    assert_let!(VectorDiff::PushBack { value: room_1 } = &diffs[0]);
+    assert_eq!(room_1.room_id(), room_id_1);
+    assert_let!(VectorDiff::PushBack { value: room_2 } = &diffs[1]);
+    assert_eq!(room_2.room_id(), room_id_2);
+    assert_let!(VectorDiff::PushBack { value: room_3 } = &diffs[2]);
+    assert_eq!(room_3.room_id(), room_id_3);
+
+    assert_pending!(rooms_stream);
 }

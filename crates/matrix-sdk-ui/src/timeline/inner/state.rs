@@ -664,26 +664,35 @@ impl TimelineInnerStateTransaction<'_> {
         room_data_provider: &P,
         settings: &TimelineInnerSettings,
     ) -> bool {
-        // Detect if an event already exists in [`TimelineInnerMeta::all_events`]
-        fn event_already_exists(new_event_id: &EventId, all_events: &VecDeque<EventMeta>) -> bool {
-            all_events.iter().any(|EventMeta { event_id, .. }| event_id == new_event_id)
+        // Detect if an event already exists in [`TimelineInnerMeta::all_events`].
+        //
+        // Returns its position, in this case.
+        fn event_already_exists(
+            new_event_id: &EventId,
+            all_events: &VecDeque<EventMeta>,
+        ) -> Option<usize> {
+            all_events.iter().position(|EventMeta { event_id, .. }| event_id == new_event_id)
         }
 
         match position {
             TimelineItemPosition::Start { .. } => {
-                if event_already_exists(event_meta.event_id, &self.meta.all_events) {
-                    return false;
+                if let Some(pos) = event_already_exists(event_meta.event_id, &self.meta.all_events)
+                {
+                    self.meta.all_events.remove(pos);
                 }
 
                 self.meta.all_events.push_front(event_meta.base_meta())
             }
+
             TimelineItemPosition::End { .. } => {
-                if event_already_exists(event_meta.event_id, &self.meta.all_events) {
-                    return false;
+                if let Some(pos) = event_already_exists(event_meta.event_id, &self.meta.all_events)
+                {
+                    self.meta.all_events.remove(pos);
                 }
 
                 self.meta.all_events.push_back(event_meta.base_meta());
             }
+
             #[cfg(feature = "e2e-encryption")]
             TimelineItemPosition::Update(_) => {
                 if let Some(event) =

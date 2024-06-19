@@ -23,7 +23,13 @@ use std::{
 };
 
 use eyeball::{SharedObservable, Subscriber};
+#[cfg(not(target_arch = "wasm32"))]
+use eyeball_im::VectorDiff;
 use futures_core::Stream;
+#[cfg(not(target_arch = "wasm32"))]
+use futures_util::StreamExt;
+#[cfg(not(target_arch = "wasm32"))]
+use imbl::Vector;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::store::LockableCryptoStore;
 use matrix_sdk_base::{
@@ -901,26 +907,35 @@ impl Client {
     ///
     /// This will return the list of joined, invited, and left rooms.
     pub fn rooms(&self) -> Vec<Room> {
-        self.base_client()
-            .get_rooms()
-            .into_iter()
-            .map(|room| Room::new(self.clone(), room))
-            .collect()
+        self.base_client().rooms().into_iter().map(|room| Room::new(self.clone(), room)).collect()
     }
 
     /// Get all the rooms the client knows about, filtered by room state.
     pub fn rooms_filtered(&self, filter: RoomStateFilter) -> Vec<Room> {
         self.base_client()
-            .get_rooms_filtered(filter)
+            .rooms_filtered(filter)
             .into_iter()
             .map(|room| Room::new(self.clone(), room))
             .collect()
     }
 
+    /// Get a stream of all the rooms, in addition to the existing rooms.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn rooms_stream(&self) -> (Vector<Room>, impl Stream<Item = Vec<VectorDiff<Room>>> + '_) {
+        let (rooms, stream) = self.base_client().rooms_stream();
+
+        let map_room = |room| Room::new(self.clone(), room);
+
+        (
+            rooms.into_iter().map(map_room).collect(),
+            stream.map(move |diffs| diffs.into_iter().map(|diff| diff.map(map_room)).collect()),
+        )
+    }
+
     /// Returns the joined rooms this client knows about.
     pub fn joined_rooms(&self) -> Vec<Room> {
         self.base_client()
-            .get_rooms_filtered(RoomStateFilter::JOINED)
+            .rooms_filtered(RoomStateFilter::JOINED)
             .into_iter()
             .map(|room| Room::new(self.clone(), room))
             .collect()
@@ -929,7 +944,7 @@ impl Client {
     /// Returns the invited rooms this client knows about.
     pub fn invited_rooms(&self) -> Vec<Room> {
         self.base_client()
-            .get_rooms_filtered(RoomStateFilter::INVITED)
+            .rooms_filtered(RoomStateFilter::INVITED)
             .into_iter()
             .map(|room| Room::new(self.clone(), room))
             .collect()
@@ -938,7 +953,7 @@ impl Client {
     /// Returns the left rooms this client knows about.
     pub fn left_rooms(&self) -> Vec<Room> {
         self.base_client()
-            .get_rooms_filtered(RoomStateFilter::LEFT)
+            .rooms_filtered(RoomStateFilter::LEFT)
             .into_iter()
             .map(|room| Room::new(self.clone(), room))
             .collect()
@@ -2166,6 +2181,13 @@ impl WeakClient {
     pub fn get(&self) -> Option<Client> {
         self.client.upgrade().map(|inner| Client { inner })
     }
+
+    /// Gets the number of strong (`Arc`) pointers still pointing to this
+    /// client.
+    #[allow(dead_code)]
+    pub fn strong_count(&self) -> usize {
+        self.client.strong_count()
+    }
 }
 
 // The http mocking library is not supported for wasm32
@@ -2514,7 +2536,12 @@ pub(crate) mod tests {
     #[async_test]
     async fn test_client_no_cycle_with_event_cache() {
         let client = logged_in_client(None).await;
+
+        // Wait for the init tasks to die.
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
         let weak_client = WeakClient::from_client(&client);
+        assert_eq!(weak_client.strong_count(), 1);
 
         {
             let room_id = room_id!("!room:example.org");
@@ -2537,6 +2564,7 @@ pub(crate) mod tests {
         tokio::time::sleep(Duration::from_secs(1)).await;
 
         // The weak client must be the last reference to the client now.
+        assert_eq!(weak_client.strong_count(), 0);
         let client = weak_client.get();
         assert!(
             client.is_none(),

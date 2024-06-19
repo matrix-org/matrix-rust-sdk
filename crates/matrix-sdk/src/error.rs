@@ -14,7 +14,7 @@
 
 //! Error conditions.
 
-use std::{io::Error as IoError, sync::Arc};
+use std::{io::Error as IoError, sync::Arc, time::Duration};
 
 use as_variant::as_variant;
 #[cfg(feature = "qrcode")]
@@ -84,34 +84,26 @@ impl RumaApiError {
 /// converting the raw HTTP response into a Matrix response.
 #[derive(Error, Debug)]
 pub enum HttpError {
-    /// An error at the HTTP layer.
+    /// Error at the HTTP layer.
     #[error(transparent)]
     Reqwest(#[from] ReqwestError),
-
-    /// Queried endpoint requires authentication but was called on an anonymous
-    /// client.
-    #[error("the queried endpoint requires authentication but was called before logging in")]
-    AuthenticationRequired,
 
     /// Queried endpoint is not meant for clients.
     #[error("the queried endpoint is not meant for clients")]
     NotClientRequest,
 
-    /// An error converting between ruma_*_api types and Hyper types.
+    /// API response error (deserialization, or a Matrix-specific error).
     #[error(transparent)]
     Api(#[from] FromHttpResponseError<RumaApiError>),
 
-    /// An error converting between ruma_client_api types and Hyper types.
+    /// Error when creating an API request (e.g. serialization of
+    /// body/headers/query parameters).
     #[error(transparent)]
-    IntoHttp(#[from] IntoHttpError),
+    IntoHttp(IntoHttpError),
 
-    /// The given request can't be cloned and thus can't be retried.
-    #[error("The request cannot be cloned")]
-    UnableToCloneRequest,
-
-    /// An error occurred while refreshing the access token.
+    /// Error while refreshing the access token.
     #[error(transparent)]
-    RefreshToken(#[from] RefreshTokenError),
+    RefreshToken(RefreshTokenError),
 }
 
 #[rustfmt::skip] // stop rustfmt breaking the `<code>` in docs across multiple lines
@@ -130,13 +122,15 @@ impl HttpError {
     pub fn as_client_api_error(&self) -> Option<&ruma::api::client::Error> {
         self.as_ruma_api_error().and_then(RumaApiError::as_client_api_error)
     }
+}
 
+// Another impl block that's formatted with rustfmt.
+impl HttpError {
     /// If `self` is a server error in the `errcode` + `error` format expected
     /// for client-API endpoints, returns the error kind (`errcode`).
     pub fn client_api_error_kind(&self) -> Option<&ErrorKind> {
-        self.as_client_api_error().and_then(|e| {
-            as_variant!(&e.body, ErrorBody::Standard { kind, .. } => kind)
-        })
+        self.as_client_api_error()
+            .and_then(|e| as_variant!(&e.body, ErrorBody::Standard { kind, .. } => kind))
     }
 
     /// Try to destructure the error into an universal interactive auth info.
@@ -153,6 +147,59 @@ impl HttpError {
     pub fn as_uiaa_response(&self) -> Option<&UiaaInfo> {
         self.as_ruma_api_error().and_then(as_variant!(RumaApiError::Uiaa))
     }
+
+    /// Returns whether an HTTP error response should be qualified as transient
+    /// or permanent.
+    pub(crate) fn retry_kind(&self) -> RetryKind {
+        use ruma::api::client::error::{ErrorBody, ErrorKind, RetryAfter};
+
+        use crate::RumaApiError;
+
+        // If it was a plain network error, it's either that we're disconnected from the
+        // internet, or that the remote is, so retry a few times.
+        if matches!(self, Self::Reqwest(..)) {
+            return RetryKind::Transient { retry_after: None };
+        }
+
+        if let Some(api_error) = self.as_ruma_api_error() {
+            let status_code = match api_error {
+                RumaApiError::ClientApi(e) => match e.body {
+                    ErrorBody::Standard {
+                        kind: ErrorKind::LimitExceeded { retry_after }, ..
+                    } => {
+                        let retry_after = retry_after.and_then(|retry_after| match retry_after {
+                            RetryAfter::Delay(d) => Some(d),
+                            RetryAfter::DateTime(_) => None,
+                        });
+                        return RetryKind::Transient { retry_after };
+                    }
+                    _ => Some(e.status_code),
+                },
+                RumaApiError::Uiaa(_) => None,
+                RumaApiError::Other(e) => Some(e.status_code),
+            };
+
+            if let Some(status_code) = status_code {
+                if status_code.is_server_error() {
+                    return RetryKind::Transient { retry_after: None };
+                }
+            }
+        }
+
+        RetryKind::Permanent
+    }
+}
+
+/// How should we behave with respect to retry behavior after an `HttpError`
+/// happened?
+pub(crate) enum RetryKind {
+    Transient {
+        // This is used only for attempts to retry, so on non-wasm32 code (in the `native` module).
+        #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+        retry_after: Option<Duration>,
+    },
+
+    Permanent,
 }
 
 /// Internal representation of errors.

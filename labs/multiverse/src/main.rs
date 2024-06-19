@@ -227,7 +227,7 @@ impl App {
                     all_rooms.into_iter().filter(|room_id| !previous_ui_rooms.contains_key(room_id))
                 {
                     // Retrieve the room list service's Room.
-                    let Ok(ui_room) = sync_service.room_list_service().room(&room_id).await else {
+                    let Ok(ui_room) = sync_service.room_list_service().room(&room_id) else {
                         error!("error when retrieving room after an update");
                         continue;
                     };

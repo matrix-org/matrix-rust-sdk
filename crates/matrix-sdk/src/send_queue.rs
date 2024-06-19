@@ -31,7 +31,9 @@ use ruma::{
 use tokio::sync::{broadcast, Notify, RwLock};
 use tracing::{debug, error, info, instrument, trace, warn};
 
-use crate::{client::WeakClient, config::RequestConfig, room::WeakRoom, Client, Room};
+use crate::{
+    client::WeakClient, config::RequestConfig, error::RetryKind, room::WeakRoom, Client, Room,
+};
 
 /// A client-wide send queue, for all the rooms known by a client.
 pub struct SendQueue {
@@ -118,6 +120,13 @@ pub struct SendQueueRoomError {
 
     /// The error the room has ran into, when trying to send an event.
     pub error: Arc<crate::Error>,
+
+    /// Whether the error is considered recoverable or not.
+    ///
+    /// An error that's recoverable will disable the room's send queue, while an
+    /// unrecoverable error will be parked, until the user decides to cancel
+    /// sending it.
+    pub is_recoverable: bool,
 }
 
 impl Client {
@@ -353,30 +362,49 @@ impl RoomSendQueue {
                 }
 
                 Err(err) => {
-                    warn!(txn_id = %queued_event.transaction_id, "error when sending event: {err}");
+                    let is_recoverable = if let crate::Error::Http(ref http_err) = err {
+                        // All transient errors are recoverable.
+                        matches!(http_err.retry_kind(), RetryKind::Transient { .. })
+                    } else {
+                        false
+                    };
 
-                    // In this case, we intentionally keep the event in the queue, but mark it as
-                    // not being sent anymore.
-                    queue.mark_as_not_being_sent(&queued_event.transaction_id).await;
+                    if is_recoverable {
+                        warn!(txn_id = %queued_event.transaction_id, error = ?err, "Recoverable error when sending event: {err}, disabling send queue");
 
-                    // Let observers know about a failure *after* we've marked the item as not
-                    // being sent anymore. Otherwise, there's a possible race where a caller might
-                    // try to remove an item, while it's still marked as being sent, resulting in a
-                    // cancellation failure.
+                        // In this case, we intentionally keep the event in the queue, but mark it
+                        // as not being sent anymore.
+                        queue.mark_as_not_being_sent(&queued_event.transaction_id).await;
 
-                    // Disable the queue for this room after an error.
-                    locally_enabled.store(false, Ordering::SeqCst);
+                        // Let observers know about a failure *after* we've marked the item as not
+                        // being sent anymore. Otherwise, there's a possible race where a caller
+                        // might try to remove an item, while it's still
+                        // marked as being sent, resulting in a cancellation
+                        // failure.
+
+                        // Disable the queue for this room after a recoverable error happened. This
+                        // should be the sign that this error is temporary (maybe network
+                        // disconnected, maybe the server had a hiccup).
+                        locally_enabled.store(false, Ordering::SeqCst);
+                    } else {
+                        warn!(txn_id = %queued_event.transaction_id, error = ?err, "Unrecoverable error when sending event: {err}");
+
+                        // Mark the event as wedged, so it's not picked at any future point.
+                        queue.mark_as_wedged(&queued_event.transaction_id).await;
+                    }
 
                     let error = Arc::new(err);
 
                     let _ = global_error_reporter.send(SendQueueRoomError {
                         room_id: room.room_id().to_owned(),
                         error: error.clone(),
+                        is_recoverable,
                     });
 
                     let _ = updates.send(RoomSendQueueUpdate::SendError {
                         transaction_id: queued_event.transaction_id,
                         error,
+                        is_recoverable,
                     });
                 }
             }
@@ -447,6 +475,11 @@ struct QueuedEvent {
     /// Useful to indicate if cancelling could happen or if it was too late and
     /// the event had already been sent.
     is_being_sent: bool,
+
+    /// If the event couldn't be sent because of an API error, it's marked as
+    /// wedged, and won't ever be peeked for sending. The only option is to
+    /// remove it.
+    is_wedged: bool,
 }
 
 #[derive(Clone)]
@@ -468,6 +501,7 @@ impl QueueStorage {
             event: content,
             transaction_id: transaction_id.clone(),
             is_being_sent: false,
+            is_wedged: false,
         });
 
         transaction_id
@@ -479,7 +513,7 @@ impl QueueStorage {
     /// effectively sent.
     async fn peek_next_to_send(&self) -> Option<QueuedEvent> {
         let mut q = self.0.write().await;
-        if let Some(event) = q.front_mut() {
+        if let Some(event) = q.iter_mut().find(|queued| !queued.is_wedged) {
             // TODO: This flag should probably live in memory when we have an actual
             // storage.
             event.is_being_sent = true;
@@ -496,6 +530,19 @@ impl QueueStorage {
         for item in self.0.write().await.iter_mut() {
             if item.transaction_id == transaction_id {
                 item.is_being_sent = false;
+                break;
+            }
+        }
+    }
+
+    /// Marks an event popped with [`Self::peek_next_to_send`] and identified
+    /// with the given transaction id as being wedged (and not being sent
+    /// anymore), so it can be removed from the queue later.
+    async fn mark_as_wedged(&self, transaction_id: &TransactionId) {
+        for item in self.0.write().await.iter_mut() {
+            if item.transaction_id == transaction_id {
+                item.is_being_sent = false;
+                item.is_wedged = true;
                 break;
             }
         }
@@ -580,6 +627,12 @@ pub enum RoomSendQueueUpdate {
         transaction_id: OwnedTransactionId,
         /// Error received while sending the event.
         error: Arc<crate::Error>,
+        /// Whether the error is considered recoverable or not.
+        ///
+        /// An error that's recoverable will disable the room's send queue,
+        /// while an unrecoverable error will be parked, until the user
+        /// decides to cancel sending it.
+        is_recoverable: bool,
     },
 
     /// The event has been sent to the server, and the query returned

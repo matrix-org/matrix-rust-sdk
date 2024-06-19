@@ -49,7 +49,7 @@ use ruma::{
 use serde::Deserialize;
 use tracing::error;
 
-use crate::{config::RequestConfig, Client, Error, HttpError, Result};
+use crate::{config::RequestConfig, Client, Error, Result};
 
 /// A high-level API to manage the client owner's account.
 ///
@@ -741,8 +741,7 @@ impl Account {
         &self,
         event_type: GlobalAccountDataEventType,
     ) -> Result<Option<Raw<AnyGlobalAccountDataEventContent>>> {
-        let own_user =
-            self.client.user_id().ok_or_else(|| Error::from(HttpError::AuthenticationRequired))?;
+        let own_user = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
 
         let request = get_global_account_data::v3::Request::new(own_user.to_owned(), event_type);
 
@@ -795,8 +794,7 @@ impl Account {
     where
         T: GlobalAccountDataEventContent,
     {
-        let own_user =
-            self.client.user_id().ok_or_else(|| Error::from(HttpError::AuthenticationRequired))?;
+        let own_user = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
 
         let request = set_global_account_data::v3::Request::new(own_user.to_owned(), &content)?;
 
@@ -809,8 +807,7 @@ impl Account {
         event_type: GlobalAccountDataEventType,
         content: Raw<AnyGlobalAccountDataEventContent>,
     ) -> Result<set_global_account_data::v3::Response> {
-        let own_user =
-            self.client.user_id().ok_or_else(|| Error::from(HttpError::AuthenticationRequired))?;
+        let own_user = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
 
         let request =
             set_global_account_data::v3::Request::new_raw(own_user.to_owned(), event_type, content);

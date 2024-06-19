@@ -89,7 +89,7 @@ impl RoomUpdates {
             .keys()
             .chain(self.join.keys())
             .chain(self.invite.keys())
-            .filter_map(|room_id| store.get_room(room_id))
+            .filter_map(|room_id| store.room(room_id))
         {
             let _ = room.compute_display_name().await;
         }
