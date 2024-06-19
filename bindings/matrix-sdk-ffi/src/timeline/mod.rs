@@ -454,10 +454,17 @@ impl Timeline {
     pub async fn send_reply(
         &self,
         msg: Arc<RoomMessageEventContentWithoutRelation>,
-        reply_item: Arc<EventTimelineItem>,
+        event_id: String,
     ) -> Result<(), ClientError> {
+        let event_id = EventId::parse(event_id)?;
+        let replied_to_info = self
+            .inner
+            .replied_to_info_from_event_id(&event_id)
+            .await
+            .map_err(|err| anyhow::anyhow!(err))?;
+
         self.inner
-            .send_reply((*msg).clone(), &reply_item.0, ForwardThread::Yes)
+            .send_reply((*msg).clone(), replied_to_info, ForwardThread::Yes)
             .await
             .map_err(|err| anyhow::anyhow!(err))?;
         Ok(())
@@ -466,10 +473,17 @@ impl Timeline {
     pub async fn edit(
         &self,
         new_content: Arc<RoomMessageEventContentWithoutRelation>,
-        edit_item: Arc<EventTimelineItem>,
+        event_id: String,
     ) -> Result<(), ClientError> {
+        let event_id = EventId::parse(event_id)?;
+        let edit_info = self
+            .inner
+            .edit_info_from_event_id(&event_id)
+            .await
+            .map_err(|err| anyhow::anyhow!(err))?;
+
         self.inner
-            .edit((*new_content).clone(), &edit_item.0)
+            .edit((*new_content).clone(), edit_info)
             .await
             .map_err(|err| anyhow::anyhow!(err))?;
         Ok(())

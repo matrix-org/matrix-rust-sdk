@@ -45,6 +45,7 @@ pub(super) use self::{
     local::LocalEventTimelineItem,
     remote::{RemoteEventOrigin, RemoteEventTimelineItem},
 };
+use super::{EditInfo, RepliedToInfo, ReplyContent, UnsupportedEditItem, UnsupportedReplyItem};
 
 /// An item in the timeline that represents at least one event.
 ///
@@ -420,6 +421,47 @@ impl EventTimelineItem {
             content,
             kind,
         }
+    }
+
+    /// Gives the information needed to reply to the event of the item.
+    pub fn replied_to_info(&self) -> Result<RepliedToInfo, UnsupportedReplyItem> {
+        let reply_content = match self.content() {
+            TimelineItemContent::Message(msg) => ReplyContent::Message(msg.to_owned()),
+            _ => {
+                let Some(raw_event) = self.latest_json() else {
+                    return Err(UnsupportedReplyItem::MISSING_JSON);
+                };
+
+                ReplyContent::Raw(raw_event.clone())
+            }
+        };
+
+        let Some(event_id) = self.event_id() else {
+            return Err(UnsupportedReplyItem::MISSING_EVENT_ID);
+        };
+
+        Ok(RepliedToInfo {
+            event_id: event_id.to_owned(),
+            sender: self.sender().to_owned(),
+            timestamp: self.timestamp(),
+            content: reply_content,
+        })
+    }
+
+    /// Gives the information needed to edit the event of the item.
+    pub fn edit_info(&self) -> Result<EditInfo, UnsupportedEditItem> {
+        if !self.is_own() {
+            return Err(UnsupportedEditItem::NOT_OWN_EVENT);
+        }
+        // Early returns here must be in sync with
+        // `EventTimelineItem::can_be_edited`
+        let Some(event_id) = self.event_id() else {
+            return Err(UnsupportedEditItem::MISSING_EVENT_ID);
+        };
+        let TimelineItemContent::Message(original_content) = self.content() else {
+            return Err(UnsupportedEditItem::NOT_ROOM_MESSAGE);
+        };
+        Ok(EditInfo { event_id: event_id.to_owned(), original_message: original_content.clone() })
     }
 }
 

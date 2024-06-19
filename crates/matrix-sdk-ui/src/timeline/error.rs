@@ -88,6 +88,10 @@ pub struct UnsupportedReplyItem(UnsupportedReplyItemInner);
 impl UnsupportedReplyItem {
     pub(super) const MISSING_EVENT_ID: Self = Self(UnsupportedReplyItemInner::MissingEventId);
     pub(super) const MISSING_JSON: Self = Self(UnsupportedReplyItemInner::MissingJson);
+    pub(super) const MISSING_EVENT: Self = Self(UnsupportedReplyItemInner::MissingEvent);
+    pub(super) const FAILED_TO_DESERIALIZE_EVENT: Self =
+        Self(UnsupportedReplyItemInner::FailedToDeserializeEvent);
+    pub(super) const STATE_EVENT: Self = Self(UnsupportedReplyItemInner::StateEvent);
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -103,6 +107,12 @@ enum UnsupportedReplyItemInner {
     MissingEventId,
     #[error("redacted events whose JSON form isn't available can't be replied")]
     MissingJson,
+    #[error("event to reply to not found")]
+    MissingEvent,
+    #[error("failed to deserialize event to reply to")]
+    FailedToDeserializeEvent,
+    #[error("tried to reply to a state event")]
+    StateEvent,
 }
 
 #[derive(Error)]
@@ -114,6 +124,9 @@ impl UnsupportedEditItem {
     pub(super) const NOT_ROOM_MESSAGE: Self = Self(UnsupportedEditItemInner::NotRoomMessage);
     pub(super) const NOT_POLL_EVENT: Self = Self(UnsupportedEditItemInner::NotPollEvent);
     pub(super) const NOT_OWN_EVENT: Self = Self(UnsupportedEditItemInner::NotOwnEvent);
+    pub(super) const MISSING_EVENT: Self = Self(UnsupportedEditItemInner::MissingEvent);
+    pub(super) const FAILED_TO_DESERIALIZE_EVENT: Self =
+        Self(UnsupportedEditItemInner::FailedToDeserializeEvent);
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -133,6 +146,10 @@ enum UnsupportedEditItemInner {
     NotPollEvent,
     #[error("tried to edit another user's event")]
     NotOwnEvent,
+    #[error("event to edit not found")]
+    MissingEvent,
+    #[error("failed to deserialize event to edit")]
+    FailedToDeserializeEvent,
 }
 
 #[derive(Debug, Error)]
